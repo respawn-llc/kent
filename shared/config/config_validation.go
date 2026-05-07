@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 
 	"builder/shared/compaction"
@@ -42,7 +41,7 @@ func validateSubagentRoleState(state settingsState, sources map[string]string) e
 		{enabled: hasExplicitSource(sources, "shell.postprocessing_mode", "shell.postprocess_hook"), check: validateShellPostprocessing},
 		{enabled: hasExplicitSource(sources, "cache_warning_mode"), check: validateCacheWarningMode},
 		{enabled: hasExplicitSource(sources, "compaction_mode"), check: validateCompactionMode},
-		{enabled: hasExplicitPrefix(sources, "reviewer."), check: validateSubagentReviewer},
+		{enabled: hasExplicitPrefix(sources, "reviewer."), check: validateReviewer},
 	}
 	for _, check := range checks {
 		if !check.enabled {
@@ -323,19 +322,7 @@ func validateCompactionMode(state settingsState, _ map[string]string) error {
 	}
 }
 
-type reviewerValidationOptions struct {
-	AllowAnonymousAuthWithoutBaseURL bool
-}
-
 func validateReviewer(state settingsState, sources map[string]string) error {
-	return validateReviewerWithOptions(state, sources, reviewerValidationOptions{})
-}
-
-func validateSubagentReviewer(state settingsState, sources map[string]string) error {
-	return validateReviewerWithOptions(state, sources, reviewerValidationOptions{AllowAnonymousAuthWithoutBaseURL: true})
-}
-
-func validateReviewerWithOptions(state settingsState, sources map[string]string, opts reviewerValidationOptions) error {
 	reviewer := state.Settings.Reviewer
 	switch strings.ToLower(strings.TrimSpace(reviewer.Frequency)) {
 	case "off", "all", "edits":
@@ -352,11 +339,9 @@ func validateReviewerWithOptions(state settingsState, sources map[string]string,
 	}
 	provider := normalizeProviderOverride(reviewer.ProviderOverride)
 	switch provider {
-	case "", "openai":
-	case "anthropic":
-		return fmt.Errorf("reviewer.provider_override %q is not supported for reviewer models", reviewer.ProviderOverride)
+	case "", "openai", "anthropic":
 	default:
-		return fmt.Errorf("invalid reviewer.provider_override %q (expected openai)", reviewer.ProviderOverride)
+		return fmt.Errorf("invalid reviewer.provider_override %q (expected openai|anthropic)", reviewer.ProviderOverride)
 	}
 	if strings.TrimSpace(reviewer.OpenAIBaseURL) != "" && provider != "" && provider != "openai" {
 		return fmt.Errorf("reviewer.provider_override %q conflicts with reviewer.openai_base_url; reviewer.openai_base_url requires reviewer.provider_override=openai or unset", reviewer.ProviderOverride)
@@ -370,12 +355,6 @@ func validateReviewerWithOptions(state settingsState, sources map[string]string,
 	switch normalizeReviewerAuth(reviewer.Auth) {
 	case "inherit":
 	case "none":
-		if !reviewerAllowsAnonymousAuth(reviewer) {
-			if opts.AllowAnonymousAuthWithoutBaseURL && strings.TrimSpace(reviewer.OpenAIBaseURL) == "" {
-				break
-			}
-			return fmt.Errorf("reviewer.auth %q requires reviewer.openai_base_url or inherited openai_base_url to be set and not point at api.openai.com", reviewer.Auth)
-		}
 	default:
 		return fmt.Errorf("invalid reviewer.auth %q (expected inherit|none)", reviewer.Auth)
 	}
@@ -383,19 +362,6 @@ func validateReviewerWithOptions(state settingsState, sources map[string]string,
 		return fmt.Errorf("reviewer.timeout_seconds must be > 0")
 	}
 	return nil
-}
-
-func reviewerAllowsAnonymousAuth(reviewer ReviewerSettings) bool {
-	baseURL := strings.TrimSpace(reviewer.OpenAIBaseURL)
-	if baseURL == "" {
-		return false
-	}
-	parsed, err := url.Parse(baseURL)
-	if err != nil {
-		return false
-	}
-	hostname := strings.TrimSpace(parsed.Hostname())
-	return hostname != "" && !strings.EqualFold(hostname, "api.openai.com")
 }
 
 func validateReviewerProviderCapabilities(capabilities ProviderCapabilitiesOverride) error {
