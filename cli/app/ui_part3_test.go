@@ -594,7 +594,7 @@ func TestSubmitDoneKeepsDuplicateQueuedPromptsInOrder(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
-	updated.queued = append(updated.queued, "fix", "continue")
+	updated.queued = append(updated.queued, queuedInputsForTest("fix", "continue")...)
 
 	done := submitDoneMsg{token: updated.activeSubmit.token, submittedText: "continue"}
 	next, _ = updated.Update(done)
@@ -602,7 +602,7 @@ func TestSubmitDoneKeepsDuplicateQueuedPromptsInOrder(t *testing.T) {
 	if len(updated.queued) != 2 {
 		t.Fatalf("expected two queued prompts to remain, got %+v", updated.queued)
 	}
-	if updated.queued[0] != "fix" || updated.queued[1] != "continue" {
+	if updated.queued[0].Text != "fix" || updated.queued[1].Text != "continue" {
 		t.Fatalf("expected duplicate queued prompts to preserve order, got %+v", updated.queued)
 	}
 }
@@ -666,7 +666,7 @@ func TestActiveSubmitErrorRestoresQueuedSteeringInput(t *testing.T) {
 	if updated.input != "" {
 		t.Fatalf("expected queued steering input cleared immediately, got %q", updated.input)
 	}
-	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0] != "later" {
+	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "later" {
 		t.Fatalf("expected pending injected follow-up recorded, got %+v", updated.pendingInjected)
 	}
 
@@ -816,7 +816,7 @@ func TestApprovalAskTabCommentaryUsesCurrentSelection(t *testing.T) {
 	if resp.response.Approval.Decision != clientui.ApprovalDecisionAllowSession || resp.response.Approval.Commentary != "session only" {
 		t.Fatalf("unexpected approval response: %+v", resp.response.Approval)
 	}
-	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0] != "session only" {
+	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "session only" {
 		t.Fatalf("expected selected approval commentary injected, got %+v", updated.pendingInjected)
 	}
 }

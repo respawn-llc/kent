@@ -39,7 +39,7 @@ func (c uiInputController) startQueuedInjectionSubmission() tea.Cmd {
 
 func (c uiInputController) submitQueuedUserMessagesCmd() tea.Cmd {
 	m := c.model
-	token := m.beginSubmitAttempt("")
+	token := m.beginSubmitAttempt("", "")
 	return func() tea.Msg {
 		if !m.hasRuntimeClient() {
 			return newSubmitDoneMsg(token, "", "", errors.New("runtime engine is not configured"))

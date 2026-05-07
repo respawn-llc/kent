@@ -297,8 +297,8 @@ func TestBusyQueueSubmissionCommandBehavior(t *testing.T) {
 				t.Fatalf("queued count = %d, want %d (%+v)", len(updated.queued), len(tt.wantQueued), updated.queued)
 			}
 			for i, want := range tt.wantQueued {
-				if updated.queued[i] != want {
-					t.Fatalf("queued[%d] = %q, want %q", i, updated.queued[i], want)
+				if updated.queued[i].Text != want {
+					t.Fatalf("queued[%d] = %q, want %q", i, updated.queued[i].Text, want)
 				}
 			}
 			if len(updated.pendingInjected) != 0 {
@@ -316,7 +316,7 @@ func TestBusyQueuedCompactStartsCompactionAfterTurnDrains(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
-	if len(updated.queued) != 1 || updated.queued[0] != "/compact tighten summary" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "/compact tighten summary" {
 		t.Fatalf("expected queued compact command, got %+v", updated.queued)
 	}
 
@@ -349,7 +349,7 @@ func TestBusyQueuedCopyCopiesFinalAnswerAfterTurnDrains(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("did not expect immediate execution for queued /copy")
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "/copy" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "/copy" {
 		t.Fatalf("expected queued /copy command, got %+v", updated.queued)
 	}
 
@@ -403,7 +403,7 @@ func TestBusyQueuedFastAppliesToNextRuntimeRequestAfterTurnDrains(t *testing.T) 
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
-	if len(updated.queued) != 1 || updated.queued[0] != "/fast on" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "/fast on" {
 		t.Fatalf("expected queued /fast command, got %+v", updated.queued)
 	}
 

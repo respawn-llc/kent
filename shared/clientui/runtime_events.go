@@ -20,8 +20,9 @@ type RuntimeReasoningState struct {
 
 type PendingInputState struct {
 	Input             string
-	PendingInjected   []string
+	PendingInjected   []QueuedUserMessage
 	LockedInjectText  string
+	LockedInjectID    string
 	InputSubmitLocked bool
 }
 
@@ -237,26 +238,17 @@ func ReduceRuntimePendingInputEvent(input PendingInputState, evt Event) RuntimeP
 	}
 	switch evt.Kind {
 	case EventUserMessageFlushed:
-		batch := append([]string(nil), evt.UserMessageBatch...)
-		if len(batch) == 0 && strings.TrimSpace(evt.UserMessage) != "" {
-			batch = []string{evt.UserMessage}
-		}
-		consumed := 0
-		for consumed < len(batch) && consumed < len(reduction.State.PendingInjected) {
-			if strings.TrimSpace(reduction.State.PendingInjected[consumed]) != strings.TrimSpace(batch[consumed]) {
-				break
-			}
-			consumed++
-		}
-		if consumed > 0 {
-			reduction.State.PendingInjected = append([]string(nil), reduction.State.PendingInjected[consumed:]...)
+		consumed := consumedQueuedUserMessages(reduction.State.PendingInjected, evt.UserMessageBatchQueueItemIDs)
+		if len(consumed) > 0 {
+			reduction.State.PendingInjected = append([]QueuedUserMessage(nil), reduction.State.PendingInjected[len(consumed):]...)
 			reduction.PromptHistoryCommand = &RuntimePromptHistoryCommand{Text: evt.UserMessage}
 		}
-		if reduction.State.InputSubmitLocked && strings.TrimSpace(reduction.State.LockedInjectText) == strings.TrimSpace(evt.UserMessage) {
-			if strings.TrimSpace(reduction.State.Input) == strings.TrimSpace(reduction.State.LockedInjectText) {
+		if reduction.State.InputSubmitLocked && containsQueuedUserMessageID(consumed, reduction.State.LockedInjectID) {
+			if reduction.State.Input == reduction.State.LockedInjectText {
 				reduction.DraftCommand = RuntimePendingInputClearDraft
 			}
 			reduction.State.LockedInjectText = ""
+			reduction.State.LockedInjectID = ""
 			reduction.State.InputSubmitLocked = false
 		}
 	}
@@ -329,9 +321,35 @@ func ExtractReasoningStatusHeader(text string) string {
 func clonePendingInputState(input PendingInputState) PendingInputState {
 	cloned := input
 	if len(input.PendingInjected) > 0 {
-		cloned.PendingInjected = append([]string(nil), input.PendingInjected...)
+		cloned.PendingInjected = append([]QueuedUserMessage(nil), input.PendingInjected...)
 	}
 	return cloned
+}
+
+func consumedQueuedUserMessages(pending []QueuedUserMessage, ids []string) []QueuedUserMessage {
+	if len(pending) == 0 || len(ids) == 0 {
+		return nil
+	}
+	consumed := make([]QueuedUserMessage, 0, len(ids))
+	for index, id := range ids {
+		if index >= len(pending) || pending[index].ID != id {
+			return consumed
+		}
+		consumed = append(consumed, pending[index])
+	}
+	return consumed
+}
+
+func containsQueuedUserMessageID(messages []QueuedUserMessage, id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, message := range messages {
+		if message.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneReasoningDelta(delta *ReasoningDelta) *ReasoningDelta {

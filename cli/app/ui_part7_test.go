@@ -28,7 +28,7 @@ func TestHydrationCompletionKeepsDeferredQueuedDrainArmedUntilUnrelatedBusyState
 	m.startupCmds = nil
 	m.busy = true
 	m.activity = uiActivityRunning
-	m.queued = []string{"follow up"}
+	m.queued = queuedInputsForTest("follow up")
 	m.runtimeTranscriptBusy = true
 	m.runtimeTranscriptToken = 7
 
@@ -68,7 +68,7 @@ func TestHydrationCompletionKeepsDeferredQueuedDrainArmedUntilUnrelatedBusyState
 	if updated.queuedDrainReadyAfterHydration == false {
 		t.Fatal("expected hydration completion to mark queued drain ready even when unrelated busy state blocks auto-drain")
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "follow up" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
 		t.Fatalf("expected queued follow-up preserved while unrelated busy state blocks auto-drain, got %+v", updated.queued)
 	}
 
@@ -83,7 +83,7 @@ func TestHydrationCompletionKeepsDeferredQueuedDrainArmedUntilUnrelatedBusyState
 	if updated.activeSubmit.text != "follow up" {
 		t.Fatalf("expected queued follow-up to submit after unrelated busy state clears, got %q", updated.activeSubmit.text)
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "follow up" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
 		t.Fatalf("expected runtime submit flow to own the queued follow-up after unrelated busy state clears, got %+v", updated.queued)
 	}
 	if idleCmd == nil {
@@ -103,7 +103,7 @@ func TestBusyQueuedUnknownSlashDrainsAsPromptSubmission(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
-	if len(updated.queued) != 1 || updated.queued[0] != "/nope queued" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "/nope queued" {
 		t.Fatalf("expected unknown slash text queued verbatim, got %+v", updated.queued)
 	}
 	if updated.sessionName != "" {
@@ -150,7 +150,7 @@ func TestAutoDrainStopsAfterQueuedPSInlineAppendsToInput(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIBackgroundManager(manager))
 	m.busy = true
 	m.activity = uiActivityRunning
-	m.queued = []string{"/ps inline " + res.SessionID, "summarize this"}
+	m.queued = queuedInputsForTest("/ps inline "+res.SessionID, "summarize this")
 
 	next, cmd := m.Update(submitDoneMsg{})
 	updated := next.(*uiModel)
@@ -167,7 +167,7 @@ func TestAutoDrainStopsAfterQueuedPSInlineAppendsToInput(t *testing.T) {
 	if !strings.Contains(updated.input, "queued-inline") {
 		t.Fatalf("expected pasted shell transcript content in input, got %q", updated.input)
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "summarize this" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "summarize this" {
 		t.Fatalf("expected follow-up prompt to remain queued after inline paste, got %+v", updated.queued)
 	}
 	plain := stripANSIAndTrimRight(updated.view.OngoingSnapshot())
@@ -186,7 +186,7 @@ func TestBusyQueuedReviewSlashCommandStartsFreshSessionAfterTurn(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
-	if len(updated.queued) != 1 || updated.queued[0] != "/review cli/app" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "/review cli/app" {
 		t.Fatalf("expected queued /review command, got %+v", updated.queued)
 	}
 
@@ -225,7 +225,7 @@ func TestBusyQueuedReviewSlashCommandWaitsForHydrationBeforePromptSubmission(t *
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
-	if len(updated.queued) != 1 || updated.queued[0] != "/review cli/app" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "/review cli/app" {
 		t.Fatalf("expected queued /review command, got %+v", updated.queued)
 	}
 
@@ -303,7 +303,7 @@ func TestQueuedReviewUsesEngineConversationFreshnessWhenUIDidNotReceiveRuntimeUp
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
-	if len(updated.queued) != 1 || updated.queued[0] != "/review cli/app" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "/review cli/app" {
 		t.Fatalf("expected queued /review command, got %+v", updated.queued)
 	}
 	if updated.conversationFreshness != clientui.ConversationFreshnessFresh {

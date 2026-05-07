@@ -505,7 +505,7 @@ func TestQueuedFollowUpWaitsForFinalTranscriptCatchUpBeforeNativeScrollbackAppen
 	model.startupCmds = nil
 	model.busy = true
 	model.activity = uiActivityRunning
-	model.queued = []string{"follow up"}
+	model.queued = queuedInputsForTest("follow up")
 	model.sawAssistantDelta = true
 	model.forwardToView(tui.SetConversationMsg{Ongoing: "working"})
 
@@ -597,7 +597,7 @@ func TestQueuedFollowUpRemainsHiddenUntilFinalCatchUpThenAppendsOnceInRenderedOn
 	model.startupCmds = nil
 	model.busy = true
 	model.activity = uiActivityRunning
-	model.queued = []string{"follow up"}
+	model.queued = queuedInputsForTest("follow up")
 	model.sawAssistantDelta = true
 	model.forwardToView(tui.SetConversationMsg{Ongoing: "working"})
 

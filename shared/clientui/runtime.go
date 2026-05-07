@@ -87,6 +87,11 @@ type RuntimeMainView struct {
 	ActiveRun *RunView
 }
 
+type QueuedUserMessage struct {
+	ID   string
+	Text string
+}
+
 type TranscriptMetadata struct {
 	Revision            int64
 	CommittedEntryCount int
@@ -140,7 +145,7 @@ type RuntimeClient interface {
 	HasQueuedUserWork() (bool, error)
 	SubmitQueuedUserMessages(ctx context.Context) (string, error)
 	Interrupt() error
-	QueueUserMessage(text string)
-	DiscardQueuedUserMessagesMatching(text string) int
+	QueueUserMessage(text string) (QueuedUserMessage, error)
+	DiscardQueuedUserMessage(queueItemID string) bool
 	RecordPromptHistory(text string) error
 }

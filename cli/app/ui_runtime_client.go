@@ -783,24 +783,27 @@ func (c *sessionRuntimeClient) Interrupt() error {
 	})
 }
 
-func (c *sessionRuntimeClient) QueueUserMessage(text string) {
+func (c *sessionRuntimeClient) QueueUserMessage(text string) (clientui.QueuedUserMessage, error) {
 	ctx, cancel := c.controlContext()
 	defer cancel()
-	if err := c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {
+	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeQueueUserMessageResponse, error) {
 		return c.controls.QueueUserMessage(ctx, serverapi.RuntimeQueueUserMessageRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text})
-	}); err != nil {
-		c.notifyConnectionState(err)
-	}
-}
-
-func (c *sessionRuntimeClient) DiscardQueuedUserMessagesMatching(text string) int {
-	ctx, cancel := c.controlContext()
-	defer cancel()
-	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse, error) {
-		return c.controls.DiscardQueuedUserMessagesMatching(ctx, serverapi.RuntimeDiscardQueuedUserMessagesMatchingRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text})
 	})
 	if err != nil {
-		return 0
+		c.notifyConnectionState(err)
+		return clientui.QueuedUserMessage{}, err
+	}
+	return clientui.QueuedUserMessage{ID: resp.QueueItemID, Text: resp.Text}, nil
+}
+
+func (c *sessionRuntimeClient) DiscardQueuedUserMessage(queueItemID string) bool {
+	ctx, cancel := c.controlContext()
+	defer cancel()
+	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
+		return c.controls.DiscardQueuedUserMessage(ctx, serverapi.RuntimeDiscardQueuedUserMessageRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, QueueItemID: queueItemID})
+	})
+	if err != nil {
+		return false
 	}
 	return resp.Discarded
 }

@@ -421,7 +421,7 @@ func TestServiceSubmitQueuedUserMessagesDedupesSuccessfulRetry(t *testing.T) {
 	}
 }
 
-func TestServiceDiscardQueuedUserMessagesMatchingDedupesSuccessfulRetry(t *testing.T) {
+func TestServiceDiscardQueuedUserMessageDedupesSuccessfulRetry(t *testing.T) {
 	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
 	if err != nil {
 		t.Fatalf("create session store: %v", err)
@@ -430,28 +430,31 @@ func TestServiceDiscardQueuedUserMessagesMatchingDedupesSuccessfulRetry(t *testi
 	if err != nil {
 		t.Fatalf("create runtime engine: %v", err)
 	}
-	engine.QueueUserMessage("same")
-	engine.QueueUserMessage("other")
-	engine.QueueUserMessage("same")
+	firstQueued := engine.QueueUserMessage("same")
+	otherQueued := engine.QueueUserMessage("other")
+	duplicateQueued := engine.QueueUserMessage("same")
 	service := NewService(stubRuntimeResolver{engine: engine}, nil)
-	req := serverapi.RuntimeDiscardQueuedUserMessagesMatchingRequest{ClientRequestID: "req-1", SessionID: store.Meta().SessionID, ControllerLeaseID: "lease-1", Text: "same"}
+	req := serverapi.RuntimeDiscardQueuedUserMessageRequest{ClientRequestID: "req-1", SessionID: store.Meta().SessionID, ControllerLeaseID: "lease-1", QueueItemID: duplicateQueued.ID}
 
-	first, err := service.DiscardQueuedUserMessagesMatching(context.Background(), req)
+	first, err := service.DiscardQueuedUserMessage(context.Background(), req)
 	if err != nil {
-		t.Fatalf("DiscardQueuedUserMessagesMatching first: %v", err)
+		t.Fatalf("DiscardQueuedUserMessage first: %v", err)
 	}
-	second, err := service.DiscardQueuedUserMessagesMatching(context.Background(), req)
+	second, err := service.DiscardQueuedUserMessage(context.Background(), req)
 	if err != nil {
-		t.Fatalf("DiscardQueuedUserMessagesMatching replay: %v", err)
+		t.Fatalf("DiscardQueuedUserMessage replay: %v", err)
 	}
-	if first.Discarded != 2 || second.Discarded != 2 {
-		t.Fatalf("discard counts = (%d, %d), want both 2", first.Discarded, second.Discarded)
+	if !first.Discarded || !second.Discarded {
+		t.Fatalf("discard results = (%t, %t), want both true", first.Discarded, second.Discarded)
 	}
-	if hasQueued := engine.HasQueuedUserWork(); !hasQueued {
-		t.Fatal("expected unmatched queued message to remain after discard replay")
+	if !engine.DiscardQueuedUserMessage(firstQueued.ID) {
+		t.Fatal("expected first duplicate text item to remain")
 	}
-	if removed := engine.DiscardQueuedUserMessagesMatching("other"); removed != 1 {
-		t.Fatalf("remaining queued messages removed = %d, want 1", removed)
+	if !engine.DiscardQueuedUserMessage(otherQueued.ID) {
+		t.Fatal("expected other queued item to remain")
+	}
+	if engine.DiscardQueuedUserMessage(duplicateQueued.ID) {
+		t.Fatal("did not expect discarded queue item to remain")
 	}
 }
 

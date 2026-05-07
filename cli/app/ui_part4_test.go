@@ -77,9 +77,10 @@ func TestBusyEnterQueuesSteeringUntilFlushed(t *testing.T) {
 	}
 
 	next, _ = updated.Update(projectedRuntimeEventMsg(runtime.Event{
-		Kind:             runtime.EventUserMessageFlushed,
-		UserMessage:      "please continue with tests",
-		UserMessageBatch: []string{"please continue with tests"},
+		Kind:                         runtime.EventUserMessageFlushed,
+		UserMessage:                  "please continue with tests",
+		UserMessageBatch:             []string{"please continue with tests"},
+		UserMessageBatchQueueItemIDs: queuedUserMessageIDsForTest(updated.pendingInjected),
 	}))
 	updated = next.(*uiModel)
 	if updated.inputSubmitLocked {
@@ -112,9 +113,10 @@ func TestBusyEnterCanQueueMultipleSteeringMessages(t *testing.T) {
 	}
 
 	next, _ = updated.Update(projectedRuntimeEventMsg(runtime.Event{
-		Kind:             runtime.EventUserMessageFlushed,
-		UserMessage:      "first steering message\n\nsecond steering message",
-		UserMessageBatch: []string{"first steering message", "second steering message"},
+		Kind:                         runtime.EventUserMessageFlushed,
+		UserMessage:                  "first steering message\n\nsecond steering message",
+		UserMessageBatch:             []string{"first steering message", "second steering message"},
+		UserMessageBatchQueueItemIDs: queuedUserMessageIDsForTest(updated.pendingInjected),
 	}))
 	updated = next.(*uiModel)
 	if len(updated.pendingInjected) != 0 {
@@ -140,20 +142,21 @@ func TestBusySteeringBatchFlushPreservesPostTurnQueueOrder(t *testing.T) {
 	if len(updated.pendingInjected) != 2 {
 		t.Fatalf("expected two queued steering messages, got %+v", updated.pendingInjected)
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "queued after turn" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "queued after turn" {
 		t.Fatalf("expected normal queued input preserved, got %+v", updated.queued)
 	}
 
 	next, _ = updated.Update(projectedRuntimeEventMsg(runtime.Event{
-		Kind:             runtime.EventUserMessageFlushed,
-		UserMessage:      "first steering message\n\nsecond steering message",
-		UserMessageBatch: []string{"first steering message", "second steering message"},
+		Kind:                         runtime.EventUserMessageFlushed,
+		UserMessage:                  "first steering message\n\nsecond steering message",
+		UserMessageBatch:             []string{"first steering message", "second steering message"},
+		UserMessageBatchQueueItemIDs: queuedUserMessageIDsForTest(updated.pendingInjected),
 	}))
 	updated = next.(*uiModel)
 	if len(updated.pendingInjected) != 0 {
 		t.Fatalf("expected steering queue cleared after batched flush, got %+v", updated.pendingInjected)
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "queued after turn" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "queued after turn" {
 		t.Fatalf("expected post-turn queue preserved until turn completion, got %+v", updated.queued)
 	}
 
@@ -174,7 +177,7 @@ func TestQueuedSubmitKeepsActiveQueuedMessageAheadOfLaterQueueItems(t *testing.T
 	client := &runtimeControlFakeClient{}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.startupCmds = nil
-	m.queued = []string{"first queued", "second queued", "third queued"}
+	m.queued = queuedInputsForTest("first queued", "second queued", "third queued")
 
 	next, cmd := m.inputController().flushQueuedInputs(queueDrainAuto)
 	updated := next.(*uiModel)
@@ -198,7 +201,7 @@ func TestQueuedSubmitKeepsActiveQueuedMessageAheadOfLaterQueueItems(t *testing.T
 	}
 	next, _ = updated.Update(done)
 	updated = next.(*uiModel)
-	if len(updated.queued) != 2 || updated.queued[0] != "second queued" || updated.queued[1] != "third queued" {
+	if len(updated.queued) != 2 || updated.queued[0].Text != "second queued" || updated.queued[1].Text != "third queued" {
 		t.Fatalf("expected later queued messages preserved in order, got %+v", updated.queued)
 	}
 }
@@ -207,7 +210,7 @@ func TestDirectSubmitQueuesBehindExistingVisibleMessages(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.startupCmds = nil
-	m.queued = []string{"first queued"}
+	m.queued = queuedInputsForTest("first queued")
 	m.input = "direct submit"
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -231,7 +234,7 @@ func TestDirectSubmitQueuesBehindExistingVisibleMessages(t *testing.T) {
 	if updated.activeSubmit.text != "first queued" {
 		t.Fatalf("active submit text = %q, want first queued", updated.activeSubmit.text)
 	}
-	if len(updated.queued) != 2 || updated.queued[0] != "first queued" || updated.queued[1] != "direct submit" {
+	if len(updated.queued) != 2 || updated.queued[0].Text != "first queued" || updated.queued[1].Text != "direct submit" {
 		t.Fatalf("expected direct submit queued behind existing message, got %+v", updated.queued)
 	}
 }
@@ -242,7 +245,7 @@ func TestRuntimeIdleEventResumesVisibleQueuedMessagesWithoutBlankEnter(t *testin
 	m.startupCmds = nil
 	m.busy = true
 	m.activity = uiActivityRunning
-	m.queued = []string{"first queued", "second queued"}
+	m.queued = queuedInputsForTest("first queued", "second queued")
 	client.transcript = clientui.TranscriptPage{
 		SessionID:    "session-1",
 		Revision:     4,
@@ -284,7 +287,7 @@ func TestRuntimeIdleEventResumesVisibleQueuedMessagesWithoutBlankEnter(t *testin
 	if updated.activeSubmit.text != "first queued" {
 		t.Fatalf("active submit text = %q, want first queued without blank Enter", updated.activeSubmit.text)
 	}
-	if len(updated.queued) != 2 || updated.queued[0] != "first queued" || updated.queued[1] != "second queued" {
+	if len(updated.queued) != 2 || updated.queued[0].Text != "first queued" || updated.queued[1].Text != "second queued" {
 		t.Fatalf("expected runtime submit to own first queued while preserving visible queue order, got %+v", updated.queued)
 	}
 }
@@ -295,7 +298,7 @@ func TestRuntimeIdleEventDoesNotDuplicatePendingQueuedDrainHydration(t *testing.
 	m.startupCmds = nil
 	m.busy = true
 	m.activity = uiActivityRunning
-	m.queued = []string{"first queued", "second queued"}
+	m.queued = queuedInputsForTest("first queued", "second queued")
 	m.pendingQueuedDrainAfterHydration = true
 	m.queuedDrainReadyAfterHydration = false
 
@@ -307,7 +310,7 @@ func TestRuntimeIdleEventDoesNotDuplicatePendingQueuedDrainHydration(t *testing.
 	if !updated.pendingQueuedDrainAfterHydration {
 		t.Fatal("expected existing queued drain hydration to stay armed")
 	}
-	if len(updated.queued) != 2 || updated.queued[0] != "first queued" || updated.queued[1] != "second queued" {
+	if len(updated.queued) != 2 || updated.queued[0].Text != "first queued" || updated.queued[1].Text != "second queued" {
 		t.Fatalf("expected queued messages preserved without duplicate drain, got %+v", updated.queued)
 	}
 	msgs := collectCmdMessages(t, cmd)
@@ -336,7 +339,7 @@ func TestRuntimeIdleQueuedDrainNotifiesTurnQueueHookOnce(t *testing.T) {
 	m.startupCmds = nil
 	m.busy = true
 	m.activity = uiActivityRunning
-	m.queued = []string{"follow up"}
+	m.queued = queuedInputsForTest("follow up")
 	client.transcript = clientui.TranscriptPage{
 		SessionID:    "session-1",
 		Revision:     4,
@@ -407,7 +410,7 @@ func TestBusyEnterWithUserShellPrefixQueuesInsteadOfInjecting(t *testing.T) {
 	if len(updated.pendingInjected) != 0 {
 		t.Fatalf("did not expect pending injected messages, got %d", len(updated.pendingInjected))
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "$ pwd" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "$ pwd" {
 		t.Fatalf("expected queued raw user shell input, got %+v", updated.queued)
 	}
 	if updated.input != "" {
@@ -429,7 +432,7 @@ func TestSubmitErrorRestoresQueuedSteeringInput(t *testing.T) {
 		t.Fatalf("expected one pending injected message, got %d", len(updated.pendingInjected))
 	}
 
-	updated.queued = append(updated.queued, "follow-up")
+	updated.queued = append(updated.queued, queuedInputsForTest("follow-up")...)
 	next, cmd := updated.Update(submitDoneMsg{err: errors.New("network failure")})
 	updated = next.(*uiModel)
 	if cmd != nil {
@@ -508,8 +511,8 @@ func TestBusyTabQueuesPostTurnSubmissionAndKeepsInputUnlocked(t *testing.T) {
 	if len(updated.queued) != 1 {
 		t.Fatalf("expected one queued post-turn message, got %d", len(updated.queued))
 	}
-	if updated.queued[0] != "queue this" {
-		t.Fatalf("unexpected queued message: %q", updated.queued[0])
+	if updated.queued[0].Text != "queue this" {
+		t.Fatalf("unexpected queued message: %q", updated.queued[0].Text)
 	}
 	if len(updated.pendingInjected) != 0 {
 		t.Fatalf("did not expect injected steering message, got %d", len(updated.pendingInjected))
@@ -543,7 +546,7 @@ func TestQueueInjectedInputIgnoresBlankTextWithoutClearingInput(t *testing.T) {
 func TestCtrlCWhileBusyRestoresQueuedMessagesIntoInput(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.busy = true
-	m.queued = []string{"first queued", "second queued", "third queued"}
+	m.queued = queuedInputsForTest("first queued", "second queued", "third queued")
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated := next.(*uiModel)
@@ -568,7 +571,7 @@ func TestCtrlCWhileBusyRestoresQueuedMessagesIntoInput(t *testing.T) {
 func TestCtrlCWhileBusyRestoresQueuedSlashCommandsIntoInput(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.busy = true
-	m.queued = []string{"/name queued title"}
+	m.queued = queuedInputsForTest("/name queued title")
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated := next.(*uiModel)
@@ -590,7 +593,7 @@ func TestCtrlCWhileBusyRestoresQueuedSlashCommandsIntoInput(t *testing.T) {
 func TestCtrlCWhileBusyRestoresMixedQueuedInputsIntoInput(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.busy = true
-	m.queued = []string{"draft one", "draft two", "/name queued title", "later draft"}
+	m.queued = queuedInputsForTest("draft one", "draft two", "/name queued title", "later draft")
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated := next.(*uiModel)
@@ -608,7 +611,8 @@ func TestCtrlCWhileBusyUnlocksSubmitLockedInput(t *testing.T) {
 	m.busy = true
 	m.inputSubmitLocked = true
 	m.lockedInjectText = "keep this message"
-	m.pendingInjected = []string{"keep this message", "another"}
+	m.lockedInjectID = "queue-test-0"
+	m.pendingInjected = queuedUserMessagesForTest("keep this message", "another")
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated := next.(*uiModel)
@@ -679,7 +683,7 @@ func TestCtrlCRestoresQueuedSteeringAndDiscardsEngineQueue(t *testing.T) {
 func TestInterruptedSubmitDoneRestoresQueueIntoInputAndDoesNotAutoDrain(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.busy = true
-	m.queued = []string{"first", "second"}
+	m.queued = queuedInputsForTest("first", "second")
 
 	next, cmd := m.Update(submitDoneMsg{err: errSubmissionInterrupted})
 	updated := next.(*uiModel)
@@ -865,8 +869,8 @@ func TestVerboseReviewerSuggestionsStaySingleAfterInterruptAndNextSubmit(t *test
 func TestSubmitErrorRestoresPendingInjectedSubmittedAndQueuedInput(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.busy = true
-	m.pendingInjected = []string{"steer"}
-	m.queued = []string{"queued"}
+	m.pendingInjected = queuedUserMessagesForTest("steer")
+	m.queued = queuedInputsForTest("queued")
 
 	next, cmd := m.Update(submitDoneMsg{submittedText: "sent", err: errors.New("transport down")})
 	updated := next.(*uiModel)
@@ -894,8 +898,8 @@ func TestSubmitErrorRestoresPendingInjectedSubmittedAndQueuedInput(t *testing.T)
 func TestSubmitErrorRestoresQueuedDraftsIntoInput(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.busy = true
-	m.activeSubmit = activeSubmitState{token: 1, text: "submitted"}
-	m.queued = []string{"submitted", "queued later"}
+	m.queued = queuedInputsForTest("submitted", "queued later")
+	m.activeSubmit = activeSubmitState{token: 1, text: "submitted", queuedID: m.queued[0].ID}
 
 	next, _ := m.Update(submitDoneMsg{token: 1, submittedText: "submitted", err: errors.New("submit failed")})
 	updated := next.(*uiModel)
@@ -911,9 +915,9 @@ func TestSubmitErrorRestoresQueuedDraftsIntoInput(t *testing.T) {
 func TestSubmitCancellationRestoresQueuedDraftsWithoutErrorEntry(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.busy = true
-	m.activeSubmit = activeSubmitState{token: 1, text: "submitted"}
 	m.activity = uiActivityRunning
-	m.queued = []string{"submitted", "queued later"}
+	m.queued = queuedInputsForTest("submitted", "queued later")
+	m.activeSubmit = activeSubmitState{token: 1, text: "submitted", queuedID: m.queued[0].ID}
 
 	next, _ := m.Update(submitDoneMsg{token: 1, submittedText: "submitted", err: context.Canceled})
 	updated := next.(*uiModel)
@@ -936,7 +940,7 @@ func TestCompactFailureRestoresQueuedDraftsIntoInput(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.busy = true
 	m.compacting = true
-	m.queued = []string{"queued later"}
+	m.queued = queuedInputsForTest("queued later")
 
 	next, _ := m.Update(compactDoneMsg{err: errors.New("compact failed")})
 	updated := next.(*uiModel)
@@ -954,7 +958,7 @@ func TestCompactCancellationRestoresQueuedDraftsWithoutErrorEntry(t *testing.T) 
 	m.busy = true
 	m.compacting = true
 	m.activity = uiActivityRunning
-	m.queued = []string{"queued later"}
+	m.queued = queuedInputsForTest("queued later")
 
 	next, _ := m.Update(compactDoneMsg{err: context.Canceled})
 	updated := next.(*uiModel)
@@ -992,7 +996,7 @@ func TestCompactDoneKeepsQueuedSteeringPending(t *testing.T) {
 	if updated.inputSubmitLocked {
 		t.Fatal("did not expect submit lock after compaction completion")
 	}
-	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0] != "please continue with tests" {
+	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "please continue with tests" {
 		t.Fatalf("expected queued steering preserved across compaction completion, got %+v", updated.pendingInjected)
 	}
 }
@@ -1054,7 +1058,7 @@ func TestCalcChatLinesUsesFullHeightInDetailMode(t *testing.T) {
 	m.termWidth = 20
 	m.termHeight = 12
 	m.input = strings.Repeat("x", 80)
-	m.queued = []string{"one", "two", "three", "four", "five", "six"}
+	m.queued = queuedInputsForTest("one", "two", "three", "four", "five", "six")
 	m.refreshSlashCommandFilterFromInput()
 
 	base := m.calcChatLines()

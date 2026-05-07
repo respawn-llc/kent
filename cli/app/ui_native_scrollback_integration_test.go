@@ -471,10 +471,12 @@ func (c *countingRuntimeClient) SubmitQueuedUserMessages(ctx context.Context) (s
 
 func (c *countingRuntimeClient) Interrupt() error { return c.inner.Interrupt() }
 
-func (c *countingRuntimeClient) QueueUserMessage(text string) { c.inner.QueueUserMessage(text) }
+func (c *countingRuntimeClient) QueueUserMessage(text string) (clientui.QueuedUserMessage, error) {
+	return c.inner.QueueUserMessage(text)
+}
 
-func (c *countingRuntimeClient) DiscardQueuedUserMessagesMatching(text string) int {
-	return c.inner.DiscardQueuedUserMessagesMatching(text)
+func (c *countingRuntimeClient) DiscardQueuedUserMessage(queueItemID string) bool {
+	return c.inner.DiscardQueuedUserMessage(queueItemID)
 }
 
 func (c *countingRuntimeClient) RecordPromptHistory(text string) error {

@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"builder/shared/clientui"
+
+	"github.com/google/uuid"
 )
 
 func (m *uiModel) runtimeClient() clientui.RuntimeClient {
@@ -170,17 +172,18 @@ func (m *uiModel) interruptRuntime() error {
 	return nil
 }
 
-func (m *uiModel) queueRuntimeUserMessage(text string) {
+func (m *uiModel) queueRuntimeUserMessage(text string) (clientui.QueuedUserMessage, error) {
 	if client := m.runtimeClient(); client != nil {
-		client.QueueUserMessage(text)
+		return client.QueueUserMessage(text)
 	}
+	return clientui.QueuedUserMessage{ID: uuid.NewString(), Text: text}, nil
 }
 
-func (m *uiModel) discardQueuedRuntimeUserMessagesMatching(text string) int {
+func (m *uiModel) discardQueuedRuntimeUserMessage(queueItemID string) bool {
 	if client := m.runtimeClient(); client != nil {
-		return client.DiscardQueuedUserMessagesMatching(text)
+		return client.DiscardQueuedUserMessage(queueItemID)
 	}
-	return 0
+	return false
 }
 
 func (m *uiModel) recordRuntimePromptHistory(text string) error {

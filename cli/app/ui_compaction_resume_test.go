@@ -43,7 +43,7 @@ func TestCompactDoneResumesQueuedSteeringAsNewTurn(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
-	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0] != "steered message" {
+	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "steered message" {
 		t.Fatalf("expected pending injected steering before compaction completes, got %+v", updated.pendingInjected)
 	}
 

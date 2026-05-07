@@ -95,10 +95,12 @@ func (c *gatedRuntimeClient) SubmitQueuedUserMessages(ctx context.Context) (stri
 	return c.inner.SubmitQueuedUserMessages(ctx)
 }
 
-func (c *gatedRuntimeClient) Interrupt() error             { return c.inner.Interrupt() }
-func (c *gatedRuntimeClient) QueueUserMessage(text string) { c.inner.QueueUserMessage(text) }
-func (c *gatedRuntimeClient) DiscardQueuedUserMessagesMatching(text string) int {
-	return c.inner.DiscardQueuedUserMessagesMatching(text)
+func (c *gatedRuntimeClient) Interrupt() error { return c.inner.Interrupt() }
+func (c *gatedRuntimeClient) QueueUserMessage(text string) (clientui.QueuedUserMessage, error) {
+	return c.inner.QueueUserMessage(text)
+}
+func (c *gatedRuntimeClient) DiscardQueuedUserMessage(queueItemID string) bool {
+	return c.inner.DiscardQueuedUserMessage(queueItemID)
 }
 func (c *gatedRuntimeClient) RecordPromptHistory(text string) error {
 	return c.inner.RecordPromptHistory(text)

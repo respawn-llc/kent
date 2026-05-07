@@ -37,6 +37,7 @@ func (a uiRuntimeAdapter) pendingInputState() clientui.PendingInputState {
 		Input:             m.input,
 		PendingInjected:   m.pendingInjected,
 		LockedInjectText:  m.lockedInjectText,
+		LockedInjectID:    m.lockedInjectID,
 		InputSubmitLocked: m.inputSubmitLocked,
 	}
 }
@@ -52,6 +53,7 @@ func (a uiRuntimeAdapter) applyRuntimeEventReduction(reduction clientui.RuntimeE
 	m.reasoningStatusHeader = reduction.Reasoning.State.StatusHeader
 	m.pendingInjected = reduction.PendingInput.State.PendingInjected
 	m.lockedInjectText = reduction.PendingInput.State.LockedInjectText
+	m.lockedInjectID = reduction.PendingInput.State.LockedInjectID
 	m.inputSubmitLocked = reduction.PendingInput.State.InputSubmitLocked
 	switch reduction.PendingInput.DraftCommand {
 	case clientui.RuntimePendingInputClearDraft:

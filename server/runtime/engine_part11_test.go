@@ -420,7 +420,7 @@ func TestReasoningSummaryVisibleAndEncryptedReasoningRoundTrips(t *testing.T) {
 	}
 }
 
-func TestDiscardQueuedUserMessagesMatchingRemovesQueuedEntries(t *testing.T) {
+func TestDiscardQueuedUserMessageRemovesExactQueuedEntry(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
 	if err != nil {
@@ -432,18 +432,17 @@ func TestDiscardQueuedUserMessagesMatchingRemovesQueuedEntries(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 
-	eng.QueueUserMessage("same")
+	first := eng.QueueUserMessage("same")
 	eng.QueueUserMessage("other")
-	eng.QueueUserMessage("same")
+	duplicate := eng.QueueUserMessage("same")
 
-	removed := eng.DiscardQueuedUserMessagesMatching("same")
-	if removed != 2 {
-		t.Fatalf("removed=%d, want 2", removed)
+	if removed := eng.DiscardQueuedUserMessage(duplicate.ID); !removed {
+		t.Fatal("expected duplicate queued item removed")
 	}
 
 	eng.mu.Lock()
 	defer eng.mu.Unlock()
-	if len(eng.pendingInjected) != 1 || eng.pendingInjected[0] != "other" {
+	if len(eng.pendingInjected) != 2 || eng.pendingInjected[0].ID != first.ID || eng.pendingInjected[0].Text != "same" || eng.pendingInjected[1].Text != "other" {
 		t.Fatalf("unexpected pending queue after discard: %+v", eng.pendingInjected)
 	}
 }

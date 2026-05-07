@@ -65,10 +65,12 @@ func (s *stubRuntimeClient) SubmitQueuedUserMessages(context.Context) (string, e
 	s.queuedSubmitCalls++
 	return "ok", nil
 }
-func (s *stubRuntimeClient) Interrupt() error                             { return nil }
-func (s *stubRuntimeClient) QueueUserMessage(string)                      {}
-func (s *stubRuntimeClient) DiscardQueuedUserMessagesMatching(string) int { return 0 }
-func (s *stubRuntimeClient) RecordPromptHistory(string) error             { return nil }
+func (s *stubRuntimeClient) Interrupt() error { return nil }
+func (s *stubRuntimeClient) QueueUserMessage(text string) (clientui.QueuedUserMessage, error) {
+	return clientui.QueuedUserMessage{ID: "queue-1", Text: text}, nil
+}
+func (s *stubRuntimeClient) DiscardQueuedUserMessage(string) bool { return false }
+func (s *stubRuntimeClient) RecordPromptHistory(string) error     { return nil }
 
 type stubGate struct {
 	err          error

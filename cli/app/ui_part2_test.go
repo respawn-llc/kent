@@ -721,7 +721,7 @@ func TestApprovalAskTabAllowsWithCommentary(t *testing.T) {
 	if resp.response.Approval.Decision != clientui.ApprovalDecisionAllowOnce || resp.response.Approval.Commentary != "ok but please keep it minimal" {
 		t.Fatalf("unexpected approval allow-with-commentary answer: %+v", resp.response.Approval)
 	}
-	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0] != "ok but please keep it minimal" {
+	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "ok but please keep it minimal" {
 		t.Fatalf("expected queued user commentary injection, got %+v", updated.pendingInjected)
 	}
 	if testActiveAsk(updated) != nil {

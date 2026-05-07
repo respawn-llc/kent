@@ -20,10 +20,10 @@ const (
 )
 
 func (c uiInputController) startSubmission(text string) tea.Cmd {
-	return c.startSubmissionWithPreSubmitQueuePosition(text, preSubmitQueueBack)
+	return c.startSubmissionWithPreSubmitQueuePosition(text, preSubmitQueueBack, "")
 }
 
-func (c uiInputController) startSubmissionWithPreSubmitQueuePosition(text string, queuePosition preSubmitQueuePosition) tea.Cmd {
+func (c uiInputController) startSubmissionWithPreSubmitQueuePosition(text string, queuePosition preSubmitQueuePosition, queuedID string) tea.Cmd {
 	m := c.model
 	if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, text); blocked {
 		return disconnectCmd
@@ -48,39 +48,47 @@ func (c uiInputController) startSubmissionWithPreSubmitQueuePosition(text string
 		return tea.Batch(c.submitUserShellCmd(text, command), m.ensureSpinnerTicking())
 	}
 	if m.hasRuntimeClient() {
-		if queuePosition == preSubmitQueueFront {
-			m.queued = append([]string{text}, m.queued...)
-		} else {
-			m.queued = append(m.queued, text)
+		item := queuedInputItem{ID: queuedID, Text: text}
+		if item.ID == "" {
+			item = newQueuedInputItem(text)
 		}
-		return tea.Batch(c.submitCmd(text), m.ensureSpinnerTicking())
+		if queuePosition == preSubmitQueueFront {
+			m.queued = append([]queuedInputItem{item}, m.queued...)
+		} else {
+			m.queued = append(m.queued, item)
+		}
+		return tea.Batch(c.submitCmd(text, item.ID), m.ensureSpinnerTicking())
 	}
-	return tea.Batch(c.submitCmd(text), m.ensureSpinnerTicking())
+	return tea.Batch(c.submitCmd(text, ""), m.ensureSpinnerTicking())
 }
 
 func (c uiInputController) startSubmissionWithPromptHistory(text string) tea.Cmd {
 	return c.startSubmissionWithPromptHistoryAndQueuePosition(text, preSubmitQueueBack)
 }
 
-func (c uiInputController) startQueuedSubmissionWithPromptHistory(text string) tea.Cmd {
-	return c.startSubmissionWithPromptHistoryAndQueuePosition(text, preSubmitQueueFront)
+func (c uiInputController) startQueuedSubmissionWithPromptHistory(item queuedInputItem) tea.Cmd {
+	return c.startSubmissionWithPromptHistoryAndQueuePositionAndID(item.Text, preSubmitQueueFront, item.ID)
 }
 
 func (c uiInputController) startSubmissionWithPromptHistoryAndQueuePosition(text string, queuePosition preSubmitQueuePosition) tea.Cmd {
+	return c.startSubmissionWithPromptHistoryAndQueuePositionAndID(text, queuePosition, "")
+}
+
+func (c uiInputController) startSubmissionWithPromptHistoryAndQueuePositionAndID(text string, queuePosition preSubmitQueuePosition, queuedID string) tea.Cmd {
 	m := c.model
 	if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, text); blocked {
 		return disconnectCmd
 	}
 	_, isUserShell := parseUserShellCommand(text)
 	if m.hasRuntimeClient() && !isUserShell {
-		return c.startSubmissionWithPreSubmitQueuePosition(text, queuePosition)
+		return c.startSubmissionWithPreSubmitQueuePosition(text, queuePosition, queuedID)
 	}
-	return sequenceCmds(m.recordPromptHistory(text), c.startSubmissionWithPreSubmitQueuePosition(text, queuePosition))
+	return sequenceCmds(m.recordPromptHistory(text), c.startSubmissionWithPreSubmitQueuePosition(text, queuePosition, queuedID))
 }
 
-func (c uiInputController) submitCmd(text string) tea.Cmd {
+func (c uiInputController) submitCmd(text string, queuedID string) tea.Cmd {
 	m := c.model
-	token := m.beginSubmitAttempt(text)
+	token := m.beginSubmitAttempt(text, queuedID)
 	return func() tea.Msg {
 		if !m.hasRuntimeClient() {
 			return newSubmitDoneMsg(token, "", text, errors.New("runtime engine is not configured"))
@@ -98,7 +106,7 @@ func (c uiInputController) submitCmd(text string) tea.Cmd {
 
 func (c uiInputController) submitUserShellCmd(originalText, command string) tea.Cmd {
 	m := c.model
-	token := m.beginSubmitAttempt(originalText)
+	token := m.beginSubmitAttempt(originalText, "")
 	return func() tea.Msg {
 		if !m.hasRuntimeClient() {
 			return newSubmitDoneMsg(token, "", originalText, errors.New("runtime engine is not configured"))
@@ -114,7 +122,7 @@ func (c uiInputController) submitUserShellCmd(originalText, command string) tea.
 	}
 }
 
-func (m *uiModel) beginSubmitAttempt(text string) uint64 {
+func (m *uiModel) beginSubmitAttempt(text string, queuedID string) uint64 {
 	if m == nil {
 		return 0
 	}
@@ -122,7 +130,7 @@ func (m *uiModel) beginSubmitAttempt(text string) uint64 {
 	if m.submitToken == 0 {
 		m.submitToken++
 	}
-	m.activeSubmit = activeSubmitState{token: m.submitToken, text: text}
+	m.activeSubmit = activeSubmitState{token: m.submitToken, text: text, queuedID: queuedID}
 	return m.submitToken
 }
 
@@ -245,9 +253,10 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 	if msg.token != 0 && m.activeSubmit.flushed {
 		restoreSubmittedText = false
 	}
+	activeQueuedID := m.activeSubmit.queuedID
 	m.activeSubmit = activeSubmitState{}
 	c.finishBusyActivity(false)
-	m.discardQueuedText(msg.submittedText)
+	m.discardQueuedInput(activeQueuedID)
 	if msg.err != nil {
 		if m.turnQueueHook != nil {
 			m.turnQueueHook.OnTurnQueueAborted()
@@ -311,8 +320,8 @@ func (c uiInputController) queuedDrainRequiresHydration() bool {
 	if m.commandRegistry == nil {
 		return true
 	}
-	for _, text := range m.queued {
-		trimmed := strings.TrimSpace(text)
+	for _, item := range m.queued {
+		trimmed := strings.TrimSpace(item.Text)
 		if trimmed == "" {
 			continue
 		}

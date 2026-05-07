@@ -186,13 +186,13 @@ func (l uiViewLayout) queuedMessages() []queuedPaneEntry {
 	deferredPending := l.model.deferredPendingInjectedMessages()
 	entries := make([]queuedPaneEntry, 0, len(l.model.queued)+len(deferredPending)+len(l.model.pendingInjected))
 	for _, message := range l.model.queued {
-		entries = append(entries, queuedPaneEntry{Text: message, Kind: queuedPaneEntryQueued})
+		entries = append(entries, queuedPaneEntry{Text: message.Text, Kind: queuedPaneEntryQueued})
 	}
 	for _, message := range deferredPending {
 		entries = append(entries, queuedPaneEntry{Text: message, Kind: queuedPaneEntryPending})
 	}
 	for _, message := range l.model.pendingInjected {
-		entries = append(entries, queuedPaneEntry{Text: message, Kind: queuedPaneEntryPending})
+		entries = append(entries, queuedPaneEntry{Text: message.Text, Kind: queuedPaneEntryPending})
 	}
 	return entries
 }

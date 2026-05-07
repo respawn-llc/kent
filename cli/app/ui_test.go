@@ -36,7 +36,7 @@ func TestTabQueuesAndStartsSubmission(t *testing.T) {
 
 func TestEmptyEnterFlushesOnlyNextQueuedItem(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.queued = []string{"/name queued title", "follow up"}
+	m.queued = queuedInputsForTest("/name queued title", "follow up")
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
@@ -50,14 +50,14 @@ func TestEmptyEnterFlushesOnlyNextQueuedItem(t *testing.T) {
 	if updated.busy {
 		t.Fatal("did not expect follow-up prompt submission from empty-enter flush")
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "follow up" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
 		t.Fatalf("expected follow-up prompt to remain queued, got %+v", updated.queued)
 	}
 }
 
 func TestIdleTabWithExistingQueueFlushesOnlyNextQueuedItem(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.queued = []string{"/name queued title"}
+	m.queued = queuedInputsForTest("/name queued title")
 	m.input = "follow up"
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab})
@@ -72,7 +72,7 @@ func TestIdleTabWithExistingQueueFlushesOnlyNextQueuedItem(t *testing.T) {
 	if updated.busy {
 		t.Fatal("did not expect appended prompt to auto-submit while idle tab is flushing one queued item")
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "follow up" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
 		t.Fatalf("expected appended prompt to remain queued, got %+v", updated.queued)
 	}
 }
@@ -623,7 +623,7 @@ func TestApprovalAskUsesSingleDenyOptionAndTabCommentary(t *testing.T) {
 	if resp.response.Approval.Decision != clientui.ApprovalDecisionDeny || resp.response.Approval.Commentary != "blocked by policy" {
 		t.Fatalf("unexpected approval response: %+v", resp.response.Approval)
 	}
-	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0] != "blocked by policy" {
+	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "blocked by policy" {
 		t.Fatalf("expected deny commentary injected into regular user-said flow, got %+v", updated.pendingInjected)
 	}
 	if testActiveAsk(updated) != nil {

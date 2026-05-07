@@ -473,18 +473,18 @@ func (g *Gateway) dispatch(ctx context.Context, state *connectionState, req prot
 			return struct{}{}, g.core.RuntimeControlClient().Interrupt(ctx, params)
 		})
 	case protocol.MethodRuntimeQueueUserMessage:
-		return decodeAndHandle(req, func(params serverapi.RuntimeQueueUserMessageRequest) (struct{}, error) {
+		return decodeAndHandle(req, func(params serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error) {
 			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return struct{}{}, err
+				return serverapi.RuntimeQueueUserMessageResponse{}, err
 			}
-			return struct{}{}, g.core.RuntimeControlClient().QueueUserMessage(ctx, params)
+			return g.core.RuntimeControlClient().QueueUserMessage(ctx, params)
 		})
-	case protocol.MethodRuntimeDiscardQueuedUserMessagesMatching:
-		return decodeAndHandle(req, func(params serverapi.RuntimeDiscardQueuedUserMessagesMatchingRequest) (serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse, error) {
+	case protocol.MethodRuntimeDiscardQueuedUserMessage:
+		return decodeAndHandle(req, func(params serverapi.RuntimeDiscardQueuedUserMessageRequest) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
 			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse{}, err
+				return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
 			}
-			return g.core.RuntimeControlClient().DiscardQueuedUserMessagesMatching(ctx, params)
+			return g.core.RuntimeControlClient().DiscardQueuedUserMessage(ctx, params)
 		})
 	case protocol.MethodRuntimeRecordPromptHistory:
 		return decodeAndHandle(req, func(params serverapi.RuntimeRecordPromptHistoryRequest) (struct{}, error) {

@@ -75,7 +75,7 @@ func TestBusyEnterDuringReviewerUsesSteeringInjection(t *testing.T) {
 	if len(updated.queued) != 0 {
 		t.Fatalf("did not expect post-turn queue for reviewer steering, got %+v", updated.queued)
 	}
-	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0] != "steer after review" {
+	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "steer after review" {
 		t.Fatalf("expected reviewer steering injected for earliest flush, got %+v", updated.pendingInjected)
 	}
 	if updated.inputSubmitLocked {

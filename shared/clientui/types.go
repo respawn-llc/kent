@@ -40,27 +40,28 @@ const (
 )
 
 type Event struct {
-	Sequence                   uint64
-	Kind                       EventKind
-	StepID                     string
-	RecoveryCause              TranscriptRecoveryCause
-	CommittedTranscriptChanged bool
-	TranscriptRevision         int64
-	CommittedEntryCount        int
-	CommittedEntryStart        int
-	CommittedEntryStartSet     bool
-	Error                      string
-	AssistantDelta             string
-	ReasoningDelta             *ReasoningDelta
-	UserMessage                string
-	UserMessageBatch           []string
-	TranscriptEntries          []ChatEntry
-	Compaction                 *CompactionStatus
-	CacheWarning               *cachewarn.Warning
-	CacheWarningVisibility     EntryVisibility
-	RunState                   *RunState
-	ContextUsage               *RuntimeContextUsage
-	Background                 *BackgroundShellEvent
+	Sequence                     uint64
+	Kind                         EventKind
+	StepID                       string
+	RecoveryCause                TranscriptRecoveryCause
+	CommittedTranscriptChanged   bool
+	TranscriptRevision           int64
+	CommittedEntryCount          int
+	CommittedEntryStart          int
+	CommittedEntryStartSet       bool
+	Error                        string
+	AssistantDelta               string
+	ReasoningDelta               *ReasoningDelta
+	UserMessage                  string
+	UserMessageBatch             []string
+	UserMessageBatchQueueItemIDs []string
+	TranscriptEntries            []ChatEntry
+	Compaction                   *CompactionStatus
+	CacheWarning                 *cachewarn.Warning
+	CacheWarningVisibility       EntryVisibility
+	RunState                     *RunState
+	ContextUsage                 *RuntimeContextUsage
+	Background                   *BackgroundShellEvent
 }
 
 type CompactionStatus struct {

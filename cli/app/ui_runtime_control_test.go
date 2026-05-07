@@ -43,7 +43,7 @@ type runtimeControlFakeClient struct {
 	submitQueuedResult     string
 	interruptCalls         int
 	queuedText             string
-	discardQueuedText      string
+	discardQueuedID        string
 	discardQueuedCount     int
 	recordedPromptHistory  string
 	refreshMainViewCalls   int
@@ -209,10 +209,13 @@ func (f *runtimeControlFakeClient) Interrupt() error {
 	}
 	return f.err
 }
-func (f *runtimeControlFakeClient) QueueUserMessage(text string) { f.queuedText = text }
-func (f *runtimeControlFakeClient) DiscardQueuedUserMessagesMatching(text string) int {
-	f.discardQueuedText = text
-	return f.discardQueuedCount
+func (f *runtimeControlFakeClient) QueueUserMessage(text string) (clientui.QueuedUserMessage, error) {
+	f.queuedText = text
+	return clientui.QueuedUserMessage{ID: "queue-1", Text: text}, nil
+}
+func (f *runtimeControlFakeClient) DiscardQueuedUserMessage(queueItemID string) bool {
+	f.discardQueuedID = queueItemID
+	return f.discardQueuedCount > 0
 }
 func (f *runtimeControlFakeClient) RecordPromptHistory(text string) error {
 	f.recordedPromptHistory = text
@@ -285,9 +288,12 @@ func TestRuntimeControlHelpersDelegateToRuntimeClient(t *testing.T) {
 	if err := m.interruptRuntime(); err != nil {
 		t.Fatalf("interrupt runtime: %v", err)
 	}
-	m.queueRuntimeUserMessage("queued text")
-	if discarded := m.discardQueuedRuntimeUserMessagesMatching("queued text"); discarded != 2 {
-		t.Fatalf("discard queued runtime user messages = %d, want 2", discarded)
+	queued, err := m.queueRuntimeUserMessage("queued text")
+	if err != nil {
+		t.Fatalf("queue runtime user message: %v", err)
+	}
+	if discarded := m.discardQueuedRuntimeUserMessage(queued.ID); !discarded {
+		t.Fatal("expected queued runtime user message discarded")
 	}
 	if err := m.recordRuntimePromptHistory("prompt history"); err != nil {
 		t.Fatalf("record runtime prompt history: %v", err)
@@ -311,8 +317,8 @@ func TestRuntimeControlHelpersDelegateToRuntimeClient(t *testing.T) {
 	if client.compactArgs != "--force" {
 		t.Fatalf("unexpected compact arg marker: %q", client.compactArgs)
 	}
-	if client.interruptCalls != 1 || client.queuedText != "queued text" || client.discardQueuedText != "queued text" || client.recordedPromptHistory != "prompt history" {
-		t.Fatalf("unexpected runtime helper side effects: interrupts=%d queued=%q discard=%q history=%q", client.interruptCalls, client.queuedText, client.discardQueuedText, client.recordedPromptHistory)
+	if client.interruptCalls != 1 || client.queuedText != "queued text" || client.discardQueuedID != queued.ID || client.recordedPromptHistory != "prompt history" {
+		t.Fatalf("unexpected runtime helper side effects: interrupts=%d queued=%q discard=%q history=%q", client.interruptCalls, client.queuedText, client.discardQueuedID, client.recordedPromptHistory)
 	}
 }
 
@@ -371,9 +377,12 @@ func TestRuntimeControlHelpersFallbackWithoutRuntimeClient(t *testing.T) {
 	if err := m.interruptRuntime(); err != nil {
 		t.Fatalf("interrupt runtime without client: %v", err)
 	}
-	m.queueRuntimeUserMessage("queued text")
-	if discarded := m.discardQueuedRuntimeUserMessagesMatching("queued text"); discarded != 0 {
-		t.Fatalf("discard queued runtime user messages without client = %d, want 0", discarded)
+	queued, err := m.queueRuntimeUserMessage("queued text")
+	if err != nil || queued.ID == "" || queued.Text != "queued text" {
+		t.Fatalf("queue runtime user message without client = (%+v, %v), want generated item", queued, err)
+	}
+	if discarded := m.discardQueuedRuntimeUserMessage(queued.ID); discarded {
+		t.Fatal("did not expect queued runtime user message discarded without client")
 	}
 	if err := m.recordRuntimePromptHistory("prompt history"); err != nil {
 		t.Fatalf("record runtime prompt history without client: %v", err)

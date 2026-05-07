@@ -570,7 +570,7 @@ func TestBlockDisconnectedSubmissionBlocksEvenWhenRuntimeAppendSucceeds(t *testi
 	client := &runtimeControlFakeClient{}
 	m := newProjectedTestUIModel(client, nil, nil)
 	m.setRuntimeDisconnected(true)
-	m.pendingInjected = []string{"hidden steering"}
+	m.pendingInjected = queuedUserMessagesForTest("hidden steering")
 
 	blocked, cmd := m.inputController().blockDisconnectedSubmission(true, "generated prompt")
 
@@ -595,7 +595,7 @@ func TestDisconnectedQueuedFlushRestoresHiddenQueuedDrafts(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	m := newProjectedTestUIModel(client, nil, nil)
 	m.setRuntimeDisconnected(true)
-	m.queued = []string{"first queued", "second queued"}
+	m.queued = queuedInputsForTest("first queued", "second queued")
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
@@ -634,7 +634,7 @@ func TestDisconnectedQueuedInjectionSubmissionRestoresHiddenInjectedDrafts(t *te
 	client := &runtimeControlFakeClient{}
 	m := newProjectedTestUIModel(client, nil, nil)
 	m.setRuntimeDisconnected(true)
-	m.pendingInjected = []string{"hidden steering"}
+	m.pendingInjected = queuedUserMessagesForTest("hidden steering")
 
 	cmd := m.inputController().startQueuedInjectionSubmission()
 	if cmd != nil {
@@ -667,7 +667,7 @@ func TestDisconnectedCommandSubmitRestoresGeneratedPromptAlongsideHiddenSteering
 	client := &runtimeControlFakeClient{}
 	m := newProjectedTestUIModel(client, nil, nil)
 	m.setRuntimeDisconnected(true)
-	m.pendingInjected = []string{"hidden steering"}
+	m.pendingInjected = queuedUserMessagesForTest("hidden steering")
 
 	next, _ := m.inputController().applyCommandResult(commands.Result{Handled: true, SubmitUser: true, User: "generated prompt"})
 	updated := next.(*uiModel)

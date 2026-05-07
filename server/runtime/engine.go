@@ -161,7 +161,7 @@ type Engine struct {
 	persistedDiagnostics  map[string]struct{}
 	pendingToolCallStarts map[string]int
 
-	pendingInjected []string
+	pendingInjected []QueuedUserMessage
 
 	lastUsage llm.Usage
 
@@ -380,25 +380,32 @@ func (e *Engine) launchLifecycleTask(task func(context.Context)) bool {
 	return true
 }
 
-func (e *Engine) QueueUserMessage(text string) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.pendingInjected = append(e.pendingInjected, text)
+type QueuedUserMessage struct {
+	ID   string
+	Text string
 }
 
-func (e *Engine) DiscardQueuedUserMessagesMatching(text string) int {
-	needle := strings.TrimSpace(text)
-	if needle == "" {
-		return 0
+func (e *Engine) QueueUserMessage(text string) QueuedUserMessage {
+	item := QueuedUserMessage{ID: uuid.NewString(), Text: text}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.pendingInjected = append(e.pendingInjected, item)
+	return item
+}
+
+func (e *Engine) DiscardQueuedUserMessage(queueItemID string) bool {
+	id := strings.TrimSpace(queueItemID)
+	if id == "" {
+		return false
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	filtered := e.pendingInjected[:0]
-	removed := 0
+	removed := false
 	for _, pending := range e.pendingInjected {
-		if strings.TrimSpace(pending) == needle {
-			removed++
+		if pending.ID == id {
+			removed = true
 			continue
 		}
 		filtered = append(filtered, pending)

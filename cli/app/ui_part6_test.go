@@ -109,7 +109,8 @@ func TestPSOverlayInlineUnlocksLockedInputBeforeAppending(t *testing.T) {
 	m.input = "queued draft"
 	m.inputSubmitLocked = true
 	m.lockedInjectText = "queued draft"
-	m.pendingInjected = []string{"queued draft"}
+	m.lockedInjectID = "queue-test-0"
+	m.pendingInjected = queuedUserMessagesForTest("queued draft")
 	controller := uiInputController{model: m}
 	_ = controller.startProcessListFlowCmd()
 	updated := m
@@ -587,7 +588,7 @@ func TestBusyTabQueuesSlashCommandAndFlushesAfterTurn(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
-	if len(updated.queued) != 1 || updated.queued[0] != "/name queued title" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "/name queued title" {
 		t.Fatalf("expected queued slash command, got %+v", updated.queued)
 	}
 	if updated.sessionName != "" {
@@ -672,7 +673,7 @@ func TestSubmitDoneWithQueuedWorkWaitsForInFlightTranscriptCatchUp(t *testing.T)
 	m.startupCmds = nil
 	m.busy = true
 	m.activity = uiActivityRunning
-	m.queued = []string{"follow up"}
+	m.queued = queuedInputsForTest("follow up")
 	m.runtimeTranscriptBusy = true
 	m.runtimeTranscriptToken = 7
 
@@ -690,7 +691,7 @@ func TestSubmitDoneWithQueuedWorkWaitsForInFlightTranscriptCatchUp(t *testing.T)
 	if client.submitText != "" {
 		t.Fatalf("did not expect queued follow-up to start before hydration settles, got %q", client.submitText)
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "follow up" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
 		t.Fatalf("expected queued follow-up preserved until hydration finishes, got %+v", updated.queued)
 	}
 
@@ -747,9 +748,10 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 	m.windowSizeKnown = true
 	m.busy = true
 	m.activity = uiActivityRunning
-	m.pendingInjected = []string{"steered message"}
+	m.pendingInjected = queuedUserMessagesForTest("steered message")
 	m.input = "steered message"
 	m.lockedInjectText = "steered message"
+	m.lockedInjectID = "queue-test-0"
 	m.inputSubmitLocked = true
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: "user", Text: "seed"}}
 	m.transcriptRevision = 6
@@ -758,13 +760,14 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "working"})
 
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
-		Kind:                       clientui.EventUserMessageFlushed,
-		StepID:                     "step-1",
-		CommittedTranscriptChanged: true,
-		TranscriptRevision:         7,
-		CommittedEntryCount:        2,
-		UserMessage:                "steered message",
-		TranscriptEntries:          []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
+		Kind:                         clientui.EventUserMessageFlushed,
+		StepID:                       "step-1",
+		CommittedTranscriptChanged:   true,
+		TranscriptRevision:           7,
+		CommittedEntryCount:          2,
+		UserMessage:                  "steered message",
+		UserMessageBatchQueueItemIDs: []string{"queue-test-0"},
+		TranscriptEntries:            []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
 	})
 	if got := len(m.deferredCommittedTail); got != 0 {
 		t.Fatalf("expected queued user flush to stop using deferred committed tail, got %d", got)
@@ -772,7 +775,7 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 
 	m.busy = false
 	m.activity = uiActivityIdle
-	m.queued = []string{"follow up"}
+	m.queued = queuedInputsForTest("follow up")
 	m.pendingQueuedDrainAfterHydration = true
 	m.queuedDrainReadyAfterHydration = false
 	m.runtimeTranscriptBusy = true
@@ -816,7 +819,7 @@ func TestHydrationCompletionDoesNotRedrainQueuedTurnAfterManualDrainStarts(t *te
 	m.startupCmds = nil
 	m.busy = true
 	m.activity = uiActivityRunning
-	m.queued = []string{"follow up"}
+	m.queued = queuedInputsForTest("follow up")
 	m.runtimeTranscriptBusy = true
 	m.runtimeTranscriptToken = 7
 

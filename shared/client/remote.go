@@ -304,13 +304,14 @@ func (c *Remote) Interrupt(ctx context.Context, req serverapi.RuntimeInterruptRe
 	return c.callDedicated(ctx, "runtime-interrupt", protocol.MethodRuntimeInterrupt, req, nil)
 }
 
-func (c *Remote) QueueUserMessage(ctx context.Context, req serverapi.RuntimeQueueUserMessageRequest) error {
-	return c.call(ctx, protocol.MethodRuntimeQueueUserMessage, req, nil)
+func (c *Remote) QueueUserMessage(ctx context.Context, req serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error) {
+	var resp serverapi.RuntimeQueueUserMessageResponse
+	return resp, c.call(ctx, protocol.MethodRuntimeQueueUserMessage, req, &resp)
 }
 
-func (c *Remote) DiscardQueuedUserMessagesMatching(ctx context.Context, req serverapi.RuntimeDiscardQueuedUserMessagesMatchingRequest) (serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse, error) {
-	var resp serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse
-	return resp, c.call(ctx, protocol.MethodRuntimeDiscardQueuedUserMessagesMatching, req, &resp)
+func (c *Remote) DiscardQueuedUserMessage(ctx context.Context, req serverapi.RuntimeDiscardQueuedUserMessageRequest) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
+	var resp serverapi.RuntimeDiscardQueuedUserMessageResponse
+	return resp, c.call(ctx, protocol.MethodRuntimeDiscardQueuedUserMessage, req, &resp)
 }
 
 func (c *Remote) RecordPromptHistory(ctx context.Context, req serverapi.RuntimeRecordPromptHistoryRequest) error {

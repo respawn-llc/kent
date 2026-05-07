@@ -47,6 +47,7 @@ type Event struct {
 	ReasoningDelta             *llm.ReasoningSummaryDelta
 	UserMessage                string
 	UserMessageBatch           []string
+	UserMessageBatchQueueItemIDs []string
 	Message                    llm.Message
 	ModelResponse              *ModelResponseTrace
 	ToolCall                   *llm.ToolCall

@@ -189,12 +189,12 @@ func (c *leaseRetryRuntimeControlClient) Interrupt(context.Context, serverapi.Ru
 	return nil
 }
 
-func (c *leaseRetryRuntimeControlClient) QueueUserMessage(context.Context, serverapi.RuntimeQueueUserMessageRequest) error {
-	return nil
+func (c *leaseRetryRuntimeControlClient) QueueUserMessage(context.Context, serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error) {
+	return serverapi.RuntimeQueueUserMessageResponse{}, nil
 }
 
-func (c *leaseRetryRuntimeControlClient) DiscardQueuedUserMessagesMatching(context.Context, serverapi.RuntimeDiscardQueuedUserMessagesMatchingRequest) (serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse, error) {
-	return serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse{}, nil
+func (c *leaseRetryRuntimeControlClient) DiscardQueuedUserMessage(context.Context, serverapi.RuntimeDiscardQueuedUserMessageRequest) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
+	return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, nil
 }
 
 func (c *leaseRetryRuntimeControlClient) RecordPromptHistory(context.Context, serverapi.RuntimeRecordPromptHistoryRequest) error {

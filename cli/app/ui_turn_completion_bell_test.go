@@ -18,7 +18,7 @@ func TestSubmitDoneDefersTurnCompletionBellUntilQueuedTurnsFinish(t *testing.T) 
 	bells := newUnfocusedBellHooks(ringer)
 	m := newProjectedStaticUIModel(WithUITurnQueueHook(bells))
 	m.busy = true
-	m.queued = []string{"follow up"}
+	m.queued = queuedInputsForTest("follow up")
 
 	next, _ := m.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventToolCallStarted, StepID: "step-1"}})
 	updated := next.(*uiModel)
@@ -129,7 +129,7 @@ func TestQueuedFollowUpAfterNoopFinalDoesNotLeakTurnCompletionBell(t *testing.T)
 	bells := newUnfocusedBellHooks(ringer)
 	m := newProjectedStaticUIModel(WithUITurnQueueHook(bells))
 	m.busy = true
-	m.queued = []string{"follow up"}
+	m.queued = queuedInputsForTest("follow up")
 
 	next, _ := m.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventToolCallStarted, StepID: "step-1"}})
 	updated := next.(*uiModel)
@@ -383,7 +383,7 @@ func TestManualCompactRingsAfterQueuedLocalCommandDrains(t *testing.T) {
 	m.compacting = true
 	m.activity = uiActivityRunning
 	m.compactionOrigin = uiCompactionOriginManual
-	m.queued = []string{"/status"}
+	m.queued = queuedInputsForTest("/status")
 
 	next, cmd := m.Update(compactDoneMsg{})
 	updated := next.(*uiModel)
