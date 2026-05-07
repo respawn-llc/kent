@@ -175,6 +175,7 @@ func TestNewDefaultRegistryWithFilePromptsExecutesAsUserMessage(t *testing.T) {
 func TestNewDefaultRegistryWithFilePromptsUsesGlobalRootWhenWorkspaceConfigExists(t *testing.T) {
 	workspace := t.TempDir()
 	globalRoot := t.TempDir()
+	agentsRoot := t.TempDir()
 	workspaceConfigRoot := filepath.Join(workspace, ".builder")
 
 	if err := os.MkdirAll(workspaceConfigRoot, 0o755); err != nil {
@@ -183,12 +184,16 @@ func TestNewDefaultRegistryWithFilePromptsUsesGlobalRootWhenWorkspaceConfigExist
 	if err := os.WriteFile(filepath.Join(workspaceConfigRoot, "config.toml"), []byte("model = \"local\"\n"), 0o644); err != nil {
 		t.Fatalf("write workspace config: %v", err)
 	}
-	path := filepath.Join(globalRoot, "commands", "agents.md")
+	agentsCommandsRoot := filepath.Join(agentsRoot, "commands")
+	path := filepath.Join(agentsCommandsRoot, "agents.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir global commands: %v", err)
+		t.Fatalf("mkdir agents commands: %v", err)
 	}
 	if err := os.WriteFile(path, []byte("from global symlink target"), 0o644); err != nil {
 		t.Fatalf("write global command: %v", err)
+	}
+	if err := os.Symlink(agentsCommandsRoot, filepath.Join(globalRoot, "commands")); err != nil {
+		t.Fatalf("symlink global commands to agents commands: %v", err)
 	}
 
 	r, err := NewDefaultRegistryWithFilePrompts(workspace, globalRoot)
