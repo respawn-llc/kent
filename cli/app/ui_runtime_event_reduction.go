@@ -71,6 +71,27 @@ func (a uiRuntimeAdapter) applyRuntimeEventReduction(reduction clientui.RuntimeE
 	}
 }
 
+func (a uiRuntimeAdapter) reconcileInterruptFromRunState(evt clientui.Event) {
+	m := a.model
+	if m == nil || evt.Kind != clientui.EventRunStateChanged || evt.RunState == nil || evt.RunState.Busy {
+		return
+	}
+	if evt.RunState.Status != clientui.RunStatusInterrupted {
+		m.pendingInterrupt = false
+		return
+	}
+	if m.pendingInterrupt {
+		m.activeSubmit = activeSubmitState{}
+		c := uiInputController{model: m}
+		c.releaseLockedInjectedInput(true)
+		c.restorePendingInjectedIntoInput()
+		c.restoreQueuedMessagesIntoInput()
+		m.pendingInterrupt = false
+	}
+	m.activity = uiActivityInterrupted
+	m.clearReviewerState()
+}
+
 func (a uiRuntimeAdapter) effectiveRuntimeTranscriptSync(evt clientui.Event, proposed clientui.RuntimeTranscriptSyncCommand) clientui.RuntimeTranscriptSyncCommand {
 	if evt.Kind != clientui.EventConversationUpdated {
 		return proposed

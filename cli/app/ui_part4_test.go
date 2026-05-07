@@ -550,6 +550,10 @@ func TestCtrlCWhileBusyRestoresQueuedMessagesIntoInput(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated := next.(*uiModel)
+	if !updated.pendingInterrupt {
+		t.Fatal("expected ctrl+c to mark pending interrupt")
+	}
+	updated = applyInterruptedRunStateForTest(t, updated)
 
 	if updated.busy {
 		t.Fatal("expected busy=false after ctrl+c interrupt")
@@ -575,6 +579,10 @@ func TestCtrlCWhileBusyRestoresQueuedSlashCommandsIntoInput(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated := next.(*uiModel)
+	if !updated.pendingInterrupt {
+		t.Fatal("expected ctrl+c to mark pending interrupt")
+	}
+	updated = applyInterruptedRunStateForTest(t, updated)
 
 	if updated.busy {
 		t.Fatal("expected busy=false after ctrl+c interrupt")
@@ -597,6 +605,10 @@ func TestCtrlCWhileBusyRestoresMixedQueuedInputsIntoInput(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated := next.(*uiModel)
+	if !updated.pendingInterrupt {
+		t.Fatal("expected ctrl+c to mark pending interrupt")
+	}
+	updated = applyInterruptedRunStateForTest(t, updated)
 
 	if updated.input != "draft one\n\ndraft two\n\n/name queued title\n\nlater draft" {
 		t.Fatalf("expected all queued inputs restored into input, got %q", updated.input)
@@ -616,6 +628,10 @@ func TestCtrlCWhileBusyUnlocksSubmitLockedInput(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated := next.(*uiModel)
+	if !updated.pendingInterrupt {
+		t.Fatal("expected ctrl+c to mark pending interrupt")
+	}
+	updated = applyInterruptedRunStateForTest(t, updated)
 
 	if updated.inputSubmitLocked {
 		t.Fatal("expected ctrl+c to unlock input")
@@ -654,6 +670,10 @@ func TestCtrlCRestoresQueuedSteeringAndDiscardsEngineQueue(t *testing.T) {
 	updated := next.(*uiModel)
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated = next.(*uiModel)
+	if !updated.pendingInterrupt {
+		t.Fatal("expected ctrl+c to mark pending interrupt")
+	}
+	updated = applyInterruptedRunStateForTest(t, updated)
 
 	if updated.input != "restored steering" {
 		t.Fatalf("expected steering restored into input, got %q", updated.input)
@@ -775,6 +795,7 @@ func TestStaleSubmitDoneAfterInterruptDoesNotRestoreSubmittedText(t *testing.T) 
 	if updated.input != "" {
 		t.Fatalf("did not expect ctrl+c to restore active submitted text, got %q", updated.input)
 	}
+	updated = applyInterruptedRunStateForTest(t, updated)
 
 	next, _ = updated.Update(submitDoneMsg{token: 9, submittedText: "previous", err: errSubmissionInterrupted})
 	updated = next.(*uiModel)

@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"testing"
 
 	"builder/shared/clientui"
 )
@@ -28,4 +29,14 @@ func queuedInputsForTest(texts ...string) []queuedInputItem {
 		items = append(items, queuedInputItem{ID: fmt.Sprintf("input-queue-test-%d", index), Text: text})
 	}
 	return items
+}
+
+func applyInterruptedRunStateForTest(t *testing.T, m *uiModel) *uiModel {
+	t.Helper()
+	next, _ := m.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Busy: false, Status: clientui.RunStatusInterrupted}}})
+	updated, ok := next.(*uiModel)
+	if !ok {
+		t.Fatalf("updated model = %T, want *uiModel", next)
+	}
+	return updated
 }

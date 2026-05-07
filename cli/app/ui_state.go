@@ -76,6 +76,7 @@ type uiInputFeatureState struct {
 	lockedInjectText  string
 	lockedInjectID    string
 	inputSubmitLocked bool
+	pendingInterrupt  bool
 
 	modelName             string
 	configuredModelName   string

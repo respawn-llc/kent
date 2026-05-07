@@ -528,6 +528,7 @@ func TestInterruptedQueuedPromptDoesNotEnterHistoryBeforeFlush(t *testing.T) {
 
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated = next.(*uiModel)
+	updated = applyInterruptedRunStateForTest(t, updated)
 	if len(updated.promptHistory) != 0 {
 		t.Fatalf("expected interrupted queued prompt not to enter history, got %+v", updated.promptHistory)
 	}
@@ -626,6 +627,10 @@ func TestCtrlCWhileSubmitRestoresQueuedDraft(t *testing.T) {
 
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated = next.(*uiModel)
+	if !updated.busy || !updated.pendingInterrupt {
+		t.Fatal("expected ctrl+c to wait for server interrupted run state")
+	}
+	updated = applyInterruptedRunStateForTest(t, updated)
 	if updated.busy {
 		t.Fatal("expected busy=false after ctrl+c during submit")
 	}
