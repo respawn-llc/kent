@@ -42,7 +42,7 @@ func validateSubagentRoleState(state settingsState, sources map[string]string) e
 		{enabled: hasExplicitSource(sources, "shell.postprocessing_mode", "shell.postprocess_hook"), check: validateShellPostprocessing},
 		{enabled: hasExplicitSource(sources, "cache_warning_mode"), check: validateCacheWarningMode},
 		{enabled: hasExplicitSource(sources, "compaction_mode"), check: validateCompactionMode},
-		{enabled: hasExplicitPrefix(sources, "reviewer."), check: validateReviewer},
+		{enabled: hasExplicitPrefix(sources, "reviewer."), check: validateSubagentReviewer},
 	}
 	for _, check := range checks {
 		if !check.enabled {
@@ -323,7 +323,19 @@ func validateCompactionMode(state settingsState, _ map[string]string) error {
 	}
 }
 
+type reviewerValidationOptions struct {
+	AllowAnonymousAuthWithoutBaseURL bool
+}
+
 func validateReviewer(state settingsState, sources map[string]string) error {
+	return validateReviewerWithOptions(state, sources, reviewerValidationOptions{})
+}
+
+func validateSubagentReviewer(state settingsState, sources map[string]string) error {
+	return validateReviewerWithOptions(state, sources, reviewerValidationOptions{AllowAnonymousAuthWithoutBaseURL: true})
+}
+
+func validateReviewerWithOptions(state settingsState, sources map[string]string, opts reviewerValidationOptions) error {
 	reviewer := state.Settings.Reviewer
 	switch strings.ToLower(strings.TrimSpace(reviewer.Frequency)) {
 	case "off", "all", "edits":
@@ -359,6 +371,9 @@ func validateReviewer(state settingsState, sources map[string]string) error {
 	case "inherit":
 	case "none":
 		if !reviewerAllowsAnonymousAuth(reviewer) {
+			if opts.AllowAnonymousAuthWithoutBaseURL && strings.TrimSpace(reviewer.OpenAIBaseURL) == "" {
+				break
+			}
 			return fmt.Errorf("reviewer.auth %q requires reviewer.openai_base_url or inherited openai_base_url to be set and not point at api.openai.com", reviewer.Auth)
 		}
 	default:

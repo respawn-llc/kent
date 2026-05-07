@@ -610,6 +610,63 @@ func TestLoadSubagentRoleRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestLoadSubagentRoleAllowsReviewerAuthNoneToInheritParentBaseURL(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	contents := strings.Join([]string{
+		"model = \"gpt-5.5\"",
+		"openai_base_url = \"http://127.0.0.1:8080/v1\"",
+		"",
+		"[subagents.fast.reviewer]",
+		"auth = \"none\"",
+	}, "\n")
+	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	role := cfg.Settings.Subagents[BuiltInSubagentRoleFast]
+	if role.Settings.Reviewer.Auth != "none" {
+		t.Fatalf("expected subagent reviewer.auth=none, got %q", role.Settings.Reviewer.Auth)
+	}
+}
+
+func TestLoadSubagentRoleRejectsReviewerAuthNoneWithExplicitFirstPartyBaseURL(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	contents := strings.Join([]string{
+		"model = \"gpt-5.5\"",
+		"",
+		"[subagents.fast.reviewer]",
+		"auth = \"none\"",
+		"openai_base_url = \"https://api.openai.com/v1\"",
+	}, "\n")
+	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(workspace, LoadOptions{})
+	if err == nil {
+		t.Fatal("expected explicit first-party reviewer base URL in subagent role to fail")
+	}
+	if !strings.Contains(err.Error(), "api.openai.com") {
+		t.Fatalf("expected api.openai.com guard error, got %v", err)
+	}
+}
+
 func TestLoadSubagentRoleRejectsPersistenceRoot(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
