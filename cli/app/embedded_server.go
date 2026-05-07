@@ -364,10 +364,8 @@ func prepareSharedRuntime(ctx context.Context, server embeddedServer, plan sessi
 		}
 		return strings.TrimSpace(plan.SessionName)
 	}, terminalFocus.FocusedForAttention)
-	askEvents, stopAskEvents := startPendingPromptEvents(ctx, promptSub, func(ctx context.Context) (serverapi.PromptActivitySubscription, error) {
-		return server.PromptActivityClient().SubscribePromptActivity(ctx, serverapi.PromptActivitySubscribeRequest{SessionID: plan.SessionID})
-	}, func(ctx context.Context) (map[string]struct{}, error) {
-		return listPendingPromptIDs(ctx, plan.SessionID, server.AskViewClient(), server.ApprovalViewClient())
+	askEvents, stopAskEvents := startPendingPromptEvents(ctx, promptSub, func(ctx context.Context, afterSequence uint64) (serverapi.PromptActivitySubscription, error) {
+		return server.PromptActivityClient().SubscribePromptActivity(ctx, serverapi.PromptActivitySubscribeRequest{SessionID: plan.SessionID, AfterSequence: afterSequence})
 	}, server.PromptControlClient(), leaseManager, turnQueueHook.OnAsk)
 	wiring := &runtimeWiring{
 		runtimeEvents:         runtimeEvents,
@@ -411,29 +409,6 @@ func releaseSharedRuntime(client serverapi.SessionRuntimeService, sessionID stri
 	ctx, cancel := context.WithTimeout(context.Background(), runtimeReleaseTimeout)
 	defer cancel()
 	_, _ = client.ReleaseSessionRuntime(ctx, serverapi.SessionRuntimeReleaseRequest{ClientRequestID: uuid.NewString(), SessionID: sessionID, LeaseID: leaseID})
-}
-
-func listPendingPromptIDs(ctx context.Context, sessionID string, askViews client.AskViewClient, approvalViews client.ApprovalViewClient) (map[string]struct{}, error) {
-	ids := make(map[string]struct{})
-	if askViews != nil {
-		resp, err := askViews.ListPendingAsksBySession(ctx, serverapi.AskListPendingBySessionRequest{SessionID: sessionID})
-		if err != nil {
-			return nil, err
-		}
-		for _, ask := range resp.Asks {
-			ids[ask.AskID] = struct{}{}
-		}
-	}
-	if approvalViews != nil {
-		resp, err := approvalViews.ListPendingApprovalsBySession(ctx, serverapi.ApprovalListPendingBySessionRequest{SessionID: sessionID})
-		if err != nil {
-			return nil, err
-		}
-		for _, approval := range resp.Approvals {
-			ids[approval.ApprovalID] = struct{}{}
-		}
-	}
-	return ids, nil
 }
 
 func (s *embeddedAppServer) Reauthenticate(ctx context.Context, interactor authInteractor) error {

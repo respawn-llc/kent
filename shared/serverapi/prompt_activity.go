@@ -7,7 +7,8 @@ import (
 )
 
 type PromptActivitySubscribeRequest struct {
-	SessionID string
+	SessionID     string
+	AfterSequence uint64
 }
 
 type PromptActivitySubscription interface {

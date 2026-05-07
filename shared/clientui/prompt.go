@@ -7,9 +7,11 @@ type PendingPromptEventType string
 const (
 	PendingPromptEventPending  PendingPromptEventType = "pending"
 	PendingPromptEventResolved PendingPromptEventType = "resolved"
+	PendingPromptEventSnapshot PendingPromptEventType = "snapshot_complete"
 )
 
 type PendingPromptEvent struct {
+	Sequence               uint64
 	Type                   PendingPromptEventType
 	PromptID               string
 	SessionID              string

@@ -288,6 +288,13 @@ func TestRuntimeRegistrySubscribePromptActivityReplaysAllPendingPromptsBeyondBuf
 			t.Fatalf("event %d = %+v, want pending %q", i, evt, wantID)
 		}
 	}
+	evt, err := sub.Next(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot complete: %v", err)
+	}
+	if evt.Type != clientui.PendingPromptEventSnapshot {
+		t.Fatalf("expected snapshot completion event, got %+v", evt)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	if _, err := sub.Next(ctx); !errors.Is(err, context.DeadlineExceeded) {

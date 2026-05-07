@@ -168,16 +168,6 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 
 	waitForPendingAskResources(t, server.AskViewClient(), plan.SessionID, 1)
 	waitForPendingApprovalResources(t, server.ApprovalViewClient(), plan.SessionID, 1)
-	ids, err := listPendingPromptIDs(context.Background(), plan.SessionID, server.AskViewClient(), server.ApprovalViewClient())
-	if err != nil {
-		t.Fatalf("listPendingPromptIDs: %v", err)
-	}
-	if _, ok := ids["ask-remote-1"]; !ok {
-		t.Fatalf("pending prompt snapshot missing ask id: %+v", ids)
-	}
-	if _, ok := ids["approval-remote-1"]; !ok {
-		t.Fatalf("pending prompt snapshot missing approval id: %+v", ids)
-	}
 
 	first := waitForRemoteAskEvent(t, runtimePlan.Wiring.askEvents)
 	second := waitForRemoteAskEvent(t, runtimePlan.Wiring.askEvents)
@@ -209,13 +199,8 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 		t.Fatal("timed out waiting for remote approval response")
 	}
 
-	ids, err = listPendingPromptIDs(context.Background(), plan.SessionID, server.AskViewClient(), server.ApprovalViewClient())
-	if err != nil {
-		t.Fatalf("listPendingPromptIDs after resolution: %v", err)
-	}
-	if len(ids) != 0 {
-		t.Fatalf("expected no pending prompt ids after resolution, got %+v", ids)
-	}
+	waitForPendingAskResources(t, server.AskViewClient(), plan.SessionID, 0)
+	waitForPendingApprovalResources(t, server.ApprovalViewClient(), plan.SessionID, 0)
 
 	cancel()
 	if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {

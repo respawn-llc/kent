@@ -781,6 +781,20 @@ func TestGatewayPromptActivitySubscriptionStreamsPendingResolvedAndCompletion(t 
 		t.Fatalf("unexpected pending prompt event: %+v", pending.Event)
 	}
 
+	if err := websocket.JSON.Receive(conn, &notif); err != nil {
+		t.Fatalf("receive prompt snapshot complete: %v", err)
+	}
+	if notif.Method != protocol.MethodPromptActivityEvent {
+		t.Fatalf("snapshot prompt method = %q", notif.Method)
+	}
+	var snapshot protocol.PromptActivityEventParams
+	if err := json.Unmarshal(notif.Params, &snapshot); err != nil {
+		t.Fatalf("decode prompt snapshot: %v", err)
+	}
+	if snapshot.Event.Type != clientui.PendingPromptEventSnapshot {
+		t.Fatalf("unexpected prompt snapshot event: %+v", snapshot.Event)
+	}
+
 	appCore.CompletePendingPrompt(store.Meta().SessionID, "ask-1")
 	if err := websocket.JSON.Receive(conn, &notif); err != nil {
 		t.Fatalf("receive prompt resolved: %v", err)
