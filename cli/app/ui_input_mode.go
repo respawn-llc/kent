@@ -57,6 +57,7 @@ type uiRollbackState struct {
 	candidates                []rollbackCandidate
 	selection                 int
 	selectedTranscriptEntry   int
+	selectedTargetID          string
 	pendingSelectionAnchor    int
 	pendingSelectionDelta     int
 	restoreOngoingScroll      int

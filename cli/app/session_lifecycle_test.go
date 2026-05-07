@@ -8,6 +8,7 @@ import (
 	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/config"
+	"builder/shared/rollbacktarget"
 	"builder/shared/serverapi"
 	"builder/shared/toolspec"
 	"context"
@@ -856,7 +857,7 @@ func TestResolveSessionActionForkRollbackTeleportsToForkWithPrompt(t *testing.T)
 		nil,
 		store.Meta().SessionID,
 		"lease-test-controller",
-		UITransition{Action: UIActionForkRollback, InitialPrompt: "edited user message", ForkUserMessageIndex: 1},
+		UITransition{Action: UIActionForkRollback, InitialPrompt: "edited user message", ForkRollbackTargetID: rollbacktarget.EncodeUserMessageIndex(1)},
 	)
 	if err != nil {
 		t.Fatalf("resolve session action: %v", err)

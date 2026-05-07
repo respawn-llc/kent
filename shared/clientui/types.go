@@ -103,6 +103,7 @@ type BackgroundShellEvent struct {
 
 type ChatEntry struct {
 	Visibility        EntryVisibility
+	RollbackTargetID  string
 	Role              string
 	Text              string
 	OngoingText       string

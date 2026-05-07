@@ -14,6 +14,7 @@ import (
 
 type ChatEntry struct {
 	Visibility        transcript.EntryVisibility
+	RollbackTargetID  string
 	Role              string
 	Text              string
 	OngoingText       string

@@ -123,15 +123,14 @@ type uiConversationFeatureState struct {
 }
 
 type uiSessionTransitionFeatureState struct {
-	exitAction                   UIAction
-	nextSessionInitialPrompt     string
-	nextSessionInitialInput      string
-	nextSessionID                string
-	nextForkUserMessageIndex     int
-	nextForkTranscriptEntryIndex int
-	nextParentSessionID          string
-	sessionName                  string
-	sessionID                    string
+	exitAction               UIAction
+	nextSessionInitialPrompt string
+	nextSessionInitialInput  string
+	nextSessionID            string
+	nextForkRollbackTargetID string
+	nextParentSessionID      string
+	sessionName              string
+	sessionID                string
 }
 
 type uiStatusFeatureState struct {

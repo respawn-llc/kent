@@ -26,6 +26,7 @@ var patchCountTokenPattern = regexp.MustCompile(`([+-]\d+)\b`)
 
 type TranscriptEntry struct {
 	Visibility        transcript.EntryVisibility
+	RollbackTargetID  string
 	Transient         bool
 	Committed         bool
 	Role              TranscriptRole

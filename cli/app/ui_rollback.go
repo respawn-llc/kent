@@ -3,6 +3,7 @@ package app
 import (
 	"builder/cli/tui"
 	"builder/shared/clientui"
+	"builder/shared/rollbacktarget"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -16,9 +17,17 @@ func (m *uiModel) refreshRollbackCandidates() {
 		if entry.Role != tui.TranscriptRoleUser {
 			continue
 		}
+		targetID := entry.RollbackTargetID
+		if targetID == "" && !m.hasRuntimeClient() {
+			targetID = rollbacktarget.EncodeUserMessageIndex(baseOffset + idx + 1)
+		}
+		if targetID == "" {
+			continue
+		}
 		candidates = append(candidates, rollbackCandidate{
-			TranscriptIndex: baseOffset + idx,
-			Text:            entry.Text,
+			TranscriptIndex:  baseOffset + idx,
+			RollbackTargetID: targetID,
+			Text:             entry.Text,
 		})
 	}
 	m.rollback.candidates = candidates
@@ -27,6 +36,7 @@ func (m *uiModel) refreshRollbackCandidates() {
 		m.rollback.phase = uiRollbackPhaseInactive
 		m.rollback.restoreTranscriptMode = ""
 		m.rollback.selectedTranscriptEntry = -1
+		m.rollback.selectedTargetID = ""
 		m.rollback.pendingSelectionAnchor = -1
 		m.rollback.pendingSelectionDelta = 0
 		m.clearRollbackSelectionHighlight()
@@ -100,6 +110,7 @@ func (m *uiModel) startRollbackSelectionMode() bool {
 	}
 	m.rollback.phase = uiRollbackPhaseSelection
 	m.rollback.selectedTranscriptEntry = -1
+	m.rollback.selectedTargetID = ""
 	m.rollback.pendingSelectionAnchor = -1
 	m.rollback.pendingSelectionDelta = 0
 	m.setInputMode(uiInputModeRollbackSelection)
@@ -183,6 +194,7 @@ func (m *uiModel) beginRollbackEditing() (int, bool) {
 	}
 	selected := m.rollback.candidates[m.rollback.selection]
 	m.rollback.selectedTranscriptEntry = selected.TranscriptIndex
+	m.rollback.selectedTargetID = selected.RollbackTargetID
 	m.rollback.phase = uiRollbackPhaseEditing
 	m.setInputMode(uiInputModeRollbackEdit)
 	m.replaceMainInput(selected.Text, -1)
@@ -212,6 +224,7 @@ func (m *uiModel) clearRollbackFlow() {
 	m.rollback.suppressedAlternateScroll = false
 	m.rollback.restoreTranscriptMode = ""
 	m.rollback.selectedTranscriptEntry = -1
+	m.rollback.selectedTargetID = ""
 	m.rollback.pendingSelectionAnchor = -1
 	m.rollback.pendingSelectionDelta = 0
 	m.rollback.restoreScrollActive = false

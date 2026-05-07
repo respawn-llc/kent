@@ -1,5 +1,7 @@
 package app
 
+import "builder/shared/rollbacktarget"
+
 func testActiveAsk(m *uiModel) *askEvent {
 	if m == nil {
 		return nil
@@ -104,6 +106,7 @@ func testSetRollbackSelecting(m *uiModel, selection int, selectedTranscriptEntry
 	m.rollback.phase = uiRollbackPhaseSelection
 	m.rollback.selection = selection
 	m.rollback.selectedTranscriptEntry = selectedTranscriptEntry
+	m.rollback.selectedTargetID = rollbackTargetIDForTestSelection(selectedTranscriptEntry)
 	m.setInputMode(uiInputModeRollbackSelection)
 }
 
@@ -114,7 +117,15 @@ func testSetRollbackEditing(m *uiModel, selection int, selectedTranscriptEntry i
 	m.rollback.phase = uiRollbackPhaseEditing
 	m.rollback.selection = selection
 	m.rollback.selectedTranscriptEntry = selectedTranscriptEntry
+	m.rollback.selectedTargetID = rollbackTargetIDForTestSelection(selectedTranscriptEntry)
 	m.setInputMode(uiInputModeRollbackEdit)
+}
+
+func rollbackTargetIDForTestSelection(selectedTranscriptEntry int) string {
+	if selectedTranscriptEntry < 0 {
+		return ""
+	}
+	return rollbacktarget.EncodeUserMessageIndex(selectedTranscriptEntry + 1)
 }
 
 func testRollbackSelection(m *uiModel) int {

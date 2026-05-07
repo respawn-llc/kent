@@ -858,11 +858,8 @@ func TestRollbackEditingSubmitQuitsIntoForkTransition(t *testing.T) {
 	if updated.exitAction != UIActionForkRollback {
 		t.Fatalf("expected fork rollback action, got %q", updated.exitAction)
 	}
-	if updated.nextForkTranscriptEntryIndex != 3 {
-		t.Fatalf("expected rollback transcript entry index, got %d", updated.nextForkTranscriptEntryIndex)
-	}
-	if updated.nextForkUserMessageIndex != 0 {
-		t.Fatalf("expected user message index translation deferred to server, got %d", updated.nextForkUserMessageIndex)
+	if updated.nextForkRollbackTargetID != rollbackTargetIDForTestSelection(3) {
+		t.Fatalf("expected rollback target id, got %q", updated.nextForkRollbackTargetID)
 	}
 	if updated.nextSessionInitialPrompt != "edited user message" {
 		t.Fatalf("expected startup prompt to match edited input, got %q", updated.nextSessionInitialPrompt)

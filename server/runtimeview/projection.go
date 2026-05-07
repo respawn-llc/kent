@@ -179,6 +179,7 @@ func chatEntriesFromRuntime(entries []runtime.ChatEntry) []clientui.ChatEntry {
 	for _, entry := range entries {
 		out = append(out, clientui.ChatEntry{
 			Visibility:        clientui.EntryVisibility(entry.Visibility),
+			RollbackTargetID:  entry.RollbackTargetID,
 			Role:              entry.Role,
 			Text:              entry.Text,
 			OngoingText:       entry.OngoingText,
@@ -231,6 +232,7 @@ func ChatSnapshotFromRuntime(snapshot runtime.ChatSnapshot) clientui.ChatSnapsho
 		}
 		entries = append(entries, clientui.ChatEntry{
 			Visibility:        clientui.EntryVisibility(entry.Visibility),
+			RollbackTargetID:  entry.RollbackTargetID,
 			Role:              entry.Role,
 			Text:              entry.Text,
 			OngoingText:       entry.OngoingText,

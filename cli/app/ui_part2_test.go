@@ -58,8 +58,8 @@ func TestRollbackSelectionUsesAbsoluteTranscriptEntryIndexWhenPaged(t *testing.T
 	updated.input = "edited paged user message"
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
-	if updated.nextForkTranscriptEntryIndex != 202 {
-		t.Fatalf("expected absolute rollback transcript entry index, got %d", updated.nextForkTranscriptEntryIndex)
+	if updated.nextForkRollbackTargetID != rollbackTargetIDForTestSelection(202) {
+		t.Fatalf("expected rollback target id, got %q", updated.nextForkRollbackTargetID)
 	}
 }
 

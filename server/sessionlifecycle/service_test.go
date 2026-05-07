@@ -2,7 +2,6 @@ package sessionlifecycle
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,11 +16,9 @@ import (
 	"builder/server/session"
 	sessionruntime "builder/server/sessionruntime"
 	"builder/shared/config"
+	"builder/shared/rollbacktarget"
 	"builder/shared/serverapi"
-	"builder/shared/toolspec"
 )
-
-func testIntPtr(v int) *int { return &v }
 
 const testControllerLeaseID = "lease-test-controller"
 
@@ -332,7 +329,7 @@ func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
 		Transition: serverapi.SessionTransition{
 			Action:               "fork_rollback",
 			InitialPrompt:        "edited prompt",
-			ForkUserMessageIndex: 2,
+			ForkRollbackTargetID: rollbacktarget.EncodeUserMessageIndex(2),
 		},
 	})
 	if err != nil {
@@ -352,7 +349,7 @@ func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
 	}
 }
 
-func TestServiceResolveTransitionForkRollbackResolvesTranscriptEntryIndex(t *testing.T) {
+func TestServiceResolveTransitionForkRollbackUsesTargetToken(t *testing.T) {
 	root, containerDir, store := createPersistedSession(t)
 	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
 		t.Fatalf("append user message: %v", err)
@@ -373,9 +370,9 @@ func TestServiceResolveTransitionForkRollbackResolvesTranscriptEntryIndex(t *tes
 		SessionID:         store.Meta().SessionID,
 		ControllerLeaseID: testControllerLeaseID,
 		Transition: serverapi.SessionTransition{
-			Action:                   "fork_rollback",
-			InitialPrompt:            "edited prompt",
-			ForkTranscriptEntryIndex: testIntPtr(2),
+			Action:               "fork_rollback",
+			InitialPrompt:        "edited prompt",
+			ForkRollbackTargetID: rollbacktarget.EncodeUserMessageIndex(2),
 		},
 	})
 	if err != nil {
@@ -431,7 +428,7 @@ func TestServiceResolveTransitionForkRollbackPreservesExecutionTarget(t *testing
 		Transition: serverapi.SessionTransition{
 			Action:               "fork_rollback",
 			InitialPrompt:        "edited prompt",
-			ForkUserMessageIndex: 2,
+			ForkRollbackTargetID: rollbacktarget.EncodeUserMessageIndex(2),
 		},
 	})
 	if err != nil {
@@ -502,7 +499,7 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 		Transition: serverapi.SessionTransition{
 			Action:               "fork_rollback",
 			InitialPrompt:        "edited prompt",
-			ForkUserMessageIndex: 2,
+			ForkRollbackTargetID: rollbacktarget.EncodeUserMessageIndex(2),
 		},
 	})
 	if err != nil {
@@ -547,37 +544,7 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 	}
 }
 
-func TestResolveForkUserMessageIndexFromTranscriptEntryStopsBeforeBrokenTail(t *testing.T) {
-	_, _, store := createPersistedSession(t)
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
-		t.Fatalf("append user message: %v", err)
-	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "a1"}); err != nil {
-		t.Fatalf("append assistant message: %v", err)
-	}
-	if _, err := store.AppendEvent("step-2", "message", llm.Message{Role: llm.RoleUser, Content: "u2"}); err != nil {
-		t.Fatalf("append second user message: %v", err)
-	}
-	eventsPath := filepath.Join(store.Dir(), "events.jsonl")
-	fp, err := os.OpenFile(eventsPath, os.O_APPEND|os.O_WRONLY, 0)
-	if err != nil {
-		t.Fatalf("open events file: %v", err)
-	}
-	defer fp.Close()
-	if _, err := fp.WriteString("{broken json}\n"); err != nil {
-		t.Fatalf("append malformed tail: %v", err)
-	}
-
-	got, err := resolveForkUserMessageIndexFromTranscriptEntry(context.Background(), store, 2)
-	if err != nil {
-		t.Fatalf("resolveForkUserMessageIndexFromTranscriptEntry: %v", err)
-	}
-	if got != 2 {
-		t.Fatalf("user message index = %d, want 2", got)
-	}
-}
-
-func TestServiceResolveTransitionForkRollbackRejectsNonUserTranscriptEntryIndex(t *testing.T) {
+func TestServiceResolveTransitionForkRollbackRejectsInvalidTargetToken(t *testing.T) {
 	_, containerDir, store := createPersistedSession(t)
 	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
 		t.Fatalf("append user message: %v", err)
@@ -592,54 +559,12 @@ func TestServiceResolveTransitionForkRollbackRejectsNonUserTranscriptEntryIndex(
 		SessionID:         store.Meta().SessionID,
 		ControllerLeaseID: testControllerLeaseID,
 		Transition: serverapi.SessionTransition{
-			Action:                   "fork_rollback",
-			ForkTranscriptEntryIndex: testIntPtr(1),
+			Action:               "fork_rollback",
+			ForkRollbackTargetID: "not-valid",
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "is not a user message") {
-		t.Fatalf("expected non-user transcript entry rejection, got %v", err)
-	}
-}
-
-func TestResolveForkUserMessageIndexFromTranscriptEntryIgnoresToolCompletedOrdinalDrift(t *testing.T) {
-	_, _, store := createPersistedSession(t)
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
-		t.Fatalf("append first user message: %v", err)
-	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{
-		Role: llm.RoleAssistant,
-		ToolCalls: []llm.ToolCall{{
-			ID:    "call-1",
-			Name:  string(toolspec.ToolExecCommand),
-			Input: json.RawMessage(`{"command":"pwd"}`),
-		}},
-	}); err != nil {
-		t.Fatalf("append assistant tool call: %v", err)
-	}
-	if _, err := store.AppendEvent("step-1", "tool_completed", map[string]any{
-		"call_id":  "call-1",
-		"name":     string(toolspec.ToolExecCommand),
-		"is_error": false,
-		"output":   json.RawMessage(`{"output":"/tmp","exit_code":0,"truncated":false}`),
-	}); err != nil {
-		t.Fatalf("append tool_completed: %v", err)
-	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleTool, ToolCallID: "call-1", Name: string(toolspec.ToolExecCommand)}); err != nil {
-		t.Fatalf("append tool message: %v", err)
-	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal}); err != nil {
-		t.Fatalf("append assistant final: %v", err)
-	}
-	if _, err := store.AppendEvent("step-2", "message", llm.Message{Role: llm.RoleUser, Content: "u2"}); err != nil {
-		t.Fatalf("append second user message: %v", err)
-	}
-
-	got, err := resolveForkUserMessageIndexFromTranscriptEntry(context.Background(), store, 4)
-	if err != nil {
-		t.Fatalf("resolveForkUserMessageIndexFromTranscriptEntry: %v", err)
-	}
-	if got != 2 {
-		t.Fatalf("user message index = %d, want 2", got)
+	if err == nil || !strings.Contains(err.Error(), "invalid rollback target id") {
+		t.Fatalf("expected invalid target token rejection, got %v", err)
 	}
 }
 

@@ -255,19 +255,19 @@ type UIOption func(*uiModel)
 type UIAction = serverapi.SessionTransitionAction
 
 type UITranscriptEntry struct {
-	Role string
-	Text string
+	Role             string
+	Text             string
+	RollbackTargetID string
 }
 
 type UITransition struct {
-	Action                   serverapi.SessionTransitionAction
-	Exit                     bool
-	InitialPrompt            string
-	InitialInput             string
-	TargetSessionID          string
-	ForkUserMessageIndex     int
-	ForkTranscriptEntryIndex int
-	ParentSessionID          string
+	Action               serverapi.SessionTransitionAction
+	Exit                 bool
+	InitialPrompt        string
+	InitialInput         string
+	TargetSessionID      string
+	ForkRollbackTargetID string
+	ParentSessionID      string
 }
 
 const (
@@ -496,8 +496,9 @@ func (m *uiModel) invalidateNativeResizeReplay() {
 }
 
 type rollbackCandidate struct {
-	TranscriptIndex int
-	Text            string
+	TranscriptIndex  int
+	RollbackTargetID string
+	Text             string
 }
 
 func newUIModelDefaults(runtimeClient clientui.RuntimeClient, runtimeEvents <-chan clientui.Event, askEvents <-chan askEvent) *uiModel {
@@ -551,8 +552,7 @@ func newUIConversationFeatureState() uiConversationFeatureState {
 
 func newUISessionTransitionFeatureState() uiSessionTransitionFeatureState {
 	return uiSessionTransitionFeatureState{
-		exitAction:                   UIActionNone,
-		nextForkTranscriptEntryIndex: -1,
+		exitAction: UIActionNone,
 	}
 }
 
@@ -621,7 +621,7 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, runtimeEvents <-c
 				continue
 			}
 			role := tui.TranscriptRoleFromWire(entry.Role)
-			m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{Role: role, Text: entry.Text})
+			m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{Role: role, Text: entry.Text, RollbackTargetID: entry.RollbackTargetID})
 			m.forwardToView(tui.AppendTranscriptMsg{Role: role, Text: entry.Text})
 		}
 		m.transcriptBaseOffset = 0
@@ -915,13 +915,12 @@ func (m *uiModel) Transition() UITransition {
 		}
 	}
 	return UITransition{
-		Action:                   m.exitAction,
-		InitialPrompt:            m.nextSessionInitialPrompt,
-		InitialInput:             m.nextSessionInitialInput,
-		TargetSessionID:          strings.TrimSpace(m.nextSessionID),
-		ForkUserMessageIndex:     m.nextForkUserMessageIndex,
-		ForkTranscriptEntryIndex: m.nextForkTranscriptEntryIndex,
-		ParentSessionID:          strings.TrimSpace(m.nextParentSessionID),
+		Action:               m.exitAction,
+		InitialPrompt:        m.nextSessionInitialPrompt,
+		InitialInput:         m.nextSessionInitialInput,
+		TargetSessionID:      strings.TrimSpace(m.nextSessionID),
+		ForkRollbackTargetID: m.nextForkRollbackTargetID,
+		ParentSessionID:      strings.TrimSpace(m.nextParentSessionID),
 	}
 }
 

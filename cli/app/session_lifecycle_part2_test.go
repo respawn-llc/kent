@@ -7,6 +7,7 @@ import (
 	"builder/server/session"
 	"builder/server/tools"
 	"builder/shared/config"
+	"builder/shared/rollbacktarget"
 	"context"
 	tea "github.com/charmbracelet/bubbletea"
 	"path/filepath"
@@ -141,7 +142,7 @@ func TestForkRollbackNativeStartupReplayUsesForkedHistory(t *testing.T) {
 		nil,
 		store.Meta().SessionID,
 		"lease-test-controller",
-		UITransition{Action: UIActionForkRollback, InitialPrompt: "edited user message", ForkUserMessageIndex: 2},
+		UITransition{Action: UIActionForkRollback, InitialPrompt: "edited user message", ForkRollbackTargetID: rollbacktarget.EncodeUserMessageIndex(2)},
 	)
 	if err != nil {
 		t.Fatalf("resolve session action: %v", err)

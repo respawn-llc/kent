@@ -557,8 +557,8 @@ func TestRollbackSelectionInDetailUsesPagedDetailWindow(t *testing.T) {
 	if !testRollbackEditing(m) || m.input != "older user two\nfull second line\nfull third line\nfull fourth line" {
 		t.Fatalf("expected enter to start editing selected detail user, editing=%t input=%q", testRollbackEditing(m), m.input)
 	}
-	if m.nextForkTranscriptEntryIndex != -1 {
-		t.Fatalf("did not expect fork before edit submission, got %d", m.nextForkTranscriptEntryIndex)
+	if m.nextForkRollbackTargetID != "" {
+		t.Fatalf("did not expect fork before edit submission, got %q", m.nextForkRollbackTargetID)
 	}
 
 	m.input = "edited older user"
@@ -607,8 +607,8 @@ func TestRollbackForkSubmissionUsesPagedDetailAbsoluteIndex(t *testing.T) {
 	if updated.exitAction != UIActionForkRollback {
 		t.Fatalf("expected fork rollback action, got %q", updated.exitAction)
 	}
-	if updated.nextForkTranscriptEntryIndex != 42 {
-		t.Fatalf("expected absolute paged transcript entry index 42, got %d", updated.nextForkTranscriptEntryIndex)
+	if updated.nextForkRollbackTargetID == "" {
+		t.Fatal("expected rollback target id")
 	}
 	if updated.nextSessionInitialPrompt != "edited second paged user" {
 		t.Fatalf("expected edited prompt to be used for fork, got %q", updated.nextSessionInitialPrompt)
@@ -620,8 +620,8 @@ func TestRollbackSelectionPagesBeforeCompactionTail(t *testing.T) {
 	for idx := range olderEntries {
 		olderEntries[idx] = clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("older answer %03d", idx)}
 	}
-	olderEntries[0] = clientui.ChatEntry{Role: "user", Text: "first ever user"}
-	olderEntries[98] = clientui.ChatEntry{Role: "user", Text: "pre-compaction user"}
+	olderEntries[0] = clientui.ChatEntry{Role: "user", Text: "first ever user", RollbackTargetID: rollbackTargetIDForTestSelection(0)}
+	olderEntries[98] = clientui.ChatEntry{Role: "user", Text: "pre-compaction user", RollbackTargetID: rollbackTargetIDForTestSelection(98)}
 	client := &recordingTranscriptRuntimeClient{
 		loadPage: clientui.TranscriptPage{
 			SessionID:    "session-1",
@@ -638,8 +638,8 @@ func TestRollbackSelectionPagesBeforeCompactionTail(t *testing.T) {
 	for idx := range tailEntries {
 		tailEntries[idx] = clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("post-compaction answer %03d", idx)}
 	}
-	tailEntries[0] = clientui.ChatEntry{Role: "user", Text: "post-compaction user"}
-	tailEntries[58] = clientui.ChatEntry{Role: "user", Text: "tail user"}
+	tailEntries[0] = clientui.ChatEntry{Role: "user", Text: "post-compaction user", RollbackTargetID: rollbackTargetIDForTestSelection(100)}
+	tailEntries[58] = clientui.ChatEntry{Role: "user", Text: "tail user", RollbackTargetID: rollbackTargetIDForTestSelection(158)}
 	detailPage := clientui.TranscriptPage{
 		SessionID:    "session-1",
 		Offset:       100,
@@ -724,7 +724,7 @@ func (c *pagedRollbackRuntimeClient) LoadTranscriptPage(req clientui.TranscriptP
 		entries[idx] = clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("answer %04d", absolute)}
 	}
 	if len(entries) > 0 {
-		entries[0] = clientui.ChatEntry{Role: "user", Text: fmt.Sprintf("user %04d", req.Offset)}
+		entries[0] = clientui.ChatEntry{Role: "user", Text: fmt.Sprintf("user %04d", req.Offset), RollbackTargetID: rollbackTargetIDForTestSelection(req.Offset)}
 	}
 	return clientui.TranscriptPage{
 		SessionID:    "session-1",
@@ -745,8 +745,8 @@ func TestRollbackSelectionPagesToFirstUserAcrossTrimmedDetailWindow(t *testing.T
 		absolute := 1250 + idx
 		tailEntries[idx] = clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("tail answer %04d", absolute)}
 	}
-	tailEntries[0] = clientui.ChatEntry{Role: "user", Text: "user 1250"}
-	tailEntries[250] = clientui.ChatEntry{Role: "user", Text: "user 1500"}
+	tailEntries[0] = clientui.ChatEntry{Role: "user", Text: "user 1250", RollbackTargetID: rollbackTargetIDForTestSelection(1250)}
+	tailEntries[250] = clientui.ChatEntry{Role: "user", Text: "user 1500", RollbackTargetID: rollbackTargetIDForTestSelection(1500)}
 	detailPage := clientui.TranscriptPage{
 		SessionID:    "session-1",
 		Offset:       1250,
