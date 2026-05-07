@@ -435,7 +435,6 @@ func (s *Core) sessionLaunchClientForProjectContext(projectCtx projectContext) c
 		Config:       projectCtx.config,
 		ContainerDir: projectCtx.projectSession,
 		ProjectID:    projectCtx.projectID,
-		ProjectViews: s.projectViews,
 		StoreOptions: s.metadataStore.AuthoritativeSessionStoreOptions(),
 		ReloadConfig: func() (config.App, error) {
 			return s.configForWorkspace(projectCtx.projectRoot)

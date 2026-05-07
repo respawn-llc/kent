@@ -15,7 +15,6 @@ import (
 	"builder/server/metadata"
 	"builder/server/session"
 	"builder/server/sessionpath"
-	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/config"
 	"builder/shared/serverapi"
@@ -47,19 +46,9 @@ type Planner struct {
 	Config              config.App
 	ContainerDir        string
 	ProjectID           string
-	ProjectViews        client.ProjectViewClient
-	PickSession         SessionPicker
 	StoreOptions        []session.StoreOption
 	ReloadConfig        func() (config.App, error)
 	MetadataStoreOpener MetadataExecutionTargetStoreOpener
-}
-
-type SessionPicker func([]session.Summary) (SessionSelection, error)
-
-type SessionSelection struct {
-	Session   *session.Summary
-	CreateNew bool
-	Canceled  bool
 }
 
 type SessionRequest struct {
@@ -284,42 +273,7 @@ func (p Planner) openStore(ctx context.Context, req SessionRequest) (*session.St
 	if req.ForceNewSession || req.Mode == ModeHeadless {
 		return p.createSession(ctx, req.ParentSessionID)
 	}
-	if p.ProjectViews != nil && strings.TrimSpace(p.ProjectID) != "" {
-		overview, err := p.ProjectViews.GetProjectOverview(ctx, serverapi.ProjectGetOverviewRequest{ProjectID: p.ProjectID})
-		if err != nil {
-			return nil, err
-		}
-		summaries := sessionSummariesFromProjectView(overview.Overview.Sessions)
-		return p.pickOrCreateSession(ctx, req, summaries)
-	}
-	summaries, err := session.ListSessions(p.ContainerDir)
-	if err != nil {
-		return nil, err
-	}
-	return p.pickOrCreateSession(ctx, req, summaries)
-}
-
-func (p Planner) pickOrCreateSession(ctx context.Context, req SessionRequest, summaries []session.Summary) (*session.Store, error) {
-	if len(summaries) == 0 {
-		return p.createSession(ctx, req.ParentSessionID)
-	}
-	if p.PickSession == nil {
-		return nil, errors.New("session picker is required")
-	}
-	picked, err := p.PickSession(summaries)
-	if err != nil {
-		return nil, err
-	}
-	if picked.Canceled {
-		return nil, errors.New("startup canceled by user")
-	}
-	if picked.CreateNew {
-		return p.createSession(ctx, req.ParentSessionID)
-	}
-	if picked.Session == nil {
-		return nil, errors.New("no session selected")
-	}
-	return p.openScopedSession(picked.Session.SessionID)
+	return nil, errors.New("selected_session_id or force_new_session is required")
 }
 
 func (p Planner) openScopedSession(sessionID string) (*session.Store, error) {
@@ -328,19 +282,6 @@ func (p Planner) openScopedSession(sessionID string) (*session.Store, error) {
 		return nil, err
 	}
 	return session.Open(realSessionDir, p.StoreOptions...)
-}
-
-func sessionSummariesFromProjectView(items []clientui.SessionSummary) []session.Summary {
-	out := make([]session.Summary, 0, len(items))
-	for _, item := range items {
-		out = append(out, session.Summary{
-			SessionID:          item.SessionID,
-			Name:               item.Name,
-			FirstPromptPreview: item.FirstPromptPreview,
-			UpdatedAt:          item.UpdatedAt,
-		})
-	}
-	return out
 }
 
 func (p Planner) createSession(ctx context.Context, parentSessionID string) (*session.Store, error) {
