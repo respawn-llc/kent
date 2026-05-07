@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/server/auth"
 	"builder/server/session"
 )
 
@@ -16,7 +15,6 @@ const (
 	ActionNone         Action = "none"
 	ActionNewSession   Action = "new_session"
 	ActionResume       Action = "resume"
-	ActionLogout       Action = "logout"
 	ActionForkRollback Action = "fork_rollback"
 	ActionOpenSession  Action = "open_session"
 )
@@ -31,9 +29,8 @@ type Transition struct {
 }
 
 type ResolveRequest struct {
-	Store       *session.Store
-	Transition  Transition
-	AuthManager *auth.Manager
+	Store      *session.Store
+	Transition Transition
 }
 
 type Resolved struct {
@@ -43,7 +40,6 @@ type Resolved struct {
 	ParentSessionID string
 	ForceNewSession bool
 	ShouldContinue  bool
-	RequiresReauth  bool
 }
 
 func InitialInput(store *session.Store, transitionInput string) string {
@@ -82,8 +78,6 @@ func Resolve(ctx context.Context, req ResolveRequest) (Resolved, error) {
 		}, nil
 	case ActionForkRollback:
 		return resolveForkRollback(req)
-	case ActionLogout:
-		return resolveLogout(ctx, req)
 	default:
 		return Resolved{}, nil
 	}
@@ -111,18 +105,4 @@ func resolveForkRollback(req ResolveRequest) (Resolved, error) {
 		InitialPrompt:  req.Transition.InitialPrompt,
 		ShouldContinue: true,
 	}, nil
-}
-
-func resolveLogout(ctx context.Context, req ResolveRequest) (Resolved, error) {
-	if req.AuthManager == nil {
-		return Resolved{}, errors.New("auth manager is required for logout")
-	}
-	if _, err := req.AuthManager.ClearMethod(ctx, true); err != nil {
-		return Resolved{}, err
-	}
-	sessionID := ""
-	if req.Store != nil {
-		sessionID = req.Store.Meta().SessionID
-	}
-	return Resolved{NextSessionID: sessionID, ShouldContinue: true, RequiresReauth: true}, nil
 }

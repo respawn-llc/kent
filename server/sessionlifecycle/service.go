@@ -176,8 +176,7 @@ func forkTranscriptEntryIndexEqual(a *int, b *int) bool {
 }
 
 func (s *Service) resolveTransitionOnce(ctx context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
-	action := serverlifecycle.Action(req.Transition.Action)
-	if action == serverlifecycle.ActionLogout {
+	if req.Transition.Action == serverapi.SessionTransitionActionLogout {
 		if s.authManager == nil {
 			return serverapi.SessionResolveTransitionResponse{}, errors.New("auth manager is required for logout")
 		}
@@ -190,6 +189,7 @@ func (s *Service) resolveTransitionOnce(ctx context.Context, req serverapi.Sessi
 			RequiresReauth: true,
 		}, nil
 	}
+	action := serverlifecycle.Action(req.Transition.Action)
 
 	var (
 		store *session.Store
@@ -216,7 +216,6 @@ func (s *Service) resolveTransitionOnce(ctx context.Context, req serverapi.Sessi
 			ForkUserMessageIndex: req.Transition.ForkUserMessageIndex,
 			ParentSessionID:      req.Transition.ParentSessionID,
 		},
-		AuthManager: s.authManager,
 	})
 	if err != nil {
 		return serverapi.SessionResolveTransitionResponse{}, err
@@ -233,7 +232,6 @@ func (s *Service) resolveTransitionOnce(ctx context.Context, req serverapi.Sessi
 		ParentSessionID: resolved.ParentSessionID,
 		ForceNewSession: resolved.ForceNewSession,
 		ShouldContinue:  resolved.ShouldContinue,
-		RequiresReauth:  resolved.RequiresReauth,
 	}, nil
 }
 

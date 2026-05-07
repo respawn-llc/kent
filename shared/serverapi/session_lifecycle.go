@@ -6,14 +6,25 @@ import (
 	"strings"
 )
 
+type SessionTransitionAction string
+
+const (
+	SessionTransitionActionNone         SessionTransitionAction = "none"
+	SessionTransitionActionNewSession   SessionTransitionAction = "new_session"
+	SessionTransitionActionResume       SessionTransitionAction = "resume"
+	SessionTransitionActionLogout       SessionTransitionAction = "logout"
+	SessionTransitionActionForkRollback SessionTransitionAction = "fork_rollback"
+	SessionTransitionActionOpenSession  SessionTransitionAction = "open_session"
+)
+
 type SessionTransition struct {
-	Action                   string `json:"action"`
-	InitialPrompt            string `json:"initial_prompt,omitempty"`
-	InitialInput             string `json:"initial_input,omitempty"`
-	TargetSessionID          string `json:"target_session_id,omitempty"`
-	ForkUserMessageIndex     int    `json:"fork_user_message_index,omitempty"`
-	ForkTranscriptEntryIndex *int   `json:"fork_transcript_entry_index,omitempty"`
-	ParentSessionID          string `json:"parent_session_id,omitempty"`
+	Action                   SessionTransitionAction `json:"action"`
+	InitialPrompt            string                  `json:"initial_prompt,omitempty"`
+	InitialInput             string                  `json:"initial_input,omitempty"`
+	TargetSessionID          string                  `json:"target_session_id,omitempty"`
+	ForkUserMessageIndex     int                     `json:"fork_user_message_index,omitempty"`
+	ForkTranscriptEntryIndex *int                    `json:"fork_transcript_entry_index,omitempty"`
+	ParentSessionID          string                  `json:"parent_session_id,omitempty"`
 }
 
 type SessionInitialInputRequest struct {
@@ -110,7 +121,7 @@ func (r SessionResolveTransitionRequest) Validate() error {
 			return err
 		}
 	}
-	if strings.TrimSpace(r.Transition.Action) == "" {
+	if strings.TrimSpace(string(r.Transition.Action)) == "" {
 		return errors.New("transition.action is required")
 	}
 	return nil

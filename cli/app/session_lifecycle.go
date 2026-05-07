@@ -178,7 +178,7 @@ func resolveSessionAction(ctx context.Context, server embeddedServer, interactor
 		SessionID:         strings.TrimSpace(sessionID),
 		ControllerLeaseID: strings.TrimSpace(controllerLeaseID),
 		Transition: serverapi.SessionTransition{
-			Action:                   string(transition.Action),
+			Action:                   serverapi.SessionTransitionAction(transition.Action),
 			InitialPrompt:            transition.InitialPrompt,
 			InitialInput:             transition.InitialInput,
 			TargetSessionID:          transition.TargetSessionID,
