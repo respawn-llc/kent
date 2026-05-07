@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./docs/public/builder-social-preview.png" alt="Builder" width="900">
+  <img src="./docs/public/builder-social-preview.webp" alt="Builder" width="900">
 </p>
 
 <p align="center">

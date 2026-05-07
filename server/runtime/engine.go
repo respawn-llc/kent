@@ -121,13 +121,14 @@ type Config struct {
 }
 
 type ReviewerConfig struct {
-	Frequency        string
-	Model            string
-	ThinkingLevel    string
-	SystemPromptFile string
-	VerboseOutput    bool
-	Client           llm.Client
-	ClientFactory    func() (llm.Client, error)
+	Frequency         string
+	Model             string
+	ThinkingLevel     string
+	ModelCapabilities session.LockedModelCapabilities
+	SystemPromptFile  string
+	VerboseOutput     bool
+	Client            llm.Client
+	ClientFactory     func() (llm.Client, error)
 }
 
 type ContextUsage struct {

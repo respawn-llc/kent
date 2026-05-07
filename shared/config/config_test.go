@@ -610,6 +610,63 @@ func TestLoadSubagentRoleRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestLoadSubagentRoleAllowsReviewerAuthNoneToInheritParentBaseURL(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	contents := strings.Join([]string{
+		"model = \"gpt-5.5\"",
+		"openai_base_url = \"http://127.0.0.1:8080/v1\"",
+		"",
+		"[subagents.fast.reviewer]",
+		"auth = \"none\"",
+	}, "\n")
+	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	role := cfg.Settings.Subagents[BuiltInSubagentRoleFast]
+	if role.Settings.Reviewer.Auth != "none" {
+		t.Fatalf("expected subagent reviewer.auth=none, got %q", role.Settings.Reviewer.Auth)
+	}
+}
+
+func TestLoadSubagentRoleRejectsReviewerAuthNoneWithExplicitFirstPartyBaseURL(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	contents := strings.Join([]string{
+		"model = \"gpt-5.5\"",
+		"",
+		"[subagents.fast.reviewer]",
+		"auth = \"none\"",
+		"openai_base_url = \"https://api.openai.com/v1\"",
+	}, "\n")
+	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(workspace, LoadOptions{})
+	if err == nil {
+		t.Fatal("expected explicit first-party reviewer base URL in subagent role to fail")
+	}
+	if !strings.Contains(err.Error(), "api.openai.com") {
+		t.Fatalf("expected api.openai.com guard error, got %v", err)
+	}
+}
+
 func TestLoadSubagentRoleRejectsPersistenceRoot(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
@@ -719,7 +776,7 @@ func TestLoadReviewerDefaultsInheritMainSettingsWhenUnset(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(configPath, []byte("model = \"gpt-main-file\"\nthinking_level = \"xhigh\"\n[reviewer]\nfrequency = \"all\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte("model = \"gpt-main-file\"\nthinking_level = \"xhigh\"\nprovider_override = \"openai\"\nopenai_base_url = \"http://127.0.0.1:8080/v1\"\n[reviewer]\nfrequency = \"all\"\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -733,11 +790,20 @@ func TestLoadReviewerDefaultsInheritMainSettingsWhenUnset(t *testing.T) {
 	if cfg.Settings.Reviewer.ThinkingLevel != "xhigh" {
 		t.Fatalf("expected reviewer.thinking_level to inherit file main thinking level, got %q", cfg.Settings.Reviewer.ThinkingLevel)
 	}
+	if cfg.Settings.Reviewer.ProviderOverride != "openai" {
+		t.Fatalf("expected reviewer.provider_override to inherit file main provider override, got %q", cfg.Settings.Reviewer.ProviderOverride)
+	}
+	if cfg.Settings.Reviewer.OpenAIBaseURL != "http://127.0.0.1:8080/v1" {
+		t.Fatalf("expected reviewer.openai_base_url to inherit file main base URL, got %q", cfg.Settings.Reviewer.OpenAIBaseURL)
+	}
 
 	t.Setenv("BUILDER_MODEL", "gpt-main-env")
 	t.Setenv("BUILDER_THINKING_LEVEL", "medium")
+	t.Setenv("BUILDER_OPENAI_BASE_URL", "http://localhost:9090/v1")
 	t.Setenv("BUILDER_REVIEWER_MODEL", "")
 	t.Setenv("BUILDER_REVIEWER_THINKING_LEVEL", "")
+	t.Setenv("BUILDER_REVIEWER_PROVIDER_OVERRIDE", "")
+	t.Setenv("BUILDER_REVIEWER_OPENAI_BASE_URL", "")
 	cfg, err = Load(workspace, LoadOptions{})
 	if err != nil {
 		t.Fatalf("load with env model: %v", err)
@@ -747,5 +813,33 @@ func TestLoadReviewerDefaultsInheritMainSettingsWhenUnset(t *testing.T) {
 	}
 	if cfg.Settings.Reviewer.ThinkingLevel != "medium" {
 		t.Fatalf("expected reviewer.thinking_level to inherit env main thinking level, got %q", cfg.Settings.Reviewer.ThinkingLevel)
+	}
+	if cfg.Settings.Reviewer.OpenAIBaseURL != "http://localhost:9090/v1" {
+		t.Fatalf("expected reviewer.openai_base_url to inherit env main base URL, got %q", cfg.Settings.Reviewer.OpenAIBaseURL)
+	}
+}
+
+func TestLoadReviewerOpenAIProviderOverrideInheritsMainOpenAIBaseURL(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte("openai_base_url = \"http://127.0.0.1:8080/v1\"\n[reviewer]\nprovider_override = \"openai\"\nmodel = \"local-reviewer\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Settings.Reviewer.ProviderOverride != "openai" {
+		t.Fatalf("expected explicit reviewer.provider_override, got %q", cfg.Settings.Reviewer.ProviderOverride)
+	}
+	if cfg.Settings.Reviewer.OpenAIBaseURL != "http://127.0.0.1:8080/v1" {
+		t.Fatalf("expected reviewer.openai_base_url to inherit main OpenAI base URL, got %q", cfg.Settings.Reviewer.OpenAIBaseURL)
 	}
 }

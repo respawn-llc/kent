@@ -145,12 +145,24 @@ type ProviderCapabilitiesOverride struct {
 }
 
 type ReviewerSettings struct {
-	Frequency        string
-	Model            string
-	ThinkingLevel    string
-	SystemPromptFile string
-	TimeoutSeconds   int
-	VerboseOutput    bool
+	Frequency            string
+	Model                string
+	ThinkingLevel        string
+	ModelVerbosity       ModelVerbosity
+	ProviderOverride     string
+	OpenAIBaseURL        string
+	ModelCapabilities    ModelCapabilitiesOverride
+	ProviderCapabilities ProviderCapabilitiesOverride
+	ModelContextWindow   int
+	Auth                 string
+	SystemPromptFile     string
+	TimeoutSeconds       int
+	VerboseOutput        bool
+}
+
+type ReviewerProviderSettings struct {
+	ProviderOverride string
+	OpenAIBaseURL    string
 }
 
 type SourceReport struct {

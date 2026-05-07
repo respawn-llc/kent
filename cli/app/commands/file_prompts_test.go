@@ -9,15 +9,16 @@ import (
 func TestLoadFilePromptCommandsPrecedence(t *testing.T) {
 	workspace := t.TempDir()
 	globalRoot := t.TempDir()
-	settingsPath := filepath.Join(globalRoot, "config.toml")
 
 	paths := []string{
 		filepath.Join(workspace, ".builder", "prompts", "demo.md"),
 		filepath.Join(workspace, ".builder", "commands", "demo.md"),
 		filepath.Join(globalRoot, "prompts", "demo.md"),
 		filepath.Join(globalRoot, "commands", "demo.md"),
+		filepath.Join(globalRoot, ".generated", "prompts", "demo.md"),
+		filepath.Join(globalRoot, ".generated", "commands", "demo.md"),
 	}
-	contents := []string{"local-prompts", "local-commands", "global-prompts", "global-commands"}
+	contents := []string{"local-prompts", "local-commands", "global-prompts", "global-commands", "generated-prompts", "generated-commands"}
 	for idx, path := range paths {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", path, err)
@@ -27,7 +28,7 @@ func TestLoadFilePromptCommandsPrecedence(t *testing.T) {
 		}
 	}
 
-	loaded, err := loadFilePromptCommands(workspace, settingsPath)
+	loaded, err := loadFilePromptCommands(workspace, globalRoot)
 	if err != nil {
 		t.Fatalf("load file prompts: %v", err)
 	}
@@ -45,7 +46,6 @@ func TestLoadFilePromptCommandsPrecedence(t *testing.T) {
 func TestLoadFilePromptCommandsPrecedenceAfterNormalizationCollision(t *testing.T) {
 	workspace := t.TempDir()
 	globalRoot := t.TempDir()
-	settingsPath := filepath.Join(globalRoot, "config.toml")
 
 	paths := []string{
 		filepath.Join(workspace, ".builder", "prompts", "Bad!Name.md"),
@@ -63,7 +63,7 @@ func TestLoadFilePromptCommandsPrecedenceAfterNormalizationCollision(t *testing.
 		}
 	}
 
-	loaded, err := loadFilePromptCommands(workspace, settingsPath)
+	loaded, err := loadFilePromptCommands(workspace, globalRoot)
 	if err != nil {
 		t.Fatalf("load file prompts: %v", err)
 	}
@@ -81,7 +81,6 @@ func TestLoadFilePromptCommandsPrecedenceAfterNormalizationCollision(t *testing.
 func TestLoadFilePromptCommandsSkipsEmptyHigherPriorityDuplicate(t *testing.T) {
 	workspace := t.TempDir()
 	globalRoot := t.TempDir()
-	settingsPath := filepath.Join(globalRoot, "config.toml")
 
 	higherPriority := filepath.Join(workspace, ".builder", "prompts", "Bad Name.md")
 	lowerPriority := filepath.Join(globalRoot, "prompts", "Bad_Name.md")
@@ -99,7 +98,7 @@ func TestLoadFilePromptCommandsSkipsEmptyHigherPriorityDuplicate(t *testing.T) {
 		t.Fatalf("write %s: %v", lowerPriority, err)
 	}
 
-	loaded, err := loadFilePromptCommands(workspace, settingsPath)
+	loaded, err := loadFilePromptCommands(workspace, globalRoot)
 	if err != nil {
 		t.Fatalf("load file prompts: %v", err)
 	}
@@ -117,7 +116,6 @@ func TestLoadFilePromptCommandsSkipsEmptyHigherPriorityDuplicate(t *testing.T) {
 func TestLoadFilePromptCommandsFiltersByExtensionAndDepth(t *testing.T) {
 	workspace := t.TempDir()
 	globalRoot := t.TempDir()
-	settingsPath := filepath.Join(globalRoot, "config.toml")
 	localPrompts := filepath.Join(workspace, ".builder", "prompts")
 
 	if err := os.MkdirAll(filepath.Join(localPrompts, "nested"), 0o755); err != nil {
@@ -133,7 +131,7 @@ func TestLoadFilePromptCommandsFiltersByExtensionAndDepth(t *testing.T) {
 		t.Fatalf("write nested/deep.md: %v", err)
 	}
 
-	loaded, err := loadFilePromptCommands(workspace, settingsPath)
+	loaded, err := loadFilePromptCommands(workspace, globalRoot)
 	if err != nil {
 		t.Fatalf("load file prompts: %v", err)
 	}
@@ -148,7 +146,6 @@ func TestLoadFilePromptCommandsFiltersByExtensionAndDepth(t *testing.T) {
 func TestNewDefaultRegistryWithFilePromptsExecutesAsUserMessage(t *testing.T) {
 	workspace := t.TempDir()
 	globalRoot := t.TempDir()
-	settingsPath := filepath.Join(globalRoot, "config.toml")
 
 	path := filepath.Join(workspace, ".builder", "prompts", "review.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -159,7 +156,7 @@ func TestNewDefaultRegistryWithFilePromptsExecutesAsUserMessage(t *testing.T) {
 		t.Fatalf("write review.md: %v", err)
 	}
 
-	r, err := NewDefaultRegistryWithFilePrompts(workspace, settingsPath)
+	r, err := NewDefaultRegistryWithFilePrompts(workspace, globalRoot)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -175,10 +172,80 @@ func TestNewDefaultRegistryWithFilePromptsExecutesAsUserMessage(t *testing.T) {
 	}
 }
 
+func TestNewDefaultRegistryWithFilePromptsUsesGlobalRootWhenWorkspaceConfigExists(t *testing.T) {
+	workspace := t.TempDir()
+	globalRoot := t.TempDir()
+	agentsRoot := t.TempDir()
+	workspaceConfigRoot := filepath.Join(workspace, ".builder")
+
+	if err := os.MkdirAll(workspaceConfigRoot, 0o755); err != nil {
+		t.Fatalf("mkdir workspace config root: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspaceConfigRoot, "config.toml"), []byte("model = \"local\"\n"), 0o644); err != nil {
+		t.Fatalf("write workspace config: %v", err)
+	}
+	agentsCommandsRoot := filepath.Join(agentsRoot, "commands")
+	path := filepath.Join(agentsCommandsRoot, "agents.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir agents commands: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("from global symlink target"), 0o644); err != nil {
+		t.Fatalf("write global command: %v", err)
+	}
+	if err := os.Symlink(agentsCommandsRoot, filepath.Join(globalRoot, "commands")); err != nil {
+		t.Fatalf("symlink global commands to agents commands: %v", err)
+	}
+
+	r, err := NewDefaultRegistryWithFilePrompts(workspace, globalRoot)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	got := r.Execute("/prompt:agents")
+	if !got.Handled {
+		t.Fatal("expected command from global root to be handled")
+	}
+	if got.User != "from global symlink target" {
+		t.Fatalf("expected global root command, got %q", got.User)
+	}
+}
+
+func TestLoadFilePromptCommandsFallsBackToGeneratedAfterGlobal(t *testing.T) {
+	workspace := t.TempDir()
+	globalRoot := t.TempDir()
+
+	paths := []string{
+		filepath.Join(globalRoot, "commands", "demo.md"),
+		filepath.Join(globalRoot, ".generated", "prompts", "demo.md"),
+		filepath.Join(globalRoot, ".generated", "commands", "generated-only.md"),
+	}
+	contents := []string{"global-commands", "generated-prompts", "generated-only"}
+	for idx, path := range paths {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", path, err)
+		}
+		if err := os.WriteFile(path, []byte(contents[idx]), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	loaded, err := loadFilePromptCommands(workspace, globalRoot)
+	if err != nil {
+		t.Fatalf("load file prompts: %v", err)
+	}
+	if len(loaded) != 2 {
+		t.Fatalf("expected global command plus generated-only fallback, got %d", len(loaded))
+	}
+	if loaded[0].Name != "prompt:demo" || loaded[0].Content != "global-commands" {
+		t.Fatalf("expected global command to beat generated duplicate, got %+v", loaded[0])
+	}
+	if loaded[1].Name != "prompt:generatedonly" || loaded[1].Content != "generated-only" {
+		t.Fatalf("expected generated-only command, got %+v", loaded[1])
+	}
+}
+
 func TestNewDefaultRegistryWithFilePromptsAppendsArguments(t *testing.T) {
 	workspace := t.TempDir()
 	globalRoot := t.TempDir()
-	settingsPath := filepath.Join(globalRoot, "config.toml")
 
 	path := filepath.Join(workspace, ".builder", "prompts", "review.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -188,7 +255,7 @@ func TestNewDefaultRegistryWithFilePromptsAppendsArguments(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	r, err := NewDefaultRegistryWithFilePrompts(workspace, settingsPath)
+	r, err := NewDefaultRegistryWithFilePrompts(workspace, globalRoot)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -201,7 +268,6 @@ func TestNewDefaultRegistryWithFilePromptsAppendsArguments(t *testing.T) {
 func TestNewDefaultRegistryWithFilePromptsSkipsEmptyPromptContent(t *testing.T) {
 	workspace := t.TempDir()
 	globalRoot := t.TempDir()
-	settingsPath := filepath.Join(globalRoot, "config.toml")
 
 	path := filepath.Join(workspace, ".builder", "prompts", "empty.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -211,7 +277,7 @@ func TestNewDefaultRegistryWithFilePromptsSkipsEmptyPromptContent(t *testing.T) 
 		t.Fatalf("write empty.md: %v", err)
 	}
 
-	r, err := NewDefaultRegistryWithFilePrompts(workspace, settingsPath)
+	r, err := NewDefaultRegistryWithFilePrompts(workspace, globalRoot)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -224,7 +290,6 @@ func TestNewDefaultRegistryWithFilePromptsSkipsEmptyPromptContent(t *testing.T) 
 func TestNewDefaultRegistryWithFilePromptsSkipsWhitespaceOnlyPromptContent(t *testing.T) {
 	workspace := t.TempDir()
 	globalRoot := t.TempDir()
-	settingsPath := filepath.Join(globalRoot, "config.toml")
 
 	path := filepath.Join(workspace, ".builder", "prompts", "blank.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -234,7 +299,7 @@ func TestNewDefaultRegistryWithFilePromptsSkipsWhitespaceOnlyPromptContent(t *te
 		t.Fatalf("write blank.md: %v", err)
 	}
 
-	loaded, err := loadFilePromptCommands(workspace, settingsPath)
+	loaded, err := loadFilePromptCommands(workspace, globalRoot)
 	if err != nil {
 		t.Fatalf("load file prompts: %v", err)
 	}
@@ -246,7 +311,6 @@ func TestNewDefaultRegistryWithFilePromptsSkipsWhitespaceOnlyPromptContent(t *te
 func TestNewDefaultRegistryWithFilePromptsReplacesArgumentsPlaceholder(t *testing.T) {
 	workspace := t.TempDir()
 	globalRoot := t.TempDir()
-	settingsPath := filepath.Join(globalRoot, "config.toml")
 
 	path := filepath.Join(workspace, ".builder", "prompts", "review.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -256,7 +320,7 @@ func TestNewDefaultRegistryWithFilePromptsReplacesArgumentsPlaceholder(t *testin
 		t.Fatalf("write: %v", err)
 	}
 
-	r, err := NewDefaultRegistryWithFilePrompts(workspace, settingsPath)
+	r, err := NewDefaultRegistryWithFilePrompts(workspace, globalRoot)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -269,7 +333,6 @@ func TestNewDefaultRegistryWithFilePromptsReplacesArgumentsPlaceholder(t *testin
 func TestLoadFilePromptCommandsNormalizesCommandID(t *testing.T) {
 	workspace := t.TempDir()
 	globalRoot := t.TempDir()
-	settingsPath := filepath.Join(globalRoot, "config.toml")
 
 	path := filepath.Join(workspace, ".builder", "prompts", "Bad - Name !!.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -279,7 +342,7 @@ func TestLoadFilePromptCommandsNormalizesCommandID(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	loaded, err := loadFilePromptCommands(workspace, settingsPath)
+	loaded, err := loadFilePromptCommands(workspace, globalRoot)
 	if err != nil {
 		t.Fatalf("load file prompts: %v", err)
 	}
@@ -301,7 +364,6 @@ func TestNormalizeFilePromptCommandID(t *testing.T) {
 func TestLoadFilePromptCommandsSkipsNamesThatNormalizeEmpty(t *testing.T) {
 	workspace := t.TempDir()
 	globalRoot := t.TempDir()
-	settingsPath := filepath.Join(globalRoot, "config.toml")
 
 	path := filepath.Join(workspace, ".builder", "prompts", "!!!.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -311,7 +373,7 @@ func TestLoadFilePromptCommandsSkipsNamesThatNormalizeEmpty(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	loaded, err := loadFilePromptCommands(workspace, settingsPath)
+	loaded, err := loadFilePromptCommands(workspace, globalRoot)
 	if err != nil {
 		t.Fatalf("load file prompts: %v", err)
 	}

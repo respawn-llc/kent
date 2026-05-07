@@ -77,6 +77,12 @@ postprocessing_mode = "all" # shell output token optimizations by Builder, or "a
 
 [reviewer] # aka supervisor
 frequency = "edits"
+# model = "gpt-5.4-mini"
+# model_verbosity = "low"
+# provider_override = "openai"
+# openai_base_url = "http://127.0.0.1:11434/v1"
+# auth = "none" # or "inherit"
+# model_context_window = 64000
 timeout_seconds = 60
 verbose_output = false # show in ongoing transcript
 # system_prompt_file = "~/.builder/reviewer_system_prompt.md"
@@ -151,9 +157,32 @@ Configure the supervisor agent that oversees model changes.
 | `reviewer.frequency` | string | `edits` | `BUILDER_REVIEWER_FREQUENCY` | Allowed: `off`, `all`, `edits`. `all` runs the reviewer after every completed assistant turn. `edits` runs it only after successful first-class file edits. |
 | `reviewer.model` | string | inherits `model` | `BUILDER_REVIEWER_MODEL` | Separate model for the reviewer pass. If unset, Builder uses main `model`. |
 | `reviewer.thinking_level` | string | inherits `thinking_level` | `BUILDER_REVIEWER_THINKING_LEVEL` | Allowed: `low`, `medium`, `high`, `xhigh`. |
+| `reviewer.model_verbosity` | string | inherits `model_verbosity` | `BUILDER_REVIEWER_MODEL_VERBOSITY` | Text verbosity hint for supported reviewer models. Allowed: `""`, `low`, `medium`, `high`. |
+| `reviewer.provider_override` | string | inherits `provider_override` | `BUILDER_REVIEWER_PROVIDER_OVERRIDE` | Forces provider family for the reviewer model. Allowed: `openai`. |
+| `reviewer.openai_base_url` | string | inherits `openai_base_url` for OpenAI-family reviewer providers | `BUILDER_REVIEWER_OPENAI_BASE_URL` | OpenAI-compatible base URL for the reviewer model. Non-OpenAI endpoints can run without Builder auth when the server accepts anonymous requests. |
+| `reviewer.auth` | string | `inherit` | `BUILDER_REVIEWER_AUTH` | Reviewer auth policy. `inherit` uses Builder's configured auth. `none` sends no `Authorization` header and requires a compatible explicit or inherited base URL such as a local server. |
+| `reviewer.model_context_window` | int | inherits `model_context_window` | `BUILDER_REVIEWER_MODEL_CONTEXT_WINDOW` | Explicit reviewer context-window size sent to the reviewer provider. |
 | `reviewer.system_prompt_file` | string | `""` |  | Path to a custom supervisor system prompt file. Relative paths resolve from the config file directory. Workspace config overrides global config; no CLI or environment override is provided. |
 | `reviewer.timeout_seconds` | int | `60` | `BUILDER_REVIEWER_TIMEOUT_SECONDS` | Reviewer HTTP timeout. Must be `> 0`. |
 | `reviewer.verbose_output` | bool | `false` | `BUILDER_REVIEWER_VERBOSE_OUTPUT` | Controls whether reviewer suggestion text is shown at all. When `false`, Builder only shows the concise reviewer result/status line. When `true`, Builder shows the full suggestion list at the moment the reviewer issues it, and the later reviewer status stays concise after the follow-up is applied or ignored. |
+
+### Supervisor Capability Overrides
+
+Use these for custom reviewer models or reviewer providers when the built-in registry is not enough.
+
+| Key | Type | Default | Env | Description |
+| --- | --- | --- | --- | --- |
+| `reviewer.model_capabilities.supports_reasoning_effort` | bool | inherits `model_capabilities.supports_reasoning_effort` | `BUILDER_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT` | Override-marks the reviewer model as supporting reasoning effort / thinking levels. |
+| `reviewer.model_capabilities.supports_vision_inputs` | bool | inherits `model_capabilities.supports_vision_inputs` | `BUILDER_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS` | Marks the reviewer model as supporting multimodal image and PDF inputs. |
+| `reviewer.provider_capabilities.provider_id` | string | inherits `provider_capabilities.provider_id` | `BUILDER_REVIEWER_PROVIDER_CAPABILITIES_PROVIDER_ID` | Required whenever you set reviewer provider capability overrides. |
+| `reviewer.provider_capabilities.supports_responses_api` | bool | inherits `provider_capabilities.supports_responses_api` | `BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_API` | Marks the reviewer provider as supporting the Responses API. |
+| `reviewer.provider_capabilities.supports_responses_compact` | bool | inherits `provider_capabilities.supports_responses_compact` | `BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_COMPACT` | Marks the reviewer provider as supporting server-side compaction. |
+| `reviewer.provider_capabilities.supports_request_input_token_count` | bool | inherits `provider_capabilities.supports_request_input_token_count` | `BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_REQUEST_INPUT_TOKEN_COUNT` | Marks the reviewer provider as supporting exact request input-token counting. |
+| `reviewer.provider_capabilities.supports_prompt_cache_key` | bool | inherits `provider_capabilities.supports_prompt_cache_key` | `BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_PROMPT_CACHE_KEY` | Marks the reviewer provider as accepting prompt cache keys. |
+| `reviewer.provider_capabilities.supports_native_web_search` | bool | inherits `provider_capabilities.supports_native_web_search` | `BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_NATIVE_WEB_SEARCH` | Marks the reviewer provider as supporting native web search. |
+| `reviewer.provider_capabilities.supports_reasoning_encrypted` | bool | inherits `provider_capabilities.supports_reasoning_encrypted` | `BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_REASONING_ENCRYPTED` | Marks the reviewer provider as supporting encrypted reasoning items. |
+| `reviewer.provider_capabilities.supports_server_side_context_edit` | bool | inherits `provider_capabilities.supports_server_side_context_edit` | `BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_SERVER_SIDE_CONTEXT_EDIT` | Marks the reviewer provider as supporting server-side context editing. |
+| `reviewer.provider_capabilities.is_openai_first_party` | bool | inherits `provider_capabilities.is_openai_first_party` | `BUILDER_REVIEWER_PROVIDER_CAPABILITIES_IS_OPENAI_FIRST_PARTY` | Marks the reviewer provider as first-party OpenAI semantics. |
 
 ### Model Capability Overrides
 

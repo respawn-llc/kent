@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -50,6 +52,12 @@ func TestBuildToolRegistryAllowsHostedWebSearchWithoutLocalRuntimeBuilder(t *tes
 	}
 	if defs[0].ID != toolspec.ToolExecCommand {
 		t.Fatalf("expected exec_command runtime tool definition, got %+v", defs[0])
+	}
+}
+
+func TestAuthProviderForPolicyReturnsNilForNilManager(t *testing.T) {
+	if got := authProviderForPolicy("inherit", nil); got != nil {
+		t.Fatalf("auth provider = %T, want nil", got)
 	}
 }
 
@@ -447,6 +455,216 @@ func TestNewRuntimeWiringRejectsEmptyModelAfterBypassingConfigDefaults(t *testin
 	}
 }
 
+func TestReviewerProviderSettingsFallbacks(t *testing.T) {
+	resolved := config.ResolveReviewerProviderSettings(config.Settings{
+		ProviderOverride: "openai",
+		OpenAIBaseURL:    "http://127.0.0.1:8080/v1",
+	})
+	if resolved.ProviderOverride != "openai" || resolved.OpenAIBaseURL != "http://127.0.0.1:8080/v1" {
+		t.Fatalf("expected main provider settings fallback, got %+v", resolved)
+	}
+
+	resolved = config.ResolveReviewerProviderSettings(config.Settings{
+		OpenAIBaseURL: "http://127.0.0.1:8080/v1",
+		Reviewer: config.ReviewerSettings{
+			ProviderOverride: "openai",
+		},
+	})
+	if resolved.ProviderOverride != "openai" || resolved.OpenAIBaseURL != "http://127.0.0.1:8080/v1" {
+		t.Fatalf("expected explicit reviewer openai provider to inherit main base URL, got %+v", resolved)
+	}
+
+	resolved = config.ResolveReviewerProviderSettings(config.Settings{
+		OpenAIBaseURL: "http://127.0.0.1:8080/v1",
+		Reviewer: config.ReviewerSettings{
+			ProviderOverride: "openai",
+			OpenAIBaseURL:    "http://localhost:11434/v1",
+		},
+	})
+	if resolved.ProviderOverride != "openai" || resolved.OpenAIBaseURL != "http://localhost:11434/v1" {
+		t.Fatalf("expected explicit reviewer provider settings, got %+v", resolved)
+	}
+}
+
+func TestReviewerModelCapabilitiesHonorExplicitFalseSources(t *testing.T) {
+	locked := lockedModelCapabilitiesForConfig(
+		"gpt-5",
+		config.ModelCapabilitiesOverride{SupportsReasoningEffort: false},
+		map[string]string{"reviewer.model_capabilities.supports_reasoning_effort": "file"},
+		"reviewer.model_capabilities.supports_reasoning_effort",
+		"reviewer.model_capabilities.supports_vision_inputs",
+	)
+
+	if locked.SupportsReasoningEffort {
+		t.Fatalf("expected explicit reviewer reasoning false override to beat model contract, got %+v", locked)
+	}
+	if !locked.SupportsVisionInputs {
+		t.Fatalf("expected default reviewer vision capability to come from model contract, got %+v", locked)
+	}
+}
+
+func TestReviewerModelCapabilitiesHonorInheritedExplicitFalseSources(t *testing.T) {
+	locked := lockedModelCapabilitiesForConfig(
+		"gpt-5",
+		config.ModelCapabilitiesOverride{SupportsReasoningEffort: false},
+		map[string]string{"model_capabilities.supports_reasoning_effort": "file"},
+		"reviewer.model_capabilities.supports_reasoning_effort",
+		"reviewer.model_capabilities.supports_vision_inputs",
+	)
+
+	if locked.SupportsReasoningEffort {
+		t.Fatalf("expected inherited explicit reviewer reasoning false override to beat model contract, got %+v", locked)
+	}
+	if !locked.SupportsVisionInputs {
+		t.Fatalf("expected default reviewer vision capability to come from model contract, got %+v", locked)
+	}
+}
+
+func TestRuntimeProviderClientUsesProviderCapabilitiesOverride(t *testing.T) {
+	client, err := newRuntimeProviderClient(providerRuntimeSettings{
+		Model:            "local-reviewer",
+		ProviderOverride: "openai",
+		OpenAIBaseURL:    "http://127.0.0.1:11434/v1",
+		Auth:             "none",
+		ProviderCapabilitiesOverride: &llm.ProviderCapabilities{
+			ProviderID:             "local-reviewer",
+			SupportsResponsesAPI:   true,
+			SupportsPromptCacheKey: true,
+		},
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("new runtime provider client: %v", err)
+	}
+	provider, ok := client.(llm.ProviderCapabilitiesClient)
+	if !ok {
+		t.Fatalf("expected provider capabilities client, got %T", client)
+	}
+	caps, err := provider.ProviderCapabilities(context.Background())
+	if err != nil {
+		t.Fatalf("resolve provider capabilities: %v", err)
+	}
+	if caps.ProviderID != "local-reviewer" || !caps.SupportsResponsesAPI || !caps.SupportsPromptCacheKey {
+		t.Fatalf("unexpected reviewer provider capabilities: %+v", caps)
+	}
+}
+
+func TestReviewerAuthNoneDoesNotSendGlobalAuthToLocalEndpoint(t *testing.T) {
+	authHeaders := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		authHeaders <- r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"resp_local_reviewer",
+			"object":"response",
+			"output":[{
+				"type":"message",
+				"id":"msg_local_reviewer",
+				"role":"assistant",
+				"status":"completed",
+				"content":[{"type":"output_text","text":"{\"suggestions\":[]}"}]
+			}],
+			"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}
+		}`))
+	}))
+	defer server.Close()
+
+	authMgr := auth.NewManager(auth.NewMemoryStore(auth.State{
+		Scope: auth.ScopeGlobal,
+		Method: auth.Method{
+			Type:   auth.MethodAPIKey,
+			APIKey: &auth.APIKeyMethod{Key: "global-key"},
+		},
+	}), nil, time.Now)
+
+	client, err := newRuntimeProviderClient(providerRuntimeSettings{
+		Model:               "local-reviewer",
+		ProviderOverride:    "openai",
+		OpenAIBaseURL:       server.URL + "/v1",
+		Auth:                "none",
+		ModelVerbosity:      config.ModelVerbosityLow,
+		ContextWindowTokens: 64000,
+	}, authMgr, server.Client())
+	if err != nil {
+		t.Fatalf("new reviewer provider client: %v", err)
+	}
+	if _, err := client.Generate(context.Background(), llm.Request{
+		Model:        "local-reviewer",
+		Temperature:  1,
+		SystemPrompt: "review",
+		Items: []llm.ResponseItem{{
+			Type:    llm.ResponseItemTypeMessage,
+			Role:    llm.RoleUser,
+			Content: "hi",
+		}},
+	}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	select {
+	case got := <-authHeaders:
+		if strings.TrimSpace(got) != "" {
+			t.Fatalf("expected no Authorization header, got %q", got)
+		}
+	default:
+		t.Fatal("expected local reviewer server request")
+	}
+}
+
+func TestReviewerProviderCapabilitiesOverrideControlsRuntimePromptCacheKey(t *testing.T) {
+	root := t.TempDir()
+	store, err := session.Create(root, "ws", root)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	mainClient := &runtimewireCaptureClient{
+		caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true},
+		responses: []llm.Response{{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
+			Usage:     llm.Usage{WindowTokens: 200_000},
+		}},
+	}
+	reviewerClient := &runtimewireCaptureClient{
+		caps: llm.ProviderCapabilities{ProviderID: "local-reviewer", SupportsResponsesAPI: true, SupportsPromptCacheKey: true},
+		responses: []llm.Response{{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"suggestions":[]}`},
+			Usage:     llm.Usage{WindowTokens: 200_000},
+		}},
+	}
+	reviewerOverride := runtimewireCapabilitiesOverrideClient{
+		Client: reviewerClient,
+		Capabilities: llm.ProviderCapabilities{
+			ProviderID:             "local-reviewer",
+			SupportsResponsesAPI:   true,
+			SupportsPromptCacheKey: false,
+		},
+	}
+
+	eng, err := runtime.New(store, mainClient, tools.NewRegistry(), runtime.Config{
+		Model: "gpt-5",
+		Reviewer: runtime.ReviewerConfig{
+			Frequency: "all",
+			Model:     "local-reviewer",
+			Client:    reviewerOverride,
+		},
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	if _, err := eng.SubmitUserMessage(context.Background(), "review this"); err != nil {
+		t.Fatalf("submit user message: %v", err)
+	}
+	if reviewerClient.CallCount() != 1 {
+		t.Fatalf("expected one reviewer call, got %d", reviewerClient.CallCount())
+	}
+	reviewerReq := reviewerClient.LastRequest()
+	if reviewerReq.PromptCacheKey != "" {
+		t.Fatalf("expected reviewer capability override to suppress prompt cache key, got %q", reviewerReq.PromptCacheKey)
+	}
+}
+
 type testLogger struct {
 	lines []string
 }
@@ -525,6 +743,56 @@ type busyToggleFakeClient struct {
 	mu        sync.Mutex
 	responses []llm.Response
 	calls     int
+}
+
+type runtimewireCaptureClient struct {
+	mu        sync.Mutex
+	caps      llm.ProviderCapabilities
+	responses []llm.Response
+	calls     []llm.Request
+}
+
+type runtimewireCapabilitiesOverrideClient struct {
+	llm.Client
+	Capabilities llm.ProviderCapabilities
+}
+
+func (c runtimewireCapabilitiesOverrideClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
+	return c.Capabilities, nil
+}
+
+func (f *runtimewireCaptureClient) Generate(ctx context.Context, req llm.Request) (llm.Response, error) {
+	if err := ctx.Err(); err != nil {
+		return llm.Response{}, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, req)
+	if len(f.responses) == 0 {
+		return llm.Response{}, errors.New("no fake response configured")
+	}
+	resp := f.responses[0]
+	f.responses = f.responses[1:]
+	return resp, nil
+}
+
+func (f *runtimewireCaptureClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
+	return f.caps, nil
+}
+
+func (f *runtimewireCaptureClient) CallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+func (f *runtimewireCaptureClient) LastRequest() llm.Request {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.calls) == 0 {
+		return llm.Request{}
+	}
+	return f.calls[len(f.calls)-1]
 }
 
 func (f *busyToggleFakeClient) Generate(ctx context.Context, _ llm.Request) (llm.Response, error) {

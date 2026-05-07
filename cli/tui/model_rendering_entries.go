@@ -72,11 +72,18 @@ func (m Model) entryContinuationPrefix(role RenderIntent, symbolOverride string)
 }
 
 func (m Model) entryRenderWidth(role RenderIntent, symbolOverride string) int {
-	renderWidth := m.viewportWidth - m.entryPrefixWidth(role, symbolOverride)
+	renderWidth := m.viewportWidth - m.entryPrefixWidth(role, symbolOverride) - m.detailViewportRailWidth()
 	if renderWidth < 1 {
 		return 1
 	}
 	return renderWidth
+}
+
+func (m Model) detailViewportRailWidth() int {
+	if !m.compactDetail || m.mode != ModeDetail {
+		return 0
+	}
+	return max(lipgloss.Width(uiglyphs.SelectionRailBlank), lipgloss.Width(uiglyphs.SelectionRailGlyph))
 }
 
 func (m Model) flattenEntryWithMetaAndSymbol(role RenderIntent, text string, muteText bool, toolMeta *transcript.ToolCallMeta, symbolOverride string) []string {
@@ -756,5 +763,22 @@ func wrapTextForViewport(text string, width int) string {
 		width = 1
 	}
 	wrapped := xansi.Wordwrap(text, width, " ,.;-+|")
+	wrapped = hardWrapOverflowingRenderedLines(wrapped, width)
 	return strings.TrimRight(wrapped, "\n")
+}
+
+func hardWrapOverflowingRenderedLines(text string, width int) string {
+	if width < 1 || text == "" {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if lipgloss.Width(line) <= width {
+			out = append(out, line)
+			continue
+		}
+		out = append(out, splitLines(xansi.Hardwrap(line, width, true))...)
+	}
+	return strings.Join(out, "\n")
 }

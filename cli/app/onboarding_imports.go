@@ -3,13 +3,17 @@ package app
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"builder/prompts"
 	"builder/server/runtime"
+
+	"gopkg.in/yaml.v3"
 )
 
 type onboardingImportProviderID string
@@ -35,6 +39,8 @@ type onboardingImportDiscovery struct {
 	skipCommands        bool
 	skillSymlinkRoots   map[onboardingImportProviderID]string
 	skillSymlinkItems   map[onboardingImportProviderID][]onboardingSkillImportItem
+	generatedSkillItems []onboardingSkillImportItem
+	existingSkillNames  map[string]bool
 	commandSymlinkRoots map[onboardingImportProviderID]string
 	commandSymlinkItems map[onboardingImportProviderID][]onboardingCommandImportItem
 }
@@ -48,6 +54,11 @@ type onboardingSkillImportItem struct {
 	SkillName           string
 	ModifiedAt          time.Time
 	DuplicateSourceNote string
+}
+
+type onboardingGeneratedSkillFrontmatter struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
 }
 
 type onboardingCommandImportItem struct {
@@ -124,13 +135,28 @@ func onboardingImportProviderLabels(providers []onboardingImportProvider) string
 }
 
 func discoverOnboardingImports(globalRoot string) onboardingImportDiscovery {
+	return discoverOnboardingImportsForWorkspace(globalRoot, "")
+}
+
+func discoverOnboardingImportsForWorkspace(globalRoot string, workspaceRoot string) onboardingImportDiscovery {
 	discovery := onboardingImportDiscovery{
 		skillSymlinkRoots:   map[onboardingImportProviderID]string{},
 		skillSymlinkItems:   map[onboardingImportProviderID][]onboardingSkillImportItem{},
+		existingSkillNames:  map[string]bool{},
 		commandSymlinkRoots: map[onboardingImportProviderID]string{},
 		commandSymlinkItems: map[onboardingImportProviderID][]onboardingCommandImportItem{},
 	}
 	var err error
+	discovery.generatedSkillItems, err = discoverGeneratedSkillItems()
+	if err != nil {
+		discovery.err = err
+		return discovery
+	}
+	discovery.existingSkillNames, err = discoverExistingOnboardingSkillNames(globalRoot, workspaceRoot)
+	if err != nil {
+		discovery.err = err
+		return discovery
+	}
 	discovery.skipSkills, err = shouldSkipOnboardingImport(filepath.Join(globalRoot, "skills"))
 	if err != nil {
 		discovery.err = err
@@ -175,6 +201,122 @@ func discoverOnboardingImports(globalRoot string) onboardingImportDiscovery {
 		}
 	}
 	return discovery
+}
+
+func discoverGeneratedSkillItems() ([]onboardingSkillImportItem, error) {
+	entries, err := fs.ReadDir(prompts.GeneratedSkillsFS, "skills")
+	if err != nil {
+		return nil, fmt.Errorf("read generated skills: %w", err)
+	}
+	items := make([]onboardingSkillImportItem, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dirName := entry.Name()
+		skillPath := filepath.ToSlash(filepath.Join("skills", dirName, "SKILL.md"))
+		contents, readErr := fs.ReadFile(prompts.GeneratedSkillsFS, skillPath)
+		if readErr != nil {
+			return nil, fmt.Errorf("read generated skill %s: %w", skillPath, readErr)
+		}
+		name, ok := parseOnboardingGeneratedSkillName(dirName, string(contents))
+		if !ok {
+			return nil, fmt.Errorf("generated skill %s has invalid frontmatter", skillPath)
+		}
+		items = append(items, onboardingSkillImportItem{
+			ID:            "generated:" + dirName,
+			ProviderLabel: "Preinstalled",
+			SourceDir:     filepath.ToSlash(filepath.Join("~", ".builder", ".generated", "skills", dirName)),
+			TargetDirName: dirName,
+			SkillName:     name,
+		})
+	}
+	return items, nil
+}
+
+func parseOnboardingGeneratedSkillName(fallbackName, contents string) (string, bool) {
+	frontmatter, ok := splitOnboardingGeneratedSkillFrontmatter(contents)
+	if !ok {
+		return "", false
+	}
+	var parsed onboardingGeneratedSkillFrontmatter
+	if err := yaml.Unmarshal([]byte(frontmatter), &parsed); err != nil {
+		return "", false
+	}
+	name := sanitizeOnboardingSkillName(parsed.Name)
+	if name == "" {
+		name = sanitizeOnboardingSkillName(fallbackName)
+	}
+	if name == "" || sanitizeOnboardingSkillName(parsed.Description) == "" {
+		return "", false
+	}
+	return name, true
+}
+
+func splitOnboardingGeneratedSkillFrontmatter(contents string) (string, bool) {
+	lines := strings.Split(contents, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return "", false
+	}
+	frontmatterLines := make([]string, 0)
+	for _, line := range lines[1:] {
+		if strings.TrimSpace(line) == "---" {
+			return strings.Join(frontmatterLines, "\n"), len(frontmatterLines) > 0
+		}
+		frontmatterLines = append(frontmatterLines, line)
+	}
+	return "", false
+}
+
+func discoverExistingOnboardingSkillNames(globalRoot string, workspaceRoot string) (map[string]bool, error) {
+	names := map[string]bool{}
+	for _, root := range onboardingExistingSkillRoots(globalRoot, workspaceRoot) {
+		rootNames, err := discoverExistingOnboardingSkillNamesInRoot(root)
+		if err != nil {
+			return nil, err
+		}
+		for name := range rootNames {
+			names[name] = true
+		}
+	}
+	return names, nil
+}
+
+func onboardingExistingSkillRoots(globalRoot string, workspaceRoot string) []string {
+	roots := []string{filepath.Join(globalRoot, "skills")}
+	if strings.TrimSpace(workspaceRoot) != "" {
+		roots = append(roots, filepath.Join(workspaceRoot, ".builder", "skills"))
+	}
+	return roots
+}
+
+func discoverExistingOnboardingSkillNamesInRoot(root string) (map[string]bool, error) {
+	names := map[string]bool{}
+	info, statErr := os.Stat(root)
+	if statErr != nil {
+		if os.IsNotExist(statErr) {
+			return names, nil
+		}
+		return nil, fmt.Errorf("inspect existing skills: %w", statErr)
+	}
+	if !info.IsDir() {
+		return names, nil
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, fmt.Errorf("read existing skills: %w", err)
+	}
+	for _, entry := range entries {
+		skillPath := filepath.Join(root, entry.Name(), "SKILL.md")
+		meta, ok := runtime.ParseSkillMetadata(skillPath)
+		if !ok {
+			continue
+		}
+		if normalized := normalizeOnboardingSkillName(meta.Name); normalized != "" {
+			names[normalized] = true
+		}
+	}
+	return names, nil
 }
 
 func discoverProviderSkillSymlinkItems(provider onboardingImportProvider, base string) (string, []onboardingSkillImportItem, error) {
@@ -462,13 +604,24 @@ func allSkillSelectionItemsSelected(items []onboardingSkillImportItem, selection
 }
 
 func skillSelectionCandidates(state *onboardingFlowState) []onboardingSkillImportItem {
-	if state.imports.skipSkills {
-		return nil
+	items := make([]onboardingSkillImportItem, 0)
+	shadowingNames := cloneBoolMap(state.imports.existingSkillNames)
+	if state.skillImport.Mode == onboardingImportModeSymlinkSource && !state.imports.skipSkills {
+		imported := append([]onboardingSkillImportItem(nil), state.imports.skillSymlinkItems[state.skillImport.Provider]...)
+		items = append(items, imported...)
+		for _, item := range imported {
+			if normalized := normalizeOnboardingSkillName(item.SkillName); normalized != "" {
+				shadowingNames[normalized] = true
+			}
+		}
 	}
-	if state.skillImport.Mode != onboardingImportModeSymlinkSource {
-		return nil
+	for _, item := range state.imports.generatedSkillItems {
+		if shadowingNames[normalizeOnboardingSkillName(item.SkillName)] {
+			continue
+		}
+		items = append(items, item)
 	}
-	return annotateSkillDuplicateSources(append([]onboardingSkillImportItem(nil), state.imports.skillSymlinkItems[state.skillImport.Provider]...))
+	return annotateSkillDuplicateSources(items)
 }
 
 func annotateSkillDuplicateSources(items []onboardingSkillImportItem) []onboardingSkillImportItem {
@@ -532,6 +685,22 @@ func uniqueStrings(values []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func normalizeOnboardingSkillName(raw string) string {
+	return strings.ToLower(sanitizeOnboardingSkillName(raw))
+}
+
+func sanitizeOnboardingSkillName(raw string) string {
+	return strings.Join(strings.Fields(raw), " ")
+}
+
+func cloneBoolMap(values map[string]bool) map[string]bool {
+	cloned := make(map[string]bool, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func skillImportSummary(state *onboardingFlowState) string {

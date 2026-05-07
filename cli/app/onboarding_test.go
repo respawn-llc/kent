@@ -1,8 +1,14 @@
 package app
 
 import (
+	"context"
+
+	"builder/prompts"
+	"builder/server/generated"
+	"builder/server/runtime"
 	"builder/shared/config"
 	"builder/shared/theme"
+	"builder/shared/toolspec"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"os"
@@ -544,6 +550,193 @@ func TestBuildSkillSelectionScreenAddsToggleAllOptionWhenThereAreMoreThanTwoItem
 	}
 	if screen.Options[0].Title != "Disable all" {
 		t.Fatalf("expected initial toggle-all label to disable all, got %q", screen.Options[0].Title)
+	}
+}
+
+func TestDiscoverOnboardingImportsIncludesGeneratedSkillCandidates(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	discovery := discoverOnboardingImports(filepath.Join(home, ".builder"))
+	if discovery.err != nil {
+		t.Fatalf("discover onboarding imports: %v", discovery.err)
+	}
+	if len(discovery.generatedSkillItems) == 0 {
+		t.Fatal("expected generated skills to be listed during onboarding")
+	}
+
+	seen := map[string]bool{}
+	for _, item := range discovery.generatedSkillItems {
+		seen[item.SkillName] = true
+		if item.ProviderLabel != "Preinstalled" {
+			t.Fatalf("expected generated skill provider label Preinstalled, got %+v", item)
+		}
+	}
+	for _, name := range []string{"builder-dogfooding", "creating-skills"} {
+		if !seen[name] {
+			t.Fatalf("expected generated skill %q in onboarding candidates, got %+v", name, discovery.generatedSkillItems)
+		}
+	}
+}
+
+func TestBuildSkillSelectionScreenShowsGeneratedSkillsWithoutImport(t *testing.T) {
+	state := &onboardingFlowState{
+		imports: onboardingImportDiscovery{generatedSkillItems: []onboardingSkillImportItem{
+			{ID: "generated:builder-dogfooding", ProviderLabel: "Preinstalled", TargetDirName: "builder-dogfooding", SkillName: "builder-dogfooding"},
+			{ID: "generated:creating-skills", ProviderLabel: "Preinstalled", TargetDirName: "creating-skills", SkillName: "creating-skills"},
+		}},
+		skillImport: onboardingImportSelection{Mode: onboardingImportModeNone},
+	}
+	screen := buildSkillSelectionScreen(state)
+	if len(screen.Options) != 2 {
+		t.Fatalf("expected generated skills as selectable options, got %+v", screen.Options)
+	}
+	for _, want := range []string{"Preinstalled / builder-dogfooding", "Preinstalled / creating-skills"} {
+		found := false
+		for _, option := range screen.Options {
+			if option.Title == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("expected option %q, got %+v", want, screen.Options)
+		}
+	}
+}
+
+func TestBuildSkillTogglesCanDisableGeneratedSkillWithoutImport(t *testing.T) {
+	state := &onboardingFlowState{
+		imports: onboardingImportDiscovery{generatedSkillItems: []onboardingSkillImportItem{
+			{ID: "generated:builder-dogfooding", ProviderLabel: "Preinstalled", TargetDirName: "builder-dogfooding", SkillName: "builder-dogfooding"},
+			{ID: "generated:creating-skills", ProviderLabel: "Preinstalled", TargetDirName: "creating-skills", SkillName: "creating-skills"},
+		}},
+		skillImport: onboardingImportSelection{Mode: onboardingImportModeNone},
+	}
+	toggles := buildSkillToggles(state, map[string]bool{
+		"generated:builder-dogfooding": true,
+		"generated:creating-skills":    false,
+	})
+	disabled, ok := toggles["creating-skills"]
+	if len(toggles) != 1 || !ok || disabled {
+		t.Fatalf("expected disabled generated skill toggle, got %+v", toggles)
+	}
+}
+
+func TestSkillSelectionCandidatesHideGeneratedSkillsShadowedByExistingSkills(t *testing.T) {
+	state := &onboardingFlowState{
+		imports: onboardingImportDiscovery{
+			existingSkillNames: map[string]bool{"builder-dogfooding": true},
+			generatedSkillItems: []onboardingSkillImportItem{
+				{ID: "generated:builder-dogfooding", ProviderLabel: "Preinstalled", TargetDirName: "builder-dogfooding", SkillName: "builder-dogfooding"},
+				{ID: "generated:creating-skills", ProviderLabel: "Preinstalled", TargetDirName: "creating-skills", SkillName: "creating-skills"},
+			},
+		},
+	}
+	items := skillSelectionCandidates(state)
+	if len(items) != 1 || items[0].SkillName != "creating-skills" {
+		t.Fatalf("expected only unshadowed generated skill, got %+v", items)
+	}
+}
+
+func TestDiscoverOnboardingImportsHidesGeneratedSkillsShadowedByWorkspaceSkills(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	writeOnboardingTestSkill(t, filepath.Join(workspace, ".builder", "skills", "builder-dogfooding"), "builder-dogfooding", "workspace override")
+
+	discovery := discoverOnboardingImportsForWorkspace(filepath.Join(home, ".builder"), workspace)
+	if discovery.err != nil {
+		t.Fatalf("discover onboarding imports: %v", discovery.err)
+	}
+	for _, item := range skillSelectionCandidates(&onboardingFlowState{imports: discovery}) {
+		if normalizeOnboardingSkillName(item.SkillName) == "builder-dogfooding" {
+			t.Fatalf("expected workspace skill to shadow generated builder-dogfooding, got %+v", item)
+		}
+	}
+}
+
+func TestReviewSummaryIncludesGeneratedSkillSelectionWithoutImport(t *testing.T) {
+	state := &onboardingFlowState{
+		settings: config.Settings{
+			Theme:        theme.Auto,
+			Model:        "gpt-5.5",
+			EnabledTools: map[toolspec.ID]bool{},
+		},
+		imports: onboardingImportDiscovery{generatedSkillItems: []onboardingSkillImportItem{
+			{ID: "generated:builder-dogfooding", ProviderLabel: "Preinstalled", TargetDirName: "builder-dogfooding", SkillName: "builder-dogfooding"},
+			{ID: "generated:creating-skills", ProviderLabel: "Preinstalled", TargetDirName: "creating-skills", SkillName: "creating-skills"},
+		}},
+		skillSelection: map[string]bool{
+			"generated:builder-dogfooding": true,
+			"generated:creating-skills":    false,
+		},
+	}
+	lines := reviewSummaryLines(state)
+	hasEnabledLine := false
+	for _, line := range lines {
+		switch line {
+		case "- Enabled skills: `1 enabled, 1 disabled`":
+			hasEnabledLine = true
+		case "- Skills import:":
+			t.Fatalf("did not expect import summary when only generated skills were configured, got %q", lines)
+		}
+	}
+	if !hasEnabledLine {
+		t.Fatalf("expected generated skill counts in review summary, got %q", lines)
+	}
+}
+
+func TestOnboardingFinalWritePersistsDisabledGeneratedSkillAndRuntimeHonorsIt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if _, err := generated.Sync(context.Background(), generated.SyncOptions{HomeDir: home, FS: prompts.GeneratedSkillsFS}); err != nil {
+		t.Fatalf("sync generated skills: %v", err)
+	}
+	defaultCfg, err := config.LoadGlobal(config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("load default config: %v", err)
+	}
+	state := onboardingFlowState{
+		settings: defaultCfg.Settings,
+		imports: onboardingImportDiscovery{generatedSkillItems: []onboardingSkillImportItem{
+			{ID: "generated:builder-dogfooding", ProviderLabel: "Preinstalled", TargetDirName: "builder-dogfooding", SkillName: "builder-dogfooding"},
+			{ID: "generated:creating-skills", ProviderLabel: "Preinstalled", TargetDirName: "creating-skills", SkillName: "creating-skills"},
+		}},
+		skillSelection: map[string]bool{
+			"generated:builder-dogfooding": false,
+			"generated:creating-skills":    true,
+		},
+	}
+	state.settings.SkillToggles = buildSkillToggles(&state, state.skillSelection)
+	model := newOnboardingModel(filepath.Join(home, ".builder"), state)
+	msg := model.finalizeCmd(false)()
+	done, ok := msg.(onboardingFinalizeDoneMsg)
+	if !ok {
+		t.Fatalf("expected onboarding finalize message, got %T", msg)
+	}
+	if done.err != nil {
+		t.Fatalf("finalize onboarding: %v", done.err)
+	}
+	cfg, err := config.LoadGlobal(config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("load written config: %v", err)
+	}
+	disabled := config.DisabledSkillToggles(cfg.Settings)
+	if !disabled["builder-dogfooding"] {
+		t.Fatalf("expected disabled generated skill in loaded config, got toggles=%+v disabled=%+v", cfg.Settings.SkillToggles, disabled)
+	}
+	inspections, err := runtime.InspectSkills("", disabled)
+	if err != nil {
+		t.Fatalf("inspect skills: %v", err)
+	}
+	foundDisabled := false
+	for _, inspection := range inspections {
+		if inspection.SourceKind == "generated" && inspection.Name == "builder-dogfooding" {
+			foundDisabled = inspection.Disabled
+		}
+	}
+	if !foundDisabled {
+		t.Fatalf("expected runtime inspection to mark generated builder-dogfooding disabled, got %+v", inspections)
 	}
 }
 

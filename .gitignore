@@ -47,5 +47,5 @@ go.work.sum
 docs/tmp/
 
 # Local runtime state
-.junie/
 .env
+.builder/config.toml

@@ -3,7 +3,7 @@ name: builder-dogfooding
 description: How to use `builder` cli or change your behavior/config. Read to learn `builder` commands; to debug project/workspace errors; when user asks to change builder config/settings/behavior.
 ---
 
-Builder is the harness you are running inside, but it's also a server that runs agentic loops, a TUI, and a CLI interface that humans (users) see.
+Builder is the harness you are running inside, but it's also a server that runs agentic loops, a TUI, and a CLI interface that humans see.
 
 Source-of-truth for commands and public docs:
 
@@ -26,7 +26,7 @@ Global config (applies to all projects) `~/.builder/config.toml` (`%USERPROFILE%
 
 Most behavior changes affect only **new sessions** and only **after server restart**. Existing sessions will keep captured conversation logs and settings. After changing config, ask the user to restart the service `builder service restart`, restart the Builder GUI, and then start a new session, for changes to apply.
 
-Important: do not make changes to your configuration that were not authorized or directly asked for by the user. If your environment is buggy/broken, ask the user for help instead of messing around with your internals.
+Important: do not make changes to your configuration that were not authorized or directly asked for by the user. If your environment is buggy/broken, ask the user for help instead of messing with your internals.
 
 ## Change Agent Behavior
 Use prompt files for broad behavior changes, skills for reusable on-demand workflows, and subagent roles for specialized headless agents. Start by reading docs at `https://opensource.respawn.pro/builder/prompts.md`

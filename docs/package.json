@@ -16,6 +16,8 @@
     "@astrojs/starlight": "^0.38.4",
     "@astrojs/starlight-docsearch": "^0.7.0",
     "astro": "^6.2.0",
+    "hast-util-from-html": "^2.0.3",
+    "hast-util-to-html": "^9.0.5",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
     "remark-stringify": "^11.0.0",

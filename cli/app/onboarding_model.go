@@ -55,6 +55,7 @@ type onboardingModel struct {
 	state            onboardingFlowState
 	result           onboardingResult
 	globalRoot       string
+	workspaceRoot    string
 	width            int
 	height           int
 	styles           onboardingStyles
@@ -101,15 +102,20 @@ func newOnboardingStyles(theme string) onboardingStyles {
 }
 
 func newOnboardingModel(globalRoot string, state onboardingFlowState) *onboardingModel {
+	return newOnboardingModelForWorkspace(globalRoot, "", state)
+}
+
+func newOnboardingModelForWorkspace(globalRoot string, workspaceRoot string, state onboardingFlowState) *onboardingModel {
 	input := newSingleLineEditor("")
 	m := &onboardingModel{
-		workflow:   newOnboardingWorkflow(&state),
-		state:      state,
-		globalRoot: globalRoot,
-		width:      defaultPickerWidth,
-		height:     defaultPickerHeight,
-		styles:     newOnboardingStyles(state.theme),
-		input:      input,
+		workflow:      newOnboardingWorkflow(&state),
+		state:         state,
+		globalRoot:    globalRoot,
+		workspaceRoot: workspaceRoot,
+		width:         defaultPickerWidth,
+		height:        defaultPickerHeight,
+		styles:        newOnboardingStyles(state.theme),
+		input:         input,
 	}
 	m.spinnerClock.Start(uiAnimationNow())
 	m.syncScreen(true)
@@ -146,7 +152,7 @@ func (m *onboardingModel) applyActiveThemeStyles() {
 func (m *onboardingModel) Init() tea.Cmd {
 	m.state.imports.pending = true
 	return tea.Batch(tickOnboardingSpinner(m.spinnerClock.NextDelay(uiAnimationNow(), spinnerTickInterval)), func() tea.Msg {
-		return onboardingImportDiscoveryDoneMsg{discovery: discoverOnboardingImports(m.globalRoot)}
+		return onboardingImportDiscoveryDoneMsg{discovery: discoverOnboardingImportsForWorkspace(m.globalRoot, m.workspaceRoot)}
 	})
 }
 
@@ -166,8 +172,6 @@ func (m *onboardingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state.imports.pending = false
 		if m.state.imports.skipSkills {
 			m.state.skillImport = onboardingImportSelection{Mode: onboardingImportModeNone}
-			m.state.skillSelection = nil
-			m.state.settings.SkillToggles = nil
 		}
 		if m.state.imports.skipCommands {
 			m.state.commandImport = onboardingImportSelection{Mode: onboardingImportModeNone}
@@ -880,9 +884,9 @@ func (m *onboardingModel) renderReviewSummary(width int) []string {
 	appendRow("Compaction", string(m.state.settings.CompactionMode), compactionStyle)
 	if summary := skillImportSummary(&m.state); summary != "" {
 		appendRow("Skills import", summary, m.styles.valueNeutral)
-		if enabled, disabled := selectedSkillCounts(&m.state); enabled > 0 || disabled > 0 {
-			appendRow("Enabled skills", fmt.Sprintf("%d enabled, %d disabled", enabled, disabled), m.styles.valueNeutral)
-		}
+	}
+	if enabled, disabled := selectedSkillCounts(&m.state); enabled > 0 || disabled > 0 {
+		appendRow("Enabled skills", fmt.Sprintf("%d enabled, %d disabled", enabled, disabled), m.styles.valueNeutral)
 	}
 	if summary := commandImportSummary(&m.state); summary != "" {
 		appendRow("Slash commands", summary, m.styles.valueNeutral)

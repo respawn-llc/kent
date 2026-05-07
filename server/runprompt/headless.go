@@ -112,6 +112,7 @@ func (l *headlessPromptLauncher) prepareRuntime(plan launch.SessionPlan, progres
 	wiring, err := runtimewire.NewRuntimeWiringWithBackground(plan.Store, plan.ActiveSettings, plan.EnabledTools, plan.WorkspaceRoot, l.boot.AuthManager, logger, l.boot.Background, runtimewire.RuntimeWiringOptions{
 		Headless: true,
 		FastMode: l.boot.FastModeState,
+		Sources:  plan.Source.Sources,
 		OnEvent: func(evt runtime.Event) {
 			logger.Logf("%s", FormatRuntimeEvent(evt))
 			if transcriptdiag.EnabledForProcess(plan.ActiveSettings.Debug) {

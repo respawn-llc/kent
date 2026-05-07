@@ -307,6 +307,43 @@ func TestNewRuntimeWiring_ProviderOverrideSupportsAliasModelsForMainAndReviewer(
 	}
 }
 
+func TestNewRuntimeWiring_ReviewerProviderCanUseLocalAnonymousModel(t *testing.T) {
+	workspace := t.TempDir()
+	store, err := session.Create(t.TempDir(), "ws", workspace)
+	if err != nil {
+		t.Fatalf("create session store: %v", err)
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	activeCfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	active := activeCfg.Settings
+	active.Model = "gpt-5"
+	active.Reviewer.Frequency = "all"
+	active.Reviewer.Model = "local-supervisor"
+	active.Reviewer.ProviderOverride = "openai"
+	active.Reviewer.OpenAIBaseURL = "http://127.0.0.1:11434/v1"
+
+	authMgr := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil, time.Now)
+
+	logger, err := newRunLogger(t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("new run logger: %v", err)
+	}
+	defer logger.Close()
+
+	wiring, err := newRuntimeWiring(store, active, config.EnabledToolIDs(active), workspace, authMgr, logger, runtimeWiringOptions{})
+	if err != nil {
+		t.Fatalf("new runtime wiring: %v", err)
+	}
+	if wiring == nil || wiring.engine == nil {
+		t.Fatal("expected runtime wiring with engine")
+	}
+}
+
 func TestRuntimeWiringCloseDoesNotCloseSharedBackgroundManager(t *testing.T) {
 	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(20 * time.Millisecond))
 	if err != nil {

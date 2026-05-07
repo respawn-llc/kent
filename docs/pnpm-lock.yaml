@@ -20,6 +20,12 @@ importers:
       astro:
         specifier: ^6.2.0
         version: 6.2.0(@types/node@24.12.2)(rollup@4.60.2)
+      hast-util-from-html:
+        specifier: ^2.0.3
+        version: 2.0.3
+      hast-util-to-html:
+        specifier: ^9.0.5
+        version: 9.0.5
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1

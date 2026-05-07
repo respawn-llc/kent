@@ -18,6 +18,8 @@ const (
 	authConflictPickerHeaderMarkdown = "**Choose Auth Source**"
 )
 
+var runStartupPickerFlow = runStartupPicker
+
 type startupPickerOption struct {
 	ID    string
 	Title string
@@ -51,6 +53,7 @@ type startupPickerStyles struct {
 }
 
 type startupPickerModel struct {
+	banner         string
 	headerMarkdown string
 	headerFallback string
 	items          []startupPickerOption
@@ -130,6 +133,10 @@ func (m *startupPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *startupPickerModel) View() string {
 	var out strings.Builder
+	if banner := m.renderBanner(); banner != "" {
+		out.WriteString(banner)
+		out.WriteString("\n\n")
+	}
 	out.WriteString(m.renderHeader())
 	if notice := m.renderNotice(); strings.TrimSpace(notice) != "" {
 		out.WriteString("\n\n")
@@ -192,6 +199,10 @@ func (m *startupPickerModel) renderHeader() string {
 	return m.styles.headerFallback.Render(m.headerFallback)
 }
 
+func (m *startupPickerModel) renderBanner() string {
+	return renderStartupBanner(m.banner)
+}
+
 func (m *startupPickerModel) renderNotice() string {
 	text := strings.TrimSpace(m.notice.Text)
 	if text == "" {
@@ -243,6 +254,9 @@ func (m *startupPickerModel) contentWidth() int {
 
 func (m *startupPickerModel) staticLineCount() int {
 	lines := 2
+	if bannerLines := startupBannerLineCount(m.banner); bannerLines > 0 {
+		lines += bannerLines + 2
+	}
 	if strings.TrimSpace(m.notice.Text) != "" {
 		lines += 2
 	}
@@ -374,7 +388,9 @@ func authMethodOptions(includeEnvAPIKey bool, allowSkip bool) []startupPickerOpt
 }
 
 func newAuthMethodPickerModel(theme string, notice startupPickerNotice, includeEnvAPIKey bool, allowSkip bool) *startupPickerModel {
-	return newStartupPickerModel(authPickerHeaderMarkdown, "Sign in to Builder", theme, notice, authMethodOptions(includeEnvAPIKey, allowSkip))
+	model := newStartupPickerModel(authPickerHeaderMarkdown, "Sign in to Builder", theme, notice, authMethodOptions(includeEnvAPIKey, allowSkip))
+	model.banner = builderStartupBannerANSI
+	return model
 }
 
 func authMethodPickerNoticeForRequest(req authInteraction) startupPickerNotice {
@@ -407,7 +423,7 @@ func authMethodDisplayTitle(choice authMethodChoice) string {
 
 func runAuthMethodPicker(req authInteraction) (authMethodPickerResult, error) {
 	model := newAuthMethodPickerModel(req.Theme, authMethodPickerNoticeForRequest(req), req.HasEnvAPIKey, !req.AuthRequired)
-	picked, err := runStartupPicker(model)
+	picked, err := runStartupPickerFlow(model)
 	if err != nil {
 		return authMethodPickerResult{}, err
 	}
@@ -447,7 +463,7 @@ func runAuthConflictPicker(req authInteraction) (authConflictPickerResult, error
 		startupPickerNotice{Text: "Builder found both saved subscription auth and OPENAI_API_KEY. Choose which auth source should win from now on.", Kind: startupPickerNoticeNeutral},
 		authConflictOptions(),
 	)
-	picked, err := runStartupPicker(model)
+	picked, err := runStartupPickerFlow(model)
 	if err != nil {
 		return authConflictPickerResult{}, err
 	}

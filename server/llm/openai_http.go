@@ -41,14 +41,15 @@ type openAIAuthMode struct {
 }
 
 type HTTPTransport struct {
-	BaseURL             string
-	BaseURLExplicit     bool
-	Client              *http.Client
-	Auth                AuthHeaderProvider
-	Provider            Provider
-	Store               bool
-	ModelVerbosity      string
-	ContextWindowTokens int
+	BaseURL                      string
+	BaseURLExplicit              bool
+	Client                       *http.Client
+	Auth                         AuthHeaderProvider
+	Provider                     Provider
+	Store                        bool
+	ModelVerbosity               string
+	ContextWindowTokens          int
+	ProviderCapabilitiesOverride *ProviderCapabilities
 
 	mu                  sync.RWMutex
 	modelContextWindows map[string]int

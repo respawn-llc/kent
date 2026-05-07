@@ -379,6 +379,155 @@ func newSettingsRegistry() settingsRegistry {
 					return "<inherits thinking_level when unset>"
 				},
 			}),
+		newStringSetting("reviewer.model_verbosity", "",
+			func(state *settingsState, value ModelVerbosity) { state.Settings.Reviewer.ModelVerbosity = value },
+			func(state settingsState) ModelVerbosity { return state.Settings.Reviewer.ModelVerbosity },
+			"BUILDER_REVIEWER_MODEL_VERBOSITY",
+			nil,
+			normalizeModelVerbosity,
+			settingDocOptions{
+				omitInTOML: true,
+				defaultValue: func(settingsState) any {
+					return "<inherits model_verbosity when unset>"
+				},
+			}),
+		newStringSetting("reviewer.provider_override", "",
+			func(state *settingsState, value string) { state.Settings.Reviewer.ProviderOverride = value },
+			func(state settingsState) string { return state.Settings.Reviewer.ProviderOverride },
+			"BUILDER_REVIEWER_PROVIDER_OVERRIDE",
+			nil,
+			normalizeProviderOverride,
+			settingDocOptions{
+				omitInTOML: true,
+				defaultValue: func(settingsState) any {
+					return "<inherits provider_override when unset>"
+				},
+			}),
+		newStringSetting("reviewer.openai_base_url", "",
+			func(state *settingsState, value string) { state.Settings.Reviewer.OpenAIBaseURL = value },
+			func(state settingsState) string { return state.Settings.Reviewer.OpenAIBaseURL },
+			"BUILDER_REVIEWER_OPENAI_BASE_URL",
+			nil,
+			nil,
+			settingDocOptions{
+				omitInTOML: true,
+				defaultValue: func(settingsState) any {
+					return "<inherits openai_base_url when unset>"
+				},
+			}),
+		newBoolSetting("reviewer.model_capabilities.supports_reasoning_effort", false,
+			func(state *settingsState, value bool) {
+				state.Settings.Reviewer.ModelCapabilities.SupportsReasoningEffort = value
+			},
+			func(state settingsState) bool {
+				return state.Settings.Reviewer.ModelCapabilities.SupportsReasoningEffort
+			},
+			"BUILDER_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT",
+			settingDocOptions{commented: true}),
+		newBoolSetting("reviewer.model_capabilities.supports_vision_inputs", false,
+			func(state *settingsState, value bool) {
+				state.Settings.Reviewer.ModelCapabilities.SupportsVisionInputs = value
+			},
+			func(state settingsState) bool { return state.Settings.Reviewer.ModelCapabilities.SupportsVisionInputs },
+			"BUILDER_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS",
+			settingDocOptions{commented: true}),
+		newStringSetting("reviewer.provider_capabilities.provider_id", "",
+			func(state *settingsState, value string) {
+				state.Settings.Reviewer.ProviderCapabilities.ProviderID = value
+			},
+			func(state settingsState) string { return state.Settings.Reviewer.ProviderCapabilities.ProviderID },
+			"BUILDER_REVIEWER_PROVIDER_CAPABILITIES_PROVIDER_ID",
+			nil,
+			nil,
+			settingDocOptions{commented: true}),
+		newBoolSetting("reviewer.provider_capabilities.supports_responses_api", false,
+			func(state *settingsState, value bool) {
+				state.Settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI = value
+			},
+			func(state settingsState) bool {
+				return state.Settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI
+			},
+			"BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_API",
+			settingDocOptions{commented: true}),
+		newBoolSetting("reviewer.provider_capabilities.supports_responses_compact", false,
+			func(state *settingsState, value bool) {
+				state.Settings.Reviewer.ProviderCapabilities.SupportsResponsesCompact = value
+			},
+			func(state settingsState) bool {
+				return state.Settings.Reviewer.ProviderCapabilities.SupportsResponsesCompact
+			},
+			"BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_COMPACT",
+			settingDocOptions{commented: true}),
+		newBoolSetting("reviewer.provider_capabilities.supports_request_input_token_count", false,
+			func(state *settingsState, value bool) {
+				state.Settings.Reviewer.ProviderCapabilities.SupportsRequestInputTokenCount = value
+			},
+			func(state settingsState) bool {
+				return state.Settings.Reviewer.ProviderCapabilities.SupportsRequestInputTokenCount
+			},
+			"BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_REQUEST_INPUT_TOKEN_COUNT",
+			settingDocOptions{commented: true}),
+		newBoolSetting("reviewer.provider_capabilities.supports_prompt_cache_key", false,
+			func(state *settingsState, value bool) {
+				state.Settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey = value
+			},
+			func(state settingsState) bool {
+				return state.Settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey
+			},
+			"BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_PROMPT_CACHE_KEY",
+			settingDocOptions{commented: true}),
+		newBoolSetting("reviewer.provider_capabilities.supports_native_web_search", false,
+			func(state *settingsState, value bool) {
+				state.Settings.Reviewer.ProviderCapabilities.SupportsNativeWebSearch = value
+			},
+			func(state settingsState) bool {
+				return state.Settings.Reviewer.ProviderCapabilities.SupportsNativeWebSearch
+			},
+			"BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_NATIVE_WEB_SEARCH",
+			settingDocOptions{commented: true}),
+		newBoolSetting("reviewer.provider_capabilities.supports_reasoning_encrypted", false,
+			func(state *settingsState, value bool) {
+				state.Settings.Reviewer.ProviderCapabilities.SupportsReasoningEncrypted = value
+			},
+			func(state settingsState) bool {
+				return state.Settings.Reviewer.ProviderCapabilities.SupportsReasoningEncrypted
+			},
+			"BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_REASONING_ENCRYPTED",
+			settingDocOptions{commented: true}),
+		newBoolSetting("reviewer.provider_capabilities.supports_server_side_context_edit", false,
+			func(state *settingsState, value bool) {
+				state.Settings.Reviewer.ProviderCapabilities.SupportsServerSideContextEdit = value
+			},
+			func(state settingsState) bool {
+				return state.Settings.Reviewer.ProviderCapabilities.SupportsServerSideContextEdit
+			},
+			"BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_SERVER_SIDE_CONTEXT_EDIT",
+			settingDocOptions{commented: true}),
+		newBoolSetting("reviewer.provider_capabilities.is_openai_first_party", false,
+			func(state *settingsState, value bool) {
+				state.Settings.Reviewer.ProviderCapabilities.IsOpenAIFirstParty = value
+			},
+			func(state settingsState) bool { return state.Settings.Reviewer.ProviderCapabilities.IsOpenAIFirstParty },
+			"BUILDER_REVIEWER_PROVIDER_CAPABILITIES_IS_OPENAI_FIRST_PARTY",
+			settingDocOptions{commented: true}),
+		newIntSetting("reviewer.model_context_window", 0,
+			func(state *settingsState, value int) { state.Settings.Reviewer.ModelContextWindow = value },
+			func(state settingsState) int { return state.Settings.Reviewer.ModelContextWindow },
+			"BUILDER_REVIEWER_MODEL_CONTEXT_WINDOW",
+			nil,
+			settingDocOptions{
+				omitInTOML: true,
+				defaultValue: func(settingsState) any {
+					return "<inherits model_context_window when unset>"
+				},
+			}),
+		newStringSetting("reviewer.auth", "inherit",
+			func(state *settingsState, value string) { state.Settings.Reviewer.Auth = value },
+			func(state settingsState) string { return state.Settings.Reviewer.Auth },
+			"BUILDER_REVIEWER_AUTH",
+			nil,
+			normalizeReviewerAuth,
+			settingDocOptions{}),
 		newStringSetting("reviewer.system_prompt_file", "",
 			func(state *settingsState, value string) { state.Settings.Reviewer.SystemPromptFile = value },
 			func(state settingsState) string { return state.Settings.Reviewer.SystemPromptFile },
@@ -1254,6 +1403,7 @@ func renderTOMLValue(value any) string {
 
 func filterDefaultLines(lines []defaultConfigLine, section string) []defaultConfigLine {
 	filtered := []defaultConfigLine{}
+	sectionPath := splitSettingKey(section)
 	for _, line := range lines {
 		if section == "" {
 			if len(line.Path) == 1 {
@@ -1261,11 +1411,34 @@ func filterDefaultLines(lines []defaultConfigLine, section string) []defaultConf
 			}
 			continue
 		}
-		if len(line.Path) > 1 && line.Path[0] == section {
+		if len(line.Path) > len(sectionPath) && hasPathPrefix(line.Path, sectionPath) {
 			filtered = append(filtered, line)
 		}
 	}
 	return filtered
+}
+
+func filterExactSectionLines(lines []defaultConfigLine, section string) []defaultConfigLine {
+	filtered := []defaultConfigLine{}
+	sectionPath := splitSettingKey(section)
+	for _, line := range lines {
+		if len(line.Path) == len(sectionPath)+1 && hasPathPrefix(line.Path, sectionPath) {
+			filtered = append(filtered, line)
+		}
+	}
+	return filtered
+}
+
+func hasPathPrefix(path []string, prefix []string) bool {
+	if len(prefix) == 0 || len(path) < len(prefix) {
+		return false
+	}
+	for i, part := range prefix {
+		if path[i] != part {
+			return false
+		}
+	}
+	return true
 }
 
 func writeDefaultLines(builder *strings.Builder, lines []defaultConfigLine) {

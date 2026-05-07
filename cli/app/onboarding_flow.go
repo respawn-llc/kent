@@ -482,7 +482,7 @@ func newOnboardingWorkflow(state *onboardingFlowState) onboardingWorkflow {
 		},
 		onboardingMultiSelectStep{
 			id:      "skills_enabled",
-			visible: func(state *onboardingFlowState) bool { return len(skillSelectionCandidates(state)) > 1 },
+			visible: func(state *onboardingFlowState) bool { return len(skillSelectionCandidates(state)) > 0 },
 			build:   func(state *onboardingFlowState) onboardingScreen { return buildSkillSelectionScreen(state) },
 			apply: func(state *onboardingFlowState, selection map[string]bool) error {
 				state.skillSelection = cloneSelection(selection)
@@ -632,9 +632,9 @@ func reviewSummaryLines(state *onboardingFlowState) []string {
 	}
 	if summary := skillImportSummary(state); summary != "" {
 		lines = append(lines, "- Skills import: `"+summary+"`")
-		if enabled, disabled := selectedSkillCounts(state); enabled > 0 || disabled > 0 {
-			lines = append(lines, fmt.Sprintf("- Enabled skills: `%d enabled, %d disabled`", enabled, disabled))
-		}
+	}
+	if enabled, disabled := selectedSkillCounts(state); enabled > 0 || disabled > 0 {
+		lines = append(lines, fmt.Sprintf("- Enabled skills: `%d enabled, %d disabled`", enabled, disabled))
 	}
 	if summary := commandImportSummary(state); summary != "" {
 		lines = append(lines, "- Slash commands: `"+summary+"`")
@@ -724,7 +724,7 @@ func cloneSelection(selection map[string]bool) map[string]bool {
 }
 
 func buildSkillToggles(state *onboardingFlowState, selection map[string]bool) map[string]bool {
-	if state.skillImport.Mode != onboardingImportModeSymlinkSource || len(selection) == 0 {
+	if len(selection) == 0 {
 		return nil
 	}
 	toggles := map[string]bool{}
@@ -741,17 +741,11 @@ func buildSkillToggles(state *onboardingFlowState, selection map[string]bool) ma
 }
 
 func selectedSkillCounts(state *onboardingFlowState) (int, int) {
-	if state.imports.skipSkills {
-		return 0, 0
-	}
-	if state.skillImport.Mode != onboardingImportModeSymlinkSource {
-		return 0, 0
-	}
 	selected := effectiveSkillSelection(state)
 	enabled := 0
 	disabled := 0
-	for _, checked := range selected {
-		if checked {
+	for _, item := range skillSelectionCandidates(state) {
+		if selected[item.ID] {
 			enabled++
 		} else {
 			disabled++

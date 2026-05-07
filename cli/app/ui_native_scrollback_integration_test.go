@@ -942,7 +942,7 @@ func TestNativeRollbackOverlayCtrlCBalancesAltScreenAndAlternateScroll(t *testin
 		writeTerminalSequence = originalWriteTerminalSequence
 	}()
 
-	out := &bytes.Buffer{}
+	out := newLockedBuffer()
 	model := newProjectedTestUIModel(
 		nil,
 		closedProjectedRuntimeEvents(),
@@ -974,6 +974,9 @@ func TestNativeRollbackOverlayCtrlCBalancesAltScreenAndAlternateScroll(t *testin
 	program.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	waitForTestCondition(t, 2*time.Second, "rollback overlay to open", func() bool {
 		return model.rollback.isSelecting() && model.surface() == uiSurfaceRollbackSelection && model.view.Mode() == tui.ModeDetail
+	})
+	waitForTestCondition(t, 2*time.Second, "rollback overlay alt-screen enter to render", func() bool {
+		return strings.Contains(out.String(), "\x1b[?1049h")
 	})
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 

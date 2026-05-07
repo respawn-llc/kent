@@ -47,7 +47,7 @@ func runOnboardingFlow(cfg config.App, authState auth.State) (onboardingResult, 
 		skillImport:          onboardingImportSelection{Mode: onboardingImportModeNone},
 		commandImport:        onboardingImportSelection{Mode: onboardingImportModeNone},
 	}
-	model := newOnboardingModel(cfg.PersistenceRoot, state)
+	model := newOnboardingModelForWorkspace(cfg.PersistenceRoot, cfg.WorkspaceRoot, state)
 	terminalCursor := newUITerminalCursorState()
 	model.terminalCursor = terminalCursor
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithOutput(newUITerminalCursorWriter(os.Stdout, terminalCursor)))

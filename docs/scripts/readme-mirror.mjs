@@ -1,5 +1,7 @@
 import path from 'node:path';
 
+import { fromHtml } from 'hast-util-from-html';
+import { toHtml } from 'hast-util-to-html';
 import { unified } from 'unified';
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
@@ -75,6 +77,22 @@ function rewriteRelativeUrl(url, docsConfig) {
   return new URL(normalizedPath, `${targetRoot}`).toString() + hash;
 }
 
+function rewriteHtmlUrlProperties(html, docsConfig) {
+  const tree = fromHtml(html, { fragment: true });
+
+  visit(tree, 'element', (node) => {
+    const properties = node.properties ?? {};
+    for (const propertyName of ['href', 'src', 'poster']) {
+      const propertyValue = properties[propertyName];
+      if (typeof propertyValue === 'string' && shouldRewriteUrl(propertyValue)) {
+        properties[propertyName] = rewriteRelativeUrl(propertyValue, docsConfig);
+      }
+    }
+  });
+
+  return toHtml(tree);
+}
+
 function buildFrontmatter(title, editUrl) {
   return [
     '---',
@@ -102,6 +120,9 @@ export function mirrorRepoMarkdownDocument(markdown, docsConfig, options) {
       visit(tree, (node) => {
         if ((node.type === 'link' || node.type === 'image') && shouldRewriteUrl(node.url)) {
           node.url = rewriteRelativeUrl(node.url, docsConfig);
+        }
+        if (node.type === 'html') {
+          node.value = rewriteHtmlUrlProperties(node.value, docsConfig);
         }
       });
     })

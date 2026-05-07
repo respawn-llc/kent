@@ -102,6 +102,458 @@ func TestLoadCapabilityOverridesFromEnv(t *testing.T) {
 	}
 }
 
+func TestLoadReviewerCapabilityOverridesFromFileAndEnv(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`model = "gpt-5.5"
+model_verbosity = "high"
+model_context_window = 272000
+
+[reviewer]
+model = "local-reviewer"
+model_verbosity = "low"
+model_context_window = 64000
+
+[reviewer.model_capabilities]
+supports_reasoning_effort = true
+supports_vision_inputs = true
+
+[reviewer.provider_capabilities]
+provider_id = "local-reviewer"
+supports_responses_api = true
+supports_prompt_cache_key = true
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Settings.Reviewer.ModelVerbosity != ModelVerbosityLow {
+		t.Fatalf("expected reviewer.model_verbosity=low, got %q", cfg.Settings.Reviewer.ModelVerbosity)
+	}
+	if cfg.Settings.Reviewer.ModelContextWindow != 64000 {
+		t.Fatalf("expected reviewer.model_context_window=64000, got %d", cfg.Settings.Reviewer.ModelContextWindow)
+	}
+	if !cfg.Settings.Reviewer.ModelCapabilities.SupportsReasoningEffort || !cfg.Settings.Reviewer.ModelCapabilities.SupportsVisionInputs {
+		t.Fatalf("expected reviewer model capability overrides, got %+v", cfg.Settings.Reviewer.ModelCapabilities)
+	}
+	if cfg.Settings.Reviewer.ProviderCapabilities.ProviderID != "local-reviewer" || !cfg.Settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI || !cfg.Settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey {
+		t.Fatalf("expected reviewer provider capability overrides, got %+v", cfg.Settings.Reviewer.ProviderCapabilities)
+	}
+	if got := cfg.Source.Sources["reviewer.model_capabilities.supports_reasoning_effort"]; got != "file" {
+		t.Fatalf("expected reviewer model capability source file, got %q", got)
+	}
+	if got := cfg.Source.Sources["reviewer.provider_capabilities.provider_id"]; got != "file" {
+		t.Fatalf("expected reviewer provider capability source file, got %q", got)
+	}
+
+	t.Setenv("BUILDER_REVIEWER_MODEL_VERBOSITY", "medium")
+	t.Setenv("BUILDER_REVIEWER_MODEL_CONTEXT_WINDOW", "32000")
+	t.Setenv("BUILDER_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT", "false")
+	t.Setenv("BUILDER_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS", "false")
+	t.Setenv("BUILDER_REVIEWER_PROVIDER_CAPABILITIES_PROVIDER_ID", "env-reviewer")
+	t.Setenv("BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_API", "true")
+	t.Setenv("BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_PROMPT_CACHE_KEY", "false")
+	cfg, err = Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load with env: %v", err)
+	}
+	if cfg.Settings.Reviewer.ModelVerbosity != ModelVerbosityMedium {
+		t.Fatalf("expected env reviewer.model_verbosity=medium, got %q", cfg.Settings.Reviewer.ModelVerbosity)
+	}
+	if cfg.Settings.Reviewer.ModelContextWindow != 32000 {
+		t.Fatalf("expected env reviewer.model_context_window=32000, got %d", cfg.Settings.Reviewer.ModelContextWindow)
+	}
+	if cfg.Settings.Reviewer.ModelCapabilities.SupportsReasoningEffort || cfg.Settings.Reviewer.ModelCapabilities.SupportsVisionInputs {
+		t.Fatalf("expected env reviewer model capability overrides to disable file values, got %+v", cfg.Settings.Reviewer.ModelCapabilities)
+	}
+	if cfg.Settings.Reviewer.ProviderCapabilities.ProviderID != "env-reviewer" || !cfg.Settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI || cfg.Settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey {
+		t.Fatalf("expected env reviewer provider capability overrides, got %+v", cfg.Settings.Reviewer.ProviderCapabilities)
+	}
+	if got := cfg.Source.Sources["reviewer.model_context_window"]; got != "env" {
+		t.Fatalf("expected reviewer.model_context_window source env, got %q", got)
+	}
+	if got := cfg.Source.Sources["reviewer.provider_capabilities.provider_id"]; got != "env" {
+		t.Fatalf("expected reviewer provider capability source env, got %q", got)
+	}
+}
+
+func TestLoadReviewerCapabilitiesInheritMainWhenUnset(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`model = "gpt-5.5"
+model_verbosity = "high"
+model_context_window = 128000
+context_compaction_threshold_tokens = 121600
+
+[model_capabilities]
+supports_reasoning_effort = true
+
+[provider_capabilities]
+provider_id = "main-provider"
+supports_responses_api = true
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Settings.Reviewer.ModelVerbosity != ModelVerbosityHigh {
+		t.Fatalf("expected reviewer.model_verbosity to inherit main, got %q", cfg.Settings.Reviewer.ModelVerbosity)
+	}
+	if cfg.Settings.Reviewer.ModelContextWindow != 128000 {
+		t.Fatalf("expected reviewer.model_context_window to inherit main, got %d", cfg.Settings.Reviewer.ModelContextWindow)
+	}
+	if !cfg.Settings.Reviewer.ModelCapabilities.SupportsReasoningEffort {
+		t.Fatalf("expected reviewer model capabilities to inherit main, got %+v", cfg.Settings.Reviewer.ModelCapabilities)
+	}
+	if cfg.Settings.Reviewer.ProviderCapabilities.ProviderID != "main-provider" || !cfg.Settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI {
+		t.Fatalf("expected reviewer provider capabilities to inherit main, got %+v", cfg.Settings.Reviewer.ProviderCapabilities)
+	}
+}
+
+func TestEffectiveReviewerSettingsPreservesLoadedExplicitFalseCapabilities(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`model = "gpt-5.5"
+
+[model_capabilities]
+supports_reasoning_effort = true
+supports_vision_inputs = true
+
+[provider_capabilities]
+provider_id = "main-provider"
+supports_responses_api = true
+supports_prompt_cache_key = true
+
+[reviewer.model_capabilities]
+supports_reasoning_effort = false
+supports_vision_inputs = false
+
+[reviewer.provider_capabilities]
+provider_id = "reviewer-provider"
+supports_responses_api = false
+supports_prompt_cache_key = false
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	reviewer := EffectiveReviewerSettings(cfg.Settings)
+	if reviewer.ModelCapabilities.SupportsReasoningEffort || reviewer.ModelCapabilities.SupportsVisionInputs {
+		t.Fatalf("expected explicit false reviewer model capabilities to survive effective helper, got %+v", reviewer.ModelCapabilities)
+	}
+	if reviewer.ProviderCapabilities.ProviderID != "reviewer-provider" || reviewer.ProviderCapabilities.SupportsResponsesAPI || reviewer.ProviderCapabilities.SupportsPromptCacheKey {
+		t.Fatalf("expected explicit false reviewer provider capabilities to survive effective helper, got %+v", reviewer.ProviderCapabilities)
+	}
+}
+
+func TestLoadReviewerModelContextWindowRejectsNegative(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`[reviewer]
+model_context_window = -1
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(workspace, LoadOptions{})
+	if err == nil {
+		t.Fatal("expected negative reviewer.model_context_window to fail")
+	}
+	if !strings.Contains(err.Error(), "reviewer.model_context_window must be >= 0") {
+		t.Fatalf("expected reviewer.model_context_window validation error, got %v", err)
+	}
+}
+
+func TestLoadReviewerModelCapabilityFalseOverrideDoesNotInheritMainTrue(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`model = "gpt-5.5"
+
+[model_capabilities]
+supports_reasoning_effort = true
+supports_vision_inputs = true
+
+[reviewer]
+model = "local-reviewer"
+
+[reviewer.model_capabilities]
+supports_reasoning_effort = false
+supports_vision_inputs = false
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Settings.Reviewer.ModelCapabilities.SupportsReasoningEffort || cfg.Settings.Reviewer.ModelCapabilities.SupportsVisionInputs {
+		t.Fatalf("expected explicit false reviewer model capabilities to be preserved, got %+v", cfg.Settings.Reviewer.ModelCapabilities)
+	}
+	if got := cfg.Source.Sources["reviewer.model_capabilities.supports_reasoning_effort"]; got != "file" {
+		t.Fatalf("expected reviewer model capability source file, got %q", got)
+	}
+}
+
+func TestSettingsTOMLPreservesReviewerModelCapabilityFalseOverride(t *testing.T) {
+	settings := defaultSettings()
+	settings.ModelCapabilities.SupportsReasoningEffort = true
+	settings.ModelCapabilities.SupportsVisionInputs = true
+	settings.Reviewer.ModelCapabilities.SupportsReasoningEffort = false
+	settings.Reviewer.ModelCapabilities.SupportsVisionInputs = false
+
+	rendered := settingsTOML(settings)
+	if !strings.Contains(rendered, "[reviewer.model_capabilities]") {
+		t.Fatalf("expected reviewer model capabilities section, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "supports_reasoning_effort = false") {
+		t.Fatalf("expected explicit reviewer reasoning false override, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "supports_vision_inputs = false") {
+		t.Fatalf("expected explicit reviewer vision false override, got:\n%s", rendered)
+	}
+}
+
+func TestSettingsTOMLPreservesReviewerProviderCapabilityFalseOverride(t *testing.T) {
+	settings := defaultSettings()
+	settings.ProviderCapabilities = ProviderCapabilitiesOverride{
+		ProviderID:                     "main-provider",
+		SupportsResponsesAPI:           true,
+		SupportsRequestInputTokenCount: true,
+		SupportsPromptCacheKey:         true,
+	}
+	settings.Reviewer.ProviderCapabilities = ProviderCapabilitiesOverride{
+		ProviderID:                     "reviewer-provider",
+		SupportsResponsesAPI:           false,
+		SupportsRequestInputTokenCount: true,
+		SupportsPromptCacheKey:         false,
+	}
+
+	rendered := settingsTOML(settings)
+	if !strings.Contains(rendered, "[reviewer.provider_capabilities]") {
+		t.Fatalf("expected reviewer provider capabilities section, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "provider_id = \"reviewer-provider\"") {
+		t.Fatalf("expected explicit reviewer provider ID override, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "supports_responses_api = false") {
+		t.Fatalf("expected explicit reviewer responses API false override, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "supports_prompt_cache_key = false") {
+		t.Fatalf("expected explicit reviewer prompt cache false override, got:\n%s", rendered)
+	}
+}
+
+func TestNormalizeSettingsForPersistenceWithSourcesPreservesReviewerCapabilityFalse(t *testing.T) {
+	settings := defaultSettings()
+	settings.ModelCapabilities.SupportsReasoningEffort = true
+	settings.ModelCapabilities.SupportsVisionInputs = true
+	settings.ProviderCapabilities = ProviderCapabilitiesOverride{
+		ProviderID:             "main-provider",
+		SupportsResponsesAPI:   true,
+		SupportsPromptCacheKey: true,
+	}
+	settings.Reviewer.ModelCapabilities.SupportsReasoningEffort = false
+	settings.Reviewer.ModelCapabilities.SupportsVisionInputs = false
+	settings.Reviewer.ProviderCapabilities.ProviderID = "reviewer-provider"
+	settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI = true
+	settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey = false
+
+	sources := configRegistry.defaultSourceMap()
+	sources["reviewer.model_capabilities.supports_reasoning_effort"] = "file"
+	sources["reviewer.model_capabilities.supports_vision_inputs"] = "file"
+	sources["reviewer.provider_capabilities.provider_id"] = "file"
+	sources["reviewer.provider_capabilities.supports_responses_api"] = "file"
+	sources["reviewer.provider_capabilities.supports_prompt_cache_key"] = "file"
+
+	normalized, err := NormalizeSettingsForPersistenceWithSources(settings, sources)
+	if err != nil {
+		t.Fatalf("normalize settings for persistence: %v", err)
+	}
+	if normalized.Reviewer.ModelCapabilities.SupportsReasoningEffort || normalized.Reviewer.ModelCapabilities.SupportsVisionInputs {
+		t.Fatalf("expected explicit false reviewer model capabilities to persist, got %+v", normalized.Reviewer.ModelCapabilities)
+	}
+	if normalized.Reviewer.ProviderCapabilities.ProviderID != "reviewer-provider" || !normalized.Reviewer.ProviderCapabilities.SupportsResponsesAPI || normalized.Reviewer.ProviderCapabilities.SupportsPromptCacheKey {
+		t.Fatalf("expected explicit false reviewer provider capabilities to persist, got %+v", normalized.Reviewer.ProviderCapabilities)
+	}
+}
+
+func TestNormalizeSettingsForPersistencePreservesReviewerCapabilityFalseWithoutSources(t *testing.T) {
+	settings := defaultSettings()
+	settings.ModelCapabilities.SupportsReasoningEffort = true
+	settings.ModelCapabilities.SupportsVisionInputs = true
+	settings.ProviderCapabilities = ProviderCapabilitiesOverride{
+		ProviderID:             "main-provider",
+		SupportsResponsesAPI:   true,
+		SupportsPromptCacheKey: true,
+	}
+	settings.Reviewer.ModelCapabilities.SupportsReasoningEffort = false
+	settings.Reviewer.ModelCapabilities.SupportsVisionInputs = false
+	settings.Reviewer.ProviderCapabilities.ProviderID = "reviewer-provider"
+	settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI = false
+	settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey = false
+
+	normalized, err := NormalizeSettingsForPersistence(settings)
+	if err != nil {
+		t.Fatalf("normalize settings for persistence: %v", err)
+	}
+	if normalized.Reviewer.ModelCapabilities.SupportsReasoningEffort || normalized.Reviewer.ModelCapabilities.SupportsVisionInputs {
+		t.Fatalf("expected no-source explicit false reviewer model capabilities to persist, got %+v", normalized.Reviewer.ModelCapabilities)
+	}
+	if normalized.Reviewer.ProviderCapabilities.ProviderID != "reviewer-provider" || normalized.Reviewer.ProviderCapabilities.SupportsResponsesAPI || normalized.Reviewer.ProviderCapabilities.SupportsPromptCacheKey {
+		t.Fatalf("expected no-source explicit false reviewer provider capabilities to persist, got %+v", normalized.Reviewer.ProviderCapabilities)
+	}
+}
+
+func TestValidateSettingsWithSourcesTreatsSubagentReviewerOverridesAsConfigured(t *testing.T) {
+	settings := defaultSettings()
+	settings.Reviewer.Model = settings.Model
+	settings.Reviewer.ProviderOverride = "anthropic"
+
+	sources := configRegistry.defaultSourceMap()
+	sources["reviewer.provider_override"] = "subagent"
+
+	err := ValidateSettingsWithSources(settings, sources)
+	if err == nil {
+		t.Fatal("expected subagent reviewer.provider_override=anthropic to be rejected")
+	}
+	if !strings.Contains(err.Error(), "reviewer.provider_override") {
+		t.Fatalf("expected reviewer.provider_override error, got %v", err)
+	}
+}
+
+func TestLoadReviewerProviderCapabilitiesDoNotInheritMainForSeparateEndpoint(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`model = "gpt-5.5"
+
+[provider_capabilities]
+provider_id = "main-provider"
+supports_responses_api = true
+
+[reviewer]
+model = "local-reviewer"
+provider_override = "openai"
+openai_base_url = "http://127.0.0.1:11434/v1"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Settings.Reviewer.ProviderCapabilities.ProviderID != "" || cfg.Settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI {
+		t.Fatalf("expected separate reviewer endpoint not to inherit main provider capabilities, got %+v", cfg.Settings.Reviewer.ProviderCapabilities)
+	}
+}
+
+func TestLoadReviewerProviderCapabilitiesInheritMainForNoOpOpenAIProviderOverride(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`model = "gpt-5.5"
+openai_base_url = "http://127.0.0.1:8080/v1"
+
+[provider_capabilities]
+provider_id = "main-compatible"
+supports_responses_api = true
+supports_prompt_cache_key = true
+
+[reviewer]
+provider_override = "openai"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Settings.Reviewer.OpenAIBaseURL != "http://127.0.0.1:8080/v1" {
+		t.Fatalf("expected reviewer to inherit main base URL, got %q", cfg.Settings.Reviewer.OpenAIBaseURL)
+	}
+	if cfg.Settings.Reviewer.ProviderCapabilities.ProviderID != "main-compatible" ||
+		!cfg.Settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI ||
+		!cfg.Settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey {
+		t.Fatalf("expected no-op reviewer provider override to inherit main provider capabilities, got %+v", cfg.Settings.Reviewer.ProviderCapabilities)
+	}
+}
+
+func TestLoadReviewerProviderRejectsInheritedAnthropicProvider(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`model = "claude-test"
+provider_override = "anthropic"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(workspace, LoadOptions{})
+	if err == nil {
+		t.Fatal("expected inherited anthropic reviewer provider to fail")
+	}
+	if !strings.Contains(err.Error(), "not supported for reviewer models") {
+		t.Fatalf("expected unsupported reviewer provider error, got %v", err)
+	}
+}
+
 func TestLoadProviderOverrideFromFile(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
@@ -227,6 +679,21 @@ func TestLoadCapabilityOverridesRequireProviderID(t *testing.T) {
 	_, err := Load(workspace, LoadOptions{})
 	if err == nil {
 		t.Fatal("expected validation error when provider capability override is set without provider_id")
+	}
+	if !strings.Contains(err.Error(), "provider_capabilities.provider_id") {
+		t.Fatalf("expected provider_id validation error, got %v", err)
+	}
+}
+
+func TestLoadRequestInputTokenCountCapabilityRequiresProviderID(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("BUILDER_PROVIDER_CAPABILITIES_SUPPORTS_REQUEST_INPUT_TOKEN_COUNT", "true")
+
+	_, err := Load(workspace, LoadOptions{})
+	if err == nil {
+		t.Fatal("expected validation error when request input token count capability override is set without provider_id")
 	}
 	if !strings.Contains(err.Error(), "provider_capabilities.provider_id") {
 		t.Fatalf("expected provider_id validation error, got %v", err)
@@ -476,6 +943,9 @@ frequency = "all"
 model = "gpt-file-reviewer"
 thinking_level = "medium"
 system_prompt_file = "reviewer-global.md"
+provider_override = "openai"
+openai_base_url = "http://127.0.0.1:11434/v1"
+auth = "none"
 timeout_seconds = 45
 verbose_output = true
 `), 0o644); err != nil {
@@ -510,6 +980,24 @@ verbose_output = true
 	if got := cfg.Source.Sources["reviewer.system_prompt_file"]; got != "file" {
 		t.Fatalf("expected reviewer.system_prompt_file source file, got %q", got)
 	}
+	if cfg.Settings.Reviewer.ProviderOverride != "openai" {
+		t.Fatalf("expected file reviewer.provider_override=openai, got %q", cfg.Settings.Reviewer.ProviderOverride)
+	}
+	if got := cfg.Source.Sources["reviewer.provider_override"]; got != "file" {
+		t.Fatalf("expected reviewer.provider_override source file, got %q", got)
+	}
+	if cfg.Settings.Reviewer.OpenAIBaseURL != "http://127.0.0.1:11434/v1" {
+		t.Fatalf("expected file reviewer.openai_base_url, got %q", cfg.Settings.Reviewer.OpenAIBaseURL)
+	}
+	if got := cfg.Source.Sources["reviewer.openai_base_url"]; got != "file" {
+		t.Fatalf("expected reviewer.openai_base_url source file, got %q", got)
+	}
+	if cfg.Settings.Reviewer.Auth != "none" {
+		t.Fatalf("expected file reviewer.auth=none, got %q", cfg.Settings.Reviewer.Auth)
+	}
+	if got := cfg.Source.Sources["reviewer.auth"]; got != "file" {
+		t.Fatalf("expected reviewer.auth source file, got %q", got)
+	}
 
 	workspaceConfigPath := filepath.Join(workspace, ".builder", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(workspaceConfigPath), 0o755); err != nil {
@@ -529,6 +1017,9 @@ verbose_output = true
 	t.Setenv("BUILDER_REVIEWER_FREQUENCY", "off")
 	t.Setenv("BUILDER_REVIEWER_MODEL", "gpt-env-reviewer")
 	t.Setenv("BUILDER_REVIEWER_THINKING_LEVEL", "high")
+	t.Setenv("BUILDER_REVIEWER_PROVIDER_OVERRIDE", "openai")
+	t.Setenv("BUILDER_REVIEWER_OPENAI_BASE_URL", "http://localhost:11434/v1")
+	t.Setenv("BUILDER_REVIEWER_AUTH", "inherit")
 	t.Setenv("BUILDER_REVIEWER_TIMEOUT_SECONDS", "30")
 	t.Setenv("BUILDER_REVIEWER_VERBOSE_OUTPUT", "false")
 
@@ -548,6 +1039,24 @@ verbose_output = true
 	if got := cfg.Source.Sources["reviewer.model"]; got != "env" {
 		t.Fatalf("expected reviewer.model source env, got %q", got)
 	}
+	if cfg.Settings.Reviewer.ProviderOverride != "openai" {
+		t.Fatalf("expected env reviewer.provider_override=openai, got %q", cfg.Settings.Reviewer.ProviderOverride)
+	}
+	if got := cfg.Source.Sources["reviewer.provider_override"]; got != "env" {
+		t.Fatalf("expected reviewer.provider_override source env, got %q", got)
+	}
+	if cfg.Settings.Reviewer.OpenAIBaseURL != "http://localhost:11434/v1" {
+		t.Fatalf("expected env reviewer.openai_base_url, got %q", cfg.Settings.Reviewer.OpenAIBaseURL)
+	}
+	if got := cfg.Source.Sources["reviewer.openai_base_url"]; got != "env" {
+		t.Fatalf("expected reviewer.openai_base_url source env, got %q", got)
+	}
+	if cfg.Settings.Reviewer.Auth != "inherit" {
+		t.Fatalf("expected env reviewer.auth=inherit, got %q", cfg.Settings.Reviewer.Auth)
+	}
+	if got := cfg.Source.Sources["reviewer.auth"]; got != "env" {
+		t.Fatalf("expected reviewer.auth source env, got %q", got)
+	}
 	if cfg.Settings.Reviewer.VerboseOutput {
 		t.Fatalf("expected env reviewer.verbose_output=false")
 	}
@@ -558,6 +1067,12 @@ verbose_output = true
 	t.Setenv("BUILDER_REVIEWER_FREQUENCY", "sometimes")
 	if _, err := Load(workspace, LoadOptions{}); err == nil {
 		t.Fatal("expected invalid reviewer frequency")
+	}
+	t.Setenv("BUILDER_REVIEWER_FREQUENCY", "all")
+	t.Setenv("BUILDER_REVIEWER_PROVIDER_OVERRIDE", "anthropic")
+	t.Setenv("BUILDER_REVIEWER_OPENAI_BASE_URL", "")
+	if _, err := Load(workspace, LoadOptions{}); err == nil || !strings.Contains(err.Error(), "not supported for reviewer models") {
+		t.Fatalf("expected unsupported reviewer provider error, got %v", err)
 	}
 }
 
@@ -815,6 +1330,84 @@ func TestLoadToolPreamblesPrecedence(t *testing.T) {
 	t.Setenv("BUILDER_TOOL_PREAMBLES", "broken")
 	if _, err := Load(workspace, LoadOptions{}); err == nil {
 		t.Fatal("expected invalid BUILDER_TOOL_PREAMBLES error")
+	}
+}
+
+func TestLoadRejectsReviewerAuthNoneWithoutCompatibleBaseURL(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`[reviewer]
+auth = "none"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(workspace, LoadOptions{})
+	if err == nil {
+		t.Fatal("expected reviewer.auth=none without compatible base URL to fail")
+	}
+	if !strings.Contains(err.Error(), "reviewer.auth") || !strings.Contains(err.Error(), "api.openai.com") {
+		t.Fatalf("expected reviewer.auth api.openai.com guard error, got %v", err)
+	}
+}
+
+func TestLoadRejectsReviewerAuthNoneWithFirstPartyOpenAIBaseURL(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`[reviewer]
+openai_base_url = "https://api.openai.com/v1"
+auth = "none"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(workspace, LoadOptions{})
+	if err == nil {
+		t.Fatal("expected reviewer.auth=none with first-party OpenAI base URL to fail")
+	}
+	if !strings.Contains(err.Error(), "reviewer.auth") || !strings.Contains(err.Error(), "api.openai.com") {
+		t.Fatalf("expected reviewer.auth api.openai.com guard error, got %v", err)
+	}
+}
+
+func TestLoadAllowsReviewerAuthNoneWithInheritedCompatibleBaseURL(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`model = "local-model"
+provider_override = "openai"
+openai_base_url = "http://127.0.0.1:11434/v1"
+
+[reviewer]
+provider_override = "openai"
+auth = "none"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Settings.Reviewer.OpenAIBaseURL != "http://127.0.0.1:11434/v1" {
+		t.Fatalf("expected reviewer to inherit compatible base URL, got %q", cfg.Settings.Reviewer.OpenAIBaseURL)
 	}
 }
 

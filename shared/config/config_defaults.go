@@ -90,6 +90,7 @@ func settingsTOMLWithPreservedDefaults(settings Settings, includeToolSection boo
 func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool, preservedDefaults map[string]bool, omittedKeys map[string]bool) string {
 	state := configRegistry.defaultState()
 	state.Settings = settings
+	rawLines := configRegistry.defaultLines(state)
 	inheritReviewerDefaults(&state.Settings)
 	lines := configRegistry.defaultLines(state)
 	defaultLines := configRegistry.defaultLines(configRegistry.defaultState())
@@ -99,7 +100,7 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 	}
 	timeoutLines := annotateRenderedLines(filterDefaultLines(lines, "timeouts"), filterDefaultLines(defaultLines, "timeouts"), nil)
 	worktreeLines := annotateRenderedLines(filterDefaultLines(lines, "worktrees"), filterDefaultLines(defaultLines, "worktrees"), nil)
-	reviewerLines := annotateRenderedLines(filterDefaultLines(lines, "reviewer"), filterDefaultLines(defaultLines, "reviewer"), nil)
+	reviewerLines := annotateRenderedLines(filterExactSectionLines(lines, "reviewer"), filterExactSectionLines(defaultLines, "reviewer"), nil)
 
 	var out strings.Builder
 	out.WriteString("# Edit and restart to apply changes.\n")
@@ -140,6 +141,18 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 		for _, line := range reviewerLines {
 			writeDefaultLines(&out, []defaultConfigLine{line})
 		}
+	}
+	reviewerModelCapabilityLines := activeOptionalSectionLines(filterDefaultLines(rawLines, "reviewer.model_capabilities"), filterDefaultLines(lines, "reviewer.model_capabilities"))
+	if len(reviewerModelCapabilityLines) > 0 {
+		out.WriteString("\n[reviewer.model_capabilities]\n")
+		writeDefaultLines(&out, reviewerModelCapabilityLines)
+	}
+	reviewerProviderCapabilityDefaultState := state
+	reviewerProviderCapabilityDefaultState.Settings.Reviewer.ProviderCapabilities = settings.ProviderCapabilities
+	reviewerProviderCapabilityLines := activeOptionalSectionLines(filterDefaultLines(rawLines, "reviewer.provider_capabilities"), filterDefaultLines(configRegistry.defaultLines(reviewerProviderCapabilityDefaultState), "reviewer.provider_capabilities"))
+	if len(reviewerProviderCapabilityLines) > 0 {
+		out.WriteString("\n[reviewer.provider_capabilities]\n")
+		writeDefaultLines(&out, reviewerProviderCapabilityLines)
 	}
 	writeBuiltInSubagentSections(&out)
 	writeSkillTogglesSection(&out, state.Settings.SkillToggles)
@@ -239,6 +252,14 @@ func writeReviewerInheritanceLines(builder *strings.Builder, raw Settings, effec
 	writeCommentedAssignment(builder, "model", effective.Reviewer.Model, modelCommented, "# inherited from main model unless overridden")
 	thinkingCommented := !(preserved != nil && preserved["reviewer.thinking_level"]) && strings.TrimSpace(raw.Reviewer.ThinkingLevel) == ""
 	writeCommentedAssignment(builder, "thinking_level", effective.Reviewer.ThinkingLevel, thinkingCommented, "# inherited from main thinking_level unless overridden")
+	verbosityCommented := !(preserved != nil && preserved["reviewer.model_verbosity"]) && strings.TrimSpace(string(raw.Reviewer.ModelVerbosity)) == ""
+	writeCommentedAssignment(builder, "model_verbosity", effective.Reviewer.ModelVerbosity, verbosityCommented, "# inherited from main model_verbosity unless overridden")
+	providerCommented := !(preserved != nil && preserved["reviewer.provider_override"]) && strings.TrimSpace(raw.Reviewer.ProviderOverride) == ""
+	writeCommentedAssignment(builder, "provider_override", effective.Reviewer.ProviderOverride, providerCommented, "# inherited from main provider_override unless overridden")
+	baseURLCommented := !(preserved != nil && preserved["reviewer.openai_base_url"]) && strings.TrimSpace(raw.Reviewer.OpenAIBaseURL) == ""
+	writeCommentedAssignment(builder, "openai_base_url", effective.Reviewer.OpenAIBaseURL, baseURLCommented, "# inherited from main openai_base_url for OpenAI-family reviewer providers")
+	contextCommented := !(preserved != nil && preserved["reviewer.model_context_window"]) && raw.Reviewer.ModelContextWindow <= 0
+	writeCommentedAssignment(builder, "model_context_window", effective.Reviewer.ModelContextWindow, contextCommented, "# inherited from main model_context_window unless overridden")
 }
 
 func writeCommentedAssignment(builder *strings.Builder, key string, value any, commented bool, trailingComment string) {

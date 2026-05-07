@@ -7,11 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
 	"builder/server/auth"
+	"builder/server/authflow"
 	tea "github.com/charmbracelet/bubbletea"
+	ansi "github.com/charmbracelet/x/ansi"
 )
 
 type stubOAuthCallbackListener struct {
@@ -91,6 +94,93 @@ func TestAuthMethodPickerCancel(t *testing.T) {
 	m = next.(*startupPickerModel)
 	if !m.result.Canceled {
 		t.Fatal("expected canceled result")
+	}
+}
+
+func TestAuthMethodPickerRendersBuilderBannerAboveHeader(t *testing.T) {
+	m := newAuthMethodPickerModel("dark", startupPickerNotice{}, false, true)
+	view := m.View()
+	stripped := ansi.Strip(view)
+	if !strings.HasPrefix(stripped, "  ███████") {
+		t.Fatalf("expected padded builder banner at top, got %q", stripped)
+	}
+	headerIdx := strings.Index(stripped, "Sign in to Builder")
+	if headerIdx < 0 {
+		t.Fatalf("expected sign-in header in view, got %q", stripped)
+	}
+	if bannerIdx := strings.Index(stripped, "███████"); bannerIdx > headerIdx {
+		t.Fatalf("expected banner before sign-in header (banner@%d header@%d), got %q", bannerIdx, headerIdx, stripped)
+	}
+	for _, line := range strings.Split(strings.TrimRight(builderStartupBannerANSI, "\n"), "\n") {
+		if !strings.Contains(view, strings.Repeat(" ", startupBannerHorizontalPadding)+line) {
+			t.Fatal("expected auth picker to render embedded banner ANSI exactly with code padding")
+		}
+	}
+}
+
+func TestAuthFlowStartupPickerShowsBannerOnRequiredAuth(t *testing.T) {
+	originalPicker := runStartupPickerFlow
+	t.Cleanup(func() { runStartupPickerFlow = originalPicker })
+
+	pickerCalled := false
+	runStartupPickerFlow = func(model *startupPickerModel) (startupPickerResult, error) {
+		pickerCalled = true
+		view := ansi.Strip(model.View())
+		if !strings.HasPrefix(view, "  ███████") {
+			t.Fatalf("expected auth startup picker banner at top, got %q", view)
+		}
+		headerIdx := strings.Index(view, "Sign in to Builder")
+		if headerIdx < 0 {
+			t.Fatalf("expected auth header in view, got %q", view)
+		}
+		if bannerIdx := strings.Index(view, "███████"); bannerIdx > headerIdx {
+			t.Fatalf("expected banner before auth header (banner@%d header@%d), got %q", bannerIdx, headerIdx, view)
+		}
+		return startupPickerResult{ChoiceID: string(authMethodChoiceEnvAPIKey)}, nil
+	}
+
+	lookupEnv := func(key string) string {
+		if key == "OPENAI_API_KEY" {
+			return "sk-test"
+		}
+		return ""
+	}
+	mgr := auth.NewManager(authflow.WrapStoreWithEnvAPIKeyOverride(auth.NewMemoryStore(auth.EmptyState()), lookupEnv), nil, time.Now)
+	interactor := &interactiveAuthInteractor{
+		showSuccess: func(authSuccessScreenData) error { return nil },
+	}
+	if err := authflow.EnsureReady(context.Background(), mgr, auth.OpenAIOAuthOptions{}, "dark", lookupEnv, true, false, interactor); err != nil {
+		t.Fatalf("auth flow: %v", err)
+	}
+	if !pickerCalled {
+		t.Fatal("expected required auth startup flow to show picker")
+	}
+}
+
+func TestAuthMethodPickerShortHeightKeepsBannerAndScrollableOptions(t *testing.T) {
+	m := newAuthMethodPickerModel("dark", startupPickerNotice{}, false, true)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 13})
+	m = next.(*startupPickerModel)
+
+	view := ansi.Strip(m.View())
+	if !strings.HasPrefix(view, "  ███████") {
+		t.Fatalf("expected banner to stay visible on short terminal, got %q", view)
+	}
+	if !strings.Contains(view, "Open browser and finish automatically") {
+		t.Fatalf("expected first option to render with short height, got %q", view)
+	}
+	if strings.Contains(view, "Open browser and paste the callback manually") {
+		t.Fatalf("expected short height to show one option before scroll, got %q", view)
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(*startupPickerModel)
+	view = ansi.Strip(m.View())
+	if !strings.HasPrefix(view, "  ███████") {
+		t.Fatalf("expected banner to stay visible after option scroll, got %q", view)
+	}
+	if !strings.Contains(view, "Open browser and paste the callback manually") {
+		t.Fatalf("expected second option after scrolling short auth picker, got %q", view)
 	}
 }
 

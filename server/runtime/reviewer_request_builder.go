@@ -40,16 +40,17 @@ func (e *Engine) buildReviewerRequest(ctx context.Context, reviewerClient llm.Cl
 	}
 	reviewerItems := sanitizeItemsForLLM(llm.ItemsFromMessages(reviewerMessages))
 	req := llm.Request{
-		Model:            reviewerCfg.Model,
-		Temperature:      1,
-		MaxTokens:        0,
-		FastMode:         e.FastModeEnabled(),
-		ReasoningEffort:  reviewerCfg.ThinkingLevel,
-		SystemPrompt:     systemPrompt,
-		SessionID:        reviewerSessionID(e.store.Meta().SessionID),
-		Items:            reviewerItems,
-		Tools:            []llm.Tool{},
-		StructuredOutput: reviewerSuggestionsStructuredOutput(),
+		Model:                   reviewerCfg.Model,
+		Temperature:             1,
+		MaxTokens:               0,
+		FastMode:                e.FastModeEnabled(),
+		ReasoningEffort:         reviewerCfg.ThinkingLevel,
+		SupportsReasoningEffort: reviewerCfg.ModelCapabilities.SupportsReasoningEffort,
+		SystemPrompt:            systemPrompt,
+		SessionID:               reviewerSessionID(e.store.Meta().SessionID),
+		Items:                   reviewerItems,
+		Tools:                   []llm.Tool{},
+		StructuredOutput:        reviewerSuggestionsStructuredOutput(),
 	}
 	if supportsPromptCacheKeyForClient(ctx, reviewerClient) {
 		if cacheKey := reviewerPromptCacheKey(e.store.Meta().SessionID, e.compactionCountSnapshot()); cacheKey != "" {

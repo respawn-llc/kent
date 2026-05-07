@@ -152,18 +152,10 @@ func applySubagentRoleOverrides(settings *config.Settings, role config.SubagentR
 			settings.Shell.PostprocessHook = role.Settings.Shell.PostprocessHook
 		case "cache_warning_mode":
 			settings.CacheWarningMode = role.Settings.CacheWarningMode
-		case "reviewer.frequency":
-			settings.Reviewer.Frequency = role.Settings.Reviewer.Frequency
-		case "reviewer.model":
-			settings.Reviewer.Model = role.Settings.Reviewer.Model
-		case "reviewer.thinking_level":
-			settings.Reviewer.ThinkingLevel = role.Settings.Reviewer.ThinkingLevel
-		case "reviewer.system_prompt_file":
-			settings.Reviewer.SystemPromptFile = role.Settings.Reviewer.SystemPromptFile
-		case "reviewer.timeout_seconds":
-			settings.Reviewer.TimeoutSeconds = role.Settings.Reviewer.TimeoutSeconds
-		case "reviewer.verbose_output":
-			settings.Reviewer.VerboseOutput = role.Settings.Reviewer.VerboseOutput
+		default:
+			if applyReviewerRoleOverride(settings, role.Settings, key) {
+				continue
+			}
 		}
 	}
 	applyDerivedModelContextBudgetOverrides(settings, role.Sources, originalModel, allowModelOverride)
@@ -253,6 +245,178 @@ func applyReviewerInheritance(settings *config.Settings, sources map[string]stri
 	if strings.TrimSpace(sources["reviewer.thinking_level"]) == "default" {
 		settings.Reviewer.ThinkingLevel = settings.ThinkingLevel
 	}
+	if strings.TrimSpace(sources["reviewer.model_verbosity"]) == "default" {
+		settings.Reviewer.ModelVerbosity = settings.ModelVerbosity
+	}
+	reviewerProviderSourceDefault := strings.TrimSpace(sources["reviewer.provider_override"]) == "default"
+	reviewerBaseURLSourceDefault := strings.TrimSpace(sources["reviewer.openai_base_url"]) == "default"
+	if reviewerProviderSourceDefault || reviewerBaseURLSourceDefault {
+		originalProviderOverride := settings.Reviewer.ProviderOverride
+		originalOpenAIBaseURL := settings.Reviewer.OpenAIBaseURL
+		if reviewerProviderSourceDefault {
+			settings.Reviewer.ProviderOverride = ""
+		}
+		if reviewerBaseURLSourceDefault {
+			settings.Reviewer.OpenAIBaseURL = ""
+		}
+		reviewerProvider := config.ResolveReviewerProviderSettings(*settings)
+		if reviewerProviderSourceDefault {
+			settings.Reviewer.ProviderOverride = reviewerProvider.ProviderOverride
+		} else {
+			settings.Reviewer.ProviderOverride = originalProviderOverride
+		}
+		if reviewerBaseURLSourceDefault {
+			settings.Reviewer.OpenAIBaseURL = reviewerProvider.OpenAIBaseURL
+		} else {
+			settings.Reviewer.OpenAIBaseURL = originalOpenAIBaseURL
+		}
+	}
+	if strings.TrimSpace(sources["reviewer.model_context_window"]) == "default" {
+		settings.Reviewer.ModelContextWindow = settings.ModelContextWindow
+	}
+	if strings.TrimSpace(sources["reviewer.auth"]) == "default" {
+		settings.Reviewer.Auth = "inherit"
+	}
+	applyReviewerModelCapabilityInheritance(settings, sources)
+	reviewerProviderSelectionExplicit := reviewerProviderSelectionExplicitForInheritance(settings, sources)
+	applyReviewerProviderCapabilityInheritance(settings, sources, reviewerProviderSelectionExplicit)
+}
+
+func reviewerProviderSelectionExplicitForInheritance(settings *config.Settings, sources map[string]string) bool {
+	if settings == nil {
+		return false
+	}
+	candidate := *settings
+	if strings.TrimSpace(sources["reviewer.provider_override"]) == "default" {
+		candidate.Reviewer.ProviderOverride = ""
+	}
+	if strings.TrimSpace(sources["reviewer.openai_base_url"]) == "default" {
+		candidate.Reviewer.OpenAIBaseURL = ""
+	}
+	return config.ReviewerUsesIndependentProviderSelection(candidate)
+}
+
+func applyReviewerModelCapabilityInheritance(settings *config.Settings, sources map[string]string) {
+	if settings == nil {
+		return
+	}
+	if strings.TrimSpace(sources["reviewer.model_capabilities.supports_reasoning_effort"]) == "default" {
+		settings.Reviewer.ModelCapabilities.SupportsReasoningEffort = settings.ModelCapabilities.SupportsReasoningEffort
+	}
+	if strings.TrimSpace(sources["reviewer.model_capabilities.supports_vision_inputs"]) == "default" {
+		settings.Reviewer.ModelCapabilities.SupportsVisionInputs = settings.ModelCapabilities.SupportsVisionInputs
+	}
+}
+
+func applyReviewerProviderCapabilityInheritance(settings *config.Settings, sources map[string]string, reviewerProviderSelectionExplicit bool) {
+	if settings == nil || reviewerProviderSelectionExplicit {
+		return
+	}
+	if strings.TrimSpace(sources["reviewer.provider_capabilities.provider_id"]) == "default" {
+		settings.Reviewer.ProviderCapabilities.ProviderID = settings.ProviderCapabilities.ProviderID
+	}
+	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_responses_api"]) == "default" {
+		settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI = settings.ProviderCapabilities.SupportsResponsesAPI
+	}
+	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_responses_compact"]) == "default" {
+		settings.Reviewer.ProviderCapabilities.SupportsResponsesCompact = settings.ProviderCapabilities.SupportsResponsesCompact
+	}
+	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_request_input_token_count"]) == "default" {
+		settings.Reviewer.ProviderCapabilities.SupportsRequestInputTokenCount = settings.ProviderCapabilities.SupportsRequestInputTokenCount
+	}
+	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_prompt_cache_key"]) == "default" {
+		settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey = settings.ProviderCapabilities.SupportsPromptCacheKey
+	}
+	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_native_web_search"]) == "default" {
+		settings.Reviewer.ProviderCapabilities.SupportsNativeWebSearch = settings.ProviderCapabilities.SupportsNativeWebSearch
+	}
+	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_reasoning_encrypted"]) == "default" {
+		settings.Reviewer.ProviderCapabilities.SupportsReasoningEncrypted = settings.ProviderCapabilities.SupportsReasoningEncrypted
+	}
+	if strings.TrimSpace(sources["reviewer.provider_capabilities.supports_server_side_context_edit"]) == "default" {
+		settings.Reviewer.ProviderCapabilities.SupportsServerSideContextEdit = settings.ProviderCapabilities.SupportsServerSideContextEdit
+	}
+	if strings.TrimSpace(sources["reviewer.provider_capabilities.is_openai_first_party"]) == "default" {
+		settings.Reviewer.ProviderCapabilities.IsOpenAIFirstParty = settings.ProviderCapabilities.IsOpenAIFirstParty
+	}
+}
+
+var reviewerRoleOverrideApplicators = map[string]func(*config.Settings, config.Settings){
+	"reviewer.frequency": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.Frequency = role.Reviewer.Frequency
+	},
+	"reviewer.model": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.Model = role.Reviewer.Model
+	},
+	"reviewer.thinking_level": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.ThinkingLevel = role.Reviewer.ThinkingLevel
+	},
+	"reviewer.model_verbosity": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.ModelVerbosity = role.Reviewer.ModelVerbosity
+	},
+	"reviewer.provider_override": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.ProviderOverride = role.Reviewer.ProviderOverride
+	},
+	"reviewer.openai_base_url": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.OpenAIBaseURL = role.Reviewer.OpenAIBaseURL
+	},
+	"reviewer.model_context_window": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.ModelContextWindow = role.Reviewer.ModelContextWindow
+	},
+	"reviewer.auth": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.Auth = role.Reviewer.Auth
+	},
+	"reviewer.model_capabilities.supports_reasoning_effort": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.ModelCapabilities.SupportsReasoningEffort = role.Reviewer.ModelCapabilities.SupportsReasoningEffort
+	},
+	"reviewer.model_capabilities.supports_vision_inputs": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.ModelCapabilities.SupportsVisionInputs = role.Reviewer.ModelCapabilities.SupportsVisionInputs
+	},
+	"reviewer.provider_capabilities.provider_id": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.ProviderCapabilities.ProviderID = role.Reviewer.ProviderCapabilities.ProviderID
+	},
+	"reviewer.provider_capabilities.supports_responses_api": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI = role.Reviewer.ProviderCapabilities.SupportsResponsesAPI
+	},
+	"reviewer.provider_capabilities.supports_responses_compact": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.ProviderCapabilities.SupportsResponsesCompact = role.Reviewer.ProviderCapabilities.SupportsResponsesCompact
+	},
+	"reviewer.provider_capabilities.supports_request_input_token_count": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.ProviderCapabilities.SupportsRequestInputTokenCount = role.Reviewer.ProviderCapabilities.SupportsRequestInputTokenCount
+	},
+	"reviewer.provider_capabilities.supports_prompt_cache_key": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey = role.Reviewer.ProviderCapabilities.SupportsPromptCacheKey
+	},
+	"reviewer.provider_capabilities.supports_native_web_search": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.ProviderCapabilities.SupportsNativeWebSearch = role.Reviewer.ProviderCapabilities.SupportsNativeWebSearch
+	},
+	"reviewer.provider_capabilities.supports_reasoning_encrypted": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.ProviderCapabilities.SupportsReasoningEncrypted = role.Reviewer.ProviderCapabilities.SupportsReasoningEncrypted
+	},
+	"reviewer.provider_capabilities.supports_server_side_context_edit": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.ProviderCapabilities.SupportsServerSideContextEdit = role.Reviewer.ProviderCapabilities.SupportsServerSideContextEdit
+	},
+	"reviewer.provider_capabilities.is_openai_first_party": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.ProviderCapabilities.IsOpenAIFirstParty = role.Reviewer.ProviderCapabilities.IsOpenAIFirstParty
+	},
+	"reviewer.system_prompt_file": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.SystemPromptFile = role.Reviewer.SystemPromptFile
+	},
+	"reviewer.timeout_seconds": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.TimeoutSeconds = role.Reviewer.TimeoutSeconds
+	},
+	"reviewer.verbose_output": func(settings *config.Settings, role config.Settings) {
+		settings.Reviewer.VerboseOutput = role.Reviewer.VerboseOutput
+	},
+}
+
+func applyReviewerRoleOverride(settings *config.Settings, role config.Settings, key string) bool {
+	apply, ok := reviewerRoleOverrideApplicators[key]
+	if !ok {
+		return false
+	}
+	apply(settings, role)
+	return true
 }
 
 func cloneSettings(in config.Settings) config.Settings {

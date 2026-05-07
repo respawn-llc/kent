@@ -108,6 +108,14 @@ func (c *sessionRuntimeClient) controllerLeaseManager() *controllerLeaseManager 
 }
 
 func (c *sessionRuntimeClient) recoverControllerLease(ctx context.Context, trigger error) error {
+	return c.recoverControllerLeaseWithWarning(ctx, trigger, true)
+}
+
+func (c *sessionRuntimeClient) recoverControllerLeaseSilently(ctx context.Context, trigger error) error {
+	return c.recoverControllerLeaseWithWarning(ctx, trigger, false)
+}
+
+func (c *sessionRuntimeClient) recoverControllerLeaseWithWarning(ctx context.Context, trigger error, appendWarning bool) error {
 	manager := c.controllerLeaseManager()
 	if manager == nil {
 		return errControllerLeaseRecoveryUnavailable
@@ -116,7 +124,7 @@ func (c *sessionRuntimeClient) recoverControllerLease(ctx context.Context, trigg
 	if err != nil {
 		return err
 	}
-	if isRecoverableRuntimeControlError(trigger) {
+	if appendWarning && isRecoverableRuntimeControlError(trigger) {
 		c.appendLeaseRecoveryWarning(leaseID)
 	}
 	return nil
@@ -164,6 +172,18 @@ func retryRuntimeControlCall[T any](ctx context.Context, currentLeaseID func() s
 		return zero, recoverErr
 	}
 	return call(currentLeaseID())
+}
+
+func retryRuntimeUnavailableCall[T any](ctx context.Context, recoverLease func(context.Context, error) error, call func() (T, error)) (T, error) {
+	value, err := call()
+	if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		return value, err
+	}
+	var zero T
+	if recoverErr := recoverLease(ctx, err); recoverErr != nil {
+		return zero, recoverErr
+	}
+	return call()
 }
 
 func (c *sessionRuntimeClient) SetTranscriptDiagnosticLogger(logf func(string)) {
@@ -310,7 +330,9 @@ func (c *sessionRuntimeClient) observeRuntimeEventStatus(evt clientui.Event) {
 func (c *sessionRuntimeClient) refreshMainViewSync(timeout time.Duration) (clientui.RuntimeMainView, error) {
 	ctx, cancel := c.readContext(timeout)
 	defer cancel()
-	resp, err := c.reads.GetSessionMainView(ctx, serverapi.SessionMainViewRequest{SessionID: c.sessionID})
+	resp, err := retryRuntimeUnavailableCall(ctx, c.recoverControllerLeaseSilently, func() (serverapi.SessionMainViewResponse, error) {
+		return c.reads.GetSessionMainView(ctx, serverapi.SessionMainViewRequest{SessionID: c.sessionID})
+	})
 	c.notifyConnectionState(err)
 	if err != nil {
 		c.mu.Lock()
@@ -333,15 +355,17 @@ func (c *sessionRuntimeClient) refreshTranscriptSync(timeout time.Duration) (cli
 func (c *sessionRuntimeClient) refreshTranscriptPageSync(req clientui.TranscriptPageRequest, timeout time.Duration) (clientui.TranscriptPage, error) {
 	ctx, cancel := c.readContext(timeout)
 	defer cancel()
-	resp, err := c.reads.GetSessionTranscriptPage(ctx, serverapi.SessionTranscriptPageRequest{
-		SessionID:                c.sessionID,
-		Offset:                   req.Offset,
-		Limit:                    req.Limit,
-		Page:                     req.Page,
-		PageSize:                 req.PageSize,
-		Window:                   req.Window,
-		KnownRevision:            req.KnownRevision,
-		KnownCommittedEntryCount: req.KnownCommittedEntryCount,
+	resp, err := retryRuntimeUnavailableCall(ctx, c.recoverControllerLeaseSilently, func() (serverapi.SessionTranscriptPageResponse, error) {
+		return c.reads.GetSessionTranscriptPage(ctx, serverapi.SessionTranscriptPageRequest{
+			SessionID:                c.sessionID,
+			Offset:                   req.Offset,
+			Limit:                    req.Limit,
+			Page:                     req.Page,
+			PageSize:                 req.PageSize,
+			Window:                   req.Window,
+			KnownRevision:            req.KnownRevision,
+			KnownCommittedEntryCount: req.KnownCommittedEntryCount,
+		})
 	})
 	c.notifyConnectionState(err)
 	if c.transcriptDiagnosticsEnabled() {
@@ -397,10 +421,12 @@ func (c *sessionRuntimeClient) refreshCommittedTranscriptSuffixSync(req clientui
 	}
 	ctx, cancel := c.readContext(timeout)
 	defer cancel()
-	resp, err := suffixClient.GetSessionCommittedTranscriptSuffix(ctx, serverapi.SessionCommittedTranscriptSuffixRequest{
-		SessionID:       c.sessionID,
-		AfterEntryCount: req.AfterEntryCount,
-		Limit:           req.Limit,
+	resp, err := retryRuntimeUnavailableCall(ctx, c.recoverControllerLeaseSilently, func() (serverapi.SessionCommittedTranscriptSuffixResponse, error) {
+		return suffixClient.GetSessionCommittedTranscriptSuffix(ctx, serverapi.SessionCommittedTranscriptSuffixRequest{
+			SessionID:       c.sessionID,
+			AfterEntryCount: req.AfterEntryCount,
+			Limit:           req.Limit,
+		})
 	})
 	c.notifyConnectionState(err)
 	if err != nil {
@@ -636,7 +662,9 @@ func (c *sessionRuntimeClient) SetAutoCompactionEnabled(enabled bool) (bool, boo
 func (c *sessionRuntimeClient) ShowGoal() (*clientui.RuntimeGoal, error) {
 	ctx, cancel := c.controlContext()
 	defer cancel()
-	resp, err := c.controls.ShowGoal(ctx, serverapi.RuntimeGoalShowRequest{SessionID: c.sessionID})
+	resp, err := retryRuntimeUnavailableCall(ctx, c.recoverControllerLeaseSilently, func() (serverapi.RuntimeGoalShowResponse, error) {
+		return c.controls.ShowGoal(ctx, serverapi.RuntimeGoalShowRequest{SessionID: c.sessionID})
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -735,7 +763,9 @@ func (c *sessionRuntimeClient) AppendLocalEntry(role, text string) error {
 	})
 }
 func (c *sessionRuntimeClient) ShouldCompactBeforeUserMessage(ctx context.Context, text string) (bool, error) {
-	resp, err := c.controls.ShouldCompactBeforeUserMessage(ctx, serverapi.RuntimeShouldCompactBeforeUserMessageRequest{SessionID: c.sessionID, Text: text})
+	resp, err := retryRuntimeUnavailableCall(ctx, c.recoverControllerLeaseSilently, func() (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error) {
+		return c.controls.ShouldCompactBeforeUserMessage(ctx, serverapi.RuntimeShouldCompactBeforeUserMessageRequest{SessionID: c.sessionID, Text: text})
+	})
 	return resp.ShouldCompact, err
 }
 func (c *sessionRuntimeClient) SubmitUserMessage(ctx context.Context, text string) (string, error) {
@@ -762,7 +792,9 @@ func (c *sessionRuntimeClient) CompactContextForPreSubmit(ctx context.Context) e
 func (c *sessionRuntimeClient) HasQueuedUserWork() (bool, error) {
 	ctx, cancel := c.controlContext()
 	defer cancel()
-	resp, err := c.controls.HasQueuedUserWork(ctx, serverapi.RuntimeHasQueuedUserWorkRequest{SessionID: c.sessionID})
+	resp, err := retryRuntimeUnavailableCall(ctx, c.recoverControllerLeaseSilently, func() (serverapi.RuntimeHasQueuedUserWorkResponse, error) {
+		return c.controls.HasQueuedUserWork(ctx, serverapi.RuntimeHasQueuedUserWorkRequest{SessionID: c.sessionID})
+	})
 	if err != nil {
 		return false, err
 	}

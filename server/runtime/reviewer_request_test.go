@@ -84,6 +84,34 @@ func TestReviewerSuggestions_ReusesStableMetaForPromptCachePrefix(t *testing.T) 
 	}
 }
 
+func TestBuildReviewerRequestUsesReviewerModelCapabilities(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	eng, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{
+		Model: "gpt-5",
+		Reviewer: ReviewerConfig{
+			Model: "local-reviewer",
+			ModelCapabilities: session.LockedModelCapabilities{
+				SupportsReasoningEffort: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	req, err := eng.buildReviewerRequest(context.Background(), &fakeClient{})
+	if err != nil {
+		t.Fatalf("build reviewer request: %v", err)
+	}
+	if !req.SupportsReasoningEffort {
+		t.Fatal("expected reviewer request to use reviewer model capability override")
+	}
+}
+
 func TestReviewerSuggestions_ReopenKeepsPromptCachePrefixStable(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)

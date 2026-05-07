@@ -57,7 +57,7 @@ func runSessionLifecycle(ctx context.Context, server embeddedServer, interactor 
 			return err
 		}
 		cfg := server.Config()
-		commandRegistry, err := commands.NewDefaultRegistryWithFilePrompts(cfg.WorkspaceRoot, cfg.Source.SettingsPath)
+		commandRegistry, err := commands.NewDefaultRegistryWithFilePrompts(cfg.WorkspaceRoot, cfg.PersistenceRoot)
 		if err != nil {
 			runtimePlan.Close()
 			return err

@@ -95,7 +95,7 @@ func load(workspaceRoot string, includeWorkspaceLayer bool, opts LoadOptions) (A
 	if err := applyExplicitConfigRootPersistence(opts, &state, sources); err != nil {
 		return App{}, err
 	}
-	inheritReviewerDefaults(&state.Settings)
+	inheritReviewerDefaultsWithSources(&state.Settings, sources)
 
 	if err := validateSettings(state.Settings, sources); err != nil {
 		return App{}, err

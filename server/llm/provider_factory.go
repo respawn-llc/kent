@@ -20,12 +20,13 @@ type ProviderClientOptions struct {
 	Provider Provider
 	Model    string
 
-	Auth                AuthHeaderProvider
-	HTTPClient          *http.Client
-	OpenAIBaseURL       string
-	ModelVerbosity      string
-	Store               bool
-	ContextWindowTokens int
+	Auth                         AuthHeaderProvider
+	HTTPClient                   *http.Client
+	OpenAIBaseURL                string
+	ModelVerbosity               string
+	Store                        bool
+	ContextWindowTokens          int
+	ProviderCapabilitiesOverride *ProviderCapabilities
 }
 
 type ProviderClientFactory func(opts ProviderClientOptions) (Client, error)
@@ -231,7 +232,7 @@ func newUnsupportedProviderClientFactory(provider Provider) ProviderClientFactor
 }
 
 func newOpenAIProviderClient(opts ProviderClientOptions) (Client, error) {
-	if opts.Auth == nil {
+	if opts.Auth == nil && !allowsAnonymousOpenAIBaseURL(opts.OpenAIBaseURL) {
 		return nil, fmt.Errorf("openai auth provider is required")
 	}
 	transport := NewHTTPTransport(opts.Auth)
@@ -250,8 +251,17 @@ func newOpenAIProviderClient(opts ProviderClientOptions) (Client, error) {
 	if opts.ContextWindowTokens > 0 {
 		transport.ContextWindowTokens = opts.ContextWindowTokens
 	}
+	if opts.ProviderCapabilitiesOverride != nil {
+		caps := *opts.ProviderCapabilitiesOverride
+		transport.ProviderCapabilitiesOverride = &caps
+	}
 	transport.Store = opts.Store
 	return NewOpenAIClient(transport), nil
+}
+
+func allowsAnonymousOpenAIBaseURL(baseURL string) bool {
+	trimmed := strings.TrimSpace(baseURL)
+	return trimmed != "" && !IsOpenAIFirstPartyBaseURL(trimmed)
 }
 
 func NewProviderClient(opts ProviderClientOptions) (Client, error) {

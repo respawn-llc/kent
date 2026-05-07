@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"builder/server/llm"
+	"builder/server/session"
 	"builder/shared/transcript"
 )
 
@@ -19,8 +20,9 @@ type reviewerSuggestionsResult struct {
 }
 
 type reviewerRequestConfig struct {
-	Model         string
-	ThinkingLevel string
+	Model             string
+	ThinkingLevel     string
+	ModelCapabilities session.LockedModelCapabilities
 }
 
 func (e *Engine) runReviewerSuggestions(ctx context.Context, stepID string, reviewerClient llm.Client) (reviewerSuggestionsResult, error) {

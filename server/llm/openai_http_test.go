@@ -901,3 +901,23 @@ func TestBuildPayload_SetsPromptCacheKeyWhenExplicitCapabilityIsEnabled(t *testi
 		t.Fatalf("expected prompt_cache_key=cache-key-1, got %#v", got)
 	}
 }
+
+func TestHTTPTransport_ProviderCapabilitiesOverrideControlsPromptCacheKeyPayload(t *testing.T) {
+	transport := NewHTTPTransport(staticAuth{})
+	transport.ProviderCapabilitiesOverride = &ProviderCapabilities{
+		ProviderID:             "openai-compatible",
+		SupportsResponsesAPI:   true,
+		SupportsPromptCacheKey: false,
+	}
+	payload, err := transport.buildPayload(OpenAIRequest{
+		Model:          "gpt-5",
+		PromptCacheKey: "cache-key-1",
+	}, openAIAuthMode{}, requireProviderCapabilities(t, transport, openAIAuthMode{}))
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+	jsonPayload := mustMarshalObject(t, payload)
+	if _, ok := jsonPayload["prompt_cache_key"]; ok {
+		t.Fatalf("expected provider capability override to omit prompt_cache_key, got %#v", jsonPayload["prompt_cache_key"])
+	}
+}

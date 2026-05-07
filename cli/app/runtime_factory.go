@@ -98,6 +98,7 @@ type runtimeWiringOptions struct {
 	OnEvent    func(evt runtime.Event)
 	Headless   bool
 	FastMode   *runtime.FastModeState
+	Sources    map[string]string
 }
 
 func newRuntimeWiring(store *session.Store, active config.Settings, enabledTools []toolspec.ID, workspaceRoot string, mgr *auth.Manager, logger *runLogger, opts runtimeWiringOptions) (*runtimeWiring, error) {
@@ -113,6 +114,7 @@ func newRuntimeWiringWithBackground(store *session.Store, active config.Settings
 	wiring, err := runtimewire.NewRuntimeWiringWithBackground(store, active, enabledTools, workspaceRoot, mgr, logger, background, runtimewire.RuntimeWiringOptions{
 		Headless: opts.Headless,
 		FastMode: opts.FastMode,
+		Sources:  opts.Sources,
 		OnEvent: func(evt runtime.Event) {
 			logger.Logf("%s", formatRuntimeEvent(evt))
 			if opts.OnEvent != nil {

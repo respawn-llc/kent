@@ -44,17 +44,24 @@ func TestRuntimeClientMainViewDoesNotRefreshCachedSnapshotBehindUIBack(t *testin
 }
 
 type leaseRetryRuntimeControlClient struct {
-	mu             sync.Mutex
-	firstSubmitErr error
-	appendErr      error
-	submitLeaseID  []string
-	goalLeaseID    []string
-	localEntries   []serverapi.RuntimeAppendLocalEntryRequest
-	showGoalResp   serverapi.RuntimeGoalShowResponse
-	setGoalResp    serverapi.RuntimeGoalShowResponse
-	pauseGoalResp  serverapi.RuntimeGoalShowResponse
-	resumeGoalResp serverapi.RuntimeGoalShowResponse
-	clearGoalResp  serverapi.RuntimeGoalShowResponse
+	mu              sync.Mutex
+	firstSubmitErr  error
+	appendErr       error
+	compactErr      error
+	compactCalls    int
+	showGoalErr     error
+	showGoalCalls   int
+	queuedWorkErr   error
+	queuedWork      bool
+	queuedWorkCalls int
+	submitLeaseID   []string
+	goalLeaseID     []string
+	localEntries    []serverapi.RuntimeAppendLocalEntryRequest
+	showGoalResp    serverapi.RuntimeGoalShowResponse
+	setGoalResp     serverapi.RuntimeGoalShowResponse
+	pauseGoalResp   serverapi.RuntimeGoalShowResponse
+	resumeGoalResp  serverapi.RuntimeGoalShowResponse
+	clearGoalResp   serverapi.RuntimeGoalShowResponse
 }
 
 func (c *leaseRetryRuntimeControlClient) submitLeaseIDs() []string {
@@ -109,6 +116,12 @@ func (c *leaseRetryRuntimeControlClient) AppendLocalEntry(_ context.Context, req
 }
 
 func (c *leaseRetryRuntimeControlClient) ShouldCompactBeforeUserMessage(context.Context, serverapi.RuntimeShouldCompactBeforeUserMessageRequest) (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.compactCalls++
+	if c.compactCalls == 1 && c.compactErr != nil {
+		return serverapi.RuntimeShouldCompactBeforeUserMessageResponse{}, c.compactErr
+	}
 	return serverapi.RuntimeShouldCompactBeforeUserMessageResponse{}, nil
 }
 
@@ -142,7 +155,13 @@ func (c *leaseRetryRuntimeControlClient) CompactContextForPreSubmit(context.Cont
 }
 
 func (c *leaseRetryRuntimeControlClient) HasQueuedUserWork(context.Context, serverapi.RuntimeHasQueuedUserWorkRequest) (serverapi.RuntimeHasQueuedUserWorkResponse, error) {
-	return serverapi.RuntimeHasQueuedUserWorkResponse{}, nil
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.queuedWorkCalls++
+	if c.queuedWorkCalls == 1 && c.queuedWorkErr != nil {
+		return serverapi.RuntimeHasQueuedUserWorkResponse{}, c.queuedWorkErr
+	}
+	return serverapi.RuntimeHasQueuedUserWorkResponse{HasQueuedUserWork: c.queuedWork}, nil
 }
 
 func (c *leaseRetryRuntimeControlClient) SubmitQueuedUserMessages(context.Context, serverapi.RuntimeSubmitQueuedUserMessagesRequest) (serverapi.RuntimeSubmitQueuedUserMessagesResponse, error) {
@@ -166,6 +185,12 @@ func (c *leaseRetryRuntimeControlClient) RecordPromptHistory(context.Context, se
 }
 
 func (c *leaseRetryRuntimeControlClient) ShowGoal(context.Context, serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.showGoalCalls++
+	if c.showGoalCalls == 1 && c.showGoalErr != nil {
+		return serverapi.RuntimeGoalShowResponse{}, c.showGoalErr
+	}
 	return c.showGoalResp, nil
 }
 
@@ -349,6 +374,306 @@ func TestRuntimeClientSubmitUserMessageRecoversRuntimeUnavailable(t *testing.T) 
 	entry := entries[0]
 	if entry.ControllerLeaseID != "lease-new" || entry.Role != "warning" || entry.Text != runtimeLeaseRecoveryWarningText || entry.Visibility != string(clientui.EntryVisibilityAll) {
 		t.Fatalf("warning entry = %+v, want new lease warning", entry)
+	}
+}
+
+func TestRuntimeClientPreSubmitRecoversRuntimeUnavailableWithoutWarning(t *testing.T) {
+	controls := &leaseRetryRuntimeControlClient{compactErr: serverapi.ErrRuntimeUnavailable}
+	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls).(*sessionRuntimeClient)
+	leaseManager := newControllerLeaseManager("lease-old")
+	recoveryCalls := 0
+	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
+		recoveryCalls++
+		return "lease-new", nil
+	})
+	runtimeClient.SetControllerLeaseManager(leaseManager)
+
+	shouldCompact, err := runtimeClient.ShouldCompactBeforeUserMessage(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("ShouldCompactBeforeUserMessage: %v", err)
+	}
+	if shouldCompact {
+		t.Fatal("ShouldCompactBeforeUserMessage = true, want false")
+	}
+	if recoveryCalls != 1 {
+		t.Fatalf("recovery call count = %d, want 1", recoveryCalls)
+	}
+	if got := runtimeClient.controllerLeaseIDValue(); got != "lease-new" {
+		t.Fatalf("controller lease id = %q, want lease-new", got)
+	}
+	if controls.compactCalls != 2 {
+		t.Fatalf("pre-submit call count = %d, want 2", controls.compactCalls)
+	}
+	if entries := controls.appendedLocalEntries(); len(entries) != 0 {
+		t.Fatalf("did not expect visible recovery warning during pre-submit, got %+v", entries)
+	}
+}
+
+func TestRuntimeClientPreSubmitRecoveryContinuesFirstPrompt(t *testing.T) {
+	controls := &leaseRetryRuntimeControlClient{compactErr: serverapi.ErrRuntimeUnavailable}
+	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls).(*sessionRuntimeClient)
+	leaseManager := newControllerLeaseManager("lease-old")
+	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
+		return "lease-new", nil
+	})
+	runtimeClient.SetControllerLeaseManager(leaseManager)
+	model := newProjectedTestUIModel(runtimeClient, closedProjectedRuntimeEvents(), closedAskEvents())
+	model.startupCmds = nil
+
+	preSubmitCmd := model.inputController().startSubmissionWithPromptHistory("hello after restart")
+	preSubmitMsgs := collectCmdMessages(t, preSubmitCmd)
+	var preSubmit preSubmitCompactionCheckDoneMsg
+	foundPreSubmit := false
+	for _, msg := range preSubmitMsgs {
+		if typed, ok := msg.(preSubmitCompactionCheckDoneMsg); ok {
+			preSubmit = typed
+			foundPreSubmit = true
+		}
+	}
+	if !foundPreSubmit {
+		t.Fatalf("expected pre-submit result, got %+v", preSubmitMsgs)
+	}
+	if preSubmit.err != nil || preSubmit.shouldCompact {
+		t.Fatalf("pre-submit result = %+v, want recovered no-compaction", preSubmit)
+	}
+
+	next, submitCmd := model.Update(preSubmit)
+	updated := next.(*uiModel)
+	submitMsgs := collectCmdMessages(t, submitCmd)
+	var done submitDoneMsg
+	foundDone := false
+	for _, msg := range submitMsgs {
+		if typed, ok := msg.(submitDoneMsg); ok {
+			done = typed
+			foundDone = true
+		}
+	}
+	if !foundDone {
+		t.Fatalf("expected submit result, got %+v", submitMsgs)
+	}
+	if done.err != nil || done.message != "recovered" {
+		t.Fatalf("submit result = %+v, want recovered first prompt", done)
+	}
+	next, _ = updated.Update(done)
+	updated = next.(*uiModel)
+	if updated.activity == uiActivityError {
+		t.Fatal("did not expect pre-submit recovery to surface operator error")
+	}
+	plain := stripANSIAndTrimRight(updated.view.OngoingSnapshot())
+	if strings.Contains(plain, serverapi.ErrRuntimeUnavailable.Error()) || strings.Contains(plain, "runtime for session") || strings.Contains(plain, runtimeLeaseRecoveryWarningText) {
+		t.Fatalf("did not expect recovery diagnostics in ongoing transcript, got %q", plain)
+	}
+}
+
+func TestRuntimeClientHydrationRecoversRuntimeUnavailableSilently(t *testing.T) {
+	controls := &leaseRetryRuntimeControlClient{}
+	authoritativePage := clientui.TranscriptPage{
+		SessionID:    "session-1",
+		Revision:     4,
+		TotalEntries: 1,
+		Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "authoritative"}},
+	}
+	reads := &flakySessionViewClient{
+		errs:  []error{serverapi.ErrRuntimeUnavailable, nil},
+		pages: []serverapi.SessionTranscriptPageResponse{{}, {Transcript: authoritativePage}},
+	}
+	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls).(*sessionRuntimeClient)
+	leaseManager := newControllerLeaseManager("lease-old")
+	recoveryCalls := 0
+	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
+		recoveryCalls++
+		return "lease-new", nil
+	})
+	runtimeClient.SetControllerLeaseManager(leaseManager)
+
+	page, err := runtimeClient.RefreshTranscriptPage(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail})
+	if err != nil {
+		t.Fatalf("RefreshTranscriptPage: %v", err)
+	}
+	if recoveryCalls != 1 {
+		t.Fatalf("recovery call count = %d, want 1", recoveryCalls)
+	}
+	if reads.count != 2 {
+		t.Fatalf("transcript read count = %d, want 2", reads.count)
+	}
+	if page.Revision != authoritativePage.Revision || len(page.Entries) != 1 || page.Entries[0].Text != "authoritative" {
+		t.Fatalf("hydrated page = %+v, want %+v", page, authoritativePage)
+	}
+	if entries := controls.appendedLocalEntries(); len(entries) != 0 {
+		t.Fatalf("did not expect visible recovery warning during hydration, got %+v", entries)
+	}
+}
+
+func TestRuntimeClientMainViewRefreshRecoversRuntimeUnavailableSilently(t *testing.T) {
+	controls := &leaseRetryRuntimeControlClient{}
+	authoritativeView := clientui.RuntimeMainView{
+		Session: clientui.RuntimeSessionView{SessionID: "session-1", SessionName: "restored"},
+		Status:  clientui.RuntimeStatus{ThinkingLevel: "high"},
+	}
+	reads := &flakySessionViewClient{
+		errs:      []error{serverapi.ErrRuntimeUnavailable, nil},
+		responses: []serverapi.SessionMainViewResponse{{}, {MainView: authoritativeView}},
+	}
+	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls).(*sessionRuntimeClient)
+	leaseManager := newControllerLeaseManager("lease-old")
+	recoveryCalls := 0
+	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
+		recoveryCalls++
+		return "lease-new", nil
+	})
+	runtimeClient.SetControllerLeaseManager(leaseManager)
+
+	view, err := runtimeClient.RefreshMainView()
+	if err != nil {
+		t.Fatalf("RefreshMainView: %v", err)
+	}
+	if recoveryCalls != 1 {
+		t.Fatalf("recovery call count = %d, want 1", recoveryCalls)
+	}
+	if reads.count != 2 {
+		t.Fatalf("main-view read count = %d, want 2", reads.count)
+	}
+	if view.Session.SessionName != "restored" || view.Status.ThinkingLevel != "high" {
+		t.Fatalf("main view = %+v, want %+v", view, authoritativeView)
+	}
+	if entries := controls.appendedLocalEntries(); len(entries) != 0 {
+		t.Fatalf("did not expect visible recovery warning during main-view refresh, got %+v", entries)
+	}
+}
+
+func TestRuntimeUnavailableHydrationRecoveryResumesOngoingEventFence(t *testing.T) {
+	controls := &leaseRetryRuntimeControlClient{}
+	authoritativePage := clientui.TranscriptPage{
+		SessionID:    "session-1",
+		Revision:     5,
+		TotalEntries: 1,
+		Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "hydrated"}},
+	}
+	reads := &flakySessionViewClient{
+		errs:  []error{serverapi.ErrRuntimeUnavailable, nil},
+		pages: []serverapi.SessionTranscriptPageResponse{{}, {Transcript: authoritativePage}},
+	}
+	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls).(*sessionRuntimeClient)
+	leaseManager := newControllerLeaseManager("lease-old")
+	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
+		return "lease-new", nil
+	})
+	runtimeClient.SetControllerLeaseManager(leaseManager)
+	runtimeEvents := make(chan clientui.Event, 1)
+	runtimeEvents <- clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: "after hydrate"}
+	model := newProjectedTestUIModel(runtimeClient, runtimeEvents, closedAskEvents())
+	model.startupCmds = nil
+	model.waitRuntimeEventAfterHydration = true
+
+	cmd := model.startRuntimeTranscriptPageRequest(
+		clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail},
+		false,
+		runtimeTranscriptSyncCauseContinuityRecovery,
+		clientui.TranscriptRecoveryCauseStreamGap,
+	)
+	if cmd == nil {
+		t.Fatal("expected hydration command")
+	}
+	rawMsg := cmd()
+	msg, ok := rawMsg.(runtimeTranscriptRefreshedMsg)
+	if !ok {
+		t.Fatalf("expected runtimeTranscriptRefreshedMsg, got %T", rawMsg)
+	}
+	if msg.err != nil {
+		t.Fatalf("hydration err = %v, want recovered nil", msg.err)
+	}
+
+	next, resumeCmd := model.Update(msg)
+	updated := next.(*uiModel)
+	if updated.waitRuntimeEventAfterHydration {
+		t.Fatal("expected recovered hydration to release runtime event fence")
+	}
+	if updated.runtimeTranscriptBusy {
+		t.Fatal("expected recovered hydration to clear in-flight busy flag")
+	}
+	msgs := collectCmdMessages(t, resumeCmd)
+	resumed := false
+	for _, collected := range msgs {
+		if typed, ok := collected.(runtimeEventBatchMsg); ok && len(typed.events) == 1 && typed.events[0].AssistantDelta == "after hydrate" {
+			resumed = true
+		}
+		if _, ok := collected.(runtimeTranscriptRetryMsg); ok {
+			t.Fatalf("did not expect retry after successful runtime-unavailable recovery, got %+v", msgs)
+		}
+	}
+	if !resumed {
+		t.Fatalf("expected runtime event consumption to resume after recovered hydration, got %+v", msgs)
+	}
+	if len(runtimeEvents) != 0 {
+		t.Fatalf("expected resumed runtime wait to consume pending event, remaining=%d", len(runtimeEvents))
+	}
+	if entries := controls.appendedLocalEntries(); len(entries) != 0 {
+		t.Fatalf("did not expect visible recovery warning during UI hydration, got %+v", entries)
+	}
+}
+
+func TestRuntimeClientShowGoalRecoversRuntimeUnavailableSilently(t *testing.T) {
+	goal := &serverapi.RuntimeGoal{ID: "goal-1", Objective: "ship", Status: "active"}
+	controls := &leaseRetryRuntimeControlClient{
+		showGoalErr:  serverapi.ErrRuntimeUnavailable,
+		showGoalResp: serverapi.RuntimeGoalShowResponse{Goal: goal},
+	}
+	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls).(*sessionRuntimeClient)
+	leaseManager := newControllerLeaseManager("lease-old")
+	recoveryCalls := 0
+	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
+		recoveryCalls++
+		return "lease-new", nil
+	})
+	runtimeClient.SetControllerLeaseManager(leaseManager)
+
+	got, err := runtimeClient.ShowGoal()
+	if err != nil {
+		t.Fatalf("ShowGoal: %v", err)
+	}
+	if recoveryCalls != 1 {
+		t.Fatalf("recovery call count = %d, want 1", recoveryCalls)
+	}
+	if controls.showGoalCalls != 2 {
+		t.Fatalf("show goal call count = %d, want 2", controls.showGoalCalls)
+	}
+	if got == nil || got.ID != "goal-1" || got.Objective != "ship" || got.Status != clientui.RuntimeGoalStatusActive {
+		t.Fatalf("goal = %+v, want recovered active goal", got)
+	}
+	if entries := controls.appendedLocalEntries(); len(entries) != 0 {
+		t.Fatalf("did not expect visible recovery warning during goal read, got %+v", entries)
+	}
+}
+
+func TestRuntimeClientHasQueuedUserWorkRecoversRuntimeUnavailableSilently(t *testing.T) {
+	controls := &leaseRetryRuntimeControlClient{
+		queuedWorkErr: serverapi.ErrRuntimeUnavailable,
+		queuedWork:    true,
+	}
+	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls).(*sessionRuntimeClient)
+	leaseManager := newControllerLeaseManager("lease-old")
+	recoveryCalls := 0
+	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
+		recoveryCalls++
+		return "lease-new", nil
+	})
+	runtimeClient.SetControllerLeaseManager(leaseManager)
+
+	hasWork, err := runtimeClient.HasQueuedUserWork()
+	if err != nil {
+		t.Fatalf("HasQueuedUserWork: %v", err)
+	}
+	if !hasWork {
+		t.Fatal("HasQueuedUserWork = false, want true")
+	}
+	if recoveryCalls != 1 {
+		t.Fatalf("recovery call count = %d, want 1", recoveryCalls)
+	}
+	if controls.queuedWorkCalls != 2 {
+		t.Fatalf("queued-work call count = %d, want 2", controls.queuedWorkCalls)
+	}
+	if entries := controls.appendedLocalEntries(); len(entries) != 0 {
+		t.Fatalf("did not expect visible recovery warning during queued-work read, got %+v", entries)
 	}
 }
 

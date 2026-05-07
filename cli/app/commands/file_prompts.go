@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	builderDirName  = ".builder"
-	promptsDirName  = "prompts"
-	commandsDirName = "commands"
+	builderDirName   = ".builder"
+	generatedDirName = ".generated"
+	promptsDirName   = "prompts"
+	commandsDirName  = "commands"
 )
 
 type filePromptCommand struct {
@@ -22,9 +23,9 @@ type filePromptCommand struct {
 	Content     string
 }
 
-func NewDefaultRegistryWithFilePrompts(workspaceRoot, settingsPath string) (*Registry, error) {
+func NewDefaultRegistryWithFilePrompts(workspaceRoot, globalRoot string) (*Registry, error) {
 	r := NewDefaultRegistry()
-	prompts, err := loadFilePromptCommands(workspaceRoot, settingsPath)
+	prompts, err := loadFilePromptCommands(workspaceRoot, globalRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -40,8 +41,8 @@ func NewDefaultRegistryWithFilePrompts(workspaceRoot, settingsPath string) (*Reg
 	return r, nil
 }
 
-func loadFilePromptCommands(workspaceRoot, settingsPath string) ([]filePromptCommand, error) {
-	dirs, err := filePromptSearchDirs(workspaceRoot, settingsPath)
+func loadFilePromptCommands(workspaceRoot, globalRoot string) ([]filePromptCommand, error) {
+	dirs, err := filePromptSearchDirs(workspaceRoot, globalRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -120,18 +121,24 @@ func normalizeFilePromptCommandID(name string) string {
 	return strings.Trim(builder.String(), "_")
 }
 
-func filePromptSearchDirs(workspaceRoot, settingsPath string) ([]string, error) {
+func filePromptSearchDirs(workspaceRoot, globalRoot string) ([]string, error) {
 	workspaceRoot = strings.TrimSpace(workspaceRoot)
 	if workspaceRoot == "" {
 		return nil, errors.New("workspace root is required")
 	}
-	globalRoot := strings.TrimSpace(filepath.Dir(settingsPath))
+	globalRoot = strings.TrimSpace(globalRoot)
 	if globalRoot == "" || globalRoot == "." {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("resolve home dir: %w", err)
 		}
 		globalRoot = filepath.Join(home, builderDirName)
+	} else {
+		resolved, err := filepath.Abs(globalRoot)
+		if err != nil {
+			return nil, fmt.Errorf("resolve global prompt root: %w", err)
+		}
+		globalRoot = resolved
 	}
 
 	localBuilder := filepath.Join(workspaceRoot, builderDirName)
@@ -140,5 +147,7 @@ func filePromptSearchDirs(workspaceRoot, settingsPath string) ([]string, error) 
 		filepath.Join(localBuilder, commandsDirName),
 		filepath.Join(globalRoot, promptsDirName),
 		filepath.Join(globalRoot, commandsDirName),
+		filepath.Join(globalRoot, generatedDirName, promptsDirName),
+		filepath.Join(globalRoot, generatedDirName, commandsDirName),
 	}, nil
 }
