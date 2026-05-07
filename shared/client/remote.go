@@ -273,6 +273,11 @@ func (c *Remote) SubmitUserMessage(ctx context.Context, req serverapi.RuntimeSub
 	return resp, c.callDedicated(ctx, "runtime-submit-user-message", protocol.MethodRuntimeSubmitUserMessage, req, &resp)
 }
 
+func (c *Remote) SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
+	var resp serverapi.RuntimeSubmitUserTurnResponse
+	return resp, c.callDedicated(ctx, "runtime-submit-user-turn", protocol.MethodRuntimeSubmitUserTurn, req, &resp)
+}
+
 func (c *Remote) SubmitUserShellCommand(ctx context.Context, req serverapi.RuntimeSubmitUserShellCommandRequest) error {
 	return c.callDedicated(ctx, "runtime-submit-user-shell-command", protocol.MethodRuntimeSubmitUserShellCommand, req, nil)
 }

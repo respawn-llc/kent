@@ -142,6 +142,23 @@ func (c *leaseRetryRuntimeControlClient) SubmitUserMessage(_ context.Context, re
 	}
 }
 
+func (c *leaseRetryRuntimeControlClient) SubmitUserTurn(_ context.Context, req serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.submitLeaseID = append(c.submitLeaseID, req.ControllerLeaseID)
+	switch req.ControllerLeaseID {
+	case "lease-old":
+		if c.firstSubmitErr != nil {
+			return serverapi.RuntimeSubmitUserTurnResponse{}, c.firstSubmitErr
+		}
+		return serverapi.RuntimeSubmitUserTurnResponse{}, serverapi.ErrInvalidControllerLease
+	case "lease-new":
+		return serverapi.RuntimeSubmitUserTurnResponse{Message: "recovered"}, nil
+	default:
+		return serverapi.RuntimeSubmitUserTurnResponse{}, errors.New("unexpected controller lease")
+	}
+}
+
 func (c *leaseRetryRuntimeControlClient) SubmitUserShellCommand(context.Context, serverapi.RuntimeSubmitUserShellCommandRequest) error {
 	return nil
 }

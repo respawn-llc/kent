@@ -45,6 +45,7 @@ const (
 	MethodRuntimeAppendLocalEntry                  = "runtime.appendLocalEntry"
 	MethodRuntimeShouldCompactBeforeUserMessage    = "runtime.shouldCompactBeforeUserMessage"
 	MethodRuntimeSubmitUserMessage                 = "runtime.submitUserMessage"
+	MethodRuntimeSubmitUserTurn                    = "runtime.submitUserTurn"
 	MethodRuntimeSubmitUserShellCommand            = "runtime.submitUserShellCommand"
 	MethodRuntimeCompactContext                    = "runtime.compactContext"
 	MethodRuntimeCompactContextForPreSubmit        = "runtime.compactContextForPreSubmit"

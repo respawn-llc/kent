@@ -32,6 +32,7 @@ type Service struct {
 	reviewers      *requestmemo.Memo[sessionBoolMemoRequest, serverapi.RuntimeSetReviewerEnabledResponse]
 	autoCompacts   *requestmemo.Memo[sessionBoolMemoRequest, serverapi.RuntimeSetAutoCompactionEnabledResponse]
 	submits        *requestmemo.Memo[sessionTextMemoRequest, serverapi.RuntimeSubmitUserMessageResponse]
+	turnSubmits    *requestmemo.Memo[sessionTextMemoRequest, serverapi.RuntimeSubmitUserTurnResponse]
 	queues         *requestmemo.Memo[sessionTextMemoRequest, struct{}]
 	shells         *requestmemo.Memo[sessionCommandMemoRequest, struct{}]
 
@@ -105,6 +106,7 @@ func NewService(runtimes RuntimeResolver, gate primaryrun.Gate) *Service {
 		reviewers:      requestmemo.New[sessionBoolMemoRequest, serverapi.RuntimeSetReviewerEnabledResponse](),
 		autoCompacts:   requestmemo.New[sessionBoolMemoRequest, serverapi.RuntimeSetAutoCompactionEnabledResponse](),
 		submits:        requestmemo.New[sessionTextMemoRequest, serverapi.RuntimeSubmitUserMessageResponse](),
+		turnSubmits:    requestmemo.New[sessionTextMemoRequest, serverapi.RuntimeSubmitUserTurnResponse](),
 		queues:         requestmemo.New[sessionTextMemoRequest, struct{}](),
 		shells:         requestmemo.New[sessionCommandMemoRequest, struct{}](),
 

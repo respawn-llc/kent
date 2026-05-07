@@ -555,6 +555,81 @@ func TestServiceSubmitUserMessageRejectsClientRequestIDPayloadMismatch(t *testin
 	}
 }
 
+func TestServiceSubmitUserTurnRecordsPromptHistoryAndSubmits(t *testing.T) {
+	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
+	if err != nil {
+		t.Fatalf("create session store: %v", err)
+	}
+	client := &runtimeControlFakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
+		Usage:     llm.Usage{WindowTokens: 200000},
+	}}}
+	engine, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("create runtime engine: %v", err)
+	}
+	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+
+	resp, err := service.SubmitUserTurn(context.Background(), serverapi.RuntimeSubmitUserTurnRequest{
+		ClientRequestID:   "req-1",
+		SessionID:         store.Meta().SessionID,
+		ControllerLeaseID: "lease-1",
+		Text:              "hello",
+	})
+	if err != nil {
+		t.Fatalf("SubmitUserTurn: %v", err)
+	}
+	if resp.Message != "done" {
+		t.Fatalf("message = %q, want done", resp.Message)
+	}
+	if client.calls != 1 {
+		t.Fatalf("generate call count = %d, want 1", client.calls)
+	}
+	if got := countPromptHistoryEvents(t, store, "hello"); got != 1 {
+		t.Fatalf("prompt history count = %d, want 1", got)
+	}
+}
+
+func TestServiceSubmitUserTurnDedupesSuccessfulRetry(t *testing.T) {
+	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
+	if err != nil {
+		t.Fatalf("create session store: %v", err)
+	}
+	client := &runtimeControlFakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
+		Usage:     llm.Usage{WindowTokens: 200000},
+	}}}
+	engine, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("create runtime engine: %v", err)
+	}
+	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+	req := serverapi.RuntimeSubmitUserTurnRequest{
+		ClientRequestID:   "req-1",
+		SessionID:         store.Meta().SessionID,
+		ControllerLeaseID: "lease-1",
+		Text:              "hello",
+	}
+
+	first, err := service.SubmitUserTurn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("SubmitUserTurn first: %v", err)
+	}
+	second, err := service.SubmitUserTurn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("SubmitUserTurn retry: %v", err)
+	}
+	if first.Message != "done" || second.Message != "done" {
+		t.Fatalf("responses = (%q, %q), want both done", first.Message, second.Message)
+	}
+	if client.calls != 1 {
+		t.Fatalf("generate call count = %d, want 1", client.calls)
+	}
+	if got := countPromptHistoryEvents(t, store, "hello"); got != 1 {
+		t.Fatalf("prompt history count = %d, want 1", got)
+	}
+}
+
 func TestServiceSubmitUserShellCommandDedupesSuccessfulRetry(t *testing.T) {
 	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
 	if err != nil {

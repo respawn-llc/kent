@@ -51,6 +51,9 @@ func (transcriptDiagTestRuntimeControlClient) ShouldCompactBeforeUserMessage(con
 func (transcriptDiagTestRuntimeControlClient) SubmitUserMessage(context.Context, serverapi.RuntimeSubmitUserMessageRequest) (serverapi.RuntimeSubmitUserMessageResponse, error) {
 	return serverapi.RuntimeSubmitUserMessageResponse{}, nil
 }
+func (transcriptDiagTestRuntimeControlClient) SubmitUserTurn(context.Context, serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
+	return serverapi.RuntimeSubmitUserTurnResponse{}, nil
+}
 func (transcriptDiagTestRuntimeControlClient) SubmitUserShellCommand(context.Context, serverapi.RuntimeSubmitUserShellCommandRequest) error {
 	return nil
 }

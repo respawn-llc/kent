@@ -423,6 +423,13 @@ func (g *Gateway) dispatch(ctx context.Context, state *connectionState, req prot
 			}
 			return g.core.RuntimeControlClient().SubmitUserMessage(ctx, params)
 		})
+	case protocol.MethodRuntimeSubmitUserTurn:
+		return decodeAndHandle(req, func(params serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeSubmitUserTurnResponse{}, err
+			}
+			return g.core.RuntimeControlClient().SubmitUserTurn(ctx, params)
+		})
 	case protocol.MethodRuntimeSubmitUserShellCommand:
 		return decodeAndHandle(req, func(params serverapi.RuntimeSubmitUserShellCommandRequest) (struct{}, error) {
 			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {

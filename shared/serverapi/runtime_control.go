@@ -87,6 +87,18 @@ type RuntimeSubmitUserMessageResponse struct {
 	Message string `json:"message"`
 }
 
+type RuntimeSubmitUserTurnRequest struct {
+	ClientRequestID   string `json:"client_request_id"`
+	SessionID         string `json:"session_id"`
+	ControllerLeaseID string `json:"controller_lease_id"`
+	Text              string `json:"text"`
+}
+
+type RuntimeSubmitUserTurnResponse struct {
+	Message   string `json:"message"`
+	Compacted bool   `json:"compacted,omitempty"`
+}
+
 type RuntimeSubmitUserShellCommandRequest struct {
 	ClientRequestID   string `json:"client_request_id"`
 	SessionID         string `json:"session_id"`
@@ -204,6 +216,7 @@ type RuntimeControlService interface {
 	AppendLocalEntry(ctx context.Context, req RuntimeAppendLocalEntryRequest) error
 	ShouldCompactBeforeUserMessage(ctx context.Context, req RuntimeShouldCompactBeforeUserMessageRequest) (RuntimeShouldCompactBeforeUserMessageResponse, error)
 	SubmitUserMessage(ctx context.Context, req RuntimeSubmitUserMessageRequest) (RuntimeSubmitUserMessageResponse, error)
+	SubmitUserTurn(ctx context.Context, req RuntimeSubmitUserTurnRequest) (RuntimeSubmitUserTurnResponse, error)
 	SubmitUserShellCommand(ctx context.Context, req RuntimeSubmitUserShellCommandRequest) error
 	CompactContext(ctx context.Context, req RuntimeCompactContextRequest) error
 	CompactContextForPreSubmit(ctx context.Context, req RuntimeCompactContextForPreSubmitRequest) error
@@ -309,6 +322,15 @@ func (r RuntimeShouldCompactBeforeUserMessageRequest) Validate() error {
 	return validateRuntimeSessionID(r.SessionID)
 }
 func (r RuntimeSubmitUserMessageRequest) Validate() error {
+	if err := validateClientRequestID(r.ClientRequestID); err != nil {
+		return err
+	}
+	if err := validateRuntimeSessionID(r.SessionID); err != nil {
+		return err
+	}
+	return validateControllerLeaseID(r.ControllerLeaseID)
+}
+func (r RuntimeSubmitUserTurnRequest) Validate() error {
 	if err := validateClientRequestID(r.ClientRequestID); err != nil {
 		return err
 	}

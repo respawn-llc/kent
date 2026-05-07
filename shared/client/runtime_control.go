@@ -16,6 +16,7 @@ type RuntimeControlClient interface {
 	AppendLocalEntry(ctx context.Context, req serverapi.RuntimeAppendLocalEntryRequest) error
 	ShouldCompactBeforeUserMessage(ctx context.Context, req serverapi.RuntimeShouldCompactBeforeUserMessageRequest) (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error)
 	SubmitUserMessage(ctx context.Context, req serverapi.RuntimeSubmitUserMessageRequest) (serverapi.RuntimeSubmitUserMessageResponse, error)
+	SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error)
 	SubmitUserShellCommand(ctx context.Context, req serverapi.RuntimeSubmitUserShellCommandRequest) error
 	CompactContext(ctx context.Context, req serverapi.RuntimeCompactContextRequest) error
 	CompactContextForPreSubmit(ctx context.Context, req serverapi.RuntimeCompactContextForPreSubmitRequest) error
@@ -95,6 +96,13 @@ func (c *loopbackRuntimeControlClient) SubmitUserMessage(ctx context.Context, re
 		return serverapi.RuntimeSubmitUserMessageResponse{}, errors.New("runtime control service is required")
 	}
 	return c.service.SubmitUserMessage(ctx, req)
+}
+
+func (c *loopbackRuntimeControlClient) SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
+	if c == nil || c.service == nil {
+		return serverapi.RuntimeSubmitUserTurnResponse{}, errors.New("runtime control service is required")
+	}
+	return c.service.SubmitUserTurn(ctx, req)
 }
 
 func (c *loopbackRuntimeControlClient) SubmitUserShellCommand(ctx context.Context, req serverapi.RuntimeSubmitUserShellCommandRequest) error {
