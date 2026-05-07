@@ -772,6 +772,26 @@ func TestDoubleEscEntersRollbackSelectionAndEnterStartsEditing(t *testing.T) {
 	}
 }
 
+func TestBareEscapeRuneDoubleEscEntersRollbackSelection(t *testing.T) {
+	m := newProjectedStaticUIModel(WithUIInitialTranscript([]UITranscriptEntry{
+		{Role: "user", Text: "u1"},
+		{Role: "assistant", Text: "a1"},
+	}))
+
+	escapeRune := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'\x1b'}}
+	next, _ := m.Update(escapeRune)
+	updated := next.(*uiModel)
+	next, _ = updated.Update(escapeRune)
+	updated = next.(*uiModel)
+
+	if !testRollbackSelecting(updated) {
+		t.Fatal("expected rollback selection mode after double bare escape rune")
+	}
+	if updated.input != "" {
+		t.Fatalf("expected bare escape rune not to enter prompt text, got %q", updated.input)
+	}
+}
+
 func TestRollbackSelectionHighlightsSelectedMessageFullWidth(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIInitialTranscript([]UITranscriptEntry{
 		{Role: "user", Text: "first user"},
