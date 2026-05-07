@@ -17,7 +17,7 @@ func EffectiveReviewerSettings(settings Settings) ReviewerSettings {
 }
 
 func inheritReviewerDefaultsWithSources(settings *Settings, sources map[string]string) {
-	reviewerProviderSelectionExplicit := reviewerUsesIndependentProviderSelection(*settings)
+	reviewerProviderSelectionExplicit := ReviewerUsesIndependentProviderSelection(*settings)
 	if strings.TrimSpace(settings.Reviewer.Model) == "" {
 		settings.Reviewer.Model = settings.Model
 	}
@@ -37,7 +37,7 @@ func inheritReviewerDefaultsWithSources(settings *Settings, sources map[string]s
 	}
 }
 
-func reviewerUsesIndependentProviderSelection(settings Settings) bool {
+func ReviewerUsesIndependentProviderSelection(settings Settings) bool {
 	if strings.TrimSpace(settings.Reviewer.OpenAIBaseURL) != "" {
 		return true
 	}

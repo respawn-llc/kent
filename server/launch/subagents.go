@@ -278,8 +278,22 @@ func applyReviewerInheritance(settings *config.Settings, sources map[string]stri
 		settings.Reviewer.Auth = "inherit"
 	}
 	applyReviewerModelCapabilityInheritance(settings, sources)
-	reviewerProviderSelectionExplicit := !reviewerProviderSourceDefault || !reviewerBaseURLSourceDefault
+	reviewerProviderSelectionExplicit := reviewerProviderSelectionExplicitForInheritance(settings, sources)
 	applyReviewerProviderCapabilityInheritance(settings, sources, reviewerProviderSelectionExplicit)
+}
+
+func reviewerProviderSelectionExplicitForInheritance(settings *config.Settings, sources map[string]string) bool {
+	if settings == nil {
+		return false
+	}
+	candidate := *settings
+	if strings.TrimSpace(sources["reviewer.provider_override"]) == "default" {
+		candidate.Reviewer.ProviderOverride = ""
+	}
+	if strings.TrimSpace(sources["reviewer.openai_base_url"]) == "default" {
+		candidate.Reviewer.OpenAIBaseURL = ""
+	}
+	return config.ReviewerUsesIndependentProviderSelection(candidate)
 }
 
 func applyReviewerModelCapabilityInheritance(settings *config.Settings, sources map[string]string) {

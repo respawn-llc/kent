@@ -55,6 +55,37 @@ func TestApplyReviewerInheritanceDoesNotCopyMainProviderCapabilitiesForExplicitR
 	}
 }
 
+func TestApplyReviewerInheritanceCopiesMainProviderCapabilitiesForNoOpReviewerProviderOverride(t *testing.T) {
+	settings := config.Settings{
+		OpenAIBaseURL: "http://subagent.local/v1",
+		ProviderCapabilities: config.ProviderCapabilitiesOverride{
+			ProviderID:                     "subagent-main-provider",
+			SupportsResponsesAPI:           true,
+			SupportsRequestInputTokenCount: true,
+			SupportsPromptCacheKey:         true,
+		},
+		Reviewer: config.ReviewerSettings{
+			ProviderOverride: "openai",
+			OpenAIBaseURL:    "http://parent.local/v1",
+		},
+	}
+	sources := reviewerInheritanceDefaultSources()
+	sources["openai_base_url"] = "subagent"
+	sources["reviewer.provider_override"] = "file"
+
+	applyReviewerInheritance(&settings, sources)
+
+	if settings.Reviewer.OpenAIBaseURL != "http://subagent.local/v1" {
+		t.Fatalf("expected no-op reviewer provider override to inherit subagent main base URL, got %q", settings.Reviewer.OpenAIBaseURL)
+	}
+	if settings.Reviewer.ProviderCapabilities.ProviderID != "subagent-main-provider" ||
+		!settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI ||
+		!settings.Reviewer.ProviderCapabilities.SupportsRequestInputTokenCount ||
+		!settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey {
+		t.Fatalf("expected no-op reviewer provider override to inherit subagent main provider capabilities, got %+v", settings.Reviewer.ProviderCapabilities)
+	}
+}
+
 func TestApplyReviewerInheritanceMergesReviewerModelCapabilitiesPerField(t *testing.T) {
 	settings := config.Settings{
 		ModelCapabilities: config.ModelCapabilitiesOverride{
