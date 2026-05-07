@@ -6,8 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"builder/server/auth"
+	"builder/shared/config"
+	"builder/shared/serverapi"
 )
 
 func TestFetchUsagePayloadHandlesNonOAuthState(t *testing.T) {
@@ -47,5 +50,23 @@ func TestLimitDuration(t *testing.T) {
 				t.Fatalf("limitDuration(%d) = %q, want %q", tt.windowMinutes, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestServiceUsesServerSettingsForAPIKeyProviderLabel(t *testing.T) {
+	mgr := auth.NewManager(auth.NewMemoryStore(auth.State{
+		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "sk-test"}},
+	}), nil, time.Now)
+	svc := NewService(mgr, config.Settings{ProviderOverride: "internal-openai"})
+
+	resp, err := svc.GetAuthStatus(context.Background(), serverapi.AuthStatusRequest{})
+	if err != nil {
+		t.Fatalf("GetAuthStatus: %v", err)
+	}
+	if resp.Auth.Summary != "API key" {
+		t.Fatalf("auth summary = %q, want API key", resp.Auth.Summary)
+	}
+	if len(resp.Auth.Details) != 1 || resp.Auth.Details[0] != "internal-openai" {
+		t.Fatalf("auth details = %+v, want server provider override", resp.Auth.Details)
 	}
 }

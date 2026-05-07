@@ -415,7 +415,7 @@ func statusParentSessionName(ctx context.Context, sessionViews client.SessionVie
 
 func (defaultUIStatusCollector) CollectAuth(ctx context.Context, req uiStatusRequest, _ uiStatusSnapshot) uiStatusAuthStageResult {
 	if req.AuthStatus != nil {
-		resp, err := req.AuthStatus.GetAuthStatus(ctx, serverapi.AuthStatusRequest{Settings: req.Settings})
+		resp, err := req.AuthStatus.GetAuthStatus(ctx, serverapi.AuthStatusRequest{})
 		if err != nil {
 			errText := err.Error()
 			return uiStatusAuthStageResult{
