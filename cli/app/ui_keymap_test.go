@@ -36,6 +36,20 @@ func TestNormalizeKeyMsgPreservesNonMouseRunes(t *testing.T) {
 	}
 }
 
+func TestNormalizeKeyMsgConvertsBareEscapeRune(t *testing.T) {
+	message := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'\x1b'}}
+	normalized, ok := normalizeKeyMsg(message)
+	if !ok {
+		t.Fatal("expected bare escape rune to normalize")
+	}
+	if normalized.Type != tea.KeyEsc {
+		t.Fatalf("expected KeyEsc, got %v", normalized.Type)
+	}
+	if len(normalized.Runes) != 0 {
+		t.Fatalf("expected normalized escape to clear runes, got %q", string(normalized.Runes))
+	}
+}
+
 func TestNormalizeKeyMsgRecognizesShiftEnterCSIUVariants(t *testing.T) {
 	tests := []struct {
 		name string
