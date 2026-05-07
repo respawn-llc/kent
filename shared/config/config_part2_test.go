@@ -284,6 +284,36 @@ func TestSettingsTOMLPreservesReviewerModelCapabilityFalseOverride(t *testing.T)
 	}
 }
 
+func TestSettingsTOMLPreservesReviewerProviderCapabilityFalseOverride(t *testing.T) {
+	settings := defaultSettings()
+	settings.ProviderCapabilities = ProviderCapabilitiesOverride{
+		ProviderID:                     "main-provider",
+		SupportsResponsesAPI:           true,
+		SupportsRequestInputTokenCount: true,
+		SupportsPromptCacheKey:         true,
+	}
+	settings.Reviewer.ProviderCapabilities = ProviderCapabilitiesOverride{
+		ProviderID:                     "reviewer-provider",
+		SupportsResponsesAPI:           false,
+		SupportsRequestInputTokenCount: true,
+		SupportsPromptCacheKey:         false,
+	}
+
+	rendered := settingsTOML(settings)
+	if !strings.Contains(rendered, "[reviewer.provider_capabilities]") {
+		t.Fatalf("expected reviewer provider capabilities section, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "provider_id = \"reviewer-provider\"") {
+		t.Fatalf("expected explicit reviewer provider ID override, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "supports_responses_api = false") {
+		t.Fatalf("expected explicit reviewer responses API false override, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "supports_prompt_cache_key = false") {
+		t.Fatalf("expected explicit reviewer prompt cache false override, got:\n%s", rendered)
+	}
+}
+
 func TestNormalizeSettingsForPersistenceWithSourcesPreservesReviewerCapabilityFalse(t *testing.T) {
 	settings := defaultSettings()
 	settings.ModelCapabilities.SupportsReasoningEffort = true

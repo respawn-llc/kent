@@ -147,7 +147,9 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 		out.WriteString("\n[reviewer.model_capabilities]\n")
 		writeDefaultLines(&out, reviewerModelCapabilityLines)
 	}
-	reviewerProviderCapabilityLines := activeOptionalSectionLines(filterDefaultLines(rawLines, "reviewer.provider_capabilities"), filterDefaultLines(defaultLines, "reviewer.provider_capabilities"))
+	reviewerProviderCapabilityDefaultState := state
+	reviewerProviderCapabilityDefaultState.Settings.Reviewer.ProviderCapabilities = settings.ProviderCapabilities
+	reviewerProviderCapabilityLines := activeOptionalSectionLines(filterDefaultLines(rawLines, "reviewer.provider_capabilities"), filterDefaultLines(configRegistry.defaultLines(reviewerProviderCapabilityDefaultState), "reviewer.provider_capabilities"))
 	if len(reviewerProviderCapabilityLines) > 0 {
 		out.WriteString("\n[reviewer.provider_capabilities]\n")
 		writeDefaultLines(&out, reviewerProviderCapabilityLines)
