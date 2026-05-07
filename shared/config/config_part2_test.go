@@ -444,7 +444,7 @@ func TestNormalizeSettingsForPersistencePreservesReviewerCapabilityFalseWithoutS
 	}
 }
 
-func TestValidateSettingsWithSourcesTreatsSubagentReviewerOverridesAsConfigured(t *testing.T) {
+func TestValidateSettingsWithSourcesAllowsSubagentReviewerAnthropicOverride(t *testing.T) {
 	settings := defaultSettings()
 	settings.Reviewer.Model = settings.Model
 	settings.Reviewer.ProviderOverride = "anthropic"
@@ -453,11 +453,8 @@ func TestValidateSettingsWithSourcesTreatsSubagentReviewerOverridesAsConfigured(
 	sources["reviewer.provider_override"] = "subagent"
 
 	err := ValidateSettingsWithSources(settings, sources)
-	if err == nil {
-		t.Fatal("expected subagent reviewer.provider_override=anthropic to be rejected")
-	}
-	if !strings.Contains(err.Error(), "reviewer.provider_override") {
-		t.Fatalf("expected reviewer.provider_override error, got %v", err)
+	if err != nil {
+		t.Fatalf("validate settings with subagent reviewer anthropic override: %v", err)
 	}
 }
 
@@ -530,7 +527,7 @@ provider_override = "openai"
 	}
 }
 
-func TestLoadReviewerProviderRejectsInheritedAnthropicProvider(t *testing.T) {
+func TestLoadReviewerProviderInheritsAnthropicProvider(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
@@ -545,12 +542,39 @@ provider_override = "anthropic"
 		t.Fatalf("write config: %v", err)
 	}
 
-	_, err := Load(workspace, LoadOptions{})
-	if err == nil {
-		t.Fatal("expected inherited anthropic reviewer provider to fail")
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
 	}
-	if !strings.Contains(err.Error(), "not supported for reviewer models") {
-		t.Fatalf("expected unsupported reviewer provider error, got %v", err)
+	if cfg.Settings.Reviewer.ProviderOverride != "anthropic" {
+		t.Fatalf("expected reviewer provider to inherit anthropic, got %q", cfg.Settings.Reviewer.ProviderOverride)
+	}
+}
+
+func TestLoadReviewerProviderAllowsExplicitAnthropicProvider(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`model = "gpt-5.5"
+
+[reviewer]
+model = "claude-test"
+provider_override = "anthropic"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Settings.Reviewer.ProviderOverride != "anthropic" {
+		t.Fatalf("expected reviewer provider override anthropic, got %q", cfg.Settings.Reviewer.ProviderOverride)
 	}
 }
 
@@ -1069,10 +1093,10 @@ verbose_output = true
 		t.Fatal("expected invalid reviewer frequency")
 	}
 	t.Setenv("BUILDER_REVIEWER_FREQUENCY", "all")
-	t.Setenv("BUILDER_REVIEWER_PROVIDER_OVERRIDE", "anthropic")
+	t.Setenv("BUILDER_REVIEWER_PROVIDER_OVERRIDE", "bogus")
 	t.Setenv("BUILDER_REVIEWER_OPENAI_BASE_URL", "")
-	if _, err := Load(workspace, LoadOptions{}); err == nil || !strings.Contains(err.Error(), "not supported for reviewer models") {
-		t.Fatalf("expected unsupported reviewer provider error, got %v", err)
+	if _, err := Load(workspace, LoadOptions{}); err == nil || !strings.Contains(err.Error(), "invalid reviewer.provider_override") {
+		t.Fatalf("expected invalid reviewer provider error, got %v", err)
 	}
 }
 
@@ -1333,7 +1357,7 @@ func TestLoadToolPreamblesPrecedence(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsReviewerAuthNoneWithoutCompatibleBaseURL(t *testing.T) {
+func TestLoadAllowsReviewerAuthNoneWithoutBaseURL(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1348,16 +1372,16 @@ auth = "none"
 		t.Fatalf("write config: %v", err)
 	}
 
-	_, err := Load(workspace, LoadOptions{})
-	if err == nil {
-		t.Fatal("expected reviewer.auth=none without compatible base URL to fail")
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
 	}
-	if !strings.Contains(err.Error(), "reviewer.auth") || !strings.Contains(err.Error(), "api.openai.com") {
-		t.Fatalf("expected reviewer.auth api.openai.com guard error, got %v", err)
+	if cfg.Settings.Reviewer.Auth != "none" {
+		t.Fatalf("expected reviewer.auth=none, got %q", cfg.Settings.Reviewer.Auth)
 	}
 }
 
-func TestLoadRejectsReviewerAuthNoneWithFirstPartyOpenAIBaseURL(t *testing.T) {
+func TestLoadAllowsReviewerAuthNoneWithFirstPartyOpenAIBaseURL(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1373,12 +1397,12 @@ auth = "none"
 		t.Fatalf("write config: %v", err)
 	}
 
-	_, err := Load(workspace, LoadOptions{})
-	if err == nil {
-		t.Fatal("expected reviewer.auth=none with first-party OpenAI base URL to fail")
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
 	}
-	if !strings.Contains(err.Error(), "reviewer.auth") || !strings.Contains(err.Error(), "api.openai.com") {
-		t.Fatalf("expected reviewer.auth api.openai.com guard error, got %v", err)
+	if cfg.Settings.Reviewer.Auth != "none" {
+		t.Fatalf("expected reviewer.auth=none, got %q", cfg.Settings.Reviewer.Auth)
 	}
 }
 

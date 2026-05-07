@@ -639,7 +639,7 @@ func TestLoadSubagentRoleAllowsReviewerAuthNoneToInheritParentBaseURL(t *testing
 	}
 }
 
-func TestLoadSubagentRoleRejectsReviewerAuthNoneWithExplicitFirstPartyBaseURL(t *testing.T) {
+func TestLoadSubagentRoleAllowsReviewerAuthNoneWithExplicitFirstPartyBaseURL(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
@@ -658,12 +658,13 @@ func TestLoadSubagentRoleRejectsReviewerAuthNoneWithExplicitFirstPartyBaseURL(t 
 		t.Fatalf("write config: %v", err)
 	}
 
-	_, err := Load(workspace, LoadOptions{})
-	if err == nil {
-		t.Fatal("expected explicit first-party reviewer base URL in subagent role to fail")
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
 	}
-	if !strings.Contains(err.Error(), "api.openai.com") {
-		t.Fatalf("expected api.openai.com guard error, got %v", err)
+	role := cfg.Settings.Subagents[BuiltInSubagentRoleFast]
+	if role.Settings.Reviewer.Auth != "none" {
+		t.Fatalf("expected subagent reviewer.auth=none, got %q", role.Settings.Reviewer.Auth)
 	}
 }
 

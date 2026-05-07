@@ -158,9 +158,9 @@ Configure the supervisor agent that oversees model changes.
 | `reviewer.model` | string | inherits `model` | `BUILDER_REVIEWER_MODEL` | Separate model for the reviewer pass. If unset, Builder uses main `model`. |
 | `reviewer.thinking_level` | string | inherits `thinking_level` | `BUILDER_REVIEWER_THINKING_LEVEL` | Allowed: `low`, `medium`, `high`, `xhigh`. |
 | `reviewer.model_verbosity` | string | inherits `model_verbosity` | `BUILDER_REVIEWER_MODEL_VERBOSITY` | Text verbosity hint for supported reviewer models. Allowed: `""`, `low`, `medium`, `high`. |
-| `reviewer.provider_override` | string | inherits `provider_override` | `BUILDER_REVIEWER_PROVIDER_OVERRIDE` | Forces provider family for the reviewer model. Allowed: `openai`. |
+| `reviewer.provider_override` | string | inherits `provider_override` | `BUILDER_REVIEWER_PROVIDER_OVERRIDE` | Forces provider family for the reviewer model. Allowed: `openai`, `anthropic`. |
 | `reviewer.openai_base_url` | string | inherits `openai_base_url` for OpenAI-family reviewer providers | `BUILDER_REVIEWER_OPENAI_BASE_URL` | OpenAI-compatible base URL for the reviewer model. Non-OpenAI endpoints can run without Builder auth when the server accepts anonymous requests. |
-| `reviewer.auth` | string | `inherit` | `BUILDER_REVIEWER_AUTH` | Reviewer auth policy. `inherit` uses Builder's configured auth. `none` sends no `Authorization` header and requires a compatible explicit or inherited base URL such as a local server. |
+| `reviewer.auth` | string | `inherit` | `BUILDER_REVIEWER_AUTH` | Reviewer auth policy. `inherit` uses Builder's configured auth. `none` sends no `Authorization` header; providers that require auth return their normal runtime error. |
 | `reviewer.model_context_window` | int | inherits `model_context_window` | `BUILDER_REVIEWER_MODEL_CONTEXT_WINDOW` | Explicit reviewer context-window size sent to the reviewer provider. |
 | `reviewer.system_prompt_file` | string | `""` |  | Path to a custom supervisor system prompt file. Relative paths resolve from the config file directory. Workspace config overrides global config; no CLI or environment override is provided. |
 | `reviewer.timeout_seconds` | int | `60` | `BUILDER_REVIEWER_TIMEOUT_SECONDS` | Reviewer HTTP timeout. Must be `> 0`. |
