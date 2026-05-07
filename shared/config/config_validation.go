@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"builder/shared/compaction"
@@ -357,7 +358,11 @@ func validateReviewer(state settingsState, sources map[string]string) error {
 		return fmt.Errorf("reviewer.model_context_window must be >= 0")
 	}
 	switch normalizeReviewerAuth(reviewer.Auth) {
-	case "inherit", "none":
+	case "inherit":
+	case "none":
+		if !reviewerAllowsAnonymousAuth(reviewer) {
+			return fmt.Errorf("reviewer.auth %q requires reviewer.openai_base_url or inherited openai_base_url to point at a non-OpenAI-compatible endpoint", reviewer.Auth)
+		}
 	default:
 		return fmt.Errorf("invalid reviewer.auth %q (expected inherit|none)", reviewer.Auth)
 	}
@@ -365,6 +370,19 @@ func validateReviewer(state settingsState, sources map[string]string) error {
 		return fmt.Errorf("reviewer.timeout_seconds must be > 0")
 	}
 	return nil
+}
+
+func reviewerAllowsAnonymousAuth(reviewer ReviewerSettings) bool {
+	baseURL := strings.TrimSpace(reviewer.OpenAIBaseURL)
+	if baseURL == "" {
+		return false
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	hostname := strings.TrimSpace(parsed.Hostname())
+	return hostname != "" && !strings.EqualFold(hostname, "api.openai.com")
 }
 
 func validateReviewerProviderCapabilities(capabilities ProviderCapabilitiesOverride) error {

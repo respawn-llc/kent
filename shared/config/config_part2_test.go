@@ -1161,6 +1161,84 @@ func TestLoadToolPreamblesPrecedence(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsReviewerAuthNoneWithoutCompatibleBaseURL(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`[reviewer]
+auth = "none"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(workspace, LoadOptions{})
+	if err == nil {
+		t.Fatal("expected reviewer.auth=none without compatible base URL to fail")
+	}
+	if !strings.Contains(err.Error(), "reviewer.auth") || !strings.Contains(err.Error(), "non-OpenAI") {
+		t.Fatalf("expected reviewer.auth non-OpenAI base URL error, got %v", err)
+	}
+}
+
+func TestLoadRejectsReviewerAuthNoneWithFirstPartyOpenAIBaseURL(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`[reviewer]
+openai_base_url = "https://api.openai.com/v1"
+auth = "none"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(workspace, LoadOptions{})
+	if err == nil {
+		t.Fatal("expected reviewer.auth=none with first-party OpenAI base URL to fail")
+	}
+	if !strings.Contains(err.Error(), "reviewer.auth") || !strings.Contains(err.Error(), "non-OpenAI") {
+		t.Fatalf("expected reviewer.auth non-OpenAI base URL error, got %v", err)
+	}
+}
+
+func TestLoadAllowsReviewerAuthNoneWithInheritedCompatibleBaseURL(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`model = "local-model"
+provider_override = "openai"
+openai_base_url = "http://127.0.0.1:11434/v1"
+
+[reviewer]
+provider_override = "openai"
+auth = "none"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Settings.Reviewer.OpenAIBaseURL != "http://127.0.0.1:11434/v1" {
+		t.Fatalf("expected reviewer to inherit compatible base URL, got %q", cfg.Settings.Reviewer.OpenAIBaseURL)
+	}
+}
+
 func TestLoadRejectsRemovedTUIAlternateScreenSetting(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
