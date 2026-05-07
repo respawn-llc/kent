@@ -17,7 +17,7 @@ func EffectiveReviewerSettings(settings Settings) ReviewerSettings {
 }
 
 func inheritReviewerDefaultsWithSources(settings *Settings, sources map[string]string) {
-	reviewerProviderSelectionExplicit := strings.TrimSpace(settings.Reviewer.ProviderOverride) != "" || strings.TrimSpace(settings.Reviewer.OpenAIBaseURL) != ""
+	reviewerProviderSelectionExplicit := reviewerUsesIndependentProviderSelection(*settings)
 	if strings.TrimSpace(settings.Reviewer.Model) == "" {
 		settings.Reviewer.Model = settings.Model
 	}
@@ -35,6 +35,21 @@ func inheritReviewerDefaultsWithSources(settings *Settings, sources map[string]s
 	if settings.Reviewer.ModelContextWindow == 0 {
 		settings.Reviewer.ModelContextWindow = settings.ModelContextWindow
 	}
+}
+
+func reviewerUsesIndependentProviderSelection(settings Settings) bool {
+	if strings.TrimSpace(settings.Reviewer.OpenAIBaseURL) != "" {
+		return true
+	}
+	reviewerProvider := normalizeProviderOverride(settings.Reviewer.ProviderOverride)
+	if reviewerProvider == "" {
+		return false
+	}
+	mainProvider := normalizeProviderOverride(settings.ProviderOverride)
+	if mainProvider == "" && reviewerProvider == "openai" {
+		return false
+	}
+	return reviewerProvider != mainProvider
 }
 
 func ResolveReviewerProviderSettings(settings Settings) ReviewerProviderSettings {

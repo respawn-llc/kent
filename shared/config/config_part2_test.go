@@ -466,6 +466,43 @@ openai_base_url = "http://127.0.0.1:11434/v1"
 	}
 }
 
+func TestLoadReviewerProviderCapabilitiesInheritMainForNoOpOpenAIProviderOverride(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`model = "gpt-5.5"
+openai_base_url = "http://127.0.0.1:8080/v1"
+
+[provider_capabilities]
+provider_id = "main-compatible"
+supports_responses_api = true
+supports_prompt_cache_key = true
+
+[reviewer]
+provider_override = "openai"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(workspace, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Settings.Reviewer.OpenAIBaseURL != "http://127.0.0.1:8080/v1" {
+		t.Fatalf("expected reviewer to inherit main base URL, got %q", cfg.Settings.Reviewer.OpenAIBaseURL)
+	}
+	if cfg.Settings.Reviewer.ProviderCapabilities.ProviderID != "main-compatible" ||
+		!cfg.Settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI ||
+		!cfg.Settings.Reviewer.ProviderCapabilities.SupportsPromptCacheKey {
+		t.Fatalf("expected no-op reviewer provider override to inherit main provider capabilities, got %+v", cfg.Settings.Reviewer.ProviderCapabilities)
+	}
+}
+
 func TestLoadProviderOverrideFromFile(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
