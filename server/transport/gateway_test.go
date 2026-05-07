@@ -311,6 +311,7 @@ func TestGatewayPreAuthMethodPolicy(t *testing.T) {
 		{name: "bootstrap status", method: protocol.MethodAuthGetBootstrapStatus, requiresAuth: false},
 		{name: "bootstrap complete", method: protocol.MethodAuthCompleteBootstrap, requiresAuth: false},
 		{name: "project list", method: protocol.MethodProjectList, requiresAuth: false},
+		{name: "project binding plan", method: protocol.MethodProjectPlanWorkspaceBinding, requiresAuth: false},
 		{name: "project attach workspace", method: protocol.MethodProjectAttachWorkspace, requiresAuth: true},
 		{name: "attach project", method: protocol.MethodAttachProject, requiresAuth: false},
 		{name: "attach session", method: protocol.MethodAttachSession, requiresAuth: false},

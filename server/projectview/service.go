@@ -79,6 +79,57 @@ func (s *Service) ResolveProjectPath(ctx context.Context, req serverapi.ProjectR
 	return resp, nil
 }
 
+func (s *Service) PlanWorkspaceBinding(ctx context.Context, req serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.ProjectBindingPlanResponse{}, err
+	}
+	resolved, err := s.ResolveProjectPath(ctx, serverapi.ProjectResolvePathRequest{Path: req.Path})
+	if err != nil {
+		return serverapi.ProjectBindingPlanResponse{}, err
+	}
+	resp := serverapi.ProjectBindingPlanResponse{
+		CanonicalRoot:    resolved.CanonicalRoot,
+		PathAvailability: resolved.PathAvailability,
+		Binding:          resolved.Binding,
+	}
+	if resolved.Binding != nil {
+		resp.Kind = serverapi.ProjectBindingPlanKindBound
+		return resp, nil
+	}
+	switch req.Mode {
+	case serverapi.ProjectBindingPlanModeInteractive:
+		projects, err := s.ListProjects(ctx, serverapi.ProjectListRequest{})
+		if err != nil {
+			return serverapi.ProjectBindingPlanResponse{}, err
+		}
+		resp.Projects = projects.Projects
+		if resolved.PathAvailability == clientui.ProjectAvailabilityMissing || resolved.PathAvailability == clientui.ProjectAvailabilityInaccessible {
+			resp.Kind = serverapi.ProjectBindingPlanKindServerWorkspaceSelection
+			return resp, nil
+		}
+		resp.Kind = serverapi.ProjectBindingPlanKindLocalUnbound
+		return resp, nil
+	case serverapi.ProjectBindingPlanModeHeadless:
+		if resolved.PathAvailability == clientui.ProjectAvailabilityAvailable {
+			resp.Kind = serverapi.ProjectBindingPlanKindLocalUnbound
+			return resp, nil
+		}
+		workspace, found, err := s.selectSingleAvailableWorkspace(ctx)
+		if err != nil {
+			return serverapi.ProjectBindingPlanResponse{}, err
+		}
+		if !found {
+			resp.Kind = serverapi.ProjectBindingPlanKindHeadlessRemoteAmbiguous
+			return resp, nil
+		}
+		resp.Kind = serverapi.ProjectBindingPlanKindHeadlessRemoteSelected
+		resp.Workspace = &workspace
+		return resp, nil
+	default:
+		return serverapi.ProjectBindingPlanResponse{}, errors.New("mode must be interactive or headless")
+	}
+}
+
 func (s *Service) CreateProject(ctx context.Context, req serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
 	if err := req.Validate(); err != nil {
 		return serverapi.ProjectCreateResponse{}, err
@@ -91,6 +142,36 @@ func (s *Service) CreateProject(ctx context.Context, req serverapi.ProjectCreate
 		return serverapi.ProjectCreateResponse{}, err
 	}
 	return serverapi.ProjectCreateResponse{Binding: projectBindingFromMetadata(binding)}, nil
+}
+
+func (s *Service) selectSingleAvailableWorkspace(ctx context.Context) (serverapi.ProjectWorkspacePlanSelected, bool, error) {
+	projects, err := s.ListProjects(ctx, serverapi.ProjectListRequest{})
+	if err != nil {
+		return serverapi.ProjectWorkspacePlanSelected{}, false, err
+	}
+	selection := serverapi.ProjectWorkspacePlanSelected{}
+	count := 0
+	for _, project := range projects.Projects {
+		overview, err := s.GetProjectOverview(ctx, serverapi.ProjectGetOverviewRequest{ProjectID: project.ProjectID})
+		if err != nil {
+			return serverapi.ProjectWorkspacePlanSelected{}, false, err
+		}
+		for _, workspace := range overview.Overview.Workspaces {
+			availability := strings.TrimSpace(string(workspace.Availability))
+			if availability != "" && workspace.Availability != clientui.ProjectAvailabilityAvailable {
+				continue
+			}
+			count++
+			selection = serverapi.ProjectWorkspacePlanSelected{ProjectID: project.ProjectID, WorkspaceID: workspace.WorkspaceID}
+			if count > 1 {
+				return serverapi.ProjectWorkspacePlanSelected{}, false, nil
+			}
+		}
+	}
+	if count == 0 {
+		return serverapi.ProjectWorkspacePlanSelected{}, false, nil
+	}
+	return selection, true, nil
 }
 
 func (s *Service) AttachWorkspaceToProject(ctx context.Context, req serverapi.ProjectAttachWorkspaceRequest) (serverapi.ProjectAttachWorkspaceResponse, error) {

@@ -226,6 +226,10 @@ func (g *Gateway) dispatch(ctx context.Context, state *connectionState, req prot
 		return decodeAndHandle(req, func(params serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
 			return g.core.ProjectViewClient().ResolveProjectPath(ctx, params)
 		})
+	case protocol.MethodProjectPlanWorkspaceBinding:
+		return decodeAndHandle(req, func(params serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+			return g.core.ProjectViewClient().PlanWorkspaceBinding(ctx, params)
+		})
 	case protocol.MethodProjectCreate:
 		return decodeAndHandle(req, func(params serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
 			return g.core.ProjectViewClient().CreateProject(ctx, params)

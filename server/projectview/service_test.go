@@ -181,6 +181,64 @@ func TestMetadataServiceResolveProjectPathLeavesNestedDirectoryUnbound(t *testin
 	}
 }
 
+func TestMetadataServicePlansInteractiveLocalUnboundWorkspace(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	workspace := t.TempDir()
+	svc, err := NewMetadataService(store, "", "")
+	if err != nil {
+		t.Fatalf("NewMetadataService: %v", err)
+	}
+
+	plan, err := svc.PlanWorkspaceBinding(context.Background(), serverapi.ProjectBindingPlanRequest{Path: workspace, Mode: serverapi.ProjectBindingPlanModeInteractive})
+	if err != nil {
+		t.Fatalf("PlanWorkspaceBinding: %v", err)
+	}
+	if plan.Kind != serverapi.ProjectBindingPlanKindLocalUnbound {
+		t.Fatalf("plan kind = %q, want %q", plan.Kind, serverapi.ProjectBindingPlanKindLocalUnbound)
+	}
+	if len(plan.Projects) != 1 || plan.Projects[0].ProjectID != binding.ProjectID {
+		t.Fatalf("plan projects = %+v, want registered project %q", plan.Projects, binding.ProjectID)
+	}
+}
+
+func TestMetadataServicePlansHeadlessSingleRemoteWorkspace(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	svc, err := NewMetadataService(store, "", "")
+	if err != nil {
+		t.Fatalf("NewMetadataService: %v", err)
+	}
+
+	plan, err := svc.PlanWorkspaceBinding(context.Background(), serverapi.ProjectBindingPlanRequest{Path: filepath.Join(t.TempDir(), "missing"), Mode: serverapi.ProjectBindingPlanModeHeadless})
+	if err != nil {
+		t.Fatalf("PlanWorkspaceBinding: %v", err)
+	}
+	if plan.Kind != serverapi.ProjectBindingPlanKindHeadlessRemoteSelected || plan.Workspace == nil {
+		t.Fatalf("plan = %+v, want selected remote workspace", plan)
+	}
+	if plan.Workspace.ProjectID != binding.ProjectID || plan.Workspace.WorkspaceID != binding.WorkspaceID {
+		t.Fatalf("selected workspace = %+v, want %s/%s", plan.Workspace, binding.ProjectID, binding.WorkspaceID)
+	}
+}
+
+func TestMetadataServicePlansHeadlessAmbiguousRemoteWorkspaces(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	if _, err := store.AttachWorkspaceToProject(context.Background(), binding.ProjectID, t.TempDir()); err != nil {
+		t.Fatalf("AttachWorkspaceToProject: %v", err)
+	}
+	svc, err := NewMetadataService(store, "", "")
+	if err != nil {
+		t.Fatalf("NewMetadataService: %v", err)
+	}
+
+	plan, err := svc.PlanWorkspaceBinding(context.Background(), serverapi.ProjectBindingPlanRequest{Path: filepath.Join(t.TempDir(), "missing"), Mode: serverapi.ProjectBindingPlanModeHeadless})
+	if err != nil {
+		t.Fatalf("PlanWorkspaceBinding: %v", err)
+	}
+	if plan.Kind != serverapi.ProjectBindingPlanKindHeadlessRemoteAmbiguous {
+		t.Fatalf("plan kind = %q, want %q", plan.Kind, serverapi.ProjectBindingPlanKindHeadlessRemoteAmbiguous)
+	}
+}
+
 func newProjectViewMetadataStore(t *testing.T) (*metadata.Store, config.App, metadata.Binding) {
 	t.Helper()
 	home := t.TempDir()

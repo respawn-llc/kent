@@ -16,6 +16,7 @@ const (
 	MethodAttachSession                         = "session.attach"
 	MethodProjectList                           = "project.list"
 	MethodProjectResolvePath                    = "project.resolvePath"
+	MethodProjectPlanWorkspaceBinding           = "project.planWorkspaceBinding"
 	MethodProjectCreate                         = "project.create"
 	MethodProjectAttachWorkspace                = "project.attachWorkspace"
 	MethodProjectRebindWorkspace                = "project.rebindWorkspace"
@@ -90,6 +91,7 @@ var allowedPreAuthMethods = []string{
 	MethodAttachSession,
 	MethodProjectList,
 	MethodProjectResolvePath,
+	MethodProjectPlanWorkspaceBinding,
 	MethodProjectGetOverview,
 	MethodSessionListByProject,
 	MethodSessionGetMainView,

@@ -239,6 +239,10 @@ func (s *configuredProjectViewRemoteStub) ResolveProjectPath(ctx context.Context
 	return serverapi.ProjectResolvePathResponse{}, errors.New("unexpected ResolveProjectPath call")
 }
 
+func (s *configuredProjectViewRemoteStub) PlanWorkspaceBinding(ctx context.Context, req serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+	return testPlanHeadlessWorkspaceBinding(ctx, s, req)
+}
+
 func (*configuredProjectViewRemoteStub) CreateProject(context.Context, serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
 	return serverapi.ProjectCreateResponse{}, errors.New("unexpected CreateProject call")
 }
@@ -270,6 +274,23 @@ func (headlessProjectViewStubService) ResolveProjectPath(context.Context, server
 	return serverapi.ProjectResolvePathResponse{}, errors.New("unexpected ResolveProjectPath call")
 }
 
+func (s headlessProjectViewStubService) PlanWorkspaceBinding(ctx context.Context, req serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.ProjectBindingPlanResponse{}, err
+	}
+	selection, found, err := testSelectSingleRemoteWorkspace(ctx, s)
+	if err != nil {
+		return serverapi.ProjectBindingPlanResponse{}, err
+	}
+	if !found {
+		return serverapi.ProjectBindingPlanResponse{Kind: serverapi.ProjectBindingPlanKindHeadlessRemoteAmbiguous}, nil
+	}
+	return serverapi.ProjectBindingPlanResponse{
+		Kind:      serverapi.ProjectBindingPlanKindHeadlessRemoteSelected,
+		Workspace: &selection,
+	}, nil
+}
+
 func (headlessProjectViewStubService) CreateProject(context.Context, serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
 	return serverapi.ProjectCreateResponse{}, errors.New("unexpected CreateProject call")
 }
@@ -295,6 +316,70 @@ func (s headlessProjectViewStubService) GetProjectOverview(_ context.Context, re
 
 func (headlessProjectViewStubService) ListSessionsByProject(context.Context, serverapi.SessionListByProjectRequest) (serverapi.SessionListByProjectResponse, error) {
 	return serverapi.SessionListByProjectResponse{}, nil
+}
+
+func testPlanHeadlessWorkspaceBinding(ctx context.Context, projectViews client.ProjectViewClient, req serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.ProjectBindingPlanResponse{}, err
+	}
+	resolved, err := projectViews.ResolveProjectPath(ctx, serverapi.ProjectResolvePathRequest{Path: req.Path})
+	if err != nil {
+		return serverapi.ProjectBindingPlanResponse{}, err
+	}
+	resp := serverapi.ProjectBindingPlanResponse{
+		CanonicalRoot:    resolved.CanonicalRoot,
+		PathAvailability: resolved.PathAvailability,
+		Binding:          resolved.Binding,
+	}
+	if resolved.Binding != nil {
+		resp.Kind = serverapi.ProjectBindingPlanKindBound
+		return resp, nil
+	}
+	if resolved.PathAvailability == clientui.ProjectAvailabilityAvailable {
+		resp.Kind = serverapi.ProjectBindingPlanKindLocalUnbound
+		return resp, nil
+	}
+	selection, found, err := testSelectSingleRemoteWorkspace(ctx, projectViews)
+	if err != nil {
+		return serverapi.ProjectBindingPlanResponse{}, err
+	}
+	if !found {
+		resp.Kind = serverapi.ProjectBindingPlanKindHeadlessRemoteAmbiguous
+		return resp, nil
+	}
+	resp.Kind = serverapi.ProjectBindingPlanKindHeadlessRemoteSelected
+	resp.Workspace = &selection
+	return resp, nil
+}
+
+func testSelectSingleRemoteWorkspace(ctx context.Context, projectViews client.ProjectViewClient) (serverapi.ProjectWorkspacePlanSelected, bool, error) {
+	projects, err := projectViews.ListProjects(ctx, serverapi.ProjectListRequest{})
+	if err != nil {
+		return serverapi.ProjectWorkspacePlanSelected{}, false, err
+	}
+	selection := serverapi.ProjectWorkspacePlanSelected{}
+	count := 0
+	for _, project := range projects.Projects {
+		overview, err := projectViews.GetProjectOverview(ctx, serverapi.ProjectGetOverviewRequest{ProjectID: project.ProjectID})
+		if err != nil {
+			return serverapi.ProjectWorkspacePlanSelected{}, false, err
+		}
+		for _, workspace := range overview.Overview.Workspaces {
+			availability := strings.TrimSpace(string(workspace.Availability))
+			if availability != "" && workspace.Availability != clientui.ProjectAvailabilityAvailable {
+				continue
+			}
+			count++
+			selection = serverapi.ProjectWorkspacePlanSelected{ProjectID: project.ProjectID, WorkspaceID: workspace.WorkspaceID}
+			if count > 1 {
+				return serverapi.ProjectWorkspacePlanSelected{}, false, nil
+			}
+		}
+	}
+	if count == 0 {
+		return serverapi.ProjectWorkspacePlanSelected{}, false, nil
+	}
+	return selection, true, nil
 }
 
 func (h memoryAuthHandler) WrapStore(auth.Store) auth.Store {
@@ -784,7 +869,7 @@ func TestStartRunPromptClientUnregisteredWorkspaceReturnsRegistrationError(t *te
 	}
 }
 
-func TestSelectSingleRemoteWorkspaceForHeadlessChoosesOnlyWorkspace(t *testing.T) {
+func TestHeadlessProjectBindingPlanChoosesOnlyWorkspace(t *testing.T) {
 	client := client.NewLoopbackProjectViewClient(headlessProjectViewStubService{
 		listProjectsResp: serverapi.ProjectListResponse{Projects: []clientui.ProjectSummary{{ProjectID: "project-1"}}},
 		overviews: map[string]serverapi.ProjectGetOverviewResponse{
@@ -792,19 +877,19 @@ func TestSelectSingleRemoteWorkspaceForHeadlessChoosesOnlyWorkspace(t *testing.T
 		},
 	})
 
-	selection, found, err := selectSingleRemoteWorkspaceForHeadless(context.Background(), client)
+	plan, err := client.PlanWorkspaceBinding(context.Background(), serverapi.ProjectBindingPlanRequest{Path: "/client/missing", Mode: serverapi.ProjectBindingPlanModeHeadless})
 	if err != nil {
-		t.Fatalf("selectSingleRemoteWorkspaceForHeadless: %v", err)
+		t.Fatalf("PlanWorkspaceBinding: %v", err)
 	}
-	if !found {
-		t.Fatal("expected single workspace selection")
+	if plan.Kind != serverapi.ProjectBindingPlanKindHeadlessRemoteSelected || plan.Workspace == nil {
+		t.Fatalf("expected single workspace selection, got %+v", plan)
 	}
-	if selection.ProjectID != "project-1" || selection.WorkspaceID != "workspace-1" {
-		t.Fatalf("unexpected selection: %+v", selection)
+	if plan.Workspace.ProjectID != "project-1" || plan.Workspace.WorkspaceID != "workspace-1" {
+		t.Fatalf("unexpected selection: %+v", plan.Workspace)
 	}
 }
 
-func TestSelectSingleRemoteWorkspaceForHeadlessIgnoresUnavailableWorkspaces(t *testing.T) {
+func TestHeadlessProjectBindingPlanIgnoresUnavailableWorkspaces(t *testing.T) {
 	client := client.NewLoopbackProjectViewClient(headlessProjectViewStubService{
 		listProjectsResp: serverapi.ProjectListResponse{Projects: []clientui.ProjectSummary{{ProjectID: "project-1"}}},
 		overviews: map[string]serverapi.ProjectGetOverviewResponse{
@@ -816,15 +901,15 @@ func TestSelectSingleRemoteWorkspaceForHeadlessIgnoresUnavailableWorkspaces(t *t
 		},
 	})
 
-	selection, found, err := selectSingleRemoteWorkspaceForHeadless(context.Background(), client)
+	plan, err := client.PlanWorkspaceBinding(context.Background(), serverapi.ProjectBindingPlanRequest{Path: "/client/missing", Mode: serverapi.ProjectBindingPlanModeHeadless})
 	if err != nil {
-		t.Fatalf("selectSingleRemoteWorkspaceForHeadless: %v", err)
+		t.Fatalf("PlanWorkspaceBinding: %v", err)
 	}
-	if !found {
-		t.Fatal("expected single available workspace selection")
+	if plan.Kind != serverapi.ProjectBindingPlanKindHeadlessRemoteSelected || plan.Workspace == nil {
+		t.Fatalf("expected single available workspace selection, got %+v", plan)
 	}
-	if selection.ProjectID != "project-1" || selection.WorkspaceID != "workspace-1" {
-		t.Fatalf("unexpected selection: %+v", selection)
+	if plan.Workspace.ProjectID != "project-1" || plan.Workspace.WorkspaceID != "workspace-1" {
+		t.Fatalf("unexpected selection: %+v", plan.Workspace)
 	}
 }
 

@@ -656,7 +656,7 @@ func TestEnsureInteractiveServerBrowsingBindingUsesConfiguredServerPickerNotice(
 		projectViewClient: client.NewLoopbackProjectViewClient(service),
 	}
 
-	bound, err := ensureInteractiveServerBrowsingBinding(context.Background(), server)
+	bound, err := ensureInteractiveServerBrowsingBinding(context.Background(), server, service.listProjectsResp.Projects)
 	if err != nil {
 		t.Fatalf("ensureInteractiveServerBrowsingBinding: %v", err)
 	}
@@ -808,6 +808,28 @@ func (s projectBindingFlowStubProjectViewService) ListProjects(context.Context, 
 
 func (s projectBindingFlowStubProjectViewService) ResolveProjectPath(context.Context, serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
 	return s.resolveResp, s.resolveErr
+}
+
+func (s projectBindingFlowStubProjectViewService) PlanWorkspaceBinding(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+	if s.resolveErr != nil {
+		return serverapi.ProjectBindingPlanResponse{}, s.resolveErr
+	}
+	resp := serverapi.ProjectBindingPlanResponse{
+		CanonicalRoot:    s.resolveResp.CanonicalRoot,
+		PathAvailability: s.resolveResp.PathAvailability,
+		Binding:          s.resolveResp.Binding,
+		Projects:         s.listProjectsResp.Projects,
+	}
+	if s.resolveResp.Binding != nil {
+		resp.Kind = serverapi.ProjectBindingPlanKindBound
+		return resp, nil
+	}
+	if s.resolveResp.PathAvailability == clientui.ProjectAvailabilityMissing || s.resolveResp.PathAvailability == clientui.ProjectAvailabilityInaccessible {
+		resp.Kind = serverapi.ProjectBindingPlanKindServerWorkspaceSelection
+		return resp, s.listProjectsErr
+	}
+	resp.Kind = serverapi.ProjectBindingPlanKindLocalUnbound
+	return resp, s.listProjectsErr
 }
 
 func (projectBindingFlowStubProjectViewService) CreateProject(context.Context, serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {

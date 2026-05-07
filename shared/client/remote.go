@@ -131,6 +131,11 @@ func (c *Remote) ResolveProjectPath(ctx context.Context, req serverapi.ProjectRe
 	return resp, c.callUnscoped(ctx, protocol.MethodProjectResolvePath, req, &resp)
 }
 
+func (c *Remote) PlanWorkspaceBinding(ctx context.Context, req serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+	var resp serverapi.ProjectBindingPlanResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodProjectPlanWorkspaceBinding, req, &resp)
+}
+
 func (c *Remote) CreateProject(ctx context.Context, req serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
 	var resp serverapi.ProjectCreateResponse
 	return resp, c.callUnscoped(ctx, protocol.MethodProjectCreate, req, &resp)

@@ -819,34 +819,39 @@ func ensureInteractiveProjectBinding(ctx context.Context, server embeddedServer)
 	if workspaceRoot == "" {
 		return nil, errors.New("workspace root is required")
 	}
-	resolved, err := server.ProjectViewClient().ResolveProjectPath(ctx, serverapi.ProjectResolvePathRequest{Path: workspaceRoot})
+	plan, err := server.ProjectViewClient().PlanWorkspaceBinding(ctx, serverapi.ProjectBindingPlanRequest{Path: workspaceRoot, Mode: serverapi.ProjectBindingPlanModeInteractive})
 	if err != nil {
 		return nil, err
 	}
-	if resolved.Binding != nil {
-		projectID := strings.TrimSpace(resolved.Binding.ProjectID)
+	if canonicalRoot := strings.TrimSpace(plan.CanonicalRoot); canonicalRoot != "" {
+		workspaceRoot = canonicalRoot
+	}
+	switch plan.Kind {
+	case serverapi.ProjectBindingPlanKindBound:
+		if plan.Binding == nil {
+			return nil, errors.New("resolved project binding is required")
+		}
+		projectID := strings.TrimSpace(plan.Binding.ProjectID)
 		if projectID == "" {
 			return nil, errors.New("resolved project id is required")
 		}
-		bound, bindErr := server.BindProjectWorkspace(ctx, projectID, strings.TrimSpace(resolved.Binding.WorkspaceID))
+		bound, bindErr := server.BindProjectWorkspace(ctx, projectID, strings.TrimSpace(plan.Binding.WorkspaceID))
 		if bindErr != nil {
 			return nil, formatProjectBindingStartupError(workspaceRoot, projectID, bindErr)
 		}
 		return bound, nil
+	case serverapi.ProjectBindingPlanKindServerWorkspaceSelection:
+		return ensureInteractiveServerBrowsingBinding(ctx, server, plan.Projects)
+	case serverapi.ProjectBindingPlanKindLocalUnbound:
+		return ensureInteractiveLocalPathBinding(ctx, server, workspaceRoot, plan.Projects)
+	default:
+		return nil, fmt.Errorf("unsupported interactive project binding plan %q", plan.Kind)
 	}
-	if resolved.PathAvailability == clientui.ProjectAvailabilityMissing || resolved.PathAvailability == clientui.ProjectAvailabilityInaccessible {
-		return ensureInteractiveServerBrowsingBinding(ctx, server)
-	}
-	return ensureInteractiveLocalPathBinding(ctx, server, workspaceRoot)
 }
 
-func ensureInteractiveLocalPathBinding(ctx context.Context, server embeddedServer, workspaceRoot string) (embeddedServer, error) {
-	projects, err := server.ProjectViewClient().ListProjects(ctx, serverapi.ProjectListRequest{})
-	if err != nil {
-		return nil, err
-	}
+func ensureInteractiveLocalPathBinding(ctx context.Context, server embeddedServer, workspaceRoot string, projects []clientui.ProjectSummary) (embeddedServer, error) {
 	cfg := server.Config()
-	picked, err := runProjectBindingPickerFlow(projects.Projects, cfg.Settings.Theme)
+	picked, err := runProjectBindingPickerFlow(projects, cfg.Settings.Theme)
 	if err != nil {
 		return nil, err
 	}
@@ -882,16 +887,12 @@ func ensureInteractiveLocalPathBinding(ctx context.Context, server embeddedServe
 	return bound, nil
 }
 
-func ensureInteractiveServerBrowsingBinding(ctx context.Context, server embeddedServer) (embeddedServer, error) {
-	projects, err := server.ProjectViewClient().ListProjects(ctx, serverapi.ProjectListRequest{})
-	if err != nil {
-		return nil, err
-	}
-	if len(projects.Projects) == 0 {
+func ensureInteractiveServerBrowsingBinding(ctx context.Context, server embeddedServer, projects []clientui.ProjectSummary) (embeddedServer, error) {
+	if len(projects) == 0 {
 		return nil, errors.New("server has no registered projects. Create one with `builder project create --path <server-path> --name <project-name>` or attach an existing workspace with `builder attach --project <project-id> <server-path>`")
 	}
 	cfg := server.Config()
-	picked, err := runServerProjectPickerFlow(projects.Projects, cfg.Settings.Theme)
+	picked, err := runServerProjectPickerFlow(projects, cfg.Settings.Theme)
 	if err != nil {
 		return nil, err
 	}
