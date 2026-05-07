@@ -355,11 +355,6 @@ func prepareSharedRuntime(ctx context.Context, server embeddedServer, plan sessi
 	}, runtimeClient.transcriptDiagnosticsEnabled, func(line string) {
 		logger.Logf("%s", line)
 	})
-	askEvents, stopAskEvents := startPendingPromptEvents(ctx, promptSub, func(ctx context.Context) (serverapi.PromptActivitySubscription, error) {
-		return server.PromptActivityClient().SubscribePromptActivity(ctx, serverapi.PromptActivitySubscribeRequest{SessionID: plan.SessionID})
-	}, func(ctx context.Context) (map[string]struct{}, error) {
-		return listPendingPromptIDs(ctx, plan.SessionID, server.AskViewClient(), server.ApprovalViewClient())
-	}, server.PromptControlClient(), leaseManager)
 	terminalFocus := newTerminalFocusState()
 	turnQueueHook := newBellHooks(defaultTerminalNotifier(plan.ActiveSettings.NotificationMethod), func() string {
 		if runtimeClient != nil {
@@ -369,6 +364,11 @@ func prepareSharedRuntime(ctx context.Context, server embeddedServer, plan sessi
 		}
 		return strings.TrimSpace(plan.SessionName)
 	}, terminalFocus.FocusedForAttention)
+	askEvents, stopAskEvents := startPendingPromptEvents(ctx, promptSub, func(ctx context.Context) (serverapi.PromptActivitySubscription, error) {
+		return server.PromptActivityClient().SubscribePromptActivity(ctx, serverapi.PromptActivitySubscribeRequest{SessionID: plan.SessionID})
+	}, func(ctx context.Context) (map[string]struct{}, error) {
+		return listPendingPromptIDs(ctx, plan.SessionID, server.AskViewClient(), server.ApprovalViewClient())
+	}, server.PromptControlClient(), leaseManager, turnQueueHook.OnAsk)
 	wiring := &runtimeWiring{
 		runtimeEvents:         runtimeEvents,
 		askEvents:             askEvents,

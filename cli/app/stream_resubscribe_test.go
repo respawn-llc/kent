@@ -168,6 +168,7 @@ func TestStartPendingPromptEventsResubscribesWithoutDuplicatingPendingPrompt(t *
 	initial := &stubPromptActivitySubscription{steps: []stubPromptActivityStep{{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventPending, PromptID: "ask-1", SessionID: "session-1", Question: "First?"}}, {err: serverapi.ErrStreamGap}}}
 	resubscribed := &stubPromptActivitySubscription{steps: []stubPromptActivityStep{{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventPending, PromptID: "ask-1", SessionID: "session-1", Question: "First?"}}, {evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventPending, PromptID: "ask-2", SessionID: "session-1", Question: "Second?"}}}}
 	remaining := []serverapi.PromptActivitySubscription{resubscribed}
+	var notified []askquestion.Request
 
 	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context) (serverapi.PromptActivitySubscription, error) {
 		if len(remaining) == 0 {
@@ -176,7 +177,9 @@ func TestStartPendingPromptEventsResubscribesWithoutDuplicatingPendingPrompt(t *
 		next := remaining[0]
 		remaining = remaining[1:]
 		return next, nil
-	}, nil, stubPromptControlClient{}, staticControllerLeaseManager("lease-test-controller"))
+	}, nil, stubPromptControlClient{}, staticControllerLeaseManager("lease-test-controller"), func(req askquestion.Request) {
+		notified = append(notified, req)
+	})
 	defer stop()
 
 	first := waitPromptEvent(t, events)
@@ -187,6 +190,9 @@ func TestStartPendingPromptEventsResubscribesWithoutDuplicatingPendingPrompt(t *
 	second := waitPromptEvent(t, events)
 	if second.req.ID != "ask-2" || second.req.Question != "Second?" {
 		t.Fatalf("unexpected second prompt event: %+v", second.req)
+	}
+	if len(notified) != 2 || notified[0].ID != "ask-1" || notified[1].ID != "ask-2" {
+		t.Fatalf("unexpected prompt notifications after resubscribe: %+v", notified)
 	}
 
 	select {

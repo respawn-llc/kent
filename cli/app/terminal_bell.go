@@ -21,6 +21,7 @@ const (
 )
 
 type terminalNotifier interface {
+	Bell()
 	Notify(message string)
 }
 
@@ -121,6 +122,10 @@ func formatAssistantPreview(content string, maxChars int) string {
 }
 
 func (r *belTerminalNotifier) Notify(_ string) {
+	r.Bell()
+}
+
+func (r *belTerminalNotifier) Bell() {
 	if r == nil {
 		return
 	}
@@ -138,6 +143,15 @@ func (r *osc9TerminalNotifier) Notify(message string) {
 	// The first BEL terminates the OSC 9 sequence. Emit a second BEL so asks and
 	// turn-complete notifications still produce an audible bell on OSC-capable terminals.
 	_, _ = io.WriteString(r.out, osc9Prefix+sanitizeTerminalNotificationMessage(message)+terminalBell+terminalBell)
+}
+
+func (r *osc9TerminalNotifier) Bell() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, _ = io.WriteString(r.out, terminalBell)
 }
 
 type bellHooks struct {
@@ -167,6 +181,9 @@ func newBellHooks(notifier terminalNotifier, title func() string, focused ...fun
 }
 
 func (h *bellHooks) OnAsk(req askquestion.Request) {
+	if h == nil {
+		return
+	}
 	question := formatAssistantPreview(req.Question, terminalNotificationPreviewLimit)
 	if question == "" {
 		if req.Approval {
@@ -179,7 +196,12 @@ func (h *bellHooks) OnAsk(req askquestion.Request) {
 	if req.Approval {
 		label = "Action required"
 	}
-	h.notifier.Notify(h.formatMessage(label + ": " + question))
+	message := h.formatMessage(label + ": " + question)
+	if h.focusedForAttention() {
+		h.notifier.Bell()
+		return
+	}
+	h.notifier.Notify(message)
 }
 
 func (h *bellHooks) OnProjectedRuntimeEvent(evt clientui.Event) {
@@ -322,14 +344,21 @@ func (h *bellHooks) notifyIfUnfocused(message string) {
 	if h == nil {
 		return
 	}
+	if h.focusedForAttention() {
+		return
+	}
+	h.notifier.Notify(h.formatMessage(message))
+}
+
+func (h *bellHooks) focusedForAttention() bool {
+	if h == nil {
+		return false
+	}
 	h.mu.Lock()
 	focused := false
 	if h.focused != nil {
 		focused = h.focused()
 	}
 	h.mu.Unlock()
-	if focused {
-		return
-	}
-	h.notifier.Notify(h.formatMessage(message))
+	return focused
 }

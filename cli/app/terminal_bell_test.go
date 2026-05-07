@@ -23,6 +23,13 @@ func (r *countRinger) Notify(message string) {
 	r.mu.Unlock()
 }
 
+func (r *countRinger) Bell() {
+	r.mu.Lock()
+	r.count++
+	r.last = terminalBell
+	r.mu.Unlock()
+}
+
 func (r *countRinger) Count() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -57,6 +64,16 @@ func TestOSC9TerminalNotifierWritesEscapeSequence(t *testing.T) {
 	want := osc9Prefix + "done" + terminalBell + terminalBell
 	if got := out.String(); got != want {
 		t.Fatalf("osc9 output = %q, want %q", got, want)
+	}
+}
+
+func TestOSC9TerminalNotifierWritesRawBellWithoutNotification(t *testing.T) {
+	var out bytes.Buffer
+	notifier := newTerminalNotifier(notificationMethodOSC9, &out, nil)
+	notifier.Bell()
+
+	if got := out.String(); got != terminalBell {
+		t.Fatalf("bell output = %q, want %q", got, terminalBell)
 	}
 }
 
@@ -120,6 +137,31 @@ func TestBellHooksUseSessionNameAndQuestionTextForAskNotifications(t *testing.T)
 
 	if got := ringer.Last(); got != "incident triage: Question: Which rollback strategy should I use?" {
 		t.Fatalf("last message = %q, want %q", got, "incident triage: Question: Which rollback strategy should I use?")
+	}
+}
+
+func TestBellHooksAskUsesBellOnlyWhileFocused(t *testing.T) {
+	ringer := &countRinger{}
+	hooks := newBellHooks(ringer, nil, func() bool { return true })
+
+	hooks.OnAsk(askquestion.Request{Question: "question"})
+
+	if got := ringer.Count(); got != 1 {
+		t.Fatalf("ring count while focused = %d, want 1", got)
+	}
+	if got := ringer.Last(); got != terminalBell {
+		t.Fatalf("last message while focused = %q, want raw bell", got)
+	}
+}
+
+func TestBellHooksAskUsesRawBellOnlyWithOSC9NotifierWhileFocused(t *testing.T) {
+	var out bytes.Buffer
+	hooks := newBellHooks(newOSC9TerminalNotifier(&out), nil, func() bool { return true })
+
+	hooks.OnAsk(askquestion.Request{Question: "question"})
+
+	if got := out.String(); got != terminalBell {
+		t.Fatalf("focused OSC9 ask output = %q, want raw bell", got)
 	}
 }
 
