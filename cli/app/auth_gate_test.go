@@ -52,17 +52,6 @@ func (s *stubAuthInteractor) Interactive() bool {
 	return s.interactive
 }
 
-func TestEnsureAuthReadyHeadlessReturnsStartupErrorWithoutCredentials(t *testing.T) {
-	mgr := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil, time.Now)
-
-	err := ensureAuthReady(context.Background(), mgr, auth.OpenAIOAuthOptions{}, config.Settings{Model: "gpt-5", Theme: "dark"}, &headlessAuthInteractor{
-		lookupEnv: func(string) string { return "" },
-	})
-	if !errors.Is(err, auth.ErrAuthNotConfigured) {
-		t.Fatalf("expected auth not configured, got %v", err)
-	}
-}
-
 func TestBootstrapAppHeadlessUsesEnvAPIKeyWithoutPersistingAuthState(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
@@ -105,22 +94,24 @@ func TestResolveSessionActionLogoutUsesBootstrapAuthInteractor(t *testing.T) {
 			APIKey: &auth.APIKeyMethod{Key: "sk-before"},
 		},
 	}), nil, time.Now)
-	interactor := &stubAuthInteractor{}
-	interactor.interact = func(ctx context.Context, req authInteraction) (authflow.InteractionOutcome, error) {
-		if req.Manager != mgr {
-			t.Fatal("expected resolveSessionAction logout to reuse bootstrap auth manager")
-		}
-		if !errors.Is(req.StartupErr, auth.ErrAuthNotConfigured) {
-			t.Fatalf("expected auth not configured after logout, got %v", req.StartupErr)
-		}
-		if req.Gate.Reason != auth.ErrAuthNotConfigured.Error() {
-			t.Fatalf("expected auth gate reason %q, got %q", auth.ErrAuthNotConfigured.Error(), req.Gate.Reason)
-		}
-		_, err := req.Manager.SwitchMethod(ctx, auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "sk-after"},
-		}, true)
-		return authflow.InteractionOutcome{}, err
+	pickerCalls := 0
+	interactor := &interactiveAuthInteractor{
+		lookupEnv: func(key string) string {
+			if key == "OPENAI_API_KEY" {
+				return "sk-after"
+			}
+			return ""
+		},
+		pickMethod: func(req authInteraction) (authMethodPickerResult, error) {
+			pickerCalls++
+			if !req.AuthRequired {
+				t.Fatal("expected logout reauth to require auth for default OpenAI config")
+			}
+			if !req.HasEnvAPIKey {
+				t.Fatal("expected env api key to be available for bootstrap")
+			}
+			return authMethodPickerResult{Choice: authMethodChoiceEnvAPIKey}, nil
+		},
 	}
 
 	root := t.TempDir()
@@ -140,8 +131,8 @@ func TestResolveSessionActionLogoutUsesBootstrapAuthInteractor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve session action: %v", err)
 	}
-	if interactor.callCount != 1 {
-		t.Fatalf("expected auth interactor to be called once, got %d", interactor.callCount)
+	if pickerCalls != 1 {
+		t.Fatalf("expected auth picker to be called once, got %d", pickerCalls)
 	}
 	if !resolved.ShouldContinue {
 		t.Fatal("expected logout flow to continue after reauth")
@@ -171,13 +162,18 @@ func TestResolveSessionActionLogoutAllowsNilStore(t *testing.T) {
 			APIKey: &auth.APIKeyMethod{Key: "sk-before"},
 		},
 	}), nil, time.Now)
-	interactor := &stubAuthInteractor{}
-	interactor.interact = func(ctx context.Context, req authInteraction) (authflow.InteractionOutcome, error) {
-		_, err := req.Manager.SwitchMethod(ctx, auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "sk-after"},
-		}, true)
-		return authflow.InteractionOutcome{}, err
+	pickerCalls := 0
+	interactor := &interactiveAuthInteractor{
+		lookupEnv: func(key string) string {
+			if key == "OPENAI_API_KEY" {
+				return "sk-after"
+			}
+			return ""
+		},
+		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
+			pickerCalls++
+			return authMethodPickerResult{Choice: authMethodChoiceEnvAPIKey}, nil
+		},
 	}
 
 	resolved, err := resolveSessionAction(
@@ -191,8 +187,8 @@ func TestResolveSessionActionLogoutAllowsNilStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve session action: %v", err)
 	}
-	if interactor.callCount != 1 {
-		t.Fatalf("expected auth interactor to be called once, got %d", interactor.callCount)
+	if pickerCalls != 1 {
+		t.Fatalf("expected auth picker to be called once, got %d", pickerCalls)
 	}
 	if !resolved.ShouldContinue {
 		t.Fatal("expected logout flow to continue after reauth")

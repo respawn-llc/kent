@@ -2,6 +2,7 @@ package app
 
 import (
 	"builder/server/auth"
+	"builder/server/authbootstrap"
 	serverembedded "builder/server/embedded"
 	"builder/server/launch"
 	"builder/server/metadata"
@@ -15,6 +16,7 @@ import (
 	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/config"
+	"builder/shared/protocol"
 	"builder/shared/serverapi"
 	"context"
 	"errors"
@@ -271,6 +273,11 @@ func (s *testEmbeddedServer) OAuthOptions() auth.OpenAIOAuthOptions { return s.o
 
 func (s *testEmbeddedServer) AuthManager() *auth.Manager { return s.authManager }
 
+func (s *testEmbeddedServer) AuthBootstrapClient() client.AuthBootstrapClient {
+	service := authbootstrap.NewService(s.authManager, s.oauthOpts, s.cfg.Settings, protocol.AllowedPreAuthMethods())
+	return client.NewLoopbackAuthBootstrapClient(service)
+}
+
 func (s *testEmbeddedServer) AuthStatusClient() client.AuthStatusClient {
 	return nil
 }
@@ -381,7 +388,7 @@ func (s *testEmbeddedServer) Reauthenticate(ctx context.Context, interactor auth
 	if s.reauthenticate != nil {
 		return s.reauthenticate(ctx, interactor)
 	}
-	return ensureAuthReady(ctx, s.authManager, s.oauthOpts, s.cfg.Settings, interactor)
+	return ensureRemoteAuthReady(ctx, s.AuthBootstrapClient(), s.cfg.Settings, interactor)
 }
 
 func (s *stubEmbeddedProcessViewClient) ListProcesses(context.Context, serverapi.ProcessListRequest) (serverapi.ProcessListResponse, error) {

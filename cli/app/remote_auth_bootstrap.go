@@ -27,6 +27,9 @@ func ensureRemoteAuthReady(ctx context.Context, remote client.AuthBootstrapClien
 	if interactor == nil {
 		return serverapi.ErrServerAuthRequired
 	}
+	if !status.AuthRequired && !interactor.Interactive() {
+		return nil
+	}
 	if interactive, ok := interactor.(*interactiveAuthInteractor); ok {
 		return interactive.completeRemoteAuthBootstrap(ctx, remote, settings, status)
 	}
@@ -52,9 +55,10 @@ func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Cont
 		return errors.New("interactive auth interactor is required")
 	}
 	req := authInteraction{
-		Theme:        string(settings.Theme),
-		AuthRequired: true,
-		HasEnvAPIKey: strings.TrimSpace(i.LookupEnv("OPENAI_API_KEY")) != "",
+		Theme:          string(settings.Theme),
+		AuthRequired:   status.AuthRequired,
+		PromptOptional: !status.AuthRequired,
+		HasEnvAPIKey:   strings.TrimSpace(i.LookupEnv("OPENAI_API_KEY")) != "",
 	}
 	for {
 		choice, err := i.chooseMethod(req)
@@ -86,6 +90,8 @@ func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Co
 	}
 	oauthOpts := auth.OpenAIOAuthOptions{Issuer: status.OAuth.Issuer, ClientID: status.OAuth.ClientID}
 	switch choice {
+	case authMethodChoiceSkip:
+		return serverapi.AuthCompleteBootstrapRequest{Mode: serverapi.AuthBootstrapModeNone}, nil
 	case authMethodChoiceEnvAPIKey:
 		apiKey := strings.TrimSpace(i.LookupEnv("OPENAI_API_KEY"))
 		if apiKey == "" {
@@ -182,6 +188,8 @@ func (i *interactiveAuthInteractor) collectRemoteDevice(ctx context.Context, opt
 func supportsBootstrapMode(modes []serverapi.AuthBootstrapMode, choice authMethodChoice) bool {
 	need := serverapi.AuthBootstrapMode("")
 	switch choice {
+	case authMethodChoiceSkip:
+		need = serverapi.AuthBootstrapModeNone
 	case authMethodChoiceEnvAPIKey:
 		need = serverapi.AuthBootstrapModeAPIKey
 	case authMethodChoiceBrowserAuto:

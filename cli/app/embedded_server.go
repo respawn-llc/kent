@@ -25,6 +25,7 @@ type embeddedServer interface {
 	BindProject(ctx context.Context, projectID string) (embeddedServer, error)
 	BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (embeddedServer, error)
 	AuthManager() *auth.Manager
+	AuthBootstrapClient() client.AuthBootstrapClient
 	AuthStatusClient() client.AuthStatusClient
 	ProjectID() string
 	ApprovalViewClient() client.ApprovalViewClient
@@ -124,6 +125,13 @@ func (s *embeddedAppServer) AuthManager() *auth.Manager {
 		return nil
 	}
 	return s.inner.AuthManager()
+}
+
+func (s *embeddedAppServer) AuthBootstrapClient() client.AuthBootstrapClient {
+	if s == nil || s.inner == nil {
+		return nil
+	}
+	return s.inner.AuthBootstrapClient()
 }
 
 func (s *embeddedAppServer) AuthStatusClient() client.AuthStatusClient {
@@ -416,7 +424,7 @@ func (s *embeddedAppServer) Reauthenticate(ctx context.Context, interactor authI
 		return errors.New("embedded server is required")
 	}
 	cfg := s.inner.Config()
-	return ensureAuthReady(ctx, s.inner.AuthManager(), s.inner.OAuthOptions(), cfg.Settings, interactor)
+	return ensureRemoteAuthReady(ctx, s.AuthBootstrapClient(), cfg.Settings, interactor)
 }
 
 var _ embeddedServer = (*embeddedAppServer)(nil)

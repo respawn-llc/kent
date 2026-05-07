@@ -13,8 +13,6 @@ import (
 
 	"builder/server/auth"
 	"builder/server/authflow"
-	serverstartup "builder/server/startup"
-	"builder/shared/config"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -74,27 +72,6 @@ func (i *interactiveAuthInteractor) WrapStore(base auth.Store) auth.Store {
 
 func (i *headlessAuthInteractor) WrapStore(base auth.Store) auth.Store {
 	return authflow.WrapStoreWithEnvAPIKeyOverride(base, i.lookupEnv)
-}
-
-type authReadyState struct {
-	cfg       config.App
-	oauthOpts auth.OpenAIOAuthOptions
-	mgr       *auth.Manager
-}
-
-func (s authReadyState) Config() config.App                    { return s.cfg }
-func (s authReadyState) OAuthOptions() auth.OpenAIOAuthOptions { return s.oauthOpts }
-func (s authReadyState) AuthManager() *auth.Manager            { return s.mgr }
-
-func ensureAuthReady(ctx context.Context, mgr *auth.Manager, oauthOpts auth.OpenAIOAuthOptions, settings config.Settings, interactor authInteractor) error {
-	if interactor == nil {
-		return errors.New("auth interactor is required")
-	}
-	return serverstartup.EnsureReady(ctx, authReadyState{
-		cfg:       config.App{Settings: settings},
-		oauthOpts: oauthOpts,
-		mgr:       mgr,
-	}, interactor)
 }
 
 func (i *interactiveAuthInteractor) LookupEnv(key string) string {

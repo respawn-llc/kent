@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"builder/server/auth"
+	"builder/shared/config"
 	"builder/shared/serverapi"
 )
 
@@ -65,10 +66,39 @@ func TestCompleteBootstrapReturnsSuccessWithoutOverwriteWhenAuthAlreadyReady(t *
 	}
 }
 
+func TestCompleteBootstrapNoneClearsAuthWhenAuthOptional(t *testing.T) {
+	service, store := newTestAuthBootstrapServiceWithSettings(auth.State{
+		Scope: auth.ScopeGlobal,
+		Method: auth.Method{
+			Type:   auth.MethodAPIKey,
+			APIKey: &auth.APIKeyMethod{Key: "server-key"},
+		},
+	}, config.Settings{OpenAIBaseURL: "http://127.0.0.1:8080/v1"})
+
+	resp, err := service.CompleteBootstrap(context.Background(), serverapi.AuthCompleteBootstrapRequest{Mode: serverapi.AuthBootstrapModeNone})
+	if err != nil {
+		t.Fatalf("CompleteBootstrap none: %v", err)
+	}
+	if !resp.AuthReady {
+		t.Fatal("expected optional auth skip to be ready")
+	}
+	state, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if state.Method.Type != auth.MethodNone {
+		t.Fatalf("stored method = %+v, want none", state.Method)
+	}
+}
+
 func newTestAuthBootstrapService(initial auth.State) (*Service, *auth.MemoryStore) {
+	return newTestAuthBootstrapServiceWithSettings(initial, config.Settings{Model: "gpt-5"})
+}
+
+func newTestAuthBootstrapServiceWithSettings(initial auth.State, settings config.Settings) (*Service, *auth.MemoryStore) {
 	store := auth.NewMemoryStore(initial)
 	manager := auth.NewManager(store, nil, func() time.Time {
 		return time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
 	})
-	return NewService(manager, auth.OpenAIOAuthOptions{}, nil), store
+	return NewService(manager, auth.OpenAIOAuthOptions{}, settings, nil), store
 }

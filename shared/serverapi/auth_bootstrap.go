@@ -12,6 +12,7 @@ var ErrServerAuthRequired = errors.New("server auth is not configured")
 type AuthBootstrapMode string
 
 const (
+	AuthBootstrapModeNone                AuthBootstrapMode = "none"
 	AuthBootstrapModeBrowserCallbackURL  AuthBootstrapMode = "browser_callback_url"
 	AuthBootstrapModeBrowserCallbackCode AuthBootstrapMode = "browser_callback_code"
 	AuthBootstrapModeDeviceCode          AuthBootstrapMode = "device_code"
@@ -27,6 +28,7 @@ type AuthGetBootstrapStatusRequest struct{}
 
 type AuthGetBootstrapStatusResponse struct {
 	AuthReady              bool                     `json:"auth_ready"`
+	AuthRequired           bool                     `json:"auth_required"`
 	AuthBootstrapSupported bool                     `json:"auth_bootstrap_supported"`
 	AllowedPreAuthMethods  []string                 `json:"allowed_pre_auth_methods,omitempty"`
 	SupportedModes         []AuthBootstrapMode      `json:"supported_modes,omitempty"`
@@ -58,6 +60,8 @@ type AuthBootstrapService interface {
 
 func (r AuthCompleteBootstrapRequest) Validate() error {
 	switch r.Mode {
+	case AuthBootstrapModeNone:
+		return nil
 	case AuthBootstrapModeAPIKey:
 		if strings.TrimSpace(r.APIKey) == "" {
 			return errors.New("api_key is required")
