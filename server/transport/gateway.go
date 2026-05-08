@@ -26,6 +26,529 @@ type Gateway struct {
 }
 
 var gatewaySubscriptionMethods = protocolSubscriptionMethodSet()
+var gatewayUnaryHandlers = map[string]gatewayUnaryHandler{
+	protocol.MethodHandshake: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		params, err := decodeParams[protocol.HandshakeRequest](req.Params)
+		if err != nil {
+			return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error())
+		}
+		if err := params.Validate(); err != nil {
+			return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error())
+		}
+		if params.ProtocolVersion != protocol.Version {
+			return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidRequest, fmt.Sprintf("unsupported protocol version %q", params.ProtocolVersion))
+		}
+		state.handshakeDone = true
+		return protocol.NewSuccessResponse(req.ID, protocol.HandshakeResponse{Identity: g.identity})
+	},
+	protocol.MethodAuthGetBootstrapStatus: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.AuthGetBootstrapStatusRequest) (serverapi.AuthGetBootstrapStatusResponse, error) {
+			client := g.core.AuthBootstrapClient()
+			if client == nil {
+				return serverapi.AuthGetBootstrapStatusResponse{}, serverapi.ErrServerAuthRequired
+			}
+			return client.GetAuthBootstrapStatus(ctx, params)
+		})
+	},
+	protocol.MethodAuthCompleteBootstrap: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.AuthCompleteBootstrapRequest) (serverapi.AuthCompleteBootstrapResponse, error) {
+			client := g.core.AuthBootstrapClient()
+			if client == nil {
+				return serverapi.AuthCompleteBootstrapResponse{}, serverapi.ErrServerAuthRequired
+			}
+			return client.CompleteAuthBootstrap(ctx, params)
+		})
+	},
+	protocol.MethodAuthGetStatus: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.AuthStatusRequest) (serverapi.AuthStatusResponse, error) {
+			client := g.core.AuthStatusClient()
+			if client == nil {
+				return serverapi.AuthStatusResponse{}, serverapi.ErrServerAuthRequired
+			}
+			return client.GetAuthStatus(ctx, params)
+		})
+	},
+	protocol.MethodAttachProject: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params protocol.AttachProjectRequest) (protocol.AttachResponse, error) {
+			if err := params.Validate(); err != nil {
+				return protocol.AttachResponse{}, err
+			}
+			if err := g.core.ProjectExists(ctx, params.ProjectID); err != nil {
+				return protocol.AttachResponse{}, err
+			}
+			attachedWorkspaceID, attachedRoot, err := g.resolveAttachedProjectWorkspace(ctx, params.ProjectID, params.WorkspaceID, params.WorkspaceRoot)
+			if err != nil {
+				return protocol.AttachResponse{}, err
+			}
+			state.attachedProject = params.ProjectID
+			state.attachedWorkspaceID = attachedWorkspaceID
+			state.attachedWorkspaceRoot = attachedRoot
+			state.attachedSession = ""
+			return protocol.AttachResponse{Kind: "project", ProjectID: params.ProjectID, WorkspaceID: attachedWorkspaceID, WorkspaceRoot: attachedRoot}, nil
+		})
+	},
+	protocol.MethodAttachSession: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params protocol.AttachSessionRequest) (protocol.AttachResponse, error) {
+			if err := params.Validate(); err != nil {
+				return protocol.AttachResponse{}, err
+			}
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return protocol.AttachResponse{}, err
+			}
+			state.attachedWorkspaceID = ""
+			state.attachedWorkspaceRoot = ""
+			state.attachedSession = params.SessionID
+			return protocol.AttachResponse{Kind: "session", SessionID: params.SessionID}, nil
+		})
+	},
+	protocol.MethodProjectList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ProjectListRequest) (serverapi.ProjectListResponse, error) {
+			return g.core.ProjectViewClient().ListProjects(ctx, params)
+		})
+	},
+	protocol.MethodProjectResolvePath: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
+			return g.core.ProjectViewClient().ResolveProjectPath(ctx, params)
+		})
+	},
+	protocol.MethodProjectPlanWorkspaceBinding: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+			return g.core.ProjectViewClient().PlanWorkspaceBinding(ctx, params)
+		})
+	},
+	protocol.MethodProjectCreate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
+			return g.core.ProjectViewClient().CreateProject(ctx, params)
+		})
+	},
+	protocol.MethodProjectAttachWorkspace: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ProjectAttachWorkspaceRequest) (serverapi.ProjectAttachWorkspaceResponse, error) {
+			return g.core.ProjectViewClient().AttachWorkspaceToProject(ctx, params)
+		})
+	},
+	protocol.MethodProjectRebindWorkspace: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ProjectRebindWorkspaceRequest) (serverapi.ProjectRebindWorkspaceResponse, error) {
+			return g.core.ProjectViewClient().RebindWorkspace(ctx, params)
+		})
+	},
+	protocol.MethodProjectGetOverview: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ProjectGetOverviewRequest) (serverapi.ProjectGetOverviewResponse, error) {
+			return g.core.ProjectViewClient().GetProjectOverview(ctx, params)
+		})
+	},
+	protocol.MethodSessionListByProject: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.SessionListByProjectRequest) (serverapi.SessionListByProjectResponse, error) {
+			return g.core.ProjectViewClient().ListSessionsByProject(ctx, params)
+		})
+	},
+	protocol.MethodSessionPlan: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.SessionPlanRequest) (serverapi.SessionPlanResponse, error) {
+			launchClient, err := g.sessionLaunchClientForState(ctx, state)
+			if err != nil {
+				return serverapi.SessionPlanResponse{}, err
+			}
+			return launchClient.PlanSession(ctx, params)
+		})
+	},
+	protocol.MethodSessionGetMainView: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.SessionMainViewResponse{}, err
+			}
+			return g.core.SessionViewClient().GetSessionMainView(ctx, params)
+		})
+	},
+	protocol.MethodSessionGetTranscriptPage: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.SessionTranscriptPageResponse{}, err
+			}
+			return g.core.SessionViewClient().GetSessionTranscriptPage(ctx, params)
+		})
+	},
+	protocol.MethodSessionGetCommittedTranscriptSuffix: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.SessionCommittedTranscriptSuffixRequest) (serverapi.SessionCommittedTranscriptSuffixResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.SessionCommittedTranscriptSuffixResponse{}, err
+			}
+			suffixClient, ok := g.core.SessionViewClient().(client.SessionCommittedTranscriptSuffixClient)
+			if !ok {
+				return serverapi.SessionCommittedTranscriptSuffixResponse{}, errors.New("session committed transcript suffix client is required")
+			}
+			return suffixClient.GetSessionCommittedTranscriptSuffix(ctx, params)
+		})
+	},
+	protocol.MethodSessionGetInitialInput: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
+			if err := g.requireSessionInActiveProjectIfPresent(ctx, state, params.SessionID); err != nil {
+				return serverapi.SessionInitialInputResponse{}, err
+			}
+			return g.core.SessionLifecycleClient().GetInitialInput(ctx, params)
+		})
+	},
+	protocol.MethodSessionPersistInputDraft: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.SessionPersistInputDraftResponse{}, err
+			}
+			return g.core.SessionLifecycleClient().PersistInputDraft(ctx, params)
+		})
+	},
+	protocol.MethodSessionRetargetWorkspace: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
+			// `builder rebind <session-id> <new-path>` opens an unscoped remote and only knows
+			// the target workspace root. Enforce project isolation when the connection explicitly
+			// attached a project, but do not inherit the daemon's default project as an implicit
+			// authorization scope for this session-level maintenance RPC.
+			if err := g.requireSessionInAttachedProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.SessionRetargetWorkspaceResponse{}, err
+			}
+			return g.core.SessionLifecycleClient().RetargetSessionWorkspace(ctx, params)
+		})
+	},
+	protocol.MethodSessionResolveTransition: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
+			if err := g.requireSessionInActiveProjectIfPresent(ctx, state, params.SessionID); err != nil {
+				return serverapi.SessionResolveTransitionResponse{}, err
+			}
+			return g.core.SessionLifecycleClient().ResolveTransition(ctx, params)
+		})
+	},
+	protocol.MethodWorktreeList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorktreeListRequest) (serverapi.WorktreeListResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.WorktreeListResponse{}, err
+			}
+			return g.core.WorktreeClient().ListWorktrees(ctx, params)
+		})
+	},
+	protocol.MethodWorktreeCreateTargetResolve: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorktreeCreateTargetResolveRequest) (serverapi.WorktreeCreateTargetResolveResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.WorktreeCreateTargetResolveResponse{}, err
+			}
+			return g.core.WorktreeClient().ResolveWorktreeCreateTarget(ctx, params)
+		})
+	},
+	protocol.MethodWorktreeCreate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorktreeCreateRequest) (serverapi.WorktreeCreateResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.WorktreeCreateResponse{}, err
+			}
+			return g.core.WorktreeClient().CreateWorktree(ctx, params)
+		})
+	},
+	protocol.MethodWorktreeSwitch: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorktreeSwitchRequest) (serverapi.WorktreeSwitchResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.WorktreeSwitchResponse{}, err
+			}
+			return g.core.WorktreeClient().SwitchWorktree(ctx, params)
+		})
+	},
+	protocol.MethodWorktreeDelete: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorktreeDeleteRequest) (serverapi.WorktreeDeleteResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.WorktreeDeleteResponse{}, err
+			}
+			return g.core.WorktreeClient().DeleteWorktree(ctx, params)
+		})
+	},
+	protocol.MethodSessionRuntimeActivate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.SessionRuntimeActivateResponse{}, err
+			}
+			return g.core.SessionRuntimeClient().ActivateSessionRuntime(ctx, params)
+		})
+	},
+	protocol.MethodSessionRuntimeRelease: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.SessionRuntimeReleaseResponse{}, err
+			}
+			return g.core.SessionRuntimeClient().ReleaseSessionRuntime(ctx, params)
+		})
+	},
+	protocol.MethodRunGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RunGetRequest) (serverapi.RunGetResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.RunGetResponse{}, err
+			}
+			return g.core.SessionViewClient().GetRun(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeSetSessionName: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeSetSessionNameRequest) (struct{}, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, g.core.RuntimeControlClient().SetSessionName(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeSetThinkingLevel: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeSetThinkingLevelRequest) (struct{}, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, g.core.RuntimeControlClient().SetThinkingLevel(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeSetFastModeEnabled: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeSetFastModeEnabledRequest) (serverapi.RuntimeSetFastModeEnabledResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeSetFastModeEnabledResponse{}, err
+			}
+			return g.core.RuntimeControlClient().SetFastModeEnabled(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeSetReviewerEnabled: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeSetReviewerEnabledRequest) (serverapi.RuntimeSetReviewerEnabledResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeSetReviewerEnabledResponse{}, err
+			}
+			return g.core.RuntimeControlClient().SetReviewerEnabled(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeSetAutoCompactionEnabled: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeSetAutoCompactionEnabledRequest) (serverapi.RuntimeSetAutoCompactionEnabledResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeSetAutoCompactionEnabledResponse{}, err
+			}
+			return g.core.RuntimeControlClient().SetAutoCompactionEnabled(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeAppendLocalEntry: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeAppendLocalEntryRequest) (struct{}, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, g.core.RuntimeControlClient().AppendLocalEntry(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeShouldCompactBeforeUserMessage: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeShouldCompactBeforeUserMessageRequest) (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeShouldCompactBeforeUserMessageResponse{}, err
+			}
+			return g.core.RuntimeControlClient().ShouldCompactBeforeUserMessage(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeSubmitUserMessage: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeSubmitUserMessageRequest) (serverapi.RuntimeSubmitUserMessageResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeSubmitUserMessageResponse{}, err
+			}
+			return g.core.RuntimeControlClient().SubmitUserMessage(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeSubmitUserTurn: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeSubmitUserTurnResponse{}, err
+			}
+			return g.core.RuntimeControlClient().SubmitUserTurn(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeSubmitUserShellCommand: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeSubmitUserShellCommandRequest) (struct{}, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, g.core.RuntimeControlClient().SubmitUserShellCommand(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeCompactContext: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeCompactContextRequest) (struct{}, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, g.core.RuntimeControlClient().CompactContext(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeCompactContextForPreSubmit: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeCompactContextForPreSubmitRequest) (struct{}, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, g.core.RuntimeControlClient().CompactContextForPreSubmit(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeHasQueuedUserWork: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeHasQueuedUserWorkRequest) (serverapi.RuntimeHasQueuedUserWorkResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeHasQueuedUserWorkResponse{}, err
+			}
+			return g.core.RuntimeControlClient().HasQueuedUserWork(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeSubmitQueuedUserMessages: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeSubmitQueuedUserMessagesRequest) (serverapi.RuntimeSubmitQueuedUserMessagesResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeSubmitQueuedUserMessagesResponse{}, err
+			}
+			return g.core.RuntimeControlClient().SubmitQueuedUserMessages(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeInterrupt: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeInterruptRequest) (struct{}, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, g.core.RuntimeControlClient().Interrupt(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeQueueUserMessage: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeQueueUserMessageResponse{}, err
+			}
+			return g.core.RuntimeControlClient().QueueUserMessage(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeDiscardQueuedUserMessage: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeDiscardQueuedUserMessageRequest) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
+			}
+			return g.core.RuntimeControlClient().DiscardQueuedUserMessage(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeRecordPromptHistory: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeRecordPromptHistoryRequest) (struct{}, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, g.core.RuntimeControlClient().RecordPromptHistory(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeGoalShow: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
+			if err := g.requireGoalSessionAccess(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeGoalShowResponse{}, err
+			}
+			return g.core.RuntimeControlClient().ShowGoal(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeGoalSet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalShowResponse, error) {
+			if err := g.requireGoalSessionAccess(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeGoalShowResponse{}, err
+			}
+			return g.core.RuntimeControlClient().SetGoal(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeGoalPause: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
+			if err := g.requireGoalSessionAccess(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeGoalShowResponse{}, err
+			}
+			return g.core.RuntimeControlClient().PauseGoal(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeGoalResume: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
+			if err := g.requireGoalSessionAccess(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeGoalShowResponse{}, err
+			}
+			return g.core.RuntimeControlClient().ResumeGoal(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeGoalComplete: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
+			if err := g.requireGoalSessionAccess(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeGoalShowResponse{}, err
+			}
+			return g.core.RuntimeControlClient().CompleteGoal(ctx, params)
+		})
+	},
+	protocol.MethodRuntimeGoalClear: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalShowResponse, error) {
+			if err := g.requireGoalSessionAccess(ctx, state, params.SessionID); err != nil {
+				return serverapi.RuntimeGoalShowResponse{}, err
+			}
+			return g.core.RuntimeControlClient().ClearGoal(ctx, params)
+		})
+	},
+	protocol.MethodProcessList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ProcessListRequest) (serverapi.ProcessListResponse, error) {
+			if strings.TrimSpace(params.OwnerSessionID) != "" {
+				if err := g.requireSessionInActiveProject(ctx, state, params.OwnerSessionID); err != nil {
+					return serverapi.ProcessListResponse{}, err
+				}
+			}
+			resp, err := g.core.ProcessViewClient().ListProcesses(ctx, params)
+			if err != nil {
+				return serverapi.ProcessListResponse{}, err
+			}
+			if strings.TrimSpace(params.OwnerSessionID) != "" {
+				return resp, nil
+			}
+			filtered, err := g.filterProcessesForActiveProject(ctx, state, resp.Processes)
+			if err != nil {
+				return serverapi.ProcessListResponse{}, err
+			}
+			resp.Processes = filtered
+			return resp, nil
+		})
+	},
+	protocol.MethodProcessGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ProcessGetRequest) (serverapi.ProcessGetResponse, error) {
+			return g.processInActiveProject(ctx, state, params.ProcessID)
+		})
+	},
+	protocol.MethodProcessKill: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ProcessKillRequest) (serverapi.ProcessKillResponse, error) {
+			if _, err := g.processInActiveProject(ctx, state, params.ProcessID); err != nil {
+				return serverapi.ProcessKillResponse{}, err
+			}
+			return g.core.ProcessControlClient().KillProcess(ctx, params)
+		})
+	},
+	protocol.MethodProcessInlineOutput: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ProcessInlineOutputRequest) (serverapi.ProcessInlineOutputResponse, error) {
+			if _, err := g.processInActiveProject(ctx, state, params.ProcessID); err != nil {
+				return serverapi.ProcessInlineOutputResponse{}, err
+			}
+			return g.core.ProcessControlClient().GetInlineOutput(ctx, params)
+		})
+	},
+	protocol.MethodAskListPending: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.AskListPendingBySessionRequest) (serverapi.AskListPendingBySessionResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.AskListPendingBySessionResponse{}, err
+			}
+			return g.core.AskViewClient().ListPendingAsksBySession(ctx, params)
+		})
+	},
+	protocol.MethodAskAnswer: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.AskAnswerRequest) (struct{}, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, g.core.PromptControlClient().AnswerAsk(ctx, params)
+		})
+	},
+	protocol.MethodApprovalListPending: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ApprovalListPendingBySessionRequest) (serverapi.ApprovalListPendingBySessionResponse, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return serverapi.ApprovalListPendingBySessionResponse{}, err
+			}
+			return g.core.ApprovalViewClient().ListPendingApprovalsBySession(ctx, params)
+		})
+	},
+	protocol.MethodApprovalAnswer: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ApprovalAnswerRequest) (struct{}, error) {
+			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, g.core.PromptControlClient().AnswerApproval(ctx, params)
+		})
+	},
+}
+
+type gatewayUnaryHandler func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response
+
 var gatewayProgressHandlers = map[string]gatewayProgressHandler{
 	protocol.MethodRunPrompt: (*Gateway).serveRunPrompt,
 }
@@ -163,466 +686,11 @@ func (g *Gateway) dispatch(ctx context.Context, state *connectionState, req prot
 			return responseForError(req.ID, serverapi.ErrServerAuthRequired)
 		}
 	}
-	switch req.Method {
-	case protocol.MethodHandshake:
-		params, err := decodeParams[protocol.HandshakeRequest](req.Params)
-		if err != nil {
-			return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error())
-		}
-		if err := params.Validate(); err != nil {
-			return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error())
-		}
-		if params.ProtocolVersion != protocol.Version {
-			return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidRequest, fmt.Sprintf("unsupported protocol version %q", params.ProtocolVersion))
-		}
-		state.handshakeDone = true
-		return protocol.NewSuccessResponse(req.ID, protocol.HandshakeResponse{Identity: g.identity})
-	case protocol.MethodAuthGetBootstrapStatus:
-		return decodeAndHandle(req, func(params serverapi.AuthGetBootstrapStatusRequest) (serverapi.AuthGetBootstrapStatusResponse, error) {
-			client := g.core.AuthBootstrapClient()
-			if client == nil {
-				return serverapi.AuthGetBootstrapStatusResponse{}, serverapi.ErrServerAuthRequired
-			}
-			return client.GetAuthBootstrapStatus(ctx, params)
-		})
-	case protocol.MethodAuthCompleteBootstrap:
-		return decodeAndHandle(req, func(params serverapi.AuthCompleteBootstrapRequest) (serverapi.AuthCompleteBootstrapResponse, error) {
-			client := g.core.AuthBootstrapClient()
-			if client == nil {
-				return serverapi.AuthCompleteBootstrapResponse{}, serverapi.ErrServerAuthRequired
-			}
-			return client.CompleteAuthBootstrap(ctx, params)
-		})
-	case protocol.MethodAuthGetStatus:
-		return decodeAndHandle(req, func(params serverapi.AuthStatusRequest) (serverapi.AuthStatusResponse, error) {
-			client := g.core.AuthStatusClient()
-			if client == nil {
-				return serverapi.AuthStatusResponse{}, serverapi.ErrServerAuthRequired
-			}
-			return client.GetAuthStatus(ctx, params)
-		})
-	case protocol.MethodAttachProject:
-		return decodeAndHandle(req, func(params protocol.AttachProjectRequest) (protocol.AttachResponse, error) {
-			if err := params.Validate(); err != nil {
-				return protocol.AttachResponse{}, err
-			}
-			if err := g.core.ProjectExists(ctx, params.ProjectID); err != nil {
-				return protocol.AttachResponse{}, err
-			}
-			attachedWorkspaceID, attachedRoot, err := g.resolveAttachedProjectWorkspace(ctx, params.ProjectID, params.WorkspaceID, params.WorkspaceRoot)
-			if err != nil {
-				return protocol.AttachResponse{}, err
-			}
-			state.attachedProject = params.ProjectID
-			state.attachedWorkspaceID = attachedWorkspaceID
-			state.attachedWorkspaceRoot = attachedRoot
-			state.attachedSession = ""
-			return protocol.AttachResponse{Kind: "project", ProjectID: params.ProjectID, WorkspaceID: attachedWorkspaceID, WorkspaceRoot: attachedRoot}, nil
-		})
-	case protocol.MethodAttachSession:
-		return decodeAndHandle(req, func(params protocol.AttachSessionRequest) (protocol.AttachResponse, error) {
-			if err := params.Validate(); err != nil {
-				return protocol.AttachResponse{}, err
-			}
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return protocol.AttachResponse{}, err
-			}
-			state.attachedWorkspaceID = ""
-			state.attachedWorkspaceRoot = ""
-			state.attachedSession = params.SessionID
-			return protocol.AttachResponse{Kind: "session", SessionID: params.SessionID}, nil
-		})
-	case protocol.MethodProjectList:
-		return decodeAndHandle(req, func(params serverapi.ProjectListRequest) (serverapi.ProjectListResponse, error) {
-			return g.core.ProjectViewClient().ListProjects(ctx, params)
-		})
-	case protocol.MethodProjectResolvePath:
-		return decodeAndHandle(req, func(params serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
-			return g.core.ProjectViewClient().ResolveProjectPath(ctx, params)
-		})
-	case protocol.MethodProjectPlanWorkspaceBinding:
-		return decodeAndHandle(req, func(params serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
-			return g.core.ProjectViewClient().PlanWorkspaceBinding(ctx, params)
-		})
-	case protocol.MethodProjectCreate:
-		return decodeAndHandle(req, func(params serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
-			return g.core.ProjectViewClient().CreateProject(ctx, params)
-		})
-	case protocol.MethodProjectAttachWorkspace:
-		return decodeAndHandle(req, func(params serverapi.ProjectAttachWorkspaceRequest) (serverapi.ProjectAttachWorkspaceResponse, error) {
-			return g.core.ProjectViewClient().AttachWorkspaceToProject(ctx, params)
-		})
-	case protocol.MethodProjectRebindWorkspace:
-		return decodeAndHandle(req, func(params serverapi.ProjectRebindWorkspaceRequest) (serverapi.ProjectRebindWorkspaceResponse, error) {
-			return g.core.ProjectViewClient().RebindWorkspace(ctx, params)
-		})
-	case protocol.MethodProjectGetOverview:
-		return decodeAndHandle(req, func(params serverapi.ProjectGetOverviewRequest) (serverapi.ProjectGetOverviewResponse, error) {
-			return g.core.ProjectViewClient().GetProjectOverview(ctx, params)
-		})
-	case protocol.MethodSessionListByProject:
-		return decodeAndHandle(req, func(params serverapi.SessionListByProjectRequest) (serverapi.SessionListByProjectResponse, error) {
-			return g.core.ProjectViewClient().ListSessionsByProject(ctx, params)
-		})
-	case protocol.MethodSessionPlan:
-		return decodeAndHandle(req, func(params serverapi.SessionPlanRequest) (serverapi.SessionPlanResponse, error) {
-			launchClient, err := g.sessionLaunchClientForState(ctx, state)
-			if err != nil {
-				return serverapi.SessionPlanResponse{}, err
-			}
-			return launchClient.PlanSession(ctx, params)
-		})
-	case protocol.MethodSessionGetMainView:
-		return decodeAndHandle(req, func(params serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.SessionMainViewResponse{}, err
-			}
-			return g.core.SessionViewClient().GetSessionMainView(ctx, params)
-		})
-	case protocol.MethodSessionGetTranscriptPage:
-		return decodeAndHandle(req, func(params serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.SessionTranscriptPageResponse{}, err
-			}
-			return g.core.SessionViewClient().GetSessionTranscriptPage(ctx, params)
-		})
-	case protocol.MethodSessionGetCommittedTranscriptSuffix:
-		return decodeAndHandle(req, func(params serverapi.SessionCommittedTranscriptSuffixRequest) (serverapi.SessionCommittedTranscriptSuffixResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.SessionCommittedTranscriptSuffixResponse{}, err
-			}
-			suffixClient, ok := g.core.SessionViewClient().(client.SessionCommittedTranscriptSuffixClient)
-			if !ok {
-				return serverapi.SessionCommittedTranscriptSuffixResponse{}, errors.New("session committed transcript suffix client is required")
-			}
-			return suffixClient.GetSessionCommittedTranscriptSuffix(ctx, params)
-		})
-	case protocol.MethodSessionGetInitialInput:
-		return decodeAndHandle(req, func(params serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
-			if err := g.requireSessionInActiveProjectIfPresent(ctx, state, params.SessionID); err != nil {
-				return serverapi.SessionInitialInputResponse{}, err
-			}
-			return g.core.SessionLifecycleClient().GetInitialInput(ctx, params)
-		})
-	case protocol.MethodSessionPersistInputDraft:
-		return decodeAndHandle(req, func(params serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.SessionPersistInputDraftResponse{}, err
-			}
-			return g.core.SessionLifecycleClient().PersistInputDraft(ctx, params)
-		})
-	case protocol.MethodSessionRetargetWorkspace:
-		return decodeAndHandle(req, func(params serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
-			// `builder rebind <session-id> <new-path>` opens an unscoped remote and only knows
-			// the target workspace root. Enforce project isolation when the connection explicitly
-			// attached a project, but do not inherit the daemon's default project as an implicit
-			// authorization scope for this session-level maintenance RPC.
-			if err := g.requireSessionInAttachedProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.SessionRetargetWorkspaceResponse{}, err
-			}
-			return g.core.SessionLifecycleClient().RetargetSessionWorkspace(ctx, params)
-		})
-	case protocol.MethodSessionResolveTransition:
-		return decodeAndHandle(req, func(params serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
-			if err := g.requireSessionInActiveProjectIfPresent(ctx, state, params.SessionID); err != nil {
-				return serverapi.SessionResolveTransitionResponse{}, err
-			}
-			return g.core.SessionLifecycleClient().ResolveTransition(ctx, params)
-		})
-	case protocol.MethodWorktreeList:
-		return decodeAndHandle(req, func(params serverapi.WorktreeListRequest) (serverapi.WorktreeListResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.WorktreeListResponse{}, err
-			}
-			return g.core.WorktreeClient().ListWorktrees(ctx, params)
-		})
-	case protocol.MethodWorktreeCreateTargetResolve:
-		return decodeAndHandle(req, func(params serverapi.WorktreeCreateTargetResolveRequest) (serverapi.WorktreeCreateTargetResolveResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.WorktreeCreateTargetResolveResponse{}, err
-			}
-			return g.core.WorktreeClient().ResolveWorktreeCreateTarget(ctx, params)
-		})
-	case protocol.MethodWorktreeCreate:
-		return decodeAndHandle(req, func(params serverapi.WorktreeCreateRequest) (serverapi.WorktreeCreateResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.WorktreeCreateResponse{}, err
-			}
-			return g.core.WorktreeClient().CreateWorktree(ctx, params)
-		})
-	case protocol.MethodWorktreeSwitch:
-		return decodeAndHandle(req, func(params serverapi.WorktreeSwitchRequest) (serverapi.WorktreeSwitchResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.WorktreeSwitchResponse{}, err
-			}
-			return g.core.WorktreeClient().SwitchWorktree(ctx, params)
-		})
-	case protocol.MethodWorktreeDelete:
-		return decodeAndHandle(req, func(params serverapi.WorktreeDeleteRequest) (serverapi.WorktreeDeleteResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.WorktreeDeleteResponse{}, err
-			}
-			return g.core.WorktreeClient().DeleteWorktree(ctx, params)
-		})
-	case protocol.MethodSessionRuntimeActivate:
-		return decodeAndHandle(req, func(params serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.SessionRuntimeActivateResponse{}, err
-			}
-			return g.core.SessionRuntimeClient().ActivateSessionRuntime(ctx, params)
-		})
-	case protocol.MethodSessionRuntimeRelease:
-		return decodeAndHandle(req, func(params serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.SessionRuntimeReleaseResponse{}, err
-			}
-			return g.core.SessionRuntimeClient().ReleaseSessionRuntime(ctx, params)
-		})
-	case protocol.MethodRunGet:
-		return decodeAndHandle(req, func(params serverapi.RunGetRequest) (serverapi.RunGetResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.RunGetResponse{}, err
-			}
-			return g.core.SessionViewClient().GetRun(ctx, params)
-		})
-	case protocol.MethodRuntimeSetSessionName:
-		return decodeAndHandle(req, func(params serverapi.RuntimeSetSessionNameRequest) (struct{}, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return struct{}{}, err
-			}
-			return struct{}{}, g.core.RuntimeControlClient().SetSessionName(ctx, params)
-		})
-	case protocol.MethodRuntimeSetThinkingLevel:
-		return decodeAndHandle(req, func(params serverapi.RuntimeSetThinkingLevelRequest) (struct{}, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return struct{}{}, err
-			}
-			return struct{}{}, g.core.RuntimeControlClient().SetThinkingLevel(ctx, params)
-		})
-	case protocol.MethodRuntimeSetFastModeEnabled:
-		return decodeAndHandle(req, func(params serverapi.RuntimeSetFastModeEnabledRequest) (serverapi.RuntimeSetFastModeEnabledResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeSetFastModeEnabledResponse{}, err
-			}
-			return g.core.RuntimeControlClient().SetFastModeEnabled(ctx, params)
-		})
-	case protocol.MethodRuntimeSetReviewerEnabled:
-		return decodeAndHandle(req, func(params serverapi.RuntimeSetReviewerEnabledRequest) (serverapi.RuntimeSetReviewerEnabledResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeSetReviewerEnabledResponse{}, err
-			}
-			return g.core.RuntimeControlClient().SetReviewerEnabled(ctx, params)
-		})
-	case protocol.MethodRuntimeSetAutoCompactionEnabled:
-		return decodeAndHandle(req, func(params serverapi.RuntimeSetAutoCompactionEnabledRequest) (serverapi.RuntimeSetAutoCompactionEnabledResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeSetAutoCompactionEnabledResponse{}, err
-			}
-			return g.core.RuntimeControlClient().SetAutoCompactionEnabled(ctx, params)
-		})
-	case protocol.MethodRuntimeAppendLocalEntry:
-		return decodeAndHandle(req, func(params serverapi.RuntimeAppendLocalEntryRequest) (struct{}, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return struct{}{}, err
-			}
-			return struct{}{}, g.core.RuntimeControlClient().AppendLocalEntry(ctx, params)
-		})
-	case protocol.MethodRuntimeShouldCompactBeforeUserMessage:
-		return decodeAndHandle(req, func(params serverapi.RuntimeShouldCompactBeforeUserMessageRequest) (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeShouldCompactBeforeUserMessageResponse{}, err
-			}
-			return g.core.RuntimeControlClient().ShouldCompactBeforeUserMessage(ctx, params)
-		})
-	case protocol.MethodRuntimeSubmitUserMessage:
-		return decodeAndHandle(req, func(params serverapi.RuntimeSubmitUserMessageRequest) (serverapi.RuntimeSubmitUserMessageResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeSubmitUserMessageResponse{}, err
-			}
-			return g.core.RuntimeControlClient().SubmitUserMessage(ctx, params)
-		})
-	case protocol.MethodRuntimeSubmitUserTurn:
-		return decodeAndHandle(req, func(params serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeSubmitUserTurnResponse{}, err
-			}
-			return g.core.RuntimeControlClient().SubmitUserTurn(ctx, params)
-		})
-	case protocol.MethodRuntimeSubmitUserShellCommand:
-		return decodeAndHandle(req, func(params serverapi.RuntimeSubmitUserShellCommandRequest) (struct{}, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return struct{}{}, err
-			}
-			return struct{}{}, g.core.RuntimeControlClient().SubmitUserShellCommand(ctx, params)
-		})
-	case protocol.MethodRuntimeCompactContext:
-		return decodeAndHandle(req, func(params serverapi.RuntimeCompactContextRequest) (struct{}, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return struct{}{}, err
-			}
-			return struct{}{}, g.core.RuntimeControlClient().CompactContext(ctx, params)
-		})
-	case protocol.MethodRuntimeCompactContextForPreSubmit:
-		return decodeAndHandle(req, func(params serverapi.RuntimeCompactContextForPreSubmitRequest) (struct{}, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return struct{}{}, err
-			}
-			return struct{}{}, g.core.RuntimeControlClient().CompactContextForPreSubmit(ctx, params)
-		})
-	case protocol.MethodRuntimeHasQueuedUserWork:
-		return decodeAndHandle(req, func(params serverapi.RuntimeHasQueuedUserWorkRequest) (serverapi.RuntimeHasQueuedUserWorkResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeHasQueuedUserWorkResponse{}, err
-			}
-			return g.core.RuntimeControlClient().HasQueuedUserWork(ctx, params)
-		})
-	case protocol.MethodRuntimeSubmitQueuedUserMessages:
-		return decodeAndHandle(req, func(params serverapi.RuntimeSubmitQueuedUserMessagesRequest) (serverapi.RuntimeSubmitQueuedUserMessagesResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeSubmitQueuedUserMessagesResponse{}, err
-			}
-			return g.core.RuntimeControlClient().SubmitQueuedUserMessages(ctx, params)
-		})
-	case protocol.MethodRuntimeInterrupt:
-		return decodeAndHandle(req, func(params serverapi.RuntimeInterruptRequest) (struct{}, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return struct{}{}, err
-			}
-			return struct{}{}, g.core.RuntimeControlClient().Interrupt(ctx, params)
-		})
-	case protocol.MethodRuntimeQueueUserMessage:
-		return decodeAndHandle(req, func(params serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeQueueUserMessageResponse{}, err
-			}
-			return g.core.RuntimeControlClient().QueueUserMessage(ctx, params)
-		})
-	case protocol.MethodRuntimeDiscardQueuedUserMessage:
-		return decodeAndHandle(req, func(params serverapi.RuntimeDiscardQueuedUserMessageRequest) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
-			}
-			return g.core.RuntimeControlClient().DiscardQueuedUserMessage(ctx, params)
-		})
-	case protocol.MethodRuntimeRecordPromptHistory:
-		return decodeAndHandle(req, func(params serverapi.RuntimeRecordPromptHistoryRequest) (struct{}, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return struct{}{}, err
-			}
-			return struct{}{}, g.core.RuntimeControlClient().RecordPromptHistory(ctx, params)
-		})
-	case protocol.MethodRuntimeGoalShow:
-		return decodeAndHandle(req, func(params serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
-			if err := g.requireGoalSessionAccess(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeGoalShowResponse{}, err
-			}
-			return g.core.RuntimeControlClient().ShowGoal(ctx, params)
-		})
-	case protocol.MethodRuntimeGoalSet:
-		return decodeAndHandle(req, func(params serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalShowResponse, error) {
-			if err := g.requireGoalSessionAccess(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeGoalShowResponse{}, err
-			}
-			return g.core.RuntimeControlClient().SetGoal(ctx, params)
-		})
-	case protocol.MethodRuntimeGoalPause:
-		return decodeAndHandle(req, func(params serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-			if err := g.requireGoalSessionAccess(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeGoalShowResponse{}, err
-			}
-			return g.core.RuntimeControlClient().PauseGoal(ctx, params)
-		})
-	case protocol.MethodRuntimeGoalResume:
-		return decodeAndHandle(req, func(params serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-			if err := g.requireGoalSessionAccess(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeGoalShowResponse{}, err
-			}
-			return g.core.RuntimeControlClient().ResumeGoal(ctx, params)
-		})
-	case protocol.MethodRuntimeGoalComplete:
-		return decodeAndHandle(req, func(params serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-			if err := g.requireGoalSessionAccess(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeGoalShowResponse{}, err
-			}
-			return g.core.RuntimeControlClient().CompleteGoal(ctx, params)
-		})
-	case protocol.MethodRuntimeGoalClear:
-		return decodeAndHandle(req, func(params serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalShowResponse, error) {
-			if err := g.requireGoalSessionAccess(ctx, state, params.SessionID); err != nil {
-				return serverapi.RuntimeGoalShowResponse{}, err
-			}
-			return g.core.RuntimeControlClient().ClearGoal(ctx, params)
-		})
-	case protocol.MethodProcessList:
-		return decodeAndHandle(req, func(params serverapi.ProcessListRequest) (serverapi.ProcessListResponse, error) {
-			if strings.TrimSpace(params.OwnerSessionID) != "" {
-				if err := g.requireSessionInActiveProject(ctx, state, params.OwnerSessionID); err != nil {
-					return serverapi.ProcessListResponse{}, err
-				}
-			}
-			resp, err := g.core.ProcessViewClient().ListProcesses(ctx, params)
-			if err != nil {
-				return serverapi.ProcessListResponse{}, err
-			}
-			if strings.TrimSpace(params.OwnerSessionID) != "" {
-				return resp, nil
-			}
-			filtered, err := g.filterProcessesForActiveProject(ctx, state, resp.Processes)
-			if err != nil {
-				return serverapi.ProcessListResponse{}, err
-			}
-			resp.Processes = filtered
-			return resp, nil
-		})
-	case protocol.MethodProcessGet:
-		return decodeAndHandle(req, func(params serverapi.ProcessGetRequest) (serverapi.ProcessGetResponse, error) {
-			return g.processInActiveProject(ctx, state, params.ProcessID)
-		})
-	case protocol.MethodProcessKill:
-		return decodeAndHandle(req, func(params serverapi.ProcessKillRequest) (serverapi.ProcessKillResponse, error) {
-			if _, err := g.processInActiveProject(ctx, state, params.ProcessID); err != nil {
-				return serverapi.ProcessKillResponse{}, err
-			}
-			return g.core.ProcessControlClient().KillProcess(ctx, params)
-		})
-	case protocol.MethodProcessInlineOutput:
-		return decodeAndHandle(req, func(params serverapi.ProcessInlineOutputRequest) (serverapi.ProcessInlineOutputResponse, error) {
-			if _, err := g.processInActiveProject(ctx, state, params.ProcessID); err != nil {
-				return serverapi.ProcessInlineOutputResponse{}, err
-			}
-			return g.core.ProcessControlClient().GetInlineOutput(ctx, params)
-		})
-	case protocol.MethodAskListPending:
-		return decodeAndHandle(req, func(params serverapi.AskListPendingBySessionRequest) (serverapi.AskListPendingBySessionResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.AskListPendingBySessionResponse{}, err
-			}
-			return g.core.AskViewClient().ListPendingAsksBySession(ctx, params)
-		})
-	case protocol.MethodAskAnswer:
-		return decodeAndHandle(req, func(params serverapi.AskAnswerRequest) (struct{}, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return struct{}{}, err
-			}
-			return struct{}{}, g.core.PromptControlClient().AnswerAsk(ctx, params)
-		})
-	case protocol.MethodApprovalListPending:
-		return decodeAndHandle(req, func(params serverapi.ApprovalListPendingBySessionRequest) (serverapi.ApprovalListPendingBySessionResponse, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return serverapi.ApprovalListPendingBySessionResponse{}, err
-			}
-			return g.core.ApprovalViewClient().ListPendingApprovalsBySession(ctx, params)
-		})
-	case protocol.MethodApprovalAnswer:
-		return decodeAndHandle(req, func(params serverapi.ApprovalAnswerRequest) (struct{}, error) {
-			if err := g.requireSessionInActiveProject(ctx, state, params.SessionID); err != nil {
-				return struct{}{}, err
-			}
-			return struct{}{}, g.core.PromptControlClient().AnswerApproval(ctx, params)
-		})
-	default:
+	handler, ok := gatewayUnaryHandlers[req.Method]
+	if !ok {
 		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeMethodNotFound, fmt.Sprintf("method %q not found", req.Method))
 	}
+	return handler(g, ctx, state, req)
 }
 
 func (g *Gateway) resolveAttachedProjectWorkspace(ctx context.Context, projectID string, workspaceID string, workspaceRoot string) (string, string, error) {
