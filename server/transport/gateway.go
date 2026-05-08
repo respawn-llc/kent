@@ -54,6 +54,14 @@ type connectionState struct {
 	attachedSession       string
 }
 
+type gatewaySubscriptionHandler func(g *Gateway, conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request)
+
+var gatewaySubscriptionHandlers = map[string]gatewaySubscriptionHandler{
+	protocol.MethodSessionSubscribeActivity: (*Gateway).serveSessionActivitySubscription,
+	protocol.MethodProcessSubscribeOutput:   (*Gateway).serveProcessOutputSubscription,
+	protocol.MethodPromptSubscribeActivity:  (*Gateway).servePromptActivitySubscription,
+}
+
 func NewGateway(appCore *core.Core, identity protocol.ServerIdentity) (*Gateway, error) {
 	if appCore == nil {
 		return nil, errors.New("server core is required")
@@ -801,108 +809,116 @@ func (g *Gateway) serveSubscription(conn rpcwire.Conn, ctx context.Context, stat
 			return
 		}
 	}
-	switch req.Method {
-	case protocol.MethodSessionSubscribeActivity:
-		params, err := decodeParams[serverapi.SessionActivitySubscribeRequest](req.Params)
-		if err != nil {
-			_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
-			return
-		}
-		if err := params.Validate(); err != nil {
-			_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
-			return
-		}
-		if state.attachedSession != params.SessionID {
-			_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidRequest, "session attach is required before subscribing"))
-			return
-		}
-		sub, err := g.core.SessionActivityClient().SubscribeSessionActivity(ctx, params)
-		if err != nil {
-			_ = sendResponse(ctx, conn, responseForError(req.ID, err))
-			return
-		}
-		defer func() { _ = sub.Close() }()
-		if !sendResponse(ctx, conn, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{Stream: protocol.MethodSessionActivityEvent})) {
-			return
-		}
-		for {
-			evt, err := sub.Next(ctx)
-			if err != nil {
-				_ = sendNotification(ctx, conn, protocol.MethodSessionActivityComplete, streamCompleteParams(err))
-				return
-			}
-			if err := sendNotification(ctx, conn, protocol.MethodSessionActivityEvent, protocol.SessionActivityEventParams{Event: evt}); err != nil {
-				return
-			}
-		}
-	case protocol.MethodProcessSubscribeOutput:
-		params, err := decodeParams[serverapi.ProcessOutputSubscribeRequest](req.Params)
-		if err != nil {
-			_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
-			return
-		}
-		if err := params.Validate(); err != nil {
-			_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
-			return
-		}
-		if _, err := g.processInActiveProject(ctx, state, params.ProcessID); err != nil {
-			_ = sendResponse(ctx, conn, responseForError(req.ID, err))
-			return
-		}
-		sub, err := g.core.ProcessOutputClient().SubscribeProcessOutput(ctx, params)
-		if err != nil {
-			_ = sendResponse(ctx, conn, responseForError(req.ID, err))
-			return
-		}
-		defer func() { _ = sub.Close() }()
-		if !sendResponse(ctx, conn, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{Stream: protocol.MethodProcessOutputEvent})) {
-			return
-		}
-		for {
-			chunk, err := sub.Next(ctx)
-			if err != nil {
-				_ = sendNotification(ctx, conn, protocol.MethodProcessOutputComplete, streamCompleteParams(err))
-				return
-			}
-			if err := sendNotification(ctx, conn, protocol.MethodProcessOutputEvent, protocol.ProcessOutputEventParams{Chunk: chunk}); err != nil {
-				return
-			}
-		}
-	case protocol.MethodPromptSubscribeActivity:
-		params, err := decodeParams[serverapi.PromptActivitySubscribeRequest](req.Params)
-		if err != nil {
-			_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
-			return
-		}
-		if err := params.Validate(); err != nil {
-			_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
-			return
-		}
-		if state.attachedSession != params.SessionID {
-			_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidRequest, "session attach is required before subscribing"))
-			return
-		}
-		sub, err := g.core.PromptActivityClient().SubscribePromptActivity(ctx, params)
-		if err != nil {
-			_ = sendResponse(ctx, conn, responseForError(req.ID, err))
-			return
-		}
-		defer func() { _ = sub.Close() }()
-		if !sendResponse(ctx, conn, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{Stream: protocol.MethodPromptActivityEvent})) {
-			return
-		}
-		for {
-			evt, err := sub.Next(ctx)
-			if err != nil {
-				_ = sendNotification(ctx, conn, protocol.MethodPromptActivityComplete, streamCompleteParams(err))
-				return
-			}
-			if err := sendNotification(ctx, conn, protocol.MethodPromptActivityEvent, protocol.PromptActivityEventParams{Event: evt}); err != nil {
-				return
-			}
-		}
-	default:
+	handler, ok := gatewaySubscriptionHandlers[req.Method]
+	if !ok {
 		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeMethodNotFound, fmt.Sprintf("method %q not found", req.Method)))
+		return
+	}
+	handler(g, conn, ctx, state, req)
+}
+
+func (g *Gateway) serveSessionActivitySubscription(conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request) {
+	params, err := decodeParams[serverapi.SessionActivitySubscribeRequest](req.Params)
+	if err != nil {
+		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
+		return
+	}
+	if err := params.Validate(); err != nil {
+		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
+		return
+	}
+	if state.attachedSession != params.SessionID {
+		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidRequest, "session attach is required before subscribing"))
+		return
+	}
+	sub, err := g.core.SessionActivityClient().SubscribeSessionActivity(ctx, params)
+	if err != nil {
+		_ = sendResponse(ctx, conn, responseForError(req.ID, err))
+		return
+	}
+	defer func() { _ = sub.Close() }()
+	if !sendResponse(ctx, conn, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{Stream: protocol.MethodSessionActivityEvent})) {
+		return
+	}
+	for {
+		evt, err := sub.Next(ctx)
+		if err != nil {
+			_ = sendNotification(ctx, conn, protocol.MethodSessionActivityComplete, streamCompleteParams(err))
+			return
+		}
+		if err := sendNotification(ctx, conn, protocol.MethodSessionActivityEvent, protocol.SessionActivityEventParams{Event: evt}); err != nil {
+			return
+		}
+	}
+}
+
+func (g *Gateway) serveProcessOutputSubscription(conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request) {
+	params, err := decodeParams[serverapi.ProcessOutputSubscribeRequest](req.Params)
+	if err != nil {
+		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
+		return
+	}
+	if err := params.Validate(); err != nil {
+		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
+		return
+	}
+	if _, err := g.processInActiveProject(ctx, state, params.ProcessID); err != nil {
+		_ = sendResponse(ctx, conn, responseForError(req.ID, err))
+		return
+	}
+	sub, err := g.core.ProcessOutputClient().SubscribeProcessOutput(ctx, params)
+	if err != nil {
+		_ = sendResponse(ctx, conn, responseForError(req.ID, err))
+		return
+	}
+	defer func() { _ = sub.Close() }()
+	if !sendResponse(ctx, conn, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{Stream: protocol.MethodProcessOutputEvent})) {
+		return
+	}
+	for {
+		chunk, err := sub.Next(ctx)
+		if err != nil {
+			_ = sendNotification(ctx, conn, protocol.MethodProcessOutputComplete, streamCompleteParams(err))
+			return
+		}
+		if err := sendNotification(ctx, conn, protocol.MethodProcessOutputEvent, protocol.ProcessOutputEventParams{Chunk: chunk}); err != nil {
+			return
+		}
+	}
+}
+
+func (g *Gateway) servePromptActivitySubscription(conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request) {
+	params, err := decodeParams[serverapi.PromptActivitySubscribeRequest](req.Params)
+	if err != nil {
+		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
+		return
+	}
+	if err := params.Validate(); err != nil {
+		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
+		return
+	}
+	if state.attachedSession != params.SessionID {
+		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidRequest, "session attach is required before subscribing"))
+		return
+	}
+	sub, err := g.core.PromptActivityClient().SubscribePromptActivity(ctx, params)
+	if err != nil {
+		_ = sendResponse(ctx, conn, responseForError(req.ID, err))
+		return
+	}
+	defer func() { _ = sub.Close() }()
+	if !sendResponse(ctx, conn, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{Stream: protocol.MethodPromptActivityEvent})) {
+		return
+	}
+	for {
+		evt, err := sub.Next(ctx)
+		if err != nil {
+			_ = sendNotification(ctx, conn, protocol.MethodPromptActivityComplete, streamCompleteParams(err))
+			return
+		}
+		if err := sendNotification(ctx, conn, protocol.MethodPromptActivityEvent, protocol.PromptActivityEventParams{Event: evt}); err != nil {
+			return
+		}
 	}
 }
 

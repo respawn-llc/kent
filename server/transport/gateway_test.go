@@ -335,6 +335,29 @@ func TestGatewayPreAuthMethodPolicy(t *testing.T) {
 	}
 }
 
+func TestGatewaySubscriptionHandlersCoverRouteContract(t *testing.T) {
+	for _, route := range rpccontract.Routes() {
+		if route.Kind != rpccontract.KindSubscription {
+			continue
+		}
+		if _, ok := gatewaySubscriptionHandlers[route.Method]; !ok {
+			t.Fatalf("subscription route %q missing gateway handler", route.Method)
+		}
+		if !isSubscriptionMethod(route.Method) {
+			t.Fatalf("subscription route %q not classified as subscription", route.Method)
+		}
+	}
+	for method := range gatewaySubscriptionHandlers {
+		route, ok := rpccontract.RouteByMethod(method)
+		if !ok {
+			t.Fatalf("gateway subscription handler %q missing route contract", method)
+		}
+		if route.Kind != rpccontract.KindSubscription {
+			t.Fatalf("gateway subscription handler %q route kind = %q, want subscription", method, route.Kind)
+		}
+	}
+}
+
 func TestGatewayAuthBootstrapStatusAllowedBeforeAttach(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
