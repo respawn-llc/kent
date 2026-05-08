@@ -71,11 +71,10 @@ func (l *headlessPromptLauncher) PrepareHeadlessPrompt(ctx context.Context, req 
 }
 
 type headlessRuntimePlan struct {
-	logger       *RunLogger
-	engine       *runtime.Engine
-	eventBridge  *runtimewire.EventBridge
-	registration runtimewire.RuntimeRegistration
-	close        func()
+	logger      *RunLogger
+	engine      *runtime.Engine
+	eventBridge *runtimewire.EventBridge
+	close       func()
 }
 
 func (p *headlessRuntimePlan) Close() {
@@ -133,10 +132,9 @@ func (l *headlessPromptLauncher) prepareRuntime(plan launch.SessionPlan, progres
 	}
 	registration := runtimewire.RegisterSessionRuntime(plan.Store.Meta().SessionID, wiring.Engine, runtimeRegistry, backgroundRouter)
 	return &headlessRuntimePlan{
-		logger:       logger,
-		engine:       wiring.Engine,
-		eventBridge:  wiring.EventBridge,
-		registration: registration,
+		logger:      logger,
+		engine:      wiring.Engine,
+		eventBridge: wiring.EventBridge,
 		close: func() {
 			registration.Close()
 			_ = wiring.Close()

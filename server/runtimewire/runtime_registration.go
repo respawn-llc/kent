@@ -22,10 +22,10 @@ type RuntimeRegistration struct {
 	cleanup func()
 }
 
-func RegisterSessionRuntime(sessionID string, engine *runtime.Engine, registry RuntimeRegistry, router BackgroundRouter) RuntimeRegistration {
+func RegisterSessionRuntime(sessionID string, engine *runtime.Engine, registry RuntimeRegistry, router BackgroundRouter) *RuntimeRegistration {
 	trimmedSessionID := strings.TrimSpace(sessionID)
 	if trimmedSessionID == "" || engine == nil {
-		return RuntimeRegistration{}
+		return &RuntimeRegistration{}
 	}
 	if registry != nil {
 		registry.Register(trimmedSessionID, engine)
@@ -33,7 +33,7 @@ func RegisterSessionRuntime(sessionID string, engine *runtime.Engine, registry R
 	if router != nil {
 		router.SetActiveSession(trimmedSessionID, engine)
 	}
-	return RuntimeRegistration{cleanup: func() {
+	return &RuntimeRegistration{cleanup: func() {
 		if registry != nil {
 			registry.Unregister(trimmedSessionID, engine)
 		}
