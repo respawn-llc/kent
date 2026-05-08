@@ -43,7 +43,7 @@ import (
 	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/config"
-	"builder/shared/protocol"
+	"builder/shared/rpccontract"
 	"builder/shared/serverapi"
 )
 
@@ -172,7 +172,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	runtimeControlService := runtimecontrol.NewService(runtimeRegistry, runtimeRegistry).WithControllerLeaseVerifier(sessionRuntimeService)
 	worktreeService := worktree.NewService(metadataStore, nil, runtimeRegistry, sessionRuntimeService, runtimeSupport.Background, runtimeControlService, worktree.ServiceOptions{BaseDir: cfg.Settings.Worktrees.BaseDir, SetupScript: cfg.Settings.Worktrees.SetupScript})
 	projectViews := client.NewLoopbackProjectViewClient(projectService)
-	authBootstrapService := authbootstrap.NewService(authSupport.AuthManager, authSupport.OAuthOptions, cfg.Settings, protocol.AllowedPreAuthMethods())
+	authBootstrapService := authbootstrap.NewService(authSupport.AuthManager, authSupport.OAuthOptions, cfg.Settings, rpccontract.AllowedPreAuthMethods())
 	authStatusService := authstatus.NewService(authSupport.AuthManager, cfg.Settings)
 	updateStatusService := updatestatus.NewService(buildinfo.Version)
 	sessionViewService := sessionview.NewService(registry.NewGlobalPersistenceSessionResolver(cfg.PersistenceRoot, storeOptions...), runtimeRegistry, metadataStore).WithCacheWarningMode(cfg.Settings.CacheWarningMode).WithUpdateStatusProvider(updateStatusService)

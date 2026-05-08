@@ -10,6 +10,7 @@ import (
 	remoteclient "builder/shared/client"
 	"builder/shared/config"
 	"builder/shared/protocol"
+	"builder/shared/rpccontract"
 	"builder/shared/rpcwire"
 	"builder/shared/serverapi"
 	"context"
@@ -380,8 +381,8 @@ func TestGatewayAuthBootstrapStatusAllowedBeforeAttach(t *testing.T) {
 	if !containsString(status.AllowedPreAuthMethods, protocol.MethodAuthCompleteBootstrap) {
 		t.Fatalf("allowed pre-auth methods = %+v, want %q", status.AllowedPreAuthMethods, protocol.MethodAuthCompleteBootstrap)
 	}
-	if !sameStringSet(status.AllowedPreAuthMethods, protocol.AllowedPreAuthMethods()) {
-		t.Fatalf("allowed pre-auth methods = %+v, want %+v", status.AllowedPreAuthMethods, protocol.AllowedPreAuthMethods())
+	if !sameStringSet(status.AllowedPreAuthMethods, rpccontract.AllowedPreAuthMethods()) {
+		t.Fatalf("allowed pre-auth methods = %+v, want %+v", status.AllowedPreAuthMethods, rpccontract.AllowedPreAuthMethods())
 	}
 }
 

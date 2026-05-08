@@ -16,7 +16,7 @@ import (
 	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/config"
-	"builder/shared/protocol"
+	"builder/shared/rpccontract"
 	"builder/shared/serverapi"
 	"context"
 	"errors"
@@ -274,7 +274,7 @@ func (s *testEmbeddedServer) OAuthOptions() auth.OpenAIOAuthOptions { return s.o
 func (s *testEmbeddedServer) AuthManager() *auth.Manager { return s.authManager }
 
 func (s *testEmbeddedServer) AuthBootstrapClient() client.AuthBootstrapClient {
-	service := authbootstrap.NewService(s.authManager, s.oauthOpts, s.cfg.Settings, protocol.AllowedPreAuthMethods())
+	service := authbootstrap.NewService(s.authManager, s.oauthOpts, s.cfg.Settings, rpccontract.AllowedPreAuthMethods())
 	return client.NewLoopbackAuthBootstrapClient(service)
 }
 

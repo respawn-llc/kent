@@ -15,6 +15,7 @@ import (
 	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/protocol"
+	"builder/shared/rpccontract"
 	"builder/shared/rpcwire"
 	"builder/shared/serverapi"
 )
@@ -25,11 +26,21 @@ type Gateway struct {
 }
 
 var gatewayAllowedPreAuthMethods = protocolAllowedPreAuthMethodSet()
+var gatewaySubscriptionMethods = protocolSubscriptionMethodSet()
 
 func protocolAllowedPreAuthMethodSet() map[string]struct{} {
-	allowed := protocol.AllowedPreAuthMethods()
+	allowed := rpccontract.AllowedPreAuthMethods()
 	set := make(map[string]struct{}, len(allowed))
 	for _, method := range allowed {
+		set[strings.TrimSpace(method)] = struct{}{}
+	}
+	return set
+}
+
+func protocolSubscriptionMethodSet() map[string]struct{} {
+	methods := rpccontract.SubscriptionMethods()
+	set := make(map[string]struct{}, len(methods))
+	for _, method := range methods {
 		set[strings.TrimSpace(method)] = struct{}{}
 	}
 	return set
@@ -908,12 +919,8 @@ func decodeAndHandle[TReq any, TResp any](req protocol.Request, handler func(TRe
 }
 
 func isSubscriptionMethod(method string) bool {
-	switch method {
-	case protocol.MethodSessionSubscribeActivity, protocol.MethodPromptSubscribeActivity, protocol.MethodProcessSubscribeOutput:
-		return true
-	default:
-		return false
-	}
+	_, ok := gatewaySubscriptionMethods[strings.TrimSpace(method)]
+	return ok
 }
 
 func receiveRequest(ctx context.Context, conn rpcwire.Conn) (protocol.Request, error) {
