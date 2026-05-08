@@ -990,6 +990,11 @@ func decodeAndHandle[TReq any, TResp any](req protocol.Request, handler func(TRe
 	if err != nil {
 		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error())
 	}
+	if validator, ok := any(params).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error())
+		}
+	}
 	resp, err := handler(params)
 	if err != nil {
 		return responseForError(req.ID, err)
