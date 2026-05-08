@@ -302,7 +302,7 @@ func TestRuntimeRegistrySubscribePromptActivityReplaysAllPendingPromptsBeyondBuf
 	}
 }
 
-func TestRuntimeRegistrySubscribePromptActivityKeepsSnapshotAtomicUntilSubscribed(t *testing.T) {
+func TestRuntimeRegistrySubscribePromptActivityDeliversPromptStartedDuringInitialSubscribe(t *testing.T) {
 	registry := NewRuntimeRegistry()
 	engine := &runtime.Engine{}
 	registry.Register("session-1", engine)
@@ -315,41 +315,45 @@ func TestRuntimeRegistrySubscribePromptActivityKeepsSnapshotAtomicUntilSubscribe
 		t.Fatal("registered runtime entry not found")
 	}
 
-	entry.promptHub.mu.Lock()
-	subscribeDone := make(chan error, 1)
-	go func() {
-		sub, err := registry.SubscribePromptActivityFrom(context.Background(), serverapi.PromptActivitySubscribeRequest{SessionID: "session-1"})
-		if sub != nil {
-			_ = sub.Close()
+	promptStarted := make(chan struct{})
+	promptDone := make(chan struct{})
+	sub, err := entry.subscribePromptActivityInitial("session-1", func() {
+		go func() {
+			close(promptStarted)
+			registry.BeginPendingPrompt("session-1", askquestion.Request{ID: "ask-during-subscribe", Question: "Proceed?"})
+			close(promptDone)
+		}()
+		<-promptStarted
+		select {
+		case <-promptDone:
+			t.Fatal("prompt publish completed before initial subscription registered")
+		default:
 		}
-		subscribeDone <- err
-	}()
-
-	deadline := time.Now().Add(time.Second)
-	for entry.pendingMu.TryLock() {
-		entry.pendingMu.Unlock()
-		if time.Now().After(deadline) {
-			entry.promptHub.mu.Unlock()
-			t.Fatal("subscription did not start collecting the pending prompt snapshot")
-		}
-		time.Sleep(time.Millisecond)
+	})
+	if err != nil {
+		t.Fatalf("subscribePromptActivityInitial: %v", err)
 	}
+	defer func() { _ = sub.Close() }()
 
-	time.Sleep(25 * time.Millisecond)
-	if entry.pendingMu.TryLock() {
-		entry.pendingMu.Unlock()
-		entry.promptHub.mu.Unlock()
-		t.Fatal("snapshot lock was released before prompt hub subscriber registration completed")
-	}
-
-	entry.promptHub.mu.Unlock()
 	select {
-	case err := <-subscribeDone:
-		if err != nil {
-			t.Fatalf("SubscribePromptActivityFrom: %v", err)
-		}
+	case <-promptDone:
 	case <-time.After(time.Second):
-		t.Fatal("subscription did not complete after prompt hub registration was unblocked")
+		t.Fatal("prompt publish did not complete after initial subscription registered")
+	}
+
+	snapshot, err := sub.Next(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot Next: %v", err)
+	}
+	if snapshot.Type != clientui.PendingPromptEventSnapshot {
+		t.Fatalf("first event = %+v, want snapshot completion", snapshot)
+	}
+	pending, err := sub.Next(context.Background())
+	if err != nil {
+		t.Fatalf("pending Next: %v", err)
+	}
+	if pending.Type != clientui.PendingPromptEventPending || pending.PromptID != "ask-during-subscribe" || pending.Question != "Proceed?" {
+		t.Fatalf("pending event = %+v, want ask-during-subscribe", pending)
 	}
 }
 

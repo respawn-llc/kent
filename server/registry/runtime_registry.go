@@ -223,16 +223,8 @@ func (r *RuntimeRegistry) SubscribePromptActivityFrom(_ context.Context, req ser
 	if entry == nil || entry.promptHub == nil {
 		return nil, fmt.Errorf("prompt activity stream for %q is unavailable: %w", id, serverapi.ErrStreamUnavailable)
 	}
-	initial := []clientui.PendingPromptEvent(nil)
 	if req.AfterSequence == 0 {
-		entry.pendingMu.Lock()
-		initial = make([]clientui.PendingPromptEvent, 0, len(entry.pendingPrompt)+1)
-		for _, item := range entry.listPendingPromptsLocked() {
-			initial = append(initial, pendingPromptEventFromSnapshot(id, item, clientui.PendingPromptEventPending))
-		}
-		initial = append(initial, clientui.PendingPromptEvent{Type: clientui.PendingPromptEventSnapshot, SessionID: id})
-		sub, err := entry.promptHub.subscribe(initial, req.AfterSequence)
-		entry.pendingMu.Unlock()
+		sub, err := entry.subscribePromptActivityInitial(id, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -241,7 +233,7 @@ func (r *RuntimeRegistry) SubscribePromptActivityFrom(_ context.Context, req ser
 		}
 		return sub, nil
 	}
-	sub, err := entry.promptHub.subscribe(initial, req.AfterSequence)
+	sub, err := entry.promptHub.subscribe(nil, req.AfterSequence)
 	if err != nil {
 		return nil, err
 	}
@@ -249,6 +241,25 @@ func (r *RuntimeRegistry) SubscribePromptActivityFrom(_ context.Context, req ser
 		return nil, fmt.Errorf("prompt activity stream for %q is unavailable: %w", id, serverapi.ErrStreamUnavailable)
 	}
 	return sub, nil
+}
+
+func (e *runtimeEntry) subscribePromptActivityInitial(sessionID string, beforeSubscribe func()) (*promptActivitySubscription, error) {
+	if e == nil || e.promptHub == nil {
+		return nil, fmt.Errorf("prompt activity stream is unavailable: %w", serverapi.ErrStreamUnavailable)
+	}
+	e.pendingMu.Lock()
+	defer e.pendingMu.Unlock()
+	initial := make([]clientui.PendingPromptEvent, 0, len(e.pendingPrompt)+1)
+	for _, item := range e.listPendingPromptsLocked() {
+		initial = append(initial, pendingPromptEventFromSnapshot(sessionID, item, clientui.PendingPromptEventPending))
+	}
+	initial = append(initial, clientui.PendingPromptEvent{Type: clientui.PendingPromptEventSnapshot, SessionID: sessionID})
+	if beforeSubscribe != nil {
+		beforeSubscribe()
+	}
+	// Keep pendingMu held until prompt-hub registration completes. Initial subscribers
+	// do not request history replay, so releasing here would reopen a lost-prompt gap.
+	return e.promptHub.subscribe(initial, 0)
 }
 
 func (r *RuntimeRegistry) BeginPendingPrompt(sessionID string, req askquestion.Request) {
