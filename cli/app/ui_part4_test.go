@@ -234,8 +234,31 @@ func TestDirectSubmitQueuesBehindExistingVisibleMessages(t *testing.T) {
 	if updated.activeSubmit.text != "first queued" {
 		t.Fatalf("active submit text = %q, want first queued", updated.activeSubmit.text)
 	}
-	if len(updated.queued) != 2 || updated.queued[0].Text != "first queued" || updated.queued[1].Text != "direct submit" {
-		t.Fatalf("expected direct submit queued behind existing message, got %+v", updated.queued)
+	if len(updated.queued) != 1 || updated.queued[0].Text != "direct submit" {
+		t.Fatalf("expected direct submit to remain queued behind active first message, got %+v", updated.queued)
+	}
+}
+
+func TestRuntimeClientDirectSubmitDoesNotRemainQueued(t *testing.T) {
+	client := &runtimeControlFakeClient{}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+	m.input = "direct submit"
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := next.(*uiModel)
+	if cmd == nil {
+		t.Fatal("expected submit command")
+	}
+	_ = collectCmdMessages(t, cmd)
+	if updated.activeSubmit.text != "direct submit" {
+		t.Fatalf("active submit text = %q, want direct submit", updated.activeSubmit.text)
+	}
+	if len(updated.queued) != 0 {
+		t.Fatalf("direct submit should not also remain queued, got %+v", updated.queued)
+	}
+	if client.submitText != "direct submit" {
+		t.Fatalf("submitted text = %q, want direct submit", client.submitText)
 	}
 }
 
@@ -287,8 +310,8 @@ func TestRuntimeIdleEventResumesVisibleQueuedMessagesWithoutBlankEnter(t *testin
 	if updated.activeSubmit.text != "first queued" {
 		t.Fatalf("active submit text = %q, want first queued without blank Enter", updated.activeSubmit.text)
 	}
-	if len(updated.queued) != 2 || updated.queued[0].Text != "first queued" || updated.queued[1].Text != "second queued" {
-		t.Fatalf("expected runtime submit to own first queued while preserving visible queue order, got %+v", updated.queued)
+	if len(updated.queued) != 1 || updated.queued[0].Text != "second queued" {
+		t.Fatalf("expected active first queued item removed from visible queue while preserving later items, got %+v", updated.queued)
 	}
 }
 

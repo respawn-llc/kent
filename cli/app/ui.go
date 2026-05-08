@@ -48,11 +48,12 @@ type compactDoneMsg struct {
 }
 
 type activeSubmitState struct {
-	token    uint64
-	stepID   string
-	text     string
-	queuedID string
-	flushed  bool
+	token              uint64
+	stepID             string
+	text               string
+	queuedID           string
+	restoreOnInterrupt bool
+	flushed            bool
 }
 
 type spinnerTickMsg struct {

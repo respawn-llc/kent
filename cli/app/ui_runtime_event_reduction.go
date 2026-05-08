@@ -81,6 +81,10 @@ func (a uiRuntimeAdapter) reconcileInterruptFromRunState(evt clientui.Event) {
 		return
 	}
 	if m.pendingInterrupt {
+		if m.activeSubmit.restoreOnInterrupt && !m.activeSubmit.flushed {
+			c := uiInputController{model: m}
+			c.restoreSubmittedTextIntoInput(m.activeSubmit.text)
+		}
 		m.activeSubmit = activeSubmitState{}
 		c := uiInputController{model: m}
 		c.releaseLockedInjectedInput(true)

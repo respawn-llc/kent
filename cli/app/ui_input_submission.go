@@ -48,18 +48,9 @@ func (c uiInputController) startSubmissionWithPreSubmitQueuePosition(text string
 		return tea.Batch(c.submitUserShellCmd(text, command), m.ensureSpinnerTicking())
 	}
 	if m.hasRuntimeClient() {
-		item := queuedInputItem{ID: queuedID, Text: text}
-		if item.ID == "" {
-			item = newQueuedInputItem(text)
-		}
-		if queuePosition == preSubmitQueueFront {
-			m.queued = append([]queuedInputItem{item}, m.queued...)
-		} else {
-			m.queued = append(m.queued, item)
-		}
-		return tea.Batch(c.submitCmd(text, item.ID), m.ensureSpinnerTicking())
+		return tea.Batch(c.submitCmd(text, queuedID), m.ensureSpinnerTicking())
 	}
-	return tea.Batch(c.submitCmd(text, ""), m.ensureSpinnerTicking())
+	return tea.Batch(c.submitCmd(text, queuedID), m.ensureSpinnerTicking())
 }
 
 func (c uiInputController) startSubmissionWithPromptHistory(text string) tea.Cmd {
@@ -130,7 +121,7 @@ func (m *uiModel) beginSubmitAttempt(text string, queuedID string) uint64 {
 	if m.submitToken == 0 {
 		m.submitToken++
 	}
-	m.activeSubmit = activeSubmitState{token: m.submitToken, text: text, queuedID: queuedID}
+	m.activeSubmit = activeSubmitState{token: m.submitToken, text: text, queuedID: queuedID, restoreOnInterrupt: true}
 	return m.submitToken
 }
 

@@ -83,8 +83,8 @@ func TestHydrationCompletionKeepsDeferredQueuedDrainArmedUntilUnrelatedBusyState
 	if updated.activeSubmit.text != "follow up" {
 		t.Fatalf("expected queued follow-up to submit after unrelated busy state clears, got %q", updated.activeSubmit.text)
 	}
-	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
-		t.Fatalf("expected runtime submit flow to own the queued follow-up after unrelated busy state clears, got %+v", updated.queued)
+	if len(updated.queued) != 0 {
+		t.Fatalf("expected active queued follow-up removed from visible queue after submit starts, got %+v", updated.queued)
 	}
 	if idleCmd == nil {
 		t.Fatal("expected queued follow-up command sequence after unrelated busy state clears")

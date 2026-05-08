@@ -199,7 +199,6 @@ func isInterruptedRuntimeError(err error) bool {
 func (c uiInputController) interruptBusyRuntime() {
 	m := c.model
 	_ = m.interruptRuntime()
-	m.activeSubmit = activeSubmitState{}
 	m.pendingInterrupt = true
 }
 
