@@ -26,7 +26,8 @@ type Gateway struct {
 }
 
 var gatewaySubscriptionMethods = protocolSubscriptionMethodSet()
-var gatewayUnaryHandlers = map[string]gatewayUnaryHandler{
+
+var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 	protocol.MethodHandshake: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		params, err := decodeParams[protocol.HandshakeRequest](req.Params)
 		if err != nil {
@@ -549,11 +550,15 @@ var gatewayUnaryHandlers = map[string]gatewayUnaryHandler{
 
 type gatewayUnaryHandler func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response
 
-var gatewayProgressHandlers = map[string]gatewayProgressHandler{
+var gatewayUnaryHandlers = routeHandlersForKind(rpccontract.KindUnary, gatewayUnaryHandlerEntries)
+
+var gatewayProgressHandlerEntries = map[string]gatewayProgressHandler{
 	protocol.MethodRunPrompt: (*Gateway).serveRunPrompt,
 }
 
 type gatewayProgressHandler func(g *Gateway, conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request) bool
+
+var gatewayProgressHandlers = routeHandlersForKind(rpccontract.KindProgress, gatewayProgressHandlerEntries)
 
 func protocolSubscriptionMethodSet() map[string]struct{} {
 	methods := rpccontract.SubscriptionMethods()
@@ -574,10 +579,27 @@ type connectionState struct {
 
 type gatewaySubscriptionHandler func(g *Gateway, conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request)
 
-var gatewaySubscriptionHandlers = map[string]gatewaySubscriptionHandler{
+var gatewaySubscriptionHandlerEntries = map[string]gatewaySubscriptionHandler{
 	protocol.MethodSessionSubscribeActivity: (*Gateway).serveSessionActivitySubscription,
 	protocol.MethodProcessSubscribeOutput:   (*Gateway).serveProcessOutputSubscription,
 	protocol.MethodPromptSubscribeActivity:  (*Gateway).servePromptActivitySubscription,
+}
+
+var gatewaySubscriptionHandlers = routeHandlersForKind(rpccontract.KindSubscription, gatewaySubscriptionHandlerEntries)
+
+func routeHandlersForKind[T any](kind rpccontract.Kind, entries map[string]T) map[string]T {
+	handlers := make(map[string]T)
+	for _, route := range rpccontract.Routes() {
+		if route.Kind != kind {
+			continue
+		}
+		handler, ok := entries[route.Method]
+		if !ok {
+			continue
+		}
+		handlers[route.Method] = handler
+	}
+	return handlers
 }
 
 func NewGateway(appCore *core.Core, identity protocol.ServerIdentity) (*Gateway, error) {
