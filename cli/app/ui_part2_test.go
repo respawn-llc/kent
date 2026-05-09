@@ -871,25 +871,6 @@ func TestSubmitErrorShowsFullAPIStatusBodyWhenWrapped(t *testing.T) {
 	}
 }
 
-func TestFormatSubmissionErrorUsesFriendlyAuthWarningFor401(t *testing.T) {
-	err := fmt.Errorf("request failed: %w", &llm.ProviderAPIError{ProviderID: "openai-compatible", StatusCode: 401, Code: llm.UnifiedErrorCodeAuthentication})
-	formatted := formatSubmissionError(err)
-	if !strings.Contains(formatted, "Authentication failed") || !strings.Contains(formatted, "/login") {
-		t.Fatalf("expected friendly auth warning, got %q", formatted)
-	}
-	if strings.Contains(formatted, "openai status 401") {
-		t.Fatalf("expected friendly auth warning instead of raw status text, got %q", formatted)
-	}
-}
-
-func TestFormatSubmissionErrorUsesProviderSelectionWarning(t *testing.T) {
-	err := &llm.ProviderSelectionError{Model: "my-local-model", Err: llm.ErrUnsupportedProvider}
-	formatted := formatSubmissionError(err)
-	if !strings.Contains(formatted, "provider/auth path") || !strings.Contains(formatted, "provider_override") || !strings.Contains(formatted, "openai_base_url") {
-		t.Fatalf("expected provider selection warning, got %q", formatted)
-	}
-}
-
 func TestMainInputAcceptsSpaceKey(t *testing.T) {
 	m := newProjectedStaticUIModel()
 

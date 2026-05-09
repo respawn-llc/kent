@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"builder/cli/app/commands"
-	"builder/server/runtime"
 	"builder/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -186,7 +185,7 @@ func (c uiInputController) handleThinkingLevelCommand(requested string) (tea.Mod
 		return m, c.appendSystemFeedback("Thinking level is " + current)
 	}
 
-	normalized, ok := runtime.NormalizeThinkingLevel(requested)
+	normalized, ok := clientui.NormalizeThinkingLevel(requested)
 	if !ok {
 		errText := "invalid thinking level " + strconv.Quote(requested) + " (expected low|medium|high|xhigh)"
 		return m, c.appendErrorFeedback(errText)

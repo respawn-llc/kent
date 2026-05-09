@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"builder/cli/app/internal/submissionerror"
 	"builder/server/llm"
 	"builder/server/runtime"
 	"builder/server/session"
@@ -148,7 +149,7 @@ func TestInterruptedResumedQueuedSteeringRestoresInput(t *testing.T) {
 		t.Fatal("expected resumed steering submission to set busy=true")
 	}
 
-	next, interruptCmd := updated.Update(submitDoneMsg{err: errSubmissionInterrupted})
+	next, interruptCmd := updated.Update(submitDoneMsg{err: submissionerror.ErrInterrupted})
 	updated = next.(*uiModel)
 	if interruptCmd != nil {
 		t.Fatal("did not expect follow-up command after interrupted resumed steering")

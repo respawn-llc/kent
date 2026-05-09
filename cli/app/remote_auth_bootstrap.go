@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"builder/server/auth"
+	"builder/cli/app/internal/oauthadapter"
 	"builder/shared/client"
 	"builder/shared/config"
 	"builder/shared/serverapi"
@@ -88,7 +88,7 @@ func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Co
 	if !supportsBootstrapMode(status.SupportedModes, choice) {
 		return serverapi.AuthCompleteBootstrapRequest{}, fmt.Errorf("auth method %q is not supported by this server", choice)
 	}
-	oauthOpts := auth.OpenAIOAuthOptions{Issuer: status.OAuth.Issuer, ClientID: status.OAuth.ClientID}
+	oauthOpts := oauthadapter.OpenAIOAuthOptions{Issuer: status.OAuth.Issuer, ClientID: status.OAuth.ClientID}
 	switch choice {
 	case authMethodChoiceSkip:
 		return serverapi.AuthCompleteBootstrapRequest{Mode: serverapi.AuthBootstrapModeNone}, nil
@@ -109,13 +109,13 @@ func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Co
 	}
 }
 
-func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context, opts auth.OpenAIOAuthOptions, theme string) (serverapi.AuthCompleteBootstrapRequest, error) {
+func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions, theme string) (serverapi.AuthCompleteBootstrapRequest, error) {
 	listener, err := i.startCallbackListener()
 	if err != nil {
 		return serverapi.AuthCompleteBootstrapRequest{}, err
 	}
 	defer func() { _ = listener.Close() }()
-	session, err := auth.BeginOpenAIBrowserFlow(opts, listener.RedirectURI())
+	session, err := oauthadapter.BeginOpenAIBrowserFlow(opts, listener.RedirectURI())
 	if err != nil {
 		return serverapi.AuthCompleteBootstrapRequest{}, err
 	}
@@ -141,8 +141,8 @@ func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context
 	}, nil
 }
 
-func (i *interactiveAuthInteractor) collectRemoteBrowserPaste(ctx context.Context, opts auth.OpenAIOAuthOptions, theme string) (serverapi.AuthCompleteBootstrapRequest, error) {
-	session, err := auth.BeginOpenAIBrowserFlow(opts, "")
+func (i *interactiveAuthInteractor) collectRemoteBrowserPaste(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions, theme string) (serverapi.AuthCompleteBootstrapRequest, error) {
+	session, err := oauthadapter.BeginOpenAIBrowserFlow(opts, "")
 	if err != nil {
 		return serverapi.AuthCompleteBootstrapRequest{}, err
 	}
@@ -167,8 +167,8 @@ func (i *interactiveAuthInteractor) collectRemoteBrowserPaste(ctx context.Contex
 	}, nil
 }
 
-func (i *interactiveAuthInteractor) collectRemoteDevice(ctx context.Context, opts auth.OpenAIOAuthOptions, theme string) (serverapi.AuthCompleteBootstrapRequest, error) {
-	grant, err := auth.CollectOpenAIDeviceAuthorizationGrant(ctx, opts, func(code auth.DeviceCode) {
+func (i *interactiveAuthInteractor) collectRemoteDevice(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions, theme string) (serverapi.AuthCompleteBootstrapRequest, error) {
+	grant, err := oauthadapter.CollectOpenAIDeviceAuthorizationGrant(ctx, opts, func(code oauthadapter.DeviceCode) {
 		i.printAuthSection(theme, authMethodDisplayTitle(authMethodChoiceDevice), []string{
 			authURLStyle(theme).Render(code.VerificationURL),
 			authBodyStyle(theme).Render("Code: ") + authCodeStyle(theme).Render(code.UserCode),

@@ -1,0 +1,83 @@
+package submissionerror
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+
+	"builder/server/llm"
+	"builder/shared/serverapi"
+)
+
+func TestFormat(t *testing.T) {
+	body := strings.Repeat("AUTH_ERR_", 4)
+	tests := []struct {
+		name     string
+		err      error
+		contains []string
+		excludes []string
+		want     string
+	}{
+		{name: "nil", err: nil, want: ""},
+		{name: "interrupted", err: ErrInterrupted, want: ""},
+		{name: "canceled", err: context.Canceled, want: ""},
+		{name: "already controlled", err: serverapi.ErrSessionAlreadyControlled, want: "session is controlled by another client; retry to take over"},
+		{name: "invalid controller lease", err: serverapi.ErrInvalidControllerLease, want: "lost control of this session; retry to reclaim it"},
+		{
+			name:     "api status body",
+			err:      fmt.Errorf("wrapped: %w", &llm.APIStatusError{StatusCode: 429, Body: body}),
+			contains: []string{"openai status 429", body},
+		},
+		{
+			name:     "empty api status body",
+			err:      &llm.APIStatusError{StatusCode: 500},
+			contains: []string{"openai status 500", "<empty error body>"},
+		},
+		{
+			name:     "friendly provider auth",
+			err:      fmt.Errorf("request failed: %w", &llm.ProviderAPIError{ProviderID: "openai-compatible", StatusCode: 401, Code: llm.UnifiedErrorCodeAuthentication}),
+			contains: []string{"Authentication failed", "/login"},
+			excludes: []string{"openai status 401"},
+		},
+		{
+			name:     "provider selection",
+			err:      &llm.ProviderSelectionError{Model: "my-local-model", Err: llm.ErrUnsupportedProvider},
+			contains: []string{"provider/auth path", "provider_override", "openai_base_url"},
+		},
+		{name: "generic", err: fmt.Errorf("boom"), want: "boom"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Format(tc.err)
+			if tc.want != "" || len(tc.contains) == 0 {
+				if got != tc.want {
+					t.Fatalf("Format()=%q, want %q", got, tc.want)
+				}
+			}
+			for _, needle := range tc.contains {
+				if !strings.Contains(got, needle) {
+					t.Fatalf("Format()=%q, want substring %q", got, needle)
+				}
+			}
+			for _, needle := range tc.excludes {
+				if strings.Contains(got, needle) {
+					t.Fatalf("Format()=%q, did not want substring %q", got, needle)
+				}
+			}
+		})
+	}
+}
+
+func TestIsInterrupted(t *testing.T) {
+	if !IsInterrupted(ErrInterrupted) {
+		t.Fatal("expected local interrupt sentinel to be interrupted")
+	}
+	if !IsInterrupted(context.Canceled) {
+		t.Fatal("expected context cancellation to be interrupted")
+	}
+	if IsInterrupted(fmt.Errorf("boom")) {
+		t.Fatal("did not expect generic error to be interrupted")
+	}
+}

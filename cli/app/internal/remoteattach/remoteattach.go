@@ -1,0 +1,198 @@
+package remoteattach
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"builder/shared/client"
+	"builder/shared/config"
+	"builder/shared/protocol"
+	"builder/shared/serverapi"
+)
+
+type ProjectViewRemote interface {
+	client.ProjectViewClient
+	Close() error
+	Identity() protocol.ServerIdentity
+}
+
+type DialProjectView func(context.Context, config.App) (ProjectViewRemote, error)
+type DialWorkspace func(context.Context, config.App, string, string) (*client.Remote, error)
+type Supports func(protocol.CapabilityFlags) bool
+type Accept func(protocol.ServerIdentity) bool
+
+type HeadlessRequest struct {
+	Config           config.App
+	AttachTimeout    time.Duration
+	DiscoveryTimeout time.Duration
+	DialProjectView  DialProjectView
+	DialWorkspace    DialWorkspace
+	Accept           Accept
+	Supports         Supports
+}
+
+type InteractiveRequest struct {
+	Config          config.App
+	AttachTimeout   time.Duration
+	DialProjectView DialProjectView
+	DialWorkspace   DialWorkspace
+	Accept          Accept
+	Supports        Supports
+	RequireBound    bool
+}
+
+func DialHeadless(ctx context.Context, req HeadlessRequest) (*client.Remote, bool, error) {
+	if req.DialProjectView == nil {
+		return nil, false, errors.New("project view dialer is required")
+	}
+	if req.DialWorkspace == nil {
+		return nil, false, errors.New("workspace dialer is required")
+	}
+	attachCtx, cancel := context.WithTimeout(ctx, req.AttachTimeout)
+	defer cancel()
+	projectViews, err := req.DialProjectView(attachCtx, req.Config)
+	if err != nil {
+		return nil, false, nil
+	}
+	if req.Accept != nil && !req.Accept(projectViews.Identity()) {
+		_ = projectViews.Close()
+		return nil, false, nil
+	}
+	if req.Supports != nil && !req.Supports(projectViews.Identity().Capabilities) {
+		_ = projectViews.Close()
+		return nil, false, nil
+	}
+	discoveryCtx, discoveryCancel := context.WithTimeout(ctx, req.DiscoveryTimeout)
+	plan, err := projectViews.PlanWorkspaceBinding(discoveryCtx, serverapi.ProjectBindingPlanRequest{Path: req.Config.WorkspaceRoot, Mode: serverapi.ProjectBindingPlanModeHeadless})
+	discoveryCancel()
+	if err != nil {
+		_ = projectViews.Close()
+		return nil, true, err
+	}
+	switch plan.Kind {
+	case serverapi.ProjectBindingPlanKindBound:
+		if plan.Binding == nil {
+			_ = projectViews.Close()
+			return nil, true, errors.New("resolved project binding is required")
+		}
+		_ = projectViews.Close()
+		remote, err := dialWorkspaceWithTimeout(ctx, req.Config, req.AttachTimeout, req.DialWorkspace, plan.Binding.ProjectID, plan.Binding.WorkspaceID)
+		if err != nil {
+			return nil, true, err
+		}
+		return remote, true, nil
+	case serverapi.ProjectBindingPlanKindLocalUnbound:
+		_ = projectViews.Close()
+		return nil, true, HeadlessWorkspaceRegistrationError(req.Config.WorkspaceRoot)
+	case serverapi.ProjectBindingPlanKindHeadlessRemoteAmbiguous:
+		_ = projectViews.Close()
+		return nil, true, HeadlessRemoteWorkspaceSelectionError()
+	case serverapi.ProjectBindingPlanKindHeadlessRemoteSelected:
+		if plan.Workspace == nil {
+			_ = projectViews.Close()
+			return nil, true, errors.New("resolved remote workspace is required")
+		}
+		_ = projectViews.Close()
+		remote, err := dialWorkspaceWithTimeout(ctx, req.Config, req.AttachTimeout, req.DialWorkspace, plan.Workspace.ProjectID, plan.Workspace.WorkspaceID)
+		if err != nil {
+			return nil, true, err
+		}
+		return remote, true, nil
+	default:
+		_ = projectViews.Close()
+		return nil, true, fmt.Errorf("unsupported headless project binding plan %q", plan.Kind)
+	}
+}
+
+func DialInteractive(ctx context.Context, req InteractiveRequest) (*client.Remote, bool) {
+	if req.DialProjectView == nil || req.DialWorkspace == nil {
+		return nil, false
+	}
+	attachCtx, cancel := context.WithTimeout(ctx, req.AttachTimeout)
+	defer cancel()
+	projectViews, err := req.DialProjectView(attachCtx, req.Config)
+	if err != nil {
+		return nil, false
+	}
+	if req.Accept != nil && !req.Accept(projectViews.Identity()) {
+		_ = projectViews.Close()
+		return nil, false
+	}
+	if req.Supports != nil && !req.Supports(projectViews.Identity().Capabilities) {
+		_ = projectViews.Close()
+		return nil, false
+	}
+	binding, resolveErr := resolveInteractiveBinding(attachCtx, projectViews, req.Config.WorkspaceRoot)
+	if resolveErr != nil {
+		_ = projectViews.Close()
+		return nil, false
+	}
+	if binding == nil {
+		if req.RequireBound {
+			_ = projectViews.Close()
+			return nil, false
+		}
+		remote, ok := projectViews.(*client.Remote)
+		if !ok {
+			_ = projectViews.Close()
+			return nil, false
+		}
+		return remote, true
+	}
+	_ = projectViews.Close()
+	remote, err := dialWorkspaceWithTimeout(ctx, req.Config, req.AttachTimeout, req.DialWorkspace, binding.ProjectID, binding.WorkspaceID)
+	if err != nil {
+		return nil, false
+	}
+	return remote, true
+}
+
+func SupportsRunPrompt(flags protocol.CapabilityFlags) bool {
+	return flags.RunPrompt && flags.AuthBootstrap && flags.ProjectAttach
+}
+
+func SupportsInteractiveSession(flags protocol.CapabilityFlags) bool {
+	return flags.AuthBootstrap &&
+		flags.ProjectAttach &&
+		flags.SessionPlan &&
+		flags.SessionLifecycle &&
+		flags.SessionTranscriptPaging &&
+		flags.SessionRuntime &&
+		flags.RuntimeControl &&
+		flags.PromptControl &&
+		flags.PromptActivity &&
+		flags.SessionActivity &&
+		flags.ProcessOutput
+}
+
+func HeadlessWorkspaceRegistrationError(workspaceRoot string) error {
+	trimmedRoot := strings.TrimSpace(workspaceRoot)
+	if trimmedRoot == "" {
+		trimmedRoot = "current workspace"
+	}
+	return fmt.Errorf("%w: %s is not attached to a project. Run `builder project` in a workspace that already belongs to the target project, then run `builder attach <path>` from there or `builder attach --project <project-id> <path>`", serverapi.ErrWorkspaceNotRegistered, trimmedRoot)
+}
+
+func HeadlessRemoteWorkspaceSelectionError() error {
+	return errors.New("remote server could not resolve the current workspace and no single server workspace could be chosen automatically. Run `builder project list`, `builder project create --path <server-path> --name <project-name>`, or `builder attach --project <project-id> <server-path>` against the configured server, or start interactive Builder to choose an existing server project/workspace")
+}
+
+func resolveInteractiveBinding(ctx context.Context, projectViews client.ProjectViewClient, workspaceRoot string) (*serverapi.ProjectBinding, error) {
+	resp, err := projectViews.PlanWorkspaceBinding(ctx, serverapi.ProjectBindingPlanRequest{Path: workspaceRoot, Mode: serverapi.ProjectBindingPlanModeInteractive})
+	if err != nil {
+		return nil, err
+	}
+	if resp.Kind != serverapi.ProjectBindingPlanKindBound {
+		return nil, nil
+	}
+	return resp.Binding, nil
+}
+
+func dialWorkspaceWithTimeout(ctx context.Context, cfg config.App, timeout time.Duration, dial DialWorkspace, projectID string, workspaceID string) (*client.Remote, error) {
+	attachCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return dial(attachCtx, cfg, projectID, workspaceID)
+}

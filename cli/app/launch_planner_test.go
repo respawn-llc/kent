@@ -25,6 +25,30 @@ type plannerOwnershipServer struct {
 	owns bool
 }
 
+type plannerNoAuthStateServer struct {
+	inner *testEmbeddedServer
+}
+
+func (s plannerNoAuthStateServer) OwnsServer() bool { return false }
+func (s plannerNoAuthStateServer) Config() config.App {
+	return s.inner.Config()
+}
+func (s plannerNoAuthStateServer) ProjectID() string {
+	return s.inner.ProjectID()
+}
+func (s plannerNoAuthStateServer) AuthStatusClient() client.AuthStatusClient {
+	return s.inner.AuthStatusClient()
+}
+func (s plannerNoAuthStateServer) ProjectViewClient() client.ProjectViewClient {
+	return s.inner.ProjectViewClient()
+}
+func (s plannerNoAuthStateServer) SessionLaunchClient() client.SessionLaunchClient {
+	return s.inner.SessionLaunchClient()
+}
+func (s plannerNoAuthStateServer) SessionViewClient() client.SessionViewClient {
+	return s.inner.SessionViewClient()
+}
+
 type stubSessionViewClient struct {
 	getSessionMainView func(context.Context, serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error)
 }
@@ -350,6 +374,31 @@ func TestSessionLaunchPlannerPropagatesServerOwnershipToStatusConfig(t *testing.
 				t.Fatalf("status config owns server = %t, want %t", plan.StatusConfig.OwnsServer, tt.owns)
 			}
 		})
+	}
+}
+
+func TestSessionLaunchPlannerDefaultsMissingAuthStateProviderToEmptyStatusMetadata(t *testing.T) {
+	root := t.TempDir()
+	workspaceRoot := "/tmp/workspace-a"
+	binding := mustRegisterAppBinding(t, root, workspaceRoot)
+	planner := newSessionLaunchPlanner(plannerNoAuthStateServer{inner: &testEmbeddedServer{
+		cfg: config.App{
+			WorkspaceRoot:   workspaceRoot,
+			PersistenceRoot: root,
+			Settings:        config.Settings{Theme: "dark"},
+		},
+		containerDir: config.ProjectSessionsRoot(config.App{PersistenceRoot: root}, binding.ProjectID),
+	}})
+
+	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeHeadless})
+	if err != nil {
+		t.Fatalf("plan session: %v", err)
+	}
+	if plan.StatusConfig.AuthStatePath != "" {
+		t.Fatalf("auth state path = %q, want empty", plan.StatusConfig.AuthStatePath)
+	}
+	if plan.StatusConfig.AuthManager != nil {
+		t.Fatalf("auth manager = %T, want nil", plan.StatusConfig.AuthManager)
 	}
 }
 

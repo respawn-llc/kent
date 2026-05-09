@@ -1,6 +1,7 @@
 package app
 
 import (
+	"builder/cli/app/internal/statuscollect"
 	"builder/server/auth"
 	"builder/server/authbootstrap"
 	serverembedded "builder/server/embedded"
@@ -142,7 +143,7 @@ func (s *testEmbeddedServer) OwnsServer() bool { return true }
 
 func (s *testEmbeddedServer) Config() config.App { return s.cfg }
 
-func (s *testEmbeddedServer) BindProject(_ context.Context, projectID string) (embeddedServer, error) {
+func (s *testEmbeddedServer) BindProjectWorkspace(_ context.Context, projectID string, workspaceID string) (interactiveSessionServer, error) {
 	if s == nil {
 		return nil, errors.New("test embedded server is required")
 	}
@@ -178,18 +179,8 @@ func (s *testEmbeddedServer) BindProject(_ context.Context, projectID string) (e
 		prepareRuntime:       s.prepareRuntime,
 		reauthenticate:       s.reauthenticate,
 	}
+	clone.boundWorkspaceID = strings.TrimSpace(workspaceID)
 	return clone, nil
-}
-
-func (s *testEmbeddedServer) BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (embeddedServer, error) {
-	bound, err := s.BindProject(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	if embedded, ok := bound.(*testEmbeddedServer); ok {
-		embedded.boundWorkspaceID = strings.TrimSpace(workspaceID)
-	}
-	return bound, nil
 }
 
 func (s *testEmbeddedServer) ProjectID() string {
@@ -273,9 +264,15 @@ func (s *testEmbeddedServer) OAuthOptions() auth.OpenAIOAuthOptions { return s.o
 
 func (s *testEmbeddedServer) AuthManager() *auth.Manager { return s.authManager }
 
-func (s *testEmbeddedServer) AuthBootstrapClient() client.AuthBootstrapClient {
-	service := authbootstrap.NewService(s.authManager, s.oauthOpts, s.cfg.Settings, rpccontract.AllowedPreAuthMethods())
-	return client.NewLoopbackAuthBootstrapClient(service)
+func (s *testEmbeddedServer) AuthStateResolver() statuscollect.AuthStateResolver {
+	return statuscollect.NormalizeAuthStateResolver(s.authManager)
+}
+
+func (s *testEmbeddedServer) AuthStatePath() string {
+	if s.authManager == nil {
+		return ""
+	}
+	return config.GlobalAuthConfigPath(s.cfg)
 }
 
 func (s *testEmbeddedServer) AuthStatusClient() client.AuthStatusClient {
@@ -377,6 +374,23 @@ func (s *testEmbeddedServer) WorktreeClient() client.WorktreeClient {
 	return nil
 }
 
+func (s *testEmbeddedServer) RuntimeAttachmentClients() runtimeAttachmentClients {
+	return runtimeAttachmentClients{
+		ApprovalViews:   s.approvalViewClient,
+		AskViews:        s.askViewClient,
+		ProcessControls: s.processControlClient,
+		ProcessOutput:   s.processOutputClient,
+		ProcessViews:    s.processViewClient,
+		PromptActivity:  s.promptActivityClient,
+		PromptControl:   s.promptControlClient,
+		RuntimeControls: s.RuntimeControlClient(),
+		SessionActivity: s.sessionActivity,
+		SessionRuntime:  s.sessionRuntime,
+		SessionViews:    s.sessionViewClient,
+		Worktrees:       s.WorktreeClient(),
+	}
+}
+
 func (s *testEmbeddedServer) PrepareRuntime(ctx context.Context, plan sessionLaunchPlan, diagnosticWriter io.Writer, startLogLine string) (*runtimeLaunchPlan, error) {
 	if s.prepareRuntime != nil {
 		return s.prepareRuntime(ctx, plan, diagnosticWriter, startLogLine)
@@ -388,7 +402,8 @@ func (s *testEmbeddedServer) Reauthenticate(ctx context.Context, interactor auth
 	if s.reauthenticate != nil {
 		return s.reauthenticate(ctx, interactor)
 	}
-	return ensureRemoteAuthReady(ctx, s.AuthBootstrapClient(), s.cfg.Settings, interactor)
+	service := authbootstrap.NewService(s.authManager, s.oauthOpts, s.cfg.Settings, rpccontract.AllowedPreAuthMethods())
+	return ensureRemoteAuthReady(ctx, client.NewLoopbackAuthBootstrapClient(service), s.cfg.Settings, interactor)
 }
 
 func (s *stubEmbeddedProcessViewClient) ListProcesses(context.Context, serverapi.ProcessListRequest) (serverapi.ProcessListResponse, error) {

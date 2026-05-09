@@ -11,6 +11,7 @@ import (
 	"builder/server/llm"
 	"builder/server/session"
 	"builder/server/tools"
+	"builder/shared/clientui"
 	"builder/shared/compaction"
 	"builder/shared/config"
 	"builder/shared/toolspec"
@@ -35,20 +36,8 @@ const (
 	reviewerMetaBoundaryMessage       = "End of meta information. Transcript begins starting with next message. Below is NOT YOUR conversation, but another agent's transcript.\n-------"
 )
 
-var supportedThinkingLevels = map[string]struct{}{
-	"low":    {},
-	"medium": {},
-	"high":   {},
-	"xhigh":  {},
-}
-
 func NormalizeThinkingLevel(level string) (string, bool) {
-	normalized := strings.ToLower(strings.TrimSpace(level))
-	if normalized == "" {
-		return "", false
-	}
-	_, ok := supportedThinkingLevels[normalized]
-	return normalized, ok
+	return clientui.NormalizeThinkingLevel(level)
 }
 
 func NormalizeReviewerFrequency(frequency string) (string, bool) {

@@ -65,6 +65,42 @@ func (s *stubProgressiveStatusCollector) CollectEnvironment(_ context.Context, _
 	return s.envResult
 }
 
+type statusRequestOption func(*uiStatusRequest)
+
+func newStatusRequestForTest(options ...statusRequestOption) uiStatusRequest {
+	var req uiStatusRequest
+	for _, option := range options {
+		if option != nil {
+			option(&req)
+		}
+	}
+	return populateStatusRequestCacheKeys(req)
+}
+
+func withStatusWorkspaceRoot(root string) statusRequestOption {
+	return func(req *uiStatusRequest) {
+		req.WorkspaceRoot = root
+	}
+}
+
+func withStatusAuthManager(manager *auth.Manager) statusRequestOption {
+	return func(req *uiStatusRequest) {
+		req.AuthCacheIdentity = statusAuthCacheIdentity(manager)
+	}
+}
+
+func withStatusSettings(settings config.Settings) statusRequestOption {
+	return func(req *uiStatusRequest) {
+		req.Settings = settings
+	}
+}
+
+func withStatusRuntime(runtime clientui.RuntimeClient) statusRequestOption {
+	return func(req *uiStatusRequest) {
+		req.Runtime = runtime
+	}
+}
+
 func TestStatusCommandOpensStatusSurfaceInNativeMode(t *testing.T) {
 	collector := &stubStatusCollector{snapshot: uiStatusSnapshot{
 		CollectedAt:       time.Date(2026, time.March, 24, 21, 15, 0, 0, time.UTC),
@@ -97,7 +133,7 @@ func TestStatusCommandOpensStatusSurfaceInNativeMode(t *testing.T) {
 				{Label: "weekly", UsedPercent: 40.0, ResetAt: time.Date(2026, time.March, 31, 2, 0, 0, 0, time.UTC)},
 			},
 		},
-		Skills: []runtime.SkillInspection{
+		Skills: []uiStatusSkillInspection{
 			{Name: "apiresult", Path: "/Users/test/.builder/skills/apiresult/SKILL.md", Loaded: true},
 			{Name: "local helper", Path: "/Users/test/.builder/skills/local-helper/SKILL.md", Loaded: true, Disabled: true},
 			{Name: "skill-creator", Path: "/Users/test/.builder/.generated/skills/skill-creator/SKILL.md", Loaded: true, SourceKind: "generated"},
@@ -302,7 +338,7 @@ func TestStatusCommandPersistsPromptHistoryWithoutBlockingOpen(t *testing.T) {
 }
 
 func TestStatusGroupSkillsByDirectoryKeepsBrokenSkillUnderSkillsRoot(t *testing.T) {
-	groups := statusGroupSkillsByDirectory([]runtime.SkillInspection{
+	groups := statusGroupSkillsByDirectory([]uiStatusSkillInspection{
 		{Name: "apiresult", Path: "/Users/test/.builder/skills/apiresult/SKILL.md", Loaded: true},
 		{Name: "broken", Path: "/Users/test/.builder/skills/broken/SKILL.md", Loaded: false, Reason: "symlink target does not exist"},
 	})
@@ -322,7 +358,7 @@ func TestStatusGroupSkillsByDirectoryKeepsBrokenSkillUnderSkillsRoot(t *testing.
 }
 
 func TestStatusSkillLineMarksGeneratedAndShadowed(t *testing.T) {
-	line := stripANSIAndTrimRight(statusSkillLine(runtime.SkillInspection{
+	line := stripANSIAndTrimRight(statusSkillLine(uiStatusSkillInspection{
 		Name:       "skill-creator",
 		Path:       "/Users/test/.builder/.generated/skills/skill-creator/SKILL.md",
 		Loaded:     true,
@@ -338,7 +374,7 @@ func TestStatusSkillLineMarksGeneratedAndShadowed(t *testing.T) {
 
 func TestStatusSkillLinePreservesTokenCountForActiveGeneratedSkill(t *testing.T) {
 	path := "/Users/test/.builder/.generated/skills/skill-creator/SKILL.md"
-	active := stripANSIAndTrimRight(statusSkillLine(runtime.SkillInspection{
+	active := stripANSIAndTrimRight(statusSkillLine(uiStatusSkillInspection{
 		Name:       "skill-creator",
 		Path:       path,
 		Loaded:     true,
@@ -349,7 +385,7 @@ func TestStatusSkillLinePreservesTokenCountForActiveGeneratedSkill(t *testing.T)
 			t.Fatalf("expected active generated line to contain %q, got %q", want, active)
 		}
 	}
-	disabled := stripANSIAndTrimRight(statusSkillLine(runtime.SkillInspection{
+	disabled := stripANSIAndTrimRight(statusSkillLine(uiStatusSkillInspection{
 		Name:       "disabled-skill",
 		Path:       path,
 		Loaded:     true,
@@ -359,7 +395,7 @@ func TestStatusSkillLinePreservesTokenCountForActiveGeneratedSkill(t *testing.T)
 	if !strings.Contains(disabled, "generated") || !strings.Contains(disabled, "disabled") || strings.Contains(disabled, "(1.2k)") {
 		t.Fatalf("expected disabled generated line to be label-only, got %q", disabled)
 	}
-	shadowed := stripANSIAndTrimRight(statusSkillLine(runtime.SkillInspection{
+	shadowed := stripANSIAndTrimRight(statusSkillLine(uiStatusSkillInspection{
 		Name:       "shadowed-skill",
 		Path:       path,
 		Loaded:     true,
@@ -377,7 +413,7 @@ func TestStatusEnvironmentWarnsWhenRecoveredGeneratedFilesExist(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".builder", "recovered", "old"), 0o755); err != nil {
 		t.Fatalf("mkdir recovered: %v", err)
 	}
-	result := defaultUIStatusCollector{}.CollectEnvironment(context.Background(), uiStatusRequest{WorkspaceRoot: t.TempDir()}, uiStatusSnapshot{})
+	result := defaultUIStatusCollector{}.CollectEnvironment(context.Background(), newStatusRequestForTest(withStatusWorkspaceRoot(t.TempDir())), uiStatusSnapshot{})
 	if !strings.Contains(result.CollectorWarning, "~/.builder/.generated folder was edited") {
 		t.Fatalf("expected recovered generated warning, got %q", result.CollectorWarning)
 	}
@@ -391,8 +427,8 @@ func TestStatusRepositorySeparatesAuthCacheByOAuthIdentity(t *testing.T) {
 	managerB := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{AccessToken: "token-b", AccountID: "acct-b", Email: "b@example.com"}},
 	}), nil, time.Now)
-	reqA := uiStatusRequest{WorkspaceRoot: "/tmp/workdir", AuthManager: managerA}
-	reqB := uiStatusRequest{WorkspaceRoot: "/tmp/workdir", AuthManager: managerB}
+	reqA := newStatusRequestForTest(withStatusWorkspaceRoot("/tmp/workdir"), withStatusAuthManager(managerA))
+	reqB := newStatusRequestForTest(withStatusWorkspaceRoot("/tmp/workdir"), withStatusAuthManager(managerB))
 	base := uiStatusSnapshot{Workdir: "/tmp/workdir"}
 
 	repo.StoreAuth(statusAuthCacheKey(reqA), uiStatusAuthStageResult{
@@ -421,8 +457,8 @@ func TestStatusRepositorySeparatesOpaqueOAuthCacheByTokenFingerprint(t *testing.
 	managerB := auth.NewManager(auth.NewMemoryStore(auth.State{
 		Method: auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{AccessToken: "token-b"}},
 	}), nil, time.Now)
-	reqA := uiStatusRequest{WorkspaceRoot: "/tmp/workdir", AuthManager: managerA}
-	reqB := uiStatusRequest{WorkspaceRoot: "/tmp/workdir", AuthManager: managerB}
+	reqA := newStatusRequestForTest(withStatusWorkspaceRoot("/tmp/workdir"), withStatusAuthManager(managerA))
+	reqB := newStatusRequestForTest(withStatusWorkspaceRoot("/tmp/workdir"), withStatusAuthManager(managerB))
 	base := uiStatusSnapshot{Workdir: "/tmp/workdir"}
 
 	repo.StoreAuth(statusAuthCacheKey(reqA), uiStatusAuthStageResult{
@@ -448,7 +484,7 @@ func TestStatusRepositoryStoresAuthUnderCapturedIdentityKey(t *testing.T) {
 		Method: auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{AccessToken: "token-a", AccountID: "acct-a", Email: "a@example.com"}},
 	})
 	manager := auth.NewManager(store, nil, time.Now)
-	req := uiStatusRequest{WorkspaceRoot: "/tmp/workdir", AuthManager: manager}
+	req := newStatusRequestForTest(withStatusWorkspaceRoot("/tmp/workdir"), withStatusAuthManager(manager))
 	base := uiStatusSnapshot{Workdir: "/tmp/workdir"}
 	cacheKey := statusAuthCacheKey(req)
 
@@ -464,7 +500,10 @@ func TestStatusRepositoryStoresAuthUnderCapturedIdentityKey(t *testing.T) {
 		Subscription: uiStatusSubscriptionInfo{Applicable: true, Summary: "Pro subscription"},
 	}, time.Now())
 
-	seedB := repo.SeedSnapshot(req, base, time.Now())
+	reqB := req
+	reqB.AuthCacheIdentity = statusAuthCacheIdentity(manager)
+	reqB.CacheKeys.Auth = statusAuthCacheKey(reqB)
+	seedB := repo.SeedSnapshot(reqB, base, time.Now())
 	if got := seedB.Snapshot.Auth.Summary; got != "" {
 		t.Fatalf("expected no auth cached under switched identity, got %q", got)
 	}
@@ -477,6 +516,38 @@ func TestStatusRepositoryStoresAuthUnderCapturedIdentityKey(t *testing.T) {
 	seedA := repo.SeedSnapshot(req, base, time.Now())
 	if got := seedA.Snapshot.Auth.Summary; got != "a@example.com" {
 		t.Fatalf("expected cached auth under original captured identity, got %q", got)
+	}
+}
+
+func TestStatusRequestCacheKeysSeedSnapshotLockstep(t *testing.T) {
+	repo := newMemoryUIStatusRepository()
+	req := newStatusRequestForTest(withStatusWorkspaceRoot("/tmp/workdir"))
+	now := time.Now()
+	base := uiStatusSnapshot{Workdir: "/tmp/workdir"}
+	repo.StoreAuth(req.CacheKeys.Auth, uiStatusAuthStageResult{
+		Auth:         uiStatusAuthInfo{Summary: "cached-auth"},
+		Subscription: uiStatusSubscriptionInfo{Applicable: true, Summary: "cached-subscription"},
+	}, now)
+	repo.StoreGit(req.CacheKeys.Git, uiStatusGitStageResult{Git: uiStatusGitInfo{Visible: true, Branch: "main"}}, now)
+	repo.StoreEnvironment(req.CacheKeys.Environment, uiStatusEnvironmentStageResult{
+		Skills:           []uiStatusSkillInspection{{Name: "skill-a", Path: "/tmp/skill-a/SKILL.md", Loaded: true}},
+		SkillTokenCounts: map[string]int{"/tmp/skill-a/SKILL.md": 12},
+		AgentsPaths:      []string{"/tmp/agent.md"},
+		AgentTokenCounts: map[string]int{"/tmp/agent.md": 7},
+	}, now)
+
+	seed := repo.SeedSnapshot(req, base, now)
+	if seed.Snapshot.Auth.Summary != "cached-auth" || seed.Snapshot.Subscription.Summary != "cached-subscription" {
+		t.Fatalf("expected auth cache seeded via request key, got %+v / %+v", seed.Snapshot.Auth, seed.Snapshot.Subscription)
+	}
+	if seed.Snapshot.Git.Branch != "main" {
+		t.Fatalf("expected git cache seeded via request key, got %+v", seed.Snapshot.Git)
+	}
+	if len(seed.Snapshot.Skills) != 1 || seed.Snapshot.Skills[0].Name != "skill-a" {
+		t.Fatalf("expected environment cache seeded via request key, got %+v", seed.Snapshot.Skills)
+	}
+	if len(seed.PendingSections) != 0 {
+		t.Fatalf("expected all sections cached without pending refreshes, got %+v", seed.PendingSections)
 	}
 }
 
@@ -536,7 +607,7 @@ func TestStatusRepositoryNormalizesGitCacheKeysAcrossSlashStyles(t *testing.T) {
 	)
 
 	seed := repo.SeedSnapshot(
-		uiStatusRequest{WorkspaceRoot: `C:\repo`},
+		newStatusRequestForTest(withStatusWorkspaceRoot(`C:\repo`)),
 		uiStatusSnapshot{Workdir: "C:/repo"},
 		now,
 	)
@@ -578,14 +649,14 @@ func TestStatusCollectorUsesRuntimeWorkspaceRootForGitBranch(t *testing.T) {
 	t.Chdir(processRoot)
 	collector := defaultUIStatusCollector{}
 
-	snapshot, err := collector.Collect(context.Background(), uiStatusRequest{
-		Runtime: &runtimeControlFakeClient{sessionView: clientui.RuntimeSessionView{
+	snapshot, err := collector.Collect(context.Background(), newStatusRequestForTest(
+		withStatusRuntime(&runtimeControlFakeClient{sessionView: clientui.RuntimeSessionView{
 			ExecutionTarget: clientui.SessionExecutionTarget{
 				EffectiveWorkdir: processRoot,
 			},
-		}},
-		WorkspaceRoot: sessionRoot,
-	})
+		}}),
+		withStatusWorkspaceRoot(sessionRoot),
+	))
 	if err != nil {
 		t.Fatalf("collect status: %v", err)
 	}
@@ -602,16 +673,16 @@ func TestStatusCollectorPrefersWorktreeRootForGitBranch(t *testing.T) {
 	worktreeRoot := initStatusLineGitRepo(t, "worktree-branch")
 	collector := defaultUIStatusCollector{}
 
-	snapshot, err := collector.Collect(context.Background(), uiStatusRequest{
-		Runtime: &runtimeControlFakeClient{sessionView: clientui.RuntimeSessionView{
+	snapshot, err := collector.Collect(context.Background(), newStatusRequestForTest(
+		withStatusRuntime(&runtimeControlFakeClient{sessionView: clientui.RuntimeSessionView{
 			ExecutionTarget: clientui.SessionExecutionTarget{
 				WorkspaceRoot:    workspaceRoot,
 				WorktreeRoot:     worktreeRoot,
 				EffectiveWorkdir: filepath.Join(worktreeRoot, "pkg"),
 			},
-		}},
-		WorkspaceRoot: workspaceRoot,
-	})
+		}}),
+		withStatusWorkspaceRoot(workspaceRoot),
+	))
 	if err != nil {
 		t.Fatalf("collect status: %v", err)
 	}
@@ -706,64 +777,5 @@ func TestCollectGitStatusIgnoresInheritedGitRepositoryEnv(t *testing.T) {
 	}
 	if git.Error != "" {
 		t.Fatalf("expected no git error when inherited git env points elsewhere, got %+v", git)
-	}
-}
-
-func TestStatusLimitDurationMatchesCodexBuckets(t *testing.T) {
-	if got := statusLimitDuration(300); got != "5h" {
-		t.Fatalf("5h window label = %q, want %q", got, "5h")
-	}
-	if got := statusLimitDuration(60 * 24 * 7); got != "weekly" {
-		t.Fatalf("weekly window label = %q, want %q", got, "weekly")
-	}
-}
-
-func TestStatusUsageWindowsByLabelKeepsNonWhitelistedHourDurations(t *testing.T) {
-	windows := statusUsageWindowsByLabel(statusUsagePayload{
-		RateLimit: &statusUsageRateLimit{
-			PrimaryWindow:   &statusUsageWindow{UsedPercent: 10, LimitWindowSeconds: 3600},
-			SecondaryWindow: &statusUsageWindow{UsedPercent: 20, LimitWindowSeconds: 3 * 3600},
-		},
-		AdditionalRateLimits: []statusUsageExtraBucket{{
-			RateLimit: &statusUsageRateLimit{
-				PrimaryWindow: &statusUsageWindow{UsedPercent: 30, LimitWindowSeconds: 24 * 3600},
-			},
-		}},
-	})
-	got := make([]string, 0, len(windows))
-	for _, window := range windows {
-		got = append(got, window.Label)
-	}
-	want := []string{"1h", "3h", "24h"}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Fatalf("window labels = %v, want %v", got, want)
-	}
-}
-
-func TestStatusUsageWindowsByLabelKeepsDuplicateDurationBuckets(t *testing.T) {
-	resetAt := time.Date(2026, time.March, 25, 2, 0, 0, 0, time.UTC).Unix()
-	windows := statusUsageWindowsByLabel(statusUsagePayload{
-		RateLimit: &statusUsageRateLimit{
-			PrimaryWindow: &statusUsageWindow{UsedPercent: 10, LimitWindowSeconds: 5 * 3600, ResetAt: resetAt},
-		},
-		AdditionalRateLimits: []statusUsageExtraBucket{{
-			MeteredFeature: "images",
-			LimitName:      "vision",
-			RateLimit: &statusUsageRateLimit{
-				PrimaryWindow: &statusUsageWindow{UsedPercent: 30, LimitWindowSeconds: 5 * 3600, ResetAt: resetAt},
-			},
-		}},
-	})
-	if len(windows) != 2 {
-		t.Fatalf("windows len = %d, want 2", len(windows))
-	}
-	if windows[0].Label != "5h" || windows[1].Label != "5h" {
-		t.Fatalf("window labels = %#v", windows)
-	}
-	if windows[0].Qualifier != "" {
-		t.Fatalf("first qualifier = %q, want empty", windows[0].Qualifier)
-	}
-	if windows[1].Qualifier != "vision / images" {
-		t.Fatalf("second qualifier = %q, want %q", windows[1].Qualifier, "vision / images")
 	}
 }

@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"builder/server/llm"
+	"builder/shared/clientui"
 	"builder/shared/transcript"
 	patchformat "builder/shared/transcript/patchformat"
 	"fmt"
@@ -331,7 +331,7 @@ func TestOngoingDoesNotInsertDividerBetweenCommentaryAndLiveAssistantTail(t *tes
 	m = updateModel(t, m, AppendTranscriptMsg{
 		Role:  "assistant",
 		Text:  "Decision: keep custom tool grammar {\"patch\": ...",
-		Phase: llm.MessagePhaseCommentary,
+		Phase: clientui.MessagePhaseCommentary,
 	})
 	m = updateModel(t, m, StreamAssistantMsg{Delta: "  } executor input so runtime/UI stays compatible."})
 

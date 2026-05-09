@@ -39,7 +39,7 @@ type workspaceChangePromptModel struct {
 	result       workspaceChangePromptResult
 }
 
-func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server embeddedServer, plan sessionLaunchPlan) (sessionWorkspaceChangeAction, error) {
+func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server sessionWorkspaceChangeServer, plan sessionLaunchPlan) (sessionWorkspaceChangeAction, error) {
 	if server == nil {
 		return sessionWorkspaceChangeProceed, errors.New("embedded server is required")
 	}
@@ -67,7 +67,7 @@ func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server embedde
 	return sessionWorkspaceChangeReplanSelected, nil
 }
 
-func retargetInteractiveSessionWorkspace(ctx context.Context, server embeddedServer, sessionID string) error {
+func retargetInteractiveSessionWorkspace(ctx context.Context, server sessionWorkspaceChangeServer, sessionID string) error {
 	if server == nil || server.SessionLifecycleClient() == nil {
 		return errors.New("session lifecycle client is required")
 	}

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"builder/cli/app/internal/daemonlaunch"
+	"builder/cli/app/internal/remoteattach"
 	"builder/server/auth"
 	"builder/server/authflow"
 	"builder/server/runtime"
@@ -697,24 +699,19 @@ func TestOwnedDaemonCloseFallsBackToKillWhenInterruptFails(t *testing.T) {
 	go func() {
 		errCh <- cmd.Wait()
 	}()
-	originalTerminate := terminateOwnedDaemonProcess
-	originalKill := forceKillOwnedDaemonProcess
-	t.Cleanup(func() {
-		terminateOwnedDaemonProcess = originalTerminate
-		forceKillOwnedDaemonProcess = originalKill
-	})
 	killed := false
-	terminateOwnedDaemonProcess = func(process *os.Process) error {
-		return errors.New("interrupt unsupported")
-	}
-	forceKillOwnedDaemonProcess = func(process *os.Process) error {
-		killed = true
-		if process == nil {
-			return nil
-		}
-		return process.Kill()
-	}
-	closeFn := newOwnedDaemonClose(nil, cmd, errCh)
+	closeFn := daemonlaunch.NewOwnedProcessClose[*client.Remote](nil, nil, cmd, errCh, daemonlaunch.Controls{
+		Terminate: func(process *os.Process) error {
+			return errors.New("interrupt unsupported")
+		},
+		Kill: func(process *os.Process) error {
+			killed = true
+			if process == nil {
+				return nil
+			}
+			return process.Kill()
+		},
+	})
 	if err := closeFn(); err != nil {
 		t.Fatalf("closeFn: %v", err)
 	}
@@ -795,7 +792,7 @@ func TestTryDialMatchingConfiguredRemoteRejectsServerThatDoesNotMatchSpawnedPID(
 	registerAppWorkspace(t, workspace)
 	cleanup := publishConfiguredRemoteForWorkspace(t, workspace, protocol.CapabilityFlags{RunPrompt: true, AuthBootstrap: true, ProjectAttach: true})
 	defer cleanup()
-	if remote, ok := tryDialMatchingConfiguredRemote(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, configuredRemoteSupportsRunPrompt, func(identity protocol.ServerIdentity) bool {
+	if remote, ok := tryDialMatchingConfiguredRemote(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, remoteattach.SupportsRunPrompt, func(identity protocol.ServerIdentity) bool {
 		return identity.PID == 111
 	}); ok || remote != nil {
 		t.Fatalf("expected mismatched pid server to be rejected, got remote=%v ok=%t", remote, ok)
@@ -809,7 +806,7 @@ func TestTryDialMatchingConfiguredRemoteSkipsUnregisteredWorkspace(t *testing.T)
 	configureAppTestServerPort(t)
 	cleanup := publishConfiguredRemoteForWorkspace(t, workspace, protocol.CapabilityFlags{RunPrompt: true, AuthBootstrap: true, ProjectAttach: true})
 	defer cleanup()
-	if remote, ok := tryDialMatchingConfiguredRemote(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, configuredRemoteSupportsRunPrompt, nil); ok || remote != nil {
+	if remote, ok := tryDialMatchingConfiguredRemote(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, remoteattach.SupportsRunPrompt, nil); ok || remote != nil {
 		t.Fatalf("expected unregistered workspace to skip configured remote attach, got remote=%v ok=%t", remote, ok)
 	}
 }

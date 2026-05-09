@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"builder/cli/app/internal/submissionerror"
 	"builder/cli/tui"
 	"builder/shared/clientui"
 
@@ -87,7 +88,7 @@ func (c uiInputController) submitCmd(text string, queuedID string) tea.Cmd {
 		message, err := m.submitRuntimeUserMessage(context.Background(), text)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
-				return newSubmitDoneMsg(token, "", text, errSubmissionInterrupted)
+				return newSubmitDoneMsg(token, "", text, submissionerror.ErrInterrupted)
 			}
 			return newSubmitDoneMsg(token, "", text, err)
 		}
@@ -105,7 +106,7 @@ func (c uiInputController) submitUserShellCmd(originalText, command string) tea.
 		err := m.submitRuntimeUserShellCommand(context.Background(), command)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
-				return newSubmitDoneMsg(token, "", originalText, errSubmissionInterrupted)
+				return newSubmitDoneMsg(token, "", originalText, submissionerror.ErrInterrupted)
 			}
 			return newSubmitDoneMsg(token, "", originalText, err)
 		}

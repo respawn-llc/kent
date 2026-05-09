@@ -1,16 +1,10 @@
 package app
 
 import (
-	"context"
-	"errors"
-	"io"
-	"net"
-	"net/url"
 	"strings"
 
-	"builder/server/llm"
+	"builder/cli/app/internal/runtimeconn"
 	"builder/shared/clientui"
-	"builder/shared/serverapi"
 )
 
 const runtimeDisconnectedStatusMessage = "server disconnected"
@@ -23,11 +17,11 @@ func (m *uiModel) observeRuntimeRequestResult(err error) {
 		m.setRuntimeDisconnected(false)
 		return
 	}
-	if isRuntimeConnectionError(err) {
+	if runtimeconn.IsConnectionError(err) {
 		m.setRuntimeDisconnected(true)
 		return
 	}
-	if confirmsRuntimeReachability(err) {
+	if runtimeconn.ConfirmsReachability(err) {
 		m.setRuntimeDisconnected(false)
 	}
 }
@@ -98,60 +92,4 @@ func (m *uiModel) runtimeDisconnectedState() bool {
 		return false
 	}
 	return m.runtimeDisconnected
-}
-
-func isRuntimeConnectionError(err error) bool {
-	if err == nil {
-		return false
-	}
-	var statusErr *llm.APIStatusError
-	if errors.As(err, &statusErr) {
-		return false
-	}
-	if errors.Is(err, serverapi.ErrStreamGap) || errors.Is(err, serverapi.ErrStreamUnavailable) || errors.Is(err, serverapi.ErrStreamFailed) {
-		return false
-	}
-	if isRuntimeTimeoutError(err) {
-		return false
-	}
-	if errors.Is(err, io.EOF) {
-		return true
-	}
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) {
-		return true
-	}
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
-		return true
-	}
-	var netErr net.Error
-	return errors.As(err, &netErr)
-}
-
-func confirmsRuntimeReachability(err error) bool {
-	if err == nil {
-		return true
-	}
-	if isRuntimeConnectionError(err) {
-		return false
-	}
-	if isRuntimeTimeoutError(err) {
-		return false
-	}
-	if errors.Is(err, serverapi.ErrStreamGap) || errors.Is(err, serverapi.ErrStreamUnavailable) || errors.Is(err, serverapi.ErrStreamFailed) {
-		return false
-	}
-	return true
-}
-
-func isRuntimeTimeoutError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return true
-	}
-	var netErr net.Error
-	return errors.As(err, &netErr) && netErr.Timeout()
 }

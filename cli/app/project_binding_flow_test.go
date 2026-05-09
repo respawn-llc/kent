@@ -854,13 +854,9 @@ func (projectBindingFlowStubProjectViewService) ListSessionsByProject(context.Co
 
 func (s *failingBindProjectServer) ProjectID() string { return "" }
 
-func (s *failingBindProjectServer) BindProject(context.Context, string) (embeddedServer, error) {
+func (s *failingBindProjectServer) BindProjectWorkspace(context.Context, string, string) (interactiveSessionServer, error) {
 	if s.bindErr != nil {
 		return nil, s.bindErr
 	}
 	return s.testEmbeddedServer, nil
-}
-
-func (s *failingBindProjectServer) BindProjectWorkspace(ctx context.Context, projectID string, _ string) (embeddedServer, error) {
-	return s.BindProject(ctx, projectID)
 }

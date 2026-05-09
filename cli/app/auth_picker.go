@@ -1,12 +1,11 @@
 package app
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
+	"builder/cli/app/internal/authview"
 	"builder/cli/tui"
-	"builder/server/auth"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
@@ -394,22 +393,17 @@ func newAuthMethodPickerModel(theme string, notice startupPickerNotice, includeE
 }
 
 func authMethodPickerNoticeForRequest(req authInteraction) startupPickerNotice {
-	if req.FlowErr != nil {
-		if errors.Is(req.FlowErr, auth.ErrDeviceCodeUnsupported) {
-			return startupPickerNotice{Text: "Device-code sign-in is not enabled for this issuer. Choose another method.", Kind: startupPickerNoticeError}
-		}
-		return startupPickerNotice{Text: "Sign-in failed: " + req.FlowErr.Error(), Kind: startupPickerNoticeError}
+	notice := authview.MethodPickerNotice(authview.MethodPickerNoticeRequest{
+		FlowErr:      req.FlowErr,
+		StartupErr:   req.StartupErr,
+		GateReason:   req.Gate.Reason,
+		HasEnvAPIKey: req.HasEnvAPIKey,
+	})
+	kind := startupPickerNoticeNeutral
+	if notice.Kind == authview.NoticeError {
+		kind = startupPickerNoticeError
 	}
-	if req.StartupErr != nil && !errors.Is(req.StartupErr, auth.ErrAuthNotConfigured) {
-		return startupPickerNotice{Text: "Saved sign-in needs attention: " + req.StartupErr.Error(), Kind: startupPickerNoticeError}
-	}
-	if strings.TrimSpace(req.Gate.Reason) != "" && req.Gate.Reason != auth.ErrAuthNotConfigured.Error() {
-		return startupPickerNotice{Text: "Saved sign-in needs attention: " + req.Gate.Reason, Kind: startupPickerNoticeError}
-	}
-	if req.HasEnvAPIKey {
-		return startupPickerNotice{Text: "Choose how Builder should sign in. OPENAI_API_KEY is available for this launch.", Kind: startupPickerNoticeNeutral}
-	}
-	return startupPickerNotice{Text: "Choose how to authenticate.", Kind: startupPickerNoticeNeutral}
+	return startupPickerNotice{Text: notice.Text, Kind: kind}
 }
 
 func authMethodDisplayTitle(choice authMethodChoice) string {

@@ -67,13 +67,6 @@ func TestRemoteAppServerReauthenticateConfiguresServerOwnedAuth(t *testing.T) {
 	}
 }
 
-func TestRemoteAppServerHasNoLocalAuthManager(t *testing.T) {
-	server := newRemoteAppServer(&client.Remote{}, config.App{})
-	if server.AuthManager() != nil {
-		t.Fatal("expected remote app server auth manager to remain nil")
-	}
-}
-
 func TestRemoteAppServerCloseUsesOwnedCloser(t *testing.T) {
 	called := false
 	server := newRemoteAppServerWithClose(&client.Remote{}, config.App{}, func() error {

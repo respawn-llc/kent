@@ -492,17 +492,17 @@ func TestRemoteSessionStatusDoesNotReuseLocalAuthState(t *testing.T) {
 		t.Fatalf("expected empty remote auth state path, got %q", plan.StatusConfig.AuthStatePath)
 	}
 
-	collector := defaultUIStatusCollector{}
-	snapshot, err := collector.Collect(context.Background(), uiStatusRequest{
-		WorkspaceRoot:   plan.StatusConfig.WorkspaceRoot,
-		PersistenceRoot: plan.StatusConfig.PersistenceRoot,
-		Settings:        plan.StatusConfig.Settings,
-		Source:          plan.StatusConfig.Source,
-		AuthManager:     plan.StatusConfig.AuthManager,
-		AuthStatus:      plan.StatusConfig.AuthStatus,
-		AuthStatePath:   plan.StatusConfig.AuthStatePath,
-		OwnsServer:      plan.StatusConfig.OwnsServer,
-	})
+	collector := defaultUIStatusCollector{authManager: plan.StatusConfig.AuthManager}
+	snapshot, err := collector.Collect(context.Background(), populateStatusRequestCacheKeys(uiStatusRequest{
+		WorkspaceRoot:     plan.StatusConfig.WorkspaceRoot,
+		PersistenceRoot:   plan.StatusConfig.PersistenceRoot,
+		Settings:          plan.StatusConfig.Settings,
+		Source:            plan.StatusConfig.Source,
+		AuthCacheIdentity: statusAuthCacheIdentity(plan.StatusConfig.AuthManager),
+		AuthStatus:        plan.StatusConfig.AuthStatus,
+		AuthStatePath:     plan.StatusConfig.AuthStatePath,
+		OwnsServer:        plan.StatusConfig.OwnsServer,
+	}))
 	if err != nil {
 		t.Fatalf("collect status: %v", err)
 	}
@@ -819,6 +819,7 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 		t.Fatalf("startSessionServer: %v", err)
 	}
 	defer func() { _ = server.Close() }()
+	promptViews := requirePromptViewServer(t, server)
 
 	planner := newSessionLaunchPlanner(server)
 	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, ForceNewSession: true})
@@ -847,7 +848,7 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 			err  error
 		}{resp: resp, err: err}
 	}()
-	waitForPendingAskResources(t, server.AskViewClient(), plan.SessionID, 1)
+	waitForPendingAskResources(t, promptViews.AskViewClient(), plan.SessionID, 1)
 	askEvt := waitForRemoteAskEvent(t, runtimePlan.Wiring.askEvents)
 	if askEvt.req.PromptID != "ask-1" || askEvt.req.Question != "Pick one" {
 		t.Fatalf("unexpected ask event: %+v", askEvt.req)
@@ -864,7 +865,7 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for ask response")
 	}
-	waitForPendingAskResources(t, server.AskViewClient(), plan.SessionID, 0)
+	waitForPendingAskResources(t, promptViews.AskViewClient(), plan.SessionID, 0)
 
 	approvalDone := make(chan struct {
 		resp askquestion.Response
@@ -882,7 +883,7 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 			err  error
 		}{resp: resp, err: err}
 	}()
-	waitForPendingApprovalResources(t, server.ApprovalViewClient(), plan.SessionID, 1)
+	waitForPendingApprovalResources(t, promptViews.ApprovalViewClient(), plan.SessionID, 1)
 	approvalEvt := waitForRemoteAskEvent(t, runtimePlan.Wiring.askEvents)
 	if !approvalEvt.req.Approval || approvalEvt.req.PromptID != "approval-1" {
 		t.Fatalf("unexpected approval event: %+v", approvalEvt.req)
@@ -899,7 +900,7 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for approval response")
 	}
-	waitForPendingApprovalResources(t, server.ApprovalViewClient(), plan.SessionID, 0)
+	waitForPendingApprovalResources(t, promptViews.ApprovalViewClient(), plan.SessionID, 0)
 
 	cancel()
 	if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {

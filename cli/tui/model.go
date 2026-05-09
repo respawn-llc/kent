@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"builder/server/llm"
+	"builder/shared/clientui"
 	"builder/shared/transcript"
 	"fmt"
 	"regexp"
@@ -31,8 +31,8 @@ type TranscriptEntry struct {
 	Role              TranscriptRole
 	Text              string
 	OngoingText       string
-	Phase             llm.MessagePhase
-	MessageType       llm.MessageType
+	Phase             clientui.MessagePhase
+	MessageType       clientui.MessageType
 	SourcePath        string
 	CompactLabel      string
 	ToolResultSummary string
@@ -82,8 +82,8 @@ type AppendTranscriptMsg struct {
 	Role              TranscriptRole
 	Text              string
 	OngoingText       string
-	Phase             llm.MessagePhase
-	MessageType       llm.MessageType
+	Phase             clientui.MessagePhase
+	MessageType       clientui.MessageType
 	SourcePath        string
 	CompactLabel      string
 	ToolResultSummary string

@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"builder/cli/tui"
-	"builder/server/llm"
 	"builder/shared/clientui"
 )
 
@@ -237,7 +236,7 @@ func localLastCommittedAssistantFinalAnswer(entries []tui.TranscriptEntry) strin
 		if !transcriptEntryAffectsCommittedAssistantFinalAnswer(entry) {
 			continue
 		}
-		if entry.Role == tui.TranscriptRoleAssistant && entry.Phase == llm.MessagePhaseFinal && strings.TrimSpace(entry.Text) != "" {
+		if entry.Role == tui.TranscriptRoleAssistant && string(entry.Phase) == clientui.ChatEntryPhaseFinalAnswer && strings.TrimSpace(entry.Text) != "" {
 			answer = entry.Text
 			continue
 		}

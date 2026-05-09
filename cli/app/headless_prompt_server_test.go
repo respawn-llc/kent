@@ -1,9 +1,7 @@
 package app
 
 import (
-	"fmt"
 	"io"
-	"strings"
 
 	"builder/server/launch"
 	"builder/server/runprompt"
@@ -14,8 +12,12 @@ import (
 	"builder/shared/serverapi"
 )
 
-func newHeadlessRunPromptClient(server embeddedServer) client.RunPromptClient {
-	return server.RunPromptClient()
+func newHeadlessRunPromptClient(server *embeddedAppServer) client.RunPromptClient {
+	runPrompt, err := runPromptClientForEmbeddedServer(server)
+	if err != nil {
+		panic(err)
+	}
+	return runPrompt
 }
 
 func ensureSubagentSessionName(store *session.Store) error {
@@ -36,19 +38,4 @@ func publishRunPromptProgress(progress serverapi.RunPromptProgressSink, evt runt
 
 func runPromptProgressFromRuntimeEvent(evt runtime.Event) (serverapi.RunPromptProgress, bool) {
 	return runprompt.RunPromptProgressFromRuntimeEvent(evt)
-}
-
-type runPromptIOProgressSink struct {
-	writer io.Writer
-}
-
-func (s runPromptIOProgressSink) PublishRunPromptProgress(progress serverapi.RunPromptProgress) {
-	if s.writer == nil {
-		return
-	}
-	message := strings.TrimSpace(progress.Message)
-	if message == "" {
-		return
-	}
-	_, _ = fmt.Fprintln(s.writer, message)
 }

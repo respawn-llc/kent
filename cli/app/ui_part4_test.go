@@ -1,6 +1,7 @@
 package app
 
 import (
+	"builder/cli/app/internal/submissionerror"
 	"builder/cli/tui"
 	"builder/server/llm"
 	"builder/server/runtime"
@@ -754,7 +755,7 @@ func TestInterruptedSubmitDoneRestoresQueueIntoInputAndDoesNotAutoDrain(t *testi
 	m.busy = true
 	m.queued = queuedInputsForTest("first", "second")
 
-	next, cmd := m.Update(submitDoneMsg{err: errSubmissionInterrupted})
+	next, cmd := m.Update(submitDoneMsg{err: submissionerror.ErrInterrupted})
 	updated := next.(*uiModel)
 
 	if cmd != nil {
@@ -804,7 +805,7 @@ func TestInterruptedSubmitDoneDoesNotRestoreFlushedSubmittedText(t *testing.T) {
 	}})
 	updated = next.(*uiModel)
 
-	next, _ = updated.Update(submitDoneMsg{token: 7, submittedText: "already flushed", err: errSubmissionInterrupted})
+	next, _ = updated.Update(submitDoneMsg{token: 7, submittedText: "already flushed", err: submissionerror.ErrInterrupted})
 	updated = next.(*uiModel)
 
 	if updated.input != "" {
@@ -846,7 +847,7 @@ func TestStaleSubmitDoneAfterInterruptDoesNotRestoreSubmittedText(t *testing.T) 
 	}
 	updated = applyInterruptedRunStateForTest(t, updated)
 
-	next, _ = updated.Update(submitDoneMsg{token: 9, submittedText: "previous", err: errSubmissionInterrupted})
+	next, _ = updated.Update(submitDoneMsg{token: 9, submittedText: "previous", err: submissionerror.ErrInterrupted})
 	updated = next.(*uiModel)
 	if updated.input != "" {
 		t.Fatalf("stale submit completion restored submitted text, got %q", updated.input)
@@ -900,7 +901,7 @@ func TestVerboseReviewerSuggestionsStaySingleAfterInterruptAndNextSubmit(t *test
 
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated = next.(*uiModel)
-	next, _ = updated.Update(submitDoneMsg{token: 21, submittedText: suggestions, err: errSubmissionInterrupted})
+	next, _ = updated.Update(submitDoneMsg{token: 21, submittedText: suggestions, err: submissionerror.ErrInterrupted})
 	updated = next.(*uiModel)
 	if strings.Contains(updated.input, suggestions) {
 		t.Fatalf("stale reviewer suggestions were restored into input: %q", updated.input)

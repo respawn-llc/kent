@@ -1,0 +1,97 @@
+package app
+
+import (
+	"strings"
+
+	"builder/cli/app/internal/worktreedelete"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+func (d uiWorktreeDeleteDialogState) availableActions() []uiWorktreeDeleteAction {
+	return worktreedelete.Actions(d.target)
+}
+
+func (d *uiWorktreeDeleteDialogState) clampSelection() {
+	if d == nil {
+		return
+	}
+	d.selectedAction = worktreedelete.ClampAction(d.target, d.selectedAction, d.preferDeleteBranch)
+}
+
+func (d *uiWorktreeDeleteDialogState) moveSelection(delta int) {
+	if d == nil {
+		return
+	}
+	d.selectedAction = worktreedelete.MoveAction(d.target, d.selectedAction, delta)
+}
+
+type worktreeDeletePreviewLineKind = worktreedelete.PreviewLineKind
+
+const (
+	worktreeDeletePreviewLineKindHeader  = worktreedelete.PreviewLineKindHeader
+	worktreeDeletePreviewLineKindBullet  = worktreedelete.PreviewLineKindBullet
+	worktreeDeletePreviewLineKindWarning = worktreedelete.PreviewLineKindWarning
+)
+
+type worktreeDeletePreviewLine = worktreedelete.PreviewLine
+
+func worktreeDeletePreviewLines(dialog uiWorktreeDeleteDialogState) []worktreeDeletePreviewLine {
+	return worktreedelete.PreviewLines(dialog.target, dialog.selectedAction)
+}
+
+func worktreeDeleteWillDeleteBranch(dialog uiWorktreeDeleteDialogState) bool {
+	return worktreedelete.WillDeleteBranch(dialog.target, dialog.selectedAction)
+}
+
+func renderWorktreeDeleteButtons(width int, theme string, dialog uiWorktreeDeleteDialogState) string {
+	actions := dialog.availableActions()
+	options := make([]uiChoiceOption, 0, len(actions))
+	selectedIndex := 0
+	for _, action := range actions {
+		label := ""
+		switch action {
+		case uiWorktreeDeleteActionCancel:
+			label = "Cancel"
+		case uiWorktreeDeleteActionDelete:
+			label = "Delete"
+		case uiWorktreeDeleteActionDeleteBranch:
+			label = "Delete + Branch"
+		}
+		if action == dialog.selectedAction {
+			selectedIndex = len(options)
+		}
+		options = append(options, uiChoiceOption{Label: label})
+	}
+	return renderUIChoiceGroupLine(width, theme, uiChoiceGroupKindButton, options, selectedIndex)
+}
+
+func (c uiInputController) handleWorktreeDeleteDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m := c.model
+	dialog := &m.worktrees.deleteConfirm
+	if dialog.submitting {
+		return m, nil
+	}
+	switch strings.ToLower(msg.String()) {
+	case "esc":
+		m.closeWorktreeDialog()
+		return m, nil
+	case "tab", "right", "l":
+		dialog.moveSelection(1)
+		return m, nil
+	case "shift+tab", "left", "h":
+		dialog.moveSelection(-1)
+		return m, nil
+	case "enter":
+		switch dialog.selectedAction {
+		case uiWorktreeDeleteActionCancel:
+			m.closeWorktreeDialog()
+			return m, nil
+		case uiWorktreeDeleteActionDelete:
+			return m, m.worktreeDeleteCmd(dialog.target, false)
+		case uiWorktreeDeleteActionDeleteBranch:
+			return m, m.worktreeDeleteCmd(dialog.target, true)
+		}
+	}
+	return m, nil
+}

@@ -3,10 +3,10 @@ package app
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"builder/server/auth"
+	"builder/shared/config"
 )
 
 func TestBootstrapAppIgnoresOAuthIssuerOverrideEnv(t *testing.T) {
@@ -29,7 +29,11 @@ func TestBootstrapAppIgnoresOAuthIssuerOverrideEnv(t *testing.T) {
 	if got := boot.OAuthOptions().ClientID; got != "client-test" {
 		t.Fatalf("oauth client id = %q", got)
 	}
-	if _, err := os.Stat(filepath.Join(boot.ContainerDir())); err != nil {
+	_, containerDir, err := config.ResolveWorkspaceContainer(boot.Config())
+	if err != nil {
+		t.Fatalf("resolve bootstrap container dir: %v", err)
+	}
+	if _, err := os.Stat(containerDir); err != nil {
 		t.Fatalf("expected bootstrap container dir to exist: %v", err)
 	}
 }

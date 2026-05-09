@@ -4,7 +4,6 @@ import (
 	"builder/cli/tui"
 	"builder/server/llm"
 	"builder/server/runtime"
-	"builder/server/session"
 	"builder/shared/clientui"
 	"builder/shared/transcript"
 	"strings"
@@ -871,7 +870,7 @@ func TestRuntimeSessionViewUsesLocalFallbackWhenRuntimeClientMissing(t *testing.
 	m := newProjectedStaticUIModel(
 		WithUISessionName("incident triage"),
 		WithUISessionID("session-123"),
-		WithUIConversationFreshness(session.ConversationFreshnessEstablished),
+		WithUIConversationFreshness(clientui.ConversationFreshnessEstablished),
 	)
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: "assistant", Text: "hello"}}
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: "streaming"})

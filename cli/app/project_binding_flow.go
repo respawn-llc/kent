@@ -2,17 +2,15 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
+	"builder/cli/app/internal/projectbinding"
+	"builder/cli/app/internal/projectpicker"
 	"builder/cli/tui"
-	tuiinput "builder/cli/tui/input"
 	"builder/shared/clientui"
-	"builder/shared/serverapi"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
@@ -41,16 +39,9 @@ var runServerProjectPickerFlow = runServerProjectPicker
 var runProjectWorkspacePickerFlow = runProjectWorkspacePicker
 var runProjectNamePromptFlow = runProjectNamePrompt
 
-type projectBindingPickerResult struct {
-	CreateNew bool
-	Project   *clientui.ProjectSummary
-	Canceled  bool
-}
+type projectBindingPickerResult = projectbinding.ProjectPickerResult
 
-type projectWorkspacePickerResult struct {
-	Workspace *clientui.ProjectWorkspaceSummary
-	Canceled  bool
-}
+type projectWorkspacePickerResult = projectbinding.WorkspacePickerResult
 
 type projectPickerOptions struct {
 	AllowCreate    bool
@@ -60,11 +51,7 @@ type projectPickerOptions struct {
 	GroupLabel     string
 }
 
-type projectBindingVisibleRow struct {
-	index       int
-	showPreview bool
-	showGroup   bool
-}
+type projectBindingVisibleRow = projectpicker.VisibleRow
 
 type projectBindingPickerModel struct {
 	projects []clientui.ProjectSummary
@@ -166,23 +153,19 @@ func (m *projectBindingPickerModel) View() string {
 		if idx > 0 {
 			out.WriteByte('\n')
 		}
-		if row.showGroup && !groupRendered {
+		if row.ShowGroup && !groupRendered {
 			out.WriteString("\n")
 			out.WriteString(lipgloss.NewStyle().Foreground(uiPalette(m.theme).foreground).Bold(true).Render(m.options.GroupLabel))
 			out.WriteString("\n\n")
 			groupRendered = true
 		}
-		out.WriteString(m.renderRow(row.index, row.showPreview))
+		out.WriteString(m.renderRow(row.Index, row.ShowPreview))
 	}
 	return out.String()
 }
 
 func (m *projectBindingPickerModel) itemCount() int {
-	count := len(m.projects)
-	if m.options.AllowCreate {
-		count++
-	}
-	return count
+	return projectpicker.ItemCount(len(m.projects), m.options.AllowCreate)
 }
 
 func (m *projectBindingPickerModel) visibleLineBudget() int {
@@ -194,86 +177,27 @@ func (m *projectBindingPickerModel) visibleLineBudget() int {
 }
 
 func (m *projectBindingPickerModel) moveCursor(delta int) {
-	if m.itemCount() == 0 {
-		return
-	}
-	m.cursor += delta
-	if m.cursor < 0 {
-		m.cursor = 0
-	}
-	if m.cursor >= m.itemCount() {
-		m.cursor = m.itemCount() - 1
-	}
+	m.cursor = projectpicker.MoveCursor(m.cursor, delta, m.itemCount())
 	m.ensureCursorVisible()
 }
 
 func (m *projectBindingPickerModel) ensureCursorVisible() {
-	if m.cursor < m.offset {
-		m.offset = m.cursor
-	}
-	for m.offset < m.cursor && !m.rowVisibleFromOffset(m.offset, m.cursor) {
-		m.offset++
-	}
-	if m.offset < 0 {
-		m.offset = 0
-	}
-	for m.offset > 0 && m.rowVisibleFromOffset(m.offset-1, m.cursor) {
-		m.offset--
-	}
-	maxOffset := m.itemCount() - 1
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if m.offset > maxOffset {
-		m.offset = maxOffset
-	}
+	m.offset = projectpicker.EnsureCursorVisible(m.cursor, m.offset, m.itemCount(), m.visibleRowsFromOffset)
 }
 
 func (m *projectBindingPickerModel) visibleRowsFromOffset(offset int) []projectBindingVisibleRow {
-	budget := m.visibleLineBudget()
-	visible := make([]projectBindingVisibleRow, 0, m.itemCount())
-	groupRendered := false
-	for i := offset; i < m.itemCount(); i++ {
-		separator := 0
-		if len(visible) > 0 {
-			separator = 1
-		}
-		groupLines := 0
-		showGroup := false
-		if m.shouldShowGroupHeader(i, groupRendered) {
-			groupLines = 3
-			showGroup = true
-		}
-		available := budget - separator - groupLines
-		if available < 1 {
-			break
-		}
-		showPreview := m.hasPreview(i) && available >= 2
-		rowLines := 1
-		if showPreview {
-			rowLines = 2
-		}
-		if rowLines > available {
-			if len(visible) == 0 {
-				return []projectBindingVisibleRow{{index: i, showPreview: false, showGroup: showGroup}}
-			}
-			break
-		}
-		visible = append(visible, projectBindingVisibleRow{index: i, showPreview: showPreview, showGroup: showGroup})
-		budget -= separator + groupLines + rowLines
-		if showGroup {
-			groupRendered = true
-		}
-		if budget == 0 {
-			break
-		}
-	}
-	return visible
+	return projectpicker.VisibleRows(projectpicker.VisibleRowsRequest{
+		Offset:     offset,
+		ItemCount:  m.itemCount(),
+		LineBudget: m.visibleLineBudget(),
+		HasPreview: m.hasPreview,
+		ShowGroup:  m.shouldShowGroupHeader,
+	})
 }
 
 func (m *projectBindingPickerModel) rowVisibleFromOffset(offset, index int) bool {
 	for _, row := range m.visibleRowsFromOffset(offset) {
-		if row.index == index {
+		if row.Index == index {
 			return true
 		}
 	}
@@ -292,16 +216,9 @@ func (m *projectBindingPickerModel) renderHeader() string {
 
 func (m *projectBindingPickerModel) renderRow(index int, showPreview bool) string {
 	selected := index == m.cursor
-	title := projectBindingCreateLabel
-	preview := ""
-	var timestamp string
+	row := projectpicker.RowText{Title: projectBindingCreateLabel}
 	if project, ok := m.projectForRow(index); ok {
-		title = strings.TrimSpace(project.DisplayName)
-		if title == "" {
-			title = strings.TrimSpace(project.ProjectID)
-		}
-		preview = projectBindingPreviewPath(project.RootPath)
-		timestamp = humanTime(project.UpdatedAt)
+		row = projectpicker.ProjectRowText(project.DisplayName, project.ProjectID, project.RootPath, humanTime(project.UpdatedAt), projectBindingHomeDir())
 	}
 	markerStyle := m.styles.marker
 	rowStyle := m.styles.row
@@ -310,32 +227,32 @@ func (m *projectBindingPickerModel) renderRow(index int, showPreview bool) strin
 		markerStyle = m.styles.markerSelected
 		rowStyle = m.styles.rowSelected
 	}
-	left := markerStyle.Render(marker) + " " + rowStyle.Render(title)
-	if timestamp == "" {
-		if preview == "" || !showPreview {
+	left := markerStyle.Render(marker) + " " + rowStyle.Render(row.Title)
+	if row.Timestamp == "" {
+		if row.Preview == "" || !showPreview {
 			return left
 		}
 		previewWidth := m.width - 2
 		if previewWidth < 1 {
 			previewWidth = 1
 		}
-		previewLine := "  " + m.styles.preview.Render(truncateQueuedMessageLine(preview, previewWidth))
+		previewLine := "  " + m.styles.preview.Render(truncateQueuedMessageLine(row.Preview, previewWidth))
 		return left + "\n" + previewLine
 	}
-	right := m.styles.timestamp.Render(timestamp)
+	right := m.styles.timestamp.Render(row.Timestamp)
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
 	}
 	titleLine := left + strings.Repeat(" ", gap) + right
-	if preview == "" || !showPreview {
+	if row.Preview == "" || !showPreview {
 		return titleLine
 	}
 	previewWidth := m.width - 2
 	if previewWidth < 1 {
 		previewWidth = 1
 	}
-	previewLine := "  " + m.styles.preview.Render(truncateQueuedMessageLine(preview, previewWidth))
+	previewLine := "  " + m.styles.preview.Render(truncateQueuedMessageLine(row.Preview, previewWidth))
 	return titleLine + "\n" + previewLine
 }
 
@@ -348,10 +265,7 @@ func (m *projectBindingPickerModel) hasPreview(index int) bool {
 }
 
 func (m *projectBindingPickerModel) firstProjectRowIndex() int {
-	if m.options.AllowCreate {
-		return 1
-	}
-	return 0
+	return projectpicker.FirstProjectRowIndex(m.options.AllowCreate)
 }
 
 func (m *projectBindingPickerModel) isCreateRow(index int) bool {
@@ -359,11 +273,8 @@ func (m *projectBindingPickerModel) isCreateRow(index int) bool {
 }
 
 func (m *projectBindingPickerModel) projectForRow(index int) (clientui.ProjectSummary, bool) {
-	if index < m.firstProjectRowIndex() {
-		return clientui.ProjectSummary{}, false
-	}
-	projectIndex := index - m.firstProjectRowIndex()
-	if projectIndex < 0 || projectIndex >= len(m.projects) {
+	projectIndex, ok := projectpicker.ProjectIndexForRow(index, len(m.projects), m.options.AllowCreate)
+	if !ok {
 		return clientui.ProjectSummary{}, false
 	}
 	return m.projects[projectIndex], true
@@ -376,26 +287,12 @@ func (m *projectBindingPickerModel) shouldShowGroupHeader(index int, groupRender
 	return index == m.firstProjectRowIndex()
 }
 
-func projectBindingPreviewPath(rootPath string) string {
-	trimmedRoot := strings.TrimSpace(rootPath)
-	if trimmedRoot == "" {
-		return ""
-	}
+func projectBindingHomeDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
-		return trimmedRoot
+		return ""
 	}
-	rel, err := filepath.Rel(home, trimmedRoot)
-	if err != nil {
-		return trimmedRoot
-	}
-	if rel == "." {
-		return "~"
-	}
-	if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return filepath.Join("~", rel)
-	}
-	return trimmedRoot
+	return home
 }
 
 func runProjectBindingPicker(projects []clientui.ProjectSummary, theme string) (projectBindingPickerResult, error) {
@@ -527,7 +424,7 @@ func (m *projectWorkspacePickerModel) View() string {
 		if idx > 0 {
 			out.WriteByte('\n')
 		}
-		out.WriteString(m.renderRow(row.index, row.showPreview))
+		out.WriteString(m.renderRow(row.Index, row.ShowPreview))
 	}
 	return out.String()
 }
@@ -543,76 +440,26 @@ func (m *projectWorkspacePickerModel) visibleLineBudget() int {
 }
 
 func (m *projectWorkspacePickerModel) moveCursor(delta int) {
-	if m.itemCount() == 0 {
-		return
-	}
-	m.cursor += delta
-	if m.cursor < 0 {
-		m.cursor = 0
-	}
-	if m.cursor >= m.itemCount() {
-		m.cursor = m.itemCount() - 1
-	}
+	m.cursor = projectpicker.MoveCursor(m.cursor, delta, m.itemCount())
 	m.ensureCursorVisible()
 }
 
 func (m *projectWorkspacePickerModel) ensureCursorVisible() {
-	if m.cursor < m.offset {
-		m.offset = m.cursor
-	}
-	for m.offset < m.cursor && !m.rowVisibleFromOffset(m.offset, m.cursor) {
-		m.offset++
-	}
-	if m.offset < 0 {
-		m.offset = 0
-	}
-	for m.offset > 0 && m.rowVisibleFromOffset(m.offset-1, m.cursor) {
-		m.offset--
-	}
-	maxOffset := m.itemCount() - 1
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if m.offset > maxOffset {
-		m.offset = maxOffset
-	}
+	m.offset = projectpicker.EnsureCursorVisible(m.cursor, m.offset, m.itemCount(), m.visibleRowsFromOffset)
 }
 
 func (m *projectWorkspacePickerModel) visibleRowsFromOffset(offset int) []projectBindingVisibleRow {
-	budget := m.visibleLineBudget()
-	visible := make([]projectBindingVisibleRow, 0, m.itemCount())
-	for i := offset; i < m.itemCount(); i++ {
-		separator := 0
-		if len(visible) > 0 {
-			separator = 1
-		}
-		available := budget - separator
-		if available < 1 {
-			break
-		}
-		showPreview := m.hasPreview(i) && available >= 2
-		rowLines := 1
-		if showPreview {
-			rowLines = 2
-		}
-		if rowLines > available {
-			if len(visible) == 0 {
-				return []projectBindingVisibleRow{{index: i, showPreview: false}}
-			}
-			break
-		}
-		visible = append(visible, projectBindingVisibleRow{index: i, showPreview: showPreview})
-		budget -= separator + rowLines
-		if budget == 0 {
-			break
-		}
-	}
-	return visible
+	return projectpicker.VisibleRows(projectpicker.VisibleRowsRequest{
+		Offset:     offset,
+		ItemCount:  m.itemCount(),
+		LineBudget: m.visibleLineBudget(),
+		HasPreview: m.hasPreview,
+	})
 }
 
 func (m *projectWorkspacePickerModel) rowVisibleFromOffset(offset, index int) bool {
 	for _, row := range m.visibleRowsFromOffset(offset) {
-		if row.index == index {
+		if row.Index == index {
 			return true
 		}
 	}
@@ -632,12 +479,7 @@ func (m *projectWorkspacePickerModel) renderHeader() string {
 func (m *projectWorkspacePickerModel) renderRow(index int, showPreview bool) string {
 	selected := index == m.cursor
 	workspace := m.workspaces[index]
-	title := strings.TrimSpace(workspace.DisplayName)
-	if title == "" {
-		title = strings.TrimSpace(filepath.Base(workspace.RootPath))
-	}
-	preview := projectBindingPreviewPath(workspace.RootPath)
-	timestamp := humanTime(workspace.UpdatedAt)
+	row := projectpicker.WorkspaceRowText(workspace.DisplayName, workspace.RootPath, humanTime(workspace.UpdatedAt), projectBindingHomeDir())
 	markerStyle := m.styles.marker
 	rowStyle := m.styles.row
 	marker := "◈"
@@ -645,32 +487,32 @@ func (m *projectWorkspacePickerModel) renderRow(index int, showPreview bool) str
 		markerStyle = m.styles.markerSelected
 		rowStyle = m.styles.rowSelected
 	}
-	left := markerStyle.Render(marker) + " " + rowStyle.Render(title)
-	if timestamp == "" {
-		if preview == "" || !showPreview {
+	left := markerStyle.Render(marker) + " " + rowStyle.Render(row.Title)
+	if row.Timestamp == "" {
+		if row.Preview == "" || !showPreview {
 			return left
 		}
 		previewWidth := m.width - 2
 		if previewWidth < 1 {
 			previewWidth = 1
 		}
-		previewLine := "  " + m.styles.preview.Render(truncateQueuedMessageLine(preview, previewWidth))
+		previewLine := "  " + m.styles.preview.Render(truncateQueuedMessageLine(row.Preview, previewWidth))
 		return left + "\n" + previewLine
 	}
-	right := m.styles.timestamp.Render(timestamp)
+	right := m.styles.timestamp.Render(row.Timestamp)
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
 	}
 	titleLine := left + strings.Repeat(" ", gap) + right
-	if preview == "" || !showPreview {
+	if row.Preview == "" || !showPreview {
 		return titleLine
 	}
 	previewWidth := m.width - 2
 	if previewWidth < 1 {
 		previewWidth = 1
 	}
-	previewLine := "  " + m.styles.preview.Render(truncateQueuedMessageLine(preview, previewWidth))
+	previewLine := "  " + m.styles.preview.Render(truncateQueuedMessageLine(row.Preview, previewWidth))
 	return titleLine + "\n" + previewLine
 }
 
@@ -695,246 +537,22 @@ func runProjectWorkspacePicker(workspaces []clientui.ProjectWorkspaceSummary, th
 	return picked.result, nil
 }
 
-type projectNamePromptModel struct {
-	width          int
-	height         int
-	theme          string
-	headerMD       *glamour.TermRenderer
-	input          tuiinput.Editor
-	terminalCursor *uiTerminalCursorState
-	error          string
-	result         string
-	canceled       bool
-}
-
-func newProjectNamePromptModel(defaultName string, theme string) *projectNamePromptModel {
-	input := newSingleLineEditor(defaultName)
-	return &projectNamePromptModel{
-		width:    defaultPickerWidth,
-		height:   defaultPickerHeight,
-		theme:    theme,
-		headerMD: newStartupMarkdownRenderer(theme),
-		input:    input,
-	}
-}
-
-func (m *projectNamePromptModel) Init() tea.Cmd { return nil }
-
-func (m *projectNamePromptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch typed := msg.(type) {
-	case tea.WindowSizeMsg:
-		if typed.Width > 0 {
-			m.width = typed.Width
-		}
-		if typed.Height > 0 {
-			m.height = typed.Height
-		}
-		return m, nil
-	case tea.KeyMsg:
-		switch typed.Type {
-		case tea.KeyEnter:
-			value := strings.TrimSpace(singleLineEditorValue(m.input))
-			if value == "" {
-				m.error = "project name is required"
-				return m, nil
-			}
-			m.result = value
-			return m, tea.Quit
-		case tea.KeyEsc, tea.KeyCtrlC:
-			m.canceled = true
-			return m, tea.Quit
-		}
-	}
-	return m, updateSingleLineEditorWithAppKeys(&m.input, msg)
-}
-
-func (m *projectNamePromptModel) View() string {
-	var out strings.Builder
-	out.WriteString(m.renderHeader())
-	out.WriteString("\n\n")
-	out.WriteString(tui.ApplyThemeDefaultForeground("Enter a project name. Press Enter to create the project.", m.theme))
-	out.WriteString("\n\n")
-	out.WriteString(renderStartupEditorField(m.width, m.height, m.theme, m.input, "› ", m.terminalCursor == nil, 0, ""))
-	if trimmed := strings.TrimSpace(m.error); trimmed != "" {
-		out.WriteString("\n\n")
-		out.WriteString(lipgloss.NewStyle().Foreground(statusRedColor()).Bold(true).Render(truncateQueuedMessageLine(trimmed, m.width)))
-	}
-	m.updateTerminalCursor()
-	return out.String()
-}
-
-func (m *projectNamePromptModel) updateTerminalCursor() {
-	if m.terminalCursor == nil {
-		return
-	}
-	headerLines := strings.Split(m.renderHeader(), "\n")
-	cursor := renderSingleLineEditor(max(1, m.width), inputContentLineLimit(m.height), m.input, "› ", true, 0, "").Cursor
-	if !cursor.Visible {
-		m.terminalCursor.Clear()
-		return
-	}
-	m.terminalCursor.Set(uiTerminalCursorPlacement{
-		Visible:   true,
-		CursorRow: len(headerLines) + 4 + cursor.Row,
-		CursorCol: cursor.Col,
-		AnchorRow: max(0, m.height-1),
-		AltScreen: true,
+func ensureInteractiveProjectBinding(ctx context.Context, server projectbinding.Server[interactiveSessionServer]) (interactiveSessionServer, error) {
+	return projectbinding.EnsureInteractive[interactiveSessionServer](ctx, projectbinding.Request[interactiveSessionServer]{
+		Server:            server,
+		PickLocalProject:  runProjectBindingPickerFlow,
+		PickServerProject: runServerProjectPickerFlow,
+		PickWorkspace:     runProjectWorkspacePickerFlow,
+		PromptProjectName: runProjectNamePromptFlow,
 	})
 }
 
-func (m *projectNamePromptModel) renderHeader() string {
-	if m.headerMD != nil {
-		rendered, err := m.headerMD.Render(projectNamePromptHeaderMarkdown)
-		if err == nil {
-			return tui.ApplyThemeDefaultForeground(trimRenderedHeaderInset(rendered), m.theme)
-		}
-	}
-	return lipgloss.NewStyle().Foreground(uiPalette(m.theme).primary).Bold(true).Render(projectNamePromptHeaderFallback)
-}
-
-func runProjectNamePrompt(defaultName string, theme string) (string, error) {
-	model := newProjectNamePromptModel(defaultName, theme)
-	terminalCursor := newUITerminalCursorState()
-	model.terminalCursor = terminalCursor
-	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithOutput(newUITerminalCursorWriter(os.Stdout, terminalCursor)))
-	finalModel, err := program.Run()
-	if err != nil {
-		return "", err
-	}
-	finalized, ok := finalModel.(*projectNamePromptModel)
-	if !ok {
-		return "", fmt.Errorf("unexpected project name prompt model type %T", finalModel)
-	}
-	if finalized.canceled {
-		return "", errors.New("startup canceled by user")
-	}
-	return strings.TrimSpace(finalized.result), nil
-}
-
-func ensureInteractiveProjectBinding(ctx context.Context, server embeddedServer) (embeddedServer, error) {
-	if server == nil || server.ProjectViewClient() == nil {
-		return nil, errors.New("project view client is required")
-	}
-	workspaceRoot := strings.TrimSpace(server.Config().WorkspaceRoot)
-	if workspaceRoot == "" {
-		return nil, errors.New("workspace root is required")
-	}
-	plan, err := server.ProjectViewClient().PlanWorkspaceBinding(ctx, serverapi.ProjectBindingPlanRequest{Path: workspaceRoot, Mode: serverapi.ProjectBindingPlanModeInteractive})
-	if err != nil {
-		return nil, err
-	}
-	if canonicalRoot := strings.TrimSpace(plan.CanonicalRoot); canonicalRoot != "" {
-		workspaceRoot = canonicalRoot
-	}
-	switch plan.Kind {
-	case serverapi.ProjectBindingPlanKindBound:
-		if plan.Binding == nil {
-			return nil, errors.New("resolved project binding is required")
-		}
-		projectID := strings.TrimSpace(plan.Binding.ProjectID)
-		if projectID == "" {
-			return nil, errors.New("resolved project id is required")
-		}
-		bound, bindErr := server.BindProjectWorkspace(ctx, projectID, strings.TrimSpace(plan.Binding.WorkspaceID))
-		if bindErr != nil {
-			return nil, formatProjectBindingStartupError(workspaceRoot, projectID, bindErr)
-		}
-		return bound, nil
-	case serverapi.ProjectBindingPlanKindServerWorkspaceSelection:
-		return ensureInteractiveServerBrowsingBinding(ctx, server, plan.Projects)
-	case serverapi.ProjectBindingPlanKindLocalUnbound:
-		return ensureInteractiveLocalPathBinding(ctx, server, workspaceRoot, plan.Projects)
-	default:
-		return nil, fmt.Errorf("unsupported interactive project binding plan %q", plan.Kind)
-	}
-}
-
-func ensureInteractiveLocalPathBinding(ctx context.Context, server embeddedServer, workspaceRoot string, projects []clientui.ProjectSummary) (embeddedServer, error) {
-	cfg := server.Config()
-	picked, err := runProjectBindingPickerFlow(projects, cfg.Settings.Theme)
-	if err != nil {
-		return nil, err
-	}
-	if picked.Canceled {
-		return nil, errors.New("startup canceled by user")
-	}
-	if picked.CreateNew {
-		projectName, err := runProjectNamePromptFlow(filepath.Base(filepath.Clean(workspaceRoot)), cfg.Settings.Theme)
-		if err != nil {
-			return nil, err
-		}
-		created, err := server.ProjectViewClient().CreateProject(ctx, serverapi.ProjectCreateRequest{DisplayName: projectName, WorkspaceRoot: workspaceRoot})
-		if err != nil {
-			return nil, formatProjectBindingMutationError(workspaceRoot, "", err)
-		}
-		bound, bindErr := server.BindProjectWorkspace(ctx, created.Binding.ProjectID, created.Binding.WorkspaceID)
-		if bindErr != nil {
-			return nil, formatProjectBindingStartupError(workspaceRoot, created.Binding.ProjectID, bindErr)
-		}
-		return bound, nil
-	}
-	if picked.Project == nil {
-		return nil, errors.New("no project selected")
-	}
-	attached, err := server.ProjectViewClient().AttachWorkspaceToProject(ctx, serverapi.ProjectAttachWorkspaceRequest{ProjectID: picked.Project.ProjectID, WorkspaceRoot: workspaceRoot})
-	if err != nil {
-		return nil, formatProjectBindingMutationError(workspaceRoot, picked.Project.ProjectID, err)
-	}
-	bound, bindErr := server.BindProjectWorkspace(ctx, attached.Binding.ProjectID, attached.Binding.WorkspaceID)
-	if bindErr != nil {
-		return nil, formatProjectBindingStartupError(workspaceRoot, attached.Binding.ProjectID, bindErr)
-	}
-	return bound, nil
-}
-
-func ensureInteractiveServerBrowsingBinding(ctx context.Context, server embeddedServer, projects []clientui.ProjectSummary) (embeddedServer, error) {
-	if len(projects) == 0 {
-		return nil, errors.New("server has no registered projects. Create one with `builder project create --path <server-path> --name <project-name>` or attach an existing workspace with `builder attach --project <project-id> <server-path>`")
-	}
-	cfg := server.Config()
-	picked, err := runServerProjectPickerFlow(projects, cfg.Settings.Theme)
-	if err != nil {
-		return nil, err
-	}
-	if picked.Canceled {
-		return nil, errors.New("startup canceled by user")
-	}
-	if picked.Project == nil {
-		return nil, errors.New("no project selected")
-	}
-	workspace, err := selectProjectWorkspaceForStartup(ctx, server, picked.Project.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	bound, bindErr := server.BindProjectWorkspace(ctx, picked.Project.ProjectID, workspace.WorkspaceID)
-	if bindErr != nil {
-		return nil, formatProjectBindingStartupError(workspace.RootPath, picked.Project.ProjectID, bindErr)
-	}
-	return bound, nil
-}
-
-func selectProjectWorkspaceForStartup(ctx context.Context, server embeddedServer, projectID string) (clientui.ProjectWorkspaceSummary, error) {
-	overview, err := server.ProjectViewClient().GetProjectOverview(ctx, serverapi.ProjectGetOverviewRequest{ProjectID: projectID})
-	if err != nil {
-		return clientui.ProjectWorkspaceSummary{}, err
-	}
-	if len(overview.Overview.Workspaces) == 0 {
-		return clientui.ProjectWorkspaceSummary{}, fmt.Errorf("project %q has no attached workspaces", strings.TrimSpace(projectID))
-	}
-	if len(overview.Overview.Workspaces) == 1 {
-		return overview.Overview.Workspaces[0], nil
-	}
-	picked, err := runProjectWorkspacePickerFlow(overview.Overview.Workspaces, server.Config().Settings.Theme)
-	if err != nil {
-		return clientui.ProjectWorkspaceSummary{}, err
-	}
-	if picked.Canceled {
-		return clientui.ProjectWorkspaceSummary{}, errors.New("startup canceled by user")
-	}
-	if picked.Workspace == nil {
-		return clientui.ProjectWorkspaceSummary{}, errors.New("no workspace selected")
-	}
-	return *picked.Workspace, nil
+func ensureInteractiveServerBrowsingBinding(ctx context.Context, server projectbinding.Server[interactiveSessionServer], projects []clientui.ProjectSummary) (interactiveSessionServer, error) {
+	return projectbinding.EnsureServerBrowsing[interactiveSessionServer](ctx, projectbinding.Request[interactiveSessionServer]{
+		Server:            server,
+		PickServerProject: runServerProjectPickerFlow,
+		PickWorkspace:     runProjectWorkspacePickerFlow,
+	}, projects)
 }
 
 func headerInsetFromRenderedHeader(rendered string) string {
@@ -961,14 +579,4 @@ func trimRenderedHeaderInset(rendered string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
-}
-
-func renderStartupEditorField(width int, height int, theme string, input tuiinput.Editor, prefix string, renderCursor bool, mask rune, placeholder string) string {
-	contentWidth := width
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
-	lineStyle := lipgloss.NewStyle().Foreground(uiPalette(theme).foreground)
-	borderStyle := lipgloss.NewStyle().Foreground(uiPalette(theme).primary)
-	return strings.Join(renderSingleLineEditorFramedSoftCursorLines(contentWidth, inputContentLineLimit(height), input, prefix, renderCursor, lineStyle, borderStyle, mask, placeholder), "\n")
 }

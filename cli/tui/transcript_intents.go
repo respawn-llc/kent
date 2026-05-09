@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"builder/server/llm"
+	"builder/shared/clientui"
 	"builder/shared/transcript"
 )
 
@@ -133,12 +133,12 @@ func (r TranscriptRole) IsCompaction() bool {
 	}
 }
 
-func (r TranscriptRole) DisplayIntent(phase llm.MessagePhase) RenderIntent {
+func (r TranscriptRole) DisplayIntent(phase clientui.MessagePhase) RenderIntent {
 	switch r {
 	case TranscriptRoleUser:
 		return RenderIntentUser
 	case TranscriptRoleAssistant:
-		if phase == llm.MessagePhaseCommentary {
+		if phase == clientui.MessagePhaseCommentary {
 			return RenderIntentAssistantCommentary
 		}
 		return RenderIntentAssistant

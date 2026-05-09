@@ -200,7 +200,7 @@ func TestPSOverlaySpinnerTickAnimatesRunningEntriesWhileIdle(t *testing.T) {
 		t.Fatal("expected spin job to move to background")
 	}
 
-	m := newProjectedStaticUIModel(WithUIBackgroundManager(manager))
+	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
 	m.termWidth = 100
 	m.termHeight = 14
 	m.windowSizeKnown = true
@@ -242,7 +242,7 @@ func TestPSOverlayIgnoresStaleSpinnerTickTokens(t *testing.T) {
 		t.Fatal("expected spin job to move to background")
 	}
 
-	m := newProjectedStaticUIModel(WithUIBackgroundManager(manager))
+	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
 	m.termWidth = 100
 	m.termHeight = 14
 	m.windowSizeKnown = true
@@ -281,7 +281,7 @@ func TestPSOverlayIgnoresStaleSpinnerTickAfterRestart(t *testing.T) {
 		t.Fatal("expected spin job to move to background")
 	}
 
-	m := newProjectedStaticUIModel(WithUIBackgroundManager(manager))
+	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
 	m.termWidth = 100
 	m.termHeight = 14
 	m.windowSizeKnown = true

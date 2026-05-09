@@ -1,15 +1,11 @@
 package app
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"strings"
 	"time"
 
+	"builder/cli/app/internal/submissionerror"
 	"builder/cli/tui"
-	"builder/server/llm"
-	"builder/shared/serverapi"
 	"builder/shared/transcript"
 
 	bubblespinner "github.com/charmbracelet/bubbles/spinner"
@@ -70,7 +66,6 @@ var scheduleTransientStatusClear = func(duration time.Duration, token uint64) te
 	})
 }
 var processListRefreshInterval = 1500 * time.Millisecond
-var errSubmissionInterrupted = errors.New("interrupted")
 var rollbackDoubleEscWindow = 500 * time.Millisecond
 var csiShiftEnterDedupWindow = 120 * time.Millisecond
 
@@ -163,37 +158,11 @@ func (m *uiModel) scheduleSpinnerTick(token uint64, now time.Time) tea.Cmd {
 }
 
 func formatSubmissionError(err error) string {
-	if err == nil {
-		return ""
-	}
-	if isInterruptedRuntimeError(err) {
-		return ""
-	}
-	if errors.Is(err, serverapi.ErrSessionAlreadyControlled) {
-		return "session is controlled by another client; retry to take over"
-	}
-	if errors.Is(err, serverapi.ErrInvalidControllerLease) {
-		return "lost control of this session; retry to reclaim it"
-	}
-	if formatted := llm.UserFacingError(err); strings.TrimSpace(formatted) != "" {
-		return formatted
-	}
-	var statusErr *llm.APIStatusError
-	if errors.As(err, &statusErr) {
-		body := statusErr.Body
-		if strings.TrimSpace(body) == "" {
-			body = "<empty error body>"
-		}
-		return fmt.Sprintf("openai status %d\nresponse body:\n%s", statusErr.StatusCode, body)
-	}
-	return err.Error()
+	return submissionerror.Format(err)
 }
 
 func isInterruptedRuntimeError(err error) bool {
-	if err == nil {
-		return false
-	}
-	return errors.Is(err, errSubmissionInterrupted) || errors.Is(err, context.Canceled)
+	return submissionerror.IsInterrupted(err)
 }
 
 func (c uiInputController) interruptBusyRuntime() {

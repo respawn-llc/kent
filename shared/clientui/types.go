@@ -116,6 +116,8 @@ type ChatEntry struct {
 	ToolCall          *ToolCallMeta
 }
 
+const ChatEntryPhaseFinalAnswer = string(MessagePhaseFinal)
+
 type ChatSnapshot struct {
 	Entries      []ChatEntry
 	Ongoing      string
