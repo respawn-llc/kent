@@ -639,8 +639,9 @@ func TestNativeDeferredFinalWithQueuedInjectionKeepsAssistantBeforeQueuedUserInS
 	}
 }
 
+const nativeDeferredFinalRoundTripTimeout = 5 * time.Second
+
 func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailModeRoundTrip(t *testing.T) {
-	const roundTripTimeout = 5 * time.Second
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
 	if err != nil {
@@ -698,7 +699,7 @@ func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailModeRoundTrip(t *te
 		done <- runErr
 	}()
 
-	waitForSignal(t, roundTripTimeout, "program startup output", out.Started())
+	waitForSignal(t, nativeDeferredFinalRoundTripTimeout, "program startup output", out.Started())
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
 	submitDone := make(chan error, 1)
 	go func() {
@@ -706,22 +707,22 @@ func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailModeRoundTrip(t *te
 		submitDone <- err
 	}()
 
-	waitForSignal(t, roundTripTimeout, "first deferred final delta", firstDelta)
+	waitForSignal(t, nativeDeferredFinalRoundTripTimeout, "first deferred final delta", firstDelta)
 	program.Send(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventAssistantDelta, StepID: "step-1", AssistantDelta: "foreground done"}))
-	observed.waitFor(t, roundTripTimeout, "live deferred final delta visible", func(snapshot observedUISnapshot) bool {
+	observed.waitFor(t, nativeDeferredFinalRoundTripTimeout, "live deferred final delta visible", func(snapshot observedUISnapshot) bool {
 		return strings.Contains(snapshot.OngoingStreamingText, "foreground done")
 	})
 	program.Send(tea.KeyMsg{Type: tea.KeyShiftTab})
-	observed.waitFor(t, roundTripTimeout, "detail mode active", func(snapshot observedUISnapshot) bool {
+	observed.waitFor(t, nativeDeferredFinalRoundTripTimeout, "detail mode active", func(snapshot observedUISnapshot) bool {
 		return snapshot.Mode == tui.ModeDetail
 	})
 	close(releaseFirst)
 	releasedFirst = true
 
-	waitForSubmitResult(t, roundTripTimeout, submitDone)
+	waitForSubmitResult(t, nativeDeferredFinalRoundTripTimeout, submitDone)
 
 	program.Send(tea.KeyMsg{Type: tea.KeyShiftTab})
-	observed.waitFor(t, roundTripTimeout, "ongoing view keeps deferred final visible after detail exit", func(snapshot observedUISnapshot) bool {
+	observed.waitFor(t, nativeDeferredFinalRoundTripTimeout, "ongoing view keeps deferred final visible after detail exit", func(snapshot observedUISnapshot) bool {
 		return snapshot.Mode == tui.ModeOngoing && strings.Contains(snapshot.OngoingSnapshot, "foreground done")
 	})
 
@@ -794,7 +795,7 @@ func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailRoundTripBeforeComm
 		done <- runErr
 	}()
 
-	waitForSignal(t, 2*time.Second, "program startup output", out.Started())
+	waitForSignal(t, nativeDeferredFinalRoundTripTimeout, "program startup output", out.Started())
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
 	submitDone := make(chan error, 1)
 	go func() {
@@ -802,24 +803,24 @@ func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailRoundTripBeforeComm
 		submitDone <- err
 	}()
 
-	waitForSignal(t, 2*time.Second, "first deferred final delta", firstDelta)
+	waitForSignal(t, nativeDeferredFinalRoundTripTimeout, "first deferred final delta", firstDelta)
 	program.Send(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventAssistantDelta, StepID: "step-1", AssistantDelta: "foreground done"}))
-	observed.waitFor(t, 2*time.Second, "live deferred final delta visible", func(snapshot observedUISnapshot) bool {
+	observed.waitFor(t, nativeDeferredFinalRoundTripTimeout, "live deferred final delta visible", func(snapshot observedUISnapshot) bool {
 		return strings.Contains(snapshot.OngoingStreamingText, "foreground done")
 	})
 	program.Send(tea.KeyMsg{Type: tea.KeyShiftTab})
-	observed.waitFor(t, 2*time.Second, "detail mode active", func(snapshot observedUISnapshot) bool {
+	observed.waitFor(t, nativeDeferredFinalRoundTripTimeout, "detail mode active", func(snapshot observedUISnapshot) bool {
 		return snapshot.Mode == tui.ModeDetail
 	})
 	program.Send(tea.KeyMsg{Type: tea.KeyShiftTab})
-	observed.waitFor(t, 2*time.Second, "ongoing mode active before final commit", func(snapshot observedUISnapshot) bool {
+	observed.waitFor(t, nativeDeferredFinalRoundTripTimeout, "ongoing mode active before final commit", func(snapshot observedUISnapshot) bool {
 		return snapshot.Mode == tui.ModeOngoing
 	})
 	close(releaseFirst)
 	releasedFirst = true
 
-	waitForSubmitResult(t, 2*time.Second, submitDone)
-	observed.waitFor(t, 2*time.Second, "ongoing view keeps deferred final visible after early detail exit", func(snapshot observedUISnapshot) bool {
+	waitForSubmitResult(t, nativeDeferredFinalRoundTripTimeout, submitDone)
+	observed.waitFor(t, nativeDeferredFinalRoundTripTimeout, "ongoing view keeps deferred final visible after early detail exit", func(snapshot observedUISnapshot) bool {
 		return strings.Contains(snapshot.OngoingSnapshot, "foreground done")
 	})
 
