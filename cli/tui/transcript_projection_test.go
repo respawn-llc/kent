@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -370,5 +371,388 @@ func TestCommittedOngoingProjectionPreservesWebSearchSuccessState(t *testing.T) 
 	}
 	if !strings.Contains(strings.Join(projection.Blocks[0].Lines, "\n"), `web search: "latest golang release"`) {
 		t.Fatalf("expected web search success block to retain tool call text, got %#v", projection.Blocks[0])
+	}
+}
+
+func TestProjectTranscriptViewsDerivesOngoingAndDetailFromSameCanonicalEntries(t *testing.T) {
+	entries := []TranscriptEntry{
+		{Role: "user", Text: "prompt"},
+		{Role: "assistant", Text: "answer"},
+	}
+
+	projection := ProjectTranscriptViews(TranscriptProjectionInput{
+		BaseOffset: 10,
+		Entries:    entries,
+	}, TranscriptProjectionViewState{
+		ViewportWidth: 80,
+		ViewportLines: 20,
+		Theme:         "dark",
+	})
+
+	if len(projection.Ongoing.Blocks) != 2 {
+		t.Fatalf("expected ongoing projection from canonical entries, got %#v", projection.Ongoing.Blocks)
+	}
+	if len(projection.Detail.Blocks) != 2 {
+		t.Fatalf("expected detail projection from canonical entries, got %#v", projection.Detail.Blocks)
+	}
+	if projection.Ongoing.Blocks[0].EntryIndex != 10 || projection.Detail.Blocks[0].EntryIndex != 10 {
+		t.Fatalf("expected projections to preserve shared base offset, ongoing=%#v detail=%#v", projection.Ongoing.Blocks, projection.Detail.Blocks)
+	}
+	if projection.Ongoing.Blocks[1].EntryIndex != projection.Detail.Blocks[1].EntryIndex {
+		t.Fatalf("expected ongoing/detail entry identity parity, ongoing=%#v detail=%#v", projection.Ongoing.Blocks, projection.Detail.Blocks)
+	}
+}
+
+func TestProjectTranscriptViewsMapsSelectionEntryToDetailLines(t *testing.T) {
+	entries := []TranscriptEntry{
+		{Role: "user", Text: "first"},
+		{Role: "assistant", Text: "second line one\nsecond line two"},
+		{Role: "user", Text: "third"},
+	}
+
+	projection := ProjectTranscriptViews(TranscriptProjectionInput{
+		BaseOffset: 20,
+		Entries:    entries,
+	}, TranscriptProjectionViewState{
+		ViewportWidth:         80,
+		ViewportLines:         20,
+		Theme:                 "dark",
+		DetailSelectedEntry:   21,
+		DetailSelectedActive:  true,
+		SelectedEntry:         21,
+		SelectedEntryIsActive: true,
+	})
+
+	lineRange, ok := projection.DetailEntryLineRanges[21]
+	if !ok {
+		t.Fatalf("expected detail range for selected entry, got %#v", projection.DetailEntryLineRanges)
+	}
+	if lineRange.Start < 0 || lineRange.End < lineRange.Start {
+		t.Fatalf("invalid selected entry range: %#v", lineRange)
+	}
+	for idx := lineRange.Start; idx <= lineRange.End; idx++ {
+		if projection.DetailLineOwners[idx] != 21 {
+			t.Fatalf("expected selected range line %d to be owned by entry 21, owners=%#v", idx, projection.DetailLineOwners)
+		}
+	}
+}
+
+func TestProjectTranscriptViewsDoesNotMutateInputModel(t *testing.T) {
+	m := NewModel(WithTheme("dark"), WithPreviewLines(20), WithCompactDetail())
+	m = updateModel(t, m, SetViewportSizeMsg{Lines: 20, Width: 80})
+	m = updateModel(t, m, SetConversationMsg{Entries: []TranscriptEntry{
+		{Role: "user", Text: "prompt"},
+		{Role: "assistant", Text: "answer"},
+	}})
+	m.selectedTranscriptEntry = 0
+	m.selectedTranscriptActive = true
+
+	before := m
+	_ = ProjectTranscriptViews(m.TranscriptProjectionInput(), m.TranscriptProjectionViewState())
+
+	if before.detailBottomAnchor != m.detailBottomAnchor ||
+		before.detailBottomOffset != m.detailBottomOffset {
+		t.Fatalf("projection mutated model cache state before=%#v after=%#v", before, m)
+	}
+}
+
+func TestModelViewDoesNotMutateCanonicalProjectionState(t *testing.T) {
+	m := NewModel(WithTheme("dark"), WithPreviewLines(5), WithCompactDetail())
+	m = updateModel(t, m, SetViewportSizeMsg{Lines: 5, Width: 80})
+	m = updateModel(t, m, SetConversationMsg{Entries: []TranscriptEntry{
+		{Role: "user", Text: "prompt"},
+		{Role: "assistant", Text: "answer"},
+	}})
+	m = updateModel(t, m, ToggleModeMsg{})
+
+	beforeInput := m.TranscriptProjectionInput()
+	beforeState := m.TranscriptProjectionViewState()
+	beforeScroll := m.DetailScroll()
+	beforeOngoingScroll := m.OngoingScroll()
+
+	_ = m.View()
+	_ = m.VisibleLineKinds()
+
+	afterInput := m.TranscriptProjectionInput()
+	afterState := m.TranscriptProjectionViewState()
+	if !reflect.DeepEqual(beforeInput, afterInput) ||
+		!reflect.DeepEqual(beforeState, afterState) ||
+		beforeScroll != m.DetailScroll() ||
+		beforeOngoingScroll != m.OngoingScroll() {
+		t.Fatalf("rendering mutated canonical/view state before input=%+v state=%+v after input=%+v state=%+v", beforeInput, beforeState, afterInput, afterState)
+	}
+}
+
+func TestModelDoesNotStoreLegacyRenderCacheGraph(t *testing.T) {
+	forbidden := map[string]struct{}{
+		"transcript":                {},
+		"transcriptBaseOffset":      {},
+		"transcriptTotalEntries":    {},
+		"transcriptRevision":        {},
+		"transcriptEntriesRevision": {},
+		"ongoing":                   {},
+		"streamingReasoning":        {},
+		"ongoingSnapshot":           {},
+		"ongoingLineCache":          {},
+		"ongoingLineKinds":          {},
+		"ongoingBaseLines":          {},
+		"ongoingBaseLineKinds":      {},
+		"ongoingBaseLastGroup":      {},
+		"ongoingStreamingLines":     {},
+		"ongoingStreamingKinds":     {},
+		"ongoingStreamingDivider":   {},
+		"ongoingBaseDirty":          {},
+		"ongoingDirty":              {},
+		"detailSnapshot":            {},
+		"detailLines":               {},
+		"detailLineKinds":           {},
+		"detailLineEntryIndices":    {},
+		"detailEntryLineRanges":     {},
+		"detailBlockLineRanges":     {},
+		"detailEntryRangeOffset":    {},
+		"detailBlocks":              {},
+		"detailBlockLines":          {},
+		"detailTotalLineCount":      {},
+		"detailMetricsResolved":     {},
+		"detailDirty":               {},
+		"detailStale":               {},
+		"detailRebuildCount":        {},
+	}
+	modelType := reflect.TypeOf(Model{})
+	if _, ok := modelType.FieldByName("transcriptInput"); !ok {
+		t.Fatal("Model must store transcript data through one canonical transcriptInput field")
+	}
+	for idx := 0; idx < modelType.NumField(); idx++ {
+		field := modelType.Field(idx)
+		if _, ok := forbidden[field.Name]; ok {
+			t.Fatalf("Model still stores legacy render cache field %q", field.Name)
+		}
+	}
+}
+
+func TestProjectTranscriptViewsExpansionChangesDetailProjectionOnly(t *testing.T) {
+	entries := []TranscriptEntry{
+		{Role: "tool_call", Text: "printf long", ToolCallID: "call_1", ToolCall: &transcript.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "printf long"}},
+		{Role: "tool_result_ok", Text: strings.Repeat("line\n", 8), ToolCallID: "call_1"},
+	}
+	input := TranscriptProjectionInput{Entries: entries}
+	collapsed := ProjectTranscriptViews(input, TranscriptProjectionViewState{ViewportWidth: 80, ViewportLines: 20, Theme: "dark", CompactDetail: true})
+	expanded := ProjectTranscriptViews(input, TranscriptProjectionViewState{
+		ViewportWidth:         80,
+		ViewportLines:         20,
+		Theme:                 "dark",
+		CompactDetail:         true,
+		DetailExpandedEntries: map[int]struct{}{0: {}},
+	})
+
+	if len(expanded.DetailLines) <= len(collapsed.DetailLines) {
+		t.Fatalf("expected expanded detail projection to add visible detail lines, collapsed=%d expanded=%d", len(collapsed.DetailLines), len(expanded.DetailLines))
+	}
+	if collapsed.Ongoing.Render(TranscriptDivider) != expanded.Ongoing.Render(TranscriptDivider) {
+		t.Fatalf("expected detail expansion to leave ongoing projection unchanged")
+	}
+}
+
+func TestProjectTranscriptViewsIncludesStreamingReasoningInDetailProjection(t *testing.T) {
+	projection := ProjectTranscriptViews(TranscriptProjectionInput{
+		Entries: []TranscriptEntry{{Role: "assistant", Text: "answer"}},
+		StreamingReasoning: []StreamingReasoningEntry{{
+			Key:  "r1",
+			Role: TranscriptRoleReasoning,
+			Text: "thinking now",
+		}},
+	}, TranscriptProjectionViewState{ViewportWidth: 80, ViewportLines: 20, Theme: "dark"})
+
+	detail := xansi.Strip(projection.Detail.Render(detailItemSeparator))
+	if !strings.Contains(detail, "thinking now") {
+		t.Fatalf("expected detail projection to include streaming reasoning, got %q", detail)
+	}
+	ongoing := xansi.Strip(projection.Ongoing.Render(TranscriptDivider))
+	if strings.Contains(ongoing, "thinking now") {
+		t.Fatalf("expected ongoing projection to exclude streaming reasoning, got %q", ongoing)
+	}
+}
+
+func TestProjectTranscriptViewsToolCallRenderingUsesSameEntryMapping(t *testing.T) {
+	entries := []TranscriptEntry{
+		{Role: "tool_call", Text: "pwd", ToolCallID: "call_1", ToolCall: &transcript.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "pwd"}},
+		{Role: "tool_result_ok", Text: "/tmp/project", ToolCallID: "call_1"},
+	}
+
+	projection := ProjectTranscriptViews(TranscriptProjectionInput{BaseOffset: 30, Entries: entries}, TranscriptProjectionViewState{ViewportWidth: 80, ViewportLines: 20, Theme: "dark"})
+
+	if len(projection.Ongoing.Blocks) != 1 || projection.Ongoing.Blocks[0].EntryIndex != 30 || projection.Ongoing.Blocks[0].EntryEnd != 31 {
+		t.Fatalf("expected ongoing tool projection to merge call/result entry range, got %#v", projection.Ongoing.Blocks)
+	}
+	if len(projection.Detail.Blocks) != 1 || projection.Detail.Blocks[0].EntryIndex != 30 || projection.Detail.Blocks[0].EntryEnd != 31 {
+		t.Fatalf("expected detail tool projection to merge call/result entry range, got %#v", projection.Detail.Blocks)
+	}
+	if !strings.Contains(xansi.Strip(projection.Ongoing.Render(TranscriptDivider)), "$ pwd") {
+		t.Fatalf("expected ongoing projection to render shell command, got %q", projection.Ongoing.Render(TranscriptDivider))
+	}
+}
+
+func TestProjectTranscriptViewsViewportResizeChangesProjectionWrapping(t *testing.T) {
+	input := TranscriptProjectionInput{Entries: []TranscriptEntry{{Role: "assistant", Text: strings.Repeat("x", 90)}}}
+	wide := ProjectTranscriptViews(input, TranscriptProjectionViewState{ViewportWidth: 120, ViewportLines: 20, Theme: "dark"})
+	narrow := ProjectTranscriptViews(input, TranscriptProjectionViewState{ViewportWidth: 40, ViewportLines: 20, Theme: "dark"})
+
+	if len(narrow.OngoingLines) <= len(wide.OngoingLines) {
+		t.Fatalf("expected narrower viewport to increase wrapped ongoing line count, wide=%d narrow=%d", len(wide.OngoingLines), len(narrow.OngoingLines))
+	}
+	if len(narrow.DetailLines) <= len(wide.DetailLines) {
+		t.Fatalf("expected narrower viewport to increase wrapped detail line count, wide=%d narrow=%d", len(wide.DetailLines), len(narrow.DetailLines))
+	}
+}
+
+func TestProjectTranscriptViewsLargeTranscriptKeepsLastEntryRange(t *testing.T) {
+	entries := benchmarkDetailEntries(500)
+	baseOffset := 1000
+	lastEntry := baseOffset + len(entries) - 1
+
+	projection := ProjectTranscriptViews(TranscriptProjectionInput{BaseOffset: baseOffset, Entries: entries}, TranscriptProjectionViewState{ViewportWidth: 100, ViewportLines: 30, Theme: "dark"})
+
+	if len(projection.Detail.Blocks) == 0 || len(projection.Ongoing.Blocks) == 0 {
+		t.Fatalf("expected large transcript projections to contain blocks")
+	}
+	lineRange, ok := projection.DetailEntryLineRanges[lastEntry]
+	if !ok {
+		t.Fatalf("expected detail range for last entry %d", lastEntry)
+	}
+	if lineRange.End < lineRange.Start || lineRange.Start < 0 {
+		t.Fatalf("expected valid last entry line range, got %#v", lineRange)
+	}
+}
+
+func TestTranscriptViewProjectionDetailViewportPreservesScrollAndOwners(t *testing.T) {
+	projection := ProjectTranscriptViews(TranscriptProjectionInput{Entries: []TranscriptEntry{
+		{Role: "user", Text: "first"},
+		{Role: "assistant", Text: "second"},
+		{Role: "user", Text: "third"},
+	}}, TranscriptProjectionViewState{ViewportWidth: 80, ViewportLines: 2, Theme: "dark"})
+
+	viewport := projection.DetailViewport(ProjectionViewportState{ViewportLines: 2, Scroll: 2})
+	if viewport.Scroll != 2 {
+		t.Fatalf("expected viewport scroll to stay at requested position, got %d", viewport.Scroll)
+	}
+	if len(viewport.Lines) != 2 || len(viewport.Owners) != 2 {
+		t.Fatalf("expected two viewport lines with owners, got lines=%#v owners=%#v", viewport.Lines, viewport.Owners)
+	}
+	if viewport.Owners[0] < 0 {
+		t.Fatalf("expected first visible line to retain an entry owner, owners=%#v", viewport.Owners)
+	}
+}
+
+func TestTranscriptViewProjectionDetailViewportBottomAnchorUsesOffset(t *testing.T) {
+	projection := ProjectTranscriptViews(TranscriptProjectionInput{Entries: benchmarkDetailEntries(4)}, TranscriptProjectionViewState{
+		ViewportWidth: 80,
+		ViewportLines: 3,
+		Theme:         "dark",
+	})
+
+	viewport := projection.DetailViewport(ProjectionViewportState{ViewportLines: 3, BottomAnchor: true, BottomOffset: 2})
+	if viewport.Scroll != viewport.MaxScroll-2 {
+		t.Fatalf("expected bottom offset to anchor viewport above bottom, scroll=%d max=%d", viewport.Scroll, viewport.MaxScroll)
+	}
+	if viewport.BottomOffset != 2 {
+		t.Fatalf("expected bottom offset to be preserved, got %d", viewport.BottomOffset)
+	}
+}
+
+func TestTranscriptViewProjectorCachesByRevisionAndViewState(t *testing.T) {
+	var projector TranscriptViewProjector
+	input := TranscriptProjectionInput{
+		Revision: 1,
+		Entries:  []TranscriptEntry{{Role: "assistant", Text: "seed " + strings.Repeat("x", 90)}},
+	}
+	state := TranscriptProjectionViewState{ViewportWidth: 80, ViewportLines: 20, Theme: "dark"}
+
+	_ = projector.Project(input, state)
+	input.Entries[0].Text = "changed " + strings.Repeat("x", 90)
+	cached := projector.Project(input, state)
+	if rendered := cached.Ongoing.Render(TranscriptDivider); !strings.Contains(rendered, "seed") || strings.Contains(rendered, "changed") {
+		t.Fatalf("expected same revision/view state to reuse cached projection, got %q", rendered)
+	}
+
+	input.Revision = 2
+	updated := projector.Project(input, state)
+	if rendered := updated.Ongoing.Render(TranscriptDivider); !strings.Contains(rendered, "changed") || strings.Contains(rendered, "seed") {
+		t.Fatalf("expected advanced revision to rebuild projection, got %q", rendered)
+	}
+
+	state.ViewportWidth = 40
+	resized := projector.Project(input, state)
+	if resized.Ongoing.Render(TranscriptDivider) == updated.Ongoing.Render(TranscriptDivider) {
+		t.Fatalf("expected viewport width change to rebuild projection")
+	}
+}
+
+func TestTranscriptViewProjectorReturnsImmutableProjectionClone(t *testing.T) {
+	var projector TranscriptViewProjector
+	input := TranscriptProjectionInput{
+		Revision: 1,
+		Entries:  []TranscriptEntry{{Role: "assistant", Text: "seed"}},
+	}
+	state := TranscriptProjectionViewState{ViewportWidth: 80, ViewportLines: 20, Theme: "dark"}
+
+	first := projector.Project(input, state)
+	first.Ongoing.Blocks[0].Lines[0] = "mutated"
+	first.OngoingLines[0].Text = "mutated"
+	first.OngoingLineOwners[0] = 999
+	first.OngoingEntryLineRanges[0] = lineRange{Start: 999, End: 999}
+
+	second := projector.Project(input, state)
+	rendered := second.Ongoing.Render(TranscriptDivider)
+	if strings.Contains(rendered, "mutated") || !strings.Contains(rendered, "seed") {
+		t.Fatalf("expected cached projection to be immutable to caller mutation, got %q", rendered)
+	}
+	if second.OngoingLines[0].Text == "mutated" {
+		t.Fatalf("expected projection lines to be cloned")
+	}
+	if second.OngoingLineOwners[0] == 999 {
+		t.Fatalf("expected line owners to be cloned")
+	}
+	if second.OngoingEntryLineRanges[0].Start == 999 {
+		t.Fatalf("expected entry ranges to be cloned")
+	}
+}
+
+func TestModelTranscriptProjectionInputRevisionAdvancesOnCanonicalInputChanges(t *testing.T) {
+	m := NewModel(WithPreviewLines(20))
+	initial := m.TranscriptProjectionInput().Revision
+
+	m = updateModel(t, m, AppendTranscriptMsg{Role: "user", Text: "prompt"})
+	afterTranscript := m.TranscriptProjectionInput()
+	if afterTranscript.Revision <= initial || afterTranscript.EntriesRevision <= 0 {
+		t.Fatalf("expected transcript append to advance projection revisions, got %+v initial=%d", afterTranscript, initial)
+	}
+
+	m = updateModel(t, m, StreamAssistantMsg{Delta: "stream"})
+	afterStreaming := m.TranscriptProjectionInput()
+	if afterStreaming.Revision <= afterTranscript.Revision {
+		t.Fatalf("expected streaming assistant to advance projection revision, before=%d after=%d", afterTranscript.Revision, afterStreaming.Revision)
+	}
+	if afterStreaming.EntriesRevision != afterTranscript.EntriesRevision {
+		t.Fatalf("expected streaming assistant to keep committed entries revision stable, before=%d after=%d", afterTranscript.EntriesRevision, afterStreaming.EntriesRevision)
+	}
+
+	m = updateModel(t, m, UpsertStreamingReasoningMsg{Key: "r1", Role: "reasoning", Text: "thinking"})
+	afterReasoning := m.TranscriptProjectionInput().Revision
+	if afterReasoning <= afterStreaming.Revision {
+		t.Fatalf("expected streaming reasoning to advance projection revision, before=%d after=%d", afterStreaming.Revision, afterReasoning)
+	}
+}
+
+func TestModelTranscriptProjectionInputRevisionDoesNotAdvanceOnViewStateOnlyChanges(t *testing.T) {
+	m := NewModel(WithPreviewLines(20))
+	m = updateModel(t, m, SetConversationMsg{Entries: []TranscriptEntry{{Role: "user", Text: "prompt"}}})
+	before := m.TranscriptProjectionInput().Revision
+
+	m = updateModel(t, m, SetSelectedTranscriptEntryMsg{EntryIndex: 0, Active: true, RefreshDetailSnapshot: true})
+	m = updateModel(t, m, SetViewportSizeMsg{Lines: 10, Width: 100})
+
+	after := m.TranscriptProjectionInput().Revision
+	if after != before {
+		t.Fatalf("expected view state changes to keep canonical projection revision stable, before=%d after=%d", before, after)
 	}
 }

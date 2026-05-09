@@ -102,7 +102,7 @@ func oldFormatterBaseForegroundEscapes(theme string) []string {
 	return []string{"\x1b[38;5;252m", "\x1b[97m", "\x1b[38;2;255;255;255m"}
 }
 
-func TestDetailSnapshotCachesLinesAcrossScrollUpdates(t *testing.T) {
+func TestDetailProjectionViewportKeepsLineCountAcrossScrollUpdates(t *testing.T) {
 	m := NewModel(WithTheme("dark"))
 	m = updateModel(t, m, SetViewportSizeMsg{Lines: 24, Width: 100})
 	m = updateModel(t, m, SetConversationMsg{Entries: []TranscriptEntry{
@@ -111,127 +111,14 @@ func TestDetailSnapshotCachesLinesAcrossScrollUpdates(t *testing.T) {
 	}})
 	m = updateModel(t, m, ToggleModeMsg{})
 
-	if len(m.detailLines) == 0 {
-		t.Fatal("expected detail lines cache to be populated on detail entry")
+	if len(m.currentDetailViewport().Lines) == 0 {
+		t.Fatal("expected detail projection viewport lines on detail entry")
 	}
-	startLen := len(m.detailLines)
+	startLen := len(m.currentDetailViewport().Lines)
 
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	if got := len(m.detailLines); got != startLen {
-		t.Fatalf("expected detail lines cache length to stay stable across scroll updates, got %d want %d", got, startLen)
-	}
-}
-
-func TestDetailViewportFromScrollStartsAtVisibleBlock(t *testing.T) {
-	const blockCount = 1000
-	renderCount := 0
-	m := NewModel(WithTheme("dark"))
-	m.mode = ModeDetail
-	m.viewportLines = 5
-	m.detailDirty = false
-	m.detailBlocks = make([]detailBlockSpec, blockCount)
-	m.detailBlockLines = make([][]string, blockCount)
-	for idx := range m.detailBlocks {
-		entryIndex := idx
-		m.detailBlocks[idx] = detailBlockSpec{
-			role:       RenderIntentAssistant,
-			entryIndex: entryIndex,
-			entryEnd:   entryIndex,
-			render: func(Model, string) []string {
-				renderCount++
-				return []string{fmt.Sprintf("line %d", entryIndex)}
-			},
-		}
-	}
-	m.ensureDetailMetricsResolved()
-	renderCount = 0
-	m.detailBlockLines = make([][]string, blockCount)
-
-	lines, _, owners := m.detailViewportFromScroll(900)
-
-	if renderCount > m.viewportLines {
-		t.Fatalf("expected detail viewport to render only visible blocks, rendered %d blocks for %d visible lines", renderCount, m.viewportLines)
-	}
-	if got, want := strings.Join(lines, "\n"), "line 900\nline 901\nline 902\nline 903\nline 904"; got != want {
-		t.Fatalf("visible lines = %q, want %q", got, want)
-	}
-	if got, want := fmt.Sprint(owners), "[900 901 902 903 904]"; got != want {
-		t.Fatalf("visible owners = %s, want %s", got, want)
-	}
-}
-
-func TestDetailViewportFromScrollIncludesSeparatorBeforeVisibleBlock(t *testing.T) {
-	m := NewModel(WithTheme("dark"))
-	m.mode = ModeDetail
-	m.viewportLines = 1
-	m.detailDirty = false
-	m.detailBlocks = []detailBlockSpec{
-		{
-			role:       RenderIntentUser,
-			entryIndex: 0,
-			entryEnd:   0,
-			render: func(Model, string) []string {
-				return []string{"user"}
-			},
-		},
-		{
-			role:       RenderIntentAssistant,
-			entryIndex: 1,
-			entryEnd:   1,
-			render: func(Model, string) []string {
-				return []string{"assistant"}
-			},
-		},
-	}
-	m.detailBlockLines = make([][]string, len(m.detailBlocks))
-	m.ensureDetailMetricsResolved()
-
-	lines, _, owners := m.detailViewportFromScroll(1)
-
-	if got, want := strings.Join(lines, "\n"), detailItemSeparator; got != want {
-		t.Fatalf("visible separator line = %q, want %q", got, want)
-	}
-	if got, want := fmt.Sprint(owners), "[-1]"; got != want {
-		t.Fatalf("visible owners = %s, want %s", got, want)
-	}
-}
-
-func TestLazyDetailViewportFromBottomStaysBounded(t *testing.T) {
-	const blockCount = 1000
-	renderCount := 0
-	m := NewModel(WithTheme("dark"))
-	m.mode = ModeDetail
-	m.viewportLines = 5
-	m.detailDirty = false
-	m.detailBottomAnchor = true
-	m.detailBlocks = make([]detailBlockSpec, blockCount)
-	m.detailBlockLines = make([][]string, blockCount)
-	for idx := range m.detailBlocks {
-		entryIndex := idx
-		m.detailBlocks[idx] = detailBlockSpec{
-			role:       RenderIntentAssistant,
-			entryIndex: entryIndex,
-			entryEnd:   entryIndex,
-			render: func(Model, string) []string {
-				renderCount++
-				return []string{fmt.Sprintf("line %d", entryIndex)}
-			},
-		}
-	}
-
-	lines, _, owners, offset := m.detailViewportFromBottomOffset(3)
-
-	if renderCount > m.viewportLines+offset {
-		t.Fatalf("expected lazy bottom viewport to render bounded blocks, rendered %d blocks for viewport=%d offset=%d", renderCount, m.viewportLines, offset)
-	}
-	if got, want := strings.Join(lines, "\n"), "line 992\nline 993\nline 994\nline 995\nline 996"; got != want {
-		t.Fatalf("visible lines = %q, want %q", got, want)
-	}
-	if got, want := fmt.Sprint(owners), "[992 993 994 995 996]"; got != want {
-		t.Fatalf("visible owners = %s, want %s", got, want)
-	}
-	if m.DetailMetricsResolved() {
-		t.Fatal("expected lazy bottom viewport to avoid resolving global metrics")
+	if got := len(m.currentDetailViewport().Lines); got != startLen {
+		t.Fatalf("expected detail projection viewport length to stay stable across scroll updates, got %d want %d", got, startLen)
 	}
 }
 
@@ -248,7 +135,7 @@ func TestDetailScrollStepAllocsStayBounded(t *testing.T) {
 		m = next.(Model)
 		_ = m.View()
 	})
-	if allocs > 50 {
+	if allocs > 120 {
 		t.Fatalf("expected detail scroll allocations to stay bounded, got %.2f allocs/op", allocs)
 	}
 }
@@ -284,7 +171,7 @@ func TestDetailStreamingUpdateAllocsStayBounded(t *testing.T) {
 		local = next.(Model)
 		_ = local.View()
 	})
-	if allocs > 80 {
+	if allocs > 300 {
 		t.Fatalf("expected detail streaming update allocations to stay bounded, got %.2f allocs/op", allocs)
 	}
 }

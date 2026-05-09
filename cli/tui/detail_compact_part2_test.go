@@ -13,13 +13,14 @@ import (
 func leadingViewportSelectableDetailEntry(t *testing.T, m Model) int {
 	t.Helper()
 
-	for _, entryIndex := range m.detailLineEntryIndices {
+	owners := m.currentDetailViewport().Owners
+	for _, entryIndex := range owners {
 		if entryIndex < 0 || m.detailBlockIndexForEntry(entryIndex) < 0 {
 			continue
 		}
 		return entryIndex
 	}
-	t.Fatalf("expected visible selectable detail entry, owners=%+v", m.detailLineEntryIndices)
+	t.Fatalf("expected visible selectable detail entry, owners=%+v", owners)
 	return -1
 }
 
@@ -87,16 +88,17 @@ func assertRailBearingSpacerLine(t *testing.T, line string, modeBg rgbColor, rai
 func centerVisibleSelectableDetailEntry(t *testing.T, m Model) int {
 	t.Helper()
 
-	if len(m.detailLineEntryIndices) == 0 {
+	owners := m.currentDetailViewport().Owners
+	if len(owners) == 0 {
 		t.Fatal("expected visible detail entries")
 	}
 	anchor := m.viewportLines / 2
-	if anchor >= len(m.detailLineEntryIndices) {
-		anchor = len(m.detailLineEntryIndices) - 1
+	if anchor >= len(owners) {
+		anchor = len(owners) - 1
 	}
 	bestEntry := -1
-	bestDistance := len(m.detailLineEntryIndices) + 1
-	for lineIndex, entryIndex := range m.detailLineEntryIndices {
+	bestDistance := len(owners) + 1
+	for lineIndex, entryIndex := range owners {
 		if entryIndex < 0 || m.detailBlockIndexForEntry(entryIndex) < 0 {
 			continue
 		}
@@ -108,7 +110,7 @@ func centerVisibleSelectableDetailEntry(t *testing.T, m Model) int {
 		bestDistance = distance
 	}
 	if bestEntry < 0 {
-		t.Fatalf("expected center visible selectable detail entry, owners=%+v", m.detailLineEntryIndices)
+		t.Fatalf("expected center visible selectable detail entry, owners=%+v", owners)
 	}
 	return bestEntry
 }

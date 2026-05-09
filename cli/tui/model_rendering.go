@@ -24,17 +24,17 @@ func (m Model) buildDetailBlocks(includeStreaming bool, applySelection bool) []o
 }
 
 func (m Model) buildDetailBlockSpecs(includeStreaming bool) []detailBlockSpec {
-	blocks := make([]detailBlockSpec, 0, len(m.transcript)+1)
+	blocks := make([]detailBlockSpec, 0, len(m.transcriptInput.Entries)+1)
 	consumedResults := make(map[int]struct{})
-	resultIndex := buildToolResultIndex(m.transcript)
-	for idx := 0; idx < len(m.transcript); idx++ {
+	resultIndex := buildToolResultIndex(m.transcriptInput.Entries)
+	for idx := 0; idx < len(m.transcriptInput.Entries); idx++ {
 		if _, consumed := consumedResults[idx]; consumed {
 			continue
 		}
 		if reasoningSpec, ok := m.prefixedReasoningBlockSpec(idx, consumedResults); ok {
 			blocks = append(blocks, reasoningSpec)
 		}
-		entry := m.transcript[idx]
+		entry := m.transcriptInput.Entries[idx]
 		role := m.entryRole(entry)
 		intent := m.entryIntent(entry)
 		switch role {
@@ -109,17 +109,17 @@ type transcriptBlockOptions struct {
 }
 
 func (m Model) buildTranscriptBlocks(opts transcriptBlockOptions) []ongoingBlock {
-	blocks := make([]ongoingBlock, 0, len(m.transcript)+1)
+	blocks := make([]ongoingBlock, 0, len(m.transcriptInput.Entries)+1)
 	consumedResults := make(map[int]struct{})
-	resultIndex := buildToolResultIndex(m.transcript)
-	for idx := 0; idx < len(m.transcript); idx++ {
+	resultIndex := buildToolResultIndex(m.transcriptInput.Entries)
+	for idx := 0; idx < len(m.transcriptInput.Entries); idx++ {
 		if _, consumed := consumedResults[idx]; consumed {
 			continue
 		}
 		if reasoningBlock, ok := m.prefixedReasoningBlock(idx, consumedResults, opts); ok {
 			blocks = append(blocks, reasoningBlock)
 		}
-		entry := m.transcript[idx]
+		entry := m.transcriptInput.Entries[idx]
 		role := m.entryRole(entry)
 		intent := m.entryIntent(entry)
 		if opts.mode == transcriptBlockModeOngoing && skipInOngoing(entry) {
@@ -138,7 +138,7 @@ func (m Model) prefixedReasoningBlock(entryIndex int, consumed map[int]struct{},
 	if opts.mode != transcriptBlockModeDetail {
 		return ongoingBlock{}, false
 	}
-	thinkingBlock, ok := m.trailingThinkingBlockBeforeEntry(m.transcript, entryIndex, consumed)
+	thinkingBlock, ok := m.trailingThinkingBlockBeforeEntry(m.transcriptInput.Entries, entryIndex, consumed)
 	if !ok {
 		return ongoingBlock{}, false
 	}
@@ -146,7 +146,7 @@ func (m Model) prefixedReasoningBlock(entryIndex int, consumed map[int]struct{},
 }
 
 func (m Model) prefixedReasoningBlockSpec(entryIndex int, consumed map[int]struct{}) (detailBlockSpec, bool) {
-	thinkingText, ok := m.trailingThinkingTextBeforeEntry(m.transcript, entryIndex, consumed)
+	thinkingText, ok := m.trailingThinkingTextBeforeEntry(m.transcriptInput.Entries, entryIndex, consumed)
 	if !ok {
 		return detailBlockSpec{}, false
 	}
@@ -199,11 +199,11 @@ func (m Model) toolCallBlock(entryIndex int, entry TranscriptEntry, consumed map
 		entryEnd = resultIdx
 	}
 	effectiveMeta := entry.ToolCall
-	if resultIdx >= 0 && m.transcript[resultIdx].ToolCall != nil {
-		effectiveMeta = m.transcript[resultIdx].ToolCall
+	if resultIdx >= 0 && m.transcriptInput.Entries[resultIdx].ToolCall != nil {
+		effectiveMeta = m.transcriptInput.Entries[resultIdx].ToolCall
 		combined = compactToolCallText(effectiveMeta, combined)
 		if isPatchToolCall(effectiveMeta) {
-			blockRole = toolBlockRoleFromResult(roleFromEntry(m.transcript[resultIdx]), RenderIntentToolPatch)
+			blockRole = toolBlockRoleFromResult(roleFromEntry(m.transcriptInput.Entries[resultIdx]), RenderIntentToolPatch)
 		}
 	}
 	lines := m.flattenEntryWithMeta(blockRole, combined, opts.mode == transcriptBlockModeOngoing, effectiveMeta)
@@ -234,8 +234,8 @@ func (m Model) detailToolCallSpec(entryIndex int, entry TranscriptEntry, consume
 	entryEnd := entryIndex
 	resultText := ""
 	resultSummary := ""
-	if resultIdx := resultIndex.findMatchingToolResultIndex(m.transcript, entryIndex, consumed); resultIdx >= 0 {
-		resultEntry := m.transcript[resultIdx]
+	if resultIdx := resultIndex.findMatchingToolResultIndex(m.transcriptInput.Entries, entryIndex, consumed); resultIdx >= 0 {
+		resultEntry := m.transcriptInput.Entries[resultIdx]
 		if resultEntry.ToolCall != nil {
 			combined = toolCallDisplayText(resultEntry.ToolCall, combined)
 		}
@@ -255,10 +255,10 @@ func (m Model) detailToolCallSpec(entryIndex int, entry TranscriptEntry, consume
 	absoluteIndex := m.absoluteTranscriptIndex(entryIndex)
 	absoluteEnd := m.absoluteTranscriptIndex(entryEnd)
 	meta := cloneToolCallMeta(entry.ToolCall)
-	if entryEnd != entryIndex && m.transcript[entryEnd].ToolCall != nil {
-		meta = cloneToolCallMeta(m.transcript[entryEnd].ToolCall)
+	if entryEnd != entryIndex && m.transcriptInput.Entries[entryEnd].ToolCall != nil {
+		meta = cloneToolCallMeta(m.transcriptInput.Entries[entryEnd].ToolCall)
 		if isPatchToolCall(meta) {
-			blockRole = toolBlockRoleFromResult(roleFromEntry(m.transcript[entryEnd]), RenderIntentToolPatch)
+			blockRole = toolBlockRoleFromResult(roleFromEntry(m.transcriptInput.Entries[entryEnd]), RenderIntentToolPatch)
 		}
 	}
 	return detailBlockSpec{
@@ -284,8 +284,8 @@ func (m Model) askQuestionBlock(entryIndex int, entry TranscriptEntry, consumed 
 	blockRole := RenderIntentToolQuestion
 	question, suggestions, recommendedOptionIndex := askQuestionDisplay(entry.ToolCall, entry.Text)
 	answer := ""
-	if resultIdx := resultIndex.findMatchingToolResultIndex(m.transcript, entryIndex, consumed); resultIdx >= 0 {
-		resultEntry := m.transcript[resultIdx]
+	if resultIdx := resultIndex.findMatchingToolResultIndex(m.transcriptInput.Entries, entryIndex, consumed); resultIdx >= 0 {
+		resultEntry := m.transcriptInput.Entries[resultIdx]
 		nextRole := roleFromEntry(resultEntry)
 		if nextRole.IsToolResult() {
 			answer = strings.TrimSpace(resultEntry.Text)
@@ -313,11 +313,11 @@ func (m Model) detailAskQuestionSpec(entryIndex int, entry TranscriptEntry, cons
 	question, suggestions, recommendedOptionIndex := askQuestionDisplay(entry.ToolCall, entry.Text)
 	answer := ""
 	resultSummary := ""
-	if resultIdx := resultIndex.findMatchingToolResultIndex(m.transcript, entryIndex, consumed); resultIdx >= 0 {
-		nextRole := roleFromEntry(m.transcript[resultIdx])
+	if resultIdx := resultIndex.findMatchingToolResultIndex(m.transcriptInput.Entries, entryIndex, consumed); resultIdx >= 0 {
+		nextRole := roleFromEntry(m.transcriptInput.Entries[resultIdx])
 		if nextRole.IsToolResult() {
-			answer = strings.TrimSpace(m.transcript[resultIdx].Text)
-			resultSummary = strings.TrimSpace(m.transcript[resultIdx].ToolResultSummary)
+			answer = strings.TrimSpace(m.transcriptInput.Entries[resultIdx].Text)
+			resultSummary = strings.TrimSpace(m.transcriptInput.Entries[resultIdx].ToolResultSummary)
 			blockRole = toolBlockRoleFromResult(nextRole, blockRole)
 			consumed[resultIdx] = struct{}{}
 		}
@@ -355,13 +355,13 @@ func (m Model) toolCallDisplayText(entry TranscriptEntry, blockRole RenderIntent
 }
 
 func (m Model) applyToolResult(entryIndex int, meta *transcript.ToolCallMeta, blockRole RenderIntent, combined string, consumed map[int]struct{}, resultIndex toolResultIndex, opts transcriptBlockOptions) (RenderIntent, string, int) {
-	resultIdx := resultIndex.findMatchingToolResultIndex(m.transcript, entryIndex, consumed)
+	resultIdx := resultIndex.findMatchingToolResultIndex(m.transcriptInput.Entries, entryIndex, consumed)
 	if resultIdx < 0 {
 		return blockRole, combined, -1
 	}
-	nextRole := roleFromEntry(m.transcript[resultIdx])
+	nextRole := roleFromEntry(m.transcriptInput.Entries[resultIdx])
 	if opts.mode == transcriptBlockModeDetail {
-		resultText := m.transcript[resultIdx].Text
+		resultText := m.transcriptInput.Entries[resultIdx].Text
 		omitSuccessfulResult := meta != nil && meta.OmitSuccessfulResult && nextRole != TranscriptRoleToolResultError
 		if strings.TrimSpace(resultText) != "" && !omitSuccessfulResult {
 			combined += "\n" + resultText
@@ -423,15 +423,15 @@ func (m Model) detailStandardSpec(entryIndex int, entry TranscriptEntry, role Re
 }
 
 func (m Model) combinedThinkingText(entryIndex int, consumed map[int]struct{}) string {
-	combined := strings.TrimSpace(m.transcript[entryIndex].Text)
-	for idx := entryIndex + 1; idx < len(m.transcript); idx++ {
+	combined := strings.TrimSpace(m.transcriptInput.Entries[entryIndex].Text)
+	for idx := entryIndex + 1; idx < len(m.transcriptInput.Entries); idx++ {
 		if _, used := consumed[idx]; used {
 			break
 		}
-		if !roleFromEntry(m.transcript[idx]).IsThinking() {
+		if !roleFromEntry(m.transcriptInput.Entries[idx]).IsThinking() {
 			break
 		}
-		nextText := strings.TrimSpace(m.transcript[idx].Text)
+		nextText := strings.TrimSpace(m.transcriptInput.Entries[idx].Text)
 		if nextText != "" {
 			if combined == "" {
 				combined = nextText
@@ -450,22 +450,22 @@ func (m Model) appendStreamingBlocks(blocks []ongoingBlock, opts transcriptBlock
 			blocks = append(blocks, ongoingBlock{role: RenderIntentReasoning, lines: lines, entryIndex: -1, entryEnd: -1})
 		}
 	}
-	if !opts.includeStreaming || m.ongoing == "" {
+	if !opts.includeStreaming || m.transcriptInput.Ongoing == "" {
 		return blocks
 	}
-	lines := m.flattenEntry(RenderIntentAssistant, m.ongoing)
+	lines := m.flattenEntry(RenderIntentAssistant, m.transcriptInput.Ongoing)
 	if opts.mode == transcriptBlockModeOngoing {
-		lines = m.flattenEntryPlain(RenderIntentAssistant, m.ongoing)
+		lines = m.flattenEntryPlain(RenderIntentAssistant, m.transcriptInput.Ongoing)
 	}
 	return append(blocks, ongoingBlock{role: RenderIntentAssistant, lines: lines, entryIndex: -1, entryEnd: -1})
 }
 
 func (m Model) streamingReasoningLines() []string {
-	if len(m.streamingReasoning) == 0 {
+	if len(m.transcriptInput.StreamingReasoning) == 0 {
 		return nil
 	}
-	parts := make([]string, 0, len(m.streamingReasoning))
-	for _, entry := range m.streamingReasoning {
+	parts := make([]string, 0, len(m.transcriptInput.StreamingReasoning))
+	for _, entry := range m.transcriptInput.StreamingReasoning {
 		text := strings.TrimSpace(entry.Text)
 		if text == "" {
 			continue
@@ -479,11 +479,11 @@ func (m Model) streamingReasoningLines() []string {
 }
 
 func (m Model) detailStreamingReasoningSpec() (detailBlockSpec, bool) {
-	if len(m.streamingReasoning) == 0 {
+	if len(m.transcriptInput.StreamingReasoning) == 0 {
 		return detailBlockSpec{}, false
 	}
-	parts := make([]string, 0, len(m.streamingReasoning))
-	for _, entry := range m.streamingReasoning {
+	parts := make([]string, 0, len(m.transcriptInput.StreamingReasoning))
+	for _, entry := range m.transcriptInput.StreamingReasoning {
 		text := strings.TrimSpace(entry.Text)
 		if text == "" {
 			continue
@@ -505,10 +505,10 @@ func (m Model) detailStreamingReasoningSpec() (detailBlockSpec, bool) {
 }
 
 func (m Model) detailStreamingAssistantSpec() (detailBlockSpec, bool) {
-	if strings.TrimSpace(m.ongoing) == "" {
+	if strings.TrimSpace(m.transcriptInput.Ongoing) == "" {
 		return detailBlockSpec{}, false
 	}
-	text := m.ongoing
+	text := m.transcriptInput.Ongoing
 	return detailBlockSpec{
 		role:       RenderIntentAssistant,
 		entryIndex: -1,
@@ -594,18 +594,8 @@ func (m Model) ongoingLineRangeForEntry(entryIndex int) (int, int, bool) {
 	if entryIndex < 0 {
 		return 0, 0, false
 	}
-	blocks := m.buildOngoingBlocks(true)
-	lineOffset := 0
-	for idx, block := range blocks {
-		if idx > 0 && transcriptRoleGroupsNeedSeparator(blocks[idx-1].role, block.role) {
-			lineOffset++
-		}
-		start := lineOffset
-		end := lineOffset + len(block.lines) - 1
-		if block.entryIndex == entryIndex {
-			return start, end, true
-		}
-		lineOffset += len(block.lines)
+	if lineRange, ok := m.transcriptViewProjection().OngoingEntryLineRanges[entryIndex]; ok {
+		return lineRange.Start, lineRange.End, true
 	}
 	return 0, 0, false
 }
@@ -614,27 +604,8 @@ func (m Model) detailLineRangeForEntry(entryIndex int) (int, int, bool) {
 	if entryIndex < 0 {
 		return 0, 0, false
 	}
-	m.ensureDetailMetricsResolved()
-	localIndex := entryIndex - m.detailEntryRangeOffset
-	if localIndex >= 0 && localIndex < len(m.detailEntryLineRanges) {
-		rangeForEntry := m.detailEntryLineRanges[localIndex]
-		if rangeForEntry.Start >= 0 && rangeForEntry.End >= rangeForEntry.Start {
-			return rangeForEntry.Start, rangeForEntry.End, true
-		}
-		return 0, 0, false
-	}
-	blocks := m.buildDetailBlocks(true, false)
-	lineOffset := 0
-	for idx, block := range blocks {
-		if idx > 0 && transcriptRoleGroupsNeedSeparator(blocks[idx-1].role, block.role) {
-			lineOffset++
-		}
-		start := lineOffset
-		end := lineOffset + len(block.lines) - 1
-		if block.entryIndex == entryIndex {
-			return start, end, true
-		}
-		lineOffset += len(block.lines)
+	if lineRange, ok := m.detailViewProjection().DetailEntryLineRanges[entryIndex]; ok {
+		return lineRange.Start, lineRange.End, true
 	}
 	return 0, 0, false
 }

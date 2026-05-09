@@ -423,3 +423,36 @@ func TestReturningFromDetailPreservesLiveTransientTailInOngoingView(t *testing.T
 		t.Fatalf("expected live transient tail after detail restore, got %q", got)
 	}
 }
+
+func TestReturningFromDetailPreservesTransientTailAndNextLiveAppendInOngoingView(t *testing.T) {
+	m := newProjectedTestUIModel(&runtimeControlFakeClient{}, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.transcriptEntries = []tui.TranscriptEntry{{Role: tui.TranscriptRoleUser, Text: "prompt", Committed: true}}
+	m.transcriptTotalEntries = 1
+	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, TotalEntries: 1})
+
+	_ = m.toggleTranscriptModeWithNativeReplay(false)
+	m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{
+		Role:      tui.TranscriptRoleToolCall,
+		Text:      "echo live",
+		Transient: true,
+	})
+	m.transcriptTotalEntries = 2
+
+	_ = m.toggleTranscriptModeWithNativeReplay(false)
+	if got := stripANSIAndTrimRight(m.view.OngoingSnapshot()); !strings.Contains(got, "echo live") {
+		t.Fatalf("expected transient tail after detail restore, got %q", got)
+	}
+
+	m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{
+		Role:      tui.TranscriptRoleAssistant,
+		Text:      "post-restore live append",
+		Transient: true,
+	})
+	m.transcriptTotalEntries = 3
+	m.syncOngoingTailViewFromRuntimeState()
+
+	got := stripANSIAndTrimRight(m.view.OngoingSnapshot())
+	if !strings.Contains(got, "echo live") || !strings.Contains(got, "post-restore live append") {
+		t.Fatalf("expected transient tail and next live append after detail restore, got %q", got)
+	}
+}

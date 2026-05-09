@@ -504,7 +504,7 @@ func (m Model) selectedUserTranscriptEntry() (int, bool) {
 	if !ok {
 		return -1, false
 	}
-	if roleFromEntry(m.transcript[localIndex]) != TranscriptRoleUser {
+	if roleFromEntry(m.transcriptInput.Entries[localIndex]) != TranscriptRoleUser {
 		return -1, false
 	}
 	return m.selectedTranscriptEntry, true

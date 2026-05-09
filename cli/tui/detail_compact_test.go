@@ -94,17 +94,18 @@ func TestCompactDetailToggleStartsWithMultilineTailBlockSelected(t *testing.T) {
 		t.Fatal("expected visible selectable detail entries")
 	}
 	want := visible[len(visible)-1]
+	owners := m.currentDetailViewport().Owners
 	if !m.detailSelectedActive || m.detailSelectedEntry != want {
-		t.Fatalf("expected multiline tail block selected on detail open, got active=%v entry=%d want=%d visible=%+v owners=%+v", m.detailSelectedActive, m.detailSelectedEntry, want, visible, m.detailLineEntryIndices)
+		t.Fatalf("expected multiline tail block selected on detail open, got active=%v entry=%d want=%d visible=%+v owners=%+v", m.detailSelectedActive, m.detailSelectedEntry, want, visible, owners)
 	}
 	selectedLines := 0
-	for _, owner := range m.detailLineEntryIndices {
+	for _, owner := range owners {
 		if owner == want {
 			selectedLines++
 		}
 	}
 	if selectedLines < 2 {
-		t.Fatalf("expected bottom-selected tail block to own multiple visible lines, got %d owners=%+v", selectedLines, m.detailLineEntryIndices)
+		t.Fatalf("expected bottom-selected tail block to own multiple visible lines, got %d owners=%+v", selectedLines, owners)
 	}
 }
 
@@ -124,7 +125,7 @@ func TestCompactDetailViewportShrinkKeepsBottomSelectionVisible(t *testing.T) {
 	}
 	want := visible[len(visible)-1]
 	if !m.detailSelectedActive || m.detailSelectedEntry != want {
-		t.Fatalf("expected bottom visible entry selected after viewport shrink, got active=%v entry=%d want=%d visible=%+v owners=%+v", m.detailSelectedActive, m.detailSelectedEntry, want, visible, m.detailLineEntryIndices)
+		t.Fatalf("expected bottom visible entry selected after viewport shrink, got active=%v entry=%d want=%d visible=%+v owners=%+v", m.detailSelectedActive, m.detailSelectedEntry, want, visible, m.currentDetailViewport().Owners)
 	}
 }
 
@@ -222,7 +223,6 @@ func TestCompactDetailSelectedSpacerRowsAreVisualOnlyWithTallExpandedEntry(t *te
 	m.detailSelectedEntry = 1
 	m.detailSelectedActive = true
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	m.ensureDetailMetricsResolved()
 	targetEntry := 3
 	targetStart, _, ok := m.detailLineRangeForEntry(targetEntry)
 	if !ok {

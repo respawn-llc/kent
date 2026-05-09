@@ -373,9 +373,9 @@
 - Syntax-highlighted output must not emit backgrounds unless explicitly intended, such as final diff added/removed decoration.
 - Assistant text streams in ongoing mode.
 - Tool output is not streamed live; show running status and reveal on completion.
-- `detail` is a non-streaming snapshot view with UI-local expansion and selection state.
+- `detail` is a live transcript view with UI-local expansion and selection state; transcript changes update content while open, while scroll/anchor stays stable unless the user navigates.
 - Mid-step entry shows latest completed snapshot only.
-- Snapshot is static while open (no live refresh indicator/action).
+- Detail content is not static while open; only scroll/anchor behavior is stable.
 - Snapshot scope is full session transcript up to latest completed step.
 - Detail transcript rendering is flat continuous stream (no grouped sections).
 - Step-end markers appear in detail only.

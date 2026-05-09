@@ -5,7 +5,6 @@ import (
 	"builder/shared/transcript"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -195,11 +194,7 @@ type Model struct {
 	snapOngoingOnViewportResize bool
 	toolSymbolGap               int
 
-	transcript             []TranscriptEntry
-	transcriptBaseOffset   int
-	transcriptTotalEntries int
-	ongoing                string
-	streamingReasoning     []StreamingReasoningEntry
+	transcriptInput TranscriptProjectionInput
 
 	selectedTranscriptEntry  int
 	selectedTranscriptActive bool
@@ -207,42 +202,18 @@ type Model struct {
 	detailSelectedActive     bool
 	detailExpandedEntries    map[int]struct{}
 
-	detailSnapshot          string
-	detailLines             []string
-	detailLineKinds         []VisibleLineKind
-	detailLineEntryIndices  []int
-	detailEntryLineRanges   []lineRange
-	detailBlockLineRanges   []lineRange
-	detailEntryRangeOffset  int
-	detailBlocks            []detailBlockSpec
-	detailBlockLines        [][]string
-	detailTotalLineCount    int
-	detailMetricsResolved   bool
 	detailBottomAnchor      bool
 	detailBottomOffset      int
-	detailDirty             bool
-	detailStale             bool
-	detailRebuildCount      int
-	ongoingSnapshot         string
-	ongoingLineCache        []string
-	ongoingLineKinds        []VisibleLineKind
-	ongoingBaseLines        []string
-	ongoingBaseLineKinds    []VisibleLineKind
-	ongoingBaseLastGroup    string
-	ongoingStreamingLines   []string
-	ongoingStreamingKinds   []VisibleLineKind
-	ongoingStreamingDivider bool
-	ongoingBaseDirty        bool
-	ongoingDirty            bool
 	ongoingError            string
 	theme                   string
 	md                      *markdownRenderer
 	code                    *codeRenderer
+	viewProjector           *TranscriptViewProjector
 	renderDiagnosticHandler RenderDiagnosticHandler
 }
 
 func (m Model) DetailScroll() int {
-	if m.detailBottomAnchor && !m.detailMetricsResolved {
+	if m.detailBottomAnchor {
 		return m.detailBottomOffset
 	}
 	return m.detailScroll
@@ -253,11 +224,11 @@ func (m Model) DetailMaxScroll() int {
 }
 
 func (m Model) DetailMetricsResolved() bool {
-	return !m.detailDirty && !m.detailBottomAnchor
+	return !m.detailBottomAnchor
 }
 
 func (m Model) DetailRebuildCount() int {
-	return m.detailRebuildCount
+	return 0
 }
 
 func (m Model) DetailSelectedEntry() (int, bool) {
@@ -280,26 +251,26 @@ func (m Model) DetailSelectedExpansionAction() (string, bool) {
 }
 
 func (m Model) TranscriptBaseOffset() int {
-	return m.transcriptBaseOffset
+	return m.transcriptInput.BaseOffset
 }
 
 func (m Model) TranscriptTotalEntries() int {
-	if m.transcriptTotalEntries > 0 {
-		return m.transcriptTotalEntries
+	if m.transcriptInput.TotalEntries > 0 {
+		return m.transcriptInput.TotalEntries
 	}
-	return m.transcriptBaseOffset + len(m.transcript)
+	return m.transcriptInput.BaseOffset + len(m.transcriptInput.Entries)
 }
 
 func (m Model) LoadedTranscriptEntryCount() int {
-	return len(m.transcript)
+	return len(m.transcriptInput.Entries)
 }
 
 func (m Model) LoadedTranscriptEntries() []TranscriptEntry {
-	if len(m.transcript) == 0 {
+	if len(m.transcriptInput.Entries) == 0 {
 		return nil
 	}
-	entries := make([]TranscriptEntry, 0, len(m.transcript))
-	for _, entry := range m.transcript {
+	entries := make([]TranscriptEntry, 0, len(m.transcriptInput.Entries))
+	for _, entry := range m.transcriptInput.Entries {
 		copyEntry := entry
 		copyEntry.ToolCall = cloneToolCallMeta(entry.ToolCall)
 		entries = append(entries, copyEntry)
@@ -310,7 +281,7 @@ func (m Model) LoadedTranscriptEntries() []TranscriptEntry {
 func (m Model) DetailVisibleEntryRange() (int, int, bool) {
 	first := -1
 	last := -1
-	for _, entryIndex := range m.detailLineEntryIndices {
+	for _, entryIndex := range m.currentDetailViewport().Owners {
 		if entryIndex < 0 {
 			continue
 		}
@@ -329,12 +300,12 @@ func (m Model) absoluteTranscriptIndex(localIndex int) int {
 	if localIndex < 0 {
 		return -1
 	}
-	return m.transcriptBaseOffset + localIndex
+	return m.transcriptInput.BaseOffset + localIndex
 }
 
 func (m Model) localTranscriptIndex(absoluteIndex int) (int, bool) {
-	local := absoluteIndex - m.transcriptBaseOffset
-	if local < 0 || local >= len(m.transcript) {
+	local := absoluteIndex - m.transcriptInput.BaseOffset
+	if local < 0 || local >= len(m.transcriptInput.Entries) {
 		return 0, false
 	}
 	return local, true
@@ -362,16 +333,20 @@ type detailBlockSpec struct {
 	render     func(Model, string) []string
 }
 
+type ongoingLineParts struct {
+	base             []TranscriptProjectionLine
+	streaming        []TranscriptProjectionLine
+	streamingDivider bool
+}
+
 func NewModel(opts ...Option) Model {
 	m := Model{
-		mode:             ModeOngoing,
-		viewportLines:    DefaultPreviewLines,
-		viewportWidth:    120,
-		toolSymbolGap:    1,
-		theme:            normalizeTheme(""),
-		ongoingBaseDirty: true,
-		ongoingDirty:     true,
-		detailDirty:      true,
+		mode:          ModeOngoing,
+		viewportLines: DefaultPreviewLines,
+		viewportWidth: 120,
+		toolSymbolGap: 1,
+		theme:         normalizeTheme(""),
+		viewProjector: &TranscriptViewProjector{},
 	}
 	for _, opt := range opts {
 		opt(&m)
@@ -417,13 +392,7 @@ func (m *Model) VisibleLineKinds() []VisibleLineKind {
 		return nil
 	}
 	if m.mode == ModeDetail {
-		if m.detailDirty {
-			m.rebuildDetailSnapshot()
-		}
-		return visibleKindsForViewport(m.detailLineKinds, m.viewportLines)
-	}
-	if m.ongoingDirty {
-		m.rebuildOngoingSnapshot()
+		return visibleKindsForViewport(m.currentDetailViewport().Kinds, m.viewportLines)
 	}
 	return m.visibleOngoingLineKinds()
 }
@@ -473,12 +442,6 @@ func (m Model) OngoingScroll() int {
 }
 
 func (m Model) OngoingSnapshot() string {
-	if m.ongoingDirty {
-		return m.renderFlatOngoingTranscript()
-	}
-	if m.ongoingSnapshot != "" {
-		return m.ongoingSnapshot
-	}
 	return strings.Join(m.ongoingLines(), "\n")
 }
 
@@ -487,7 +450,7 @@ func (m Model) OngoingCommittedSnapshot() string {
 }
 
 func (m Model) OngoingStreamingText() string {
-	return m.ongoing
+	return m.transcriptInput.Ongoing
 }
 
 func (m Model) OngoingErrorText() string {
@@ -526,10 +489,6 @@ func (m Model) transitionMode(target Mode, skipDetailWarmup bool) Model {
 		if skipDetailWarmup {
 			return m
 		}
-		if !skipDetailWarmup && (m.detailDirty || m.detailStale || len(m.detailLines) == 0) {
-			m.rebuildDetailSnapshot()
-			m.detailStale = false
-		}
 		m.refreshDetailViewport()
 		if m.compactDetail {
 			m.focusBottomVisibleDetailEntry()
@@ -564,7 +523,7 @@ func (m Model) scrollDetail(delta int) Model {
 }
 
 func (m *Model) scrollDetailLine(delta int) bool {
-	if m.detailBottomAnchor && !m.detailMetricsResolved {
+	if m.detailBottomAnchor {
 		before := m.detailBottomOffset
 		nextOffset := m.detailBottomOffset - delta
 		if nextOffset < 0 {
@@ -585,17 +544,15 @@ func (m *Model) ensureDetailSelection() {
 	if m == nil {
 		return
 	}
-	if m.detailDirty {
-		m.rebuildDetailSnapshot()
-	}
 	if m.detailSelectedActive && m.detailBlockIndexForEntry(m.detailSelectedEntry) >= 0 {
 		return
 	}
-	for idx := len(m.detailBlocks) - 1; idx >= 0; idx-- {
-		if !m.detailBlocks[idx].selectable {
+	blocks := m.detailProjectionBlocks()
+	for idx := len(blocks) - 1; idx >= 0; idx-- {
+		if !blocks[idx].Selectable {
 			continue
 		}
-		m.detailSelectedEntry = m.detailBlocks[idx].entryIndex
+		m.detailSelectedEntry = blocks[idx].EntryIndex
 		m.detailSelectedActive = true
 		return
 	}
@@ -608,30 +565,28 @@ func (m *Model) focusCenterVisibleDetailEntry() {
 }
 
 func (m *Model) focusBottomVisibleDetailEntry() {
-	m.focusVisibleDetailEntry(len(m.detailLineEntryIndices) - 1)
+	m.focusVisibleDetailEntry(len(m.currentDetailViewport().Owners) - 1)
 }
 
 func (m *Model) focusVisibleDetailEntry(anchor int) {
 	if m == nil || !m.compactDetail {
 		return
 	}
-	if m.detailDirty {
-		m.rebuildDetailSnapshot()
-	}
-	if len(m.detailLineEntryIndices) == 0 {
+	owners := m.currentDetailViewport().Owners
+	if len(owners) == 0 {
 		m.ensureDetailSelection()
 		return
 	}
-	if anchor >= len(m.detailLineEntryIndices) {
-		anchor = len(m.detailLineEntryIndices) - 1
+	if anchor >= len(owners) {
+		anchor = len(owners) - 1
 	}
 	if anchor < 0 {
 		m.ensureDetailSelection()
 		return
 	}
 	bestEntry := -1
-	bestDistance := len(m.detailLineEntryIndices) + 1
-	for lineIndex, entryIndex := range m.detailLineEntryIndices {
+	bestDistance := len(owners) + 1
+	for lineIndex, entryIndex := range owners {
 		if entryIndex < 0 || m.detailBlockIndexForEntry(entryIndex) < 0 {
 			continue
 		}
@@ -679,9 +634,6 @@ func (m *Model) moveDetailSelectionTowardCenterAtScrollEdge(delta int) bool {
 	if m == nil || !m.compactDetail || (delta != -1 && delta != 1) {
 		return false
 	}
-	if m.detailDirty {
-		m.rebuildDetailSnapshot()
-	}
 	first, last, ok := m.visibleDetailEntryLineRange(m.detailSelectedEntry)
 	if !m.detailSelectedActive || !ok {
 		return false
@@ -726,8 +678,9 @@ func (m *Model) selectVisibleDetailEntryInLineDirection(startLine int, delta int
 	if m == nil || delta == 0 {
 		return false
 	}
-	for lineIndex := startLine; lineIndex >= 0 && lineIndex < len(m.detailLineEntryIndices); lineIndex += delta {
-		entryIndex := m.detailLineEntryIndices[lineIndex]
+	owners := m.currentDetailViewport().Owners
+	for lineIndex := startLine; lineIndex >= 0 && lineIndex < len(owners); lineIndex += delta {
+		entryIndex := owners[lineIndex]
 		if entryIndex < 0 || entryIndex == m.detailSelectedEntry || m.detailBlockIndexForEntry(entryIndex) < 0 {
 			continue
 		}
@@ -742,7 +695,7 @@ func (m Model) visibleDetailEntryLineRange(entryIndex int) (int, int, bool) {
 	}
 	first := -1
 	last := -1
-	for lineIndex, owner := range m.detailLineEntryIndices {
+	for lineIndex, owner := range m.currentDetailViewport().Owners {
 		if owner != entryIndex {
 			continue
 		}
@@ -758,12 +711,10 @@ func (m *Model) visibleSelectableDetailEntries() []int {
 	if m == nil {
 		return nil
 	}
-	if m.detailDirty {
-		m.rebuildDetailSnapshot()
-	}
-	entries := make([]int, 0, len(m.detailLineEntryIndices))
-	seen := make(map[int]struct{}, len(m.detailLineEntryIndices))
-	for _, entryIndex := range m.detailLineEntryIndices {
+	owners := m.currentDetailViewport().Owners
+	entries := make([]int, 0, len(owners))
+	seen := make(map[int]struct{}, len(owners))
+	for _, entryIndex := range owners {
 		if entryIndex < 0 || m.detailBlockIndexForEntry(entryIndex) < 0 {
 			continue
 		}
@@ -780,22 +731,20 @@ func (m *Model) centerVisibleSelectableDetailEntry() int {
 	if m == nil {
 		return -1
 	}
-	if m.detailDirty {
-		m.rebuildDetailSnapshot()
-	}
-	if len(m.detailLineEntryIndices) == 0 {
+	owners := m.currentDetailViewport().Owners
+	if len(owners) == 0 {
 		return -1
 	}
 	anchor := m.viewportLines / 2
-	if anchor >= len(m.detailLineEntryIndices) {
-		anchor = len(m.detailLineEntryIndices) - 1
+	if anchor >= len(owners) {
+		anchor = len(owners) - 1
 	}
 	if anchor < 0 {
 		return -1
 	}
 	bestEntry := -1
-	bestDistance := len(m.detailLineEntryIndices) + 1
-	for lineIndex, entryIndex := range m.detailLineEntryIndices {
+	bestDistance := len(owners) + 1
+	for lineIndex, entryIndex := range owners {
 		if entryIndex < 0 || m.detailBlockIndexForEntry(entryIndex) < 0 {
 			continue
 		}
@@ -827,12 +776,16 @@ func detailVisibleEntryIndex(entries []int, entryIndex int) int {
 }
 
 func (m Model) detailBlockIndexForEntry(entryIndex int) int {
-	for idx, block := range m.detailBlocks {
-		if block.selectable && block.entryIndex == entryIndex {
+	for idx, block := range m.detailProjectionBlocks() {
+		if block.Selectable && block.EntryIndex == entryIndex {
 			return idx
 		}
 	}
 	return -1
+}
+
+func (m Model) detailProjectionBlocks() []TranscriptProjectionBlock {
+	return m.detailViewProjection().Detail.Blocks
 }
 
 func (m Model) maxOngoingScroll() int {
@@ -844,14 +797,10 @@ func (m Model) maxOngoingScroll() int {
 }
 
 func (m *Model) maxDetailScroll() int {
-	if m.detailBottomAnchor && !m.detailMetricsResolved {
+	if m.detailBottomAnchor {
 		return m.detailBottomOffset
 	}
-	m.ensureDetailMetricsResolved()
-	if m.detailTotalLineCount <= m.viewportLines {
-		return 0
-	}
-	return m.detailTotalLineCount - m.viewportLines
+	return m.detailViewProjection().DetailViewport(ProjectionViewportState{ViewportLines: m.viewportLines}).MaxScroll
 }
 
 func (m Model) isOngoingAtBottom() bool {
@@ -859,7 +808,8 @@ func (m Model) isOngoingAtBottom() bool {
 }
 
 func (m Model) renderOngoing() string {
-	lineCount := m.ongoingRenderedLineCount()
+	parts := m.ongoingLineParts()
+	lineCount := parts.lineCount()
 	start := clamp(m.ongoingScroll, 0, m.maxOngoingScroll())
 	end := start + m.viewportLines
 	if end > lineCount {
@@ -868,7 +818,7 @@ func (m Model) renderOngoing() string {
 
 	out := make([]string, 0, m.viewportLines+1)
 	for i := start; i < end; i++ {
-		out = append(out, m.ongoingLineAt(i))
+		out = append(out, parts.lineAt(i).Text)
 	}
 	for len(out) < m.viewportLines {
 		out = append(out, "")
@@ -877,89 +827,106 @@ func (m Model) renderOngoing() string {
 }
 
 func (m Model) ongoingLines() []string {
-	if m.ongoingDirty {
-		return splitLines(m.renderFlatOngoingTranscript())
-	}
-	if len(m.ongoingLineCache) > 0 {
-		return m.ongoingLineCache
-	}
-	lineCount := m.ongoingRenderedLineCount()
-	lines := make([]string, 0, lineCount)
-	for idx := 0; idx < lineCount; idx++ {
-		lines = append(lines, m.ongoingLineAt(idx))
-	}
-	if len(lines) == 0 {
-		return []string{""}
+	parts := m.ongoingLineParts()
+	lines := make([]string, 0, parts.lineCount())
+	for idx := 0; idx < parts.lineCount(); idx++ {
+		lines = append(lines, parts.lineAt(idx).Text)
 	}
 	return lines
 }
 
-func (m *Model) invalidateOngoingSnapshot() {
-	m.ongoingDirty = true
-	m.ongoingSnapshot = ""
-	m.ongoingLineCache = nil
-	m.ongoingLineKinds = nil
+func (m Model) transcriptViewProjection() TranscriptViewProjection {
+	if m.viewProjector == nil {
+		return ProjectTranscriptViews(m.TranscriptProjectionInput(), m.TranscriptProjectionViewState())
+	}
+	return m.viewProjector.ProjectShared(m.transcriptProjectionInput(), m.TranscriptProjectionViewState())
 }
 
-func (m *Model) invalidateOngoingBaseSnapshot() {
-	m.ongoingBaseDirty = true
-	m.invalidateOngoingSnapshot()
+func (m Model) currentDetailViewport() ProjectionViewport {
+	return m.detailViewProjection().DetailViewport(ProjectionViewportState{
+		ViewportLines: m.viewportLines,
+		Scroll:        m.detailScroll,
+		BottomAnchor:  m.detailBottomAnchor,
+		BottomOffset:  m.detailBottomOffset,
+	})
 }
 
-func (m *Model) rebuildOngoingSnapshot() {
-	if m.ongoingBaseDirty {
-		projection := m.OngoingProjection(false)
-		lines := projection.Lines(detailDivider())
-		m.ongoingBaseLines = m.ongoingBaseLines[:0]
-		m.ongoingBaseLineKinds = m.ongoingBaseLineKinds[:0]
-		m.ongoingBaseLastGroup = ""
-		for _, line := range lines {
-			m.ongoingBaseLines = append(m.ongoingBaseLines, line.Text)
-			m.ongoingBaseLineKinds = append(m.ongoingBaseLineKinds, line.Kind)
-		}
+func (m Model) detailViewProjection() TranscriptViewProjection {
+	if m.viewProjector == nil {
+		return transcriptViewProjectionForDetail(m.transcriptInput.Revision, ProjectTranscriptViews(m.TranscriptProjectionInput(), m.TranscriptProjectionViewState()).Detail)
+	}
+	return m.viewProjector.ProjectDetailShared(m.transcriptProjectionInput(), m.TranscriptProjectionViewState())
+}
+
+func (m Model) ongoingLineParts() ongoingLineParts {
+	input := m.transcriptProjectionInput()
+	state := m.TranscriptProjectionViewState()
+	var base []TranscriptProjectionLine
+	lastGroup := ""
+	if m.viewProjector != nil {
+		base, lastGroup = m.viewProjector.CommittedOngoingLines(input, state)
+	} else {
+		projection := projectCommittedOngoingTranscriptWithRenderer(
+			committedOngoingProjectionRenderer(state.Theme, state.ViewportWidth, input.BaseOffset),
+			input.Entries,
+		)
+		base = projection.Lines(detailDivider())
 		if blockCount := len(projection.Blocks); blockCount > 0 {
-			m.ongoingBaseLastGroup = projection.Blocks[blockCount-1].DividerGroup
-		}
-		m.ongoingBaseDirty = false
-	}
-	m.ongoingStreamingLines = m.ongoingStreamingLines[:0]
-	m.ongoingStreamingKinds = m.ongoingStreamingKinds[:0]
-	m.ongoingStreamingDivider = false
-	if strings.TrimSpace(m.ongoing) != "" {
-		m.ongoingStreamingLines = append(m.ongoingStreamingLines, m.flattenEntryPlain("assistant", m.ongoing)...)
-		if len(m.ongoingStreamingLines) > 0 {
-			m.ongoingStreamingKinds = make([]VisibleLineKind, len(m.ongoingStreamingLines))
-			if len(m.ongoingBaseLines) > 0 && m.ongoingBaseLastGroup != ongoingDividerGroup("assistant") {
-				m.ongoingStreamingDivider = true
-			}
+			lastGroup = projection.Blocks[blockCount-1].DividerGroup
 		}
 	}
-	if len(m.ongoingBaseLines) == 0 && !m.ongoingStreamingDivider && len(m.ongoingStreamingLines) == 0 {
-		m.ongoingSnapshot = ""
-		m.ongoingLineCache = []string{""}
-		m.ongoingLineKinds = []VisibleLineKind{VisibleLineContent}
-		m.ongoingDirty = false
-		return
+	if pending := m.pendingOngoingProjectionLines(input, state, lastGroup); len(pending.lines) > 0 {
+		base = append(base, pending.lines...)
+		lastGroup = pending.lastGroup
 	}
-	plain := make([]string, 0, len(m.ongoingBaseLines)+len(m.ongoingStreamingLines)+1)
-	kinds := make([]VisibleLineKind, 0, len(m.ongoingBaseLineKinds)+len(m.ongoingStreamingKinds)+1)
-	plain = append(plain, m.ongoingBaseLines...)
-	kinds = append(kinds, m.ongoingBaseLineKinds...)
-	if m.ongoingStreamingDivider {
-		plain = append(plain, detailDivider())
-		kinds = append(kinds, VisibleLineDivider)
-	}
-	plain = append(plain, m.ongoingStreamingLines...)
-	kinds = append(kinds, m.ongoingStreamingKinds...)
-	m.ongoingSnapshot = strings.Join(plain, "\n")
-	m.ongoingLineCache = plain
-	m.ongoingLineKinds = kinds
-	m.ongoingDirty = false
+	streamingLines := m.streamingOngoingProjectionLines()
+	parts := ongoingLineParts{base: base, streaming: streamingLines}
+	parts.streamingDivider = len(base) > 0 && len(streamingLines) > 0 && lastGroup != ongoingDividerGroup(RenderIntentAssistant)
+	return parts
 }
 
-func (m Model) ongoingRenderedLineCount() int {
-	total := len(m.ongoingBaseLines) + len(m.ongoingStreamingLines)
-	if m.ongoingStreamingDivider {
+type pendingOngoingLines struct {
+	lines     []TranscriptProjectionLine
+	lastGroup string
+}
+
+func (m Model) pendingOngoingProjectionLines(input TranscriptProjectionInput, state TranscriptProjectionViewState, previousGroup string) pendingOngoingLines {
+	pendingEntries := PendingOngoingEntries(input.Entries)
+	if len(pendingEntries) == 0 {
+		return pendingOngoingLines{}
+	}
+	projection := renderPendingOngoingSnapshotProjection(pendingEntries, state.Theme, state.ViewportWidth, uniformPendingSpinnerFrame(""))
+	if len(projection.Blocks) == 0 {
+		return pendingOngoingLines{}
+	}
+	lines := projection.Lines(detailDivider())
+	if previousGroup != "" && previousGroup != projection.Blocks[0].DividerGroup {
+		lines = append([]TranscriptProjectionLine{{Kind: VisibleLineDivider, Text: detailDivider()}}, lines...)
+	}
+	return pendingOngoingLines{lines: lines, lastGroup: projection.Blocks[len(projection.Blocks)-1].DividerGroup}
+}
+
+func (m Model) streamingOngoingProjectionLines() []TranscriptProjectionLine {
+	if strings.TrimSpace(m.transcriptInput.Ongoing) == "" {
+		return nil
+	}
+	if m.viewProjector != nil {
+		return m.viewProjector.StreamingOngoingLines(m.transcriptInput.Ongoing, m.TranscriptProjectionViewState())
+	}
+	lines := m.flattenEntryPlain(RenderIntentAssistant, m.transcriptInput.Ongoing)
+	if len(lines) == 0 {
+		return nil
+	}
+	out := make([]TranscriptProjectionLine, 0, len(lines))
+	for _, line := range lines {
+		out = append(out, TranscriptProjectionLine{Kind: VisibleLineContent, Text: line})
+	}
+	return out
+}
+
+func (p ongoingLineParts) lineCount() int {
+	total := len(p.base) + len(p.streaming)
+	if p.streamingDivider {
 		total++
 	}
 	if total == 0 {
@@ -968,64 +935,71 @@ func (m Model) ongoingRenderedLineCount() int {
 	return total
 }
 
-func (m Model) ongoingLineAt(index int) string {
-	if index < 0 || index >= m.ongoingRenderedLineCount() {
-		return ""
+func (p ongoingLineParts) lineAt(index int) TranscriptProjectionLine {
+	if index < 0 || index >= p.lineCount() {
+		return TranscriptProjectionLine{Kind: VisibleLineContent}
 	}
-	if len(m.ongoingBaseLines) == 0 && !m.ongoingStreamingDivider && len(m.ongoingStreamingLines) == 0 {
-		return ""
+	if len(p.base) == 0 && !p.streamingDivider && len(p.streaming) == 0 {
+		return TranscriptProjectionLine{Kind: VisibleLineContent}
 	}
-	if index < len(m.ongoingBaseLines) {
-		return m.ongoingBaseLines[index]
+	if index < len(p.base) {
+		return p.base[index]
 	}
-	index -= len(m.ongoingBaseLines)
-	if m.ongoingStreamingDivider {
+	index -= len(p.base)
+	if p.streamingDivider {
 		if index == 0 {
-			return detailDivider()
+			return TranscriptProjectionLine{Kind: VisibleLineDivider, Text: detailDivider()}
 		}
 		index--
 	}
-	if index >= 0 && index < len(m.ongoingStreamingLines) {
-		return m.ongoingStreamingLines[index]
+	if index >= 0 && index < len(p.streaming) {
+		return p.streaming[index]
 	}
-	return ""
+	return TranscriptProjectionLine{Kind: VisibleLineContent}
+}
+
+func (m Model) ongoingProjectionLines() []TranscriptProjectionLine {
+	parts := m.ongoingLineParts()
+	lines := make([]TranscriptProjectionLine, 0, parts.lineCount())
+	for idx := 0; idx < parts.lineCount(); idx++ {
+		lines = append(lines, parts.lineAt(idx))
+	}
+	return lines
+}
+
+func (m Model) ongoingRenderedLineCount() int {
+	return m.ongoingLineParts().lineCount()
+}
+
+func (m Model) ongoingLineAt(index int) string {
+	parts := m.ongoingLineParts()
+	if index < 0 || index >= parts.lineCount() {
+		return ""
+	}
+	return parts.lineAt(index).Text
 }
 
 func (m Model) ongoingLineKindAt(index int) VisibleLineKind {
-	if index < 0 || index >= m.ongoingRenderedLineCount() {
+	parts := m.ongoingLineParts()
+	if index < 0 || index >= parts.lineCount() {
 		return VisibleLineContent
 	}
-	if len(m.ongoingBaseLines) == 0 && !m.ongoingStreamingDivider && len(m.ongoingStreamingLines) == 0 {
-		return VisibleLineContent
-	}
-	if index < len(m.ongoingBaseLineKinds) {
-		return m.ongoingBaseLineKinds[index]
-	}
-	index -= len(m.ongoingBaseLineKinds)
-	if m.ongoingStreamingDivider {
-		if index == 0 {
-			return VisibleLineDivider
-		}
-		index--
-	}
-	if index >= 0 && index < len(m.ongoingStreamingKinds) {
-		return m.ongoingStreamingKinds[index]
-	}
-	return VisibleLineContent
+	return parts.lineAt(index).Kind
 }
 
 func (m Model) visibleOngoingLineKinds() []VisibleLineKind {
 	if m.viewportLines <= 0 {
 		return nil
 	}
+	parts := m.ongoingLineParts()
 	start := clamp(m.ongoingScroll, 0, m.maxOngoingScroll())
 	end := start + m.viewportLines
-	if total := m.ongoingRenderedLineCount(); end > total {
-		end = total
+	if end > parts.lineCount() {
+		end = parts.lineCount()
 	}
 	out := make([]VisibleLineKind, 0, m.viewportLines)
 	for idx := start; idx < end; idx++ {
-		out = append(out, m.ongoingLineKindAt(idx))
+		out = append(out, parts.lineAt(idx).Kind)
 	}
 	for len(out) < m.viewportLines {
 		out = append(out, VisibleLineContent)
@@ -1034,20 +1008,19 @@ func (m Model) visibleOngoingLineKinds() []VisibleLineKind {
 }
 
 func (m Model) renderDetailSnapshot() string {
-	if m.detailDirty {
-		m.rebuildDetailSnapshot()
-	}
-	lines := m.detailLines
+	viewport := m.currentDetailViewport()
+	lines := viewport.Lines
 	if len(lines) == 0 {
 		lines = []string{""}
 	}
+	owners := viewport.Owners
 
 	out := make([]string, 0, m.viewportLines)
 	selectedEntry, highlightSelected := m.resolveDetailSelection()
 	firstSelectedLine := -1
 	lastSelectedLine := -1
 	if highlightSelected && m.compactDetail {
-		for i, entryIndex := range m.detailLineEntryIndices {
+		for i, entryIndex := range owners {
 			if entryIndex != selectedEntry {
 				continue
 			}
@@ -1058,17 +1031,17 @@ func (m Model) renderDetailSnapshot() string {
 		}
 	}
 	for i, line := range lines {
-		selected := highlightSelected && i < len(m.detailLineEntryIndices) && m.detailLineEntryIndices[i] == selectedEntry
-		if m.compactDetail && highlightSelected && m.shouldInsertDetailSelectionSpacerBefore(i, firstSelectedLine) {
+		selected := highlightSelected && i < len(owners) && owners[i] == selectedEntry
+		if m.compactDetail && highlightSelected && m.shouldInsertDetailSelectionSpacerBefore(i, firstSelectedLine, owners) {
 			out = append(out, m.renderDetailSelectionSpacerLine())
 		}
-		if m.compactDetail && highlightSelected && m.shouldRenderDetailSelectionSpacer(i, firstSelectedLine, lastSelectedLine) {
+		if m.compactDetail && highlightSelected && m.shouldRenderDetailSelectionSpacer(i, firstSelectedLine, lastSelectedLine, owners) {
 			out = append(out, m.renderDetailSelectionSpacerLine())
 			continue
 		}
 		line = m.renderDetailViewportLine(line, selected)
 		out = append(out, line)
-		if m.compactDetail && highlightSelected && m.shouldInsertDetailSelectionSpacerAfter(i, lastSelectedLine) {
+		if m.compactDetail && highlightSelected && m.shouldInsertDetailSelectionSpacerAfter(i, lastSelectedLine, owners) {
 			out = append(out, m.renderDetailSelectionSpacerLine())
 		}
 	}
@@ -1081,46 +1054,46 @@ func (m Model) renderDetailSnapshot() string {
 	return strings.Join(out, "\n")
 }
 
-func (m Model) shouldRenderDetailSelectionSpacer(lineIndex int, firstSelectedLine int, lastSelectedLine int) bool {
+func (m Model) shouldRenderDetailSelectionSpacer(lineIndex int, firstSelectedLine int, lastSelectedLine int, owners []int) bool {
 	if firstSelectedLine < 0 || lastSelectedLine < 0 {
 		return false
 	}
 	if lineIndex == firstSelectedLine-1 {
-		return !m.shouldInsertDetailSelectionSpacerBefore(firstSelectedLine, firstSelectedLine)
+		return !m.shouldInsertDetailSelectionSpacerBefore(firstSelectedLine, firstSelectedLine, owners)
 	}
 	if lineIndex == lastSelectedLine+1 {
-		return !m.shouldInsertDetailSelectionSpacerAfter(lastSelectedLine, lastSelectedLine)
+		return !m.shouldInsertDetailSelectionSpacerAfter(lastSelectedLine, lastSelectedLine, owners)
 	}
 	return false
 }
 
-func (m Model) shouldInsertDetailSelectionSpacerBefore(lineIndex int, firstSelectedLine int) bool {
-	return lineIndex == firstSelectedLine && m.detailAtTopEdgeForSelectionSpacer() && m.detailViewportLineOwnsSelectableEntry(firstSelectedLine-1)
+func (m Model) shouldInsertDetailSelectionSpacerBefore(lineIndex int, firstSelectedLine int, owners []int) bool {
+	return lineIndex == firstSelectedLine && m.detailAtTopEdgeForSelectionSpacer() && m.detailViewportLineOwnsSelectableEntry(firstSelectedLine-1, owners)
 }
 
-func (m Model) shouldInsertDetailSelectionSpacerAfter(lineIndex int, lastSelectedLine int) bool {
-	return lineIndex == lastSelectedLine && m.detailAtBottomEdgeForSelectionSpacer() && m.detailViewportLineOwnsSelectableEntry(lastSelectedLine+1)
+func (m Model) shouldInsertDetailSelectionSpacerAfter(lineIndex int, lastSelectedLine int, owners []int) bool {
+	return lineIndex == lastSelectedLine && m.detailAtBottomEdgeForSelectionSpacer() && m.detailViewportLineOwnsSelectableEntry(lastSelectedLine+1, owners)
 }
 
 func (m Model) detailAtTopEdgeForSelectionSpacer() bool {
-	if m.detailBottomAnchor && !m.detailMetricsResolved {
+	if m.detailBottomAnchor {
 		return false
 	}
 	return m.detailScroll == 0
 }
 
 func (m Model) detailAtBottomEdgeForSelectionSpacer() bool {
-	if m.detailBottomAnchor && !m.detailMetricsResolved {
+	if m.detailBottomAnchor {
 		return false
 	}
 	return m.detailScroll == m.maxDetailScroll()
 }
 
-func (m Model) detailViewportLineOwnsSelectableEntry(lineIndex int) bool {
-	if lineIndex < 0 || lineIndex >= len(m.detailLineEntryIndices) {
+func (m Model) detailViewportLineOwnsSelectableEntry(lineIndex int, owners []int) bool {
+	if lineIndex < 0 || lineIndex >= len(owners) {
 		return false
 	}
-	return m.detailBlockIndexForEntry(m.detailLineEntryIndices[lineIndex]) >= 0
+	return m.detailBlockIndexForEntry(owners[lineIndex]) >= 0
 }
 
 type detailExpansionSymbolState struct {
@@ -1137,279 +1110,59 @@ func (m Model) detailSelectedExpansionState() (detailExpansionSymbolState, bool)
 		return detailExpansionSymbolState{}, false
 	}
 	blockIndex := m.detailBlockIndexForEntry(selectedEntry)
-	if blockIndex < 0 || blockIndex >= len(m.detailBlocks) {
+	blocks := m.detailProjectionBlocks()
+	if blockIndex < 0 || blockIndex >= len(blocks) {
 		return detailExpansionSymbolState{}, false
 	}
-	block := m.detailBlocks[blockIndex]
-	if !block.selectable || !block.expandable {
+	block := blocks[blockIndex]
+	if !block.Selectable || !block.Expandable {
 		return detailExpansionSymbolState{}, false
 	}
-	return detailExpansionSymbolState{role: block.role, expanded: block.expanded}, true
+	return detailExpansionSymbolState{role: block.Role, expanded: block.Expanded}, true
 }
 
 func (m Model) detailExpansionSymbolOverride(block detailBlockSpec) string {
 	if !m.compactDetail || m.mode != ModeDetail || !block.selectable || !block.expandable {
 		return ""
 	}
-	if selectedEntry, ok := m.selectedUserTranscriptEntry(); ok && selectedEntry == block.entryIndex {
-		return renderRoleSymbol(">", m.detailExpansionSymbolStyle(block.role)) + " "
+	return m.detailExpansionSymbolOverrideForEntry(block.role, block.entryIndex, block.expanded)
+}
+
+func (m Model) detailExpansionSymbolOverrideForEntry(role RenderIntent, entryIndex int, expanded bool) string {
+	if selectedEntry, ok := m.selectedUserTranscriptEntry(); ok && selectedEntry == entryIndex {
+		return renderRoleSymbol(">", m.detailExpansionSymbolStyle(role)) + " "
 	}
 	selectedEntry, ok := m.resolveDetailSelection()
-	if !ok || selectedEntry != block.entryIndex {
+	if !ok || selectedEntry != entryIndex {
 		return ""
 	}
-	return m.detailExpansionSymbolPrefix(block.role, block.expanded)
-}
-
-func (m *Model) invalidateDetailSnapshot() {
-	m.detailDirty = true
-}
-
-func (m *Model) rebuildDetailSnapshot() {
-	m.detailRebuildCount++
-	m.detailBlocks = m.buildDetailBlockSpecs(true)
-	m.detailBlockLines = make([][]string, len(m.detailBlocks))
-	m.detailEntryLineRanges = nil
-	m.detailBlockLineRanges = nil
-	m.detailEntryRangeOffset = m.transcriptBaseOffset
-	m.detailTotalLineCount = 0
-	m.detailMetricsResolved = false
-	m.detailSnapshot = ""
-	if len(m.detailBlocks) == 0 {
-		m.detailSnapshot = ""
-		m.detailLines = []string{""}
-		m.detailLineKinds = []VisibleLineKind{VisibleLineContent}
-		m.detailLineEntryIndices = []int{-1}
-		m.detailMetricsResolved = true
-		m.detailBottomAnchor = false
-		m.detailBottomOffset = 0
-		m.detailTotalLineCount = 1
-		m.detailDirty = false
-		return
-	}
-	m.detailDirty = false
-	m.refreshDetailViewport()
+	return m.detailExpansionSymbolPrefix(role, expanded)
 }
 
 func (m *Model) refreshDetailViewport() {
 	if m == nil {
 		return
 	}
-	if m.detailDirty {
-		m.rebuildDetailSnapshot()
-		return
-	}
-	if len(m.detailBlocks) == 0 {
-		m.detailLines = []string{""}
-		m.detailLineKinds = []VisibleLineKind{VisibleLineContent}
-		m.detailLineEntryIndices = []int{-1}
-		return
-	}
-	if m.detailBottomAnchor && !m.detailMetricsResolved {
-		m.detailLines, m.detailLineKinds, m.detailLineEntryIndices, m.detailBottomOffset = m.detailViewportFromBottomOffset(m.detailBottomOffset)
-		return
-	}
-	start := clamp(m.detailScroll, 0, m.maxDetailScroll())
-	m.detailLines, m.detailLineKinds, m.detailLineEntryIndices = m.detailViewportFromScroll(start)
+	viewport := m.detailViewProjection().DetailViewport(ProjectionViewportState{
+		ViewportLines: m.viewportLines,
+		Scroll:        m.detailScroll,
+		BottomAnchor:  m.detailBottomAnchor,
+		BottomOffset:  m.detailBottomOffset,
+	})
+	m.detailBottomOffset = viewport.BottomOffset
 }
 
 func (m *Model) ensureDetailScrollResolved() {
-	if m == nil || (!m.detailBottomAnchor && m.detailMetricsResolved) {
+	if m == nil || !m.detailBottomAnchor {
 		return
 	}
 	bottomOffset := m.detailBottomOffset
-	m.ensureDetailMetricsResolved()
-	if m.detailBottomAnchor {
-		maxScroll := max(0, m.detailTotalLineCount-m.viewportLines)
-		if bottomOffset > maxScroll {
-			bottomOffset = maxScroll
-		}
-		m.detailScroll = maxScroll - bottomOffset
-		m.detailBottomAnchor = false
-		m.detailBottomOffset = 0
-	}
-}
-
-func (m *Model) ensureDetailMetricsResolved() {
-	if m == nil || m.detailMetricsResolved {
-		return
-	}
-	ranges := make([]lineRange, len(m.transcript))
-	for i := range ranges {
-		ranges[i] = lineRange{Start: -1, End: -1}
-	}
-	blockRanges := make([]lineRange, len(m.detailBlocks))
-	lineOffset := 0
-	for idx, block := range m.detailBlocks {
-		if idx > 0 && transcriptRoleGroupsNeedSeparator(m.detailBlocks[idx-1].role, block.role) {
-			lineOffset++
-		}
-		blockLines := m.detailBlockLinesAt(idx)
-		start := lineOffset
-		end := start + len(blockLines) - 1
-		blockRanges[idx] = lineRange{Start: start, End: end}
-		localIndex := block.entryIndex - m.transcriptBaseOffset
-		if localIndex >= 0 && localIndex < len(ranges) {
-			if ranges[localIndex].Start < 0 {
-				ranges[localIndex] = lineRange{Start: start, End: end}
-			} else {
-				ranges[localIndex] = lineRange{Start: ranges[localIndex].Start, End: end}
-			}
-		}
-		lineOffset += len(blockLines)
-	}
-	if lineOffset == 0 {
-		lineOffset = 1
-	}
-	m.detailEntryLineRanges = ranges
-	m.detailBlockLineRanges = blockRanges
-	m.detailEntryRangeOffset = m.transcriptBaseOffset
-	m.detailTotalLineCount = lineOffset
-	m.detailMetricsResolved = true
-}
-
-func (m *Model) detailBlockLinesAt(idx int) []string {
-	if m == nil || idx < 0 || idx >= len(m.detailBlocks) {
-		return []string{""}
-	}
-	block := m.detailBlocks[idx]
-	symbolOverride := m.detailExpansionSymbolOverride(block)
-	if symbolOverride == "" && len(m.detailBlockLines[idx]) > 0 {
-		return m.detailBlockLines[idx]
-	}
-	lines := block.render(*m, symbolOverride)
-	if len(lines) == 0 {
-		lines = []string{""}
-	}
-	if symbolOverride != "" {
-		return append([]string(nil), lines...)
-	}
-	m.detailBlockLines[idx] = append([]string(nil), lines...)
-	return m.detailBlockLines[idx]
-}
-
-func (m *Model) detailViewportFromBottom() ([]string, []VisibleLineKind, []int) {
-	lines, kinds, owners, _ := m.detailViewportFromBottomOffset(0)
-	return lines, kinds, owners
-}
-
-func (m *Model) detailViewportFromBottomOffset(offset int) ([]string, []VisibleLineKind, []int, int) {
-	lines := make([]string, 0, m.viewportLines)
-	kinds := make([]VisibleLineKind, 0, m.viewportLines)
-	owners := make([]int, 0, m.viewportLines)
-	if offset < 0 {
-		offset = 0
-	}
-	remainingSkip := offset
-	totalLines := 0
-	for idx := len(m.detailBlocks) - 1; idx >= 0 && len(lines) < m.viewportLines; idx-- {
-		block := m.detailBlocks[idx]
-		blockLines := m.detailBlockLinesAt(idx)
-		totalLines += len(blockLines)
-		for lineIdx := len(blockLines) - 1; lineIdx >= 0 && len(lines) < m.viewportLines; lineIdx-- {
-			if remainingSkip > 0 {
-				remainingSkip--
-				continue
-			}
-			lines = append(lines, blockLines[lineIdx])
-			kinds = append(kinds, VisibleLineContent)
-			owners = append(owners, block.entryIndex)
-		}
-		if idx > 0 && transcriptRoleGroupsNeedSeparator(m.detailBlocks[idx-1].role, block.role) {
-			totalLines++
-		}
-		if idx > 0 && transcriptRoleGroupsNeedSeparator(m.detailBlocks[idx-1].role, block.role) && len(lines) < m.viewportLines {
-			if remainingSkip > 0 {
-				remainingSkip--
-				continue
-			}
-			lines = append(lines, detailItemSeparator)
-			kinds = append(kinds, VisibleLineContent)
-			owners = append(owners, -1)
-		}
-	}
-	clampedOffset := offset - remainingSkip
-	maxOffset := max(0, totalLines-m.viewportLines)
-	if clampedOffset > maxOffset {
-		clampedOffset = maxOffset
-	}
-	reverseStrings(lines)
-	reverseVisibleKinds(kinds)
-	reverseInts(owners)
-	return lines, kinds, owners, clampedOffset
-}
-
-func (m *Model) detailViewportFromScroll(start int) ([]string, []VisibleLineKind, []int) {
-	if m.viewportLines <= 0 {
-		return nil, nil, nil
-	}
-	m.ensureDetailMetricsResolved()
-	end := start + m.viewportLines
-	lines := make([]string, 0, m.viewportLines)
-	kinds := make([]VisibleLineKind, 0, m.viewportLines)
-	owners := make([]int, 0, m.viewportLines)
-	blockRanges := m.detailBlockLineRanges
-	idx := firstDetailBlockAtOrAfterLine(blockRanges, start)
-	if idx < 0 {
-		return lines, kinds, owners
-	}
-	for ; idx < len(m.detailBlocks); idx++ {
-		blockRange := blockRanges[idx]
-		if blockRange.Start > end {
-			break
-		}
-		block := m.detailBlocks[idx]
-		if idx > 0 && transcriptRoleGroupsNeedSeparator(m.detailBlocks[idx-1].role, block.role) {
-			separatorLine := blockRange.Start - 1
-			if separatorLine >= start && separatorLine < end {
-				lines = append(lines, detailItemSeparator)
-				kinds = append(kinds, VisibleLineContent)
-				owners = append(owners, -1)
-			}
-		}
-		blockLines := m.detailBlockLinesAt(idx)
-		blockStart := blockRange.Start
-		blockEnd := blockRange.End + 1
-		if blockEnd > start && blockStart < end {
-			from := max(0, start-blockStart)
-			to := min(len(blockLines), end-blockStart)
-			for _, line := range blockLines[from:to] {
-				lines = append(lines, line)
-				kinds = append(kinds, VisibleLineContent)
-				owners = append(owners, block.entryIndex)
-			}
-		}
-		if blockEnd >= end {
-			break
-		}
-	}
-	return lines, kinds, owners
-}
-
-func firstDetailBlockAtOrAfterLine(ranges []lineRange, line int) int {
-	idx := sort.Search(len(ranges), func(i int) bool {
-		return ranges[i].End >= line
+	viewport := m.detailViewProjection().DetailViewport(ProjectionViewportState{
+		ViewportLines: m.viewportLines,
+		BottomAnchor:  true,
+		BottomOffset:  bottomOffset,
 	})
-	if idx >= len(ranges) {
-		return -1
-	}
-	return idx
-}
-
-func reverseStrings(values []string) {
-	for left, right := 0, len(values)-1; left < right; left, right = left+1, right-1 {
-		values[left], values[right] = values[right], values[left]
-	}
-}
-
-func reverseVisibleKinds(values []VisibleLineKind) {
-	for left, right := 0, len(values)-1; left < right; left, right = left+1, right-1 {
-		values[left], values[right] = values[right], values[left]
-	}
-}
-
-func reverseInts(values []int) {
-	for left, right := 0, len(values)-1; left < right; left, right = left+1, right-1 {
-		values[left], values[right] = values[right], values[left]
-	}
+	m.detailScroll = viewport.Scroll
+	m.detailBottomAnchor = false
+	m.detailBottomOffset = 0
 }

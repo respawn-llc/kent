@@ -12,7 +12,6 @@ type modelUpdateResult struct {
 	ongoingBaseChanged bool
 	ongoingChanged     bool
 	detailChanged      bool
-	detailStale        bool
 	forceDetailRefresh bool
 	autoFollowOngoing  bool
 }
@@ -97,9 +96,6 @@ func (m *Model) reduceToggleModeMsg(msg ToggleModeMsg) {
 func (m *Model) reduceSetModeMsg(msg SetModeMsg) {
 	if msg.Mode == "" || msg.Mode == m.mode {
 		return
-	}
-	if m.mode == ModeDetail && msg.Mode == ModeOngoing && m.ongoingDirty {
-		m.rebuildOngoingSnapshot()
 	}
 	*m = m.transitionMode(msg.Mode, msg.SkipDetailWarmup)
 }
@@ -188,8 +184,9 @@ func (m *Model) reduceViewportSizeMsg(msg SetViewportSizeMsg, result *modelUpdat
 }
 
 func (m *Model) reduceAppendTranscriptMsg(msg AppendTranscriptMsg, result *modelUpdateResult) {
+	m.resolveDetailScrollBeforeLiveTranscriptChange()
 	role := TranscriptRoleFromWire(TranscriptRoleToWire(msg.Role))
-	m.transcript = append(m.transcript, TranscriptEntry{
+	m.transcriptInput.Entries = append(m.transcriptInput.Entries, TranscriptEntry{
 		Visibility:        transcript.NormalizeEntryVisibility(msg.Visibility),
 		Transient:         msg.Transient,
 		Committed:         msg.Committed,
@@ -204,21 +201,18 @@ func (m *Model) reduceAppendTranscriptMsg(msg AppendTranscriptMsg, result *model
 		ToolCallID:        strings.TrimSpace(msg.ToolCallID),
 		ToolCall:          cloneToolCallMeta(msg.ToolCall),
 	})
-	m.transcriptTotalEntries = max(m.transcriptTotalEntries, m.transcriptBaseOffset+len(m.transcript))
+	m.advanceTranscriptEntriesRevision()
+	m.transcriptInput.TotalEntries = max(m.transcriptInput.TotalEntries, m.transcriptInput.BaseOffset+len(m.transcriptInput.Entries))
 	result.autoFollowOngoing = true
 	result.ongoingBaseChanged = true
 	result.ongoingChanged = true
-	if m.mode == ModeDetail {
-		result.detailStale = true
-	} else {
-		result.detailChanged = true
-	}
+	result.detailChanged = true
 }
 
 func (m *Model) reduceSetConversationMsg(msg SetConversationMsg, result *modelUpdateResult) {
 	anchorEntry, anchorOffset, preserveAnchor := m.detailViewportAnchor()
-	previousBaseOffset := m.transcriptBaseOffset
-	previousEntries := append([]TranscriptEntry(nil), m.transcript...)
+	previousBaseOffset := m.transcriptInput.BaseOffset
+	previousEntries := append([]TranscriptEntry(nil), m.transcriptInput.Entries...)
 	entries := make([]TranscriptEntry, len(msg.Entries))
 	copy(entries, msg.Entries)
 	for i := range entries {
@@ -230,17 +224,18 @@ func (m *Model) reduceSetConversationMsg(msg SetConversationMsg, result *modelUp
 		entries[i].ToolResultSummary = strings.TrimSpace(entries[i].ToolResultSummary)
 		entries[i].ToolCall = cloneToolCallMeta(entries[i].ToolCall)
 	}
-	m.transcript = entries
+	m.transcriptInput.Entries = entries
+	m.advanceTranscriptEntriesRevision()
 	if msg.BaseOffset < 0 {
 		msg.BaseOffset = 0
 	}
-	m.transcriptBaseOffset = msg.BaseOffset
+	m.transcriptInput.BaseOffset = msg.BaseOffset
 	totalEntries := msg.TotalEntries
-	if totalEntries < m.transcriptBaseOffset+len(entries) {
-		totalEntries = m.transcriptBaseOffset + len(entries)
+	if totalEntries < m.transcriptInput.BaseOffset+len(entries) {
+		totalEntries = m.transcriptInput.BaseOffset + len(entries)
 	}
-	m.transcriptTotalEntries = totalEntries
-	m.ongoing = msg.Ongoing
+	m.transcriptInput.TotalEntries = totalEntries
+	m.transcriptInput.Ongoing = msg.Ongoing
 	m.ongoingError = strings.TrimSpace(msg.OngoingError)
 	if _, ok := m.localTranscriptIndex(m.selectedTranscriptEntry); !ok {
 		m.selectedTranscriptActive = false
@@ -256,8 +251,7 @@ func (m *Model) reduceSetConversationMsg(msg SetConversationMsg, result *modelUp
 		result.detailChanged = true
 		return
 	}
-	m.invalidateDetailSnapshot()
-	m.rebuildDetailSnapshot()
+	m.refreshDetailViewport()
 	if m.compactDetail {
 		m.ensureDetailSelection()
 	}
@@ -278,7 +272,7 @@ func (m *Model) reconcileDetailExpandedEntries(previousBaseOffset int, previousE
 	for entryIndex := range m.detailExpandedEntries {
 		currentLocal, currentOK := m.localTranscriptIndex(entryIndex)
 		previousLocal, previousOK := transcriptLocalIndex(previousBaseOffset, len(previousEntries), entryIndex)
-		if !currentOK || !previousOK || !detailExpansionEntryMatches(previousEntries[previousLocal], m.transcript[currentLocal]) {
+		if !currentOK || !previousOK || !detailExpansionEntryMatches(previousEntries[previousLocal], m.transcriptInput.Entries[currentLocal]) {
 			delete(m.detailExpandedEntries, entryIndex)
 		}
 	}
@@ -311,30 +305,29 @@ func (m *Model) moveDetailSelection(delta int) {
 	if m == nil || delta == 0 {
 		return
 	}
-	if m.detailDirty {
-		m.rebuildDetailSnapshot()
-	}
 	m.ensureDetailSelection()
 	if !m.detailSelectedActive {
 		return
 	}
+	blocks := m.detailProjectionBlocks()
 	current := m.detailBlockIndexForEntry(m.detailSelectedEntry)
 	if current < 0 {
 		m.detailSelectedActive = false
 		m.ensureDetailSelection()
+		blocks = m.detailProjectionBlocks()
 		current = m.detailBlockIndexForEntry(m.detailSelectedEntry)
 	}
 	if current < 0 {
 		return
 	}
 	next := current + delta
-	for next >= 0 && next < len(m.detailBlocks) && !m.detailBlocks[next].selectable {
+	for next >= 0 && next < len(blocks) && !blocks[next].Selectable {
 		next += delta
 	}
-	if next < 0 || next >= len(m.detailBlocks) {
+	if next < 0 || next >= len(blocks) {
 		return
 	}
-	m.detailSelectedEntry = m.detailBlocks[next].entryIndex
+	m.detailSelectedEntry = blocks[next].EntryIndex
 	m.detailSelectedActive = true
 	m.scrollDetailSelectionIntoView()
 	m.refreshDetailViewport()
@@ -347,9 +340,6 @@ func (m *Model) navigateDetailSelection(delta int) {
 	if !m.compactDetail {
 		*m = m.scrollDetail(delta)
 		return
-	}
-	if m.detailDirty {
-		m.rebuildDetailSnapshot()
 	}
 	if m.moveDetailSelectionTowardCenterAtScrollEdge(delta) {
 		return
@@ -365,15 +355,13 @@ func (m *Model) toggleSelectedDetailExpansion() {
 	if m == nil {
 		return
 	}
-	if m.detailDirty {
-		m.rebuildDetailSnapshot()
-	}
 	m.ensureDetailSelection()
 	if !m.detailSelectedActive {
 		return
 	}
 	blockIndex := m.detailBlockIndexForEntry(m.detailSelectedEntry)
-	if blockIndex < 0 || blockIndex >= len(m.detailBlocks) || !m.detailBlocks[blockIndex].expandable {
+	blocks := m.detailProjectionBlocks()
+	if blockIndex < 0 || blockIndex >= len(blocks) || !blocks[blockIndex].Expandable {
 		return
 	}
 	if m.detailExpandedEntries == nil {
@@ -384,8 +372,6 @@ func (m *Model) toggleSelectedDetailExpansion() {
 	} else {
 		m.detailExpandedEntries[m.detailSelectedEntry] = struct{}{}
 	}
-	m.invalidateDetailSnapshot()
-	m.rebuildDetailSnapshot()
 	m.scrollDetailSelectionIntoView()
 	m.refreshDetailViewport()
 }
@@ -393,9 +379,6 @@ func (m *Model) toggleSelectedDetailExpansion() {
 func (m *Model) scrollDetailSelectionIntoView() {
 	if m == nil || !m.detailSelectedActive {
 		return
-	}
-	if m.detailDirty {
-		m.rebuildDetailSnapshot()
 	}
 	start, end, ok := m.detailLineRangeForEntry(m.detailSelectedEntry)
 	if !ok {
@@ -416,10 +399,7 @@ func (m *Model) detailViewportAnchor() (int, int, bool) {
 	if m == nil || m.mode != ModeDetail || m.detailBottomAnchor {
 		return 0, 0, false
 	}
-	if m.detailDirty {
-		m.rebuildDetailSnapshot()
-	}
-	for _, entryIndex := range m.detailLineEntryIndices {
+	for _, entryIndex := range m.currentDetailViewport().Owners {
 		if entryIndex < 0 {
 			continue
 		}
@@ -449,13 +429,8 @@ func (m *Model) reduceFocusTranscriptEntryMsg(msg FocusTranscriptEntryMsg) {
 			m.ongoingScroll = clamp(focusedScrollTarget(start, end, m.viewportLines, msg), 0, m.maxOngoingScroll())
 		}
 	case ModeDetail:
-		if m.detailDirty {
-			m.rebuildDetailSnapshot()
-		}
 		if start, end, ok := m.detailLineRangeForEntry(msg.EntryIndex); ok {
-			if m.detailBottomAnchor || !m.detailMetricsResolved {
-				m.ensureDetailMetricsResolved()
-			}
+			m.ensureDetailScrollResolved()
 			m.detailScroll = clamp(focusedScrollTarget(start, end, m.viewportLines, msg), 0, m.maxDetailScroll())
 			m.detailBottomAnchor = false
 			m.detailBottomOffset = 0
@@ -469,25 +444,27 @@ func (m *Model) reduceSetOngoingScrollMsg(msg SetOngoingScrollMsg) {
 }
 
 func (m *Model) reduceStreamAssistantMsg(msg StreamAssistantMsg, result *modelUpdateResult) {
-	m.ongoing += msg.Delta
+	m.transcriptInput.Ongoing += msg.Delta
+	m.advanceTranscriptProjectionRevision()
 	result.autoFollowOngoing = true
 	result.ongoingChanged = true
 	if m.mode == ModeDetail {
-		result.detailStale = true
-	} else if !m.detailDirty {
 		result.detailChanged = true
+		return
 	}
+	result.detailChanged = true
 }
 
 func (m *Model) reduceClearOngoingAssistantMsg(result *modelUpdateResult) {
-	m.ongoing = ""
+	m.resolveDetailScrollBeforeLiveTranscriptChange()
+	hadOngoing := m.transcriptInput.Ongoing != ""
+	m.transcriptInput.Ongoing = ""
+	if hadOngoing {
+		m.advanceTranscriptProjectionRevision()
+	}
 	m.ongoingScroll = 0
 	result.ongoingChanged = true
-	if m.mode == ModeDetail {
-		result.detailStale = true
-	} else {
-		result.detailChanged = true
-	}
+	result.detailChanged = true
 }
 
 func (m *Model) reduceUpsertStreamingReasoningMsg(msg UpsertStreamingReasoningMsg, result *modelUpdateResult) {
@@ -501,21 +478,24 @@ func (m *Model) reduceUpsertStreamingReasoningMsg(msg UpsertStreamingReasoningMs
 	}
 	text := strings.TrimSpace(msg.Text)
 	updated := false
-	for i := range m.streamingReasoning {
-		if m.streamingReasoning[i].Key != key {
+	for i := range m.transcriptInput.StreamingReasoning {
+		if m.transcriptInput.StreamingReasoning[i].Key != key {
 			continue
 		}
 		updated = true
 		if text == "" {
-			m.streamingReasoning = append(m.streamingReasoning[:i], m.streamingReasoning[i+1:]...)
+			m.transcriptInput.StreamingReasoning = append(m.transcriptInput.StreamingReasoning[:i], m.transcriptInput.StreamingReasoning[i+1:]...)
 		} else {
-			m.streamingReasoning[i].Role = role
-			m.streamingReasoning[i].Text = text
+			m.transcriptInput.StreamingReasoning[i].Role = role
+			m.transcriptInput.StreamingReasoning[i].Text = text
 		}
 		break
 	}
 	if !updated && text != "" {
-		m.streamingReasoning = append(m.streamingReasoning, StreamingReasoningEntry{Key: key, Role: role, Text: text})
+		m.transcriptInput.StreamingReasoning = append(m.transcriptInput.StreamingReasoning, StreamingReasoningEntry{Key: key, Role: role, Text: text})
+	}
+	if updated || text != "" {
+		m.advanceTranscriptProjectionRevision()
 	}
 	result.detailChanged = true
 	if m.mode == ModeDetail {
@@ -524,10 +504,11 @@ func (m *Model) reduceUpsertStreamingReasoningMsg(msg UpsertStreamingReasoningMs
 }
 
 func (m *Model) reduceClearStreamingReasoningMsg(result *modelUpdateResult) {
-	if len(m.streamingReasoning) == 0 {
+	if len(m.transcriptInput.StreamingReasoning) == 0 {
 		return
 	}
-	m.streamingReasoning = nil
+	m.transcriptInput.StreamingReasoning = nil
+	m.advanceTranscriptProjectionRevision()
 	result.detailChanged = true
 	if m.mode == ModeDetail {
 		result.forceDetailRefresh = true
@@ -535,44 +516,50 @@ func (m *Model) reduceClearStreamingReasoningMsg(result *modelUpdateResult) {
 }
 
 func (m *Model) reduceCommitAssistantMsg(result *modelUpdateResult) {
-	if m.ongoing == "" {
+	if m.transcriptInput.Ongoing == "" {
 		return
 	}
-	m.transcript = append(m.transcript, TranscriptEntry{Role: TranscriptRoleAssistant, Text: m.ongoing})
-	m.ongoing = ""
+	m.resolveDetailScrollBeforeLiveTranscriptChange()
+	m.transcriptInput.Entries = append(m.transcriptInput.Entries, TranscriptEntry{Role: TranscriptRoleAssistant, Text: m.transcriptInput.Ongoing})
+	m.transcriptInput.Ongoing = ""
+	m.advanceTranscriptEntriesRevision()
 	result.autoFollowOngoing = true
 	result.ongoingBaseChanged = true
 	result.ongoingChanged = true
-	if m.mode == ModeDetail {
-		result.detailStale = true
-	} else {
-		result.detailChanged = true
+	result.detailChanged = true
+}
+
+func (m *Model) resolveDetailScrollBeforeLiveTranscriptChange() {
+	if m == nil || m.mode != ModeDetail {
+		return
+	}
+	m.ensureDetailScrollResolved()
+	m.detailBottomAnchor = false
+	m.detailBottomOffset = 0
+}
+
+func (m *Model) advanceTranscriptProjectionRevision() {
+	m.transcriptInput.Revision++
+	if m.transcriptInput.Revision <= 0 {
+		m.transcriptInput.Revision = 1
+	}
+}
+
+func (m *Model) advanceTranscriptEntriesRevision() {
+	m.advanceTranscriptProjectionRevision()
+	m.transcriptInput.EntriesRevision++
+	if m.transcriptInput.EntriesRevision <= 0 {
+		m.transcriptInput.EntriesRevision = 1
 	}
 }
 
 func (m *Model) applyUpdateResult(result modelUpdateResult, wasAtOngoingBottom bool) {
-	if result.ongoingBaseChanged {
-		m.invalidateOngoingBaseSnapshot()
-	} else if result.ongoingChanged {
-		m.invalidateOngoingSnapshot()
-	}
-	if result.detailChanged {
-		m.invalidateDetailSnapshot()
-	}
-	if result.detailStale {
-		m.detailStale = true
-	}
 	if result.forceDetailRefresh || (m.mode == ModeDetail && result.detailChanged) {
-		m.rebuildDetailSnapshot()
-		m.detailStale = false
+		m.refreshDetailViewport()
 		if m.compactDetail {
 			m.ensureDetailSelection()
 		}
 	}
-	if m.ongoingDirty && m.mode == ModeOngoing {
-		m.rebuildOngoingSnapshot()
-	}
-
 	if m.mode == ModeOngoing {
 		maxOngoing := m.maxOngoingScroll()
 		m.ongoingScroll = clamp(m.ongoingScroll, 0, maxOngoing)
@@ -586,14 +573,12 @@ func (m *Model) applyUpdateResult(result modelUpdateResult, wasAtOngoingBottom b
 	}
 
 	if m.mode == ModeDetail {
-		if !m.detailDirty && !m.detailBottomAnchor {
+		if !m.detailBottomAnchor {
 			m.detailScroll = clamp(m.detailScroll, 0, m.maxDetailScroll())
 		}
-		if !m.detailDirty {
-			m.refreshDetailViewport()
-			if result.viewportChanged && m.compactDetail && m.detailBottomAnchor {
-				m.focusBottomVisibleDetailEntry()
-			}
+		m.refreshDetailViewport()
+		if result.viewportChanged && m.compactDetail && m.detailBottomAnchor {
+			m.focusBottomVisibleDetailEntry()
 		}
 	}
 }

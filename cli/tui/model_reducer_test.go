@@ -16,10 +16,10 @@ func TestReduceAppendTranscriptMsgReportsMutationFlagsAndNormalizesEntry(t *test
 	if !result.autoFollowOngoing || !result.ongoingChanged || !result.detailChanged {
 		t.Fatalf("expected append transcript reducer to mark transcript refresh flags, got %+v", result)
 	}
-	if len(m.transcript) != 1 {
-		t.Fatalf("expected one transcript entry, got %d", len(m.transcript))
+	if len(m.transcriptInput.Entries) != 1 {
+		t.Fatalf("expected one transcript entry, got %d", len(m.transcriptInput.Entries))
 	}
-	entry := m.transcript[0]
+	entry := m.transcriptInput.Entries[0]
 	if entry.Role != "unknown" {
 		t.Fatalf("expected empty role to normalize to unknown, got %q", entry.Role)
 	}
@@ -33,14 +33,14 @@ func TestReduceAppendTranscriptMsgReportsMutationFlagsAndNormalizesEntry(t *test
 
 func TestReduceAppendTranscriptMsgAdvancesTotalEntriesFromTailWindow(t *testing.T) {
 	m := NewModel()
-	m.transcriptBaseOffset = 250
-	m.transcriptTotalEntries = 252
-	m.transcript = []TranscriptEntry{{Role: "assistant", Text: "existing"}, {Role: "assistant", Text: "tail"}}
+	m.transcriptInput.BaseOffset = 250
+	m.transcriptInput.TotalEntries = 252
+	m.transcriptInput.Entries = []TranscriptEntry{{Role: "assistant", Text: "existing"}, {Role: "assistant", Text: "tail"}}
 	var result modelUpdateResult
 
 	m.reduceAppendTranscriptMsg(AppendTranscriptMsg{Role: "assistant", Text: "new tail"}, &result)
 
-	if got, want := m.transcriptTotalEntries, 253; got != want {
+	if got, want := m.transcriptInput.TotalEntries, 253; got != want {
 		t.Fatalf("transcriptTotalEntries = %d, want %d", got, want)
 	}
 }
@@ -60,14 +60,14 @@ func TestReduceSetConversationMsgNormalizesEntriesAndClearsInvalidSelection(t *t
 	if !result.autoFollowOngoing || !result.ongoingChanged || !result.detailChanged {
 		t.Fatalf("expected set conversation reducer to mark transcript refresh flags, got %+v", result)
 	}
-	if len(m.transcript) != 1 {
-		t.Fatalf("expected conversation to replace transcript entries, got %d", len(m.transcript))
+	if len(m.transcriptInput.Entries) != 1 {
+		t.Fatalf("expected conversation to replace transcript entries, got %d", len(m.transcriptInput.Entries))
 	}
-	if m.transcript[0].ToolCallID != "call_a" {
-		t.Fatalf("expected trimmed tool call id, got %q", m.transcript[0].ToolCallID)
+	if m.transcriptInput.Entries[0].ToolCallID != "call_a" {
+		t.Fatalf("expected trimmed tool call id, got %q", m.transcriptInput.Entries[0].ToolCallID)
 	}
-	if m.ongoing != "stream" {
-		t.Fatalf("expected ongoing text replacement, got %q", m.ongoing)
+	if m.transcriptInput.Ongoing != "stream" {
+		t.Fatalf("expected ongoing text replacement, got %q", m.transcriptInput.Ongoing)
 	}
 	if m.ongoingError != "err" {
 		t.Fatalf("expected trimmed ongoing error, got %q", m.ongoingError)
@@ -86,7 +86,7 @@ func TestApplyUpdateResultAutoFollowsOngoingAtBottom(t *testing.T) {
 		t.Fatalf("expected setup at bottom, got %d want %d", got, want)
 	}
 
-	m.ongoing = ""
+	m.transcriptInput.Ongoing = ""
 	m.applyUpdateResult(modelUpdateResult{autoFollowOngoing: true, ongoingChanged: true}, true)
 
 	if got, want := m.ongoingScroll, m.maxOngoingScroll(); got != want {
@@ -98,9 +98,7 @@ func TestReduceSetViewportSizeMsgNoopWhenSizeUnchanged(t *testing.T) {
 	m := NewModel()
 	m.viewportLines = 20
 	m.viewportWidth = 80
-	m.ongoingBaseDirty = false
-	m.ongoingDirty = false
-	m.detailDirty = false
+	revisionBefore := m.transcriptInput.Revision
 
 	next, _ := m.Update(SetViewportSizeMsg{Lines: 20, Width: 80})
 	updated := next.(Model)
@@ -108,28 +106,18 @@ func TestReduceSetViewportSizeMsgNoopWhenSizeUnchanged(t *testing.T) {
 	if updated.viewportLines != 20 || updated.viewportWidth != 80 {
 		t.Fatalf("expected viewport to remain unchanged, got lines=%d width=%d", updated.viewportLines, updated.viewportWidth)
 	}
-	if updated.ongoingDirty || updated.detailDirty {
-		t.Fatalf("expected unchanged viewport update to avoid dirtying snapshots, got ongoingDirty=%v detailDirty=%v", updated.ongoingDirty, updated.detailDirty)
+	if updated.transcriptInput.Revision != revisionBefore {
+		t.Fatalf("expected unchanged viewport update to keep canonical state revision stable, got %d want %d", updated.transcriptInput.Revision, revisionBefore)
 	}
 }
 
-func TestReduceStreamAssistantMsgInvalidatesDetailOnlyOnceWhileDirty(t *testing.T) {
+func TestReduceStreamAssistantMsgAdvancesProjectionRevision(t *testing.T) {
 	m := NewModel()
-	m.detailDirty = false
+	before := m.transcriptInput.Revision
 
 	var first modelUpdateResult
 	m.reduceStreamAssistantMsg(StreamAssistantMsg{Delta: "a"}, &first)
-	if !first.detailChanged {
-		t.Fatal("expected first streaming delta to invalidate detail snapshot")
-	}
-	m.applyUpdateResult(first, true)
-	if !m.detailDirty {
-		t.Fatal("expected detail snapshot marked dirty after first streaming delta")
-	}
-
-	var second modelUpdateResult
-	m.reduceStreamAssistantMsg(StreamAssistantMsg{Delta: "b"}, &second)
-	if second.detailChanged {
-		t.Fatal("expected repeated streaming deltas to avoid redundant detail invalidation while already dirty")
+	if m.transcriptInput.Revision <= before {
+		t.Fatalf("expected streaming delta to advance projection revision, before=%d after=%d", before, m.transcriptInput.Revision)
 	}
 }

@@ -1,6 +1,9 @@
 package tui
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 type TranscriptProjection struct {
 	Blocks []TranscriptProjectionBlock
@@ -29,6 +32,166 @@ type CommittedOngoingProjector struct {
 	rendererWidth int
 }
 
+type TranscriptProjectionInput struct {
+	Revision           int64
+	EntriesRevision    int64
+	BaseOffset         int
+	TotalEntries       int
+	Entries            []TranscriptEntry
+	Ongoing            string
+	StreamingReasoning []StreamingReasoningEntry
+}
+
+type TranscriptProjectionViewState struct {
+	ViewportWidth         int
+	ViewportLines         int
+	Theme                 string
+	CompactDetail         bool
+	SelectedEntry         int
+	SelectedEntryIsActive bool
+	DetailSelectedEntry   int
+	DetailSelectedActive  bool
+	DetailExpandedEntries map[int]struct{}
+}
+
+type TranscriptViewProjectionKey struct {
+	Revision              int64
+	BaseOffset            int
+	TotalEntries          int
+	EntryCount            int
+	ViewportWidth         int
+	ViewportLines         int
+	Theme                 string
+	CompactDetail         bool
+	SelectedEntry         int
+	SelectedEntryIsActive bool
+	DetailSelectedEntry   int
+	DetailSelectedActive  bool
+	ExpandedEntries       []int
+}
+
+type TranscriptViewProjector struct {
+	key                  TranscriptViewProjectionKey
+	projection           TranscriptViewProjection
+	projectionSet        bool
+	detailKey            TranscriptViewProjectionKey
+	detailProjection     TranscriptProjection
+	detailSet            bool
+	ongoingKey           CommittedOngoingProjectionKey
+	ongoingLines         []TranscriptProjectionLine
+	ongoingGroup         string
+	ongoingSet           bool
+	streamingKey         ongoingStreamingProjectionKey
+	streamingLines       []TranscriptProjectionLine
+	streamingSet         bool
+	detailStreamingKey   ongoingStreamingProjectionKey
+	detailStreamingLines []string
+	detailStreamingSet   bool
+}
+
+type ongoingStreamingProjectionKey struct {
+	Text  string
+	Theme string
+	Width int
+}
+
+type TranscriptViewProjection struct {
+	InputRevision          int64
+	Ongoing                TranscriptProjection
+	Detail                 TranscriptProjection
+	OngoingLines           []TranscriptProjectionLine
+	DetailLines            []TranscriptProjectionLine
+	OngoingLineOwners      []int
+	DetailLineOwners       []int
+	OngoingEntryLineRanges map[int]lineRange
+	DetailEntryLineRanges  map[int]lineRange
+}
+
+type ProjectionViewportState struct {
+	ViewportLines int
+	Scroll        int
+	BottomAnchor  bool
+	BottomOffset  int
+}
+
+type ProjectionViewport struct {
+	Lines        []string
+	Kinds        []VisibleLineKind
+	Owners       []int
+	TotalLines   int
+	MaxScroll    int
+	Scroll       int
+	BottomOffset int
+}
+
+func (p TranscriptViewProjection) Clone() TranscriptViewProjection {
+	return TranscriptViewProjection{
+		InputRevision:          p.InputRevision,
+		Ongoing:                p.Ongoing.Clone(),
+		Detail:                 p.Detail.Clone(),
+		OngoingLines:           cloneProjectionLines(p.OngoingLines),
+		DetailLines:            cloneProjectionLines(p.DetailLines),
+		OngoingLineOwners:      append([]int(nil), p.OngoingLineOwners...),
+		DetailLineOwners:       append([]int(nil), p.DetailLineOwners...),
+		OngoingEntryLineRanges: cloneLineRangeMap(p.OngoingEntryLineRanges),
+		DetailEntryLineRanges:  cloneLineRangeMap(p.DetailEntryLineRanges),
+	}
+}
+
+func (p TranscriptViewProjection) DetailViewport(state ProjectionViewportState) ProjectionViewport {
+	return projectionViewportFromLines(p.DetailLines, p.DetailLineOwners, state)
+}
+
+func projectionViewportFromLines(lines []TranscriptProjectionLine, owners []int, state ProjectionViewportState) ProjectionViewport {
+	viewportLines := state.ViewportLines
+	if viewportLines <= 0 {
+		return ProjectionViewport{}
+	}
+	if len(lines) == 0 {
+		lines = []TranscriptProjectionLine{{Kind: VisibleLineContent, Text: ""}}
+		owners = []int{-1}
+	}
+	total := len(lines)
+	maxScroll := max(0, total-viewportLines)
+	scroll := clamp(state.Scroll, 0, maxScroll)
+	bottomOffset := state.BottomOffset
+	if bottomOffset < 0 {
+		bottomOffset = 0
+	}
+	if bottomOffset > maxScroll {
+		bottomOffset = maxScroll
+	}
+	if state.BottomAnchor {
+		scroll = maxScroll - bottomOffset
+	}
+	end := scroll + viewportLines
+	if end > total {
+		end = total
+	}
+	outLines := make([]string, 0, viewportLines)
+	outKinds := make([]VisibleLineKind, 0, viewportLines)
+	outOwners := make([]int, 0, viewportLines)
+	for idx := scroll; idx < end; idx++ {
+		line := lines[idx]
+		outLines = append(outLines, line.Text)
+		outKinds = append(outKinds, line.Kind)
+		if idx < len(owners) {
+			outOwners = append(outOwners, owners[idx])
+		} else {
+			outOwners = append(outOwners, -1)
+		}
+	}
+	return ProjectionViewport{
+		Lines:        outLines,
+		Kinds:        outKinds,
+		Owners:       outOwners,
+		TotalLines:   total,
+		MaxScroll:    maxScroll,
+		Scroll:       scroll,
+		BottomOffset: bottomOffset,
+	}
+}
+
 type TranscriptProjectionLine struct {
 	Kind VisibleLineKind
 	Text string
@@ -39,6 +202,9 @@ type TranscriptProjectionBlock struct {
 	DividerGroup string
 	EntryIndex   int
 	EntryEnd     int
+	Selectable   bool
+	Expanded     bool
+	Expandable   bool
 	Lines        []string
 }
 
@@ -57,6 +223,9 @@ func (p TranscriptProjection) Clone() TranscriptProjection {
 			DividerGroup: block.DividerGroup,
 			EntryIndex:   block.EntryIndex,
 			EntryEnd:     block.EntryEnd,
+			Selectable:   block.Selectable,
+			Expanded:     block.Expanded,
+			Expandable:   block.Expandable,
 			Lines:        append([]string(nil), block.Lines...),
 		})
 	}
@@ -77,6 +246,46 @@ func (p TranscriptProjection) Lines(dividerText string) []TranscriptProjectionLi
 		}
 	}
 	return lines
+}
+
+func (p TranscriptProjection) LineOwners() []int {
+	if len(p.Blocks) == 0 {
+		return nil
+	}
+	owners := make([]int, 0, len(p.Blocks)*2)
+	for idx, block := range p.Blocks {
+		if idx > 0 && p.Blocks[idx-1].DividerGroup != block.DividerGroup {
+			owners = append(owners, -1)
+		}
+		for range block.Lines {
+			owners = append(owners, block.EntryIndex)
+		}
+	}
+	return owners
+}
+
+func (p TranscriptProjection) EntryLineRanges() map[int]lineRange {
+	if len(p.Blocks) == 0 {
+		return nil
+	}
+	ranges := make(map[int]lineRange)
+	lineOffset := 0
+	for idx, block := range p.Blocks {
+		if idx > 0 && p.Blocks[idx-1].DividerGroup != block.DividerGroup {
+			lineOffset++
+		}
+		if block.EntryIndex >= 0 && len(block.Lines) > 0 {
+			start := lineOffset
+			end := lineOffset + len(block.Lines) - 1
+			if existing, ok := ranges[block.EntryIndex]; ok {
+				ranges[block.EntryIndex] = lineRange{Start: existing.Start, End: end}
+			} else {
+				ranges[block.EntryIndex] = lineRange{Start: start, End: end}
+			}
+		}
+		lineOffset += len(block.Lines)
+	}
+	return ranges
 }
 
 func (p TranscriptProjection) Render(divider string) string {
@@ -191,6 +400,9 @@ func (b TranscriptProjectionBlock) equal(other TranscriptProjectionBlock) bool {
 	if b.Role != other.Role || b.DividerGroup != other.DividerGroup || len(b.Lines) != len(other.Lines) {
 		return false
 	}
+	if b.Selectable != other.Selectable || b.Expanded != other.Expanded || b.Expandable != other.Expandable {
+		return false
+	}
 	for idx := range b.Lines {
 		if b.Lines[idx] != other.Lines[idx] {
 			return false
@@ -204,15 +416,351 @@ func (m Model) OngoingProjection(includeStreaming bool) TranscriptProjection {
 }
 
 func (m Model) CommittedOngoingProjection() TranscriptProjection {
-	return m.CommittedOngoingProjectionForEntries(m.transcript)
+	return m.CommittedOngoingProjectionForEntries(m.transcriptInput.Entries)
 }
 
 func (m Model) CommittedOngoingProjectionForEntries(entries []TranscriptEntry) TranscriptProjection {
-	target := m.transcript
+	target := m.transcriptInput.Entries
 	if len(entries) > 0 {
 		target = entries
 	}
 	return projectCommittedOngoingTranscriptWithRenderer(m, target)
+}
+
+func (m Model) TranscriptProjectionInput() TranscriptProjectionInput {
+	input := m.transcriptProjectionInput()
+	input.Entries = cloneTranscriptEntries(input.Entries)
+	input.StreamingReasoning = cloneStreamingReasoningEntries(input.StreamingReasoning)
+	return input
+}
+
+func (m Model) transcriptProjectionInput() TranscriptProjectionInput {
+	return TranscriptProjectionInput{
+		Revision:           m.transcriptInput.Revision,
+		EntriesRevision:    m.transcriptInput.EntriesRevision,
+		BaseOffset:         m.transcriptInput.BaseOffset,
+		TotalEntries:       m.TranscriptTotalEntries(),
+		Entries:            m.transcriptInput.Entries,
+		Ongoing:            m.transcriptInput.Ongoing,
+		StreamingReasoning: m.transcriptInput.StreamingReasoning,
+	}
+}
+
+func (m Model) TranscriptProjectionViewState() TranscriptProjectionViewState {
+	return TranscriptProjectionViewState{
+		ViewportWidth:         m.viewportWidth,
+		ViewportLines:         m.viewportLines,
+		Theme:                 m.theme,
+		CompactDetail:         m.compactDetail,
+		SelectedEntry:         m.selectedTranscriptEntry,
+		SelectedEntryIsActive: m.selectedTranscriptActive,
+		DetailSelectedEntry:   m.detailSelectedEntry,
+		DetailSelectedActive:  m.detailSelectedActive,
+		DetailExpandedEntries: cloneExpandedEntrySet(m.detailExpandedEntries),
+	}
+}
+
+func ProjectTranscriptViews(input TranscriptProjectionInput, state TranscriptProjectionViewState) TranscriptViewProjection {
+	renderer := transcriptProjectionRenderer(state.Theme, state.ViewportWidth, input.BaseOffset)
+	if state.ViewportLines > 0 {
+		renderer.viewportLines = state.ViewportLines
+	}
+	renderer.compactDetail = state.CompactDetail
+	renderer.selectedTranscriptEntry = state.SelectedEntry
+	renderer.selectedTranscriptActive = state.SelectedEntryIsActive
+	renderer.detailSelectedEntry = state.DetailSelectedEntry
+	renderer.detailSelectedActive = state.DetailSelectedActive
+	renderer.detailExpandedEntries = cloneExpandedEntrySet(state.DetailExpandedEntries)
+	renderer.transcriptInput.Entries = cloneTranscriptEntries(input.Entries)
+	renderer.transcriptInput.BaseOffset = max(0, input.BaseOffset)
+	renderer.transcriptInput.TotalEntries = input.TotalEntries
+	if renderer.transcriptInput.TotalEntries < renderer.transcriptInput.BaseOffset+len(renderer.transcriptInput.Entries) {
+		renderer.transcriptInput.TotalEntries = renderer.transcriptInput.BaseOffset + len(renderer.transcriptInput.Entries)
+	}
+	renderer.transcriptInput.Ongoing = input.Ongoing
+	renderer.transcriptInput.StreamingReasoning = cloneStreamingReasoningEntries(input.StreamingReasoning)
+
+	ongoing := renderer.OngoingProjection(true)
+	detail := renderer.DetailProjection(true, true)
+	return TranscriptViewProjection{
+		InputRevision:          input.Revision,
+		Ongoing:                ongoing,
+		Detail:                 detail,
+		OngoingLines:           ongoing.Lines(detailDivider()),
+		DetailLines:            detail.Lines(detailItemSeparator),
+		OngoingLineOwners:      ongoing.LineOwners(),
+		DetailLineOwners:       detail.LineOwners(),
+		OngoingEntryLineRanges: ongoing.EntryLineRanges(),
+		DetailEntryLineRanges:  detail.EntryLineRanges(),
+	}
+}
+
+func (p *TranscriptViewProjector) CommittedOngoingLines(input TranscriptProjectionInput, state TranscriptProjectionViewState) ([]TranscriptProjectionLine, string) {
+	key := CommittedOngoingProjectionKey{
+		Revision:   input.EntriesRevision,
+		Width:      state.ViewportWidth,
+		Theme:      state.Theme,
+		BaseOffset: input.BaseOffset,
+		EntryCount: len(input.Entries),
+	}
+	key = normalizeCommittedOngoingProjectionKey(key, len(input.Entries))
+	if key.Revision > 0 && p != nil && p.ongoingSet && p.ongoingKey == key {
+		return p.ongoingLines, p.ongoingGroup
+	}
+	projection := projectCommittedOngoingTranscriptWithRenderer(
+		committedOngoingProjectionRenderer(key.Theme, key.Width, key.BaseOffset),
+		input.Entries,
+	)
+	lines := projection.Lines(detailDivider())
+	lastGroup := ""
+	if blockCount := len(projection.Blocks); blockCount > 0 {
+		lastGroup = projection.Blocks[blockCount-1].DividerGroup
+	}
+	if key.Revision > 0 && p != nil {
+		p.ongoingKey = key
+		p.ongoingLines = lines
+		p.ongoingGroup = lastGroup
+		p.ongoingSet = true
+	}
+	return lines, lastGroup
+}
+
+func (p *TranscriptViewProjector) StreamingOngoingLines(text string, state TranscriptProjectionViewState) []TranscriptProjectionLine {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	key := ongoingStreamingProjectionKey{
+		Text:  text,
+		Theme: normalizeTheme(state.Theme),
+		Width: state.ViewportWidth,
+	}
+	if key.Width <= 0 {
+		key.Width = 120
+	}
+	if p != nil && p.streamingSet && p.streamingKey == key {
+		return p.streamingLines
+	}
+	renderer := transcriptProjectionRenderer(key.Theme, key.Width, 0)
+	plain := renderer.flattenEntryPlain(RenderIntentAssistant, text)
+	lines := make([]TranscriptProjectionLine, 0, len(plain))
+	for _, line := range plain {
+		lines = append(lines, TranscriptProjectionLine{Kind: VisibleLineContent, Text: line})
+	}
+	if p != nil {
+		p.streamingKey = key
+		p.streamingLines = lines
+		p.streamingSet = true
+	}
+	return lines
+}
+
+func (p *TranscriptViewProjector) StreamingDetailAssistantLines(text string, state TranscriptProjectionViewState) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	key := ongoingStreamingProjectionKey{
+		Text:  text,
+		Theme: normalizeTheme(state.Theme),
+		Width: state.ViewportWidth,
+	}
+	if key.Width <= 0 {
+		key.Width = 120
+	}
+	if p != nil && p.detailStreamingSet && p.detailStreamingKey == key {
+		return p.detailStreamingLines
+	}
+	renderer := transcriptProjectionRenderer(key.Theme, key.Width, 0)
+	lines := renderer.flattenEntry(RenderIntentAssistant, text)
+	if p != nil {
+		p.detailStreamingKey = key
+		p.detailStreamingLines = lines
+		p.detailStreamingSet = true
+	}
+	return lines
+}
+
+func (p *TranscriptViewProjector) Project(input TranscriptProjectionInput, state TranscriptProjectionViewState) TranscriptViewProjection {
+	return p.project(input, state, true)
+}
+
+func (p *TranscriptViewProjector) ProjectShared(input TranscriptProjectionInput, state TranscriptProjectionViewState) TranscriptViewProjection {
+	return p.project(input, state, false)
+}
+
+func (p *TranscriptViewProjector) ProjectDetailShared(input TranscriptProjectionInput, state TranscriptProjectionViewState) TranscriptViewProjection {
+	detail := p.detailProjectionFor(input, state)
+	return transcriptViewProjectionForDetail(input.Revision, detail)
+}
+
+func (p *TranscriptViewProjector) detailProjectionFor(input TranscriptProjectionInput, state TranscriptProjectionViewState) TranscriptProjection {
+	keyInput := input
+	keyInput.Revision = input.EntriesRevision
+	keyInput.Ongoing = ""
+	keyInput.StreamingReasoning = nil
+	key := NewTranscriptViewProjectionKey(keyInput, state)
+	cacheable := key.Revision > 0
+	var detail TranscriptProjection
+	if cacheable && p != nil && p.detailSet && transcriptViewProjectionKeysEqual(p.detailKey, key) {
+		detail = p.detailProjection
+	} else {
+		renderer := transcriptProjectionRenderer(state.Theme, state.ViewportWidth, input.BaseOffset)
+		if state.ViewportLines > 0 {
+			renderer.viewportLines = state.ViewportLines
+		}
+		renderer.compactDetail = state.CompactDetail
+		renderer.selectedTranscriptEntry = state.SelectedEntry
+		renderer.selectedTranscriptActive = state.SelectedEntryIsActive
+		renderer.detailSelectedEntry = state.DetailSelectedEntry
+		renderer.detailSelectedActive = state.DetailSelectedActive
+		renderer.detailExpandedEntries = cloneExpandedEntrySet(state.DetailExpandedEntries)
+		renderer.transcriptInput.Entries = cloneTranscriptEntries(input.Entries)
+		renderer.transcriptInput.BaseOffset = max(0, input.BaseOffset)
+		renderer.transcriptInput.TotalEntries = input.TotalEntries
+		if renderer.transcriptInput.TotalEntries < renderer.transcriptInput.BaseOffset+len(renderer.transcriptInput.Entries) {
+			renderer.transcriptInput.TotalEntries = renderer.transcriptInput.BaseOffset + len(renderer.transcriptInput.Entries)
+		}
+		detail = renderer.DetailProjection(false, true)
+		if cacheable && p != nil {
+			p.detailKey = key
+			p.detailProjection = detail
+			p.detailSet = true
+		}
+	}
+	return appendDetailStreamingProjection(detail, input, state, p)
+}
+
+func transcriptViewProjectionForDetail(revision int64, detail TranscriptProjection) TranscriptViewProjection {
+	return TranscriptViewProjection{
+		InputRevision:         revision,
+		Detail:                detail,
+		DetailLines:           detail.Lines(detailItemSeparator),
+		DetailLineOwners:      detail.LineOwners(),
+		DetailEntryLineRanges: detail.EntryLineRanges(),
+	}
+}
+
+func appendDetailStreamingProjection(base TranscriptProjection, input TranscriptProjectionInput, state TranscriptProjectionViewState, projector *TranscriptViewProjector) TranscriptProjection {
+	blocks := append([]TranscriptProjectionBlock(nil), base.Blocks...)
+	if reasoning := detailStreamingReasoningBlock(input, state); len(reasoning.Lines) > 0 {
+		blocks = append(blocks, reasoning)
+	}
+	if strings.TrimSpace(input.Ongoing) != "" {
+		var lines []string
+		if projector != nil {
+			lines = projector.StreamingDetailAssistantLines(input.Ongoing, state)
+		} else {
+			renderer := transcriptProjectionRenderer(state.Theme, state.ViewportWidth, input.BaseOffset)
+			lines = renderer.flattenEntry(RenderIntentAssistant, input.Ongoing)
+		}
+		if len(lines) > 0 {
+			blocks = append(blocks, TranscriptProjectionBlock{
+				Role:         RenderIntentAssistant,
+				DividerGroup: ongoingDividerGroup(RenderIntentAssistant),
+				EntryIndex:   -1,
+				EntryEnd:     -1,
+				Lines:        lines,
+			})
+		}
+	}
+	return TranscriptProjection{Blocks: blocks}
+}
+
+func detailStreamingReasoningBlock(input TranscriptProjectionInput, state TranscriptProjectionViewState) TranscriptProjectionBlock {
+	if len(input.StreamingReasoning) == 0 {
+		return TranscriptProjectionBlock{}
+	}
+	parts := make([]string, 0, len(input.StreamingReasoning))
+	for _, entry := range input.StreamingReasoning {
+		text := strings.TrimSpace(entry.Text)
+		if text == "" {
+			continue
+		}
+		parts = append(parts, text)
+	}
+	if len(parts) == 0 {
+		return TranscriptProjectionBlock{}
+	}
+	renderer := transcriptProjectionRenderer(state.Theme, state.ViewportWidth, input.BaseOffset)
+	lines := renderer.flattenEntry(RenderIntentReasoning, strings.Join(parts, "\n"))
+	return TranscriptProjectionBlock{
+		Role:         RenderIntentReasoning,
+		DividerGroup: ongoingDividerGroup(RenderIntentReasoning),
+		EntryIndex:   -1,
+		EntryEnd:     -1,
+		Lines:        lines,
+	}
+}
+
+func (p *TranscriptViewProjector) project(input TranscriptProjectionInput, state TranscriptProjectionViewState, cloneResult bool) TranscriptViewProjection {
+	key := NewTranscriptViewProjectionKey(input, state)
+	if input.Revision > 0 && p != nil && p.projectionSet && transcriptViewProjectionKeysEqual(p.key, key) {
+		if !cloneResult {
+			return p.projection
+		}
+		return p.projection.Clone()
+	}
+	projection := ProjectTranscriptViews(input, state)
+	if input.Revision > 0 && p != nil {
+		p.key = key
+		p.projection = projection
+		p.projectionSet = true
+	}
+	if cloneResult {
+		return projection.Clone()
+	}
+	return projection
+}
+
+func NewTranscriptViewProjectionKey(input TranscriptProjectionInput, state TranscriptProjectionViewState) TranscriptViewProjectionKey {
+	width := state.ViewportWidth
+	if width <= 0 {
+		width = 120
+	}
+	lines := state.ViewportLines
+	if lines <= 0 {
+		lines = DefaultPreviewLines
+	}
+	return TranscriptViewProjectionKey{
+		Revision:              input.Revision,
+		BaseOffset:            max(0, input.BaseOffset),
+		TotalEntries:          input.TotalEntries,
+		EntryCount:            len(input.Entries),
+		ViewportWidth:         width,
+		ViewportLines:         lines,
+		Theme:                 normalizeTheme(state.Theme),
+		CompactDetail:         state.CompactDetail,
+		SelectedEntry:         state.SelectedEntry,
+		SelectedEntryIsActive: state.SelectedEntryIsActive,
+		DetailSelectedEntry:   state.DetailSelectedEntry,
+		DetailSelectedActive:  state.DetailSelectedActive,
+		ExpandedEntries:       sortedExpandedEntries(state.DetailExpandedEntries),
+	}
+}
+
+func transcriptViewProjectionKeysEqual(left TranscriptViewProjectionKey, right TranscriptViewProjectionKey) bool {
+	if left.Revision != right.Revision ||
+		left.BaseOffset != right.BaseOffset ||
+		left.TotalEntries != right.TotalEntries ||
+		left.EntryCount != right.EntryCount ||
+		left.ViewportWidth != right.ViewportWidth ||
+		left.ViewportLines != right.ViewportLines ||
+		left.Theme != right.Theme ||
+		left.CompactDetail != right.CompactDetail ||
+		left.SelectedEntry != right.SelectedEntry ||
+		left.SelectedEntryIsActive != right.SelectedEntryIsActive ||
+		left.DetailSelectedEntry != right.DetailSelectedEntry ||
+		left.DetailSelectedActive != right.DetailSelectedActive ||
+		len(left.ExpandedEntries) != len(right.ExpandedEntries) {
+		return false
+	}
+	for idx := range left.ExpandedEntries {
+		if left.ExpandedEntries[idx] != right.ExpandedEntries[idx] {
+			return false
+		}
+	}
+	return true
 }
 
 // ProjectCommittedOngoingTranscript renders committed ongoing transcript entries
@@ -269,7 +817,7 @@ func (p *CommittedOngoingProjector) rendererFor(theme string, width int, baseOff
 		p.rendererTheme = theme
 		p.rendererWidth = width
 	}
-	p.renderer.transcriptBaseOffset = baseOffset
+	p.renderer.transcriptInput.BaseOffset = baseOffset
 	return p.renderer
 }
 
@@ -280,7 +828,7 @@ func committedOngoingProjectionRenderer(theme string, width int, baseOffset int)
 func transcriptProjectionRenderer(theme string, width int, baseOffset int) Model {
 	model := NewModel(WithTheme(theme))
 	model.viewportWidth = width
-	model.transcriptBaseOffset = baseOffset
+	model.transcriptInput.BaseOffset = baseOffset
 	return model
 }
 
@@ -289,15 +837,75 @@ func projectCommittedOngoingTranscriptWithRenderer(renderer Model, entries []Tra
 	if len(committed) == 0 {
 		return TranscriptProjection{}
 	}
-	renderer.transcript = append([]TranscriptEntry(nil), committed...)
-	renderer.ongoing = ""
-	renderer.streamingReasoning = nil
+	renderer.transcriptInput.Entries = append([]TranscriptEntry(nil), committed...)
+	renderer.transcriptInput.Ongoing = ""
+	renderer.transcriptInput.StreamingReasoning = nil
 	return projectionFromOngoingBlocks(renderer.buildOngoingBlocks(false))
+}
+
+func cloneTranscriptEntries(entries []TranscriptEntry) []TranscriptEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]TranscriptEntry, len(entries))
+	for idx, entry := range entries {
+		out[idx] = entry
+		out[idx].ToolCall = cloneToolCallMeta(entry.ToolCall)
+	}
+	return out
+}
+
+func cloneStreamingReasoningEntries(entries []StreamingReasoningEntry) []StreamingReasoningEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	return append([]StreamingReasoningEntry(nil), entries...)
+}
+
+func cloneExpandedEntrySet(entries map[int]struct{}) map[int]struct{} {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make(map[int]struct{}, len(entries))
+	for entry := range entries {
+		out[entry] = struct{}{}
+	}
+	return out
+}
+
+func cloneProjectionLines(lines []TranscriptProjectionLine) []TranscriptProjectionLine {
+	if len(lines) == 0 {
+		return nil
+	}
+	return append([]TranscriptProjectionLine(nil), lines...)
+}
+
+func cloneLineRangeMap(ranges map[int]lineRange) map[int]lineRange {
+	if len(ranges) == 0 {
+		return nil
+	}
+	out := make(map[int]lineRange, len(ranges))
+	for entry, lineRange := range ranges {
+		out[entry] = lineRange
+	}
+	return out
+}
+
+func sortedExpandedEntries(entries map[int]struct{}) []int {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]int, 0, len(entries))
+	for entry := range entries {
+		out = append(out, entry)
+	}
+	sort.Ints(out)
+	return out
 }
 
 func (m Model) DetailProjection(includeStreaming bool, applySelection bool) TranscriptProjection {
 	m.mode = ModeDetail
-	return projectionFromDetailBlocks(m.buildDetailBlocks(includeStreaming, applySelection))
+	return m.projectionFromDetailBlockSpecs(m.buildDetailBlockSpecs(includeStreaming), applySelection)
 }
 
 func projectionFromOngoingBlocks(blocks []ongoingBlock) TranscriptProjection {
@@ -323,6 +931,27 @@ func projectionFromDetailBlocks(blocks []ongoingBlock) TranscriptProjection {
 			EntryIndex:   block.entryIndex,
 			EntryEnd:     block.entryEnd,
 			Lines:        append([]string(nil), block.lines...),
+		})
+	}
+	return projection
+}
+
+func (m Model) projectionFromDetailBlockSpecs(specs []detailBlockSpec, applySelection bool) TranscriptProjection {
+	projection := TranscriptProjection{Blocks: make([]TranscriptProjectionBlock, 0, len(specs))}
+	for _, spec := range specs {
+		lines := spec.render(m, m.detailExpansionSymbolOverride(spec))
+		if applySelection {
+			lines = m.maybeSelectedUserBlock(spec.entryIndex, spec.role, lines)
+		}
+		projection.Blocks = append(projection.Blocks, TranscriptProjectionBlock{
+			Role:         spec.role,
+			DividerGroup: ongoingDividerGroup(spec.role),
+			EntryIndex:   spec.entryIndex,
+			EntryEnd:     spec.entryEnd,
+			Selectable:   spec.selectable,
+			Expanded:     spec.expanded,
+			Expandable:   spec.expandable,
+			Lines:        append([]string(nil), lines...),
 		})
 	}
 	return projection

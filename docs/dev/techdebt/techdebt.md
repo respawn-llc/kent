@@ -48,7 +48,7 @@ Entry shape: checklist title line, summary evidence paragraph, impact paragraph,
 
   Regression prevention must include lifecycle tests proving resources close exactly once and in safe order, composition tests proving required services are present, and import/coupling checks that prevent new features from adding arbitrary fields to `Core` as the default extension path. Constructor behavior must stay explicit and diagnosable: startup failures should name the bundle/resource that failed, and partial construction must clean up already-created resources.
 
-- [ ] `TD-005` [P1] `cli/tui/model.go` stores transcript, render caches, selection, scroll, and dirty state in one mutable graph.
+- [x] `TD-005` [P1] `cli/tui/model.go` stores transcript, render caches, selection, scroll, and dirty state in one mutable graph.
 
   The file is 1415 LoC. `type Model` includes mode, viewport dimensions, transcript entries, ongoing text, streaming reasoning, selected entry state, detail selection, expanded entries, detail snapshot, detail lines, line kinds, line-entry indices, line ranges, block specs, block lines, total line counts, metrics flags, dirty flags, scroll positions, and render diagnostics. Related render/update files include `cli/tui/model_rendering.go`, `cli/tui/model_rendering_entries.go`, and `cli/tui/model_reducer.go`. `docs/tmp/tech_debt.md` already identifies the render cache graph as a P1 concern.
 

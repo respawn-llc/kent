@@ -130,11 +130,8 @@ func TestToggleToDetailCanSkipWarmup(t *testing.T) {
 	if got := m.Mode(); got != ModeDetail {
 		t.Fatalf("mode after skip-warmup toggle = %q, want %q", got, ModeDetail)
 	}
-	if !m.detailDirty {
-		t.Fatal("expected detail snapshot to remain dirty when warmup is skipped")
-	}
-	if len(m.detailLines) != 0 {
-		t.Fatalf("expected no detail snapshot lines after skip-warmup toggle, got %d", len(m.detailLines))
+	if got := m.DetailRebuildCount(); got != 0 {
+		t.Fatalf("expected skip-warmup toggle to avoid eager detail rebuild, got %d rebuilds", got)
 	}
 	if got := m.detailScroll; got != 0 {
 		t.Fatalf("detail scroll after skip-warmup toggle = %d, want 0", got)
@@ -228,53 +225,51 @@ func TestErrorEntryVisibleInDetailAndHiddenInOngoing(t *testing.T) {
 	}
 }
 
-func TestDetailSnapshotIsStaticUntilRetoggle(t *testing.T) {
+func TestDetailUpdatesWhileOpenAndKeepsScrollStable(t *testing.T) {
 	m := NewModel()
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "user", Text: "question"})
 	m = updateModel(t, m, StreamAssistantMsg{Delta: "alpha"})
 	m = updateModel(t, m, ToggleModeMsg{})
+	m.ensureDetailScrollResolved()
 
-	snapshot := plainTranscript(m.View())
-	if !containsInOrder(snapshot, "❮", "alpha") {
-		t.Fatalf("detail snapshot missing assistant stream: %q", snapshot)
+	initial := plainTranscript(m.View())
+	initialScroll := m.DetailScroll()
+	if !containsInOrder(initial, "❮", "alpha") {
+		t.Fatalf("detail view missing assistant stream: %q", initial)
 	}
 
 	m = updateModel(t, m, StreamAssistantMsg{Delta: " beta"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "tool", Text: "ran"})
 
-	if got := plainTranscript(m.View()); got != snapshot {
-		t.Fatalf("detail snapshot changed while in detail mode:\ninitial=%q\ncurrent=%q", snapshot, got)
+	updated := plainTranscript(m.View())
+	if updated == initial {
+		t.Fatalf("detail view did not update while open")
 	}
-
-	m = updateModel(t, m, ToggleModeMsg{})
-	m = updateModel(t, m, ToggleModeMsg{})
-	refreshed := plainTranscript(m.View())
-
-	if refreshed == snapshot {
-		t.Fatalf("detail snapshot did not refresh after mode roundtrip")
+	if got := m.DetailScroll(); got != initialScroll {
+		t.Fatalf("detail scroll changed while content updated, got %d want %d", got, initialScroll)
 	}
-	if !containsInOrder(refreshed, "❮", "alpha beta") {
-		t.Fatalf("refreshed snapshot missing full assistant stream: %q", refreshed)
+	if !containsInOrder(updated, "❮", "alpha beta") {
+		t.Fatalf("updated detail view missing full assistant stream: %q", updated)
 	}
-	if !containsInOrder(refreshed, "•", "ran") {
-		t.Fatalf("refreshed snapshot missing new transcript entry: %q", refreshed)
+	if !containsInOrder(updated, "•", "ran") {
+		t.Fatalf("updated detail view missing new transcript entry: %q", updated)
 	}
 }
 
-func TestDetailDoesNotScrollOnIncomingMessages(t *testing.T) {
+func TestDetailScrollStaysStableOnIncomingMessages(t *testing.T) {
 	m := NewModel(WithPreviewLines(2))
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "user", Text: "u1"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "a1"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "user", Text: "u2"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "a2"})
 	m = updateModel(t, m, ToggleModeMsg{})
+	m.ensureDetailScrollResolved()
 	m = updateModel(t, m, ScrollOngoingMsg{Delta: 1})
 
-	before := plainTranscript(m.View())
+	beforeScroll := m.DetailScroll()
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "a3"})
-	after := plainTranscript(m.View())
-	if after != before {
-		t.Fatalf("detail view changed while new messages arrived:\nbefore=%q\nafter=%q", before, after)
+	if got := m.DetailScroll(); got != beforeScroll {
+		t.Fatalf("detail scroll changed while new messages arrived, got %d want %d", got, beforeScroll)
 	}
 }
 
@@ -497,7 +492,7 @@ func TestFocusTranscriptEntryClampsNearTopAndBottom(t *testing.T) {
 		t.Fatalf("expected top entry visible after focus, range=(%d,%d) scroll=%d", start, end, m.OngoingScroll())
 	}
 
-	bottomEntry := len(m.transcript) - 1
+	bottomEntry := len(m.transcriptInput.Entries) - 1
 	m = updateModel(t, m, FocusTranscriptEntryMsg{EntryIndex: bottomEntry, Center: true})
 	if got, want := m.OngoingScroll(), m.maxOngoingScroll(); got != want {
 		t.Fatalf("expected bottom entry focus to clamp to max scroll %d, got %d", want, got)
