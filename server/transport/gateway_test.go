@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"golang.org/x/net/websocket"
+	"io"
 	"net/http/httptest"
 	"strconv"
 	"strings"
@@ -76,6 +77,19 @@ func TestProtocolErrorMapsContextCanceled(t *testing.T) {
 	}
 	if message != "request canceled by client" {
 		t.Fatalf("protocol error message = %q, want request canceled by client", message)
+	}
+}
+
+func TestStreamCompleteParamsMapsTerminalErrors(t *testing.T) {
+	for _, err := range []error{nil, io.EOF, context.Canceled, context.DeadlineExceeded} {
+		params := streamCompleteParams(err)
+		if params.Code != 0 || params.Message != "" {
+			t.Fatalf("streamCompleteParams(%v) = %+v, want empty completion", err, params)
+		}
+	}
+	params := streamCompleteParams(serverapi.ErrStreamFailed)
+	if params.Code != protocol.ErrCodeStreamFailed || params.Message != serverapi.ErrStreamFailed.Error() {
+		t.Fatalf("streamCompleteParams(stream failed) = %+v, want stream-failed code/message", params)
 	}
 }
 
@@ -326,10 +340,9 @@ func TestGatewayPreAuthMethodPolicy(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			g := &Gateway{}
-			got := g.methodRequiresServerAuth(tt.method)
+			got := newRoutePolicyExecutor(&Gateway{}).requiresServerAuth(tt.method)
 			if got != tt.requiresAuth {
-				t.Fatalf("methodRequiresServerAuth(%q) = %t, want %t", tt.method, got, tt.requiresAuth)
+				t.Fatalf("requiresServerAuth(%q) = %t, want %t", tt.method, got, tt.requiresAuth)
 			}
 		})
 	}
@@ -374,6 +387,39 @@ func TestGatewayProgressHandlersCoverRouteContract(t *testing.T) {
 		}
 		if route.Kind != rpccontract.KindProgress {
 			t.Fatalf("gateway progress handler %q route kind = %q, want progress", method, route.Kind)
+		}
+	}
+}
+
+func TestGatewayStreamRoutesUseRouteContractMethods(t *testing.T) {
+	runPromptRoute, ok := rpccontract.RouteByMethod(protocol.MethodRunPrompt)
+	if !ok {
+		t.Fatal("run prompt route missing")
+	}
+	if _, ok := gatewayProgressHandlers[runPromptRoute.Method]; !ok {
+		t.Fatal("run prompt progress handler missing")
+	}
+	if runPromptRoute.EventMethod != protocol.MethodRunPromptProgress {
+		t.Fatalf("run prompt event method = %q, want %q", runPromptRoute.EventMethod, protocol.MethodRunPromptProgress)
+	}
+	for _, tc := range []struct {
+		method       string
+		eventMethod  string
+		completeName string
+	}{
+		{method: protocol.MethodSessionSubscribeActivity, eventMethod: protocol.MethodSessionActivityEvent, completeName: protocol.MethodSessionActivityComplete},
+		{method: protocol.MethodProcessSubscribeOutput, eventMethod: protocol.MethodProcessOutputEvent, completeName: protocol.MethodProcessOutputComplete},
+		{method: protocol.MethodPromptSubscribeActivity, eventMethod: protocol.MethodPromptActivityEvent, completeName: protocol.MethodPromptActivityComplete},
+	} {
+		route, ok := rpccontract.RouteByMethod(tc.method)
+		if !ok {
+			t.Fatalf("subscription route %q missing", tc.method)
+		}
+		if _, ok := gatewaySubscriptionHandlers[route.Method]; !ok {
+			t.Fatalf("subscription handler %q missing", route.Method)
+		}
+		if route.EventMethod != tc.eventMethod || route.CompleteMethod != tc.completeName {
+			t.Fatalf("route %q stream methods = event %q complete %q, want event %q complete %q", tc.method, route.EventMethod, route.CompleteMethod, tc.eventMethod, tc.completeName)
 		}
 	}
 }

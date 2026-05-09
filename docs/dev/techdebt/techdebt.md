@@ -18,7 +18,7 @@ Entry shape: checklist title line, summary evidence paragraph, impact paragraph,
 
   Regression prevention must include tests that fail when a protocol method is missing a route contract, when a route lacks auth or scope policy, when pre-auth exposure drifts from the route policy, when unary/subscription route kind is wrong, when a client wrapper is missing, or when loopback and remote behavior diverge. Adding a new endpoint should require one source-of-truth route declaration plus its service implementation and endpoint-specific tests, not scattered edits across protocol, gateway, client, and policy lists.
 
-- [ ] `TD-002` [P1] `server/transport/gateway.go` is a policy-heavy dispatch god file.
+- [x] `TD-002` [P1] `server/transport/gateway.go` is a policy-heavy dispatch god file.
 
   The file is 1293 LoC. `(*Gateway).dispatch` is a large protocol-method switch with repeated decode/validate/auth/scope/service-forwarding logic. Scope helpers in the same file include `requireSessionInActiveProject`, `requireGoalSessionAccess`, `requireSessionInAttachedProject`, `requireSessionInActiveProjectIfPresent`, `processInActiveProject`, and `filterProcessesForActiveProject`. `(*Gateway).serveSubscription` separately handles subscription dispatch and applies attach-state checks differently from many unary calls.
 

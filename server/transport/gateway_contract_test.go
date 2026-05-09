@@ -65,9 +65,9 @@ func gatewayUnaryHandlerDTOTypes(t *testing.T) map[string]gatewayHandlerDTOTypes
 	}
 	dir := filepath.Dir(filename)
 	protocolMethods := gatewayProtocolMethodValues(t, dir)
-	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, "gateway.go"), nil, 0)
+	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, "gateway_unary_handlers.go"), nil, 0)
 	if err != nil {
-		t.Fatalf("parse gateway.go: %v", err)
+		t.Fatalf("parse gateway_unary_handlers.go: %v", err)
 	}
 	out := map[string]gatewayHandlerDTOTypes{}
 	for _, decl := range file.Decls {
