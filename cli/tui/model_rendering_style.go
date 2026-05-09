@@ -329,6 +329,10 @@ func themePreviewColor(themeName string) rgbColor {
 	return rgbColorFromHex(theme.ResolvePalette(themeName).Transcript.Subdued.TrueColor)
 }
 
+func themePrimaryColor(themeName string) rgbColor {
+	return rgbColorFromHex(theme.ResolvePalette(themeName).App.Primary.TrueColor)
+}
+
 func themeModeBackgroundColor(themeName string) rgbColor {
 	return rgbColorFromHex(theme.ResolvePalette(themeName).App.ModeBg.TrueColor)
 }
@@ -350,6 +354,7 @@ func (m Model) ansiIntentPalette() ansiIntentPalette {
 	return ansiIntentPalette{
 		ThemeForeground:   colors.foregroundColor,
 		SubduedForeground: colors.previewColor,
+		PrimaryForeground: colors.primaryColor,
 		SuccessForeground: colors.successColor,
 		WarningForeground: colors.warningColor,
 		ErrorForeground:   colors.errorColor,

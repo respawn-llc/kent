@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,21 +25,30 @@ import (
 )
 
 type recordingGoalRemote struct {
-	showReq     []serverapi.RuntimeGoalShowRequest
-	setReq      []serverapi.RuntimeGoalSetRequest
-	completeReq []serverapi.RuntimeGoalStatusRequest
-	goal        *serverapi.RuntimeGoal
+	showReq          []serverapi.RuntimeGoalShowRequest
+	setReq           []serverapi.RuntimeGoalSetRequest
+	completeReq      []serverapi.RuntimeGoalStatusRequest
+	goal             *serverapi.RuntimeGoal
+	setErr           error
+	showDeadline     time.Time
+	completeDeadline time.Time
 }
 
 func (r *recordingGoalRemote) Close() error { return nil }
 
-func (r *recordingGoalRemote) ShowGoal(_ context.Context, req serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
+func (r *recordingGoalRemote) ShowGoal(ctx context.Context, req serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
 	r.showReq = append(r.showReq, req)
+	if deadline, ok := ctx.Deadline(); ok {
+		r.showDeadline = deadline
+	}
 	return serverapi.RuntimeGoalShowResponse{Goal: r.goal}, nil
 }
 
 func (r *recordingGoalRemote) SetGoal(_ context.Context, req serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalShowResponse, error) {
 	r.setReq = append(r.setReq, req)
+	if r.setErr != nil {
+		return serverapi.RuntimeGoalShowResponse{}, r.setErr
+	}
 	return serverapi.RuntimeGoalShowResponse{Goal: r.goal}, nil
 }
 
@@ -50,8 +60,11 @@ func (r *recordingGoalRemote) ResumeGoal(context.Context, serverapi.RuntimeGoalS
 	return serverapi.RuntimeGoalShowResponse{}, nil
 }
 
-func (r *recordingGoalRemote) CompleteGoal(_ context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
+func (r *recordingGoalRemote) CompleteGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
 	r.completeReq = append(r.completeReq, req)
+	if deadline, ok := ctx.Deadline(); ok {
+		r.completeDeadline = deadline
+	}
 	return serverapi.RuntimeGoalShowResponse{Goal: r.goal}, nil
 }
 
@@ -81,20 +94,71 @@ func TestGoalShowUsesBuilderSessionID(t *testing.T) {
 	}
 }
 
-func TestGoalAgentEnvDeniesMutationWithoutDialing(t *testing.T) {
+func TestGoalAgentEnvAllowsSetWithAgentActor(t *testing.T) {
+	t.Setenv("BUILDER_SESSION_ID", "session-1")
+	remote := &recordingGoalRemote{goal: &serverapi.RuntimeGoal{ID: "goal-1", Objective: "new goal", Status: "active"}}
+	restore := replaceGoalCommandRemoteOpener(t, remote)
+	defer restore()
+
+	stdout := new(strings.Builder)
+	stderr := new(strings.Builder)
+	if code := goalSubcommand([]string{"set", "new goal"}, stdout, stderr); code != 0 {
+		t.Fatalf("goal set exit = %d stderr=%q", code, stderr.String())
+	}
+	if len(remote.setReq) != 1 {
+		t.Fatalf("set requests = %+v", remote.setReq)
+	}
+	if remote.setReq[0].SessionID != "session-1" || remote.setReq[0].Actor != "agent" || remote.setReq[0].Objective != "new goal" {
+		t.Fatalf("set request = %+v", remote.setReq[0])
+	}
+	if !strings.Contains(stdout.String(), "Goal: new goal") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestGoalAgentEnvSetOverwritePrintsDeniedPrompt(t *testing.T) {
+	t.Setenv("BUILDER_SESSION_ID", "session-1")
+	existing := &serverapi.RuntimeGoal{ID: "goal-1", Objective: "existing goal", Status: "active"}
+	remote := &recordingGoalRemote{
+		goal:   existing,
+		setErr: errors.New(strings.TrimSpace(prompts.GoalAgentCommandDeniedPrompt)),
+	}
+	restore := replaceGoalCommandRemoteOpener(t, remote)
+	defer restore()
+
+	stdout := new(strings.Builder)
+	stderr := new(strings.Builder)
+	if code := goalSubcommand([]string{"set", "replacement goal"}, stdout, stderr); code == 0 {
+		t.Fatalf("goal set overwrite exit = 0")
+	}
+	if !strings.Contains(stderr.String(), strings.TrimSpace(prompts.GoalAgentCommandDeniedPrompt)) {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	if len(remote.setReq) != 1 {
+		t.Fatalf("set requests = %+v", remote.setReq)
+	}
+	if remote.goal != existing || remote.goal.Objective != "existing goal" {
+		t.Fatalf("remote goal mutated = %+v", remote.goal)
+	}
+}
+
+func TestGoalAgentEnvDeniesNonSetMutationWithoutDialing(t *testing.T) {
 	t.Setenv("BUILDER_SESSION_ID", "session-1")
 	remote := &recordingGoalRemote{}
 	restore := replaceGoalCommandRemoteOpener(t, remote)
 	defer restore()
 
 	stderr := new(strings.Builder)
-	if code := goalSubcommand([]string{"set", "new goal"}, new(strings.Builder), stderr); code == 0 {
-		t.Fatalf("goal set exit = 0")
+	if code := goalSubcommand([]string{"pause"}, new(strings.Builder), stderr); code == 0 {
+		t.Fatalf("goal pause exit = 0")
 	}
 	if !strings.Contains(stderr.String(), prompts.GoalAgentCommandDeniedPrompt) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
-	if len(remote.showReq) != 0 || len(remote.completeReq) != 0 {
+	if len(remote.showReq) != 0 || len(remote.completeReq) != 0 || len(remote.setReq) != 0 {
 		t.Fatalf("remote was called: %+v", remote)
 	}
 }
@@ -119,7 +183,7 @@ func TestGoalSetRejectsEmptyObjectiveBeforeDialing(t *testing.T) {
 
 func TestGoalAgentCompleteRequiresConfirmTripwire(t *testing.T) {
 	t.Setenv("BUILDER_SESSION_ID", "session-1")
-	remote := &recordingGoalRemote{goal: &serverapi.RuntimeGoal{ID: "goal-1", Objective: "ship goal mode", Status: "complete"}}
+	remote := &recordingGoalRemote{goal: &serverapi.RuntimeGoal{ID: "goal-1", Objective: "ship goal mode", Status: "active"}}
 	restore := replaceGoalCommandRemoteOpener(t, remote)
 	defer restore()
 
@@ -144,6 +208,60 @@ func TestGoalAgentCompleteRequiresConfirmTripwire(t *testing.T) {
 	}
 	if remote.completeReq[0].SessionID != "session-1" || remote.completeReq[0].Actor != "agent" {
 		t.Fatalf("complete req = %+v", remote.completeReq[0])
+	}
+}
+
+func TestGoalCompleteAlreadyCompletePrintsAlreadyCompletePrompt(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		args []string
+	}{
+		{name: "without confirm", args: []string{"complete"}},
+		{name: "with confirm", args: []string{"complete", "--confirm"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("BUILDER_SESSION_ID", "session-1")
+			remote := &recordingGoalRemote{goal: &serverapi.RuntimeGoal{ID: "goal-1", Objective: "ship goal mode", Status: "complete"}}
+			restore := replaceGoalCommandRemoteOpener(t, remote)
+			defer restore()
+
+			stdout := new(strings.Builder)
+			stderr := new(strings.Builder)
+			if code := goalSubcommand(tt.args, stdout, stderr); code != 0 {
+				t.Fatalf("goal complete already-complete exit = %d stderr=%q", code, stderr.String())
+			}
+			if got, want := strings.TrimSpace(stdout.String()), prompts.RenderGoalAlreadyCompletePrompt("ship goal mode"); got != want {
+				t.Fatalf("stdout = %q, want %q", got, want)
+			}
+			if stderr.String() != "" {
+				t.Fatalf("stderr = %q, want empty", stderr.String())
+			}
+			if len(remote.completeReq) != 0 {
+				t.Fatalf("complete called for already-complete goal: %+v", remote.completeReq)
+			}
+			if len(remote.showReq) != 1 || remote.showReq[0].SessionID != "session-1" {
+				t.Fatalf("show requests = %+v", remote.showReq)
+			}
+		})
+	}
+}
+
+func TestGoalCompleteUsesFreshTimeoutForCompletionRPC(t *testing.T) {
+	t.Setenv("BUILDER_SESSION_ID", "session-1")
+	remote := &recordingGoalRemote{goal: &serverapi.RuntimeGoal{ID: "goal-1", Objective: "ship goal mode", Status: "active"}}
+	restore := replaceGoalCommandRemoteOpener(t, remote)
+	defer restore()
+
+	stdout := new(strings.Builder)
+	stderr := new(strings.Builder)
+	if code := goalSubcommand([]string{"complete", "--confirm"}, stdout, stderr); code != 0 {
+		t.Fatalf("goal complete --confirm exit = %d stderr=%q", code, stderr.String())
+	}
+	if remote.showDeadline.IsZero() || remote.completeDeadline.IsZero() {
+		t.Fatalf("deadlines missing: show=%v complete=%v", remote.showDeadline, remote.completeDeadline)
+	}
+	if !remote.completeDeadline.After(remote.showDeadline) {
+		t.Fatalf("complete deadline = %v, want fresh deadline after show deadline %v", remote.completeDeadline, remote.showDeadline)
 	}
 }
 

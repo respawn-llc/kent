@@ -29,6 +29,7 @@ type storeOptions struct {
 	resolver        PersistedSessionResolver
 	filelessMeta    bool
 	observerTimeout time.Duration
+	now             func() time.Time
 }
 
 type eventLogOptions struct {
@@ -81,6 +82,12 @@ func WithFilelessMetadataPersistence() StoreOption {
 	}
 }
 
+func WithClock(now func() time.Time) StoreOption {
+	return func(options *storeOptions) {
+		options.now = now
+	}
+}
+
 func normalizeStoreOptions(options ...StoreOption) storeOptions {
 	result := storeOptions{
 		eventLog: eventLogOptions{
@@ -100,6 +107,11 @@ func normalizeStoreOptions(options ...StoreOption) storeOptions {
 	result.eventLog = normalizeEventLogOptions(result.eventLog)
 	if result.observerTimeout <= 0 {
 		result.observerTimeout = defaultPersistenceObserverTimeout
+	}
+	if result.now == nil {
+		result.now = func() time.Time {
+			return time.Now().UTC()
+		}
 	}
 	return result
 }

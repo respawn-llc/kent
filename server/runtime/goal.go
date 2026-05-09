@@ -53,9 +53,12 @@ func (e *Engine) SetGoalStatus(status session.GoalStatus, actor session.GoalActo
 	if e == nil || e.store == nil {
 		return session.GoalState{}, fmt.Errorf("runtime engine is required")
 	}
-	promptGoal := goalStateForStatusPrompt(e.Goal(), status)
-	msg := e.goalDeveloperMessage(goalStatusPrompt(promptGoal), goalStatusCompactText(promptGoal))
-	goal, err := e.store.SetGoalStatusWithEvents(status, actor, []session.EventInput{{Kind: "message", Payload: msg}})
+	transcriptWorkingDir := e.transcriptWorkingDir()
+	var msg llm.Message
+	goal, err := e.store.SetGoalStatusWithEventBuilder(status, actor, func(goal session.GoalState) ([]session.EventInput, error) {
+		msg = goalDeveloperMessageForWorkingDir(goalStatusPrompt(goal), goalStatusCompactText(goal), transcriptWorkingDir)
+		return []session.EventInput{{Kind: "message", Payload: msg}}, nil
+	})
 	if err != nil {
 		return session.GoalState{}, err
 	}
@@ -223,12 +226,16 @@ func (e *Engine) appendGoalDeveloperMessage(stepID string, content string, compa
 }
 
 func (e *Engine) goalDeveloperMessage(content string, compact string) llm.Message {
+	return goalDeveloperMessageForWorkingDir(content, compact, e.transcriptWorkingDir())
+}
+
+func goalDeveloperMessageForWorkingDir(content string, compact string, workingDir string) llm.Message {
 	return normalizeMessageForTranscript(llm.Message{
 		Role:           llm.RoleDeveloper,
 		MessageType:    llm.MessageTypeGoal,
 		Content:        content,
 		CompactContent: compact,
-	}, e.transcriptWorkingDir())
+	}, workingDir)
 }
 
 func (e *Engine) appendPersistedGoalDeveloperMessage(stepID string, msg llm.Message) {
@@ -278,15 +285,6 @@ func goalStatusPrompt(goal session.GoalState) string {
 	}
 }
 
-func goalStateForStatusPrompt(goal *session.GoalState, status session.GoalStatus) session.GoalState {
-	if goal == nil {
-		return session.GoalState{Status: status}
-	}
-	next := *goal
-	next.Status = status
-	return next
-}
-
 func goalStatusCompactText(goal session.GoalState) string {
 	switch goal.Status {
 	case session.GoalStatusPaused:
@@ -294,7 +292,7 @@ func goalStatusCompactText(goal session.GoalState) string {
 	case session.GoalStatusActive:
 		return "Goal resumed: " + strconvQuoteForGoalPreview(goal.Objective)
 	case session.GoalStatusComplete:
-		return "Goal complete"
+		return "Goal complete. Cooked for " + formatGoalDuration(goal.UpdatedAt.Sub(goal.CreatedAt))
 	default:
 		return "Goal updated"
 	}
@@ -302,6 +300,27 @@ func goalStatusCompactText(goal session.GoalState) string {
 
 func goalNudgeCompactText(goal session.GoalState) string {
 	return "Continue active goal: " + strconvQuoteForGoalPreview(goal.Objective)
+}
+
+func formatGoalDuration(duration time.Duration) string {
+	if duration < 0 {
+		duration = 0
+	}
+	totalSeconds := int64(duration / time.Second)
+	hours := totalSeconds / int64(time.Hour/time.Second)
+	minutes := totalSeconds % int64(time.Hour/time.Second) / int64(time.Minute/time.Second)
+	seconds := totalSeconds % int64(time.Minute/time.Second)
+	var out strings.Builder
+	if hours > 0 {
+		out.WriteString(fmt.Sprintf("%dh", hours))
+	}
+	if minutes > 0 {
+		out.WriteString(fmt.Sprintf("%dm", minutes))
+	}
+	if seconds > 0 || out.Len() == 0 {
+		out.WriteString(fmt.Sprintf("%ds", seconds))
+	}
+	return out.String()
 }
 
 func strconvQuoteForGoalPreview(objective string) string {

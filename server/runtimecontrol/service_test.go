@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"builder/prompts"
 	"builder/server/llm"
 	"builder/server/primaryrun"
 	"builder/server/runtime"
@@ -211,6 +214,61 @@ func TestServiceSetGoalMemoNormalizesObjectiveWhitespace(t *testing.T) {
 	}
 }
 
+func TestServiceSetGoalAllowsAgentWithoutExistingGoal(t *testing.T) {
+	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
+	if err != nil {
+		t.Fatalf("create session store: %v", err)
+	}
+	engine, err := runtime.New(store, &blockingRuntimeControlClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	if err != nil {
+		t.Fatalf("create runtime engine: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+
+	resp, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
+		ClientRequestID: "agent-goal-set",
+		SessionID:       store.Meta().SessionID,
+		Objective:       "agent self-goal",
+		Actor:           "agent",
+	})
+	if err != nil {
+		t.Fatalf("SetGoal agent: %v", err)
+	}
+	if resp.Goal == nil || resp.Goal.Objective != "agent self-goal" || resp.Goal.Status != "active" {
+		t.Fatalf("agent set response = %+v", resp.Goal)
+	}
+}
+
+func TestServiceSetGoalRejectsAgentOverwrite(t *testing.T) {
+	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
+	if err != nil {
+		t.Fatalf("create session store: %v", err)
+	}
+	engine, err := runtime.New(store, &blockingRuntimeControlClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("create runtime engine: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+	if _, err := engine.SetGoal("existing goal", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal initial: %v", err)
+	}
+
+	_, err = service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
+		ClientRequestID: "agent-goal-overwrite",
+		SessionID:       store.Meta().SessionID,
+		Objective:       "agent replacement",
+		Actor:           "agent",
+	})
+	if err == nil || !strings.Contains(err.Error(), strings.TrimSpace(prompts.GoalAgentCommandDeniedPrompt)) {
+		t.Fatalf("agent overwrite error = %v, want denied prompt", err)
+	}
+	if goal := store.Meta().Goal; goal == nil || goal.Objective != "existing goal" {
+		t.Fatalf("goal after rejected overwrite = %+v", goal)
+	}
+}
+
 func TestServiceSetGoalPropagatesGoalLoopStartError(t *testing.T) {
 	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
 	if err != nil {
@@ -391,6 +449,37 @@ func TestServiceCompleteGoalAlreadyCompleteDoesNotDuplicateAudit(t *testing.T) {
 	}
 	if len(after) != len(before) {
 		t.Fatalf("events after duplicate complete = %d, want %d", len(after), len(before))
+	}
+}
+
+func TestServiceCompleteGoalFeedbackIncludesCookDuration(t *testing.T) {
+	now := time.Date(2026, 5, 9, 10, 0, 0, 0, time.UTC)
+	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x", session.WithClock(func() time.Time {
+		return now
+	}))
+	if err != nil {
+		t.Fatalf("create session store: %v", err)
+	}
+	engine, err := runtime.New(store, &runtimeControlFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	if err != nil {
+		t.Fatalf("create runtime engine: %v", err)
+	}
+	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	now = now.Add(5*time.Hour + 32*time.Minute + 9*time.Second)
+
+	if _, err := service.CompleteGoal(context.Background(), serverapi.RuntimeGoalStatusRequest{ClientRequestID: "complete-duration", SessionID: store.Meta().SessionID, Actor: "agent"}); err != nil {
+		t.Fatalf("CompleteGoal: %v", err)
+	}
+
+	messages := runtimeControlGoalDeveloperMessages(t, store)
+	if len(messages) != 2 {
+		t.Fatalf("goal developer messages len = %d, want set+complete", len(messages))
+	}
+	if got, want := messages[1].CompactContent, "Goal complete. Cooked for 5h32m9s"; got != want {
+		t.Fatalf("complete compact content = %q, want %q", got, want)
 	}
 }
 
@@ -877,6 +966,28 @@ func countDirectShellCommandMessages(t *testing.T, store *session.Store, command
 		}
 	}
 	return count
+}
+
+func runtimeControlGoalDeveloperMessages(t *testing.T, store *session.Store) []llm.Message {
+	t.Helper()
+	events, err := store.ReadEvents()
+	if err != nil {
+		t.Fatalf("ReadEvents: %v", err)
+	}
+	out := []llm.Message{}
+	for _, evt := range events {
+		if evt.Kind != "message" {
+			continue
+		}
+		var msg llm.Message
+		if err := json.Unmarshal(evt.Payload, &msg); err != nil {
+			t.Fatalf("decode message event: %v", err)
+		}
+		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeGoal {
+			out = append(out, msg)
+		}
+	}
+	return out
 }
 
 func countUserMessagesWithContent(t *testing.T, store *session.Store, content string) int {

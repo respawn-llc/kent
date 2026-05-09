@@ -394,6 +394,9 @@ func (m Model) standardEntryBlock(entryIndex int, entry TranscriptEntry, role Re
 		}
 	}
 	lines := m.flattenEntry(role, text)
+	if opts.mode == transcriptBlockModeOngoing && role == RenderIntentGoalFeedback {
+		lines = m.flattenPlainEntryWithIntents(role, text, PrimaryForeground, "")
+	}
 	absoluteIndex := m.absoluteTranscriptIndex(entryIndex)
 	if opts.applySelection {
 		lines = m.maybeSelectedUserBlock(absoluteIndex, role, lines)

@@ -90,3 +90,11 @@ func TestRenderGoalResumePrompt(t *testing.T) {
 		t.Fatalf("expected goal resume placeholders rendered, got %q", rendered)
 	}
 }
+
+func TestRenderGoalAlreadyCompletePrompt(t *testing.T) {
+	rendered := RenderGoalAlreadyCompletePrompt("ship /goal mode")
+	want := "No active goal present. Last goal was already completed:\nship /goal mode"
+	if rendered != want {
+		t.Fatalf("already-complete prompt = %q, want %q", rendered, want)
+	}
+}

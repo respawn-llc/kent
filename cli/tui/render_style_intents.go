@@ -5,6 +5,7 @@ type StyleIntent uint16
 const (
 	ThemeForeground StyleIntent = 1 << iota
 	Subdued
+	PrimaryForeground
 	SuccessForeground
 	WarningForeground
 	ErrorForeground
@@ -46,6 +47,7 @@ type transcriptLayoutLine struct {
 type ansiIntentPalette struct {
 	ThemeForeground   rgbColor
 	SubduedForeground rgbColor
+	PrimaryForeground rgbColor
 	SuccessForeground rgbColor
 	WarningForeground rgbColor
 	ErrorForeground   rgbColor
@@ -60,6 +62,8 @@ func applyANSIStyleIntents(text string, palette ansiIntentPalette, intents Style
 	case intents.Has(Subdued):
 		transform.DefaultForeground = &palette.SubduedForeground
 		transform.ForceFaint = true
+	case intents.Has(PrimaryForeground):
+		transform.DefaultForeground = &palette.PrimaryForeground
 	case intents.Has(SuccessForeground):
 		transform.DefaultForeground = &palette.SuccessForeground
 	case intents.Has(WarningForeground):
@@ -83,6 +87,7 @@ func themeANSIIntentPalette(theme string) ansiIntentPalette {
 	return ansiIntentPalette{
 		ThemeForeground:   themeForegroundColor(theme),
 		SubduedForeground: themePreviewColor(theme),
+		PrimaryForeground: themePrimaryColor(theme),
 		SuccessForeground: themeSuccessColor(theme),
 		WarningForeground: themeWarningColor(theme),
 		ErrorForeground:   themeErrorColor(theme),

@@ -59,6 +59,9 @@ var GoalClearPrompt string
 //go:embed goal/complete.md
 var GoalCompletePrompt string
 
+//go:embed goal/already_complete.md
+var GoalAlreadyCompletePrompt string
+
 //go:embed goal/agent_command_denied.md
 var GoalAgentCommandDeniedPrompt string
 
@@ -145,6 +148,12 @@ func RenderGoalSetPrompt(objective string) string {
 
 func RenderGoalResumePrompt(objective string) string {
 	return renderTemplatePlaceholders(GoalResumePrompt, map[string]string{
+		"{{objective}}": strings.TrimSpace(objective),
+	})
+}
+
+func RenderGoalAlreadyCompletePrompt(objective string) string {
+	return renderTemplatePlaceholders(GoalAlreadyCompletePrompt, map[string]string{
 		"{{objective}}": strings.TrimSpace(objective),
 	})
 }

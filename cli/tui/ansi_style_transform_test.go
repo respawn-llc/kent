@@ -1,6 +1,10 @@
 package tui
 
-import xansi "github.com/charmbracelet/x/ansi"
+import (
+	"testing"
+
+	xansi "github.com/charmbracelet/x/ansi"
+)
 
 func extractForegroundTrueColors(text string) []rgbColor {
 	parser := xansi.GetParser()
@@ -40,12 +44,17 @@ func extractForegroundTrueColors(text string) []rgbColor {
 }
 
 func containsColor(colors []rgbColor, target rgbColor) bool {
+	return countColor(colors, target) > 0
+}
+
+func countColor(colors []rgbColor, target rgbColor) int {
+	count := 0
 	for _, color := range colors {
 		if color == target {
-			return true
+			count++
 		}
 	}
-	return false
+	return count
 }
 
 func containsNonPreviewColor(colors []rgbColor, preview rgbColor) bool {
@@ -55,4 +64,12 @@ func containsNonPreviewColor(colors []rgbColor, preview rgbColor) bool {
 		}
 	}
 	return false
+}
+
+func TestApplyANSIStyleIntentsSupportsPrimaryForeground(t *testing.T) {
+	primary := rgbColor{r: 1, g: 2, b: 3}
+	got := applyANSIStyleIntents("goal", ansiIntentPalette{PrimaryForeground: primary}, PrimaryForeground)
+	if !containsColor(extractForegroundTrueColors(got), primary) {
+		t.Fatalf("expected primary foreground color %+v, got %q", primary, got)
+	}
 }

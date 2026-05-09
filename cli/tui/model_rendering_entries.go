@@ -96,6 +96,16 @@ func (m Model) flattenEntryWithMetaAndSymbol(role RenderIntent, text string, mut
 	return m.flattenEntryContent(role, content, renderWidth, muteText, isPatchToolBlock(role, toolMeta), symbolOverride)
 }
 
+func (m Model) flattenPlainEntryWithIntents(role RenderIntent, text string, intents StyleIntent, symbolOverride string) []string {
+	text = transcriptDisplayText(role, text)
+	renderWidth := m.entryRenderWidth(role, symbolOverride)
+	content := transcriptRenderContent{
+		Lines:    []transcriptRenderLine{{Text: text, Intents: intents}},
+		WrapMode: transcriptRenderWrapModeViewport,
+	}
+	return m.flattenEntryContent(role, content, renderWidth, false, false, symbolOverride)
+}
+
 func (m Model) flattenEntryContent(role RenderIntent, content transcriptRenderContent, renderWidth int, muteText bool, isPatchBlock bool, symbolOverride string) []string {
 	content = m.applyEntrySemanticTransformStage(content)
 	if muteText && isShellPreviewRole(role) {

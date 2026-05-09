@@ -66,7 +66,7 @@ func NewLazy(workspaceContainerDir, workspaceContainerName, workspaceRoot string
 func newLazyWithStoreOptions(workspaceContainerDir, workspaceContainerName, workspaceRoot string, storeOpts storeOptions) (*Store, error) {
 	sid := uuid.NewString()
 	sessionDir := filepath.Join(workspaceContainerDir, sid)
-	now := time.Now().UTC()
+	now := storeTimestamp(storeOpts)
 	return &Store{
 		sessionDir: sessionDir,
 		sessionFP:  filepath.Join(sessionDir, sessionFile),
@@ -395,7 +395,7 @@ func (s *Store) SetGoalWithEvents(objective string, actor GoalActor, extraEvents
 		return GoalState{}, err
 	}
 	s.mu.Lock()
-	now := goalTimestamp()
+	now := storeTimestamp(s.options)
 	replacedGoalID := ""
 	previousGoal := cloneGoalState(s.meta.Goal)
 	if s.meta.Goal != nil {
@@ -433,6 +433,12 @@ func (s *Store) SetGoalStatus(status GoalStatus, actor GoalActor) (GoalState, er
 }
 
 func (s *Store) SetGoalStatusWithEvents(status GoalStatus, actor GoalActor, extraEvents []EventInput) (GoalState, error) {
+	return s.SetGoalStatusWithEventBuilder(status, actor, func(GoalState) ([]EventInput, error) {
+		return extraEvents, nil
+	})
+}
+
+func (s *Store) SetGoalStatusWithEventBuilder(status GoalStatus, actor GoalActor, buildExtraEvents func(GoalState) ([]EventInput, error)) (GoalState, error) {
 	normalizedStatus, err := normalizeGoalStatus(status)
 	if err != nil {
 		return GoalState{}, err
@@ -446,12 +452,17 @@ func (s *Store) SetGoalStatusWithEvents(status GoalStatus, actor GoalActor, extr
 		s.mu.Unlock()
 		return GoalState{}, errors.New("goal is not set")
 	}
-	now := goalTimestamp()
+	now := storeTimestamp(s.options)
 	previousGoalState := *cloneGoalState(s.meta.Goal)
 	goal := *cloneGoalState(s.meta.Goal)
 	previousStatus := goal.Status
 	goal.Status = normalizedStatus
 	goal.UpdatedAt = now
+	extraEvents, err := buildGoalStatusExtraEvents(buildExtraEvents, goal)
+	if err != nil {
+		s.mu.Unlock()
+		return GoalState{}, err
+	}
 	events, err := s.buildGoalEventsLocked("goal_status_updated", GoalStatusUpdatedEvent{Goal: goal, Actor: normalizedActor, PreviousStatus: previousStatus}, extraEvents, now)
 	if err != nil {
 		s.mu.Unlock()
@@ -472,6 +483,13 @@ func (s *Store) SetGoalStatusWithEvents(status GoalStatus, actor GoalActor, extr
 	return goal, nil
 }
 
+func buildGoalStatusExtraEvents(buildExtraEvents func(GoalState) ([]EventInput, error), goal GoalState) ([]EventInput, error) {
+	if buildExtraEvents == nil {
+		return nil, nil
+	}
+	return buildExtraEvents(goal)
+}
+
 func (s *Store) ClearGoal(actor GoalActor) (GoalState, error) {
 	return s.ClearGoalWithEvents(actor, nil)
 }
@@ -486,7 +504,7 @@ func (s *Store) ClearGoalWithEvents(actor GoalActor, extraEvents []EventInput) (
 		s.mu.Unlock()
 		return GoalState{}, errors.New("goal is not set")
 	}
-	now := goalTimestamp()
+	now := storeTimestamp(s.options)
 	goal := *cloneGoalState(s.meta.Goal)
 	events, err := s.buildGoalEventsLocked("goal_cleared", GoalClearedEvent{Goal: goal, Actor: normalizedActor}, extraEvents, now)
 	if err != nil {
@@ -508,8 +526,12 @@ func (s *Store) ClearGoalWithEvents(actor GoalActor, extraEvents []EventInput) (
 	return goal, nil
 }
 
-func goalTimestamp() time.Time {
-	return time.Now().UTC().Round(0)
+func storeTimestamp(options storeOptions) time.Time {
+	now := time.Now().UTC()
+	if options.now != nil {
+		now = options.now()
+	}
+	return now.UTC().Round(0)
 }
 
 func (s *Store) buildGoalEventsLocked(kind string, payload any, extraEvents []EventInput, now time.Time) ([]Event, error) {

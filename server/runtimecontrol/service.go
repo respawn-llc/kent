@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"builder/prompts"
 	"builder/server/primaryrun"
 	"builder/server/requestmemo"
 	"builder/server/runtime"
@@ -531,6 +532,9 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 		engine, err := s.resolve(ctx, req.SessionID)
 		if err != nil {
 			return serverapi.RuntimeGoalShowResponse{}, err
+		}
+		if strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) && engine.Goal() != nil {
+			return serverapi.RuntimeGoalShowResponse{}, errors.New(strings.TrimSpace(prompts.GoalAgentCommandDeniedPrompt))
 		}
 		if err := engine.RequireGoalLoopStartAllowed(); err != nil {
 			return serverapi.RuntimeGoalShowResponse{}, err

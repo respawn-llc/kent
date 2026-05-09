@@ -175,6 +175,11 @@ func TestGoalLifecycleMessagesProjectAsSingleGoalFeedbackEntry(t *testing.T) {
 			ongoing: "Goal resumed: \"ship goal mode\"",
 		},
 		{
+			name:    "complete",
+			message: llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeGoal, Content: prompts.GoalCompletePrompt, CompactContent: "Goal complete. Cooked for 31m"},
+			ongoing: "Goal complete. Cooked for 31m",
+		},
+		{
 			name:    "clear",
 			message: llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeGoal, Content: prompts.GoalClearPrompt, CompactContent: "Goal cleared"},
 			ongoing: "Goal cleared",
@@ -193,6 +198,28 @@ func TestGoalLifecycleMessagesProjectAsSingleGoalFeedbackEntry(t *testing.T) {
 			}
 			if entry.OngoingText != tt.ongoing {
 				t.Fatalf("ongoing text = %q, want %q", entry.OngoingText, tt.ongoing)
+			}
+		})
+	}
+}
+
+func TestGoalCompleteCompactTextIncludesCookDuration(t *testing.T) {
+	createdAt := time.Date(2026, 5, 9, 10, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name     string
+		duration time.Duration
+		want     string
+	}{
+		{name: "hours minutes seconds", duration: 5*time.Hour + 32*time.Minute + 9*time.Second, want: "Goal complete. Cooked for 5h32m9s"},
+		{name: "minutes only", duration: 31 * time.Minute, want: "Goal complete. Cooked for 31m"},
+		{name: "seconds only", duration: 9 * time.Second, want: "Goal complete. Cooked for 9s"},
+		{name: "zero", duration: 0, want: "Goal complete. Cooked for 0s"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			goal := session.GoalState{Status: session.GoalStatusComplete, CreatedAt: createdAt, UpdatedAt: createdAt.Add(tt.duration)}
+			if got := goalStatusCompactText(goal); got != tt.want {
+				t.Fatalf("goal compact text = %q, want %q", got, tt.want)
 			}
 		})
 	}

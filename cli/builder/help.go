@@ -133,6 +133,7 @@ func writeGoalUsage(fs *flag.FlagSet) {
 	writeHelpSection(out, "What This Does:",
 		"  Manage the live runtime goal for a session.",
 		"  Inside Builder shell commands, BUILDER_SESSION_ID targets the caller session automatically.",
+		"  Agent shell commands may set the first goal, but cannot overwrite or otherwise mutate an existing goal.",
 		"  Outside Builder shell commands, pass --session <id>.",
 	)
 }

@@ -135,6 +135,9 @@ func (m Model) detailCollapsedStandardLines(entry TranscriptEntry, role RenderIn
 
 func (m Model) detailCollapsedStandardLinesWithSymbol(entry TranscriptEntry, role RenderIntent, text string, symbolOverride string) []string {
 	if label := strings.TrimSpace(entry.CompactLabel); label != "" {
+		if role == RenderIntentGoalFeedback {
+			return m.detailWithTreeGuideWithSymbol(role, m.flattenPlainEntryWithIntents(role, label, PrimaryForeground, symbolOverride), false, symbolOverride)
+		}
 		return m.detailWithTreeGuideWithSymbol(role, m.flattenEntryWithMetaAndSymbol(role, label, false, nil, symbolOverride), false, symbolOverride)
 	}
 	if role == RenderIntentReviewerSuggestions {
@@ -147,6 +150,9 @@ func (m Model) detailCollapsedStandardLinesWithSymbol(entry TranscriptEntry, rol
 		return m.detailWithTreeGuideWithSymbol(role, m.flattenEntryWithMetaAndSymbol(role, "Supervisor suggestions", false, nil, symbolOverride), false, symbolOverride)
 	}
 	if label := strings.TrimSpace(entry.OngoingText); label != "" {
+		if role == RenderIntentGoalFeedback {
+			return m.detailWithTreeGuideWithSymbol(role, m.flattenPlainEntryWithIntents(role, label, PrimaryForeground, symbolOverride), false, symbolOverride)
+		}
 		return m.detailWithTreeGuideWithSymbol(role, m.flattenEntryWithMetaAndSymbol(role, label, false, nil, symbolOverride), false, symbolOverride)
 	}
 	if isThreeLinePreviewRole(role) {
