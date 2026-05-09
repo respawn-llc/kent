@@ -6,23 +6,12 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/server/auth"
 	"builder/server/session"
-)
-
-type Action string
-
-const (
-	ActionNone         Action = "none"
-	ActionNewSession   Action = "new_session"
-	ActionResume       Action = "resume"
-	ActionLogout       Action = "logout"
-	ActionForkRollback Action = "fork_rollback"
-	ActionOpenSession  Action = "open_session"
+	"builder/shared/serverapi"
 )
 
 type Transition struct {
-	Action               Action
+	Action               serverapi.SessionTransitionAction
 	InitialPrompt        string
 	InitialInput         string
 	TargetSessionID      string
@@ -31,9 +20,8 @@ type Transition struct {
 }
 
 type ResolveRequest struct {
-	Store       *session.Store
-	Transition  Transition
-	AuthManager *auth.Manager
+	Store      *session.Store
+	Transition Transition
 }
 
 type Resolved struct {
@@ -43,7 +31,6 @@ type Resolved struct {
 	ParentSessionID string
 	ForceNewSession bool
 	ShouldContinue  bool
-	RequiresReauth  bool
 }
 
 func InitialInput(store *session.Store, transitionInput string) string {
@@ -65,25 +52,23 @@ func PersistInputDraft(store *session.Store, input string) error {
 
 func Resolve(ctx context.Context, req ResolveRequest) (Resolved, error) {
 	switch req.Transition.Action {
-	case ActionNewSession:
+	case serverapi.SessionTransitionActionNewSession:
 		return Resolved{
 			InitialPrompt:   req.Transition.InitialPrompt,
 			ParentSessionID: req.Transition.ParentSessionID,
 			ForceNewSession: true,
 			ShouldContinue:  true,
 		}, nil
-	case ActionResume:
+	case serverapi.SessionTransitionActionResume:
 		return Resolved{ShouldContinue: true}, nil
-	case ActionOpenSession:
+	case serverapi.SessionTransitionActionOpenSession:
 		return Resolved{
 			NextSessionID:  strings.TrimSpace(req.Transition.TargetSessionID),
 			InitialInput:   req.Transition.InitialInput,
 			ShouldContinue: true,
 		}, nil
-	case ActionForkRollback:
+	case serverapi.SessionTransitionActionForkRollback:
 		return resolveForkRollback(req)
-	case ActionLogout:
-		return resolveLogout(ctx, req)
 	default:
 		return Resolved{}, nil
 	}
@@ -111,18 +96,4 @@ func resolveForkRollback(req ResolveRequest) (Resolved, error) {
 		InitialPrompt:  req.Transition.InitialPrompt,
 		ShouldContinue: true,
 	}, nil
-}
-
-func resolveLogout(ctx context.Context, req ResolveRequest) (Resolved, error) {
-	if req.AuthManager == nil {
-		return Resolved{}, errors.New("auth manager is required for logout")
-	}
-	if _, err := req.AuthManager.ClearMethod(ctx, true); err != nil {
-		return Resolved{}, err
-	}
-	sessionID := ""
-	if req.Store != nil {
-		sessionID = req.Store.Meta().SessionID
-	}
-	return Resolved{NextSessionID: sessionID, ShouldContinue: true, RequiresReauth: true}, nil
 }

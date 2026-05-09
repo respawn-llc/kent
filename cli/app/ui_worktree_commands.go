@@ -8,7 +8,6 @@ import (
 	"strings"
 	"unicode"
 
-	"builder/shared/clientui"
 	"builder/shared/serverapi"
 	"github.com/google/uuid"
 
@@ -75,7 +74,6 @@ func (c uiInputController) handleWorktreeSwitchCommand(token string) (tea.Model,
 		errText := formatSubmissionError(err)
 		return m, c.appendErrorFeedbackWithStatus(errText, c.showErrorStatus(errText))
 	}
-	m.applyExecutionTargetChange(resp.Target)
 	status := "Switched to " + worktreeDisplayName(resp.Worktree)
 	return m, tea.Batch(c.showSuccessStatus(status), m.requestRuntimeMainViewRefresh())
 }
@@ -112,18 +110,6 @@ func runWorktreeMutation[T any](m *uiModel, call func(ctx context.Context, contr
 	return retryRuntimeControlCall(ctx, client.controllerLeaseIDValue, client.recoverControllerLease, func(controllerLeaseID string) (T, error) {
 		return call(ctx, controllerLeaseID)
 	})
-}
-
-func (m *uiModel) applyExecutionTargetChange(target clientui.SessionExecutionTarget) {
-	if m == nil {
-		return
-	}
-	m.statusConfig.WorkspaceRoot = strings.TrimSpace(target.EffectiveWorkdir)
-	m.statusRepository = newMemoryUIStatusRepository()
-	m.clearPathReferenceState()
-	if m.pathReferenceSearch != nil && strings.TrimSpace(m.statusConfig.WorkspaceRoot) != "" {
-		m.pathReferenceSearch.StartPrewarm(strings.TrimSpace(m.statusConfig.WorkspaceRoot))
-	}
 }
 
 func (m *uiModel) suggestedWorktreeSessionName() string {

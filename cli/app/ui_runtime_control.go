@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"builder/shared/clientui"
+
+	"github.com/google/uuid"
 )
 
 func (m *uiModel) runtimeClient() clientui.RuntimeClient {
@@ -116,15 +118,6 @@ func (m *uiModel) appendRuntimeLocalEntry(role, text string) error {
 	return nil
 }
 
-func (m *uiModel) runtimeShouldCompactBeforeUserMessage(ctx context.Context, text string) (bool, error) {
-	if client := m.runtimeClient(); client != nil {
-		shouldCompact, err := client.ShouldCompactBeforeUserMessage(ctx, text)
-		m.observeRuntimeRequestResult(err)
-		return shouldCompact, err
-	}
-	return false, nil
-}
-
 func (m *uiModel) submitRuntimeUserMessage(ctx context.Context, text string) (string, error) {
 	if client := m.runtimeClient(); client != nil {
 		message, err := client.SubmitUserMessage(ctx, text)
@@ -146,15 +139,6 @@ func (m *uiModel) submitRuntimeUserShellCommand(ctx context.Context, command str
 func (m *uiModel) compactRuntimeContext(ctx context.Context, args string) error {
 	if client := m.runtimeClient(); client != nil {
 		err := client.CompactContext(ctx, args)
-		m.observeRuntimeRequestResult(err)
-		return err
-	}
-	return nil
-}
-
-func (m *uiModel) compactRuntimeContextForPreSubmit(ctx context.Context) error {
-	if client := m.runtimeClient(); client != nil {
-		err := client.CompactContextForPreSubmit(ctx)
 		m.observeRuntimeRequestResult(err)
 		return err
 	}
@@ -188,17 +172,18 @@ func (m *uiModel) interruptRuntime() error {
 	return nil
 }
 
-func (m *uiModel) queueRuntimeUserMessage(text string) {
+func (m *uiModel) queueRuntimeUserMessage(text string) (clientui.QueuedUserMessage, error) {
 	if client := m.runtimeClient(); client != nil {
-		client.QueueUserMessage(text)
+		return client.QueueUserMessage(text)
 	}
+	return clientui.QueuedUserMessage{ID: uuid.NewString(), Text: text}, nil
 }
 
-func (m *uiModel) discardQueuedRuntimeUserMessagesMatching(text string) int {
+func (m *uiModel) discardQueuedRuntimeUserMessage(queueItemID string) bool {
 	if client := m.runtimeClient(); client != nil {
-		return client.DiscardQueuedUserMessagesMatching(text)
+		return client.DiscardQueuedUserMessage(queueItemID)
 	}
-	return 0
+	return false
 }
 
 func (m *uiModel) recordRuntimePromptHistory(text string) error {

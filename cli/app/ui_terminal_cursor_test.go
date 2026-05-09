@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"builder/cli/tui"
-	"builder/server/tools/askquestion"
+	"builder/shared/clientui"
 	"builder/shared/config"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -415,7 +415,7 @@ func TestAskInputCursorUsesSharedFieldDisplayWidth(t *testing.T) {
 	m.termHeight = 10
 	m.windowSizeKnown = true
 	reply := make(chan askReply, 1)
-	testSetActiveAsk(m, &askEvent{req: askquestion.Request{Question: "Question?"}, reply: reply})
+	testSetActiveAsk(m, &askEvent{req: clientui.PendingPromptEvent{Question: "Question?"}, reply: reply})
 	m.ask.input = "ab👍cd"
 	m.ask.inputCursor = 3
 	m.syncViewport()

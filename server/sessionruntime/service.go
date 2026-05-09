@@ -239,19 +239,17 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 			return s.runtimes.AwaitPromptResponse(context.Background(), sessionID, req)
 		})
 	}
+	var runtimeRegistry runtimewire.RuntimeRegistry
 	if s.runtimes != nil {
-		s.runtimes.Register(sessionID, wiring.Engine)
+		runtimeRegistry = s.runtimes
 	}
+	var backgroundRouter runtimewire.BackgroundRouter
 	if s.backgroundRouter != nil {
-		s.backgroundRouter.SetActiveSession(sessionID, wiring.Engine)
+		backgroundRouter = s.backgroundRouter
 	}
+	registration := runtimewire.RegisterSessionRuntime(sessionID, wiring.Engine, runtimeRegistry, backgroundRouter)
 	cleanup = func() {
-		if s.runtimes != nil {
-			s.runtimes.Unregister(sessionID, wiring.Engine)
-		}
-		if s.backgroundRouter != nil {
-			s.backgroundRouter.ClearActiveSession(sessionID)
-		}
+		registration.Close()
 		_ = wiring.Close()
 		_ = logger.Close()
 	}

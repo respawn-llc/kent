@@ -14,16 +14,16 @@ import (
 )
 
 func TestServiceListsSingleProjectAndSessions(t *testing.T) {
-	root := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
-	first, err := session.Create(containerDir, "workspace-a", "/tmp/workspace-a")
+	store, cfg, binding := newProjectViewMetadataStore(t)
+	containerDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	first, err := session.Create(containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("create first session: %v", err)
 	}
 	if err := first.SetName("first"); err != nil {
 		t.Fatalf("persist first session meta: %v", err)
 	}
-	second, err := session.Create(containerDir, "workspace-a", "/tmp/workspace-a")
+	second, err := session.Create(containerDir, filepath.Base(containerDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("create second session: %v", err)
 	}
@@ -31,9 +31,9 @@ func TestServiceListsSingleProjectAndSessions(t *testing.T) {
 		t.Fatalf("persist second session meta: %v", err)
 	}
 
-	svc, err := NewService("project-1", "/tmp/workspace-a", containerDir)
+	svc, err := NewMetadataService(store, binding.ProjectID, "")
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewMetadataService: %v", err)
 	}
 
 	projects, err := svc.ListProjects(context.Background(), serverapi.ProjectListRequest{})
@@ -43,14 +43,14 @@ func TestServiceListsSingleProjectAndSessions(t *testing.T) {
 	if len(projects.Projects) != 1 {
 		t.Fatalf("expected one project, got %+v", projects)
 	}
-	if projects.Projects[0].ProjectID != "project-1" {
+	if projects.Projects[0].ProjectID != binding.ProjectID {
 		t.Fatalf("unexpected project summary: %+v", projects.Projects[0])
 	}
-	if projects.Projects[0].Availability != clientui.ProjectAvailabilityMissing {
-		t.Fatalf("expected missing workspace availability for test path, got %+v", projects.Projects[0])
+	if projects.Projects[0].Availability != clientui.ProjectAvailabilityAvailable {
+		t.Fatalf("expected available workspace availability, got %+v", projects.Projects[0])
 	}
 
-	sessions, err := svc.ListSessionsByProject(context.Background(), serverapi.SessionListByProjectRequest{ProjectID: "project-1"})
+	sessions, err := svc.ListSessionsByProject(context.Background(), serverapi.SessionListByProjectRequest{ProjectID: binding.ProjectID})
 	if err != nil {
 		t.Fatalf("ListSessionsByProject: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestServiceListsSingleProjectAndSessions(t *testing.T) {
 		t.Fatalf("expected most recent session first, got %+v", sessions.Sessions)
 	}
 
-	overview, err := svc.GetProjectOverview(context.Background(), serverapi.ProjectGetOverviewRequest{ProjectID: "project-1"})
+	overview, err := svc.GetProjectOverview(context.Background(), serverapi.ProjectGetOverviewRequest{ProjectID: binding.ProjectID})
 	if err != nil {
 		t.Fatalf("GetProjectOverview: %v", err)
 	}
@@ -74,9 +74,10 @@ func TestServiceListsSingleProjectAndSessions(t *testing.T) {
 }
 
 func TestServiceRejectsUnknownProjectID(t *testing.T) {
-	svc, err := NewService("project-1", "/tmp/workspace-a", filepath.Join(t.TempDir(), "sessions", "workspace-a"))
+	store, _, binding := newProjectViewMetadataStore(t)
+	svc, err := NewMetadataService(store, binding.ProjectID, "")
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewMetadataService: %v", err)
 	}
 	if _, err := svc.GetProjectOverview(context.Background(), serverapi.ProjectGetOverviewRequest{ProjectID: "project-2"}); err == nil {
 		t.Fatal("expected GetProjectOverview to reject unknown project")
@@ -178,4 +179,84 @@ func TestMetadataServiceResolveProjectPathLeavesNestedDirectoryUnbound(t *testin
 	if resolved.Binding != nil {
 		t.Fatalf("expected nested path to remain unbound, got %+v", resolved.Binding)
 	}
+}
+
+func TestMetadataServicePlansInteractiveLocalUnboundWorkspace(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	workspace := t.TempDir()
+	svc, err := NewMetadataService(store, "", "")
+	if err != nil {
+		t.Fatalf("NewMetadataService: %v", err)
+	}
+
+	plan, err := svc.PlanWorkspaceBinding(context.Background(), serverapi.ProjectBindingPlanRequest{Path: workspace, Mode: serverapi.ProjectBindingPlanModeInteractive})
+	if err != nil {
+		t.Fatalf("PlanWorkspaceBinding: %v", err)
+	}
+	if plan.Kind != serverapi.ProjectBindingPlanKindLocalUnbound {
+		t.Fatalf("plan kind = %q, want %q", plan.Kind, serverapi.ProjectBindingPlanKindLocalUnbound)
+	}
+	if len(plan.Projects) != 1 || plan.Projects[0].ProjectID != binding.ProjectID {
+		t.Fatalf("plan projects = %+v, want registered project %q", plan.Projects, binding.ProjectID)
+	}
+}
+
+func TestMetadataServicePlansHeadlessSingleRemoteWorkspace(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	svc, err := NewMetadataService(store, "", "")
+	if err != nil {
+		t.Fatalf("NewMetadataService: %v", err)
+	}
+
+	plan, err := svc.PlanWorkspaceBinding(context.Background(), serverapi.ProjectBindingPlanRequest{Path: filepath.Join(t.TempDir(), "missing"), Mode: serverapi.ProjectBindingPlanModeHeadless})
+	if err != nil {
+		t.Fatalf("PlanWorkspaceBinding: %v", err)
+	}
+	if plan.Kind != serverapi.ProjectBindingPlanKindHeadlessRemoteSelected || plan.Workspace == nil {
+		t.Fatalf("plan = %+v, want selected remote workspace", plan)
+	}
+	if plan.Workspace.ProjectID != binding.ProjectID || plan.Workspace.WorkspaceID != binding.WorkspaceID {
+		t.Fatalf("selected workspace = %+v, want %s/%s", plan.Workspace, binding.ProjectID, binding.WorkspaceID)
+	}
+}
+
+func TestMetadataServicePlansHeadlessAmbiguousRemoteWorkspaces(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	if _, err := store.AttachWorkspaceToProject(context.Background(), binding.ProjectID, t.TempDir()); err != nil {
+		t.Fatalf("AttachWorkspaceToProject: %v", err)
+	}
+	svc, err := NewMetadataService(store, "", "")
+	if err != nil {
+		t.Fatalf("NewMetadataService: %v", err)
+	}
+
+	plan, err := svc.PlanWorkspaceBinding(context.Background(), serverapi.ProjectBindingPlanRequest{Path: filepath.Join(t.TempDir(), "missing"), Mode: serverapi.ProjectBindingPlanModeHeadless})
+	if err != nil {
+		t.Fatalf("PlanWorkspaceBinding: %v", err)
+	}
+	if plan.Kind != serverapi.ProjectBindingPlanKindHeadlessRemoteAmbiguous {
+		t.Fatalf("plan kind = %q, want %q", plan.Kind, serverapi.ProjectBindingPlanKindHeadlessRemoteAmbiguous)
+	}
+}
+
+func newProjectViewMetadataStore(t *testing.T) (*metadata.Store, config.App, metadata.Binding) {
+	t.Helper()
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	store, err := metadata.Open(cfg.PersistenceRoot)
+	if err != nil {
+		t.Fatalf("metadata.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	binding, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("RegisterWorkspaceBinding: %v", err)
+	}
+	return store, cfg, binding
 }

@@ -90,18 +90,19 @@ func ConversationFreshnessFromSession(freshness session.ConversationFreshness) c
 
 func EventFromRuntime(evt runtime.Event) clientui.Event {
 	view := clientui.Event{
-		Kind:                       clientui.EventKind(evt.Kind),
-		StepID:                     evt.StepID,
-		CommittedTranscriptChanged: evt.CommittedTranscriptChanged,
-		TranscriptRevision:         evt.TranscriptRevision,
-		CommittedEntryCount:        evt.CommittedEntryCount,
-		CommittedEntryStart:        evt.CommittedEntryStart,
-		CommittedEntryStartSet:     evt.CommittedEntryStartSet,
-		Error:                      evt.Error,
-		AssistantDelta:             evt.AssistantDelta,
-		UserMessage:                evt.UserMessage,
-		UserMessageBatch:           append([]string(nil), evt.UserMessageBatch...),
-		TranscriptEntries:          chatEntriesFromRuntime(runtime.TranscriptEntriesFromEvent(evt)),
+		Kind:                         clientui.EventKind(evt.Kind),
+		StepID:                       evt.StepID,
+		CommittedTranscriptChanged:   evt.CommittedTranscriptChanged,
+		TranscriptRevision:           evt.TranscriptRevision,
+		CommittedEntryCount:          evt.CommittedEntryCount,
+		CommittedEntryStart:          evt.CommittedEntryStart,
+		CommittedEntryStartSet:       evt.CommittedEntryStartSet,
+		Error:                        evt.Error,
+		AssistantDelta:               evt.AssistantDelta,
+		UserMessage:                  evt.UserMessage,
+		UserMessageBatch:             append([]string(nil), evt.UserMessageBatch...),
+		UserMessageBatchQueueItemIDs: append([]string(nil), evt.UserMessageBatchQueueItemIDs...),
+		TranscriptEntries:            chatEntriesFromRuntime(runtime.TranscriptEntriesFromEvent(evt)),
 	}
 	if evt.ReasoningDelta != nil {
 		view.ReasoningDelta = &clientui.ReasoningDelta{
@@ -178,6 +179,7 @@ func chatEntriesFromRuntime(entries []runtime.ChatEntry) []clientui.ChatEntry {
 	for _, entry := range entries {
 		out = append(out, clientui.ChatEntry{
 			Visibility:        clientui.EntryVisibility(entry.Visibility),
+			RollbackTargetID:  entry.RollbackTargetID,
 			Role:              entry.Role,
 			Text:              entry.Text,
 			OngoingText:       entry.OngoingText,
@@ -230,6 +232,7 @@ func ChatSnapshotFromRuntime(snapshot runtime.ChatSnapshot) clientui.ChatSnapsho
 		}
 		entries = append(entries, clientui.ChatEntry{
 			Visibility:        clientui.EntryVisibility(entry.Visibility),
+			RollbackTargetID:  entry.RollbackTargetID,
 			Role:              entry.Role,
 			Text:              entry.Text,
 			OngoingText:       entry.OngoingText,

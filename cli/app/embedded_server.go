@@ -25,6 +25,7 @@ type embeddedServer interface {
 	BindProject(ctx context.Context, projectID string) (embeddedServer, error)
 	BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (embeddedServer, error)
 	AuthManager() *auth.Manager
+	AuthBootstrapClient() client.AuthBootstrapClient
 	AuthStatusClient() client.AuthStatusClient
 	ProjectID() string
 	ApprovalViewClient() client.ApprovalViewClient
@@ -124,6 +125,13 @@ func (s *embeddedAppServer) AuthManager() *auth.Manager {
 		return nil
 	}
 	return s.inner.AuthManager()
+}
+
+func (s *embeddedAppServer) AuthBootstrapClient() client.AuthBootstrapClient {
+	if s == nil || s.inner == nil {
+		return nil
+	}
+	return s.inner.AuthBootstrapClient()
 }
 
 func (s *embeddedAppServer) AuthStatusClient() client.AuthStatusClient {
@@ -355,11 +363,6 @@ func prepareSharedRuntime(ctx context.Context, server embeddedServer, plan sessi
 	}, runtimeClient.transcriptDiagnosticsEnabled, func(line string) {
 		logger.Logf("%s", line)
 	})
-	askEvents, stopAskEvents := startPendingPromptEvents(ctx, promptSub, func(ctx context.Context) (serverapi.PromptActivitySubscription, error) {
-		return server.PromptActivityClient().SubscribePromptActivity(ctx, serverapi.PromptActivitySubscribeRequest{SessionID: plan.SessionID})
-	}, func(ctx context.Context) (map[string]struct{}, error) {
-		return listPendingPromptIDs(ctx, plan.SessionID, server.AskViewClient(), server.ApprovalViewClient())
-	}, server.PromptControlClient(), leaseManager)
 	terminalFocus := newTerminalFocusState()
 	turnQueueHook := newBellHooks(defaultTerminalNotifier(plan.ActiveSettings.NotificationMethod), func() string {
 		if runtimeClient != nil {
@@ -369,10 +372,12 @@ func prepareSharedRuntime(ctx context.Context, server embeddedServer, plan sessi
 		}
 		return strings.TrimSpace(plan.SessionName)
 	}, terminalFocus.FocusedForAttention)
+	askEvents, stopAskEvents := startPendingPromptEvents(ctx, promptSub, func(ctx context.Context, afterSequence uint64) (serverapi.PromptActivitySubscription, error) {
+		return server.PromptActivityClient().SubscribePromptActivity(ctx, serverapi.PromptActivitySubscribeRequest{SessionID: plan.SessionID, AfterSequence: afterSequence})
+	}, server.PromptControlClient(), leaseManager, turnQueueHook.OnAsk)
 	wiring := &runtimeWiring{
 		runtimeEvents:         runtimeEvents,
 		askEvents:             askEvents,
-		background:            nil,
 		turnQueueHook:         turnQueueHook,
 		terminalFocus:         terminalFocus,
 		runtimeClient:         runtimeClient,
@@ -414,35 +419,12 @@ func releaseSharedRuntime(client serverapi.SessionRuntimeService, sessionID stri
 	_, _ = client.ReleaseSessionRuntime(ctx, serverapi.SessionRuntimeReleaseRequest{ClientRequestID: uuid.NewString(), SessionID: sessionID, LeaseID: leaseID})
 }
 
-func listPendingPromptIDs(ctx context.Context, sessionID string, askViews client.AskViewClient, approvalViews client.ApprovalViewClient) (map[string]struct{}, error) {
-	ids := make(map[string]struct{})
-	if askViews != nil {
-		resp, err := askViews.ListPendingAsksBySession(ctx, serverapi.AskListPendingBySessionRequest{SessionID: sessionID})
-		if err != nil {
-			return nil, err
-		}
-		for _, ask := range resp.Asks {
-			ids[ask.AskID] = struct{}{}
-		}
-	}
-	if approvalViews != nil {
-		resp, err := approvalViews.ListPendingApprovalsBySession(ctx, serverapi.ApprovalListPendingBySessionRequest{SessionID: sessionID})
-		if err != nil {
-			return nil, err
-		}
-		for _, approval := range resp.Approvals {
-			ids[approval.ApprovalID] = struct{}{}
-		}
-	}
-	return ids, nil
-}
-
 func (s *embeddedAppServer) Reauthenticate(ctx context.Context, interactor authInteractor) error {
 	if s == nil || s.inner == nil {
 		return errors.New("embedded server is required")
 	}
 	cfg := s.inner.Config()
-	return ensureAuthReady(ctx, s.inner.AuthManager(), s.inner.OAuthOptions(), cfg.Settings, interactor)
+	return ensureRemoteAuthReady(ctx, s.AuthBootstrapClient(), cfg.Settings, interactor)
 }
 
 var _ embeddedServer = (*embeddedAppServer)(nil)

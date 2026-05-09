@@ -556,6 +556,8 @@ func TestRemoteProjectViewCallsReuseInitialProjectAttach(t *testing.T) {
 				_ = websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, protocol.AttachResponse{Kind: "project", ProjectID: "project-1", WorkspaceRoot: "/tmp/attached"}))
 			case protocol.MethodProjectResolvePath:
 				_ = websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, serverapi.ProjectResolvePathResponse{CanonicalRoot: "/tmp/workspace-a"}))
+			case protocol.MethodProjectPlanWorkspaceBinding:
+				_ = websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, serverapi.ProjectBindingPlanResponse{Kind: serverapi.ProjectBindingPlanKindBound, Binding: &serverapi.ProjectBinding{ProjectID: "project-1", WorkspaceID: "workspace-1"}}))
 			case protocol.MethodProjectCreate:
 				_ = websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, serverapi.ProjectCreateResponse{Binding: serverapi.ProjectBinding{ProjectID: "project-1"}}))
 			case protocol.MethodProjectAttachWorkspace:
@@ -582,6 +584,9 @@ func TestRemoteProjectViewCallsReuseInitialProjectAttach(t *testing.T) {
 	defer func() { _ = remote.Close() }()
 	if _, err := remote.ResolveProjectPath(context.Background(), serverapi.ProjectResolvePathRequest{Path: "/tmp/workspace-a"}); err != nil {
 		t.Fatalf("ResolveProjectPath: %v", err)
+	}
+	if _, err := remote.PlanWorkspaceBinding(context.Background(), serverapi.ProjectBindingPlanRequest{Path: "/tmp/workspace-a", Mode: serverapi.ProjectBindingPlanModeInteractive}); err != nil {
+		t.Fatalf("PlanWorkspaceBinding: %v", err)
 	}
 	if _, err := remote.CreateProject(context.Background(), serverapi.ProjectCreateRequest{DisplayName: "demo", WorkspaceRoot: "/tmp/workspace-a"}); err != nil {
 		t.Fatalf("CreateProject: %v", err)

@@ -403,210 +403,89 @@ func TestSessionLaunchPlannerSelectedSessionIDBypassesPicker(t *testing.T) {
 	}
 }
 
-func TestApplyCLIOverridesToSessionPlanIgnoresNonCLISources(t *testing.T) {
-	plan := sessionLaunchPlan{
-		ActiveSettings: config.Settings{
-			Model:         "server-model",
-			ThinkingLevel: "low",
-			EnabledTools:  map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
-			Timeouts:      config.Timeouts{ModelRequestSeconds: 20},
+func TestSessionPlanOverridesFromConfigIncludesOnlyCLISources(t *testing.T) {
+	cfg := config.App{
+		Settings: config.Settings{
+			Model:            "cli-model",
+			ProviderOverride: "openai",
+			ThinkingLevel:    "high",
+			Theme:            "dark",
+			OpenAIBaseURL:    "http://cli.local/v1",
+			EnabledTools:     map[toolspec.ID]bool{toolspec.ToolExecCommand: true, toolspec.ToolPatch: true, toolspec.ToolEdit: false},
+			Timeouts:         config.Timeouts{ModelRequestSeconds: 99},
 		},
-		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
-		ConfiguredModelName: "server-model",
-		Source:              config.SourceReport{Sources: map[string]string{"model": "file"}},
-		StatusConfig:        uiStatusConfig{},
+		Source: config.SourceReport{Sources: map[string]string{
+			"model":                          "cli",
+			"provider_override":              "env",
+			"thinking_level":                 "cli",
+			"theme":                          "file",
+			"openai_base_url":                "cli",
+			"timeouts.model_request_seconds": "cli",
+			"tools.shell":                    "cli",
+			"tools.patch":                    "cli",
+			"tools.edit":                     "cli",
+		}},
 	}
-	cfg := config.App{Settings: config.Settings{
-		Model:         "local-model",
-		ThinkingLevel: "high",
-		EnabledTools:  map[toolspec.ID]bool{toolspec.ToolPatch: true},
-		Timeouts:      config.Timeouts{ModelRequestSeconds: 99},
-	}, Source: config.SourceReport{Sources: map[string]string{
-		"model":                          "env",
-		"thinking_level":                 "env",
-		"tools.shell":                    "env",
-		"tools.patch":                    "env",
-		"timeouts.model_request_seconds": "env",
-	}}}
 
-	updated, err := applyCLIOverridesToSessionPlan(plan, cfg)
-	if err != nil {
-		t.Fatalf("applyCLIOverridesToSessionPlan: %v", err)
+	overrides := sessionPlanOverridesFromConfig(cfg)
+	if overrides.Model != "cli-model" {
+		t.Fatalf("model override = %q, want cli-model", overrides.Model)
 	}
-	if updated.ActiveSettings.Model != "server-model" || updated.ConfiguredModelName != "server-model" {
-		t.Fatalf("expected server model preserved, got %+v", updated.ActiveSettings)
+	if overrides.ProviderOverride != "" {
+		t.Fatalf("provider override = %q, want empty", overrides.ProviderOverride)
 	}
-	if updated.ActiveSettings.ThinkingLevel != "low" {
-		t.Fatalf("expected server thinking level preserved, got %q", updated.ActiveSettings.ThinkingLevel)
+	if overrides.ThinkingLevel != "high" {
+		t.Fatalf("thinking override = %q, want high", overrides.ThinkingLevel)
 	}
-	if len(updated.EnabledTools) != 1 || updated.EnabledTools[0] != toolspec.ToolExecCommand {
-		t.Fatalf("expected server tools preserved, got %+v", updated.EnabledTools)
+	if overrides.Theme != "" {
+		t.Fatalf("theme override = %q, want empty", overrides.Theme)
 	}
-	if updated.ActiveSettings.Timeouts.ModelRequestSeconds != 20 {
-		t.Fatalf("expected server timeout preserved, got %+v", updated.ActiveSettings.Timeouts)
+	if overrides.OpenAIBaseURL != "http://cli.local/v1" {
+		t.Fatalf("base url override = %q, want cli base url", overrides.OpenAIBaseURL)
 	}
-	if updated.Source.Sources["model"] != "file" {
-		t.Fatalf("expected source metadata preserved, got %+v", updated.Source.Sources)
+	if overrides.ModelTimeoutSeconds != 99 {
+		t.Fatalf("timeout override = %d, want 99", overrides.ModelTimeoutSeconds)
+	}
+	if overrides.Tools != "shell,patch" {
+		t.Fatalf("tools override = %q, want shell,patch", overrides.Tools)
 	}
 }
 
-func TestApplyCLIOverridesToSessionPlanRespectsLockedModelContract(t *testing.T) {
-	plan := sessionLaunchPlan{
-		ActiveSettings: config.Settings{
-			Model:         "locked-model",
-			ThinkingLevel: "medium",
-			EnabledTools:  map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
+func TestSessionLaunchPlannerSendsCLIOverridesToServer(t *testing.T) {
+	var got serverapi.SessionPlanRequest
+	planner := &launchPlanner{
+		server: &testEmbeddedServer{
+			cfg: config.App{
+				WorkspaceRoot:   "/tmp/workspace-a",
+				PersistenceRoot: t.TempDir(),
+				Settings: config.Settings{
+					Model:        "cli-model",
+					EnabledTools: map[toolspec.ID]bool{toolspec.ToolPatch: true},
+				},
+				Source: config.SourceReport{Sources: map[string]string{
+					"model":       "cli",
+					"tools.patch": "cli",
+				}},
+			},
+			sessionLaunch: stubSessionLaunchClient{planSession: func(_ context.Context, req serverapi.SessionPlanRequest) (serverapi.SessionPlanResponse, error) {
+				got = req
+				return serverapi.SessionPlanResponse{Plan: serverapi.SessionPlan{
+					SessionID:      "session-1",
+					WorkspaceRoot:  "/tmp/workspace-a",
+					ActiveSettings: config.Settings{Model: "server-model"},
+				}}, nil
+			}},
 		},
-		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
-		ConfiguredModelName: "locked-model",
-		ModelContractLocked: true,
-		StatusConfig:        uiStatusConfig{},
 	}
-	cfg := config.App{Settings: config.Settings{
-		Model:        "cli-model",
-		EnabledTools: map[toolspec.ID]bool{toolspec.ToolPatch: true},
-	}, Source: config.SourceReport{Sources: map[string]string{
-		"model":       "cli",
-		"tools.shell": "cli",
-		"tools.patch": "cli",
-	}}}
 
-	updated, err := applyCLIOverridesToSessionPlan(plan, cfg)
+	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, ForceNewSession: true})
 	if err != nil {
-		t.Fatalf("applyCLIOverridesToSessionPlan: %v", err)
+		t.Fatalf("PlanSession: %v", err)
 	}
-	if updated.ActiveSettings.Model != "locked-model" || updated.ConfiguredModelName != "locked-model" {
-		t.Fatalf("expected locked model preserved, got %+v", updated.ActiveSettings)
+	if got.Overrides.Model != "cli-model" || got.Overrides.Tools != "patch" {
+		t.Fatalf("server overrides = %+v, want cli model and patch tool", got.Overrides)
 	}
-	if len(updated.EnabledTools) != 1 || updated.EnabledTools[0] != toolspec.ToolExecCommand {
-		t.Fatalf("expected locked tools preserved, got %+v", updated.EnabledTools)
-	}
-}
-
-func TestApplyCLIOverridesToSessionPlanAppliesCLIToolOverrideWithoutModelOverride(t *testing.T) {
-	plan := sessionLaunchPlan{
-		ActiveSettings: config.Settings{
-			Model:        "gpt-5.4",
-			EnabledTools: map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
-		},
-		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
-		ConfiguredModelName: "gpt-5.4",
-		Source:              config.SourceReport{Sources: map[string]string{"model": "file", "tools.shell": "default", "tools.patch": "default"}},
-		StatusConfig:        uiStatusConfig{},
-	}
-	cfg := config.App{Settings: config.Settings{
-		Model:        "gpt-5.4",
-		EnabledTools: map[toolspec.ID]bool{toolspec.ToolExecCommand: false, toolspec.ToolPatch: true},
-	}, Source: config.SourceReport{Sources: map[string]string{
-		"model":       "file",
-		"tools.shell": "cli",
-		"tools.patch": "cli",
-	}}}
-
-	updated, err := applyCLIOverridesToSessionPlan(plan, cfg)
-	if err != nil {
-		t.Fatalf("applyCLIOverridesToSessionPlan: %v", err)
-	}
-	if updated.ActiveSettings.EnabledTools[toolspec.ToolExecCommand] {
-		t.Fatalf("expected shell disabled by cli override, got %+v", updated.ActiveSettings.EnabledTools)
-	}
-	if !updated.ActiveSettings.EnabledTools[toolspec.ToolPatch] {
-		t.Fatalf("expected patch enabled by cli override, got %+v", updated.ActiveSettings.EnabledTools)
-	}
-	if len(updated.EnabledTools) != 1 || updated.EnabledTools[0] != toolspec.ToolPatch {
-		t.Fatalf("expected patch-only enabled tools, got %+v", updated.EnabledTools)
-	}
-	if updated.Source.Sources["tools.shell"] != "cli" || updated.Source.Sources["tools.patch"] != "cli" {
-		t.Fatalf("expected cli tool sources preserved, got %+v", updated.Source.Sources)
-	}
-}
-
-func TestApplyCLIOverridesToSessionPlanRecomputesEnabledToolsForCLIModelOverride(t *testing.T) {
-	plan := sessionLaunchPlan{
-		ActiveSettings: config.Settings{
-			Model:        "gpt-5.4",
-			EnabledTools: map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
-		},
-		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
-		ConfiguredModelName: "gpt-5.4",
-		Source:              config.SourceReport{Sources: map[string]string{"model": "file", "tools.shell": "default"}},
-		StatusConfig:        uiStatusConfig{},
-	}
-	cfg := config.App{Settings: config.Settings{
-		Model:        "gpt-5.3-codex",
-		EnabledTools: map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
-	}, Source: config.SourceReport{Sources: map[string]string{
-		"model":       "cli",
-		"tools.shell": "default",
-	}}}
-
-	updated, err := applyCLIOverridesToSessionPlan(plan, cfg)
-	if err != nil {
-		t.Fatalf("applyCLIOverridesToSessionPlan: %v", err)
-	}
-	if updated.ActiveSettings.Model != "gpt-5.3-codex" {
-		t.Fatalf("expected cli model override, got %q", updated.ActiveSettings.Model)
-	}
-	if len(updated.EnabledTools) != 1 || updated.EnabledTools[0] != toolspec.ToolExecCommand {
-		t.Fatalf("expected recomputed tools for overridden model, got %+v", updated.EnabledTools)
-	}
-}
-
-func TestApplyCLIOverridesToSessionPlanKeepsExplicitCLIToolsWhenModelAlsoOverrides(t *testing.T) {
-	plan := sessionLaunchPlan{
-		ActiveSettings: config.Settings{
-			Model:        "gpt-5.4",
-			EnabledTools: map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
-		},
-		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
-		ConfiguredModelName: "gpt-5.4",
-		Source:              config.SourceReport{Sources: map[string]string{"model": "file", "tools.shell": "default"}},
-		StatusConfig:        uiStatusConfig{},
-	}
-	cfg := config.App{Settings: config.Settings{
-		Model:        "gpt-5.3-codex",
-		EnabledTools: map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
-	}, Source: config.SourceReport{Sources: map[string]string{
-		"model":       "cli",
-		"tools.shell": "cli",
-	}}}
-
-	updated, err := applyCLIOverridesToSessionPlan(plan, cfg)
-	if err != nil {
-		t.Fatalf("applyCLIOverridesToSessionPlan: %v", err)
-	}
-	if updated.ActiveSettings.Model != "gpt-5.3-codex" {
-		t.Fatalf("expected cli model override, got %q", updated.ActiveSettings.Model)
-	}
-	if len(updated.EnabledTools) != 1 || updated.EnabledTools[0] != toolspec.ToolExecCommand {
-		t.Fatalf("expected explicit cli tools to suppress model defaults, got %+v", updated.EnabledTools)
-	}
-}
-
-func TestApplyCLIOverridesToSessionPlanPropagatesToolSelectionConflict(t *testing.T) {
-	plan := sessionLaunchPlan{
-		ActiveSettings: config.Settings{
-			Model:        "claude-sonnet-4.5",
-			EnabledTools: map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
-		},
-		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
-		ConfiguredModelName: "claude-sonnet-4.5",
-		Source:              config.SourceReport{Sources: map[string]string{"model": "file", "tools.patch": "default", "tools.edit": "default"}},
-		StatusConfig:        uiStatusConfig{},
-	}
-	cfg := config.App{Settings: config.Settings{
-		Model: "claude-sonnet-4.5",
-		EnabledTools: map[toolspec.ID]bool{
-			toolspec.ToolPatch: true,
-			toolspec.ToolEdit:  true,
-		},
-	}, Source: config.SourceReport{Sources: map[string]string{
-		"tools.patch": "cli",
-		"tools.edit":  "cli",
-	}}}
-
-	_, err := applyCLIOverridesToSessionPlan(plan, cfg)
-	if err == nil || !strings.Contains(err.Error(), "tools.patch and tools.edit cannot both be enabled") {
-		t.Fatalf("error = %v, want tool conflict", err)
+	if plan.ActiveSettings.Model != "server-model" {
+		t.Fatalf("plan model = %q, want server response without client mutation", plan.ActiveSettings.Model)
 	}
 }

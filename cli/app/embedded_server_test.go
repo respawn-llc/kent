@@ -2,6 +2,7 @@ package app
 
 import (
 	"builder/server/auth"
+	"builder/server/authbootstrap"
 	serverembedded "builder/server/embedded"
 	"builder/server/launch"
 	"builder/server/metadata"
@@ -15,6 +16,7 @@ import (
 	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/config"
+	"builder/shared/rpccontract"
 	"builder/shared/serverapi"
 	"context"
 	"errors"
@@ -235,8 +237,17 @@ func (s *testEmbeddedServer) ProjectViewClient() client.ProjectViewClient {
 			return client.NewLoopbackProjectViewClient(service)
 		}
 	}
-	service, err := projectview.NewService(s.ProjectID(), s.cfg.WorkspaceRoot, s.containerDir)
+	if strings.TrimSpace(s.cfg.PersistenceRoot) == "" {
+		return nil
+	}
+	store, err := metadata.Open(s.cfg.PersistenceRoot)
 	if err != nil {
+		return nil
+	}
+	s.metadataStore = store
+	service, err := projectview.NewMetadataService(store, "", s.containerDir)
+	if err != nil {
+		_ = store.Close()
 		return nil
 	}
 	return client.NewLoopbackProjectViewClient(service)
@@ -261,6 +272,11 @@ func (s *testEmbeddedServer) ContainerDir() string { return s.containerDir }
 func (s *testEmbeddedServer) OAuthOptions() auth.OpenAIOAuthOptions { return s.oauthOpts }
 
 func (s *testEmbeddedServer) AuthManager() *auth.Manager { return s.authManager }
+
+func (s *testEmbeddedServer) AuthBootstrapClient() client.AuthBootstrapClient {
+	service := authbootstrap.NewService(s.authManager, s.oauthOpts, s.cfg.Settings, rpccontract.AllowedPreAuthMethods())
+	return client.NewLoopbackAuthBootstrapClient(service)
+}
 
 func (s *testEmbeddedServer) AuthStatusClient() client.AuthStatusClient {
 	return nil
@@ -372,7 +388,7 @@ func (s *testEmbeddedServer) Reauthenticate(ctx context.Context, interactor auth
 	if s.reauthenticate != nil {
 		return s.reauthenticate(ctx, interactor)
 	}
-	return ensureAuthReady(ctx, s.authManager, s.oauthOpts, s.cfg.Settings, interactor)
+	return ensureRemoteAuthReady(ctx, s.AuthBootstrapClient(), s.cfg.Settings, interactor)
 }
 
 func (s *stubEmbeddedProcessViewClient) ListProcesses(context.Context, serverapi.ProcessListRequest) (serverapi.ProcessListResponse, error) {
@@ -497,7 +513,7 @@ func TestEmbeddedAppServerPrepareRuntimeWiresProcessReadsForUIHydration(t *testi
 		Command:        "remote-process",
 	}}}}
 
-	processClient := newUIProcessClientWithReads(nil, runtimePlan.Wiring.processViews, runtimePlan.Wiring.processControls)
+	processClient := newUIProcessClientWithReads(runtimePlan.Wiring.processViews, runtimePlan.Wiring.processControls)
 	got := processClient.ListProcesses()
 	if len(got) != 1 || got[0].ID != "remote-proc" || got[0].OwnerRunID != "remote-run" || got[0].OwnerStepID != "remote-step" {
 		t.Fatalf("expected shared process reads to win over local manager snapshot, got %+v", got)

@@ -18,7 +18,7 @@ func TestSubmitDoneDefersTurnCompletionBellUntilQueuedTurnsFinish(t *testing.T) 
 	bells := newUnfocusedBellHooks(ringer)
 	m := newProjectedStaticUIModel(WithUITurnQueueHook(bells))
 	m.busy = true
-	m.queued = []string{"follow up"}
+	m.queued = queuedInputsForTest("follow up")
 
 	next, _ := m.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventToolCallStarted, StepID: "step-1"}})
 	updated := next.(*uiModel)
@@ -59,7 +59,7 @@ func TestSubmitDoneDefersTurnCompletionBellUntilQueuedTurnsFinish(t *testing.T) 
 	}
 }
 
-func TestPreSubmitCheckErrorAbortsPendingTurnCompletionBell(t *testing.T) {
+func TestSubmitErrorAbortsPendingTurnCompletionBell(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
 	if err != nil {
@@ -85,19 +85,15 @@ func TestPreSubmitCheckErrorAbortsPendingTurnCompletionBell(t *testing.T) {
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
 
-	next, _ = updated.Update(preSubmitCompactionCheckDoneMsg{
-		token: updated.preSubmitCheckToken,
-		text:  "continue",
-		err:   errors.New("pre-submit failed"),
-	})
+	next, _ = updated.Update(submitDoneMsg{token: updated.activeSubmit.token, submittedText: "continue", err: errors.New("submit failed")})
 	updated = next.(*uiModel)
 	if updated.activity != uiActivityError {
-		t.Fatalf("expected error activity after pre-submit check failure, got %v", updated.activity)
+		t.Fatalf("expected error activity after submit failure, got %v", updated.activity)
 	}
 
 	bells.OnTurnQueueDrained()
 	if got := ringer.Count(); got != 0 {
-		t.Fatalf("ring count = %d after pre-submit check abort, want 0", got)
+		t.Fatalf("ring count = %d after submit abort, want 0", got)
 	}
 }
 
@@ -133,7 +129,7 @@ func TestQueuedFollowUpAfterNoopFinalDoesNotLeakTurnCompletionBell(t *testing.T)
 	bells := newUnfocusedBellHooks(ringer)
 	m := newProjectedStaticUIModel(WithUITurnQueueHook(bells))
 	m.busy = true
-	m.queued = []string{"follow up"}
+	m.queued = queuedInputsForTest("follow up")
 
 	next, _ := m.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventToolCallStarted, StepID: "step-1"}})
 	updated := next.(*uiModel)
@@ -311,24 +307,6 @@ func TestQueuedCompactDefersBellUntilFollowingQueuedMessageDrains(t *testing.T) 
 		t.Fatal("expected following queued message to start after compact")
 	}
 	msgs = collectCmdMessages(t, cmd)
-	var preSubmit preSubmitCompactionCheckDoneMsg
-	foundPreSubmit := false
-	for _, msg := range msgs {
-		if typed, ok := msg.(preSubmitCompactionCheckDoneMsg); ok {
-			preSubmit = typed
-			foundPreSubmit = true
-		}
-	}
-	if !foundPreSubmit {
-		t.Fatalf("expected following queued pre-submit check, got %+v", msgs)
-	}
-
-	next, cmd = updated.Update(preSubmit)
-	updated = next.(*uiModel)
-	if cmd == nil {
-		t.Fatal("expected following queued message to submit after pre-submit")
-	}
-	msgs = collectCmdMessages(t, cmd)
 	var submitDone submitDoneMsg
 	foundSubmitDone := false
 	for _, msg := range msgs {
@@ -347,50 +325,6 @@ func TestQueuedCompactDefersBellUntilFollowingQueuedMessageDrains(t *testing.T) 
 	}
 	if got := ringer.Last(); got != "builder: Compaction finished" {
 		t.Fatalf("last ring = %q, want compaction completion", got)
-	}
-}
-
-func TestPreSubmitCompactionDoesNotRing(t *testing.T) {
-	ringer := &countRinger{}
-	bells := newUnfocusedBellHooks(ringer)
-	client := &runtimeControlFakeClient{shouldCompactResult: true}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents(), WithUITurnQueueHook(bells))
-	m.startupCmds = nil
-	m.input = "follow up"
-
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
-	msgs := collectCmdMessages(t, cmd)
-	var preSubmit preSubmitCompactionCheckDoneMsg
-	foundPreSubmit := false
-	for _, msg := range msgs {
-		if typed, ok := msg.(preSubmitCompactionCheckDoneMsg); ok {
-			preSubmit = typed
-			foundPreSubmit = true
-		}
-	}
-	if !foundPreSubmit {
-		t.Fatalf("expected pre-submit compaction check, got %+v", msgs)
-	}
-
-	next, cmd = updated.Update(preSubmit)
-	updated = next.(*uiModel)
-	msgs = collectCmdMessages(t, cmd)
-	var done compactDoneMsg
-	foundDone := false
-	for _, msg := range msgs {
-		if typed, ok := msg.(compactDoneMsg); ok {
-			done = typed
-			foundDone = true
-		}
-	}
-	if !foundDone {
-		t.Fatalf("expected pre-submit compactDoneMsg, got %+v", msgs)
-	}
-
-	next, _ = updated.Update(done)
-	if got := ringer.Count(); got != 0 {
-		t.Fatalf("ring count = %d after pre-submit compaction, want 0", got)
 	}
 }
 
@@ -449,7 +383,7 @@ func TestManualCompactRingsAfterQueuedLocalCommandDrains(t *testing.T) {
 	m.compacting = true
 	m.activity = uiActivityRunning
 	m.compactionOrigin = uiCompactionOriginManual
-	m.queued = []string{"/status"}
+	m.queued = queuedInputsForTest("/status")
 
 	next, cmd := m.Update(compactDoneMsg{})
 	updated := next.(*uiModel)

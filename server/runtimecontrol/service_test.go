@@ -555,6 +555,81 @@ func TestServiceSubmitUserMessageRejectsClientRequestIDPayloadMismatch(t *testin
 	}
 }
 
+func TestServiceSubmitUserTurnRecordsPromptHistoryAndSubmits(t *testing.T) {
+	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
+	if err != nil {
+		t.Fatalf("create session store: %v", err)
+	}
+	client := &runtimeControlFakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
+		Usage:     llm.Usage{WindowTokens: 200000},
+	}}}
+	engine, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("create runtime engine: %v", err)
+	}
+	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+
+	resp, err := service.SubmitUserTurn(context.Background(), serverapi.RuntimeSubmitUserTurnRequest{
+		ClientRequestID:   "req-1",
+		SessionID:         store.Meta().SessionID,
+		ControllerLeaseID: "lease-1",
+		Text:              "hello",
+	})
+	if err != nil {
+		t.Fatalf("SubmitUserTurn: %v", err)
+	}
+	if resp.Message != "done" {
+		t.Fatalf("message = %q, want done", resp.Message)
+	}
+	if client.calls != 1 {
+		t.Fatalf("generate call count = %d, want 1", client.calls)
+	}
+	if got := countPromptHistoryEvents(t, store, "hello"); got != 1 {
+		t.Fatalf("prompt history count = %d, want 1", got)
+	}
+}
+
+func TestServiceSubmitUserTurnDedupesSuccessfulRetry(t *testing.T) {
+	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
+	if err != nil {
+		t.Fatalf("create session store: %v", err)
+	}
+	client := &runtimeControlFakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
+		Usage:     llm.Usage{WindowTokens: 200000},
+	}}}
+	engine, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("create runtime engine: %v", err)
+	}
+	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+	req := serverapi.RuntimeSubmitUserTurnRequest{
+		ClientRequestID:   "req-1",
+		SessionID:         store.Meta().SessionID,
+		ControllerLeaseID: "lease-1",
+		Text:              "hello",
+	}
+
+	first, err := service.SubmitUserTurn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("SubmitUserTurn first: %v", err)
+	}
+	second, err := service.SubmitUserTurn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("SubmitUserTurn retry: %v", err)
+	}
+	if first.Message != "done" || second.Message != "done" {
+		t.Fatalf("responses = (%q, %q), want both done", first.Message, second.Message)
+	}
+	if client.calls != 1 {
+		t.Fatalf("generate call count = %d, want 1", client.calls)
+	}
+	if got := countPromptHistoryEvents(t, store, "hello"); got != 1 {
+		t.Fatalf("prompt history count = %d, want 1", got)
+	}
+}
+
 func TestServiceSubmitUserShellCommandDedupesSuccessfulRetry(t *testing.T) {
 	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
 	if err != nil {
@@ -672,11 +747,16 @@ func TestServiceQueueUserMessageDedupesSuccessfulRetry(t *testing.T) {
 		Text:              "hello",
 	}
 
-	if err := service.QueueUserMessage(context.Background(), req); err != nil {
+	firstQueue, err := service.QueueUserMessage(context.Background(), req)
+	if err != nil {
 		t.Fatalf("QueueUserMessage first: %v", err)
 	}
-	if err := service.QueueUserMessage(context.Background(), req); err != nil {
+	secondQueue, err := service.QueueUserMessage(context.Background(), req)
+	if err != nil {
 		t.Fatalf("QueueUserMessage replay: %v", err)
+	}
+	if firstQueue.QueueItemID == "" || secondQueue.QueueItemID != firstQueue.QueueItemID {
+		t.Fatalf("queue ids = (%q, %q), want stable non-empty id", firstQueue.QueueItemID, secondQueue.QueueItemID)
 	}
 	if _, err := engine.SubmitQueuedUserMessages(context.Background()); err != nil {
 		t.Fatalf("SubmitQueuedUserMessages: %v", err)
@@ -712,12 +792,17 @@ func TestServiceQueueUserMessageReplaysSuccessfulRetryAfterLeaseInvalidation(t *
 		Text:              "hello",
 	}
 
-	if err := service.QueueUserMessage(context.Background(), req); err != nil {
+	firstQueue, err := service.QueueUserMessage(context.Background(), req)
+	if err != nil {
 		t.Fatalf("QueueUserMessage first: %v", err)
 	}
 	verifier.err = serverapi.ErrInvalidControllerLease
-	if err := service.QueueUserMessage(context.Background(), req); err != nil {
+	secondQueue, err := service.QueueUserMessage(context.Background(), req)
+	if err != nil {
 		t.Fatalf("QueueUserMessage replay: %v", err)
+	}
+	if firstQueue.QueueItemID == "" || secondQueue.QueueItemID != firstQueue.QueueItemID {
+		t.Fatalf("queue ids = (%q, %q), want stable non-empty id", firstQueue.QueueItemID, secondQueue.QueueItemID)
 	}
 	if verifier.calls != 1 {
 		t.Fatalf("lease verifier call count = %d, want 1", verifier.calls)
@@ -750,12 +835,12 @@ func TestServiceQueueUserMessageRejectsClientRequestIDPayloadMismatch(t *testing
 		ControllerLeaseID: "lease-1",
 		Text:              "hello",
 	}
-	if err := service.QueueUserMessage(context.Background(), first); err != nil {
+	if _, err := service.QueueUserMessage(context.Background(), first); err != nil {
 		t.Fatalf("QueueUserMessage first: %v", err)
 	}
 	second := first
 	second.Text = "different"
-	if err := service.QueueUserMessage(context.Background(), second); err == nil || err.Error() != "client_request_id \"req-1\" was reused with different parameters" {
+	if _, err := service.QueueUserMessage(context.Background(), second); err == nil || err.Error() != "client_request_id \"req-1\" was reused with different parameters" {
 		t.Fatalf("QueueUserMessage mismatch error = %v, want request id payload mismatch", err)
 	}
 	if _, err := engine.SubmitQueuedUserMessages(context.Background()); err != nil {

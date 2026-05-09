@@ -8,13 +8,14 @@ func TestReduceRuntimeEvent_UserMessageFlushedProducesPendingInputAndConversatio
 		RuntimeConversationState{Freshness: ConversationFreshnessFresh},
 		PendingInputState{
 			Input:             "steered message",
-			PendingInjected:   []string{"steered message", "follow-up"},
+			PendingInjected:   []QueuedUserMessage{{ID: "queue-1", Text: "steered message"}, {ID: "queue-2", Text: "follow-up"}},
 			LockedInjectText:  "steered message",
+			LockedInjectID:    "queue-1",
 			InputSubmitLocked: true,
 		},
 		RuntimeReasoningState{},
 		false,
-		Event{Kind: EventUserMessageFlushed, UserMessage: "steered message"},
+		Event{Kind: EventUserMessageFlushed, UserMessage: "steered message", UserMessageBatchQueueItemIDs: []string{"queue-1"}},
 	)
 
 	if update.Transcript.Sync.IsSet() {
@@ -32,7 +33,7 @@ func TestReduceRuntimeEvent_UserMessageFlushedProducesPendingInputAndConversatio
 	if update.PendingInput.State.LockedInjectText != "" {
 		t.Fatalf("expected locked inject text cleared, got %q", update.PendingInput.State.LockedInjectText)
 	}
-	if len(update.PendingInput.State.PendingInjected) != 1 || update.PendingInput.State.PendingInjected[0] != "follow-up" {
+	if len(update.PendingInput.State.PendingInjected) != 1 || update.PendingInput.State.PendingInjected[0].Text != "follow-up" {
 		t.Fatalf("expected first injected item consumed, got %+v", update.PendingInput.State.PendingInjected)
 	}
 	if update.Conversation.State.Freshness != ConversationFreshnessEstablished {
@@ -82,9 +83,6 @@ func TestReduceRuntimeEvent_RunStateStartedDoesNotRequestTranscriptSync(t *testi
 	}
 	if update.Transcript.Sync.IsSet() {
 		t.Fatal("did not expect started run to request transcript sync")
-	}
-	if update.PendingInput.PreSubmitCommand != RuntimePendingInputClearPreSubmit {
-		t.Fatal("expected started run to clear pending pre-submit text")
 	}
 }
 

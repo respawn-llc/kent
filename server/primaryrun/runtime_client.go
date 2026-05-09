@@ -62,10 +62,6 @@ func (c *gatedRuntimeClient) ClearGoal() (*clientui.RuntimeGoal, error)  { retur
 func (c *gatedRuntimeClient) AppendLocalEntry(role, text string) error {
 	return c.inner.AppendLocalEntry(role, text)
 }
-func (c *gatedRuntimeClient) ShouldCompactBeforeUserMessage(ctx context.Context, text string) (bool, error) {
-	return c.inner.ShouldCompactBeforeUserMessage(ctx, text)
-}
-
 func (c *gatedRuntimeClient) SubmitUserMessage(ctx context.Context, text string) (string, error) {
 	lease, err := c.gate.AcquirePrimaryRun(c.sessionID)
 	if err != nil {
@@ -88,10 +84,6 @@ func (c *gatedRuntimeClient) CompactContext(ctx context.Context, args string) er
 	return c.inner.CompactContext(ctx, args)
 }
 
-func (c *gatedRuntimeClient) CompactContextForPreSubmit(ctx context.Context) error {
-	return c.inner.CompactContextForPreSubmit(ctx)
-}
-
 func (c *gatedRuntimeClient) HasQueuedUserWork() (bool, error) { return c.inner.HasQueuedUserWork() }
 
 func (c *gatedRuntimeClient) SubmitQueuedUserMessages(ctx context.Context) (string, error) {
@@ -103,10 +95,12 @@ func (c *gatedRuntimeClient) SubmitQueuedUserMessages(ctx context.Context) (stri
 	return c.inner.SubmitQueuedUserMessages(ctx)
 }
 
-func (c *gatedRuntimeClient) Interrupt() error             { return c.inner.Interrupt() }
-func (c *gatedRuntimeClient) QueueUserMessage(text string) { c.inner.QueueUserMessage(text) }
-func (c *gatedRuntimeClient) DiscardQueuedUserMessagesMatching(text string) int {
-	return c.inner.DiscardQueuedUserMessagesMatching(text)
+func (c *gatedRuntimeClient) Interrupt() error { return c.inner.Interrupt() }
+func (c *gatedRuntimeClient) QueueUserMessage(text string) (clientui.QueuedUserMessage, error) {
+	return c.inner.QueueUserMessage(text)
+}
+func (c *gatedRuntimeClient) DiscardQueuedUserMessage(queueItemID string) bool {
+	return c.inner.DiscardQueuedUserMessage(queueItemID)
 }
 func (c *gatedRuntimeClient) RecordPromptHistory(text string) error {
 	return c.inner.RecordPromptHistory(text)

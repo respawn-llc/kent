@@ -28,6 +28,7 @@ func (w uiDetailTranscriptWindow) page() clientui.TranscriptPage {
 	for _, entry := range w.entries {
 		entries = append(entries, clientui.ChatEntry{
 			Visibility:        entry.Visibility,
+			RollbackTargetID:  entry.RollbackTargetID,
 			Role:              tui.TranscriptRoleToWire(entry.Role),
 			Text:              entry.Text,
 			OngoingText:       entry.OngoingText,

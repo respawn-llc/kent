@@ -5,7 +5,7 @@ import (
 	"builder/server/llm"
 	"builder/server/runtime"
 	"builder/server/tools"
-	"builder/server/tools/askquestion"
+	"builder/shared/clientui"
 	"builder/shared/toolspec"
 	"context"
 	"encoding/json"
@@ -75,7 +75,7 @@ func TestBusyEnterDuringReviewerUsesSteeringInjection(t *testing.T) {
 	if len(updated.queued) != 0 {
 		t.Fatalf("did not expect post-turn queue for reviewer steering, got %+v", updated.queued)
 	}
-	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0] != "steer after review" {
+	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "steer after review" {
 		t.Fatalf("expected reviewer steering injected for earliest flush, got %+v", updated.pendingInjected)
 	}
 	if updated.inputSubmitLocked {
@@ -281,7 +281,7 @@ func TestHelpDismissesOnAnyKeypress(t *testing.T) {
 	m.termWidth = 80
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	testSetActiveAsk(m, &askEvent{req: askquestion.Request{Question: "Proceed?", Suggestions: []string{"Yes", "No"}}})
+	testSetActiveAsk(m, &askEvent{req: clientui.PendingPromptEvent{Question: "Proceed?", Suggestions: []string{"Yes", "No"}}})
 	m.syncViewport()
 
 	next, _ := m.Update(customKeyMsg{Kind: customKeyHelp})

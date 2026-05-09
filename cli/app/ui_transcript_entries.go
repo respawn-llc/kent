@@ -60,6 +60,7 @@ func committedTranscriptEntriesForApp(entries []tui.TranscriptEntry) []tui.Trans
 func transcriptEntryFromProjectedChatEntry(entry clientui.ChatEntry, transient bool, committed bool) tui.TranscriptEntry {
 	return tui.TranscriptEntry{
 		Visibility:        entry.Visibility,
+		RollbackTargetID:  entry.RollbackTargetID,
 		Transient:         transient,
 		Committed:         committed,
 		Role:              tui.TranscriptRoleFromWire(entry.Role),
@@ -172,6 +173,7 @@ func transcriptEntryMatchesChatEntry(existing tui.TranscriptEntry, incoming clie
 func transcriptPayloadFromTUIEntry(entry tui.TranscriptEntry) transcript.EntryPayload {
 	return transcript.EntryPayload{
 		Visibility:        entry.Visibility,
+		RollbackTargetID:  entry.RollbackTargetID,
 		Role:              tui.TranscriptRoleToWire(entry.Role),
 		Text:              entry.Text,
 		OngoingText:       entry.OngoingText,
@@ -188,6 +190,7 @@ func transcriptPayloadFromTUIEntry(entry tui.TranscriptEntry) transcript.EntryPa
 func transcriptPayloadFromClientEntry(entry clientui.ChatEntry) transcript.EntryPayload {
 	return transcript.EntryPayload{
 		Visibility:        entry.Visibility,
+		RollbackTargetID:  entry.RollbackTargetID,
 		Role:              entry.Role,
 		Text:              entry.Text,
 		OngoingText:       entry.OngoingText,

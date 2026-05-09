@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/tools/askquestion"
 	"builder/shared/clientui"
 	"builder/shared/serverapi"
 )
@@ -168,25 +167,31 @@ func TestStartPendingPromptEventsResubscribesWithoutDuplicatingPendingPrompt(t *
 	initial := &stubPromptActivitySubscription{steps: []stubPromptActivityStep{{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventPending, PromptID: "ask-1", SessionID: "session-1", Question: "First?"}}, {err: serverapi.ErrStreamGap}}}
 	resubscribed := &stubPromptActivitySubscription{steps: []stubPromptActivityStep{{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventPending, PromptID: "ask-1", SessionID: "session-1", Question: "First?"}}, {evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventPending, PromptID: "ask-2", SessionID: "session-1", Question: "Second?"}}}}
 	remaining := []serverapi.PromptActivitySubscription{resubscribed}
+	var notified []clientui.PendingPromptEvent
 
-	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context) (serverapi.PromptActivitySubscription, error) {
+	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context, uint64) (serverapi.PromptActivitySubscription, error) {
 		if len(remaining) == 0 {
 			return nil, context.Canceled
 		}
 		next := remaining[0]
 		remaining = remaining[1:]
 		return next, nil
-	}, nil, stubPromptControlClient{}, staticControllerLeaseManager("lease-test-controller"))
+	}, stubPromptControlClient{}, staticControllerLeaseManager("lease-test-controller"), func(req clientui.PendingPromptEvent) {
+		notified = append(notified, req)
+	})
 	defer stop()
 
 	first := waitPromptEvent(t, events)
-	if first.req.ID != "ask-1" || first.req.Question != "First?" {
+	if first.req.PromptID != "ask-1" || first.req.Question != "First?" {
 		t.Fatalf("unexpected first prompt event: %+v", first.req)
 	}
 
 	second := waitPromptEvent(t, events)
-	if second.req.ID != "ask-2" || second.req.Question != "Second?" {
+	if second.req.PromptID != "ask-2" || second.req.Question != "Second?" {
 		t.Fatalf("unexpected second prompt event: %+v", second.req)
+	}
+	if len(notified) != 2 || notified[0].PromptID != "ask-1" || notified[1].PromptID != "ask-2" {
+		t.Fatalf("unexpected prompt notifications after resubscribe: %+v", notified)
 	}
 
 	select {
@@ -201,24 +206,21 @@ func TestStartPendingPromptEventsResubscribeEmitsResolutionForPromptMissingFromS
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	initial := &stubPromptActivitySubscription{steps: []stubPromptActivityStep{{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventPending, PromptID: "ask-1", SessionID: "session-1", Question: "First?"}}, {err: serverapi.ErrStreamGap}}}
-	resubscribed := &stubPromptActivitySubscription{steps: []stubPromptActivityStep{{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventPending, PromptID: "ask-2", SessionID: "session-1", Question: "Second?"}}}}
-	remaining := []serverapi.PromptActivitySubscription{resubscribed}
-
-	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context) (serverapi.PromptActivitySubscription, error) {
-		if len(remaining) == 0 {
-			return nil, context.Canceled
+	initial := &stubPromptActivitySubscription{steps: []stubPromptActivityStep{{evt: clientui.PendingPromptEvent{Sequence: 1, Type: clientui.PendingPromptEventPending, PromptID: "ask-1", SessionID: "session-1", Question: "First?"}}, {err: serverapi.ErrStreamGap}}}
+	resubscribed := &stubPromptActivitySubscription{steps: []stubPromptActivityStep{
+		{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventPending, PromptID: "ask-2", SessionID: "session-1", Question: "Second?"}},
+		{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventSnapshot, SessionID: "session-1"}},
+	}}
+	events, stop := startPendingPromptEvents(ctx, initial, func(_ context.Context, afterSequence uint64) (serverapi.PromptActivitySubscription, error) {
+		if afterSequence > 0 {
+			return nil, serverapi.ErrStreamGap
 		}
-		next := remaining[0]
-		remaining = remaining[1:]
-		return next, nil
-	}, func(context.Context) (map[string]struct{}, error) {
-		return map[string]struct{}{"ask-2": {}}, nil
+		return resubscribed, nil
 	}, stubPromptControlClient{}, staticControllerLeaseManager("lease-test-controller"))
 	defer stop()
 
 	first := waitPromptEvent(t, events)
-	if first.req.ID != "ask-1" {
+	if first.req.PromptID != "ask-1" {
 		t.Fatalf("unexpected first prompt event: %+v", first.req)
 	}
 	resolved := waitPromptEvent(t, events)
@@ -226,40 +228,37 @@ func TestStartPendingPromptEventsResubscribeEmitsResolutionForPromptMissingFromS
 		t.Fatalf("expected resolution event for ask-1 after resubscribe, got %+v", resolved)
 	}
 	second := waitPromptEvent(t, events)
-	if second.req.ID != "ask-2" || second.req.Question != "Second?" {
+	if second.req.PromptID != "ask-2" || second.req.Question != "Second?" {
 		t.Fatalf("unexpected second prompt event: %+v", second.req)
 	}
 }
 
-func TestStartPendingPromptEventsRetriesResubscribeWhenSnapshotReadFails(t *testing.T) {
+func TestStartPendingPromptEventsRetriesResubscribeWhenSnapshotStreamFails(t *testing.T) {
 	useFastStreamResubscribeDelays(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	initial := &stubPromptActivitySubscription{steps: []stubPromptActivityStep{{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventPending, PromptID: "ask-1", SessionID: "session-1", Question: "First?"}}, {err: serverapi.ErrStreamGap}}}
-	firstResubscribe := &stubPromptActivitySubscription{}
-	secondResubscribe := &stubPromptActivitySubscription{steps: []stubPromptActivityStep{{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventPending, PromptID: "ask-2", SessionID: "session-1", Question: "Second?"}}}}
-	remaining := []serverapi.PromptActivitySubscription{firstResubscribe, secondResubscribe}
+	initial := &stubPromptActivitySubscription{steps: []stubPromptActivityStep{{evt: clientui.PendingPromptEvent{Sequence: 1, Type: clientui.PendingPromptEventPending, PromptID: "ask-1", SessionID: "session-1", Question: "First?"}}, {err: serverapi.ErrStreamGap}}}
+	secondResubscribe := &stubPromptActivitySubscription{steps: []stubPromptActivityStep{
+		{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventPending, PromptID: "ask-2", SessionID: "session-1", Question: "Second?"}},
+		{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventSnapshot, SessionID: "session-1"}},
+	}}
 	snapshotCalls := 0
 
-	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context) (serverapi.PromptActivitySubscription, error) {
-		if len(remaining) == 0 {
-			return nil, context.Canceled
+	events, stop := startPendingPromptEvents(ctx, initial, func(_ context.Context, afterSequence uint64) (serverapi.PromptActivitySubscription, error) {
+		if afterSequence > 0 {
+			return nil, serverapi.ErrStreamGap
 		}
-		next := remaining[0]
-		remaining = remaining[1:]
-		return next, nil
-	}, func(context.Context) (map[string]struct{}, error) {
 		snapshotCalls++
 		if snapshotCalls == 1 {
-			return nil, errors.New("snapshot unavailable")
+			return nil, errors.New("snapshot stream unavailable")
 		}
-		return map[string]struct{}{"ask-2": {}}, nil
+		return secondResubscribe, nil
 	}, stubPromptControlClient{}, staticControllerLeaseManager("lease-test-controller"))
 	defer stop()
 
 	first := waitPromptEvent(t, events)
-	if first.req.ID != "ask-1" {
+	if first.req.PromptID != "ask-1" {
 		t.Fatalf("unexpected first prompt event: %+v", first.req)
 	}
 	resolved := waitPromptEventWithin(t, events, 2*time.Second)
@@ -267,14 +266,11 @@ func TestStartPendingPromptEventsRetriesResubscribeWhenSnapshotReadFails(t *test
 		t.Fatalf("expected resolution event for ask-1 after successful retry, got %+v", resolved)
 	}
 	second := waitPromptEventWithin(t, events, 2*time.Second)
-	if second.req.ID != "ask-2" || second.req.Question != "Second?" {
+	if second.req.PromptID != "ask-2" || second.req.Question != "Second?" {
 		t.Fatalf("unexpected second prompt event: %+v", second.req)
 	}
 	if snapshotCalls != 2 {
 		t.Fatalf("snapshot calls = %d, want 2", snapshotCalls)
-	}
-	if !firstResubscribe.closed {
-		t.Fatal("expected failed resubscribe stream to be closed")
 	}
 }
 
@@ -285,19 +281,19 @@ func TestPendingPromptEventRequeuesWhenAnswerRPCFails(t *testing.T) {
 	initial := &stubPromptActivitySubscription{steps: []stubPromptActivityStep{{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventPending, PromptID: "ask-1", SessionID: "session-1", Question: "First?"}}}}
 	control := &retryingPromptControlClient{askErr: errors.New("transport down")}
 
-	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context) (serverapi.PromptActivitySubscription, error) {
+	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context, uint64) (serverapi.PromptActivitySubscription, error) {
 		return nil, context.Canceled
-	}, nil, control, staticControllerLeaseManager("lease-test-controller"))
+	}, control, staticControllerLeaseManager("lease-test-controller"))
 	defer stop()
 
 	first := waitPromptEvent(t, events)
-	if first.req.ID != "ask-1" {
-		t.Fatalf("unexpected first prompt id: %q", first.req.ID)
+	if first.req.PromptID != "ask-1" {
+		t.Fatalf("unexpected first prompt id: %q", first.req.PromptID)
 	}
-	first.reply <- askReply{response: askquestion.Response{RequestID: first.req.ID, Answer: "handled"}}
+	first.reply <- askReply{response: clientui.PromptAnswer{PromptID: first.req.PromptID, Answer: "handled"}}
 
 	retried := waitPromptEvent(t, events)
-	if retried.req.ID != "ask-1" || retried.req.Question != "First?" {
+	if retried.req.PromptID != "ask-1" || retried.req.Question != "First?" {
 		t.Fatalf("unexpected retried prompt event: %+v", retried.req)
 	}
 	if got := control.askCallCount(); got != 1 {
@@ -328,13 +324,13 @@ func TestPendingPromptEventRetryAfterStopDoesNotPanic(t *testing.T) {
 	initial := &stubPromptActivitySubscription{steps: []stubPromptActivityStep{{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventPending, PromptID: "ask-1", SessionID: "session-1", Question: "First?"}}}}
 	control := &retryingPromptControlClient{askErr: errors.New("transport down")}
 
-	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context) (serverapi.PromptActivitySubscription, error) {
+	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context, uint64) (serverapi.PromptActivitySubscription, error) {
 		return nil, context.Canceled
-	}, nil, control, staticControllerLeaseManager("lease-test-controller"))
+	}, control, staticControllerLeaseManager("lease-test-controller"))
 
 	first := waitPromptEvent(t, events)
 	stop()
-	first.reply <- askReply{response: askquestion.Response{RequestID: first.req.ID, Answer: "handled"}}
+	first.reply <- askReply{response: clientui.PromptAnswer{PromptID: first.req.PromptID, Answer: "handled"}}
 	select {
 	case _, ok := <-events:
 		if ok {
@@ -354,13 +350,13 @@ func TestStartPendingPromptEventsEmitsResolutionEvent(t *testing.T) {
 		{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventResolved, PromptID: "ask-1", SessionID: "session-1"}},
 	}}
 
-	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context) (serverapi.PromptActivitySubscription, error) {
+	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context, uint64) (serverapi.PromptActivitySubscription, error) {
 		return nil, context.Canceled
-	}, nil, stubPromptControlClient{}, staticControllerLeaseManager("lease-test-controller"))
+	}, stubPromptControlClient{}, staticControllerLeaseManager("lease-test-controller"))
 	defer stop()
 
 	first := waitPromptEvent(t, events)
-	if first.req.ID != "ask-1" {
+	if first.req.PromptID != "ask-1" {
 		t.Fatalf("unexpected first prompt event: %+v", first.req)
 	}
 	resolved := waitPromptEvent(t, events)
@@ -376,13 +372,13 @@ func TestPendingPromptEventDoesNotRequeueOnTerminalAnswerError(t *testing.T) {
 	initial := &stubPromptActivitySubscription{steps: []stubPromptActivityStep{{evt: clientui.PendingPromptEvent{Type: clientui.PendingPromptEventPending, PromptID: "ask-1", SessionID: "session-1", Question: "First?"}}}}
 	control := &retryingPromptControlClient{askErr: serverapi.ErrPromptAlreadyResolved}
 
-	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context) (serverapi.PromptActivitySubscription, error) {
+	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context, uint64) (serverapi.PromptActivitySubscription, error) {
 		return nil, context.Canceled
-	}, nil, control, staticControllerLeaseManager("lease-test-controller"))
+	}, control, staticControllerLeaseManager("lease-test-controller"))
 	defer stop()
 
 	first := waitPromptEvent(t, events)
-	first.reply <- askReply{response: askquestion.Response{RequestID: first.req.ID, Answer: "handled"}}
+	first.reply <- askReply{response: clientui.PromptAnswer{PromptID: first.req.PromptID, Answer: "handled"}}
 	waitForPromptAskCallCount(t, control, 1)
 	select {
 	case retried := <-events:
@@ -404,16 +400,16 @@ func TestPendingPromptEventDoesNotRequeueAfterPromptAlreadyResolvedLocally(t *te
 	}}
 	control := &retryingPromptControlClient{askErr: errors.New("transport down")}
 
-	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context) (serverapi.PromptActivitySubscription, error) {
+	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context, uint64) (serverapi.PromptActivitySubscription, error) {
 		return nil, context.Canceled
-	}, nil, control, staticControllerLeaseManager("lease-test-controller"))
+	}, control, staticControllerLeaseManager("lease-test-controller"))
 	defer stop()
 
 	first := waitPromptEvent(t, events)
-	if first.req.ID != "ask-1" {
+	if first.req.PromptID != "ask-1" {
 		t.Fatalf("unexpected first prompt event: %+v", first.req)
 	}
-	first.reply <- askReply{response: askquestion.Response{RequestID: first.req.ID, Answer: "handled"}}
+	first.reply <- askReply{response: clientui.PromptAnswer{PromptID: first.req.PromptID, Answer: "handled"}}
 
 	resolved := waitPromptEvent(t, events)
 	if !resolved.isResolution() || resolved.promptID() != "ask-1" {
@@ -441,13 +437,13 @@ func TestPendingPromptEventRetryUsesLatestControllerLease(t *testing.T) {
 		return "lease-new", nil
 	})
 
-	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context) (serverapi.PromptActivitySubscription, error) {
+	events, stop := startPendingPromptEvents(ctx, initial, func(context.Context, uint64) (serverapi.PromptActivitySubscription, error) {
 		return nil, context.Canceled
-	}, nil, control, leaseManager)
+	}, control, leaseManager)
 	defer stop()
 
 	first := waitPromptEvent(t, events)
-	first.reply <- askReply{response: askquestion.Response{RequestID: first.req.ID, Answer: "handled"}}
+	first.reply <- askReply{response: clientui.PromptAnswer{PromptID: first.req.PromptID, Answer: "handled"}}
 
 	waitForPromptAskCallCount(t, control, 2)
 	if leases := control.askLeaseIDs(); len(leases) != 2 || leases[0] != "lease-old" || leases[1] != "lease-new" {

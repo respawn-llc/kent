@@ -32,7 +32,8 @@ type Service struct {
 	reviewers      *requestmemo.Memo[sessionBoolMemoRequest, serverapi.RuntimeSetReviewerEnabledResponse]
 	autoCompacts   *requestmemo.Memo[sessionBoolMemoRequest, serverapi.RuntimeSetAutoCompactionEnabledResponse]
 	submits        *requestmemo.Memo[sessionTextMemoRequest, serverapi.RuntimeSubmitUserMessageResponse]
-	queues         *requestmemo.Memo[sessionTextMemoRequest, struct{}]
+	turnSubmits    *requestmemo.Memo[sessionTextMemoRequest, serverapi.RuntimeSubmitUserTurnResponse]
+	queues         *requestmemo.Memo[sessionTextMemoRequest, serverapi.RuntimeQueueUserMessageResponse]
 	shells         *requestmemo.Memo[sessionCommandMemoRequest, struct{}]
 
 	localEntries         *requestmemo.Memo[localEntryMemoRequest, struct{}]
@@ -40,7 +41,7 @@ type Service struct {
 	preSubmitCompactions *requestmemo.Memo[sessionOnlyMemoRequest, struct{}]
 	queuedSubmits        *requestmemo.Memo[sessionOnlyMemoRequest, serverapi.RuntimeSubmitQueuedUserMessagesResponse]
 	interrupts           *requestmemo.Memo[sessionOnlyMemoRequest, struct{}]
-	queuedDiscards       *requestmemo.Memo[sessionTextMemoRequest, serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse]
+	queuedDiscards       *requestmemo.Memo[queuedUserMessageMemoRequest, serverapi.RuntimeDiscardQueuedUserMessageResponse]
 	promptHistory        *requestmemo.Memo[sessionTextMemoRequest, struct{}]
 	goals                *requestmemo.Memo[goalSetMemoRequest, serverapi.RuntimeGoalShowResponse]
 	goalStatuses         *requestmemo.Memo[goalStatusMemoRequest, serverapi.RuntimeGoalShowResponse]
@@ -60,6 +61,11 @@ type sessionBoolMemoRequest struct {
 type sessionTextMemoRequest struct {
 	SessionID string
 	Text      string
+}
+
+type queuedUserMessageMemoRequest struct {
+	SessionID   string
+	QueueItemID string
 }
 
 type sessionCommandMemoRequest struct {
@@ -105,7 +111,8 @@ func NewService(runtimes RuntimeResolver, gate primaryrun.Gate) *Service {
 		reviewers:      requestmemo.New[sessionBoolMemoRequest, serverapi.RuntimeSetReviewerEnabledResponse](),
 		autoCompacts:   requestmemo.New[sessionBoolMemoRequest, serverapi.RuntimeSetAutoCompactionEnabledResponse](),
 		submits:        requestmemo.New[sessionTextMemoRequest, serverapi.RuntimeSubmitUserMessageResponse](),
-		queues:         requestmemo.New[sessionTextMemoRequest, struct{}](),
+		turnSubmits:    requestmemo.New[sessionTextMemoRequest, serverapi.RuntimeSubmitUserTurnResponse](),
+		queues:         requestmemo.New[sessionTextMemoRequest, serverapi.RuntimeQueueUserMessageResponse](),
 		shells:         requestmemo.New[sessionCommandMemoRequest, struct{}](),
 
 		localEntries:         requestmemo.New[localEntryMemoRequest, struct{}](),
@@ -113,7 +120,7 @@ func NewService(runtimes RuntimeResolver, gate primaryrun.Gate) *Service {
 		preSubmitCompactions: requestmemo.New[sessionOnlyMemoRequest, struct{}](),
 		queuedSubmits:        requestmemo.New[sessionOnlyMemoRequest, serverapi.RuntimeSubmitQueuedUserMessagesResponse](),
 		interrupts:           requestmemo.New[sessionOnlyMemoRequest, struct{}](),
-		queuedDiscards:       requestmemo.New[sessionTextMemoRequest, serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse](),
+		queuedDiscards:       requestmemo.New[queuedUserMessageMemoRequest, serverapi.RuntimeDiscardQueuedUserMessageResponse](),
 		promptHistory:        requestmemo.New[sessionTextMemoRequest, struct{}](),
 		goals:                requestmemo.New[goalSetMemoRequest, serverapi.RuntimeGoalShowResponse](),
 		goalStatuses:         requestmemo.New[goalStatusMemoRequest, serverapi.RuntimeGoalShowResponse](),
@@ -447,39 +454,38 @@ func (s *Service) Interrupt(ctx context.Context, req serverapi.RuntimeInterruptR
 	return err
 }
 
-func (s *Service) QueueUserMessage(ctx context.Context, req serverapi.RuntimeQueueUserMessageRequest) error {
+func (s *Service) QueueUserMessage(ctx context.Context, req serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error) {
 	if err := req.Validate(); err != nil {
-		return err
+		return serverapi.RuntimeQueueUserMessageResponse{}, err
 	}
 	memoReq := sessionTextMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Text: req.Text}
-	_, err := s.queues.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameSessionTextMemoRequest, func(ctx context.Context) (struct{}, error) {
+	return s.queues.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameSessionTextMemoRequest, func(ctx context.Context) (serverapi.RuntimeQueueUserMessageResponse, error) {
 		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return struct{}{}, err
+			return serverapi.RuntimeQueueUserMessageResponse{}, err
 		}
 		engine, err := s.resolve(ctx, req.SessionID)
 		if err != nil {
-			return struct{}{}, err
+			return serverapi.RuntimeQueueUserMessageResponse{}, err
 		}
-		engine.QueueUserMessage(memoReq.Text)
-		return struct{}{}, nil
+		item := engine.QueueUserMessage(memoReq.Text)
+		return serverapi.RuntimeQueueUserMessageResponse{QueueItemID: item.ID, Text: item.Text}, nil
 	})
-	return err
 }
 
-func (s *Service) DiscardQueuedUserMessagesMatching(ctx context.Context, req serverapi.RuntimeDiscardQueuedUserMessagesMatchingRequest) (serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse, error) {
+func (s *Service) DiscardQueuedUserMessage(ctx context.Context, req serverapi.RuntimeDiscardQueuedUserMessageRequest) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
 	if err := req.Validate(); err != nil {
-		return serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse{}, err
+		return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
 	}
-	memoReq := sessionTextMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Text: req.Text}
-	return s.queuedDiscards.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameSessionTextMemoRequest, func(ctx context.Context) (serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse, error) {
+	memoReq := queuedUserMessageMemoRequest{SessionID: strings.TrimSpace(req.SessionID), QueueItemID: strings.TrimSpace(req.QueueItemID)}
+	return s.queuedDiscards.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameQueuedUserMessageMemoRequest, func(ctx context.Context) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
 		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
-			return serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse{}, err
+			return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
 		}
 		engine, err := s.resolve(ctx, req.SessionID)
 		if err != nil {
-			return serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse{}, err
+			return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, err
 		}
-		return serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse{Discarded: engine.DiscardQueuedUserMessagesMatching(req.Text)}, nil
+		return serverapi.RuntimeDiscardQueuedUserMessageResponse{Discarded: engine.DiscardQueuedUserMessage(req.QueueItemID)}, nil
 	})
 }
 
@@ -639,6 +645,10 @@ func (s *Service) acquirePrimaryRun(sessionID string) (primaryrun.Lease, error) 
 
 func sameSessionTextMemoRequest(a sessionTextMemoRequest, b sessionTextMemoRequest) bool {
 	return a.SessionID == b.SessionID && a.Text == b.Text
+}
+
+func sameQueuedUserMessageMemoRequest(a queuedUserMessageMemoRequest, b queuedUserMessageMemoRequest) bool {
+	return a.SessionID == b.SessionID && a.QueueItemID == b.QueueItemID
 }
 
 func sameSessionStringMemoRequest(a sessionStringMemoRequest, b sessionStringMemoRequest) bool {

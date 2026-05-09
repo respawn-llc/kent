@@ -142,6 +142,23 @@ func (c *leaseRetryRuntimeControlClient) SubmitUserMessage(_ context.Context, re
 	}
 }
 
+func (c *leaseRetryRuntimeControlClient) SubmitUserTurn(_ context.Context, req serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.submitLeaseID = append(c.submitLeaseID, req.ControllerLeaseID)
+	switch req.ControllerLeaseID {
+	case "lease-old":
+		if c.firstSubmitErr != nil {
+			return serverapi.RuntimeSubmitUserTurnResponse{}, c.firstSubmitErr
+		}
+		return serverapi.RuntimeSubmitUserTurnResponse{}, serverapi.ErrInvalidControllerLease
+	case "lease-new":
+		return serverapi.RuntimeSubmitUserTurnResponse{Message: "recovered"}, nil
+	default:
+		return serverapi.RuntimeSubmitUserTurnResponse{}, errors.New("unexpected controller lease")
+	}
+}
+
 func (c *leaseRetryRuntimeControlClient) SubmitUserShellCommand(context.Context, serverapi.RuntimeSubmitUserShellCommandRequest) error {
 	return nil
 }
@@ -172,12 +189,12 @@ func (c *leaseRetryRuntimeControlClient) Interrupt(context.Context, serverapi.Ru
 	return nil
 }
 
-func (c *leaseRetryRuntimeControlClient) QueueUserMessage(context.Context, serverapi.RuntimeQueueUserMessageRequest) error {
-	return nil
+func (c *leaseRetryRuntimeControlClient) QueueUserMessage(context.Context, serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error) {
+	return serverapi.RuntimeQueueUserMessageResponse{}, nil
 }
 
-func (c *leaseRetryRuntimeControlClient) DiscardQueuedUserMessagesMatching(context.Context, serverapi.RuntimeDiscardQueuedUserMessagesMatchingRequest) (serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse, error) {
-	return serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse{}, nil
+func (c *leaseRetryRuntimeControlClient) DiscardQueuedUserMessage(context.Context, serverapi.RuntimeDiscardQueuedUserMessageRequest) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
+	return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, nil
 }
 
 func (c *leaseRetryRuntimeControlClient) RecordPromptHistory(context.Context, serverapi.RuntimeRecordPromptHistoryRequest) error {
@@ -377,40 +394,8 @@ func TestRuntimeClientSubmitUserMessageRecoversRuntimeUnavailable(t *testing.T) 
 	}
 }
 
-func TestRuntimeClientPreSubmitRecoversRuntimeUnavailableWithoutWarning(t *testing.T) {
-	controls := &leaseRetryRuntimeControlClient{compactErr: serverapi.ErrRuntimeUnavailable}
-	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls).(*sessionRuntimeClient)
-	leaseManager := newControllerLeaseManager("lease-old")
-	recoveryCalls := 0
-	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
-		recoveryCalls++
-		return "lease-new", nil
-	})
-	runtimeClient.SetControllerLeaseManager(leaseManager)
-
-	shouldCompact, err := runtimeClient.ShouldCompactBeforeUserMessage(context.Background(), "hello")
-	if err != nil {
-		t.Fatalf("ShouldCompactBeforeUserMessage: %v", err)
-	}
-	if shouldCompact {
-		t.Fatal("ShouldCompactBeforeUserMessage = true, want false")
-	}
-	if recoveryCalls != 1 {
-		t.Fatalf("recovery call count = %d, want 1", recoveryCalls)
-	}
-	if got := runtimeClient.controllerLeaseIDValue(); got != "lease-new" {
-		t.Fatalf("controller lease id = %q, want lease-new", got)
-	}
-	if controls.compactCalls != 2 {
-		t.Fatalf("pre-submit call count = %d, want 2", controls.compactCalls)
-	}
-	if entries := controls.appendedLocalEntries(); len(entries) != 0 {
-		t.Fatalf("did not expect visible recovery warning during pre-submit, got %+v", entries)
-	}
-}
-
-func TestRuntimeClientPreSubmitRecoveryContinuesFirstPrompt(t *testing.T) {
-	controls := &leaseRetryRuntimeControlClient{compactErr: serverapi.ErrRuntimeUnavailable}
+func TestRuntimeClientSubmitTurnRecoveryContinuesFirstPrompt(t *testing.T) {
+	controls := &leaseRetryRuntimeControlClient{firstSubmitErr: serverapi.ErrRuntimeUnavailable}
 	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls).(*sessionRuntimeClient)
 	leaseManager := newControllerLeaseManager("lease-old")
 	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
@@ -420,24 +405,11 @@ func TestRuntimeClientPreSubmitRecoveryContinuesFirstPrompt(t *testing.T) {
 	model := newProjectedTestUIModel(runtimeClient, closedProjectedRuntimeEvents(), closedAskEvents())
 	model.startupCmds = nil
 
-	preSubmitCmd := model.inputController().startSubmissionWithPromptHistory("hello after restart")
-	preSubmitMsgs := collectCmdMessages(t, preSubmitCmd)
-	var preSubmit preSubmitCompactionCheckDoneMsg
-	foundPreSubmit := false
-	for _, msg := range preSubmitMsgs {
-		if typed, ok := msg.(preSubmitCompactionCheckDoneMsg); ok {
-			preSubmit = typed
-			foundPreSubmit = true
-		}
+	submitCmd := model.inputController().startSubmissionWithPromptHistory("hello after restart")
+	if submitCmd == nil {
+		t.Fatal("expected submit command")
 	}
-	if !foundPreSubmit {
-		t.Fatalf("expected pre-submit result, got %+v", preSubmitMsgs)
-	}
-	if preSubmit.err != nil || preSubmit.shouldCompact {
-		t.Fatalf("pre-submit result = %+v, want recovered no-compaction", preSubmit)
-	}
-
-	next, submitCmd := model.Update(preSubmit)
+	next := tea.Model(model)
 	updated := next.(*uiModel)
 	submitMsgs := collectCmdMessages(t, submitCmd)
 	var done submitDoneMsg

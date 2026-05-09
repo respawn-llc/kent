@@ -16,11 +16,12 @@ const (
 )
 
 type SessionPlanRequest struct {
-	ClientRequestID   string            `json:"client_request_id"`
-	Mode              SessionLaunchMode `json:"mode"`
-	SelectedSessionID string            `json:"selected_session_id,omitempty"`
-	ForceNewSession   bool              `json:"force_new_session,omitempty"`
-	ParentSessionID   string            `json:"parent_session_id,omitempty"`
+	ClientRequestID   string             `json:"client_request_id"`
+	Mode              SessionLaunchMode  `json:"mode"`
+	SelectedSessionID string             `json:"selected_session_id,omitempty"`
+	ForceNewSession   bool               `json:"force_new_session,omitempty"`
+	ParentSessionID   string             `json:"parent_session_id,omitempty"`
+	Overrides         RunPromptOverrides `json:"overrides,omitempty"`
 }
 
 type SessionPlan struct {
@@ -35,7 +36,8 @@ type SessionPlan struct {
 }
 
 type SessionPlanResponse struct {
-	Plan SessionPlan `json:"plan"`
+	Plan     SessionPlan `json:"plan"`
+	Warnings []string    `json:"warnings,omitempty"`
 }
 
 type SessionLaunchService interface {

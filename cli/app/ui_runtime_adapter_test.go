@@ -234,7 +234,6 @@ func TestProjectRuntimeEventIncludesBackgroundSystemTranscriptEntry(t *testing.T
 
 func TestRuntimeAdapterRunStartAppliesPendingInputBeforeActivityEffect(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.pendingPreSubmitText = "queued prompt"
 	m.activity = uiActivityIdle
 
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
@@ -242,9 +241,6 @@ func TestRuntimeAdapterRunStartAppliesPendingInputBeforeActivityEffect(t *testin
 		RunState: &clientui.RunState{Busy: true},
 	})
 
-	if m.pendingPreSubmitText != "" {
-		t.Fatalf("pending pre-submit text = %q, want cleared", m.pendingPreSubmitText)
-	}
 	if m.activity != uiActivityRunning {
 		t.Fatalf("activity = %v, want running", m.activity)
 	}
@@ -257,13 +253,15 @@ func TestRuntimeAdapterUserMessageFlushRecordsHistoryAndClearsDraft(t *testing.T
 	m := newProjectedStaticUIModel()
 	m.conversationFreshness = clientui.ConversationFreshnessFresh
 	m.input = "steered message"
-	m.pendingInjected = []string{"steered message", "follow-up"}
+	m.pendingInjected = queuedUserMessagesForTest("steered message", "follow-up")
 	m.lockedInjectText = "steered message"
+	m.lockedInjectID = "queue-test-0"
 	m.inputSubmitLocked = true
 
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
-		Kind:        clientui.EventUserMessageFlushed,
-		UserMessage: "steered message",
+		Kind:                         clientui.EventUserMessageFlushed,
+		UserMessage:                  "steered message",
+		UserMessageBatchQueueItemIDs: []string{"queue-test-0"},
 	})
 
 	if m.input != "" {
@@ -275,7 +273,7 @@ func TestRuntimeAdapterUserMessageFlushRecordsHistoryAndClearsDraft(t *testing.T
 	if m.lockedInjectText != "" {
 		t.Fatalf("locked inject text = %q, want cleared", m.lockedInjectText)
 	}
-	if len(m.pendingInjected) != 1 || m.pendingInjected[0] != "follow-up" {
+	if len(m.pendingInjected) != 1 || m.pendingInjected[0].Text != "follow-up" {
 		t.Fatalf("pending injected = %+v, want follow-up only", m.pendingInjected)
 	}
 	if len(m.promptHistory) != 1 || m.promptHistory[0] != "steered message" {

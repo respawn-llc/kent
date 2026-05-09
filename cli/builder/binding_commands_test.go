@@ -49,6 +49,10 @@ func (s bindingCommandTimeoutProjectViewStub) ResolveProjectPath(ctx context.Con
 	return s.resolveProjectPath(ctx, req)
 }
 
+func (bindingCommandTimeoutProjectViewStub) PlanWorkspaceBinding(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+	return serverapi.ProjectBindingPlanResponse{}, errors.New("unexpected PlanWorkspaceBinding call")
+}
+
 func (s bindingCommandTimeoutProjectViewStub) CreateProject(ctx context.Context, req serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
 	if s.createProject == nil {
 		return serverapi.ProjectCreateResponse{}, errors.New("unexpected CreateProject call")

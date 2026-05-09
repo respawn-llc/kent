@@ -3,13 +3,9 @@ package serverapi
 import (
 	"context"
 	"time"
-
-	"builder/shared/config"
 )
 
-type AuthStatusRequest struct {
-	Settings config.Settings `json:"settings"`
-}
+type AuthStatusRequest struct{}
 
 type AuthStatusResponse struct {
 	Auth         AuthStatusInfo       `json:"auth"`

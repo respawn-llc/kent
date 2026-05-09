@@ -405,7 +405,7 @@ func TestRemoteInteractiveRuntimeAskAnswersRequireControllerLeaseAcrossWorkspace
 	}()
 
 	askEvtA := waitForRemoteAskEvent(t, fixture.runtimePlanA.Wiring.askEvents)
-	if askEvtA.req.ID != "ask-race-1" || askEvtA.req.Question != "Who answers first?" || askEvtA.req.Approval {
+	if askEvtA.req.PromptID != "ask-race-1" || askEvtA.req.Question != "Who answers first?" || askEvtA.req.Approval {
 		t.Fatalf("unexpected ask event: %+v", askEvtA.req)
 	}
 	waitForPendingAskResources(t, fixture.serverB.AskViewClient(), fixture.planA.SessionID, 1)
@@ -465,7 +465,7 @@ func TestRemoteInteractiveRuntimeApprovalAnswersRequireControllerLeaseAcrossWork
 	}()
 
 	approvalEvtA := waitForRemoteAskEvent(t, fixture.runtimePlanA.Wiring.askEvents)
-	if approvalEvtA.req.ID != "approval-race-1" || approvalEvtA.req.Question != "Allow the command?" || !approvalEvtA.req.Approval {
+	if approvalEvtA.req.PromptID != "approval-race-1" || approvalEvtA.req.Question != "Allow the command?" || !approvalEvtA.req.Approval {
 		t.Fatalf("unexpected approval event: %+v", approvalEvtA.req)
 	}
 	waitForPendingApprovalResources(t, fixture.serverB.ApprovalViewClient(), fixture.planA.SessionID, 1)

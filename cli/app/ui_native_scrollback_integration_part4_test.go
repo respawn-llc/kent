@@ -505,7 +505,7 @@ func TestQueuedFollowUpWaitsForFinalTranscriptCatchUpBeforeNativeScrollbackAppen
 	model.startupCmds = nil
 	model.busy = true
 	model.activity = uiActivityRunning
-	model.queued = []string{"follow up"}
+	model.queued = queuedInputsForTest("follow up")
 	model.sawAssistantDelta = true
 	model.forwardToView(tui.SetConversationMsg{Ongoing: "working"})
 
@@ -529,14 +529,14 @@ func TestQueuedFollowUpWaitsForFinalTranscriptCatchUpBeforeNativeScrollbackAppen
 		t.Fatal("timed out waiting for transcript catch-up refresh to start")
 	}
 	time.Sleep(80 * time.Millisecond)
-	if client.shouldCompactText != "" || client.submitText != "" {
-		t.Fatalf("expected queued follow-up to wait for transcript catch-up, compact=%q submit=%q", client.shouldCompactText, client.submitText)
+	if client.submitText != "" {
+		t.Fatalf("expected queued follow-up to wait for transcript catch-up, submit=%q", client.submitText)
 	}
 
 	close(client.releaseRefresh)
 	waitForTestCondition(t, 2*time.Second, "final answer committed before queued follow-up starts", func() bool {
 		normalized := normalizedOutput(out.String())
-		return strings.Contains(normalized, "final answer") && client.shouldCompactText == "follow up"
+		return strings.Contains(normalized, "final answer") && client.submitText == "follow up"
 	})
 	if strings.TrimSpace(model.view.OngoingStreamingText()) != "" {
 		t.Fatalf("expected live streaming buffer cleared after final catch-up, got %q", model.view.OngoingStreamingText())
@@ -597,7 +597,7 @@ func TestQueuedFollowUpRemainsHiddenUntilFinalCatchUpThenAppendsOnceInRenderedOn
 	model.startupCmds = nil
 	model.busy = true
 	model.activity = uiActivityRunning
-	model.queued = []string{"follow up"}
+	model.queued = queuedInputsForTest("follow up")
 	model.sawAssistantDelta = true
 	model.forwardToView(tui.SetConversationMsg{Ongoing: "working"})
 

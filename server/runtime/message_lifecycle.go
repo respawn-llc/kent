@@ -216,10 +216,10 @@ func handoffRequestFromToolCall(call llm.ToolCall) (*handoffRequest, bool) {
 	}, true
 }
 
-func normalizeQueuedUserMessages(messages []string) []string {
+func normalizeQueuedUserMessages(messages []QueuedUserMessage) []string {
 	out := make([]string, 0, len(messages))
 	for _, message := range messages {
-		trimmed := strings.TrimSpace(message)
+		trimmed := strings.TrimSpace(message.Text)
 		if trimmed == "" {
 			continue
 		}
@@ -228,10 +228,22 @@ func normalizeQueuedUserMessages(messages []string) []string {
 	return out
 }
 
+func queuedUserMessageIDs(messages []QueuedUserMessage) []string {
+	ids := make([]string, 0, len(messages))
+	for _, message := range messages {
+		id := strings.TrimSpace(message.ID)
+		if id == "" || strings.TrimSpace(message.Text) == "" {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string) (int, error) {
 	e := m.engine
 	e.mu.Lock()
-	pending := append([]string(nil), e.pendingInjected...)
+	pending := append([]QueuedUserMessage(nil), e.pendingInjected...)
 	e.pendingInjected = nil
 	e.mu.Unlock()
 	flushed := 0
@@ -247,7 +259,7 @@ func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string) (int
 			return flushed, err
 		}
 		flushed++
-		e.emit(Event{Kind: EventUserMessageFlushed, StepID: stepID, UserMessage: joined, UserMessageBatch: queuedMessages, CommittedTranscriptChanged: true})
+		e.emit(Event{Kind: EventUserMessageFlushed, StepID: stepID, UserMessage: joined, UserMessageBatch: queuedMessages, UserMessageBatchQueueItemIDs: queuedUserMessageIDs(pending), CommittedTranscriptChanged: true})
 	}
 	for _, notice := range pendingNotices {
 		if err := e.appendMessage(stepID, notice); err != nil {

@@ -8,6 +8,7 @@ import (
 	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/config"
+	"builder/shared/rollbacktarget"
 	"builder/shared/serverapi"
 	"builder/shared/toolspec"
 	"context"
@@ -609,6 +610,23 @@ func TestResolveSessionActionResumeReopensPicker(t *testing.T) {
 	}
 }
 
+func TestResolveSessionActionExitStaysClientLocal(t *testing.T) {
+	resolved, err := resolveSessionAction(
+		context.Background(),
+		nil,
+		nil,
+		"",
+		"",
+		UITransition{Exit: true},
+	)
+	if err != nil {
+		t.Fatalf("resolve session action: %v", err)
+	}
+	if resolved.ShouldContinue {
+		t.Fatal("expected exit transition not to continue")
+	}
+}
+
 func TestResolveSessionActionNewSessionUsesForceNewFlow(t *testing.T) {
 	resolved, err := resolveSessionAction(
 		context.Background(),
@@ -672,11 +690,6 @@ func TestNewSessionTransitionKeepsBackgroundProcessesAlive(t *testing.T) {
 	}
 	if resolved.NextSessionID != "" || resolved.InitialPrompt != "hello" || resolved.InitialInput != "" {
 		t.Fatalf("unexpected transition payload nextSessionID=%q initialPrompt=%q initialInput=%q", resolved.NextSessionID, resolved.InitialPrompt, resolved.InitialInput)
-	}
-
-	wiring := &runtimeWiring{background: manager}
-	if err := wiring.Close(); err != nil {
-		t.Fatalf("close wiring: %v", err)
 	}
 
 	testServer := &testEmbeddedServer{
@@ -844,7 +857,7 @@ func TestResolveSessionActionForkRollbackTeleportsToForkWithPrompt(t *testing.T)
 		nil,
 		store.Meta().SessionID,
 		"lease-test-controller",
-		UITransition{Action: UIActionForkRollback, InitialPrompt: "edited user message", ForkUserMessageIndex: 1},
+		UITransition{Action: UIActionForkRollback, InitialPrompt: "edited user message", ForkRollbackTargetID: rollbacktarget.EncodeUserMessageIndex(1)},
 	)
 	if err != nil {
 		t.Fatalf("resolve session action: %v", err)

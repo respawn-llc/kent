@@ -10,9 +10,9 @@ import (
 	serverlifecycle "builder/server/lifecycle"
 	"builder/server/metadata"
 	"builder/server/requestmemo"
-	"builder/server/runtime"
 	"builder/server/session"
 	"builder/server/sessionpath"
+	"builder/shared/rollbacktarget"
 	"builder/shared/serverapi"
 )
 
@@ -159,8 +159,7 @@ func sameSessionTransitionMemoRequest(a sessionTransitionMemoRequest, b sessionT
 		a.Transition.InitialPrompt == b.Transition.InitialPrompt &&
 		a.Transition.InitialInput == b.Transition.InitialInput &&
 		a.Transition.TargetSessionID == b.Transition.TargetSessionID &&
-		a.Transition.ForkUserMessageIndex == b.Transition.ForkUserMessageIndex &&
-		forkTranscriptEntryIndexEqual(a.Transition.ForkTranscriptEntryIndex, b.Transition.ForkTranscriptEntryIndex) &&
+		a.Transition.ForkRollbackTargetID == b.Transition.ForkRollbackTargetID &&
 		a.Transition.ParentSessionID == b.Transition.ParentSessionID
 }
 
@@ -168,16 +167,8 @@ func sameSessionDraftMemoRequest(a sessionDraftMemoRequest, b sessionDraftMemoRe
 	return a.SessionID == b.SessionID && a.Input == b.Input
 }
 
-func forkTranscriptEntryIndexEqual(a *int, b *int) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return *a == *b
-}
-
 func (s *Service) resolveTransitionOnce(ctx context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
-	action := serverlifecycle.Action(req.Transition.Action)
-	if action == serverlifecycle.ActionLogout {
+	if req.Transition.Action == serverapi.SessionTransitionActionLogout {
 		if s.authManager == nil {
 			return serverapi.SessionResolveTransitionResponse{}, errors.New("auth manager is required for logout")
 		}
@@ -190,41 +181,57 @@ func (s *Service) resolveTransitionOnce(ctx context.Context, req serverapi.Sessi
 			RequiresReauth: true,
 		}, nil
 	}
-
 	var (
 		store *session.Store
 		err   error
 	)
-	if action == serverlifecycle.ActionForkRollback {
+	if req.Transition.Action == serverapi.SessionTransitionActionForkRollback {
 		store, err = s.openStore(req.SessionID)
 		if err != nil {
 			return serverapi.SessionResolveTransitionResponse{}, err
 		}
-		forkUserMessageIndex, resolveErr := s.resolveForkUserMessageIndex(ctx, store, req.Transition)
+		forkUserMessageIndex, resolveErr := s.resolveForkUserMessageIndex(req.Transition)
 		if resolveErr != nil {
 			return serverapi.SessionResolveTransitionResponse{}, resolveErr
 		}
-		req.Transition.ForkUserMessageIndex = forkUserMessageIndex
+		resolved, err := serverlifecycle.Resolve(ctx, serverlifecycle.ResolveRequest{
+			Store: store,
+			Transition: serverlifecycle.Transition{
+				Action:               req.Transition.Action,
+				InitialPrompt:        req.Transition.InitialPrompt,
+				InitialInput:         req.Transition.InitialInput,
+				TargetSessionID:      req.Transition.TargetSessionID,
+				ForkUserMessageIndex: forkUserMessageIndex,
+				ParentSessionID:      req.Transition.ParentSessionID,
+			},
+		})
+		if err != nil {
+			return serverapi.SessionResolveTransitionResponse{}, err
+		}
+		if err := s.preserveForkExecutionTarget(ctx, req.SessionID, resolved.NextSessionID); err != nil {
+			return serverapi.SessionResolveTransitionResponse{}, err
+		}
+		return serverapi.SessionResolveTransitionResponse{
+			NextSessionID:   resolved.NextSessionID,
+			InitialPrompt:   resolved.InitialPrompt,
+			InitialInput:    resolved.InitialInput,
+			ParentSessionID: resolved.ParentSessionID,
+			ForceNewSession: resolved.ForceNewSession,
+			ShouldContinue:  resolved.ShouldContinue,
+		}, nil
 	}
 	resolved, err := serverlifecycle.Resolve(ctx, serverlifecycle.ResolveRequest{
 		Store: store,
 		Transition: serverlifecycle.Transition{
-			Action:               action,
-			InitialPrompt:        req.Transition.InitialPrompt,
-			InitialInput:         req.Transition.InitialInput,
-			TargetSessionID:      req.Transition.TargetSessionID,
-			ForkUserMessageIndex: req.Transition.ForkUserMessageIndex,
-			ParentSessionID:      req.Transition.ParentSessionID,
+			Action:          req.Transition.Action,
+			InitialPrompt:   req.Transition.InitialPrompt,
+			InitialInput:    req.Transition.InitialInput,
+			TargetSessionID: req.Transition.TargetSessionID,
+			ParentSessionID: req.Transition.ParentSessionID,
 		},
-		AuthManager: s.authManager,
 	})
 	if err != nil {
 		return serverapi.SessionResolveTransitionResponse{}, err
-	}
-	if action == serverlifecycle.ActionForkRollback {
-		if err := s.preserveForkExecutionTarget(ctx, req.SessionID, resolved.NextSessionID); err != nil {
-			return serverapi.SessionResolveTransitionResponse{}, err
-		}
 	}
 	return serverapi.SessionResolveTransitionResponse{
 		NextSessionID:   resolved.NextSessionID,
@@ -233,7 +240,6 @@ func (s *Service) resolveTransitionOnce(ctx context.Context, req serverapi.Sessi
 		ParentSessionID: resolved.ParentSessionID,
 		ForceNewSession: resolved.ForceNewSession,
 		ShouldContinue:  resolved.ShouldContinue,
-		RequiresReauth:  resolved.RequiresReauth,
 	}, nil
 }
 
@@ -264,33 +270,8 @@ func (s *Service) preserveForkExecutionTarget(ctx context.Context, parentSession
 	return metadataStore.UpdateSessionExecutionTargetByID(ctx, trimmedChildID, target.WorkspaceID, target.WorktreeID, target.CwdRelpath)
 }
 
-func (s *Service) resolveForkUserMessageIndex(ctx context.Context, store *session.Store, transition serverapi.SessionTransition) (int, error) {
-	if transition.ForkTranscriptEntryIndex != nil {
-		return resolveForkUserMessageIndexFromTranscriptEntry(ctx, store, *transition.ForkTranscriptEntryIndex)
-	}
-	if transition.ForkUserMessageIndex > 0 {
-		return transition.ForkUserMessageIndex, nil
-	}
-	return 0, errors.New("rollback fork target is required")
-}
-
-func resolveForkUserMessageIndexFromTranscriptEntry(ctx context.Context, store *session.Store, transcriptEntryIndex int) (int, error) {
-	if store == nil {
-		return 0, errors.New("current store is required for rollback fork")
-	}
-	if transcriptEntryIndex < 0 {
-		return 0, errors.New("rollback fork transcript entry index must be >= 0")
-	}
-	return runtime.ResolvePersistedUserMessageIndex(func(visit func(session.Event) error) error {
-		return store.WalkEvents(func(evt session.Event) error {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
-			return visit(evt)
-		})
-	}, transcriptEntryIndex)
+func (s *Service) resolveForkUserMessageIndex(transition serverapi.SessionTransition) (int, error) {
+	return rollbacktarget.DecodeUserMessageIndex(transition.ForkRollbackTargetID)
 }
 
 func (s *Service) openStore(sessionID string) (*session.Store, error) {

@@ -109,7 +109,8 @@ func TestPSOverlayInlineUnlocksLockedInputBeforeAppending(t *testing.T) {
 	m.input = "queued draft"
 	m.inputSubmitLocked = true
 	m.lockedInjectText = "queued draft"
-	m.pendingInjected = []string{"queued draft"}
+	m.lockedInjectID = "queue-test-0"
+	m.pendingInjected = queuedUserMessagesForTest("queued draft")
 	controller := uiInputController{model: m}
 	_ = controller.startProcessListFlowCmd()
 	updated := m
@@ -587,7 +588,7 @@ func TestBusyTabQueuesSlashCommandAndFlushesAfterTurn(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
-	if len(updated.queued) != 1 || updated.queued[0] != "/name queued title" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "/name queued title" {
 		t.Fatalf("expected queued slash command, got %+v", updated.queued)
 	}
 	if updated.sessionName != "" {
@@ -672,7 +673,7 @@ func TestSubmitDoneWithQueuedWorkWaitsForInFlightTranscriptCatchUp(t *testing.T)
 	m.startupCmds = nil
 	m.busy = true
 	m.activity = uiActivityRunning
-	m.queued = []string{"follow up"}
+	m.queued = queuedInputsForTest("follow up")
 	m.runtimeTranscriptBusy = true
 	m.runtimeTranscriptToken = 7
 
@@ -687,10 +688,10 @@ func TestSubmitDoneWithQueuedWorkWaitsForInFlightTranscriptCatchUp(t *testing.T)
 	if updated.busy {
 		t.Fatal("expected submit completion to leave runtime-backed UI idle while waiting for hydration")
 	}
-	if client.shouldCompactText != "" {
-		t.Fatalf("did not expect queued follow-up to start before hydration settles, got %q", client.shouldCompactText)
+	if client.submitText != "" {
+		t.Fatalf("did not expect queued follow-up to start before hydration settles, got %q", client.submitText)
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "follow up" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
 		t.Fatalf("expected queued follow-up preserved until hydration finishes, got %+v", updated.queued)
 	}
 
@@ -705,8 +706,8 @@ func TestSubmitDoneWithQueuedWorkWaitsForInFlightTranscriptCatchUp(t *testing.T)
 	if updated.pendingQueuedDrainAfterHydration == false {
 		t.Fatal("expected deferred queued drain to remain armed until follow-up hydration completes")
 	}
-	if client.shouldCompactText != "" {
-		t.Fatalf("did not expect queued follow-up pre-submit check before final hydration settles, got %q", client.shouldCompactText)
+	if client.submitText != "" {
+		t.Fatalf("did not expect queued follow-up submit before final hydration settles, got %q", client.submitText)
 	}
 	if applyCmd == nil {
 		t.Fatal("expected follow-up hydration command after dirty in-flight refresh completes")
@@ -727,8 +728,8 @@ func TestSubmitDoneWithQueuedWorkWaitsForInFlightTranscriptCatchUp(t *testing.T)
 	if updated.pendingQueuedDrainAfterHydration {
 		t.Fatal("expected deferred queued drain flag cleared after hydration completion")
 	}
-	if updated.pendingPreSubmitText != "follow up" {
-		t.Fatalf("expected queued follow-up to enter runtime pre-submit flow after hydration, got %q", updated.pendingPreSubmitText)
+	if updated.activeSubmit.text != "follow up" {
+		t.Fatalf("expected queued follow-up to submit after hydration, got %q", updated.activeSubmit.text)
 	}
 	if got := stripANSIAndTrimRight(updated.view.OngoingSnapshot()); !strings.Contains(got, "final answer") {
 		t.Fatalf("expected hydration to commit final answer before queued drain, got %q", got)
@@ -747,9 +748,10 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 	m.windowSizeKnown = true
 	m.busy = true
 	m.activity = uiActivityRunning
-	m.pendingInjected = []string{"steered message"}
+	m.pendingInjected = queuedUserMessagesForTest("steered message")
 	m.input = "steered message"
 	m.lockedInjectText = "steered message"
+	m.lockedInjectID = "queue-test-0"
 	m.inputSubmitLocked = true
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: "user", Text: "seed"}}
 	m.transcriptRevision = 6
@@ -758,13 +760,14 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "working"})
 
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
-		Kind:                       clientui.EventUserMessageFlushed,
-		StepID:                     "step-1",
-		CommittedTranscriptChanged: true,
-		TranscriptRevision:         7,
-		CommittedEntryCount:        2,
-		UserMessage:                "steered message",
-		TranscriptEntries:          []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
+		Kind:                         clientui.EventUserMessageFlushed,
+		StepID:                       "step-1",
+		CommittedTranscriptChanged:   true,
+		TranscriptRevision:           7,
+		CommittedEntryCount:          2,
+		UserMessage:                  "steered message",
+		UserMessageBatchQueueItemIDs: []string{"queue-test-0"},
+		TranscriptEntries:            []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
 	})
 	if got := len(m.deferredCommittedTail); got != 0 {
 		t.Fatalf("expected queued user flush to stop using deferred committed tail, got %d", got)
@@ -772,7 +775,7 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 
 	m.busy = false
 	m.activity = uiActivityIdle
-	m.queued = []string{"follow up"}
+	m.queued = queuedInputsForTest("follow up")
 	m.pendingQueuedDrainAfterHydration = true
 	m.queuedDrainReadyAfterHydration = false
 	m.runtimeTranscriptBusy = true
@@ -793,8 +796,8 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 	if got := len(updated.deferredCommittedTail); got != 0 {
 		t.Fatalf("expected stale hydrate + queued drain path to keep deferred committed tail empty, got %d", got)
 	}
-	if updated.pendingPreSubmitText != "follow up" {
-		t.Fatalf("expected queued drain to continue after stale hydrate rejection, got pending=%q", updated.pendingPreSubmitText)
+	if updated.activeSubmit.text != "follow up" {
+		t.Fatalf("expected queued drain to continue after stale hydrate rejection, got active=%q", updated.activeSubmit.text)
 	}
 	if !updated.busy {
 		t.Fatal("expected queued drain to start the next submission after stale hydrate rejection")
@@ -816,7 +819,7 @@ func TestHydrationCompletionDoesNotRedrainQueuedTurnAfterManualDrainStarts(t *te
 	m.startupCmds = nil
 	m.busy = true
 	m.activity = uiActivityRunning
-	m.queued = []string{"follow up"}
+	m.queued = queuedInputsForTest("follow up")
 	m.runtimeTranscriptBusy = true
 	m.runtimeTranscriptToken = 7
 
@@ -831,15 +834,15 @@ func TestHydrationCompletionDoesNotRedrainQueuedTurnAfterManualDrainStarts(t *te
 	if !updated.busy {
 		t.Fatal("expected manual queued drain to start submission while hydration is still pending")
 	}
-	if updated.pendingPreSubmitText != "follow up" {
-		t.Fatalf("expected manual drain to own queued follow-up, got %q", updated.pendingPreSubmitText)
+	if updated.activeSubmit.text != "follow up" {
+		t.Fatalf("expected manual drain to own queued follow-up, got %q", updated.activeSubmit.text)
 	}
 	if drainCmd == nil {
-		t.Fatal("expected pre-submit check command from manual queued drain")
+		t.Fatal("expected submit command from manual queued drain")
 	}
 	_ = collectCmdMessages(t, drainCmd)
-	if client.shouldCompactCalls != 1 {
-		t.Fatalf("expected exactly one pre-submit check after manual drain starts, got %d", client.shouldCompactCalls)
+	if client.submitText != "follow up" {
+		t.Fatalf("expected submit after manual drain starts, got %q", client.submitText)
 	}
 
 	next, refreshCmd := updated.Update(runtimeTranscriptRefreshedMsg{token: 7, transcript: client.transcripts[0]})
@@ -861,12 +864,5 @@ func TestHydrationCompletionDoesNotRedrainQueuedTurnAfterManualDrainStarts(t *te
 		t.Fatal("expected final hydration completion to drop stale deferred drain once manual drain owns the queued turn")
 	}
 	msgs := collectCmdMessages(t, finalCmd)
-	for _, msg := range msgs {
-		if _, ok := msg.(preSubmitCompactionCheckDoneMsg); ok {
-			t.Fatalf("did not expect hydration completion to restart pre-submit checks, got %+v", msgs)
-		}
-	}
-	if client.shouldCompactCalls != 1 {
-		t.Fatalf("expected hydration completion to avoid a second pre-submit check, got %d", client.shouldCompactCalls)
-	}
+	_ = msgs
 }

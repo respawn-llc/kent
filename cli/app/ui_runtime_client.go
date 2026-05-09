@@ -7,10 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"builder/server/runtime"
-	"builder/server/runtimecontrol"
-	"builder/server/runtimeview"
-	"builder/server/sessionview"
 	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/serverapi"
@@ -42,22 +38,6 @@ type sessionRuntimeClient struct {
 
 func newRuntimeClient(sessionID string, reads client.SessionViewClient, controls client.RuntimeControlClient) clientui.RuntimeClient {
 	return newUIRuntimeClientWithReads(sessionID, reads, controls)
-}
-
-func newUIRuntimeClientFromEngine(engine *runtime.Engine) clientui.RuntimeClient {
-	if engine == nil {
-		return nil
-	}
-	resolver := sessionview.NewStaticRuntimeResolver(engine)
-	reads := client.NewLoopbackSessionViewClient(sessionview.NewService(nil, resolver, nil))
-	controls := client.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(resolver, nil))
-	runtimeClient := newUIRuntimeClientWithReads(engine.SessionID(), reads, controls).(*sessionRuntimeClient)
-	runtimeClient.storeMainView(runtimeview.MainViewFromRuntime(engine))
-	return runtimeClient
-}
-
-func newUIRuntimeClient(engine *runtime.Engine) clientui.RuntimeClient {
-	return newUIRuntimeClientFromEngine(engine)
 }
 
 func newUIRuntimeClientWithReads(sessionID string, reads client.SessionViewClient, controls client.RuntimeControlClient) clientui.RuntimeClient {
@@ -762,15 +742,9 @@ func (c *sessionRuntimeClient) AppendLocalEntry(role, text string) error {
 		return c.controls.AppendLocalEntry(ctx, serverapi.RuntimeAppendLocalEntryRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Role: role, Text: text})
 	})
 }
-func (c *sessionRuntimeClient) ShouldCompactBeforeUserMessage(ctx context.Context, text string) (bool, error) {
-	resp, err := retryRuntimeUnavailableCall(ctx, c.recoverControllerLeaseSilently, func() (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error) {
-		return c.controls.ShouldCompactBeforeUserMessage(ctx, serverapi.RuntimeShouldCompactBeforeUserMessageRequest{SessionID: c.sessionID, Text: text})
-	})
-	return resp.ShouldCompact, err
-}
 func (c *sessionRuntimeClient) SubmitUserMessage(ctx context.Context, text string) (string, error) {
-	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeSubmitUserMessageResponse, error) {
-		return c.controls.SubmitUserMessage(ctx, serverapi.RuntimeSubmitUserMessageRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text})
+	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeSubmitUserTurnResponse, error) {
+		return c.controls.SubmitUserTurn(ctx, serverapi.RuntimeSubmitUserTurnRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text})
 	})
 	return resp.Message, err
 }
@@ -782,11 +756,6 @@ func (c *sessionRuntimeClient) SubmitUserShellCommand(ctx context.Context, comma
 func (c *sessionRuntimeClient) CompactContext(ctx context.Context, args string) error {
 	return c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {
 		return c.controls.CompactContext(ctx, serverapi.RuntimeCompactContextRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Args: args})
-	})
-}
-func (c *sessionRuntimeClient) CompactContextForPreSubmit(ctx context.Context) error {
-	return c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {
-		return c.controls.CompactContextForPreSubmit(ctx, serverapi.RuntimeCompactContextForPreSubmitRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID})
 	})
 }
 func (c *sessionRuntimeClient) HasQueuedUserWork() (bool, error) {
@@ -814,24 +783,27 @@ func (c *sessionRuntimeClient) Interrupt() error {
 	})
 }
 
-func (c *sessionRuntimeClient) QueueUserMessage(text string) {
+func (c *sessionRuntimeClient) QueueUserMessage(text string) (clientui.QueuedUserMessage, error) {
 	ctx, cancel := c.controlContext()
 	defer cancel()
-	if err := c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {
+	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeQueueUserMessageResponse, error) {
 		return c.controls.QueueUserMessage(ctx, serverapi.RuntimeQueueUserMessageRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text})
-	}); err != nil {
-		c.notifyConnectionState(err)
-	}
-}
-
-func (c *sessionRuntimeClient) DiscardQueuedUserMessagesMatching(text string) int {
-	ctx, cancel := c.controlContext()
-	defer cancel()
-	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse, error) {
-		return c.controls.DiscardQueuedUserMessagesMatching(ctx, serverapi.RuntimeDiscardQueuedUserMessagesMatchingRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text})
 	})
 	if err != nil {
-		return 0
+		c.notifyConnectionState(err)
+		return clientui.QueuedUserMessage{}, err
+	}
+	return clientui.QueuedUserMessage{ID: resp.QueueItemID, Text: resp.Text}, nil
+}
+
+func (c *sessionRuntimeClient) DiscardQueuedUserMessage(queueItemID string) bool {
+	ctx, cancel := c.controlContext()
+	defer cancel()
+	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
+		return c.controls.DiscardQueuedUserMessage(ctx, serverapi.RuntimeDiscardQueuedUserMessageRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, QueueItemID: queueItemID})
+	})
+	if err != nil {
+		return false
 	}
 	return resp.Discarded
 }

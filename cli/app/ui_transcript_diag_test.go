@@ -51,6 +51,9 @@ func (transcriptDiagTestRuntimeControlClient) ShouldCompactBeforeUserMessage(con
 func (transcriptDiagTestRuntimeControlClient) SubmitUserMessage(context.Context, serverapi.RuntimeSubmitUserMessageRequest) (serverapi.RuntimeSubmitUserMessageResponse, error) {
 	return serverapi.RuntimeSubmitUserMessageResponse{}, nil
 }
+func (transcriptDiagTestRuntimeControlClient) SubmitUserTurn(context.Context, serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
+	return serverapi.RuntimeSubmitUserTurnResponse{}, nil
+}
 func (transcriptDiagTestRuntimeControlClient) SubmitUserShellCommand(context.Context, serverapi.RuntimeSubmitUserShellCommandRequest) error {
 	return nil
 }
@@ -69,11 +72,11 @@ func (transcriptDiagTestRuntimeControlClient) SubmitQueuedUserMessages(context.C
 func (transcriptDiagTestRuntimeControlClient) Interrupt(context.Context, serverapi.RuntimeInterruptRequest) error {
 	return nil
 }
-func (transcriptDiagTestRuntimeControlClient) QueueUserMessage(context.Context, serverapi.RuntimeQueueUserMessageRequest) error {
-	return nil
+func (transcriptDiagTestRuntimeControlClient) QueueUserMessage(context.Context, serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error) {
+	return serverapi.RuntimeQueueUserMessageResponse{}, nil
 }
-func (transcriptDiagTestRuntimeControlClient) DiscardQueuedUserMessagesMatching(context.Context, serverapi.RuntimeDiscardQueuedUserMessagesMatchingRequest) (serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse, error) {
-	return serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse{}, nil
+func (transcriptDiagTestRuntimeControlClient) DiscardQueuedUserMessage(context.Context, serverapi.RuntimeDiscardQueuedUserMessageRequest) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
+	return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, nil
 }
 func (transcriptDiagTestRuntimeControlClient) RecordPromptHistory(context.Context, serverapi.RuntimeRecordPromptHistoryRequest) error {
 	return nil
@@ -199,9 +202,10 @@ func TestDeferredCommittedTailLifecycleLogsDiagnostics(t *testing.T) {
 	m.termHeight = 20
 	m.windowSizeKnown = true
 	m.busy = true
-	m.pendingInjected = []string{"steered message"}
+	m.pendingInjected = queuedUserMessagesForTest("steered message")
 	m.input = "steered message"
 	m.lockedInjectText = "steered message"
+	m.lockedInjectID = "queue-test-0"
 	m.inputSubmitLocked = true
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: "user", Text: "seed"}}
 	m.transcriptRevision = 6
@@ -210,13 +214,14 @@ func TestDeferredCommittedTailLifecycleLogsDiagnostics(t *testing.T) {
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "foreground done"})
 
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
-		Kind:                       clientui.EventUserMessageFlushed,
-		StepID:                     "step-1",
-		CommittedTranscriptChanged: true,
-		TranscriptRevision:         7,
-		CommittedEntryCount:        2,
-		UserMessage:                "steered message",
-		TranscriptEntries:          []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
+		Kind:                         clientui.EventUserMessageFlushed,
+		StepID:                       "step-1",
+		CommittedTranscriptChanged:   true,
+		TranscriptRevision:           7,
+		CommittedEntryCount:          2,
+		UserMessage:                  "steered message",
+		UserMessageBatchQueueItemIDs: []string{"queue-test-0"},
+		TranscriptEntries:            []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
 	})
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
 		Kind:                       clientui.EventAssistantMessage,

@@ -6,7 +6,7 @@ import (
 	"builder/server/runtime"
 	"builder/server/session"
 	"builder/server/tools"
-	"builder/server/tools/askquestion"
+	"builder/shared/clientui"
 	"errors"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
@@ -58,8 +58,8 @@ func TestRollbackSelectionUsesAbsoluteTranscriptEntryIndexWhenPaged(t *testing.T
 	updated.input = "edited paged user message"
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
-	if updated.nextForkTranscriptEntryIndex != 202 {
-		t.Fatalf("expected absolute rollback transcript entry index, got %d", updated.nextForkTranscriptEntryIndex)
+	if updated.nextForkRollbackTargetID != rollbackTargetIDForTestSelection(202) {
+		t.Fatalf("expected rollback target id, got %q", updated.nextForkRollbackTargetID)
 	}
 }
 
@@ -694,7 +694,7 @@ func TestApprovalAskTabAllowsWithCommentary(t *testing.T) {
 	m := newProjectedEngineUIModel(eng)
 	m.busy = true
 	reply := make(chan askReply, 1)
-	event := askEvent{req: askquestion.Request{Question: "Approve?", Approval: true, ApprovalOptions: []askquestion.ApprovalOption{{Decision: askquestion.ApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: askquestion.ApprovalDecisionAllowSession, Label: "Allow for this session"}, {Decision: askquestion.ApprovalDecisionDeny, Label: "Deny"}}}, reply: reply}
+	event := askEvent{req: clientui.PendingPromptEvent{Question: "Approve?", Approval: true, ApprovalOptions: []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: clientui.ApprovalDecisionAllowSession, Label: "Allow for this session"}, {Decision: clientui.ApprovalDecisionDeny, Label: "Deny"}}}, reply: reply}
 
 	next, _ := m.Update(askEventMsg{event: event})
 	updated := next.(*uiModel)
@@ -718,10 +718,10 @@ func TestApprovalAskTabAllowsWithCommentary(t *testing.T) {
 	if resp.response.Approval == nil {
 		t.Fatal("expected typed approval response")
 	}
-	if resp.response.Approval.Decision != askquestion.ApprovalDecisionAllowOnce || resp.response.Approval.Commentary != "ok but please keep it minimal" {
+	if resp.response.Approval.Decision != clientui.ApprovalDecisionAllowOnce || resp.response.Approval.Commentary != "ok but please keep it minimal" {
 		t.Fatalf("unexpected approval allow-with-commentary answer: %+v", resp.response.Approval)
 	}
-	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0] != "ok but please keep it minimal" {
+	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "ok but please keep it minimal" {
 		t.Fatalf("expected queued user commentary injection, got %+v", updated.pendingInjected)
 	}
 	if testActiveAsk(updated) != nil {
@@ -734,8 +734,8 @@ func TestAskEventsQueueUntilCurrentQuestionAnswered(t *testing.T) {
 	reply1 := make(chan askReply, 1)
 	reply2 := make(chan askReply, 1)
 
-	ask1 := askEvent{req: askquestion.Request{Question: "First", Suggestions: []string{"one"}}, reply: reply1}
-	ask2 := askEvent{req: askquestion.Request{Question: "Second", Suggestions: []string{"two"}}, reply: reply2}
+	ask1 := askEvent{req: clientui.PendingPromptEvent{Question: "First", Suggestions: []string{"one"}}, reply: reply1}
+	ask2 := askEvent{req: clientui.PendingPromptEvent{Question: "Second", Suggestions: []string{"two"}}, reply: reply2}
 
 	next, _ := m.Update(askEventMsg{event: ask1})
 	updated := next.(*uiModel)
@@ -777,8 +777,8 @@ func TestAskResolutionEventDismissesCurrentAndPromotesQueuedAsk(t *testing.T) {
 	reply1 := make(chan askReply, 1)
 	reply2 := make(chan askReply, 1)
 
-	first := askEvent{req: askquestion.Request{ID: "ask-1", Question: "First", Suggestions: []string{"one"}}, reply: reply1}
-	second := askEvent{req: askquestion.Request{ID: "ask-2", Question: "Second", Suggestions: []string{"two"}}, reply: reply2}
+	first := askEvent{req: clientui.PendingPromptEvent{PromptID: "ask-1", Question: "First", Suggestions: []string{"one"}}, reply: reply1}
+	second := askEvent{req: clientui.PendingPromptEvent{PromptID: "ask-2", Question: "Second", Suggestions: []string{"two"}}, reply: reply2}
 
 	next, _ := m.Update(askEventMsg{event: first})
 	updated := next.(*uiModel)
@@ -788,7 +788,7 @@ func TestAskResolutionEventDismissesCurrentAndPromotesQueuedAsk(t *testing.T) {
 	next, _ = updated.Update(askEventMsg{event: askEvent{resolvedPromptID: "ask-1"}})
 	updated = next.(*uiModel)
 
-	if testActiveAsk(updated) == nil || testActiveAsk(updated).req.ID != "ask-2" {
+	if testActiveAsk(updated) == nil || testActiveAsk(updated).req.PromptID != "ask-2" {
 		t.Fatalf("expected queued ask to become active after resolution, got %#v", testActiveAsk(updated))
 	}
 	if len(testAskQueue(updated)) != 0 {
@@ -804,7 +804,7 @@ func TestAskResolutionEventDismissesCurrentAndPromotesQueuedAsk(t *testing.T) {
 func TestAskResolutionEventRestoresRunningActivityWhenRuntimeIsBusy(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.busy = true
-	first := askEvent{req: askquestion.Request{ID: "ask-1", Question: "First", Suggestions: []string{"one"}}, reply: make(chan askReply, 1)}
+	first := askEvent{req: clientui.PendingPromptEvent{PromptID: "ask-1", Question: "First", Suggestions: []string{"one"}}, reply: make(chan askReply, 1)}
 
 	next, _ := m.Update(askEventMsg{event: first})
 	updated := next.(*uiModel)

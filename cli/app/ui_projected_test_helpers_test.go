@@ -2,6 +2,10 @@ package app
 
 import (
 	"builder/server/runtime"
+	"builder/server/runtimecontrol"
+	"builder/server/runtimeview"
+	"builder/server/sessionview"
+	"builder/shared/client"
 	"builder/shared/clientui"
 )
 
@@ -33,4 +37,20 @@ func newProjectedStaticUIModel(opts ...UIOption) *uiModel {
 
 func newProjectedEngineUIModel(engine *runtime.Engine, opts ...UIOption) *uiModel {
 	return newProjectedTestUIModel(newUIRuntimeClient(engine), nil, nil, opts...)
+}
+
+func newUIRuntimeClientFromEngine(engine *runtime.Engine) clientui.RuntimeClient {
+	if engine == nil {
+		return nil
+	}
+	resolver := sessionview.NewStaticRuntimeResolver(engine)
+	reads := client.NewLoopbackSessionViewClient(sessionview.NewService(nil, resolver, nil))
+	controls := client.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(resolver, nil))
+	runtimeClient := newUIRuntimeClientWithReads(engine.SessionID(), reads, controls).(*sessionRuntimeClient)
+	runtimeClient.storeMainView(runtimeview.MainViewFromRuntime(engine))
+	return runtimeClient
+}
+
+func newUIRuntimeClient(engine *runtime.Engine) clientui.RuntimeClient {
+	return newUIRuntimeClientFromEngine(engine)
 }

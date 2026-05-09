@@ -87,6 +87,18 @@ type RuntimeSubmitUserMessageResponse struct {
 	Message string `json:"message"`
 }
 
+type RuntimeSubmitUserTurnRequest struct {
+	ClientRequestID   string `json:"client_request_id"`
+	SessionID         string `json:"session_id"`
+	ControllerLeaseID string `json:"controller_lease_id"`
+	Text              string `json:"text"`
+}
+
+type RuntimeSubmitUserTurnResponse struct {
+	Message   string `json:"message"`
+	Compacted bool   `json:"compacted,omitempty"`
+}
+
 type RuntimeSubmitUserShellCommandRequest struct {
 	ClientRequestID   string `json:"client_request_id"`
 	SessionID         string `json:"session_id"`
@@ -138,15 +150,20 @@ type RuntimeQueueUserMessageRequest struct {
 	Text              string `json:"text"`
 }
 
-type RuntimeDiscardQueuedUserMessagesMatchingRequest struct {
+type RuntimeQueueUserMessageResponse struct {
+	QueueItemID string `json:"queue_item_id"`
+	Text        string `json:"text"`
+}
+
+type RuntimeDiscardQueuedUserMessageRequest struct {
 	ClientRequestID   string `json:"client_request_id"`
 	SessionID         string `json:"session_id"`
 	ControllerLeaseID string `json:"controller_lease_id"`
-	Text              string `json:"text"`
+	QueueItemID       string `json:"queue_item_id"`
 }
 
-type RuntimeDiscardQueuedUserMessagesMatchingResponse struct {
-	Discarded int `json:"discarded"`
+type RuntimeDiscardQueuedUserMessageResponse struct {
+	Discarded bool `json:"discarded"`
 }
 
 type RuntimeRecordPromptHistoryRequest struct {
@@ -204,14 +221,15 @@ type RuntimeControlService interface {
 	AppendLocalEntry(ctx context.Context, req RuntimeAppendLocalEntryRequest) error
 	ShouldCompactBeforeUserMessage(ctx context.Context, req RuntimeShouldCompactBeforeUserMessageRequest) (RuntimeShouldCompactBeforeUserMessageResponse, error)
 	SubmitUserMessage(ctx context.Context, req RuntimeSubmitUserMessageRequest) (RuntimeSubmitUserMessageResponse, error)
+	SubmitUserTurn(ctx context.Context, req RuntimeSubmitUserTurnRequest) (RuntimeSubmitUserTurnResponse, error)
 	SubmitUserShellCommand(ctx context.Context, req RuntimeSubmitUserShellCommandRequest) error
 	CompactContext(ctx context.Context, req RuntimeCompactContextRequest) error
 	CompactContextForPreSubmit(ctx context.Context, req RuntimeCompactContextForPreSubmitRequest) error
 	HasQueuedUserWork(ctx context.Context, req RuntimeHasQueuedUserWorkRequest) (RuntimeHasQueuedUserWorkResponse, error)
 	SubmitQueuedUserMessages(ctx context.Context, req RuntimeSubmitQueuedUserMessagesRequest) (RuntimeSubmitQueuedUserMessagesResponse, error)
 	Interrupt(ctx context.Context, req RuntimeInterruptRequest) error
-	QueueUserMessage(ctx context.Context, req RuntimeQueueUserMessageRequest) error
-	DiscardQueuedUserMessagesMatching(ctx context.Context, req RuntimeDiscardQueuedUserMessagesMatchingRequest) (RuntimeDiscardQueuedUserMessagesMatchingResponse, error)
+	QueueUserMessage(ctx context.Context, req RuntimeQueueUserMessageRequest) (RuntimeQueueUserMessageResponse, error)
+	DiscardQueuedUserMessage(ctx context.Context, req RuntimeDiscardQueuedUserMessageRequest) (RuntimeDiscardQueuedUserMessageResponse, error)
 	RecordPromptHistory(ctx context.Context, req RuntimeRecordPromptHistoryRequest) error
 	ShowGoal(ctx context.Context, req RuntimeGoalShowRequest) (RuntimeGoalShowResponse, error)
 	SetGoal(ctx context.Context, req RuntimeGoalSetRequest) (RuntimeGoalShowResponse, error)
@@ -317,6 +335,15 @@ func (r RuntimeSubmitUserMessageRequest) Validate() error {
 	}
 	return validateControllerLeaseID(r.ControllerLeaseID)
 }
+func (r RuntimeSubmitUserTurnRequest) Validate() error {
+	if err := validateClientRequestID(r.ClientRequestID); err != nil {
+		return err
+	}
+	if err := validateRuntimeSessionID(r.SessionID); err != nil {
+		return err
+	}
+	return validateControllerLeaseID(r.ControllerLeaseID)
+}
 func (r RuntimeSubmitUserShellCommandRequest) Validate() error {
 	if err := validateClientRequestID(r.ClientRequestID); err != nil {
 		return err
@@ -374,14 +401,20 @@ func (r RuntimeQueueUserMessageRequest) Validate() error {
 	}
 	return validateControllerLeaseID(r.ControllerLeaseID)
 }
-func (r RuntimeDiscardQueuedUserMessagesMatchingRequest) Validate() error {
+func (r RuntimeDiscardQueuedUserMessageRequest) Validate() error {
 	if err := validateClientRequestID(r.ClientRequestID); err != nil {
 		return err
 	}
 	if err := validateRuntimeSessionID(r.SessionID); err != nil {
 		return err
 	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	if err := validateControllerLeaseID(r.ControllerLeaseID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(r.QueueItemID) == "" {
+		return errors.New("queue_item_id is required")
+	}
+	return nil
 }
 func (r RuntimeRecordPromptHistoryRequest) Validate() error {
 	if err := validateClientRequestID(r.ClientRequestID); err != nil {

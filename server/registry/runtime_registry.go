@@ -65,6 +65,8 @@ type sessionActivityHub struct {
 type promptActivityHub struct {
 	mu          sync.Mutex
 	nextID      uint64
+	nextSeq     uint64
+	history     []clientui.PendingPromptEvent
 	closed      bool
 	subscribers map[uint64]*promptActivitySubscription
 }
@@ -207,28 +209,57 @@ func (r *RuntimeRegistry) SubscribeSessionActivityFrom(_ context.Context, req se
 }
 
 func (r *RuntimeRegistry) SubscribePromptActivity(_ context.Context, sessionID string) (serverapi.PromptActivitySubscription, error) {
+	return r.SubscribePromptActivityFrom(context.Background(), serverapi.PromptActivitySubscribeRequest{SessionID: sessionID})
+}
+
+func (r *RuntimeRegistry) SubscribePromptActivityFrom(_ context.Context, req serverapi.PromptActivitySubscribeRequest) (serverapi.PromptActivitySubscription, error) {
 	if r == nil {
 		return nil, fmt.Errorf("runtime registry is required")
 	}
-	id := strings.TrimSpace(sessionID)
+	id := strings.TrimSpace(req.SessionID)
 	r.mu.RLock()
 	entry := r.engines[id]
 	r.mu.RUnlock()
 	if entry == nil || entry.promptHub == nil {
 		return nil, fmt.Errorf("prompt activity stream for %q is unavailable: %w", id, serverapi.ErrStreamUnavailable)
 	}
-	entry.pendingMu.Lock()
-	initial := make([]clientui.PendingPromptEvent, 0, len(entry.pendingPrompt))
-	for _, item := range entry.listPendingPromptsLocked() {
-		initial = append(initial, pendingPromptEventFromSnapshot(id, item, clientui.PendingPromptEventPending))
+	if req.AfterSequence == 0 {
+		sub, err := entry.subscribePromptActivityInitial(id, nil)
+		if err != nil {
+			return nil, err
+		}
+		if sub == nil {
+			return nil, fmt.Errorf("prompt activity stream for %q is unavailable: %w", id, serverapi.ErrStreamUnavailable)
+		}
+		return sub, nil
 	}
-	sub := entry.promptHub.subscribe(initial)
+	sub, err := entry.promptHub.subscribe(nil, req.AfterSequence)
+	if err != nil {
+		return nil, err
+	}
 	if sub == nil {
-		entry.pendingMu.Unlock()
 		return nil, fmt.Errorf("prompt activity stream for %q is unavailable: %w", id, serverapi.ErrStreamUnavailable)
 	}
-	entry.pendingMu.Unlock()
 	return sub, nil
+}
+
+func (e *runtimeEntry) subscribePromptActivityInitial(sessionID string, beforeSubscribe func()) (*promptActivitySubscription, error) {
+	if e == nil || e.promptHub == nil {
+		return nil, fmt.Errorf("prompt activity stream is unavailable: %w", serverapi.ErrStreamUnavailable)
+	}
+	e.pendingMu.Lock()
+	defer e.pendingMu.Unlock()
+	initial := make([]clientui.PendingPromptEvent, 0, len(e.pendingPrompt)+1)
+	for _, item := range e.listPendingPromptsLocked() {
+		initial = append(initial, pendingPromptEventFromSnapshot(sessionID, item, clientui.PendingPromptEventPending))
+	}
+	initial = append(initial, clientui.PendingPromptEvent{Type: clientui.PendingPromptEventSnapshot, SessionID: sessionID})
+	if beforeSubscribe != nil {
+		beforeSubscribe()
+	}
+	// Keep pendingMu held until prompt-hub registration completes. Initial subscribers
+	// do not request history replay, so releasing here would reopen a lost-prompt gap.
+	return e.promptHub.subscribe(initial, 0)
 }
 
 func (r *RuntimeRegistry) BeginPendingPrompt(sessionID string, req askquestion.Request) {
@@ -674,16 +705,29 @@ func (s *sessionActivitySubscription) closeWithError(err error) {
 	}
 }
 
-func (h *promptActivityHub) subscribe(initial []clientui.PendingPromptEvent) *promptActivitySubscription {
+func (h *promptActivityHub) subscribe(initial []clientui.PendingPromptEvent, afterSequence uint64) (*promptActivitySubscription, error) {
 	if h == nil {
-		return nil
+		return nil, fmt.Errorf("prompt activity stream is unavailable: %w", serverapi.ErrStreamUnavailable)
 	}
 	sub := &promptActivitySubscription{ch: make(chan clientui.PendingPromptEvent, promptActivityBufferSize), initial: append([]clientui.PendingPromptEvent(nil), initial...)}
 	h.mu.Lock()
 	if h.closed {
 		h.mu.Unlock()
 		sub.closeWithError(io.EOF)
-		return sub
+		return sub, nil
+	}
+	if afterSequence > 0 && !h.canReplayLocked(afterSequence) {
+		h.mu.Unlock()
+		return nil, fmt.Errorf("prompt activity cursor %d is outside retained range: %w", afterSequence, serverapi.ErrStreamGap)
+	}
+	if afterSequence > 0 {
+		for _, evt := range h.replayAfterLocked(afterSequence) {
+			if !sub.publish(evt) {
+				h.mu.Unlock()
+				sub.closeWithError(serverapi.ErrStreamGap)
+				return sub, nil
+			}
+		}
 	}
 	id := h.nextID
 	h.nextID++
@@ -694,7 +738,7 @@ func (h *promptActivityHub) subscribe(initial []clientui.PendingPromptEvent) *pr
 		delete(h.subscribers, id)
 		h.mu.Unlock()
 	}
-	return sub
+	return sub, nil
 }
 
 func (h *promptActivityHub) publish(evt clientui.PendingPromptEvent) {
@@ -706,6 +750,13 @@ func (h *promptActivityHub) publish(evt clientui.PendingPromptEvent) {
 		h.mu.Unlock()
 		return
 	}
+	h.nextSeq++
+	evt.Sequence = h.nextSeq
+	h.history = append(h.history, evt)
+	if len(h.history) > promptActivityBufferSize {
+		copy(h.history, h.history[len(h.history)-promptActivityBufferSize:])
+		h.history = h.history[:promptActivityBufferSize]
+	}
 	subs := make([]*promptActivitySubscription, 0, len(h.subscribers))
 	for _, sub := range h.subscribers {
 		subs = append(subs, sub)
@@ -716,6 +767,32 @@ func (h *promptActivityHub) publish(evt clientui.PendingPromptEvent) {
 			sub.closeWithError(serverapi.ErrStreamGap)
 		}
 	}
+}
+
+func (h *promptActivityHub) canReplayLocked(afterSequence uint64) bool {
+	if afterSequence == 0 || afterSequence == h.nextSeq {
+		return true
+	}
+	if afterSequence > h.nextSeq {
+		return false
+	}
+	if len(h.history) == 0 {
+		return false
+	}
+	return afterSequence >= h.history[0].Sequence-1
+}
+
+func (h *promptActivityHub) replayAfterLocked(afterSequence uint64) []clientui.PendingPromptEvent {
+	if afterSequence == 0 || len(h.history) == 0 {
+		return nil
+	}
+	replay := make([]clientui.PendingPromptEvent, 0)
+	for _, evt := range h.history {
+		if evt.Sequence > afterSequence {
+			replay = append(replay, evt)
+		}
+	}
+	return replay
 }
 
 func (h *promptActivityHub) close(err error) {

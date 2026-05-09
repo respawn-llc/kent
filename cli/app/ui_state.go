@@ -67,16 +67,16 @@ type uiInputFeatureState struct {
 	// UI-side post-turn input queue. It may contain slash commands, shell
 	// commands, and other client-only actions; server queues only runtime
 	// injected user work.
-	queued               []string
-	preSubmitCheckToken  uint64
-	pendingPreSubmitText string
-	compactionOrigin     uiCompactionOrigin
-	submitToken          uint64
-	activeSubmit         activeSubmitState
+	queued           []queuedInputItem
+	compactionOrigin uiCompactionOrigin
+	submitToken      uint64
+	activeSubmit     activeSubmitState
 
-	pendingInjected   []string
+	pendingInjected   []clientui.QueuedUserMessage
 	lockedInjectText  string
+	lockedInjectID    string
 	inputSubmitLocked bool
+	pendingInterrupt  bool
 
 	modelName             string
 	configuredModelName   string
@@ -123,15 +123,14 @@ type uiConversationFeatureState struct {
 }
 
 type uiSessionTransitionFeatureState struct {
-	exitAction                   UIAction
-	nextSessionInitialPrompt     string
-	nextSessionInitialInput      string
-	nextSessionID                string
-	nextForkUserMessageIndex     int
-	nextForkTranscriptEntryIndex int
-	nextParentSessionID          string
-	sessionName                  string
-	sessionID                    string
+	exitAction               UIAction
+	nextSessionInitialPrompt string
+	nextSessionInitialInput  string
+	nextSessionID            string
+	nextForkRollbackTargetID string
+	nextParentSessionID      string
+	sessionName              string
+	sessionID                string
 }
 
 type uiStatusFeatureState struct {

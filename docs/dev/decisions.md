@@ -20,6 +20,14 @@
 - Source layout is a single Go module organized under top-level `cli/`, `server/`, and `shared/` roots: CLI/frontend-owned packages live under `cli/`, authoritative runtime/persistence/tool/auth packages live under `server/`, and boundary-safe shared contracts/helpers live under `shared/`.
 - Working name is `builder` and must stay easy to rename.
 
+## Client/Server Lifecycle Boundary
+
+- Server owns durable lifecycle state, lifecycle mutations, and canonical lifecycle event streams.
+- CLI/TUI consumes client-facing DTOs and shared service clients; it does not own alternate durable/runtime lifecycle flows for embedded-local mode.
+- Embedded-local mode adapts through the same loopback service/client boundary as remote/shared server mode. Direct in-process engine, broker, process, auth, or project objects may exist only behind server-owned adapters.
+- User-visible side effects tied to lifecycle events are triggered at one client-facing accepted-event boundary, not inside only one transport or runtime path.
+- Incomplete migration paths should be removed rather than preserved with compatibility shims. Breaking API or protocol changes are allowed when documented.
+
 ## Core Runtime And Tools
 
 - Core tools: `exec_command`, `write_stdin`, `view_image`, `patch`, `ask_question`.

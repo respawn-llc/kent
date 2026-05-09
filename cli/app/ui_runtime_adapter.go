@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"builder/cli/tui"
-	"builder/server/runtime"
 	"builder/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -76,6 +75,7 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 	m.markActiveSubmitFlushed(evt)
 	m.applyRuntimeEventStatus(evt)
 	a.applyRuntimeEventReduction(reduction)
+	a.reconcileInterruptFromRunState(evt)
 	cmds := make([]tea.Cmd, 0, 4)
 	transcriptMutated := false
 	awaitsHydration := false
@@ -195,14 +195,6 @@ func (a uiRuntimeAdapter) syncConversationFromEngine() tea.Cmd {
 		return nil
 	}
 	return m.requestRuntimeCommittedConversationSync()
-}
-
-func (a uiRuntimeAdapter) handleRuntimeEvent(evt runtime.Event) tea.Cmd {
-	return a.handleProjectedRuntimeEvent(projectRuntimeEvent(evt))
-}
-
-func (a uiRuntimeAdapter) applyChatSnapshot(snapshot runtime.ChatSnapshot) tea.Cmd {
-	return a.applyProjectedChatSnapshot(projectChatSnapshot(snapshot))
 }
 
 func waitAskEvent(ch <-chan askEvent) tea.Cmd {

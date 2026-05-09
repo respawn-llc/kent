@@ -8,7 +8,7 @@ import (
 )
 
 type Subscriber interface {
-	SubscribePromptActivity(ctx context.Context, sessionID string) (serverapi.PromptActivitySubscription, error)
+	SubscribePromptActivityFrom(ctx context.Context, req serverapi.PromptActivitySubscribeRequest) (serverapi.PromptActivitySubscription, error)
 }
 
 type Service struct {
@@ -26,7 +26,7 @@ func (s *Service) SubscribePromptActivity(ctx context.Context, req serverapi.Pro
 	if s == nil || s.subscriber == nil {
 		return nil, errors.New("prompt activity subscriber is required")
 	}
-	return s.subscriber.SubscribePromptActivity(ctx, req.SessionID)
+	return s.subscriber.SubscribePromptActivityFrom(ctx, req)
 }
 
 var _ serverapi.PromptActivityService = (*Service)(nil)

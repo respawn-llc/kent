@@ -18,9 +18,10 @@ func TestProjectedConversationUpdatedSkipsHydrationAfterImmediateUserFlushAppend
 	m.termHeight = 20
 	m.windowSizeKnown = true
 	m.busy = true
-	m.pendingInjected = []string{"steered message"}
+	m.pendingInjected = queuedUserMessagesForTest("steered message")
 	m.input = "steered message"
 	m.lockedInjectText = "steered message"
+	m.lockedInjectID = "queue-test-0"
 	m.inputSubmitLocked = true
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: "user", Text: "seed"}}
 	m.transcriptRevision = 6
@@ -29,13 +30,14 @@ func TestProjectedConversationUpdatedSkipsHydrationAfterImmediateUserFlushAppend
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "foreground done"})
 
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
-		Kind:                       clientui.EventUserMessageFlushed,
-		StepID:                     "step-1",
-		CommittedTranscriptChanged: true,
-		TranscriptRevision:         7,
-		CommittedEntryCount:        2,
-		UserMessage:                "steered message",
-		TranscriptEntries:          []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
+		Kind:                         clientui.EventUserMessageFlushed,
+		StepID:                       "step-1",
+		CommittedTranscriptChanged:   true,
+		TranscriptRevision:           7,
+		CommittedEntryCount:          2,
+		UserMessage:                  "steered message",
+		UserMessageBatchQueueItemIDs: []string{"queue-test-0"},
+		TranscriptEntries:            []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
 	})
 	if got := len(m.transcriptEntries); got != 2 {
 		t.Fatalf("expected queued user flush to append immediately once committed tail is contiguous, got %d entries", got)
@@ -65,9 +67,10 @@ func TestProjectedAssistantMessageMergesDeferredCommittedUserFlushWithoutHydrati
 	m.termHeight = 20
 	m.windowSizeKnown = true
 	m.busy = true
-	m.pendingInjected = []string{"steered message"}
+	m.pendingInjected = queuedUserMessagesForTest("steered message")
 	m.input = "steered message"
 	m.lockedInjectText = "steered message"
+	m.lockedInjectID = "queue-test-0"
 	m.inputSubmitLocked = true
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: "assistant", Text: "seed"}}
 	m.transcriptRevision = 6
@@ -76,13 +79,14 @@ func TestProjectedAssistantMessageMergesDeferredCommittedUserFlushWithoutHydrati
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "foreground done"})
 
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
-		Kind:                       clientui.EventUserMessageFlushed,
-		StepID:                     "step-1",
-		CommittedTranscriptChanged: true,
-		TranscriptRevision:         7,
-		CommittedEntryCount:        2,
-		UserMessage:                "steered message",
-		TranscriptEntries:          []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
+		Kind:                         clientui.EventUserMessageFlushed,
+		StepID:                       "step-1",
+		CommittedTranscriptChanged:   true,
+		TranscriptRevision:           7,
+		CommittedEntryCount:          2,
+		UserMessage:                  "steered message",
+		UserMessageBatchQueueItemIDs: []string{"queue-test-0"},
+		TranscriptEntries:            []clientui.ChatEntry{{Role: "user", Text: "steered message"}},
 	})
 
 	cmd := m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{

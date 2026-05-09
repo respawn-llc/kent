@@ -451,10 +451,6 @@ func (c *countingRuntimeClient) AppendLocalEntry(role, text string) error {
 	return c.inner.AppendLocalEntry(role, text)
 }
 
-func (c *countingRuntimeClient) ShouldCompactBeforeUserMessage(ctx context.Context, text string) (bool, error) {
-	return c.inner.ShouldCompactBeforeUserMessage(ctx, text)
-}
-
 func (c *countingRuntimeClient) SubmitUserMessage(ctx context.Context, text string) (string, error) {
 	return c.inner.SubmitUserMessage(ctx, text)
 }
@@ -467,10 +463,6 @@ func (c *countingRuntimeClient) CompactContext(ctx context.Context, args string)
 	return c.inner.CompactContext(ctx, args)
 }
 
-func (c *countingRuntimeClient) CompactContextForPreSubmit(ctx context.Context) error {
-	return c.inner.CompactContextForPreSubmit(ctx)
-}
-
 func (c *countingRuntimeClient) HasQueuedUserWork() (bool, error) { return c.inner.HasQueuedUserWork() }
 
 func (c *countingRuntimeClient) SubmitQueuedUserMessages(ctx context.Context) (string, error) {
@@ -479,10 +471,12 @@ func (c *countingRuntimeClient) SubmitQueuedUserMessages(ctx context.Context) (s
 
 func (c *countingRuntimeClient) Interrupt() error { return c.inner.Interrupt() }
 
-func (c *countingRuntimeClient) QueueUserMessage(text string) { c.inner.QueueUserMessage(text) }
+func (c *countingRuntimeClient) QueueUserMessage(text string) (clientui.QueuedUserMessage, error) {
+	return c.inner.QueueUserMessage(text)
+}
 
-func (c *countingRuntimeClient) DiscardQueuedUserMessagesMatching(text string) int {
-	return c.inner.DiscardQueuedUserMessagesMatching(text)
+func (c *countingRuntimeClient) DiscardQueuedUserMessage(queueItemID string) bool {
+	return c.inner.DiscardQueuedUserMessage(queueItemID)
 }
 
 func (c *countingRuntimeClient) RecordPromptHistory(text string) error {

@@ -3,6 +3,7 @@ package app
 import (
 	"builder/cli/app/commands"
 	"builder/shared/config"
+	"errors"
 	"io"
 	"os"
 
@@ -18,21 +19,15 @@ func runUILoopWithInitialPrompt(wiring *runtimeWiring, active config.Settings, l
 	options := mainUIProgramOptions(active, terminalCursor)
 	runtimeClient := wiring.runtimeClient
 	if runtimeClient == nil {
-		sessionID := ""
-		if wiring.engine != nil {
-			sessionID = wiring.engine.SessionID()
-		}
-		runtimeClient = newUIRuntimeClientWithReads(sessionID, wiring.sessionViews, wiring.runtimeControls)
+		return nil, errors.New("runtime client is required")
 	}
-	runtimeEventStop := make(chan struct{})
-	defer close(runtimeEventStop)
 	runtimeEvents := wiring.runtimeEvents
-	if runtimeEvents == nil && wiring.eventBridge != nil {
-		runtimeEvents = projectRuntimeEventChannel(wiring.eventBridge.Channel(), wiring.eventBridge.GapChannel(), runtimeEventStop)
+	if runtimeEvents == nil {
+		return nil, errors.New("runtime event stream is required")
 	}
 	askEvents := wiring.askEvents
-	if askEvents == nil && wiring.askBridge != nil {
-		askEvents = wiring.askBridge.Events()
+	if askEvents == nil {
+		return nil, errors.New("prompt event stream is required")
 	}
 	sessionID := ""
 	if runtimeClient != nil {
@@ -52,9 +47,8 @@ func runUILoopWithInitialPrompt(wiring *runtimeWiring, active config.Settings, l
 		WithUIDebug(active.Debug),
 		WithUICommandRegistry(commandRegistry),
 		WithUIHasOtherSessions(wiring.hasOtherSessionsKnown, wiring.hasOtherSessions),
-		WithUIBackgroundManager(wiring.background),
 		WithUITurnQueueHook(wiring.turnQueueHook),
-		WithUIProcessClient(newUIProcessClientWithReads(wiring.background, wiring.processViews, wiring.processControls)),
+		WithUIProcessClient(newUIProcessClientWithReads(wiring.processViews, wiring.processControls)),
 		WithUIWorktreeClient(wiring.worktrees),
 		WithUIPromptHistory(wiring.promptHistory),
 		WithUIStartupSubmit(initialPrompt),
@@ -72,11 +66,6 @@ func runUILoopWithInitialPrompt(wiring *runtimeWiring, active config.Settings, l
 	program := tea.NewProgram(model, options...)
 
 	finalModel, runErr := program.Run()
-	if wiring.eventBridge != nil {
-		if dropped := wiring.eventBridge.Dropped(); dropped > 0 {
-			logger.Logf("runtime.event.drop.total=%d", dropped)
-		}
-	}
 	if runErr != nil {
 		logger.Logf("app.exit err=%q", runErr.Error())
 		return nil, runErr

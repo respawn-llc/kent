@@ -2,7 +2,7 @@ package app
 
 import (
 	"builder/cli/tui"
-	"builder/server/tools/askquestion"
+	"builder/shared/clientui"
 	"errors"
 	"fmt"
 	"strings"
@@ -70,14 +70,14 @@ func (c uiAskController) resolvePrompt(promptID string) {
 	}
 	filteredQueue := m.ask.queue[:0]
 	for _, queued := range m.ask.queue {
-		if strings.TrimSpace(queued.req.ID) == targetID {
+		if strings.TrimSpace(queued.req.PromptID) == targetID {
 			queued.cancelPending()
 			continue
 		}
 		filteredQueue = append(filteredQueue, queued)
 	}
 	m.ask.queue = filteredQueue
-	if !m.ask.hasCurrent() || strings.TrimSpace(m.ask.current.req.ID) != targetID {
+	if !m.ask.hasCurrent() || strings.TrimSpace(m.ask.current.req.PromptID) != targetID {
 		return
 	}
 	m.ask.current.cancelPending()
@@ -132,7 +132,7 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.Type {
 	case tea.KeyCtrlC:
-		hasNext := c.answer(askquestion.Response{}, errors.New("interrupted"))
+		hasNext := c.answer(clientui.PromptAnswer{}, errors.New("interrupted"))
 		if m.busy {
 			_ = m.interruptRuntime()
 			m.busy = false
@@ -144,7 +144,7 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyEsc:
-		hasNext := c.answer(askquestion.Response{}, errors.New("question canceled"))
+		hasNext := c.answer(clientui.PromptAnswer{}, errors.New("question canceled"))
 		if hasNext {
 			m.activity = uiActivityQuestion
 		} else {
@@ -172,7 +172,7 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if askRequiresFreeformSelectionCommentary(req, m.ask.cursor) && commentary == "" {
 				return m, c.showFreeformSelectionCommentaryRequiredError()
 			}
-			resp := askquestion.Response{Answer: commentary, FreeformAnswer: commentary}
+			resp := clientui.PromptAnswer{Answer: commentary, FreeformAnswer: commentary}
 			if optionNumber, ok := selectedAskOptionNumber(req, m.ask.cursor); ok {
 				resp.SelectedOptionNumber = optionNumber
 			}
@@ -185,7 +185,7 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					if commentary != "" {
 						m.enqueueInjectedInput(commentary)
 					}
-					resp = askquestion.Response{Approval: &askquestion.ApprovalPayload{Decision: decision, Commentary: commentary}}
+					resp = clientui.PromptAnswer{Approval: &clientui.ApprovalPromptAnswer{Decision: decision, Commentary: commentary}}
 				}
 			}
 			hasNext := c.answer(resp, nil)
@@ -207,7 +207,7 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.ask.freeform = true
 				return m, nil
 			}
-			hasNext := c.answer(askquestion.Response{Answer: commentary, FreeformAnswer: commentary}, nil)
+			hasNext := c.answer(clientui.PromptAnswer{Answer: commentary, FreeformAnswer: commentary}, nil)
 			if hasNext {
 				m.activity = uiActivityQuestion
 			} else {
@@ -221,12 +221,12 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.clearAskInput()
 			return m, nil
 		}
-		resp := askquestion.Response{SelectedOptionNumber: m.ask.cursor + 1}
+		resp := clientui.PromptAnswer{SelectedOptionNumber: m.ask.cursor + 1}
 		if commentary := strings.TrimSpace(m.ask.input); askSupportsDraftRoundTrip(req) && commentary != "" {
 			resp.FreeformAnswer = commentary
 		}
 		if req.Approval && m.ask.cursor < len(req.ApprovalOptions) {
-			resp = askquestion.Response{Approval: &askquestion.ApprovalPayload{Decision: req.ApprovalOptions[m.ask.cursor].Decision}}
+			resp = clientui.PromptAnswer{Approval: &clientui.ApprovalPromptAnswer{Decision: req.ApprovalOptions[m.ask.cursor].Decision}}
 		}
 		hasNext := c.answer(resp, nil)
 		if hasNext {
@@ -415,13 +415,13 @@ func askQuestionPromptTextLines(question string) []askPromptLine {
 	return lines
 }
 
-func (c uiAskController) answer(resp askquestion.Response, err error) bool {
+func (c uiAskController) answer(resp clientui.PromptAnswer, err error) bool {
 	m := c.model
 	if !m.ask.hasCurrent() {
 		return false
 	}
-	if resp.RequestID == "" {
-		resp.RequestID = m.ask.current.req.ID
+	if resp.PromptID == "" {
+		resp.PromptID = m.ask.current.req.PromptID
 	}
 	m.ask.current.reply <- askReply{response: resp, err: err}
 	if len(m.ask.queue) == 0 {
@@ -456,7 +456,7 @@ func (m *uiModel) askInputPrefix() string {
 	return "› "
 }
 
-func askVisibleOptions(req askquestion.Request) []string {
+func askVisibleOptions(req clientui.PendingPromptEvent) []string {
 	if req.Approval && len(req.ApprovalOptions) > 0 {
 		out := make([]string, 0, len(req.ApprovalOptions))
 		for _, option := range req.ApprovalOptions {
@@ -467,7 +467,7 @@ func askVisibleOptions(req askquestion.Request) []string {
 	return req.Suggestions
 }
 
-func approvalOptionIndex(req askquestion.Request, decision askquestion.ApprovalDecision) int {
+func approvalOptionIndex(req clientui.PendingPromptEvent, decision clientui.ApprovalDecision) int {
 	for i, option := range req.ApprovalOptions {
 		if option.Decision == decision {
 			return i
@@ -476,21 +476,21 @@ func approvalOptionIndex(req askquestion.Request, decision askquestion.ApprovalD
 	return -1
 }
 
-func approvalSupportsCommentary(req askquestion.Request) bool {
+func approvalSupportsCommentary(req clientui.PendingPromptEvent) bool {
 	if !req.Approval {
 		return false
 	}
 	return len(askVisibleOptions(req)) > 0
 }
 
-func askHasFreeformSelectionOption(req askquestion.Request) bool {
+func askHasFreeformSelectionOption(req clientui.PendingPromptEvent) bool {
 	if req.Approval {
 		return false
 	}
 	return len(askVisibleOptions(req)) > 0
 }
 
-func askOptionCount(req askquestion.Request) int {
+func askOptionCount(req clientui.PendingPromptEvent) int {
 	count := len(askVisibleOptions(req))
 	if askHasFreeformSelectionOption(req) {
 		count++
@@ -498,28 +498,28 @@ func askOptionCount(req askquestion.Request) int {
 	return count
 }
 
-func isApprovalCommentaryPrompt(req askquestion.Request, freeform bool, mode askFreeformMode) bool {
+func isApprovalCommentaryPrompt(req clientui.PendingPromptEvent, freeform bool, mode askFreeformMode) bool {
 	if !freeform || mode != askFreeformModeApprovalCommentary {
 		return false
 	}
 	return req.Approval
 }
 
-func selectedApprovalDecision(req askquestion.Request, cursor int) (askquestion.ApprovalDecision, bool) {
+func selectedApprovalDecision(req clientui.PendingPromptEvent, cursor int) (clientui.ApprovalDecision, bool) {
 	if !req.Approval || cursor < 0 || cursor >= len(req.ApprovalOptions) {
 		return "", false
 	}
 	return req.ApprovalOptions[cursor].Decision, true
 }
 
-func approvalCommentaryLabel(req askquestion.Request, cursor int) string {
+func approvalCommentaryLabel(req clientui.PendingPromptEvent, cursor int) string {
 	if !req.Approval || cursor < 0 || cursor >= len(req.ApprovalOptions) {
 		return "Commentary:"
 	}
 	return fmt.Sprintf("Commentary for %s:", req.ApprovalOptions[cursor].Label)
 }
 
-func selectedAskOptionNumber(req askquestion.Request, cursor int) (int, bool) {
+func selectedAskOptionNumber(req clientui.PendingPromptEvent, cursor int) (int, bool) {
 	if req.Approval {
 		return 0, false
 	}
@@ -530,14 +530,14 @@ func selectedAskOptionNumber(req askquestion.Request, cursor int) (int, bool) {
 	return cursor + 1, true
 }
 
-func askOptionIsRecommended(req askquestion.Request, index int) bool {
+func askOptionIsRecommended(req clientui.PendingPromptEvent, index int) bool {
 	if req.Approval {
 		return false
 	}
 	return req.RecommendedOptionIndex == index+1
 }
 
-func askRequiresFreeformSelectionCommentary(req askquestion.Request, cursor int) bool {
+func askRequiresFreeformSelectionCommentary(req clientui.PendingPromptEvent, cursor int) bool {
 	if !askHasFreeformSelectionOption(req) {
 		return false
 	}
@@ -548,7 +548,7 @@ func askHasPendingFreeformDraft(input string) bool {
 	return strings.TrimSpace(input) != ""
 }
 
-func askSupportsDraftRoundTrip(req askquestion.Request) bool {
+func askSupportsDraftRoundTrip(req clientui.PendingPromptEvent) bool {
 	return !req.Approval && len(askVisibleOptions(req)) > 0
 }
 
@@ -568,7 +568,7 @@ func (m *uiModel) renderAskPromptLines() []askPromptLine {
 }
 
 func (m *uiModel) answerAsk(answer string, err error) bool {
-	return m.askController().answer(askquestion.Response{Answer: answer}, err)
+	return m.askController().answer(clientui.PromptAnswer{Answer: answer}, err)
 }
 
 func (m *uiModel) setActiveAsk(evt askEvent) {

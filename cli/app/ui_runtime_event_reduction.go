@@ -37,6 +37,7 @@ func (a uiRuntimeAdapter) pendingInputState() clientui.PendingInputState {
 		Input:             m.input,
 		PendingInjected:   m.pendingInjected,
 		LockedInjectText:  m.lockedInjectText,
+		LockedInjectID:    m.lockedInjectID,
 		InputSubmitLocked: m.inputSubmitLocked,
 	}
 }
@@ -52,14 +53,11 @@ func (a uiRuntimeAdapter) applyRuntimeEventReduction(reduction clientui.RuntimeE
 	m.reasoningStatusHeader = reduction.Reasoning.State.StatusHeader
 	m.pendingInjected = reduction.PendingInput.State.PendingInjected
 	m.lockedInjectText = reduction.PendingInput.State.LockedInjectText
+	m.lockedInjectID = reduction.PendingInput.State.LockedInjectID
 	m.inputSubmitLocked = reduction.PendingInput.State.InputSubmitLocked
 	switch reduction.PendingInput.DraftCommand {
 	case clientui.RuntimePendingInputClearDraft:
 		m.clearInput()
-	}
-	switch reduction.PendingInput.PreSubmitCommand {
-	case clientui.RuntimePendingInputClearPreSubmit:
-		m.pendingPreSubmitText = ""
 	}
 	switch reduction.RunState.Activity {
 	case clientui.RuntimeActivityRunning:
@@ -71,6 +69,31 @@ func (a uiRuntimeAdapter) applyRuntimeEventReduction(reduction clientui.RuntimeE
 	case clientui.RuntimeBackgroundProcessRefresh:
 		m.refreshProcessEntriesIfOpen()
 	}
+}
+
+func (a uiRuntimeAdapter) reconcileInterruptFromRunState(evt clientui.Event) {
+	m := a.model
+	if m == nil || evt.Kind != clientui.EventRunStateChanged || evt.RunState == nil || evt.RunState.Busy {
+		return
+	}
+	if evt.RunState.Status != clientui.RunStatusInterrupted {
+		m.pendingInterrupt = false
+		return
+	}
+	if m.pendingInterrupt {
+		if m.activeSubmit.restoreOnInterrupt && !m.activeSubmit.flushed {
+			c := uiInputController{model: m}
+			c.restoreSubmittedTextIntoInput(m.activeSubmit.text)
+		}
+		m.activeSubmit = activeSubmitState{}
+		c := uiInputController{model: m}
+		c.releaseLockedInjectedInput(true)
+		c.restorePendingInjectedIntoInput()
+		c.restoreQueuedMessagesIntoInput()
+		m.pendingInterrupt = false
+	}
+	m.activity = uiActivityInterrupted
+	m.clearReviewerState()
 }
 
 func (a uiRuntimeAdapter) effectiveRuntimeTranscriptSync(evt clientui.Event, proposed clientui.RuntimeTranscriptSyncCommand) clientui.RuntimeTranscriptSyncCommand {

@@ -6,7 +6,6 @@ import (
 	"io"
 	"strings"
 
-	"builder/server/tools"
 	"builder/shared/clientui"
 	"builder/shared/config"
 	"builder/shared/serverapi"
@@ -134,7 +133,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 		}
 	}
 	hasOtherSessions, hasOtherSessionsKnown := p.resolveHasOtherSessions(ctx, resolved, resp.Plan.SessionID)
-	plan := sessionLaunchPlan{
+	return sessionLaunchPlan{
 		Mode:                                 req.Mode,
 		SessionID:                            resp.Plan.SessionID,
 		SelectedViaPicker:                    resolved.selectedViaPicker,
@@ -160,8 +159,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 		},
 		WorkspaceRoot: resp.Plan.WorkspaceRoot,
 		Source:        resp.Plan.Source,
-	}
-	return applyCLIOverridesToSessionPlan(plan, cfg)
+	}, nil
 }
 
 func loadSelectedSessionWorkspaceRoot(ctx context.Context, sessionViews sessionViewReader, sessionID string) (string, error) {
@@ -189,6 +187,7 @@ func (p *launchPlanner) resolvePlanRequest(ctx context.Context, req sessionLaunc
 		SelectedSessionID: strings.TrimSpace(req.SelectedSessionID),
 		ForceNewSession:   req.ForceNewSession,
 		ParentSessionID:   strings.TrimSpace(req.ParentSessionID),
+		Overrides:         sessionPlanOverridesFromConfig(p.server.Config()),
 	}}
 	if resolved.request.Mode == serverapi.SessionLaunchModeHeadless && resolved.request.SelectedSessionID == "" {
 		resolved.request.ForceNewSession = true
@@ -269,44 +268,31 @@ func (p *launchPlanner) resolveHasOtherSessions(ctx context.Context, resolved re
 	return false, true
 }
 
-func applyCLIOverridesToSessionPlan(plan sessionLaunchPlan, cfg config.App) (sessionLaunchPlan, error) {
+func sessionPlanOverridesFromConfig(cfg config.App) serverapi.RunPromptOverrides {
 	sources := cfg.Source.Sources
-	mergedSource := mergeCLISources(plan.Source, cfg.Source)
-	if sourceIsCLI(sources, "model") && !plan.ModelContractLocked {
-		plan.ActiveSettings.Model = cfg.Settings.Model
-		plan.ConfiguredModelName = cfg.Settings.Model
+	overrides := serverapi.RunPromptOverrides{}
+	if sourceIsCLI(sources, "model") {
+		overrides.Model = cfg.Settings.Model
 	}
 	if sourceIsCLI(sources, "provider_override") {
-		plan.ActiveSettings.ProviderOverride = cfg.Settings.ProviderOverride
+		overrides.ProviderOverride = cfg.Settings.ProviderOverride
 	}
 	if sourceIsCLI(sources, "thinking_level") {
-		plan.ActiveSettings.ThinkingLevel = cfg.Settings.ThinkingLevel
+		overrides.ThinkingLevel = cfg.Settings.ThinkingLevel
 	}
 	if sourceIsCLI(sources, "theme") {
-		plan.ActiveSettings.Theme = cfg.Settings.Theme
+		overrides.Theme = cfg.Settings.Theme
 	}
 	if sourceIsCLI(sources, "timeouts.model_request_seconds") {
-		plan.ActiveSettings.Timeouts.ModelRequestSeconds = cfg.Settings.Timeouts.ModelRequestSeconds
+		overrides.ModelTimeoutSeconds = cfg.Settings.Timeouts.ModelRequestSeconds
 	}
 	if sourceIsCLI(sources, "openai_base_url") {
-		plan.ActiveSettings.OpenAIBaseURL = cfg.Settings.OpenAIBaseURL
+		overrides.OpenAIBaseURL = cfg.Settings.OpenAIBaseURL
 	}
-	if !plan.ModelContractLocked {
-		if hasCLIToolOverride(cfg.Source) {
-			plan.ActiveSettings.EnabledTools = cloneEnabledToolSet(cfg.Settings.EnabledTools)
-		}
-		if hasCLIToolOverride(cfg.Source) || sourceIsCLI(sources, "model") {
-			enabledTools, err := activeToolIDs(plan.ActiveSettings, mergedSource, nil)
-			if err != nil {
-				return sessionLaunchPlan{}, err
-			}
-			plan.EnabledTools = dedupeSortToolIDs(enabledTools)
-		}
+	if hasCLIToolOverride(cfg.Source) {
+		overrides.Tools = enabledToolsCSV(cfg.Settings.EnabledTools)
 	}
-	plan.Source = mergedSource
-	plan.StatusConfig.Settings = plan.ActiveSettings
-	plan.StatusConfig.Source = plan.Source
-	return plan, nil
+	return overrides
 }
 
 func sourceIsCLI(sources map[string]string, key string) bool {
@@ -314,7 +300,7 @@ func sourceIsCLI(sources map[string]string, key string) bool {
 }
 
 func hasCLIToolOverride(source config.SourceReport) bool {
-	for _, id := range tools.CatalogIDs() {
+	for _, id := range toolspec.CatalogIDs() {
 		if sourceIsCLI(source.Sources, "tools."+toolspec.ConfigName(id)) {
 			return true
 		}
@@ -322,32 +308,14 @@ func hasCLIToolOverride(source config.SourceReport) bool {
 	return false
 }
 
-func mergeCLISources(base config.SourceReport, override config.SourceReport) config.SourceReport {
-	merged := base
-	merged.SettingsPath = override.SettingsPath
-	merged.SettingsFileExists = override.SettingsFileExists
-	merged.CreatedDefaultConfig = override.CreatedDefaultConfig
-	merged.Sources = make(map[string]string, len(base.Sources)+len(override.Sources))
-	for key, value := range base.Sources {
-		merged.Sources[key] = value
-	}
-	for key, value := range override.Sources {
-		if strings.TrimSpace(value) == "cli" {
-			merged.Sources[key] = value
+func enabledToolsCSV(enabled map[toolspec.ID]bool) string {
+	names := []string{}
+	for _, id := range toolspec.CatalogIDs() {
+		if enabled[id] {
+			names = append(names, toolspec.ConfigName(id))
 		}
 	}
-	return merged
-}
-
-func cloneEnabledToolSet(in map[toolspec.ID]bool) map[toolspec.ID]bool {
-	if len(in) == 0 {
-		return map[toolspec.ID]bool{}
-	}
-	out := make(map[toolspec.ID]bool, len(in))
-	for id, enabled := range in {
-		out[id] = enabled
-	}
-	return out
+	return strings.Join(names, ",")
 }
 
 func logLaunchPlanStart(logger *runLogger, plan sessionLaunchPlan, startLogLine string) {

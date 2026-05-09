@@ -23,12 +23,13 @@ type UsagePayloadFetcher func(ctx context.Context, baseURL string, state auth.St
 var DefaultUsagePayloadFetcher UsagePayloadFetcher = fetchUsagePayload
 
 type Service struct {
-	manager *auth.Manager
-	fetcher UsagePayloadFetcher
+	manager  *auth.Manager
+	settings config.Settings
+	fetcher  UsagePayloadFetcher
 }
 
-func NewService(manager *auth.Manager) *Service {
-	return &Service{manager: manager, fetcher: DefaultUsagePayloadFetcher}
+func NewService(manager *auth.Manager, settings config.Settings) *Service {
+	return &Service{manager: manager, settings: settings, fetcher: DefaultUsagePayloadFetcher}
 }
 
 func (s *Service) WithUsagePayloadFetcher(fetcher UsagePayloadFetcher) *Service {
@@ -39,8 +40,10 @@ func (s *Service) WithUsagePayloadFetcher(fetcher UsagePayloadFetcher) *Service 
 }
 
 func (s *Service) GetAuthStatus(ctx context.Context, req serverapi.AuthStatusRequest) (serverapi.AuthStatusResponse, error) {
+	_ = req
 	state := auth.EmptyState()
 	authStateErr := error(nil)
+	settings := config.Settings{}
 	if s != nil && s.manager != nil {
 		loaded, loadErr := s.manager.Load(ctx)
 		if loadErr != nil {
@@ -55,9 +58,12 @@ func (s *Service) GetAuthStatus(ctx context.Context, req serverapi.AuthStatusReq
 			}
 		}
 	}
+	if s != nil {
+		settings = s.settings
+	}
 	resp := serverapi.AuthStatusResponse{
-		Auth:         authInfo(state, req.Settings, authStateErr),
-		Subscription: s.subscriptionStatus(ctx, req.Settings, state, authStateErr),
+		Auth:         authInfo(state, settings, authStateErr),
+		Subscription: s.subscriptionStatus(ctx, settings, state, authStateErr),
 	}
 	if authStateErr != nil {
 		resp.Warning = "auth: " + authStateErr.Error()

@@ -4,8 +4,10 @@ import (
 	"strings"
 
 	"builder/cli/app/commands"
+	"builder/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/google/uuid"
 )
 
 type queueDrainMode uint8
@@ -15,9 +17,18 @@ const (
 	queueDrainAuto
 )
 
+type queuedInputItem struct {
+	ID   string
+	Text string
+}
+
 func (m *uiModel) queueInput(text string) {
-	m.queued = append(m.queued, text)
+	m.queued = append(m.queued, newQueuedInputItem(text))
 	m.clearInput()
+}
+
+func newQueuedInputItem(text string) queuedInputItem {
+	return queuedInputItem{ID: uuid.NewString(), Text: text}
 }
 
 func (m *uiModel) enqueueInjectedInput(text string) bool {
@@ -25,10 +36,12 @@ func (m *uiModel) enqueueInjectedInput(text string) bool {
 	if trimmed == "" {
 		return false
 	}
-	if m.hasRuntimeClient() {
-		m.queueRuntimeUserMessage(trimmed)
+	item, err := m.queueRuntimeUserMessage(trimmed)
+	if err != nil {
+		m.observeRuntimeRequestResult(err)
+		return false
 	}
-	m.pendingInjected = append(m.pendingInjected, trimmed)
+	m.pendingInjected = append(m.pendingInjected, item)
 	return true
 }
 
@@ -76,29 +89,13 @@ func (c uiInputController) restoreQueuedMessagesIntoInput() {
 	if len(m.queued) == 0 {
 		return
 	}
-	joined := strings.Join(m.queued, "\n\n")
+	joined := strings.Join(queuedInputTexts(m.queued), "\n\n")
 	m.queued = nil
 	newInput := joined
 	if strings.TrimSpace(m.input) == "" {
 		newInput = joined
 	} else {
 		newInput = strings.TrimRight(m.input, "\n") + "\n\n" + joined
-	}
-	m.replaceMainInput(newInput, -1)
-}
-
-func (c uiInputController) restorePendingPreSubmitTextIntoInput() {
-	m := c.model
-	pending := strings.TrimSpace(m.pendingPreSubmitText)
-	if pending == "" {
-		return
-	}
-	m.pendingPreSubmitText = ""
-	newInput := pending
-	if strings.TrimSpace(m.input) == "" {
-		newInput = pending
-	} else {
-		newInput = strings.TrimRight(m.input, "\n") + "\n\n" + pending
 	}
 	m.replaceMainInput(newInput, -1)
 }
@@ -121,13 +118,13 @@ func (c uiInputController) restorePendingInjectedIntoInput() {
 	if len(m.pendingInjected) == 0 {
 		return
 	}
-	pending := append([]string(nil), m.pendingInjected...)
+	pending := append([]clientui.QueuedUserMessage(nil), m.pendingInjected...)
 	if m.hasRuntimeClient() {
-		for _, text := range pending {
-			m.discardQueuedRuntimeUserMessagesMatching(text)
+		for _, item := range pending {
+			m.discardQueuedRuntimeUserMessage(item.ID)
 		}
 	}
-	joined := strings.Join(pending, "\n\n")
+	joined := strings.Join(queuedUserMessageTexts(pending), "\n\n")
 	m.pendingInjected = nil
 	newInput := joined
 	if strings.TrimSpace(m.input) == "" {
@@ -147,22 +144,23 @@ func (c uiInputController) releaseLockedInjectedInput(discardEngineQueue bool) {
 	if !m.inputSubmitLocked {
 		return
 	}
-	locked := strings.TrimSpace(m.lockedInjectText)
-	if locked != "" {
+	lockedID := strings.TrimSpace(m.lockedInjectID)
+	if lockedID != "" {
 		filtered := m.pendingInjected[:0]
 		for _, pending := range m.pendingInjected {
-			if strings.TrimSpace(pending) == locked {
+			if pending.ID == lockedID {
 				continue
 			}
 			filtered = append(filtered, pending)
 		}
 		m.pendingInjected = filtered
 		if discardEngineQueue && m.hasRuntimeClient() {
-			m.discardQueuedRuntimeUserMessagesMatching(locked)
+			m.discardQueuedRuntimeUserMessage(lockedID)
 		}
 	}
 	m.inputSubmitLocked = false
 	m.lockedInjectText = ""
+	m.lockedInjectID = ""
 }
 
 func (c uiInputController) flushQueuedInputs(mode queueDrainMode) (tea.Model, tea.Cmd) {
@@ -202,8 +200,9 @@ func (c uiInputController) resumeQueuedInputsAfterIdleRuntime() tea.Cmd {
 	return cmd
 }
 
-func (c uiInputController) dispatchQueuedInput(text string) tea.Cmd {
+func (c uiInputController) dispatchQueuedInput(item queuedInputItem) tea.Cmd {
 	m := c.model
+	text := item.Text
 	if m.commandRegistry != nil {
 		if _, knownCommand := m.commandRegistry.Command(text); knownCommand {
 			if commandResult := m.commandRegistry.Execute(text); commandResult.Handled {
@@ -215,7 +214,7 @@ func (c uiInputController) dispatchQueuedInput(text string) tea.Cmd {
 			}
 		}
 	}
-	return c.startQueuedSubmissionWithPromptHistory(text)
+	return c.startQueuedSubmissionWithPromptHistory(item)
 }
 
 func (m *uiModel) shouldContinueQueuedInputAutoDrain() bool {
@@ -228,26 +227,41 @@ func (m *uiModel) shouldContinueQueuedInputAutoDrain() bool {
 	return strings.TrimSpace(m.input) == ""
 }
 
-func (m *uiModel) popQueued() string {
+func (m *uiModel) popQueued() queuedInputItem {
 	if len(m.queued) == 0 {
-		return ""
+		return queuedInputItem{}
 	}
 	next := m.queued[0]
 	m.queued = m.queued[1:]
 	return next
 }
 
-func (m *uiModel) discardQueuedText(text string) bool {
-	needle := strings.TrimSpace(text)
-	if needle == "" {
+func (m *uiModel) discardQueuedInput(id string) bool {
+	if strings.TrimSpace(id) == "" {
 		return false
 	}
 	for i := 0; i < len(m.queued); i++ {
-		if strings.TrimSpace(m.queued[i]) != needle {
+		if m.queued[i].ID != id {
 			continue
 		}
 		m.queued = append(m.queued[:i], m.queued[i+1:]...)
 		return true
 	}
 	return false
+}
+
+func queuedInputTexts(messages []queuedInputItem) []string {
+	texts := make([]string, 0, len(messages))
+	for _, message := range messages {
+		texts = append(texts, message.Text)
+	}
+	return texts
+}
+
+func queuedUserMessageTexts(messages []clientui.QueuedUserMessage) []string {
+	texts := make([]string, 0, len(messages))
+	for _, message := range messages {
+		texts = append(texts, message.Text)
+	}
+	return texts
 }

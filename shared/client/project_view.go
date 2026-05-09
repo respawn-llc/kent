@@ -10,6 +10,7 @@ import (
 type ProjectViewClient interface {
 	ListProjects(ctx context.Context, req serverapi.ProjectListRequest) (serverapi.ProjectListResponse, error)
 	ResolveProjectPath(ctx context.Context, req serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error)
+	PlanWorkspaceBinding(ctx context.Context, req serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error)
 	CreateProject(ctx context.Context, req serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error)
 	AttachWorkspaceToProject(ctx context.Context, req serverapi.ProjectAttachWorkspaceRequest) (serverapi.ProjectAttachWorkspaceResponse, error)
 	RebindWorkspace(ctx context.Context, req serverapi.ProjectRebindWorkspaceRequest) (serverapi.ProjectRebindWorkspaceResponse, error)
@@ -37,6 +38,13 @@ func (c *loopbackProjectViewClient) ResolveProjectPath(ctx context.Context, req 
 		return serverapi.ProjectResolvePathResponse{}, errors.New("project view service is required")
 	}
 	return c.service.ResolveProjectPath(ctx, req)
+}
+
+func (c *loopbackProjectViewClient) PlanWorkspaceBinding(ctx context.Context, req serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+	if c == nil || c.service == nil {
+		return serverapi.ProjectBindingPlanResponse{}, errors.New("project view service is required")
+	}
+	return c.service.PlanWorkspaceBinding(ctx, req)
 }
 
 func (c *loopbackProjectViewClient) CreateProject(ctx context.Context, req serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {

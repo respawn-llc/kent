@@ -33,7 +33,7 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePosition(commandR
 		return m, tea.Quit
 	}
 	if commandResult.SubmitUser {
-		return m, c.startSubmissionWithPreSubmitQueuePosition(commandResult.User, queuePosition)
+		return m, c.startSubmissionWithPreSubmitQueuePosition(commandResult.User, queuePosition, "")
 	}
 	prefixCmd := tea.Cmd(nil)
 	if commandResult.Text != "" {

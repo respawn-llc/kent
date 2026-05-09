@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"builder/cli/tui"
-	"builder/server/tools/askquestion"
+	"builder/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -28,7 +28,7 @@ func TestAskEventDefersWhileDetailModeActive(t *testing.T) {
 	}
 
 	beforeScroll := stripANSIAndTrimRight(m.view.View())
-	m = updateUIModel(t, m, askEventMsg{event: askEvent{req: askquestion.Request{Question: "Proceed?", Suggestions: []string{"Yes", "No"}}, reply: reply}})
+	m = updateUIModel(t, m, askEventMsg{event: askEvent{req: clientui.PendingPromptEvent{Question: "Proceed?", Suggestions: []string{"Yes", "No"}}, reply: reply}})
 	if got := m.inputMode(); got != uiInputModeMain {
 		t.Fatalf("expected detail mode to defer ask input, got %q", got)
 	}
@@ -82,7 +82,7 @@ func TestAskEventDefersWhileProcessListOverlayIsOpen(t *testing.T) {
 		t.Fatalf("expected process list surface open, visible=%t surface=%q", m.processList.isOpen(), m.surface())
 	}
 
-	m = updateUIModel(t, m, askEventMsg{event: askEvent{req: askquestion.Request{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}})
+	m = updateUIModel(t, m, askEventMsg{event: askEvent{req: clientui.PendingPromptEvent{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}})
 	if got := m.inputMode(); got != uiInputModeProcessList {
 		t.Fatalf("expected process list to keep input focus while ask is pending, got %q", got)
 	}
@@ -160,7 +160,7 @@ func TestAskEventDefersWhileRollbackEditIsActive(t *testing.T) {
 	}
 	original := m.input
 
-	m = updateUIModel(t, m, askEventMsg{event: askEvent{req: askquestion.Request{Question: "Proceed?", Suggestions: []string{"Yes", "No"}}, reply: reply}})
+	m = updateUIModel(t, m, askEventMsg{event: askEvent{req: clientui.PendingPromptEvent{Question: "Proceed?", Suggestions: []string{"Yes", "No"}}, reply: reply}})
 	if got := m.inputMode(); got != uiInputModeRollbackEdit {
 		t.Fatalf("expected rollback edit to keep focus while ask is pending, got %q", got)
 	}

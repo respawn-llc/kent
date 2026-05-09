@@ -288,10 +288,72 @@ func TestRuntimeRegistrySubscribePromptActivityReplaysAllPendingPromptsBeyondBuf
 			t.Fatalf("event %d = %+v, want pending %q", i, evt, wantID)
 		}
 	}
+	evt, err := sub.Next(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot complete: %v", err)
+	}
+	if evt.Type != clientui.PendingPromptEventSnapshot {
+		t.Fatalf("expected snapshot completion event, got %+v", evt)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	if _, err := sub.Next(ctx); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected no extra replay events, got %v", err)
+	}
+}
+
+func TestRuntimeRegistrySubscribePromptActivityDeliversPromptStartedDuringInitialSubscribe(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	engine := &runtime.Engine{}
+	registry.Register("session-1", engine)
+	t.Cleanup(func() { registry.Unregister("session-1", engine) })
+
+	registry.mu.RLock()
+	entry := registry.engines["session-1"]
+	registry.mu.RUnlock()
+	if entry == nil {
+		t.Fatal("registered runtime entry not found")
+	}
+
+	promptStarted := make(chan struct{})
+	promptDone := make(chan struct{})
+	sub, err := entry.subscribePromptActivityInitial("session-1", func() {
+		go func() {
+			close(promptStarted)
+			registry.BeginPendingPrompt("session-1", askquestion.Request{ID: "ask-during-subscribe", Question: "Proceed?"})
+			close(promptDone)
+		}()
+		<-promptStarted
+		select {
+		case <-promptDone:
+			t.Fatal("prompt publish completed before initial subscription registered")
+		default:
+		}
+	})
+	if err != nil {
+		t.Fatalf("subscribePromptActivityInitial: %v", err)
+	}
+	defer func() { _ = sub.Close() }()
+
+	select {
+	case <-promptDone:
+	case <-time.After(time.Second):
+		t.Fatal("prompt publish did not complete after initial subscription registered")
+	}
+
+	snapshot, err := sub.Next(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot Next: %v", err)
+	}
+	if snapshot.Type != clientui.PendingPromptEventSnapshot {
+		t.Fatalf("first event = %+v, want snapshot completion", snapshot)
+	}
+	pending, err := sub.Next(context.Background())
+	if err != nil {
+		t.Fatalf("pending Next: %v", err)
+	}
+	if pending.Type != clientui.PendingPromptEventPending || pending.PromptID != "ask-during-subscribe" || pending.Question != "Proceed?" {
+		t.Fatalf("pending event = %+v, want ask-during-subscribe", pending)
 	}
 }
 

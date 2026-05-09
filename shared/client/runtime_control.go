@@ -16,14 +16,15 @@ type RuntimeControlClient interface {
 	AppendLocalEntry(ctx context.Context, req serverapi.RuntimeAppendLocalEntryRequest) error
 	ShouldCompactBeforeUserMessage(ctx context.Context, req serverapi.RuntimeShouldCompactBeforeUserMessageRequest) (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error)
 	SubmitUserMessage(ctx context.Context, req serverapi.RuntimeSubmitUserMessageRequest) (serverapi.RuntimeSubmitUserMessageResponse, error)
+	SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error)
 	SubmitUserShellCommand(ctx context.Context, req serverapi.RuntimeSubmitUserShellCommandRequest) error
 	CompactContext(ctx context.Context, req serverapi.RuntimeCompactContextRequest) error
 	CompactContextForPreSubmit(ctx context.Context, req serverapi.RuntimeCompactContextForPreSubmitRequest) error
 	HasQueuedUserWork(ctx context.Context, req serverapi.RuntimeHasQueuedUserWorkRequest) (serverapi.RuntimeHasQueuedUserWorkResponse, error)
 	SubmitQueuedUserMessages(ctx context.Context, req serverapi.RuntimeSubmitQueuedUserMessagesRequest) (serverapi.RuntimeSubmitQueuedUserMessagesResponse, error)
 	Interrupt(ctx context.Context, req serverapi.RuntimeInterruptRequest) error
-	QueueUserMessage(ctx context.Context, req serverapi.RuntimeQueueUserMessageRequest) error
-	DiscardQueuedUserMessagesMatching(ctx context.Context, req serverapi.RuntimeDiscardQueuedUserMessagesMatchingRequest) (serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse, error)
+	QueueUserMessage(ctx context.Context, req serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error)
+	DiscardQueuedUserMessage(ctx context.Context, req serverapi.RuntimeDiscardQueuedUserMessageRequest) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error)
 	RecordPromptHistory(ctx context.Context, req serverapi.RuntimeRecordPromptHistoryRequest) error
 	ShowGoal(ctx context.Context, req serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error)
 	SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalShowResponse, error)
@@ -97,6 +98,13 @@ func (c *loopbackRuntimeControlClient) SubmitUserMessage(ctx context.Context, re
 	return c.service.SubmitUserMessage(ctx, req)
 }
 
+func (c *loopbackRuntimeControlClient) SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
+	if c == nil || c.service == nil {
+		return serverapi.RuntimeSubmitUserTurnResponse{}, errors.New("runtime control service is required")
+	}
+	return c.service.SubmitUserTurn(ctx, req)
+}
+
 func (c *loopbackRuntimeControlClient) SubmitUserShellCommand(ctx context.Context, req serverapi.RuntimeSubmitUserShellCommandRequest) error {
 	if c == nil || c.service == nil {
 		return errors.New("runtime control service is required")
@@ -139,18 +147,18 @@ func (c *loopbackRuntimeControlClient) Interrupt(ctx context.Context, req server
 	return c.service.Interrupt(ctx, req)
 }
 
-func (c *loopbackRuntimeControlClient) QueueUserMessage(ctx context.Context, req serverapi.RuntimeQueueUserMessageRequest) error {
+func (c *loopbackRuntimeControlClient) QueueUserMessage(ctx context.Context, req serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error) {
 	if c == nil || c.service == nil {
-		return errors.New("runtime control service is required")
+		return serverapi.RuntimeQueueUserMessageResponse{}, errors.New("runtime control service is required")
 	}
 	return c.service.QueueUserMessage(ctx, req)
 }
 
-func (c *loopbackRuntimeControlClient) DiscardQueuedUserMessagesMatching(ctx context.Context, req serverapi.RuntimeDiscardQueuedUserMessagesMatchingRequest) (serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse, error) {
+func (c *loopbackRuntimeControlClient) DiscardQueuedUserMessage(ctx context.Context, req serverapi.RuntimeDiscardQueuedUserMessageRequest) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
 	if c == nil || c.service == nil {
-		return serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse{}, errors.New("runtime control service is required")
+		return serverapi.RuntimeDiscardQueuedUserMessageResponse{}, errors.New("runtime control service is required")
 	}
-	return c.service.DiscardQueuedUserMessagesMatching(ctx, req)
+	return c.service.DiscardQueuedUserMessage(ctx, req)
 }
 
 func (c *loopbackRuntimeControlClient) RecordPromptHistory(ctx context.Context, req serverapi.RuntimeRecordPromptHistoryRequest) error {

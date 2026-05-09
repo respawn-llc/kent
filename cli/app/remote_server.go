@@ -106,6 +106,13 @@ func (s *remoteAppServer) AuthManager() *auth.Manager {
 	return nil
 }
 
+func (s *remoteAppServer) AuthBootstrapClient() client.AuthBootstrapClient {
+	if s == nil {
+		return nil
+	}
+	return s.remote
+}
+
 func (s *remoteAppServer) AuthStatusClient() client.AuthStatusClient {
 	if s == nil {
 		return nil

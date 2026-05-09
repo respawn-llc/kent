@@ -51,7 +51,6 @@ func (r uiWorktreeFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 			m.syncViewport()
 			return handledUIFeatureUpdate(m, m.ensureSpinnerTicking())
 		}
-		m.applyExecutionTargetChange(msg.resp.Target)
 		var overlayCmd tea.Cmd
 		if m.worktrees.isOpen() {
 			overlayCmd = m.popWorktreeOverlayIfNeeded()
@@ -80,7 +79,6 @@ func (r uiWorktreeFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 			m.syncViewport()
 			return handledUIFeatureUpdate(m, m.ensureSpinnerTicking())
 		}
-		m.applyExecutionTargetChange(msg.resp.Target)
 		var overlayCmd tea.Cmd
 		if m.worktrees.isOpen() {
 			overlayCmd = m.popWorktreeOverlayIfNeeded()
@@ -106,7 +104,6 @@ func (r uiWorktreeFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 			m.syncViewport()
 			return handledUIFeatureUpdate(m, m.ensureSpinnerTicking())
 		}
-		m.applyExecutionTargetChange(msg.resp.Target)
 		var listCmd tea.Cmd
 		if m.worktrees.isOpen() {
 			m.closeWorktreeDialog()

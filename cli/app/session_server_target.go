@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"builder/server/auth"
+	serverbootstrap "builder/server/bootstrap"
 	"builder/server/serve"
 	"builder/shared/client"
 	"builder/shared/config"
@@ -140,13 +141,23 @@ func loadSessionServerConfig(opts Options) (config.App, error) {
 	if err != nil {
 		return config.App{}, err
 	}
-	return config.Load(workspaceRoot, config.LoadOptions{
-		Model:               opts.Model,
-		ProviderOverride:    opts.ProviderOverride,
-		ThinkingLevel:       opts.ThinkingLevel,
-		Theme:               opts.Theme,
-		ModelTimeoutSeconds: opts.ModelTimeoutSeconds,
-		Tools:               opts.Tools,
-		OpenAIBaseURL:       opts.OpenAIBaseURL,
+	plan, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{
+		WorkspaceRoot:         workspaceRoot,
+		WorkspaceRootExplicit: opts.WorkspaceRootExplicit,
+		SessionID:             opts.SessionID,
+		OpenAIBaseURL:         opts.OpenAIBaseURL,
+		OpenAIBaseURLExplicit: opts.OpenAIBaseURLExplicit,
+		LoadOptions: config.LoadOptions{
+			Model:               opts.Model,
+			ProviderOverride:    opts.ProviderOverride,
+			ThinkingLevel:       opts.ThinkingLevel,
+			Theme:               opts.Theme,
+			ModelTimeoutSeconds: opts.ModelTimeoutSeconds,
+			Tools:               opts.Tools,
+		},
 	})
+	if err != nil {
+		return config.App{}, err
+	}
+	return plan.Config, nil
 }

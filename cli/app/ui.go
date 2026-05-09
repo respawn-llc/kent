@@ -9,8 +9,8 @@ import (
 
 	"builder/cli/app/commands"
 	"builder/cli/tui"
+	"builder/server/processview"
 	"builder/server/session"
-	"builder/server/tools/askquestion"
 	shelltool "builder/server/tools/shell"
 	"builder/shared/client"
 	"builder/shared/clientui"
@@ -39,13 +39,6 @@ func newSubmitDoneMsg(token uint64, message string, submittedText string, err er
 	}
 }
 
-type preSubmitCompactionCheckDoneMsg struct {
-	token         uint64
-	text          string
-	shouldCompact bool
-	err           error
-}
-
 type promptHistoryPersistErrMsg struct {
 	err error
 }
@@ -54,11 +47,15 @@ type compactDoneMsg struct {
 	err error
 }
 
+// Active submit is the in-flight turn only. uiModel.queued stores future work;
+// never mirror active submit there or it can run again after completion.
 type activeSubmitState struct {
-	token   uint64
-	stepID  string
-	text    string
-	flushed bool
+	token              uint64
+	stepID             string
+	text               string
+	queuedID           string
+	restoreOnInterrupt bool
+	flushed            bool
 }
 
 type spinnerTickMsg struct {
@@ -198,7 +195,7 @@ type clipboardTextCopyDoneMsg struct {
 }
 
 type askEvent struct {
-	req              askquestion.Request
+	req              clientui.PendingPromptEvent
 	reply            chan askReply
 	cancel           func()
 	resolvedPromptID string
@@ -208,7 +205,7 @@ func (e askEvent) promptID() string {
 	if strings.TrimSpace(e.resolvedPromptID) != "" {
 		return strings.TrimSpace(e.resolvedPromptID)
 	}
-	return strings.TrimSpace(e.req.ID)
+	return strings.TrimSpace(e.req.PromptID)
 }
 
 func (e askEvent) isResolution() bool {
@@ -222,16 +219,12 @@ func (e askEvent) cancelPending() {
 }
 
 type askReply struct {
-	response askquestion.Response
+	response clientui.PromptAnswer
 	err      error
 }
 
 type askEventMsg struct {
 	event askEvent
-}
-
-type askBridge struct {
-	ch chan askEvent
 }
 
 type uiStatusNoticeKind uint8
@@ -262,31 +255,32 @@ type uiLogger interface {
 
 type UIOption func(*uiModel)
 
-type UIAction string
+type UIAction = serverapi.SessionTransitionAction
 
 type UITranscriptEntry struct {
-	Role string
-	Text string
+	Role             string
+	Text             string
+	RollbackTargetID string
 }
 
 type UITransition struct {
-	Action                   UIAction
-	InitialPrompt            string
-	InitialInput             string
-	TargetSessionID          string
-	ForkUserMessageIndex     int
-	ForkTranscriptEntryIndex int
-	ParentSessionID          string
+	Action               serverapi.SessionTransitionAction
+	Exit                 bool
+	InitialPrompt        string
+	InitialInput         string
+	TargetSessionID      string
+	ForkRollbackTargetID string
+	ParentSessionID      string
 }
 
 const (
-	UIActionNone         UIAction = "none"
+	UIActionNone         UIAction = serverapi.SessionTransitionActionNone
 	UIActionExit         UIAction = "exit"
-	UIActionNewSession   UIAction = "new_session"
-	UIActionResume       UIAction = "resume"
-	UIActionLogout       UIAction = "logout"
-	UIActionForkRollback UIAction = "fork_rollback"
-	UIActionOpenSession  UIAction = "open_session"
+	UIActionNewSession   UIAction = serverapi.SessionTransitionActionNewSession
+	UIActionResume       UIAction = serverapi.SessionTransitionActionResume
+	UIActionLogout       UIAction = serverapi.SessionTransitionActionLogout
+	UIActionForkRollback UIAction = serverapi.SessionTransitionActionForkRollback
+	UIActionOpenSession  UIAction = serverapi.SessionTransitionActionOpenSession
 )
 
 var nativeResizeReplayDebounce = time.Second
@@ -429,9 +423,14 @@ func WithUISessionID(sessionID string) UIOption {
 
 func WithUIBackgroundManager(manager *shelltool.Manager) UIOption {
 	return func(m *uiModel) {
-		if !m.processClientExplicit {
-			m.processClient = newUIProcessClient(manager)
+		if manager == nil || m.processClientExplicit {
+			return
 		}
+		processes := processview.NewService(manager)
+		m.processClient = newUIProcessClientWithReads(
+			client.NewLoopbackProcessViewClient(processes),
+			client.NewLoopbackProcessControlClient(processes),
+		)
 	}
 }
 
@@ -486,21 +485,6 @@ func WithUIClipboardTextCopier(copier uiClipboardTextCopier) UIOption {
 	}
 }
 
-func newAskBridge() *askBridge {
-	return &askBridge{ch: make(chan askEvent, 64)}
-}
-
-func (b *askBridge) Events() <-chan askEvent {
-	return b.ch
-}
-
-func (b *askBridge) Handle(req askquestion.Request) (askquestion.Response, error) {
-	e := askEvent{req: req, reply: make(chan askReply, 1)}
-	b.ch <- e
-	resp := <-e.reply
-	return resp.response, resp.err
-}
-
 func (m *uiModel) isInputLocked() bool {
 	return m.inputSubmitLocked
 }
@@ -515,8 +499,9 @@ func (m *uiModel) invalidateNativeResizeReplay() {
 }
 
 type rollbackCandidate struct {
-	TranscriptIndex int
-	Text            string
+	TranscriptIndex  int
+	RollbackTargetID string
+	Text             string
 }
 
 func newUIModelDefaults(runtimeClient clientui.RuntimeClient, runtimeEvents <-chan clientui.Event, askEvents <-chan askEvent) *uiModel {
@@ -570,8 +555,7 @@ func newUIConversationFeatureState() uiConversationFeatureState {
 
 func newUISessionTransitionFeatureState() uiSessionTransitionFeatureState {
 	return uiSessionTransitionFeatureState{
-		exitAction:                   UIActionNone,
-		nextForkTranscriptEntryIndex: -1,
+		exitAction: UIActionNone,
 	}
 }
 
@@ -640,7 +624,7 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, runtimeEvents <-c
 				continue
 			}
 			role := tui.TranscriptRoleFromWire(entry.Role)
-			m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{Role: role, Text: entry.Text})
+			m.transcriptEntries = append(m.transcriptEntries, tui.TranscriptEntry{Role: role, Text: entry.Text, RollbackTargetID: entry.RollbackTargetID})
 			m.forwardToView(tui.AppendTranscriptMsg{Role: role, Text: entry.Text})
 		}
 		m.transcriptBaseOffset = 0
@@ -927,14 +911,19 @@ func (m *uiModel) Close() {
 }
 
 func (m *uiModel) Transition() UITransition {
+	if m.exitAction == UIActionExit {
+		return UITransition{
+			Action: serverapi.SessionTransitionActionNone,
+			Exit:   true,
+		}
+	}
 	return UITransition{
-		Action:                   m.exitAction,
-		InitialPrompt:            m.nextSessionInitialPrompt,
-		InitialInput:             m.nextSessionInitialInput,
-		TargetSessionID:          strings.TrimSpace(m.nextSessionID),
-		ForkUserMessageIndex:     m.nextForkUserMessageIndex,
-		ForkTranscriptEntryIndex: m.nextForkTranscriptEntryIndex,
-		ParentSessionID:          strings.TrimSpace(m.nextParentSessionID),
+		Action:               m.exitAction,
+		InitialPrompt:        m.nextSessionInitialPrompt,
+		InitialInput:         m.nextSessionInitialInput,
+		TargetSessionID:      strings.TrimSpace(m.nextSessionID),
+		ForkRollbackTargetID: m.nextForkRollbackTargetID,
+		ParentSessionID:      strings.TrimSpace(m.nextParentSessionID),
 	}
 }
 

@@ -131,6 +131,11 @@ func (c *Remote) ResolveProjectPath(ctx context.Context, req serverapi.ProjectRe
 	return resp, c.callUnscoped(ctx, protocol.MethodProjectResolvePath, req, &resp)
 }
 
+func (c *Remote) PlanWorkspaceBinding(ctx context.Context, req serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+	var resp serverapi.ProjectBindingPlanResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodProjectPlanWorkspaceBinding, req, &resp)
+}
+
 func (c *Remote) CreateProject(ctx context.Context, req serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
 	var resp serverapi.ProjectCreateResponse
 	return resp, c.callUnscoped(ctx, protocol.MethodProjectCreate, req, &resp)
@@ -273,6 +278,11 @@ func (c *Remote) SubmitUserMessage(ctx context.Context, req serverapi.RuntimeSub
 	return resp, c.callDedicated(ctx, "runtime-submit-user-message", protocol.MethodRuntimeSubmitUserMessage, req, &resp)
 }
 
+func (c *Remote) SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
+	var resp serverapi.RuntimeSubmitUserTurnResponse
+	return resp, c.callDedicated(ctx, "runtime-submit-user-turn", protocol.MethodRuntimeSubmitUserTurn, req, &resp)
+}
+
 func (c *Remote) SubmitUserShellCommand(ctx context.Context, req serverapi.RuntimeSubmitUserShellCommandRequest) error {
 	return c.callDedicated(ctx, "runtime-submit-user-shell-command", protocol.MethodRuntimeSubmitUserShellCommand, req, nil)
 }
@@ -299,13 +309,14 @@ func (c *Remote) Interrupt(ctx context.Context, req serverapi.RuntimeInterruptRe
 	return c.callDedicated(ctx, "runtime-interrupt", protocol.MethodRuntimeInterrupt, req, nil)
 }
 
-func (c *Remote) QueueUserMessage(ctx context.Context, req serverapi.RuntimeQueueUserMessageRequest) error {
-	return c.call(ctx, protocol.MethodRuntimeQueueUserMessage, req, nil)
+func (c *Remote) QueueUserMessage(ctx context.Context, req serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error) {
+	var resp serverapi.RuntimeQueueUserMessageResponse
+	return resp, c.call(ctx, protocol.MethodRuntimeQueueUserMessage, req, &resp)
 }
 
-func (c *Remote) DiscardQueuedUserMessagesMatching(ctx context.Context, req serverapi.RuntimeDiscardQueuedUserMessagesMatchingRequest) (serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse, error) {
-	var resp serverapi.RuntimeDiscardQueuedUserMessagesMatchingResponse
-	return resp, c.call(ctx, protocol.MethodRuntimeDiscardQueuedUserMessagesMatching, req, &resp)
+func (c *Remote) DiscardQueuedUserMessage(ctx context.Context, req serverapi.RuntimeDiscardQueuedUserMessageRequest) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
+	var resp serverapi.RuntimeDiscardQueuedUserMessageResponse
+	return resp, c.call(ctx, protocol.MethodRuntimeDiscardQueuedUserMessage, req, &resp)
 }
 
 func (c *Remote) RecordPromptHistory(ctx context.Context, req serverapi.RuntimeRecordPromptHistoryRequest) error {

@@ -13,6 +13,7 @@ import (
 	"builder/server/auth"
 	"builder/server/llm"
 	"builder/server/runtime"
+	"builder/server/runtimewire"
 	"builder/server/session"
 	"builder/server/tools"
 	"builder/server/tools/askquestion"
@@ -295,15 +296,12 @@ func TestNewRuntimeWiring_ProviderOverrideSupportsAliasModelsForMainAndReviewer(
 	}
 	defer logger.Close()
 
-	wiring, err := newRuntimeWiring(store, active, config.EnabledToolIDs(active), workspace, authMgr, logger, runtimeWiringOptions{})
+	wiring, err := runtimewire.NewRuntimeWiring(store, active, config.EnabledToolIDs(active), workspace, authMgr, logger, runtimewire.RuntimeWiringOptions{})
 	if err != nil {
 		t.Fatalf("new runtime wiring: %v", err)
 	}
-	if wiring == nil || wiring.engine == nil {
+	if wiring == nil || wiring.Engine == nil {
 		t.Fatal("expected runtime wiring with engine")
-	}
-	if wiring.turnQueueHook == nil {
-		t.Fatal("expected runtime wiring to install turn queue hook")
 	}
 }
 
@@ -335,29 +333,12 @@ func TestNewRuntimeWiring_ReviewerProviderCanUseLocalAnonymousModel(t *testing.T
 	}
 	defer logger.Close()
 
-	wiring, err := newRuntimeWiring(store, active, config.EnabledToolIDs(active), workspace, authMgr, logger, runtimeWiringOptions{})
+	wiring, err := runtimewire.NewRuntimeWiring(store, active, config.EnabledToolIDs(active), workspace, authMgr, logger, runtimewire.RuntimeWiringOptions{})
 	if err != nil {
 		t.Fatalf("new runtime wiring: %v", err)
 	}
-	if wiring == nil || wiring.engine == nil {
+	if wiring == nil || wiring.Engine == nil {
 		t.Fatal("expected runtime wiring with engine")
-	}
-}
-
-func TestRuntimeWiringCloseDoesNotCloseSharedBackgroundManager(t *testing.T) {
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(20 * time.Millisecond))
-	if err != nil {
-		t.Fatalf("new manager: %v", err)
-	}
-	t.Cleanup(func() { _ = manager.Close() })
-
-	wiring := &runtimeWiring{background: manager}
-	if err := wiring.Close(); err != nil {
-		t.Fatalf("close wiring: %v", err)
-	}
-
-	if _, _, _, err := buildToolRegistry(t.TempDir(), "", []toolspec.ID{toolspec.ToolExecCommand}, 15*time.Second, 16_000, false, true, nil, manager); err != nil {
-		t.Fatalf("expected shared background manager to remain usable after wiring close: %v", err)
 	}
 }
 

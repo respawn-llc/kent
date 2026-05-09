@@ -12,6 +12,7 @@ import (
 // UI projections cannot survive when only metadata changed.
 type EntryPayload struct {
 	Visibility        EntryVisibility
+	RollbackTargetID  string
 	Role              string
 	Text              string
 	OngoingText       string
@@ -28,6 +29,7 @@ type EntryPayload struct {
 // overlap, page replacement, and stale-page checks.
 func EntryPayloadEqual(left, right EntryPayload) bool {
 	return NormalizeEntryVisibility(left.Visibility) == NormalizeEntryVisibility(right.Visibility) &&
+		strings.TrimSpace(left.RollbackTargetID) == strings.TrimSpace(right.RollbackTargetID) &&
 		NormalizeEntryRole(left.Role) == NormalizeEntryRole(right.Role) &&
 		left.Text == right.Text &&
 		left.OngoingText == right.OngoingText &&

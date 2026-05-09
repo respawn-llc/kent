@@ -849,10 +849,10 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 	}()
 	waitForPendingAskResources(t, server.AskViewClient(), plan.SessionID, 1)
 	askEvt := waitForRemoteAskEvent(t, runtimePlan.Wiring.askEvents)
-	if askEvt.req.ID != "ask-1" || askEvt.req.Question != "Pick one" {
+	if askEvt.req.PromptID != "ask-1" || askEvt.req.Question != "Pick one" {
 		t.Fatalf("unexpected ask event: %+v", askEvt.req)
 	}
-	askEvt.reply <- askReply{response: askquestion.Response{RequestID: askEvt.req.ID, SelectedOptionNumber: 2}}
+	askEvt.reply <- askReply{response: clientui.PromptAnswer{PromptID: askEvt.req.PromptID, SelectedOptionNumber: 2}}
 	select {
 	case result := <-askDone:
 		if result.err != nil {
@@ -884,10 +884,10 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 	}()
 	waitForPendingApprovalResources(t, server.ApprovalViewClient(), plan.SessionID, 1)
 	approvalEvt := waitForRemoteAskEvent(t, runtimePlan.Wiring.askEvents)
-	if !approvalEvt.req.Approval || approvalEvt.req.ID != "approval-1" {
+	if !approvalEvt.req.Approval || approvalEvt.req.PromptID != "approval-1" {
 		t.Fatalf("unexpected approval event: %+v", approvalEvt.req)
 	}
-	approvalEvt.reply <- askReply{response: askquestion.Response{RequestID: approvalEvt.req.ID, Approval: &askquestion.ApprovalPayload{Decision: askquestion.ApprovalDecisionAllowOnce, Commentary: "trusted"}}}
+	approvalEvt.reply <- askReply{response: clientui.PromptAnswer{PromptID: approvalEvt.req.PromptID, Approval: &clientui.ApprovalPromptAnswer{Decision: clientui.ApprovalDecisionAllowOnce, Commentary: "trusted"}}}
 	select {
 	case result := <-approvalDone:
 		if result.err != nil {

@@ -14,9 +14,11 @@ import (
 	"time"
 
 	"builder/server/auth"
+	"builder/server/launch"
 	"builder/server/primaryrun"
 	"builder/server/registry"
 	"builder/server/session"
+	"builder/server/sessionlaunch"
 	"builder/shared/config"
 	"builder/shared/serverapi"
 	"builder/shared/testopenai"
@@ -49,6 +51,13 @@ func (s *stubRunPromptService) CallCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.calls
+}
+
+func newTestHeadlessSessionLaunch(cfg config.App, containerDir string, authManager *auth.Manager) *sessionlaunch.Service {
+	return sessionlaunch.NewService(launch.Planner{
+		Config:       cfg,
+		ContainerDir: containerDir,
+	}, registry.NewSessionStoreRegistry()).WithAuthStateReader(authManager)
 }
 
 func TestGuardingPromptServiceRejectsConcurrentSelectedSessionRun(t *testing.T) {
@@ -152,17 +161,17 @@ func TestLoopbackRunPromptClientUsesSelectedSessionContinuationContext(t *testin
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
 	}), nil, time.Now)
 
-	client := NewLoopbackRunPromptClient(HeadlessBootstrap{
-		Config: config.App{
-			WorkspaceRoot:   "/tmp/workspace-a",
-			PersistenceRoot: root,
-			Settings: config.Settings{
-				Model:         "gpt-5",
-				OpenAIBaseURL: "http://wrong.invalid",
-			},
+	cfg := config.App{
+		WorkspaceRoot:   "/tmp/workspace-a",
+		PersistenceRoot: root,
+		Settings: config.Settings{
+			Model:         "gpt-5",
+			OpenAIBaseURL: "http://wrong.invalid",
 		},
-		ContainerDir: containerDir,
-		AuthManager:  authManager,
+	}
+	client := NewLoopbackRunPromptClient(HeadlessBootstrap{
+		SessionLaunch: newTestHeadlessSessionLaunch(cfg, containerDir, authManager),
+		AuthManager:   authManager,
 	})
 
 	response, err := client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
@@ -198,13 +207,13 @@ func TestLoopbackRunPromptClientRejectsSelectedSessionWithGoal(t *testing.T) {
 		t.Fatalf("EnsureDurable: %v", err)
 	}
 
+	cfg := config.App{
+		WorkspaceRoot:   "/tmp/workspace-a",
+		PersistenceRoot: root,
+		Settings:        config.Settings{Model: "gpt-5"},
+	}
 	client := NewLoopbackRunPromptClient(HeadlessBootstrap{
-		Config: config.App{
-			WorkspaceRoot:   "/tmp/workspace-a",
-			PersistenceRoot: root,
-			Settings:        config.Settings{Model: "gpt-5"},
-		},
-		ContainerDir: containerDir,
+		SessionLaunch: newTestHeadlessSessionLaunch(cfg, containerDir, nil),
 	})
 
 	_, err = client.RunPrompt(context.Background(), serverapi.RunPromptRequest{
@@ -247,19 +256,20 @@ func TestLoopbackRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T) 
 	defer server.Close()
 
 	runtimes := registry.NewRuntimeRegistry()
-	client := NewLoopbackRunPromptClient(HeadlessBootstrap{
-		Config: config.App{
-			WorkspaceRoot:   "/tmp/workspace-a",
-			PersistenceRoot: root,
-			Settings: config.Settings{
-				Model:         "gpt-5",
-				OpenAIBaseURL: server.URL,
-			},
+	authManager := auth.NewManager(auth.NewMemoryStore(auth.State{
+		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
+	}), nil, time.Now)
+	cfg := config.App{
+		WorkspaceRoot:   "/tmp/workspace-a",
+		PersistenceRoot: root,
+		Settings: config.Settings{
+			Model:         "gpt-5",
+			OpenAIBaseURL: server.URL,
 		},
-		ContainerDir: containerDir,
-		AuthManager: auth.NewManager(auth.NewMemoryStore(auth.State{
-			Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-		}), nil, time.Now),
+	}
+	client := NewLoopbackRunPromptClient(HeadlessBootstrap{
+		SessionLaunch:   newTestHeadlessSessionLaunch(cfg, containerDir, authManager),
+		AuthManager:     authManager,
 		RuntimeRegistry: runtimes,
 	})
 
@@ -330,18 +340,18 @@ func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
 		Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
 	}), nil, time.Now)
 
-	client := NewLoopbackRunPromptClient(HeadlessBootstrap{
-		Config: config.App{
-			WorkspaceRoot:   "/tmp/workspace-a",
-			PersistenceRoot: root,
-			Settings: config.Settings{
-				Model:         "base-model",
-				OpenAIBaseURL: server.URL,
-				EnabledTools:  map[toolspec.ID]bool{toolspec.ToolPatch: true},
-			},
+	cfg := config.App{
+		WorkspaceRoot:   "/tmp/workspace-a",
+		PersistenceRoot: root,
+		Settings: config.Settings{
+			Model:         "base-model",
+			OpenAIBaseURL: server.URL,
+			EnabledTools:  map[toolspec.ID]bool{toolspec.ToolPatch: true},
 		},
-		ContainerDir: containerDir,
-		AuthManager:  authManager,
+	}
+	client := NewLoopbackRunPromptClient(HeadlessBootstrap{
+		SessionLaunch: newTestHeadlessSessionLaunch(cfg, containerDir, authManager),
+		AuthManager:   authManager,
 	})
 
 	response, err := client.RunPrompt(context.Background(), serverapi.RunPromptRequest{

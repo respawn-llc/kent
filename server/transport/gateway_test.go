@@ -10,6 +10,7 @@ import (
 	remoteclient "builder/shared/client"
 	"builder/shared/config"
 	"builder/shared/protocol"
+	"builder/shared/rpccontract"
 	"builder/shared/rpcwire"
 	"builder/shared/serverapi"
 	"context"
@@ -311,6 +312,7 @@ func TestGatewayPreAuthMethodPolicy(t *testing.T) {
 		{name: "bootstrap status", method: protocol.MethodAuthGetBootstrapStatus, requiresAuth: false},
 		{name: "bootstrap complete", method: protocol.MethodAuthCompleteBootstrap, requiresAuth: false},
 		{name: "project list", method: protocol.MethodProjectList, requiresAuth: false},
+		{name: "project binding plan", method: protocol.MethodProjectPlanWorkspaceBinding, requiresAuth: false},
 		{name: "project attach workspace", method: protocol.MethodProjectAttachWorkspace, requiresAuth: true},
 		{name: "attach project", method: protocol.MethodAttachProject, requiresAuth: false},
 		{name: "attach session", method: protocol.MethodAttachSession, requiresAuth: false},
@@ -330,6 +332,49 @@ func TestGatewayPreAuthMethodPolicy(t *testing.T) {
 				t.Fatalf("methodRequiresServerAuth(%q) = %t, want %t", tt.method, got, tt.requiresAuth)
 			}
 		})
+	}
+}
+
+func TestGatewaySubscriptionHandlersCoverRouteContract(t *testing.T) {
+	for _, route := range rpccontract.Routes() {
+		if route.Kind != rpccontract.KindSubscription {
+			continue
+		}
+		if _, ok := gatewaySubscriptionHandlers[route.Method]; !ok {
+			t.Fatalf("subscription route %q missing gateway handler", route.Method)
+		}
+		if !isSubscriptionMethod(route.Method) {
+			t.Fatalf("subscription route %q not classified as subscription", route.Method)
+		}
+	}
+	for method := range gatewaySubscriptionHandlers {
+		route, ok := rpccontract.RouteByMethod(method)
+		if !ok {
+			t.Fatalf("gateway subscription handler %q missing route contract", method)
+		}
+		if route.Kind != rpccontract.KindSubscription {
+			t.Fatalf("gateway subscription handler %q route kind = %q, want subscription", method, route.Kind)
+		}
+	}
+}
+
+func TestGatewayProgressHandlersCoverRouteContract(t *testing.T) {
+	for _, route := range rpccontract.Routes() {
+		if route.Kind != rpccontract.KindProgress {
+			continue
+		}
+		if _, ok := gatewayProgressHandlers[route.Method]; !ok {
+			t.Fatalf("progress route %q missing gateway handler", route.Method)
+		}
+	}
+	for method := range gatewayProgressHandlers {
+		route, ok := rpccontract.RouteByMethod(method)
+		if !ok {
+			t.Fatalf("gateway progress handler %q missing route contract", method)
+		}
+		if route.Kind != rpccontract.KindProgress {
+			t.Fatalf("gateway progress handler %q route kind = %q, want progress", method, route.Kind)
+		}
 	}
 }
 
@@ -379,8 +424,8 @@ func TestGatewayAuthBootstrapStatusAllowedBeforeAttach(t *testing.T) {
 	if !containsString(status.AllowedPreAuthMethods, protocol.MethodAuthCompleteBootstrap) {
 		t.Fatalf("allowed pre-auth methods = %+v, want %q", status.AllowedPreAuthMethods, protocol.MethodAuthCompleteBootstrap)
 	}
-	if !sameStringSet(status.AllowedPreAuthMethods, protocol.AllowedPreAuthMethods()) {
-		t.Fatalf("allowed pre-auth methods = %+v, want %+v", status.AllowedPreAuthMethods, protocol.AllowedPreAuthMethods())
+	if !sameStringSet(status.AllowedPreAuthMethods, rpccontract.AllowedPreAuthMethods()) {
+		t.Fatalf("allowed pre-auth methods = %+v, want %+v", status.AllowedPreAuthMethods, rpccontract.AllowedPreAuthMethods())
 	}
 }
 

@@ -4,11 +4,10 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
-	"time"
 
-	"builder/server/auth"
 	"builder/server/llm"
 	"builder/server/session"
+	"builder/shared/serverapi"
 )
 
 func TestInitialInputPrefersPersistedDraft(t *testing.T) {
@@ -55,7 +54,7 @@ func TestResolveForkRollbackCreatesForkedSession(t *testing.T) {
 	resolved, err := Resolve(context.Background(), ResolveRequest{
 		Store: store,
 		Transition: Transition{
-			Action:               ActionForkRollback,
+			Action:               serverapi.SessionTransitionActionForkRollback,
 			InitialPrompt:        "edited user message",
 			ForkUserMessageIndex: 2,
 		},
@@ -78,37 +77,5 @@ func TestResolveForkRollbackCreatesForkedSession(t *testing.T) {
 	}
 	if got := child.Meta().Name; got != "parent \u2192 edit u2" {
 		t.Fatalf("forked session name = %q", got)
-	}
-}
-
-func TestResolveLogoutClearsMethodAndRequiresReauth(t *testing.T) {
-	mgr := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "sk-before"},
-		},
-	}), nil, time.Now)
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-
-	resolved, err := Resolve(context.Background(), ResolveRequest{Store: store, AuthManager: mgr, Transition: Transition{Action: ActionLogout}})
-	if err != nil {
-		t.Fatalf("resolve logout: %v", err)
-	}
-	if !resolved.ShouldContinue || !resolved.RequiresReauth {
-		t.Fatalf("unexpected logout resolution: %+v", resolved)
-	}
-	if resolved.NextSessionID != store.Meta().SessionID {
-		t.Fatalf("expected same session id after logout, got %q", resolved.NextSessionID)
-	}
-	state, err := mgr.Load(context.Background())
-	if err != nil {
-		t.Fatalf("load auth state: %v", err)
-	}
-	if state.IsConfigured() {
-		t.Fatalf("expected cleared auth state, got %+v", state.Method)
 	}
 }

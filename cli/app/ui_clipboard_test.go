@@ -7,7 +7,6 @@ import (
 
 	"builder/cli/tui"
 	"builder/server/llm"
-	"builder/server/tools/askquestion"
 	"builder/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -366,7 +365,7 @@ func TestClipboardImagePasteSkipsSlashPickerNavigationReplacement(t *testing.T) 
 func TestCtrlDClipboardImagePasteInsertsIntoAskFreeform(t *testing.T) {
 	paster := &stubClipboardImagePaster{path: "/tmp/builder-clipboard-ask.png"}
 	m := newProjectedStaticUIModel(WithUIClipboardImagePaster(paster))
-	testSetActiveAsk(m, &askEvent{req: askquestion.Request{Question: "Add context?"}})
+	testSetActiveAsk(m, &askEvent{req: clientui.PendingPromptEvent{Question: "Add context?"}})
 	m.ask.freeform = true
 	testSetAskInput(m, "image: ")
 	testSetAskInputCursor(m, len([]rune(testAskInput(m))))
@@ -393,7 +392,7 @@ func TestCtrlDClipboardImagePasteInsertsIntoAskFreeform(t *testing.T) {
 func TestClipboardImagePasteSkipsDismissedAsk(t *testing.T) {
 	paster := &stubClipboardImagePaster{path: "/tmp/builder-clipboard-ask.png"}
 	m := newProjectedStaticUIModel(WithUIClipboardImagePaster(paster))
-	testSetActiveAsk(m, &askEvent{req: askquestion.Request{Question: "Add context?"}})
+	testSetActiveAsk(m, &askEvent{req: clientui.PendingPromptEvent{Question: "Add context?"}})
 	m.ask.freeform = true
 	testSetAskInput(m, "image: ")
 	testSetAskInputCursor(m, len([]rune(testAskInput(m))))
@@ -423,7 +422,7 @@ func TestClipboardImagePasteSkipsReplacedAsk(t *testing.T) {
 	paster := &stubClipboardImagePaster{path: "/tmp/builder-clipboard-ask.png"}
 	m := newProjectedStaticUIModel(WithUIClipboardImagePaster(paster))
 	controller := uiAskController{model: m}
-	controller.setActiveAsk(askEvent{req: askquestion.Request{Question: "Ask A?"}})
+	controller.setActiveAsk(askEvent{req: clientui.PendingPromptEvent{Question: "Ask A?"}})
 	m.ask.freeform = true
 	testSetAskInput(m, "A: ")
 	testSetAskInputCursor(m, len([]rune(testAskInput(m))))
@@ -435,7 +434,7 @@ func TestClipboardImagePasteSkipsReplacedAsk(t *testing.T) {
 	}
 
 	controller = uiAskController{model: updated}
-	controller.setActiveAsk(askEvent{req: askquestion.Request{Question: "Ask B?"}})
+	controller.setActiveAsk(askEvent{req: clientui.PendingPromptEvent{Question: "Ask B?"}})
 	updated.ask.freeform = true
 	testSetAskInput(updated, "B: ")
 	testSetAskInputCursor(updated, len([]rune(testAskInput(updated))))

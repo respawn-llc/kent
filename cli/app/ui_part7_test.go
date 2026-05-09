@@ -28,7 +28,7 @@ func TestHydrationCompletionKeepsDeferredQueuedDrainArmedUntilUnrelatedBusyState
 	m.startupCmds = nil
 	m.busy = true
 	m.activity = uiActivityRunning
-	m.queued = []string{"follow up"}
+	m.queued = queuedInputsForTest("follow up")
 	m.runtimeTranscriptBusy = true
 	m.runtimeTranscriptToken = 7
 
@@ -68,7 +68,7 @@ func TestHydrationCompletionKeepsDeferredQueuedDrainArmedUntilUnrelatedBusyState
 	if updated.queuedDrainReadyAfterHydration == false {
 		t.Fatal("expected hydration completion to mark queued drain ready even when unrelated busy state blocks auto-drain")
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "follow up" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
 		t.Fatalf("expected queued follow-up preserved while unrelated busy state blocks auto-drain, got %+v", updated.queued)
 	}
 
@@ -80,18 +80,18 @@ func TestHydrationCompletionKeepsDeferredQueuedDrainArmedUntilUnrelatedBusyState
 	if updated.pendingQueuedDrainAfterHydration {
 		t.Fatal("expected deferred queued drain cleared once unrelated busy state clears and auto-drain starts")
 	}
-	if updated.pendingPreSubmitText != "follow up" {
-		t.Fatalf("expected queued follow-up to enter runtime pre-submit flow after unrelated busy state clears, got %q", updated.pendingPreSubmitText)
+	if updated.activeSubmit.text != "follow up" {
+		t.Fatalf("expected queued follow-up to submit after unrelated busy state clears, got %q", updated.activeSubmit.text)
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "follow up" {
-		t.Fatalf("expected runtime pre-submit flow to own the queued follow-up after unrelated busy state clears, got %+v", updated.queued)
+	if len(updated.queued) != 0 {
+		t.Fatalf("expected active queued follow-up removed from visible queue after submit starts, got %+v", updated.queued)
 	}
 	if idleCmd == nil {
 		t.Fatal("expected queued follow-up command sequence after unrelated busy state clears")
 	}
 	_ = collectCmdMessages(t, idleCmd)
-	if client.shouldCompactCalls != 1 {
-		t.Fatalf("expected exactly one pre-submit check after unrelated busy state clears, got %d", client.shouldCompactCalls)
+	if client.submitText != "follow up" {
+		t.Fatalf("expected queued follow-up submit after unrelated busy state clears, got %q", client.submitText)
 	}
 }
 
@@ -103,7 +103,7 @@ func TestBusyQueuedUnknownSlashDrainsAsPromptSubmission(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
-	if len(updated.queued) != 1 || updated.queued[0] != "/nope queued" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "/nope queued" {
 		t.Fatalf("expected unknown slash text queued verbatim, got %+v", updated.queued)
 	}
 	if updated.sessionName != "" {
@@ -150,7 +150,7 @@ func TestAutoDrainStopsAfterQueuedPSInlineAppendsToInput(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIBackgroundManager(manager))
 	m.busy = true
 	m.activity = uiActivityRunning
-	m.queued = []string{"/ps inline " + res.SessionID, "summarize this"}
+	m.queued = queuedInputsForTest("/ps inline "+res.SessionID, "summarize this")
 
 	next, cmd := m.Update(submitDoneMsg{})
 	updated := next.(*uiModel)
@@ -167,7 +167,7 @@ func TestAutoDrainStopsAfterQueuedPSInlineAppendsToInput(t *testing.T) {
 	if !strings.Contains(updated.input, "queued-inline") {
 		t.Fatalf("expected pasted shell transcript content in input, got %q", updated.input)
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "summarize this" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "summarize this" {
 		t.Fatalf("expected follow-up prompt to remain queued after inline paste, got %+v", updated.queued)
 	}
 	plain := stripANSIAndTrimRight(updated.view.OngoingSnapshot())
@@ -186,7 +186,7 @@ func TestBusyQueuedReviewSlashCommandStartsFreshSessionAfterTurn(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
-	if len(updated.queued) != 1 || updated.queued[0] != "/review cli/app" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "/review cli/app" {
 		t.Fatalf("expected queued /review command, got %+v", updated.queued)
 	}
 
@@ -225,7 +225,7 @@ func TestBusyQueuedReviewSlashCommandWaitsForHydrationBeforePromptSubmission(t *
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
-	if len(updated.queued) != 1 || updated.queued[0] != "/review cli/app" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "/review cli/app" {
 		t.Fatalf("expected queued /review command, got %+v", updated.queued)
 	}
 
@@ -237,11 +237,11 @@ func TestBusyQueuedReviewSlashCommandWaitsForHydrationBeforePromptSubmission(t *
 	if updated.busy {
 		t.Fatal("did not expect queued /review prompt submission before hydration settles")
 	}
-	if updated.pendingPreSubmitText != "" {
-		t.Fatalf("did not expect queued /review to enter pre-submit before hydration, got %q", updated.pendingPreSubmitText)
+	if updated.activeSubmit.text != "" {
+		t.Fatalf("did not expect queued /review to submit before hydration, got %q", updated.activeSubmit.text)
 	}
-	if client.shouldCompactCalls != 0 {
-		t.Fatalf("did not expect queued /review pre-submit checks before hydration, calls=%d", client.shouldCompactCalls)
+	if client.submitText != "" {
+		t.Fatalf("did not expect queued /review submit before hydration, got %q", client.submitText)
 	}
 	msgs := collectCmdMessages(t, cmd)
 	var refresh runtimeTranscriptRefreshedMsg
@@ -267,21 +267,21 @@ func TestBusyQueuedReviewSlashCommandWaitsForHydrationBeforePromptSubmission(t *
 	if updated.pendingQueuedDrainAfterHydration {
 		t.Fatal("expected queued /review hydration deferral cleared once drained")
 	}
-	if updated.pendingPreSubmitText == "" {
-		t.Fatal("expected queued /review generated prompt to enter runtime pre-submit flow")
+	if updated.activeSubmit.text == "" {
+		t.Fatal("expected queued /review generated prompt to submit")
 	}
-	if strings.Contains(updated.pendingPreSubmitText, "/review cli/app") {
-		t.Fatalf("expected queued /review to submit generated prompt content, got %q", updated.pendingPreSubmitText)
+	if strings.Contains(updated.activeSubmit.text, "/review cli/app") {
+		t.Fatalf("expected queued /review to submit generated prompt content, got %q", updated.activeSubmit.text)
 	}
 	if got := stripANSIAndTrimRight(updated.view.OngoingSnapshot()); !strings.Contains(got, "final answer") {
 		t.Fatalf("expected hydration to commit final answer before queued /review drains, got %q", got)
 	}
 	if drainCmd == nil {
-		t.Fatal("expected queued /review pre-submit command after hydration")
+		t.Fatal("expected queued /review submit command after hydration")
 	}
 	_ = collectCmdMessages(t, drainCmd)
-	if client.shouldCompactCalls != 1 {
-		t.Fatalf("expected exactly one queued /review pre-submit check after hydration, got %d", client.shouldCompactCalls)
+	if client.submitText == "" {
+		t.Fatal("expected queued /review submit after hydration")
 	}
 }
 
@@ -303,7 +303,7 @@ func TestQueuedReviewUsesEngineConversationFreshnessWhenUIDidNotReceiveRuntimeUp
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
-	if len(updated.queued) != 1 || updated.queued[0] != "/review cli/app" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "/review cli/app" {
 		t.Fatalf("expected queued /review command, got %+v", updated.queued)
 	}
 	if updated.conversationFreshness != clientui.ConversationFreshnessFresh {

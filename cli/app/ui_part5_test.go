@@ -108,12 +108,12 @@ func TestCalcChatLinesShrinksForQueuedPane(t *testing.T) {
 	m.input = "ok"
 
 	base := m.calcChatLines()
-	m.queued = []string{"a", "b", "c"}
+	m.queued = queuedInputsForTest("a", "b", "c")
 	withThree := m.calcChatLines()
 	if withThree != base-3 {
 		t.Fatalf("expected chat lines to shrink by 3, base=%d withThree=%d", base, withThree)
 	}
-	m.queued = []string{"1", "2", "3", "4", "5", "6"}
+	m.queued = queuedInputsForTest("1", "2", "3", "4", "5", "6")
 	withOverflowLine := m.calcChatLines()
 	if withOverflowLine != base-6 {
 		t.Fatalf("expected chat lines to shrink by 6 with overflow line, base=%d withOverflowLine=%d", base, withOverflowLine)

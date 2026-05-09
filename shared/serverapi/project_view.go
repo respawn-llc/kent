@@ -33,6 +33,42 @@ type ProjectResolvePathResponse struct {
 	Binding          *ProjectBinding              `json:"binding,omitempty"`
 }
 
+type ProjectBindingPlanMode string
+
+const (
+	ProjectBindingPlanModeInteractive ProjectBindingPlanMode = "interactive"
+	ProjectBindingPlanModeHeadless    ProjectBindingPlanMode = "headless"
+)
+
+type ProjectBindingPlanKind string
+
+const (
+	ProjectBindingPlanKindBound                    ProjectBindingPlanKind = "bound"
+	ProjectBindingPlanKindLocalUnbound             ProjectBindingPlanKind = "local_unbound"
+	ProjectBindingPlanKindServerWorkspaceSelection ProjectBindingPlanKind = "server_workspace_selection"
+	ProjectBindingPlanKindHeadlessRemoteSelected   ProjectBindingPlanKind = "headless_remote_selected"
+	ProjectBindingPlanKindHeadlessRemoteAmbiguous  ProjectBindingPlanKind = "headless_remote_ambiguous"
+)
+
+type ProjectBindingPlanRequest struct {
+	Path string                 `json:"path"`
+	Mode ProjectBindingPlanMode `json:"mode"`
+}
+
+type ProjectBindingPlanResponse struct {
+	Kind             ProjectBindingPlanKind        `json:"kind"`
+	CanonicalRoot    string                        `json:"canonical_root"`
+	PathAvailability clientui.ProjectAvailability  `json:"path_availability"`
+	Binding          *ProjectBinding               `json:"binding,omitempty"`
+	Projects         []clientui.ProjectSummary     `json:"projects,omitempty"`
+	Workspace        *ProjectWorkspacePlanSelected `json:"workspace,omitempty"`
+}
+
+type ProjectWorkspacePlanSelected struct {
+	ProjectID   string `json:"project_id"`
+	WorkspaceID string `json:"workspace_id"`
+}
+
 type ProjectCreateRequest struct {
 	DisplayName   string `json:"display_name"`
 	WorkspaceRoot string `json:"workspace_root"`
@@ -79,6 +115,7 @@ type SessionListByProjectResponse struct {
 type ProjectViewService interface {
 	ListProjects(ctx context.Context, req ProjectListRequest) (ProjectListResponse, error)
 	ResolveProjectPath(ctx context.Context, req ProjectResolvePathRequest) (ProjectResolvePathResponse, error)
+	PlanWorkspaceBinding(ctx context.Context, req ProjectBindingPlanRequest) (ProjectBindingPlanResponse, error)
 	CreateProject(ctx context.Context, req ProjectCreateRequest) (ProjectCreateResponse, error)
 	AttachWorkspaceToProject(ctx context.Context, req ProjectAttachWorkspaceRequest) (ProjectAttachWorkspaceResponse, error)
 	RebindWorkspace(ctx context.Context, req ProjectRebindWorkspaceRequest) (ProjectRebindWorkspaceResponse, error)
@@ -91,6 +128,18 @@ func (r ProjectResolvePathRequest) Validate() error {
 		return errors.New("path is required")
 	}
 	return nil
+}
+
+func (r ProjectBindingPlanRequest) Validate() error {
+	if strings.TrimSpace(r.Path) == "" {
+		return errors.New("path is required")
+	}
+	switch r.Mode {
+	case ProjectBindingPlanModeInteractive, ProjectBindingPlanModeHeadless:
+		return nil
+	default:
+		return errors.New("mode must be interactive or headless")
+	}
 }
 
 func (r ProjectCreateRequest) Validate() error {

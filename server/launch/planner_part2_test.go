@@ -65,7 +65,7 @@ func TestApplyRunPromptOverridesCLIModelOverridePreservesExplicitThreshold(t *te
 	}
 }
 
-func TestPlannerInteractivePickerReopensSelectedSessionWithinActiveContainer(t *testing.T) {
+func TestPlannerInteractiveReopensSelectedSessionWithinActiveContainer(t *testing.T) {
 	root := t.TempDir()
 	containerA := filepath.Join(root, "sessions", "workspace-a")
 	containerB := filepath.Join(root, "sessions", "workspace-b")
@@ -97,13 +97,9 @@ func TestPlannerInteractivePickerReopensSelectedSessionWithinActiveContainer(t *
 	planner := Planner{
 		Config:       config.App{WorkspaceRoot: "/tmp/workspace-a", PersistenceRoot: root, Settings: config.Settings{}},
 		ContainerDir: containerA,
-		PickSession: func(summaries []session.Summary) (SessionSelection, error) {
-			picked := summaries[0]
-			return SessionSelection{Session: &picked}, nil
-		},
 	}
 
-	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive})
+	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, SelectedSessionID: selected.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("plan session: %v", err)
 	}

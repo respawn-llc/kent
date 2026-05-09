@@ -3,7 +3,6 @@ package app
 import (
 	"builder/shared/clientui"
 	"builder/shared/serverapi"
-	"errors"
 	tea "github.com/charmbracelet/bubbletea"
 	"strings"
 	"testing"
@@ -153,46 +152,21 @@ func TestWorktreeSwitchCommandRemainsDirectShortcut(t *testing.T) {
 	}
 }
 
-func TestApplyExecutionTargetChangePreservesMutationTargetWhenRefreshFails(t *testing.T) {
-	runtimeClient := &runtimeControlFakeClient{
-		mainView: clientui.RuntimeMainView{
-			Session: clientui.RuntimeSessionView{
-				SessionID:       "session-1",
-				ExecutionTarget: clientui.SessionExecutionTarget{EffectiveWorkdir: "/repo/stale"},
-			},
-		},
-		err: errors.New("temporary refresh failure"),
-	}
-	m := newProjectedTestUIModel(runtimeClient, nil, nil, WithUISessionID("session-1"))
-	m.statusConfig.WorkspaceRoot = "/repo/stale"
+func TestProjectedSessionMetadataAppliesExecutionTarget(t *testing.T) {
+	m := newProjectedTestUIModel(&runtimeControlFakeClient{}, nil, nil, WithUISessionID("session-1"))
+	m.statusConfig.WorkspaceRoot = "/repo"
 
-	m.applyExecutionTargetChange(clientui.SessionExecutionTarget{EffectiveWorkdir: "/wt/feature-a"})
+	_ = m.runtimeAdapter().applyProjectedSessionMetadata(clientui.RuntimeSessionView{
+		SessionID:       "session-1",
+		ExecutionTarget: clientui.SessionExecutionTarget{EffectiveWorkdir: "/wt/feature-a"},
+	})
 
 	if got := m.statusConfig.WorkspaceRoot; got != "/wt/feature-a" {
-		t.Fatalf("status workspace root = %q, want mutation target", got)
+		t.Fatalf("status workspace root = %q, want canonical execution target", got)
 	}
 }
 
-func TestApplyExecutionTargetChangeIgnoresStaleRefreshTarget(t *testing.T) {
-	runtimeClient := &runtimeControlFakeClient{
-		mainView: clientui.RuntimeMainView{
-			Session: clientui.RuntimeSessionView{
-				SessionID:       "session-1",
-				ExecutionTarget: clientui.SessionExecutionTarget{EffectiveWorkdir: "/repo/stale"},
-			},
-		},
-	}
-	m := newProjectedTestUIModel(runtimeClient, nil, nil, WithUISessionID("session-1"))
-	m.statusConfig.WorkspaceRoot = "/repo/stale"
-
-	m.applyExecutionTargetChange(clientui.SessionExecutionTarget{EffectiveWorkdir: "/wt/feature-a"})
-
-	if got := m.statusConfig.WorkspaceRoot; got != "/wt/feature-a" {
-		t.Fatalf("status workspace root = %q, want mutation target", got)
-	}
-}
-
-func TestWorktreeSwitchDoneAppliesTargetAfterOverlayCloses(t *testing.T) {
+func TestWorktreeSwitchDoneAppliesTargetAfterMainViewRefresh(t *testing.T) {
 	m := newWorktreeTestModel(t, &worktreeCommandTestClient{})
 	m.worktrees.mutationToken = 7
 	m.worktrees.switchPending = true
@@ -207,11 +181,23 @@ func TestWorktreeSwitchDoneAppliesTargetAfterOverlayCloses(t *testing.T) {
 	})
 	updated := next.(*uiModel)
 
-	if got := updated.statusConfig.WorkspaceRoot; got != "/wt/feature-a" {
-		t.Fatalf("status workspace root = %q, want switched worktree root", got)
+	if got := updated.statusConfig.WorkspaceRoot; got != "/repo" {
+		t.Fatalf("status workspace root before refresh = %q, want old target", got)
 	}
 	if updated.worktrees.switchPending {
 		t.Fatal("expected switchPending cleared after switch completion")
+	}
+
+	next, _ = updated.Update(runtimeMainViewRefreshedMsg{
+		token: updated.runtimeMainViewToken,
+		view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{
+			SessionID:       "session-1",
+			ExecutionTarget: clientui.SessionExecutionTarget{EffectiveWorkdir: "/wt/feature-a"},
+		}},
+	})
+	updated = next.(*uiModel)
+	if got := updated.statusConfig.WorkspaceRoot; got != "/wt/feature-a" {
+		t.Fatalf("status workspace root after refresh = %q, want switched worktree root", got)
 	}
 }
 
@@ -252,12 +238,23 @@ func TestWorktreeOverlayStaysOpenWhileSwitchIsPending(t *testing.T) {
 		next, cmd := updated.Update(msg)
 		updated = applyWorktreeCmdMessages(t, next.(*uiModel), cmd)
 	}
+	if got := updated.statusConfig.WorkspaceRoot; got == "/wt/feature-a" {
+		t.Fatalf("status workspace root patched from mutation response before refresh: %q", got)
+	}
+	next, _ = updated.Update(runtimeMainViewRefreshedMsg{
+		token: updated.runtimeMainViewToken,
+		view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{
+			SessionID:       "session-1",
+			ExecutionTarget: clientui.SessionExecutionTarget{EffectiveWorkdir: "/wt/feature-a"},
+		}},
+	})
+	updated = next.(*uiModel)
 	if got := updated.statusConfig.WorkspaceRoot; got != "/wt/feature-a" {
-		t.Fatalf("status workspace root = %q, want switched worktree root", got)
+		t.Fatalf("status workspace root after refresh = %q, want switched worktree root", got)
 	}
 }
 
-func TestWorktreeCreateDoneAppliesTargetAfterOverlayCloses(t *testing.T) {
+func TestWorktreeCreateDoneAppliesTargetAfterMainViewRefresh(t *testing.T) {
 	m := newWorktreeTestModel(t, &worktreeCommandTestClient{})
 	m.worktrees.mutationToken = 8
 	m.statusConfig.WorkspaceRoot = "/repo"
@@ -273,8 +270,19 @@ func TestWorktreeCreateDoneAppliesTargetAfterOverlayCloses(t *testing.T) {
 	})
 	updated := next.(*uiModel)
 
+	if got := updated.statusConfig.WorkspaceRoot; got != "/repo" {
+		t.Fatalf("status workspace root before refresh = %q, want old target", got)
+	}
+	next, _ = updated.Update(runtimeMainViewRefreshedMsg{
+		token: updated.runtimeMainViewToken,
+		view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{
+			SessionID:       "session-1",
+			ExecutionTarget: clientui.SessionExecutionTarget{EffectiveWorkdir: "/wt/new-feature"},
+		}},
+	})
+	updated = next.(*uiModel)
 	if got := updated.statusConfig.WorkspaceRoot; got != "/wt/new-feature" {
-		t.Fatalf("status workspace root = %q, want created worktree root", got)
+		t.Fatalf("status workspace root after refresh = %q, want created worktree root", got)
 	}
 	plain := stripANSIAndTrimRight(updated.view.OngoingSnapshot())
 	for _, unwanted := range []string{"Created new-feature at", "Created branch:", "Setup script started"} {
@@ -284,7 +292,7 @@ func TestWorktreeCreateDoneAppliesTargetAfterOverlayCloses(t *testing.T) {
 	}
 }
 
-func TestWorktreeDeleteDoneAppliesTargetAfterOverlayCloses(t *testing.T) {
+func TestWorktreeDeleteDoneAppliesTargetAfterMainViewRefresh(t *testing.T) {
 	m := newWorktreeTestModel(t, &worktreeCommandTestClient{})
 	m.worktrees.mutationToken = 9
 	m.statusConfig.WorkspaceRoot = "/wt/feature-a"
@@ -298,8 +306,19 @@ func TestWorktreeDeleteDoneAppliesTargetAfterOverlayCloses(t *testing.T) {
 	})
 	updated := next.(*uiModel)
 
+	if got := updated.statusConfig.WorkspaceRoot; got != "/wt/feature-a" {
+		t.Fatalf("status workspace root before refresh = %q, want old target", got)
+	}
+	next, _ = updated.Update(runtimeMainViewRefreshedMsg{
+		token: updated.runtimeMainViewToken,
+		view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{
+			SessionID:       "session-1",
+			ExecutionTarget: clientui.SessionExecutionTarget{EffectiveWorkdir: "/repo"},
+		}},
+	})
+	updated = next.(*uiModel)
 	if got := updated.statusConfig.WorkspaceRoot; got != "/repo" {
-		t.Fatalf("status workspace root = %q, want main workspace root", got)
+		t.Fatalf("status workspace root after refresh = %q, want main workspace root", got)
 	}
 }
 

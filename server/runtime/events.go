@@ -35,30 +35,31 @@ const (
 )
 
 type Event struct {
-	Kind                       EventKind
-	StepID                     string
-	CommittedTranscriptChanged bool
-	TranscriptRevision         int64
-	CommittedEntryCount        int
-	CommittedEntryStart        int
-	CommittedEntryStartSet     bool
-	Error                      string
-	AssistantDelta             string
-	ReasoningDelta             *llm.ReasoningSummaryDelta
-	UserMessage                string
-	UserMessageBatch           []string
-	Message                    llm.Message
-	ModelResponse              *ModelResponseTrace
-	ToolCall                   *llm.ToolCall
-	ToolResult                 *tools.Result
-	Reviewer                   *ReviewerStatus
-	Compaction                 *CompactionStatus
-	CacheWarning               *cachewarn.Warning
-	CacheWarningVisibility     transcript.EntryVisibility
-	LocalEntry                 *ChatEntry
-	RunState                   *RunState
-	ContextUsage               *ContextUsage
-	Background                 *BackgroundShellEvent
+	Kind                         EventKind
+	StepID                       string
+	CommittedTranscriptChanged   bool
+	TranscriptRevision           int64
+	CommittedEntryCount          int
+	CommittedEntryStart          int
+	CommittedEntryStartSet       bool
+	Error                        string
+	AssistantDelta               string
+	ReasoningDelta               *llm.ReasoningSummaryDelta
+	UserMessage                  string
+	UserMessageBatch             []string
+	UserMessageBatchQueueItemIDs []string
+	Message                      llm.Message
+	ModelResponse                *ModelResponseTrace
+	ToolCall                     *llm.ToolCall
+	ToolResult                   *tools.Result
+	Reviewer                     *ReviewerStatus
+	Compaction                   *CompactionStatus
+	CacheWarning                 *cachewarn.Warning
+	CacheWarningVisibility       transcript.EntryVisibility
+	LocalEntry                   *ChatEntry
+	RunState                     *RunState
+	ContextUsage                 *ContextUsage
+	Background                   *BackgroundShellEvent
 }
 
 type RunState struct {

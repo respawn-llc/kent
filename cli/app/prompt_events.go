@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	askquestion "builder/server/tools/askquestion"
 	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/serverapi"
@@ -16,8 +15,7 @@ import (
 
 var promptActivityResubscribeDelay = 250 * time.Millisecond
 
-type promptActivitySubscriber func(context.Context) (serverapi.PromptActivitySubscription, error)
-type pendingPromptSnapshotProvider func(context.Context) (map[string]struct{}, error)
+type promptActivitySubscriber func(context.Context, uint64) (serverapi.PromptActivitySubscription, error)
 
 type promptEventEmitter struct {
 	mu     sync.RWMutex
@@ -66,16 +64,24 @@ func (e *promptEventEmitter) close() {
 	close(e.out)
 }
 
-func startPendingPromptEvents(ctx context.Context, sub serverapi.PromptActivitySubscription, subscribe promptActivitySubscriber, snapshot pendingPromptSnapshotProvider, control client.PromptControlClient, leaseManager *controllerLeaseManager) (<-chan askEvent, func()) {
+func startPendingPromptEvents(ctx context.Context, sub serverapi.PromptActivitySubscription, subscribe promptActivitySubscriber, control client.PromptControlClient, leaseManager *controllerLeaseManager, notify ...func(clientui.PendingPromptEvent)) (<-chan askEvent, func()) {
 	emitter := newPromptEventEmitter(16)
 	out := emitter.channel()
 	if sub == nil || subscribe == nil || control == nil {
 		emitter.close()
 		return out, func() {}
 	}
+	notifyPending := func(clientui.PendingPromptEvent) {}
+	if len(notify) > 0 && notify[0] != nil {
+		notifyPending = notify[0]
+	}
 	pollCtx, cancel := context.WithCancel(ctx)
 	var pendingMu sync.Mutex
 	pendingPromptIDs := make(map[string]struct{})
+	var lastSequence uint64
+	var snapshotMode bool
+	snapshotPromptIDs := make(map[string]struct{})
+	snapshotPendingEvents := make([]clientui.PendingPromptEvent, 0)
 	isPromptPending := func(promptID string) bool {
 		pendingMu.Lock()
 		defer pendingMu.Unlock()
@@ -84,6 +90,9 @@ func startPendingPromptEvents(ctx context.Context, sub serverapi.PromptActivityS
 	}
 	var requeue func(clientui.PendingPromptEvent)
 	requeue = func(item clientui.PendingPromptEvent) {
+		if pollCtx.Err() != nil {
+			return
+		}
 		if !isPromptPending(item.PromptID) {
 			return
 		}
@@ -100,25 +109,64 @@ func startPendingPromptEvents(ctx context.Context, sub serverapi.PromptActivityS
 					return
 				}
 				for {
-					nextSub, err := resubscribePromptActivity(pollCtx, subscribe)
+					nextSub, replayed, err := resubscribePromptActivity(pollCtx, subscribe, lastSequence)
 					if err != nil {
 						return
 					}
-					if err := reconcilePendingPromptSnapshot(pollCtx, snapshot, &pendingMu, pendingPromptIDs, emitter); err != nil {
-						if errors.Is(err, context.Canceled) {
-							_ = nextSub.Close()
-							return
-						}
-						_ = nextSub.Close()
-						continue
+					if !replayed {
+						pendingMu.Lock()
+						snapshotMode = true
+						snapshotPromptIDs = make(map[string]struct{})
+						snapshotPendingEvents = snapshotPendingEvents[:0]
+						pendingMu.Unlock()
 					}
 					current = nextSub
 					break
 				}
 				continue
 			}
-			if strings.TrimSpace(evt.PromptID) == "" {
+			if evt.Type == clientui.PendingPromptEventSnapshot {
+				pendingMu.Lock()
+				resolved := make([]string, 0)
+				pendingEvents := make([]clientui.PendingPromptEvent, 0)
+				if snapshotMode {
+					for promptID := range pendingPromptIDs {
+						if _, ok := snapshotPromptIDs[promptID]; ok {
+							continue
+						}
+						delete(pendingPromptIDs, promptID)
+						resolved = append(resolved, promptID)
+					}
+					pendingEvents = append(pendingEvents, snapshotPendingEvents...)
+					snapshotMode = false
+					snapshotPromptIDs = make(map[string]struct{})
+					snapshotPendingEvents = snapshotPendingEvents[:0]
+				}
+				pendingMu.Unlock()
+				for _, promptID := range resolved {
+					if !emitter.emit(pollCtx, resolvedPromptEvent(promptID)) {
+						_ = current.Close()
+						return
+					}
+				}
+				for _, pendingEvt := range pendingEvents {
+					askEvt := pendingPromptEvent(pollCtx, pendingEvt, leaseManager, control, requeue)
+					notifyPending(askEvt.req)
+					if !emitter.emit(pollCtx, askEvt) {
+						_ = current.Close()
+						return
+					}
+				}
 				continue
+			}
+			if strings.TrimSpace(evt.PromptID) == "" {
+				if evt.Sequence > lastSequence {
+					lastSequence = evt.Sequence
+				}
+				continue
+			}
+			if evt.Sequence > lastSequence {
+				lastSequence = evt.Sequence
 			}
 			switch evt.Type {
 			case clientui.PendingPromptEventResolved:
@@ -132,16 +180,27 @@ func startPendingPromptEvents(ctx context.Context, sub serverapi.PromptActivityS
 				continue
 			case clientui.PendingPromptEventPending:
 				pendingMu.Lock()
+				isSnapshotPending := snapshotMode && evt.Sequence == 0
+				if snapshotMode && evt.Sequence == 0 {
+					snapshotPromptIDs[evt.PromptID] = struct{}{}
+				}
 				if _, exists := pendingPromptIDs[evt.PromptID]; exists {
 					pendingMu.Unlock()
 					continue
 				}
 				pendingPromptIDs[evt.PromptID] = struct{}{}
+				if isSnapshotPending {
+					snapshotPendingEvents = append(snapshotPendingEvents, evt)
+					pendingMu.Unlock()
+					continue
+				}
 				pendingMu.Unlock()
 			default:
 				continue
 			}
-			if !emitter.emit(pollCtx, pendingPromptEvent(pollCtx, evt, leaseManager, control, requeue)) {
+			askEvt := pendingPromptEvent(pollCtx, evt, leaseManager, control, requeue)
+			notifyPending(askEvt.req)
+			if !emitter.emit(pollCtx, askEvt) {
 				_ = current.Close()
 				return
 			}
@@ -150,46 +209,23 @@ func startPendingPromptEvents(ctx context.Context, sub serverapi.PromptActivityS
 	return out, cancel
 }
 
-func reconcilePendingPromptSnapshot(ctx context.Context, snapshot pendingPromptSnapshotProvider, pendingMu *sync.Mutex, pendingPromptIDs map[string]struct{}, emitter *promptEventEmitter) error {
-	if snapshot == nil {
-		return nil
-	}
-	currentPending, err := snapshot(ctx)
-	if err != nil {
-		return err
-	}
-	resolved := make([]string, 0)
-	pendingMu.Lock()
-	for promptID := range pendingPromptIDs {
-		if _, ok := currentPending[promptID]; ok {
-			continue
-		}
-		delete(pendingPromptIDs, promptID)
-		resolved = append(resolved, promptID)
-	}
-	pendingMu.Unlock()
-	for _, promptID := range resolved {
-		if !emitter.emit(ctx, resolvedPromptEvent(promptID)) {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			return context.Canceled
-		}
-	}
-	return nil
-}
-
-func resubscribePromptActivity(ctx context.Context, subscribe promptActivitySubscriber) (serverapi.PromptActivitySubscription, error) {
+func resubscribePromptActivity(ctx context.Context, subscribe promptActivitySubscriber, afterSequence uint64) (serverapi.PromptActivitySubscription, bool, error) {
 	for {
 		if !waitPromptActivityRetry(ctx) {
-			return nil, ctx.Err()
+			return nil, false, ctx.Err()
 		}
-		sub, err := subscribe(ctx)
+		sub, err := subscribe(ctx, afterSequence)
 		if err == nil {
-			return sub, nil
+			return sub, true, nil
+		}
+		if errors.Is(err, serverapi.ErrStreamGap) && afterSequence > 0 {
+			sub, err := subscribe(ctx, 0)
+			if err == nil {
+				return sub, false, nil
+			}
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, err
+			return nil, false, err
 		}
 	}
 }
@@ -206,19 +242,9 @@ func waitPromptActivityRetry(ctx context.Context) bool {
 }
 
 func pendingPromptEvent(ctx context.Context, item clientui.PendingPromptEvent, leaseManager *controllerLeaseManager, control client.PromptControlClient, retry func(clientui.PendingPromptEvent)) askEvent {
-	req := askquestion.Request{
-		ID:                     item.PromptID,
-		Question:               item.Question,
-		Suggestions:            append([]string(nil), item.Suggestions...),
-		RecommendedOptionIndex: item.RecommendedOptionIndex,
-		Approval:               item.Approval,
-	}
-	if len(item.ApprovalOptions) > 0 {
-		req.ApprovalOptions = make([]askquestion.ApprovalOption, 0, len(item.ApprovalOptions))
-		for _, option := range item.ApprovalOptions {
-			req.ApprovalOptions = append(req.ApprovalOptions, askquestion.ApprovalOption{Decision: askquestion.ApprovalDecision(option.Decision), Label: option.Label})
-		}
-	}
+	req := item
+	req.Suggestions = append([]string(nil), item.Suggestions...)
+	req.ApprovalOptions = append([]clientui.ApprovalOption(nil), item.ApprovalOptions...)
 	reply := make(chan askReply, 1)
 	promptCtx, cancelPrompt := context.WithCancel(ctx)
 	go func() {

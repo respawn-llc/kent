@@ -129,11 +129,6 @@ func (r uiInputAsyncFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 		nextModel := next.(*uiModel)
 		nextModel.syncViewport()
 		return handledUIFeatureUpdate(nextModel, cmd)
-	case preSubmitCompactionCheckDoneMsg:
-		next, cmd := m.inputController().handlePreSubmitCompactionCheckDone(msg)
-		nextModel := next.(*uiModel)
-		nextModel.syncViewport()
-		return handledUIFeatureUpdate(nextModel, cmd)
 	case compactDoneMsg:
 		next, cmd := m.inputController().handleCompactDone(msg)
 		nextModel := next.(*uiModel)

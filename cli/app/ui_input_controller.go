@@ -199,15 +199,7 @@ func isInterruptedRuntimeError(err error) bool {
 func (c uiInputController) interruptBusyRuntime() {
 	m := c.model
 	_ = m.interruptRuntime()
-	m.preSubmitCheckToken++
-	m.activeSubmit = activeSubmitState{}
-	c.releaseLockedInjectedInput(true)
-	c.restorePendingInjectedIntoInput()
-	c.restoreQueuedMessagesIntoInput()
-	m.pendingPreSubmitText = ""
-	m.busy = false
-	m.activity = uiActivityInterrupted
-	m.clearReviewerState()
+	m.pendingInterrupt = true
 }
 
 func parseUserShellCommand(text string) (string, bool) {

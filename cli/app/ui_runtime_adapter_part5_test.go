@@ -424,15 +424,17 @@ func TestProjectedUserMessageFlushedDoesNotScheduleTranscriptRefresh(t *testing.
 func TestProjectedUserMessageFlushedRecordsPromptHistoryWithoutTranscriptRefresh(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.pendingInjected = []string{"steered message", "follow-up"}
+	m.pendingInjected = queuedUserMessagesForTest("steered message", "follow-up")
 	m.input = "steered message"
 	m.lockedInjectText = "steered message"
+	m.lockedInjectID = "queue-test-0"
 	m.inputSubmitLocked = true
 
 	cmd := m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
-		Kind:                       clientui.EventUserMessageFlushed,
-		CommittedTranscriptChanged: true,
-		UserMessage:                "steered message",
+		Kind:                         clientui.EventUserMessageFlushed,
+		CommittedTranscriptChanged:   true,
+		UserMessage:                  "steered message",
+		UserMessageBatchQueueItemIDs: []string{"queue-test-0"},
 		TranscriptEntries: []clientui.ChatEntry{{
 			Role: "user",
 			Text: "steered message",
@@ -447,7 +449,7 @@ func TestProjectedUserMessageFlushedRecordsPromptHistoryWithoutTranscriptRefresh
 	if client.recordedPromptHistory != "steered message" {
 		t.Fatalf("expected prompt history recorded, got %q", client.recordedPromptHistory)
 	}
-	if len(m.pendingInjected) != 1 || m.pendingInjected[0] != "follow-up" {
+	if len(m.pendingInjected) != 1 || m.pendingInjected[0].Text != "follow-up" {
 		t.Fatalf("expected pending injected queue advanced, got %+v", m.pendingInjected)
 	}
 	if m.input != "" {
@@ -918,9 +920,10 @@ func TestProjectedUserMessageFlushedRequestsHydrationForCommittedGapWhileAssista
 	m.termHeight = 20
 	m.windowSizeKnown = true
 	m.busy = true
-	m.pendingInjected = []string{"steered message"}
+	m.pendingInjected = queuedUserMessagesForTest("steered message")
 	m.input = "steered message"
 	m.lockedInjectText = "steered message"
+	m.lockedInjectID = "queue-test-0"
 	m.inputSubmitLocked = true
 	client.transcript = clientui.TranscriptPage{
 		SessionID:    "session-1",
@@ -934,11 +937,12 @@ func TestProjectedUserMessageFlushedRequestsHydrationForCommittedGapWhileAssista
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: "foreground done"})
 
 	cmd := m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
-		Kind:                       clientui.EventUserMessageFlushed,
-		CommittedTranscriptChanged: true,
-		TranscriptRevision:         7,
-		CommittedEntryCount:        2,
-		UserMessage:                "steered message",
+		Kind:                         clientui.EventUserMessageFlushed,
+		CommittedTranscriptChanged:   true,
+		TranscriptRevision:           7,
+		CommittedEntryCount:          2,
+		UserMessage:                  "steered message",
+		UserMessageBatchQueueItemIDs: []string{"queue-test-0"},
 		TranscriptEntries: []clientui.ChatEntry{{
 			Role: "user",
 			Text: "steered message",

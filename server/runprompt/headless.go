@@ -11,11 +11,10 @@ import (
 	"builder/server/runtime"
 	"builder/server/runtimeview"
 	"builder/server/runtimewire"
-	"builder/server/session"
+	"builder/server/sessionlaunch"
 	askquestion "builder/server/tools/askquestion"
 	shelltool "builder/server/tools/shell"
 	"builder/shared/client"
-	"builder/shared/config"
 	"builder/shared/serverapi"
 	"builder/shared/transcriptdiag"
 )
@@ -23,23 +22,16 @@ import (
 var ErrHeadlessGoalSession = errors.New("headless runs cannot continue sessions with goals; clear the goal first")
 
 type HeadlessBootstrap struct {
-	Config          config.App
-	ReloadConfig    func() (config.App, error)
-	ContainerDir    string
-	StoreOptions    []session.StoreOption
+	SessionLaunch   *sessionlaunch.Service
 	AuthManager     *auth.Manager
 	FastModeState   *runtime.FastModeState
 	Background      *shelltool.Manager
 	RuntimeRegistry interface {
 		primaryrun.Gate
-		Register(sessionID string, engine *runtime.Engine)
-		Unregister(sessionID string, engine *runtime.Engine)
+		runtimewire.RuntimeRegistry
 		PublishRuntimeEvent(sessionID string, evt runtime.Event)
 	}
-	BackgroundRouter interface {
-		SetActiveSession(sessionID string, engine *runtime.Engine)
-		ClearActiveSession(sessionID string)
-	}
+	BackgroundRouter runtimewire.BackgroundRouter
 }
 
 func NewLoopbackRunPromptClient(boot HeadlessBootstrap) client.RunPromptClient {
@@ -53,24 +45,21 @@ type headlessPromptLauncher struct {
 }
 
 func (l *headlessPromptLauncher) PrepareHeadlessPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (serverapi.PromptSessionRuntime, error) {
-	planner := launch.Planner{Config: l.boot.Config, ContainerDir: l.boot.ContainerDir, StoreOptions: l.boot.StoreOptions, ReloadConfig: l.boot.ReloadConfig}
-	plan, err := planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: req.SelectedSessionID})
+	if l.boot.SessionLaunch == nil {
+		return nil, errors.New("headless session launch service is required")
+	}
+	launchReq := serverapi.SessionPlanRequest{
+		ClientRequestID:   req.ClientRequestID,
+		Mode:              serverapi.SessionLaunchModeHeadless,
+		SelectedSessionID: req.SelectedSessionID,
+		ForceNewSession:   req.SelectedSessionID == "",
+		Overrides:         req.Overrides,
+	}
+	result, err := l.boot.SessionLaunch.PlanLaunchSession(ctx, launchReq)
 	if err != nil {
 		return nil, err
 	}
-	authState := auth.EmptyState()
-	if l.boot.AuthManager != nil {
-		var authErr error
-		authState, authErr = l.boot.AuthManager.CurrentState(ctx)
-		if authErr != nil {
-			return nil, authErr
-		}
-	}
-	warnings := []string(nil)
-	plan, warnings, err = launch.ApplyRunPromptOverrides(plan, req.Overrides, authState)
-	if err != nil {
-		return nil, err
-	}
+	plan := result.Plan
 	if plan.Store.Meta().Goal != nil {
 		return nil, fmt.Errorf("%w", ErrHeadlessGoalSession)
 	}
@@ -78,7 +67,7 @@ func (l *headlessPromptLauncher) PrepareHeadlessPrompt(ctx context.Context, req 
 	if err != nil {
 		return nil, err
 	}
-	return &headlessPromptRuntime{plan: runtimePlan, warnings: warnings}, nil
+	return &headlessPromptRuntime{plan: runtimePlan, warnings: result.Warnings}, nil
 }
 
 type headlessRuntimePlan struct {
@@ -133,23 +122,21 @@ func (l *headlessPromptLauncher) prepareRuntime(plan launch.SessionPlan, progres
 	if wiring.AskBroker != nil {
 		wiring.AskBroker.SetAskHandler(RunPromptAskHandler)
 	}
+	var runtimeRegistry runtimewire.RuntimeRegistry
 	if l.boot.RuntimeRegistry != nil {
-		l.boot.RuntimeRegistry.Register(plan.Store.Meta().SessionID, wiring.Engine)
+		runtimeRegistry = l.boot.RuntimeRegistry
 	}
+	var backgroundRouter runtimewire.BackgroundRouter
 	if l.boot.BackgroundRouter != nil {
-		l.boot.BackgroundRouter.SetActiveSession(plan.Store.Meta().SessionID, wiring.Engine)
+		backgroundRouter = l.boot.BackgroundRouter
 	}
+	registration := runtimewire.RegisterSessionRuntime(plan.Store.Meta().SessionID, wiring.Engine, runtimeRegistry, backgroundRouter)
 	return &headlessRuntimePlan{
 		logger:      logger,
 		engine:      wiring.Engine,
 		eventBridge: wiring.EventBridge,
 		close: func() {
-			if l.boot.RuntimeRegistry != nil {
-				l.boot.RuntimeRegistry.Unregister(plan.Store.Meta().SessionID, wiring.Engine)
-			}
-			if l.boot.BackgroundRouter != nil {
-				l.boot.BackgroundRouter.ClearActiveSession(plan.Store.Meta().SessionID)
-			}
+			registration.Close()
 			_ = wiring.Close()
 			_ = logger.Close()
 		},

@@ -44,6 +44,7 @@ func (a uiRuntimeAdapter) applyProjectedSessionMetadata(view clientui.RuntimeSes
 	m.sessionID = strings.TrimSpace(view.SessionID)
 	m.sessionName = strings.TrimSpace(view.SessionName)
 	m.conversationFreshness = view.ConversationFreshness
+	a.applyProjectedExecutionTarget(view.ExecutionTarget)
 	if view.Transcript.Revision > m.transcriptRevision {
 		m.transcriptRevision = view.Transcript.Revision
 	}
@@ -51,6 +52,26 @@ func (a uiRuntimeAdapter) applyProjectedSessionMetadata(view clientui.RuntimeSes
 		return tea.SetWindowTitle(m.windowTitle())
 	}
 	return nil
+}
+
+func (a uiRuntimeAdapter) applyProjectedExecutionTarget(target clientui.SessionExecutionTarget) {
+	m := a.model
+	if m == nil {
+		return
+	}
+	workdir := strings.TrimSpace(target.EffectiveWorkdir)
+	if workdir == "" {
+		workdir = strings.TrimSpace(target.WorkspaceRoot)
+	}
+	if workdir == "" || strings.TrimSpace(m.statusConfig.WorkspaceRoot) == workdir {
+		return
+	}
+	m.statusConfig.WorkspaceRoot = workdir
+	m.statusRepository = newMemoryUIStatusRepository()
+	m.clearPathReferenceState()
+	if m.pathReferenceSearch != nil {
+		m.pathReferenceSearch.StartPrewarm(workdir)
+	}
 }
 
 func (a uiRuntimeAdapter) applyProjectedTranscriptPage(page clientui.TranscriptPage) tea.Cmd {

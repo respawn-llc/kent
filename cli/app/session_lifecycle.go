@@ -90,6 +90,10 @@ func runSessionLifecycle(ctx context.Context, server embeddedServer, interactor 
 		}
 
 		transition := extractUITransition(finalModel)
+		if transition.Exit {
+			runtimePlan.Close()
+			return nil
+		}
 		resolved, err := resolveSessionAction(ctx, server, interactor, plan.SessionID, runtimePlan.CurrentControllerLeaseID(), transition)
 		runtimePlan.Close()
 		if err != nil {
@@ -165,26 +169,23 @@ type resolvedSessionAction struct {
 }
 
 func resolveSessionAction(ctx context.Context, server embeddedServer, interactor authInteractor, sessionID string, controllerLeaseID string, transition UITransition) (resolvedSessionAction, error) {
+	if transition.Exit {
+		return resolvedSessionAction{}, nil
+	}
 	if server == nil || server.SessionLifecycleClient() == nil {
 		return resolvedSessionAction{}, errors.New("session lifecycle client is required")
-	}
-	var forkTranscriptEntryIndex *int
-	if transition.Action == UIActionForkRollback && transition.ForkUserMessageIndex == 0 && transition.ForkTranscriptEntryIndex >= 0 {
-		value := transition.ForkTranscriptEntryIndex
-		forkTranscriptEntryIndex = &value
 	}
 	resolved, err := server.SessionLifecycleClient().ResolveTransition(ctx, serverapi.SessionResolveTransitionRequest{
 		ClientRequestID:   uuid.NewString(),
 		SessionID:         strings.TrimSpace(sessionID),
 		ControllerLeaseID: strings.TrimSpace(controllerLeaseID),
 		Transition: serverapi.SessionTransition{
-			Action:                   string(transition.Action),
-			InitialPrompt:            transition.InitialPrompt,
-			InitialInput:             transition.InitialInput,
-			TargetSessionID:          transition.TargetSessionID,
-			ForkUserMessageIndex:     transition.ForkUserMessageIndex,
-			ForkTranscriptEntryIndex: forkTranscriptEntryIndex,
-			ParentSessionID:          transition.ParentSessionID,
+			Action:               transition.Action,
+			InitialPrompt:        transition.InitialPrompt,
+			InitialInput:         transition.InitialInput,
+			TargetSessionID:      transition.TargetSessionID,
+			ForkRollbackTargetID: transition.ForkRollbackTargetID,
+			ParentSessionID:      transition.ParentSessionID,
 		},
 	})
 	if err != nil {

@@ -3,6 +3,7 @@ package runtime
 import (
 	"builder/server/llm"
 	"builder/server/tools"
+	"builder/shared/rollbacktarget"
 	"builder/shared/toolspec"
 	"encoding/json"
 	"strings"
@@ -35,6 +36,7 @@ type inMemoryTranscriptScan struct {
 
 	toolCompletions       map[string]tools.Result
 	materializedToolCalls map[string]struct{}
+	userMessageCount      int
 }
 
 func newInMemoryTranscriptScan(req inMemoryTranscriptScanRequest, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) *inMemoryTranscriptScan {
@@ -115,6 +117,10 @@ func (s *inMemoryTranscriptScan) visibleEntriesFromMessage(msg llm.Message) []Ch
 	switch msg.Role {
 	case llm.RoleUser:
 		if entry, ok := visibleUserTranscriptEntry(msg); ok {
+			if strings.TrimSpace(entry.Role) == "user" {
+				s.userMessageCount++
+				entry.RollbackTargetID = rollbacktarget.EncodeUserMessageIndex(s.userMessageCount)
+			}
 			entries = append(entries, entry)
 		}
 	case llm.RoleAssistant:

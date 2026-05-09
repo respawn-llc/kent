@@ -5,7 +5,6 @@ import (
 	"builder/server/llm"
 	"builder/server/metadata"
 	"builder/server/session"
-	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/config"
 	"builder/shared/serverapi"
@@ -111,7 +110,28 @@ func TestPlannerHeadlessUsesDefaultGPT55ModelAndOpenAIProviderInference(t *testi
 	}
 }
 
-func TestPlannerInteractiveUsesPickerSelection(t *testing.T) {
+func TestPlannerInteractiveRequiresExplicitOpenOrCreateIntent(t *testing.T) {
+	root := t.TempDir()
+	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	if _, err := session.Create(containerDir, "workspace-a", "/tmp/workspace-a"); err != nil {
+		t.Fatalf("create existing session: %v", err)
+	}
+	planner := Planner{
+		Config: config.App{
+			WorkspaceRoot:   "/tmp/workspace-a",
+			PersistenceRoot: root,
+			Settings:        config.Settings{},
+		},
+		ContainerDir: containerDir,
+	}
+
+	_, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive})
+	if err == nil || err.Error() != "selected_session_id or force_new_session is required" {
+		t.Fatalf("PlanSession error = %v, want explicit intent required", err)
+	}
+}
+
+func TestPlannerInteractiveReopensSelectedSessionID(t *testing.T) {
 	root := t.TempDir()
 	containerDir := filepath.Join(root, "sessions", "workspace-a")
 	first, err := session.Create(containerDir, "workspace-a", "/tmp/workspace-a")
@@ -135,22 +155,9 @@ func TestPlannerInteractiveUsesPickerSelection(t *testing.T) {
 			Settings:        config.Settings{},
 		},
 		ContainerDir: containerDir,
-		PickSession: func(summaries []session.Summary) (SessionSelection, error) {
-			if len(summaries) != 2 {
-				t.Fatalf("expected two summaries, got %d", len(summaries))
-			}
-			for _, summary := range summaries {
-				if summary.SessionID == second.Meta().SessionID {
-					picked := summary
-					return SessionSelection{Session: &picked}, nil
-				}
-			}
-			t.Fatalf("expected picker summaries to include %q", second.Meta().SessionID)
-			return SessionSelection{}, nil
-		},
 	}
 
-	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive})
+	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, SelectedSessionID: second.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("plan session: %v", err)
 	}
@@ -159,60 +166,6 @@ func TestPlannerInteractiveUsesPickerSelection(t *testing.T) {
 	}
 	if plan.Store.Meta().SessionID == first.Meta().SessionID {
 		t.Fatalf("did not expect first session %q", first.Meta().SessionID)
-	}
-}
-
-func TestPlannerInteractiveUsesProjectViewSessionsAndReopensBySessionID(t *testing.T) {
-	root := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
-	first, err := session.Create(containerDir, "workspace-a", "/tmp/workspace-a")
-	if err != nil {
-		t.Fatalf("create first session: %v", err)
-	}
-	if err := first.SetName("first"); err != nil {
-		t.Fatalf("persist first session meta: %v", err)
-	}
-	second, err := session.Create(containerDir, "workspace-a", "/tmp/workspace-a")
-	if err != nil {
-		t.Fatalf("create second session: %v", err)
-	}
-	if err := second.SetName("second"); err != nil {
-		t.Fatalf("persist second session meta: %v", err)
-	}
-	projectViews := &stubLaunchProjectViewService{overview: serverapi.ProjectGetOverviewResponse{Overview: clientui.ProjectOverview{
-		Project: clientui.ProjectSummary{ProjectID: "project-1", DisplayName: "workspace-a", RootPath: "/tmp/workspace-a"},
-		Sessions: []clientui.SessionSummary{
-			{SessionID: first.Meta().SessionID, Name: "first", UpdatedAt: first.Meta().UpdatedAt},
-			{SessionID: second.Meta().SessionID, Name: "second", UpdatedAt: second.Meta().UpdatedAt},
-		},
-	}}}
-	planner := Planner{
-		Config: config.App{
-			WorkspaceRoot:   "/tmp/workspace-a",
-			PersistenceRoot: root,
-			Settings:        config.Settings{},
-		},
-		ContainerDir: containerDir,
-		ProjectID:    "project-1",
-		ProjectViews: client.NewLoopbackProjectViewClient(projectViews),
-		PickSession: func(summaries []session.Summary) (SessionSelection, error) {
-			if len(summaries) != 2 {
-				t.Fatalf("expected two summaries, got %d", len(summaries))
-			}
-			picked := summaries[1]
-			return SessionSelection{Session: &picked}, nil
-		},
-	}
-
-	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive})
-	if err != nil {
-		t.Fatalf("plan session: %v", err)
-	}
-	if plan.Store.Meta().SessionID != second.Meta().SessionID {
-		t.Fatalf("expected selected session %q, got %q", second.Meta().SessionID, plan.Store.Meta().SessionID)
-	}
-	if projectViews.overviewCalls != 1 {
-		t.Fatalf("expected project overview to be used once, got %d", projectViews.overviewCalls)
 	}
 }
 

@@ -5,8 +5,6 @@ import (
 	"errors"
 	"strings"
 
-	"builder/server/processview"
-	shelltool "builder/server/tools/shell"
 	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/serverapi"
@@ -14,20 +12,15 @@ import (
 )
 
 type backgroundUIProcessClient struct {
-	manager *shelltool.Manager
 	reads   client.ProcessViewClient
 	control client.ProcessControlClient
 }
 
-func newUIProcessClient(manager *shelltool.Manager) clientui.ProcessClient {
-	return newUIProcessClientWithReads(manager, nil, nil)
-}
-
-func newUIProcessClientWithReads(manager *shelltool.Manager, reads client.ProcessViewClient, control client.ProcessControlClient) clientui.ProcessClient {
-	if manager == nil && reads == nil && control == nil {
+func newUIProcessClientWithReads(reads client.ProcessViewClient, control client.ProcessControlClient) clientui.ProcessClient {
+	if reads == nil && control == nil {
 		return nil
 	}
-	return backgroundUIProcessClient{manager: manager, reads: reads, control: control}
+	return backgroundUIProcessClient{reads: reads, control: control}
 }
 
 func (m *uiModel) listProcesses() []clientui.BackgroundProcess {
@@ -45,15 +38,7 @@ func (c backgroundUIProcessClient) ListProcesses() []clientui.BackgroundProcess 
 		}
 		return resp.Processes
 	}
-	if c.manager == nil {
-		return nil
-	}
-	entries := c.manager.List()
-	out := make([]clientui.BackgroundProcess, 0, len(entries))
-	for _, entry := range entries {
-		out = append(out, processview.ProcessFromSnapshot(entry))
-	}
-	return out
+	return nil
 }
 
 func (c backgroundUIProcessClient) KillProcess(id string) error {
@@ -65,10 +50,7 @@ func (c backgroundUIProcessClient) KillProcess(id string) error {
 		}
 		return nil
 	}
-	if c.manager == nil {
-		return errors.New("background process manager is unavailable")
-	}
-	return c.manager.Kill(id)
+	return errors.New("process control client is unavailable")
 }
 
 func (c backgroundUIProcessClient) InlineOutput(id string, maxChars int) (string, string, error) {
@@ -80,8 +62,5 @@ func (c backgroundUIProcessClient) InlineOutput(id string, maxChars int) (string
 		}
 		return resp.Output, resp.LogPath, nil
 	}
-	if c.manager == nil {
-		return "", "", errors.New("background process manager is unavailable")
-	}
-	return c.manager.InlineOutput(id, maxChars)
+	return "", "", errors.New("process control client is unavailable")
 }

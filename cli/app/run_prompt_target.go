@@ -14,11 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"builder/server/launch"
+	serverbootstrap "builder/server/bootstrap"
 	"builder/server/serve"
 	"builder/server/session"
 	"builder/shared/client"
-	"builder/shared/clientui"
 	"builder/shared/config"
 	"builder/shared/protocol"
 	"builder/shared/serverapi"
@@ -138,73 +137,46 @@ func tryDialMatchingConfiguredRunPromptRemoteWithConfig(ctx context.Context, opt
 		_ = projectViews.Close()
 		return nil, false, nil
 	}
-	bindingResp, err := projectViews.ResolveProjectPath(attachCtx, serverapi.ProjectResolvePathRequest{Path: cfg.WorkspaceRoot})
+	discoveryCtx, discoveryCancel := context.WithTimeout(ctx, configuredRemoteWorkspaceDiscoveryTimeout)
+	plan, err := projectViews.PlanWorkspaceBinding(discoveryCtx, serverapi.ProjectBindingPlanRequest{Path: cfg.WorkspaceRoot, Mode: serverapi.ProjectBindingPlanModeHeadless})
+	discoveryCancel()
 	if err != nil {
 		_ = projectViews.Close()
 		return nil, true, err
 	}
-	if bindingResp.Binding != nil {
+	switch plan.Kind {
+	case serverapi.ProjectBindingPlanKindBound:
+		if plan.Binding == nil {
+			_ = projectViews.Close()
+			return nil, true, errors.New("resolved project binding is required")
+		}
 		_ = projectViews.Close()
-		remote, err := dialConfiguredRemoteWorkspace(ctx, cfg, bindingResp.Binding.ProjectID, bindingResp.Binding.WorkspaceID)
+		remote, err := dialConfiguredRemoteWorkspace(ctx, cfg, plan.Binding.ProjectID, plan.Binding.WorkspaceID)
 		if err != nil {
 			return nil, true, err
 		}
 		return remote, true, nil
-	}
-	if bindingResp.PathAvailability == clientui.ProjectAvailabilityAvailable {
+	case serverapi.ProjectBindingPlanKindLocalUnbound:
 		_ = projectViews.Close()
 		return nil, true, headlessWorkspaceRegistrationError(cfg.WorkspaceRoot)
-	}
-	discoveryCtx, discoveryCancel := context.WithTimeout(ctx, configuredRemoteWorkspaceDiscoveryTimeout)
-	workspace, found, err := selectSingleRemoteWorkspaceForHeadless(discoveryCtx, projectViews)
-	discoveryCancel()
-	_ = projectViews.Close()
-	if err != nil {
-		return nil, true, err
-	}
-	if !found {
+	case serverapi.ProjectBindingPlanKindHeadlessRemoteAmbiguous:
+		_ = projectViews.Close()
 		return nil, true, headlessRemoteWorkspaceSelectionError()
-	}
-	remote, err := dialConfiguredRemoteWorkspace(ctx, cfg, workspace.ProjectID, workspace.WorkspaceID)
-	if err != nil {
-		return nil, true, err
-	}
-	return remote, true, nil
-}
-
-type remoteWorkspaceSelection struct {
-	ProjectID   string
-	WorkspaceID string
-}
-
-func selectSingleRemoteWorkspaceForHeadless(ctx context.Context, projectViews client.ProjectViewClient) (remoteWorkspaceSelection, bool, error) {
-	projects, err := projectViews.ListProjects(ctx, serverapi.ProjectListRequest{})
-	if err != nil {
-		return remoteWorkspaceSelection{}, false, err
-	}
-	selection := remoteWorkspaceSelection{}
-	count := 0
-	for _, project := range projects.Projects {
-		overview, err := projectViews.GetProjectOverview(ctx, serverapi.ProjectGetOverviewRequest{ProjectID: project.ProjectID})
+	case serverapi.ProjectBindingPlanKindHeadlessRemoteSelected:
+		if plan.Workspace == nil {
+			_ = projectViews.Close()
+			return nil, true, errors.New("resolved remote workspace is required")
+		}
+		_ = projectViews.Close()
+		remote, err := dialConfiguredRemoteWorkspace(ctx, cfg, plan.Workspace.ProjectID, plan.Workspace.WorkspaceID)
 		if err != nil {
-			return remoteWorkspaceSelection{}, false, err
+			return nil, true, err
 		}
-		for _, workspace := range overview.Overview.Workspaces {
-			availability := strings.TrimSpace(string(workspace.Availability))
-			if availability != "" && workspace.Availability != clientui.ProjectAvailabilityAvailable {
-				continue
-			}
-			count++
-			selection = remoteWorkspaceSelection{ProjectID: project.ProjectID, WorkspaceID: workspace.WorkspaceID}
-			if count > 1 {
-				return remoteWorkspaceSelection{}, false, nil
-			}
-		}
+		return remote, true, nil
+	default:
+		_ = projectViews.Close()
+		return nil, true, fmt.Errorf("unsupported headless project binding plan %q", plan.Kind)
 	}
-	if count == 0 {
-		return remoteWorkspaceSelection{}, false, nil
-	}
-	return selection, true, nil
 }
 
 func tryDialConfiguredRemote(ctx context.Context, opts Options, supports func(protocol.CapabilityFlags) bool) (*client.Remote, bool) {
@@ -362,36 +334,29 @@ func resolveRunPromptWorkspaceConfig(opts Options) (runPromptWorkspaceConfig, er
 	if err != nil {
 		return runPromptWorkspaceConfig{}, err
 	}
-	cfg, err := config.Load(workspaceRoot, config.LoadOptions{})
-	if err != nil {
-		return runPromptWorkspaceConfig{}, err
-	}
-	resolvedOpts, resolvedCfg, err := resolveRunPromptWorkspaceContext(opts, workspaceRoot, cfg)
-	if err != nil {
-		return runPromptWorkspaceConfig{}, err
-	}
-	return runPromptWorkspaceConfig{Options: resolvedOpts, Config: resolvedCfg}, nil
-}
-
-func resolveRunPromptWorkspaceContext(opts Options, workspaceRoot string, cfg config.App) (Options, config.App, error) {
-	if opts.WorkspaceRootExplicit {
-		return opts, cfg, nil
-	}
-	if sessionID := strings.TrimSpace(opts.SessionID); sessionID != "" {
-		return resolveRunPromptWorkspaceContextSession(opts, workspaceRoot, cfg, sessionID)
-	}
+	sessionID := strings.TrimSpace(opts.SessionID)
 	contextSessionID := strings.TrimSpace(opts.WorkspaceContextSessionID)
-	if contextSessionID == "" {
-		return opts, cfg, nil
+	if sessionID == "" && !opts.WorkspaceRootExplicit {
+		sessionID = contextSessionID
 	}
-	resolvedOpts, resolvedCfg, err := resolveRunPromptWorkspaceContextSession(opts, workspaceRoot, cfg, contextSessionID)
+	plan, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{
+		WorkspaceRoot:         workspaceRoot,
+		WorkspaceRootExplicit: opts.WorkspaceRootExplicit,
+		SessionID:             sessionID,
+		OpenAIBaseURL:         opts.OpenAIBaseURL,
+		OpenAIBaseURLExplicit: opts.OpenAIBaseURLExplicit,
+	})
 	if err != nil {
-		// BUILDER_SESSION_ID is an implicit routing contract for shell commands
-		// launched by Builder. If it is present but invalid, failing loudly is
-		// safer than silently running the prompt against an unrelated cwd.
-		return Options{}, config.App{}, workspaceContextSessionError(contextSessionID, err)
+		if sessionID != "" && sessionID == contextSessionID {
+			return runPromptWorkspaceConfig{}, workspaceContextSessionError(contextSessionID, err)
+		}
+		return runPromptWorkspaceConfig{}, err
 	}
-	return resolvedOpts, resolvedCfg, nil
+	resolvedOpts := opts
+	if strings.TrimSpace(plan.Config.WorkspaceRoot) != "" && plan.Config.WorkspaceRoot != workspaceRoot {
+		resolvedOpts.WorkspaceRoot = plan.Config.WorkspaceRoot
+	}
+	return runPromptWorkspaceConfig{Options: resolvedOpts, Config: plan.Config}, nil
 }
 
 func workspaceContextSessionError(sessionID string, err error) error {
@@ -401,31 +366,13 @@ func workspaceContextSessionError(sessionID string, err error) error {
 	return fmt.Errorf("resolve %s workspace context %q: %w", sessionenv.BuilderSessionID, strings.TrimSpace(sessionID), err)
 }
 
-func resolveRunPromptWorkspaceContextSession(opts Options, workspaceRoot string, cfg config.App, sessionID string) (Options, config.App, error) {
-	bootstrapPlan, err := launch.ResolveBootstrapPlan(cfg.PersistenceRoot, launch.BootstrapRequest{
-		WorkspaceRoot:         workspaceRoot,
-		WorkspaceRootExplicit: opts.WorkspaceRootExplicit,
-		SessionID:             sessionID,
-	})
-	if err != nil {
-		return Options{}, config.App{}, err
-	}
-	if strings.TrimSpace(bootstrapPlan.WorkspaceRoot) == "" || bootstrapPlan.WorkspaceRoot == workspaceRoot {
-		return opts, cfg, nil
-	}
-	resolved := opts
-	resolved.WorkspaceRoot = bootstrapPlan.WorkspaceRoot
-	resolvedCfg, err := config.Load(bootstrapPlan.WorkspaceRoot, config.LoadOptions{})
-	if err != nil {
-		return Options{}, config.App{}, err
-	}
-	return resolved, resolvedCfg, nil
-}
-
 func resolveRemoteWorkspaceBinding(ctx context.Context, projectViews client.ProjectViewClient, workspaceRoot string) (*serverapi.ProjectBinding, error) {
-	resp, err := projectViews.ResolveProjectPath(ctx, serverapi.ProjectResolvePathRequest{Path: workspaceRoot})
+	resp, err := projectViews.PlanWorkspaceBinding(ctx, serverapi.ProjectBindingPlanRequest{Path: workspaceRoot, Mode: serverapi.ProjectBindingPlanModeInteractive})
 	if err != nil {
 		return nil, err
+	}
+	if resp.Kind != serverapi.ProjectBindingPlanKindBound {
+		return nil, nil
 	}
 	return resp.Binding, nil
 }

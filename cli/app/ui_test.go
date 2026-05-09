@@ -6,7 +6,7 @@ import (
 	"builder/server/runtime"
 	"builder/server/session"
 	"builder/server/tools"
-	"builder/server/tools/askquestion"
+	"builder/shared/clientui"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -36,7 +36,7 @@ func TestTabQueuesAndStartsSubmission(t *testing.T) {
 
 func TestEmptyEnterFlushesOnlyNextQueuedItem(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.queued = []string{"/name queued title", "follow up"}
+	m.queued = queuedInputsForTest("/name queued title", "follow up")
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
@@ -50,14 +50,14 @@ func TestEmptyEnterFlushesOnlyNextQueuedItem(t *testing.T) {
 	if updated.busy {
 		t.Fatal("did not expect follow-up prompt submission from empty-enter flush")
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "follow up" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
 		t.Fatalf("expected follow-up prompt to remain queued, got %+v", updated.queued)
 	}
 }
 
 func TestIdleTabWithExistingQueueFlushesOnlyNextQueuedItem(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.queued = []string{"/name queued title"}
+	m.queued = queuedInputsForTest("/name queued title")
 	m.input = "follow up"
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab})
@@ -72,7 +72,7 @@ func TestIdleTabWithExistingQueueFlushesOnlyNextQueuedItem(t *testing.T) {
 	if updated.busy {
 		t.Fatal("did not expect appended prompt to auto-submit while idle tab is flushing one queued item")
 	}
-	if len(updated.queued) != 1 || updated.queued[0] != "follow up" {
+	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
 		t.Fatalf("expected appended prompt to remain queued, got %+v", updated.queued)
 	}
 }
@@ -220,7 +220,7 @@ func TestParseUserShellCommand(t *testing.T) {
 func TestAskQuestionTabFreeformFlow(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	reply := make(chan askReply, 1)
-	event := askEvent{req: askquestion.Request{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}
+	event := askEvent{req: clientui.PendingPromptEvent{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}
 
 	next, _ := m.Update(askEventMsg{event: event})
 	updated := next.(*uiModel)
@@ -263,7 +263,7 @@ func TestAskQuestionTabFreeformFlow(t *testing.T) {
 func TestAskQuestionPickerSubmitPreservesPendingFreeformDraft(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	reply := make(chan askReply, 1)
-	event := askEvent{req: askquestion.Request{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}
+	event := askEvent{req: clientui.PendingPromptEvent{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}
 
 	next, _ := m.Update(askEventMsg{event: event})
 	updated := next.(*uiModel)
@@ -318,7 +318,7 @@ func TestAskQuestionPickerSubmitPreservesPendingFreeformDraft(t *testing.T) {
 func TestAskQuestionTabRoundTripRestoresPendingFreeformDraftAndCursor(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	reply := make(chan askReply, 1)
-	event := askEvent{req: askquestion.Request{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}
+	event := askEvent{req: clientui.PendingPromptEvent{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}
 
 	next, _ := m.Update(askEventMsg{event: event})
 	updated := next.(*uiModel)
@@ -369,7 +369,7 @@ func TestAskQuestionTabRoundTripRestoresPendingFreeformDraftAndCursor(t *testing
 func TestAskQuestionPickerSubmitReturnsSelectedOptionNumber(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	reply := make(chan askReply, 1)
-	event := askEvent{req: askquestion.Request{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}
+	event := askEvent{req: clientui.PendingPromptEvent{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}
 
 	next, _ := m.Update(askEventMsg{event: event})
 	updated := next.(*uiModel)
@@ -393,7 +393,7 @@ func TestAskQuestionPickerSubmitReturnsSelectedOptionNumber(t *testing.T) {
 func TestAskQuestionFreeformSelectionEnterDropsIntoFreeformWhenEmpty(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	reply := make(chan askReply, 1)
-	event := askEvent{req: askquestion.Request{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}
+	event := askEvent{req: clientui.PendingPromptEvent{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}
 
 	next, _ := m.Update(askEventMsg{event: event})
 	updated := next.(*uiModel)
@@ -426,7 +426,7 @@ func TestAskQuestionFreeformSelectionEnterDropsIntoFreeformWhenEmpty(t *testing.
 func TestAskQuestionFreeformSelectionEmptySubmitRequiresCommentary(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	reply := make(chan askReply, 1)
-	event := askEvent{req: askquestion.Request{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}
+	event := askEvent{req: clientui.PendingPromptEvent{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}
 
 	next, _ := m.Update(askEventMsg{event: event})
 	updated := next.(*uiModel)
@@ -461,7 +461,7 @@ func TestAskQuestionFreeformSelectionEmptySubmitRequiresCommentary(t *testing.T)
 func TestAskQuestionFreeformSelectionSubmitsFreeformOnly(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	reply := make(chan askReply, 1)
-	event := askEvent{req: askquestion.Request{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}
+	event := askEvent{req: clientui.PendingPromptEvent{Question: "Pick one", Suggestions: []string{"a", "b"}}, reply: reply}
 
 	next, _ := m.Update(askEventMsg{event: event})
 	updated := next.(*uiModel)
@@ -491,7 +491,7 @@ func TestAskQuestionFreeformSelectionSubmitsFreeformOnly(t *testing.T) {
 func TestAskFreeformUsesMainEditingStack(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	reply := make(chan askReply, 1)
-	event := askEvent{req: askquestion.Request{Question: "Type answer"}, reply: reply}
+	event := askEvent{req: clientui.PendingPromptEvent{Question: "Type answer"}, reply: reply}
 
 	next, _ := m.Update(askEventMsg{event: event})
 	updated := next.(*uiModel)
@@ -530,7 +530,7 @@ func TestAskFreeformUsesMainEditingStack(t *testing.T) {
 func TestAskFreeformCtrlUEditingMatchesMainInput(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	reply := make(chan askReply, 1)
-	event := askEvent{req: askquestion.Request{Question: "Type answer"}, reply: reply}
+	event := askEvent{req: clientui.PendingPromptEvent{Question: "Type answer"}, reply: reply}
 
 	next, _ := m.Update(askEventMsg{event: event})
 	updated := next.(*uiModel)
@@ -570,7 +570,7 @@ func TestApprovalAskUsesSingleDenyOptionAndTabCommentary(t *testing.T) {
 	m := newProjectedEngineUIModel(eng)
 	m.busy = true
 	reply := make(chan askReply, 1)
-	event := askEvent{req: askquestion.Request{Question: "Approve?", Approval: true, ApprovalOptions: []askquestion.ApprovalOption{{Decision: askquestion.ApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: askquestion.ApprovalDecisionAllowSession, Label: "Allow for this session"}, {Decision: askquestion.ApprovalDecisionDeny, Label: "Deny"}}}, reply: reply}
+	event := askEvent{req: clientui.PendingPromptEvent{Question: "Approve?", Approval: true, ApprovalOptions: []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: clientui.ApprovalDecisionAllowSession, Label: "Allow for this session"}, {Decision: clientui.ApprovalDecisionDeny, Label: "Deny"}}}, reply: reply}
 
 	next, _ := m.Update(askEventMsg{event: event})
 	updated := next.(*uiModel)
@@ -620,10 +620,10 @@ func TestApprovalAskUsesSingleDenyOptionAndTabCommentary(t *testing.T) {
 	if resp.response.Approval == nil {
 		t.Fatal("expected typed approval response")
 	}
-	if resp.response.Approval.Decision != askquestion.ApprovalDecisionDeny || resp.response.Approval.Commentary != "blocked by policy" {
+	if resp.response.Approval.Decision != clientui.ApprovalDecisionDeny || resp.response.Approval.Commentary != "blocked by policy" {
 		t.Fatalf("unexpected approval response: %+v", resp.response.Approval)
 	}
-	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0] != "blocked by policy" {
+	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "blocked by policy" {
 		t.Fatalf("expected deny commentary injected into regular user-said flow, got %+v", updated.pendingInjected)
 	}
 	if testActiveAsk(updated) != nil {
@@ -701,7 +701,7 @@ func TestAskQuestionLargeMarkdownPromptPreservesLogicalLines(t *testing.T) {
 	m.termHeight = 24
 	m.windowSizeKnown = true
 	m.syncViewport()
-	testSetActiveAsk(m, &askEvent{req: askquestion.Request{Question: question}, reply: make(chan askReply, 1)})
+	testSetActiveAsk(m, &askEvent{req: clientui.PendingPromptEvent{Question: question}, reply: make(chan askReply, 1)})
 
 	wrapped, _ := m.layout().wrappedAskPromptLines(64)
 	gotLines := make([]string, 0, len(wrapped))
@@ -858,11 +858,8 @@ func TestRollbackEditingSubmitQuitsIntoForkTransition(t *testing.T) {
 	if updated.exitAction != UIActionForkRollback {
 		t.Fatalf("expected fork rollback action, got %q", updated.exitAction)
 	}
-	if updated.nextForkTranscriptEntryIndex != 3 {
-		t.Fatalf("expected rollback transcript entry index, got %d", updated.nextForkTranscriptEntryIndex)
-	}
-	if updated.nextForkUserMessageIndex != 0 {
-		t.Fatalf("expected user message index translation deferred to server, got %d", updated.nextForkUserMessageIndex)
+	if updated.nextForkRollbackTargetID != rollbackTargetIDForTestSelection(3) {
+		t.Fatalf("expected rollback target id, got %q", updated.nextForkRollbackTargetID)
 	}
 	if updated.nextSessionInitialPrompt != "edited user message" {
 		t.Fatalf("expected startup prompt to match edited input, got %q", updated.nextSessionInitialPrompt)
