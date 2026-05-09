@@ -82,6 +82,31 @@ func TestReduceSetConversationMsgKeepsEntriesRevisionStableForLiveOnlyChanges(t 
 	}
 }
 
+func TestReduceSetConversationMsgKeepsEntriesRevisionStableForWindowOnlyChanges(t *testing.T) {
+	m := NewModel()
+	entries := []TranscriptEntry{{Role: "assistant", Text: "existing"}}
+	var result modelUpdateResult
+	m.reduceSetConversationMsg(SetConversationMsg{BaseOffset: 10, TotalEntries: 11, Entries: entries}, &result)
+	entriesRevision := m.transcriptInput.EntriesRevision
+	projectionRevision := m.transcriptInput.Revision
+
+	result = modelUpdateResult{}
+	m.reduceSetConversationMsg(SetConversationMsg{BaseOffset: 20, TotalEntries: 21, Entries: entries}, &result)
+
+	if got := m.transcriptInput.EntriesRevision; got != entriesRevision {
+		t.Fatalf("entries revision changed for window-only update: got %d want %d", got, entriesRevision)
+	}
+	if got, want := m.transcriptInput.Revision, projectionRevision+1; got != want {
+		t.Fatalf("projection revision = %d, want %d", got, want)
+	}
+	if got := m.transcriptInput.BaseOffset; got != 20 {
+		t.Fatalf("base offset = %d, want 20", got)
+	}
+	if got := m.transcriptInput.TotalEntries; got != 21 {
+		t.Fatalf("total entries = %d, want 21", got)
+	}
+}
+
 func TestReduceSetConversationMsgNormalizesEntriesAndClearsInvalidSelection(t *testing.T) {
 	m := NewModel()
 	m.selectedTranscriptEntry = 5
