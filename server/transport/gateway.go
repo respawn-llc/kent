@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync/atomic"
 
@@ -556,7 +557,7 @@ var gatewayProgressHandlerEntries = map[string]gatewayProgressHandler{
 	protocol.MethodRunPrompt: (*Gateway).serveRunPrompt,
 }
 
-type gatewayProgressHandler func(g *Gateway, conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request) bool
+type gatewayProgressHandler func(g *Gateway, conn rpcwire.Conn, ctx context.Context, state *connectionState, route rpccontract.Route, req protocol.Request) bool
 
 var gatewayProgressHandlers = routeHandlersForKind(rpccontract.KindProgress, gatewayProgressHandlerEntries)
 
@@ -577,7 +578,7 @@ type connectionState struct {
 	attachedSession       string
 }
 
-type gatewaySubscriptionHandler func(g *Gateway, conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request)
+type gatewaySubscriptionHandler func(g *Gateway, conn rpcwire.Conn, ctx context.Context, state *connectionState, route rpccontract.Route, req protocol.Request)
 
 var gatewaySubscriptionHandlerEntries = map[string]gatewaySubscriptionHandler{
 	protocol.MethodSessionSubscribeActivity: (*Gateway).serveSessionActivitySubscription,
@@ -600,6 +601,15 @@ func routeHandlersForKind[T any](kind rpccontract.Kind, entries map[string]T) ma
 		handlers[route.Method] = handler
 	}
 	return handlers
+}
+
+func gatewayProgressHandlerForMethod(method string) (gatewayProgressHandler, rpccontract.Route, bool) {
+	route, ok := rpccontract.RouteByMethod(strings.TrimSpace(method))
+	if !ok || route.Kind != rpccontract.KindProgress {
+		return nil, rpccontract.Route{}, false
+	}
+	handler, ok := gatewayProgressHandlers[route.Method]
+	return handler, route, ok
 }
 
 func NewGateway(appCore *core.Core, identity protocol.ServerIdentity) (*Gateway, error) {
@@ -633,8 +643,8 @@ func (g *Gateway) handleConn(ctx context.Context, conn rpcwire.Conn) {
 		if err != nil {
 			return
 		}
-		if handler, ok := gatewayProgressHandlers[req.Method]; ok {
-			if !handler(g, conn, connCtx, state, req) {
+		if handler, route, ok := gatewayProgressHandlerForMethod(req.Method); ok {
+			if !handler(g, conn, connCtx, state, route, req) {
 				return
 			}
 			continue
@@ -650,7 +660,7 @@ func (g *Gateway) handleConn(ctx context.Context, conn rpcwire.Conn) {
 	}
 }
 
-func (g *Gateway) serveRunPrompt(conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request) bool {
+func (g *Gateway) serveRunPrompt(conn rpcwire.Conn, ctx context.Context, state *connectionState, route rpccontract.Route, req protocol.Request) bool {
 	if err := req.Validate(); err != nil {
 		return sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidRequest, err.Error()))
 	}
@@ -664,10 +674,11 @@ func (g *Gateway) serveRunPrompt(conn rpcwire.Conn, ctx context.Context, state *
 	if !ready {
 		return sendResponse(ctx, conn, responseForError(req.ID, serverapi.ErrServerAuthRequired))
 	}
-	params, err := decodeParams[serverapi.RunPromptRequest](req.Params)
-	if err != nil {
-		return sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
+	decoded, preflightResp, failed := g.preflightRouteRequest(ctx, state, route, req)
+	if failed {
+		return sendResponse(ctx, conn, preflightResp)
 	}
+	params := decoded.(serverapi.RunPromptRequest)
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var progressBroken atomic.Bool
@@ -675,7 +686,7 @@ func (g *Gateway) serveRunPrompt(conn rpcwire.Conn, ctx context.Context, state *
 		if progressBroken.Load() {
 			return
 		}
-		if err := sendNotification(runCtx, conn, protocol.MethodRunPromptProgress, update); err != nil {
+		if err := sendNotification(runCtx, conn, route.EventMethod, update); err != nil {
 			if progressBroken.CompareAndSwap(false, true) {
 				cancel()
 			}
@@ -711,6 +722,13 @@ func (g *Gateway) dispatch(ctx context.Context, state *connectionState, req prot
 	handler, ok := gatewayUnaryHandlers[req.Method]
 	if !ok {
 		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeMethodNotFound, fmt.Sprintf("method %q not found", req.Method))
+	}
+	route, ok := rpccontract.RouteByMethod(req.Method)
+	if !ok {
+		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeMethodNotFound, fmt.Sprintf("method %q not found", req.Method))
+	}
+	if _, resp, failed := g.preflightRouteRequest(ctx, state, route, req); failed {
+		return resp
 	}
 	return handler(g, ctx, state, req)
 }
@@ -899,10 +917,19 @@ func (g *Gateway) serveSubscription(conn rpcwire.Conn, ctx context.Context, stat
 		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeMethodNotFound, fmt.Sprintf("method %q not found", req.Method)))
 		return
 	}
-	handler(g, conn, ctx, state, req)
+	route, ok := rpccontract.RouteByMethod(req.Method)
+	if !ok {
+		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeMethodNotFound, fmt.Sprintf("method %q not found", req.Method)))
+		return
+	}
+	if _, resp, failed := g.preflightRouteRequest(ctx, state, route, req); failed {
+		_ = sendResponse(ctx, conn, resp)
+		return
+	}
+	handler(g, conn, ctx, state, route, req)
 }
 
-func (g *Gateway) serveSessionActivitySubscription(conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request) {
+func (g *Gateway) serveSessionActivitySubscription(conn rpcwire.Conn, ctx context.Context, state *connectionState, route rpccontract.Route, req protocol.Request) {
 	params, err := decodeParams[serverapi.SessionActivitySubscribeRequest](req.Params)
 	if err != nil {
 		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
@@ -922,22 +949,22 @@ func (g *Gateway) serveSessionActivitySubscription(conn rpcwire.Conn, ctx contex
 		return
 	}
 	defer func() { _ = sub.Close() }()
-	if !sendResponse(ctx, conn, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{Stream: protocol.MethodSessionActivityEvent})) {
+	if !sendResponse(ctx, conn, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{Stream: route.EventMethod})) {
 		return
 	}
 	for {
 		evt, err := sub.Next(ctx)
 		if err != nil {
-			_ = sendNotification(ctx, conn, protocol.MethodSessionActivityComplete, streamCompleteParams(err))
+			_ = sendNotification(ctx, conn, route.CompleteMethod, streamCompleteParams(err))
 			return
 		}
-		if err := sendNotification(ctx, conn, protocol.MethodSessionActivityEvent, protocol.SessionActivityEventParams{Event: evt}); err != nil {
+		if err := sendNotification(ctx, conn, route.EventMethod, protocol.SessionActivityEventParams{Event: evt}); err != nil {
 			return
 		}
 	}
 }
 
-func (g *Gateway) serveProcessOutputSubscription(conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request) {
+func (g *Gateway) serveProcessOutputSubscription(conn rpcwire.Conn, ctx context.Context, state *connectionState, route rpccontract.Route, req protocol.Request) {
 	params, err := decodeParams[serverapi.ProcessOutputSubscribeRequest](req.Params)
 	if err != nil {
 		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
@@ -957,22 +984,22 @@ func (g *Gateway) serveProcessOutputSubscription(conn rpcwire.Conn, ctx context.
 		return
 	}
 	defer func() { _ = sub.Close() }()
-	if !sendResponse(ctx, conn, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{Stream: protocol.MethodProcessOutputEvent})) {
+	if !sendResponse(ctx, conn, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{Stream: route.EventMethod})) {
 		return
 	}
 	for {
 		chunk, err := sub.Next(ctx)
 		if err != nil {
-			_ = sendNotification(ctx, conn, protocol.MethodProcessOutputComplete, streamCompleteParams(err))
+			_ = sendNotification(ctx, conn, route.CompleteMethod, streamCompleteParams(err))
 			return
 		}
-		if err := sendNotification(ctx, conn, protocol.MethodProcessOutputEvent, protocol.ProcessOutputEventParams{Chunk: chunk}); err != nil {
+		if err := sendNotification(ctx, conn, route.EventMethod, protocol.ProcessOutputEventParams{Chunk: chunk}); err != nil {
 			return
 		}
 	}
 }
 
-func (g *Gateway) servePromptActivitySubscription(conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request) {
+func (g *Gateway) servePromptActivitySubscription(conn rpcwire.Conn, ctx context.Context, state *connectionState, route rpccontract.Route, req protocol.Request) {
 	params, err := decodeParams[serverapi.PromptActivitySubscribeRequest](req.Params)
 	if err != nil {
 		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
@@ -992,19 +1019,120 @@ func (g *Gateway) servePromptActivitySubscription(conn rpcwire.Conn, ctx context
 		return
 	}
 	defer func() { _ = sub.Close() }()
-	if !sendResponse(ctx, conn, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{Stream: protocol.MethodPromptActivityEvent})) {
+	if !sendResponse(ctx, conn, protocol.NewSuccessResponse(req.ID, protocol.SubscribeResponse{Stream: route.EventMethod})) {
 		return
 	}
 	for {
 		evt, err := sub.Next(ctx)
 		if err != nil {
-			_ = sendNotification(ctx, conn, protocol.MethodPromptActivityComplete, streamCompleteParams(err))
+			_ = sendNotification(ctx, conn, route.CompleteMethod, streamCompleteParams(err))
 			return
 		}
-		if err := sendNotification(ctx, conn, protocol.MethodPromptActivityEvent, protocol.PromptActivityEventParams{Event: evt}); err != nil {
+		if err := sendNotification(ctx, conn, route.EventMethod, protocol.PromptActivityEventParams{Event: evt}); err != nil {
 			return
 		}
 	}
+}
+
+func (g *Gateway) preflightRouteRequest(ctx context.Context, state *connectionState, route rpccontract.Route, req protocol.Request) (any, protocol.Response, bool) {
+	params, err := decodeRouteParams(route, req.Params)
+	if err != nil {
+		return nil, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()), true
+	}
+	if err := g.authorizeRouteScope(ctx, state, route, params); err != nil {
+		var routeErr gatewayRouteError
+		if errors.As(err, &routeErr) {
+			return nil, protocol.NewErrorResponse(req.ID, routeErr.code, routeErr.message), true
+		}
+		return nil, responseForError(req.ID, err), true
+	}
+	return params, protocol.Response{}, false
+}
+
+type gatewayRouteError struct {
+	code    int
+	message string
+}
+
+func (e gatewayRouteError) Error() string {
+	return e.message
+}
+
+func decodeRouteParams(route rpccontract.Route, raw json.RawMessage) (any, error) {
+	if route.RequestType == nil {
+		return nil, nil
+	}
+	ptr := reflect.New(route.RequestType)
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, ptr.Interface()); err != nil {
+			return nil, fmt.Errorf("decode params: %w", err)
+		}
+	}
+	params := ptr.Elem().Interface()
+	if validator, ok := params.(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	return params, nil
+}
+
+func (g *Gateway) authorizeRouteScope(ctx context.Context, state *connectionState, route rpccontract.Route, params any) error {
+	switch route.Scope {
+	case rpccontract.ScopeNone, rpccontract.ScopeProjectView, rpccontract.ScopeAttachProject, rpccontract.ScopeNotification:
+		return nil
+	case rpccontract.ScopeProjectWorkspace:
+		_, err := g.activeProjectID(ctx, state)
+		return err
+	case rpccontract.ScopeAttachSession, rpccontract.ScopeSessionActiveProject:
+		return g.requireSessionInActiveProject(ctx, state, stringField(params, "SessionID"))
+	case rpccontract.ScopeSessionActiveProjectIfSet:
+		sessionID := stringField(params, "SessionID")
+		if strings.TrimSpace(sessionID) == "" {
+			return nil
+		}
+		return g.requireSessionInActiveProject(ctx, state, sessionID)
+	case rpccontract.ScopeSessionAttachedProject:
+		return g.requireSessionInAttachedProject(ctx, state, stringField(params, "SessionID"))
+	case rpccontract.ScopeAttachedSession:
+		if state.attachedSession != stringField(params, "SessionID") {
+			return gatewayRouteError{code: protocol.ErrCodeInvalidRequest, message: "session attach is required before subscribing"}
+		}
+		return nil
+	case rpccontract.ScopeGoalSession:
+		return g.requireGoalSessionAccess(ctx, state, stringField(params, "SessionID"))
+	case rpccontract.ScopeProcessActiveProject:
+		_, err := g.processInActiveProject(ctx, state, stringField(params, "ProcessID"))
+		return err
+	case rpccontract.ScopeProcessListActiveProject:
+		if ownerSessionID := stringField(params, "OwnerSessionID"); strings.TrimSpace(ownerSessionID) != "" {
+			return g.requireSessionInActiveProject(ctx, state, ownerSessionID)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported route scope %q for method %q", route.Scope, route.Method)
+	}
+}
+
+func stringField(value any, name string) string {
+	v := reflect.ValueOf(value)
+	if !v.IsValid() {
+		return ""
+	}
+	if v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return ""
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return ""
+	}
+	field := v.FieldByName(name)
+	if !field.IsValid() || field.Kind() != reflect.String {
+		return ""
+	}
+	return field.String()
 }
 
 func decodeAndHandle[TReq any, TResp any](req protocol.Request, handler func(TReq) (TResp, error)) protocol.Response {

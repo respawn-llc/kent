@@ -9,26 +9,31 @@ import (
 
 	"builder/shared/clientui"
 	"builder/shared/protocol"
+	"builder/shared/rpccontract"
 	"builder/shared/rpcwire"
 	"builder/shared/serverapi"
 )
 
 type remoteSessionActivitySubscription struct {
-	conn rpcwire.Conn
-	once sync.Once
+	conn  rpcwire.Conn
+	route rpccontract.Route
+	once  sync.Once
 }
 
 type remotePromptActivitySubscription struct {
-	conn rpcwire.Conn
-	once sync.Once
+	conn  rpcwire.Conn
+	route rpccontract.Route
+	once  sync.Once
 }
 
 type remoteProcessOutputSubscription struct {
-	conn rpcwire.Conn
-	once sync.Once
+	conn  rpcwire.Conn
+	route rpccontract.Route
+	once  sync.Once
 }
 
 func (c *Remote) SubscribePromptActivity(ctx context.Context, req serverapi.PromptActivitySubscribeRequest) (serverapi.PromptActivitySubscription, error) {
+	route := mustRemoteRoute(protocol.MethodPromptSubscribeActivity)
 	conn, cleanup, err := c.openSessionRPCConn(ctx, req.SessionID)
 	if err != nil {
 		return nil, err
@@ -38,10 +43,11 @@ func (c *Remote) SubscribePromptActivity(ctx context.Context, req serverapi.Prom
 		cleanup()
 		return nil, err
 	}
-	return &remotePromptActivitySubscription{conn: conn}, nil
+	return &remotePromptActivitySubscription{conn: conn, route: route}, nil
 }
 
 func (c *Remote) RunPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (serverapi.RunPromptResponse, error) {
+	route := mustRemoteRoute(protocol.MethodRunPrompt)
 	conn, cleanup, err := c.openRPCConn(ctx)
 	if err != nil {
 		return serverapi.RunPromptResponse{}, err
@@ -61,7 +67,7 @@ func (c *Remote) RunPrompt(ctx context.Context, req serverapi.RunPromptRequest, 
 		if err != nil {
 			return serverapi.RunPromptResponse{}, err
 		}
-		if frame.Method == protocol.MethodRunPromptProgress {
+		if frame.Method == route.EventMethod {
 			if progress != nil {
 				var update serverapi.RunPromptProgress
 				if err := json.Unmarshal(frame.Params, &update); err != nil {
@@ -89,6 +95,7 @@ func (c *Remote) RunPrompt(ctx context.Context, req serverapi.RunPromptRequest, 
 }
 
 func (c *Remote) SubscribeSessionActivity(ctx context.Context, req serverapi.SessionActivitySubscribeRequest) (serverapi.SessionActivitySubscription, error) {
+	route := mustRemoteRoute(protocol.MethodSessionSubscribeActivity)
 	conn, cleanup, err := c.openSessionRPCConn(ctx, req.SessionID)
 	if err != nil {
 		return nil, err
@@ -98,10 +105,11 @@ func (c *Remote) SubscribeSessionActivity(ctx context.Context, req serverapi.Ses
 		cleanup()
 		return nil, err
 	}
-	return &remoteSessionActivitySubscription{conn: conn}, nil
+	return &remoteSessionActivitySubscription{conn: conn, route: route}, nil
 }
 
 func (c *Remote) SubscribeProcessOutput(ctx context.Context, req serverapi.ProcessOutputSubscribeRequest) (serverapi.ProcessOutputSubscription, error) {
+	route := mustRemoteRoute(protocol.MethodProcessSubscribeOutput)
 	conn, cleanup, err := c.openRPCConn(ctx)
 	if err != nil {
 		return nil, err
@@ -111,7 +119,7 @@ func (c *Remote) SubscribeProcessOutput(ctx context.Context, req serverapi.Proce
 		cleanup()
 		return nil, err
 	}
-	return &remoteProcessOutputSubscription{conn: conn}, nil
+	return &remoteProcessOutputSubscription{conn: conn, route: route}, nil
 }
 
 func (c *Remote) openSessionRPCConn(ctx context.Context, sessionID string) (rpcwire.Conn, func(), error) {
@@ -126,19 +134,27 @@ func (c *Remote) openSessionRPCConn(ctx context.Context, sessionID string) (rpcw
 	return conn, cleanup, nil
 }
 
+func mustRemoteRoute(method string) rpccontract.Route {
+	route, ok := rpccontract.RouteByMethod(method)
+	if !ok {
+		panic(fmt.Sprintf("remote route %q is missing route contract", method))
+	}
+	return route
+}
+
 func (s *remoteSessionActivitySubscription) Next(ctx context.Context) (clientui.Event, error) {
 	frame, err := receiveFrame(ctx, s.conn)
 	if err != nil {
 		return clientui.Event{}, serverapi.NormalizeStreamError(err)
 	}
 	switch frame.Method {
-	case protocol.MethodSessionActivityEvent:
+	case s.route.EventMethod:
 		var params protocol.SessionActivityEventParams
 		if err := json.Unmarshal(frame.Params, &params); err != nil {
 			return clientui.Event{}, errors.Join(serverapi.ErrStreamFailed, err)
 		}
 		return params.Event, nil
-	case protocol.MethodSessionActivityComplete:
+	case s.route.CompleteMethod:
 		var params protocol.StreamCompleteParams
 		if err := json.Unmarshal(frame.Params, &params); err != nil {
 			return clientui.Event{}, errors.Join(serverapi.ErrStreamFailed, err)
@@ -168,13 +184,13 @@ func (s *remotePromptActivitySubscription) Next(ctx context.Context) (clientui.P
 		return clientui.PendingPromptEvent{}, serverapi.NormalizeStreamError(err)
 	}
 	switch frame.Method {
-	case protocol.MethodPromptActivityEvent:
+	case s.route.EventMethod:
 		var params protocol.PromptActivityEventParams
 		if err := json.Unmarshal(frame.Params, &params); err != nil {
 			return clientui.PendingPromptEvent{}, errors.Join(serverapi.ErrStreamFailed, err)
 		}
 		return params.Event, nil
-	case protocol.MethodPromptActivityComplete:
+	case s.route.CompleteMethod:
 		var params protocol.StreamCompleteParams
 		if err := json.Unmarshal(frame.Params, &params); err != nil {
 			return clientui.PendingPromptEvent{}, errors.Join(serverapi.ErrStreamFailed, err)
@@ -204,13 +220,13 @@ func (s *remoteProcessOutputSubscription) Next(ctx context.Context) (clientui.Pr
 		return clientui.ProcessOutputChunk{}, serverapi.NormalizeStreamError(err)
 	}
 	switch frame.Method {
-	case protocol.MethodProcessOutputEvent:
+	case s.route.EventMethod:
 		var params protocol.ProcessOutputEventParams
 		if err := json.Unmarshal(frame.Params, &params); err != nil {
 			return clientui.ProcessOutputChunk{}, errors.Join(serverapi.ErrStreamFailed, err)
 		}
 		return params.Chunk, nil
-	case protocol.MethodProcessOutputComplete:
+	case s.route.CompleteMethod:
 		var params protocol.StreamCompleteParams
 		if err := json.Unmarshal(frame.Params, &params); err != nil {
 			return clientui.ProcessOutputChunk{}, errors.Join(serverapi.ErrStreamFailed, err)
