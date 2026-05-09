@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"builder/server/auth"
+	"builder/server/session"
 	"builder/shared/clientui"
 	"builder/shared/protocol"
 	"builder/shared/rpccontract"
@@ -418,7 +420,10 @@ func (g *Gateway) filterProcessesForActiveProject(ctx context.Context, state *co
 			filtered = append(filtered, process)
 			continue
 		}
-		if !errors.Is(err, errSessionOutsideActiveProject) && !errors.Is(err, errActiveProjectRequired) {
+		if !errors.Is(err, errSessionOutsideActiveProject) &&
+			!errors.Is(err, errActiveProjectRequired) &&
+			!errors.Is(err, session.ErrSessionNotFound) &&
+			!errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
 	}

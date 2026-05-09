@@ -319,6 +319,21 @@ func TestFilterProcessesForActiveProjectSkipsWhenActiveProjectUnset(t *testing.T
 	}
 }
 
+func TestFilterProcessesForActiveProjectSkipsStaleOwnerSessions(t *testing.T) {
+	fixture := newRoutePolicyFixture(t)
+	filtered, err := fixture.gateway.filterProcessesForActiveProject(
+		context.Background(),
+		&connectionState{attachedProject: fixture.bindingA.ProjectID},
+		[]clientui.BackgroundProcess{{ID: "proc-1", OwnerSessionID: "missing-session"}},
+	)
+	if err != nil {
+		t.Fatalf("filter error = %v, want nil", err)
+	}
+	if len(filtered) != 0 {
+		t.Fatalf("filtered processes = %+v, want empty for stale owner", filtered)
+	}
+}
+
 func TestRoutePolicyAuthorizesAttachmentAndProjectWorkspaceScopesWithoutWebSocket(t *testing.T) {
 	fixture := newRoutePolicyFixture(t)
 	executor := newRoutePolicyExecutor(fixture.gateway)
