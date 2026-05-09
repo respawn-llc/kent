@@ -12,6 +12,7 @@ import (
 	"builder/server/metadata"
 	"builder/server/session"
 	shelltool "builder/server/tools/shell"
+	"builder/shared/clientui"
 	"builder/shared/config"
 	"builder/shared/protocol"
 	"builder/shared/rpccontract"
@@ -299,6 +300,19 @@ func TestRoutePolicyAuthorizesProcessScopesWithoutWebSocket(t *testing.T) {
 	}
 	if err := executor.authorizeScope(ctx, state, listRoute, serverapi.ProcessListRequest{OwnerSessionID: fixture.foreignSessionID}); err == nil {
 		t.Fatal("process list foreign owner unexpectedly allowed")
+	}
+}
+
+func TestFilterProcessesForActiveProjectPropagatesScopeErrors(t *testing.T) {
+	appCore, server := newUnboundGatewayTestServer(t)
+	server.Close()
+	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
+	if err != nil {
+		t.Fatalf("NewGateway: %v", err)
+	}
+	_, err = gateway.filterProcessesForActiveProject(context.Background(), &connectionState{}, []clientui.BackgroundProcess{{ID: "proc-1", OwnerSessionID: "session-1"}})
+	if err == nil || err.Error() != "project attachment is required" {
+		t.Fatalf("filter error = %v, want project attachment is required", err)
 	}
 }
 

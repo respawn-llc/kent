@@ -19,6 +19,20 @@ type routePolicyExecutor struct {
 	gateway *Gateway
 }
 
+var errSessionOutsideActiveProject = errors.New("session outside active project")
+
+type sessionOutsideActiveProjectError struct {
+	sessionID string
+}
+
+func (e sessionOutsideActiveProjectError) Error() string {
+	return fmt.Sprintf("session %q not available", e.sessionID)
+}
+
+func (e sessionOutsideActiveProjectError) Is(target error) bool {
+	return target == errSessionOutsideActiveProject
+}
+
 func newRoutePolicyExecutor(gateway *Gateway) routePolicyExecutor {
 	return routePolicyExecutor{gateway: gateway}
 }
@@ -330,7 +344,22 @@ func (g *Gateway) requireSessionInActiveProject(ctx context.Context, state *conn
 	if err != nil {
 		return err
 	}
-	return g.core.SessionBelongsToProject(ctx, sessionID, projectID)
+	trimmedSessionID := strings.TrimSpace(sessionID)
+	if trimmedSessionID == "" {
+		return fmt.Errorf("session id is required")
+	}
+	metadataStore := g.core.MetadataStore()
+	if metadataStore == nil {
+		return errors.New("metadata store is required")
+	}
+	belongs, err := metadataStore.SessionBelongsToProject(ctx, trimmedSessionID, projectID)
+	if err != nil {
+		return err
+	}
+	if !belongs {
+		return sessionOutsideActiveProjectError{sessionID: trimmedSessionID}
+	}
+	return nil
 }
 
 func (g *Gateway) requireGoalSessionAccess(ctx context.Context, state *connectionState, sessionID string) error {
@@ -373,10 +402,14 @@ func (g *Gateway) filterProcessesForActiveProject(ctx context.Context, state *co
 		if ownerSessionID == "" {
 			continue
 		}
-		if err := g.requireSessionInActiveProject(ctx, state, ownerSessionID); err != nil {
+		err := g.requireSessionInActiveProject(ctx, state, ownerSessionID)
+		if err == nil {
+			filtered = append(filtered, process)
 			continue
 		}
-		filtered = append(filtered, process)
+		if !errors.Is(err, errSessionOutsideActiveProject) {
+			return nil, err
+		}
 	}
 	return filtered, nil
 }

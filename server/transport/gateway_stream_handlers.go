@@ -25,7 +25,10 @@ func (g *Gateway) serveRunPrompt(conn rpcwire.Conn, ctx context.Context, state *
 	if failed {
 		return sendResponse(ctx, conn, preflightResp)
 	}
-	params := decoded.(serverapi.RunPromptRequest)
+	params, ok := decoded.(serverapi.RunPromptRequest)
+	if !ok {
+		return sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInternalError, "run prompt route contract mismatch"))
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var progressBroken atomic.Bool

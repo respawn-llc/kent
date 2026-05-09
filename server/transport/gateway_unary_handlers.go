@@ -28,29 +28,29 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 	},
 	protocol.MethodAuthGetBootstrapStatus: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.AuthGetBootstrapStatusRequest) (serverapi.AuthGetBootstrapStatusResponse, error) {
-			client := g.core.AuthBootstrapClient()
-			if client == nil {
+			bootstrapClient := g.core.AuthBootstrapClient()
+			if bootstrapClient == nil {
 				return serverapi.AuthGetBootstrapStatusResponse{}, serverapi.ErrServerAuthRequired
 			}
-			return client.GetAuthBootstrapStatus(ctx, params)
+			return bootstrapClient.GetAuthBootstrapStatus(ctx, params)
 		})
 	},
 	protocol.MethodAuthCompleteBootstrap: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.AuthCompleteBootstrapRequest) (serverapi.AuthCompleteBootstrapResponse, error) {
-			client := g.core.AuthBootstrapClient()
-			if client == nil {
+			bootstrapClient := g.core.AuthBootstrapClient()
+			if bootstrapClient == nil {
 				return serverapi.AuthCompleteBootstrapResponse{}, serverapi.ErrServerAuthRequired
 			}
-			return client.CompleteAuthBootstrap(ctx, params)
+			return bootstrapClient.CompleteAuthBootstrap(ctx, params)
 		})
 	},
 	protocol.MethodAuthGetStatus: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.AuthStatusRequest) (serverapi.AuthStatusResponse, error) {
-			client := g.core.AuthStatusClient()
-			if client == nil {
+			statusClient := g.core.AuthStatusClient()
+			if statusClient == nil {
 				return serverapi.AuthStatusResponse{}, serverapi.ErrServerAuthRequired
 			}
-			return client.GetAuthStatus(ctx, params)
+			return statusClient.GetAuthStatus(ctx, params)
 		})
 	},
 	protocol.MethodAttachProject: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
