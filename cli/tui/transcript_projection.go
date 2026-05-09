@@ -77,6 +77,9 @@ type TranscriptViewProjector struct {
 	detailKey            TranscriptViewProjectionKey
 	detailProjection     TranscriptProjection
 	detailSet            bool
+	detailViewKey        TranscriptViewProjectionKey
+	detailViewProjection TranscriptViewProjection
+	detailViewSet        bool
 	ongoingKey           CommittedOngoingProjectionKey
 	ongoingLines         []TranscriptProjectionLine
 	ongoingGroup         string
@@ -105,6 +108,7 @@ type TranscriptViewProjection struct {
 	DetailLineOwners       []int
 	OngoingEntryLineRanges map[int]lineRange
 	DetailEntryLineRanges  map[int]lineRange
+	DetailSelectableBlocks map[int]int
 }
 
 type ProjectionViewportState struct {
@@ -135,6 +139,7 @@ func (p TranscriptViewProjection) Clone() TranscriptViewProjection {
 		DetailLineOwners:       append([]int(nil), p.DetailLineOwners...),
 		OngoingEntryLineRanges: cloneLineRangeMap(p.OngoingEntryLineRanges),
 		DetailEntryLineRanges:  cloneLineRangeMap(p.DetailEntryLineRanges),
+		DetailSelectableBlocks: cloneIntMap(p.DetailSelectableBlocks),
 	}
 }
 
@@ -286,6 +291,22 @@ func (p TranscriptProjection) EntryLineRanges() map[int]lineRange {
 		lineOffset += len(block.Lines)
 	}
 	return ranges
+}
+
+func (p TranscriptProjection) SelectableBlockIndexes() map[int]int {
+	if len(p.Blocks) == 0 {
+		return nil
+	}
+	indexes := make(map[int]int, len(p.Blocks))
+	for idx, block := range p.Blocks {
+		if !block.Selectable || block.EntryIndex < 0 {
+			continue
+		}
+		if _, ok := indexes[block.EntryIndex]; !ok {
+			indexes[block.EntryIndex] = idx
+		}
+	}
+	return indexes
 }
 
 func (p TranscriptProjection) Render(divider string) string {
@@ -492,6 +513,7 @@ func ProjectTranscriptViews(input TranscriptProjectionInput, state TranscriptPro
 		DetailLineOwners:       detail.LineOwners(),
 		OngoingEntryLineRanges: ongoing.EntryLineRanges(),
 		DetailEntryLineRanges:  detail.EntryLineRanges(),
+		DetailSelectableBlocks: detail.SelectableBlockIndexes(),
 	}
 }
 
@@ -590,8 +612,18 @@ func (p *TranscriptViewProjector) ProjectShared(input TranscriptProjectionInput,
 }
 
 func (p *TranscriptViewProjector) ProjectDetailShared(input TranscriptProjectionInput, state TranscriptProjectionViewState) TranscriptViewProjection {
+	key := NewTranscriptViewProjectionKey(input, state)
+	if key.Revision > 0 && p != nil && p.detailViewSet && transcriptViewProjectionKeysEqual(p.detailViewKey, key) {
+		return p.detailViewProjection
+	}
 	detail := p.detailProjectionFor(input, state)
-	return transcriptViewProjectionForDetail(input.Revision, detail)
+	projection := transcriptViewProjectionForDetail(input.Revision, detail)
+	if key.Revision > 0 && p != nil {
+		p.detailViewKey = key
+		p.detailViewProjection = projection
+		p.detailViewSet = true
+	}
+	return projection
 }
 
 func (p *TranscriptViewProjector) detailProjectionFor(input TranscriptProjectionInput, state TranscriptProjectionViewState) TranscriptProjection {
@@ -633,11 +665,12 @@ func (p *TranscriptViewProjector) detailProjectionFor(input TranscriptProjection
 
 func transcriptViewProjectionForDetail(revision int64, detail TranscriptProjection) TranscriptViewProjection {
 	return TranscriptViewProjection{
-		InputRevision:         revision,
-		Detail:                detail,
-		DetailLines:           detail.Lines(detailItemSeparator),
-		DetailLineOwners:      detail.LineOwners(),
-		DetailEntryLineRanges: detail.EntryLineRanges(),
+		InputRevision:          revision,
+		Detail:                 detail,
+		DetailLines:            detail.Lines(detailItemSeparator),
+		DetailLineOwners:       detail.LineOwners(),
+		DetailEntryLineRanges:  detail.EntryLineRanges(),
+		DetailSelectableBlocks: detail.SelectableBlockIndexes(),
 	}
 }
 
@@ -887,6 +920,17 @@ func cloneLineRangeMap(ranges map[int]lineRange) map[int]lineRange {
 	out := make(map[int]lineRange, len(ranges))
 	for entry, lineRange := range ranges {
 		out[entry] = lineRange
+	}
+	return out
+}
+
+func cloneIntMap(in map[int]int) map[int]int {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[int]int, len(in))
+	for key, value := range in {
+		out[key] = value
 	}
 	return out
 }

@@ -140,6 +140,24 @@ func TestDetailScrollStepAllocsStayBounded(t *testing.T) {
 	}
 }
 
+func TestDetailSelectableLookupHotPathAllocsStayBounded(t *testing.T) {
+	entries := benchmarkDetailEntries(600)
+	m := NewModel(WithTheme("dark"), WithCompactDetail())
+	m = updateModel(t, m, SetViewportSizeMsg{Lines: 40, Width: 120})
+	m = updateModel(t, m, SetConversationMsg{Entries: entries})
+	m = updateModel(t, m, ToggleModeMsg{})
+	_ = m.renderDetailSnapshot()
+
+	allocs := testing.AllocsPerRun(20, func() {
+		_ = m.visibleSelectableDetailEntries()
+		_ = m.centerVisibleSelectableDetailEntry()
+		_ = m.renderDetailSnapshot()
+	})
+	if allocs > 550 {
+		t.Fatalf("expected detail selectable lookup hot path allocations to stay bounded, got %.2f allocs/op", allocs)
+	}
+}
+
 func TestOngoingScrollStepAllocsStayBounded(t *testing.T) {
 	entries := benchmarkDetailEntries(300)
 	m := NewModel(WithTheme("dark"))

@@ -227,10 +227,6 @@ func (m Model) DetailMetricsResolved() bool {
 	return !m.detailBottomAnchor
 }
 
-func (m Model) DetailRebuildCount() int {
-	return 0
-}
-
 func (m Model) DetailSelectedEntry() (int, bool) {
 	selectedEntry, ok := m.resolveDetailSelection()
 	if !ok {
@@ -341,14 +337,9 @@ type detailProjectionLookup struct {
 
 func newDetailProjectionLookup(projection TranscriptViewProjection) detailProjectionLookup {
 	blocks := projection.Detail.Blocks
-	indexes := make(map[int]int, len(blocks))
-	for idx, block := range blocks {
-		if !block.Selectable || block.EntryIndex < 0 {
-			continue
-		}
-		if _, ok := indexes[block.EntryIndex]; !ok {
-			indexes[block.EntryIndex] = idx
-		}
+	indexes := projection.DetailSelectableBlocks
+	if indexes == nil && len(blocks) > 0 {
+		indexes = projection.Detail.SelectableBlockIndexes()
 	}
 	return detailProjectionLookup{
 		projection:             projection,
@@ -819,14 +810,6 @@ func detailVisibleEntryIndex(entries []int, entryIndex int) int {
 		}
 	}
 	return -1
-}
-
-func (m Model) detailBlockIndexForEntry(entryIndex int) int {
-	return newDetailProjectionLookup(m.detailViewProjection()).blockIndexForEntry(entryIndex)
-}
-
-func (m Model) detailProjectionBlocks() []TranscriptProjectionBlock {
-	return m.detailViewProjection().Detail.Blocks
 }
 
 func (m Model) maxOngoingScroll() int {

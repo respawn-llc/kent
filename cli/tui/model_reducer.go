@@ -526,6 +526,7 @@ func (m *Model) reduceCommitAssistantMsg(result *modelUpdateResult) {
 	m.transcriptInput.Entries = append(m.transcriptInput.Entries, TranscriptEntry{Role: TranscriptRoleAssistant, Text: m.transcriptInput.Ongoing})
 	m.transcriptInput.Ongoing = ""
 	m.advanceTranscriptEntriesRevision()
+	m.transcriptInput.TotalEntries = max(m.transcriptInput.TotalEntries, m.transcriptInput.BaseOffset+len(m.transcriptInput.Entries))
 	result.autoFollowOngoing = true
 	result.ongoingBaseChanged = true
 	result.ongoingChanged = true

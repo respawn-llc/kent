@@ -45,6 +45,24 @@ func TestReduceAppendTranscriptMsgAdvancesTotalEntriesFromTailWindow(t *testing.
 	}
 }
 
+func TestReduceCommitAssistantMsgAdvancesTotalEntriesFromTailWindow(t *testing.T) {
+	m := NewModel()
+	m.transcriptInput.BaseOffset = 250
+	m.transcriptInput.TotalEntries = 252
+	m.transcriptInput.Entries = []TranscriptEntry{{Role: "assistant", Text: "existing"}, {Role: "assistant", Text: "tail"}}
+	m.transcriptInput.Ongoing = "new tail"
+	var result modelUpdateResult
+
+	m.reduceCommitAssistantMsg(&result)
+
+	if got, want := m.transcriptInput.TotalEntries, 253; got != want {
+		t.Fatalf("transcriptTotalEntries = %d, want %d", got, want)
+	}
+	if !result.autoFollowOngoing || !result.ongoingBaseChanged || !result.ongoingChanged || !result.detailChanged {
+		t.Fatalf("expected commit assistant reducer to mark transcript refresh flags, got %+v", result)
+	}
+}
+
 func TestReduceSetConversationMsgNormalizesEntriesAndClearsInvalidSelection(t *testing.T) {
 	m := NewModel()
 	m.selectedTranscriptEntry = 5

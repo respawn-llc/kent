@@ -228,7 +228,7 @@ func TestCtrlTDeferredDetailLoadSkipsDuplicateSeededPageRequest(t *testing.T) {
 	}
 }
 
-func TestCtrlTDeferredDetailLoadSkippedDoesNotRebuildDetailEndToEnd(t *testing.T) {
+func TestCtrlTDeferredDetailLoadSkippedKeepsDetailMetricsLazyEndToEnd(t *testing.T) {
 	seed := clientui.TranscriptPage{SessionID: "session-1", Offset: 300, TotalEntries: 500}
 	for i := 0; i < 200; i++ {
 		seed.Entries = append(seed.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("line %03d", 300+i)})
@@ -247,16 +247,16 @@ func TestCtrlTDeferredDetailLoadSkippedDoesNotRebuildDetailEndToEnd(t *testing.T
 	next, enterCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
 	detail := next.(*uiModel)
 	_ = collectCmdMessages(t, enterCmd)
-	beforeDeferredRefresh := detail.view.DetailRebuildCount()
+	beforeMetricsResolved := detail.view.DetailMetricsResolved()
 
 	next, refreshCmd := detail.Update(detailTranscriptLoadMsg{})
 	updated := next.(*uiModel)
 	if refreshCmd != nil {
 		t.Fatalf("expected duplicate seeded detail load to be skipped, got %T", refreshCmd())
 	}
-	afterDeferredRefresh := updated.view.DetailRebuildCount()
-	if afterDeferredRefresh != beforeDeferredRefresh {
-		t.Fatalf("duplicate deferred detail refresh rebuilt detail %d -> %d", beforeDeferredRefresh, afterDeferredRefresh)
+	afterMetricsResolved := updated.view.DetailMetricsResolved()
+	if afterMetricsResolved != beforeMetricsResolved {
+		t.Fatalf("duplicate deferred detail refresh changed detail metric resolution %v -> %v", beforeMetricsResolved, afterMetricsResolved)
 	}
 	if updated.view.Mode() != tui.ModeDetail {
 		t.Fatalf("expected detail mode to remain active, got %q", updated.view.Mode())

@@ -130,8 +130,8 @@ func TestToggleToDetailCanSkipWarmup(t *testing.T) {
 	if got := m.Mode(); got != ModeDetail {
 		t.Fatalf("mode after skip-warmup toggle = %q, want %q", got, ModeDetail)
 	}
-	if got := m.DetailRebuildCount(); got != 0 {
-		t.Fatalf("expected skip-warmup toggle to avoid eager detail rebuild, got %d rebuilds", got)
+	if m.DetailMetricsResolved() {
+		t.Fatal("expected skip-warmup toggle to leave detail metrics lazy")
 	}
 	if got := m.detailScroll; got != 0 {
 		t.Fatalf("detail scroll after skip-warmup toggle = %d, want 0", got)

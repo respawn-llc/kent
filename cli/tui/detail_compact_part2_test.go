@@ -13,9 +13,10 @@ import (
 func leadingViewportSelectableDetailEntry(t *testing.T, m Model) int {
 	t.Helper()
 
-	owners := m.currentDetailViewport().Owners
+	lookup := newDetailProjectionLookup(m.detailViewProjection())
+	owners := lookup.projection.DetailViewport(m.currentDetailViewportState()).Owners
 	for _, entryIndex := range owners {
-		if entryIndex < 0 || m.detailBlockIndexForEntry(entryIndex) < 0 {
+		if lookup.blockIndexForEntry(entryIndex) < 0 {
 			continue
 		}
 		return entryIndex
@@ -88,7 +89,8 @@ func assertRailBearingSpacerLine(t *testing.T, line string, modeBg rgbColor, rai
 func centerVisibleSelectableDetailEntry(t *testing.T, m Model) int {
 	t.Helper()
 
-	owners := m.currentDetailViewport().Owners
+	lookup := newDetailProjectionLookup(m.detailViewProjection())
+	owners := lookup.projection.DetailViewport(m.currentDetailViewportState()).Owners
 	if len(owners) == 0 {
 		t.Fatal("expected visible detail entries")
 	}
@@ -99,7 +101,7 @@ func centerVisibleSelectableDetailEntry(t *testing.T, m Model) int {
 	bestEntry := -1
 	bestDistance := len(owners) + 1
 	for lineIndex, entryIndex := range owners {
-		if entryIndex < 0 || m.detailBlockIndexForEntry(entryIndex) < 0 {
+		if lookup.blockIndexForEntry(entryIndex) < 0 {
 			continue
 		}
 		distance := detailLineDistance(lineIndex, anchor)
