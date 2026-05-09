@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"builder/server/llm"
+	"builder/shared/clientui"
 	"builder/shared/transcript"
 	"builder/shared/uiglyphs"
 	"fmt"
@@ -720,7 +720,7 @@ func TestWorktreeReminderUsesOngoingTextAndKeepsDetailText(t *testing.T) {
 		Role:         TranscriptRoleDeveloperContext,
 		Text:         fullText,
 		OngoingText:  ongoingText,
-		MessageType:  llm.MessageTypeWorktreeMode,
+		MessageType:  clientui.MessageTypeWorktreeMode,
 		SourcePath:   "/tmp/worktree/pkg",
 		CompactLabel: ongoingText,
 	})

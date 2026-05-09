@@ -21,7 +21,7 @@ func TestRuntimeStatusUsesLocalFallbackWhenRuntimeClientMissing(t *testing.T) {
 		WithUIThinkingLevel("high"),
 		WithUIFastModeAvailable(true),
 		WithUIFastModeEnabled(true),
-		WithUIConversationFreshness(session.ConversationFreshnessEstablished),
+		WithUIConversationFreshness(clientui.ConversationFreshnessEstablished),
 	)
 	m.reviewerMode = "edits"
 	m.reviewerEnabled = true

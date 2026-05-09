@@ -586,12 +586,20 @@ type remoteMultiClientRuntimeFixture struct {
 	daemon       *serve.Server
 	workspaceA   string
 	workspaceB   string
-	serverA      embeddedServer
-	serverB      embeddedServer
+	serverA      remoteMultiClientServer
+	serverB      remoteMultiClientServer
 	planA        sessionLaunchPlan
 	planB        sessionLaunchPlan
 	runtimePlanA *runtimeLaunchPlan
 	runtimePlanB *runtimeLaunchPlan
+}
+
+type remoteMultiClientServer interface {
+	interactiveSessionServer
+	AskViewClient() client.AskViewClient
+	ApprovalViewClient() client.ApprovalViewClient
+	PromptControlClient() client.PromptControlClient
+	SessionActivityClient() client.SessionActivityClient
 }
 
 type promptAnswerResult struct {
@@ -664,7 +672,11 @@ func startRemoteMultiClientRuntimeFixture(t *testing.T, openAIBaseURL string) *r
 	if err != nil {
 		t.Fatalf("startSessionServer workspace A: %v", err)
 	}
-	fixture.serverA = serverA
+	serverAFull, ok := serverA.(remoteMultiClientServer)
+	if !ok {
+		t.Fatalf("expected remote multi-client server for workspace A, got %T", serverA)
+	}
+	fixture.serverA = serverAFull
 	if _, ok := fixture.serverA.(*remoteAppServer); !ok {
 		t.Fatalf("expected remote app server for workspace A, got %T", fixture.serverA)
 	}

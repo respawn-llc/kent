@@ -39,7 +39,7 @@ func TestPSOverlayInlineAppendsOutputToInputAndReturnsToOngoing(t *testing.T) {
 	firstID := start("first-job")
 	secondID := start("second-job")
 
-	m := newProjectedStaticUIModel(WithUIBackgroundManager(manager))
+	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
 	m.termWidth = 100
 	m.termHeight = 14
 	m.windowSizeKnown = true
@@ -101,7 +101,7 @@ func TestPSOverlayInlineUnlocksLockedInputBeforeAppending(t *testing.T) {
 		t.Fatal("expected background process")
 	}
 
-	m := newProjectedStaticUIModel(WithUIBackgroundManager(manager))
+	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
 	m.termWidth = 100
 	m.termHeight = 14
 	m.windowSizeKnown = true
@@ -155,7 +155,7 @@ func TestDirectPSInlineCommandPastesTranscriptIntoInput(t *testing.T) {
 		t.Fatal("expected background process")
 	}
 
-	m := newProjectedStaticUIModel(WithUIBackgroundManager(manager))
+	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
 	m.input = "/ps inline " + res.SessionID
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -203,7 +203,7 @@ func TestDirectPSLogsCommandUsesDefaultOpenSuccess(t *testing.T) {
 	}
 	defer func() { openDefault = originalOpenDefault }()
 
-	m := newProjectedStaticUIModel(WithUIBackgroundManager(manager))
+	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
 	m.input = "/ps logs " + res.SessionID
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -237,7 +237,7 @@ func TestDirectPSKillCommandSignalsBackgroundProcess(t *testing.T) {
 		t.Fatal("expected background process")
 	}
 
-	m := newProjectedStaticUIModel(WithUIBackgroundManager(manager))
+	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
 	m.input = "/ps kill " + res.SessionID
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -274,7 +274,7 @@ func findBackgroundSnapshot(entries []shelltool.Snapshot, id string) (shelltool.
 func TestPSOverlayRefreshTickUpdatesEntriesWhileOpen(t *testing.T) {
 	manager := newFastBackgroundTestManager(t)
 
-	m := newProjectedStaticUIModel(WithUIBackgroundManager(manager))
+	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
 	m.termWidth = 100
 	m.termHeight = 14
 	m.windowSizeKnown = true
@@ -336,7 +336,7 @@ func TestPSOverlayRefreshPreservesSelectionByProcessID(t *testing.T) {
 		t.Fatalf("start second job: %v", err)
 	}
 
-	m := newProjectedStaticUIModel(WithUIBackgroundManager(manager))
+	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
 	m.refreshProcessEntries()
 	if len(m.processList.entries) != 2 {
 		t.Fatalf("expected two process entries, got %d", len(m.processList.entries))
@@ -421,7 +421,7 @@ func TestOpenLogsFallsBackToEditorCommandWhenDefaultOpenFails(t *testing.T) {
 	}()
 
 	out := &bytes.Buffer{}
-	model := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), closedAskEvents(), WithUIBackgroundManager(manager))
+	model := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), closedAskEvents(), withUIBackgroundManagerForTest(manager))
 	model.input = "/ps"
 	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
 	done := make(chan error, 1)

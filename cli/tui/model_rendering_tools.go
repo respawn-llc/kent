@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"builder/server/tools"
 	"builder/shared/textutil"
 	"builder/shared/toolspec"
 	"builder/shared/transcript"
@@ -38,7 +37,7 @@ func skipInOngoing(entry TranscriptEntry) bool {
 }
 
 func compactToolCallText(meta *transcript.ToolCallMeta, text string) string {
-	return tools.CompactToolCallText(meta, text)
+	return transcript.CompactToolCallText(meta, text)
 }
 
 func compactOngoingShellPreviewText(command string) string {
@@ -236,7 +235,7 @@ func toolCallDisplayText(meta *transcript.ToolCallMeta, text string) string {
 		command = strings.TrimSpace(meta.PatchDetail)
 	}
 	if command == "" {
-		command = tools.CompactToolCallText(meta, text)
+		command = transcript.CompactToolCallText(meta, text)
 	}
 	if meta != nil && meta.UsesShellRendering() && meta.UserInitiated {
 		command = "User ran: " + command
@@ -250,7 +249,7 @@ func toolCallDisplayText(meta *transcript.ToolCallMeta, text string) string {
 	if inlineMeta == "" {
 		return command
 	}
-	return command + tools.InlineMetaSeparator + inlineMeta
+	return command + transcript.InlineMetaSeparator + inlineMeta
 }
 
 func isShellToolCall(meta *transcript.ToolCallMeta, text string) bool {
@@ -303,7 +302,7 @@ func isShellPreviewRole(role RenderIntent) bool {
 }
 
 func splitToolInlineMeta(line string) (string, string) {
-	return tools.SplitInlineMeta(line)
+	return transcript.SplitInlineMeta(line)
 }
 
 func (m Model) renderToolHeadline(line string, width int) string {

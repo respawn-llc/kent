@@ -6,7 +6,7 @@ import (
 	"unicode"
 
 	"builder/cli/app/commands"
-	"builder/server/auth"
+	"builder/cli/app/internal/authcommand"
 )
 
 const slashCommandPickerLines = 7
@@ -153,14 +153,7 @@ func (m *uiModel) resolveAuthSlashCommandName() (string, error) {
 	if m == nil || m.statusConfig.AuthManager == nil {
 		return "login", nil
 	}
-	state, err := m.statusConfig.AuthManager.Load(context.Background())
-	if err != nil {
-		return "", err
-	}
-	if state.Method.Type == auth.MethodOAuth {
-		return "logout", nil
-	}
-	return "login", nil
+	return authcommand.SlashCommandName(context.Background(), m.statusConfig.AuthManager)
 }
 
 func (m *uiModel) resumeCommandAvailable() bool {

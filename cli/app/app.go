@@ -5,11 +5,6 @@ import (
 	"io"
 	"strings"
 	"time"
-
-	"builder/server/launch"
-	"builder/server/session"
-	"builder/shared/config"
-	"builder/shared/toolspec"
 )
 
 type Options struct {
@@ -49,15 +44,4 @@ func RunPrompt(ctx context.Context, opts Options, prompt string, timeout time.Du
 		}
 	}()
 	return runPrompt(ctx, runClient, opts, strings.TrimSpace(opts.SessionID), prompt, timeout, progress)
-}
-func effectiveSettings(base config.Settings, locked *session.LockedContract) config.Settings {
-	return launch.EffectiveSettings(base, locked)
-}
-
-func activeToolIDs(settings config.Settings, source config.SourceReport, locked *session.LockedContract) ([]toolspec.ID, error) {
-	return launch.ActiveToolIDs(settings, source, locked)
-}
-
-func dedupeSortToolIDs(ids []toolspec.ID) []toolspec.ID {
-	return launch.DedupeSortToolIDs(ids)
 }

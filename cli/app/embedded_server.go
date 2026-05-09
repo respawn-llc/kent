@@ -5,57 +5,28 @@ import (
 	"errors"
 	"io"
 	"strings"
-	"time"
 
-	"builder/server/auth"
-	serverembedded "builder/server/embedded"
+	"builder/cli/app/internal/embeddedbinding"
+	"builder/cli/app/internal/embeddedstartup"
+	"builder/cli/app/internal/statuscollect"
 	"builder/shared/client"
 	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/transcriptdiag"
-	"github.com/google/uuid"
 )
 
-const runtimeReleaseTimeout = 3 * time.Second
-
-type embeddedServer interface {
+type appServerCore interface {
 	Close() error
 	OwnsServer() bool
 	Config() config.App
-	BindProject(ctx context.Context, projectID string) (embeddedServer, error)
-	BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (embeddedServer, error)
-	AuthManager() *auth.Manager
-	AuthBootstrapClient() client.AuthBootstrapClient
-	AuthStatusClient() client.AuthStatusClient
-	ProjectID() string
-	ApprovalViewClient() client.ApprovalViewClient
-	AskViewClient() client.AskViewClient
-	PromptControlClient() client.PromptControlClient
-	PromptActivityClient() client.PromptActivityClient
-	ProjectViewClient() client.ProjectViewClient
-	RunPromptClient() client.RunPromptClient
-	ProcessControlClient() client.ProcessControlClient
-	ProcessOutputClient() client.ProcessOutputClient
-	ProcessViewClient() client.ProcessViewClient
-	RuntimeControlClient() client.RuntimeControlClient
-	SessionActivityClient() client.SessionActivityClient
-	SessionLaunchClient() client.SessionLaunchClient
-	SessionLifecycleClient() client.SessionLifecycleClient
-	SessionRuntimeClient() client.SessionRuntimeClient
-	SessionViewClient() client.SessionViewClient
-	WorktreeClient() client.WorktreeClient
-	PrepareRuntime(ctx context.Context, plan sessionLaunchPlan, diagnosticWriter io.Writer, startLogLine string) (*runtimeLaunchPlan, error)
-	Reauthenticate(ctx context.Context, interactor authInteractor) error
 }
 
 type embeddedAppServer struct {
-	inner              *serverembedded.Server
+	inner              *embeddedstartup.Server
 	boundProjectID     string
 	boundSessionLaunch client.SessionLaunchClient
 	boundRunPrompt     client.RunPromptClient
 }
 
-func newEmbeddedAppServer(inner *serverembedded.Server) *embeddedAppServer {
+func newEmbeddedAppServer(inner *embeddedstartup.Server) *embeddedAppServer {
 	if inner == nil {
 		return nil
 	}
@@ -80,58 +51,39 @@ func (s *embeddedAppServer) Config() config.App {
 	return s.inner.Config()
 }
 
-func (s *embeddedAppServer) BindProject(ctx context.Context, projectID string) (embeddedServer, error) {
-	return s.BindProjectWorkspace(ctx, projectID, "")
-}
-
-func (s *embeddedAppServer) BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (embeddedServer, error) {
-	if s == nil || s.inner == nil {
-		return nil, errors.New("embedded server is required")
+func (s *embeddedAppServer) BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (interactiveSessionServer, error) {
+	if s == nil {
+		_, err := embeddedbinding.BindProjectWorkspace(ctx, embeddedbinding.Request{ProjectID: projectID, WorkspaceID: workspaceID})
+		return nil, err
 	}
-	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" {
-		return nil, errors.New("project id is required")
-	}
-	trimmedWorkspaceID := strings.TrimSpace(workspaceID)
-	var launchClient client.SessionLaunchClient
-	var runPromptClient client.RunPromptClient
-	var err error
-	if trimmedWorkspaceID != "" {
-		launchClient, err = s.inner.SessionLaunchClientForProjectWorkspaceID(ctx, trimmedProjectID, trimmedWorkspaceID)
-		if err != nil {
-			return nil, err
-		}
-		runPromptClient, err = s.inner.RunPromptClientForProjectWorkspaceID(ctx, trimmedProjectID, trimmedWorkspaceID)
-	} else {
-		launchClient, err = s.inner.SessionLaunchClientForProjectWorkspace(ctx, trimmedProjectID, s.Config().WorkspaceRoot)
-		if err != nil {
-			return nil, err
-		}
-		runPromptClient, err = s.inner.RunPromptClientForProjectWorkspace(ctx, trimmedProjectID, s.Config().WorkspaceRoot)
-	}
+	bound, err := embeddedbinding.BindProjectWorkspace(ctx, embeddedbinding.Request{
+		Server:      s.inner,
+		ProjectID:   projectID,
+		WorkspaceID: workspaceID,
+	})
 	if err != nil {
 		return nil, err
 	}
 	return &embeddedAppServer{
 		inner:              s.inner,
-		boundProjectID:     trimmedProjectID,
-		boundSessionLaunch: launchClient,
-		boundRunPrompt:     runPromptClient,
+		boundProjectID:     bound.ProjectID,
+		boundSessionLaunch: bound.SessionLaunch,
+		boundRunPrompt:     bound.RunPrompt,
 	}, nil
 }
 
-func (s *embeddedAppServer) AuthManager() *auth.Manager {
+func (s *embeddedAppServer) AuthStateResolver() statuscollect.AuthStateResolver {
 	if s == nil || s.inner == nil {
 		return nil
 	}
-	return s.inner.AuthManager()
+	return statuscollect.NormalizeAuthStateResolver(s.inner.AuthManager())
 }
 
-func (s *embeddedAppServer) AuthBootstrapClient() client.AuthBootstrapClient {
-	if s == nil || s.inner == nil {
-		return nil
+func (s *embeddedAppServer) AuthStatePath() string {
+	if s == nil || s.inner == nil || s.inner.AuthManager() == nil {
+		return ""
 	}
-	return s.inner.AuthBootstrapClient()
+	return config.GlobalAuthConfigPath(s.Config())
 }
 
 func (s *embeddedAppServer) AuthStatusClient() client.AuthStatusClient {
@@ -278,13 +230,6 @@ func (s *embeddedAppServer) RuntimeControlClient() client.RuntimeControlClient {
 	return s.inner.RuntimeControlClient()
 }
 
-func (s *embeddedAppServer) OAuthOptions() auth.OpenAIOAuthOptions {
-	if s == nil || s.inner == nil {
-		return auth.OpenAIOAuthOptions{}
-	}
-	return s.inner.OAuthOptions()
-}
-
 func (s *embeddedAppServer) ContainerDir() string {
 	if s == nil || s.inner == nil {
 		return ""
@@ -299,132 +244,10 @@ func (s *embeddedAppServer) PrepareRuntime(ctx context.Context, plan sessionLaun
 	return prepareSharedRuntime(ctx, s, plan, diagnosticWriter, startLogLine)
 }
 
-func prepareSharedRuntime(ctx context.Context, server embeddedServer, plan sessionLaunchPlan, diagnosticWriter io.Writer, startLogLine string) (*runtimeLaunchPlan, error) {
-	if server == nil {
-		return nil, errors.New("server is required")
-	}
-	toolIDs := make([]string, 0, len(plan.EnabledTools))
-	for _, id := range plan.EnabledTools {
-		toolIDs = append(toolIDs, string(id))
-	}
-	activateReq := serverapi.SessionRuntimeActivateRequest{
-		ClientRequestID: uuid.NewString(),
-		SessionID:       plan.SessionID,
-		ActiveSettings:  plan.ActiveSettings,
-		EnabledToolIDs:  toolIDs,
-		Source:          plan.Source,
-	}
-	activateResp, err := server.SessionRuntimeClient().ActivateSessionRuntime(ctx, activateReq)
-	if err != nil {
-		return nil, err
-	}
-	leaseID := strings.TrimSpace(activateResp.LeaseID)
-	if leaseID == "" {
-		releaseSharedRuntime(server.SessionRuntimeClient(), plan.SessionID, leaseID)
-		return nil, errors.New("session runtime activation returned empty controller lease id")
-	}
-	leaseManager := newControllerLeaseManager(leaseID)
-	leaseManager.SetRecoverFunc(func(ctx context.Context) (string, error) {
-		resp, err := server.SessionRuntimeClient().ActivateSessionRuntime(ctx, serverapi.SessionRuntimeActivateRequest{
-			ClientRequestID: uuid.NewString(),
-			SessionID:       plan.SessionID,
-			ActiveSettings:  plan.ActiveSettings,
-			EnabledToolIDs:  toolIDs,
-			Source:          plan.Source,
-		})
-		if err != nil {
-			return "", err
-		}
-		leaseID := strings.TrimSpace(resp.LeaseID)
-		if leaseID == "" {
-			return "", errors.New("session runtime activation returned empty controller lease id")
-		}
-		return leaseID, nil
-	})
-	sub, err := server.SessionActivityClient().SubscribeSessionActivity(ctx, serverapi.SessionActivitySubscribeRequest{SessionID: plan.SessionID})
-	if err != nil {
-		releaseSharedRuntime(server.SessionRuntimeClient(), plan.SessionID, leaseID)
-		return nil, err
-	}
-	promptSub, err := server.PromptActivityClient().SubscribePromptActivity(ctx, serverapi.PromptActivitySubscribeRequest{SessionID: plan.SessionID})
-	if err != nil {
-		_ = sub.Close()
-		releaseSharedRuntime(server.SessionRuntimeClient(), plan.SessionID, leaseID)
-		return nil, err
-	}
-	logger := &runLogger{}
-	_ = diagnosticWriter
-	logger.Logf("%s", startLogLine)
-	runtimeClient := newUIRuntimeClientWithReads(plan.SessionID, server.SessionViewClient(), server.RuntimeControlClient()).(*sessionRuntimeClient)
-	runtimeClient.SetControllerLeaseManager(leaseManager)
-	runtimeClient.SetTranscriptDiagnosticsEnabled(transcriptdiag.EnabledForProcess(plan.ActiveSettings.Debug))
-	runtimeEvents, stopRuntimeEvents := startSessionActivityEvents(ctx, sub, func(ctx context.Context, afterSequence uint64) (serverapi.SessionActivitySubscription, error) {
-		return server.SessionActivityClient().SubscribeSessionActivity(ctx, serverapi.SessionActivitySubscribeRequest{SessionID: plan.SessionID, AfterSequence: afterSequence})
-	}, runtimeClient.transcriptDiagnosticsEnabled, func(line string) {
-		logger.Logf("%s", line)
-	})
-	terminalFocus := newTerminalFocusState()
-	turnQueueHook := newBellHooks(defaultTerminalNotifier(plan.ActiveSettings.NotificationMethod), func() string {
-		if runtimeClient != nil {
-			if sessionName := strings.TrimSpace(runtimeClient.MainView().Session.SessionName); sessionName != "" {
-				return sessionName
-			}
-		}
-		return strings.TrimSpace(plan.SessionName)
-	}, terminalFocus.FocusedForAttention)
-	askEvents, stopAskEvents := startPendingPromptEvents(ctx, promptSub, func(ctx context.Context, afterSequence uint64) (serverapi.PromptActivitySubscription, error) {
-		return server.PromptActivityClient().SubscribePromptActivity(ctx, serverapi.PromptActivitySubscribeRequest{SessionID: plan.SessionID, AfterSequence: afterSequence})
-	}, server.PromptControlClient(), leaseManager, turnQueueHook.OnAsk)
-	wiring := &runtimeWiring{
-		runtimeEvents:         runtimeEvents,
-		askEvents:             askEvents,
-		turnQueueHook:         turnQueueHook,
-		terminalFocus:         terminalFocus,
-		runtimeClient:         runtimeClient,
-		promptControl:         server.PromptControlClient(),
-		runtimeControls:       server.RuntimeControlClient(),
-		worktrees:             server.WorktreeClient(),
-		processControls:       server.ProcessControlClient(),
-		processOutput:         server.ProcessOutputClient(),
-		processViews:          server.ProcessViewClient(),
-		approvalViews:         server.ApprovalViewClient(),
-		askViews:              server.AskViewClient(),
-		sessionActivity:       server.SessionActivityClient(),
-		sessionViews:          server.SessionViewClient(),
-		hasOtherSessions:      plan.HasOtherSessions,
-		hasOtherSessionsKnown: plan.HasOtherSessionsKnown,
-	}
-	return &runtimeLaunchPlan{
-		Logger:            logger,
-		Wiring:            wiring,
-		ControllerLeaseID: leaseID,
-		controllerLease:   leaseManager,
-		close: func() {
-			stopAskEvents()
-			stopRuntimeEvents()
-			releaseSharedRuntime(server.SessionRuntimeClient(), plan.SessionID, leaseManager.Value())
-		},
-	}, nil
-}
-
-func releaseSharedRuntime(client serverapi.SessionRuntimeService, sessionID string, leaseID string) {
-	if client == nil {
-		return
-	}
-	if strings.TrimSpace(leaseID) == "" {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), runtimeReleaseTimeout)
-	defer cancel()
-	_, _ = client.ReleaseSessionRuntime(ctx, serverapi.SessionRuntimeReleaseRequest{ClientRequestID: uuid.NewString(), SessionID: sessionID, LeaseID: leaseID})
-}
-
 func (s *embeddedAppServer) Reauthenticate(ctx context.Context, interactor authInteractor) error {
 	if s == nil || s.inner == nil {
 		return errors.New("embedded server is required")
 	}
 	cfg := s.inner.Config()
-	return ensureRemoteAuthReady(ctx, s.AuthBootstrapClient(), cfg.Settings, interactor)
+	return ensureRemoteAuthReady(ctx, s.inner.AuthBootstrapClient(), cfg.Settings, interactor)
 }
-
-var _ embeddedServer = (*embeddedAppServer)(nil)

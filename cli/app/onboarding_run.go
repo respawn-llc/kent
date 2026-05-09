@@ -8,32 +8,37 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/server/auth"
-	"builder/server/llm"
-	serveronboarding "builder/server/onboarding"
+	"builder/cli/app/internal/onboardingmodel"
+	"builder/cli/app/internal/onboardingready"
 	"builder/shared/config"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 type interactiveOnboardingRunner struct{}
 
-func (interactiveOnboardingRunner) RunInteractiveOnboarding(ctx context.Context, cfg config.App, authState auth.State) (serveronboarding.Result, error) {
+func (interactiveOnboardingRunner) RunInteractiveOnboarding(ctx context.Context, cfg config.App, authState onboardingready.AuthState) (onboardingready.Result, error) {
 	result, err := runOnboardingFlow(cfg, authState)
 	if err != nil {
-		return serveronboarding.Result{}, err
+		return onboardingready.Result{}, err
 	}
-	return serveronboarding.Result{
+	return onboardingready.Result{
 		Completed:            result.Completed,
 		CreatedDefaultConfig: result.CreatedDefaultConfig,
 		SettingsPath:         result.SettingsPath,
 	}, nil
 }
 
-func ensureOnboardingReady(ctx context.Context, cfg config.App, mgr *auth.Manager, interactor authInteractor, reloadConfig func() (config.App, error)) (config.App, bool, error) {
-	return serveronboarding.EnsureReady(ctx, cfg, mgr, interactor != nil && interactor.Interactive(), reloadConfig, interactiveOnboardingRunner{})
+func ensureOnboardingReady(ctx context.Context, cfg config.App, mgr *onboardingready.AuthManager, interactor authInteractor, reloadConfig func() (config.App, error)) (config.App, bool, error) {
+	return onboardingready.Ensure(ctx, onboardingready.Request{
+		Config:       cfg,
+		AuthManager:  mgr,
+		Interactive:  interactor != nil && interactor.Interactive(),
+		ReloadConfig: reloadConfig,
+		Runner:       interactiveOnboardingRunner{},
+	})
 }
 
-func runOnboardingFlow(cfg config.App, authState auth.State) (onboardingResult, error) {
+func runOnboardingFlow(cfg config.App, authState onboardingready.AuthState) (onboardingResult, error) {
 	providerCaps, err := onboardingProviderCapabilities(authState, cfg.Settings)
 	if err != nil {
 		return onboardingResult{}, err
@@ -42,7 +47,6 @@ func runOnboardingFlow(cfg config.App, authState auth.State) (onboardingResult, 
 		settings:             cfg.Settings,
 		baselineSettings:     cfg.Settings,
 		theme:                cfg.Settings.Theme,
-		authState:            authState,
 		providerCapabilities: providerCaps,
 		skillImport:          onboardingImportSelection{Mode: onboardingImportModeNone},
 		commandImport:        onboardingImportSelection{Mode: onboardingImportModeNone},
@@ -65,8 +69,8 @@ func runOnboardingFlow(cfg config.App, authState auth.State) (onboardingResult, 
 	return finalized.result, nil
 }
 
-func onboardingProviderCapabilities(authState auth.State, settings config.Settings) (llm.ProviderCapabilities, error) {
-	return llm.ProviderCapabilitiesForSettings(authState, settings)
+func onboardingProviderCapabilities(authState onboardingready.AuthState, settings config.Settings) (onboardingmodel.ProviderCapabilities, error) {
+	return onboardingmodel.ProviderCapabilitiesForSettings(authState, settings)
 }
 
 func filepathDir(path string) string {

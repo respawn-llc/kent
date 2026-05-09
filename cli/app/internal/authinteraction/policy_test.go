@@ -1,0 +1,61 @@
+package authinteraction
+
+import (
+	"testing"
+
+	"builder/server/auth"
+)
+
+func TestInteractiveNeedsInteractionForRequiredAuthAndEnvConflict(t *testing.T) {
+	if !InteractiveNeedsInteraction(Request{
+		AuthRequired: true,
+		Gate:         auth.StartupGate{Ready: true},
+		StoredState:  auth.EmptyState(),
+		HasEnvAPIKey: true,
+	}) {
+		t.Fatal("expected env-only startup without saved preference to require method selection")
+	}
+	if !InteractiveNeedsInteraction(Request{
+		Gate: auth.StartupGate{Ready: true},
+		StoredState: auth.State{
+			Method: auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{AccessToken: "x"}},
+		},
+		HasEnvAPIKey: true,
+	}) {
+		t.Fatal("expected unresolved env-vs-oauth conflict to require interaction")
+	}
+	if InteractiveNeedsInteraction(Request{
+		Gate: auth.StartupGate{Ready: true},
+		StoredState: auth.State{
+			Method:              auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{AccessToken: "x"}},
+			EnvAPIKeyPreference: auth.EnvAPIKeyPreferencePreferSaved,
+		},
+		HasEnvAPIKey: true,
+	}) {
+		t.Fatal("did not expect saved preference to reopen conflict picker")
+	}
+}
+
+func TestHeadlessNeedsInteractionOnlyForRequiredUnreadyAuth(t *testing.T) {
+	if !HeadlessNeedsInteraction(Request{AuthRequired: true}) {
+		t.Fatal("expected required unready auth to need headless interaction")
+	}
+	if HeadlessNeedsInteraction(Request{AuthRequired: true, Gate: auth.StartupGate{Ready: true}}) {
+		t.Fatal("did not expect ready auth to need headless interaction")
+	}
+	if HeadlessNeedsInteraction(Request{Gate: auth.StartupGate{Ready: false}}) {
+		t.Fatal("did not expect optional auth to need headless interaction")
+	}
+}
+
+func TestShouldClearOnSkip(t *testing.T) {
+	if !ShouldClearOnSkip(Request{StoredState: auth.State{Method: auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{AccessToken: "x"}}}}) {
+		t.Fatal("expected configured auth to clear on skip")
+	}
+	if !ShouldClearOnSkip(Request{StoredState: auth.State{EnvAPIKeyPreference: auth.EnvAPIKeyPreferencePreferSaved}}) {
+		t.Fatal("expected saved env preference to clear on skip")
+	}
+	if ShouldClearOnSkip(Request{StoredState: auth.EmptyState()}) {
+		t.Fatal("did not expect empty auth state to clear on skip")
+	}
+}

@@ -789,7 +789,7 @@ func TestReviewTeleportLifecyclePreservesParentWorktreeContext(t *testing.T) {
 
 	model := newProjectedStaticUIModel(
 		WithUISessionID(parent.Meta().SessionID),
-		WithUIConversationFreshness(session.ConversationFreshnessEstablished),
+		WithUIConversationFreshness(clientui.ConversationFreshnessEstablished),
 	)
 	model.input = "/review pkg"
 	next, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -960,6 +960,119 @@ func TestResolveSessionActionOpenSessionUsesTargetID(t *testing.T) {
 	}
 }
 
+func TestSessionLaunchInitialInputUsesNarrowLifecycleClientFallback(t *testing.T) {
+	got := sessionLaunchInitialInputFromServer(
+		context.Background(),
+		narrowSessionLifecycleServer{},
+		"session-1",
+		"typed draft",
+	)
+	if got != "typed draft" {
+		t.Fatalf("initial input = %q, want fallback transition input", got)
+	}
+}
+
+func TestPersistSessionDraftUsesNarrowLifecycleClient(t *testing.T) {
+	var captured serverapi.SessionPersistInputDraftRequest
+	client := &recordingSessionLifecycleClient{
+		persistInputDraft: func(_ context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
+			captured = req
+			return serverapi.SessionPersistInputDraftResponse{}, nil
+		},
+	}
+	model := &uiModel{}
+	model.input = "draft from ui"
+	if err := persistSessionDraftToServer(context.Background(), narrowSessionLifecycleServer{lifecycle: client}, " session-1 ", " lease-1 ", model); err != nil {
+		t.Fatalf("persist draft: %v", err)
+	}
+	if captured.SessionID != "session-1" {
+		t.Fatalf("session id = %q, want trimmed session-1", captured.SessionID)
+	}
+	if captured.ControllerLeaseID != "lease-1" {
+		t.Fatalf("lease id = %q, want trimmed lease-1", captured.ControllerLeaseID)
+	}
+	if captured.Input != "draft from ui" {
+		t.Fatalf("input = %q, want ui draft", captured.Input)
+	}
+	if captured.ClientRequestID == "" {
+		t.Fatal("expected client request id")
+	}
+}
+
+func TestResolveSessionActionReauthenticatesThroughNarrowServer(t *testing.T) {
+	reauthCalls := 0
+	client := &recordingSessionLifecycleClient{
+		resolveTransition: func(_ context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
+			if req.SessionID != "session-1" {
+				t.Fatalf("session id = %q, want session-1", req.SessionID)
+			}
+			if req.ControllerLeaseID != "lease-1" {
+				t.Fatalf("lease id = %q, want lease-1", req.ControllerLeaseID)
+			}
+			if req.Transition.Action != UIActionOpenSession || req.Transition.TargetSessionID != "next-1" {
+				t.Fatalf("transition = %+v, want open next-1", req.Transition)
+			}
+			return serverapi.SessionResolveTransitionResponse{
+				NextSessionID:  "next-1",
+				ShouldContinue: true,
+				RequiresReauth: true,
+			}, nil
+		},
+	}
+	resolved, err := resolveSessionAction(
+		context.Background(),
+		narrowSessionLifecycleServer{
+			lifecycle: client,
+			reauthenticate: func(context.Context, authInteractor) error {
+				reauthCalls++
+				return nil
+			},
+		},
+		nil,
+		" session-1 ",
+		" lease-1 ",
+		UITransition{Action: UIActionOpenSession, TargetSessionID: "next-1"},
+	)
+	if err != nil {
+		t.Fatalf("resolve session action: %v", err)
+	}
+	if reauthCalls != 1 {
+		t.Fatalf("reauth calls = %d, want 1", reauthCalls)
+	}
+	if !resolved.ShouldContinue || resolved.NextSessionID != "next-1" {
+		t.Fatalf("resolved = %+v, want continue to next-1", resolved)
+	}
+}
+
+func TestRetargetInteractiveSessionWorkspaceUsesNarrowServer(t *testing.T) {
+	var captured serverapi.SessionRetargetWorkspaceRequest
+	client := &recordingSessionLifecycleClient{
+		retargetSessionWorkspace: func(_ context.Context, req serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
+			captured = req
+			return serverapi.SessionRetargetWorkspaceResponse{}, nil
+		},
+	}
+	if err := retargetInteractiveSessionWorkspace(
+		context.Background(),
+		narrowSessionLifecycleServer{
+			lifecycle: client,
+			cfg:       config.App{WorkspaceRoot: " /tmp/current-workspace "},
+		},
+		" session-1 ",
+	); err != nil {
+		t.Fatalf("retarget workspace: %v", err)
+	}
+	if captured.SessionID != "session-1" {
+		t.Fatalf("session id = %q, want trimmed session-1", captured.SessionID)
+	}
+	if captured.WorkspaceRoot != "/tmp/current-workspace" {
+		t.Fatalf("workspace root = %q, want trimmed /tmp/current-workspace", captured.WorkspaceRoot)
+	}
+	if captured.ClientRequestID == "" {
+		t.Fatal("expected client request id")
+	}
+}
+
 func TestShouldRetryStartupUpdateNoticeUntilShown(t *testing.T) {
 	if shouldRetryStartupUpdateNotice(&uiModel{}, true) != true {
 		t.Fatal("expected retry when startup update notice was not shown")
@@ -970,4 +1083,60 @@ func TestShouldRetryStartupUpdateNoticeUntilShown(t *testing.T) {
 	if shouldRetryStartupUpdateNotice(&uiModel{}, false) {
 		t.Fatal("did not expect retry when startup update notices are disabled")
 	}
+}
+
+type narrowSessionLifecycleServer struct {
+	lifecycle      client.SessionLifecycleClient
+	cfg            config.App
+	reauthenticate func(context.Context, authInteractor) error
+}
+
+func (s narrowSessionLifecycleServer) SessionLifecycleClient() client.SessionLifecycleClient {
+	return s.lifecycle
+}
+
+func (s narrowSessionLifecycleServer) Config() config.App {
+	return s.cfg
+}
+
+func (s narrowSessionLifecycleServer) Reauthenticate(ctx context.Context, interactor authInteractor) error {
+	if s.reauthenticate == nil {
+		return nil
+	}
+	return s.reauthenticate(ctx, interactor)
+}
+
+type recordingSessionLifecycleClient struct {
+	getInitialInput          func(context.Context, serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error)
+	persistInputDraft        func(context.Context, serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error)
+	retargetSessionWorkspace func(context.Context, serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error)
+	resolveTransition        func(context.Context, serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error)
+}
+
+func (c *recordingSessionLifecycleClient) GetInitialInput(ctx context.Context, req serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
+	if c.getInitialInput == nil {
+		return serverapi.SessionInitialInputResponse{}, errors.New("unexpected GetInitialInput call")
+	}
+	return c.getInitialInput(ctx, req)
+}
+
+func (c *recordingSessionLifecycleClient) PersistInputDraft(ctx context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
+	if c.persistInputDraft == nil {
+		return serverapi.SessionPersistInputDraftResponse{}, errors.New("unexpected PersistInputDraft call")
+	}
+	return c.persistInputDraft(ctx, req)
+}
+
+func (c *recordingSessionLifecycleClient) RetargetSessionWorkspace(ctx context.Context, req serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
+	if c.retargetSessionWorkspace == nil {
+		return serverapi.SessionRetargetWorkspaceResponse{}, errors.New("unexpected RetargetSessionWorkspace call")
+	}
+	return c.retargetSessionWorkspace(ctx, req)
+}
+
+func (c *recordingSessionLifecycleClient) ResolveTransition(ctx context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
+	if c.resolveTransition == nil {
+		return serverapi.SessionResolveTransitionResponse{}, errors.New("unexpected ResolveTransition call")
+	}
+	return c.resolveTransition(ctx, req)
 }

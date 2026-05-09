@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"builder/server/tools"
 	"builder/shared/transcript"
 	"strings"
 
@@ -276,11 +275,11 @@ func attachShellSummaryToFirstLine(text string, summary string) string {
 		}
 		lines = lines[:1]
 	}
-	command, meta := tools.SplitInlineMeta(lines[0])
+	command, meta := transcript.SplitInlineMeta(lines[0])
 	if meta == "" {
-		lines[0] = command + tools.InlineMetaSeparator + summary
+		lines[0] = command + transcript.InlineMetaSeparator + summary
 	} else {
-		lines[0] = command + tools.InlineMetaSeparator + meta + " · " + summary
+		lines[0] = command + transcript.InlineMetaSeparator + meta + " · " + summary
 	}
 	return strings.Join(lines, "\n")
 }

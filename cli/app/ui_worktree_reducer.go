@@ -1,9 +1,7 @@
 package app
 
 import (
-	"strings"
-
-	"builder/shared/serverapi"
+	"builder/cli/app/internal/worktreecreateresolve"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -114,47 +112,39 @@ func (r uiWorktreeFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 		m.syncViewport()
 		return handledUIFeatureUpdate(m, tea.Batch(feedbackCmd, listCmd, m.requestRuntimeMainViewRefresh(), m.ensureSpinnerTicking()))
 	case worktreeCreateTargetResolveDebounceMsg:
-		if !m.worktrees.isOpen() || m.worktrees.phase != uiWorktreeOverlayPhaseCreate || msg.token != m.worktrees.create.resolveToken {
+		if !m.worktrees.isOpen() || m.worktrees.phase != uiWorktreeOverlayPhaseCreate {
 			m.syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
-		query := strings.TrimSpace(singleLineEditorValue(m.worktrees.create.branchTarget))
-		if query == "" {
-			m.worktrees.create.resolving = false
-			m.worktrees.create.submitPending = false
-			m.worktrees.create.resolution = serverapi.WorktreeCreateTargetResolution{}
-			m.worktrees.create.errorText = ""
-			m.worktrees.create.syncFocus()
+		state, outcome := worktreecreateresolve.DebounceReady(m.worktrees.create.resolveState(), msg.token, singleLineEditorValue(m.worktrees.create.branchTarget))
+		m.worktrees.create.applyResolveState(state)
+		if outcome.Ignored || !outcome.Start {
 			m.syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
 		m.syncViewport()
-		return handledUIFeatureUpdate(m, m.worktreeCreateTargetResolveCmd(query, msg.token))
+		return handledUIFeatureUpdate(m, m.worktreeCreateTargetResolveCmd(outcome.Query, outcome.Token))
 	case worktreeCreateTargetResolveDoneMsg:
-		if !m.worktrees.isOpen() || m.worktrees.phase != uiWorktreeOverlayPhaseCreate || msg.token != m.worktrees.create.resolveToken {
+		if !m.worktrees.isOpen() || m.worktrees.phase != uiWorktreeOverlayPhaseCreate {
 			m.syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
-		if strings.TrimSpace(singleLineEditorValue(m.worktrees.create.branchTarget)) != strings.TrimSpace(msg.query) {
-			m.syncViewport()
-			return handledUIFeatureUpdate(m, nil)
-		}
-		m.worktrees.create.resolving = false
-		submitPending := m.worktrees.create.submitPending
-		m.worktrees.create.submitPending = false
+		errorText := ""
 		if msg.err != nil {
-			m.worktrees.create.resolution = serverapi.WorktreeCreateTargetResolution{}
-			m.worktrees.create.errorText = formatSubmissionError(msg.err)
-			m.worktrees.create.syncFocus()
-			m.syncViewport()
-			return handledUIFeatureUpdate(m, nil)
+			errorText = formatSubmissionError(msg.err)
 		}
-		m.worktrees.create.errorText = ""
-		m.worktrees.create.resolution = msg.resp.Resolution
-		m.worktrees.create.syncFocus()
+		state, outcome := worktreecreateresolve.Done(m.worktrees.create.resolveState(), worktreecreateresolve.DoneInput{
+			Token:         msg.token,
+			CurrentQuery:  singleLineEditorValue(m.worktrees.create.branchTarget),
+			ResponseQuery: msg.query,
+			Resolution:    msg.resp.Resolution,
+			HasError:      msg.err != nil,
+			ErrorText:     errorText,
+		})
+		m.worktrees.create.applyResolveState(state)
 		m.syncViewport()
-		if submitPending {
-			req, err := m.worktrees.create.request(msg.resp.Resolution.Kind)
+		if outcome.Submit {
+			req, err := m.worktrees.create.request(outcome.SubmitKind)
 			if err != nil {
 				m.worktrees.create.errorText = err.Error()
 				m.syncViewport()

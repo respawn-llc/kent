@@ -18,6 +18,19 @@ type fixedUIProcessClient struct {
 	entries []clientui.BackgroundProcess
 }
 
+func withUIBackgroundManagerForTest(manager *shelltool.Manager) UIOption {
+	return func(m *uiModel) {
+		if manager == nil || m.processClientExplicit {
+			return
+		}
+		processes := processview.NewService(manager)
+		m.processClient = newUIProcessClientWithReads(
+			client.NewLoopbackProcessViewClient(processes),
+			client.NewLoopbackProcessControlClient(processes),
+		)
+	}
+}
+
 type stubProcessViewService struct {
 	listResp serverapi.ProcessListResponse
 	err      error
@@ -147,7 +160,7 @@ func TestExplicitUIProcessClientWinsOverBackgroundManagerOptionOrder(t *testing.
 	explicit := fixedUIProcessClient{entries: []clientui.BackgroundProcess{{ID: "explicit-process"}}}
 
 	first := newProjectedStaticUIModel(
-		WithUIBackgroundManager(manager),
+		withUIBackgroundManagerForTest(manager),
 		WithUIProcessClient(explicit),
 	)
 	if got := first.listProcesses(); len(got) != 1 || got[0].ID != "explicit-process" {
@@ -156,7 +169,7 @@ func TestExplicitUIProcessClientWinsOverBackgroundManagerOptionOrder(t *testing.
 
 	second := newProjectedStaticUIModel(
 		WithUIProcessClient(explicit),
-		WithUIBackgroundManager(manager),
+		withUIBackgroundManagerForTest(manager),
 	)
 	if got := second.listProcesses(); len(got) != 1 || got[0].ID != "explicit-process" {
 		t.Fatalf("expected explicit process client to win when applied first, got %+v", got)

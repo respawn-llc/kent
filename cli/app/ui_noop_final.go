@@ -3,7 +3,6 @@ package app
 import (
 	"strings"
 
-	"builder/server/llm"
 	"builder/shared/clientui"
 )
 
@@ -32,6 +31,6 @@ func isNoopProjectedAssistantEvent(evt clientui.Event) bool {
 func isNoopFinalAssistantEntry(entry clientui.ChatEntry) bool {
 	phase := strings.TrimSpace(entry.Phase)
 	return strings.TrimSpace(entry.Role) == "assistant" &&
-		(phase == "" || phase == string(llm.MessagePhaseFinal)) &&
+		(phase == "" || phase == clientui.ChatEntryPhaseFinalAnswer) &&
 		isNoopFinalText(entry.Text)
 }

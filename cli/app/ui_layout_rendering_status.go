@@ -5,7 +5,7 @@ import (
 	"math"
 	"strings"
 
-	"builder/server/llm"
+	"builder/cli/app/internal/statuscollect"
 	"builder/shared/theme"
 
 	bubbleprogress "github.com/charmbracelet/bubbles/progress"
@@ -202,7 +202,7 @@ func statusNoticeStyle(theme string, kind uiStatusNoticeKind) lipgloss.Style {
 
 func (l uiViewLayout) statusModelLabel() string {
 	m := l.model
-	label := llm.ModelDisplayLabel(m.modelName, m.thinkingLevel)
+	label := statuscollect.ModelDisplayLabel(m.modelName, m.thinkingLevel)
 	if m.fastModeAvailable && m.fastModeEnabled {
 		label += " fast"
 	}

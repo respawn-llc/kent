@@ -7,11 +7,55 @@ import (
 	"strings"
 
 	"builder/cli/app/commands"
+	"builder/shared/client"
+	"builder/shared/config"
 	"builder/shared/serverapi"
 	"github.com/google/uuid"
 )
 
-func runSessionLifecycle(ctx context.Context, server embeddedServer, interactor authInteractor, initialSessionID string) error {
+type sessionLifecycleClientProvider interface {
+	SessionLifecycleClient() client.SessionLifecycleClient
+}
+
+type sessionConfigProvider interface {
+	Config() config.App
+}
+
+type sessionInitialInputServer interface {
+	sessionLifecycleClientProvider
+}
+
+type sessionDraftPersistenceServer interface {
+	sessionLifecycleClientProvider
+}
+
+type sessionTransitionServer interface {
+	sessionLifecycleClientProvider
+	Reauthenticate(ctx context.Context, interactor authInteractor) error
+}
+
+type sessionWorkspaceChangeServer interface {
+	sessionLifecycleClientProvider
+	sessionConfigProvider
+}
+
+type interactiveProjectBindingServer interface {
+	Config() config.App
+	ProjectViewClient() client.ProjectViewClient
+	BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (interactiveSessionServer, error)
+}
+
+type interactiveSessionServer interface {
+	appServerCore
+	interactiveProjectBindingServer
+	launchPlannerServer
+	sessionWorkspaceChangeServer
+	sessionInitialInputServer
+	sessionDraftPersistenceServer
+	sessionTransitionServer
+}
+
+func runSessionLifecycle(ctx context.Context, server interactiveSessionServer, interactor authInteractor, initialSessionID string) error {
 	originalServer := server
 	boundServer, err := ensureInteractiveProjectBinding(ctx, server)
 	if err != nil {
@@ -118,7 +162,7 @@ func shouldRetryStartupUpdateNotice(model any, enabled bool) bool {
 	return !ok || ui == nil || !ui.startupUpdateShown
 }
 
-func shouldCloseReboundServer(original embeddedServer, rebound embeddedServer) bool {
+func shouldCloseReboundServer(original appServerCore, rebound appServerCore) bool {
 	if original == nil || rebound == nil || original == rebound {
 		return false
 	}
@@ -130,7 +174,7 @@ func shouldCloseReboundServer(original embeddedServer, rebound embeddedServer) b
 	return true
 }
 
-func sessionLaunchInitialInputFromServer(ctx context.Context, server embeddedServer, sessionID string, transitionInput string) string {
+func sessionLaunchInitialInputFromServer(ctx context.Context, server sessionInitialInputServer, sessionID string, transitionInput string) string {
 	if server == nil || server.SessionLifecycleClient() == nil {
 		return transitionInput
 	}
@@ -144,7 +188,7 @@ func sessionLaunchInitialInputFromServer(ctx context.Context, server embeddedSer
 	return resp.Input
 }
 
-func persistSessionDraftToServer(ctx context.Context, server embeddedServer, sessionID string, controllerLeaseID string, model any) error {
+func persistSessionDraftToServer(ctx context.Context, server sessionDraftPersistenceServer, sessionID string, controllerLeaseID string, model any) error {
 	if strings.TrimSpace(sessionID) == "" {
 		return nil
 	}
@@ -168,7 +212,7 @@ type resolvedSessionAction struct {
 	ShouldContinue  bool
 }
 
-func resolveSessionAction(ctx context.Context, server embeddedServer, interactor authInteractor, sessionID string, controllerLeaseID string, transition UITransition) (resolvedSessionAction, error) {
+func resolveSessionAction(ctx context.Context, server sessionTransitionServer, interactor authInteractor, sessionID string, controllerLeaseID string, transition UITransition) (resolvedSessionAction, error) {
 	if transition.Exit {
 		return resolvedSessionAction{}, nil
 	}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"time"
@@ -53,4 +54,19 @@ func runPromptOverridesFromOptions(opts Options) serverapi.RunPromptOverrides {
 		Tools:               strings.TrimSpace(opts.Tools),
 		OpenAIBaseURL:       strings.TrimSpace(opts.OpenAIBaseURL),
 	}
+}
+
+type runPromptIOProgressSink struct {
+	writer io.Writer
+}
+
+func (s runPromptIOProgressSink) PublishRunPromptProgress(progress serverapi.RunPromptProgress) {
+	if s.writer == nil {
+		return
+	}
+	message := strings.TrimSpace(progress.Message)
+	if message == "" {
+		return
+	}
+	_, _ = fmt.Fprintln(s.writer, message)
 }

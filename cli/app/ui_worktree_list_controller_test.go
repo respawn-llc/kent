@@ -1,0 +1,88 @@
+package app
+
+import (
+	"testing"
+
+	"builder/shared/serverapi"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+func newWorktreeListControllerTestModel(t *testing.T, client *worktreeCommandTestClient) *uiModel {
+	t.Helper()
+	if client == nil {
+		client = &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
+	}
+	model := newWorktreeTestModel(t, client)
+	model.worktrees.open = true
+	model.worktrees.phase = uiWorktreeOverlayPhaseList
+	model.worktrees.entries = []serverapi.WorktreeView{
+		{WorktreeID: "wt-feature", DisplayName: "feature", CanonicalRoot: "/wt/feature", BranchName: "feature"},
+		{WorktreeID: "wt-current", DisplayName: "current", CanonicalRoot: "/wt/current", IsCurrent: true},
+	}
+	model.setInputMode(uiInputModeWorktree)
+	return model
+}
+
+func applyWorktreeListControllerKey(model *uiModel, key tea.KeyMsg) (*uiModel, tea.Cmd) {
+	next, cmd := uiInputController{model: model}.handleWorktreeOverlayKey(key)
+	return next.(*uiModel), cmd
+}
+
+func TestWorktreeListControllerNavigatesRows(t *testing.T) {
+	model := newWorktreeListControllerTestModel(t, nil)
+	updated, _ := applyWorktreeListControllerKey(model, tea.KeyMsg{Type: tea.KeyDown})
+	if updated.worktrees.selection != 1 {
+		t.Fatalf("selection after down = %d, want 1", updated.worktrees.selection)
+	}
+	updated, _ = applyWorktreeListControllerKey(updated, tea.KeyMsg{Type: tea.KeyEnd})
+	if updated.worktrees.selection != updated.worktreeRowCount()-1 {
+		t.Fatalf("selection after end = %d, want last", updated.worktrees.selection)
+	}
+	updated, _ = applyWorktreeListControllerKey(updated, tea.KeyMsg{Type: tea.KeyHome})
+	if updated.worktrees.selection != 0 {
+		t.Fatalf("selection after home = %d, want create row", updated.worktrees.selection)
+	}
+}
+
+func TestWorktreeListControllerEnterCreateRowOpensCreateDialogThroughUpdate(t *testing.T) {
+	model := newWorktreeListControllerTestModel(t, nil)
+	model.worktrees.selection = 0
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := next.(*uiModel)
+	if updated.worktrees.phase != uiWorktreeOverlayPhaseCreate {
+		t.Fatalf("phase after enter create row = %q, want create", updated.worktrees.phase)
+	}
+}
+
+func TestWorktreeListControllerEnterWorktreeSubmitsSwitch(t *testing.T) {
+	client := &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
+	model := newWorktreeListControllerTestModel(t, client)
+	model.worktrees.selection = 1
+	updated, cmd := applyWorktreeListControllerKey(model, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected switch command")
+	}
+	if !updated.worktrees.switchPending {
+		t.Fatal("expected switch pending state")
+	}
+	result := cmd()
+	if _, ok := result.(worktreeSwitchDoneMsg); !ok {
+		t.Fatalf("command message type = %T, want worktreeSwitchDoneMsg", result)
+	}
+	if len(client.switchRequests) != 1 || client.switchRequests[0].WorktreeID != "wt-feature" {
+		t.Fatalf("switch requests = %+v, want wt-feature", client.switchRequests)
+	}
+}
+
+func TestWorktreeListControllerDeleteKeysSetIntent(t *testing.T) {
+	model := newWorktreeListControllerTestModel(t, nil)
+	model.worktrees.selection = 1
+	updated, cmd := applyWorktreeListControllerKey(model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	if cmd == nil {
+		t.Fatal("expected refresh command for delete intent")
+	}
+	if !updated.worktrees.intent.OpenDelete || updated.worktrees.intent.ConfirmDeleteTarget != "wt-feature" || !updated.worktrees.intent.PreferDeleteBranch {
+		t.Fatalf("intent = %+v, want delete+branch for wt-feature", updated.worktrees.intent)
+	}
+}

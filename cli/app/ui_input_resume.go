@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"builder/cli/app/internal/submissionerror"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -47,7 +49,7 @@ func (c uiInputController) submitQueuedUserMessagesCmd() tea.Cmd {
 		msg, err := m.submitQueuedRuntimeUserMessages(context.Background())
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
-				return newSubmitDoneMsg(token, "", "", errSubmissionInterrupted)
+				return newSubmitDoneMsg(token, "", "", submissionerror.ErrInterrupted)
 			}
 			return newSubmitDoneMsg(token, "", "", err)
 		}

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/llm"
+	"builder/shared/clientui"
 	"builder/shared/transcript"
 
 	xansi "github.com/charmbracelet/x/ansi"
@@ -84,7 +84,7 @@ func TestCommittedOngoingProjectorPreservesBaseOffset(t *testing.T) {
 
 func TestCommittedOngoingProjectionRenderAppendDeltaFromAssistantCommentaryContinuation(t *testing.T) {
 	m := NewModel(WithPreviewLines(20))
-	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "Decision: keep", Phase: llm.MessagePhaseCommentary})
+	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "Decision: keep", Phase: clientui.MessagePhaseCommentary})
 	previous := m.CommittedOngoingProjection()
 
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "going"})

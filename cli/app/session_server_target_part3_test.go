@@ -138,6 +138,7 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 	if _, ok := server.(*remoteAppServer); !ok {
 		t.Fatalf("expected remote app server, got %T", server)
 	}
+	promptViews := requirePromptViewServer(t, server)
 
 	planner := newSessionLaunchPlanner(server)
 	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, ForceNewSession: true})
@@ -166,8 +167,8 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 		approvalDone <- err
 	}()
 
-	waitForPendingAskResources(t, server.AskViewClient(), plan.SessionID, 1)
-	waitForPendingApprovalResources(t, server.ApprovalViewClient(), plan.SessionID, 1)
+	waitForPendingAskResources(t, promptViews.AskViewClient(), plan.SessionID, 1)
+	waitForPendingApprovalResources(t, promptViews.ApprovalViewClient(), plan.SessionID, 1)
 
 	first := waitForRemoteAskEvent(t, runtimePlan.Wiring.askEvents)
 	second := waitForRemoteAskEvent(t, runtimePlan.Wiring.askEvents)
@@ -199,8 +200,8 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 		t.Fatal("timed out waiting for remote approval response")
 	}
 
-	waitForPendingAskResources(t, server.AskViewClient(), plan.SessionID, 0)
-	waitForPendingApprovalResources(t, server.ApprovalViewClient(), plan.SessionID, 0)
+	waitForPendingAskResources(t, promptViews.AskViewClient(), plan.SessionID, 0)
+	waitForPendingApprovalResources(t, promptViews.ApprovalViewClient(), plan.SessionID, 0)
 
 	cancel()
 	if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {
@@ -245,6 +246,7 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 		t.Fatalf("startSessionServer: %v", err)
 	}
 	defer func() { _ = server.Close() }()
+	processes := requireProcessServer(t, server)
 
 	planner := newSessionLaunchPlanner(server)
 	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, ForceNewSession: true})
@@ -266,12 +268,12 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 		t.Fatal("expected backgrounded process")
 	}
 
-	proc := waitForRemoteProcess(t, server.ProcessViewClient(), plan.SessionID, result.SessionID)
+	proc := waitForRemoteProcess(t, processes.ProcessViewClient(), plan.SessionID, result.SessionID)
 	if proc.OwnerSessionID != plan.SessionID {
 		t.Fatalf("unexpected process owner: %+v", proc)
 	}
 
-	getResp, err := server.ProcessViewClient().GetProcess(context.Background(), serverapi.ProcessGetRequest{ProcessID: result.SessionID})
+	getResp, err := processes.ProcessViewClient().GetProcess(context.Background(), serverapi.ProcessGetRequest{ProcessID: result.SessionID})
 	if err != nil {
 		t.Fatalf("GetProcess: %v", err)
 	}
@@ -279,7 +281,7 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 		t.Fatalf("unexpected get process response: %+v", getResp.Process)
 	}
 
-	outputSub, err := server.ProcessOutputClient().SubscribeProcessOutput(context.Background(), serverapi.ProcessOutputSubscribeRequest{ProcessID: result.SessionID, OffsetBytes: 0})
+	outputSub, err := processes.ProcessOutputClient().SubscribeProcessOutput(context.Background(), serverapi.ProcessOutputSubscribeRequest{ProcessID: result.SessionID, OffsetBytes: 0})
 	if err != nil {
 		t.Fatalf("SubscribeProcessOutput: %v", err)
 	}
@@ -291,15 +293,15 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 	if !strings.Contains(chunk.Text, "daemon process output") {
 		t.Fatalf("unexpected process output chunk: %+v", chunk)
 	}
-	inlineResp := waitForRemoteInlineOutput(t, server.ProcessControlClient(), result.SessionID)
+	inlineResp := waitForRemoteInlineOutput(t, processes.ProcessControlClient(), result.SessionID)
 	if !strings.Contains(inlineResp.Output, "daemon process output") {
 		t.Fatalf("unexpected inline output: %q", inlineResp.Output)
 	}
 
-	if _, err := server.ProcessControlClient().KillProcess(context.Background(), serverapi.ProcessKillRequest{ClientRequestID: uuid.NewString(), ProcessID: result.SessionID}); err != nil {
+	if _, err := processes.ProcessControlClient().KillProcess(context.Background(), serverapi.ProcessKillRequest{ClientRequestID: uuid.NewString(), ProcessID: result.SessionID}); err != nil {
 		t.Fatalf("KillProcess: %v", err)
 	}
-	waitForRemoteProcessExit(t, server.ProcessViewClient(), result.SessionID)
+	waitForRemoteProcessExit(t, processes.ProcessViewClient(), result.SessionID)
 
 	cancel()
 	if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {
@@ -584,7 +586,7 @@ func waitForRemoteInlineOutput(t *testing.T, controls client.ProcessControlClien
 	return serverapi.ProcessInlineOutputResponse{}
 }
 
-func runInteractiveWorkflowScenario(t *testing.T, server embeddedServer, wantReply string) {
+func runInteractiveWorkflowScenario(t *testing.T, server interactiveSessionServer, wantReply string) {
 	t.Helper()
 	planner := newSessionLaunchPlanner(server)
 	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, ForceNewSession: true})
@@ -617,6 +619,35 @@ func runInteractiveWorkflowScenario(t *testing.T, server embeddedServer, wantRep
 	if refreshed.MainView.Session.Transcript.CommittedEntryCount == 0 {
 		t.Fatalf("expected transcript metadata, got %+v", refreshed.MainView.Session.Transcript)
 	}
+}
+
+type promptViewTestServer interface {
+	AskViewClient() client.AskViewClient
+	ApprovalViewClient() client.ApprovalViewClient
+}
+
+func requirePromptViewServer(t *testing.T, server any) promptViewTestServer {
+	t.Helper()
+	promptViews, ok := server.(promptViewTestServer)
+	if !ok {
+		t.Fatalf("server %T does not expose prompt view clients", server)
+	}
+	return promptViews
+}
+
+type processTestServer interface {
+	ProcessControlClient() client.ProcessControlClient
+	ProcessOutputClient() client.ProcessOutputClient
+	ProcessViewClient() client.ProcessViewClient
+}
+
+func requireProcessServer(t *testing.T, server any) processTestServer {
+	t.Helper()
+	processes, ok := server.(processTestServer)
+	if !ok {
+		t.Fatalf("server %T does not expose process clients", server)
+	}
+	return processes
 }
 
 func publishConfiguredRemoteForWorkspace(t *testing.T, workspace string, caps protocol.CapabilityFlags) func() {

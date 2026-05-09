@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
 	"strings"
 
-	"builder/server/auth"
+	"builder/cli/app/internal/remotebinding"
+	"builder/cli/app/internal/statuscollect"
 	"builder/shared/client"
 	"builder/shared/config"
 	"builder/shared/protocol"
@@ -20,18 +20,17 @@ type remoteAppServer struct {
 	cfg       config.App
 	closeFn   func() error
 	owns      bool
-	lookupEnv func(string) string
 }
 
 func newRemoteAppServer(remote *client.Remote, cfg config.App) *remoteAppServer {
-	return newRemoteAppServerWithAuth(remote, cfg, nil, nil, nil)
+	return newRemoteAppServerWithAuth(remote, cfg, nil)
 }
 
 func newRemoteAppServerWithClose(remote *client.Remote, cfg config.App, closeFn func() error) *remoteAppServer {
-	return newRemoteAppServerWithAuth(remote, cfg, closeFn, nil, nil)
+	return newRemoteAppServerWithAuth(remote, cfg, closeFn)
 }
 
-func newRemoteAppServerWithAuth(remote *client.Remote, cfg config.App, closeFn func() error, lookupEnv func(string) string, _ func(auth.Store) auth.Store) *remoteAppServer {
+func newRemoteAppServerWithAuth(remote *client.Remote, cfg config.App, closeFn func() error) *remoteAppServer {
 	if remote == nil {
 		return nil
 	}
@@ -39,10 +38,7 @@ func newRemoteAppServerWithAuth(remote *client.Remote, cfg config.App, closeFn f
 	if closeFn == nil {
 		closeFn = remote.Close
 	}
-	if lookupEnv == nil {
-		lookupEnv = os.Getenv
-	}
-	return &remoteAppServer{remote: remote, identity: remote.Identity(), projectID: remote.ProjectID(), cfg: cfg, closeFn: closeFn, owns: ownsServer, lookupEnv: lookupEnv}
+	return &remoteAppServer{remote: remote, identity: remote.Identity(), projectID: remote.ProjectID(), cfg: cfg, closeFn: closeFn, owns: ownsServer}
 }
 
 func (s *remoteAppServer) Close() error {
@@ -69,49 +65,27 @@ func (s *remoteAppServer) Config() config.App {
 	return s.cfg
 }
 
-func (s *remoteAppServer) BindProject(ctx context.Context, projectID string) (embeddedServer, error) {
-	return s.BindProjectWorkspace(ctx, projectID, "")
-}
-
-func (s *remoteAppServer) BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (embeddedServer, error) {
-	if s == nil || s.remote == nil {
-		return nil, errors.New("remote server is required")
+func (s *remoteAppServer) BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (interactiveSessionServer, error) {
+	if s == nil {
+		_, err := remotebinding.BindProjectWorkspace(ctx, remotebinding.Request{ProjectID: projectID, WorkspaceID: workspaceID})
+		return nil, err
 	}
-	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" {
-		return nil, errors.New("project id is required")
-	}
-	trimmedWorkspaceID := strings.TrimSpace(workspaceID)
-	var nextRemote *client.Remote
-	var err error
-	if trimmedWorkspaceID != "" {
-		nextRemote, err = client.DialConfiguredRemoteForProjectWorkspaceID(ctx, s.cfg, trimmedProjectID, trimmedWorkspaceID)
-	} else {
-		nextRemote, err = client.DialConfiguredRemoteForProjectWorkspace(ctx, s.cfg, trimmedProjectID, s.cfg.WorkspaceRoot)
-	}
+	bound, err := remotebinding.BindProjectWorkspace(ctx, remotebinding.Request{
+		Current:     s.remote,
+		Config:      s.cfg,
+		ProjectID:   projectID,
+		WorkspaceID: workspaceID,
+		OwnsServer:  s.owns,
+		OwnedClose:  s.closeFn,
+	})
 	if err != nil {
 		return nil, err
 	}
-	_ = s.remote.Close()
-	var closeFn func() error
-	if s.owns && s.closeFn != nil {
-		closeFn = func() error {
-			return errors.Join(nextRemote.Close(), s.closeFn())
-		}
-	}
-	return newRemoteAppServerWithAuth(nextRemote, s.cfg, closeFn, s.lookupEnv, nil), nil
+	return newRemoteAppServerWithAuth(bound.Remote, s.cfg, bound.CloseFn), nil
 }
 
-func (s *remoteAppServer) AuthManager() *auth.Manager {
-	return nil
-}
-
-func (s *remoteAppServer) AuthBootstrapClient() client.AuthBootstrapClient {
-	if s == nil {
-		return nil
-	}
-	return s.remote
-}
+func (s *remoteAppServer) AuthStateResolver() statuscollect.AuthStateResolver { return nil }
+func (s *remoteAppServer) AuthStatePath() string                              { return "" }
 
 func (s *remoteAppServer) AuthStatusClient() client.AuthStatusClient {
 	if s == nil {

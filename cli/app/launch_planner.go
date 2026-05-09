@@ -6,6 +6,8 @@ import (
 	"io"
 	"strings"
 
+	"builder/cli/app/internal/statuscollect"
+	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/config"
 	"builder/shared/serverapi"
@@ -86,12 +88,25 @@ type sessionViewReader interface {
 	GetSessionMainView(ctx context.Context, req serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error)
 }
 
+type launchPlannerServer interface {
+	OwnsServer() bool
+	Config() config.App
+	ProjectID() string
+	AuthStateResolver() statuscollect.AuthStateResolver
+	AuthStatePath() string
+	AuthStatusClient() client.AuthStatusClient
+	ProjectViewClient() client.ProjectViewClient
+	SessionLaunchClient() client.SessionLaunchClient
+	SessionViewClient() client.SessionViewClient
+	PrepareRuntime(ctx context.Context, plan sessionLaunchPlan, diagnosticWriter io.Writer, startLogLine string) (*runtimeLaunchPlan, error)
+}
+
 type launchPlanner struct {
-	server      embeddedServer
+	server      launchPlannerServer
 	pickSession sessionPickerRunner
 }
 
-func newSessionLaunchPlanner(server embeddedServer) *launchPlanner {
+func newSessionLaunchPlanner(server launchPlannerServer) *launchPlanner {
 	return &launchPlanner{
 		server: server,
 		pickSession: func(summaries []clientui.SessionSummary, theme string) (sessionPickerResult, error) {
@@ -119,11 +134,8 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 		}
 	}
 	cfg := p.server.Config()
-	authManager := p.server.AuthManager()
-	authStatePath := ""
-	if authManager != nil {
-		authStatePath = config.GlobalAuthConfigPath(cfg)
-	}
+	authStatePath := p.server.AuthStatePath()
+	authManager := p.server.AuthStateResolver()
 	selectedSessionWorkspaceRoot := ""
 	selectedSessionWorkspaceLookupFailed := false
 	if resolved.selectedViaPicker {
@@ -152,7 +164,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 			SessionViews:    p.server.SessionViewClient(),
 			Settings:        resp.Plan.ActiveSettings,
 			Source:          resp.Plan.Source,
-			AuthManager:     authManager,
+			AuthManager:     statuscollect.NormalizeAuthStateResolver(authManager),
 			AuthStatus:      p.server.AuthStatusClient(),
 			AuthStatePath:   authStatePath,
 			OwnsServer:      p.server.OwnsServer(),

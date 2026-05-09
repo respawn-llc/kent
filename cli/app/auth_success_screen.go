@@ -1,17 +1,15 @@
 package app
 
 import (
-	"fmt"
 	"strings"
 
-	"builder/server/auth"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 type authSuccessScreenData struct {
-	Theme  string
-	Method auth.Method
+	Theme string
+	Title string
 }
 
 type authSuccessScreenModel struct {
@@ -65,7 +63,7 @@ func (m *authSuccessScreenModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *authSuccessScreenModel) View() string {
 	body := strings.Join([]string{
-		renderStartupPlainTitle(authSuccessScreenTitle(m.data.Method), m.data.Theme),
+		renderStartupPlainTitle(authSuccessScreenTitle(m.data.Title), m.data.Theme),
 		"",
 		m.styles.hint.Render("Press any key to continue"),
 	}, "\n")
@@ -80,11 +78,9 @@ func (m *authSuccessScreenModel) View() string {
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, body)
 }
 
-func authSuccessScreenTitle(method auth.Method) string {
-	if method.Type == auth.MethodOAuth && method.OAuth != nil {
-		if email := strings.TrimSpace(method.OAuth.Email); email != "" {
-			return fmt.Sprintf("Auth success for: %s", email)
-		}
+func authSuccessScreenTitle(title string) string {
+	if title := strings.TrimSpace(title); title != "" {
+		return title
 	}
 	return "Auth success"
 }

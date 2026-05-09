@@ -550,53 +550,84 @@ func TestPrepareSharedRuntimeUsesCallerContextForAttachRPCs(t *testing.T) {
 	}
 }
 
-func TestPrepareSharedRuntimeReleaseUsesBoundedContextOnFailure(t *testing.T) {
-	promptErr := errors.New("prompt subscribe failed")
-	released := make(chan context.Context, 1)
-	server := &testEmbeddedServer{
-		sessionRuntime: &recordingSessionRuntimeClient{
-			activate: func(context.Context, serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
-				return serverapi.SessionRuntimeActivateResponse{LeaseID: "lease-1"}, nil
-			},
-			release: func(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
-				released <- ctx
-				if req.SessionID != "session-1" {
-					t.Fatalf("unexpected release request: %+v", req)
-				}
-				if req.LeaseID != "lease-1" {
-					t.Fatalf("release lease id = %q, want lease-1", req.LeaseID)
-				}
-				return serverapi.SessionRuntimeReleaseResponse{}, nil
-			},
-		},
-		sessionActivity: &recordingSessionActivityClient{
-			subscribe: func(context.Context, serverapi.SessionActivitySubscribeRequest) (serverapi.SessionActivitySubscription, error) {
-				return noOpSessionActivitySubscription{}, nil
-			},
-		},
-		promptActivityClient: &recordingPromptActivityClient{
-			subscribe: func(context.Context, serverapi.PromptActivitySubscribeRequest) (serverapi.PromptActivitySubscription, error) {
-				return nil, promptErr
-			},
-		},
-	}
+func TestPrepareSharedRuntimeSubscribeFailureReleasesOnceWithBoundedContext(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		sessionErr      error
+		promptErr       error
+		wantPromptStart bool
+	}{
+		{name: "session subscribe failure", sessionErr: errors.New("session subscribe failed")},
+		{name: "prompt subscribe failure", promptErr: errors.New("prompt subscribe failed"), wantPromptStart: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			released := make(chan context.Context, 2)
+			releaseCount := 0
+			promptStarted := false
+			server := &testEmbeddedServer{
+				sessionRuntime: &recordingSessionRuntimeClient{
+					activate: func(context.Context, serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
+						return serverapi.SessionRuntimeActivateResponse{LeaseID: "lease-1"}, nil
+					},
+					release: func(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
+						releaseCount++
+						released <- ctx
+						if req.SessionID != "session-1" {
+							t.Fatalf("unexpected release request: %+v", req)
+						}
+						if req.LeaseID != "lease-1" {
+							t.Fatalf("release lease id = %q, want lease-1", req.LeaseID)
+						}
+						return serverapi.SessionRuntimeReleaseResponse{}, nil
+					},
+				},
+				sessionActivity: &recordingSessionActivityClient{
+					subscribe: func(context.Context, serverapi.SessionActivitySubscribeRequest) (serverapi.SessionActivitySubscription, error) {
+						if tc.sessionErr != nil {
+							return nil, tc.sessionErr
+						}
+						return noOpSessionActivitySubscription{}, nil
+					},
+				},
+				promptActivityClient: &recordingPromptActivityClient{
+					subscribe: func(context.Context, serverapi.PromptActivitySubscribeRequest) (serverapi.PromptActivitySubscription, error) {
+						promptStarted = true
+						if tc.promptErr != nil {
+							return nil, tc.promptErr
+						}
+						return nil, nil
+					},
+				},
+			}
 
-	_, err := prepareSharedRuntime(context.Background(), server, sessionLaunchPlan{SessionID: "session-1", WorkspaceRoot: "/tmp/workspace"}, io.Discard, "test")
-	if !errors.Is(err, promptErr) {
-		t.Fatalf("prepareSharedRuntime error = %v, want %v", err, promptErr)
-	}
-	select {
-	case ctx := <-released:
-		deadline, ok := ctx.Deadline()
-		if !ok {
-			t.Fatal("expected bounded release context deadline")
-		}
-		remaining := time.Until(deadline)
-		if remaining <= 0 || remaining > runtimeReleaseTimeout {
-			t.Fatalf("unexpected bounded release deadline remaining=%v timeout=%v", remaining, runtimeReleaseTimeout)
-		}
-	default:
-		t.Fatal("expected runtime release on prompt subscribe failure")
+			_, err := prepareSharedRuntime(context.Background(), server, sessionLaunchPlan{SessionID: "session-1", WorkspaceRoot: "/tmp/workspace"}, io.Discard, "test")
+			wantErr := tc.sessionErr
+			if wantErr == nil {
+				wantErr = tc.promptErr
+			}
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("prepareSharedRuntime error = %v, want %v", err, wantErr)
+			}
+			if promptStarted != tc.wantPromptStart {
+				t.Fatalf("prompt started = %v, want %v", promptStarted, tc.wantPromptStart)
+			}
+			if releaseCount != 1 {
+				t.Fatalf("release count = %d, want exactly 1", releaseCount)
+			}
+			select {
+			case ctx := <-released:
+				deadline, ok := ctx.Deadline()
+				if !ok {
+					t.Fatal("expected bounded release context deadline")
+				}
+				remaining := time.Until(deadline)
+				if remaining <= 0 || remaining > runtimeReleaseTimeout {
+					t.Fatalf("unexpected bounded release deadline remaining=%v timeout=%v", remaining, runtimeReleaseTimeout)
+				}
+			default:
+				t.Fatal("expected runtime release on subscribe failure")
+			}
+		})
 	}
 }
 

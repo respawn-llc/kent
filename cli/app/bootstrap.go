@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	serverstartup "builder/server/startup"
+	"builder/cli/app/internal/embeddedstartup"
 	"builder/shared/config"
 )
 
@@ -12,7 +12,7 @@ func startEmbeddedServer(ctx context.Context, opts Options, interactor authInter
 	if interactor == nil {
 		return nil, errors.New("auth interactor is required")
 	}
-	server, err := serverstartup.Start(ctx, serverstartup.Request{
+	server, err := embeddedstartup.Start(ctx, embeddedstartup.Request{
 		WorkspaceRoot:         opts.WorkspaceRoot,
 		WorkspaceRootExplicit: opts.WorkspaceRootExplicit,
 		SessionID:             opts.SessionID,
@@ -37,7 +37,7 @@ type frontendOnboardingHandler struct {
 	inner authInteractor
 }
 
-func (h frontendOnboardingHandler) EnsureOnboardingReady(ctx context.Context, req serverstartup.OnboardingRequest) (config.App, error) {
+func (h frontendOnboardingHandler) EnsureOnboardingReady(ctx context.Context, req embeddedstartup.OnboardingRequest) (config.App, error) {
 	cfg, _, err := ensureOnboardingReady(ctx, req.Config, req.AuthManager, h.inner, req.ReloadConfig)
 	if err != nil {
 		return config.App{}, err

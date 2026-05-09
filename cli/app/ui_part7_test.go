@@ -147,7 +147,7 @@ func TestAutoDrainStopsAfterQueuedPSInlineAppendsToInput(t *testing.T) {
 		t.Fatal("expected background process")
 	}
 
-	m := newProjectedStaticUIModel(WithUIBackgroundManager(manager))
+	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
 	m.busy = true
 	m.activity = uiActivityRunning
 	m.queued = queuedInputsForTest("/ps inline "+res.SessionID, "summarize this")
@@ -178,7 +178,7 @@ func TestAutoDrainStopsAfterQueuedPSInlineAppendsToInput(t *testing.T) {
 
 func TestBusyQueuedReviewSlashCommandStartsFreshSessionAfterTurn(t *testing.T) {
 	m := newProjectedStaticUIModel(
-		WithUIConversationFreshness(session.ConversationFreshnessEstablished),
+		WithUIConversationFreshness(clientui.ConversationFreshnessEstablished),
 	)
 	m.busy = true
 	m.activity = uiActivityRunning
@@ -549,7 +549,7 @@ func TestBuiltInReviewSlashCommandStartsFreshSessionWhenCurrentSessionHasVisible
 	r := commands.NewDefaultRegistry()
 	m := newProjectedStaticUIModel(
 		WithUICommandRegistry(r),
-		WithUIConversationFreshness(session.ConversationFreshnessEstablished),
+		WithUIConversationFreshness(clientui.ConversationFreshnessEstablished),
 	)
 	m.input = "/review cli/app"
 	expected := r.Execute("/review cli/app")
@@ -571,7 +571,7 @@ func TestBuiltInInitSlashCommandStartsFreshSessionWhenCurrentSessionHasVisibleUs
 	r := commands.NewDefaultRegistry()
 	m := newProjectedStaticUIModel(
 		WithUICommandRegistry(r),
-		WithUIConversationFreshness(session.ConversationFreshnessEstablished),
+		WithUIConversationFreshness(clientui.ConversationFreshnessEstablished),
 	)
 	m.input = "/init starter repo"
 	expected := r.Execute("/init starter repo")

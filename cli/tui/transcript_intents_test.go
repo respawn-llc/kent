@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"builder/server/llm"
+	"builder/shared/clientui"
 )
 
 func TestTranscriptRoleWireRoundTrip(t *testing.T) {
@@ -38,11 +38,11 @@ func TestTranscriptRoleDisplayIntent(t *testing.T) {
 	tests := []struct {
 		name  string
 		role  TranscriptRole
-		phase llm.MessagePhase
+		phase clientui.MessagePhase
 		want  RenderIntent
 	}{
-		{name: "assistant final", role: TranscriptRoleAssistant, phase: llm.MessagePhaseFinal, want: RenderIntentAssistant},
-		{name: "assistant commentary", role: TranscriptRoleAssistant, phase: llm.MessagePhaseCommentary, want: RenderIntentAssistantCommentary},
+		{name: "assistant final", role: TranscriptRoleAssistant, phase: clientui.MessagePhaseFinal, want: RenderIntentAssistant},
+		{name: "assistant commentary", role: TranscriptRoleAssistant, phase: clientui.MessagePhaseCommentary, want: RenderIntentAssistantCommentary},
 		{name: "tool result ok", role: TranscriptRoleToolResultOK, want: RenderIntentToolSuccess},
 		{name: "tool result error", role: TranscriptRoleToolResultError, want: RenderIntentToolError},
 		{name: "future role intent preserved", role: TranscriptRole("future_renderable_role"), want: RenderIntent("future_renderable_role")},

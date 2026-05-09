@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"builder/cli/tui"
-	"builder/server/llm"
 	"builder/shared/clientui"
 	"builder/shared/transcript"
 	patchformat "builder/shared/transcript/patchformat"
@@ -66,8 +65,8 @@ func transcriptEntryFromProjectedChatEntry(entry clientui.ChatEntry, transient b
 		Role:              tui.TranscriptRoleFromWire(entry.Role),
 		Text:              entry.Text,
 		OngoingText:       entry.OngoingText,
-		Phase:             llm.MessagePhase(entry.Phase),
-		MessageType:       llm.MessageType(entry.MessageType),
+		Phase:             clientui.MessagePhase(entry.Phase),
+		MessageType:       clientui.MessageType(entry.MessageType),
 		SourcePath:        strings.TrimSpace(entry.SourcePath),
 		CompactLabel:      strings.TrimSpace(entry.CompactLabel),
 		ToolResultSummary: strings.TrimSpace(entry.ToolResultSummary),
