@@ -93,6 +93,21 @@ func TestStreamCompleteParamsMapsTerminalErrors(t *testing.T) {
 	}
 }
 
+func TestNewGatewayRejectsTypedNilDependencies(t *testing.T) {
+	var appCore *core.Core
+
+	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
+	if err == nil {
+		t.Fatal("expected typed nil dependencies to be rejected")
+	}
+	if gateway != nil {
+		t.Fatalf("gateway = %+v, want nil", gateway)
+	}
+	if err.Error() != "gateway dependencies are required" {
+		t.Fatalf("error = %q, want gateway dependencies are required", err.Error())
+	}
+}
+
 func TestCancellationMessageRoundTripsThroughRemoteClient(t *testing.T) {
 	code, message := protocolError(&shelltool.PollingCanceledError{SessionID: "1000", Active: true})
 	if code != protocol.ErrCodeRequestCanceled {

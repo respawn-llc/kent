@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"builder/server/auth"
@@ -145,13 +146,26 @@ func gatewayProgressHandlerForMethod(method string) (gatewayProgressHandler, rpc
 }
 
 func NewGateway(deps GatewayDependencies, identity protocol.ServerIdentity) (*Gateway, error) {
-	if deps == nil {
+	if isNilGatewayDependencies(deps) {
 		return nil, errors.New("gateway dependencies are required")
 	}
 	if strings.TrimSpace(identity.ProtocolVersion) == "" {
 		return nil, errors.New("server identity is required")
 	}
 	return &Gateway{deps: deps, identity: identity}, nil
+}
+
+func isNilGatewayDependencies(deps GatewayDependencies) bool {
+	if deps == nil {
+		return true
+	}
+	value := reflect.ValueOf(deps)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
 }
 
 func (g *Gateway) Handler() http.Handler {
