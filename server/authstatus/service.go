@@ -91,7 +91,7 @@ func authInfo(state auth.State, settings config.Settings, statusErr error) serve
 		}
 		return serverapi.AuthStatusInfo{Summary: summary, Details: details, Visible: true}
 	case auth.MethodAPIKey:
-		summary := apiKeyAuthSummary(state.Method.APIKey)
+		summary := auth.MaskedAPIKeySummary(state.Method.APIKey)
 		if provider := providerLabel(state, settings); provider != "" {
 			details = append(details, provider)
 		}
@@ -108,22 +108,6 @@ func authInfo(state auth.State, settings config.Settings, statusErr error) serve
 		}
 		return serverapi.AuthStatusInfo{Summary: "No Auth", Visible: true}
 	}
-}
-
-func apiKeyAuthSummary(apiKey *auth.APIKeyMethod) string {
-	key := ""
-	if apiKey != nil {
-		key = strings.TrimSpace(apiKey.Key)
-	}
-	if key == "" {
-		return "API Key"
-	}
-	runes := []rune(key)
-	start := len(runes) - 4
-	if start < 0 {
-		start = 0
-	}
-	return "API Key ..." + string(runes[start:])
 }
 
 func (s *Service) subscriptionStatus(ctx context.Context, settings config.Settings, state auth.State, authStateErr error) serverapi.AuthSubscriptionInfo {

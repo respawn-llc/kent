@@ -91,6 +91,22 @@ type APIKeyMethod struct {
 	Key string `json:"key"`
 }
 
+func MaskedAPIKeySummary(apiKey *APIKeyMethod) string {
+	key := ""
+	if apiKey != nil {
+		key = strings.TrimSpace(apiKey.Key)
+	}
+	if key == "" {
+		return "API Key"
+	}
+	runes := []rune(key)
+	start := len(runes) - 4
+	if start < 0 {
+		start = 0
+	}
+	return "API Key ..." + string(runes[start:])
+}
+
 type OAuthMethod struct {
 	AccessToken  string    `json:"access_token"`
 	RefreshToken string    `json:"refresh_token"`

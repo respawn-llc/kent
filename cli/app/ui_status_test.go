@@ -277,19 +277,24 @@ func TestStatusOverlaySectionOrderPrioritizesSessionGitContext(t *testing.T) {
 }
 
 func TestStatusOverlayAuthSectionShowsNoAuthAndAPIKey(t *testing.T) {
+	withTrueColor(t)
 	noAuth := newProjectedStaticUIModel()
 	noAuth.status.snapshot = uiStatusSnapshot{Auth: uiStatusAuthInfo{Summary: "No Auth", Visible: true}}
-	noAuthLines := stripANSIAndTrimRight(strings.Join(noAuth.layout().statusOverlayContentLines(100), "\n"))
+	noAuthRawLines := noAuth.layout().statusOverlayContentLines(100)
+	noAuthLines := stripANSIAndTrimRight(strings.Join(noAuthRawLines, "\n"))
 	if !strings.Contains(noAuthLines, "Auth\nNo Auth") {
 		t.Fatalf("expected no-auth status section, got %q", noAuthLines)
 	}
+	assertStatusOverlayPrimaryLine(t, findRawStatusOverlayLine(t, noAuthRawLines, "No Auth"), "No Auth")
 
 	apiKey := newProjectedStaticUIModel()
 	apiKey.status.snapshot = uiStatusSnapshot{Auth: uiStatusAuthInfo{Summary: "API Key ...1234", Visible: true}}
-	apiKeyLines := stripANSIAndTrimRight(strings.Join(apiKey.layout().statusOverlayContentLines(100), "\n"))
+	apiKeyRawLines := apiKey.layout().statusOverlayContentLines(100)
+	apiKeyLines := stripANSIAndTrimRight(strings.Join(apiKeyRawLines, "\n"))
 	if !strings.Contains(apiKeyLines, "Auth\nAPI Key ...1234") {
 		t.Fatalf("expected api-key status section, got %q", apiKeyLines)
 	}
+	assertStatusOverlayPrimaryLine(t, findRawStatusOverlayLine(t, apiKeyRawLines, "API Key ...1234"), "API Key ...1234")
 }
 
 func statusLineIndex(t *testing.T, lines string, want string) int {
@@ -550,6 +555,13 @@ func assertGeneratedLabelStyled(t *testing.T, rawLine string) {
 	t.Helper()
 	if !strings.Contains(stripANSIAndTrimRight(rawLine), "generated") || !strings.Contains(rawLine, "\x1b[") {
 		t.Fatalf("expected generated label to be styled in %q", rawLine)
+	}
+}
+
+func assertStatusOverlayPrimaryLine(t *testing.T, rawLine string, want string) {
+	t.Helper()
+	if strings.TrimSpace(stripANSIAndTrimRight(rawLine)) != want || !strings.Contains(rawLine, "\x1b[") {
+		t.Fatalf("expected primary styled status line %q, got %q", want, rawLine)
 	}
 }
 
