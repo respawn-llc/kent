@@ -252,13 +252,21 @@ func statusContextCompactionSummary(context uiStatusContextInfo) string {
 }
 
 func statusSkillLine(skill uiStatusSkillInspection, tokenCounts map[string]int) string {
+	return statusSkillLineStyled(skill, tokenCounts, func(label string) string { return label })
+}
+
+func statusSkillLineStyled(skill uiStatusSkillInspection, tokenCounts map[string]int, generatedLabel func(string) string) string {
 	name := strings.TrimSpace(skill.Name)
 	if name == "" {
 		name = filepath.Base(filepath.Dir(skill.Path))
 	}
 	labels := make([]string, 0, 3)
 	if skill.SourceKind == "generated" {
-		labels = append(labels, "generated")
+		rendered := "generated"
+		if generatedLabel != nil {
+			rendered = generatedLabel(rendered)
+		}
+		labels = append(labels, rendered)
 	}
 	if skill.Disabled {
 		labels = append(labels, lipgloss.NewStyle().Foreground(statusRedColor()).Bold(true).Render("disabled"))

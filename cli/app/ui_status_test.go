@@ -445,6 +445,20 @@ func TestStatusSkillLineMarksGeneratedAndShadowed(t *testing.T) {
 	}
 }
 
+func TestStatusSkillLineRendersGeneratedLabelWithInjectedMutedStyle(t *testing.T) {
+	line := statusSkillLineStyled(uiStatusSkillInspection{
+		Name:       "skill-creator",
+		Path:       "/Users/test/.builder/.generated/skills/skill-creator/SKILL.md",
+		Loaded:     true,
+		SourceKind: "generated",
+	}, nil, func(label string) string {
+		return "<muted>" + label + "</muted>"
+	})
+	if !strings.Contains(line, "skill-creator (0k) <muted>generated</muted>") {
+		t.Fatalf("expected generated label to use injected muted style, got %q", line)
+	}
+}
+
 func TestStatusSkillLinePreservesTokenCountForActiveGeneratedSkill(t *testing.T) {
 	path := "/Users/test/.builder/.generated/skills/skill-creator/SKILL.md"
 	active := stripANSIAndTrimRight(statusSkillLine(uiStatusSkillInspection{

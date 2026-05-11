@@ -198,7 +198,9 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 				}
 				line := treeStyle.Render(branch + " ")
 				if skill.Loaded {
-					line += statusSkillLine(skill, snapshot.SkillTokenCounts)
+					line += statusSkillLineStyled(skill, snapshot.SkillTokenCounts, func(label string) string {
+						return subtleStyle.Render(label)
+					})
 				} else {
 					line += errorStyle.Render("! ") + statusSkillFailureLine(skill)
 				}
