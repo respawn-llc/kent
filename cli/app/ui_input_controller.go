@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,13 @@ func (c uiInputController) appendLocalEntry(role, text string) tea.Cmd {
 	return c.model.appendLocalEntry(role, text)
 }
 
+func (c uiInputController) appendLocalEntryWithNoticeID(role, text, noticeID string) tea.Cmd {
+	if c.model == nil {
+		return nil
+	}
+	return c.model.appendLocalEntryWithNoticeID(role, text, noticeID)
+}
+
 func (c uiInputController) appendSystemFeedback(text string) tea.Cmd {
 	return c.appendLocalEntry("system", text)
 }
@@ -43,6 +51,14 @@ func (c uiInputController) appendSystemFeedbackWithStatus(text string, status te
 
 func (c uiInputController) appendErrorFeedbackWithStatus(text string, status tea.Cmd) tea.Cmd {
 	return c.appendLocalEntryWithStatus("error", text, status)
+}
+
+func (c uiInputController) appendSystemFeedbackWithMirroredStatus(text string, kind uiStatusNoticeKind) tea.Cmd {
+	noticeID := c.model.nextLocalNoticeID()
+	return sequenceCmds(
+		c.appendLocalEntryWithNoticeID("system", text, noticeID),
+		c.model.setTransientStatusWithKindAndNoticeID(text, kind, noticeID),
+	)
 }
 
 type uiInputController struct {
@@ -68,6 +84,14 @@ var scheduleTransientStatusClear = func(duration time.Duration, token uint64) te
 var processListRefreshInterval = 1500 * time.Millisecond
 var rollbackDoubleEscWindow = 500 * time.Millisecond
 var csiShiftEnterDedupWindow = 120 * time.Millisecond
+
+func (m *uiModel) nextLocalNoticeID() string {
+	if m == nil {
+		return ""
+	}
+	m.localNoticeSequence++
+	return "local-notice-" + strconv.FormatUint(m.localNoticeSequence, 10)
+}
 
 func waitProcessListRefresh() tea.Cmd {
 	return tea.Tick(processListRefreshInterval, func(time.Time) tea.Msg {
@@ -184,17 +208,22 @@ func parseUserShellCommand(text string) (string, bool) {
 }
 
 func (m *uiModel) appendLocalEntry(role, text string) tea.Cmd {
+	return m.appendLocalEntryWithNoticeID(role, text, "")
+}
+
+func (m *uiModel) appendLocalEntryWithNoticeID(role, text, noticeID string) tea.Cmd {
 	role = strings.TrimSpace(role)
 	text = strings.TrimSpace(text)
+	noticeID = strings.TrimSpace(noticeID)
 	if role == "" || text == "" {
 		return nil
 	}
 	if m.hasRuntimeClient() {
-		if err := m.appendRuntimeLocalEntry(role, text); err == nil {
+		if err := m.appendRuntimeLocalEntryWithNoticeID(role, text, noticeID); err == nil {
 			return nil
 		}
 	}
-	return m.appendLocalEntryFallback(role, text)
+	return m.appendLocalEntryFallbackWithNoticeID(role, text, noticeID)
 }
 
 func (m *uiModel) appendLocalEntryFallback(role, text string) tea.Cmd {
@@ -202,14 +231,22 @@ func (m *uiModel) appendLocalEntryFallback(role, text string) tea.Cmd {
 }
 
 func (m *uiModel) appendLocalEntryFallbackWithVisibility(role, text string, visibility transcript.EntryVisibility) tea.Cmd {
+	return m.appendLocalEntryFallbackWithNoticeIDAndVisibility(role, text, "", visibility)
+}
+
+func (m *uiModel) appendLocalEntryFallbackWithNoticeID(role, text, noticeID string) tea.Cmd {
+	return m.appendLocalEntryFallbackWithNoticeIDAndVisibility(role, text, noticeID, transcript.EntryVisibilityAuto)
+}
+
+func (m *uiModel) appendLocalEntryFallbackWithNoticeIDAndVisibility(role, text, noticeID string, visibility transcript.EntryVisibility) tea.Cmd {
 	if m == nil {
 		return nil
 	}
 	transcriptRole := tui.TranscriptRoleFromWire(role)
-	entry := tui.TranscriptEntry{Visibility: transcript.NormalizeEntryVisibility(visibility), Role: transcriptRole, Text: text}
+	entry := tui.TranscriptEntry{Visibility: transcript.NormalizeEntryVisibility(visibility), Role: transcriptRole, Text: text, NoticeID: strings.TrimSpace(noticeID)}
 	m.transcriptEntries = append(m.transcriptEntries, entry)
 	m.transcriptTotalEntries = max(m.transcriptTotalEntries, m.transcriptBaseOffset+len(committedTranscriptEntriesForApp(m.transcriptEntries)))
 	m.refreshRollbackCandidates()
-	m.forwardToView(tui.AppendTranscriptMsg{Visibility: entry.Visibility, Role: transcriptRole, Text: text})
+	m.forwardToView(tui.AppendTranscriptMsg{Visibility: entry.Visibility, Role: transcriptRole, Text: text, NoticeID: entry.NoticeID})
 	return m.syncNativeHistoryFromTranscript()
 }

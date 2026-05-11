@@ -76,6 +76,41 @@ func TestTransientStatusQueuePromotesNextNoticeAfterClear(t *testing.T) {
 	}
 }
 
+func TestTransientStatusQueueKeepsSameTextAndKindWithDifferentNoticeID(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	first := m.sendTransientStatusWithNoticeID("same", uiStatusNoticeSuccess, transientStatusDuration, uiStatusNoticeQueue, "notice-1")
+	second := m.sendTransientStatusWithNoticeID("same", uiStatusNoticeSuccess, transientStatusDuration, uiStatusNoticeQueue, "notice-2")
+
+	if first == nil {
+		t.Fatal("expected first notice clear command")
+	}
+	if second != nil {
+		t.Fatalf("expected queued notice to wait for active clear, got %T", second())
+	}
+	if got := len(m.transientStatusQueue); got != 1 {
+		t.Fatalf("queued notice count = %d, want 1", got)
+	}
+	if got := m.transientStatusQueue[0].NoticeID; got != "notice-2" {
+		t.Fatalf("queued notice id = %q, want notice-2", got)
+	}
+}
+
+func TestTransientStatusQueueDedupesSameTextKindAndNoticeID(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	first := m.sendTransientStatusWithNoticeID("same", uiStatusNoticeSuccess, transientStatusDuration, uiStatusNoticeQueue, "notice-1")
+	second := m.sendTransientStatusWithNoticeID("same", uiStatusNoticeSuccess, transientStatusDuration, uiStatusNoticeQueue, "notice-1")
+
+	if first == nil {
+		t.Fatal("expected first notice clear command")
+	}
+	if second != nil {
+		t.Fatalf("expected duplicate active notice suppressed, got %T", second())
+	}
+	if got := len(m.transientStatusQueue); got != 0 {
+		t.Fatalf("queued notice count = %d, want 0", got)
+	}
+}
+
 func TestTransientStatusReplaceUpdatesActiveNoticeImmediately(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	first := m.setTransientStatusWithKind("first", uiStatusNoticeSuccess)

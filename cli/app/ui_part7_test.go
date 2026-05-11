@@ -646,6 +646,56 @@ func TestBusySlashThinkingExecutesImmediatelyWithoutQueueing(t *testing.T) {
 	}
 }
 
+func TestLocalSlashCommandsDiscardPromptHistoryDraftAfterExecution(t *testing.T) {
+	for _, input := range []string{"/thinking low", "/fast on", "/supervisor on", "/autocompaction off"} {
+		t.Run(input, func(t *testing.T) {
+			m := newProjectedStaticUIModel(WithUIFastModeAvailable(true))
+			m.promptHistoryDraft = "previous user prompt"
+			m.promptHistoryDraftCursor = -1
+			m.input = input
+
+			next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			updated := next.(*uiModel)
+			if updated.input != "" {
+				t.Fatalf("expected %s to clear input instead of restoring prompt history draft, got %q", input, updated.input)
+			}
+			if updated.promptHistoryDraft != "" || updated.promptHistoryDraftCursor != -1 {
+				t.Fatalf("expected %s to clear prompt history draft, got text=%q cursor=%d", input, updated.promptHistoryDraft, updated.promptHistoryDraftCursor)
+			}
+		})
+	}
+}
+
+func TestMirroredTransientStatusClearsOnlyForMatchingNoticeID(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.transientStatus = "Fast mode enabled"
+	m.transientStatusKind = uiStatusNoticeSuccess
+	m.transientStatusNoticeID = "notice-1"
+
+	m.clearMirroredTransientStatus([]tui.TranscriptEntry{{Role: "system", Text: "Fast mode enabled", NoticeID: "notice-2"}})
+	if m.transientStatus != "Fast mode enabled" || m.transientStatusNoticeID != "notice-1" {
+		t.Fatalf("expected unmatched notice id to preserve transient status, got status=%q notice=%q", m.transientStatus, m.transientStatusNoticeID)
+	}
+
+	m.clearMirroredTransientStatus([]tui.TranscriptEntry{{Role: "system", Text: "different text", NoticeID: "notice-1"}})
+	if m.transientStatus != "" || m.transientStatusNoticeID != "" {
+		t.Fatalf("expected matching notice id to clear transient status, got status=%q notice=%q", m.transientStatus, m.transientStatusNoticeID)
+	}
+}
+
+func TestLocalEntryFallbackForwardsNoticeIDToView(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	_ = m.appendLocalEntryFallbackWithNoticeID("system", "Fallback notice", "notice-1")
+
+	loaded := m.view.LoadedTranscriptEntries()
+	if len(loaded) != 1 {
+		t.Fatalf("loaded transcript entry count = %d, want 1", len(loaded))
+	}
+	if loaded[0].NoticeID != "notice-1" {
+		t.Fatalf("view notice id = %q, want notice-1", loaded[0].NoticeID)
+	}
+}
+
 func TestSlashFastTogglesAndShowsStatus(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIFastModeAvailable(true))
 	m.termWidth = 100

@@ -71,11 +71,11 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, fl
 		convertedEntries = append(convertedEntries, transcriptEntryFromProjectedChatEntry(entry, reduction.projectedTransient, reduction.projectedCommitted))
 	}
 	showTransientInCurrentView := m.view.Mode() != tui.ModeDetail || !allTranscriptEntriesTransient(convertedEntries)
-	replaceLoadedSyntheticEntries := shouldReplaceLoadedSyntheticEntriesWithCommittedAppend(m, convertedEntries)
+	replaceLoadedTransientEntries := shouldReplaceLoadedTransientEntriesWithCommittedAppend(m, convertedEntries)
 	if plan.mode == projectedTranscriptEntryPlanAppend {
 		for _, transcriptEntry := range convertedEntries {
 			m.transcriptEntries = append(m.transcriptEntries, transcriptEntry)
-			if showTransientInCurrentView && !replaceLoadedSyntheticEntries {
+			if showTransientInCurrentView && !replaceLoadedTransientEntries {
 				m.forwardToView(appendTranscriptMsgFromEntry(transcriptEntry))
 			}
 		}
@@ -89,7 +89,7 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, fl
 	m.transcriptTotalEntries = max(m.transcriptTotalEntries, max(evt.CommittedEntryCount, m.transcriptBaseOffset+len(m.transcriptEntries)))
 	m.observeDirectCommittedEventDelivery(evt)
 	m.refreshRollbackCandidates()
-	if plan.mode == projectedTranscriptEntryPlanAppend && replaceLoadedSyntheticEntries {
+	if plan.mode == projectedTranscriptEntryPlanAppend && replaceLoadedTransientEntries {
 		m.forwardToView(tui.SetConversationMsg{
 			BaseOffset:   m.transcriptBaseOffset,
 			TotalEntries: m.transcriptTotalEntries,
@@ -130,12 +130,30 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, fl
 	if showTransientInCurrentView && m.view.Mode() == tui.ModeOngoing {
 		m.forwardToView(tui.SetOngoingScrollMsg{Scroll: m.view.OngoingScroll()})
 	}
+	if showTransientInCurrentView {
+		m.clearMirroredTransientStatus(convertedEntries)
+	}
 	if !flushNativeHistory {
 		m.logProjectedTranscriptAppliedDiag(evt, plan, incomingCount, len(entries), startOffset, entries, false)
 		return nil, true, false
 	}
 	m.logProjectedTranscriptAppliedDiag(evt, plan, incomingCount, len(entries), startOffset, entries, true)
 	return m.syncNativeHistoryFromTranscript(), true, false
+}
+
+func (m *uiModel) clearMirroredTransientStatus(entries []tui.TranscriptEntry) {
+	if m == nil || m.transientStatusNoticeID == "" {
+		return
+	}
+	for _, entry := range entries {
+		if entry.NoticeID != m.transientStatusNoticeID {
+			continue
+		}
+		m.transientStatus = ""
+		m.transientStatusKind = uiStatusNoticeNeutral
+		m.transientStatusNoticeID = ""
+		return
+	}
 }
 
 func (m *uiModel) observeDirectCommittedEventDelivery(evt clientui.Event) {

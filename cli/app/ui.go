@@ -439,6 +439,10 @@ func (m *uiModel) setTransientStatusWithKind(message string, kind uiStatusNotice
 	return m.sendTransientStatus(message, kind, transientStatusDuration, uiStatusNoticeReplace)
 }
 
+func (m *uiModel) setTransientStatusWithKindAndNoticeID(message string, kind uiStatusNoticeKind, noticeID string) tea.Cmd {
+	return m.sendTransientStatusWithNoticeID(message, kind, transientStatusDuration, uiStatusNoticeReplace, noticeID)
+}
+
 func (m *uiModel) enqueueTransientStatus(message string, kind uiStatusNoticeKind) tea.Cmd {
 	return m.sendTransientStatus(message, kind, transientStatusDuration, uiStatusNoticeQueue)
 }
@@ -448,12 +452,16 @@ func (m *uiModel) enqueueTransientStatusWithDuration(message string, kind uiStat
 }
 
 func (m *uiModel) sendTransientStatus(message string, kind uiStatusNoticeKind, duration time.Duration, delivery uiStatusNoticeDelivery) tea.Cmd {
+	return m.sendTransientStatusWithNoticeID(message, kind, duration, delivery, "")
+}
+
+func (m *uiModel) sendTransientStatusWithNoticeID(message string, kind uiStatusNoticeKind, duration time.Duration, delivery uiStatusNoticeDelivery, noticeID string) tea.Cmd {
 	if strings.TrimSpace(message) == "" {
 		return nil
 	}
-	notice := uiStatusNotice{Text: strings.TrimSpace(message), Kind: kind, Duration: duration}
+	notice := uiStatusNotice{Text: strings.TrimSpace(message), Kind: kind, Duration: duration, NoticeID: strings.TrimSpace(noticeID)}
 	if delivery == uiStatusNoticeQueue && strings.TrimSpace(m.transientStatus) != "" {
-		if m.transientStatus == notice.Text && m.transientStatusKind == notice.Kind {
+		if m.transientStatus == notice.Text && m.transientStatusKind == notice.Kind && m.transientStatusNoticeID == notice.NoticeID {
 			return nil
 		}
 		if len(m.transientStatusQueue) > 0 {
@@ -473,6 +481,7 @@ func (m *uiModel) showTransientStatusNotice(notice uiStatusNotice) tea.Cmd {
 	token := m.transientStatusToken
 	m.transientStatus = strings.TrimSpace(notice.Text)
 	m.transientStatusKind = notice.Kind
+	m.transientStatusNoticeID = strings.TrimSpace(notice.NoticeID)
 	if notice.Kind == uiStatusNoticeUpdateAvailable {
 		m.startupUpdateShown = true
 	}
@@ -482,6 +491,7 @@ func (m *uiModel) showTransientStatusNotice(notice uiStatusNotice) tea.Cmd {
 func (m *uiModel) advanceTransientStatusQueue() tea.Cmd {
 	m.transientStatus = ""
 	m.transientStatusKind = uiStatusNoticeNeutral
+	m.transientStatusNoticeID = ""
 	if len(m.transientStatusQueue) == 0 {
 		m.syncViewport()
 		return nil

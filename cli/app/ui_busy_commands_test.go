@@ -399,12 +399,17 @@ func TestBusyQueuedFastAppliesToNextRuntimeRequestAfterTurnDrains(t *testing.T) 
 	m := newProjectedEngineUIModel(eng)
 	m.busy = true
 	m.activity = uiActivityRunning
+	m.promptHistoryDraft = "previous prompt"
+	m.promptHistoryDraftCursor = -1
 	m.input = "/fast on"
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
 	if len(updated.queued) != 1 || updated.queued[0].Text != "/fast on" {
 		t.Fatalf("expected queued /fast command, got %+v", updated.queued)
+	}
+	if updated.input != "" || updated.promptHistoryDraft != "" || updated.promptHistoryDraftCursor != -1 {
+		t.Fatalf("expected queued /fast to discard prompt-history draft, input=%q draft=%q cursor=%d", updated.input, updated.promptHistoryDraft, updated.promptHistoryDraftCursor)
 	}
 
 	next, cmd := updated.Update(submitDoneMsg{message: "prior turn done"})

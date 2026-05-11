@@ -110,7 +110,18 @@ func (m *uiModel) clearRuntimeGoal() (*clientui.RuntimeGoal, error) {
 }
 
 func (m *uiModel) appendRuntimeLocalEntry(role, text string) error {
+	return m.appendRuntimeLocalEntryWithNoticeID(role, text, "")
+}
+
+func (m *uiModel) appendRuntimeLocalEntryWithNoticeID(role, text, noticeID string) error {
 	if client := m.runtimeClient(); client != nil {
+		if withNoticeID, ok := client.(interface {
+			AppendLocalEntryWithNoticeID(role, text, noticeID string) error
+		}); ok {
+			err := withNoticeID.AppendLocalEntryWithNoticeID(role, text, noticeID)
+			m.observeRuntimeRequestResult(err)
+			return err
+		}
 		err := client.AppendLocalEntry(role, text)
 		m.observeRuntimeRequestResult(err)
 		return err

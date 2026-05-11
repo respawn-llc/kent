@@ -113,6 +113,7 @@ type ChatEntry struct {
 	CompactLabel      string
 	ToolResultSummary string
 	ToolCallID        string
+	NoticeID          string
 	ToolCall          *ToolCallMeta
 }
 

@@ -178,6 +178,7 @@ func (e *Engine) appendPersistedLocalEntryRecord(stepID string, entry storedLoca
 	entry.Text = strings.TrimSpace(entry.Text)
 	entry.OngoingText = strings.TrimSpace(entry.OngoingText)
 	entry.DiagnosticKey = strings.TrimSpace(entry.DiagnosticKey)
+	entry.NoticeID = strings.TrimSpace(entry.NoticeID)
 	if entry.Role == "" || entry.Text == "" {
 		return nil
 	}
@@ -188,7 +189,7 @@ func (e *Engine) appendPersistedLocalEntryRecord(stepID string, entry storedLoca
 	}
 	_, err := e.store.AppendEvent(stepID, "local_entry", entry)
 	if err == nil {
-		e.chat.appendLocalEntryWithOngoingTextAndVisibility(entry.Role, entry.Text, entry.OngoingText, entry.Visibility)
+		e.chat.appendLocalEntryRecord(*localEntryChatEntry(entry))
 		e.emit(Event{Kind: EventLocalEntryAdded, StepID: stepID, LocalEntry: localEntryChatEntry(entry), CommittedTranscriptChanged: true})
 	}
 	return err
@@ -200,6 +201,7 @@ func localEntryChatEntry(entry storedLocalEntry) *ChatEntry {
 		Role:        strings.TrimSpace(entry.Role),
 		Text:        strings.TrimSpace(entry.Text),
 		OngoingText: strings.TrimSpace(entry.OngoingText),
+		NoticeID:    strings.TrimSpace(entry.NoticeID),
 	}
 }
 

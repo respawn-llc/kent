@@ -464,7 +464,7 @@ func TestHandleProjectedRuntimeEventDoesNotAppendPrePersistCompactionStatusEntry
 	}
 }
 
-func TestProjectedCompactionStatusClearsCompactingWithoutSyntheticNotice(t *testing.T) {
+func TestProjectedCompactionStatusClearsCompactingWithoutTranscriptNotice(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.termWidth = 100
@@ -492,7 +492,7 @@ func TestProjectedCompactionStatusClearsCompactingWithoutSyntheticNotice(t *test
 	})))
 	for _, msg := range msgs {
 		if _, ok := msg.(runtimeTranscriptRefreshedMsg); ok {
-			t.Fatalf("did not expect synthetic compaction notice to trigger transcript hydration, got %+v", msgs)
+			t.Fatalf("did not expect compaction status to trigger transcript hydration, got %+v", msgs)
 		}
 	}
 	if got, want := len(m.transcriptEntries), 1; got != want {
@@ -549,7 +549,7 @@ func TestProjectedCompactionStatusDoesNotDuplicateCommittedSummary(t *testing.T)
 	}
 }
 
-func TestProjectedCompactionStatusSkipsSyntheticOngoingNoticeInDetailMode(t *testing.T) {
+func TestProjectedCompactionStatusDoesNotAppendOngoingNoticeInDetailMode(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.termWidth = 100
@@ -583,7 +583,7 @@ func TestProjectedCompactionStatusSkipsSyntheticOngoingNoticeInDetailMode(t *tes
 		t.Fatalf("loaded transcript entry count = %d, want %d (%+v)", got, want, loaded)
 	}
 	if strings.Contains(stripANSIAndTrimRight(m.View()), "context compacted for the 1st time") {
-		t.Fatalf("did not expect synthetic compaction notice in detail view, got %q", stripANSIAndTrimRight(m.View()))
+		t.Fatalf("did not expect compaction status notice in detail view, got %q", stripANSIAndTrimRight(m.View()))
 	}
 }
 

@@ -189,6 +189,7 @@ func chatEntriesFromRuntime(entries []runtime.ChatEntry) []clientui.ChatEntry {
 			CompactLabel:      entry.CompactLabel,
 			ToolResultSummary: entry.ToolResultSummary,
 			ToolCallID:        entry.ToolCallID,
+			NoticeID:          entry.NoticeID,
 			ToolCall:          cloneToolCallMeta(entry.ToolCall),
 		})
 	}
@@ -242,6 +243,7 @@ func ChatSnapshotFromRuntime(snapshot runtime.ChatSnapshot) clientui.ChatSnapsho
 			CompactLabel:      entry.CompactLabel,
 			ToolResultSummary: entry.ToolResultSummary,
 			ToolCallID:        entry.ToolCallID,
+			NoticeID:          entry.NoticeID,
 			ToolCall:          cloneToolCallMeta(entry.ToolCall),
 		})
 	}

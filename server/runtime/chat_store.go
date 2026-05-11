@@ -24,6 +24,7 @@ type ChatEntry struct {
 	CompactLabel      string
 	ToolResultSummary string
 	ToolCallID        string
+	NoticeID          string
 	ToolCall          *transcript.ToolCallMeta
 }
 
@@ -227,14 +228,21 @@ func (s *chatStore) appendLocalEntryWithVisibility(role, text string, visibility
 }
 
 func (s *chatStore) appendLocalEntryWithOngoingTextAndVisibility(role, text, ongoingText string, visibility transcript.EntryVisibility) {
-	if strings.TrimSpace(text) == "" {
+	s.appendLocalEntryRecord(ChatEntry{Visibility: transcript.NormalizeEntryVisibility(visibility), Role: role, Text: text, OngoingText: strings.TrimSpace(ongoingText)})
+}
+
+func (s *chatStore) appendLocalEntryRecord(entry ChatEntry) {
+	if strings.TrimSpace(entry.Text) == "" {
 		return
 	}
+	entry.Visibility = transcript.NormalizeEntryVisibility(entry.Visibility)
+	entry.OngoingText = strings.TrimSpace(entry.OngoingText)
+	entry.NoticeID = strings.TrimSpace(entry.NoticeID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	messageCount := s.messageCount
 	s.local = append(s.local, localChatEntry{
-		Entry:             ChatEntry{Visibility: transcript.NormalizeEntryVisibility(visibility), Role: role, Text: text, OngoingText: strings.TrimSpace(ongoingText)},
+		Entry:             entry,
 		AfterMessageCount: messageCount,
 	})
 	s.transcriptEntryCount++

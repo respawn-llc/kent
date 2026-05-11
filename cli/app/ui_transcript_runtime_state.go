@@ -53,24 +53,7 @@ func (m *uiModel) invalidateTransientTranscriptState() {
 	}
 }
 
-func shouldAppendSyntheticOngoingEntry(m *uiModel, entry *clientui.ChatEntry) bool {
-	if m == nil || entry == nil || !m.hasRuntimeClient() || m.view.Mode() != tui.ModeOngoing {
-		return false
-	}
-	role := tui.TranscriptRoleFromWire(entry.Role)
-	text := strings.TrimSpace(entry.Text)
-	if role == tui.TranscriptRoleUnknown || text == "" {
-		return false
-	}
-	for _, loaded := range m.view.LoadedTranscriptEntries() {
-		if transcriptEntryMatchesChatEntry(loaded, *entry) {
-			return false
-		}
-	}
-	return true
-}
-
-func shouldReplaceLoadedSyntheticEntriesWithCommittedAppend(m *uiModel, entries []tui.TranscriptEntry) bool {
+func shouldReplaceLoadedTransientEntriesWithCommittedAppend(m *uiModel, entries []tui.TranscriptEntry) bool {
 	if m == nil || m.view.Mode() != tui.ModeOngoing || len(entries) == 0 {
 		return false
 	}
