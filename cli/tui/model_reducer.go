@@ -199,6 +199,7 @@ func (m *Model) reduceAppendTranscriptMsg(msg AppendTranscriptMsg, result *model
 		CompactLabel:      strings.TrimSpace(msg.CompactLabel),
 		ToolResultSummary: strings.TrimSpace(msg.ToolResultSummary),
 		ToolCallID:        strings.TrimSpace(msg.ToolCallID),
+		NoticeID:          strings.TrimSpace(msg.NoticeID),
 		ToolCall:          cloneToolCallMeta(msg.ToolCall),
 	})
 	m.advanceTranscriptEntriesRevision()

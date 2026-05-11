@@ -217,7 +217,7 @@ func TestReduceRuntimeEvent_BackgroundCompletionFallsBackWithoutCompactText(t *t
 	}
 }
 
-func TestReduceRuntimeEvent_CompactionCompletedClearsCompactingWithoutSyntheticNotice(t *testing.T) {
+func TestReduceRuntimeEvent_CompactionCompletedClearsCompacting(t *testing.T) {
 	update := ReduceRuntimeEvent(
 		RuntimeRunState{Compacting: true},
 		RuntimeConversationState{},
@@ -230,8 +230,8 @@ func TestReduceRuntimeEvent_CompactionCompletedClearsCompactingWithoutSyntheticN
 	if update.RunState.State.Compacting {
 		t.Fatal("expected compaction completed to clear compacting state")
 	}
-	if update.Transcript.SyntheticOngoingEntry != nil {
-		t.Fatalf("did not expect synthetic ongoing compaction notice, got %+v", update.Transcript.SyntheticOngoingEntry)
+	if update.Transcript.Sync.IsSet() || len(update.Transcript.AssistantStream) != 0 {
+		t.Fatalf("expected compaction completed to leave transcript unchanged, got %+v", update.Transcript)
 	}
 }
 

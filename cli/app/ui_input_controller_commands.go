@@ -248,7 +248,7 @@ func (c uiInputController) handleFastModeCommand(requested string) (tea.Model, t
 	}
 
 	status := fastModeToggleStatusMessage(m.fastModeEnabled, changed)
-	return m, c.appendSystemFeedbackWithStatus(status, c.showSuccessStatus(status))
+	return m, c.appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeSuccess)
 }
 
 func (c uiInputController) handleSupervisorModeCommand(requested string) (tea.Model, tea.Cmd) {
@@ -286,7 +286,7 @@ func (c uiInputController) handleSupervisorModeCommand(requested string) (tea.Mo
 	m.reviewerMode = nextMode
 	m.reviewerEnabled = nextMode != "off"
 	status := reviewerToggleStatusMessage(m.reviewerEnabled, nextMode, changed)
-	return m, c.appendSystemFeedbackWithStatus(status, c.showTransientStatus(status))
+	return m, c.appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeNeutral)
 }
 
 func (c uiInputController) handleAutoCompactionCommand(requested string) (tea.Model, tea.Cmd) {
@@ -325,5 +325,5 @@ func (c uiInputController) handleAutoCompactionCommand(requested string) (tea.Mo
 	}
 	m.autoCompactionEnabled = nextEnabled
 	status := autoCompactionToggleStatusMessage(nextEnabled, changed, currentCompactionMode)
-	return m, c.appendSystemFeedbackWithStatus(status, c.showTransientStatus(status))
+	return m, c.appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeNeutral)
 }

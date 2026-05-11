@@ -71,9 +71,8 @@ type RuntimeAssistantStreamCommand struct {
 }
 
 type RuntimeTranscriptReduction struct {
-	Sync                  RuntimeTranscriptSyncCommand
-	AssistantStream       []RuntimeAssistantStreamCommand
-	SyntheticOngoingEntry *ChatEntry
+	Sync            RuntimeTranscriptSyncCommand
+	AssistantStream []RuntimeAssistantStreamCommand
 }
 
 type RuntimeActivityCommand uint8

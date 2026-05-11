@@ -205,9 +205,9 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return next, cmd
 		}
 		if commandResult := m.commandRegistry.Execute(text); commandResult.Handled {
+			command, _ := m.commandRegistry.Command(text)
 			recordCmd := m.recordPromptHistory(text)
-			m.clearInput()
-			m.restoreCapturedPromptHistoryDraft(draftText, draftCursor, restoreDraft)
+			m.clearCommandInput(command, draftText, draftCursor, restoreDraft)
 			next, cmd := c.applyCommandResult(commandResult)
 			return next, finalizeSlashCommandCmd(commandResult.Action, cmd, recordCmd)
 		}

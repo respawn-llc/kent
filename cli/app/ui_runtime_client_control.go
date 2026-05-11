@@ -178,10 +178,14 @@ func cloneRuntimeGoal(goal *clientui.RuntimeGoal) *clientui.RuntimeGoal {
 }
 
 func (c *sessionRuntimeClient) AppendLocalEntry(role, text string) error {
+	return c.AppendLocalEntryWithNoticeID(role, text, "")
+}
+
+func (c *sessionRuntimeClient) AppendLocalEntryWithNoticeID(role, text, noticeID string) error {
 	ctx, cancel := c.controlContext()
 	defer cancel()
 	return c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {
-		return c.controls.AppendLocalEntry(ctx, serverapi.RuntimeAppendLocalEntryRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Role: role, Text: text})
+		return c.controls.AppendLocalEntry(ctx, serverapi.RuntimeAppendLocalEntryRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Role: role, Text: text, NoticeID: strings.TrimSpace(noticeID)})
 	})
 }
 

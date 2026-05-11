@@ -37,6 +37,7 @@ type TranscriptEntry struct {
 	CompactLabel      string
 	ToolResultSummary string
 	ToolCallID        string
+	NoticeID          string
 	ToolCall          *transcript.ToolCallMeta
 }
 
@@ -88,6 +89,7 @@ type AppendTranscriptMsg struct {
 	CompactLabel      string
 	ToolResultSummary string
 	ToolCallID        string
+	NoticeID          string
 	ToolCall          *transcript.ToolCallMeta
 }
 

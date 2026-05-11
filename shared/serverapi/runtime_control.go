@@ -65,6 +65,7 @@ type RuntimeAppendLocalEntryRequest struct {
 	Role              string `json:"role"`
 	Text              string `json:"text"`
 	Visibility        string `json:"visibility,omitempty"`
+	NoticeID          string `json:"notice_id,omitempty"`
 }
 
 type RuntimeShouldCompactBeforeUserMessageRequest struct {

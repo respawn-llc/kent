@@ -146,15 +146,17 @@ type uiStatusFeatureState struct {
 	clipboardImagePaster        uiClipboardImagePaster
 	clipboardTextCopier         uiClipboardTextCopier
 
-	transientStatus       string
-	transientStatusKind   uiStatusNoticeKind
-	transientStatusToken  uint64
-	transientStatusQueue  []uiStatusNotice
-	startupUpdateNotice   bool
-	startupUpdateShown    bool
-	debugKeys             bool
-	debugMode             bool
-	transcriptDiagnostics bool
+	transientStatus         string
+	transientStatusKind     uiStatusNoticeKind
+	transientStatusNoticeID string
+	transientStatusToken    uint64
+	transientStatusQueue    []uiStatusNotice
+	localNoticeSequence     uint64
+	startupUpdateNotice     bool
+	startupUpdateShown      bool
+	debugKeys               bool
+	debugMode               bool
+	transcriptDiagnostics   bool
 }
 
 type uiTranscriptFeatureState struct {

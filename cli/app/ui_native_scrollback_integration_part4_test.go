@@ -432,6 +432,100 @@ func TestNativeProgramConversationRefreshHydratesCommittedTranscriptWithoutRepla
 	}
 }
 
+func TestNativeProgramSlashLocalEntryDoesNotReplayPreviousPrompt(t *testing.T) {
+	out := &bytes.Buffer{}
+	runtimeEvents := make(chan clientui.Event, 8)
+	client := &slashLocalEntryRuntimeClient{
+		events: runtimeEvents,
+		startupTranscriptRuntimeClient: startupTranscriptRuntimeClient{
+			view: clientui.RuntimeMainView{
+				Session: clientui.RuntimeSessionView{SessionID: "session-1"},
+				Status:  clientui.RuntimeStatus{AutoCompactionEnabled: true},
+			},
+			page: clientui.TranscriptPage{
+				SessionID:    "session-1",
+				Revision:     1,
+				TotalEntries: 1,
+				NextOffset:   1,
+				Entries: []clientui.ChatEntry{{
+					Role: "user",
+					Text: "can u backfill this into the conversation so i can post this on twitter",
+				}},
+			},
+		},
+	}
+	model := newProjectedTestUIModel(client, runtimeEvents, closedAskEvents())
+	model.promptHistoryDraft = "can u backfill this into the conversation so i can post this on twitter"
+	model.promptHistoryDraftCursor = -1
+	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
+	done := make(chan error, 1)
+	go func() {
+		_, err := program.Run()
+		done <- err
+	}()
+
+	time.Sleep(30 * time.Millisecond)
+	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
+	waitForTestCondition(t, 2*time.Second, "startup prompt visible once", func() bool {
+		return strings.Count(normalizedOutput(out.String()), "can u backfill this into the conversation") == 1
+	})
+	model.input = "/autocompaction"
+	program.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	waitForTestCondition(t, 2*time.Second, "slash command feedback visible", func() bool {
+		return strings.Contains(normalizedOutput(out.String()), "Auto-compaction disabled")
+	})
+	program.Quit()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("program run failed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("program did not terminate")
+	}
+
+	normalized := normalizedOutput(out.String())
+	if got := strings.Count(normalized, "can u backfill this into the conversation"); got != 1 {
+		t.Fatalf("expected previous prompt once after slash feedback, got %d in %q", got, normalized)
+	}
+	if got := strings.Count(normalized, "Auto-compaction disabled"); got != 1 {
+		t.Fatalf("expected slash feedback once, got %d in %q", got, normalized)
+	}
+}
+
+type slashLocalEntryRuntimeClient struct {
+	startupTranscriptRuntimeClient
+	events chan<- clientui.Event
+}
+
+func (c *slashLocalEntryRuntimeClient) SetAutoCompactionEnabled(enabled bool) (bool, bool, error) {
+	c.view.Status.AutoCompactionEnabled = enabled
+	return true, enabled, nil
+}
+
+func (c *slashLocalEntryRuntimeClient) AppendLocalEntry(role, text string) error {
+	return c.AppendLocalEntryWithNoticeID(role, text, "")
+}
+
+func (c *slashLocalEntryRuntimeClient) AppendLocalEntryWithNoticeID(role, text, noticeID string) error {
+	entry := clientui.ChatEntry{Role: role, Text: text, NoticeID: noticeID}
+	start := c.page.TotalEntries
+	c.page.Entries = append(c.page.Entries, entry)
+	c.page.TotalEntries++
+	c.page.NextOffset = c.page.TotalEntries
+	c.page.Revision++
+	c.events <- clientui.Event{
+		Kind:                       clientui.EventLocalEntryAdded,
+		CommittedTranscriptChanged: true,
+		TranscriptRevision:         c.page.Revision,
+		CommittedEntryCount:        c.page.TotalEntries,
+		CommittedEntryStart:        start,
+		CommittedEntryStartSet:     true,
+		TranscriptEntries:          []clientui.ChatEntry{entry},
+	}
+	return nil
+}
+
 func TestNativeStreamingInterleavedWithStatusRedrawStaysCoherent(t *testing.T) {
 	out := &bytes.Buffer{}
 	model := newProjectedTestUIModel(

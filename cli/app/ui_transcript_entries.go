@@ -71,6 +71,7 @@ func transcriptEntryFromProjectedChatEntry(entry clientui.ChatEntry, transient b
 		CompactLabel:      strings.TrimSpace(entry.CompactLabel),
 		ToolResultSummary: strings.TrimSpace(entry.ToolResultSummary),
 		ToolCallID:        entry.ToolCallID,
+		NoticeID:          strings.TrimSpace(entry.NoticeID),
 		ToolCall:          transcriptToolCallMeta(entry.ToolCall),
 	}
 }
@@ -89,6 +90,7 @@ func appendTranscriptMsgFromEntry(entry tui.TranscriptEntry) tui.AppendTranscrip
 		CompactLabel:      strings.TrimSpace(entry.CompactLabel),
 		ToolResultSummary: strings.TrimSpace(entry.ToolResultSummary),
 		ToolCallID:        strings.TrimSpace(entry.ToolCallID),
+		NoticeID:          strings.TrimSpace(entry.NoticeID),
 		ToolCall:          entry.ToolCall,
 	}
 }
@@ -182,6 +184,7 @@ func transcriptPayloadFromTUIEntry(entry tui.TranscriptEntry) transcript.EntryPa
 		CompactLabel:      entry.CompactLabel,
 		ToolResultSummary: entry.ToolResultSummary,
 		ToolCallID:        entry.ToolCallID,
+		NoticeID:          entry.NoticeID,
 		ToolCall:          entry.ToolCall,
 	}
 }
@@ -199,6 +202,7 @@ func transcriptPayloadFromClientEntry(entry clientui.ChatEntry) transcript.Entry
 		CompactLabel:      entry.CompactLabel,
 		ToolResultSummary: entry.ToolResultSummary,
 		ToolCallID:        entry.ToolCallID,
+		NoticeID:          entry.NoticeID,
 		ToolCall:          transcriptToolCallMeta(entry.ToolCall),
 	}
 }

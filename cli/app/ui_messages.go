@@ -227,6 +227,7 @@ type uiStatusNotice struct {
 	Text     string
 	Kind     uiStatusNoticeKind
 	Duration time.Duration
+	NoticeID string
 }
 
 type uiStatusNoticeDelivery uint8

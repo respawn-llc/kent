@@ -44,12 +44,20 @@ func (c uiInputController) handleEnteredSlashCommandInput(text string) (bool, te
 	if commandResult := m.commandRegistry.Execute(commandText); commandResult.Handled {
 		draftText, draftCursor, restoreDraft := m.capturePromptHistoryDraftForReuse()
 		recordCmd := m.recordPromptHistory(commandText)
-		m.clearInput()
-		m.restoreCapturedPromptHistoryDraft(draftText, draftCursor, restoreDraft)
+		m.clearCommandInput(command, draftText, draftCursor, restoreDraft)
 		next, cmd := c.applyCommandResult(commandResult)
 		return true, next, finalizeSlashCommandCmd(commandResult.Action, cmd, recordCmd)
 	}
 	return false, m, nil
+}
+
+func (m *uiModel) clearCommandInput(command commands.Command, draftText string, draftCursor int, restoreDraft bool) {
+	m.clearInput()
+	if command.PreservePromptHistoryDraft {
+		m.restoreCapturedPromptHistoryDraft(draftText, draftCursor, restoreDraft)
+		return
+	}
+	m.resetPromptHistoryNavigation()
 }
 
 func finalizeSlashCommandCmd(action commands.Action, primary tea.Cmd, record tea.Cmd) tea.Cmd {

@@ -110,6 +110,15 @@ func (e *Engine) AppendLocalEntryWithVisibility(role, text string, visibility tr
 	})
 }
 
+func (e *Engine) AppendLocalEntryWithNoticeID(role, text, noticeID string) {
+	e.appendLocalEntry(storedLocalEntry{
+		Visibility: transcript.EntryVisibilityAuto,
+		Role:       strings.TrimSpace(role),
+		Text:       strings.TrimSpace(text),
+		NoticeID:   strings.TrimSpace(noticeID),
+	})
+}
+
 func (e *Engine) AppendLocalEntryWithOngoingText(role, text, ongoingText string) {
 	e.appendLocalEntry(storedLocalEntry{
 		Visibility:  transcript.EntryVisibilityAuto,
@@ -123,7 +132,7 @@ func (e *Engine) appendLocalEntry(entry storedLocalEntry) {
 	if entry.Role == "" || entry.Text == "" {
 		return
 	}
-	e.chat.appendLocalEntryWithOngoingTextAndVisibility(entry.Role, entry.Text, entry.OngoingText, entry.Visibility)
+	e.chat.appendLocalEntryRecord(*localEntryChatEntry(entry))
 	e.emit(Event{Kind: EventLocalEntryAdded, LocalEntry: localEntryChatEntry(entry)})
 	e.emitConversationUpdated("")
 }
@@ -430,6 +439,7 @@ type storedLocalEntry struct {
 	Text          string                     `json:"text"`
 	OngoingText   string                     `json:"ongoing_text,omitempty"`
 	DiagnosticKey string                     `json:"diagnostic_key,omitempty"`
+	NoticeID      string                     `json:"notice_id,omitempty"`
 }
 
 type historyReplacementPayload struct {

@@ -79,10 +79,6 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 	cmds := make([]tea.Cmd, 0, 4)
 	transcriptMutated := false
 	awaitsHydration := false
-	if shouldAppendSyntheticOngoingEntry(m, reduction.Transcript.SyntheticOngoingEntry) {
-		entry := transcriptEntryFromProjectedChatEntry(*reduction.Transcript.SyntheticOngoingEntry, true, false)
-		m.forwardToView(appendTranscriptMsgFromEntry(entry))
-	}
 	if shouldInvalidateTransientTranscriptStateForSync(transcriptSync) {
 		m.invalidateTransientTranscriptState()
 	}

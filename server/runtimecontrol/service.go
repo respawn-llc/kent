@@ -83,6 +83,7 @@ type localEntryMemoRequest struct {
 	Role       string
 	Text       string
 	Visibility transcript.EntryVisibility
+	NoticeID   string
 }
 
 type goalSetMemoRequest struct {
@@ -259,7 +260,7 @@ func (s *Service) AppendLocalEntry(ctx context.Context, req serverapi.RuntimeApp
 		return err
 	}
 	visibility := transcript.NormalizeEntryVisibility(transcript.EntryVisibility(req.Visibility))
-	memoReq := localEntryMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Role: strings.TrimSpace(req.Role), Text: req.Text, Visibility: visibility}
+	memoReq := localEntryMemoRequest{SessionID: strings.TrimSpace(req.SessionID), Role: strings.TrimSpace(req.Role), Text: req.Text, Visibility: visibility, NoticeID: strings.TrimSpace(req.NoticeID)}
 	_, err := s.localEntries.Do(ctx, strings.TrimSpace(req.ClientRequestID), memoReq, sameLocalEntryMemoRequest, func(ctx context.Context) (struct{}, error) {
 		if err := s.requireControllerLease(ctx, req.SessionID, req.ControllerLeaseID); err != nil {
 			return struct{}{}, err
@@ -268,7 +269,9 @@ func (s *Service) AppendLocalEntry(ctx context.Context, req serverapi.RuntimeApp
 		if err != nil {
 			return struct{}{}, err
 		}
-		if visibility == transcript.EntryVisibilityAuto {
+		if visibility == transcript.EntryVisibilityAuto && strings.TrimSpace(req.NoticeID) != "" {
+			engine.AppendLocalEntryWithNoticeID(req.Role, req.Text, req.NoticeID)
+		} else if visibility == transcript.EntryVisibilityAuto {
 			engine.AppendLocalEntry(req.Role, req.Text)
 		} else {
 			engine.AppendLocalEntryWithVisibility(req.Role, req.Text, visibility)
@@ -672,7 +675,7 @@ func sameSessionOnlyMemoRequest(a sessionOnlyMemoRequest, b sessionOnlyMemoReque
 }
 
 func sameLocalEntryMemoRequest(a localEntryMemoRequest, b localEntryMemoRequest) bool {
-	return a.SessionID == b.SessionID && a.Role == b.Role && a.Text == b.Text && a.Visibility == b.Visibility
+	return a.SessionID == b.SessionID && a.Role == b.Role && a.Text == b.Text && a.Visibility == b.Visibility && a.NoticeID == b.NoticeID
 }
 
 func sameGoalSetMemoRequest(a goalSetMemoRequest, b goalSetMemoRequest) bool {

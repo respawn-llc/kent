@@ -22,6 +22,7 @@ type EntryPayload struct {
 	CompactLabel      string
 	ToolResultSummary string
 	ToolCallID        string
+	NoticeID          string
 	ToolCall          *ToolCallMeta
 }
 
@@ -39,6 +40,7 @@ func EntryPayloadEqual(left, right EntryPayload) bool {
 		strings.TrimSpace(left.CompactLabel) == strings.TrimSpace(right.CompactLabel) &&
 		strings.TrimSpace(left.ToolResultSummary) == strings.TrimSpace(right.ToolResultSummary) &&
 		strings.TrimSpace(left.ToolCallID) == strings.TrimSpace(right.ToolCallID) &&
+		strings.TrimSpace(left.NoticeID) == strings.TrimSpace(right.NoticeID) &&
 		ToolCallMetaEqual(left.ToolCall, right.ToolCall)
 }
 
