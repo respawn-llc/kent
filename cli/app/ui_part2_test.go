@@ -692,7 +692,7 @@ func TestApprovalAskTabAllowsWithCommentary(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 	m := newProjectedEngineUIModel(eng)
-	m.busy = true
+	m.setBusy(true)
 	reply := make(chan askReply, 1)
 	event := askEvent{req: clientui.PendingPromptEvent{Question: "Approve?", Approval: true, ApprovalOptions: []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: clientui.ApprovalDecisionAllowSession, Label: "Allow for this session"}, {Decision: clientui.ApprovalDecisionDeny, Label: "Deny"}}}, reply: reply}
 
@@ -803,7 +803,7 @@ func TestAskResolutionEventDismissesCurrentAndPromotesQueuedAsk(t *testing.T) {
 
 func TestAskResolutionEventRestoresRunningActivityWhenRuntimeIsBusy(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	first := askEvent{req: clientui.PendingPromptEvent{PromptID: "ask-1", Question: "First", Suggestions: []string{"one"}}, reply: make(chan askReply, 1)}
 
 	next, _ := m.Update(askEventMsg{event: first})
@@ -893,7 +893,7 @@ func TestMainInputCtrlJInsertsNewline(t *testing.T) {
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
 	updated := next.(*uiModel)
 
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect submit on ctrl+j")
 	}
 	if updated.input != "line 1\n" {

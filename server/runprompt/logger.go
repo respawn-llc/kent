@@ -204,7 +204,7 @@ func FormatRuntimeEvent(evt runtime.Event) string {
 		}
 	case runtime.EventRunStateChanged:
 		if evt.RunState != nil {
-			return fmt.Sprintf("runtime.event kind=%s step_id=%s busy=%t", evt.Kind, evt.StepID, evt.RunState.Busy)
+			return fmt.Sprintf("runtime.event kind=%s step_id=%s run_phase=%s", evt.Kind, evt.StepID, evt.RunState.Lifecycle.Phase)
 		}
 	case runtime.EventBackgroundUpdated:
 		if evt.Background != nil {

@@ -33,7 +33,7 @@ func (e *Engine) GoalLoopSuspended() bool {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.goalLoopSuspended && e.goalActiveLocked()
+	return e.goalLoopLifecycle.IsSuspended() && e.goalActiveLocked()
 }
 
 func (e *Engine) SetGoal(objective string, actor session.GoalActor) (session.GoalState, error) {
@@ -95,19 +95,28 @@ func (e *Engine) startGoalLoop(firstTurnAlreadyPrompted bool) error {
 	}
 	if err := e.requireAskQuestionForGoalLoopStart(); err != nil {
 		if errors.Is(err, ErrGoalRequiresAskQuestion) {
-			e.goalLoopSuspended = true
+			e.goalLoopLifecycle = goalLoopLifecycleSuspended
 		}
 		e.mu.Unlock()
 		return err
 	}
-	e.goalLoopSuspended = false
-	if e.goalLoopRunning {
+	switch e.goalLoopLifecycle {
+	case goalLoopLifecycleRunning, goalLoopLifecycleRestartPending:
+		e.mu.Unlock()
+		return nil
+	case goalLoopLifecycleSuspending:
+		e.goalLoopLifecycle = goalLoopLifecycleRestartPending
 		e.mu.Unlock()
 		return nil
 	}
-	e.goalLoopRunning = true
+	e.goalLoopLifecycle = goalLoopLifecycleRunning
 	e.mu.Unlock()
 
+	e.launchGoalLoopTask(firstTurnAlreadyPrompted)
+	return nil
+}
+
+func (e *Engine) launchGoalLoopTask(firstTurnAlreadyPrompted bool) {
 	launched := e.launchLifecycleTask(func(ctx context.Context) {
 		defer e.finishGoalLoop()
 		e.runGoalLoop(ctx, firstTurnAlreadyPrompted)
@@ -115,13 +124,28 @@ func (e *Engine) startGoalLoop(firstTurnAlreadyPrompted bool) error {
 	if !launched {
 		e.finishGoalLoop()
 	}
-	return nil
 }
 
 func (e *Engine) finishGoalLoop() {
+	restart := false
 	e.mu.Lock()
-	e.goalLoopRunning = false
+	switch e.goalLoopLifecycle {
+	case goalLoopLifecycleRestartPending:
+		if e.goalActiveLocked() {
+			e.goalLoopLifecycle = goalLoopLifecycleRunning
+			restart = true
+		} else {
+			e.goalLoopLifecycle = goalLoopLifecycleIdle
+		}
+	case goalLoopLifecycleSuspending:
+		e.goalLoopLifecycle = goalLoopLifecycleSuspended
+	case goalLoopLifecycleRunning:
+		e.goalLoopLifecycle = goalLoopLifecycleIdle
+	}
 	e.mu.Unlock()
+	if restart {
+		e.launchGoalLoopTask(true)
+	}
 }
 
 func (e *Engine) runGoalLoop(ctx context.Context, firstTurnAlreadyPrompted bool) {
@@ -201,7 +225,7 @@ func (e *Engine) shouldContinueGoalLoop() bool {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return !e.goalLoopSuspended && e.goalActiveLocked()
+	return !e.goalLoopLifecycle.IsSuspended() && e.goalActiveLocked()
 }
 
 func (e *Engine) goalActiveLocked() bool {

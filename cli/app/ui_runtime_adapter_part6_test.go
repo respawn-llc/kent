@@ -17,12 +17,12 @@ func TestProjectedConversationUpdatedSkipsHydrationAfterImmediateUserFlushAppend
 	m.termWidth = 100
 	m.termHeight = 20
 	m.windowSizeKnown = true
-	m.busy = true
+	m.setBusy(true)
 	m.pendingInjected = queuedUserMessagesForTest("steered message")
 	m.input = "steered message"
 	m.lockedInjectText = "steered message"
 	m.lockedInjectID = "queue-test-0"
-	m.inputSubmitLocked = true
+	m.setInputSubmitLocked(true)
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: "user", Text: "seed"}}
 	m.transcriptRevision = 6
 	m.transcriptTotalEntries = 1
@@ -66,12 +66,12 @@ func TestProjectedAssistantMessageMergesDeferredCommittedUserFlushWithoutHydrati
 	m.termWidth = 100
 	m.termHeight = 20
 	m.windowSizeKnown = true
-	m.busy = true
+	m.setBusy(true)
 	m.pendingInjected = queuedUserMessagesForTest("steered message")
 	m.input = "steered message"
 	m.lockedInjectText = "steered message"
 	m.lockedInjectID = "queue-test-0"
-	m.inputSubmitLocked = true
+	m.setInputSubmitLocked(true)
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: "assistant", Text: "seed"}}
 	m.transcriptRevision = 6
 	m.transcriptTotalEntries = 1
@@ -229,7 +229,7 @@ func TestProjectedUserMessageFlushedDoesNotDeferAfterCommittedAssistantToolProgr
 	m.termWidth = 100
 	m.termHeight = 20
 	m.windowSizeKnown = true
-	m.busy = true
+	m.setBusy(true)
 	m.sawAssistantDelta = true
 	m.transcriptEntries = []tui.TranscriptEntry{
 		{Role: "user", Text: "run task"},
@@ -268,7 +268,7 @@ func TestProjectedUserMessageFlushedDoesNotDeferWhenUIIsIdleDespiteStaleLiveAssi
 	m.termWidth = 100
 	m.termHeight = 20
 	m.windowSizeKnown = true
-	m.busy = false
+	m.setBusy(false)
 	m.sawAssistantDelta = true
 	m.forwardToView(tui.SetConversationMsg{Ongoing: "stale assistant"})
 
@@ -388,7 +388,7 @@ func TestBackgroundUpdatedUsesTransientStatusLifecycle(t *testing.T) {
 
 func TestBackgroundUpdatedWhileBusyUsesCompletionStatus(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 
 	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{
 		Kind: runtime.EventBackgroundUpdated,
@@ -491,7 +491,7 @@ func TestRunStateChangedTransitionsRunningStateToIdleWhenTurnEnds(t *testing.T) 
 	m := newProjectedStaticUIModel()
 	m.activity = uiActivityRunning
 
-	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventRunStateChanged, RunState: &runtime.RunState{Busy: false}})
+	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventRunStateChanged, RunState: &runtime.RunState{Lifecycle: runtime.IdleRunLifecycle()}})
 
 	if m.activity != uiActivityIdle {
 		t.Fatalf("expected idle activity after turn end, got %v", m.activity)

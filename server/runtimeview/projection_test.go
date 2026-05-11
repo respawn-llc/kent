@@ -54,7 +54,7 @@ func TestEventFromRuntimeProjectsReasoningAndBackground(t *testing.T) {
 		CommittedTranscriptChanged: true,
 		AssistantDelta:             "delta",
 		ReasoningDelta:             &llm.ReasoningSummaryDelta{Key: "k", Role: "reasoning", Text: "thinking"},
-		RunState:                   &runtime.RunState{Busy: true, RunID: "run-1", Status: runtime.RunStatusRunning},
+		RunState:                   &runtime.RunState{Lifecycle: runtime.RunningRunLifecycle(runtime.RunModeTurn), RunID: "run-1", Status: runtime.RunStatusRunning},
 		Background: &runtime.BackgroundShellEvent{
 			Type:              "completed",
 			ID:                "123",
@@ -80,11 +80,14 @@ func TestEventFromRuntimeProjectsReasoningAndBackground(t *testing.T) {
 	if view.ReasoningDelta == nil || view.ReasoningDelta.Text != "thinking" {
 		t.Fatalf("expected reasoning delta projection, got %+v", view.ReasoningDelta)
 	}
-	if view.RunState == nil || !view.RunState.Busy {
+	if view.RunState == nil || !view.RunState.Lifecycle.IsRunning() {
 		t.Fatalf("expected busy run state, got %+v", view.RunState)
 	}
 	if view.RunState.RunID != "run-1" || view.RunState.Status != "running" {
 		t.Fatalf("expected run identity in projected run state, got %+v", view.RunState)
+	}
+	if view.RunState.Lifecycle.Phase != clientui.RunLifecycleRunning || view.RunState.Lifecycle.Mode != clientui.RunModeTurn {
+		t.Fatalf("server/client run lifecycle projection mismatch: %+v", view.RunState.Lifecycle)
 	}
 	if view.Background == nil || view.Background.ID != "123" {
 		t.Fatalf("expected background projection, got %+v", view.Background)

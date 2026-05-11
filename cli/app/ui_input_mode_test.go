@@ -77,9 +77,10 @@ func TestRestorePrimaryInputModeFollowsAskAndTranscriptMode(t *testing.T) {
 
 func TestInputModeStateExposesRenderingAndInteractionFlags(t *testing.T) {
 	m := &uiModel{
-		uiInputFeatureState:        uiInputFeatureState{busy: true, inputSubmitLocked: true},
 		uiConversationFeatureState: uiConversationFeatureState{interaction: uiInteractionState{Mode: uiInputModeRollbackEdit}},
 	}
+	m.setBusy(true)
+	m.setInputSubmitLocked(true)
 	state := m.inputModeState()
 
 	if state.Mode != uiInputModeRollbackEdit {

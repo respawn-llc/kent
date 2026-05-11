@@ -329,7 +329,7 @@ func TestDetailModeEnterRoutesThroughInputControllerWhenInputLocked(t *testing.T
 	m.termHeight = 12
 	m.syncViewport()
 	m.input = "locked draft"
-	m.inputSubmitLocked = true
+	m.setInputSubmitLocked(true)
 	m.lockedInjectText = "locked draft"
 	m.forwardToView(tui.AppendTranscriptMsg{
 		Role:       "tool_call",
@@ -350,8 +350,8 @@ func TestDetailModeEnterRoutesThroughInputControllerWhenInputLocked(t *testing.T
 	if !strings.Contains(expanded, "▼ cat large.txt") || !strings.Contains(expanded, "│ line 1") || !strings.Contains(expanded, "└ line 2") {
 		t.Fatalf("expected input-controller enter to expand detail even while input locked, got %q", expanded)
 	}
-	if updated.input != "locked draft" || !updated.inputSubmitLocked || updated.lockedInjectText != "locked draft" {
-		t.Fatalf("expected locked input state preserved, input=%q locked=%t inject=%q", updated.input, updated.inputSubmitLocked, updated.lockedInjectText)
+	if updated.input != "locked draft" || !updated.isInputSubmitLocked() || updated.lockedInjectText != "locked draft" {
+		t.Fatalf("expected locked input state preserved, input=%q locked=%t inject=%q", updated.input, updated.isInputSubmitLocked(), updated.lockedInjectText)
 	}
 }
 
@@ -1052,7 +1052,7 @@ func TestReviewerRunStillAllowsEditingWithoutTranscriptScroll(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		m.forwardToView(tui.AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("line %d", i)})
 	}
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "keep this draft"
 
@@ -1063,7 +1063,7 @@ func TestReviewerRunStillAllowsEditingWithoutTranscriptScroll(t *testing.T) {
 
 	next, _ := m.Update(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventReviewerStarted}))
 	locked := next.(*uiModel)
-	if !locked.reviewerBlocking {
+	if !locked.isReviewerBlocking() {
 		t.Fatal("expected reviewer running state")
 	}
 	if locked.isInputLocked() {

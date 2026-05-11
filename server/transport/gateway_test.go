@@ -285,6 +285,61 @@ func TestGatewayHandshakeAndProjectList(t *testing.T) {
 	}
 }
 
+func TestGatewayHandshakeRejectsProtocolVersionMismatch(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	registerGatewayWorkspace(t, workspace)
+
+	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
+	if err != nil {
+		t.Fatalf("ResolveConfig: %v", err)
+	}
+	authSupport := newGatewayTestAuthSupport(t, true)
+	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
+	if err != nil {
+		t.Fatalf("BuildRuntimeSupport: %v", err)
+	}
+	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
+	appCore, err := core.New(resolved.Config, authSupport, runtimeSupport)
+	if err != nil {
+		t.Fatalf("core.New: %v", err)
+	}
+	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
+	if err != nil {
+		t.Fatalf("NewGateway: %v", err)
+	}
+	server := httptest.NewServer(gateway.Handler())
+	defer server.Close()
+
+	wsURL := "ws" + server.URL[len("http"):]
+	conn, err := websocket.Dial(wsURL, "", server.URL)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if err := websocket.JSON.Send(conn, protocol.Request{
+		JSONRPC: protocol.JSONRPCVersion,
+		ID:      "1",
+		Method:  protocol.MethodHandshake,
+		Params:  mustJSON(t, protocol.HandshakeRequest{ProtocolVersion: "1"}),
+	}); err != nil {
+		t.Fatalf("send handshake: %v", err)
+	}
+	var resp protocol.Response
+	if err := websocket.JSON.Receive(conn, &resp); err != nil {
+		t.Fatalf("receive handshake: %v", err)
+	}
+	if resp.Error == nil ||
+		resp.Error.Code != protocol.ErrCodeInvalidRequest ||
+		!strings.Contains(resp.Error.Message, "unsupported protocol version") ||
+		!strings.Contains(resp.Error.Message, "server requires "+strconv.Quote(protocol.Version)) ||
+		!strings.Contains(resp.Error.Message, "upgrade the older Builder process") {
+		t.Fatalf("expected unsupported protocol version error, got %+v", resp.Error)
+	}
+}
+
 func TestGatewayRejectsMethodsBeforeHandshake(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()

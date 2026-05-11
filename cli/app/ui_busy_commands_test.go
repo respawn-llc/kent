@@ -141,7 +141,7 @@ func TestBusyEnterCommandBehavior(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := newProjectedStaticUIModel()
-			m.busy = true
+			m.setBusy(true)
 			m.activity = uiActivityRunning
 			m.input = tt.input
 			if tt.setup != nil {
@@ -150,7 +150,7 @@ func TestBusyEnterCommandBehavior(t *testing.T) {
 
 			next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			updated := next.(*uiModel)
-			if !updated.busy {
+			if !updated.isBusy() {
 				t.Fatal("expected model to remain busy")
 			}
 			if len(updated.queued) != 0 {
@@ -257,7 +257,7 @@ func TestBusyQueueSubmissionCommandBehavior(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := newProjectedStaticUIModel()
-			m.busy = true
+			m.setBusy(true)
 			m.activity = uiActivityRunning
 			m.input = tt.input
 			if tt.setup != nil {
@@ -310,7 +310,7 @@ func TestBusyQueueSubmissionCommandBehavior(t *testing.T) {
 
 func TestBusyQueuedCompactStartsCompactionAfterTurnDrains(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/compact tighten summary"
 
@@ -325,10 +325,10 @@ func TestBusyQueuedCompactStartsCompactionAfterTurnDrains(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected compaction command after queued compact drains")
 	}
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected compact drain to re-enter busy state")
 	}
-	if !updated.compacting {
+	if !updated.isCompacting() {
 		t.Fatal("expected queued compact drain to enter compaction mode")
 	}
 	if len(updated.queued) != 0 {
@@ -340,7 +340,7 @@ func TestBusyQueuedCopyCopiesFinalAnswerAfterTurnDrains(t *testing.T) {
 	copier := &stubClipboardTextCopier{}
 	m := newProjectedStaticUIModel(WithUIClipboardTextCopier(copier))
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: "assistant", Text: "copied from queue", Phase: llm.MessagePhaseFinal}}
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/copy"
 
@@ -397,7 +397,7 @@ func TestBusyQueuedFastAppliesToNextRuntimeRequestAfterTurnDrains(t *testing.T) 
 	}
 
 	m := newProjectedEngineUIModel(eng)
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.promptHistoryDraft = "previous prompt"
 	m.promptHistoryDraftCursor = -1
@@ -423,7 +423,7 @@ func TestBusyQueuedFastAppliesToNextRuntimeRequestAfterTurnDrains(t *testing.T) 
 	if len(updated.queued) != 0 {
 		t.Fatalf("expected queued /fast to drain, got %+v", updated.queued)
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect queued /fast alone to start a new turn")
 	}
 

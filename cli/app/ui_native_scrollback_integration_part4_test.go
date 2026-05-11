@@ -221,7 +221,7 @@ func TestNativeProgramUserFlushHydratesCommittedGapWhileAssistantStreamIsLive(t 
 	})
 	baselineLoadCalls := client.LoadCalls()
 
-	runtimeEvents <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Busy: true}}
+	runtimeEvents <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}
 	runtimeEvents <- clientui.Event{Kind: clientui.EventAssistantDelta, StepID: "step-1", AssistantDelta: "foreground done"}
 	waitForTestCondition(t, 2*time.Second, "assistant delta visible", func() bool {
 		return strings.Contains(normalizedOutput(out.String()), "foreground done")
@@ -597,7 +597,7 @@ func TestQueuedFollowUpWaitsForFinalTranscriptCatchUpBeforeNativeScrollbackAppen
 	}
 	model := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	model.startupCmds = nil
-	model.busy = true
+	model.setBusy(true)
 	model.activity = uiActivityRunning
 	model.queued = queuedInputsForTest("follow up")
 	model.sawAssistantDelta = true
@@ -689,7 +689,7 @@ func TestQueuedFollowUpRemainsHiddenUntilFinalCatchUpThenAppendsOnceInRenderedOn
 	}
 	model := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	model.startupCmds = nil
-	model.busy = true
+	model.setBusy(true)
 	model.activity = uiActivityRunning
 	model.queued = queuedInputsForTest("follow up")
 	model.sawAssistantDelta = true
@@ -784,7 +784,7 @@ func TestRuntimeContinuityRecoveryReplaysOngoingScrollbackAndLaterAssistantAppen
 	model.startupCmds = nil
 	model.runtimeTranscriptBusy = true
 	model.runtimeTranscriptToken = 1
-	model.busy = true
+	model.setBusy(true)
 	model.activity = uiActivityRunning
 	model.sawAssistantDelta = true
 	model.forwardToView(tui.SetConversationMsg{Entries: model.transcriptEntries, Ongoing: "working"})
@@ -815,7 +815,7 @@ func TestRuntimeContinuityRecoveryReplaysOngoingScrollbackAndLaterAssistantAppen
 	deadline := time.Now().Add(2 * time.Second)
 	for !strings.Contains(normalizedOutput(out.String()), "after") {
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for continuity recovery replay appended to ongoing scrollback output=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q busy=%t runtime_busy=%t token=%d ongoing=%q", normalizedOutput(out.String()), model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, model.busy, model.runtimeTranscriptBusy, model.runtimeTranscriptToken, stripANSIAndTrimRight(model.view.OngoingSnapshot()))
+			t.Fatalf("timed out waiting for continuity recovery replay appended to ongoing scrollback output=%q transcript=%+v native_projection=%+v native_rendered_projection=%+v native_snapshot=%q busy=%t runtime_busy=%t token=%d ongoing=%q", normalizedOutput(out.String()), model.transcriptEntries, model.nativeProjection, model.nativeRenderedProjection, model.nativeRenderedSnapshot, model.isBusy(), model.runtimeTranscriptBusy, model.runtimeTranscriptToken, stripANSIAndTrimRight(model.view.OngoingSnapshot()))
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -907,7 +907,7 @@ func TestRuntimeAuthoritativeHydrateRepairsOngoingScrollbackWithoutContinuityLos
 	model.startupCmds = nil
 	model.runtimeTranscriptBusy = true
 	model.runtimeTranscriptToken = 1
-	model.busy = true
+	model.setBusy(true)
 	model.activity = uiActivityRunning
 	model.sawAssistantDelta = true
 	model.forwardToView(tui.SetConversationMsg{Entries: model.transcriptEntries, Ongoing: "working"})

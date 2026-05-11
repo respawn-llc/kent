@@ -21,7 +21,7 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error())
 		}
 		if params.ProtocolVersion != protocol.Version {
-			return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidRequest, fmt.Sprintf("unsupported protocol version %q", params.ProtocolVersion))
+			return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidRequest, fmt.Sprintf("unsupported protocol version %q; server requires %q, upgrade the older Builder process", params.ProtocolVersion, protocol.Version))
 		}
 		state.handshakeDone = true
 		return protocol.NewSuccessResponse(req.ID, protocol.HandshakeResponse{Identity: g.identity})

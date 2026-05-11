@@ -258,7 +258,7 @@ func (l uiViewLayout) renderInputFrame(width int, lines []string) []string {
 
 func (l uiViewLayout) inputBorderStyle() lipgloss.Style {
 	borderColor := uiPalette(l.model.theme).primary
-	if l.model.busy {
+	if l.model.isBusy() {
 		borderColor = uiPalette(l.model.theme).muted
 	}
 	return lipgloss.NewStyle().Foreground(borderColor)

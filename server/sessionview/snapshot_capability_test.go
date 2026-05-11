@@ -44,7 +44,7 @@ func TestSessionSnapshotCapabilitiesCoverReadModelFields(t *testing.T) {
 			"EffectiveWorkdir",
 		),
 		reflect.TypeOf(clientui.TranscriptMetadata{}):               fieldSet("Revision", "CommittedEntryCount"),
-		reflect.TypeOf(clientui.RunView{}):                          fieldSet("RunID", "SessionID", "StepID", "Status", "GoalLoop", "StartedAt", "FinishedAt"),
+		reflect.TypeOf(clientui.RunView{}):                          fieldSet("RunID", "SessionID", "StepID", "Status", "Lifecycle", "StartedAt", "FinishedAt"),
 		reflect.TypeOf(clientui.TranscriptPage{}):                   fieldSet("SessionID", "SessionName", "ConversationFreshness", "Revision", "TotalEntries", "Offset", "NextOffset", "HasMore", "Entries", "Ongoing", "OngoingError"),
 		reflect.TypeOf(clientui.CommittedTranscriptSuffix{}):        fieldSet("SessionID", "SessionName", "ConversationFreshness", "Revision", "CommittedEntryCount", "StartEntryCount", "NextEntryCount", "HasMore", "Entries"),
 		reflect.TypeOf(clientui.CommittedTranscriptSuffixRequest{}): fieldSet("AfterEntryCount", "Limit"),

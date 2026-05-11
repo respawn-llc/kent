@@ -124,10 +124,12 @@ func EventFromRuntime(evt runtime.Event) clientui.Event {
 	view.CacheWarningVisibility = clientui.EntryVisibility(evt.CacheWarningVisibility)
 	if evt.RunState != nil {
 		view.RunState = &clientui.RunState{
-			Busy:       evt.RunState.Busy,
+			Lifecycle: clientui.MustRunLifecycle(
+				clientui.RunLifecyclePhase(evt.RunState.Lifecycle.Phase),
+				clientui.RunMode(evt.RunState.Lifecycle.Mode),
+			),
 			RunID:      evt.RunState.RunID,
 			Status:     clientui.RunStatus(evt.RunState.Status),
-			GoalLoop:   evt.RunState.GoalLoop,
 			StartedAt:  evt.RunState.StartedAt,
 			FinishedAt: evt.RunState.FinishedAt,
 		}
@@ -205,21 +207,33 @@ func RunViewFromRuntime(sessionID string, snapshot *runtime.RunSnapshot) *client
 		SessionID:  sessionID,
 		StepID:     snapshot.StepID,
 		Status:     clientui.RunStatus(snapshot.Status),
-		GoalLoop:   snapshot.GoalLoop,
+		Lifecycle:  clientui.RunningRunLifecycle(runViewMode(snapshot.GoalLoop)),
 		StartedAt:  snapshot.StartedAt,
 		FinishedAt: snapshot.FinishedAt,
 	}
+}
+
+func runViewMode(goalLoop bool) clientui.RunMode {
+	if goalLoop {
+		return clientui.RunModeGoalLoop
+	}
+	return clientui.RunModeTurn
 }
 
 func RunViewFromSessionRecord(sessionID string, record *session.RunRecord) *clientui.RunView {
 	if record == nil {
 		return nil
 	}
+	lifecycle := clientui.FinishedRunLifecycle(clientui.RunModeTurn)
+	if record.Status == session.RunStatusRunning {
+		lifecycle = clientui.RunningRunLifecycle(clientui.RunModeTurn)
+	}
 	return &clientui.RunView{
 		RunID:      record.RunID,
 		SessionID:  sessionID,
 		StepID:     record.StepID,
 		Status:     clientui.RunStatus(record.Status),
+		Lifecycle:  lifecycle,
 		StartedAt:  record.StartedAt,
 		FinishedAt: record.FinishedAt,
 	}

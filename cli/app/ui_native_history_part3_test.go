@@ -138,7 +138,7 @@ func TestNativeStreamingResizeRestartsSpillTrackingAtNewWidth(t *testing.T) {
 	m = next.(*uiModel)
 	_ = collectCmdMessages(t, startupCmd)
 
-	m.busy = true
+	m.setBusy(true)
 	lineCount := m.nativeStreamingAssistantLiveBudget(m.termWidth) + 3
 	streamText := makeStreamingLines(lineCount)
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: streamText})
@@ -186,7 +186,7 @@ func TestNativeStreamingLinesKeepAssistantMarkdownPlain(t *testing.T) {
 	m.termWidth = 100
 	m.termHeight = 24
 	m.windowSizeKnown = true
-	m.busy = true
+	m.setBusy(true)
 	m.sawAssistantDelta = true
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: "**hello**\n`world`"})
 	m.syncViewport()
@@ -306,7 +306,7 @@ func TestNativeStreamingDividerPersistsInTightViewport(t *testing.T) {
 	m.termWidth = 40
 	m.termHeight = 6
 	m.windowSizeKnown = true
-	m.busy = true
+	m.setBusy(true)
 	m.sawAssistantDelta = true
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: "line1\nline2\nline3"})
 	m.syncViewport()

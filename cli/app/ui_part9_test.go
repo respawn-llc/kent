@@ -22,13 +22,13 @@ import (
 
 func TestReviewerProgressKeepsInputEditable(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "keep this draft"
 
 	next, _ := m.Update(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventReviewerStarted}))
 	started := next.(*uiModel)
-	if !started.reviewerBlocking {
+	if !started.isReviewerBlocking() {
 		t.Fatal("expected reviewer state to be marked running")
 	}
 	lines := started.renderInputLines(80, uiThemeStyles("dark"))
@@ -45,7 +45,7 @@ func TestReviewerProgressKeepsInputEditable(t *testing.T) {
 
 	next, _ = locked.Update(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventReviewerCompleted}))
 	completed := next.(*uiModel)
-	if completed.reviewerBlocking {
+	if completed.isReviewerBlocking() {
 		t.Fatal("expected reviewer state cleared after completion")
 	}
 	lines = completed.renderInputLines(80, uiThemeStyles("dark"))
@@ -57,13 +57,13 @@ func TestReviewerProgressKeepsInputEditable(t *testing.T) {
 
 func TestBusyEnterDuringReviewerUsesSteeringInjection(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "steer after review"
 
 	next, _ := m.Update(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventReviewerStarted}))
 	started := next.(*uiModel)
-	if !started.reviewerRunning {
+	if !started.isReviewerRunning() {
 		t.Fatal("expected reviewer to be running")
 	}
 	if started.isInputLocked() {
@@ -78,7 +78,7 @@ func TestBusyEnterDuringReviewerUsesSteeringInjection(t *testing.T) {
 	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "steer after review" {
 		t.Fatalf("expected reviewer steering injected for earliest flush, got %+v", updated.pendingInjected)
 	}
-	if updated.inputSubmitLocked {
+	if updated.isInputSubmitLocked() {
 		t.Fatal("did not expect submit lock while waiting for reviewer steering flush")
 	}
 	if updated.input != "" {

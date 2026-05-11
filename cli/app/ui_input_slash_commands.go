@@ -37,7 +37,7 @@ func (c uiInputController) handleEnteredSlashCommandInput(text string) (bool, te
 		return false, m, nil
 	}
 	command := selection.command
-	if m.busy && !command.RunWhileBusy {
+	if m.isBusy() && !command.RunWhileBusy {
 		m.clearInput()
 		return true, m, c.showErrorStatus(fmt.Sprintf("cannot run /%s while model is working", command.Name))
 	}
@@ -95,7 +95,7 @@ func (m *uiModel) blockedDeferredSlashCommand(commandText string) (string, bool)
 			return "background process client is unavailable", true
 		}
 	case commands.ActionWorktree:
-		if m.busy {
+		if m.isBusy() {
 			return "cannot run /worktree while model is working", true
 		}
 		if m.worktreeClient == nil {

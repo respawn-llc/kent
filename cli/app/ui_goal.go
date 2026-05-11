@@ -112,7 +112,7 @@ func (c uiInputController) handleGoalOverlayKey(msg tea.KeyMsg) (tea.Model, tea.
 	}
 	switch strings.ToLower(msg.String()) {
 	case "ctrl+c":
-		if m.busy {
+		if m.isBusy() {
 			c.interruptBusyRuntime()
 			return m, nil
 		}
@@ -144,7 +144,7 @@ func (c uiInputController) handleGoalConfirmKey(msg tea.KeyMsg) (tea.Model, tea.
 	m := c.model
 	switch strings.ToLower(msg.String()) {
 	case "ctrl+c":
-		if m.busy {
+		if m.isBusy() {
 			c.interruptBusyRuntime()
 			return m, nil
 		}

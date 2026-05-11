@@ -496,7 +496,7 @@ func (c uiInputController) handleStatusOverlayKey(msg tea.KeyMsg) (tea.Model, te
 	m := c.model
 	switch strings.ToLower(msg.String()) {
 	case "ctrl+c":
-		if m.busy {
+		if m.isBusy() {
 			c.interruptBusyRuntime()
 			return m, nil
 		}

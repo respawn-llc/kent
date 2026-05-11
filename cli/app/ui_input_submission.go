@@ -132,7 +132,7 @@ func (m *uiModel) markActiveSubmitFlushed(evt clientui.Event) {
 	}
 	switch evt.Kind {
 	case clientui.EventRunStateChanged:
-		if evt.RunState == nil || !evt.RunState.Busy || strings.TrimSpace(m.activeSubmit.stepID) != "" {
+		if evt.RunState == nil || !evt.RunState.Lifecycle.IsRunning() || strings.TrimSpace(m.activeSubmit.stepID) != "" {
 			return
 		}
 		m.activeSubmit.stepID = strings.TrimSpace(evt.StepID)
@@ -204,30 +204,30 @@ func (c uiInputController) compactCmd(args string) tea.Cmd {
 func (c uiInputController) startBusyActivity(compacting bool) {
 	m := c.model
 	m.clearReviewerState()
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.sawAssistantDelta = false
 	if compacting {
-		m.compacting = true
+		m.setCompacting(true)
 	}
 }
 
 func (c uiInputController) finishBusyActivity(compacting bool) {
 	m := c.model
-	m.busy = false
+	m.setBusy(false)
 	m.clearReviewerState()
 	m.spinnerFrame = 0
 	if !m.shouldAnimateSpinner() {
 		m.stopSpinnerTicking()
 	}
 	if compacting {
-		m.compacting = false
+		m.setCompacting(false)
 	}
 }
 
 func (c uiInputController) notifyTurnQueueDrainedIfIdle() {
 	m := c.model
-	if m.turnQueueHook == nil || m.busy || len(m.queued) > 0 || m.ask.hasCurrent() {
+	if m.turnQueueHook == nil || m.isBusy() || len(m.queued) > 0 || m.ask.hasCurrent() {
 		return
 	}
 	m.turnQueueHook.OnTurnQueueDrained()

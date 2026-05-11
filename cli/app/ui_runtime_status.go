@@ -20,8 +20,8 @@ func (m *uiModel) applyRuntimeMainViewState(view clientui.RuntimeMainView) {
 	m.conversationFreshness = status.ConversationFreshness
 	m.setRuntimeContextUsage(view.Session.SessionID, status.ContextUsage)
 	active := view.ActiveRun != nil && view.ActiveRun.Status == clientui.RunStatusRunning
-	m.busy = active
-	m.goalRun = active && view.ActiveRun.GoalLoop
+	m.setBusy(active)
+	m.setGoalRun(active && view.ActiveRun.Lifecycle.IsGoalLoopRunning())
 	if active {
 		m.activity = uiActivityRunning
 		return

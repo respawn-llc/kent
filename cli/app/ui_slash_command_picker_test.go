@@ -49,7 +49,7 @@ func TestBuiltInReviewSlashCommandWithWhitespaceAfterSlashDoesNotDuplicateArgs(t
 	if updated.Action() != UIActionNone {
 		t.Fatalf("expected no session transition for empty-session /review, got %q", updated.Action())
 	}
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected /review to submit in place for an empty session")
 	}
 	if updated.nextSessionInitialPrompt != "" {
@@ -68,7 +68,7 @@ func TestBusyEnterRunsExactFastCommandEvenWhenPickerHidesIt(t *testing.T) {
 	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{FastModeAvailable: true, FastModeEnabled: true}}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.fastModeAvailable = false
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/fa"
 	if picker := m.slashCommandPicker(); !picker.visible || len(picker.matches) != 0 {
@@ -87,7 +87,7 @@ func TestBusyEnterRunsExactFastCommandEvenWhenPickerHidesIt(t *testing.T) {
 	if len(updated.pendingInjected) != 0 {
 		t.Fatalf("expected no pending injected messages, got %+v", updated.pendingInjected)
 	}
-	if updated.inputSubmitLocked {
+	if updated.isInputSubmitLocked() {
 		t.Fatal("did not expect locked input for busy /fast")
 	}
 	if updated.input != "" {
@@ -107,7 +107,7 @@ func TestBusyEnterRunsExactFastCommandEvenWhenPickerHidesIt(t *testing.T) {
 
 func TestBusyTabBackWithoutParentShowsLocalErrorAndDoesNotQueue(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/back"
 
@@ -470,7 +470,7 @@ func TestRollbackEditRejectsSlashCommandSubmitAndAutocomplete(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected transient status command for blocked edit-mode slash command")
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect slash command to submit while editing")
 	}
 	if updated.status.isOpen() {
@@ -509,7 +509,7 @@ func TestRollbackEditRejectsUnknownSlashInputWithoutSubmittingPrompt(t *testing.
 	if cmd == nil {
 		t.Fatal("expected transient status command for blocked unknown slash in edit mode")
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect unknown slash to submit while editing")
 	}
 	if len(updated.queued) != 0 {

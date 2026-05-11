@@ -37,8 +37,8 @@ func TestCompactDoneResumesQueuedSteeringAsNewTurn(t *testing.T) {
 	}
 
 	m := NewProjectedUIModel(newUIRuntimeClient(eng), projectedEvents, make(chan askEvent)).(*uiModel)
-	m.busy = true
-	m.compacting = true
+	m.setBusy(true)
+	m.setCompacting(true)
 	m.activity = uiActivityRunning
 	m.input = "steered message"
 
@@ -53,10 +53,10 @@ func TestCompactDoneResumesQueuedSteeringAsNewTurn(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected compaction completion to resume queued steering")
 	}
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected resumed steering submission to set busy=true")
 	}
-	if updated.compacting {
+	if updated.isCompacting() {
 		t.Fatal("expected compaction flag cleared before resumed steering turn")
 	}
 
@@ -103,7 +103,7 @@ func TestCompactDoneResumesQueuedSteeringAsNewTurn(t *testing.T) {
 				next, _ = updated.Update(submitDone)
 				updated = next.(*uiModel)
 				submitApplied = true
-				if updated.busy {
+				if updated.isBusy() {
 					t.Fatal("expected resumed steering turn to finish idle")
 				}
 				if len(updated.pendingInjected) == 0 {
@@ -133,8 +133,8 @@ func TestInterruptedResumedQueuedSteeringRestoresInput(t *testing.T) {
 	}
 
 	m := newProjectedEngineUIModel(eng)
-	m.busy = true
-	m.compacting = true
+	m.setBusy(true)
+	m.setCompacting(true)
 	m.activity = uiActivityRunning
 	m.input = "steered message"
 
@@ -145,7 +145,7 @@ func TestInterruptedResumedQueuedSteeringRestoresInput(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected compaction completion to resume queued steering")
 	}
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected resumed steering submission to set busy=true")
 	}
 
@@ -154,7 +154,7 @@ func TestInterruptedResumedQueuedSteeringRestoresInput(t *testing.T) {
 	if interruptCmd != nil {
 		t.Fatal("did not expect follow-up command after interrupted resumed steering")
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("expected busy=false after interrupted resumed steering")
 	}
 	if updated.activity != uiActivityInterrupted {

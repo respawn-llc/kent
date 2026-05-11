@@ -33,7 +33,7 @@ func queuedInputsForTest(texts ...string) []queuedInputItem {
 
 func applyInterruptedRunStateForTest(t *testing.T, m *uiModel) *uiModel {
 	t.Helper()
-	next, _ := m.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Busy: false, Status: clientui.RunStatusInterrupted}}})
+	next, _ := m.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.IdleRunLifecycle(), Status: clientui.RunStatusInterrupted}}})
 	updated, ok := next.(*uiModel)
 	if !ok {
 		t.Fatalf("updated model = %T, want *uiModel", next)

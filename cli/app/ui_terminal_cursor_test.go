@@ -440,7 +440,7 @@ func TestTerminalCursorHiddenWhenInputLocked(t *testing.T) {
 	m.termWidth = 24
 	m.termHeight = 10
 	m.windowSizeKnown = true
-	m.inputSubmitLocked = true
+	m.setInputSubmitLocked(true)
 	m.input = "locked"
 	m.syncViewport()
 

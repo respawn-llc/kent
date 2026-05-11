@@ -47,9 +47,9 @@ func TestWaitRuntimeEventReturnsProjectedMessage(t *testing.T) {
 
 func TestWaitRuntimeEventDrainsQueuedBatch(t *testing.T) {
 	ch := make(chan clientui.Event, 3)
-	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Busy: true}}
-	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Busy: false}}
-	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Busy: true}}
+	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}
+	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.IdleRunLifecycle()}}
+	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}
 	msg, ok := waitRuntimeEvent(ch)().(runtimeEventBatchMsg)
 	if !ok {
 		t.Fatalf("expected runtimeEventBatchMsg, got %T", waitRuntimeEvent(ch)())
@@ -63,7 +63,7 @@ func TestWaitRuntimeEventDoesNotCoalesceAssistantDeltas(t *testing.T) {
 	ch := make(chan clientui.Event, 3)
 	ch <- clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: "hello"}
 	ch <- clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: " world"}
-	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Busy: true}}
+	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}
 
 	msg, ok := waitRuntimeEvent(ch)().(runtimeEventBatchMsg)
 	if !ok {

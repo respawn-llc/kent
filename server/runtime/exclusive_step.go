@@ -18,12 +18,15 @@ type defaultExclusiveStepLifecycle struct {
 	engine     *Engine
 	background backgroundNoticeScheduler
 
-	mu        sync.Mutex
-	busy      bool
-	goalLoop  bool
+	mu     sync.Mutex
+	active *exclusiveRunState
+	runSeq uint64
+}
+
+type exclusiveRunState struct {
+	sequence  uint64
+	mode      RunMode
 	cancel    context.CancelFunc
-	activeRun uint64
-	runSeq    uint64
 	runID     string
 	stepID    string
 	startedAt time.Time
@@ -51,10 +54,9 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 				}
 			}
 			s.engine.emit(Event{Kind: EventRunStateChanged, StepID: stepID, RunState: &RunState{
-				Busy:      true,
+				Lifecycle: RunningRunLifecycle(runModeFromGoalLoop(snapshot.GoalLoop)),
 				RunID:     snapshot.RunID,
 				Status:    snapshot.Status,
-				GoalLoop:  snapshot.GoalLoop,
 				StartedAt: snapshot.StartedAt,
 			}})
 		}
@@ -69,11 +71,11 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 		snapshot := s.snapshotWithFinishedAt(finishedAt, status)
 		s.end()
 		if options.EmitRunState {
-			state := &RunState{Busy: false}
+			state := &RunState{Lifecycle: IdleRunLifecycle()}
 			if snapshot != nil {
+				state.Lifecycle = FinishedRunLifecycle(runModeFromGoalLoop(snapshot.GoalLoop))
 				state.RunID = snapshot.RunID
 				state.Status = snapshot.Status
-				state.GoalLoop = snapshot.GoalLoop
 				state.StartedAt = snapshot.StartedAt
 				state.FinishedAt = snapshot.FinishedAt
 			}
@@ -106,19 +108,24 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 	return fn(stepCtx, stepID)
 }
 
+func runModeFromGoalLoop(goalLoop bool) RunMode {
+	if goalLoop {
+		return RunModeGoalLoop
+	}
+	return RunModeTurn
+}
+
 func (s *defaultExclusiveStepLifecycle) Interrupt() error {
 	s.mu.Lock()
-	busy := s.busy
-	cancel := s.cancel
-	runID := s.activeRun
+	active := s.active
 	s.mu.Unlock()
 
-	if !busy || cancel == nil {
+	if active == nil || active.cancel == nil {
 		return nil
 	}
-	cancel()
+	active.cancel()
 	s.mu.Lock()
-	if !s.busy || s.activeRun != runID {
+	if s.active == nil || s.active.sequence != active.sequence {
 		s.mu.Unlock()
 		return nil
 	}
@@ -135,7 +142,7 @@ func (s *defaultExclusiveStepLifecycle) Interrupt() error {
 func (s *defaultExclusiveStepLifecycle) IsBusy() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.busy
+	return s.active != nil
 }
 
 func (s *defaultExclusiveStepLifecycle) Snapshot() *RunSnapshot {
@@ -146,7 +153,7 @@ func (s *defaultExclusiveStepLifecycle) Snapshot() *RunSnapshot {
 
 func (s *defaultExclusiveStepLifecycle) begin(ctx context.Context, options exclusiveStepOptions) (context.Context, string, error) {
 	s.mu.Lock()
-	if s.busy {
+	if s.active != nil {
 		s.mu.Unlock()
 		return nil, "", errExclusiveStepBusy
 	}
@@ -155,13 +162,14 @@ func (s *defaultExclusiveStepLifecycle) begin(ctx context.Context, options exclu
 	runID := uuid.NewString()
 	stepID := uuid.NewString()
 	startedAt := time.Now().UTC()
-	s.busy = true
-	s.goalLoop = options.GoalLoop
-	s.cancel = cancel
-	s.activeRun = s.runSeq
-	s.runID = runID
-	s.stepID = stepID
-	s.startedAt = startedAt
+	s.active = &exclusiveRunState{
+		sequence:  s.runSeq,
+		mode:      runModeFromGoalLoop(options.GoalLoop),
+		cancel:    cancel,
+		runID:     runID,
+		stepID:    stepID,
+		startedAt: startedAt,
+	}
 	s.mu.Unlock()
 
 	if err := s.engine.store.MarkInFlight(true); err != nil {
@@ -173,41 +181,35 @@ func (s *defaultExclusiveStepLifecycle) begin(ctx context.Context, options exclu
 
 func (s *defaultExclusiveStepLifecycle) end() {
 	s.mu.Lock()
-	s.busy = false
-	s.goalLoop = false
-	s.cancel = nil
-	s.activeRun = 0
-	s.runID = ""
-	s.stepID = ""
-	s.startedAt = time.Time{}
+	s.active = nil
 	s.mu.Unlock()
 }
 
 func (s *defaultExclusiveStepLifecycle) snapshotLocked() *RunSnapshot {
-	if !s.busy || s.runID == "" {
+	if s.active == nil || s.active.runID == "" {
 		return nil
 	}
 	return &RunSnapshot{
-		RunID:     s.runID,
-		StepID:    s.stepID,
+		RunID:     s.active.runID,
+		StepID:    s.active.stepID,
 		Status:    RunStatusRunning,
-		GoalLoop:  s.goalLoop,
-		StartedAt: s.startedAt,
+		GoalLoop:  s.active.mode == RunModeGoalLoop,
+		StartedAt: s.active.startedAt,
 	}
 }
 
 func (s *defaultExclusiveStepLifecycle) snapshotWithFinishedAt(finishedAt time.Time, status RunStatus) *RunSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.busy || s.runID == "" {
+	if s.active == nil || s.active.runID == "" {
 		return nil
 	}
 	return &RunSnapshot{
-		RunID:      s.runID,
-		StepID:     s.stepID,
+		RunID:      s.active.runID,
+		StepID:     s.active.stepID,
 		Status:     status,
-		GoalLoop:   s.goalLoop,
-		StartedAt:  s.startedAt,
+		GoalLoop:   s.active.mode == RunModeGoalLoop,
+		StartedAt:  s.active.startedAt,
 		FinishedAt: finishedAt,
 	}
 }

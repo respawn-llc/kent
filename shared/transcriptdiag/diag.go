@@ -70,7 +70,13 @@ func EventDigest(evt clientui.Event) string {
 		parts = append(parts, evt.ReasoningDelta.Key, evt.ReasoningDelta.Role, evt.ReasoningDelta.Text)
 	}
 	if evt.RunState != nil {
-		parts = append(parts, evt.RunState.RunID, string(evt.RunState.Status), strconv.FormatBool(evt.RunState.Busy))
+		parts = append(
+			parts,
+			evt.RunState.RunID,
+			string(evt.RunState.Status),
+			string(evt.RunState.Lifecycle.Phase),
+			string(evt.RunState.Lifecycle.Mode),
+		)
 	}
 	if evt.Background != nil {
 		parts = append(parts, evt.Background.Type, evt.Background.ID, evt.Background.State, evt.Background.Command, evt.Background.Preview)

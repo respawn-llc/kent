@@ -3,7 +3,7 @@ package protocol
 import "time"
 
 const (
-	Version           = "1"
+	Version           = "2"
 	RPCPath           = "/rpc"
 	HealthPath        = "/healthz"
 	HealthStatusOK    = "ok"

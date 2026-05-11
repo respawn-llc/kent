@@ -76,7 +76,7 @@ type RunView struct {
 	SessionID  string
 	StepID     string
 	Status     RunStatus
-	GoalLoop   bool
+	Lifecycle  RunLifecycle
 	StartedAt  time.Time
 	FinishedAt time.Time
 }

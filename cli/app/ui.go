@@ -22,12 +22,12 @@ var nativeResizeReplayDebounce = time.Second
 var nativeResizeReplayNow = time.Now
 
 func (m *uiModel) isInputLocked() bool {
-	return m.inputSubmitLocked
+	return m.isInputSubmitLocked()
 }
 
 func (m *uiModel) clearReviewerState() {
-	m.reviewerRunning = false
-	m.reviewerBlocking = false
+	m.setReviewerRunning(false)
+	m.setReviewerBlocking(false)
 }
 
 func (m *uiModel) invalidateNativeResizeReplay() {

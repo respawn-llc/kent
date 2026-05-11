@@ -117,7 +117,7 @@ func (c uiInputController) handleWorktreeOverlayKey(msg tea.KeyMsg) (tea.Model, 
 	}
 	switch strings.ToLower(msg.String()) {
 	case "ctrl+c":
-		if m.busy {
+		if m.isBusy() {
 			c.interruptBusyRuntime()
 			return m, nil
 		}

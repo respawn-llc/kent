@@ -26,7 +26,7 @@ func TestTabQueuesAndStartsSubmission(t *testing.T) {
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
 
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected busy after tab queued submission")
 	}
 	if updated.input != "" {
@@ -47,7 +47,7 @@ func TestEmptyEnterFlushesOnlyNextQueuedItem(t *testing.T) {
 	if updated.sessionName != "queued title" {
 		t.Fatalf("expected only first queued item to execute, got session name %q", updated.sessionName)
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect follow-up prompt submission from empty-enter flush")
 	}
 	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
@@ -69,7 +69,7 @@ func TestIdleTabWithExistingQueueFlushesOnlyNextQueuedItem(t *testing.T) {
 	if updated.sessionName != "queued title" {
 		t.Fatalf("expected queued /name to execute first, got %q", updated.sessionName)
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect appended prompt to auto-submit while idle tab is flushing one queued item")
 	}
 	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
@@ -84,7 +84,7 @@ func TestCustomKeyCtrlEnterQueuesAndStartsSubmission(t *testing.T) {
 	next, _ := m.Update(customKeyMsg{Kind: customKeyCtrlEnter})
 	updated := next.(*uiModel)
 
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected busy after ctrl+enter custom key")
 	}
 	if updated.input != "" {
@@ -99,7 +99,7 @@ func TestCustomKeyCtrlEnterXtermVariantQueuesAndStartsSubmission(t *testing.T) {
 	next, _ := m.Update(customKeyMsg{Kind: customKeyCtrlEnter})
 	updated := next.(*uiModel)
 
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected busy after xterm ctrl+enter sequence")
 	}
 	if updated.input != "" {
@@ -109,7 +109,7 @@ func TestCustomKeyCtrlEnterXtermVariantQueuesAndStartsSubmission(t *testing.T) {
 
 func TestCustomKeyCtrlEnterQueuesPostTurnWhenBusy(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.input = "echo hi"
 
 	next, _ := m.Update(customKeyMsg{Kind: customKeyCtrlEnter})
@@ -121,7 +121,7 @@ func TestCustomKeyCtrlEnterQueuesPostTurnWhenBusy(t *testing.T) {
 	if len(updated.pendingInjected) != 0 {
 		t.Fatalf("did not expect injected steering messages, got %d", len(updated.pendingInjected))
 	}
-	if updated.inputSubmitLocked {
+	if updated.isInputSubmitLocked() {
 		t.Fatal("did not expect submit lock for ctrl+enter queue")
 	}
 }
@@ -133,7 +133,7 @@ func TestCustomKeyShiftEnterInsertsNewline(t *testing.T) {
 	next, _ := m.Update(customKeyMsg{Kind: customKeyShiftEnter})
 	updated := next.(*uiModel)
 
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect busy after shift+enter CSI sequence")
 	}
 	if updated.input != "hello\n" {
@@ -150,7 +150,7 @@ func TestCustomKeyShiftEnterThenEnterDoesNotSubmitTrailingNewline(t *testing.T) 
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
 
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected submission started")
 	}
 	snapshot := stripANSIAndTrimRight(updated.view.OngoingCommittedSnapshot())
@@ -568,7 +568,7 @@ func TestApprovalAskUsesSingleDenyOptionAndTabCommentary(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 	m := newProjectedEngineUIModel(eng)
-	m.busy = true
+	m.setBusy(true)
 	reply := make(chan askReply, 1)
 	event := askEvent{req: clientui.PendingPromptEvent{Question: "Approve?", Approval: true, ApprovalOptions: []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: clientui.ApprovalDecisionAllowSession, Label: "Allow for this session"}, {Decision: clientui.ApprovalDecisionDeny, Label: "Deny"}}}, reply: reply}
 

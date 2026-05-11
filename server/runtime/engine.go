@@ -167,8 +167,7 @@ type Engine struct {
 	compactionSoonReminderIssued bool
 	pendingHandoffRequest        *handoffRequest
 	pendingHandoffFutureMessage  string
-	goalLoopRunning              bool
-	goalLoopSuspended            bool
+	goalLoopLifecycle            goalLoopLifecycleState
 
 	tokenUsage        *tokenUsageTracker
 	collaboratorsOnce sync.Once
@@ -407,7 +406,11 @@ func (e *Engine) Interrupt() error {
 	e.ensureOrchestrationCollaborators()
 	e.mu.Lock()
 	if e.goalActiveLocked() {
-		e.goalLoopSuspended = true
+		if e.goalLoopLifecycle == goalLoopLifecycleRunning || e.goalLoopLifecycle == goalLoopLifecycleRestartPending {
+			e.goalLoopLifecycle = goalLoopLifecycleSuspending
+		} else {
+			e.goalLoopLifecycle = goalLoopLifecycleSuspended
+		}
 	}
 	e.mu.Unlock()
 	return e.stepLifecycle.Interrupt()
@@ -420,7 +423,9 @@ func (e *Engine) SubmitUserMessage(ctx context.Context, text string) (assistant 
 
 	e.ensureOrchestrationCollaborators()
 	e.mu.Lock()
-	e.goalLoopSuspended = false
+	if e.goalLoopLifecycle.IsSuspended() {
+		e.goalLoopLifecycle = goalLoopLifecycleIdle
+	}
 	e.mu.Unlock()
 	err = e.stepLifecycle.Run(ctx, exclusiveStepOptions{EmitRunState: true, PersistRunLifecycle: true}, func(stepCtx context.Context, stepID string) error {
 		e.mu.Lock()

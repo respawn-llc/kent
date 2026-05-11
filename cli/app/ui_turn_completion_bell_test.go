@@ -17,7 +17,7 @@ func TestSubmitDoneDefersTurnCompletionBellUntilQueuedTurnsFinish(t *testing.T) 
 	ringer := &countRinger{}
 	bells := newUnfocusedBellHooks(ringer)
 	m := newProjectedStaticUIModel(WithUITurnQueueHook(bells))
-	m.busy = true
+	m.setBusy(true)
 	m.queued = queuedInputsForTest("follow up")
 
 	next, _ := m.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventToolCallStarted, StepID: "step-1"}})
@@ -35,7 +35,7 @@ func TestSubmitDoneDefersTurnCompletionBellUntilQueuedTurnsFinish(t *testing.T) 
 	if got := ringer.Count(); got != 0 {
 		t.Fatalf("ring count = %d after first queued turn completion, want 0", got)
 	}
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected queued follow-up submission to be running")
 	}
 
@@ -54,7 +54,7 @@ func TestSubmitDoneDefersTurnCompletionBellUntilQueuedTurnsFinish(t *testing.T) 
 	if got := ringer.Last(); got != "builder: second" {
 		t.Fatalf("last message = %q, want %q", got, "builder: second")
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("expected UI idle after queued turns drain")
 	}
 }
@@ -101,7 +101,7 @@ func TestNoopFinalAbortsPendingTurnCompletionBell(t *testing.T) {
 	ringer := &countRinger{}
 	bells := newUnfocusedBellHooks(ringer)
 	m := newProjectedStaticUIModel(WithUITurnQueueHook(bells))
-	m.busy = true
+	m.setBusy(true)
 
 	next, _ := m.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventToolCallStarted, StepID: "step-1"}})
 	updated := next.(*uiModel)
@@ -119,7 +119,7 @@ func TestNoopFinalAbortsPendingTurnCompletionBell(t *testing.T) {
 	if got := ringer.Count(); got != 0 {
 		t.Fatalf("ring count = %d after forced drain following NO_OP final, want 0", got)
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("expected UI idle after NO_OP final")
 	}
 }
@@ -128,7 +128,7 @@ func TestQueuedFollowUpAfterNoopFinalDoesNotLeakTurnCompletionBell(t *testing.T)
 	ringer := &countRinger{}
 	bells := newUnfocusedBellHooks(ringer)
 	m := newProjectedStaticUIModel(WithUITurnQueueHook(bells))
-	m.busy = true
+	m.setBusy(true)
 	m.queued = queuedInputsForTest("follow up")
 
 	next, _ := m.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventToolCallStarted, StepID: "step-1"}})
@@ -146,7 +146,7 @@ func TestQueuedFollowUpAfterNoopFinalDoesNotLeakTurnCompletionBell(t *testing.T)
 	if got := ringer.Count(); got != 0 {
 		t.Fatalf("ring count = %d after NO_OP final queued follow-up, want 0", got)
 	}
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected queued follow-up submission to be running")
 	}
 	bells.OnTurnQueueDrained()
@@ -168,8 +168,8 @@ func TestManualCompactRingsWhenIdleAfterCompaction(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected manual compaction command")
 	}
-	if !updated.busy || !updated.compacting {
-		t.Fatalf("expected manual compaction to set busy/compacting, busy=%t compacting=%t", updated.busy, updated.compacting)
+	if !updated.isBusy() || !updated.isCompacting() {
+		t.Fatalf("expected manual compaction to set busy/compacting, busy=%t compacting=%t", updated.isBusy(), updated.isCompacting())
 	}
 	msgs := collectCmdMessages(t, cmd)
 	var done compactDoneMsg
@@ -186,8 +186,8 @@ func TestManualCompactRingsWhenIdleAfterCompaction(t *testing.T) {
 
 	next, _ = updated.Update(done)
 	updated = next.(*uiModel)
-	if updated.busy || updated.compacting {
-		t.Fatalf("expected idle after manual compaction, busy=%t compacting=%t", updated.busy, updated.compacting)
+	if updated.isBusy() || updated.isCompacting() {
+		t.Fatalf("expected idle after manual compaction, busy=%t compacting=%t", updated.isBusy(), updated.isCompacting())
 	}
 	if got := ringer.Count(); got != 1 {
 		t.Fatalf("ring count = %d after idle manual compaction, want 1", got)
@@ -203,7 +203,7 @@ func TestQueuedCompactRingsAfterCompactionWhenQueueIsDrained(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents(), WithUITurnQueueHook(bells))
 	m.startupCmds = nil
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/compact queued"
 
@@ -232,8 +232,8 @@ func TestQueuedCompactRingsAfterCompactionWhenQueueIsDrained(t *testing.T) {
 
 	next, _ = updated.Update(done)
 	updated = next.(*uiModel)
-	if updated.busy || updated.compacting {
-		t.Fatalf("expected idle after queued compaction, busy=%t compacting=%t", updated.busy, updated.compacting)
+	if updated.isBusy() || updated.isCompacting() {
+		t.Fatalf("expected idle after queued compaction, busy=%t compacting=%t", updated.isBusy(), updated.isCompacting())
 	}
 	if got := ringer.Count(); got != 1 {
 		t.Fatalf("ring count = %d after queued compact, want 1", got)
@@ -249,7 +249,7 @@ func TestQueuedCompactDefersBellUntilFollowingQueuedMessageDrains(t *testing.T) 
 	client := &runtimeControlFakeClient{}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents(), WithUITurnQueueHook(bells))
 	m.startupCmds = nil
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/compact queued"
 
@@ -334,8 +334,8 @@ func TestManualCompactWithQueuedSteeringDoesNotRing(t *testing.T) {
 	client := &runtimeControlFakeClient{hasQueuedUserWork: true, submitQueuedResult: "resumed"}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents(), WithUITurnQueueHook(bells))
 	m.startupCmds = nil
-	m.busy = true
-	m.compacting = true
+	m.setBusy(true)
+	m.setCompacting(true)
 	m.activity = uiActivityRunning
 	m.compactionOrigin = uiCompactionOriginManual
 	m.input = "steer after compact"
@@ -379,8 +379,8 @@ func TestManualCompactRingsAfterQueuedLocalCommandDrains(t *testing.T) {
 	ringer := &countRinger{}
 	bells := newUnfocusedBellHooks(ringer)
 	m := newProjectedStaticUIModel(WithUITurnQueueHook(bells))
-	m.busy = true
-	m.compacting = true
+	m.setBusy(true)
+	m.setCompacting(true)
 	m.activity = uiActivityRunning
 	m.compactionOrigin = uiCompactionOriginManual
 	m.queued = queuedInputsForTest("/status")
@@ -390,8 +390,8 @@ func TestManualCompactRingsAfterQueuedLocalCommandDrains(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected queued local command to run after compaction")
 	}
-	if updated.busy || len(updated.queued) != 0 {
-		t.Fatalf("expected queued local command to drain to idle, busy=%t queued=%+v", updated.busy, updated.queued)
+	if updated.isBusy() || len(updated.queued) != 0 {
+		t.Fatalf("expected queued local command to drain to idle, busy=%t queued=%+v", updated.isBusy(), updated.queued)
 	}
 	if got := ringer.Count(); got != 1 {
 		t.Fatalf("ring count after queued local command drain = %d, want 1", got)
@@ -414,8 +414,8 @@ func TestFailedManualCompactClearsCompactionBell(t *testing.T) {
 			ringer := &countRinger{}
 			bells := newUnfocusedBellHooks(ringer)
 			m := newProjectedStaticUIModel(WithUITurnQueueHook(bells))
-			m.busy = true
-			m.compacting = true
+			m.setBusy(true)
+			m.setCompacting(true)
 			m.activity = uiActivityRunning
 			m.compactionOrigin = uiCompactionOriginManual
 
@@ -440,8 +440,8 @@ func TestManualCompactWithPendingQueuedDrainHydrationDoesNotRing(t *testing.T) {
 	ringer := &countRinger{}
 	bells := newUnfocusedBellHooks(ringer)
 	m := newProjectedStaticUIModel(WithUITurnQueueHook(bells))
-	m.busy = true
-	m.compacting = true
+	m.setBusy(true)
+	m.setCompacting(true)
 	m.activity = uiActivityRunning
 	m.compactionOrigin = uiCompactionOriginManual
 	m.pendingQueuedDrainAfterHydration = true

@@ -509,6 +509,50 @@ func TestGoalLoopInterruptSuspendsUntilResumeRestarts(t *testing.T) {
 	}
 }
 
+func TestGoalLoopResumeDuringInterruptedTurnDoesNotLaunchDuplicateLoop(t *testing.T) {
+	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	client := newScriptedGoalLoopClient()
+	client.ignoreCancelUntilRelease = true
+	engine, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	if err != nil {
+		t.Fatalf("create runtime engine: %v", err)
+	}
+	client.beforeReturn = func(call int) {
+		if call == 2 {
+			_, _ = engine.SetGoalStatus(session.GoalStatusComplete, session.GoalActorAgent)
+		}
+	}
+	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if err := engine.StartGoalLoop(); err != nil {
+		t.Fatalf("StartGoalLoop: %v", err)
+	}
+	client.waitStarted(t, 1)
+
+	if err := engine.Interrupt(); err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+	if _, err := engine.SetGoalStatus(session.GoalStatusActive, session.GoalActorUser); err != nil {
+		t.Fatalf("resume goal: %v", err)
+	}
+	if err := engine.StartGoalLoop(); err != nil {
+		t.Fatalf("StartGoalLoop after resume: %v", err)
+	}
+	client.assertNotStarted(t, 2)
+
+	client.releaseCall(1)
+	client.waitStarted(t, 2)
+	client.releaseCall(2)
+	waitGoalLoopRunning(t, engine, false)
+	if got := client.callCount(); got != 2 {
+		t.Fatalf("model calls after resumed interrupted turn = %d, want 2", got)
+	}
+}
+
 func TestGoalLoopRetriesWhenExclusiveStepIsBusy(t *testing.T) {
 	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
 	if err != nil {
@@ -653,11 +697,12 @@ func goalDeveloperMessages(t *testing.T, events []session.Event) []llm.Message {
 }
 
 type scriptedGoalLoopClient struct {
-	mu           sync.Mutex
-	calls        int
-	started      map[int]chan struct{}
-	release      map[int]chan struct{}
-	beforeReturn func(int)
+	mu                       sync.Mutex
+	calls                    int
+	started                  map[int]chan struct{}
+	release                  map[int]chan struct{}
+	beforeReturn             func(int)
+	ignoreCancelUntilRelease bool
 }
 
 func newScriptedGoalLoopClient() *scriptedGoalLoopClient {
@@ -677,10 +722,14 @@ func (c *scriptedGoalLoopClient) Generate(ctx context.Context, _ llm.Request) (l
 	close(started)
 	c.mu.Unlock()
 
-	select {
-	case <-ctx.Done():
-		return llm.Response{}, ctx.Err()
-	case <-release:
+	if c.ignoreCancelUntilRelease {
+		<-release
+	} else {
+		select {
+		case <-ctx.Done():
+			return llm.Response{}, ctx.Err()
+		case <-release:
+		}
 	}
 	if beforeReturn != nil {
 		beforeReturn(call)
@@ -705,6 +754,18 @@ func (c *scriptedGoalLoopClient) waitStarted(t *testing.T, call int) {
 	case <-started:
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timed out waiting for goal loop call %d to start", call)
+	}
+}
+
+func (c *scriptedGoalLoopClient) assertNotStarted(t *testing.T, call int) {
+	t.Helper()
+	c.mu.Lock()
+	started := c.channelLocked(c.started, call)
+	c.mu.Unlock()
+	select {
+	case <-started:
+		t.Fatalf("goal loop call %d started before previous interrupted turn finished", call)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
@@ -737,7 +798,7 @@ func waitGoalLoopRunning(t *testing.T, engine *Engine, want bool) {
 	defer ticker.Stop()
 	for {
 		engine.mu.Lock()
-		running := engine.goalLoopRunning
+		running := engine.goalLoopLifecycle.IsRunning()
 		engine.mu.Unlock()
 		if running == want {
 			return

@@ -97,7 +97,7 @@ func (c uiAskController) resolvePrompt(promptID string) {
 	m.ask.freeformMode = askFreeformModeGeneric
 	m.restorePrimaryInputMode()
 	if m.activity == uiActivityQuestion {
-		if m.busy {
+		if m.isBusy() {
 			m.activity = uiActivityRunning
 		} else {
 			m.activity = uiActivityIdle
@@ -133,9 +133,9 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		hasNext := c.answer(clientui.PromptAnswer{}, errors.New("interrupted"))
-		if m.busy {
+		if m.isBusy() {
 			_ = m.interruptRuntime()
-			m.busy = false
+			m.setBusy(false)
 		}
 		if hasNext {
 			m.activity = uiActivityQuestion

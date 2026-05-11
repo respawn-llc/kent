@@ -54,7 +54,7 @@ func TestBusySlashSupervisorOnAppliesToInFlightRunCompletion(t *testing.T) {
 	}
 
 	m := newProjectedEngineUIModel(eng)
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 
 	submitDone := make(chan error, 1)
@@ -176,7 +176,7 @@ func TestSlashAutoCompactionTogglesAndShowsStatus(t *testing.T) {
 
 func TestBusySlashAutoCompactionExecutesImmediatelyWithoutQueueing(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/autocompaction off"
 
@@ -185,7 +185,7 @@ func TestBusySlashAutoCompactionExecutesImmediatelyWithoutQueueing(t *testing.T)
 	if cmd == nil {
 		t.Fatal("expected transient status clear timer cmd")
 	}
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected busy state unchanged while command executes")
 	}
 	if updated.autoCompactionEnabled {
@@ -280,7 +280,7 @@ func TestSlashAutoCompactionShowsCompactionModeNoneNote(t *testing.T) {
 
 func TestBusyUnsupportedSlashCommandShowsTransientErrorAndDoesNotQueue(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/compact keep details"
 
@@ -298,7 +298,7 @@ func TestBusyUnsupportedSlashCommandShowsTransientErrorAndDoesNotQueue(t *testin
 	if len(updated.pendingInjected) != 0 {
 		t.Fatalf("expected no pending injected messages, got %d", len(updated.pendingInjected))
 	}
-	if updated.inputSubmitLocked {
+	if updated.isInputSubmitLocked() {
 		t.Fatal("did not expect input submit lock for blocked slash command")
 	}
 	if updated.input != "" {
@@ -368,11 +368,11 @@ func TestInitialTranscriptVisibleImmediately(t *testing.T) {
 
 func TestSubmitDoneNoopFinalStaysInvisibleWithoutRuntimeClient(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 
 	next, _ := m.Update(newSubmitDoneMsg(0, uiNoopFinalToken, "", nil))
 	updated := next.(*uiModel)
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("expected UI idle after NO_OP final")
 	}
 	if updated.activity != uiActivityIdle {
@@ -418,7 +418,7 @@ func TestRuntimeSubmitNoopFinalStaysSilent(t *testing.T) {
 
 	next, _ = updated.Update(done)
 	updated = next.(*uiModel)
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("expected UI idle after runtime NO_OP final")
 	}
 	if updated.activity != uiActivityIdle {
@@ -448,7 +448,7 @@ func TestInitAutoSubmitsStartupPrompt(t *testing.T) {
 
 	_ = m.Init()
 
-	if !m.busy {
+	if !m.isBusy() {
 		t.Fatal("expected startup prompt to start submission immediately")
 	}
 	plain := stripANSIAndTrimRight(m.view.OngoingSnapshot())
@@ -468,7 +468,7 @@ func TestInitialInputSeedsDraftWithoutAutoSubmit(t *testing.T) {
 	if m.inputCursor != -1 {
 		t.Fatalf("expected initial input cursor at tail, got %d", m.inputCursor)
 	}
-	if m.busy {
+	if m.isBusy() {
 		t.Fatal("did not expect initial input to auto-submit")
 	}
 }
@@ -531,7 +531,7 @@ func TestDisconnectedEnterKeepsInputAndDoesNotStartSubmission(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect busy state while disconnected")
 	}
 	if updated.input != "continue with tests" {
@@ -658,7 +658,7 @@ func TestDisconnectedCommandSubmitRestoresGeneratedPrompt(t *testing.T) {
 	if updated.input != "generated prompt" {
 		t.Fatalf("expected generated prompt restored into input, got %q", updated.input)
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect busy state while disconnected")
 	}
 }

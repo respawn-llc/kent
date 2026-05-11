@@ -50,7 +50,7 @@ func TestGoalCommandOpensGoalOverlayWhileBusy(t *testing.T) {
 	m.termWidth = 100
 	m.termHeight = 20
 	m.windowSizeKnown = true
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/goal"
 
@@ -313,7 +313,7 @@ func TestGoalSetWhileBusyCanReplaceActiveGoalWithConfirmation(t *testing.T) {
 	m.termWidth = 100
 	m.termHeight = 20
 	m.windowSizeKnown = true
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/goal new goal"
 

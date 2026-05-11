@@ -50,7 +50,7 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.forwardToView(tea.KeyMsg{Type: msg.Type})
 			return m, nil
 		case tea.KeyEsc:
-			if m.busy || m.isInputLocked() || strings.TrimSpace(m.input) != "" {
+			if m.isBusy() || m.isInputLocked() || strings.TrimSpace(m.input) != "" {
 				return m, nil
 			}
 			return c.handleIdleRollbackEsc()
@@ -142,7 +142,7 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.Type {
 	case tea.KeyCtrlC:
-		if m.busy {
+		if m.isBusy() {
 			c.interruptBusyRuntime()
 			return m, nil
 		}
@@ -157,7 +157,7 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.view.Mode() != tui.ModeOngoing {
 			return m, nil
 		}
-		if m.busy || m.isInputLocked() || strings.TrimSpace(m.input) != "" {
+		if m.isBusy() || m.isInputLocked() || strings.TrimSpace(m.input) != "" {
 			return m, nil
 		}
 		return c.handleIdleRollbackEsc()
@@ -165,7 +165,7 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		c.normalizePendingCSIShiftEnterOnEnter()
 		text := strings.TrimSpace(m.input)
 		if text == "" {
-			if !m.busy && len(m.queued) > 0 {
+			if !m.isBusy() && len(m.queued) > 0 {
 				return c.flushQueuedInputs(queueDrainOne)
 			}
 			return m, nil
@@ -176,7 +176,7 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if inputState.Mode == uiInputModeRollbackEdit && !inputState.Busy {
 			return c.startRollbackFork(text)
 		}
-		if m.busy {
+		if m.isBusy() {
 			if handled, next, cmd := c.handleEnteredSlashCommandInput(text); handled {
 				return next, cmd
 			}
@@ -186,7 +186,7 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		_, isUserShell := parseUserShellCommand(text)
 		draftText, draftCursor, restoreDraft := m.capturePromptHistoryDraftForReuse()
-		if m.busy {
+		if m.isBusy() {
 			if isUserShell {
 				m.queueInput(text)
 				m.restoreCapturedPromptHistoryDraft(draftText, draftCursor, restoreDraft)

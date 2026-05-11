@@ -30,7 +30,7 @@ func TestStartSessionActivityEventsResubscribesFromLastSequenceAfterStreamGap(t 
 	defer cancel()
 
 	initial := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 41, Kind: clientui.EventAssistantDelta, AssistantDelta: "first"}}, {err: serverapi.ErrStreamGap}}}
-	resubscribed := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 42, Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Busy: true}}}}}
+	resubscribed := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 42, Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}}}}
 	remaining := []serverapi.SessionActivitySubscription{resubscribed}
 	var requestedAfter uint64
 
@@ -51,7 +51,7 @@ func TestStartSessionActivityEventsResubscribesFromLastSequenceAfterStreamGap(t 
 	}
 
 	second := waitSessionActivityEvent(t, events)
-	if second.Kind != clientui.EventRunStateChanged || second.RunState == nil || !second.RunState.Busy {
+	if second.Kind != clientui.EventRunStateChanged || second.RunState == nil || !second.RunState.Lifecycle.IsRunning() {
 		t.Fatalf("unexpected resubscribed event: %+v", second)
 	}
 	if requestedAfter != 41 {
@@ -89,7 +89,7 @@ func TestStartSessionActivityEventsEmitsExplicitGapWhenInitialStreamDropsWithout
 	defer cancel()
 
 	initial := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{err: io.EOF}}}
-	resubscribed := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 1, Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Busy: true}}}}}
+	resubscribed := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 1, Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}}}}
 	var requestedAfter []uint64
 	events, stop := startSessionActivityEvents(ctx, initial, func(_ context.Context, afterSequence uint64) (serverapi.SessionActivitySubscription, error) {
 		requestedAfter = append(requestedAfter, afterSequence)
@@ -108,7 +108,7 @@ func TestStartSessionActivityEventsEmitsExplicitGapWhenInitialStreamDropsWithout
 		t.Fatalf("resubscribe cursors = %+v, want [0]", requestedAfter)
 	}
 	live := waitSessionActivityEvent(t, events)
-	if live.Kind != clientui.EventRunStateChanged || live.RunState == nil || !live.RunState.Busy {
+	if live.Kind != clientui.EventRunStateChanged || live.RunState == nil || !live.RunState.Lifecycle.IsRunning() {
 		t.Fatalf("expected live event after recovery resubscribe, got %+v", live)
 	}
 }
@@ -119,7 +119,7 @@ func TestStartSessionActivityEventsResubscribeStaysIsolatedAcrossStreams(t *test
 	defer cancel()
 
 	initialA := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 1, Kind: clientui.EventAssistantDelta, AssistantDelta: "a-first"}}, {err: serverapi.ErrStreamGap}}}
-	resubA := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 2, Kind: clientui.EventRunStateChanged, StepID: "step-a", RunState: &clientui.RunState{Busy: true}}}}}
+	resubA := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 2, Kind: clientui.EventRunStateChanged, StepID: "step-a", RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}}}}
 	remainingA := []serverapi.SessionActivitySubscription{resubA}
 
 	initialB := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: "b-first"}}}}

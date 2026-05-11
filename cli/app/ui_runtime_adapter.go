@@ -74,9 +74,9 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 	})
 	m.markActiveSubmitFlushed(evt)
 	m.applyRuntimeEventStatus(evt)
-	a.applyRuntimeEventReduction(reduction)
+	cmds := make([]tea.Cmd, 0, 5)
+	cmds = append(cmds, a.applyRuntimeEventReduction(reduction))
 	a.reconcileInterruptFromRunState(evt)
-	cmds := make([]tea.Cmd, 0, 4)
 	transcriptMutated := false
 	awaitsHydration := false
 	if shouldInvalidateTransientTranscriptStateForSync(transcriptSync) {

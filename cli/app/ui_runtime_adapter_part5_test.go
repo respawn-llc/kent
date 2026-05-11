@@ -69,7 +69,7 @@ func TestReasoningDeltaBoldOnlyUpdatesStatusLineHeader(t *testing.T) {
 	m.forwardToView(tui.AppendTranscriptMsg{Role: "user", Text: "u"})
 	m.forwardToView(tui.ToggleModeMsg{})
 
-	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventRunStateChanged, RunState: &runtime.RunState{Busy: true}})
+	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventRunStateChanged, RunState: &runtime.RunState{Lifecycle: runtime.RunningRunLifecycle(runtime.RunModeTurn)}})
 	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventReasoningDelta, ReasoningDelta: &llm.ReasoningSummaryDelta{Key: "rs_1:summary:0", Role: "reasoning", Text: "**Summarizing fix and investigation**"}})
 
 	status := stripANSIAndTrimRight(m.renderStatusLine(120, uiThemeStyles("dark")))
@@ -87,7 +87,7 @@ func TestReasoningDeltaMixedContentUsesFirstBoldSpanForStatusLineHeader(t *testi
 	m.forwardToView(tui.AppendTranscriptMsg{Role: "user", Text: "u"})
 	m.forwardToView(tui.ToggleModeMsg{})
 
-	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventRunStateChanged, RunState: &runtime.RunState{Busy: true}})
+	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventRunStateChanged, RunState: &runtime.RunState{Lifecycle: runtime.RunningRunLifecycle(runtime.RunModeTurn)}})
 	text := "**Summarizing fix and investigation**\n\nregular reasoning details"
 	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventReasoningDelta, ReasoningDelta: &llm.ReasoningSummaryDelta{Key: "rs_1:summary:0", Role: "reasoning", Text: text}})
 
@@ -106,7 +106,7 @@ func TestReasoningDeltaRegularSummaryDoesNotReplaceStatusLineHeader(t *testing.T
 	m.forwardToView(tui.AppendTranscriptMsg{Role: "user", Text: "u"})
 	m.forwardToView(tui.ToggleModeMsg{})
 
-	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventRunStateChanged, RunState: &runtime.RunState{Busy: true}})
+	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventRunStateChanged, RunState: &runtime.RunState{Lifecycle: runtime.RunningRunLifecycle(runtime.RunModeTurn)}})
 	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventReasoningDelta, ReasoningDelta: &llm.ReasoningSummaryDelta{Key: "rs_1:summary:0", Role: "reasoning", Text: "**Preparing patch**"}})
 	text := "I am exploring ways to define atomic, low-level collection methods in NavResultStore that support reified filtering without reflection."
 	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventReasoningDelta, ReasoningDelta: &llm.ReasoningSummaryDelta{Key: "rs_1:summary:0", Role: "reasoning", Text: text}})
@@ -126,7 +126,7 @@ func TestReasoningDeltaRegularSummaryDoesNotReplaceStatusLineHeader(t *testing.T
 	if !strings.Contains(status, "Running checks") || strings.Contains(status, "Preparing patch") {
 		t.Fatalf("expected latest bold-only header to replace prior value, got %q", status)
 	}
-	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventRunStateChanged, RunState: &runtime.RunState{Busy: false}})
+	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventRunStateChanged, RunState: &runtime.RunState{Lifecycle: runtime.IdleRunLifecycle()}})
 	status = stripANSIAndTrimRight(m.renderStatusLine(120, uiThemeStyles("dark")))
 	if strings.Contains(status, "Running checks") {
 		t.Fatalf("expected status line header cleared when run stops, got %q", status)
@@ -138,14 +138,14 @@ func TestConversationSnapshotCommitClearsSawAssistantDelta(t *testing.T) {
 	m.termWidth = 100
 	m.termHeight = 20
 	m.windowSizeKnown = true
-	m.busy = true
+	m.setBusy(true)
 	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: "partial"})
 	if !m.sawAssistantDelta {
 		t.Fatal("expected sawAssistantDelta true after assistant delta")
 	}
 
 	_ = m.runtimeAdapter().applyChatSnapshot(runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{Role: "assistant", Text: "partial"}}, Ongoing: ""})
-	m.busy = false
+	m.setBusy(false)
 	m.syncViewport()
 
 	if m.sawAssistantDelta {
@@ -428,7 +428,7 @@ func TestProjectedUserMessageFlushedRecordsPromptHistoryWithoutTranscriptRefresh
 	m.input = "steered message"
 	m.lockedInjectText = "steered message"
 	m.lockedInjectID = "queue-test-0"
-	m.inputSubmitLocked = true
+	m.setInputSubmitLocked(true)
 
 	cmd := m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
 		Kind:                         clientui.EventUserMessageFlushed,
@@ -455,7 +455,7 @@ func TestProjectedUserMessageFlushedRecordsPromptHistoryWithoutTranscriptRefresh
 	if m.input != "" {
 		t.Fatalf("expected locked input cleared, got %q", m.input)
 	}
-	if m.inputSubmitLocked {
+	if m.isInputSubmitLocked() {
 		t.Fatal("expected input submit lock cleared")
 	}
 }
@@ -919,12 +919,12 @@ func TestProjectedUserMessageFlushedRequestsHydrationForCommittedGapWhileAssista
 	m.termWidth = 100
 	m.termHeight = 20
 	m.windowSizeKnown = true
-	m.busy = true
+	m.setBusy(true)
 	m.pendingInjected = queuedUserMessagesForTest("steered message")
 	m.input = "steered message"
 	m.lockedInjectText = "steered message"
 	m.lockedInjectID = "queue-test-0"
-	m.inputSubmitLocked = true
+	m.setInputSubmitLocked(true)
 	client.transcript = clientui.TranscriptPage{
 		SessionID:    "session-1",
 		Revision:     7,
@@ -975,7 +975,7 @@ func TestProjectedUserMessageFlushedRequestsHydrationForCommittedGapWhileAssista
 	if queuedPane != "" {
 		t.Fatalf("expected flushed user message to leave queued pane once prompt history advances, got %q", queuedPane)
 	}
-	if m.inputSubmitLocked {
+	if m.isInputSubmitLocked() {
 		t.Fatal("expected input submit lock cleared")
 	}
 	if m.input != "" {
@@ -1001,7 +1001,7 @@ func TestDeferredCommittedUserFlushRequestsTranscriptRefreshWhenRunEndsWithoutCa
 
 	cmd := m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
 		Kind:     clientui.EventRunStateChanged,
-		RunState: &clientui.RunState{Busy: false},
+		RunState: &clientui.RunState{Lifecycle: clientui.IdleRunLifecycle()},
 	})
 	msgs := collectCmdMessages(t, cmd)
 	refreshFound := false

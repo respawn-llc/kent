@@ -77,10 +77,9 @@ type ReasoningDelta struct {
 }
 
 type RunState struct {
-	Busy       bool
+	Lifecycle  RunLifecycle
 	RunID      string
 	Status     RunStatus
-	GoalLoop   bool
 	StartedAt  time.Time
 	FinishedAt time.Time
 }

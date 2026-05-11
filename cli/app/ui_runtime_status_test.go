@@ -78,7 +78,7 @@ func TestRuntimeStatusLineShowsGoalProgressWord(t *testing.T) {
 	m.termWidth = 100
 	m.windowSizeKnown = true
 	m.activity = uiActivityRunning
-	m.goalRun = true
+	m.setGoalRun(true)
 	status := uiViewLayout{model: m}.renderStatusLine(100, uiThemeStyles(m.theme))
 
 	if !strings.Contains(stripANSIAndTrimRight(status), "goal") {
@@ -189,12 +189,12 @@ func TestRuntimeMainViewActiveRunSeedsBusyGoalState(t *testing.T) {
 			SessionID: "session-1",
 			StepID:    "step-1",
 			Status:    clientui.RunStatusRunning,
-			GoalLoop:  true,
+			Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeGoalLoop),
 		},
 	}}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents(), WithUISessionID("session-1"))
-	if !m.busy || !m.goalRun || m.activity != uiActivityRunning {
-		t.Fatalf("startup run state = busy:%t goal:%t activity:%v, want active goal run", m.busy, m.goalRun, m.activity)
+	if !m.isBusy() || !m.isGoalRun() || m.activity != uiActivityRunning {
+		t.Fatalf("startup run state = busy:%t goal:%t activity:%v, want active goal run", m.isBusy(), m.isGoalRun(), m.activity)
 	}
 }
 

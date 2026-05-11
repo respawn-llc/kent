@@ -11,7 +11,7 @@ func projectedTranscriptEventSnapshotFromModel(m *uiModel) projectedTranscriptEv
 		baseOffset:           m.transcriptBaseOffset,
 		revision:             m.transcriptRevision,
 		hasRuntimeClient:     m.hasRuntimeClient(),
-		busy:                 m.busy,
+		busy:                 m.isBusy(),
 		liveAssistantPending: strings.TrimSpace(m.view.OngoingStreamingText()) != "" || m.sawAssistantDelta,
 	}
 }

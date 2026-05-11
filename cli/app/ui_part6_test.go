@@ -105,9 +105,9 @@ func TestPSOverlayInlineUnlocksLockedInputBeforeAppending(t *testing.T) {
 	m.termWidth = 100
 	m.termHeight = 14
 	m.windowSizeKnown = true
-	m.busy = true
+	m.setBusy(true)
 	m.input = "queued draft"
-	m.inputSubmitLocked = true
+	m.setInputSubmitLocked(true)
 	m.lockedInjectText = "queued draft"
 	m.lockedInjectID = "queue-test-0"
 	m.pendingInjected = queuedUserMessagesForTest("queued draft")
@@ -118,7 +118,7 @@ func TestPSOverlayInlineUnlocksLockedInputBeforeAppending(t *testing.T) {
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
 
-	if updated.inputSubmitLocked {
+	if updated.isInputSubmitLocked() {
 		t.Fatal("expected inline paste to unlock the input box")
 	}
 	if updated.lockedInjectText != "" {
@@ -161,7 +161,7 @@ func TestDirectPSInlineCommandPastesTranscriptIntoInput(t *testing.T) {
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
 
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect /ps inline to start a normal run")
 	}
 	if testProcessListOpen(updated) {
@@ -557,7 +557,7 @@ func TestSlashCommandTabAutocompletesSelectedCommandAndAddsSpace(t *testing.T) {
 	if len(updated.queued) != 0 {
 		t.Fatalf("expected no queued messages after autocomplete, got %d", len(updated.queued))
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect autocomplete to start submission")
 	}
 }
@@ -582,7 +582,7 @@ func TestSlashCommandEnterExecutesSelectedPartialMatch(t *testing.T) {
 
 func TestBusyTabQueuesSlashCommandAndFlushesAfterTurn(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/name queued title"
 
@@ -610,7 +610,7 @@ func TestBusyTabQueuesSlashCommandAndFlushesAfterTurn(t *testing.T) {
 
 func TestBusyQueuedSlashCommandDrainContinuesIntoQueuedPrompt(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/name queued title"
 
@@ -629,7 +629,7 @@ func TestBusyQueuedSlashCommandDrainContinuesIntoQueuedPrompt(t *testing.T) {
 	if updated.sessionName != "queued title" {
 		t.Fatalf("expected queued /name to execute before queued prompt, got %q", updated.sessionName)
 	}
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected queued prompt to auto-submit after queued slash command")
 	}
 	if len(updated.queued) != 0 {
@@ -645,7 +645,7 @@ func TestSubmitDoneWithRuntimeClientDoesNotRequestTranscriptCatchUpWithoutQueued
 	client := &refreshingRuntimeClient{}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.startupCmds = nil
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 
 	next, cmd := m.Update(submitDoneMsg{message: "ignored by runtime-backed flow"})
@@ -671,7 +671,7 @@ func TestSubmitDoneWithQueuedWorkWaitsForInFlightTranscriptCatchUp(t *testing.T)
 	}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.startupCmds = nil
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.queued = queuedInputsForTest("follow up")
 	m.runtimeTranscriptBusy = true
@@ -685,7 +685,7 @@ func TestSubmitDoneWithQueuedWorkWaitsForInFlightTranscriptCatchUp(t *testing.T)
 	if !updated.pendingQueuedDrainAfterHydration {
 		t.Fatal("expected queued drain deferred until hydration completes")
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("expected submit completion to leave runtime-backed UI idle while waiting for hydration")
 	}
 	if client.submitText != "" {
@@ -700,7 +700,7 @@ func TestSubmitDoneWithQueuedWorkWaitsForInFlightTranscriptCatchUp(t *testing.T)
 	if !updated.runtimeTranscriptBusy {
 		t.Fatal("expected dirty transcript sync to schedule a follow-up hydration before queued drain")
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect queued follow-up submission before authoritative hydration settles")
 	}
 	if updated.pendingQueuedDrainAfterHydration == false {
@@ -722,7 +722,7 @@ func TestSubmitDoneWithQueuedWorkWaitsForInFlightTranscriptCatchUp(t *testing.T)
 
 	next, finalCmd := updated.Update(refreshAgain)
 	updated = next.(*uiModel)
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected queued follow-up submission to begin after hydration completes")
 	}
 	if updated.pendingQueuedDrainAfterHydration {
@@ -746,13 +746,13 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 	m.termWidth = 100
 	m.termHeight = 20
 	m.windowSizeKnown = true
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.pendingInjected = queuedUserMessagesForTest("steered message")
 	m.input = "steered message"
 	m.lockedInjectText = "steered message"
 	m.lockedInjectID = "queue-test-0"
-	m.inputSubmitLocked = true
+	m.setInputSubmitLocked(true)
 	m.transcriptEntries = []tui.TranscriptEntry{{Role: "user", Text: "seed"}}
 	m.transcriptRevision = 6
 	m.transcriptTotalEntries = 1
@@ -773,7 +773,7 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 		t.Fatalf("expected queued user flush to stop using deferred committed tail, got %d", got)
 	}
 
-	m.busy = false
+	m.setBusy(false)
 	m.activity = uiActivityIdle
 	m.queued = queuedInputsForTest("follow up")
 	m.pendingQueuedDrainAfterHydration = true
@@ -799,7 +799,7 @@ func TestStaleHydrateKeepsQueuedDrainReadyAfterCommittedGapUserFlush(t *testing.
 	if updated.activeSubmit.text != "follow up" {
 		t.Fatalf("expected queued drain to continue after stale hydrate rejection, got active=%q", updated.activeSubmit.text)
 	}
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected queued drain to start the next submission after stale hydrate rejection")
 	}
 	if cmd == nil {
@@ -817,7 +817,7 @@ func TestHydrationCompletionDoesNotRedrainQueuedTurnAfterManualDrainStarts(t *te
 	}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.startupCmds = nil
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.queued = queuedInputsForTest("follow up")
 	m.runtimeTranscriptBusy = true
@@ -831,7 +831,7 @@ func TestHydrationCompletionDoesNotRedrainQueuedTurnAfterManualDrainStarts(t *te
 
 	next, drainCmd := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected manual queued drain to start submission while hydration is still pending")
 	}
 	if updated.activeSubmit.text != "follow up" {

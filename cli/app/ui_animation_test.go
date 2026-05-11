@@ -37,7 +37,7 @@ func TestHandleSpinnerTickJumpsFromElapsedTimeAndKeepsBoundaryAlignedDelay(t *te
 
 	anchor := time.Unix(1_700_000_100, 0)
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.spinnerTickToken = 1
 	m.spinnerGeneration = 1
 	m.spinnerClock.Start(anchor)
@@ -68,10 +68,10 @@ func TestRuntimeBusyEventStartsSpinnerTicking(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	next, cmd := m.Update(runtimeEventMsg{event: clientui.Event{
 		Kind:     clientui.EventRunStateChanged,
-		RunState: &clientui.RunState{Busy: true},
+		RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)},
 	}})
 	updated := next.(*uiModel)
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected runtime busy event to set busy")
 	}
 	if updated.spinnerTickToken == 0 {
@@ -101,7 +101,7 @@ func TestRuntimeEventRearmsExpiredSpinnerTick(t *testing.T) {
 	})
 
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.spinnerGeneration = 1
 	m.spinnerTickToken = 1
 	m.spinnerClock.Start(anchor)
@@ -144,7 +144,7 @@ func TestRuntimeEventRearmsActiveSpinnerTickBeforeGrace(t *testing.T) {
 	})
 
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.spinnerGeneration = 1
 	m.spinnerTickToken = 1
 	m.spinnerClock.Start(anchor)
@@ -185,7 +185,7 @@ func TestReviewerOnlyRuntimeEventStartsAdvancesAndStopsSpinner(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	next, _ := m.Update(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventReviewerStarted}))
 	started := next.(*uiModel)
-	if !started.reviewerRunning {
+	if !started.isReviewerRunning() {
 		t.Fatal("expected reviewer to start running")
 	}
 	if started.spinnerTickToken == 0 {
@@ -202,7 +202,7 @@ func TestReviewerOnlyRuntimeEventStartsAdvancesAndStopsSpinner(t *testing.T) {
 
 	next, _ = advanced.Update(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventReviewerCompleted}))
 	completed := next.(*uiModel)
-	if completed.reviewerRunning {
+	if completed.isReviewerRunning() {
 		t.Fatal("expected reviewer running state cleared on completion")
 	}
 	if completed.spinnerTickToken != 0 {

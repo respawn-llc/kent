@@ -551,7 +551,7 @@ func TestPromptHistoryBellWritesRawTerminalBell(t *testing.T) {
 
 func TestInterruptedQueuedPromptDoesNotEnterHistoryBeforeFlush(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "queued later"
 
@@ -662,11 +662,11 @@ func TestCtrlCWhileSubmitRestoresQueuedDraft(t *testing.T) {
 
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated = next.(*uiModel)
-	if !updated.busy || !updated.pendingInterrupt {
+	if !updated.isBusy() || !updated.hasPendingInterrupt() {
 		t.Fatal("expected ctrl+c to wait for server interrupted run state")
 	}
 	updated = applyInterruptedRunStateForTest(t, updated)
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("expected busy=false after ctrl+c during submit")
 	}
 	if updated.activity != uiActivityInterrupted {
@@ -700,7 +700,7 @@ func TestActiveSubmitErrorRestoresQueuedSteeringInput(t *testing.T) {
 
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
-	if updated.inputSubmitLocked {
+	if updated.isInputSubmitLocked() {
 		t.Fatal("did not expect follow-up enter during submit to lock input")
 	}
 	if updated.input != "" {
@@ -712,7 +712,7 @@ func TestActiveSubmitErrorRestoresQueuedSteeringInput(t *testing.T) {
 
 	next, _ = updated.Update(submitDoneMsg{token: updated.activeSubmit.token, submittedText: "continue", err: errors.New("submit failed")})
 	updated = next.(*uiModel)
-	if updated.inputSubmitLocked {
+	if updated.isInputSubmitLocked() {
 		t.Fatal("did not expect submit error to leave input locked")
 	}
 	if len(updated.pendingInjected) != 0 {
@@ -834,7 +834,7 @@ func TestApprovalAskTabCommentaryUsesCurrentSelection(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 	m := newProjectedEngineUIModel(eng)
-	m.busy = true
+	m.setBusy(true)
 	reply := make(chan askReply, 1)
 	event := askEvent{req: clientui.PendingPromptEvent{Question: "Approve?", Approval: true, ApprovalOptions: []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: clientui.ApprovalDecisionAllowSession, Label: "Allow for this session"}, {Decision: clientui.ApprovalDecisionDeny, Label: "Deny"}}}, reply: reply}
 
@@ -892,7 +892,7 @@ func TestApprovalAskPickerSubmitIgnoresPendingCommentaryDraft(t *testing.T) {
 
 func TestBusyInputRemainsEditableUntilSubmitLock(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.input = "seed"
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
@@ -948,7 +948,7 @@ func TestViewHidesCursorWhenInputLocked(t *testing.T) {
 	m.termWidth = 40
 	m.termHeight = 16
 	m.windowSizeKnown = true
-	m.inputSubmitLocked = true
+	m.setInputSubmitLocked(true)
 	m.input = "hello world"
 	m.syncViewport()
 

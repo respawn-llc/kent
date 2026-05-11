@@ -393,11 +393,11 @@ func TestSubmitErrorWithRuntimeClientAppendsActivePrimaryRunEntry(t *testing.T) 
 	client := &runtimeControlFakeClient{}
 	m := newProjectedStaticUIModel()
 	m.engine = client
-	m.busy = true
+	m.setBusy(true)
 
 	next, _ := m.Update(submitDoneMsg{err: primaryrun.ErrActivePrimaryRun})
 	updated := next.(*uiModel)
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect busy after active primary run error")
 	}
 	if updated.activity != uiActivityError {
@@ -412,7 +412,7 @@ func TestActiveSubmitErrorFallsBackToVisibleTranscriptWhenRuntimeAppendFails(t *
 	client := &runtimeControlFakeClient{appendErr: errors.New("append failed")}
 	m := newProjectedStaticUIModel()
 	m.engine = client
-	m.busy = true
+	m.setBusy(true)
 
 	next, _ := m.Update(submitDoneMsg{err: primaryrun.ErrActivePrimaryRun})
 	updated := next.(*uiModel)
@@ -443,7 +443,7 @@ func TestSubmitErrorFallsBackToVisibleTranscriptWhenRuntimeAppendFails(t *testin
 	client := &runtimeControlFakeClient{appendErr: errors.New("append failed")}
 	m := newProjectedStaticUIModel()
 	m.engine = client
-	m.busy = true
+	m.setBusy(true)
 	m.activeSubmit = activeSubmitState{token: 1, text: "prompt"}
 
 	next, _ := m.Update(submitDoneMsg{token: 1, submittedText: "prompt", err: errors.New("submit failed")})

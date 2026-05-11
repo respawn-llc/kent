@@ -379,13 +379,13 @@ func TestNativeStreamingLinesHiddenWhenNotBusy(t *testing.T) {
 	m.termHeight = 20
 	m.windowSizeKnown = true
 	m.forwardToView(tui.SetConversationMsg{Ongoing: "stale stream text"})
-	m.busy = false
+	m.setBusy(false)
 	view := stripANSIPreserve(m.View())
 	if strings.Contains(view, "stale stream text") {
 		t.Fatalf("expected stale streaming text hidden when not busy, got %q", view)
 	}
 
-	m.busy = true
+	m.setBusy(true)
 	view = stripANSIPreserve(m.View())
 	if !strings.Contains(view, "stale stream text") {
 		t.Fatalf("expected streaming text visible while busy, got %q", view)
@@ -400,7 +400,7 @@ func TestApplyRuntimeTranscriptPageSpillsHydratedStreamingOverflowWithoutPriorAs
 	m = next.(*uiModel)
 	_ = collectCmdMessages(t, startupCmd)
 
-	m.busy = true
+	m.setBusy(true)
 	lineCount := m.nativeStreamingAssistantLiveBudget(m.termWidth) + 3
 	streamText := makeStreamingLines(lineCount)
 	cmd := m.runtimeAdapter().applyRuntimeTranscriptPage(clientui.TranscriptPageRequest{}, clientui.TranscriptPage{

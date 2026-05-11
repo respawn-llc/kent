@@ -7,11 +7,11 @@ func TestReduceRuntimeEvent_UserMessageFlushedProducesPendingInputAndConversatio
 		RuntimeRunState{},
 		RuntimeConversationState{Freshness: ConversationFreshnessFresh},
 		PendingInputState{
-			Input:             "steered message",
-			PendingInjected:   []QueuedUserMessage{{ID: "queue-1", Text: "steered message"}, {ID: "queue-2", Text: "follow-up"}},
-			LockedInjectText:  "steered message",
-			LockedInjectID:    "queue-1",
-			InputSubmitLocked: true,
+			Input:            "steered message",
+			PendingInjected:  []QueuedUserMessage{{ID: "queue-1", Text: "steered message"}, {ID: "queue-2", Text: "follow-up"}},
+			LockedInjectText: "steered message",
+			LockedInjectID:   "queue-1",
+			Submission:       InputSubmissionLocked,
 		},
 		RuntimeReasoningState{},
 		false,
@@ -27,7 +27,7 @@ func TestReduceRuntimeEvent_UserMessageFlushedProducesPendingInputAndConversatio
 	if update.PendingInput.DraftCommand != RuntimePendingInputClearDraft {
 		t.Fatal("expected locked injected input to clear the draft input")
 	}
-	if update.PendingInput.State.InputSubmitLocked {
+	if update.PendingInput.State.Submission.IsLocked() {
 		t.Fatal("expected input submit lock cleared")
 	}
 	if update.PendingInput.State.LockedInjectText != "" {
@@ -43,15 +43,15 @@ func TestReduceRuntimeEvent_UserMessageFlushedProducesPendingInputAndConversatio
 
 func TestReduceRuntimeEvent_RunStateStoppedClearsReasoningAndReturnsToIdle(t *testing.T) {
 	update := ReduceRuntimeEvent(
-		RuntimeRunState{Busy: true},
+		RuntimeRunState{Run: RunningRunLifecycle(RunModeTurn)},
 		RuntimeConversationState{},
 		PendingInputState{},
 		RuntimeReasoningState{StatusHeader: "Running checks"},
 		true,
-		Event{Kind: EventRunStateChanged, RunState: &RunState{Busy: false}},
+		Event{Kind: EventRunStateChanged, RunState: &RunState{Lifecycle: IdleRunLifecycle()}},
 	)
 
-	if update.RunState.State.Busy {
+	if update.RunState.State.Run.IsRunning() {
 		t.Fatal("expected busy cleared")
 	}
 	if update.RunState.Activity != RuntimeActivityIdle {
@@ -67,15 +67,15 @@ func TestReduceRuntimeEvent_RunStateStoppedClearsReasoningAndReturnsToIdle(t *te
 
 func TestReduceRuntimeEvent_RunStateStartedDoesNotRequestTranscriptSync(t *testing.T) {
 	update := ReduceRuntimeEvent(
-		RuntimeRunState{Busy: false},
+		RuntimeRunState{Run: IdleRunLifecycle()},
 		RuntimeConversationState{},
 		PendingInputState{},
 		RuntimeReasoningState{},
 		false,
-		Event{Kind: EventRunStateChanged, RunState: &RunState{Busy: true}},
+		Event{Kind: EventRunStateChanged, RunState: &RunState{Lifecycle: RunningRunLifecycle(RunModeTurn)}},
 	)
 
-	if !update.RunState.State.Busy {
+	if !update.RunState.State.Run.IsRunning() {
 		t.Fatal("expected busy set")
 	}
 	if update.RunState.Activity != RuntimeActivityRunning {
@@ -93,9 +93,9 @@ func TestReduceRuntimeEvent_GoalRunStateTracksOnlyBusyGoalTurns(t *testing.T) {
 		PendingInputState{},
 		RuntimeReasoningState{},
 		false,
-		Event{Kind: EventRunStateChanged, RunState: &RunState{Busy: true, GoalLoop: true}},
+		Event{Kind: EventRunStateChanged, RunState: &RunState{Lifecycle: RunningRunLifecycle(RunModeGoalLoop)}},
 	)
-	if !started.RunState.State.GoalLoop {
+	if !started.RunState.State.Run.IsGoalLoopRunning() {
 		t.Fatalf("expected goal loop run state after start, got %+v", started.RunState.State)
 	}
 
@@ -105,9 +105,9 @@ func TestReduceRuntimeEvent_GoalRunStateTracksOnlyBusyGoalTurns(t *testing.T) {
 		PendingInputState{},
 		RuntimeReasoningState{},
 		true,
-		Event{Kind: EventRunStateChanged, RunState: &RunState{Busy: false, GoalLoop: true}},
+		Event{Kind: EventRunStateChanged, RunState: &RunState{Lifecycle: FinishedRunLifecycle(RunModeGoalLoop)}},
 	)
-	if stopped.RunState.State.GoalLoop {
+	if stopped.RunState.State.Run.IsGoalLoopRunning() {
 		t.Fatalf("expected goal loop run state cleared after stop, got %+v", stopped.RunState.State)
 	}
 }
@@ -219,7 +219,7 @@ func TestReduceRuntimeEvent_BackgroundCompletionFallsBackWithoutCompactText(t *t
 
 func TestReduceRuntimeEvent_CompactionCompletedClearsCompacting(t *testing.T) {
 	update := ReduceRuntimeEvent(
-		RuntimeRunState{Compacting: true},
+		RuntimeRunState{Compaction: NewCompactionLifecycle(true)},
 		RuntimeConversationState{},
 		PendingInputState{},
 		RuntimeReasoningState{},
@@ -227,7 +227,7 @@ func TestReduceRuntimeEvent_CompactionCompletedClearsCompacting(t *testing.T) {
 		Event{Kind: EventCompactionCompleted, Compaction: &CompactionStatus{Mode: "auto", Count: 2}},
 	)
 
-	if update.RunState.State.Compacting {
+	if update.RunState.State.Compaction.IsRunning() {
 		t.Fatal("expected compaction completed to clear compacting state")
 	}
 	if update.Transcript.Sync.IsSet() || len(update.Transcript.AssistantStream) != 0 {

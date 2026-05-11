@@ -745,12 +745,12 @@ func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailRoundTripBeforeComm
 	model.input = "steer now"
 	model.lockedInjectText = "steer now"
 	model.lockedInjectID = "queue-test-0"
-	model.inputSubmitLocked = true
+	model.setInputSubmitLocked(true)
 
 	_ = model.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
 		Kind:     clientui.EventRunStateChanged,
 		StepID:   "step-1",
-		RunState: &clientui.RunState{Busy: true},
+		RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)},
 	})
 	_ = model.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
 		Kind:           clientui.EventAssistantDelta,

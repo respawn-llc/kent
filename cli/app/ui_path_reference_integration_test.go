@@ -32,7 +32,7 @@ func TestPathReferenceTabCompletesSelectedFile(t *testing.T) {
 	if updated.input != "inspect @cli/app/ui.go" {
 		t.Fatalf("input = %q", updated.input)
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect completion to start submission")
 	}
 }
@@ -57,7 +57,7 @@ func TestPathReferenceEnterCompletesSelectedDirectoryWithoutSubmitting(t *testin
 	if updated.input != "inspect @cli/app/" {
 		t.Fatalf("input = %q", updated.input)
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect completion to start submission")
 	}
 }
@@ -103,7 +103,7 @@ func TestPathReferenceTabFallsThroughWhenNoMatches(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected normal tab submission when no matches exist")
 	}
 }
@@ -117,7 +117,7 @@ func TestPathReferenceEnterDoesNotSubmitWhileQueryIsPending(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect enter to submit while path-reference query is still pending")
 	}
 	if updated.input != "echo @ab" {
@@ -184,7 +184,7 @@ func TestPathReferenceWorksInRollbackEditMode(t *testing.T) {
 	if updated.input != "rewrite @cli/app/ui.go" {
 		t.Fatalf("input = %q", updated.input)
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect rollback edit completion to submit")
 	}
 }

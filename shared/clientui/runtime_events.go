@@ -3,11 +3,9 @@ package clientui
 import "strings"
 
 type RuntimeRunState struct {
-	Busy             bool
-	Compacting       bool
-	ReviewerRunning  bool
-	ReviewerBlocking bool
-	GoalLoop         bool
+	Run        RunLifecycle
+	Compaction CompactionLifecycle
+	Reviewer   ReviewerLifecycle
 }
 
 type RuntimeConversationState struct {
@@ -19,11 +17,11 @@ type RuntimeReasoningState struct {
 }
 
 type PendingInputState struct {
-	Input             string
-	PendingInjected   []QueuedUserMessage
-	LockedInjectText  string
-	LockedInjectID    string
-	InputSubmitLocked bool
+	Input            string
+	PendingInjected  []QueuedUserMessage
+	LockedInjectText string
+	LockedInjectID   string
+	Submission       InputSubmissionLifecycle
 }
 
 type BackgroundNoticeKind uint8
@@ -86,6 +84,7 @@ const (
 type RuntimeRunStateReduction struct {
 	State    RuntimeRunState
 	Activity RuntimeActivityCommand
+	Err      error
 }
 
 type RuntimeDraftInputCommandKind uint8
@@ -196,22 +195,26 @@ func ReduceRuntimeRunStateEvent(state RuntimeRunState, activityRunning bool, evt
 	reduction := RuntimeRunStateReduction{State: next}
 	switch evt.Kind {
 	case EventCompactionStarted:
-		reduction.State.Compacting = true
+		reduction.State.Compaction = NewCompactionLifecycle(true)
 	case EventCompactionCompleted, EventCompactionFailed:
-		reduction.State.Compacting = false
+		reduction.State.Compaction = NewCompactionLifecycle(false)
 	case EventReviewerStarted:
-		reduction.State.ReviewerRunning = true
-		reduction.State.ReviewerBlocking = true
+		reviewer, err := NewReviewerLifecycle(true, true)
+		if err == nil {
+			reduction.State.Reviewer = reviewer
+		}
 	case EventReviewerCompleted:
-		reduction.State.ReviewerRunning = false
-		reduction.State.ReviewerBlocking = false
+		reduction.State.Reviewer = ReviewerLifecycleIdle
 	case EventRunStateChanged:
 		if evt.RunState == nil {
 			return reduction
 		}
-		reduction.State.Busy = evt.RunState.Busy
-		reduction.State.GoalLoop = evt.RunState.Busy && evt.RunState.GoalLoop
-		if evt.RunState.Busy {
+		if err := evt.RunState.Lifecycle.Validate(); err != nil {
+			reduction.Err = err
+			return reduction
+		}
+		reduction.State.Run = evt.RunState.Lifecycle
+		if evt.RunState.Lifecycle.IsRunning() {
 			reduction.Activity = RuntimeActivityRunning
 			return reduction
 		}
@@ -242,13 +245,13 @@ func ReduceRuntimePendingInputEvent(input PendingInputState, evt Event) RuntimeP
 			reduction.State.PendingInjected = append([]QueuedUserMessage(nil), reduction.State.PendingInjected[len(consumed):]...)
 			reduction.PromptHistoryCommand = &RuntimePromptHistoryCommand{Text: evt.UserMessage}
 		}
-		if reduction.State.InputSubmitLocked && containsQueuedUserMessageID(consumed, reduction.State.LockedInjectID) {
+		if reduction.State.Submission.IsLocked() && containsQueuedUserMessageID(consumed, reduction.State.LockedInjectID) {
 			if reduction.State.Input == reduction.State.LockedInjectText {
 				reduction.DraftCommand = RuntimePendingInputClearDraft
 			}
 			reduction.State.LockedInjectText = ""
 			reduction.State.LockedInjectID = ""
-			reduction.State.InputSubmitLocked = false
+			reduction.State.Submission = NewInputSubmissionLifecycle(false)
 		}
 	}
 	return reduction
@@ -268,9 +271,14 @@ func ReduceRuntimeReasoningEvent(state RuntimeReasoningState, evt Event) Runtime
 	case EventReasoningDeltaReset:
 		reduction.Stream = append(reduction.Stream, RuntimeReasoningStreamCommand{Kind: RuntimeReasoningStreamClear})
 	case EventRunStateChanged:
-		if evt.RunState != nil && !evt.RunState.Busy {
-			reduction.State.StatusHeader = ""
-			reduction.Stream = append(reduction.Stream, RuntimeReasoningStreamCommand{Kind: RuntimeReasoningStreamClear})
+		if evt.RunState != nil {
+			if err := evt.RunState.Lifecycle.Validate(); err != nil {
+				break
+			}
+			if !evt.RunState.Lifecycle.IsRunning() {
+				reduction.State.StatusHeader = ""
+				reduction.Stream = append(reduction.Stream, RuntimeReasoningStreamCommand{Kind: RuntimeReasoningStreamClear})
+			}
 		}
 	}
 	return reduction

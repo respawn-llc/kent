@@ -26,7 +26,7 @@ func TestHydrationCompletionKeepsDeferredQueuedDrainArmedUntilUnrelatedBusyState
 	}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.startupCmds = nil
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.queued = queuedInputsForTest("follow up")
 	m.runtimeTranscriptBusy = true
@@ -38,9 +38,9 @@ func TestHydrationCompletionKeepsDeferredQueuedDrainArmedUntilUnrelatedBusyState
 		t.Fatal("expected queued drain deferred until hydration completes")
 	}
 
-	next, _ = updated.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Busy: true}}})
+	next, _ = updated.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}})
 	updated = next.(*uiModel)
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected unrelated runtime activity to mark UI busy before hydration completes")
 	}
 
@@ -72,9 +72,9 @@ func TestHydrationCompletionKeepsDeferredQueuedDrainArmedUntilUnrelatedBusyState
 		t.Fatalf("expected queued follow-up preserved while unrelated busy state blocks auto-drain, got %+v", updated.queued)
 	}
 
-	next, idleCmd := updated.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Busy: false}}})
+	next, idleCmd := updated.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.IdleRunLifecycle()}}})
 	updated = next.(*uiModel)
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected queued follow-up to start once unrelated busy state clears")
 	}
 	if updated.pendingQueuedDrainAfterHydration {
@@ -97,7 +97,7 @@ func TestHydrationCompletionKeepsDeferredQueuedDrainArmedUntilUnrelatedBusyState
 
 func TestBusyQueuedUnknownSlashDrainsAsPromptSubmission(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/nope queued"
 
@@ -115,7 +115,7 @@ func TestBusyQueuedUnknownSlashDrainsAsPromptSubmission(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected queued unknown slash to start submission after turn completion")
 	}
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected queued unknown slash to start prompt submission during drain")
 	}
 	if len(updated.queued) != 0 {
@@ -148,7 +148,7 @@ func TestAutoDrainStopsAfterQueuedPSInlineAppendsToInput(t *testing.T) {
 	}
 
 	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.queued = queuedInputsForTest("/ps inline "+res.SessionID, "summarize this")
 
@@ -158,7 +158,7 @@ func TestAutoDrainStopsAfterQueuedPSInlineAppendsToInput(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected command batch from queued /ps inline execution")
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect queued /ps inline to auto-submit the follow-up prompt")
 	}
 	if !strings.Contains(updated.input, "Output of bg shell "+res.SessionID+":") {
@@ -180,7 +180,7 @@ func TestBusyQueuedReviewSlashCommandStartsFreshSessionAfterTurn(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIConversationFreshness(clientui.ConversationFreshnessEstablished),
 	)
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/review cli/app"
 
@@ -219,7 +219,7 @@ func TestBusyQueuedReviewSlashCommandWaitsForHydrationBeforePromptSubmission(t *
 	}
 	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	m.startupCmds = nil
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/review cli/app"
 
@@ -234,7 +234,7 @@ func TestBusyQueuedReviewSlashCommandWaitsForHydrationBeforePromptSubmission(t *
 	if !updated.pendingQueuedDrainAfterHydration {
 		t.Fatal("expected queued /review drain deferred until transcript hydration completes")
 	}
-	if updated.busy {
+	if updated.isBusy() {
 		t.Fatal("did not expect queued /review prompt submission before hydration settles")
 	}
 	if updated.activeSubmit.text != "" {
@@ -261,7 +261,7 @@ func TestBusyQueuedReviewSlashCommandWaitsForHydrationBeforePromptSubmission(t *
 
 	next, drainCmd := updated.Update(refresh)
 	updated = next.(*uiModel)
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected queued /review to start prompt submission after hydration completes")
 	}
 	if updated.pendingQueuedDrainAfterHydration {
@@ -297,7 +297,7 @@ func TestQueuedReviewUsesEngineConversationFreshnessWhenUIDidNotReceiveRuntimeUp
 	}
 
 	m := newProjectedEngineUIModel(eng)
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/review cli/app"
 
@@ -466,7 +466,7 @@ func TestUnknownSlashCommandIsSubmittedAsPrompt(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected submission to start for unknown slash command")
 	}
 	plain := stripANSIAndTrimRight(updated.view.OngoingSnapshot())
@@ -487,7 +487,7 @@ func TestFileSlashCommandSubmitsInjectedUserPrompt(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected submission to start for file slash command")
 	}
 	plain := stripANSIAndTrimRight(updated.view.OngoingSnapshot())
@@ -517,7 +517,7 @@ func TestBuiltInReviewSlashCommandSubmitsInjectedUserPrompt(t *testing.T) {
 	if updated.Action() != UIActionNone {
 		t.Fatalf("expected no session transition for empty-session /review, got %q", updated.Action())
 	}
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected /review to submit in place for an empty session")
 	}
 	if updated.nextSessionInitialPrompt != "" {
@@ -537,7 +537,7 @@ func TestBuiltInInitSlashCommandSubmitsInjectedUserPrompt(t *testing.T) {
 	if updated.Action() != UIActionNone {
 		t.Fatalf("expected no session transition for empty-session /init, got %q", updated.Action())
 	}
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected /init to submit in place for an empty session")
 	}
 	if updated.nextSessionInitialPrompt != "" {
@@ -591,7 +591,7 @@ func TestBuiltInInitSlashCommandStartsFreshSessionWhenCurrentSessionHasVisibleUs
 
 func TestBusySlashNameExecutesImmediatelyWithoutQueueing(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/name incident triage"
 
@@ -600,7 +600,7 @@ func TestBusySlashNameExecutesImmediatelyWithoutQueueing(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected window title update cmd from /name")
 	}
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected busy state unchanged while command executes")
 	}
 	if updated.sessionName != "incident triage" {
@@ -619,7 +619,7 @@ func TestBusySlashNameExecutesImmediatelyWithoutQueueing(t *testing.T) {
 
 func TestBusySlashThinkingExecutesImmediatelyWithoutQueueing(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.thinkingLevel = "high"
 	m.input = "/thinking low"
@@ -629,7 +629,7 @@ func TestBusySlashThinkingExecutesImmediatelyWithoutQueueing(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("did not expect extra command from /thinking")
 	}
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected busy state unchanged while command executes")
 	}
 	if updated.thinkingLevel != "low" {
@@ -901,7 +901,7 @@ func TestSlashSupervisorTogglesReviewerInvocationAndShowsStatus(t *testing.T) {
 
 func TestBusySlashSupervisorExecutesImmediatelyWithoutQueueing(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/supervisor on"
 
@@ -910,7 +910,7 @@ func TestBusySlashSupervisorExecutesImmediatelyWithoutQueueing(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected transient status clear timer cmd")
 	}
-	if !updated.busy {
+	if !updated.isBusy() {
 		t.Fatal("expected busy state unchanged while command executes")
 	}
 	if !updated.reviewerEnabled || updated.reviewerMode != "edits" {
@@ -958,7 +958,7 @@ func TestBusySlashSupervisorOffAppliesToInFlightRunCompletion(t *testing.T) {
 	}
 
 	m := newProjectedEngineUIModel(eng)
-	m.busy = true
+	m.setBusy(true)
 	m.activity = uiActivityRunning
 
 	submitDone := make(chan error, 1)

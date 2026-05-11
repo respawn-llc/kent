@@ -291,7 +291,7 @@ func (l uiViewLayout) renderNativeStreamingLines(width, maxLines int, style uiSt
 		return nil
 	}
 	pendingLines := l.renderNativePendingLines(width)
-	hasStreaming := l.model.busy || l.model.sawAssistantDelta
+	hasStreaming := l.model.isBusy() || l.model.sawAssistantDelta
 	if !hasStreaming && len(pendingLines) == 0 {
 		return nil
 	}

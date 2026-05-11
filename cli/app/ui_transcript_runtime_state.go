@@ -156,7 +156,7 @@ func shouldIgnoreStaleAssistantDelta(m *uiModel, evt clientui.Event, delta strin
 	if strings.TrimSpace(delta) == "" {
 		return false
 	}
-	if m.busy || m.compacting || m.reviewerRunning {
+	if m.isBusy() || m.isCompacting() || m.isReviewerRunning() {
 		return false
 	}
 	if strings.TrimSpace(m.view.OngoingStreamingText()) != "" || m.sawAssistantDelta {

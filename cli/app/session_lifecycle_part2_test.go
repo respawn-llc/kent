@@ -104,7 +104,7 @@ func TestBackTeleportLifecycleSeedsParentDraftWithoutAutoSubmit(t *testing.T) {
 			if parentModel.input != tt.want {
 				t.Fatalf("expected parent draft %q, got %q", tt.want, parentModel.input)
 			}
-			if parentModel.busy {
+			if parentModel.isBusy() {
 				t.Fatal("did not expect parent draft to auto-submit")
 			}
 

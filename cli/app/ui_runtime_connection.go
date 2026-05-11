@@ -81,7 +81,7 @@ func (m *uiModel) setRuntimeDisconnected(disconnected bool) {
 	if m == nil {
 		return
 	}
-	m.runtimeDisconnected = disconnected
+	m.runtimeConnection = clientui.NewRuntimeConnectionLifecycle(disconnected)
 	if disconnected {
 		m.clearDeferredCommittedTail("disconnect")
 	}
@@ -91,5 +91,5 @@ func (m *uiModel) runtimeDisconnectedState() bool {
 	if m == nil {
 		return false
 	}
-	return m.runtimeDisconnected
+	return m.runtimeConnection.IsDisconnected()
 }

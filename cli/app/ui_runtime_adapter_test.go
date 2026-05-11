@@ -19,6 +19,59 @@ import (
 	"time"
 )
 
+func TestApplyRuntimeEventReductionInvalidLifecycleKeepsSideEffectsAndReturnsStatusCommand(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.conversationFreshness = clientui.ConversationFreshnessFresh
+	reviewer, err := clientui.NewReviewerLifecycle(true, true)
+	if err != nil {
+		t.Fatalf("reviewer lifecycle: %v", err)
+	}
+
+	cmd := m.runtimeAdapter().applyRuntimeEventReduction(clientui.RuntimeEventReduction{
+		RunState: clientui.RuntimeRunStateReduction{
+			State: clientui.RuntimeRunState{
+				Run:        m.runtimeLifecycle.Run,
+				Compaction: clientui.NewCompactionLifecycle(true),
+				Reviewer:   reviewer,
+			},
+			Err: errors.New("bad lifecycle"),
+		},
+		Conversation: clientui.RuntimeConversationReduction{State: clientui.RuntimeConversationState{Freshness: clientui.ConversationFreshnessEstablished}},
+		PendingInput: clientui.RuntimePendingInputReduction{
+			State: clientui.PendingInputState{
+				Input:      "draft",
+				Submission: clientui.InputSubmissionLocked,
+			},
+		},
+		Reasoning: clientui.RuntimeReasoningReduction{State: clientui.RuntimeReasoningState{StatusHeader: "thinking"}},
+	})
+
+	if cmd == nil {
+		t.Fatal("expected invalid lifecycle to return transient status timer command")
+	}
+	if msgs := collectCmdMessages(t, cmd); len(msgs) == 0 {
+		t.Fatal("expected transient status command to produce a timer message")
+	}
+	if m.activity != uiActivityError {
+		t.Fatalf("activity = %v, want error", m.activity)
+	}
+	if !strings.Contains(m.transientStatus, "invalid runtime lifecycle") {
+		t.Fatalf("transient status = %q, want invalid lifecycle error", m.transientStatus)
+	}
+	if !m.isCompacting() || !m.isReviewerRunning() || !m.isReviewerBlocking() {
+		t.Fatalf("expected non-run lifecycle side effects to apply, compacting=%t reviewer=%t blocking=%t", m.isCompacting(), m.isReviewerRunning(), m.isReviewerBlocking())
+	}
+	if m.conversationFreshness != clientui.ConversationFreshnessEstablished {
+		t.Fatalf("conversation freshness = %v, want established", m.conversationFreshness)
+	}
+	if !m.isInputSubmitLocked() {
+		t.Fatal("expected pending input submission side effect to apply")
+	}
+	if m.reasoningStatusHeader != "thinking" {
+		t.Fatalf("reasoning header = %q, want thinking", m.reasoningStatusHeader)
+	}
+}
+
 type runtimeAdapterFakeClient struct {
 	responses []llm.Response
 	index     int
@@ -238,13 +291,13 @@ func TestRuntimeAdapterRunStartAppliesPendingInputBeforeActivityEffect(t *testin
 
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
 		Kind:     clientui.EventRunStateChanged,
-		RunState: &clientui.RunState{Busy: true},
+		RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)},
 	})
 
 	if m.activity != uiActivityRunning {
 		t.Fatalf("activity = %v, want running", m.activity)
 	}
-	if !m.busy {
+	if !m.isBusy() {
 		t.Fatal("expected busy state set")
 	}
 }
@@ -256,7 +309,7 @@ func TestRuntimeAdapterUserMessageFlushRecordsHistoryAndClearsDraft(t *testing.T
 	m.pendingInjected = queuedUserMessagesForTest("steered message", "follow-up")
 	m.lockedInjectText = "steered message"
 	m.lockedInjectID = "queue-test-0"
-	m.inputSubmitLocked = true
+	m.setInputSubmitLocked(true)
 
 	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
 		Kind:                         clientui.EventUserMessageFlushed,
@@ -267,7 +320,7 @@ func TestRuntimeAdapterUserMessageFlushRecordsHistoryAndClearsDraft(t *testing.T
 	if m.input != "" {
 		t.Fatalf("input = %q, want cleared", m.input)
 	}
-	if m.inputSubmitLocked {
+	if m.isInputSubmitLocked() {
 		t.Fatal("expected input submit lock cleared")
 	}
 	if m.lockedInjectText != "" {
@@ -539,7 +592,7 @@ func TestRuntimeEventBatchCoalescesCommittedNativeFlushAndPreservesOrder(t *test
 
 	callMeta := transcript.ToolCallMeta{ToolName: "shell", Command: "pwd", CompactText: "pwd", IsShell: true}
 	firstBatch := []clientui.Event{
-		projectRuntimeEvent(runtime.Event{Kind: runtime.EventRunStateChanged, RunState: &runtime.RunState{Busy: true}}),
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventRunStateChanged, RunState: &runtime.RunState{Lifecycle: runtime.RunningRunLifecycle(runtime.RunModeTurn)}}),
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventUserMessageFlushed, StepID: "step-1", UserMessage: "say hi"}),
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventLocalEntryAdded, StepID: "step-1", CommittedTranscriptChanged: true, CommittedEntryStart: 2, CommittedEntryStartSet: true, CommittedEntryCount: 3, LocalEntry: &runtime.ChatEntry{Role: "reviewer_status", Text: "Supervisor ran: 2 suggestions, applied."}}),
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventReviewerCompleted, StepID: "step-1", Reviewer: &runtime.ReviewerStatus{Outcome: "applied", SuggestionsCount: 2}}),

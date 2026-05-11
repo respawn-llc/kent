@@ -20,11 +20,11 @@ const (
 func (l uiViewLayout) renderStatusLine(width int, style uiStyles) string {
 	m := l.model
 	spin := renderStatusDot(m.theme, m.activity, m.spinnerFrame)
-	if m.reviewerRunning {
+	if m.isReviewerRunning() {
 		spin = renderReviewerStatus(m.spinnerFrame)
-	} else if m.compacting {
+	} else if m.isCompacting() {
 		spin = renderCompactionStatus(m.spinnerFrame)
-	} else if m.goalRun && m.activity == uiActivityRunning {
+	} else if m.isGoalRun() && m.activity == uiActivityRunning {
 		spin = renderGoalStatus(m.theme, m.spinnerFrame)
 	}
 	segments := make([]string, 0, 5)
@@ -180,7 +180,7 @@ func (l uiViewLayout) shouldRenderHelpHint() bool {
 	if !m.canShowHelp() || m.helpVisible {
 		return false
 	}
-	if m.busy || m.compacting || m.reviewerRunning {
+	if m.isBusy() || m.isCompacting() || m.isReviewerRunning() {
 		return false
 	}
 	return m.activity == uiActivityIdle

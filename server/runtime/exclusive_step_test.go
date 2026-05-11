@@ -206,13 +206,13 @@ func TestExclusiveStepLifecycleEmitsCompletedRunStatePayloads(t *testing.T) {
 	}
 	started := runEvents[0]
 	finished := runEvents[1]
-	if !started.Busy || started.RunID == "" {
+	if !started.Lifecycle.IsRunning() || started.RunID == "" {
 		t.Fatalf("expected busy start event with run id, got %+v", started)
 	}
 	if started.Status != RunStatusRunning || started.StartedAt.IsZero() || !started.FinishedAt.IsZero() {
 		t.Fatalf("unexpected start event payload: %+v", started)
 	}
-	if finished.Busy {
+	if finished.Lifecycle.IsRunning() {
 		t.Fatalf("expected final run-state event to clear busy, got %+v", finished)
 	}
 	if finished.RunID != started.RunID {
@@ -294,7 +294,7 @@ func TestExclusiveStepLifecycleEmitsInterruptedRunStatePayloads(t *testing.T) {
 	if finished.RunID != startedEvent.RunID {
 		t.Fatalf("expected stable run id across interruption, started=%+v finished=%+v", startedEvent, finished)
 	}
-	if finished.Busy || finished.Status != RunStatusInterrupted {
+	if finished.Lifecycle.IsRunning() || finished.Status != RunStatusInterrupted {
 		t.Fatalf("expected interrupted final state, got %+v", finished)
 	}
 	if finished.FinishedAt.IsZero() || finished.StartedAt.IsZero() {
@@ -462,14 +462,11 @@ func TestExclusiveStepLifecycleInterruptSkipsStaleRunCleanup(t *testing.T) {
 	}
 
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
-	lifecycle.busy = true
-	lifecycle.activeRun = 1
-	lifecycle.cancel = func() {
+	lifecycle.active = &exclusiveRunState{sequence: 1, cancel: func() {
 		lifecycle.mu.Lock()
-		lifecycle.busy = true
-		lifecycle.activeRun = 2
+		lifecycle.active = &exclusiveRunState{sequence: 2}
 		lifecycle.mu.Unlock()
-	}
+	}}
 	if err := store.MarkInFlight(true); err != nil {
 		t.Fatalf("mark in-flight true: %v", err)
 	}

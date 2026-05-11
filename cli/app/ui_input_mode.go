@@ -157,7 +157,7 @@ func (m *uiModel) inputModeState() uiInputModeState {
 	return uiInputModeState{
 		Mode:           mode,
 		InputLocked:    m != nil && m.isInputLocked(),
-		Busy:           m != nil && m.busy,
+		Busy:           m != nil && m.isBusy(),
 		ShowsMainInput: mode.showsMainInput(),
 		ShowsAskInput:  mode.showsAskInput(),
 	}

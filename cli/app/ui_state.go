@@ -53,12 +53,8 @@ type uiInputFeatureState struct {
 	promptHistorySelection   int
 	promptHistoryDraft       string
 	promptHistoryDraftCursor int
-	busy                     bool
 	activity                 uiActivity
-	goalRun                  bool
-	compacting               bool
-	reviewerRunning          bool
-	reviewerBlocking         bool
+	runtimeLifecycle         clientui.RuntimeRunState
 	reviewerEnabled          bool
 	reviewerMode             string
 	autoCompactionEnabled    bool
@@ -72,11 +68,11 @@ type uiInputFeatureState struct {
 	submitToken      uint64
 	activeSubmit     activeSubmitState
 
-	pendingInjected   []clientui.QueuedUserMessage
-	lockedInjectText  string
-	lockedInjectID    string
-	inputSubmitLocked bool
-	pendingInterrupt  bool
+	pendingInjected    []clientui.QueuedUserMessage
+	lockedInjectText   string
+	lockedInjectID     string
+	inputSubmission    clientui.InputSubmissionLifecycle
+	interruptLifecycle uiInterruptLifecycle
 
 	modelName             string
 	configuredModelName   string
@@ -168,7 +164,7 @@ type uiTranscriptFeatureState struct {
 	transcriptRevision                  int64
 	ongoingCommittedDelivery            ongoingCommittedDeliveryCursor
 	deferredCommittedTail               []deferredProjectedTranscriptTail
-	runtimeDisconnected                 bool
+	runtimeConnection                   clientui.RuntimeConnectionLifecycle
 	transcriptLiveDirty                 bool
 	reasoningLiveDirty                  bool
 	detailTranscript                    uiDetailTranscriptWindow

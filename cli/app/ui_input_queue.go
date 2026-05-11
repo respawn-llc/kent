@@ -67,7 +67,7 @@ func (c uiInputController) queueOrStartSubmission(text string) (tea.Model, tea.C
 	} else {
 		m.resetPromptHistoryNavigation()
 	}
-	if m.busy {
+	if m.isBusy() {
 		return m, nil
 	}
 	return c.flushQueuedInputs(queueDrainOne)
@@ -156,7 +156,7 @@ func (c uiInputController) unlockInputAfterSubmissionError() {
 
 func (c uiInputController) releaseLockedInjectedInput(discardEngineQueue bool) {
 	m := c.model
-	if !m.inputSubmitLocked {
+	if !m.isInputSubmitLocked() {
 		return
 	}
 	lockedID := strings.TrimSpace(m.lockedInjectID)
@@ -173,7 +173,7 @@ func (c uiInputController) releaseLockedInjectedInput(discardEngineQueue bool) {
 			m.discardQueuedRuntimeUserMessage(lockedID)
 		}
 	}
-	m.inputSubmitLocked = false
+	m.setInputSubmitLocked(false)
 	m.lockedInjectText = ""
 	m.lockedInjectID = ""
 }
@@ -201,7 +201,7 @@ func (c uiInputController) flushQueuedInputs(mode queueDrainMode) (tea.Model, te
 
 func (c uiInputController) resumeQueuedInputsAfterIdleRuntime() tea.Cmd {
 	m := c.model
-	if m == nil || m.busy || m.ask.hasCurrent() || len(m.queued) == 0 || m.isInputLocked() || m.pendingQueuedDrainAfterHydration {
+	if m == nil || m.isBusy() || m.ask.hasCurrent() || len(m.queued) == 0 || m.isInputLocked() || m.pendingQueuedDrainAfterHydration {
 		return nil
 	}
 	if m.hasRuntimeClient() && c.queuedDrainRequiresHydration() {
@@ -233,7 +233,7 @@ func (c uiInputController) dispatchQueuedInput(item queuedInputItem) tea.Cmd {
 }
 
 func (m *uiModel) shouldContinueQueuedInputAutoDrain() bool {
-	if len(m.queued) == 0 || m.busy || m.isInputLocked() || m.exitAction != UIActionNone || m.ask.hasCurrent() {
+	if len(m.queued) == 0 || m.isBusy() || m.isInputLocked() || m.exitAction != UIActionNone || m.ask.hasCurrent() {
 		return false
 	}
 	if m.inputMode() != uiInputModeMain {
