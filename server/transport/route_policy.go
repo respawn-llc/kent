@@ -113,10 +113,10 @@ func (e routePolicyExecutor) requiresServerAuth(method string) bool {
 
 func (e routePolicyExecutor) serverAuthReady(ctx context.Context) (bool, error) {
 	g := e.gateway
-	if g == nil || g.core == nil || g.core.AuthManager() == nil {
+	if g == nil || g.deps == nil || g.deps.AuthManager() == nil {
 		return false, nil
 	}
-	state, err := g.core.AuthManager().Load(ctx)
+	state, err := g.deps.AuthManager().Load(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -346,7 +346,7 @@ func (g *Gateway) activeProjectID(ctx context.Context, state *connectionState) (
 	if trimmed := strings.TrimSpace(state.attachedProject); trimmed != "" {
 		return trimmed, nil
 	}
-	if trimmed := strings.TrimSpace(g.core.ProjectID()); trimmed != "" {
+	if trimmed := strings.TrimSpace(g.deps.ProjectID()); trimmed != "" {
 		return trimmed, nil
 	}
 	return "", activeProjectRequiredError{}
@@ -361,7 +361,7 @@ func (g *Gateway) requireSessionInActiveProject(ctx context.Context, state *conn
 	if trimmedSessionID == "" {
 		return fmt.Errorf("session id is required")
 	}
-	metadataStore := g.core.MetadataStore()
+	metadataStore := g.deps.MetadataStore()
 	if metadataStore == nil {
 		return errors.New("metadata store is required")
 	}
@@ -376,7 +376,7 @@ func (g *Gateway) requireSessionInActiveProject(ctx context.Context, state *conn
 }
 
 func (g *Gateway) requireGoalSessionAccess(ctx context.Context, state *connectionState, sessionID string) error {
-	if strings.TrimSpace(state.attachedProject) == "" && strings.TrimSpace(g.core.ProjectID()) == "" {
+	if strings.TrimSpace(state.attachedProject) == "" && strings.TrimSpace(g.deps.ProjectID()) == "" {
 		return nil
 	}
 	return g.requireSessionInActiveProject(ctx, state, sessionID)
@@ -387,11 +387,11 @@ func (g *Gateway) requireSessionInAttachedProject(ctx context.Context, state *co
 	if projectID == "" {
 		return nil
 	}
-	return g.core.SessionBelongsToProject(ctx, sessionID, projectID)
+	return g.deps.SessionBelongsToProject(ctx, sessionID, projectID)
 }
 
 func (g *Gateway) processInActiveProject(ctx context.Context, state *connectionState, processID string) (serverapi.ProcessGetResponse, error) {
-	resp, err := g.core.ProcessViewClient().GetProcess(ctx, serverapi.ProcessGetRequest{ProcessID: processID})
+	resp, err := g.deps.ProcessViewClient().GetProcess(ctx, serverapi.ProcessGetRequest{ProcessID: processID})
 	if err != nil {
 		return serverapi.ProcessGetResponse{}, err
 	}

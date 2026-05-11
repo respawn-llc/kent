@@ -10,7 +10,8 @@ import (
 	"strings"
 
 	"builder/server/auth"
-	"builder/server/core"
+	"builder/server/metadata"
+	"builder/shared/client"
 	"builder/shared/protocol"
 	"builder/shared/rpccontract"
 	"builder/shared/rpcwire"
@@ -18,8 +19,64 @@ import (
 )
 
 type Gateway struct {
-	core     *core.Core
+	deps     GatewayDependencies
 	identity protocol.ServerIdentity
+}
+
+type GatewayDependencies interface {
+	GatewayAuthDependencies
+	GatewayProjectDependencies
+	GatewaySessionDependencies
+	GatewayRuntimeDependencies
+	GatewayPromptDependencies
+	GatewayProcessDependencies
+	GatewayWorktreeDependencies
+}
+
+type GatewayAuthDependencies interface {
+	AuthManager() *auth.Manager
+	AuthBootstrapClient() client.AuthBootstrapClient
+	AuthStatusClient() client.AuthStatusClient
+}
+
+type GatewayProjectDependencies interface {
+	MetadataStore() *metadata.Store
+	ProjectID() string
+	ProjectExists(context.Context, string) error
+	ProjectViewClient() client.ProjectViewClient
+}
+
+type GatewaySessionDependencies interface {
+	SessionBelongsToProject(context.Context, string, string) error
+	SessionViewClient() client.SessionViewClient
+	SessionLifecycleClient() client.SessionLifecycleClient
+	SessionRuntimeClient() client.SessionRuntimeClient
+	SessionActivityClient() client.SessionActivityClient
+	SessionLaunchClientForProjectWorkspace(context.Context, string, string) (client.SessionLaunchClient, error)
+	SessionLaunchClientForProjectWorkspaceID(context.Context, string, string) (client.SessionLaunchClient, error)
+	RunPromptClientForProjectWorkspace(context.Context, string, string) (client.RunPromptClient, error)
+	RunPromptClientForProjectWorkspaceID(context.Context, string, string) (client.RunPromptClient, error)
+}
+
+type GatewayRuntimeDependencies interface {
+	RuntimeControlClient() client.RuntimeControlClient
+}
+
+type GatewayPromptDependencies interface {
+	AskViewClient() client.AskViewClient
+	ApprovalViewClient() client.ApprovalViewClient
+	PromptControlClient() client.PromptControlClient
+	PromptActivityClient() client.PromptActivityClient
+}
+
+type GatewayProcessDependencies interface {
+	ProcessViewClient() client.ProcessViewClient
+	ProcessControlClient() client.ProcessControlClient
+	ProcessOutputClient() client.ProcessOutputClient
+}
+
+type GatewayWorktreeDependencies interface {
+	WorktreeClient() client.WorktreeClient
 }
 
 var gatewaySubscriptionMethods = protocolSubscriptionMethodSet()
@@ -87,14 +144,14 @@ func gatewayProgressHandlerForMethod(method string) (gatewayProgressHandler, rpc
 	return handler, route, ok
 }
 
-func NewGateway(appCore *core.Core, identity protocol.ServerIdentity) (*Gateway, error) {
-	if appCore == nil {
-		return nil, errors.New("server core is required")
+func NewGateway(deps GatewayDependencies, identity protocol.ServerIdentity) (*Gateway, error) {
+	if deps == nil {
+		return nil, errors.New("gateway dependencies are required")
 	}
 	if strings.TrimSpace(identity.ProtocolVersion) == "" {
 		return nil, errors.New("server identity is required")
 	}
-	return &Gateway{core: appCore, identity: identity}, nil
+	return &Gateway{deps: deps, identity: identity}, nil
 }
 
 func (g *Gateway) Handler() http.Handler {

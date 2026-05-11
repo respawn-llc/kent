@@ -93,7 +93,7 @@ func (g *Gateway) serveSessionActivitySubscription(conn rpcwire.Conn, ctx contex
 		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
 		return
 	}
-	sub, err := g.core.SessionActivityClient().SubscribeSessionActivity(ctx, params)
+	sub, err := g.deps.SessionActivityClient().SubscribeSessionActivity(ctx, params)
 	if err != nil {
 		_ = sendResponse(ctx, conn, responseForError(req.ID, err))
 		return
@@ -124,7 +124,7 @@ func (g *Gateway) serveProcessOutputSubscription(conn rpcwire.Conn, ctx context.
 		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
 		return
 	}
-	sub, err := g.core.ProcessOutputClient().SubscribeProcessOutput(ctx, params)
+	sub, err := g.deps.ProcessOutputClient().SubscribeProcessOutput(ctx, params)
 	if err != nil {
 		_ = sendResponse(ctx, conn, responseForError(req.ID, err))
 		return
@@ -155,7 +155,7 @@ func (g *Gateway) servePromptActivitySubscription(conn rpcwire.Conn, ctx context
 		_ = sendResponse(ctx, conn, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, err.Error()))
 		return
 	}
-	sub, err := g.core.PromptActivityClient().SubscribePromptActivity(ctx, params)
+	sub, err := g.deps.PromptActivityClient().SubscribePromptActivity(ctx, params)
 	if err != nil {
 		_ = sendResponse(ctx, conn, responseForError(req.ID, err))
 		return

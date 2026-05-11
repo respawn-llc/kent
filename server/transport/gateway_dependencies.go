@@ -12,7 +12,7 @@ import (
 func (g *Gateway) resolveAttachedProjectWorkspace(ctx context.Context, projectID string, workspaceID string, workspaceRoot string) (string, string, error) {
 	trimmedWorkspaceID := strings.TrimSpace(workspaceID)
 	if trimmedWorkspaceID != "" {
-		binding, err := g.core.MetadataStore().LookupWorkspaceBindingByID(ctx, trimmedWorkspaceID)
+		binding, err := g.deps.MetadataStore().LookupWorkspaceBindingByID(ctx, trimmedWorkspaceID)
 		if err != nil {
 			return "", "", err
 		}
@@ -23,7 +23,7 @@ func (g *Gateway) resolveAttachedProjectWorkspace(ctx context.Context, projectID
 	}
 	trimmedWorkspaceRoot := strings.TrimSpace(workspaceRoot)
 	if trimmedWorkspaceRoot == "" {
-		overview, err := g.core.ProjectViewClient().GetProjectOverview(ctx, serverapi.ProjectGetOverviewRequest{ProjectID: strings.TrimSpace(projectID)})
+		overview, err := g.deps.ProjectViewClient().GetProjectOverview(ctx, serverapi.ProjectGetOverviewRequest{ProjectID: strings.TrimSpace(projectID)})
 		if err != nil {
 			return "", "", err
 		}
@@ -36,7 +36,7 @@ func (g *Gateway) resolveAttachedProjectWorkspace(ctx context.Context, projectID
 		workspace := overview.Overview.Workspaces[0]
 		return strings.TrimSpace(workspace.WorkspaceID), strings.TrimSpace(workspace.RootPath), nil
 	}
-	resolved, err := g.core.ProjectViewClient().ResolveProjectPath(ctx, serverapi.ProjectResolvePathRequest{Path: trimmedWorkspaceRoot})
+	resolved, err := g.deps.ProjectViewClient().ResolveProjectPath(ctx, serverapi.ProjectResolvePathRequest{Path: trimmedWorkspaceRoot})
 	if err != nil {
 		return "", "", err
 	}
@@ -56,9 +56,9 @@ func (g *Gateway) sessionLaunchClientForState(ctx context.Context, state *connec
 	}
 	var launchClient any
 	if strings.TrimSpace(state.attachedWorkspaceID) == "" {
-		launchClient, err = g.core.SessionLaunchClientForProjectWorkspace(ctx, projectID, state.attachedWorkspaceRoot)
+		launchClient, err = g.deps.SessionLaunchClientForProjectWorkspace(ctx, projectID, state.attachedWorkspaceRoot)
 	} else {
-		launchClient, err = g.core.SessionLaunchClientForProjectWorkspaceID(ctx, projectID, state.attachedWorkspaceID)
+		launchClient, err = g.deps.SessionLaunchClientForProjectWorkspaceID(ctx, projectID, state.attachedWorkspaceID)
 	}
 	if err != nil {
 		return nil, err
@@ -79,9 +79,9 @@ func (g *Gateway) runPromptClientForState(ctx context.Context, state *connection
 	}
 	var runClient any
 	if strings.TrimSpace(state.attachedWorkspaceID) == "" {
-		runClient, err = g.core.RunPromptClientForProjectWorkspace(ctx, projectID, state.attachedWorkspaceRoot)
+		runClient, err = g.deps.RunPromptClientForProjectWorkspace(ctx, projectID, state.attachedWorkspaceRoot)
 	} else {
-		runClient, err = g.core.RunPromptClientForProjectWorkspaceID(ctx, projectID, state.attachedWorkspaceID)
+		runClient, err = g.deps.RunPromptClientForProjectWorkspaceID(ctx, projectID, state.attachedWorkspaceID)
 	}
 	if err != nil {
 		return nil, err
