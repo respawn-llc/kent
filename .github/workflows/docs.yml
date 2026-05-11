@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@v6.0.2
 
       - name: Build and upload docs
-        uses: withastro/action@v6.1.0
+        uses: withastro/action@v6.1.1
         with:
           path: docs
           package-manager: pnpm@10.32.1
