@@ -461,7 +461,7 @@ func (m *uiModel) sendTransientStatusWithNoticeID(message string, kind uiStatusN
 	}
 	notice := uiStatusNotice{Text: strings.TrimSpace(message), Kind: kind, Duration: duration, NoticeID: strings.TrimSpace(noticeID)}
 	if delivery == uiStatusNoticeQueue && strings.TrimSpace(m.transientStatus) != "" {
-		if m.transientStatus == notice.Text && m.transientStatusKind == notice.Kind {
+		if m.transientStatus == notice.Text && m.transientStatusKind == notice.Kind && m.transientStatusNoticeID == notice.NoticeID {
 			return nil
 		}
 		if len(m.transientStatusQueue) > 0 {

@@ -247,6 +247,6 @@ func (m *uiModel) appendLocalEntryFallbackWithNoticeIDAndVisibility(role, text, 
 	m.transcriptEntries = append(m.transcriptEntries, entry)
 	m.transcriptTotalEntries = max(m.transcriptTotalEntries, m.transcriptBaseOffset+len(committedTranscriptEntriesForApp(m.transcriptEntries)))
 	m.refreshRollbackCandidates()
-	m.forwardToView(tui.AppendTranscriptMsg{Visibility: entry.Visibility, Role: transcriptRole, Text: text})
+	m.forwardToView(tui.AppendTranscriptMsg{Visibility: entry.Visibility, Role: transcriptRole, Text: text, NoticeID: entry.NoticeID})
 	return m.syncNativeHistoryFromTranscript()
 }

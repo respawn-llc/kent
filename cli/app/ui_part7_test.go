@@ -683,6 +683,19 @@ func TestMirroredTransientStatusClearsOnlyForMatchingNoticeID(t *testing.T) {
 	}
 }
 
+func TestLocalEntryFallbackForwardsNoticeIDToView(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	_ = m.appendLocalEntryFallbackWithNoticeID("system", "Fallback notice", "notice-1")
+
+	loaded := m.view.LoadedTranscriptEntries()
+	if len(loaded) != 1 {
+		t.Fatalf("loaded transcript entry count = %d, want 1", len(loaded))
+	}
+	if loaded[0].NoticeID != "notice-1" {
+		t.Fatalf("view notice id = %q, want notice-1", loaded[0].NoticeID)
+	}
+}
+
 func TestSlashFastTogglesAndShowsStatus(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIFastModeAvailable(true))
 	m.termWidth = 100
