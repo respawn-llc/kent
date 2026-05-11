@@ -225,7 +225,9 @@ func TestServiceUsesDormantCacheForMainViewAndTailCoveredPages(t *testing.T) {
 		}, nil
 	})
 
-	svc := &Service{sessions: NewStaticSessionResolver(store), dormant: cache}
+	dormantSource := newDormantSessionSnapshotSource(nil)
+	dormantSource.dormant = cache
+	svc := &Service{snapshots: &resolvedSessionSnapshotSource{sessions: NewStaticSessionResolver(store), dormant: dormantSource}}
 	mainViewResp, err := svc.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
 		t.Fatalf("get session main view: %v", err)

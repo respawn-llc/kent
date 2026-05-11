@@ -62,11 +62,26 @@ func (c uiInputController) queueOrStartSubmission(text string) (tea.Model, tea.C
 	}
 	draftText, draftCursor, restoreDraft := m.capturePromptHistoryDraftForReuse()
 	m.queueInput(text)
-	m.restoreCapturedPromptHistoryDraft(draftText, draftCursor, restoreDraft)
+	if c.preservePromptHistoryDraftForQueuedText(text) {
+		m.restoreCapturedPromptHistoryDraft(draftText, draftCursor, restoreDraft)
+	} else {
+		m.resetPromptHistoryNavigation()
+	}
 	if m.busy {
 		return m, nil
 	}
 	return c.flushQueuedInputs(queueDrainOne)
+}
+
+func (c uiInputController) preservePromptHistoryDraftForQueuedText(text string) bool {
+	if c.model == nil || c.model.commandRegistry == nil {
+		return true
+	}
+	command, knownCommand := c.model.commandRegistry.Command(text)
+	if !knownCommand {
+		return true
+	}
+	return command.PreservePromptHistoryDraft
 }
 
 func (c uiInputController) blockDisconnectedSubmission(restoreHidden bool, submittedText string) (bool, tea.Cmd) {

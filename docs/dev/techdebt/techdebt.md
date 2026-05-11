@@ -98,7 +98,7 @@ Entry shape: checklist title line, summary evidence paragraph, impact paragraph,
 
   Regression prevention must include package tests or import-lint checks that prevent stateful reducers, mutable UI state holders, and presentation commands from being added to DTO-only packages. Reducer tests must move with the new owner and cover the current transition matrix for user-message flush, run state changes, stream gaps, assistant deltas, reasoning clears, compaction completion, and background process completion.
 
-- [ ] `TD-012` [P1] Session read models branch between live runtime and dormant persistence in each query.
+- [x] `TD-012` [P1] Session read models branch between live runtime and dormant persistence in each query.
 
   `server/sessionview/service.go` keeps both `SessionStoreResolver` and `RuntimeResolver`, then branches per read. `GetSessionMainView`, `GetSessionTranscriptPage`, and `GetSessionCommittedTranscriptSuffix` first call `resolveRuntime` and project via `runtimeview.*FromRuntime`, then fall back to `resolveSessionStore` and dormant cache/scan helpers. `GetRun` checks the active runtime run and then scans durable runs from `session.Store`. Dormant paths use `dormantTranscriptCache`, `dormantTranscriptPageCache`, `scanDormantTranscript`, `runtime.PersistedTranscriptScanRequest`, and `runtimeview.*FromCollectedChat`. `docs/tmp/tech_debt.md` already flags this live-versus-dormant read branching as a P1 concern.
 
