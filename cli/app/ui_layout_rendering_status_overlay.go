@@ -97,41 +97,6 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 
 	snapshot := m.status.snapshot
 
-	authSummary := statusVisibleAuthSummary(snapshot.Auth, snapshot.Subscription)
-	subscriptionSummary := strings.TrimSpace(snapshot.Subscription.Summary)
-	hasSubscriptionRows := len(snapshot.Subscription.Windows) > 0
-	showAccountSection := authSummary != "" || subscriptionSummary != "" || hasSubscriptionRows || l.statusSectionLoading(uiStatusSectionAuth)
-	if showAccountSection {
-		if subscriptionSummary != "" || hasSubscriptionRows {
-			appendSectionTitle("Subscription")
-		} else {
-			appendSectionTitle("Account")
-		}
-		if authSummary != "" {
-			appendWrapped(authSummary, boldStyle)
-		} else if subscriptionSummary == "" && !hasSubscriptionRows && l.statusSectionLoading(uiStatusSectionAuth) {
-			appendWrapped("Loading account...", subtleStyle)
-		}
-		if subscriptionSummary != "" {
-			if strings.TrimSpace(snapshot.Subscription.Error) != "" {
-				appendWrapped(subscriptionSummary, warningStyle)
-			} else {
-				appendWrapped(subscriptionSummary, boldStyle)
-			}
-		}
-		if hasSubscriptionRows {
-			labelWidth := statusSubscriptionLabelWidth(snapshot.Subscription.Windows)
-			for _, window := range snapshot.Subscription.Windows {
-				appendANSI(l.renderStatusSubscriptionLine(width, window, labelWidth))
-			}
-		} else if subscriptionSummary != "" && l.statusSectionLoading(uiStatusSectionAuth) {
-			appendWrapped("Loading limits...", subtleStyle)
-		}
-		for _, detail := range snapshot.Auth.Details {
-			appendWrapped(detail, subtleStyle)
-		}
-	}
-
 	appendSectionTitle("Session")
 	if snapshot.OwnsServer {
 		appendWrapped("Server: owned by this CLI", lipgloss.Style{})
@@ -171,6 +136,48 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 	appendWrapped("debug "+statusOnOff(snapshot.Config.Debug), lipgloss.Style{})
 	appendWrapped(fmt.Sprintf("%d compactions", snapshot.CompactionCount), lipgloss.Style{})
 
+	authSummary := statusVisibleAuthSummary(snapshot.Auth, snapshot.Subscription)
+	subscriptionSummary := strings.TrimSpace(snapshot.Subscription.Summary)
+	hasSubscriptionRows := len(snapshot.Subscription.Windows) > 0
+	showAccountSection := authSummary != "" || subscriptionSummary != "" || hasSubscriptionRows || l.statusSectionLoading(uiStatusSectionAuth)
+	if showAccountSection {
+		if subscriptionSummary != "" || hasSubscriptionRows {
+			appendSectionTitle("Subscription")
+		} else {
+			appendSectionTitle("Account")
+		}
+		if authSummary != "" {
+			appendWrapped(authSummary, boldStyle)
+		} else if subscriptionSummary == "" && !hasSubscriptionRows && l.statusSectionLoading(uiStatusSectionAuth) {
+			appendWrapped("Loading account...", subtleStyle)
+		}
+		if subscriptionSummary != "" {
+			if strings.TrimSpace(snapshot.Subscription.Error) != "" {
+				appendWrapped(subscriptionSummary, warningStyle)
+			} else {
+				appendWrapped(subscriptionSummary, boldStyle)
+			}
+		}
+		if hasSubscriptionRows {
+			labelWidth := statusSubscriptionLabelWidth(snapshot.Subscription.Windows)
+			for _, window := range snapshot.Subscription.Windows {
+				appendANSI(l.renderStatusSubscriptionLine(width, window, labelWidth))
+			}
+		} else if subscriptionSummary != "" && l.statusSectionLoading(uiStatusSectionAuth) {
+			appendWrapped("Loading limits...", subtleStyle)
+		}
+		for _, detail := range snapshot.Auth.Details {
+			appendWrapped(detail, subtleStyle)
+		}
+	}
+
+	appendSectionTitle("Config")
+	appendWrapped(statusDisplayPath(snapshot.Config.SettingsPath, snapshot.Workdir), subtleStyle)
+	if len(snapshot.Config.OverrideSources) > 0 {
+		appendWrapped("overrides: "+strings.Join(snapshot.Config.OverrideSources, ", "), lipgloss.Style{})
+	}
+	appendWrapped("supervisor "+snapshot.Config.Supervisor, lipgloss.Style{})
+
 	loadedSkills, failedSkills := statusPartitionSkills(snapshot.Skills)
 	subheaderStyle := lipgloss.NewStyle().Foreground(palette.primary).Bold(true)
 	directoryStyle := lipgloss.NewStyle().Foreground(palette.foreground)
@@ -209,13 +216,6 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 			appendWrapped(statusAgentTokenLine(path, snapshot.AgentTokenCounts, snapshot.Workdir), lipgloss.Style{})
 		}
 	}
-
-	appendSectionTitle("Config")
-	appendWrapped(statusDisplayPath(snapshot.Config.SettingsPath, snapshot.Workdir), subtleStyle)
-	if len(snapshot.Config.OverrideSources) > 0 {
-		appendWrapped("overrides: "+strings.Join(snapshot.Config.OverrideSources, ", "), lipgloss.Style{})
-	}
-	appendWrapped("supervisor "+snapshot.Config.Supervisor, lipgloss.Style{})
 
 	if warning := strings.TrimSpace(snapshot.CollectorWarning); warning != "" {
 		appendSectionTitle("Warnings")

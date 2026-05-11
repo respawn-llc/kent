@@ -247,6 +247,44 @@ func TestStatusOverlaySessionSectionLabelsSessionIDBeforeMutedParent(t *testing.
 	}
 }
 
+func TestStatusOverlaySectionOrderPrioritizesSessionGitContext(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.status.snapshot = uiStatusSnapshot{
+		Workdir:   "/tmp/workdir",
+		SessionID: "session-123",
+		Git:       uiStatusGitInfo{Visible: true, Branch: "main"},
+		Context:   uiStatusContextInfo{AvailableTokens: 100, ThresholdTokens: 50},
+		Config:    uiStatusConfigInfo{SettingsPath: "/tmp/workdir/.builder/config.toml", Supervisor: "edits"},
+		Subscription: uiStatusSubscriptionInfo{
+			Applicable: true,
+			Summary:    "Pro subscription",
+		},
+		Skills: []uiStatusSkillInspection{{Name: "apiresult", Path: "/tmp/workdir/.builder/skills/apiresult/SKILL.md", Loaded: true}},
+	}
+	lines := stripANSIAndTrimRight(strings.Join(m.layout().statusOverlayContentLines(100), "\n"))
+
+	session := statusLineIndex(t, lines, "Session")
+	git := statusLineIndex(t, lines, "Git")
+	context := statusLineIndex(t, lines, "Context")
+	subscription := statusLineIndex(t, lines, "Subscription")
+	config := statusLineIndex(t, lines, "Config")
+	skills := statusLineIndex(t, lines, "1 skills")
+	if !(session < git && git < context && context < subscription && subscription < config && config < skills) {
+		t.Fatalf("unexpected status section order: session=%d git=%d context=%d subscription=%d config=%d skills=%d\n%s", session, git, context, subscription, config, skills, lines)
+	}
+}
+
+func statusLineIndex(t *testing.T, lines string, want string) int {
+	t.Helper()
+	for idx, line := range strings.Split(lines, "\n") {
+		if strings.TrimSpace(line) == want {
+			return idx
+		}
+	}
+	t.Fatalf("status line %q not found in %q", want, lines)
+	return -1
+}
+
 func TestStatusCommandProgressivelyLoadsSections(t *testing.T) {
 	collector := &stubProgressiveStatusCollector{
 		base: uiStatusSnapshot{
