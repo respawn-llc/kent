@@ -10,3 +10,7 @@ type turnQueueHook interface {
 	OnTurnQueueAborted()
 	OnUserCompactionCompleted(queueDrained bool)
 }
+
+type askNotificationHook interface {
+	OnAsk(req clientui.PendingPromptEvent)
+}

@@ -164,6 +164,37 @@ func TestBellHooksAskUsesRawBellOnlyWithOSC9NotifierWhileFocused(t *testing.T) {
 	}
 }
 
+func TestUIAskEventNotifiesBellHookForActiveAndQueuedPrompts(t *testing.T) {
+	ringer := &countRinger{}
+	hooks := newUnfocusedBellHooks(ringer)
+	m := newProjectedStaticUIModel(WithUIAskNotificationHook(hooks))
+
+	next, _ := m.Update(askEventMsg{event: askEvent{req: clientui.PendingPromptEvent{PromptID: "ask-1", Question: "First?"}}})
+	m = next.(*uiModel)
+	next, _ = m.Update(askEventMsg{event: askEvent{req: clientui.PendingPromptEvent{PromptID: "ask-2", Question: "Second?"}}})
+	_ = next.(*uiModel)
+
+	if got := ringer.Count(); got != 2 {
+		t.Fatalf("ask notification count = %d, want 2", got)
+	}
+	if got := ringer.Last(); got != "builder: Question: Second?" {
+		t.Fatalf("last ask notification = %q, want %q", got, "builder: Question: Second?")
+	}
+}
+
+func TestUIResolvedAskEventDoesNotNotifyBellHook(t *testing.T) {
+	ringer := &countRinger{}
+	hooks := newUnfocusedBellHooks(ringer)
+	m := newProjectedStaticUIModel(WithUIAskNotificationHook(hooks))
+
+	next, _ := m.Update(askEventMsg{event: askEvent{resolvedPromptID: "ask-1"}})
+	_ = next.(*uiModel)
+
+	if got := ringer.Count(); got != 0 {
+		t.Fatalf("resolved ask notification count = %d, want 0", got)
+	}
+}
+
 func TestBellHooksRingOnToolHeavyTurnEnd(t *testing.T) {
 	ringer := &countRinger{}
 	hooks := newUnfocusedBellHooks(ringer)

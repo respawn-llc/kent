@@ -64,16 +64,12 @@ func (e *promptEventEmitter) close() {
 	close(e.out)
 }
 
-func startPendingPromptEvents(ctx context.Context, sub serverapi.PromptActivitySubscription, subscribe promptActivitySubscriber, control client.PromptControlClient, leaseManager *controllerLeaseManager, notify ...func(clientui.PendingPromptEvent)) (<-chan askEvent, func()) {
+func startPendingPromptEvents(ctx context.Context, sub serverapi.PromptActivitySubscription, subscribe promptActivitySubscriber, control client.PromptControlClient, leaseManager *controllerLeaseManager) (<-chan askEvent, func()) {
 	emitter := newPromptEventEmitter(16)
 	out := emitter.channel()
 	if sub == nil || subscribe == nil || control == nil {
 		emitter.close()
 		return out, func() {}
-	}
-	notifyPending := func(clientui.PendingPromptEvent) {}
-	if len(notify) > 0 && notify[0] != nil {
-		notifyPending = notify[0]
 	}
 	pollCtx, cancel := context.WithCancel(ctx)
 	var pendingMu sync.Mutex
@@ -151,7 +147,6 @@ func startPendingPromptEvents(ctx context.Context, sub serverapi.PromptActivityS
 				}
 				for _, pendingEvt := range pendingEvents {
 					askEvt := pendingPromptEvent(pollCtx, pendingEvt, leaseManager, control, requeue)
-					notifyPending(askEvt.req)
 					if !emitter.emit(pollCtx, askEvt) {
 						_ = current.Close()
 						return
@@ -199,7 +194,6 @@ func startPendingPromptEvents(ctx context.Context, sub serverapi.PromptActivityS
 				continue
 			}
 			askEvt := pendingPromptEvent(pollCtx, evt, leaseManager, control, requeue)
-			notifyPending(askEvt.req)
 			if !emitter.emit(pollCtx, askEvt) {
 				_ = current.Close()
 				return

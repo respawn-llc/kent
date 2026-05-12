@@ -296,6 +296,74 @@ func TestEmbeddedAppServerPromptActivityStreamsAndHydratesPendingResources(t *te
 	waitForPendingApprovalResources(t, runtimeClients.ApprovalViews, plan.SessionID, 0)
 }
 
+func TestEmbeddedAppServerPendingPromptsNotifyUIAskHook(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	registerAppWorkspace(t, workspace)
+
+	server, err := startEmbeddedServer(context.Background(), Options{WorkspaceRoot: workspace}, readyMemoryAuthHandler())
+	if err != nil {
+		t.Fatalf("start embedded server: %v", err)
+	}
+	defer func() { _ = server.Close() }()
+
+	planner := newSessionLaunchPlanner(server)
+	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, ForceNewSession: true})
+	if err != nil {
+		t.Fatalf("plan session: %v", err)
+	}
+	runtimePlan, err := planner.PrepareRuntime(context.Background(), plan, io.Discard, "test embedded ask notification")
+	if err != nil {
+		t.Fatalf("prepare runtime: %v", err)
+	}
+	defer runtimePlan.Close()
+
+	ringer := &countRinger{}
+	hooks := newUnfocusedBellHooks(ringer)
+	model := newProjectedTestUIModel(runtimePlan.Wiring.runtimeClient, closedProjectedRuntimeEvents(), runtimePlan.Wiring.askEvents, WithUIAskNotificationHook(hooks))
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := server.inner.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.Request{ID: "ask-notify-1", Question: "First?"})
+		firstDone <- err
+	}()
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := server.inner.AwaitPromptResponse(context.Background(), plan.SessionID, askquestion.Request{ID: "ask-notify-2", Question: "Second?"})
+		secondDone <- err
+	}()
+
+	first := waitForRemoteAskEvent(t, runtimePlan.Wiring.askEvents)
+	second := waitForRemoteAskEvent(t, runtimePlan.Wiring.askEvents)
+	next, _ := model.Update(askEventMsg{event: first})
+	model = next.(*uiModel)
+	next, _ = model.Update(askEventMsg{event: second})
+	_ = next.(*uiModel)
+
+	if got := ringer.Count(); got != 2 {
+		t.Fatalf("ask notification count = %d, want 2", got)
+	}
+	wantLast := "builder: Question: " + second.req.Question
+	if got := ringer.Last(); got != wantLast {
+		t.Fatalf("last ask notification = %q, want %q", got, wantLast)
+	}
+
+	for _, evt := range []askEvent{first, second} {
+		evt.reply <- askReply{response: clientui.PromptAnswer{PromptID: evt.req.PromptID, Answer: "ok"}}
+	}
+	for name, ch := range map[string]chan error{"first": firstDone, "second": secondDone} {
+		select {
+		case err := <-ch:
+			if err != nil {
+				t.Fatalf("%s AwaitPromptResponse: %v", name, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for %s ask response", name)
+		}
+	}
+}
+
 func TestEmbeddedAppServerProcessOutputStreamsAndInlineSnapshot(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()

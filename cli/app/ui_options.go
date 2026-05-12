@@ -194,6 +194,12 @@ func WithUITurnQueueHook(hook turnQueueHook) UIOption {
 	}
 }
 
+func WithUIAskNotificationHook(hook askNotificationHook) UIOption {
+	return func(m *uiModel) {
+		m.askNotificationHook = hook
+	}
+}
+
 func WithUITerminalFocusState(state *terminalFocusState) UIOption {
 	return func(m *uiModel) {
 		if state != nil {

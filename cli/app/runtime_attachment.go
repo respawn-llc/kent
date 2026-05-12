@@ -108,11 +108,12 @@ func prepareSharedRuntimeWiring(ctx context.Context, clients runtimeAttachmentCl
 	}, terminalFocus.FocusedForAttention)
 	askEvents, stopAskEvents := startPendingPromptEvents(ctx, activities.Prompt, func(ctx context.Context, afterSequence uint64) (serverapi.PromptActivitySubscription, error) {
 		return clients.PromptActivity.SubscribePromptActivity(ctx, serverapi.PromptActivitySubscribeRequest{SessionID: plan.SessionID, AfterSequence: afterSequence})
-	}, clients.PromptControl, leaseManager, turnQueueHook.OnAsk)
+	}, clients.PromptControl, leaseManager)
 	wiring := &runtimeWiring{
 		runtimeEvents:         runtimeEvents,
 		askEvents:             askEvents,
 		turnQueueHook:         turnQueueHook,
+		askNotificationHook:   turnQueueHook,
 		terminalFocus:         terminalFocus,
 		runtimeClient:         runtimeClient,
 		promptControl:         clients.PromptControl,

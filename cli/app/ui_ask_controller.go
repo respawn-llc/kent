@@ -51,6 +51,7 @@ func (c uiAskController) acceptEvent(evt askEvent) {
 		c.resolvePrompt(evt.promptID())
 		return
 	}
+	c.notifyAskPending(evt.req)
 	if !m.ask.hasCurrent() {
 		c.setActiveAsk(evt)
 		m.activity = uiActivityQuestion
@@ -60,6 +61,14 @@ func (c uiAskController) acceptEvent(evt askEvent) {
 		return
 	}
 	m.ask.queue = append(m.ask.queue, evt)
+}
+
+func (c uiAskController) notifyAskPending(req clientui.PendingPromptEvent) {
+	m := c.model
+	if m == nil || m.askNotificationHook == nil {
+		return
+	}
+	m.askNotificationHook.OnAsk(req)
 }
 
 func (c uiAskController) resolvePrompt(promptID string) {
