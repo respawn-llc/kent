@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"builder/server/llm"
+	"builder/shared/llmerrors"
 	"builder/shared/serverapi"
 )
 
@@ -25,18 +26,29 @@ func TestFormat(t *testing.T) {
 		{name: "already controlled", err: serverapi.ErrSessionAlreadyControlled, want: "session is controlled by another client; retry to take over"},
 		{name: "invalid controller lease", err: serverapi.ErrInvalidControllerLease, want: "lost control of this session; retry to reclaim it"},
 		{
-			name:     "api status body",
+			name:     "embedded api status body",
 			err:      fmt.Errorf("wrapped: %w", &llm.APIStatusError{StatusCode: 429, Body: body}),
 			contains: []string{"openai status 429", body},
 		},
 		{
-			name:     "empty api status body",
-			err:      &llm.APIStatusError{StatusCode: 500},
+			name:     "remote api status body",
+			err:      &llmerrors.APIStatusError{StatusCode: 429, Body: body},
+			contains: []string{"openai status 429", body},
+		},
+		{
+			name:     "empty remote api status body",
+			err:      &llmerrors.APIStatusError{StatusCode: 500},
 			contains: []string{"openai status 500", "<empty error body>"},
 		},
 		{
-			name:     "friendly provider auth",
+			name:     "embedded friendly provider auth",
 			err:      fmt.Errorf("request failed: %w", &llm.ProviderAPIError{ProviderID: "openai-compatible", StatusCode: 401, Code: llm.UnifiedErrorCodeAuthentication}),
+			contains: []string{"Authentication failed", "/login"},
+			excludes: []string{"openai status 401"},
+		},
+		{
+			name:     "remote friendly provider auth dto",
+			err:      fmt.Errorf("request failed: %w", &llmerrors.ProviderAPIError{ProviderID: "openai-compatible", StatusCode: 401, Code: llmerrors.UnifiedErrorCodeAuthentication}),
 			contains: []string{"Authentication failed", "/login"},
 			excludes: []string{"openai status 401"},
 		},

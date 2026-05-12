@@ -4,12 +4,12 @@ import (
 	"os"
 	"strings"
 
+	"builder/cli/app/internal/serverbridge"
 	appstatus "builder/cli/app/internal/status"
-	"builder/server/runtime"
 	"builder/shared/tokenutil"
 )
 
-func SkillInspectionsFromRuntime(skills []runtime.SkillInspection) []appstatus.SkillInspection {
+func SkillInspectionsFromRuntime(skills []serverbridge.SkillInspection) []appstatus.SkillInspection {
 	if len(skills) == 0 {
 		return nil
 	}

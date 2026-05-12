@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"builder/server/sessionlifecycle"
+	"builder/cli/builder/internal/serverbridge"
 	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/config"
@@ -25,7 +25,7 @@ var bindingCommandRemoteOpener = openBindingCommandRemote
 var bindingCommandWorkspaceResolver = resolveWorkspaceBinding
 var bindingCommandSessionRetargeter = retargetSessionWorkspaceWithTimeout
 var bindingCommandLocalSessionLifecycleClient = func(cfg config.App) client.SessionLifecycleClient {
-	return client.NewLoopbackSessionLifecycleClient(sessionlifecycle.NewGlobalService(cfg.PersistenceRoot, nil, nil))
+	return serverbridge.NewLocalSessionLifecycleClient(cfg)
 }
 
 func projectSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {

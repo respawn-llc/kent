@@ -10,7 +10,7 @@ import (
 	"time"
 
 	appstatus "builder/cli/app/internal/status"
-	"builder/server/auth"
+	"builder/shared/auth"
 	"builder/shared/config"
 	"builder/shared/serverapi"
 )

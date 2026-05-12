@@ -3,36 +3,37 @@ package oauthadapter
 import (
 	"context"
 
-	"builder/server/auth"
+	"builder/cli/app/internal/serverbridge"
+	"builder/shared/auth"
 )
 
-type OpenAIOAuthOptions = auth.OpenAIOAuthOptions
-type DeviceCode = auth.DeviceCode
-type BrowserCallback = auth.BrowserCallback
-type BrowserAuthSession = auth.BrowserAuthSession
-type DeviceAuthorizationGrant = auth.DeviceAuthorizationGrant
+type OpenAIOAuthOptions = serverbridge.OAuthOptions
+type DeviceCode = serverbridge.DeviceCode
+type BrowserCallback = serverbridge.BrowserCallback
+type BrowserAuthSession = serverbridge.BrowserAuthSession
+type DeviceAuthorizationGrant = serverbridge.DeviceAuthorizationGrant
 type Method = auth.Method
 
 func OpenBrowser(url string) error {
-	return auth.OpenBrowser(url)
+	return serverbridge.OpenBrowser(url)
 }
 
-func StartOAuthCallbackListener() (*auth.OAuthCallbackListener, error) {
-	return auth.StartOAuthCallbackListener()
+func StartOAuthCallbackListener() (*serverbridge.OAuthCallbackListener, error) {
+	return serverbridge.StartOAuthCallbackListener()
 }
 
 func RunOpenAIDeviceCodeFlow(ctx context.Context, opts OpenAIOAuthOptions, onCode func(DeviceCode)) (Method, error) {
-	return auth.RunOpenAIDeviceCodeFlow(ctx, opts, onCode)
+	return serverbridge.RunOpenAIDeviceCodeFlow(ctx, opts, onCode)
 }
 
 func BeginOpenAIBrowserFlow(opts OpenAIOAuthOptions, redirectURI string) (BrowserAuthSession, error) {
-	return auth.BeginOpenAIBrowserFlow(opts, redirectURI)
+	return serverbridge.BeginOpenAIBrowserFlow(opts, redirectURI)
 }
 
 func CompleteOpenAIBrowserFlow(ctx context.Context, opts OpenAIOAuthOptions, session BrowserAuthSession, callbackInput string) (Method, error) {
-	return auth.CompleteOpenAIBrowserFlow(ctx, opts, session, callbackInput)
+	return serverbridge.CompleteOpenAIBrowserFlow(ctx, opts, session, callbackInput)
 }
 
 func CollectOpenAIDeviceAuthorizationGrant(ctx context.Context, opts OpenAIOAuthOptions, onCode func(DeviceCode)) (DeviceAuthorizationGrant, error) {
-	return auth.CollectOpenAIDeviceAuthorizationGrant(ctx, opts, onCode)
+	return serverbridge.CollectOpenAIDeviceAuthorizationGrant(ctx, opts, onCode)
 }

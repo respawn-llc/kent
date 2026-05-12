@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/server/serve"
+	"builder/cli/app/internal/serverbridge"
 	"builder/shared/config"
 )
 
@@ -40,5 +40,5 @@ func Env(cfg config.App) []string {
 }
 
 func ReleaseReservation(cfg config.App) {
-	serve.ReleaseTestListenReservation(config.ServerListenAddress(cfg))
+	serverbridge.ReleaseServeReservation(cfg)
 }

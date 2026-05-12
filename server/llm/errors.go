@@ -1,232 +1,36 @@
 package llm
 
-import (
-	"errors"
-	"fmt"
-	"strings"
+import "builder/shared/llmerrors"
 
-	"builder/server/auth"
-)
-
-type APIStatusError struct {
-	StatusCode int
-	Body       string
-}
-
-func (e *APIStatusError) Error() string {
-	if e == nil {
-		return "openai status error"
-	}
-	return fmt.Sprintf("openai status %d: %s", e.StatusCode, e.Body)
-}
-
-type UnifiedErrorCode string
+type APIStatusError = llmerrors.APIStatusError
+type UnifiedErrorCode = llmerrors.UnifiedErrorCode
+type ProviderAPIError = llmerrors.ProviderAPIError
+type AuthError = llmerrors.AuthError
+type ProviderSelectionError = llmerrors.ProviderSelectionError
 
 const (
-	UnifiedErrorCodeUnknown               UnifiedErrorCode = "unknown"
-	UnifiedErrorCodeAuthentication        UnifiedErrorCode = "authentication"
-	UnifiedErrorCodeContextLengthOverflow UnifiedErrorCode = "context_length_overflow"
-	UnifiedErrorCodeProviderContract      UnifiedErrorCode = "provider_contract_error"
+	UnifiedErrorCodeUnknown               = llmerrors.UnifiedErrorCodeUnknown
+	UnifiedErrorCodeAuthentication        = llmerrors.UnifiedErrorCodeAuthentication
+	UnifiedErrorCodeContextLengthOverflow = llmerrors.UnifiedErrorCodeContextLengthOverflow
+	UnifiedErrorCodeProviderContract      = llmerrors.UnifiedErrorCodeProviderContract
 )
 
-type ProviderAPIError struct {
-	ProviderID    string
-	StatusCode    int
-	Code          UnifiedErrorCode
-	ProviderCode  string
-	ProviderType  string
-	ProviderParam string
-	Message       string
-	Raw           string
-	Err           error
-}
-
 func NewProviderContractError(providerID string, statusCode int, cause error) *ProviderAPIError {
-	message := "provider contract error"
-	if cause != nil {
-		message = cause.Error()
-	}
-	return &ProviderAPIError{
-		ProviderID: providerID,
-		StatusCode: statusCode,
-		Code:       UnifiedErrorCodeProviderContract,
-		Message:    message,
-		Raw:        message,
-		Err:        cause,
-	}
-}
-
-func (e *ProviderAPIError) Error() string {
-	if e == nil {
-		return "provider api error"
-	}
-	return fmt.Sprintf("%s status %d [%s/%s]: %s", e.ProviderID, e.StatusCode, e.Code, e.ProviderCode, e.Message)
-}
-
-func (e *ProviderAPIError) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.Err
-}
-
-type AuthError struct {
-	Err error
-}
-
-type ProviderSelectionError struct {
-	Model string
-	Err   error
-}
-
-func (e *ProviderSelectionError) Error() string {
-	if e == nil {
-		return "provider selection error"
-	}
-	model := strings.TrimSpace(e.Model)
-	if model == "" {
-		return "could not determine which provider/auth path to use; set provider_override or openai_base_url"
-	}
-	return fmt.Sprintf("could not determine which provider/auth path to use for model %q; set provider_override or openai_base_url", model)
-}
-
-func (e *ProviderSelectionError) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.Err
-}
-
-func (e *AuthError) Error() string {
-	if e == nil || e.Err == nil {
-		return "authentication error"
-	}
-	return e.Err.Error()
-}
-
-func (e *AuthError) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.Err
+	return llmerrors.NewProviderContractError(providerID, statusCode, cause)
 }
 
 func IsAuthenticationError(err error) bool {
-	if err == nil {
-		return false
-	}
-	var authErr *AuthError
-	if errors.As(err, &authErr) {
-		return true
-	}
-	var providerErr *ProviderAPIError
-	if errors.As(err, &providerErr) {
-		if providerErr.Code == UnifiedErrorCodeAuthentication {
-			return true
-		}
-		switch providerErr.StatusCode {
-		case 401, 403:
-			return true
-		}
-	}
-	var apiErr *APIStatusError
-	if errors.As(err, &apiErr) {
-		switch apiErr.StatusCode {
-		case 401, 403:
-			return true
-		}
-	}
-	return false
+	return llmerrors.IsAuthenticationError(err)
 }
 
 func IsNonRetriableModelError(err error) bool {
-	if err == nil {
-		return false
-	}
-	var providerSelectionErr *ProviderSelectionError
-	if errors.As(err, &providerSelectionErr) {
-		return true
-	}
-	if IsAuthenticationError(err) {
-		return true
-	}
-	var providerErr *ProviderAPIError
-	if errors.As(err, &providerErr) {
-		if providerErr.Code == UnifiedErrorCodeProviderContract {
-			return true
-		}
-		switch providerErr.StatusCode {
-		case 400, 401, 403, 404:
-			return true
-		}
-	}
-	var apiErr *APIStatusError
-	if errors.As(err, &apiErr) {
-		switch apiErr.StatusCode {
-		case 400, 401, 403, 404:
-			return true
-		}
-	}
-	return false
+	return llmerrors.IsNonRetriableModelError(err)
 }
 
 func IsContextLengthOverflowError(err error) bool {
-	if err == nil {
-		return false
-	}
-	var providerErr *ProviderAPIError
-	if !errors.As(err, &providerErr) {
-		return false
-	}
-	return providerErr.Code == UnifiedErrorCodeContextLengthOverflow
+	return llmerrors.IsContextLengthOverflowError(err)
 }
 
 func UserFacingError(err error) string {
-	if err == nil {
-		return ""
-	}
-
-	var providerSelectionErr *ProviderSelectionError
-	if errors.As(err, &providerSelectionErr) {
-		return providerSelectionErr.Error()
-	}
-
-	var authErr *AuthError
-	if errors.As(err, &authErr) && errors.Is(authErr.Err, auth.ErrAuthNotConfigured) {
-		return unauthenticatedWarning()
-	}
-	if errors.Is(err, auth.ErrAuthNotConfigured) {
-		return unauthenticatedWarning()
-	}
-
-	var providerErr *ProviderAPIError
-	if errors.As(err, &providerErr) {
-		if providerErr.Code == UnifiedErrorCodeAuthentication || providerErr.StatusCode == 401 || providerErr.StatusCode == 403 {
-			return authenticationFailedWarning(providerErr.ProviderID, providerErr.StatusCode)
-		}
-	}
-
-	var statusErr *APIStatusError
-	if errors.As(err, &statusErr) {
-		if statusErr.StatusCode == 401 || statusErr.StatusCode == 403 {
-			return authenticationFailedWarning("OpenAI-compatible API", statusErr.StatusCode)
-		}
-	}
-
-	return ""
-}
-
-func unauthenticatedWarning() string {
-	return "Authentication is not configured. Run /login or set OPENAI_API_KEY. If you're using a custom or local OpenAI-compatible server that needs no auth, set openai_base_url and continue without Builder auth."
-}
-
-func authenticationFailedWarning(provider string, statusCode int) string {
-	label := strings.TrimSpace(provider)
-	if label == "" {
-		label = "API"
-	}
-	if statusCode > 0 {
-		return fmt.Sprintf("Authentication failed with %s (HTTP %d). Run /login or check OPENAI_API_KEY. If you're using a custom or local OpenAI-compatible server that needs no auth, set openai_base_url and continue without Builder auth.", label, statusCode)
-	}
-	return fmt.Sprintf("Authentication failed with %s. Run /login or check OPENAI_API_KEY. If you're using a custom or local OpenAI-compatible server that needs no auth, set openai_base_url and continue without Builder auth.", label)
+	return llmerrors.UserFacingError(err)
 }

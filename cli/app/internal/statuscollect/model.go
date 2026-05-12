@@ -3,8 +3,8 @@ package statuscollect
 import (
 	"strings"
 
+	"builder/cli/app/internal/serverbridge"
 	appstatus "builder/cli/app/internal/status"
-	"builder/server/llm"
 	"builder/shared/config"
 )
 
@@ -45,7 +45,7 @@ func ModelSummary(req appstatus.Request) string {
 }
 
 func ModelDisplayLabel(modelName string, thinkingLevel string) string {
-	return llm.ModelDisplayLabel(modelName, thinkingLevel)
+	return serverbridge.ModelDisplayLabel(modelName, thinkingLevel)
 }
 
 func UpdateInfo(req appstatus.Request) appstatus.UpdateInfo {

@@ -11,20 +11,16 @@ import (
 	"strings"
 	"syscall"
 
-	"builder/server/serve"
-	serverstartup "builder/server/startup"
+	"builder/cli/builder/internal/serverbridge"
 )
 
-type serveCommandServer interface {
-	Close() error
-	Serve(ctx context.Context) error
-}
+type serveCommandServer = serverbridge.ServeServer
 
-var startServeServer = func(ctx context.Context, req serverstartup.Request, authHandler serverstartup.AuthHandler, onboardingHandler serverstartup.OnboardingHandler) (serveCommandServer, error) {
-	return serve.Start(ctx, req, authHandler, onboardingHandler)
+var startServeServer = func(ctx context.Context, req serverbridge.StartupRequest, authHandler serverbridge.StartupAuthHandler, onboardingHandler serverbridge.StartupOnboardingHandler) (serveCommandServer, error) {
+	return serverbridge.StartServe(ctx, req, authHandler, onboardingHandler)
 }
-var newServeStartupHandlers = func() (serverstartup.AuthHandler, serverstartup.OnboardingHandler) {
-	return serverstartup.NewHeadlessHandlers(nil)
+var newServeStartupHandlers = func() (serverbridge.StartupAuthHandler, serverbridge.StartupOnboardingHandler) {
+	return serverbridge.NewHeadlessHandlers(nil)
 }
 
 func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -51,7 +47,7 @@ func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	authHandler, onboardingHandler := newServeStartupHandlers()
-	server, err := startServeServer(ctx, serverstartup.Request{
+	server, err := startServeServer(ctx, serverbridge.StartupRequest{
 		AllowUnauthenticated: true,
 	}, authHandler, onboardingHandler)
 	if err != nil {

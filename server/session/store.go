@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"builder/shared/sessioncontract"
 	"github.com/google/uuid"
 )
 
@@ -22,7 +23,7 @@ const (
 	sessionsDirName = "sessions"
 )
 
-var ErrSessionNotFound = errors.New("session not found")
+var ErrSessionNotFound = sessioncontract.ErrSessionNotFound
 
 type Store struct {
 	mu                    sync.Mutex

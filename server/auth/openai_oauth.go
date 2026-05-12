@@ -23,8 +23,6 @@ const (
 	defaultUserAgent      = "builder"
 )
 
-var ErrDeviceCodeUnsupported = errors.New("device code login is not enabled")
-
 type OpenAIOAuthOptions struct {
 	Issuer      string
 	ClientID    string

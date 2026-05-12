@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/session"
 	"builder/shared/config"
+	"builder/shared/sessioncontract"
 	"builder/shared/sessionenv"
 )
 
@@ -35,7 +35,7 @@ func TestResolveRunPromptConfigWrapsMissingImplicitWorkspaceContextSession(t *te
 	if err == nil {
 		t.Fatal("expected missing context session error")
 	}
-	if !errors.Is(err, session.ErrSessionNotFound) {
+	if !errors.Is(err, sessioncontract.ErrSessionNotFound) {
 		t.Fatalf("error = %v, want ErrSessionNotFound", err)
 	}
 	if !strings.Contains(err.Error(), sessionenv.BuilderSessionID+" points to missing Builder session") {
@@ -52,7 +52,7 @@ func TestResolveRunPromptConfigKeepsExplicitSessionLookupStrict(t *testing.T) {
 		WorkspaceRoot: workspace,
 		SessionID:     "missing-explicit-session",
 	})
-	if !errors.Is(err, session.ErrSessionNotFound) {
+	if !errors.Is(err, sessioncontract.ErrSessionNotFound) {
 		t.Fatalf("error = %v, want ErrSessionNotFound", err)
 	}
 	if strings.Contains(err.Error(), "points to missing Builder session") {

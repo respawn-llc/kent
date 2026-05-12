@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"builder/server/llm"
+	"builder/shared/llmerrors"
 	"builder/shared/serverapi"
 )
 
@@ -25,7 +26,8 @@ func TestIsConnectionError(t *testing.T) {
 		want bool
 	}{
 		{name: "nil", err: nil, want: false},
-		{name: "api status", err: &llm.APIStatusError{StatusCode: 429, Body: "rate limit"}, want: false},
+		{name: "embedded api status", err: &llm.APIStatusError{StatusCode: 429, Body: "rate limit"}, want: false},
+		{name: "remote api status dto", err: &llmerrors.APIStatusError{StatusCode: 429, Body: "rate limit"}, want: false},
 		{name: "stream gap", err: serverapi.ErrStreamGap, want: false},
 		{name: "stream unavailable", err: serverapi.ErrStreamUnavailable, want: false},
 		{name: "stream failed", err: serverapi.ErrStreamFailed, want: false},
@@ -52,7 +54,8 @@ func TestConfirmsReachability(t *testing.T) {
 		want bool
 	}{
 		{name: "nil", err: nil, want: true},
-		{name: "api status", err: &llm.APIStatusError{StatusCode: 429, Body: "rate limit"}, want: true},
+		{name: "embedded api status", err: &llm.APIStatusError{StatusCode: 429, Body: "rate limit"}, want: true},
+		{name: "remote api status dto", err: &llmerrors.APIStatusError{StatusCode: 429, Body: "rate limit"}, want: true},
 		{name: "stream gap", err: serverapi.ErrStreamGap, want: false},
 		{name: "stream unavailable", err: serverapi.ErrStreamUnavailable, want: false},
 		{name: "stream failed", err: serverapi.ErrStreamFailed, want: false},

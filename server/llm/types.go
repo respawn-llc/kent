@@ -4,6 +4,7 @@ import (
 	"builder/server/session"
 	"builder/shared/cachewarn"
 	"builder/shared/clientui"
+	"builder/shared/modelcontract"
 	"context"
 	"encoding/json"
 	"errors"
@@ -566,17 +567,7 @@ type CompactionClient interface {
 	Compact(ctx context.Context, request CompactionRequest) (CompactionResponse, error)
 }
 
-type ProviderCapabilities struct {
-	ProviderID                     string
-	SupportsResponsesAPI           bool
-	SupportsResponsesCompact       bool
-	SupportsRequestInputTokenCount bool
-	SupportsPromptCacheKey         bool
-	SupportsNativeWebSearch        bool
-	SupportsReasoningEncrypted     bool
-	SupportsServerSideContextEdit  bool
-	IsOpenAIFirstParty             bool
-}
+type ProviderCapabilities = modelcontract.ProviderCapabilities
 
 type ProviderCapabilitiesClient interface {
 	ProviderCapabilities(ctx context.Context) (ProviderCapabilities, error)

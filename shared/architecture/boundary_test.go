@@ -49,6 +49,83 @@ func TestArchitectureBoundaries(t *testing.T) {
 	}
 }
 
+func TestCLIPackagesDoNotImportServerOutsideCompositionBridges(t *testing.T) {
+	repoRoot := findRepoRoot(t)
+	// Keep CLI -> server imports concentrated in documented local composition
+	// bridges. UI, TUI, status, and command handlers must use shared contracts.
+	allowedServerImportsByFile := map[string]map[string]struct{}{
+		filepath.Join("cli", "app", "internal", "serverbridge", "serverbridge.go"): {
+			"builder/server/auth":       {},
+			"builder/server/authflow":   {},
+			"builder/server/bootstrap":  {},
+			"builder/server/embedded":   {},
+			"builder/server/generated":  {},
+			"builder/server/llm":        {},
+			"builder/server/onboarding": {},
+			"builder/server/runtime":    {},
+			"builder/server/serve":      {},
+			"builder/server/startup":    {},
+		},
+		filepath.Join("cli", "builder", "internal", "serverbridge", "serverbridge.go"): {
+			"builder/server/serve":            {},
+			"builder/server/sessionlifecycle": {},
+			"builder/server/startup":          {},
+		},
+	}
+	actualAllowedServerImportsByFile := make(map[string]map[string]struct{})
+	violations := make([]string, 0)
+	walkRoot := filepath.Join(repoRoot, "cli")
+	if err := filepath.WalkDir(walkRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		fileSet := token.NewFileSet()
+		file, parseErr := parser.ParseFile(fileSet, path, nil, parser.ImportsOnly)
+		if parseErr != nil {
+			return parseErr
+		}
+		relPath, relErr := filepath.Rel(repoRoot, path)
+		if relErr != nil {
+			relPath = path
+		}
+		for _, spec := range file.Imports {
+			importPath := strings.Trim(spec.Path.Value, "\"")
+			if !strings.HasPrefix(importPath, "builder/server/") {
+				continue
+			}
+			allowedImports := allowedServerImportsByFile[relPath]
+			if _, allowed := allowedImports[importPath]; allowed {
+				if actualAllowedServerImportsByFile[relPath] == nil {
+					actualAllowedServerImportsByFile[relPath] = make(map[string]struct{})
+				}
+				actualAllowedServerImportsByFile[relPath][importPath] = struct{}{}
+				continue
+			}
+			violations = append(violations, relPath+": CLI production file must not import server package "+importPath)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("scan cli server imports: %v", err)
+	}
+	for relPath, expectedImports := range allowedServerImportsByFile {
+		actualImports := actualAllowedServerImportsByFile[relPath]
+		for importPath := range expectedImports {
+			if _, found := actualImports[importPath]; !found {
+				violations = append(violations, relPath+": remove stale allowed server import "+importPath+" from architecture test")
+			}
+		}
+	}
+	if len(violations) > 0 {
+		t.Fatalf("cli to server import boundary violations:\n%s", strings.Join(violations, "\n"))
+	}
+}
+
 func TestCLIAppUIFilesDoNotAddServerImports(t *testing.T) {
 	repoRoot := findRepoRoot(t)
 	allowedServerImportsByFile := map[string]map[string]struct{}{}
