@@ -40,7 +40,7 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 			stepID,
 			req,
 			func(delta string) {
-				e.chat.appendOngoingDelta(delta)
+				e.transcriptPersistence().AppendOngoingDelta(delta)
 				e.emit(Event{Kind: EventAssistantDelta, StepID: stepID, AssistantDelta: delta})
 			},
 			func(delta llm.ReasoningSummaryDelta) {

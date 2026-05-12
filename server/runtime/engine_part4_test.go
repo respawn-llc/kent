@@ -568,11 +568,11 @@ func TestSubmitUserMessageDoesNotRetainPendingToolStartForHostedExecutions(t *te
 	if _, err := eng.SubmitUserMessage(context.Background(), "do the task"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if got := len(eng.pendingToolCallStarts); got != 0 {
-		t.Fatalf("expected pending tool call starts drained after submit, got %+v", eng.pendingToolCallStarts)
+	if got := eng.toolCallStarts.Len(); got != 0 {
+		t.Fatalf("expected pending tool call starts drained after submit, got %d", got)
 	}
-	if _, ok := eng.pendingToolCallStarts["ws_1"]; ok {
-		t.Fatalf("did not expect hosted tool call id retained in pending starts: %+v", eng.pendingToolCallStarts)
+	if _, ok := eng.toolCallStarts.Lookup("ws_1"); ok {
+		t.Fatal("did not expect hosted tool call id retained in pending starts")
 	}
 }
 

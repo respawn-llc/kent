@@ -440,10 +440,9 @@ func TestDiscardQueuedUserMessageRemovesExactQueuedEntry(t *testing.T) {
 		t.Fatal("expected duplicate queued item removed")
 	}
 
-	eng.mu.Lock()
-	defer eng.mu.Unlock()
-	if len(eng.pendingInjected) != 2 || eng.pendingInjected[0].ID != first.ID || eng.pendingInjected[0].Text != "same" || eng.pendingInjected[1].Text != "other" {
-		t.Fatalf("unexpected pending queue after discard: %+v", eng.pendingInjected)
+	messages := eng.messageFlow.(*defaultMessageLifecycle).queuedUserMessagesSnapshot()
+	if len(messages) != 2 || messages[0].ID != first.ID || messages[0].Text != "same" || messages[1].Text != "other" {
+		t.Fatalf("unexpected pending queue after discard: %+v", messages)
 	}
 }
 

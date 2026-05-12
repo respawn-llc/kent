@@ -139,39 +139,23 @@ type Engine struct {
 
 	store    *session.Store
 	llm      llm.Client
-	reviewer llm.Client
 	registry *tools.Registry
 	cfg      Config
 
-	chat                  *chatStore
-	transcriptCWD         string
-	locked                *session.LockedContract
-	localDiagnosticKeys   map[string]struct{}
-	persistedDiagnostics  map[string]struct{}
-	pendingToolCallStarts map[string]int
+	diagnostics    *diagnosticDedupeStore
+	toolCallStarts *pendingToolCallStartStore
 
-	pendingInjected []QueuedUserMessage
-
-	lastUsage llm.Usage
-
-	phaseProtocolResolved bool
-	phaseProtocolEnabled  bool
-
-	reviewerResumeFrequency string
-
-	totalInputTokens       int
-	totalCachedInputTokens int
-
-	compactionCount int
-
-	compactionSoonReminderIssued bool
-	pendingHandoffRequest        *handoffRequest
-	pendingHandoffFutureMessage  string
-	goalLoopLifecycle            goalLoopLifecycleState
-
-	tokenUsage        *tokenUsageTracker
-	collaboratorsOnce sync.Once
-	requestCache      *requestCacheTracker
+	usageState         *usageTrackingState
+	goalLoop           *goalLoopState
+	compactionState    *compactionRuntimeState
+	handoffState       *handoffRuntimeState
+	phaseState         *phaseProtocolState
+	reviewerState      *reviewerRuntimeState
+	transcriptState    *transcriptRuntimeState
+	lockedState        *lockedContractState
+	modelRequestsState *modelRequestRuntimeState
+	compactionPlanner  *compactionPlanner
+	collaboratorsOnce  sync.Once
 
 	phaseProtocol  phaseProtocolEnforcer
 	stepLifecycle  exclusiveStepLifecycle
@@ -252,18 +236,22 @@ func New(store *session.Store, client llm.Client, registry *tools.Registry, cfg 
 	}
 
 	eng := &Engine{
-		store:                 store,
-		llm:                   client,
-		reviewer:              cfg.Reviewer.Client,
-		registry:              registry,
-		cfg:                   cfg,
-		chat:                  newChatStore(),
-		transcriptCWD:         transcriptWorkingDir(cfg.TranscriptWorkingDir, store.Meta().WorkspaceRoot),
-		localDiagnosticKeys:   make(map[string]struct{}),
-		persistedDiagnostics:  make(map[string]struct{}),
-		pendingToolCallStarts: make(map[string]int),
-		tokenUsage:            newTokenUsageTracker(),
-		requestCache:          newRequestCacheTracker(),
+		store:              store,
+		llm:                client,
+		registry:           registry,
+		cfg:                cfg,
+		diagnostics:        newDiagnosticDedupeStore(),
+		toolCallStarts:     newPendingToolCallStartStore(),
+		usageState:         newUsageTrackingState(),
+		goalLoop:           newGoalLoopState(),
+		compactionState:    newCompactionRuntimeState(),
+		handoffState:       newHandoffRuntimeState(),
+		phaseState:         newPhaseProtocolState(),
+		reviewerState:      newReviewerRuntimeState(cfg.Reviewer.Client),
+		transcriptState:    newTranscriptRuntimeState(transcriptWorkingDir(cfg.TranscriptWorkingDir, store.Meta().WorkspaceRoot)),
+		lockedState:        newLockedContractState(),
+		modelRequestsState: newModelRequestRuntimeState(),
+		compactionPlanner:  newCompactionPlanner(),
 	}
 	eng.ensureLifecycle()
 	eng.ensureOrchestrationCollaborators()
@@ -273,10 +261,7 @@ func New(store *session.Store, client llm.Client, registry *tools.Registry, cfg 
 		reviewerFrequency = "off"
 	}
 	eng.cfg.Reviewer.Frequency = reviewerFrequency
-	eng.reviewerResumeFrequency = reviewerFrequency
-	if eng.reviewerResumeFrequency == "off" {
-		eng.reviewerResumeFrequency = "edits"
-	}
+	eng.reviewerRuntimeState().SetResumeFrequency(reviewerFrequency)
 	if reviewerFrequency != "off" {
 		if err := eng.initReviewerClient(); err != nil {
 			return nil, err
@@ -301,7 +286,7 @@ func New(store *session.Store, client llm.Client, registry *tools.Registry, cfg 
 			}
 		}
 		copyLocked := *meta.Locked
-		eng.locked = &copyLocked
+		eng.lockedContractState().Set(copyLocked)
 	}
 
 	if err := eng.restoreMessages(); err != nil {
@@ -374,45 +359,20 @@ type QueuedUserMessage struct {
 }
 
 func (e *Engine) QueueUserMessage(text string) QueuedUserMessage {
-	item := QueuedUserMessage{ID: uuid.NewString(), Text: text}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.pendingInjected = append(e.pendingInjected, item)
-	return item
+	e.ensureOrchestrationCollaborators()
+	return e.messageFlow.QueueUserMessage(text)
 }
 
 func (e *Engine) DiscardQueuedUserMessage(queueItemID string) bool {
-	id := strings.TrimSpace(queueItemID)
-	if id == "" {
-		return false
-	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	filtered := e.pendingInjected[:0]
-	removed := false
-	for _, pending := range e.pendingInjected {
-		if pending.ID == id {
-			removed = true
-			continue
-		}
-		filtered = append(filtered, pending)
-	}
-	e.pendingInjected = filtered
-	return removed
+	e.ensureOrchestrationCollaborators()
+	return e.messageFlow.DiscardQueuedUserMessage(queueItemID)
 }
 
 func (e *Engine) Interrupt() error {
 	e.ensureOrchestrationCollaborators()
-	e.mu.Lock()
-	if e.goalActiveLocked() {
-		if e.goalLoopLifecycle == goalLoopLifecycleRunning || e.goalLoopLifecycle == goalLoopLifecycleRestartPending {
-			e.goalLoopLifecycle = goalLoopLifecycleSuspending
-		} else {
-			e.goalLoopLifecycle = goalLoopLifecycleSuspended
-		}
+	if e.goalActive() {
+		e.goalLoopState().Suspend()
 	}
-	e.mu.Unlock()
 	return e.stepLifecycle.Interrupt()
 }
 
@@ -422,15 +382,9 @@ func (e *Engine) SubmitUserMessage(ctx context.Context, text string) (assistant 
 	}
 
 	e.ensureOrchestrationCollaborators()
-	e.mu.Lock()
-	if e.goalLoopLifecycle.IsSuspended() {
-		e.goalLoopLifecycle = goalLoopLifecycleIdle
-	}
-	e.mu.Unlock()
+	e.goalLoopState().Resume()
 	err = e.stepLifecycle.Run(ctx, exclusiveStepOptions{EmitRunState: true, PersistRunLifecycle: true}, func(stepCtx context.Context, stepID string) error {
-		e.mu.Lock()
-		hasQueuedInjected := len(e.pendingInjected) > 0
-		e.mu.Unlock()
+		hasQueuedInjected := e.messageFlow.HasPendingUserInjections()
 		if err := e.injectAgentsIfNeeded(stepID); err != nil {
 			return err
 		}
@@ -550,11 +504,8 @@ func (e *Engine) runReviewerFollowUp(ctx context.Context, stepID string, origina
 }
 
 func (e *Engine) ensureLocked() (session.LockedContract, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	if e.locked != nil {
-		return *e.locked, nil
+	if locked, ok := e.lockedContractState().Snapshot(); ok {
+		return locked, nil
 	}
 	var providerContract llm.ProviderCapabilities
 	hasProviderContract := false
@@ -594,7 +545,7 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 	if err := e.store.MarkModelDispatchLocked(lock); err != nil {
 		return session.LockedContract{}, err
 	}
-	e.locked = &lock
+	e.lockedContractState().Set(lock)
 	return lock, nil
 }
 
@@ -603,7 +554,7 @@ func (e *Engine) generateWithRetry(ctx context.Context, stepID string, req llm.R
 }
 
 func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client llm.Client, req llm.Request, onDelta func(string), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
-	prepared, err := e.requestCache.Prepare(req)
+	prepared, err := e.modelRequests().RequestCache().Prepare(req)
 	if err != nil {
 		return llm.Response{}, err
 	}

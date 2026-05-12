@@ -15,29 +15,29 @@ import (
 )
 
 func (e *Engine) snapshotMessages() []llm.Message {
-	return e.chat.snapshotMessages()
+	return e.transcriptRuntimeState().SnapshotMessages()
 }
 
 func (e *Engine) snapshotItems() []llm.ResponseItem {
-	return e.chat.snapshotItems()
+	return e.transcriptRuntimeState().SnapshotItems()
 }
 
 func (e *Engine) ChatSnapshot() ChatSnapshot {
-	return e.chat.snapshot()
+	return e.transcriptRuntimeState().Snapshot()
 }
 
 func (e *Engine) OngoingTailTranscriptWindow(maxEntries int) TranscriptWindowSnapshot {
-	if e == nil || e.chat == nil {
+	if e == nil {
 		return TranscriptWindowSnapshot{}
 	}
-	return e.chat.ongoingTailSnapshot(maxEntries)
+	return e.transcriptRuntimeState().OngoingTailSnapshot(maxEntries)
 }
 
 func (e *Engine) TranscriptPageSnapshot(offset, limit int) transcriptPageSnapshot {
-	if e == nil || e.chat == nil {
+	if e == nil {
 		return transcriptPageSnapshot{}
 	}
-	return e.chat.transcriptPageSnapshot(offset, limit)
+	return e.transcriptRuntimeState().TranscriptPageSnapshot(offset, limit)
 }
 
 func (e *Engine) TranscriptRevision() int64 {
@@ -48,10 +48,10 @@ func (e *Engine) TranscriptRevision() int64 {
 }
 
 func (e *Engine) CommittedTranscriptEntryCount() int {
-	if e == nil || e.chat == nil {
+	if e == nil {
 		return 0
 	}
-	return e.chat.committedEntryCount()
+	return e.transcriptRuntimeState().CommittedEntryCount()
 }
 
 func (e *Engine) ActiveRun() *RunSnapshot {
@@ -62,10 +62,10 @@ func (e *Engine) ActiveRun() *RunSnapshot {
 }
 
 func (e *Engine) LastCommittedAssistantFinalAnswer() string {
-	if e == nil || e.chat == nil {
+	if e == nil {
 		return ""
 	}
-	return e.chat.cachedLastCommittedAssistantFinalAnswer()
+	return e.transcriptRuntimeState().LastCommittedAssistantFinalAnswer()
 }
 
 func messagePreservesLastCommittedAssistantFinalAnswer(message llm.Message) bool {
@@ -132,7 +132,7 @@ func (e *Engine) appendLocalEntry(entry storedLocalEntry) {
 	if entry.Role == "" || entry.Text == "" {
 		return
 	}
-	e.chat.appendLocalEntryRecord(*localEntryChatEntry(entry))
+	e.transcriptPersistence().AppendLocalEntryRecord(*localEntryChatEntry(entry))
 	e.emit(Event{Kind: EventLocalEntryAdded, LocalEntry: localEntryChatEntry(entry)})
 	e.emitConversationUpdated("")
 }
@@ -147,12 +147,12 @@ func (e *Engine) RecordPromptHistory(text string) error {
 }
 
 func (e *Engine) SetOngoingError(text string) {
-	e.chat.setOngoingError(text)
+	e.transcriptPersistence().SetOngoingError(text)
 	e.emit(Event{Kind: EventOngoingErrorUpdated})
 }
 
 func (e *Engine) ClearOngoingError() {
-	e.chat.clearOngoingError()
+	e.transcriptPersistence().ClearOngoingError()
 	e.emit(Event{Kind: EventOngoingErrorUpdated})
 }
 
@@ -177,18 +177,20 @@ func (e *Engine) SetFastModeEnabled(enabled bool) (bool, error) {
 		return false, errors.New("fast mode is only available for OpenAI-based Responses providers")
 	}
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	if e.cfg.FastModeState != nil {
 		changed := e.cfg.FastModeState.SetEnabled(enabled)
+		e.mu.Unlock()
 		if changed {
 			e.markCurrentRequestShapeDirty()
 		}
 		return changed, nil
 	}
 	if e.cfg.FastModeEnabled == enabled {
+		e.mu.Unlock()
 		return false, nil
 	}
 	e.cfg.FastModeEnabled = enabled
+	e.mu.Unlock()
 	e.markCurrentRequestShapeDirty()
 	return true, nil
 }
@@ -218,8 +220,9 @@ func (e *Engine) SetReviewerEnabled(enabled bool) (bool, string, error) {
 	if !ok {
 		current = "off"
 	}
+	reviewerState := e.reviewerRuntimeStateLocked()
 	if current != "off" {
-		e.reviewerResumeFrequency = current
+		reviewerState.RecordResumeFrequency(current)
 	}
 
 	if enabled {
@@ -229,10 +232,7 @@ func (e *Engine) SetReviewerEnabled(enabled bool) (bool, string, error) {
 		if err := e.initReviewerClientLocked(); err != nil {
 			return false, current, err
 		}
-		target := e.reviewerResumeFrequency
-		if target == "" || target == "off" {
-			target = "edits"
-		}
+		target := reviewerState.ResumeFrequency("edits")
 		e.cfg.Reviewer.Frequency = target
 		return true, target, nil
 	}
@@ -303,11 +303,7 @@ func (e *Engine) AutoCompactionEnabled() bool {
 func (e *Engine) CompactionMode() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	normalized, ok := NormalizeCompactionMode(e.cfg.CompactionMode)
-	if !ok {
-		return "native"
-	}
-	return normalized
+	return e.compactionPlannerState().mode(e.cfg.CompactionMode)
 }
 
 func (e *Engine) initReviewerClient() error {
@@ -317,34 +313,22 @@ func (e *Engine) initReviewerClient() error {
 }
 
 func (e *Engine) initReviewerClientLocked() error {
-	if e.reviewer != nil {
-		return nil
-	}
-	if e.cfg.Reviewer.ClientFactory == nil {
-		return errors.New("reviewer client is not configured")
-	}
-	client, err := e.cfg.Reviewer.ClientFactory()
-	if err != nil {
-		return fmt.Errorf("configure reviewer client: %w", err)
-	}
-	e.reviewer = client
-	return nil
+	return e.reviewerRuntimeStateLocked().EnsureClient(e.cfg.Reviewer.ClientFactory)
 }
 
 func (e *Engine) reviewerClientSnapshot() llm.Client {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.reviewer
+	return e.reviewerRuntimeState().Client()
 }
 
 func (e *Engine) reviewerTurnConfigSnapshot() (string, llm.Client) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	reviewerState := e.reviewerRuntimeStateLocked()
 	normalized, ok := NormalizeReviewerFrequency(e.cfg.Reviewer.Frequency)
 	if !ok {
 		normalized = "off"
 	}
-	return normalized, e.reviewer
+	e.mu.Unlock()
+	return normalized, reviewerState.Client()
 }
 
 func (e *Engine) reviewerRequestConfigSnapshot() reviewerRequestConfig {
@@ -366,9 +350,7 @@ func (e *Engine) SessionID() string {
 }
 
 func (e *Engine) compactionCountSnapshot() int {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.compactionCount
+	return e.compactionRuntimeState().Count()
 }
 
 func (e *Engine) conversationSessionID() string {
@@ -399,22 +381,14 @@ func (e *Engine) SetTranscriptWorkingDir(workdir string) {
 	if e == nil {
 		return
 	}
-	trimmed := strings.TrimSpace(workdir)
-	if trimmed == "" {
-		return
-	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.transcriptCWD = trimmed
+	e.transcriptRuntimeState().SetWorkingDir(workdir)
 }
 
 func (e *Engine) transcriptWorkingDir() string {
 	if e == nil {
 		return ""
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return strings.TrimSpace(e.transcriptCWD)
+	return e.transcriptRuntimeState().WorkingDir()
 }
 
 func transcriptWorkingDir(primary string, fallback string) string {
@@ -460,15 +434,13 @@ func toToolNames(ids []toolspec.ID) []string {
 }
 
 func (e *Engine) lastUsageSnapshot() llm.Usage {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.lastUsage
+	return e.usageTrackingState().Last()
 }
 
 func (e *Engine) setLastUsage(usage llm.Usage) {
 	baselineEstimate := 0
-	if e != nil && e.chat != nil {
-		baselineEstimate = e.chat.estimatedProviderTokens()
+	if e != nil {
+		baselineEstimate = e.transcriptRuntimeState().EstimatedProviderTokens()
 	}
 	normalizedUsage, totalInputTokens, totalCachedInputTokens := e.nextUsageTrackingState(usage)
 	e.applyUsageTrackingState(normalizedUsage, baselineEstimate, totalInputTokens, totalCachedInputTokens)
@@ -476,8 +448,8 @@ func (e *Engine) setLastUsage(usage llm.Usage) {
 
 func (e *Engine) recordLastUsage(usage llm.Usage) error {
 	baselineEstimate := 0
-	if e != nil && e.chat != nil {
-		baselineEstimate = e.chat.estimatedProviderTokens()
+	if e != nil {
+		baselineEstimate = e.transcriptRuntimeState().EstimatedProviderTokens()
 	}
 	normalizedUsage, totalInputTokens, totalCachedInputTokens := e.nextUsageTrackingState(usage)
 	if e != nil && e.store != nil {
@@ -518,117 +490,86 @@ func (e *Engine) restorePersistedUsageState(state *session.UsageState) {
 }
 
 func normalizeUsageForTracking(usage llm.Usage) llm.Usage {
-	if usage.InputTokens < 0 {
-		usage.InputTokens = 0
-	}
-	if usage.OutputTokens < 0 {
-		usage.OutputTokens = 0
-	}
-	if usage.WindowTokens < 0 {
-		usage.WindowTokens = 0
-	}
-	if usage.CachedInputTokens < 0 {
-		usage.CachedInputTokens = 0
-	}
-	if usage.CachedInputTokens > usage.InputTokens {
-		usage.CachedInputTokens = usage.InputTokens
-	}
-	return usage
+	return normalizeUsageForTrackingState(usage)
 }
 
 func normalizePersistedUsageState(state session.UsageState) session.UsageState {
-	if state.InputTokens < 0 {
-		state.InputTokens = 0
-	}
-	if state.OutputTokens < 0 {
-		state.OutputTokens = 0
-	}
-	if state.WindowTokens < 0 {
-		state.WindowTokens = 0
-	}
-	if state.CachedInputTokens < 0 {
-		state.CachedInputTokens = 0
-	}
-	if state.CachedInputTokens > state.InputTokens {
-		state.CachedInputTokens = state.InputTokens
-	}
-	if state.EstimatedProviderTokens < 0 {
-		state.EstimatedProviderTokens = 0
-	}
-	if state.TotalInputTokens < 0 {
-		state.TotalInputTokens = 0
-	}
-	if state.TotalCachedInputTokens < 0 {
-		state.TotalCachedInputTokens = 0
-	}
-	if state.TotalCachedInputTokens > state.TotalInputTokens {
-		state.TotalCachedInputTokens = state.TotalInputTokens
-	}
-	return state
+	return normalizePersistedUsageTrackingState(state)
 }
 
 func nextUsageTotals(totalInputTokens, totalCachedInputTokens int, usage llm.Usage) (int, int) {
-	if totalInputTokens < 0 {
-		totalInputTokens = 0
-	}
-	if totalCachedInputTokens < 0 {
-		totalCachedInputTokens = 0
-	}
-	if usage.HasCachedInputTokens && usage.InputTokens > 0 {
-		totalInputTokens += usage.InputTokens
-		totalCachedInputTokens += usage.CachedInputTokens
-		if totalCachedInputTokens > totalInputTokens {
-			totalCachedInputTokens = totalInputTokens
-		}
-	}
-	return totalInputTokens, totalCachedInputTokens
+	return nextUsageTrackingTotals(totalInputTokens, totalCachedInputTokens, usage)
 }
 
 func (e *Engine) nextUsageTrackingState(usage llm.Usage) (llm.Usage, int, int) {
-	normalizedUsage := normalizeUsageForTracking(usage)
-	e.mu.Lock()
-	totalInputTokens := e.totalInputTokens
-	totalCachedInputTokens := e.totalCachedInputTokens
-	e.mu.Unlock()
-	totalInputTokens, totalCachedInputTokens = nextUsageTotals(totalInputTokens, totalCachedInputTokens, normalizedUsage)
-	return normalizedUsage, totalInputTokens, totalCachedInputTokens
+	return e.usageTrackingState().Next(usage)
 }
 
 func (e *Engine) applyUsageTrackingState(usage llm.Usage, baselineEstimate, totalInputTokens, totalCachedInputTokens int) {
 	if baselineEstimate < 0 {
 		baselineEstimate = 0
 	}
-	e.mu.Lock()
-	e.lastUsage = usage
-	e.totalInputTokens = totalInputTokens
-	e.totalCachedInputTokens = totalCachedInputTokens
-	e.mu.Unlock()
-	if e.tokenUsage != nil {
-		e.tokenUsage.storeUsageBaseline(usage.InputTokens, baselineEstimate)
+	e.usageTrackingState().Apply(usage, totalInputTokens, totalCachedInputTokens)
+	if e.modelRequests().TokenUsage() != nil {
+		e.modelRequests().TokenUsage().storeUsageBaseline(usage.InputTokens, baselineEstimate)
 	}
 }
 
 func (e *Engine) cacheHitSnapshot() (int, bool) {
+	return e.usageTrackingState().CacheHitSnapshot()
+}
+
+func (e *Engine) usageTrackingState() *usageTrackingState {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.totalInputTokens <= 0 {
-		return 0, false
+	if e.usageState == nil {
+		e.usageState = newUsageTrackingState()
 	}
-	cachedTokens := e.totalCachedInputTokens
-	if cachedTokens < 0 {
-		cachedTokens = 0
+	return e.usageState
+}
+
+func (e *Engine) reviewerRuntimeState() *reviewerRuntimeState {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.reviewerRuntimeStateLocked()
+}
+
+func (e *Engine) reviewerRuntimeStateLocked() *reviewerRuntimeState {
+	if e.reviewerState == nil {
+		e.reviewerState = newReviewerRuntimeState(e.cfg.Reviewer.Client)
 	}
-	if cachedTokens > e.totalInputTokens {
-		cachedTokens = e.totalInputTokens
+	return e.reviewerState
+}
+
+func (e *Engine) transcriptRuntimeState() *transcriptRuntimeState {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.transcriptState == nil {
+		e.transcriptState = newTranscriptRuntimeState(transcriptWorkingDir(e.cfg.TranscriptWorkingDir, e.store.Meta().WorkspaceRoot))
 	}
-	pct := (cachedTokens * 100) / e.totalInputTokens
-	if pct < 0 {
-		return 0, false
+	return e.transcriptState
+}
+
+func (e *Engine) transcriptPersistence() transcriptPersistenceCoordinator {
+	return newTranscriptPersistenceCoordinator(e.transcriptRuntimeState())
+}
+
+func (e *Engine) lockedContractState() *lockedContractState {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.lockedState == nil {
+		e.lockedState = newLockedContractState()
 	}
-	if pct > 100 {
-		return 100, true
+	return e.lockedState
+}
+
+func (e *Engine) modelRequests() *modelRequestRuntimeState {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.modelRequestsState == nil {
+		e.modelRequestsState = newModelRequestRuntimeState()
 	}
-	return pct, true
+	return e.modelRequestsState
 }
 
 func (e *Engine) emit(evt Event) {
@@ -687,44 +628,44 @@ func eventMayInferCommittedEntryStart(kind EventKind) bool {
 }
 
 func (e *Engine) rememberPendingToolCallStarts(starts map[string]int) {
-	if e == nil || len(starts) == 0 {
+	if e == nil {
 		return
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.pendingToolCallStarts == nil {
-		e.pendingToolCallStarts = make(map[string]int, len(starts))
-	}
-	for callID, start := range starts {
-		e.pendingToolCallStarts[callID] = start
-	}
+	e.pendingToolCallStartStore().Remember(starts)
 }
 
 func (e *Engine) pendingToolCallStart(callID string) (int, bool) {
-	if e == nil || callID == "" {
+	if e == nil {
 		return 0, false
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	start, ok := e.pendingToolCallStarts[callID]
-	if !ok {
-		return 0, false
-	}
-	return start, true
+	return e.pendingToolCallStartStore().Lookup(callID)
 }
 
 func (e *Engine) forgetPendingToolCallStart(callID string) {
-	if e == nil || callID == "" {
+	if e == nil {
 		return
 	}
+	e.pendingToolCallStartStore().Forget(callID)
+}
+
+func (e *Engine) pendingToolCallStartStore() *pendingToolCallStartStore {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	delete(e.pendingToolCallStarts, callID)
+	if e.toolCallStarts == nil {
+		e.toolCallStarts = newPendingToolCallStartStore()
+	}
+	return e.toolCallStarts
 }
 
 func (e *Engine) nextCompactionCount() int {
+	return e.compactionRuntimeState().IncrementCount()
+}
+
+func (e *Engine) compactionRuntimeState() *compactionRuntimeState {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.compactionCount++
-	return e.compactionCount
+	if e.compactionState == nil {
+		e.compactionState = newCompactionRuntimeState()
+	}
+	return e.compactionState
 }

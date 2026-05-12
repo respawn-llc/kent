@@ -39,7 +39,7 @@ func (e *Engine) persistToolCompletion(stepID string, r tools.Result) error {
 	_, err := e.store.AppendEvent(stepID, "tool_completed", payload)
 	if err == nil {
 		e.markCurrentRequestShapeDirtyForSignificantMutation()
-		e.chat.recordToolCompletion(r)
+		e.transcriptPersistence().RecordToolCompletion(r)
 	}
 	return err
 }
@@ -56,7 +56,7 @@ func (e *Engine) appendUserMessageWithoutConversationUpdate(stepID, text string)
 
 func (e *Engine) injectHeadlessModeTransitionPromptIfNeeded(stepID string) error {
 	builder := newMetaContextBuilder(e.store.Meta().WorkspaceRoot, e.cfg.Model, e.ThinkingLevel(), e.cfg.DisabledSkills, time.Now())
-	headlessActive := e.chat.headlessActive()
+	headlessActive := e.transcriptRuntimeState().HeadlessActive()
 	if e.cfg.HeadlessMode {
 		if !shouldInjectHeadlessModePromptForState(headlessActive) {
 			return nil
@@ -168,7 +168,7 @@ func (e *Engine) appendPersistedDiagnosticEntry(stepID, diagnosticKey, role, tex
 		e.clearLocalDiagnostic(diagnosticKey)
 		return err
 	}
-	e.chat.appendLocalEntryWithOngoingText(entry.Role, entry.Text, entry.OngoingText)
+	e.transcriptPersistence().AppendLocalEntryWithOngoingText(entry.Role, entry.Text, entry.OngoingText)
 	e.emit(Event{Kind: EventLocalEntryAdded, StepID: stepID, LocalEntry: localEntryChatEntry(entry), CommittedTranscriptChanged: true})
 	return nil
 }
@@ -189,7 +189,7 @@ func (e *Engine) appendPersistedLocalEntryRecord(stepID string, entry storedLoca
 	}
 	_, err := e.store.AppendEvent(stepID, "local_entry", entry)
 	if err == nil {
-		e.chat.appendLocalEntryRecord(*localEntryChatEntry(entry))
+		e.transcriptPersistence().AppendLocalEntryRecord(*localEntryChatEntry(entry))
 		e.emit(Event{Kind: EventLocalEntryAdded, StepID: stepID, LocalEntry: localEntryChatEntry(entry), CommittedTranscriptChanged: true})
 	}
 	return err
@@ -206,60 +206,35 @@ func localEntryChatEntry(entry storedLocalEntry) *ChatEntry {
 }
 
 func (e *Engine) beginLocalDiagnostic(key string) bool {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return true
-	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if _, exists := e.localDiagnosticKeys[key]; exists {
-		return false
-	}
-	e.localDiagnosticKeys[key] = struct{}{}
-	return true
+	return e.diagnosticDedupeStore().BeginLocal(key)
 }
 
 func (e *Engine) clearLocalDiagnostic(key string) {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return
-	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	delete(e.localDiagnosticKeys, key)
-	delete(e.persistedDiagnostics, key)
+	e.diagnosticDedupeStore().ClearLocal(key)
 }
 
 func (e *Engine) restoreLocalDiagnostic(key string) {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return
-	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.localDiagnosticKeys[key] = struct{}{}
-	e.persistedDiagnostics[key] = struct{}{}
+	e.diagnosticDedupeStore().RestoreLocal(key)
 }
 
 func (e *Engine) hasPersistedDiagnostic(key string) bool {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return false
-	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	_, exists := e.persistedDiagnostics[key]
-	return exists
+	return e.diagnosticDedupeStore().HasPersisted(key)
 }
 
 func (e *Engine) resetLocalDiagnostics() {
 	if e == nil {
 		return
 	}
+	e.diagnosticDedupeStore().Reset()
+}
+
+func (e *Engine) diagnosticDedupeStore() *diagnosticDedupeStore {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.localDiagnosticKeys = make(map[string]struct{})
-	e.persistedDiagnostics = make(map[string]struct{})
+	if e.diagnostics == nil {
+		e.diagnostics = newDiagnosticDedupeStore()
+	}
+	return e.diagnostics
 }
 
 func (e *Engine) appendMessage(stepID string, msg llm.Message) error {
@@ -275,7 +250,7 @@ func (e *Engine) appendMessage(stepID string, msg llm.Message) error {
 	} else {
 		e.markCurrentRequestShapeDirty()
 	}
-	e.chat.appendMessage(msg)
+	e.transcriptPersistence().AppendMessage(msg)
 	_, err := e.store.AppendEvent(stepID, "message", msg)
 	if err == nil {
 		if shouldEmitCommittedTranscriptAdvancedForAppendedMessage(msg, previousCommittedCount, e.CommittedTranscriptEntryCount()) {
@@ -304,14 +279,13 @@ func (e *Engine) appendMessageWithoutConversationUpdate(stepID string, msg llm.M
 	} else {
 		e.markCurrentRequestShapeDirty()
 	}
-	e.chat.appendMessage(msg)
+	e.transcriptPersistence().AppendMessage(msg)
 	_, err := e.store.AppendEvent(stepID, "message", msg)
 	return err
 }
 
 func (e *Engine) clearStreamingAssistantState(stepID string) {
-	e.chat.clearOngoing()
-	e.chat.clearOngoingError()
+	e.transcriptPersistence().ClearStreamingAssistantState()
 	e.emitConversationUpdated(stepID)
 	e.emit(Event{Kind: EventAssistantDeltaReset, StepID: stepID})
 	e.emit(Event{Kind: EventReasoningDeltaReset, StepID: stepID})

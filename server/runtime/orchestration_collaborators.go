@@ -68,6 +68,9 @@ type messageLifecycle interface {
 	RestoreMessages() error
 	InjectAgentsIfNeeded(stepID string) error
 	FlushPendingUserInjections(stepID string) (int, error)
+	QueueUserMessage(text string) QueuedUserMessage
+	DiscardQueuedUserMessage(queueItemID string) bool
+	HasPendingUserInjections() bool
 }
 
 type reviewerPipeline interface {
@@ -112,7 +115,7 @@ func (e *Engine) ensureOrchestrationCollaborators() {
 			e.phaseProtocol = &defaultPhaseProtocol{engine: e}
 		}
 		if e.messageFlow == nil {
-			e.messageFlow = &defaultMessageLifecycle{engine: e, background: e.backgroundFlow}
+			e.messageFlow = newDefaultMessageLifecycle(e, e.backgroundFlow)
 		}
 		if e.toolFlow == nil {
 			e.toolFlow = &defaultToolExecutor{engine: e}

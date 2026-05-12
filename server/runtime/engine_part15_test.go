@@ -314,7 +314,7 @@ func TestAutoCompactionRecomputesUsageFromReplacementHistory(t *testing.T) {
 		t.Fatalf("auto compact failed: %v", err)
 	}
 	if eng.shouldAutoCompact() {
-		t.Fatalf("expected auto compact threshold to be cleared after replacement, usage=%+v", eng.lastUsage)
+		t.Fatalf("expected auto compact threshold to be cleared after replacement, usage=%+v", eng.lastUsageSnapshot())
 	}
 }
 
@@ -405,6 +405,126 @@ func TestEmitCompactionStatusStillPublishesFailureEventWhenErrorPersistenceFails
 	}
 	if terminalEvents != 1 {
 		t.Fatalf("expected one compaction failed event despite error persistence failure, got %+v", events)
+	}
+}
+
+func TestReplaceHistoryDoesNotMutateRuntimeStateWhenEventAppendFails(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	if err := eng.appendMessage("step-1", llm.Message{Role: llm.RoleUser, Content: "pre-compaction"}); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+	eng.setCompactionSoonReminderIssued(true)
+
+	eventsPath := filepath.Join(store.Dir(), "events.jsonl")
+	if err := os.Chmod(eventsPath, 0o444); err != nil {
+		t.Fatalf("chmod events read-only: %v", err)
+	}
+	defer func() {
+		_ = os.Chmod(eventsPath, 0o644)
+	}()
+
+	err = eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}))
+	if err == nil {
+		t.Fatal("expected replaceHistory persistence failure")
+	}
+	if messages := eng.snapshotMessages(); len(messages) != 1 || messages[0].Content != "pre-compaction" {
+		t.Fatalf("runtime transcript mutated despite persistence failure: %+v", messages)
+	}
+	if !eng.compactionRuntimeState().SoonReminderIssued() {
+		t.Fatal("reminder state mutated despite persistence failure")
+	}
+}
+
+type failOnCompactionReminderResetObservation struct {
+	failed bool
+}
+
+func (o *failOnCompactionReminderResetObservation) ObservePersistedStore(_ context.Context, snapshot session.PersistedStoreSnapshot) error {
+	if !o.failed && snapshot.Meta.LastSequence >= 2 && !snapshot.Meta.CompactionSoonReminderIssued {
+		o.failed = true
+		return errors.New("persist observer failed")
+	}
+	return nil
+}
+
+type failOnUsageStateResetObservation struct {
+	failed bool
+}
+
+func (o *failOnUsageStateResetObservation) ObservePersistedStore(_ context.Context, snapshot session.PersistedStoreSnapshot) error {
+	if !o.failed && snapshot.Meta.LastSequence >= 2 && snapshot.Meta.UsageState == nil {
+		o.failed = true
+		return errors.New("persist observer failed")
+	}
+	return nil
+}
+
+func TestReplaceHistoryUpdatesRuntimeStateWhenMetadataPersistFailsAfterEventAppend(t *testing.T) {
+	dir := t.TempDir()
+	observer := &failOnCompactionReminderResetObservation{}
+	store, err := session.Create(dir, "ws", dir, session.WithPersistenceObserver(observer))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	if err := eng.appendMessage("step-1", llm.Message{Role: llm.RoleUser, Content: "pre-compaction"}); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+	if err := store.SetCompactionSoonReminderIssued(true); err != nil {
+		t.Fatalf("persist seed reminder state: %v", err)
+	}
+	eng.setCompactionSoonReminderIssued(true)
+
+	err = eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}))
+	if err == nil {
+		t.Fatal("expected replaceHistory metadata persistence failure")
+	}
+	messages := eng.snapshotMessages()
+	if len(messages) != 1 || messages[0].Content != "summary" {
+		t.Fatalf("runtime transcript not updated after durable history replacement: %+v", messages)
+	}
+	if eng.compactionRuntimeState().SoonReminderIssued() {
+		t.Fatal("reminder state not reset after durable history replacement")
+	}
+}
+
+func TestReplaceHistoryUpdatesRuntimeStateWhenUsageMetadataPersistFailsAfterEventAppend(t *testing.T) {
+	dir := t.TempDir()
+	observer := &failOnUsageStateResetObservation{}
+	store, err := session.Create(dir, "ws", dir, session.WithPersistenceObserver(observer))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	if err := eng.appendMessage("step-1", llm.Message{Role: llm.RoleUser, Content: "pre-compaction"}); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+	if err := store.SetUsageState(&session.UsageState{InputTokens: 42, WindowTokens: 100}); err != nil {
+		t.Fatalf("persist seed usage state: %v", err)
+	}
+	eng.setLastUsage(llm.Usage{InputTokens: 42, WindowTokens: 100})
+
+	err = eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}))
+	if err == nil {
+		t.Fatal("expected replaceHistory usage metadata persistence failure")
+	}
+	messages := eng.snapshotMessages()
+	if len(messages) != 1 || messages[0].Content != "summary" {
+		t.Fatalf("runtime transcript not updated after durable history replacement: %+v", messages)
 	}
 }
 

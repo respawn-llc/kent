@@ -877,8 +877,8 @@ func TestExecuteToolCallsFailsOnToolCompletionPersistence(t *testing.T) {
 				t.Fatalf("expected persistence error, got %v", err)
 			}
 
-			if len(eng.chat.toolCompletions) != 0 {
-				t.Fatalf("expected no in-memory tool completions when persistence fails, got %+v", eng.chat.toolCompletions)
+			if got := eng.transcriptRuntimeState().ToolCompletionCount(); got != 0 {
+				t.Fatalf("expected no in-memory tool completions when persistence fails, got %d", got)
 			}
 		})
 	}

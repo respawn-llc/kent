@@ -1,0 +1,136 @@
+package runtime
+
+import (
+	"strings"
+	"sync"
+
+	"builder/server/llm"
+	"builder/server/tools"
+)
+
+type transcriptRuntimeState struct {
+	mu   sync.Mutex
+	cwd  string
+	chat *chatStore
+}
+
+func newTranscriptRuntimeState(cwd string) *transcriptRuntimeState {
+	return &transcriptRuntimeState{cwd: strings.TrimSpace(cwd), chat: newChatStore()}
+}
+
+func (s *transcriptRuntimeState) SetWorkingDir(workdir string) bool {
+	if s == nil {
+		return false
+	}
+	trimmed := strings.TrimSpace(workdir)
+	if trimmed == "" {
+		return false
+	}
+	s.mu.Lock()
+	s.cwd = trimmed
+	s.mu.Unlock()
+	return true
+}
+
+func (s *transcriptRuntimeState) WorkingDir() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return strings.TrimSpace(s.cwd)
+}
+
+func (s *transcriptRuntimeState) chatProjection() *chatStore {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.chat == nil {
+		s.chat = newChatStore()
+	}
+	return s.chat
+}
+
+func (s *transcriptRuntimeState) SnapshotMessages() []llm.Message {
+	if chat := s.chatProjection(); chat != nil {
+		return chat.snapshotMessages()
+	}
+	return nil
+}
+
+func (s *transcriptRuntimeState) SnapshotItems() []llm.ResponseItem {
+	if chat := s.chatProjection(); chat != nil {
+		return chat.snapshotItems()
+	}
+	return nil
+}
+
+func (s *transcriptRuntimeState) Snapshot() ChatSnapshot {
+	if chat := s.chatProjection(); chat != nil {
+		return chat.snapshot()
+	}
+	return ChatSnapshot{}
+}
+
+func (s *transcriptRuntimeState) OngoingTailSnapshot(maxEntries int) TranscriptWindowSnapshot {
+	if chat := s.chatProjection(); chat != nil {
+		return chat.ongoingTailSnapshot(maxEntries)
+	}
+	return TranscriptWindowSnapshot{}
+}
+
+func (s *transcriptRuntimeState) TranscriptPageSnapshot(offset, limit int) transcriptPageSnapshot {
+	if chat := s.chatProjection(); chat != nil {
+		return chat.transcriptPageSnapshot(offset, limit)
+	}
+	return transcriptPageSnapshot{}
+}
+
+func (s *transcriptRuntimeState) CommittedEntryCount() int {
+	if chat := s.chatProjection(); chat != nil {
+		return chat.committedEntryCount()
+	}
+	return 0
+}
+
+func (s *transcriptRuntimeState) LastCommittedAssistantFinalAnswer() string {
+	if chat := s.chatProjection(); chat != nil {
+		return chat.cachedLastCommittedAssistantFinalAnswer()
+	}
+	return ""
+}
+
+func (s *transcriptRuntimeState) EstimatedProviderTokens() int {
+	if chat := s.chatProjection(); chat != nil {
+		return chat.estimatedProviderTokens()
+	}
+	return 0
+}
+
+func (s *transcriptRuntimeState) ToolCompletionSnapshot(callID string) (tools.Result, bool) {
+	if chat := s.chatProjection(); chat != nil {
+		chat.mu.Lock()
+		defer chat.mu.Unlock()
+		result, ok := chat.toolCompletions[strings.TrimSpace(callID)]
+		return result, ok
+	}
+	return tools.Result{}, false
+}
+
+func (s *transcriptRuntimeState) ToolCompletionCount() int {
+	if chat := s.chatProjection(); chat != nil {
+		chat.mu.Lock()
+		defer chat.mu.Unlock()
+		return len(chat.toolCompletions)
+	}
+	return 0
+}
+
+func (s *transcriptRuntimeState) HeadlessActive() bool {
+	if chat := s.chatProjection(); chat != nil {
+		return chat.headlessActive()
+	}
+	return false
+}

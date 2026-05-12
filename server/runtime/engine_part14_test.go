@@ -74,13 +74,13 @@ func TestReopenedSessionAfterSuccessfulTriggerHandoffRequeuesPendingHandoff(t *t
 	if err != nil {
 		t.Fatalf("restore engine: %v", err)
 	}
-	if restored.pendingHandoffRequest == nil {
+	if restored.pendingHandoffRequestSnapshot() == nil {
 		t.Fatal("expected restore to recover pending handoff request")
 	}
-	if got, want := restored.pendingHandoffRequest.summarizerPrompt, "keep API details"; got != want {
+	if got, want := restored.pendingHandoffRequestSnapshot().summarizerPrompt, "keep API details"; got != want {
 		t.Fatalf("pending summarizer_prompt = %q, want %q", got, want)
 	}
-	if got, want := restored.pendingHandoffRequest.futureAgentMessage, "resume after restart"; got != want {
+	if got, want := restored.pendingHandoffRequestSnapshot().futureAgentMessage, "resume after restart"; got != want {
 		t.Fatalf("pending future_agent_message = %q, want %q", got, want)
 	}
 
@@ -185,10 +185,10 @@ func TestForkedSessionAfterTriggerHandoffRequeuesPendingHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restore forked engine: %v", err)
 	}
-	if forked.pendingHandoffRequest == nil {
+	if forked.pendingHandoffRequestSnapshot() == nil {
 		t.Fatal("expected forked session to recover pending handoff request")
 	}
-	if got, want := forked.pendingHandoffRequest.futureAgentMessage, "resume after fork"; got != want {
+	if got, want := forked.pendingHandoffRequestSnapshot().futureAgentMessage, "resume after fork"; got != want {
 		t.Fatalf("forked pending future_agent_message = %q, want %q", got, want)
 	}
 }
@@ -246,8 +246,8 @@ func TestReopenedSessionAfterTriggerHandoffDoesNotRequeueWhenAnyCompactionAlread
 	if err != nil {
 		t.Fatalf("restore engine: %v", err)
 	}
-	if restored.pendingHandoffRequest != nil {
-		t.Fatalf("did not expect restore to requeue handoff after later compaction, got %+v", restored.pendingHandoffRequest)
+	if restored.pendingHandoffRequestSnapshot() != nil {
+		t.Fatalf("did not expect restore to requeue handoff after later compaction, got %+v", restored.pendingHandoffRequestSnapshot())
 	}
 
 	msg, err := restored.SubmitUserMessage(context.Background(), "continue")
@@ -319,8 +319,8 @@ func TestReopenedSessionAfterFailedTriggerHandoffDoesNotRequeuePendingHandoff(t 
 	if err != nil {
 		t.Fatalf("restore engine: %v", err)
 	}
-	if restored.pendingHandoffRequest != nil {
-		t.Fatalf("did not expect failed trigger_handoff completion to requeue handoff, got %+v", restored.pendingHandoffRequest)
+	if restored.pendingHandoffRequestSnapshot() != nil {
+		t.Fatalf("did not expect failed trigger_handoff completion to requeue handoff, got %+v", restored.pendingHandoffRequestSnapshot())
 	}
 }
 
@@ -373,10 +373,10 @@ func TestReopenedSessionAfterLegacyReviewerRollbackStillRequeuesPendingTriggerHa
 	if err != nil {
 		t.Fatalf("restore engine: %v", err)
 	}
-	if restored.pendingHandoffRequest == nil {
+	if restored.pendingHandoffRequestSnapshot() == nil {
 		t.Fatal("expected ignored legacy reviewer rollback to preserve pending handoff recovery")
 	}
-	if got, want := restored.pendingHandoffRequest.futureAgentMessage, "resume after rollback"; got != want {
+	if got, want := restored.pendingHandoffRequestSnapshot().futureAgentMessage, "resume after rollback"; got != want {
 		t.Fatalf("pending future_agent_message = %q, want %q", got, want)
 	}
 }
@@ -410,22 +410,20 @@ func TestManualCompactionClearsQueuedTriggerHandoff(t *testing.T) {
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.mu.Lock()
-	eng.compactionSoonReminderIssued = true
-	eng.mu.Unlock()
+	eng.setCompactionSoonReminderIssued(true)
 
 	_, _, err = eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_manual_clear", Name: string(toolspec.ToolTriggerHandoff)}, "", "resume after manual compact")
 	if err != nil {
 		t.Fatalf("trigger handoff: %v", err)
 	}
-	if eng.pendingHandoffRequest == nil {
+	if eng.pendingHandoffRequestSnapshot() == nil {
 		t.Fatal("expected queued handoff before manual compaction")
 	}
 	if err := eng.CompactContext(context.Background(), "manual compact now"); err != nil {
 		t.Fatalf("manual compact: %v", err)
 	}
-	if eng.pendingHandoffRequest != nil {
-		t.Fatalf("expected manual compaction to clear queued handoff, got %+v", eng.pendingHandoffRequest)
+	if eng.pendingHandoffRequestSnapshot() != nil {
+		t.Fatalf("expected manual compaction to clear queued handoff, got %+v", eng.pendingHandoffRequestSnapshot())
 	}
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "continue")

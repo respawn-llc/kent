@@ -138,12 +138,7 @@ func (e *Engine) systemPrompt(locked session.LockedContract) (string, error) {
 		persisted := strings.TrimSpace(meta.Locked.SystemPrompt)
 		prompt = persisted
 	}
-	e.mu.Lock()
-	if e.locked != nil && !e.locked.HasSystemPrompt {
-		e.locked.SystemPrompt = prompt
-		e.locked.HasSystemPrompt = true
-	}
-	e.mu.Unlock()
+	e.lockedContractState().FillSystemPrompt(prompt)
 	return prompt, nil
 }
 

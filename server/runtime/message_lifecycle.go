@@ -15,6 +15,15 @@ import (
 type defaultMessageLifecycle struct {
 	engine     *Engine
 	background backgroundNoticeScheduler
+	queue      *queuedUserMessageStore
+}
+
+func newDefaultMessageLifecycle(engine *Engine, background backgroundNoticeScheduler) *defaultMessageLifecycle {
+	return &defaultMessageLifecycle{
+		engine:     engine,
+		background: background,
+		queue:      newQueuedUserMessageStore(),
+	}
 }
 
 func (m *defaultMessageLifecycle) RestoreMessages() error {
@@ -29,13 +38,13 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			if err := json.Unmarshal(evt.Payload, &msg); err != nil {
 				return fmt.Errorf("decode message event: %w", err)
 			}
-			e.chat.appendMessage(msg)
+			e.transcriptPersistence().AppendMessage(msg)
 			recoveredHandoff.ApplyMessage(msg)
 			if isCompactionSoonReminderMessage(msg) {
 				reminderIssued = true
 			}
 		case "tool_completed":
-			if err := e.chat.restoreToolCompletionPayload(evt.Payload); err != nil {
+			if err := e.transcriptPersistence().RestoreToolCompletionPayload(evt.Payload); err != nil {
 				return err
 			}
 			if err := recoveredHandoff.ApplyToolCompletion(evt.Payload); err != nil {
@@ -47,9 +56,9 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 				return fmt.Errorf("decode local_entry event: %w", err)
 			}
 			e.restoreLocalDiagnostic(entry.DiagnosticKey)
-			e.chat.appendLocalEntryRecord(*localEntryChatEntry(entry))
+			e.transcriptPersistence().AppendLocalEntryRecord(*localEntryChatEntry(entry))
 		case sessionEventCacheWarning:
-			if err := applyPersistedCacheWarningToChat(e.chat, evt.Payload, e.cfg.CacheWarningMode); err != nil {
+			if err := applyPersistedCacheWarningToTranscript(e.transcriptPersistence(), evt.Payload, e.cfg.CacheWarningMode); err != nil {
 				return err
 			}
 		case sessionEventCacheRequestObserved:
@@ -69,8 +78,8 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 				return nil
 			}
 			e.resetLocalDiagnostics()
-			e.chat.replaceHistory(payload.Items)
-			e.compactionCount++
+			e.transcriptPersistence().ReplaceHistory(payload.Items)
+			e.nextCompactionCount()
 			recoveredHandoff.ClearSatisfiedByCompaction()
 			reminderIssued = false
 		}
@@ -242,10 +251,7 @@ func queuedUserMessageIDs(messages []QueuedUserMessage) []string {
 
 func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string) (int, error) {
 	e := m.engine
-	e.mu.Lock()
-	pending := append([]QueuedUserMessage(nil), e.pendingInjected...)
-	e.pendingInjected = nil
-	e.mu.Unlock()
+	pending := m.queue.Drain()
 	flushed := 0
 	pendingNotices := []llm.Message(nil)
 	if m.background != nil {
@@ -268,6 +274,31 @@ func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string) (int
 		flushed++
 	}
 	return flushed, nil
+}
+
+func (m *defaultMessageLifecycle) QueueUserMessage(text string) QueuedUserMessage {
+	if m == nil || m.queue == nil {
+		return QueuedUserMessage{}
+	}
+	return m.queue.Queue(text)
+}
+
+func (m *defaultMessageLifecycle) DiscardQueuedUserMessage(queueItemID string) bool {
+	if m == nil || m.queue == nil {
+		return false
+	}
+	return m.queue.Discard(queueItemID)
+}
+
+func (m *defaultMessageLifecycle) HasPendingUserInjections() bool {
+	return m != nil && m.queue != nil && m.queue.HasPending()
+}
+
+func (m *defaultMessageLifecycle) queuedUserMessagesSnapshot() []QueuedUserMessage {
+	if m == nil || m.queue == nil {
+		return nil
+	}
+	return m.queue.Snapshot()
 }
 
 func (m *defaultMessageLifecycle) InjectAgentsIfNeeded(stepID string) error {

@@ -163,7 +163,7 @@ func (t *requestCacheTracker) RecordResponse(response persistedCacheResponseObse
 }
 
 func (e *Engine) observePromptCacheRequest(stepID string, prepared preparedCacheRequestObservation) error {
-	if e == nil || e.requestCache == nil || strings.TrimSpace(prepared.request.CacheKey) == "" {
+	if e == nil || e.modelRequests().RequestCache() == nil || strings.TrimSpace(prepared.request.CacheKey) == "" {
 		return nil
 	}
 	events := make([]session.EventInput, 0, 1)
@@ -186,7 +186,7 @@ func cacheWarningEntryVisibility(mode config.CacheWarningMode) transcript.EntryV
 }
 
 func (e *Engine) observePromptCacheResponse(stepID string, prepared preparedCacheRequestObservation, usage llm.Usage) error {
-	if e == nil || e.requestCache == nil || strings.TrimSpace(prepared.request.CacheKey) == "" {
+	if e == nil || e.modelRequests().RequestCache() == nil || strings.TrimSpace(prepared.request.CacheKey) == "" {
 		return nil
 	}
 	response := persistedCacheResponseObserved{
@@ -222,7 +222,7 @@ func (e *Engine) observePromptCacheResponse(stepID string, prepared preparedCach
 		e.applyPersistedCacheWarning(*warning)
 		e.emit(Event{Kind: EventCacheWarning, StepID: stepID, CacheWarning: copyCacheWarning(warning), CacheWarningVisibility: cacheWarningEntryVisibility(e.cfg.CacheWarningMode), CommittedTranscriptChanged: true})
 	}
-	e.requestCache.RecordResponse(response)
+	e.modelRequests().RequestCache().RecordResponse(response)
 	return nil
 }
 
@@ -271,24 +271,24 @@ func (e *Engine) restorePromptCacheResponse(payload []byte) error {
 	if err := json.Unmarshal(payload, &response); err != nil {
 		return fmt.Errorf("decode %s event: %w", sessionEventCacheResponseObserved, err)
 	}
-	if e.requestCache != nil {
-		e.requestCache.RecordResponse(response)
+	if e.modelRequests().RequestCache() != nil {
+		e.modelRequests().RequestCache().RecordResponse(response)
 	}
 	return nil
 }
 
 func (e *Engine) notePromptCacheInvalidation(cacheKey string, reason cachewarn.Reason) {
-	if e == nil || e.requestCache == nil {
+	if e == nil || e.modelRequests().RequestCache() == nil {
 		return
 	}
-	e.requestCache.RecordInvalidation(cacheKey, reason)
+	e.modelRequests().RequestCache().RecordInvalidation(cacheKey, reason)
 }
 
 func (e *Engine) clearPromptCacheLineage(cacheKey string) {
-	if e == nil || e.requestCache == nil {
+	if e == nil || e.modelRequests().RequestCache() == nil {
 		return
 	}
-	e.requestCache.Clear(cacheKey)
+	e.modelRequests().RequestCache().Clear(cacheKey)
 }
 
 func (e *Engine) clearPromptCacheLineages(sessionID string, compactionCount int) {
@@ -319,10 +319,10 @@ func applyPersistedCacheWarningToChat(chat *chatStore, payload []byte, mode conf
 }
 
 func (e *Engine) applyPersistedCacheWarning(warning cachewarn.Warning) {
-	if e == nil || e.chat == nil {
+	if e == nil {
 		return
 	}
-	e.chat.appendLocalEntryWithVisibility(cacheWarningTranscriptRole, cachewarn.Text(warning), cacheWarningEntryVisibility(e.cfg.CacheWarningMode))
+	e.transcriptPersistence().AppendLocalEntryWithVisibility(cacheWarningTranscriptRole, cachewarn.Text(warning), cacheWarningEntryVisibility(e.cfg.CacheWarningMode))
 }
 
 func copyCacheWarning(in *cachewarn.Warning) *cachewarn.Warning {

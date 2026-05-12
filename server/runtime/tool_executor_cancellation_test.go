@@ -1,0 +1,60 @@
+package runtime
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+
+	"builder/server/llm"
+	"builder/server/session"
+	"builder/server/tools"
+	"builder/shared/toolspec"
+)
+
+type cancelAwareTool struct {
+	name    toolspec.ID
+	started chan struct{}
+}
+
+func (t cancelAwareTool) Name() toolspec.ID { return t.name }
+
+func (t cancelAwareTool) Call(ctx context.Context, c tools.Call) (tools.Result, error) {
+	select {
+	case <-t.started:
+	default:
+		close(t.started)
+	}
+	<-ctx.Done()
+	out, _ := json.Marshal(map[string]any{"error": ctx.Err().Error()})
+	return tools.Result{CallID: c.ID, Name: c.Name, IsError: true, Output: out, Summary: ctx.Err().Error()}, ctx.Err()
+}
+
+func TestExecuteToolCallsPropagatesContextCancellation(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	started := make(chan struct{})
+	eng, err := New(store, &fakeClient{}, tools.NewRegistry(cancelAwareTool{name: toolspec.ToolExecCommand, started: started}), Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := eng.executeToolCalls(ctx, "step-1", []llm.ToolCall{{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{}`)}})
+		done <- err
+	}()
+
+	<-started
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("executeToolCalls error=%v, want context.Canceled", err)
+	}
+	if _, ok := eng.transcriptRuntimeState().ToolCompletionSnapshot("call-1"); !ok {
+		t.Fatal("expected canceled tool completion to be persisted before returning")
+	}
+}

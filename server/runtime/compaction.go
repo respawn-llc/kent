@@ -10,9 +10,6 @@ import (
 
 	"builder/prompts"
 	"builder/server/llm"
-	"builder/shared/cachewarn"
-	"builder/shared/compaction"
-	"builder/shared/toolspec"
 )
 
 type compactionMode string
@@ -83,10 +80,12 @@ func (c *defaultContextCompactor) TriggerHandoff(ctx context.Context, stepID str
 	if strings.TrimSpace(stepID) == "" {
 		return "", false, errors.New("trigger_handoff requires an active step")
 	}
-	if !e.AutoCompactionEnabled() {
+	planningSnapshot := e.compactionPlanningSnapshot()
+	planner := e.compactionPlannerState()
+	if !planner.autoCompactionEnabled(planningSnapshot) {
 		return "", false, errors.New(handoffDisabledByUserMessage)
 	}
-	if e.compactionMode() == "none" {
+	if planner.mode(planningSnapshot.compactionMode) == "none" {
 		return "", false, errors.New("User explicitly disabled compaction in configuration.")
 	}
 	if !e.handoffToolEnabled() {
@@ -140,13 +139,12 @@ func (e *Engine) shouldAutoCompact() bool {
 }
 
 func (e *Engine) shouldAutoCompactWithContext(ctx context.Context) bool {
-	if !e.AutoCompactionEnabled() {
+	snapshot := e.compactionPlanningSnapshot()
+	planner := e.compactionPlannerState()
+	if !planner.autoCompactionAvailable(snapshot) {
 		return false
 	}
-	if e.compactionMode() == "none" {
-		return false
-	}
-	limit := e.autoCompactTokenLimit(ctx)
+	limit := planner.autoCompactTokenLimit(snapshot)
 	if limit <= 0 {
 		return false
 	}
@@ -154,31 +152,15 @@ func (e *Engine) shouldAutoCompactWithContext(ctx context.Context) bool {
 }
 
 func (e *Engine) autoCompactTokenLimit(ctx context.Context) int {
-	if e.cfg.AutoCompactTokenLimit > 0 {
-		return e.cfg.AutoCompactTokenLimit
-	}
-	limit := e.effectiveContextTokenLimit()
-	if limit < 1 {
-		return 1
-	}
-	return limit
+	return e.compactionPlannerState().autoCompactTokenLimit(e.compactionPlanningSnapshot())
 }
 
 func (e *Engine) preSubmitCompactionRunwayTokens() int {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.cfg.PreSubmitCompactionLeadTokens > 0 {
-		return e.cfg.PreSubmitCompactionLeadTokens
-	}
-	return compaction.DefaultPreSubmitRunwayTokens
+	return e.compactionPlannerState().preSubmitRunwayTokens(e.compactionPlanningSnapshot())
 }
 
 func (e *Engine) preSubmitCompactionTokenLimit(ctx context.Context) int {
-	limit := e.autoCompactTokenLimit(ctx)
-	if limit <= 0 {
-		return 0
-	}
-	return compaction.EffectivePreSubmitThresholdTokens(limit, e.preSubmitCompactionRunwayTokens())
+	return e.compactionPlannerState().preSubmitTokenLimit(e.compactionPlanningSnapshot())
 }
 
 func (e *Engine) ShouldCompactBeforeUserMessage(ctx context.Context, text string) (bool, error) {
@@ -191,15 +173,17 @@ func (c *defaultContextCompactor) ShouldCompactBeforeUserMessage(ctx context.Con
 	if strings.TrimSpace(text) == "" {
 		return false, nil
 	}
-	if !e.AutoCompactionEnabled() || e.compactionMode() == "none" {
+	planningSnapshot := e.compactionPlanningSnapshot()
+	planner := e.compactionPlannerState()
+	if !planner.autoCompactionAvailable(planningSnapshot) {
 		return false, nil
 	}
-	limit := e.autoCompactTokenLimit(ctx)
+	limit := planner.autoCompactTokenLimit(planningSnapshot)
 	if limit <= 0 {
 		return false, nil
 	}
-	reservedOutput := e.reservedOutputTokens()
-	preSubmitLimit := e.preSubmitCompactionTokenLimit(ctx)
+	reservedOutput := planner.reservedOutputTokens(planningSnapshot)
+	preSubmitLimit := planner.preSubmitTokenLimit(planningSnapshot)
 	if preSubmitLimit > 0 {
 		_, _ = e.currentInputTokensPreciselyIfCritical(ctx, preSubmitLimit)
 	}
@@ -259,26 +243,14 @@ func (e *Engine) setContextWindowTokens(tokens int) {
 }
 
 func (e *Engine) currentModel() string {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.locked != nil {
-		if model := strings.TrimSpace(e.locked.Model); model != "" {
-			return model
-		}
+	if model := e.lockedContractState().Model(); model != "" {
+		return model
 	}
 	return strings.TrimSpace(e.cfg.Model)
 }
 
 func (e *Engine) reservedOutputTokens() int {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.locked != nil && e.locked.MaxOutputToken > 0 {
-		return e.locked.MaxOutputToken
-	}
-	if e.cfg.MaxTokens > 0 {
-		return e.cfg.MaxTokens
-	}
-	return 0
+	return e.compactionPlannerState().reservedOutputTokens(e.compactionPlanningSnapshot())
 }
 
 func autoCompactPrecisionMarginForLimit(limit int) int {
@@ -311,52 +283,6 @@ func (e *Engine) usageAtOrAboveLimit(ctx context.Context, limit int) bool {
 		return estimatedTotal >= limit
 	}
 	return preciseInput+reservedOutput >= limit
-}
-
-func (e *Engine) compactionSoonReminderLimit(ctx context.Context) int {
-	limit := e.autoCompactTokenLimit(ctx)
-	if limit <= 0 {
-		return 0
-	}
-	reminderLimit := (limit * compactionSoonReminderPercent) / 100
-	if reminderLimit < 1 {
-		return 1
-	}
-	return reminderLimit
-}
-
-func (e *Engine) maybeAppendCompactionSoonReminder(ctx context.Context, stepID string) error {
-	if !e.AutoCompactionEnabled() || e.compactionMode() == "none" {
-		return nil
-	}
-	limit := e.compactionSoonReminderLimit(ctx)
-	if limit <= 0 {
-		return nil
-	}
-	if !e.usageAtOrAboveLimit(ctx, limit) {
-		return nil
-	}
-	content := prompts.RenderCompactionSoonReminderPrompt(e.triggerHandoffConfigured())
-	if content == "" {
-		return nil
-	}
-	if e.shouldAutoCompactWithContext(ctx) {
-		return nil
-	}
-	e.mu.Lock()
-	if e.compactionSoonReminderIssued {
-		e.mu.Unlock()
-		return nil
-	}
-	e.mu.Unlock()
-	if err := e.appendMessage(stepID, llm.Message{
-		Role:        llm.RoleDeveloper,
-		MessageType: llm.MessageTypeCompactionSoonReminder,
-		Content:     content,
-	}); err != nil {
-		return err
-	}
-	return e.persistCompactionSoonReminderIssued(true)
 }
 
 func (e *Engine) currentInputTokensPrecisely(ctx context.Context) (int, bool) {
@@ -497,52 +423,55 @@ func requestTokenCountCacheKey(req llm.Request) string {
 }
 
 func (e *Engine) lookupPreciseTokenCount(cacheKey string, current bool) (int, bool) {
-	if strings.TrimSpace(cacheKey) == "" || e.tokenUsage == nil {
+	if strings.TrimSpace(cacheKey) == "" || e.modelRequests().TokenUsage() == nil {
 		return 0, false
 	}
 	if current {
-		if cached, ok := e.tokenUsage.lookupCurrent(cacheKey); ok {
+		if cached, ok := e.modelRequests().TokenUsage().lookupCurrent(cacheKey); ok {
 			return cached, true
 		}
 	}
-	return e.tokenUsage.lookup(cacheKey)
+	return e.modelRequests().TokenUsage().lookup(cacheKey)
 }
 
 func (e *Engine) storePreciseTokenCount(cacheKey string, count int, current bool) {
-	if strings.TrimSpace(cacheKey) == "" || count <= 0 || e.tokenUsage == nil {
+	if strings.TrimSpace(cacheKey) == "" || count <= 0 || e.modelRequests().TokenUsage() == nil {
 		return
 	}
-	e.tokenUsage.store(cacheKey, count, current)
+	e.modelRequests().TokenUsage().store(cacheKey, count, current)
 }
 
 func (e *Engine) lookupCurrentPreciseInputTokens() (int, bool) {
-	if e.tokenUsage == nil {
+	if e.modelRequests().TokenUsage() == nil {
 		return 0, false
 	}
-	return e.tokenUsage.lookupCurrent("")
+	return e.modelRequests().TokenUsage().lookupCurrent("")
 }
 
 // markCurrentRequestShapeDirty invalidates the current-context exact token count
 // whenever the next provider request may differ from the previously counted one.
 func (e *Engine) markCurrentRequestShapeDirty() {
-	if e.tokenUsage == nil {
+	tracker := e.modelRequests().TokenUsage()
+	if tracker == nil {
 		return
 	}
-	e.tokenUsage.invalidateCurrent(tokenUsageMutationPlain)
+	tracker.invalidateCurrent(tokenUsageMutationPlain)
 }
 
 func (e *Engine) markCurrentRequestShapeDirtyForSignificantMutation() {
-	if e.tokenUsage == nil {
+	tracker := e.modelRequests().TokenUsage()
+	if tracker == nil {
 		return
 	}
-	e.tokenUsage.invalidateCurrent(tokenUsageMutationSignificant)
+	tracker.invalidateCurrent(tokenUsageMutationSignificant)
 }
 
 func (e *Engine) resetCurrentPreciseInputTracking() {
-	if e.tokenUsage == nil {
+	tracker := e.modelRequests().TokenUsage()
+	if tracker == nil {
 		return
 	}
-	e.tokenUsage.invalidateCurrent(tokenUsageMutationHardReset)
+	tracker.invalidateCurrent(tokenUsageMutationHardReset)
 }
 
 func (e *Engine) invalidateCurrentPreciseInputTokens() {
@@ -550,38 +479,27 @@ func (e *Engine) invalidateCurrentPreciseInputTokens() {
 }
 
 func (e *Engine) shouldRefreshCurrentPreciseInputTokens(limit int, critical bool) bool {
-	if limit <= 0 || e.tokenUsage == nil {
+	if limit <= 0 || e.modelRequests().TokenUsage() == nil {
 		return false
 	}
-	return e.tokenUsage.currentCheckpointDue(e.estimatedCurrentTokenUsage(), limit, critical)
+	return e.modelRequests().TokenUsage().currentCheckpointDue(e.estimatedCurrentTokenUsage(), limit, critical)
 }
 
 func (e *Engine) contextWindowTokens() int {
-	if e.cfg.ContextWindowTokens > 0 {
-		return e.cfg.ContextWindowTokens
-	}
-	usage := e.lastUsageSnapshot()
-	if usage.WindowTokens > 0 {
-		return usage.WindowTokens
-	}
-	return defaultContextWindowTokens
+	return e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())
 }
 
 func (e *Engine) effectiveContextTokenLimit() int {
-	percent := e.cfg.EffectiveContextWindowPercent
-	if percent <= 0 || percent > 100 {
-		percent = 95
-	}
-	return (e.contextWindowTokens() * percent) / 100
+	return e.compactionPlannerState().effectiveContextTokenLimit(e.compactionPlanningSnapshot())
 }
 
 func (e *Engine) estimatedCurrentTokenUsage() int {
 	estimated := 0
-	if e.chat != nil {
-		estimated = e.chat.estimatedProviderTokens()
+	if e != nil {
+		estimated = e.transcriptRuntimeState().EstimatedProviderTokens()
 	}
-	if e.tokenUsage != nil {
-		if baseline, ok := e.tokenUsage.estimateCurrentInputTokens(estimated); ok {
+	if e.modelRequests().TokenUsage() != nil {
+		if baseline, ok := e.modelRequests().TokenUsage().estimateCurrentInputTokens(estimated); ok {
 			return baseline
 		}
 	}
@@ -603,7 +521,9 @@ func (e *Engine) currentTokenUsage() int {
 }
 
 func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionMode, args string, includeManualCarryover bool) (compactionResult, error) {
-	if e.compactionMode() == "none" {
+	planningSnapshot := e.compactionPlanningSnapshot()
+	planner := e.compactionPlannerState()
+	if planner.mode(planningSnapshot.compactionMode) == "none" {
 		if mode == compactionModeAuto {
 			return compactionResult{}, nil
 		}
@@ -635,11 +555,12 @@ func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionM
 	if mode == compactionModeManual && includeManualCarryover {
 		manualCarryover = lastVisibleUserMessageSinceLatestCompaction(input)
 	}
-	wasHeadless := e.chat.headlessActive()
+	wasHeadless := e.transcriptRuntimeState().HeadlessActive()
 	var result compactionResult
-	if e.compactionMode() == "native" && caps.SupportsResponsesCompact {
+	enginePlan := planner.enginePlan(planningSnapshot, caps)
+	if enginePlan.engineKind == compactionEngineRemote {
 		result, err = e.compactRemote(ctx, stepID, input, providerID, instructions)
-		if err != nil && errors.Is(err, errRemoteCompactionMissingCheckpoint) {
+		if err != nil && enginePlan.fallbackToLocalOnBadCheckpoint && errors.Is(err, errRemoteCompactionMissingCheckpoint) {
 			result, err = e.compactLocal(ctx, input, providerID, instructions, mode)
 		}
 	} else {
@@ -695,311 +616,6 @@ func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionM
 	return result, nil
 }
 
-func (e *Engine) compactRemote(ctx context.Context, stepID string, input []llm.ResponseItem, providerID string, instructions string) (compactionResult, error) {
-	compactor, ok := e.llm.(llm.CompactionClient)
-	if !ok {
-		return compactionResult{}, errors.New("llm client does not support remote compaction")
-	}
-	locked, err := e.ensureLocked()
-	if err != nil {
-		return compactionResult{}, err
-	}
-	contextLimit := e.effectiveContextTokenLimit()
-	requestItems := compactionConversationReplicaItems(input)
-	baseRequest := llm.CompactionRequest{
-		Model:        locked.Model,
-		Instructions: instructions,
-		SessionID:    e.store.Meta().SessionID,
-		InputItems:   requestItems,
-	}
-
-	resp, _, extraTrimmed, err := e.compactWithContextTrimRetry(ctx, stepID, compactor, baseRequest, contextLimit)
-	if err != nil {
-		return compactionResult{}, err
-	}
-
-	sanitized, err := sanitizeRemoteCompactionOutput(resp.OutputItems)
-	if err != nil {
-		return compactionResult{}, err
-	}
-	replacement, err := e.buildCanonicalCompactionReplacement(sanitized)
-	if err != nil {
-		return compactionResult{}, err
-	}
-	return compactionResult{
-		engine:            "remote",
-		items:             replacement,
-		usage:             resp.Usage,
-		trimmedItemsCount: extraTrimmed + resp.TrimmedItemsCount,
-		provider:          providerID,
-	}, nil
-}
-
-func compactionConversationReplicaItems(items []llm.ResponseItem) []llm.ResponseItem {
-	return llm.CloneResponseItems(items)
-}
-
-func compactionConversationWithPromptItems(items []llm.ResponseItem, instructions string) []llm.ResponseItem {
-	conversation := compactionConversationReplicaItems(items)
-	prompt := strings.TrimSpace(instructions)
-	if prompt == "" {
-		return conversation
-	}
-	return append(conversation, llm.ResponseItem{Type: llm.ResponseItemTypeMessage, Role: llm.RoleDeveloper, Content: prompt})
-}
-
-func (e *Engine) compactWithContextTrimRetry(
-	ctx context.Context,
-	stepID string,
-	client llm.CompactionClient,
-	request llm.CompactionRequest,
-	limit int,
-) (llm.CompactionResponse, []llm.ResponseItem, int, error) {
-	currentInput := llm.CloneResponseItems(request.InputItems)
-	additionalTrimmed := 0
-
-	for attempt := 0; attempt <= compactOverflowRetries; attempt++ {
-		req := request
-		req.InputItems = llm.CloneResponseItems(currentInput)
-
-		resp, err := e.compactWithRetry(ctx, stepID, client, req)
-		if err == nil {
-			return resp, currentInput, additionalTrimmed, nil
-		}
-		if !isCompactionContextOverflow(err) || attempt == compactOverflowRetries {
-			return llm.CompactionResponse{}, nil, additionalTrimmed, err
-		}
-
-		nextInput, trimmed := e.trimCompactionInputToLimit(ctx, request.Model, request.Instructions, currentInput, limit)
-		if trimmed == 0 {
-			nextInput, trimmed = trimOldestEligibleItems(currentInput, 1+attempt)
-		}
-		if trimmed == 0 {
-			return llm.CompactionResponse{}, nil, additionalTrimmed, err
-		}
-		currentInput = nextInput
-		additionalTrimmed += trimmed
-	}
-
-	return llm.CompactionResponse{}, nil, additionalTrimmed, errors.New("compaction context trim retry exhausted")
-}
-
-func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client llm.CompactionClient, request llm.CompactionRequest) (llm.CompactionResponse, error) {
-	prepared, err := e.prepareCompactionCacheObservation(ctx, request)
-	if err != nil {
-		return llm.CompactionResponse{}, err
-	}
-	if err := e.observePromptCacheRequest(stepID, prepared); err != nil {
-		return llm.CompactionResponse{}, err
-	}
-
-	delays := compactionRetryDelays
-	var lastErr error
-	for i := 0; i <= len(delays); i++ {
-		resp, err := client.Compact(ctx, request)
-		if err != nil && ctx.Err() != nil {
-			return llm.CompactionResponse{}, ctx.Err()
-		}
-		if err == nil {
-			if err := e.observePromptCacheResponse(stepID, prepared, resp.Usage); err != nil {
-				return llm.CompactionResponse{}, err
-			}
-			return resp, nil
-		}
-		if llm.IsNonRetriableModelError(err) || llm.IsContextLengthOverflowError(err) {
-			return llm.CompactionResponse{}, err
-		}
-		lastErr = err
-		if i == len(delays) {
-			break
-		}
-		if err := waitForRetryDelay(ctx, delays[i]); err != nil {
-			return llm.CompactionResponse{}, err
-		}
-	}
-	return llm.CompactionResponse{}, fmt.Errorf("compaction request failed after retries: %w", lastErr)
-}
-
-func (e *Engine) prepareCompactionCacheObservation(ctx context.Context, request llm.CompactionRequest) (preparedCacheRequestObservation, error) {
-	if e == nil || e.requestCache == nil || !e.supportsPromptCacheKey(ctx) {
-		return preparedCacheRequestObservation{}, nil
-	}
-	lineageRequest, ok, err := e.compactionCacheObservationRequest(ctx, request)
-	if err != nil || !ok {
-		return preparedCacheRequestObservation{}, err
-	}
-	return e.requestCache.Prepare(lineageRequest)
-}
-
-func (e *Engine) compactionCacheObservationRequest(ctx context.Context, request llm.CompactionRequest) (llm.Request, bool, error) {
-	if e == nil {
-		return llm.Request{}, false, nil
-	}
-	cacheKey := e.conversationPromptCacheKey()
-	if cacheKey == "" {
-		return llm.Request{}, false, nil
-	}
-	locked, err := e.ensureLocked()
-	if err != nil {
-		return llm.Request{}, false, err
-	}
-	items := compactionConversationWithPromptItems(request.InputItems, request.Instructions)
-	systemPrompt, err := e.systemPrompt(locked)
-	if err != nil {
-		return llm.Request{}, false, err
-	}
-	req, err := llm.RequestFromLockedContract(locked, systemPrompt, sanitizeItemsForLLM(items), e.requestTools(ctx))
-	if err != nil {
-		return llm.Request{}, false, err
-	}
-	req.ReasoningEffort = e.ThinkingLevel()
-	req.FastMode = e.FastModeEnabled()
-	req.SessionID = e.conversationSessionID()
-	req.PromptCacheKey = cacheKey
-	req.PromptCacheScope = cachewarn.ScopeConversation
-	return req, true, nil
-}
-
-func isCompactionContextOverflow(err error) bool {
-	return llm.IsContextLengthOverflowError(err)
-}
-
-func (e *Engine) compactLocal(ctx context.Context, input []llm.ResponseItem, providerID string, instructions string, mode compactionMode) (compactionResult, error) {
-	summary, err := e.localCompactionSummary(ctx, input, instructions, mode)
-	if err != nil {
-		return compactionResult{}, err
-	}
-	replacement, err := e.buildCanonicalCompactionReplacement([]llm.ResponseItem{{
-		Type:        llm.ResponseItemTypeMessage,
-		Role:        llm.RoleDeveloper,
-		MessageType: llm.MessageTypeCompactionSummary,
-		Content:     strings.TrimSpace(summary),
-	}})
-	if err != nil {
-		return compactionResult{}, err
-	}
-	usageInputTokens := estimateItemsTokens(replacement)
-	if preciseInput, ok := e.inputTokensForItems(ctx, e.currentModel(), "", replacement); ok {
-		usageInputTokens = preciseInput
-	}
-	return compactionResult{
-		engine:            "local",
-		items:             replacement,
-		usage:             llm.Usage{InputTokens: usageInputTokens, WindowTokens: e.contextWindowTokens()},
-		trimmedItemsCount: 0,
-		provider:          providerID,
-		summary:           strings.TrimSpace(summary),
-	}, nil
-}
-
-func (e *Engine) localCompactionSummary(ctx context.Context, input []llm.ResponseItem, instructions string, mode compactionMode) (string, error) {
-	locked, err := e.ensureLocked()
-	if err != nil {
-		return "", err
-	}
-	window := localCompactionWindow(input)
-	items := append(window, llm.ResponseItem{
-		Type:    llm.ResponseItemTypeMessage,
-		Role:    llm.RoleDeveloper,
-		Content: instructions,
-	})
-	items = sanitizeItemsForLLM(items)
-
-	systemPrompt, err := e.systemPrompt(locked)
-	if err != nil {
-		return "", err
-	}
-	requestTools := e.requestTools(ctx)
-	for attempt := 0; ; attempt++ {
-		req, err := llm.RequestFromLockedContract(locked, systemPrompt, items, requestTools)
-		if err != nil {
-			return "", err
-		}
-		req.ReasoningEffort = e.ThinkingLevel()
-		req.FastMode = e.FastModeEnabled()
-		req.SessionID = e.conversationSessionID()
-		if e.supportsPromptCacheKey(ctx) {
-			if cacheKey := e.conversationPromptCacheKey(); cacheKey != "" {
-				req.PromptCacheKey = cacheKey
-				req.PromptCacheScope = cachewarn.ScopeConversation
-			}
-		}
-
-		resp, err := e.generateWithRetry(ctx, "", req, nil, nil, nil)
-		if err != nil {
-			return "", err
-		}
-		if len(resp.ToolCalls) > 0 {
-			if mode != compactionModeHandoff || attempt >= handoffCompactionToolCallRetries {
-				return "", errors.New("local compaction summary attempted tool calls")
-			}
-			retryItems, err := handoffCompactionToolCallRetryItems(resp)
-			if err != nil {
-				return "", err
-			}
-			items = append(items, retryItems...)
-			continue
-		}
-		summary := strings.TrimSpace(resp.Assistant.Content)
-		if summary == "" {
-			return "", errors.New("local compaction summary was empty")
-		}
-		return summary, nil
-	}
-}
-
-func handoffCompactionToolCallRetryItems(resp llm.Response) ([]llm.ResponseItem, error) {
-	if len(resp.ToolCalls) == 0 {
-		return nil, nil
-	}
-	calls := make([]llm.ToolCall, 0, len(resp.ToolCalls))
-	for _, call := range resp.ToolCalls {
-		if strings.TrimSpace(call.ID) == "" {
-			return nil, errors.New("local compaction summary attempted tool call with empty id")
-		}
-		calls = append(calls, call)
-	}
-	items := llm.ItemsFromMessages([]llm.Message{{
-		Role:      llm.RoleAssistant,
-		Content:   resp.Assistant.Content,
-		ToolCalls: calls,
-	}})
-	for _, call := range calls {
-		items = append(items, llm.ResponseItem{
-			Type:   llm.ToolOutputItemType(call.Custom),
-			CallID: strings.TrimSpace(call.ID),
-			Name:   call.Name,
-			Output: mustJSON(map[string]any{"error": handoffCompactionToolsDisabledMessage}),
-		})
-	}
-	return sanitizeItemsForLLM(items), nil
-}
-
-func localCompactionWindow(input []llm.ResponseItem) []llm.ResponseItem {
-	if len(input) == 0 {
-		return nil
-	}
-	start := 0
-	for i := len(input) - 1; i >= 0; i-- {
-		if isCompactionBoundaryItem(input[i]) {
-			start = i
-			break
-		}
-	}
-	window := llm.CloneResponseItems(input[start:])
-	return window
-}
-
-func isCompactionBoundaryItem(item llm.ResponseItem) bool {
-	if item.Type == llm.ResponseItemTypeCompaction {
-		return true
-	}
-	if item.Type == llm.ResponseItemTypeMessage {
-		return item.MessageType == llm.MessageTypeCompactionSummary
-	}
-	return false
-}
-
 func lastVisibleUserMessageSinceLatestCompaction(items []llm.ResponseItem) string {
 	start := 0
 	for i := len(items) - 1; i >= 0; i-- {
@@ -1022,73 +638,37 @@ func lastVisibleUserMessageSinceLatestCompaction(items []llm.ResponseItem) strin
 	return ""
 }
 
-func manualCompactionCarryoverMessage(text string) llm.Message {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return llm.Message{}
-	}
-	content := trimCompactionCarryoverText(trimmed, manualCompactionCarryoverMaxChars)
-	return llm.Message{
-		Role:        llm.RoleDeveloper,
-		MessageType: llm.MessageTypeManualCompactionCarryover,
-		Content:     manualCompactionCarryoverHeader + "\n\n" + content,
-	}
-}
-
-func handoffFutureAgentMessage(text string) llm.Message {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return llm.Message{}
-	}
-	return llm.Message{
-		Role:        llm.RoleDeveloper,
-		MessageType: llm.MessageTypeHandoffFutureMessage,
-		Content:     trimmed,
-	}
-}
-
 func (e *Engine) queueHandoffRequest(summarizerPrompt string, futureAgentMessage string) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.pendingHandoffRequest = &handoffRequest{
-		summarizerPrompt:   strings.TrimSpace(summarizerPrompt),
-		futureAgentMessage: strings.TrimSpace(futureAgentMessage),
-	}
+	e.handoffRuntimeState().QueueRequest(summarizerPrompt, futureAgentMessage)
 }
 
 func (e *Engine) clearPendingHandoffRequest() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.pendingHandoffRequest = nil
+	e.handoffRuntimeState().ClearRequest()
 }
 
 func (e *Engine) queuePendingHandoffFutureMessage(message string) {
-	trimmed := strings.TrimSpace(message)
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.pendingHandoffFutureMessage = trimmed
+	e.handoffRuntimeState().QueueFutureMessage(message)
 }
 
 func (e *Engine) clearPendingHandoffFutureMessage() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.pendingHandoffFutureMessage = ""
+	e.handoffRuntimeState().ClearFutureMessage()
 }
 
 func (e *Engine) pendingHandoffRequestSnapshot() *handoffRequest {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.pendingHandoffRequest == nil {
-		return nil
-	}
-	req := *e.pendingHandoffRequest
-	return &req
+	return e.handoffRuntimeState().RequestSnapshot()
 }
 
 func (e *Engine) pendingHandoffFutureMessageSnapshot() string {
+	return e.handoffRuntimeState().FutureMessageSnapshot()
+}
+
+func (e *Engine) handoffRuntimeState() *handoffRuntimeState {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return strings.TrimSpace(e.pendingHandoffFutureMessage)
+	if e.handoffState == nil {
+		e.handoffState = newHandoffRuntimeState()
+	}
+	return e.handoffState
 }
 
 func (e *Engine) applyPendingHandoffIfNeeded(ctx context.Context, stepID string) (bool, error) {
@@ -1153,111 +733,39 @@ func (e *Engine) compactionReinjectedBaseMessages() ([]llm.Message, error) {
 	return metaResult.OrderedBaseMessages(), nil
 }
 
-func (e *Engine) postCompactionMessages(mode compactionMode, manualCarryover string, wasHeadless bool) []llm.Message {
-	out := make([]llm.Message, 0, 3)
-	if mode == compactionModeManual {
-		if carryover := manualCompactionCarryoverMessage(manualCarryover); strings.TrimSpace(carryover.Content) != "" {
-			out = append(out, carryover)
-		}
-	}
-	if mode == compactionModeHandoff {
-		if req := e.pendingHandoffRequestSnapshot(); req != nil {
-			if futureMessage := handoffFutureAgentMessage(req.futureAgentMessage); strings.TrimSpace(futureMessage.Content) != "" {
-				out = append(out, futureMessage)
-			}
-		}
-	}
-	if wasHeadless {
-		if headless, ok := headlessModeMetaMessage(); ok {
-			out = append(out, headless)
-		}
-	}
-	return out
-}
-
-func (e *Engine) appendPostCompactionMessages(stepID string, messages []llm.Message) error {
-	for _, message := range messages {
-		switch message.MessageType {
-		case llm.MessageTypeManualCompactionCarryover:
-			if err := e.appendMessageWithoutConversationUpdate(stepID, message); err != nil {
-				return err
-			}
-		default:
-			if err := e.appendMessage(stepID, message); err != nil {
-				if message.MessageType == llm.MessageTypeHandoffFutureMessage {
-					e.queuePendingHandoffFutureMessage(message.Content)
-				}
-				return err
-			}
-			if message.MessageType == llm.MessageTypeHandoffFutureMessage {
-				e.clearPendingHandoffFutureMessage()
-			}
-		}
-	}
-	return nil
-}
-
-func trimCompactionCarryoverText(text string, maxChars int) string {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" || maxChars <= 0 {
-		return trimmed
-	}
-	runes := []rune(trimmed)
-	if len(runes) <= maxChars {
-		return trimmed
-	}
-	if maxChars < 4 {
-		return string(runes[:maxChars])
-	}
-	return string(runes[:maxChars-4]) + "\n..."
-}
-
-func (e *Engine) handoffToolEnabled() bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.compactionSoonReminderIssued
-}
-
-func (e *Engine) setCompactionSoonReminderIssued(issued bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.compactionSoonReminderIssued = issued
-}
-
-func (e *Engine) persistCompactionSoonReminderIssued(issued bool) error {
-	e.setCompactionSoonReminderIssued(issued)
-	return e.store.SetCompactionSoonReminderIssued(issued)
-}
-
-func (e *Engine) syncCompactionSoonReminderIssuedFromMessages(messages []llm.Message) {
-	issued := false
-	for _, message := range messages {
-		if message.Role == llm.RoleDeveloper && message.MessageType == llm.MessageTypeCompactionSoonReminder && strings.TrimSpace(message.Content) != "" {
-			issued = true
-		}
-	}
-	e.setCompactionSoonReminderIssued(issued)
-}
-
-func (e *Engine) syncCompactionSoonReminderIssuedFromItems(items []llm.ResponseItem) {
-	e.syncCompactionSoonReminderIssuedFromMessages(llm.MessagesFromItems(items))
-}
-
-func (e *Engine) triggerHandoffConfigured() bool {
-	for _, id := range e.cfg.EnabledTools {
-		if id == toolspec.ToolTriggerHandoff {
-			return true
-		}
-	}
-	return false
-}
-
 func (e *Engine) compactionMode() string {
-	normalized, ok := NormalizeCompactionMode(e.cfg.CompactionMode)
-	if !ok {
-		return "native"
+	return e.compactionPlannerState().mode(e.compactionPlanningSnapshot().compactionMode)
+}
+
+func (e *Engine) compactionPlannerState() *compactionPlanner {
+	if e == nil || e.compactionPlanner == nil {
+		return newCompactionPlanner()
 	}
-	return normalized
+	return e.compactionPlanner
+}
+
+func (e *Engine) compactionPlanningSnapshot() compactionPlanningSnapshot {
+	if e == nil {
+		return compactionPlanningSnapshot{autoCompactionEnabled: true}
+	}
+	e.mu.Lock()
+	autoEnabled := true
+	if e.cfg.AutoCompactionEnabled != nil {
+		autoEnabled = *e.cfg.AutoCompactionEnabled
+	}
+	snapshot := compactionPlanningSnapshot{
+		autoCompactionEnabled:         autoEnabled,
+		compactionMode:                e.cfg.CompactionMode,
+		autoCompactTokenLimit:         e.cfg.AutoCompactTokenLimit,
+		preSubmitCompactionLeadTokens: e.cfg.PreSubmitCompactionLeadTokens,
+		contextWindowTokens:           e.cfg.ContextWindowTokens,
+		effectiveContextWindowPercent: e.cfg.EffectiveContextWindowPercent,
+		maxOutputTokens:               e.cfg.MaxTokens,
+	}
+	e.mu.Unlock()
+	snapshot.lockedMaxOutputTokens = e.lockedContractState().MaxOutputToken()
+	snapshot.lastUsage = e.lastUsageSnapshot()
+	return snapshot
 }
 
 func compactionInstructions(args string) string {

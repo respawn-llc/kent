@@ -68,7 +68,7 @@ func TestCommittedTranscriptChangedMarksOnlyDurableTranscriptMutations(t *testin
 	assertEventFlags(t, events[start:], []eventFlagExpectation{{kind: EventConversationUpdated, stepID: "goal-step", committedChanged: true}})
 
 	start = len(events)
-	eng.pendingInjected = []QueuedUserMessage{{ID: "queue-1", Text: "queued input"}}
+	eng.QueueUserMessage("queued input")
 	if _, err := eng.flushPendingUserInjections("flush-step"); err != nil {
 		t.Fatalf("flush pending user injections: %v", err)
 	}

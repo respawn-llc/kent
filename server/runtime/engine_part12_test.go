@@ -362,7 +362,7 @@ func TestReopenedSessionRestoresCompactionSoonReminderIssuedState(t *testing.T) 
 		t.Fatalf("restore engine: %v", err)
 	}
 	restored.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
-	if !restored.compactionSoonReminderIssued {
+	if !restored.compactionRuntimeState().SoonReminderIssued() {
 		t.Fatal("expected reopened session to restore reminder-issued state")
 	}
 	if !reopenedStore.Meta().CompactionSoonReminderIssued {
@@ -416,7 +416,7 @@ func TestForkedSessionBeforeReminderDoesNotCopyReminderIssuedState(t *testing.T)
 		t.Fatalf("restore forked engine: %v", err)
 	}
 	forked.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
-	if forked.compactionSoonReminderIssued {
+	if forked.compactionRuntimeState().SoonReminderIssued() {
 		t.Fatal("expected forked session before reminder to start with cleared reminder-issued state")
 	}
 	if err := forked.maybeAppendCompactionSoonReminder(context.Background(), "step-fork"); err != nil {
@@ -546,7 +546,7 @@ func TestRealCompactionClearsPersistedCompactionSoonReminderStateAcrossReopenAnd
 	if err != nil {
 		t.Fatalf("restore engine: %v", err)
 	}
-	if restored.compactionSoonReminderIssued {
+	if restored.compactionRuntimeState().SoonReminderIssued() {
 		t.Fatal("expected reopened compacted session to start with cleared reminder-issued state")
 	}
 	if reopenedStore.Meta().CompactionSoonReminderIssued {
@@ -569,7 +569,7 @@ func TestRealCompactionClearsPersistedCompactionSoonReminderStateAcrossReopenAnd
 	if err != nil {
 		t.Fatalf("restore forked engine: %v", err)
 	}
-	if forked.compactionSoonReminderIssued {
+	if forked.compactionRuntimeState().SoonReminderIssued() {
 		t.Fatal("expected forked compacted session to start with cleared reminder-issued state")
 	}
 }
@@ -642,9 +642,7 @@ func TestCompactionSoonReminderSkipsPreciseCountingWhenSuppressed(t *testing.T) 
 				t.Fatalf("append seed message: %v", err)
 			}
 			eng.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
-			eng.mu.Lock()
-			eng.compactionSoonReminderIssued = true
-			eng.mu.Unlock()
+			eng.setCompactionSoonReminderIssued(true)
 
 			if tt.disableAuto {
 				changed, enabled := eng.SetAutoCompactionEnabled(false)
@@ -662,9 +660,7 @@ func TestCompactionSoonReminderSkipsPreciseCountingWhenSuppressed(t *testing.T) 
 			if got := len(eng.ChatSnapshot().Entries); got != 1 {
 				t.Fatalf("expected no reminder entry while suppressed, got %d entries", got)
 			}
-			eng.mu.Lock()
-			issued := eng.compactionSoonReminderIssued
-			eng.mu.Unlock()
+			issued := eng.compactionRuntimeState().SoonReminderIssued()
 			if !issued {
 				t.Fatal("expected suppressed reminder path to preserve issued state")
 			}

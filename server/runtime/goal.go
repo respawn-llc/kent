@@ -31,9 +31,7 @@ func (e *Engine) GoalLoopSuspended() bool {
 	if e == nil {
 		return false
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.goalLoopLifecycle.IsSuspended() && e.goalActiveLocked()
+	return e.goalLoopState().Suspended() && e.goalActive()
 }
 
 func (e *Engine) SetGoal(objective string, actor session.GoalActor) (session.GoalState, error) {
@@ -88,29 +86,18 @@ func (e *Engine) startGoalLoop(firstTurnAlreadyPrompted bool) error {
 		return nil
 	}
 	e.ensureOrchestrationCollaborators()
-	e.mu.Lock()
-	if !e.goalActiveLocked() {
-		e.mu.Unlock()
+	if !e.goalActive() {
 		return nil
 	}
 	if err := e.requireAskQuestionForGoalLoopStart(); err != nil {
 		if errors.Is(err, ErrGoalRequiresAskQuestion) {
-			e.goalLoopLifecycle = goalLoopLifecycleSuspended
+			e.goalLoopState().Suspend()
 		}
-		e.mu.Unlock()
 		return err
 	}
-	switch e.goalLoopLifecycle {
-	case goalLoopLifecycleRunning, goalLoopLifecycleRestartPending:
-		e.mu.Unlock()
-		return nil
-	case goalLoopLifecycleSuspending:
-		e.goalLoopLifecycle = goalLoopLifecycleRestartPending
-		e.mu.Unlock()
+	if !e.goalLoopState().Start() {
 		return nil
 	}
-	e.goalLoopLifecycle = goalLoopLifecycleRunning
-	e.mu.Unlock()
 
 	e.launchGoalLoopTask(firstTurnAlreadyPrompted)
 	return nil
@@ -127,23 +114,7 @@ func (e *Engine) launchGoalLoopTask(firstTurnAlreadyPrompted bool) {
 }
 
 func (e *Engine) finishGoalLoop() {
-	restart := false
-	e.mu.Lock()
-	switch e.goalLoopLifecycle {
-	case goalLoopLifecycleRestartPending:
-		if e.goalActiveLocked() {
-			e.goalLoopLifecycle = goalLoopLifecycleRunning
-			restart = true
-		} else {
-			e.goalLoopLifecycle = goalLoopLifecycleIdle
-		}
-	case goalLoopLifecycleSuspending:
-		e.goalLoopLifecycle = goalLoopLifecycleSuspended
-	case goalLoopLifecycleRunning:
-		e.goalLoopLifecycle = goalLoopLifecycleIdle
-	}
-	e.mu.Unlock()
-	if restart {
+	if e.goalLoopState().Finish(e.goalActive()) {
 		e.launchGoalLoopTask(true)
 	}
 }
@@ -223,12 +194,10 @@ func (e *Engine) shouldContinueGoalLoop() bool {
 	if e == nil {
 		return false
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return !e.goalLoopLifecycle.IsSuspended() && e.goalActiveLocked()
+	return !e.goalLoopState().Suspended() && e.goalActive()
 }
 
-func (e *Engine) goalActiveLocked() bool {
+func (e *Engine) goalActive() bool {
 	if e == nil || e.store == nil {
 		return false
 	}
@@ -236,13 +205,13 @@ func (e *Engine) goalActiveLocked() bool {
 	return goal != nil && goal.Status == session.GoalStatusActive
 }
 
-func (e *Engine) goalActive() bool {
-	if e == nil {
-		return false
-	}
+func (e *Engine) goalLoopState() *goalLoopState {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.goalActiveLocked()
+	if e.goalLoop == nil {
+		e.goalLoop = newGoalLoopState()
+	}
+	return e.goalLoop
 }
 
 func (e *Engine) appendGoalDeveloperMessage(stepID string, content string, compact string) error {
@@ -265,7 +234,7 @@ func goalDeveloperMessageForWorkingDir(content string, compact string, workingDi
 func (e *Engine) appendPersistedGoalDeveloperMessage(stepID string, msg llm.Message) {
 	previousCommittedCount := e.CommittedTranscriptEntryCount()
 	e.markCurrentRequestShapeDirty()
-	e.chat.appendMessage(msg)
+	e.transcriptPersistence().AppendMessage(msg)
 	if shouldEmitCommittedTranscriptAdvancedForAppendedMessage(msg, previousCommittedCount, e.CommittedTranscriptEntryCount()) {
 		e.emitCommittedMessageTranscriptAdvanced(stepID, msg)
 	}

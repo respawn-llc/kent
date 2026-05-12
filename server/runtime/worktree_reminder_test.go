@@ -604,7 +604,7 @@ func TestSubmitUserMessageReinjectsWorktreeReminderAfterCompactionGenerationChan
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	eng.compactionCount = 1
+	eng.compactionRuntimeState().SetCount(1)
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "continue"); err != nil {
 		t.Fatalf("submit 1: %v", err)

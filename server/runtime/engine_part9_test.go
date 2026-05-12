@@ -48,7 +48,7 @@ func TestExecuteToolCallsRejectsWhitespaceWebSearchQuery(t *testing.T) {
 	if output["error"] != tools.InvalidWebSearchQueryMessage {
 		t.Fatalf("expected invalid query error, got %+v", output)
 	}
-	if completion, ok := eng.chat.toolCompletions["call-web"]; !ok {
+	if completion, ok := eng.transcriptRuntimeState().ToolCompletionSnapshot("call-web"); !ok {
 		t.Fatal("expected tool completion to be recorded")
 	} else if !completion.IsError {
 		t.Fatalf("expected persisted completion to be error, got %+v", completion)

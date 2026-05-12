@@ -797,9 +797,7 @@ func waitGoalLoopRunning(t *testing.T, engine *Engine, want bool) {
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		engine.mu.Lock()
-		running := engine.goalLoopLifecycle.IsRunning()
-		engine.mu.Unlock()
+		running := engine.goalLoopState().Running()
 		if running == want {
 			return
 		}

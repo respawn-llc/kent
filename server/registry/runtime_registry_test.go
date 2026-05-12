@@ -200,7 +200,7 @@ func TestRuntimeRegistryRejectsInactiveSessionActivityStreamWithUnavailableError
 }
 
 func TestRuntimeRegistryNormalizesSessionActivitySubscriptionFailures(t *testing.T) {
-	sub, err := newSessionActivityHub().subscribe(0)
+	sub, err := newSessionActivityBroker().Subscribe(0)
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestRuntimeRegistryNormalizesSessionActivitySubscriptionFailures(t *testing
 }
 
 func TestRuntimeRegistryPassesThroughSessionActivityEOF(t *testing.T) {
-	sub, err := newSessionActivityHub().subscribe(0)
+	sub, err := newSessionActivityBroker().Subscribe(0)
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestRuntimeRegistryPassesThroughSessionActivityEOF(t *testing.T) {
 }
 
 func TestRuntimeRegistryPassesThroughSessionActivityContextCanceled(t *testing.T) {
-	sub, err := newSessionActivityHub().subscribe(0)
+	sub, err := newSessionActivityBroker().Subscribe(0)
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
@@ -308,16 +308,14 @@ func TestRuntimeRegistrySubscribePromptActivityDeliversPromptStartedDuringInitia
 	registry.Register("session-1", engine)
 	t.Cleanup(func() { registry.Unregister("session-1", engine) })
 
-	registry.mu.RLock()
-	entry := registry.engines["session-1"]
-	registry.mu.RUnlock()
+	entry := registry.directory.Entry("session-1")
 	if entry == nil {
 		t.Fatal("registered runtime entry not found")
 	}
 
 	promptStarted := make(chan struct{})
 	promptDone := make(chan struct{})
-	sub, err := entry.subscribePromptActivityInitial("session-1", func() {
+	sub, err := entry.SubscribePromptActivityInitial("session-1", func() {
 		go func() {
 			close(promptStarted)
 			registry.BeginPendingPrompt("session-1", askquestion.Request{ID: "ask-during-subscribe", Question: "Proceed?"})
@@ -354,6 +352,22 @@ func TestRuntimeRegistrySubscribePromptActivityDeliversPromptStartedDuringInitia
 	}
 	if pending.Type != clientui.PendingPromptEventPending || pending.PromptID != "ask-during-subscribe" || pending.Question != "Proceed?" {
 		t.Fatalf("pending event = %+v, want ask-during-subscribe", pending)
+	}
+}
+
+func TestPromptActivitySubscriptionCloseStopsInitialReplay(t *testing.T) {
+	sub, err := newPromptActivityBroker().Subscribe([]clientui.PendingPromptEvent{
+		{Type: clientui.PendingPromptEventPending, SessionID: "session-1", PromptID: "ask-1"},
+		{Type: clientui.PendingPromptEventSnapshot, SessionID: "session-1"},
+	}, 0)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	if err := sub.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if evt, err := sub.Next(context.Background()); !evt.IsZero() || !errors.Is(err, io.EOF) {
+		t.Fatalf("Next after close = evt=%+v err=%v, want EOF without initial replay", evt, err)
 	}
 }
 
@@ -420,6 +434,49 @@ func TestRuntimeRegistryDoesNotUnregisterNewerRuntimeForSameSession(t *testing.T
 	}
 }
 
+func TestRuntimeRegistryAwaitPromptResponseContextCanceledRemovesPendingPrompt(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	engine := &runtime.Engine{}
+	registry.Register("session-1", engine)
+	t.Cleanup(func() { registry.Unregister("session-1", engine) })
+
+	sub, err := registry.SubscribePromptActivity(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("SubscribePromptActivity: %v", err)
+	}
+	defer func() { _ = sub.Close() }()
+	if _, err := sub.Next(context.Background()); err != nil {
+		t.Fatalf("initial snapshot Next: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = registry.AwaitPromptResponse(ctx, "session-1", askquestion.Request{ID: "ask-1", Question: "Proceed?"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("AwaitPromptResponse error=%v, want context.Canceled", err)
+	}
+	if items := registry.ListPendingPrompts("session-1"); len(items) != 0 {
+		t.Fatalf("expected canceled prompt removed, got %+v", items)
+	}
+	if err := registry.SubmitPromptResponse("session-1", askquestion.Response{RequestID: "ask-1", Answer: "late"}, nil); !errors.Is(err, serverapi.ErrPromptNotFound) {
+		t.Fatalf("late SubmitPromptResponse error=%v, want ErrPromptNotFound", err)
+	}
+	pending, err := sub.Next(context.Background())
+	if err != nil {
+		t.Fatalf("pending Next: %v", err)
+	}
+	if pending.Type != clientui.PendingPromptEventPending || pending.PromptID != "ask-1" {
+		t.Fatalf("pending event=%+v, want ask-1 pending", pending)
+	}
+	resolved, err := sub.Next(context.Background())
+	if err != nil {
+		t.Fatalf("resolved Next: %v", err)
+	}
+	if resolved.Type != clientui.PendingPromptEventResolved || resolved.PromptID != "ask-1" {
+		t.Fatalf("resolved event=%+v, want ask-1 resolved", resolved)
+	}
+}
+
 func TestRuntimeRegistryAcquirePrimaryRunEnforcesSingleLeasePerSession(t *testing.T) {
 	registry := NewRuntimeRegistry()
 	lease, err := registry.AcquirePrimaryRun("session-1")
@@ -481,18 +538,18 @@ func TestRuntimeRegistryClearsPrimaryRunLeaseWhenRuntimeIsRemoved(t *testing.T) 
 	thirdLease.Release()
 }
 
-func TestRuntimeEntryClosePendingPromptsDoesNotBlockWhenResponseAlreadyBuffered(t *testing.T) {
-	entry := &runtimeEntry{pendingPrompt: map[string]*pendingPromptEntry{}}
+func TestPendingPromptStoreCloseDoesNotBlockWhenResponseAlreadyBuffered(t *testing.T) {
+	store := newPendingPromptStore()
 	pending := &pendingPromptEntry{
 		PendingPromptSnapshot: PendingPromptSnapshot{Request: askquestion.Request{ID: "ask-1"}},
 		response:              make(chan promptResponseResult, 1),
 	}
 	pending.response <- promptResponseResult{response: askquestion.Response{RequestID: "ask-1"}}
-	entry.pendingPrompt["ask-1"] = pending
+	store.pending["ask-1"] = pending
 
 	done := make(chan struct{})
 	go func() {
-		entry.closePendingPrompts(io.EOF)
+		store.Close(io.EOF)
 		close(done)
 	}()
 

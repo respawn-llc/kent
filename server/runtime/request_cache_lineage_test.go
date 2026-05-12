@@ -28,7 +28,7 @@ func TestApplyPersistedCacheWarningUsesCacheWarningModeVisibility(t *testing.T) 
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eng := &Engine{cfg: Config{CacheWarningMode: tt.mode}, chat: newChatStore()}
+			eng := &Engine{cfg: Config{CacheWarningMode: tt.mode}, transcriptState: newTranscriptRuntimeState("")}
 			eng.applyPersistedCacheWarning(cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonReuseDropped})
 			snapshot := eng.ChatSnapshot()
 			if len(snapshot.Entries) != 1 {
@@ -319,7 +319,7 @@ func TestBuildRequest_RotatesPromptCacheKeyWithRequestSessionIDAfterCompaction(t
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	eng.compactionCount = 1
+	eng.compactionRuntimeState().SetCount(1)
 	req, err := eng.buildRequestWithExtraItems(context.Background(), "", []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "hello"}}, true)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -381,7 +381,7 @@ func TestLocalCompactionSummary_UsesMainConversationRequestIdentityAndPrompt(t *
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	eng.compactionCount = 1
+	eng.compactionRuntimeState().SetCount(1)
 	input := llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: "alpha"}, {Role: llm.RoleAssistant, Content: "beta"}})
 	if _, err := eng.localCompactionSummary(context.Background(), input, compactionInstructions("keep API details"), compactionModeManual); err != nil {
 		t.Fatalf("local compaction summary: %v", err)
@@ -443,7 +443,7 @@ func TestOpenAIResponsesPayload_UsesExpectedCacheKeyShapesAcrossConversationSupe
 		t.Fatalf("before prompt_cache_key = %q, want %q payload=%s", got, want, mustMarshalCanonicalJSONForLineage(t, beforePayload))
 	}
 
-	eng.compactionCount = 1
+	eng.compactionRuntimeState().SetCount(1)
 	conversationReq, err := eng.buildRequestWithExtraItems(context.Background(), "", []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "payload-probe"}}, true)
 	if err != nil {
 		t.Fatalf("build conversation request: %v", err)
@@ -580,7 +580,7 @@ func TestOpenAITransport_UsesExpectedSessionHeadersAndPromptCacheKeysAcrossConve
 		t.Fatalf("reviewer before prompt_cache_key = %q, want %q", got, want)
 	}
 
-	eng.compactionCount = 1
+	eng.compactionRuntimeState().SetCount(1)
 	mainAfterReq, err := eng.buildRequestWithExtraItems(context.Background(), "", []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "after"}}, true)
 	if err != nil {
 		t.Fatalf("build main after request: %v", err)
@@ -689,7 +689,7 @@ func TestReviewerSuggestions_UsesReviewerClientPromptCacheCapability(t *testing.
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	eng.compactionCount = 1
+	eng.compactionRuntimeState().SetCount(1)
 	if _, err := eng.runReviewerSuggestions(context.Background(), "step-1", reviewerClient); err != nil {
 		t.Fatalf("run reviewer suggestions: %v", err)
 	}

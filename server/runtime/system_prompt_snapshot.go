@@ -70,7 +70,10 @@ func (e *Engine) systemPromptWorkspaceRoot() string {
 }
 
 func (e *Engine) systemPromptWorkspaceRootLocked() string {
-	activeRoot := strings.TrimSpace(e.transcriptCWD)
+	activeRoot := ""
+	if e.transcriptState != nil {
+		activeRoot = e.transcriptState.WorkingDir()
+	}
 	if activeRoot == "" {
 		activeRoot = strings.TrimSpace(e.cfg.TranscriptWorkingDir)
 	}
@@ -179,12 +182,7 @@ func (e *Engine) reviewerSystemPrompt() (string, error) {
 	if prompt, ok := e.lockedReviewerPromptSnapshot(); ok {
 		return prompt, nil
 	}
-	e.mu.Lock()
-	if e.locked != nil && !e.locked.HasReviewerPrompt {
-		e.locked.ReviewerPrompt = prompt
-		e.locked.HasReviewerPrompt = true
-	}
-	e.mu.Unlock()
+	e.lockedContractState().FillReviewerPrompt(prompt)
 	return prompt, nil
 }
 
@@ -200,18 +198,7 @@ func (e *Engine) lockedReviewerPromptSnapshot() (string, bool) {
 			return prompt, true
 		}
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.locked == nil {
-		return "", false
-	}
-	if e.locked.HasReviewerPrompt {
-		return strings.TrimSpace(e.locked.ReviewerPrompt), true
-	}
-	if prompt := strings.TrimSpace(e.locked.ReviewerPrompt); prompt != "" {
-		return prompt, true
-	}
-	return "", false
+	return e.lockedContractState().ReviewerPromptSnapshot()
 }
 
 func (e *Engine) buildReviewerPromptSnapshot() (string, error) {

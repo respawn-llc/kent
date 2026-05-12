@@ -48,10 +48,7 @@ func (e *Engine) SubmitQueuedUserMessages(ctx context.Context) (assistant llm.Me
 
 func (e *Engine) HasQueuedUserWork() bool {
 	e.ensureOrchestrationCollaborators()
-	e.mu.Lock()
-	hasInjected := len(e.pendingInjected) > 0
-	e.mu.Unlock()
-	if hasInjected {
+	if e.messageFlow.HasPendingUserInjections() {
 		return true
 	}
 	if e.backgroundFlow != nil && e.backgroundFlow.HasPendingNotices() {

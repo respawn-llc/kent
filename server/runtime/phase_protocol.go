@@ -13,27 +13,26 @@ type defaultPhaseProtocol struct {
 
 func (p *defaultPhaseProtocol) EnabledForModel(ctx context.Context) bool {
 	e := p.engine
-	e.mu.Lock()
-	if e.phaseProtocolResolved {
-		enabled := e.phaseProtocolEnabled
-		e.mu.Unlock()
+	state := e.phaseProtocolState()
+	if enabled, resolved := state.Snapshot(); resolved {
 		return enabled
 	}
-	e.mu.Unlock()
 
 	enabled := false
 	if caps, err := e.providerCapabilities(ctx); err == nil {
 		enabled = caps.SupportsResponsesAPI && caps.IsOpenAIFirstParty
 	}
 
+	return state.Resolve(enabled)
+}
+
+func (e *Engine) phaseProtocolState() *phaseProtocolState {
 	e.mu.Lock()
-	if !e.phaseProtocolResolved {
-		e.phaseProtocolResolved = true
-		e.phaseProtocolEnabled = enabled
+	defer e.mu.Unlock()
+	if e.phaseState == nil {
+		e.phaseState = newPhaseProtocolState()
 	}
-	result := e.phaseProtocolEnabled
-	e.mu.Unlock()
-	return result
+	return e.phaseState
 }
 
 func (p *defaultPhaseProtocol) Apply(ctx context.Context, resp llm.Response, assistant llm.Message, localToolCalls []llm.ToolCall, hostedToolExecutions []hostedToolExecution) phaseProtocolTurn {
