@@ -905,8 +905,8 @@ func TestSubmitUserMessageFinalAnswerWithMixedToolCallsMaterializesAllToolsBefor
 	if len(client.calls) != 1 {
 		t.Fatalf("expected 1 model call, got %d", len(client.calls))
 	}
-	if got := len(eng.pendingToolCallStarts); got != 0 {
-		t.Fatalf("expected pending tool call starts drained after final mixed tool calls, got %+v", eng.pendingToolCallStarts)
+	if got := eng.toolCallStarts.Len(); got != 0 {
+		t.Fatalf("expected pending tool call starts drained after final mixed tool calls, got %d", got)
 	}
 
 	events, err := store.ReadEvents()
