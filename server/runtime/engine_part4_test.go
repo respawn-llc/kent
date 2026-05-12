@@ -746,7 +746,7 @@ func TestSubmitUserMessageFinalAnswerWithoutContentForcesNextLoop(t *testing.T) 
 	}
 }
 
-func TestSubmitUserMessageFinalAnswerWithToolCallsIgnoresToolCalls(t *testing.T) {
+func TestSubmitUserMessageFinalAnswerWithToolCallsExecutesToolCallsBeforeFinal(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
 	if err != nil {
@@ -788,12 +788,15 @@ func TestSubmitUserMessageFinalAnswerWithToolCallsIgnoresToolCalls(t *testing.T)
 		t.Fatalf("read events: %v", err)
 	}
 
-	toolCompleted := 0
+	toolCompleted := false
+	toolCallBeforeFinal := false
+	toolResultBeforeFinal := false
+	finalSeen := false
 	developerWarningFound := false
 	persistedFinalHasToolCalls := false
 	for _, evt := range events {
 		if evt.Kind == "tool_completed" {
-			toolCompleted++
+			toolCompleted = true
 		}
 		if evt.Kind != "message" {
 			continue
@@ -802,24 +805,176 @@ func TestSubmitUserMessageFinalAnswerWithToolCallsIgnoresToolCalls(t *testing.T)
 		if err := json.Unmarshal(evt.Payload, &persisted); err != nil {
 			t.Fatalf("decode message event: %v", err)
 		}
-		if persisted.Role == llm.RoleDeveloper && strings.Contains(persisted.Content, finalWithToolCallsIgnoredWarning) {
-			if persisted.MessageType != llm.MessageTypeErrorFeedback {
-				t.Fatalf("expected final-with-tools warning message type error_feedback, got %+v", persisted)
-			}
+		if persisted.Role == llm.RoleDeveloper && persisted.MessageType == llm.MessageTypeErrorFeedback {
 			developerWarningFound = true
+		}
+		if persisted.Role == llm.RoleAssistant && len(persisted.ToolCalls) == 1 && persisted.ToolCalls[0].ID == "call_shell_1" {
+			if finalSeen {
+				t.Fatalf("tool call persisted after final response")
+			}
+			toolCallBeforeFinal = true
+		}
+		if persisted.Role == llm.RoleTool && persisted.ToolCallID == "call_shell_1" {
+			if finalSeen {
+				t.Fatalf("tool result persisted after final response")
+			}
+			toolResultBeforeFinal = true
 		}
 		if persisted.Role == llm.RoleAssistant && strings.TrimSpace(persisted.Content) == "final response" && len(persisted.ToolCalls) > 0 {
 			persistedFinalHasToolCalls = true
 		}
+		if persisted.Role == llm.RoleAssistant && strings.TrimSpace(persisted.Content) == "final response" {
+			finalSeen = true
+		}
 	}
-	if toolCompleted != 0 {
-		t.Fatalf("expected no tool execution, got %d", toolCompleted)
+	if !toolCompleted {
+		t.Fatalf("expected tool execution")
 	}
-	if !developerWarningFound {
-		t.Fatalf("expected developer warning persisted for model visibility")
+	if !toolCallBeforeFinal {
+		t.Fatalf("expected tool call message before final response")
+	}
+	if !toolResultBeforeFinal {
+		t.Fatalf("expected tool result message before final response")
+	}
+	if !finalSeen {
+		t.Fatalf("expected final response")
+	}
+	if developerWarningFound {
+		t.Fatalf("did not expect developer warning for final answer with tool calls")
 	}
 	if persistedFinalHasToolCalls {
 		t.Fatalf("expected persisted final assistant message to have no tool calls")
+	}
+}
+
+func TestSubmitUserMessageFinalAnswerWithMixedToolCallsMaterializesAllToolsBeforeSingleFinal(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	client := &fakeClient{responses: []llm.Response{
+		{
+			Assistant: llm.Message{
+				Role:    llm.RoleAssistant,
+				Content: "final response",
+				Phase:   llm.MessagePhaseFinal,
+			},
+			ToolCalls: []llm.ToolCall{
+				{ID: "call_shell_1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)},
+			},
+			OutputItems: []llm.ResponseItem{
+				{
+					Type: llm.ResponseItemTypeOther,
+					Raw:  json.RawMessage(`{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"builder cli"}}`),
+				},
+				{
+					Type:    llm.ResponseItemTypeMessage,
+					Role:    llm.RoleAssistant,
+					Phase:   llm.MessagePhaseFinal,
+					Content: "final response",
+				},
+			},
+			Usage: llm.Usage{WindowTokens: 200000},
+		},
+	}}
+
+	var emittedMu sync.Mutex
+	var emitted []Event
+	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+		Model:        "gpt-5",
+		EnabledTools: []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
+		OnEvent: func(evt Event) {
+			emittedMu.Lock()
+			defer emittedMu.Unlock()
+			emitted = append(emitted, evt)
+		},
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	msg, err := eng.SubmitUserMessage(context.Background(), "do the task")
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if msg.Content != "final response" {
+		t.Fatalf("assistant content = %q, want final response", msg.Content)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("expected 1 model call, got %d", len(client.calls))
+	}
+	if got := len(eng.pendingToolCallStarts); got != 0 {
+		t.Fatalf("expected pending tool call starts drained after final mixed tool calls, got %+v", eng.pendingToolCallStarts)
+	}
+
+	events, err := store.ReadEvents()
+	if err != nil {
+		t.Fatalf("read events: %v", err)
+	}
+	order := make([]string, 0, 4)
+	finalCount := 0
+	for _, evt := range events {
+		if evt.Kind != "message" {
+			continue
+		}
+		var persisted llm.Message
+		if err := json.Unmarshal(evt.Payload, &persisted); err != nil {
+			t.Fatalf("decode message event: %v", err)
+		}
+		if persisted.Role == llm.RoleDeveloper && persisted.MessageType == llm.MessageTypeErrorFeedback {
+			t.Fatalf("did not expect developer warning for final answer with mixed tool calls: %+v", persisted)
+		}
+		if persisted.Role == llm.RoleAssistant && len(persisted.ToolCalls) == 2 {
+			if persisted.ToolCalls[0].ID != "call_shell_1" || persisted.ToolCalls[1].ID != "ws_1" {
+				t.Fatalf("unexpected mixed tool call order: %+v", persisted.ToolCalls)
+			}
+			order = append(order, "calls")
+		}
+		if persisted.Role == llm.RoleTool && persisted.ToolCallID == "call_shell_1" {
+			order = append(order, "local_result")
+		}
+		if persisted.Role == llm.RoleTool && persisted.ToolCallID == "ws_1" {
+			order = append(order, "hosted_result")
+		}
+		if persisted.Role == llm.RoleAssistant && persisted.Phase == llm.MessagePhaseFinal && strings.TrimSpace(persisted.Content) == "final response" {
+			finalCount++
+			if len(persisted.ToolCalls) != 0 {
+				t.Fatalf("final assistant message retained tool calls: %+v", persisted.ToolCalls)
+			}
+			order = append(order, "final")
+		}
+	}
+	wantOrder := []string{"calls", "local_result", "hosted_result", "final"}
+	if strings.Join(order, ",") != strings.Join(wantOrder, ",") {
+		t.Fatalf("message order = %+v, want %+v", order, wantOrder)
+	}
+	if finalCount != 1 {
+		t.Fatalf("final answer count = %d, want 1", finalCount)
+	}
+
+	emittedMu.Lock()
+	defer emittedMu.Unlock()
+	localStarted := -1
+	localCompleted := -1
+	finalAssistant := -1
+	for idx, evt := range emitted {
+		if evt.Kind == EventToolCallStarted && evt.ToolCall != nil && evt.ToolCall.ID == "call_shell_1" {
+			localStarted = idx
+		}
+		if evt.Kind == EventToolCallCompleted && evt.ToolResult != nil && evt.ToolResult.CallID == "call_shell_1" {
+			localCompleted = idx
+		}
+		if evt.Kind == EventAssistantMessage && evt.Message.Phase == llm.MessagePhaseFinal && strings.TrimSpace(evt.Message.Content) == "final response" {
+			finalAssistant = idx
+		}
+	}
+	if localStarted < 0 || localCompleted < 0 || finalAssistant < 0 {
+		t.Fatalf("expected local tool start/completion and final assistant events, got %+v", emitted)
+	}
+	if !(localStarted < localCompleted && localCompleted < finalAssistant) {
+		t.Fatalf("event order invalid: started=%d completed=%d final=%d events=%+v", localStarted, localCompleted, finalAssistant, emitted)
 	}
 }
 

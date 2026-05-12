@@ -56,21 +56,12 @@ func (p *defaultPhaseProtocol) Apply(ctx context.Context, resp llm.Response, ass
 	if len(resp.ReasoningItems) > 0 && len(assistant.ReasoningItems) == 0 {
 		assistant.ReasoningItems = append([]llm.ReasoningItem(nil), resp.ReasoningItems...)
 	}
-	finalAnswerIncludedToolCalls := false
-	if phaseProtocolEnabled && assistant.Phase == llm.MessagePhaseFinal && (len(localToolCalls) > 0 || len(hostedToolExecutions) > 0) {
-		finalAnswerIncludedToolCalls = true
-		localToolCalls = nil
-		hostedToolExecutions = nil
-		assistant.ToolCalls = nil
-	}
-
 	return phaseProtocolTurn{
-		Assistant:                    assistant,
-		LocalToolCalls:               localToolCalls,
-		HostedToolExecutions:         hostedToolExecutions,
-		EnforcePhaseProtocol:         enforcePhaseProtocol,
-		MissingAssistantPhase:        missingAssistantPhase,
-		FinalAnswerIncludedToolCalls: finalAnswerIncludedToolCalls,
+		Assistant:             assistant,
+		LocalToolCalls:        localToolCalls,
+		HostedToolExecutions:  hostedToolExecutions,
+		EnforcePhaseProtocol:  enforcePhaseProtocol,
+		MissingAssistantPhase: missingAssistantPhase,
 	}
 }
 

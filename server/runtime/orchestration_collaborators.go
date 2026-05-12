@@ -84,12 +84,11 @@ type reviewerFollowUpResult struct {
 }
 
 type phaseProtocolTurn struct {
-	Assistant                    llm.Message
-	LocalToolCalls               []llm.ToolCall
-	HostedToolExecutions         []hostedToolExecution
-	EnforcePhaseProtocol         bool
-	MissingAssistantPhase        bool
-	FinalAnswerIncludedToolCalls bool
+	Assistant             llm.Message
+	LocalToolCalls        []llm.ToolCall
+	HostedToolExecutions  []hostedToolExecution
+	EnforcePhaseProtocol  bool
+	MissingAssistantPhase bool
 }
 
 type phaseProtocolEnforcer interface {
