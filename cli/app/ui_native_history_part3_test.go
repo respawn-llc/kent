@@ -220,6 +220,45 @@ func TestNativeStreamingToolInterleavingAppendsOnlyUnemittedAssistantTail(t *tes
 	}
 }
 
+func TestNativeStreamingFinalBatchWithPrependedToolRowsSkipsStreamedAssistantDuplicate(t *testing.T) {
+	m := newProjectedStaticUIModel(
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "interleave"}}),
+	)
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	m = next.(*uiModel)
+	_ = collectCmdMessages(t, startupCmd)
+
+	streamText := "assistant prefix\nassistant tail\n"
+	m.setBusy(true)
+	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: streamText})
+	firstFlush := collectNativeHistoryFlushText(collectCmdMessages(t, m.syncNativeHistoryFromTranscript()))
+	if !strings.Contains(firstFlush, "assistant prefix") {
+		t.Fatalf("expected assistant prefix promoted before final batch, got %q", firstFlush)
+	}
+
+	finalEntries := append([]tui.TranscriptEntry(nil), m.transcriptEntries...)
+	finalEntries = append(finalEntries,
+		tui.TranscriptEntry{Role: "tool_call", Text: "pwd", ToolCallID: "call_1", ToolCall: &transcript.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "pwd"}},
+		tui.TranscriptEntry{Role: "tool_result_ok", Text: "/tmp", ToolCallID: "call_1"},
+		tui.TranscriptEntry{Role: "assistant", Text: streamText},
+	)
+	m.transcriptEntries = finalEntries
+	m.forwardToView(tui.SetConversationMsg{Entries: finalEntries, Ongoing: ""})
+	finalFlush := collectNativeHistoryFlushText(collectCmdMessages(t, m.syncNativeHistoryFromTranscript()))
+	if strings.Contains(finalFlush, "assistant prefix") {
+		t.Fatalf("expected final batch append to avoid duplicating promoted prefix, got %q", finalFlush)
+	}
+	if !strings.Contains(finalFlush, "assistant tail") {
+		t.Fatalf("expected final batch append to include un-emitted assistant tail, got %q", finalFlush)
+	}
+	if !strings.Contains(finalFlush, "pwd") {
+		t.Fatalf("expected final batch append to include prepended tool row, got %q", finalFlush)
+	}
+	if got := strings.Count(firstFlush+finalFlush, "assistant prefix"); got != 1 {
+		t.Fatalf("expected promoted prefix emitted exactly once, got %d in %q%q", got, firstFlush, finalFlush)
+	}
+}
+
 func TestProjectedRuntimeFirstAssistantFinalAfterPromotionDoesNotInsertBogusDivider(t *testing.T) {
 	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 22, Height: 8})

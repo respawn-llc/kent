@@ -87,21 +87,31 @@ func (m *uiModel) syncNativeHistoryFromTranscript() tea.Cmd {
 }
 
 func (m *uiModel) canFinalizeNativeStreamingCommit(committedEntries []tui.TranscriptEntry, committedCount int) bool {
+	return m.nativeStreamingCommitAssistantIndex(committedEntries, committedCount) >= 0
+}
+
+func (m *uiModel) nativeStreamingCommitAssistantIndex(committedEntries []tui.TranscriptEntry, committedCount int) int {
 	if m == nil {
-		return false
+		return -1
 	}
 	if strings.TrimSpace(m.view.OngoingStreamingText()) != "" {
-		return false
+		return -1
 	}
 	if strings.TrimSpace(m.nativeStreamingController.source) == "" {
-		return false
+		return -1
 	}
 	previousCommittedCount := m.nativeFlushedEntryCount
 	if previousCommittedCount < 0 || previousCommittedCount > committedCount {
-		return false
+		return -1
 	}
-	newEntries := committedEntries[previousCommittedCount:]
-	return len(newEntries) > 0 && newEntries[0].Role == tui.TranscriptRoleAssistant && strings.TrimSpace(newEntries[0].Text) == strings.TrimSpace(m.nativeStreamingController.source)
+	source := strings.TrimSpace(m.nativeStreamingController.source)
+	for idx := previousCommittedCount; idx < committedCount && idx < len(committedEntries); idx++ {
+		entry := committedEntries[idx]
+		if entry.Role == tui.TranscriptRoleAssistant && strings.TrimSpace(entry.Text) == source {
+			return idx
+		}
+	}
+	return -1
 }
 
 func (m *uiModel) shouldEmitNativeHistory() bool {
@@ -196,7 +206,8 @@ func (m *uiModel) activeNativeStreamingText() (string, bool) {
 }
 
 func (m *uiModel) finalizeNativeStreamingCommit(projection tui.TranscriptProjection, committedEntries []tui.TranscriptEntry, committedCount int) (tea.Cmd, bool) {
-	if !m.canFinalizeNativeStreamingCommit(committedEntries, committedCount) {
+	streamedAssistantIndex := m.nativeStreamingCommitAssistantIndex(committedEntries, committedCount)
+	if streamedAssistantIndex < 0 {
 		if m != nil && strings.TrimSpace(m.nativeStreamingController.source) == "" {
 			m.resetNativeStreamingState()
 		}
@@ -218,7 +229,7 @@ func (m *uiModel) finalizeNativeStreamingCommit(projection tui.TranscriptProject
 	hadCommittedHistory := previousCommittedCount > 0
 	finalUpdate := m.nativeStreamingController.Finalize()
 	flushTail := m.emitNativeRenderedText(renderStyledNativeProjectionLines(m.nativeStreamingFinalizeLines(finalUpdate.stable, hadCommittedHistory), m.theme, m.nativeReplayRenderWidth()))
-	postAssistant := m.emitNativeProjectionLinesAfterEntry(projection, previousCommittedCount)
+	postAssistant := m.emitNativeProjectionLinesForEntryRangeExcluding(projection, previousCommittedCount, committedCount, streamedAssistantIndex)
 	m.consumeNativeHistoryReplayPermit()
 	m.rebaseNativeProjection(projection, m.transcriptBaseOffset, committedCount)
 	m.acceptNativeProjectionWithoutReplay(projection)
@@ -264,6 +275,37 @@ func (m *uiModel) emitNativeProjectionLinesAfterEntry(projection tui.TranscriptP
 		return nil
 	}
 	styled := renderStyledNativeProjectionLines(projection.LinesFromBlock(startBlock, tui.TranscriptDivider), m.theme, m.nativeReplayRenderWidth())
+	if strings.TrimSpace(styled) == "" {
+		return nil
+	}
+	return m.emitNativeRenderedText(styled)
+}
+
+func (m *uiModel) emitNativeProjectionLinesForEntryRangeExcluding(projection tui.TranscriptProjection, startIndex int, endIndex int, excludedIndex int) tea.Cmd {
+	if m == nil || startIndex >= endIndex {
+		return nil
+	}
+	startAbsolute := m.transcriptBaseOffset + startIndex
+	endAbsolute := m.transcriptBaseOffset + endIndex
+	excludedAbsolute := m.transcriptBaseOffset + excludedIndex
+	lines := make([]tui.TranscriptProjectionLine, 0, len(projection.Blocks)*2)
+	previousGroup := string(tui.RenderIntentAssistant)
+	for _, block := range projection.Blocks {
+		if block.EntryEnd < startAbsolute || block.EntryIndex >= endAbsolute {
+			continue
+		}
+		if block.EntryIndex <= excludedAbsolute && block.EntryEnd >= excludedAbsolute {
+			continue
+		}
+		if previousGroup != "" && previousGroup != block.DividerGroup {
+			lines = append(lines, tui.TranscriptProjectionLine{Kind: tui.VisibleLineDivider, Text: tui.TranscriptDivider})
+		}
+		previousGroup = block.DividerGroup
+		for _, line := range block.Lines {
+			lines = append(lines, tui.TranscriptProjectionLine{Kind: tui.VisibleLineContent, Text: line})
+		}
+	}
+	styled := renderStyledNativeProjectionLines(lines, m.theme, m.nativeReplayRenderWidth())
 	if strings.TrimSpace(styled) == "" {
 		return nil
 	}
