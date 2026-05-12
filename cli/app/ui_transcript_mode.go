@@ -53,12 +53,25 @@ func (m *uiModel) primeDetailTranscriptFromCurrentTail() {
 	if m.view.Mode() != tui.ModeDetail {
 		return
 	}
+	page := m.currentDetailTailPage()
 	if m.detailTranscript.loaded {
-		m.detailTranscript.totalEntries = max(m.detailTranscript.totalEntries, m.transcriptTotalEntries)
-		m.detailTranscript.ongoing = m.view.OngoingStreamingText()
-		m.detailTranscript.ongoingError = m.view.OngoingErrorText()
+		if m.shouldPreserveLoadedDetailWindowOnPrime(page) {
+			m.detailTranscript.totalEntries = max(m.detailTranscript.totalEntries, page.TotalEntries)
+			m.detailTranscript.ongoing = page.Ongoing
+			m.detailTranscript.ongoingError = page.OngoingError
+			return
+		}
+		m.detailTranscript.syncTail(page)
 		return
 	}
+	m.detailTranscript.replace(page)
+}
+
+func (m *uiModel) shouldPreserveLoadedDetailWindowOnPrime(page clientui.TranscriptPage) bool {
+	return len(page.Entries) == 0 && len(m.transcriptEntries) == 0
+}
+
+func (m *uiModel) currentDetailTailPage() clientui.TranscriptPage {
 	page := clientui.TranscriptPage{
 		Offset:       m.transcriptBaseOffset,
 		TotalEntries: m.transcriptTotalEntries,
@@ -87,5 +100,5 @@ func (m *uiModel) primeDetailTranscriptFromCurrentTail() {
 		page.Entries = m.localRuntimeTranscript().Entries
 		page.TotalEntries = max(page.TotalEntries, page.Offset+len(page.Entries))
 	}
-	m.detailTranscript.replace(page)
+	return page
 }
