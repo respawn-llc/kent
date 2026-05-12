@@ -84,6 +84,15 @@ func TestRemoteAppServerCloseUsesOwnedCloser(t *testing.T) {
 	}
 }
 
+func TestRemoteAppServerCloseFnDoesNotImplyOwnership(t *testing.T) {
+	server := newRemoteAppServerWithAuth(&client.Remote{}, config.App{}, func() error {
+		return nil
+	}, false)
+	if server.OwnsServer() {
+		t.Fatal("expected explicit non-owned remote server to stay non-owned")
+	}
+}
+
 func TestRemoteAppServerDiscoveredRemoteIsNotOwned(t *testing.T) {
 	server := newRemoteAppServer(&client.Remote{}, config.App{})
 	if server.OwnsServer() {

@@ -208,6 +208,9 @@ func (r uiNativeFlushFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 	switch msg := msg.(type) {
 	case nativeHistoryFlushMsg:
 		return handledUIFeatureUpdate(m, m.handleNativeHistoryFlush(msg))
+	case nativeStreamingStableFlushAckMsg:
+		m.ackNativeStreamingStableFlush(msg.Sequence)
+		return handledUIFeatureUpdate(m, nil)
 	}
 	return uiFeatureUpdateResult{}
 }

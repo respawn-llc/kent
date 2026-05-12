@@ -21,18 +21,17 @@ type remoteAppServer struct {
 }
 
 func newRemoteAppServer(remote *client.Remote, cfg config.App) *remoteAppServer {
-	return newRemoteAppServerWithAuth(remote, cfg, nil)
+	return newRemoteAppServerWithAuth(remote, cfg, nil, false)
 }
 
 func newRemoteAppServerWithClose(remote *client.Remote, cfg config.App, closeFn func() error) *remoteAppServer {
-	return newRemoteAppServerWithAuth(remote, cfg, closeFn)
+	return newRemoteAppServerWithAuth(remote, cfg, closeFn, true)
 }
 
-func newRemoteAppServerWithAuth(remote *client.Remote, cfg config.App, closeFn func() error) *remoteAppServer {
+func newRemoteAppServerWithAuth(remote *client.Remote, cfg config.App, closeFn func() error, ownsServer bool) *remoteAppServer {
 	if remote == nil {
 		return nil
 	}
-	ownsServer := closeFn != nil
 	if closeFn == nil {
 		closeFn = remote.Close
 	}
@@ -79,7 +78,7 @@ func (s *remoteAppServer) BindProjectWorkspace(ctx context.Context, projectID st
 	if err != nil {
 		return nil, err
 	}
-	return newRemoteAppServerWithAuth(bound.Remote, s.cfg, bound.CloseFn), nil
+	return newRemoteAppServerWithAuth(bound.Remote, s.cfg, bound.CloseFn, s.owns), nil
 }
 
 func (s *remoteAppServer) AuthStatusClient() client.AuthStatusClient {

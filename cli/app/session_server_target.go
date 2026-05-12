@@ -34,8 +34,8 @@ func startSessionServer(ctx context.Context, opts Options, interactor authIntera
 			}
 			return serverattach.DaemonTarget[*client.Remote]{Value: remote, Close: closeFn}, true, nil
 		},
-		WrapRemote: func(remote *client.Remote, cfg config.App, closeFn func() error) (serverattach.Target[interactiveSessionServer], error) {
-			server := newRemoteAppServerWithAuth(remote, cfg, closeFn)
+		WrapRemote: func(remote *client.Remote, cfg config.App, closeFn func() error, ownership serverattach.OwnershipState) (serverattach.Target[interactiveSessionServer], error) {
+			server := newRemoteAppServerWithAuth(remote, cfg, closeFn, ownership == serverattach.OwnershipLaunchedDaemon)
 			return serverattach.Target[interactiveSessionServer]{Value: server, Close: server.Close}, nil
 		},
 		StartEmbedded: func(ctx context.Context) (serverattach.Target[interactiveSessionServer], error) {

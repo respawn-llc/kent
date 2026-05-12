@@ -74,6 +74,10 @@ type nativeHistoryFlushMsg struct {
 	Sequence   uint64
 }
 
+type nativeStreamingStableFlushAckMsg struct {
+	Sequence uint64
+}
+
 type runtimeEventMsg struct {
 	event clientui.Event
 }

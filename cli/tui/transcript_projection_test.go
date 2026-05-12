@@ -102,6 +102,50 @@ func TestCommittedOngoingProjectionRenderAppendDeltaFromAssistantCommentaryConti
 	}
 }
 
+func TestRenderAssistantMarkdownProjectionMatchesCommittedAssistantEntry(t *testing.T) {
+	cases := []struct {
+		name  string
+		text  string
+		phase clientui.MessagePhase
+		width int
+	}{
+		{
+			name:  "prose",
+			text:  "Long **markdown** prose wraps with the same assistant prefix and styling.",
+			phase: clientui.MessagePhaseFinal,
+			width: 32,
+		},
+		{
+			name:  "table",
+			text:  "| Name | Value |\n| --- | --- |\n| alpha | beta |\n",
+			phase: clientui.MessagePhaseFinal,
+			width: 48,
+		},
+		{
+			name:  "commentary",
+			text:  "Decision: keep `commentary` visually aligned with final answers.",
+			phase: clientui.MessagePhaseCommentary,
+			width: 40,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			entries := []TranscriptEntry{{
+				Role:  TranscriptRoleAssistant,
+				Text:  tt.text,
+				Phase: tt.phase,
+			}}
+			committed := ProjectCommittedOngoingTranscript(entries, "dark", tt.width).Lines(TranscriptDivider)
+			streamed := RenderAssistantMarkdownProjection(tt.text, "dark", tt.width)
+
+			if !reflect.DeepEqual(streamed, committed) {
+				t.Fatalf("streaming projection mismatch\nstreamed=%#v\ncommitted=%#v", streamed, committed)
+			}
+		})
+	}
+}
+
 func TestCommittedOngoingProjectionCommitFrontierWaitsForToolResult(t *testing.T) {
 	m := NewModel(WithPreviewLines(20))
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "user", Text: "prompt"})

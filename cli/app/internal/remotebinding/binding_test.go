@@ -133,3 +133,23 @@ func TestBindProjectWorkspaceOwnedCloseClosesBoundAndOwnedServer(t *testing.T) {
 		t.Fatal("expected owned server close")
 	}
 }
+
+func TestBindProjectWorkspaceDoesNotPromoteCloseFnToOwnership(t *testing.T) {
+	next := &client.Remote{}
+	bound, err := BindProjectWorkspace(context.Background(), Request{
+		Current:   &client.Remote{},
+		ProjectID: "project-1",
+		OwnedClose: func() error {
+			return nil
+		},
+		DialWorkspaceRoot: func(context.Context, config.App, string, string) (*client.Remote, error) {
+			return next, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("BindProjectWorkspace: %v", err)
+	}
+	if bound.CloseFn != nil {
+		t.Fatal("expected non-owned binding to avoid owned close fn")
+	}
+}

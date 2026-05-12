@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -116,6 +117,56 @@ func TestFlattenStyledMarkdownEntryKeepsPrefixedLinesWithinViewportAtPunctuation
 	}
 	if got, want := xansi.Strip(lines[1]), "  ."; got != want {
 		t.Fatalf("second line = %q, want %q", got, want)
+	}
+}
+
+func TestRenderAssistantMarkdownProjectionHandlesStreamingMarkdownChunksAtWidths(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want string
+	}{
+		{
+			name: "table",
+			text: "| Name | Value |\n| --- | --- |\n| alpha | beta |\n",
+			want: "alpha",
+		},
+		{
+			name: "open code fence",
+			text: "```go\nfunc main() {\n\tprintln(\"hello\")\n",
+			want: "func main",
+		},
+		{
+			name: "nested list",
+			text: "- alpha item wraps with extra text\n  - beta nested item wraps too\n",
+			want: "beta",
+		},
+		{
+			name: "malformed bold",
+			text: "**unterminated bold chunk",
+			want: "unterminated",
+		},
+	}
+
+	for _, width := range []int{20, 40, 80} {
+		for _, tt := range cases {
+			t.Run(fmt.Sprintf("%s/%d", tt.name, width), func(t *testing.T) {
+				lines := RenderAssistantMarkdownProjection(tt.text, "dark", width)
+				if len(lines) == 0 {
+					t.Fatalf("expected rendered lines for %s at width %d", tt.name, width)
+				}
+				rendered := make([]string, 0, len(lines))
+				for _, line := range lines {
+					if got := lipgloss.Width(line.Text); got > width {
+						t.Fatalf("rendered line width = %d, want <= %d; line=%q", got, width, line.Text)
+					}
+					rendered = append(rendered, line.Text)
+				}
+				if got := xansi.Strip(strings.Join(rendered, "\n")); !strings.Contains(got, tt.want) {
+					t.Fatalf("expected rendered markdown to contain %q, got %q", tt.want, got)
+				}
+			})
+		}
 	}
 }
 

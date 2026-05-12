@@ -171,7 +171,7 @@ func TestResolveUsesSharedRemoteDaemonEmbeddedPolicyByMode(t *testing.T) {
 					Supports:     func(protocol.CapabilityFlags) bool { return true },
 					RequireBound: tc.requireBind,
 				},
-				WrapRemote: func(_ *client.Remote, _ config.App, _ func() error) (Target[string], error) {
+				WrapRemote: func(_ *client.Remote, _ config.App, _ func() error, _ OwnershipState) (Target[string], error) {
 					return Target[string]{Value: "remote"}, nil
 				},
 				StartEmbedded: func(context.Context) (Target[string], error) {
@@ -229,7 +229,7 @@ func TestResolveLaunchesDaemonWithSameRemoteAttachmentPolicy(t *testing.T) {
 			})
 			return DaemonTarget[*client.Remote]{Value: remote}, ok, err
 		},
-		WrapRemote: func(_ *client.Remote, _ config.App, _ func() error) (Target[string], error) {
+		WrapRemote: func(_ *client.Remote, _ config.App, _ func() error, _ OwnershipState) (Target[string], error) {
 			return Target[string]{Value: "daemon"}, nil
 		},
 		StartEmbedded: func(context.Context) (Target[string], error) {
@@ -270,7 +270,7 @@ func TestResolveLaunchesDaemonWithSameRemoteAttachmentPolicy(t *testing.T) {
 			})
 			return DaemonTarget[*client.Remote]{Value: remote}, ok, err
 		},
-		WrapRemote: func(_ *client.Remote, _ config.App, _ func() error) (Target[string], error) {
+		WrapRemote: func(_ *client.Remote, _ config.App, _ func() error, _ OwnershipState) (Target[string], error) {
 			return Target[string]{Value: "daemon"}, nil
 		},
 		StartEmbedded: func(context.Context) (Target[string], error) {
@@ -285,6 +285,68 @@ func TestResolveLaunchesDaemonWithSameRemoteAttachmentPolicy(t *testing.T) {
 	}
 	if acceptedPID != 42 {
 		t.Fatalf("accepted pid = %d, want 42", acceptedPID)
+	}
+}
+
+func TestResolvePassesRemoteOwnershipToWrapper(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		dialProject   func(context.Context, config.App) (ProjectViewRemote, error)
+		launchDaemon  func(context.Context, LaunchedRemoteDialer) (DaemonTarget[*client.Remote], bool, error)
+		wantOwnership OwnershipState
+	}{
+		{
+			name: "configured remote is external",
+			dialProject: func(context.Context, config.App) (ProjectViewRemote, error) {
+				return boundProjectView(func(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+					return boundPlanResponse(), nil
+				}), nil
+			},
+			wantOwnership: OwnershipExternalDaemon,
+		},
+		{
+			name: "launched daemon is owned",
+			dialProject: func(context.Context, config.App) (ProjectViewRemote, error) {
+				return nil, errors.New("configured remote unavailable")
+			},
+			launchDaemon: func(context.Context, LaunchedRemoteDialer) (DaemonTarget[*client.Remote], bool, error) {
+				return DaemonTarget[*client.Remote]{Value: new(client.Remote)}, true, nil
+			},
+			wantOwnership: OwnershipLaunchedDaemon,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			gotOwnership := OwnershipState("")
+			resolution, err := Resolve[string](context.Background(), Request[string]{
+				Mode: ModeInteractive,
+				Remote: RemotePolicy{
+					Config:          config.App{WorkspaceRoot: "/workspace"},
+					AttachTimeout:   time.Second,
+					DialProjectView: tt.dialProject,
+					DialWorkspace: func(context.Context, config.App, string, string) (*client.Remote, error) {
+						return new(client.Remote), nil
+					},
+					Supports: func(protocol.CapabilityFlags) bool { return true },
+				},
+				LaunchDaemon: tt.launchDaemon,
+				WrapRemote: func(_ *client.Remote, _ config.App, _ func() error, ownership OwnershipState) (Target[string], error) {
+					gotOwnership = ownership
+					return Target[string]{Value: "remote"}, nil
+				},
+				StartEmbedded: func(context.Context) (Target[string], error) {
+					return Target[string]{Value: "embedded"}, nil
+				},
+			})
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			if resolution.Value != "remote" {
+				t.Fatalf("value = %q, want remote", resolution.Value)
+			}
+			if gotOwnership != tt.wantOwnership {
+				t.Fatalf("ownership = %q, want %q", gotOwnership, tt.wantOwnership)
+			}
+		})
 	}
 }
 
@@ -422,7 +484,7 @@ func TestResolveTargetResolutionPolicyTable(t *testing.T) {
 					RequireBound: tc.mode == ModeHeadless,
 				},
 				LaunchDaemon: tc.launchDaemon,
-				WrapRemote: func(_ *client.Remote, _ config.App, _ func() error) (Target[string], error) {
+				WrapRemote: func(_ *client.Remote, _ config.App, _ func() error, _ OwnershipState) (Target[string], error) {
 					return Target[string]{Value: "remote"}, nil
 				},
 				StartEmbedded: func(context.Context) (Target[string], error) {
@@ -467,7 +529,7 @@ func TestResolveRecordsAuthReadinessFromValidation(t *testing.T) {
 			},
 			Supports: func(protocol.CapabilityFlags) bool { return true },
 		},
-		WrapRemote: func(_ *client.Remote, _ config.App, _ func() error) (Target[string], error) {
+		WrapRemote: func(_ *client.Remote, _ config.App, _ func() error, _ OwnershipState) (Target[string], error) {
 			return Target[string]{Value: "remote"}, nil
 		},
 		StartEmbedded: func(context.Context) (Target[string], error) {
@@ -512,7 +574,7 @@ func TestResolveClosesOwnedTargetOnValidationFailure(t *testing.T) {
 						},
 						Supports: func(protocol.CapabilityFlags) bool { return true },
 					},
-					WrapRemote: func(_ *client.Remote, _ config.App, _ func() error) (Target[string], error) {
+					WrapRemote: func(_ *client.Remote, _ config.App, _ func() error, _ OwnershipState) (Target[string], error) {
 						return Target[string]{Value: "remote", Close: func() error {
 							*closed = *closed + 1
 							return nil
@@ -544,7 +606,7 @@ func TestResolveClosesOwnedTargetOnValidationFailure(t *testing.T) {
 					LaunchDaemon: func(context.Context, LaunchedRemoteDialer) (DaemonTarget[*client.Remote], bool, error) {
 						return DaemonTarget[*client.Remote]{Value: new(client.Remote)}, true, nil
 					},
-					WrapRemote: func(_ *client.Remote, _ config.App, _ func() error) (Target[string], error) {
+					WrapRemote: func(_ *client.Remote, _ config.App, _ func() error, _ OwnershipState) (Target[string], error) {
 						return Target[string]{Value: "daemon", Close: func() error {
 							*closed = *closed + 1
 							return nil
@@ -614,7 +676,7 @@ func TestResolveDaemonWrapFailureClosesDaemonThenFallsBackEmbedded(t *testing.T)
 				},
 			}, true, nil
 		},
-		WrapRemote: func(_ *client.Remote, _ config.App, _ func() error) (Target[string], error) {
+		WrapRemote: func(_ *client.Remote, _ config.App, _ func() error, _ OwnershipState) (Target[string], error) {
 			return Target[string]{}, wrapErr
 		},
 		StartEmbedded: func(context.Context) (Target[string], error) {

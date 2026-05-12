@@ -216,11 +216,33 @@ func (m *uiModel) handleNativeHistoryFlush(msg nativeHistoryFlushMsg) tea.Cmd {
 		delete(m.nativePendingFlushes, next.Sequence)
 		current = next
 	}
+	ackSequence := m.nativeStreamingStableFlushAckSequence()
 	if m.waitRuntimeEventAfterFlushSequence != 0 && m.nativeFlushedSequence >= m.waitRuntimeEventAfterFlushSequence {
 		m.waitRuntimeEventAfterFlushSequence = 0
 		cmds = append(cmds, m.waitRuntimeEventCmd())
 	}
+	if ackSequence != 0 {
+		cmds = append(cmds, func() tea.Msg {
+			return nativeStreamingStableFlushAckMsg{Sequence: ackSequence}
+		})
+	}
 	return sequenceCmds(cmds...)
+}
+
+func (m *uiModel) nativeStreamingStableFlushAckSequence() uint64 {
+	if m.nativeStreamingStableFlushSequence == 0 || m.nativeFlushedSequence < m.nativeStreamingStableFlushSequence {
+		return 0
+	}
+	return m.nativeFlushedSequence
+}
+
+func (m *uiModel) ackNativeStreamingStableFlush(sequence uint64) {
+	if sequence == 0 || m.nativeStreamingStableFlushSequence == 0 || sequence < m.nativeStreamingStableFlushSequence {
+		return
+	}
+	m.nativeStreamingUnflushedStable = nil
+	m.nativeStreamingStableFlushSequence = 0
+	m.nativeStreamingTail = m.nativeStreamingController.Tail()
 }
 
 func splitNativeScrollbackChunks(rendered string, maxBytes int) []string {

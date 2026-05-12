@@ -485,6 +485,9 @@ func TestRemoteSessionStatusDoesNotReuseLocalAuthState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlanSession: %v", err)
 	}
+	if plan.StatusConfig.OwnsServer {
+		t.Fatal("expected attached configured service to be reported as not owned")
+	}
 	if plan.StatusConfig.AuthManager != nil {
 		t.Fatal("expected remote session status to avoid local auth manager")
 	}

@@ -5,13 +5,14 @@ import (
 	"builder/server/llm"
 	"builder/server/runtime"
 	"builder/shared/clientui"
+	"builder/shared/transcript"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"strings"
 	"testing"
 )
 
-func TestProjectedRuntimeAssistantFinalAfterSpillMatchesTrimmedCommittedText(t *testing.T) {
+func TestProjectedRuntimeAssistantFinalAfterPromotionMatchesTrimmedCommittedText(t *testing.T) {
 	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil,
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "trim me"}}),
 	)
@@ -19,7 +20,7 @@ func TestProjectedRuntimeAssistantFinalAfterSpillMatchesTrimmedCommittedText(t *
 	m = next.(*uiModel)
 	_ = collectCmdMessages(t, startupCmd)
 
-	lineCount := m.nativeStreamingAssistantLiveBudget(m.termWidth) + 3
+	lineCount := 8
 	committedText := makeStreamingLines(lineCount)
 	streamText := committedText + "   "
 	next, firstCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
@@ -28,7 +29,7 @@ func TestProjectedRuntimeAssistantFinalAfterSpillMatchesTrimmedCommittedText(t *
 	m = next.(*uiModel)
 	firstFlush := collectNativeHistoryFlushText(collectCmdMessages(t, firstCmd))
 	if !strings.Contains(firstFlush, "line-01") {
-		t.Fatalf("expected first spill to include earliest streaming line, got %q", firstFlush)
+		t.Fatalf("expected first promotion to include earliest streaming line, got %q", firstFlush)
 	}
 
 	next, finalCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
@@ -43,17 +44,228 @@ func TestProjectedRuntimeAssistantFinalAfterSpillMatchesTrimmedCommittedText(t *
 		t.Fatalf("expected earliest streaming line emitted exactly once after trimmed commit, got %d in %q%q", got, firstFlush, finalFlush)
 	}
 	if strings.TrimSpace(m.nativeStreamingText) != "" || m.nativeStreamingFlushedLineCount != 0 || m.nativeStreamingDividerFlushed {
-		t.Fatalf("expected streaming spill state reset after trimmed commit, got text=%q flushed=%d divider=%v", m.nativeStreamingText, m.nativeStreamingFlushedLineCount, m.nativeStreamingDividerFlushed)
+		t.Fatalf("expected streaming promotion state reset after trimmed commit, got text=%q flushed=%d divider=%v", m.nativeStreamingText, m.nativeStreamingFlushedLineCount, m.nativeStreamingDividerFlushed)
 	}
 }
 
-func TestProjectedRuntimeFirstAssistantFinalAfterSpillDoesNotInsertBogusDivider(t *testing.T) {
+func TestProjectedRuntimeAssistantCommentaryFinalizesStreamingPromotion(t *testing.T) {
+	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil,
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "commentary please"}}),
+	)
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 32, Height: 6})
+	m = next.(*uiModel)
+	_ = collectCmdMessages(t, startupCmd)
+
+	streamText := "commentary **bold**\nline-02\n"
+	next, firstCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: streamText}),
+	}})
+	m = next.(*uiModel)
+	firstFlush := collectNativeHistoryFlushText(collectCmdMessages(t, firstCmd))
+	if strings.Contains(firstFlush, "**bold**") || !strings.Contains(firstFlush, "commentary bold") {
+		t.Fatalf("expected commentary prefix to promote as styled markdown, got %q", firstFlush)
+	}
+
+	next, finalCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantMessage, Message: llm.Message{Role: llm.RoleAssistant, Content: streamText, Phase: llm.MessagePhaseCommentary}}),
+	}})
+	m = next.(*uiModel)
+	finalFlush := collectNativeHistoryFlushText(collectCmdMessages(t, finalCmd))
+	if !strings.Contains(finalFlush, "line-02") {
+		t.Fatalf("expected commentary finalization to flush un-emitted tail, got %q", finalFlush)
+	}
+	if got := strings.Count(firstFlush+finalFlush, "commentary bold"); got != 1 {
+		t.Fatalf("expected commentary stable prefix emitted once, got %d in %q%q", got, firstFlush, finalFlush)
+	}
+}
+
+func TestProjectedRuntimeAssistantFinalHoldsMarkdownTableUntilFinalize(t *testing.T) {
+	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil,
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "table please"}}),
+	)
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 60, Height: 6})
+	m = next.(*uiModel)
+	_ = collectCmdMessages(t, startupCmd)
+
+	streamText := "| Name | Value |\n| --- | --- |\n| alpha | beta |\n"
+	next, firstCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: streamText}),
+	}})
+	m = next.(*uiModel)
+	firstFlush := collectNativeHistoryFlushText(collectCmdMessages(t, firstCmd))
+	if strings.Contains(firstFlush, "alpha") || strings.Contains(firstFlush, "beta") {
+		t.Fatalf("expected active table to stay out of permanent scrollback before final, got %q", firstFlush)
+	}
+
+	next, finalCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantMessage, Message: llm.Message{Role: llm.RoleAssistant, Content: streamText, Phase: llm.MessagePhaseFinal}}),
+	}})
+	m = next.(*uiModel)
+	finalFlush := collectNativeHistoryFlushText(collectCmdMessages(t, finalCmd))
+	if !strings.Contains(finalFlush, "alpha") || !strings.Contains(finalFlush, "beta") {
+		t.Fatalf("expected finalized table to enter permanent scrollback, got %q", finalFlush)
+	}
+}
+
+func TestProjectedRuntimeAssistantFinalMatchesMarkdownProjectionAfterHeldSetextAndReference(t *testing.T) {
+	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil)
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	m = next.(*uiModel)
+	_ = collectCmdMessages(t, startupCmd)
+
+	fullText := "Heading\n---\nThis is [link][id]\n\n[id]: https://example.com\n"
+	var emitted strings.Builder
+	for _, delta := range []string{"Heading\n", "---\nThis is [link][id]\n", "\n[id]: https://example.com\n"} {
+		next, cmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+			projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: delta}),
+		}})
+		m = next.(*uiModel)
+		emitted.WriteString(collectNativeHistoryFlushText(collectCmdMessages(t, cmd)))
+	}
+
+	next, finalCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantMessage, Message: llm.Message{Role: llm.RoleAssistant, Content: fullText, Phase: llm.MessagePhaseFinal}}),
+	}})
+	m = next.(*uiModel)
+	emitted.WriteString(collectNativeHistoryFlushText(collectCmdMessages(t, finalCmd)))
+
+	got := normalizedOutput(emitted.String())
+	want := normalizedOutput(joinedPlainProjectionLines(tui.RenderAssistantMarkdownProjection(fullText, m.theme, m.termWidth)))
+	if got != want {
+		t.Fatalf("native streamed/final output mismatch\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func TestNativeStreamingResizeKeepsHeldSetextAndReferenceFromPromotingStaleRender(t *testing.T) {
+	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil)
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 6})
+	m = next.(*uiModel)
+	_ = collectCmdMessages(t, startupCmd)
+
+	next, firstCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: "Heading\n"}),
+	}})
+	m = next.(*uiModel)
+	if flush := collectNativeHistoryFlushText(collectCmdMessages(t, firstCmd)); strings.TrimSpace(flush) != "" {
+		t.Fatalf("expected held setext/reference content not to promote before resize, got %q", flush)
+	}
+
+	next, resizeCmd := m.Update(tea.WindowSizeMsg{Width: 24, Height: 6})
+	m = next.(*uiModel)
+	_ = collectCmdMessages(t, resizeCmd)
+
+	next, secondCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: "---\nThis is [link][id]\n"}),
+	}})
+	m = next.(*uiModel)
+	flush := collectNativeHistoryFlushText(collectCmdMessages(t, secondCmd))
+	if !strings.Contains(flush, "## Heading") {
+		t.Fatalf("expected resize-held stream to promote setext render, got %q", flush)
+	}
+	if strings.Contains(flush, "[link][id]") || strings.Contains(flush, "❮ Heading\n") {
+		t.Fatalf("expected resize-held stream not to promote stale pre-heading/reference render, got %q", flush)
+	}
+
+	next, thirdCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: "\n[id]: https://example.com\n"}),
+	}})
+	m = next.(*uiModel)
+	resolvedFlush := collectNativeHistoryFlushText(collectCmdMessages(t, thirdCmd))
+	if !strings.Contains(resolvedFlush, "This is link") {
+		t.Fatalf("expected resized stream to promote resolved reference render, got %q", resolvedFlush)
+	}
+	if strings.Contains(resolvedFlush, "[link][id]") {
+		t.Fatalf("expected resized stream not to promote stale unresolved reference render, got %q", resolvedFlush)
+	}
+}
+
+func TestNativeStreamingToolInterleavingAppendsOnlyUnemittedAssistantTail(t *testing.T) {
+	m := newProjectedStaticUIModel(
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "interleave"}}),
+	)
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	m = next.(*uiModel)
+	_ = collectCmdMessages(t, startupCmd)
+
+	streamText := "assistant prefix\nassistant tail\n"
+	m.setBusy(true)
+	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: streamText})
+	firstFlush := collectNativeHistoryFlushText(collectCmdMessages(t, m.syncNativeHistoryFromTranscript()))
+	if !strings.Contains(firstFlush, "assistant prefix") {
+		t.Fatalf("expected assistant prefix promoted before tool row, got %q", firstFlush)
+	}
+
+	toolEntries := append([]tui.TranscriptEntry(nil), m.transcriptEntries...)
+	toolEntries = append(toolEntries,
+		tui.TranscriptEntry{Role: "tool_call", Text: "pwd", ToolCallID: "call_1", ToolCall: &transcript.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "pwd"}},
+		tui.TranscriptEntry{Role: "tool_result_ok", Text: "/tmp", ToolCallID: "call_1"},
+	)
+	m.transcriptEntries = toolEntries
+	m.forwardToView(tui.SetConversationMsg{Entries: toolEntries, Ongoing: streamText})
+	toolFlush := collectNativeHistoryFlushText(collectCmdMessages(t, m.syncNativeHistoryFromTranscript()))
+	if !strings.Contains(toolFlush, "pwd") {
+		t.Fatalf("expected tool row to append after promoted assistant prefix, got %q", toolFlush)
+	}
+
+	finalEntries := append([]tui.TranscriptEntry(nil), toolEntries...)
+	finalEntries = append(finalEntries, tui.TranscriptEntry{Role: "assistant", Text: streamText})
+	m.transcriptEntries = finalEntries
+	m.forwardToView(tui.SetConversationMsg{Entries: finalEntries, Ongoing: ""})
+	finalFlush := collectNativeHistoryFlushText(collectCmdMessages(t, m.syncNativeHistoryFromTranscript()))
+	if strings.Contains(finalFlush, "assistant prefix") {
+		t.Fatalf("expected final append to avoid duplicating promoted prefix, got %q", finalFlush)
+	}
+	if !strings.Contains(finalFlush, "assistant tail") {
+		t.Fatalf("expected final append to include un-emitted assistant tail, got %q", finalFlush)
+	}
+}
+
+func TestNativeStreamingFinalBatchWithPrependedToolRowsSkipsStreamedAssistantDuplicate(t *testing.T) {
+	m := newProjectedStaticUIModel(
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "interleave"}}),
+	)
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	m = next.(*uiModel)
+	_ = collectCmdMessages(t, startupCmd)
+
+	streamText := "assistant prefix\nassistant tail\n"
+	m.setBusy(true)
+	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: streamText})
+	firstFlush := collectNativeHistoryFlushText(collectCmdMessages(t, m.syncNativeHistoryFromTranscript()))
+	if !strings.Contains(firstFlush, "assistant prefix") {
+		t.Fatalf("expected assistant prefix promoted before final batch, got %q", firstFlush)
+	}
+
+	finalEntries := append([]tui.TranscriptEntry(nil), m.transcriptEntries...)
+	finalEntries = append(finalEntries,
+		tui.TranscriptEntry{Role: "tool_call", Text: "pwd", ToolCallID: "call_1", ToolCall: &transcript.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "pwd"}},
+		tui.TranscriptEntry{Role: "tool_result_ok", Text: "/tmp", ToolCallID: "call_1"},
+		tui.TranscriptEntry{Role: "assistant", Text: streamText},
+	)
+	m.transcriptEntries = finalEntries
+	m.forwardToView(tui.SetConversationMsg{Entries: finalEntries, Ongoing: ""})
+	finalFlush := collectNativeHistoryFlushText(collectCmdMessages(t, m.syncNativeHistoryFromTranscript()))
+	if strings.Contains(finalFlush, "assistant prefix") {
+		t.Fatalf("expected final batch append to avoid duplicating promoted prefix, got %q", finalFlush)
+	}
+	if !strings.Contains(finalFlush, "assistant tail") {
+		t.Fatalf("expected final batch append to include un-emitted assistant tail, got %q", finalFlush)
+	}
+	if !strings.Contains(finalFlush, "pwd") {
+		t.Fatalf("expected final batch append to include prepended tool row, got %q", finalFlush)
+	}
+	if got := strings.Count(firstFlush+finalFlush, "assistant prefix"); got != 1 {
+		t.Fatalf("expected promoted prefix emitted exactly once, got %d in %q%q", got, firstFlush, finalFlush)
+	}
+}
+
+func TestProjectedRuntimeFirstAssistantFinalAfterPromotionDoesNotInsertBogusDivider(t *testing.T) {
 	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 22, Height: 8})
 	m = next.(*uiModel)
 	_ = collectCmdMessages(t, startupCmd)
 
-	lineCount := m.nativeStreamingAssistantLiveBudget(m.termWidth) + 3
+	lineCount := 8
 	streamText := makeStreamingLines(lineCount)
 	next, firstCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: streamText}),
@@ -67,7 +279,7 @@ func TestProjectedRuntimeFirstAssistantFinalAfterSpillDoesNotInsertBogusDivider(
 	m = next.(*uiModel)
 	finalFlush := collectNativeHistoryFlushText(collectCmdMessages(t, finalCmd))
 	if strings.Contains(finalFlush, strings.Repeat("─", m.termWidth)) {
-		t.Fatalf("expected first assistant spill commit to avoid bogus divider, got %q", finalFlush)
+		t.Fatalf("expected first assistant promotion commit to avoid bogus divider, got %q", finalFlush)
 	}
 	if got := strings.TrimSpace(stripANSIPreserve(m.nativeRenderedSnapshot)); strings.HasPrefix(got, tui.TranscriptDivider) {
 		t.Fatalf("expected rendered snapshot to avoid leading divider for first assistant reply, got %q", got)
@@ -77,21 +289,21 @@ func TestProjectedRuntimeFirstAssistantFinalAfterSpillDoesNotInsertBogusDivider(
 	}
 }
 
-func TestProjectedRuntimeAssistantFinalAfterSpillDefersNormalScrollbackAppendUntilReturnFromDetail(t *testing.T) {
+func TestProjectedRuntimeAssistantFinalAfterPromotionDefersNormalScrollbackAppendUntilReturnFromDetail(t *testing.T) {
 	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil)
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 22, Height: 8})
 	m = next.(*uiModel)
 	_ = collectCmdMessages(t, startupCmd)
 
-	lineCount := m.nativeStreamingAssistantLiveBudget(m.termWidth) + 3
+	lineCount := 8
 	streamText := makeStreamingLines(lineCount)
-	next, spillCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+	next, promotionCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: streamText}),
 	}})
 	m = next.(*uiModel)
-	spillFlush := collectNativeHistoryFlushText(collectCmdMessages(t, spillCmd))
-	if !strings.Contains(spillFlush, "line-01") {
-		t.Fatalf("expected initial spill before detail mode, got %q", spillFlush)
+	promotionFlush := collectNativeHistoryFlushText(collectCmdMessages(t, promotionCmd))
+	if !strings.Contains(promotionFlush, "line-01") {
+		t.Fatalf("expected initial promotion before detail mode, got %q", promotionFlush)
 	}
 
 	_ = m.toggleTranscriptModeWithNativeReplay(false)
@@ -111,7 +323,7 @@ func TestProjectedRuntimeAssistantFinalAfterSpillDefersNormalScrollbackAppendUnt
 		t.Fatalf("expected live streaming buffer cleared after commit in detail mode, got %q", m.view.OngoingStreamingText())
 	}
 	if strings.TrimSpace(m.nativeStreamingText) == "" {
-		t.Fatal("expected deferred spill state preserved until return to ongoing")
+		t.Fatal("expected deferred promotion state preserved until return to ongoing")
 	}
 
 	returnCmd := m.toggleTranscriptModeWithNativeReplay(true)
@@ -120,17 +332,17 @@ func TestProjectedRuntimeAssistantFinalAfterSpillDefersNormalScrollbackAppendUnt
 	}
 	returnFlush := collectNativeHistoryFlushText(collectCmdMessages(t, returnCmd))
 	if strings.Contains(returnFlush, "line-01") {
-		t.Fatalf("expected return append to avoid duplicating already spilled prefix, got %q", returnFlush)
+		t.Fatalf("expected return append to avoid duplicating already promoted prefix, got %q", returnFlush)
 	}
 	if !strings.Contains(returnFlush, fmt.Sprintf("line-%02d", lineCount)) {
 		t.Fatalf("expected return append to flush deferred tail, got %q", returnFlush)
 	}
 	if strings.TrimSpace(m.nativeStreamingText) != "" || m.nativeStreamingFlushedLineCount != 0 || m.nativeStreamingDividerFlushed {
-		t.Fatalf("expected deferred spill state cleared after return append, got text=%q flushed=%d divider=%v", m.nativeStreamingText, m.nativeStreamingFlushedLineCount, m.nativeStreamingDividerFlushed)
+		t.Fatalf("expected deferred promotion state cleared after return append, got text=%q flushed=%d divider=%v", m.nativeStreamingText, m.nativeStreamingFlushedLineCount, m.nativeStreamingDividerFlushed)
 	}
 }
 
-func TestNativeStreamingResizeRestartsSpillTrackingAtNewWidth(t *testing.T) {
+func TestNativeStreamingResizeInvalidatesPromotionAtNewWidth(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "try again"}}),
 	)
@@ -139,7 +351,7 @@ func TestNativeStreamingResizeRestartsSpillTrackingAtNewWidth(t *testing.T) {
 	_ = collectCmdMessages(t, startupCmd)
 
 	m.setBusy(true)
-	lineCount := m.nativeStreamingAssistantLiveBudget(m.termWidth) + 3
+	lineCount := 8
 	streamText := makeStreamingLines(lineCount)
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: streamText})
 	m.syncViewport()
@@ -147,14 +359,14 @@ func TestNativeStreamingResizeRestartsSpillTrackingAtNewWidth(t *testing.T) {
 	firstCmd := m.syncNativeHistoryFromTranscript()
 	firstFlush := collectNativeHistoryFlushText(collectCmdMessages(t, firstCmd))
 	if !strings.Contains(firstFlush, "line-01") {
-		t.Fatalf("expected initial spill to include earliest streaming line, got %q", firstFlush)
+		t.Fatalf("expected initial promotion to include earliest streaming line, got %q", firstFlush)
 	}
 
 	next, resizeCmd := m.Update(tea.WindowSizeMsg{Width: 16, Height: 8})
 	m = next.(*uiModel)
 	_ = resizeCmd
-	if m.nativeStreamingWidth != 22 {
-		t.Fatalf("expected width reset to happen on next spill sync, got %d", m.nativeStreamingWidth)
+	if m.nativeStreamingController.width != 16 {
+		t.Fatalf("expected controller width updated immediately after resize, got %d", m.nativeStreamingController.width)
 	}
 
 	resizedCount := lineCount + 1
@@ -164,14 +376,14 @@ func TestNativeStreamingResizeRestartsSpillTrackingAtNewWidth(t *testing.T) {
 
 	secondCmd := m.syncNativeHistoryFromTranscript()
 	secondFlush := collectNativeHistoryFlushText(collectCmdMessages(t, secondCmd))
-	if !strings.Contains(secondFlush, "line-01") {
-		t.Fatalf("expected resized spill to restart from earliest streaming line, got %q", secondFlush)
+	if strings.TrimSpace(secondFlush) != "" {
+		t.Fatalf("expected resize-invalidated stream to stop native promotion until replay, got %q", secondFlush)
 	}
 	if m.nativeStreamingWidth != 16 {
-		t.Fatalf("expected spill tracking width updated after resize, got %d", m.nativeStreamingWidth)
+		t.Fatalf("expected stream tracking width updated after resize, got %d", m.nativeStreamingWidth)
 	}
-	if got := strings.Count(firstFlush+secondFlush, "line-01"); got != 2 {
-		t.Fatalf("expected resize restart to emit earliest line twice, got %d in %q%q", got, firstFlush, secondFlush)
+	if got := strings.Count(firstFlush+secondFlush, "line-01"); got != 1 {
+		t.Fatalf("expected resize-invalidated stream not to duplicate earliest line, got %d in %q%q", got, firstFlush, secondFlush)
 	}
 	view := stripANSIPreserve(m.View())
 	if !strings.Contains(view, fmt.Sprintf("line-%02d", resizedCount)) {
@@ -179,7 +391,7 @@ func TestNativeStreamingResizeRestartsSpillTrackingAtNewWidth(t *testing.T) {
 	}
 }
 
-func TestNativeStreamingLinesKeepAssistantMarkdownPlain(t *testing.T) {
+func TestNativeStreamingLinesRenderAssistantMarkdown(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "try again"}}),
 	)
@@ -193,14 +405,14 @@ func TestNativeStreamingLinesKeepAssistantMarkdownPlain(t *testing.T) {
 
 	raw := m.View()
 	plain := stripANSIPreserve(raw)
-	if !strings.Contains(plain, "**hello**") || !strings.Contains(plain, "`world`") {
-		t.Fatalf("expected markdown markers preserved in live region while streaming, got %q", plain)
+	if strings.Contains(plain, "**hello**") || strings.Contains(plain, "`world`") {
+		t.Fatalf("expected markdown markers rendered in live region while streaming, got %q", plain)
 	}
-	if !strings.Contains(plain, "❮ **hello**") {
-		t.Fatalf("expected plain assistant text in live region, got %q", plain)
+	if !strings.Contains(plain, "❮ hello") || !strings.Contains(plain, "world") {
+		t.Fatalf("expected markdown-rendered assistant text in live region, got %q", plain)
 	}
-	if strings.Contains(raw, "\x1b[") && !strings.Contains(raw, "\x1b[?25l") {
-		t.Fatalf("expected live region to avoid rich markdown styling escapes, got raw=%q", raw)
+	if !strings.Contains(raw, "\x1b[") {
+		t.Fatalf("expected live region to preserve markdown styling escapes, got raw=%q", raw)
 	}
 }
 
@@ -366,6 +578,64 @@ func TestNativeHistoryFlushWaitsForTargetSequenceBeforeRearmingRuntimeEvents(t *
 	}
 	if got := len(m.pendingRuntimeEvents); got != 0 {
 		t.Fatalf("expected pending runtime events drained after target flush, got %d", got)
+	}
+}
+
+func TestNativeStreamingStableTailClearsOnlyAfterFlushAck(t *testing.T) {
+	m := newProjectedStaticUIModel(
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "prompt"}}),
+	)
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	m = next.(*uiModel)
+	_ = collectCmdMessages(t, startupCmd)
+	m.discardPendingNativeHistoryFlushes()
+
+	m.setBusy(true)
+	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries, Ongoing: "line1\nline2\n"})
+	streamCmd := m.syncNativeHistoryFromTranscript()
+	streamFlush, ok := streamCmd().(nativeHistoryFlushMsg)
+	if !ok {
+		t.Fatalf("expected streaming stable flush, got %T", streamCmd())
+	}
+	if got := joinedPlainProjectionLines(m.nativeStreamingUnflushedStable); !strings.Contains(got, "line1") {
+		t.Fatalf("expected stable line retained in live tail before flush ack, got %q", got)
+	}
+
+	laterCmd := m.emitNativeRenderedText("later")
+	laterFlush, ok := laterCmd().(nativeHistoryFlushMsg)
+	if !ok {
+		t.Fatalf("expected later flush, got %T", laterCmd())
+	}
+	if cmd := m.handleNativeHistoryFlush(laterFlush); cmd != nil {
+		t.Fatalf("expected out-of-order later flush to buffer without commands, got %T", cmd())
+	}
+	if got := joinedPlainProjectionLines(m.nativeStreamingUnflushedStable); !strings.Contains(got, "line1") {
+		t.Fatalf("expected out-of-order flush not to clear stable live tail, got %q", got)
+	}
+
+	flushCmd := m.handleNativeHistoryFlush(streamFlush)
+	msgs := collectCmdMessages(t, flushCmd)
+	if got := joinedPlainProjectionLines(m.nativeStreamingUnflushedStable); !strings.Contains(got, "line1") {
+		t.Fatalf("expected stable live tail retained until explicit ack message, got %q", got)
+	}
+	var ack nativeStreamingStableFlushAckMsg
+	foundAck := false
+	for _, msg := range msgs {
+		if typed, ok := msg.(nativeStreamingStableFlushAckMsg); ok {
+			ack = typed
+			foundAck = true
+		}
+	}
+	if !foundAck {
+		t.Fatalf("expected stable flush ack message after ordered native flush, got %#v", msgs)
+	}
+
+	m.ackNativeStreamingStableFlush(ack.Sequence)
+	if got := joinedPlainProjectionLines(m.nativeStreamingUnflushedStable); got != "" {
+		t.Fatalf("expected ack to clear unflushed stable lines, got %q", got)
+	}
+	if got := joinedPlainProjectionLines(m.nativeStreamingTail); strings.Contains(got, "line1") || !strings.Contains(got, "line2") {
+		t.Fatalf("expected acked live tail to keep only mutable tail, got %q", got)
 	}
 }
 

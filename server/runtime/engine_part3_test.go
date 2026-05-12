@@ -326,6 +326,100 @@ func TestSubmitUserMessageContinuesAfterHostedToolOnlyTurn(t *testing.T) {
 	}
 }
 
+func TestSubmitUserMessageFinalAnswerWithHostedToolCallMaterializesToolBeforeFinal(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	client := &fakeClient{responses: []llm.Response{
+		{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
+			OutputItems: []llm.ResponseItem{
+				{
+					Type: llm.ResponseItemTypeOther,
+					Raw:  json.RawMessage(`{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"builder cli"}}`),
+				},
+				{
+					Type:    llm.ResponseItemTypeMessage,
+					Role:    llm.RoleAssistant,
+					Phase:   llm.MessagePhaseFinal,
+					Content: "done",
+				},
+			},
+			Usage: llm.Usage{WindowTokens: 200000},
+		},
+	}}
+	client.caps = llm.ProviderCapabilities{
+		ProviderID:                    "openai",
+		SupportsResponsesAPI:          true,
+		SupportsResponsesCompact:      true,
+		SupportsNativeWebSearch:       true,
+		SupportsReasoningEncrypted:    true,
+		SupportsServerSideContextEdit: true,
+		IsOpenAIFirstParty:            true,
+	}
+
+	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+		Model:         "gpt-5",
+		WebSearchMode: "native",
+		EnabledTools:  []toolspec.ID{toolspec.ToolWebSearch},
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	msg, err := eng.SubmitUserMessage(context.Background(), "find latest")
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if msg.Content != "done" {
+		t.Fatalf("assistant content = %q, want done", msg.Content)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("expected final answer with hosted tool call to finish in 1 model call, got %d", len(client.calls))
+	}
+
+	events, err := store.ReadEvents()
+	if err != nil {
+		t.Fatalf("read events: %v", err)
+	}
+	toolCallBeforeFinal := false
+	toolResultBeforeFinal := false
+	finalSeen := false
+	for _, evt := range events {
+		if evt.Kind != "message" {
+			continue
+		}
+		var persisted llm.Message
+		if err := json.Unmarshal(evt.Payload, &persisted); err != nil {
+			t.Fatalf("decode message event: %v", err)
+		}
+		if persisted.Role == llm.RoleAssistant && len(persisted.ToolCalls) == 1 && persisted.ToolCalls[0].ID == "ws_1" {
+			if finalSeen {
+				t.Fatalf("hosted tool call persisted after final answer")
+			}
+			toolCallBeforeFinal = true
+		}
+		if persisted.Role == llm.RoleTool && persisted.ToolCallID == "ws_1" {
+			if finalSeen {
+				t.Fatalf("hosted tool result persisted after final answer")
+			}
+			toolResultBeforeFinal = true
+		}
+		if persisted.Role == llm.RoleAssistant && persisted.Phase == llm.MessagePhaseFinal && strings.TrimSpace(persisted.Content) == "done" {
+			finalSeen = true
+			if len(persisted.ToolCalls) != 0 {
+				t.Fatalf("final assistant message retained tool calls: %+v", persisted.ToolCalls)
+			}
+		}
+	}
+	if !toolCallBeforeFinal || !toolResultBeforeFinal || !finalSeen {
+		t.Fatalf("expected hosted tool call, result, and final answer in order; call=%t result=%t final=%t", toolCallBeforeFinal, toolResultBeforeFinal, finalSeen)
+	}
+}
+
 func TestSubmitUserMessageCommentaryWithoutToolCallsForcesNextLoop(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)

@@ -199,6 +199,10 @@ type uiNativeHistoryFeatureState struct {
 	nativeLiveRegionLines              int
 	nativeLiveRegionPad                int
 	nativeStreamingActive              bool
+	nativeStreamingController          nativeAssistantStreamController
+	nativeStreamingTail                []tui.TranscriptProjectionLine
+	nativeStreamingUnflushedStable     []tui.TranscriptProjectionLine
+	nativeStreamingStableFlushSequence uint64
 	nativeStreamingText                string
 	nativeStreamingWidth               int
 	nativeStreamingFlushedLineCount    int

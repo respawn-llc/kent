@@ -392,8 +392,8 @@
 - Any latest-compaction boundary or floor is tail/model metadata only. Detail transcript paging and rendering must ignore it and show the full append-only transcript in persisted order.
 - Legacy persisted `history_replaced` entries with `engine="reviewer_rollback"` are compatibility no-ops on replay. Builder must tolerate and ignore them rather than treating them as transcript-rewrite semantics.
 - Rollback/fork is navigation or attachment to a different session target, not a same-session transcript mutation.
-- Assistant streaming is rendered in the ongoing live viewport and is not appended to normal-buffer scrollback until commit.
-- Ongoing-mode normal-buffer scrollback is committed-transcript only. Tool-progress, assistant deltas, reasoning deltas, and any other provisional live activity are transient viewport state only and must never become immutable scrollback authority.
+- Assistant streaming in ongoing mode uses source-backed markdown promotion: stable rendered assistant lines may append to normal-buffer scrollback before commit, while the mutable tail stays in the live viewport. Final commit appends only un-emitted assistant lines. Promotion is based on source/render stability, never on terminal height.
+- Ongoing-mode normal-buffer scrollback is committed transcript plus immutable stable assistant stream promotions. Tool-progress, reasoning deltas, and other provisional live activity remain transient viewport state and must never become immutable scrollback authority.
 - If connectivity or subscription continuity is lost, the transient ongoing live viewport is discarded immediately. Recovery happens by hydrating authoritative committed transcript state and resubscribing.
 - Transcript-affecting transport failures must not be swallowed or converted into fake empty/idle UI state. Correctness wins over continuity: the affected live view may stop, but it must not continue from stale transcript data.
 - For external continuity-loss recovery only, re-issuing the TUI ongoing buffer from authoritative committed state is acceptable.

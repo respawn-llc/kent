@@ -99,7 +99,7 @@ type Request[T any] struct {
 	Remote        RemotePolicy
 	BypassRemote  func(context.Context) (bool, error)
 	LaunchDaemon  func(context.Context, LaunchedRemoteDialer) (DaemonTarget[*client.Remote], bool, error)
-	WrapRemote    func(*client.Remote, config.App, func() error) (Target[T], error)
+	WrapRemote    func(*client.Remote, config.App, func() error, OwnershipState) (Target[T], error)
 	StartEmbedded func(context.Context) (Target[T], error)
 	Validate      func(context.Context, Resolution[T]) (AuthReadiness, error)
 }
@@ -189,7 +189,7 @@ func dialConfiguredRemote[T any](ctx context.Context, req Request[T], capability
 	if err != nil || !ok {
 		return Resolution[T]{}, ok, err
 	}
-	target, err := wrapRemote(req, remote, remote.Close)
+	target, err := wrapRemote(req, remote, remote.Close, OwnershipExternalDaemon)
 	if err != nil {
 		_ = remote.Close()
 		return Resolution[T]{}, false, err
@@ -209,7 +209,7 @@ func launchDaemon[T any](ctx context.Context, req Request[T], capability *Capabi
 	if err != nil || !ok {
 		return Resolution[T]{}, ok, err
 	}
-	target, err := wrapRemote(req, daemon.Value, daemon.Close)
+	target, err := wrapRemote(req, daemon.Value, daemon.Close, OwnershipLaunchedDaemon)
 	if err != nil {
 		closeTarget(DaemonTarget[*client.Remote]{Close: daemon.Close})
 		return Resolution[T]{}, false, err
@@ -217,11 +217,11 @@ func launchDaemon[T any](ctx context.Context, req Request[T], capability *Capabi
 	return newResolution(req, SourceLaunchedDaemon, OwnershipLaunchedDaemon, target, valueCapability(capability)), true, nil
 }
 
-func wrapRemote[T any](req Request[T], remote *client.Remote, closeFn func() error) (Target[T], error) {
+func wrapRemote[T any](req Request[T], remote *client.Remote, closeFn func() error, ownership OwnershipState) (Target[T], error) {
 	if req.WrapRemote == nil {
 		return Target[T]{}, errors.New("remote target wrapper is required")
 	}
-	target, err := req.WrapRemote(remote, req.Remote.Config, closeFn)
+	target, err := req.WrapRemote(remote, req.Remote.Config, closeFn, ownership)
 	if err != nil {
 		return Target[T]{}, err
 	}

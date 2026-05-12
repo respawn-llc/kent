@@ -73,6 +73,21 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 			e.clearStreamingAssistantState(stepID)
 		}
 
+		finalAnswerWithToolCalls := assistantMsg.Phase == llm.MessagePhaseFinal &&
+			strings.TrimSpace(assistantMsg.Content) != "" &&
+			(len(localToolCalls) > 0 || len(hostedToolExecutions) > 0)
+		if finalAnswerWithToolCalls {
+			applied, err := s.materializeFinalAnswerToolCalls(ctx, stepID, localToolCalls, hostedToolExecutions)
+			if err != nil {
+				return stepLoopResult{}, err
+			}
+			patchEditsApplied = patchEditsApplied || applied
+			assistantMsg.ToolCalls = nil
+			localToolCalls = nil
+			hostedToolExecutions = nil
+			e.emitCommittedTranscriptAdvanced(stepID)
+		}
+
 		if !noopFinalAnswer {
 			e.emit(Event{
 				Kind:   EventModelResponse,
@@ -114,11 +129,6 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 			}
 			if phaseTurn.MissingAssistantPhase {
 				if err := e.appendMessage(stepID, llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeErrorFeedback, Content: missingAssistantPhaseWarning}); err != nil {
-					return stepLoopResult{}, err
-				}
-			}
-			if phaseTurn.FinalAnswerIncludedToolCalls {
-				if err := e.appendMessage(stepID, llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeErrorFeedback, Content: finalWithToolCallsIgnoredWarning}); err != nil {
 					return stepLoopResult{}, err
 				}
 			}
@@ -239,25 +249,86 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 			return stepLoopResult{Message: resolved, ExecutedToolCall: executedToolCall, AssistantCommittedStart: resolvedCommittedStart, AssistantCommittedStartSet: resolvedCommittedStartSet}, nil
 		}
 
-		results, err := s.tools.ExecuteToolCalls(ctx, stepID, localToolCalls)
+		applied, err := s.executeLocalToolCallsAndAppendResults(ctx, stepID, localToolCalls)
 		if err != nil {
 			return stepLoopResult{}, err
 		}
-		customToolCalls := customToolCallIDs(localToolCalls)
-		for _, result := range results {
-			if isSuccessfulFileEditResult(result) {
-				patchEditsApplied = true
-			}
-			msg := llm.Message{Role: llm.RoleTool, Content: string(result.Output), ToolCallID: result.CallID, Name: string(result.Name)}
-			msg.MessageType = llm.ToolOutputMessageType(customToolCalls[result.CallID])
-			if err := e.appendMessage(stepID, msg); err != nil {
-				return stepLoopResult{}, err
-			}
-		}
+		patchEditsApplied = patchEditsApplied || applied
 		if _, err := s.messages.FlushPendingUserInjections(stepID); err != nil {
 			return stepLoopResult{}, err
 		}
 	}
+}
+
+func (s *defaultStepExecutor) materializeFinalAnswerToolCalls(ctx context.Context, stepID string, localToolCalls []llm.ToolCall, hostedToolExecutions []hostedToolExecution) (bool, error) {
+	e := s.engine
+	toolCallMessage := llm.Message{
+		Role:      llm.RoleAssistant,
+		Phase:     llm.MessagePhaseCommentary,
+		ToolCalls: append([]llm.ToolCall(nil), localToolCalls...),
+	}
+	for _, hosted := range hostedToolExecutions {
+		toolCallMessage.ToolCalls = append(toolCallMessage.ToolCalls, hosted.Call)
+	}
+	if err := e.appendAssistantMessage(stepID, toolCallMessage); err != nil {
+		return false, err
+	}
+
+	executableCallIDs := make(map[string]struct{}, len(localToolCalls))
+	for _, call := range localToolCalls {
+		if callID := strings.TrimSpace(call.ID); callID != "" {
+			executableCallIDs[callID] = struct{}{}
+		}
+	}
+	_, toolCallStarts := committedStartsForPersistedAssistantMessage(e, toolCallMessage, executableCallIDs)
+	e.rememberPendingToolCallStarts(toolCallStarts)
+
+	patchEditsApplied, err := s.executeLocalToolCallsAndAppendResults(ctx, stepID, localToolCalls)
+	if err != nil {
+		return false, err
+	}
+	if err := s.appendHostedToolExecutionResults(stepID, hostedToolExecutions); err != nil {
+		return false, err
+	}
+	return patchEditsApplied, nil
+}
+
+func (s *defaultStepExecutor) executeLocalToolCallsAndAppendResults(ctx context.Context, stepID string, localToolCalls []llm.ToolCall) (bool, error) {
+	if len(localToolCalls) == 0 {
+		return false, nil
+	}
+	e := s.engine
+	results, err := s.tools.ExecuteToolCalls(ctx, stepID, localToolCalls)
+	if err != nil {
+		return false, err
+	}
+	patchEditsApplied := false
+	customToolCalls := customToolCallIDs(localToolCalls)
+	for _, result := range results {
+		if isSuccessfulFileEditResult(result) {
+			patchEditsApplied = true
+		}
+		msg := llm.Message{Role: llm.RoleTool, Content: string(result.Output), ToolCallID: result.CallID, Name: string(result.Name)}
+		msg.MessageType = llm.ToolOutputMessageType(customToolCalls[result.CallID])
+		if err := e.appendMessage(stepID, msg); err != nil {
+			return false, err
+		}
+	}
+	return patchEditsApplied, nil
+}
+
+func (s *defaultStepExecutor) appendHostedToolExecutionResults(stepID string, hostedToolExecutions []hostedToolExecution) error {
+	e := s.engine
+	for _, hosted := range hostedToolExecutions {
+		if err := e.persistToolCompletion(stepID, hosted.Result); err != nil {
+			return err
+		}
+		msg := llm.Message{Role: llm.RoleTool, Content: string(hosted.Result.Output), ToolCallID: hosted.Result.CallID, Name: string(hosted.Result.Name)}
+		if err := e.appendMessage(stepID, msg); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func isSuccessfulFileEditResult(result tools.Result) bool {

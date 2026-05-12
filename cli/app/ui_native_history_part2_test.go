@@ -392,7 +392,7 @@ func TestNativeStreamingLinesHiddenWhenNotBusy(t *testing.T) {
 	}
 }
 
-func TestApplyRuntimeTranscriptPageSpillsHydratedStreamingOverflowWithoutPriorAssistantDelta(t *testing.T) {
+func TestApplyRuntimeTranscriptPagePromotesHydratedStreamingStableLinesWithoutPriorAssistantDelta(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "try again"}}),
 	)
@@ -401,7 +401,7 @@ func TestApplyRuntimeTranscriptPageSpillsHydratedStreamingOverflowWithoutPriorAs
 	_ = collectCmdMessages(t, startupCmd)
 
 	m.setBusy(true)
-	lineCount := m.nativeStreamingAssistantLiveBudget(m.termWidth) + 3
+	lineCount := 8
 	streamText := makeStreamingLines(lineCount)
 	cmd := m.runtimeAdapter().applyRuntimeTranscriptPage(clientui.TranscriptPageRequest{}, clientui.TranscriptPage{
 		SessionID:    "session-1",
@@ -414,15 +414,15 @@ func TestApplyRuntimeTranscriptPageSpillsHydratedStreamingOverflowWithoutPriorAs
 		Ongoing: streamText,
 	})
 	if cmd == nil {
-		t.Fatal("expected runtime transcript page apply to spill hydrated streaming overflow")
+		t.Fatal("expected runtime transcript page apply to promote hydrated streaming stable lines")
 	}
 	flushText := collectNativeHistoryFlushText(collectCmdMessages(t, cmd))
 	if !strings.Contains(flushText, "line-01") {
-		t.Fatalf("expected spilled hydrate flush to include earliest streaming line, got %q", flushText)
+		t.Fatalf("expected hydrated promotion flush to include earliest streaming line, got %q", flushText)
 	}
 	view := stripANSIPreserve(m.View())
 	if strings.Contains(view, "line-01") {
-		t.Fatalf("expected spilled prefix removed from live region, got %q", view)
+		t.Fatalf("expected promoted prefix removed from live region, got %q", view)
 	}
 	if !strings.Contains(view, fmt.Sprintf("line-%02d", lineCount)) {
 		t.Fatalf("expected live region to keep latest streaming tail, got %q", view)
@@ -431,11 +431,11 @@ func TestApplyRuntimeTranscriptPageSpillsHydratedStreamingOverflowWithoutPriorAs
 		t.Fatalf("expected flushed streaming line count to advance, got %d", m.nativeStreamingFlushedLineCount)
 	}
 	if m.sawAssistantDelta {
-		t.Fatal("expected hydrate spill to work without synthesizing assistant delta flag")
+		t.Fatal("expected hydrate promotion to work without synthesizing assistant delta flag")
 	}
 }
 
-func TestProjectedRuntimeAssistantDeltaSpillsOverflowIntoScrollback(t *testing.T) {
+func TestProjectedRuntimeAssistantDeltaPromotesStableLinesIntoScrollback(t *testing.T) {
 	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil,
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "try again"}}),
 	)
@@ -443,7 +443,7 @@ func TestProjectedRuntimeAssistantDeltaSpillsOverflowIntoScrollback(t *testing.T
 	m = next.(*uiModel)
 	_ = collectCmdMessages(t, startupCmd)
 
-	lineCount := m.nativeStreamingAssistantLiveBudget(m.termWidth) + 3
+	lineCount := 8
 	streamText := makeStreamingLines(lineCount)
 	next, cmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: streamText}),
@@ -451,18 +451,41 @@ func TestProjectedRuntimeAssistantDeltaSpillsOverflowIntoScrollback(t *testing.T
 	m = next.(*uiModel)
 	flushText := collectNativeHistoryFlushText(collectCmdMessages(t, cmd))
 	if !strings.Contains(flushText, "line-01") {
-		t.Fatalf("expected runtime delta batch to spill earliest streaming line, got %q", flushText)
+		t.Fatalf("expected runtime delta batch to promote earliest streaming line, got %q", flushText)
 	}
 	view := stripANSIPreserve(m.View())
 	if strings.Contains(view, "line-01") {
-		t.Fatalf("expected runtime spill to trim live prefix, got %q", view)
+		t.Fatalf("expected runtime promotion to trim live prefix, got %q", view)
 	}
 	if !strings.Contains(view, fmt.Sprintf("line-%02d", lineCount)) {
-		t.Fatalf("expected runtime spill to preserve latest tail, got %q", view)
+		t.Fatalf("expected runtime promotion to preserve latest tail, got %q", view)
 	}
 }
 
-func TestProjectedRuntimeAssistantFinalAfterSpillDoesNotDuplicateEarlierStreamingLines(t *testing.T) {
+func TestProjectedRuntimeAssistantDeltaPromotesNarrowMarkdownWithoutHeightBudget(t *testing.T) {
+	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil,
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "narrow please"}}),
+	)
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 18, Height: 4})
+	m = next.(*uiModel)
+	_ = collectCmdMessages(t, startupCmd)
+
+	streamText := "This **bold** assistant markdown wraps under pressure.\nproof line\nmutable tail"
+	next, cmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: streamText}),
+	}})
+	m = next.(*uiModel)
+	flushText := collectNativeHistoryFlushText(collectCmdMessages(t, cmd))
+	if !strings.Contains(flushText, "bold") || strings.Contains(flushText, "**bold**") {
+		t.Fatalf("expected narrow stable markdown promotion to render styling markers, got %q", flushText)
+	}
+	tail := joinedPlainProjectionLines(m.nativeStreamingTail)
+	if !strings.Contains(tail, "mutable tail") {
+		t.Fatalf("expected narrow live region state to keep mutable tail, got %q", tail)
+	}
+}
+
+func TestProjectedRuntimeAssistantFinalAfterPromotionDoesNotDuplicateEarlierStreamingLines(t *testing.T) {
 	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil,
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "try again"}}),
 	)
@@ -470,7 +493,7 @@ func TestProjectedRuntimeAssistantFinalAfterSpillDoesNotDuplicateEarlierStreamin
 	m = next.(*uiModel)
 	_ = collectCmdMessages(t, startupCmd)
 
-	lineCount := m.nativeStreamingAssistantLiveBudget(m.termWidth) + 3
+	lineCount := 8
 	streamText := makeStreamingLines(lineCount)
 	next, firstCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
 		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: streamText}),
@@ -478,7 +501,7 @@ func TestProjectedRuntimeAssistantFinalAfterSpillDoesNotDuplicateEarlierStreamin
 	m = next.(*uiModel)
 	firstFlush := collectNativeHistoryFlushText(collectCmdMessages(t, firstCmd))
 	if !strings.Contains(firstFlush, "line-01") {
-		t.Fatalf("expected first spill to include earliest streaming line, got %q", firstFlush)
+		t.Fatalf("expected first promotion to include earliest streaming line, got %q", firstFlush)
 	}
 
 	next, finalCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
@@ -487,7 +510,7 @@ func TestProjectedRuntimeAssistantFinalAfterSpillDoesNotDuplicateEarlierStreamin
 	m = next.(*uiModel)
 	finalFlush := collectNativeHistoryFlushText(collectCmdMessages(t, finalCmd))
 	if strings.Contains(finalFlush, "line-01") {
-		t.Fatalf("expected finalized append to skip already spilled prefix, got %q", finalFlush)
+		t.Fatalf("expected finalized append to skip already promoted prefix, got %q", finalFlush)
 	}
 	if !strings.Contains(finalFlush, fmt.Sprintf("line-%02d", lineCount)) {
 		t.Fatalf("expected finalized append to include remaining streaming tail, got %q", finalFlush)
@@ -499,6 +522,6 @@ func TestProjectedRuntimeAssistantFinalAfterSpillDoesNotDuplicateEarlierStreamin
 		t.Fatalf("expected live streaming buffer cleared after commit, got %q", m.view.OngoingStreamingText())
 	}
 	if m.nativeStreamingText != "" || m.nativeStreamingFlushedLineCount != 0 || m.nativeStreamingDividerFlushed {
-		t.Fatalf("expected streaming spill state reset after commit, got text=%q flushed=%d divider=%v", m.nativeStreamingText, m.nativeStreamingFlushedLineCount, m.nativeStreamingDividerFlushed)
+		t.Fatalf("expected streaming promotion state reset after commit, got text=%q flushed=%d divider=%v", m.nativeStreamingText, m.nativeStreamingFlushedLineCount, m.nativeStreamingDividerFlushed)
 	}
 }

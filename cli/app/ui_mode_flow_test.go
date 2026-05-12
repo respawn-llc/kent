@@ -124,6 +124,107 @@ func TestCtrlTShowsLatestDetailTailWithoutResolvingMetricsEagerly(t *testing.T) 
 	}
 }
 
+func TestCtrlTPrimesDetailFromCurrentTailWhenPreviousDetailPageIsStale(t *testing.T) {
+	stalePage := clientui.TranscriptPage{SessionID: "session-1", Offset: 0, TotalEntries: 1}
+	stalePage.Entries = append(stalePage.Entries, clientui.ChatEntry{Role: "assistant", Text: "stale detail page"})
+	currentPage := clientui.TranscriptPage{SessionID: "session-1", Offset: 0, TotalEntries: 1}
+	currentPage.Entries = append(currentPage.Entries, clientui.ChatEntry{Role: "assistant", Text: "fresh ongoing tail"})
+	client := &recordingTranscriptRuntimeClient{loadPage: currentPage}
+	m := newProjectedTestUIModel(
+		client,
+		closedProjectedRuntimeEvents(),
+		closedAskEvents(),
+	)
+	m.termWidth = 100
+	m.termHeight = 12
+	m.sessionID = "session-1"
+	m.transcriptBaseOffset = currentPage.Offset
+	m.transcriptTotalEntries = currentPage.TotalEntries
+	m.transcriptEntries = transcriptEntriesFromPage(currentPage)
+	m.detailTranscript.replace(stalePage)
+	m.forwardToView(tui.SetConversationMsg{
+		BaseOffset:   currentPage.Offset,
+		TotalEntries: currentPage.TotalEntries,
+		Entries:      transcriptEntriesFromPage(currentPage),
+	})
+	m.syncViewport()
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	_ = cmd
+	detail := next.(*uiModel)
+	if detail.view.Mode() != tui.ModeDetail {
+		t.Fatalf("expected detail mode after ctrl+t, got %q", detail.view.Mode())
+	}
+	view := stripANSIAndTrimRight(detail.view.View())
+	if !strings.Contains(view, "fresh ongoing tail") {
+		t.Fatalf("expected detail entry to render current tail immediately, got %q", view)
+	}
+	if strings.Contains(view, "stale detail page") {
+		t.Fatalf("expected stale detail cache to be replaced on entry, got %q", view)
+	}
+}
+
+func TestCtrlTPrimesDetailFromCurrentTailAfterOngoingAdvancedSincePreviousDetail(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.termWidth = 100
+	m.termHeight = 12
+	m.syncViewport()
+	m = updateUIModel(t, m, tui.AppendTranscriptMsg{Role: "assistant", Text: "old detail tail", Committed: true})
+
+	detail := updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlT})
+	if detail.view.Mode() != tui.ModeDetail {
+		t.Fatalf("expected first ctrl+t to enter detail mode, got %q", detail.view.Mode())
+	}
+	ongoing := updateUIModel(t, detail, tea.KeyMsg{Type: tea.KeyCtrlT})
+	if ongoing.view.Mode() != tui.ModeOngoing {
+		t.Fatalf("expected second ctrl+t to return to ongoing mode, got %q", ongoing.view.Mode())
+	}
+	ongoing = updateUIModel(t, ongoing, tui.AppendTranscriptMsg{Role: "assistant", Text: "fresh ongoing tail", Committed: true})
+
+	next, cmd := ongoing.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	_ = cmd
+	detail = next.(*uiModel)
+	if detail.view.Mode() != tui.ModeDetail {
+		t.Fatalf("expected third ctrl+t to enter detail mode, got %q", detail.view.Mode())
+	}
+	view := stripANSIAndTrimRight(detail.view.View())
+	if !strings.Contains(view, "fresh ongoing tail") {
+		t.Fatalf("expected detail entry to include tail appended while ongoing, got %q", view)
+	}
+}
+
+func TestCtrlTPreservesLoadedDetailWindowWhenNoLocalTailIsKnown(t *testing.T) {
+	stalePage := clientui.TranscriptPage{SessionID: "session-1", Offset: 100, TotalEntries: 500}
+	for i := 0; i < 250; i++ {
+		stalePage.Entries = append(stalePage.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("history %03d", 100+i)})
+	}
+	client := &recordingTranscriptRuntimeClient{loadPage: stalePage}
+	m := newProjectedTestUIModel(
+		client,
+		closedProjectedRuntimeEvents(),
+		closedAskEvents(),
+	)
+	m.termWidth = 100
+	m.termHeight = 12
+	m.sessionID = "session-1"
+	m.detailTranscript.replace(stalePage)
+	m.syncViewport()
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	_ = cmd
+	detail := next.(*uiModel)
+	if detail.view.Mode() != tui.ModeDetail {
+		t.Fatalf("expected detail mode after ctrl+t, got %q", detail.view.Mode())
+	}
+	if detail.view.TranscriptBaseOffset() != stalePage.Offset {
+		t.Fatalf("expected loaded detail window offset preserved, got %d want %d", detail.view.TranscriptBaseOffset(), stalePage.Offset)
+	}
+	view := stripANSIAndTrimRight(detail.view.View())
+	if !strings.Contains(view, "history 349") {
+		t.Fatalf("expected loaded detail window content preserved, got %q", view)
+	}
+}
+
 func TestDetailEdgePagingWaitsForFirstNavigationToResolveMetrics(t *testing.T) {
 	client := &recordingTranscriptRuntimeClient{
 		loadPage: clientui.TranscriptPage{SessionID: "session-1"},

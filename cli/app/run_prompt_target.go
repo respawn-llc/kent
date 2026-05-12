@@ -54,7 +54,7 @@ func startRunPromptClient(ctx context.Context, opts Options) (client.RunPromptCl
 			}
 			return serverattach.DaemonTarget[*client.Remote]{Value: remote, Close: closeFn}, true, nil
 		},
-		WrapRemote: func(remote *client.Remote, cfg config.App, closeFn func() error) (serverattach.Target[runprompttarget.Target], error) {
+		WrapRemote: func(remote *client.Remote, cfg config.App, closeFn func() error, _ serverattach.OwnershipState) (serverattach.Target[runprompttarget.Target], error) {
 			target := runprompttarget.RemoteWithClose(remote, cfg, closeFn)
 			return serverattach.Target[runprompttarget.Target]{Value: target.Value, Close: target.Close}, nil
 		},

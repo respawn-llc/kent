@@ -588,6 +588,19 @@ func (p *TranscriptViewProjector) StreamingOngoingLines(text string, state Trans
 	return lines
 }
 
+func RenderAssistantMarkdownProjection(text string, theme string, width int) []TranscriptProjectionLine {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	renderer := transcriptProjectionRenderer(theme, width, 0)
+	flattened := renderer.flattenEntry(RenderIntentAssistant, text)
+	lines := make([]TranscriptProjectionLine, 0, len(flattened))
+	for _, line := range flattened {
+		lines = append(lines, TranscriptProjectionLine{Kind: VisibleLineContent, Text: line})
+	}
+	return lines
+}
+
 func (p *TranscriptViewProjector) StreamingDetailAssistantLines(text string, state TranscriptProjectionViewState) []string {
 	text = strings.TrimSpace(text)
 	if text == "" {

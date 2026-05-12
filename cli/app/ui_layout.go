@@ -343,46 +343,26 @@ func (l uiViewLayout) renderNativeStreamingLines(width, maxLines int, style uiSt
 }
 
 func (l uiViewLayout) visibleNativeStreamingAssistantLines(streamText string, width int) []string {
-	assistantLines := renderNativeStreamingAssistantLines(streamText, l.model.theme, width)
-	if len(assistantLines) == 0 {
-		return nil
+	if width == l.model.nativeStreamingWidth && streamText == l.model.nativeStreamingText {
+		return nativeProjectionLineTexts(l.model.nativeStreamingTail)
 	}
-	if width != l.model.nativeStreamingWidth || streamText != l.model.nativeStreamingText {
-		return assistantLines
-	}
-	start := l.model.nativeStreamingFlushedLineCount
-	if start <= 0 {
-		return assistantLines
-	}
-	if start >= len(assistantLines) {
-		return nil
-	}
-	return assistantLines[start:]
+	return renderNativeStreamingAssistantLines(streamText, l.model.theme, width)
 }
 
 func renderNativeStreamingAssistantLines(streamText, theme string, width int) []string {
-	_ = theme
-	trimmed := strings.TrimSpace(streamText)
-	if trimmed == "" {
+	lines := tui.RenderAssistantMarkdownProjection(streamText, theme, width)
+	return nativeProjectionLineTexts(lines)
+}
+
+func nativeProjectionLineTexts(lines []tui.TranscriptProjectionLine) []string {
+	if len(lines) == 0 {
 		return nil
 	}
-	rawLines := splitPlainLines(streamText)
-	if len(rawLines) > 0 && strings.TrimSpace(rawLines[len(rawLines)-1]) == "" {
-		rawLines = rawLines[:len(rawLines)-1]
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		out = append(out, line.Text)
 	}
-	lines := make([]string, 0, len(rawLines))
-	firstChunk := true
-	for _, line := range rawLines {
-		for _, wrapped := range wrapLine(line, width) {
-			prefix := "  "
-			if firstChunk {
-				prefix = "❮ "
-				firstChunk = false
-			}
-			lines = append(lines, prefix+wrapped)
-		}
-	}
-	return lines
+	return out
 }
 
 func (l uiViewLayout) renderNativePendingLines(width int) []string {
