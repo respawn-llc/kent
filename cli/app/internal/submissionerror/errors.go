@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/server/llm"
+	"builder/shared/llmerrors"
 	"builder/shared/serverapi"
 )
 
@@ -25,10 +25,10 @@ func Format(err error) string {
 	if errors.Is(err, serverapi.ErrInvalidControllerLease) {
 		return "lost control of this session; retry to reclaim it"
 	}
-	if formatted := llm.UserFacingError(err); strings.TrimSpace(formatted) != "" {
+	if formatted := llmerrors.UserFacingError(err); strings.TrimSpace(formatted) != "" {
 		return formatted
 	}
-	var statusErr *llm.APIStatusError
+	var statusErr *llmerrors.APIStatusError
 	if errors.As(err, &statusErr) {
 		body := statusErr.Body
 		if strings.TrimSpace(body) == "" {

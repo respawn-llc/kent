@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/server/auth"
+	"builder/shared/auth"
 )
 
 type NoticeKind string

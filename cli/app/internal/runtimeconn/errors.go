@@ -7,7 +7,7 @@ import (
 	"net"
 	"net/url"
 
-	"builder/server/llm"
+	"builder/shared/llmerrors"
 	"builder/shared/serverapi"
 )
 
@@ -15,7 +15,7 @@ func IsConnectionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	var statusErr *llm.APIStatusError
+	var statusErr *llmerrors.APIStatusError
 	if errors.As(err, &statusErr) {
 		return false
 	}

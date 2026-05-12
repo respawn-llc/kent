@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	serverbootstrap "builder/server/bootstrap"
-	"builder/server/session"
+	"builder/cli/app/internal/serverbridge"
 	"builder/shared/config"
+	"builder/shared/sessioncontract"
 	"builder/shared/sessionenv"
 )
 
@@ -33,7 +33,7 @@ func ResolveSessionConfig(req Request) (config.App, error) {
 	if err != nil {
 		return config.App{}, err
 	}
-	plan, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{
+	plan, err := serverbridge.ResolveConfig(serverbridge.BootstrapRequest{
 		WorkspaceRoot:         workspaceRoot,
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
 		SessionID:             req.SessionID,
@@ -57,7 +57,7 @@ func ResolveRunPromptConfig(req Request) (RunPromptResult, error) {
 	if sessionID == "" && !req.WorkspaceRootExplicit {
 		sessionID = contextSessionID
 	}
-	plan, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{
+	plan, err := serverbridge.ResolveConfig(serverbridge.BootstrapRequest{
 		WorkspaceRoot:         workspaceRoot,
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
 		SessionID:             sessionID,
@@ -90,7 +90,7 @@ func ResolveWorkspaceRoot(workspaceRoot string) (string, error) {
 }
 
 func workspaceContextSessionError(sessionID string, err error) error {
-	if errors.Is(err, session.ErrSessionNotFound) {
+	if errors.Is(err, sessioncontract.ErrSessionNotFound) {
 		return fmt.Errorf("%s points to missing Builder session %q; unset %s or run from a live Builder shell: %w", sessionenv.BuilderSessionID, strings.TrimSpace(sessionID), sessionenv.BuilderSessionID, err)
 	}
 	return fmt.Errorf("resolve %s workspace context %q: %w", sessionenv.BuilderSessionID, strings.TrimSpace(sessionID), err)

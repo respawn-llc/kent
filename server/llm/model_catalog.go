@@ -4,12 +4,10 @@ import (
 	"strings"
 
 	"builder/shared/config"
+	"builder/shared/modelcontract"
 )
 
-type ModelMetadata struct {
-	ContextWindowTokens      int
-	LargeContextWindowTokens int
-}
+type ModelMetadata = modelcontract.ModelMetadata
 
 var defaultSupportedThinkingLevels = []string{"low", "medium", "high"}
 var defaultSupportedVerbosityLevels = []string{"low", "medium", "high"}

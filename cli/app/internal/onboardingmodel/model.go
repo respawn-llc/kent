@@ -1,42 +1,43 @@
 package onboardingmodel
 
 import (
-	"builder/server/auth"
-	"builder/server/llm"
+	"builder/cli/app/internal/serverbridge"
+	"builder/shared/auth"
 	"builder/shared/config"
+	"builder/shared/modelcontract"
 )
 
-type ProviderCapabilities = llm.ProviderCapabilities
-type ModelMetadata = llm.ModelMetadata
+type ProviderCapabilities = modelcontract.ProviderCapabilities
+type ModelMetadata = modelcontract.ModelMetadata
 
 func ProviderCapabilitiesForSettings(authState auth.State, settings config.Settings) (ProviderCapabilities, error) {
-	return llm.ProviderCapabilitiesForSettings(authState, settings)
+	return serverbridge.ProviderCapabilitiesForSettings(authState, settings)
 }
 
 func LookupModelMetadata(model string) (ModelMetadata, bool) {
-	return llm.LookupModelMetadata(model)
+	return serverbridge.LookupModelMetadata(model)
 }
 
 func SupportsLargeContextWindowModel(model string) bool {
-	return llm.SupportsLargeContextWindowModel(model)
+	return serverbridge.SupportsLargeContextWindowModel(model)
 }
 
 func SupportsReasoningEffortModel(model string) bool {
-	return llm.SupportsReasoningEffortModel(model)
+	return serverbridge.SupportsReasoningEffortModel(model)
 }
 
 func SupportedThinkingLevelsModel(model string) []string {
-	return llm.SupportedThinkingLevelsModel(model)
+	return serverbridge.SupportedThinkingLevelsModel(model)
 }
 
 func SupportsVerbosityModel(model string) bool {
-	return llm.SupportsVerbosityModel(model)
+	return serverbridge.SupportsVerbosityModel(model)
 }
 
 func SupportedVerbosityLevelsModel(model string) []string {
-	return llm.SupportedVerbosityLevelsModel(model)
+	return serverbridge.SupportedVerbosityLevelsModel(model)
 }
 
 func ApplyDerivedModelContextBudget(settings *config.Settings, model string, baselineWindow int, baselineThreshold int) {
-	llm.ApplyDerivedModelContextBudget(settings, model, baselineWindow, baselineThreshold)
+	serverbridge.ApplyDerivedModelContextBudget(settings, model, baselineWindow, baselineThreshold)
 }
