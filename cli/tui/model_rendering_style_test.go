@@ -2,6 +2,18 @@ package tui
 
 import "testing"
 
+func TestStyleForRoleAssistantCommentaryMatchesAssistant(t *testing.T) {
+	m := NewModel(WithTheme("dark"))
+	palette := m.palette()
+	text := "same assistant text"
+
+	assistant := styleForRole(RenderIntentAssistant, palette).Render(text)
+	commentary := styleForRole(RenderIntentAssistantCommentary, palette).Render(text)
+	if commentary != assistant {
+		t.Fatalf("expected assistant commentary style to match assistant style, assistant=%q commentary=%q", assistant, commentary)
+	}
+}
+
 func TestToolResultIndexFindMatchingToolResultIndexSkipsConsumedDuplicateResults(t *testing.T) {
 	entries := []TranscriptEntry{
 		{Role: "tool_call", ToolCallID: "call_a"},

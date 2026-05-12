@@ -185,10 +185,8 @@ func styleForRole(role RenderIntent, p palette) lipgloss.Style {
 	switch role {
 	case RenderIntentUser:
 		return p.user
-	case RenderIntentAssistant:
+	case RenderIntentAssistant, RenderIntentAssistantCommentary:
 		return p.model
-	case RenderIntentAssistantCommentary:
-		return p.model.Faint(true)
 	case RenderIntentTool:
 		return p.tool
 	case RenderIntentToolSuccess:
