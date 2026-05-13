@@ -563,6 +563,60 @@ func TestUserMessageFlushedAdvancesDeliveryCursorBeforeFollowingSuffix(t *testin
 	}
 }
 
+func TestCommittedSuffixAppendTrimsOverlappedRowsAlreadyDelivered(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(0, 1)
+
+	firstCmd := m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
+		Revision:            2,
+		CommittedEntryCount: 1,
+		StartEntryCount:     0,
+		NextEntryCount:      1,
+		Entries:             []clientui.ChatEntry{{Role: "assistant", Text: "original final", Phase: string(llm.MessagePhaseFinal)}},
+	})
+	if firstCmd == nil {
+		t.Fatal("expected first suffix to schedule native flush")
+	}
+	if m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount != 0 {
+		t.Fatalf("expected first suffix to wait for native flush ack before advancing emitted cursor, got %+v", m.ongoingCommittedDelivery)
+	}
+	if m.ongoingCommittedDelivery.lastAppliedCommittedEntryCount != 1 {
+		t.Fatalf("expected first suffix to advance applied cursor immediately, got %+v", m.ongoingCommittedDelivery)
+	}
+
+	overlappedCmd := m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
+		Revision:            4,
+		CommittedEntryCount: 3,
+		StartEntryCount:     0,
+		NextEntryCount:      3,
+		Entries: []clientui.ChatEntry{
+			{Role: "assistant", Text: "original final", Phase: string(llm.MessagePhaseFinal)},
+			{Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. Tighten final answer.", OngoingText: "Supervisor made 1 suggestion."},
+			{Role: "assistant", Text: "updated final after review", Phase: string(llm.MessagePhaseFinal)},
+		},
+	})
+	overlappedFlush := collectNativeHistoryFlushText(collectCmdMessages(t, overlappedCmd))
+	if strings.Contains(overlappedFlush, "original final") {
+		t.Fatalf("expected overlapped suffix append to skip already delivered final answer, got %q", overlappedFlush)
+	}
+	if !strings.Contains(overlappedFlush, "Supervisor made 1 suggestion.") || !strings.Contains(overlappedFlush, "updated final after review") {
+		t.Fatalf("expected overlapped suffix append to emit only new supervisor/final rows, got %q", overlappedFlush)
+	}
+	counts := map[string]int{}
+	for _, entry := range m.transcriptEntries {
+		counts[string(entry.Role)+":"+entry.Text]++
+	}
+	if counts["assistant:original final"] != 1 {
+		t.Fatalf("expected original final once in transcript, got %+v", m.transcriptEntries)
+	}
+	if counts["assistant:updated final after review"] != 1 {
+		t.Fatalf("expected updated final once in transcript, got %+v", m.transcriptEntries)
+	}
+}
+
 func TestCommittedSuffixAppendCursorAdvancesAfterNativeFlushAck(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.windowSizeKnown = true

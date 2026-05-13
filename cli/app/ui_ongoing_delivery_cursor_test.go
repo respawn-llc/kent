@@ -47,6 +47,44 @@ func TestOngoingDeliveryCursorAdvancesOnlyAfterNativeFlushAck(t *testing.T) {
 	}
 }
 
+func TestOngoingDeliveryCursorExtendsInFlightFlush(t *testing.T) {
+	cursor := newOngoingCommittedDeliveryCursor(0, 10)
+	first := clientui.CommittedTranscriptSuffix{
+		Revision:        11,
+		StartEntryCount: 0,
+		NextEntryCount:  1,
+		Entries:         []clientui.ChatEntry{{Role: "assistant", Text: "first"}},
+	}
+	second := clientui.CommittedTranscriptSuffix{
+		Revision:        12,
+		StartEntryCount: 1,
+		NextEntryCount:  3,
+		Entries:         []clientui.ChatEntry{{Role: "assistant", Text: "second"}, {Role: "assistant", Text: "third"}},
+	}
+
+	if err := cursor.beginNativeFlush(first, 5); err != nil {
+		t.Fatalf("begin first flush: %v", err)
+	}
+	if err := cursor.beginNativeFlush(second, 6); err != nil {
+		t.Fatalf("extend flush: %v", err)
+	}
+	if cursor.lastAppliedCommittedEntryCount != 3 {
+		t.Fatalf("applied cursor = %d, want 3", cursor.lastAppliedCommittedEntryCount)
+	}
+	if advanced := cursor.ackNativeFlush(5); advanced {
+		t.Fatalf("old flush ack advanced extended cursor: %+v", cursor)
+	}
+	if cursor.lastEmittedCommittedEntryCount != 0 {
+		t.Fatalf("emitted cursor advanced before extended ack: %+v", cursor)
+	}
+	if advanced := cursor.ackNativeFlush(6); !advanced {
+		t.Fatalf("expected extended flush ack to advance cursor: %+v", cursor)
+	}
+	if cursor.lastEmittedCommittedEntryCount != 3 {
+		t.Fatalf("emitted cursor = %d, want 3", cursor.lastEmittedCommittedEntryCount)
+	}
+}
+
 func TestOngoingDeliveryCursorRecordsPendingRangeWhileEmissionDisabled(t *testing.T) {
 	cursor := newOngoingCommittedDeliveryCursor(2, 10)
 	cursor.setEmissionEnabled(false)
