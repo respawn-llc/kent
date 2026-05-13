@@ -107,8 +107,8 @@ func TestCompleteBootstrapNoneSavesNoAuthPreferenceWhenAuthRequired(t *testing.T
 	if err != nil {
 		t.Fatalf("CompleteBootstrap none: %v", err)
 	}
-	if !resp.AuthReady {
-		t.Fatal("expected no-auth preference to satisfy startup readiness")
+	if resp.AuthReady {
+		t.Fatal("did not expect no-auth preference to satisfy required startup readiness")
 	}
 	state, err := store.Load(context.Background())
 	if err != nil {

@@ -179,9 +179,6 @@ func EvaluateStartupGate(state State) StartupGate {
 		return StartupGate{Ready: false, Reason: err.Error()}
 	}
 	if !state.IsConfigured() {
-		if state.IsNoAuthSelected() {
-			return StartupGate{Ready: true}
-		}
 		return StartupGate{Ready: false, Reason: ErrAuthNotConfigured.Error()}
 	}
 	if _, err := state.Method.AuthHeaderValue(); err != nil {

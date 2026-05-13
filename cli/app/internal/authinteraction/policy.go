@@ -17,7 +17,7 @@ func InteractiveNeedsInteraction(req Request) bool {
 
 func NeedsAuthMethodSelection(req Request) bool {
 	if !req.Gate.Ready {
-		return true
+		return req.AuthRequired || !req.State.IsNoAuthSelected()
 	}
 	return false
 }

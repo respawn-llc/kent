@@ -104,7 +104,7 @@ func TestBootstrapAppReadyEnvAuthDoesNotOpenAuthPicker(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".builder"), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".builder", "config.toml"), []byte("model = \"gpt-5\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(home, ".builder", "config.toml"), []byte("model = \"gpt-5\"\nopenai_base_url = \"http://127.0.0.1:8080/v1\"\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -154,7 +154,13 @@ func TestBootstrapAppNoAuthPreferenceDoesNotOpenAuthPicker(t *testing.T) {
 			EnvAPIKeyPreference: auth.EnvAPIKeyPreferencePreferSaved,
 		},
 	}
-	boot, err := startEmbeddedServer(context.Background(), Options{WorkspaceRoot: workspace}, interactor)
+	interactor.needs = func(req authInteraction) bool {
+		if req.AuthRequired {
+			t.Fatal("expected compatible base URL to make auth optional")
+		}
+		return false
+	}
+	boot, err := startEmbeddedServer(context.Background(), Options{WorkspaceRoot: workspace, OpenAIBaseURL: "http://127.0.0.1:8080/v1", OpenAIBaseURLExplicit: true}, interactor)
 	if err != nil {
 		t.Fatalf("bootstrap app: %v", err)
 	}

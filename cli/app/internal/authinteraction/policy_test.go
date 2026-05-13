@@ -48,6 +48,25 @@ func TestHeadlessNeedsInteractionOnlyForRequiredUnreadyAuth(t *testing.T) {
 	}
 }
 
+func TestInteractiveNeedsInteractionForNoAuthSelectionOnlyWhenRequired(t *testing.T) {
+	req := Request{
+		Gate: auth.StartupGate{Ready: false, Reason: auth.ErrAuthNotConfigured.Error()},
+		State: auth.State{
+			Scope:               auth.ScopeGlobal,
+			Method:              auth.Method{Type: auth.MethodNone},
+			EnvAPIKeyPreference: auth.EnvAPIKeyPreferencePreferSaved,
+		},
+		PromptOptional: true,
+	}
+	if InteractiveNeedsInteraction(req) {
+		t.Fatal("did not expect optional no-auth preference to reopen auth picker")
+	}
+	req.AuthRequired = true
+	if !InteractiveNeedsInteraction(req) {
+		t.Fatal("expected required no-auth preference to require auth picker")
+	}
+}
+
 func TestShouldClearOnSkip(t *testing.T) {
 	if !ShouldClearOnSkip(Request{StoredState: auth.State{Method: auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{AccessToken: "x"}}}}) {
 		t.Fatal("expected configured auth to clear on skip")
