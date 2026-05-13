@@ -28,6 +28,10 @@ func collectSessionPickerStatusCmd(header sessionPickerHeaderInfo) tea.Cmd {
 		collector := defaultUIStatusCollector{authManager: authManager}.adapter()
 		base := collector.CollectBase(req)
 		gitResult := collector.CollectGit(ctx, req, base)
+		authInfo := statuscollect.FastAuthInfo(ctx, authManager, req.Settings)
+		if authManager == nil && req.AuthStatus != nil {
+			authInfo = collector.CollectAuth(ctx, req, base).Auth
+		}
 
 		branch := ""
 		if gitResult.Git.Visible && strings.TrimSpace(gitResult.Git.Error) == "" {
@@ -39,7 +43,7 @@ func collectSessionPickerStatusCmd(header sessionPickerHeaderInfo) tea.Cmd {
 		return sessionPickerStatusMsg{
 			cwd:    statusDisplayPath(base.Workdir, ""),
 			branch: branch,
-			auth:   sessionPickerAuthLabel(statuscollect.FastAuthInfo(ctx, authManager, req.Settings)),
+			auth:   sessionPickerAuthLabel(authInfo),
 			model:  strings.TrimSpace(base.Model.Summary),
 		}
 	}
@@ -57,6 +61,9 @@ func sessionPickerStatusRequestUseful(req uiStatusRequest, authManager statuscol
 		return true
 	}
 	if strings.TrimSpace(req.Settings.Model) != "" {
+		return true
+	}
+	if req.AuthStatus != nil {
 		return true
 	}
 	return statuscollect.NormalizeAuthStateResolver(authManager) != nil

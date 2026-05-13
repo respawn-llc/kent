@@ -13,6 +13,7 @@ import (
 	"builder/shared/config"
 	"builder/shared/serverapi"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type panicAuthStatusClient struct{}
@@ -157,6 +158,39 @@ func TestSessionPickerHeaderLoadsGitBranchAsync(t *testing.T) {
 	}
 }
 
+func TestSessionPickerHeaderInitialAsyncPaintUsesOnlyStaticShell(t *testing.T) {
+	repoRoot := initStatusLineGitRepo(t, "picker-branch")
+	m := newSessionPickerModel(nil, "dark", sessionPickerHeaderInfo{
+		Version:       "1.2.3",
+		OwnsServer:    true,
+		ServerAddress: "127.0.0.1:53082",
+		StatusRequest: uiStatusRequest{
+			WorkspaceRoot: repoRoot,
+			ModelName:     "gpt-5",
+			ThinkingLevel: "high",
+			Settings:      config.Settings{Model: "gpt-5", ThinkingLevel: "high"},
+		},
+	})
+	m.width = 80
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatal("expected async status command")
+	}
+
+	before := stripANSIAndTrimRight(m.View())
+	if !strings.Contains(before, "Builder v1.2.3") || !strings.Contains(before, "Server owned by this terminal") {
+		t.Fatalf("expected static shell before async status, got %q", before)
+	}
+	for _, unexpected := range []string{"git picker-branch", "No auth", "gpt-5 high", repoRoot} {
+		if strings.Contains(before, unexpected) {
+			t.Fatalf("did not expect async value %q before status arrives, got %q", unexpected, before)
+		}
+	}
+	if height := lipgloss.Height(m.renderHeader()); height != 4 {
+		t.Fatalf("initial header height = %d, want static shell height 4", height)
+	}
+}
+
 func TestSessionPickerHeaderLoadsFastAuthStateOnly(t *testing.T) {
 	m := newSessionPickerModel(nil, "dark", sessionPickerHeaderInfo{
 		Version: "1.2.3",
@@ -179,6 +213,41 @@ func TestSessionPickerHeaderLoadsFastAuthStateOnly(t *testing.T) {
 	plain := stripANSIAndTrimRight(updated.renderHeader())
 	if !strings.Contains(plain, "OpenAI Subscription") {
 		t.Fatalf("expected fast auth display in header, got %q", plain)
+	}
+}
+
+func TestSessionPickerHeaderLoadsFastAuthStateVariants(t *testing.T) {
+	tests := []struct {
+		name  string
+		state auth.State
+		want  string
+	}{
+		{name: "no auth", state: auth.EmptyState(), want: "No auth"},
+		{name: "api key", state: auth.State{Method: auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "sk-test-1234"}}}, want: "OpenAI API Key"},
+		{name: "oauth", state: auth.State{Method: auth.Method{Type: auth.MethodOAuth, OAuth: &auth.OAuthMethod{Email: "user@example.com"}}}, want: "OpenAI Subscription"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newSessionPickerModel(nil, "dark", sessionPickerHeaderInfo{
+				Version: "1.2.3",
+				StatusRequest: uiStatusRequest{
+					Settings:   config.Settings{Model: "gpt-5"},
+					ModelName:  "gpt-5",
+					AuthStatus: panicAuthStatusClient{},
+				},
+				AuthManager: fastOnlyAuthResolver{state: tt.state},
+			})
+			cmd := m.Init()
+			if cmd == nil {
+				t.Fatal("expected async status command")
+			}
+
+			next, _ := m.Update(cmd())
+			plain := stripANSIAndTrimRight(next.(*sessionPickerModel).renderHeader())
+			if !strings.Contains(plain, tt.want) {
+				t.Fatalf("expected %q in header, got %q", tt.want, plain)
+			}
+		})
 	}
 }
 
