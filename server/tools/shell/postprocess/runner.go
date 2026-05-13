@@ -447,8 +447,8 @@ func (p processorProxy) Process(ctx context.Context, envelope Envelope) (decisio
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = ProcessorError{
-				Severity: FailureRecoverable,
-				Message:  fmt.Sprintf("panic: %v", recovered),
+				Severity: FailureCritical,
+				Message:  fmt.Sprintf("postprocess processor %s panicked: %v", p.ID(), recovered),
 			}
 		}
 	}()

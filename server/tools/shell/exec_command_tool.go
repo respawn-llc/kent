@@ -108,7 +108,7 @@ func (t *ExecCommandTool) Call(ctx context.Context, c tools.Call) (tools.Result,
 	})
 	if err != nil {
 		if postprocess.IsCriticalError(err) {
-			return tools.Result{}, fmt.Errorf("exec_command failed: %w", err)
+			return tools.ErrorResultWith(c, formatToolCallError("exec_command", err), marshalNoHTMLEscape), nil
 		}
 		return tools.ErrorResultWith(c, formatToolCallError("exec_command", err), marshalNoHTMLEscape), nil
 	}

@@ -143,7 +143,8 @@ func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context
 		if err != nil {
 			return oauthadapter.Method{}, err
 		}
-		if strings.TrimSpace(session.State) != "" && strings.TrimSpace(parsed.State) != "" && parsed.State != session.State {
+		sessionState := strings.TrimSpace(session.State)
+		if sessionState != "" && strings.TrimSpace(parsed.State) != sessionState {
 			return oauthadapter.Method{}, errors.New("oauth state mismatch")
 		}
 		if strings.TrimSpace(parsed.Code) == "" {

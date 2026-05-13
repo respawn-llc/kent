@@ -21,7 +21,7 @@ func (p sanitizerProcessor) Process(_ context.Context, envelope Envelope) (Decis
 	if sanitized == envelope.CurrentOutput {
 		return Skip(envelope), nil
 	}
-	return Continue(envelope.WithOriginal(sanitized).WithCurrent(sanitized), p.ID()), nil
+	return Continue(envelope.WithCurrent(sanitized), p.ID()), nil
 }
 
 type goTestSuccessProcessor struct{}

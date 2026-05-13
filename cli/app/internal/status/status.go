@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"builder/shared/auth"
 	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/config"
@@ -86,9 +87,12 @@ type Snapshot struct {
 }
 
 type AuthInfo struct {
-	Summary string
-	Details []string
-	Visible bool
+	Summary     string
+	Details     []string
+	Visible     bool
+	Method      auth.MethodType
+	Provider    string
+	Unavailable bool
 }
 
 type GitInfo struct {

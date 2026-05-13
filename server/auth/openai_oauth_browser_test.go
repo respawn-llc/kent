@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBeginOpenAIBrowserFlowBuildsOAuthAuthorizeURL(t *testing.T) {
@@ -98,7 +99,13 @@ func TestOAuthCallbackSuccessResponseServesAuthCompleteHTML(t *testing.T) {
 	}
 	defer listener.Close()
 
-	resp, err := http.Get(listener.RedirectURI() + "?code=auth-code&state=state-1")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, listener.RedirectURI()+"?code=auth-code&state=state-1", nil)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("get callback: %v", err)
 	}

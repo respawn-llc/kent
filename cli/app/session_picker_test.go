@@ -321,9 +321,9 @@ func TestSessionPickerAuthLabelExamples(t *testing.T) {
 		info uiStatusAuthInfo
 		want string
 	}{
-		{name: "no auth", info: uiStatusAuthInfo{Summary: "No Auth", Visible: true}, want: "No auth"},
-		{name: "api key", info: uiStatusAuthInfo{Summary: "API Key ...1234", Details: []string{"openai"}, Visible: true}, want: "OpenAI API Key"},
-		{name: "subscription", info: uiStatusAuthInfo{Summary: "user@example.com", Visible: true}, want: "OpenAI Subscription"},
+		{name: "no auth", info: uiStatusAuthInfo{Summary: "No Auth", Visible: true, Method: auth.MethodNone}, want: "No auth"},
+		{name: "api key", info: uiStatusAuthInfo{Summary: "API Key ...1234", Visible: true, Method: auth.MethodAPIKey, Provider: "openai"}, want: "OpenAI API Key"},
+		{name: "subscription", info: uiStatusAuthInfo{Summary: "user@example.com", Visible: true, Method: auth.MethodOAuth, Provider: "chatgpt-codex"}, want: "OpenAI Subscription"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

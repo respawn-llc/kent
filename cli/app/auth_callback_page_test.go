@@ -48,6 +48,21 @@ func TestAuthCallbackPageInvalidPasteShowsTransientErrorAndStaysOpen(t *testing.
 	}
 }
 
+func TestAuthCallbackPageBrowserWaitErrorShowsErrorAndStaysOpen(t *testing.T) {
+	m := newAuthCallbackPageModel(authCallbackPageData{Theme: "dark"})
+	next, cmd := m.Update(authCallbackPageBrowserDoneMsg{err: errors.New("listener timed out")})
+	m = next.(*authCallbackPageModel)
+	if cmd == nil {
+		t.Fatal("expected transient error command")
+	}
+	if m.result.Err != nil || m.result.Canceled {
+		t.Fatalf("expected browser wait failure to keep page open, result=%+v", m.result)
+	}
+	if !strings.Contains(ansi.Strip(m.View()), "Browser callback failed: listener timed out. Paste the callback URL or code.") {
+		t.Fatalf("expected transient wait error in view, got %q", ansi.Strip(m.View()))
+	}
+}
+
 func TestAuthCallbackPageEscCancels(t *testing.T) {
 	m := newAuthCallbackPageModel(authCallbackPageData{Theme: "dark"})
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})

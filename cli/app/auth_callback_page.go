@@ -134,8 +134,11 @@ func (m *authCallbackPageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case authCallbackPageBrowserDoneMsg:
 		if msg.err != nil {
-			m.result = authCallbackPageResult{Err: msg.err}
-			return m, tea.Quit
+			if errors.Is(msg.err, context.Canceled) {
+				m.result = authCallbackPageResult{Err: msg.err}
+				return m, tea.Quit
+			}
+			return m, m.showError("Browser callback failed: " + msg.err.Error() + ". Paste the callback URL or code.")
 		}
 		return m, m.completeInput(browserCallbackInput(msg.callback))
 	case authCallbackPageCompleteDoneMsg:

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"builder/server/auth"
 	"builder/server/metadata"
 	"builder/server/session"
 	"builder/server/storagemigration"
@@ -159,7 +160,7 @@ func TestSessionLaunchPlannerPickerHeaderUsesRemoteAuthStatusWhenLocalAuthUnavai
 	server := plannerAuthStatusServer{
 		inner: &testEmbeddedServer{cfg: cfg},
 		authStatus: plannerAuthStatusClient{resp: serverapi.AuthStatusResponse{
-			Auth: serverapi.AuthStatusInfo{Summary: "user@example.com", Visible: true},
+			Auth: serverapi.AuthStatusInfo{Summary: "user@example.com", Visible: true, Method: auth.MethodOAuth, Provider: "chatgpt-codex"},
 		}},
 	}
 	planner := &launchPlanner{server: server}

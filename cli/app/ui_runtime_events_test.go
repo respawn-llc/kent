@@ -92,6 +92,29 @@ func TestRuntimeEventCoversDeferredCommittedConversationUpdate(t *testing.T) {
 	}
 }
 
+func TestNativeStreamingAssistantCommitCandidateRequiresMatchingStepID(t *testing.T) {
+	m := &uiModel{}
+	m.nativeStreamingStepID = "step-1"
+	m.observeNativeStreamingAssistantCommitCandidate(clientui.Event{
+		Kind:                clientui.EventAssistantMessage,
+		CommittedEntryCount: 1,
+		TranscriptEntries:   []clientui.ChatEntry{{Role: "assistant", Text: "done"}},
+	})
+	if m.nativeStreamingCommitRangeSet {
+		t.Fatal("expected empty event step id to be rejected while native stream is step-bound")
+	}
+
+	m.observeNativeStreamingAssistantCommitCandidate(clientui.Event{
+		Kind:                clientui.EventAssistantMessage,
+		StepID:              "step-1",
+		CommittedEntryCount: 1,
+		TranscriptEntries:   []clientui.ChatEntry{{Role: "assistant", Text: "done"}},
+	})
+	if !m.nativeStreamingCommitRangeSet || m.nativeStreamingCommitStart != 0 || m.nativeStreamingCommitEnd != 1 {
+		t.Fatalf("commit range = [%d,%d] set=%t, want [0,1] set", m.nativeStreamingCommitStart, m.nativeStreamingCommitEnd, m.nativeStreamingCommitRangeSet)
+	}
+}
+
 func TestRuntimeEventShouldBatchAfterCommittedConversationFence(t *testing.T) {
 	update := clientui.Event{
 		Kind:                       clientui.EventConversationUpdated,

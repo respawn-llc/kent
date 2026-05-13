@@ -129,8 +129,10 @@ func (m *uiModel) observeNativeStreamingAssistantCommitCandidate(evt clientui.Ev
 	}
 	streamStepID := strings.TrimSpace(m.nativeStreamingStepID)
 	eventStepID := strings.TrimSpace(evt.StepID)
-	if streamStepID != "" && eventStepID != "" && streamStepID != eventStepID {
-		return
+	if streamStepID != "" {
+		if eventStepID == "" || streamStepID != eventStepID {
+			return
+		}
 	}
 	start, _, ok := projectedTranscriptEventRange(evt, len(evt.TranscriptEntries))
 	if !ok {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"builder/cli/app/internal/oauthadapter"
@@ -115,5 +116,42 @@ func TestRemoteAuthBootstrapHybridBrowserCancelClosesListener(t *testing.T) {
 	}
 	if listener.closed == 0 {
 		t.Fatal("expected listener to close")
+	}
+}
+
+func TestRemoteAuthBootstrapRejectsMissingOAuthState(t *testing.T) {
+	listener := &stubOAuthCallbackListener{}
+	remote := &stubAuthBootstrapClient{status: serverapi.AuthGetBootstrapStatusResponse{
+		AuthReady:    false,
+		AuthRequired: true,
+		SupportedModes: []serverapi.AuthBootstrapMode{
+			serverapi.AuthBootstrapModeBrowserCallbackURL,
+		},
+	}}
+	pickCalls := 0
+	var flowErr error
+	interactor := &interactiveAuthInteractor{
+		pickMethod: func(req authInteraction) (authMethodPickerResult, error) {
+			pickCalls++
+			if pickCalls > 1 {
+				flowErr = req.FlowErr
+				return authMethodPickerResult{Canceled: true}, nil
+			}
+			return authMethodPickerResult{Choice: authMethodChoiceBrowserAuto}, nil
+		},
+		startCallbackListener: func() (oauthCallbackListener, error) { return listener, nil },
+		openBrowser:           func(string) error { return nil },
+		runCallbackPage: func(ctx context.Context, _ authCallbackPageData, _ func(context.Context) (oauthadapter.BrowserCallback, error), complete func(context.Context, string) (oauthadapter.Method, error)) (authCallbackPageResult, error) {
+			method, err := complete(ctx, "http://localhost/callback?code=pasted")
+			return authCallbackPageResult{Method: method, CallbackInput: "http://localhost/callback?code=pasted"}, err
+		},
+	}
+
+	err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor)
+	if err == nil || err.Error() != "auth canceled by user" {
+		t.Fatalf("expected auth cancel, got %v", err)
+	}
+	if flowErr == nil || !strings.Contains(flowErr.Error(), "oauth state mismatch") {
+		t.Fatalf("flow error = %v, want oauth state mismatch", flowErr)
 	}
 }

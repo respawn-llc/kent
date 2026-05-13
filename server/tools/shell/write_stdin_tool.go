@@ -71,7 +71,7 @@ func (t *WriteStdinTool) Call(ctx context.Context, c tools.Call) (tools.Result, 
 	})
 	if err != nil {
 		if postprocess.IsCriticalError(err) {
-			return tools.Result{}, fmt.Errorf("write_stdin failed: %w", err)
+			return tools.ErrorResultWith(c, formatToolCallError("write_stdin", err), marshalNoHTMLEscape), nil
 		}
 		return tools.ErrorResultWith(c, formatToolCallError("write_stdin", err), marshalNoHTMLEscape), nil
 	}

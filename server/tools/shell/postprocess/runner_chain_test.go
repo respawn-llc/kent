@@ -114,6 +114,26 @@ func TestChainCriticalProcessorErrorPropagates(t *testing.T) {
 	}
 }
 
+func TestChainProcessorPanicIsCritical(t *testing.T) {
+	envelope := NewEnvelope(Request{Output: "start"})
+	chain := Chain{IDValue: "test", Processors: []Processor{
+		testProcessor{id: "panic", fn: func(Envelope) (Decision, error) {
+			panic("boom")
+		}},
+		testProcessor{id: "after", fn: func(envelope Envelope) (Decision, error) {
+			return Continue(envelope.WithCurrent("after"), "after"), nil
+		}},
+	}}
+
+	_, err := chain.Process(context.Background(), envelope)
+	if err == nil {
+		t.Fatal("expected panic to propagate as critical processor error")
+	}
+	if !IsCriticalError(err) || !strings.Contains(err.Error(), "postprocess processor panic panicked: boom") {
+		t.Fatalf("err = %v, want critical panic error", err)
+	}
+}
+
 func TestProxySkipsProcessorOutsideScope(t *testing.T) {
 	called := false
 	envelope := NewEnvelope(Request{CommandName: "npm", Output: "start"})

@@ -150,9 +150,12 @@ func (c Collector) CollectAuth(ctx context.Context, req appstatus.Request, _ app
 		}
 		return appstatus.AuthStageResult{
 			Auth: appstatus.AuthInfo{
-				Summary: strings.TrimSpace(resp.Auth.Summary),
-				Details: append([]string(nil), resp.Auth.Details...),
-				Visible: resp.Auth.Visible,
+				Summary:     strings.TrimSpace(resp.Auth.Summary),
+				Details:     append([]string(nil), resp.Auth.Details...),
+				Visible:     resp.Auth.Visible,
+				Method:      resp.Auth.Method,
+				Provider:    strings.TrimSpace(resp.Auth.Provider),
+				Unavailable: resp.Auth.Unavailable,
 			},
 			Subscription: appstatus.SubscriptionInfo{
 				Applicable: resp.Subscription.Applicable,
