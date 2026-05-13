@@ -240,23 +240,17 @@ h1 {
   line-height: 1;
   letter-spacing: -0.04em;
 }
-button {
-  appearance: none;
-  border: 0;
-  background: transparent;
+p {
+  margin: 0;
   color: var(--muted);
-  cursor: pointer;
-  font: inherit;
   font-size: 16px;
-  text-decoration: underline;
-  text-underline-offset: 4px;
 }
 </style>
 </head>
 <body>
 <main>
 <h1>Auth complete</h1>
-<button type="button" onclick="window.close()">Close this tab</button>
+<p>You can close this tab now.</p>
 </main>
 </body>
 </html>`

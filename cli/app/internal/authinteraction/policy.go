@@ -19,9 +19,7 @@ func NeedsAuthMethodSelection(req Request) bool {
 	if !req.Gate.Ready {
 		return true
 	}
-	return req.HasEnvAPIKey &&
-		req.StoredState.EnvAPIKeyPreference == authflowadapter.EnvAPIKeyPreferenceUnspecified &&
-		!req.StoredState.IsConfigured()
+	return false
 }
 
 func NeedsEnvConflictResolution(req Request) bool {

@@ -110,7 +110,7 @@ func TestOAuthCallbackSuccessResponseServesAuthCompleteHTML(t *testing.T) {
 	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
 		t.Fatalf("content-type=%q, want text/html", got)
 	}
-	for _, want := range []string{"Auth complete", "window.close()", "color-scheme: dark", "--primary:"} {
+	for _, want := range []string{"Auth complete", "You can close this tab now.", "color-scheme: dark", "--primary:"} {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("expected callback response to contain %q, got %q", want, string(body))
 		}
@@ -119,7 +119,7 @@ func TestOAuthCallbackSuccessResponseServesAuthCompleteHTML(t *testing.T) {
 
 func TestAuthCompleteHTMLUsesDarkTerminalConfirmation(t *testing.T) {
 	body := authCompleteHTML()
-	for _, want := range []string{"Auth complete", "window.close()", "color-scheme: dark", "--primary:", "font-size: 16px", "text-decoration: underline"} {
+	for _, want := range []string{"Auth complete", "You can close this tab now.", "color-scheme: dark", "--primary:", "font-size: 16px"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected auth confirmation html to contain %q, got %q", want, body)
 		}
