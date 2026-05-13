@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -87,12 +86,6 @@ func TestSessionLaunchPlannerBuildsSessionPickerHeaderInfo(t *testing.T) {
 	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
-	cmd := exec.Command("git", "-C", workspaceRoot, "init", "-b", "picker-branch")
-	cmd.Env = sanitizedGitEnv(os.Environ())
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v (%s)", err, out)
-	}
-
 	cfg := config.App{
 		WorkspaceRoot: workspaceRoot,
 		Settings: config.Settings{
@@ -104,15 +97,21 @@ func TestSessionLaunchPlannerBuildsSessionPickerHeaderInfo(t *testing.T) {
 	}
 	planner := &launchPlanner{server: &testEmbeddedServer{cfg: cfg}}
 
-	header := planner.sessionPickerHeaderInfo(context.Background(), cfg)
-	if header.CWD != "~/Developer/builder-cli" {
-		t.Fatalf("header cwd = %q", header.CWD)
+	header := planner.sessionPickerHeaderInfo(cfg)
+	if header.CWD != "" {
+		t.Fatalf("header cwd = %q, want async lookup", header.CWD)
 	}
-	if header.Branch != "picker-branch" {
-		t.Fatalf("header branch = %q", header.Branch)
+	if header.Branch != "" {
+		t.Fatalf("header branch = %q, want async lookup", header.Branch)
 	}
-	if header.Model != "gpt-5.1 high" {
-		t.Fatalf("header model = %q", header.Model)
+	if header.StatusRequest.WorkspaceRoot != workspaceRoot {
+		t.Fatalf("header status workspace root = %q, want %q", header.StatusRequest.WorkspaceRoot, workspaceRoot)
+	}
+	if header.StatusRequest.ModelName != "gpt-5.1" || header.StatusRequest.ThinkingLevel != "high" {
+		t.Fatalf("header status model = %q thinking=%q", header.StatusRequest.ModelName, header.StatusRequest.ThinkingLevel)
+	}
+	if header.StatusRequest.AuthStatus != nil {
+		t.Fatal("session picker header must not carry slow auth status client")
 	}
 	if !header.OwnsServer {
 		t.Fatal("expected owned server header")

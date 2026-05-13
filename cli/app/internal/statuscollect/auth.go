@@ -89,6 +89,50 @@ func AuthInfo(state auth.State, settings config.Settings, statusErr error) appst
 	}
 }
 
+func FastAuthInfo(ctx context.Context, loader AuthStateLoader, settings config.Settings) appstatus.AuthInfo {
+	state := auth.EmptyState()
+	statusErr := error(nil)
+	loader = NormalizeAuthStateLoader(loader)
+	if loader != nil {
+		loaded, err := loader.Load(ctx)
+		if err != nil {
+			statusErr = err
+		} else {
+			state = loaded
+		}
+	}
+	return AuthInfo(state, settings, statusErr)
+}
+
+func AuthDisplayLabel(info appstatus.AuthInfo) string {
+	summary := strings.TrimSpace(info.Summary)
+	if summary == "" {
+		return ""
+	}
+	if strings.EqualFold(summary, "No Auth") || strings.EqualFold(summary, "No auth") {
+		return "No auth"
+	}
+	if strings.EqualFold(summary, "Auth unavailable") {
+		return "Auth unavailable"
+	}
+	if strings.HasPrefix(summary, "API Key") {
+		return authDisplayProviderLabel(info.Details) + " API Key"
+	}
+	return authDisplayProviderLabel(info.Details) + " Subscription"
+}
+
+func authDisplayProviderLabel(details []string) string {
+	for _, detail := range details {
+		switch strings.ToLower(strings.TrimSpace(detail)) {
+		case "openai", "chatgpt-codex":
+			return "OpenAI"
+		case "openai-compatible":
+			return "OpenAI-compatible"
+		}
+	}
+	return "OpenAI"
+}
+
 func AuthCacheIdentity(manager AuthStateLoader) string {
 	manager = NormalizeAuthStateLoader(manager)
 	if manager == nil {

@@ -127,9 +127,6 @@ func (i *interactiveAuthInteractor) Interact(ctx context.Context, req authIntera
 			if err := persistSkipAuthSelection(ctx, req); err != nil {
 				return authflowadapter.InteractionOutcome{}, err
 			}
-			if req.AuthRequired {
-				return authflowadapter.InteractionOutcome{}, errors.New("auth is required for this configuration")
-			}
 			return authflowadapter.InteractionOutcome{ProceedWithoutAuth: true}, nil
 		case authMethodChoiceEnvAPIKey:
 			if !req.HasEnvAPIKey {
@@ -173,22 +170,14 @@ func (i *interactiveAuthInteractor) Interact(ctx context.Context, req authIntera
 }
 
 func persistSkipAuthSelection(ctx context.Context, req authInteraction) error {
-	if req.HasEnvAPIKey {
-		if _, err := req.Manager.SwitchMethodAndSetEnvAPIKeyPreference(
-			ctx,
-			authflowadapter.Method{Type: authflowadapter.MethodNone},
-			authflowadapter.EnvAPIKeyPreferencePreferSaved,
-			true,
-			true,
-		); err != nil {
-			return fmt.Errorf("save skip-auth preference: %w", err)
-		}
-		return nil
-	}
-	if authinteraction.ShouldClearOnSkip(req) {
-		if _, err := req.Manager.ClearMethod(ctx, true); err != nil {
-			return fmt.Errorf("clear auth method: %w", err)
-		}
+	if _, err := req.Manager.SwitchMethodAndSetEnvAPIKeyPreference(
+		ctx,
+		authflowadapter.Method{Type: authflowadapter.MethodNone},
+		authflowadapter.EnvAPIKeyPreferencePreferSaved,
+		true,
+		true,
+	); err != nil {
+		return fmt.Errorf("save no-auth preference: %w", err)
 	}
 	return nil
 }

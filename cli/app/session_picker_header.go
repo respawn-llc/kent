@@ -3,6 +3,8 @@ package app
 import (
 	"strings"
 
+	"builder/cli/app/internal/statuscollect"
+
 	"github.com/mattn/go-runewidth"
 )
 
@@ -13,6 +15,9 @@ type sessionPickerHeaderInfo struct {
 	CWD           string
 	Branch        string
 	Model         string
+	Auth          string
+	StatusRequest uiStatusRequest
+	AuthManager   statuscollect.AuthStateResolver
 	OwnsServer    bool
 	ServerAddress string
 }
@@ -52,25 +57,8 @@ func (m *sessionPickerModel) renderHeaderLines(maxWidth int) []sessionPickerHead
 		plain:  title,
 		render: m.styles.headerTitle.Render(truncateQueuedMessageLine(title, maxWidth)),
 	}}
-	segments := nonEmptyHeaderSegments(info.CWD, info.Branch, info.Model)
-	row := strings.Join(segments, statusLineSeparator)
-	if row != "" && runewidth.StringWidth(row) <= maxWidth {
-		lines = append(lines, sessionPickerHeaderLine{
-			plain:  row,
-			render: m.styles.headerText.Render(row),
-		})
-	} else {
-		for _, segment := range segments {
-			renderedSegment := segment
-			if runewidth.StringWidth(renderedSegment) > maxWidth {
-				renderedSegment = truncateSessionPickerHeaderSegment(renderedSegment, maxWidth)
-			}
-			lines = append(lines, sessionPickerHeaderLine{
-				plain:  renderedSegment,
-				render: m.styles.headerText.Render(renderedSegment),
-			})
-		}
-	}
+	lines = append(lines, m.renderHeaderPairLines(gitBranchHeaderSegment(info.Branch), info.CWD, maxWidth)...)
+	lines = append(lines, m.renderHeaderPairLines(info.Auth, info.Model, maxWidth)...)
 	serverLine := m.serverHeaderLine(info)
 	if serverLine != "" {
 		if runewidth.StringWidth(serverLine) > maxWidth {
@@ -95,26 +83,54 @@ func (m *sessionPickerModel) normalizedHeaderInfo() sessionPickerHeaderInfo {
 		info.Version = "dev"
 	}
 	info.CWD = strings.TrimSpace(info.CWD)
-	if info.CWD == "" {
-		info.CWD = "<unknown cwd>"
-	}
 	info.Branch = strings.TrimSpace(info.Branch)
 	info.Model = strings.TrimSpace(info.Model)
-	if info.Model == "" {
-		info.Model = "<unset>"
-	}
+	info.Auth = strings.TrimSpace(info.Auth)
 	info.ServerAddress = strings.TrimSpace(info.ServerAddress)
 	return info
 }
 
-func nonEmptyHeaderSegments(parts ...string) []string {
-	segments := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			segments = append(segments, trimmed)
-		}
+func (m *sessionPickerModel) renderHeaderPairLines(first string, second string, maxWidth int) []sessionPickerHeaderLine {
+	first = strings.TrimSpace(first)
+	second = strings.TrimSpace(second)
+	if first == "" && second == "" {
+		return nil
 	}
-	return segments
+	if first == "" {
+		return []sessionPickerHeaderLine{m.renderHeaderTextLine(second, maxWidth)}
+	}
+	if second == "" {
+		return []sessionPickerHeaderLine{m.renderHeaderTextLine(first, maxWidth)}
+	}
+	row := first + statusLineSeparator + second
+	if runewidth.StringWidth(row) <= maxWidth {
+		return []sessionPickerHeaderLine{{
+			plain:  row,
+			render: m.styles.headerText.Render(row),
+		}}
+	}
+	return []sessionPickerHeaderLine{
+		m.renderHeaderTextLine(first, maxWidth),
+		m.renderHeaderTextLine(second, maxWidth),
+	}
+}
+
+func (m *sessionPickerModel) renderHeaderTextLine(text string, maxWidth int) sessionPickerHeaderLine {
+	renderedText := strings.TrimSpace(text)
+	if runewidth.StringWidth(renderedText) > maxWidth {
+		renderedText = truncateSessionPickerHeaderSegment(renderedText, maxWidth)
+	}
+	return sessionPickerHeaderLine{
+		plain:  renderedText,
+		render: m.styles.headerText.Render(renderedText),
+	}
+}
+
+func gitBranchHeaderSegment(branch string) string {
+	if trimmed := strings.TrimSpace(branch); trimmed != "" {
+		return "git " + trimmed
+	}
+	return ""
 }
 
 func (m *sessionPickerModel) serverHeaderLine(info sessionPickerHeaderInfo) string {
@@ -122,9 +138,9 @@ func (m *sessionPickerModel) serverHeaderLine(info sessionPickerHeaderInfo) stri
 		return "Server owned by this terminal"
 	}
 	if info.ServerAddress == "" {
-		return "Connected to Server"
+		return "Server"
 	}
-	return "Connected to " + info.ServerAddress
+	return "Server at " + info.ServerAddress
 }
 
 func maxRenderedHeaderLineWidth(lines []sessionPickerHeaderLine) int {

@@ -64,12 +64,9 @@ func (s *Service) CompleteBootstrap(ctx context.Context, req serverapi.AuthCompl
 		return serverapi.AuthCompleteBootstrapResponse{}, err
 	}
 	if req.Mode == serverapi.AuthBootstrapModeNone {
-		state, err = s.manager.ClearMethod(ctx, true)
+		state, err = s.manager.SwitchMethodAndSetEnvAPIKeyPreference(ctx, auth.Method{Type: auth.MethodNone}, auth.EnvAPIKeyPreferencePreferSaved, true, true)
 		if err != nil {
 			return serverapi.AuthCompleteBootstrapResponse{}, err
-		}
-		if s.authRequired {
-			return serverapi.AuthCompleteBootstrapResponse{}, serverapi.ErrServerAuthRequired
 		}
 		return s.bootstrapResponseFromState(state), nil
 	}

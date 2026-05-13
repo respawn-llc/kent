@@ -251,7 +251,7 @@ func (p *launchPlanner) resolvePlanRequest(ctx context.Context, req sessionLaunc
 		return resolvedSessionPlanRequest{}, errors.New("session picker is required")
 	}
 	cfg := p.server.Config()
-	picked, err := p.pickSession(summaries, cfg.Settings.Theme, p.sessionPickerHeaderInfo(ctx, cfg))
+	picked, err := p.pickSession(summaries, cfg.Settings.Theme, p.sessionPickerHeaderInfo(cfg))
 	if err != nil {
 		return resolvedSessionPlanRequest{}, err
 	}
@@ -270,21 +270,24 @@ func (p *launchPlanner) resolvePlanRequest(ctx context.Context, req sessionLaunc
 	return resolved, nil
 }
 
-func (p *launchPlanner) sessionPickerHeaderInfo(ctx context.Context, cfg config.App) sessionPickerHeaderInfo {
+func (p *launchPlanner) sessionPickerHeaderInfo(cfg config.App) sessionPickerHeaderInfo {
 	workspaceRoot := strings.TrimSpace(cfg.WorkspaceRoot)
-	git := collectGitStatus(ctx, workspaceRoot)
-	branch := ""
-	if git.Visible && strings.TrimSpace(git.Error) == "" {
-		branch = strings.TrimSpace(git.Branch)
-		if branch == "unknown" {
-			branch = ""
-		}
-	}
+	authState := launchPlannerAuthState(p.server)
+	statusReq := populateStatusRequestCacheKeys(uiStatusRequest{
+		WorkspaceRoot:     workspaceRoot,
+		PersistenceRoot:   strings.TrimSpace(cfg.PersistenceRoot),
+		Settings:          cfg.Settings,
+		Source:            cfg.Source,
+		AuthCacheIdentity: statusAuthCacheIdentity(authState.Resolver),
+		AuthStatePath:     strings.TrimSpace(authState.Path),
+		ModelName:         strings.TrimSpace(cfg.Settings.Model),
+		ThinkingLevel:     strings.TrimSpace(cfg.Settings.ThinkingLevel),
+		OwnsServer:        p.server.OwnsServer(),
+	})
 	return sessionPickerHeaderInfo{
 		Version:       buildinfo.Version,
-		CWD:           statusDisplayPath(workspaceRoot, ""),
-		Branch:        branch,
-		Model:         statusModelLabelText(cfg.Settings.Model, cfg.Settings.ThinkingLevel, false, false, false, ""),
+		StatusRequest: statusReq,
+		AuthManager:   statuscollect.NormalizeAuthStateResolver(authState.Resolver),
 		OwnsServer:    p != nil && p.server != nil && p.server.OwnsServer(),
 		ServerAddress: config.ServerListenAddress(cfg),
 	}

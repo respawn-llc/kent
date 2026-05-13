@@ -23,6 +23,15 @@ type stubAuthInteractor struct {
 	interact       func(context.Context, authInteraction) (authflow.InteractionOutcome, error)
 }
 
+type storedAuthInteractor struct {
+	stubAuthInteractor
+	state auth.State
+}
+
+func (s *storedAuthInteractor) WrapStore(auth.Store) auth.Store {
+	return auth.NewMemoryStore(s.state)
+}
+
 func (s *stubAuthInteractor) WrapStore(base auth.Store) auth.Store {
 	return base
 }
@@ -83,6 +92,75 @@ func TestBootstrapAppHeadlessUsesEnvAPIKeyWithoutPersistingAuthState(t *testing.
 	}
 	if _, err := os.Stat(filepath.Join(home, ".builder", "config.toml")); err != nil {
 		t.Fatalf("expected config bootstrap artifacts to exist: %v", err)
+	}
+}
+
+func TestBootstrapAppReadyEnvAuthDoesNotOpenAuthPicker(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "sk-env")
+	registerAppWorkspace(t, workspace)
+	if err := os.MkdirAll(filepath.Join(home, ".builder"), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".builder", "config.toml"), []byte("model = \"gpt-5\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	interactor := &interactiveAuthInteractor{
+		lookupEnv: func(key string) string {
+			if key == "OPENAI_API_KEY" {
+				return "sk-env"
+			}
+			return ""
+		},
+		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
+			t.Fatal("did not expect ready startup auth to open auth picker")
+			return authMethodPickerResult{}, nil
+		},
+	}
+	boot, err := startEmbeddedServer(context.Background(), Options{WorkspaceRoot: workspace}, interactor)
+	if err != nil {
+		t.Fatalf("bootstrap app: %v", err)
+	}
+	defer func() { _ = boot.Close() }()
+
+	state, err := boot.AuthManager().Load(context.Background())
+	if err != nil {
+		t.Fatalf("load auth state: %v", err)
+	}
+	if state.Method.APIKey == nil || state.Method.APIKey.Key != "sk-env" {
+		t.Fatalf("expected env auth state, got %+v", state.Method)
+	}
+}
+
+func TestBootstrapAppNoAuthPreferenceDoesNotOpenAuthPicker(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	registerAppWorkspace(t, workspace)
+	if err := os.MkdirAll(filepath.Join(home, ".builder"), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".builder", "config.toml"), []byte("model = \"gpt-5\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	interactor := &storedAuthInteractor{
+		state: auth.State{
+			Scope:               auth.ScopeGlobal,
+			Method:              auth.Method{Type: auth.MethodNone},
+			EnvAPIKeyPreference: auth.EnvAPIKeyPreferencePreferSaved,
+		},
+	}
+	boot, err := startEmbeddedServer(context.Background(), Options{WorkspaceRoot: workspace}, interactor)
+	if err != nil {
+		t.Fatalf("bootstrap app: %v", err)
+	}
+	defer func() { _ = boot.Close() }()
+	if interactor.callCount != 0 {
+		t.Fatalf("did not expect no-auth preference startup to open auth picker, interactions=%d", interactor.callCount)
 	}
 }
 
@@ -434,8 +512,8 @@ func TestInteractiveAuthSkipClearsStoredAuthState(t *testing.T) {
 	if state.Method.Type != auth.MethodNone {
 		t.Fatalf("expected stored auth method to be cleared, got %+v", state.Method)
 	}
-	if state.EnvAPIKeyPreference != auth.EnvAPIKeyPreferenceUnspecified {
-		t.Fatalf("expected env api key preference to be cleared, got %q", state.EnvAPIKeyPreference)
+	if state.EnvAPIKeyPreference != auth.EnvAPIKeyPreferencePreferSaved {
+		t.Fatalf("expected no-auth preference to be saved, got %q", state.EnvAPIKeyPreference)
 	}
 }
 
@@ -489,21 +567,21 @@ func TestInteractiveAuthSkipDisablesEnvAPIKeyFallback(t *testing.T) {
 	}
 }
 
-func TestInteractiveAuthSkipRejectsRequiredAuth(t *testing.T) {
+func TestInteractiveAuthSkipAllowsRequiredAuthOptOut(t *testing.T) {
 	interactor := &interactiveAuthInteractor{
 		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
 			return authMethodPickerResult{Choice: authMethodChoiceSkip}, nil
 		},
 	}
-	_, err := interactor.Interact(context.Background(), authInteraction{
+	outcome, err := interactor.Interact(context.Background(), authInteraction{
 		Manager:      auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil, time.Now),
 		AuthRequired: true,
 	})
-	if err == nil {
-		t.Fatal("expected required-auth skip to be rejected")
+	if err != nil {
+		t.Fatalf("interactive skip: %v", err)
 	}
-	if err.Error() != "auth is required for this configuration" {
-		t.Fatalf("unexpected error: %v", err)
+	if !outcome.ProceedWithoutAuth {
+		t.Fatal("expected no-auth selection to proceed without auth")
 	}
 }
 
@@ -555,7 +633,7 @@ func TestResolveSessionActionLoginSkipClearsStoredAuthOnOptionalAuthSetup(t *tes
 	if state.Method.Type != auth.MethodNone {
 		t.Fatalf("expected stored auth method to be cleared, got %+v", state.Method)
 	}
-	if state.EnvAPIKeyPreference != auth.EnvAPIKeyPreferenceUnspecified {
-		t.Fatalf("expected env api key preference to be cleared, got %q", state.EnvAPIKeyPreference)
+	if state.EnvAPIKeyPreference != auth.EnvAPIKeyPreferencePreferSaved {
+		t.Fatalf("expected no-auth preference to be saved, got %q", state.EnvAPIKeyPreference)
 	}
 }

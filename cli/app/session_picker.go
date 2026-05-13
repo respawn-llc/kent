@@ -72,11 +72,26 @@ func newSessionPickerModel(summaries []clientui.SessionSummary, theme string, he
 }
 
 func (m *sessionPickerModel) Init() tea.Cmd {
-	return nil
+	return collectSessionPickerStatusCmd(m.header)
 }
 
 func (m *sessionPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch key := msg.(type) {
+	case sessionPickerStatusMsg:
+		if strings.TrimSpace(key.cwd) != "" {
+			m.header.CWD = strings.TrimSpace(key.cwd)
+		}
+		if strings.TrimSpace(key.branch) != "" {
+			m.header.Branch = strings.TrimSpace(key.branch)
+		}
+		if strings.TrimSpace(key.auth) != "" {
+			m.header.Auth = strings.TrimSpace(key.auth)
+		}
+		if strings.TrimSpace(key.model) != "" {
+			m.header.Model = strings.TrimSpace(key.model)
+		}
+		m.ensureCursorVisible()
+		return m, nil
 	case tea.WindowSizeMsg:
 		if key.Width > 0 {
 			m.width = key.Width
