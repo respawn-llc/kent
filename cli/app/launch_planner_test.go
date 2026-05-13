@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -76,6 +77,48 @@ func TestRuntimeLaunchPlanCurrentControllerLeaseIDFallsBackToRawID(t *testing.T)
 	plan := &runtimeLaunchPlan{ControllerLeaseID: " lease-raw ", controllerLease: newControllerLeaseManager("")}
 	if got := plan.CurrentControllerLeaseID(); got != "lease-raw" {
 		t.Fatalf("CurrentControllerLeaseID = %q, want lease-raw", got)
+	}
+}
+
+func TestSessionLaunchPlannerBuildsSessionPickerHeaderInfo(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	workspaceRoot := filepath.Join(home, "Developer", "builder-cli")
+	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	cmd := exec.Command("git", "-C", workspaceRoot, "init", "-b", "picker-branch")
+	cmd.Env = sanitizedGitEnv(os.Environ())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v (%s)", err, out)
+	}
+
+	cfg := config.App{
+		WorkspaceRoot: workspaceRoot,
+		Settings: config.Settings{
+			Model:         "gpt-5.1",
+			ThinkingLevel: "high",
+			ServerHost:    "127.0.0.1",
+			ServerPort:    53082,
+		},
+	}
+	planner := &launchPlanner{server: &testEmbeddedServer{cfg: cfg}}
+
+	header := planner.sessionPickerHeaderInfo(context.Background(), cfg)
+	if header.CWD != "~/Developer/builder-cli" {
+		t.Fatalf("header cwd = %q", header.CWD)
+	}
+	if header.Branch != "picker-branch" {
+		t.Fatalf("header branch = %q", header.Branch)
+	}
+	if header.Model != "gpt-5.1 high" {
+		t.Fatalf("header model = %q", header.Model)
+	}
+	if !header.OwnsServer {
+		t.Fatal("expected owned server header")
+	}
+	if header.ServerAddress != "127.0.0.1:53082" {
+		t.Fatalf("header server address = %q", header.ServerAddress)
 	}
 }
 
@@ -151,7 +194,7 @@ func TestSessionLaunchPlannerInteractiveUsesPickerSelection(t *testing.T) {
 				return serverapi.SessionMainViewResponse{MainView: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{ExecutionTarget: clientui.SessionExecutionTarget{WorkspaceRoot: cfg.WorkspaceRoot}}}}, nil
 			}},
 		},
-		pickSession: func(summaries []clientui.SessionSummary, theme string) (sessionPickerResult, error) {
+		pickSession: func(summaries []clientui.SessionSummary, theme string, header sessionPickerHeaderInfo) (sessionPickerResult, error) {
 			if len(summaries) != 2 {
 				t.Fatalf("expected two summaries, got %d", len(summaries))
 			}
@@ -246,7 +289,7 @@ func TestSessionLaunchPlannerPickerSelectionMissingMetadataMarksRecoveryInsteadO
 				return serverapi.SessionPlanResponse{Plan: serverapi.SessionPlan{SessionID: "missing-session", WorkspaceRoot: workspaceRoot, ActiveSettings: config.Settings{Theme: "dark"}}}, nil
 			}},
 		},
-		pickSession: func(summaries []clientui.SessionSummary, theme string) (sessionPickerResult, error) {
+		pickSession: func(summaries []clientui.SessionSummary, theme string, header sessionPickerHeaderInfo) (sessionPickerResult, error) {
 			picked := summaries[0]
 			return sessionPickerResult{Session: &picked}, nil
 		},
@@ -322,7 +365,7 @@ func TestSessionLaunchPlannerInteractiveUsesMigratedLegacySession(t *testing.T) 
 			},
 			containerDir: containerDir,
 		},
-		pickSession: func(summaries []clientui.SessionSummary, theme string) (sessionPickerResult, error) {
+		pickSession: func(summaries []clientui.SessionSummary, theme string, header sessionPickerHeaderInfo) (sessionPickerResult, error) {
 			if len(summaries) != 1 {
 				t.Fatalf("expected one legacy summary, got %d", len(summaries))
 			}
@@ -427,7 +470,7 @@ func TestSessionLaunchPlannerSelectedSessionIDBypassesPicker(t *testing.T) {
 				return serverapi.SessionMainViewResponse{}, nil
 			}},
 		},
-		pickSession: func([]clientui.SessionSummary, string) (sessionPickerResult, error) {
+		pickSession: func([]clientui.SessionSummary, string, sessionPickerHeaderInfo) (sessionPickerResult, error) {
 			t.Fatal("did not expect picker for explicit session id")
 			return sessionPickerResult{}, nil
 		},

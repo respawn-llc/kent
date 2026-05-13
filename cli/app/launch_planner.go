@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"builder/cli/app/internal/statuscollect"
+	"builder/shared/buildinfo"
 	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/config"
@@ -82,7 +83,7 @@ func (p *runtimeLaunchPlan) CurrentControllerLeaseID() string {
 	return strings.TrimSpace(p.ControllerLeaseID)
 }
 
-type sessionPickerRunner func([]clientui.SessionSummary, string) (sessionPickerResult, error)
+type sessionPickerRunner func([]clientui.SessionSummary, string, sessionPickerHeaderInfo) (sessionPickerResult, error)
 
 type sessionViewReader interface {
 	GetSessionMainView(ctx context.Context, req serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error)
@@ -120,8 +121,8 @@ type launchPlanner struct {
 func newSessionLaunchPlanner(server launchPlannerServer) *launchPlanner {
 	return &launchPlanner{
 		server: server,
-		pickSession: func(summaries []clientui.SessionSummary, theme string) (sessionPickerResult, error) {
-			return runSessionPickerFlow(summaries, theme)
+		pickSession: func(summaries []clientui.SessionSummary, theme string, header sessionPickerHeaderInfo) (sessionPickerResult, error) {
+			return runSessionPickerFlow(summaries, theme, header)
 		},
 	}
 }
@@ -250,7 +251,7 @@ func (p *launchPlanner) resolvePlanRequest(ctx context.Context, req sessionLaunc
 		return resolvedSessionPlanRequest{}, errors.New("session picker is required")
 	}
 	cfg := p.server.Config()
-	picked, err := p.pickSession(summaries, cfg.Settings.Theme)
+	picked, err := p.pickSession(summaries, cfg.Settings.Theme, p.sessionPickerHeaderInfo(ctx, cfg))
 	if err != nil {
 		return resolvedSessionPlanRequest{}, err
 	}
@@ -267,6 +268,26 @@ func (p *launchPlanner) resolvePlanRequest(ctx context.Context, req sessionLaunc
 	resolved.request.SelectedSessionID = picked.Session.SessionID
 	resolved.selectedViaPicker = true
 	return resolved, nil
+}
+
+func (p *launchPlanner) sessionPickerHeaderInfo(ctx context.Context, cfg config.App) sessionPickerHeaderInfo {
+	workspaceRoot := strings.TrimSpace(cfg.WorkspaceRoot)
+	git := collectGitStatus(ctx, workspaceRoot)
+	branch := ""
+	if git.Visible && strings.TrimSpace(git.Error) == "" {
+		branch = strings.TrimSpace(git.Branch)
+		if branch == "unknown" {
+			branch = ""
+		}
+	}
+	return sessionPickerHeaderInfo{
+		Version:       buildinfo.Version,
+		CWD:           statusDisplayPath(workspaceRoot, ""),
+		Branch:        branch,
+		Model:         statusModelLabelText(cfg.Settings.Model, cfg.Settings.ThinkingLevel, false, false, false, ""),
+		OwnsServer:    p != nil && p.server != nil && p.server.OwnsServer(),
+		ServerAddress: config.ServerListenAddress(cfg),
+	}
 }
 
 func (p *launchPlanner) listSessionSummaries(ctx context.Context) ([]clientui.SessionSummary, error) {
