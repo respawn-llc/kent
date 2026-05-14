@@ -227,6 +227,7 @@ func runSubcommand(args []string) int {
 		emitRunUsageError(outputMode, err.Error())
 		return 2
 	}
+	agentRoleSet := flagExplicit(runFS, "agent") || *fastRole
 
 	remaining := runFS.Args()
 	if len(remaining) == 0 {
@@ -259,6 +260,7 @@ func runSubcommand(args []string) int {
 		SessionID:                 sessionID,
 		WorkspaceContextSessionID: workspaceContextSessionID,
 		AgentRole:                 agentRole,
+		AgentRoleSet:              agentRoleSet,
 		Model:                     flags.Model,
 		ProviderOverride:          flags.ProviderOverride,
 		ThinkingLevel:             flags.ThinkingLevel,
@@ -401,6 +403,19 @@ func markExplicitCommonFlags(fs *flag.FlagSet, flags *commonFlags) {
 			flags.OpenAIBaseURLExplicit = true
 		}
 	})
+}
+
+func flagExplicit(fs *flag.FlagSet, name string) bool {
+	if fs == nil {
+		return false
+	}
+	found := false
+	fs.Visit(func(f *flag.Flag) {
+		if strings.TrimSpace(f.Name) == name {
+			found = true
+		}
+	})
+	return found
 }
 
 func parseRunTimeout(raw string) (time.Duration, error) {

@@ -368,6 +368,7 @@ func (m *uiModel) worktreeMutationService() worktreemutation.Service {
 			Context:        client.controlContext,
 			CurrentLeaseID: client.controllerLeaseIDValue,
 			RecoverLease:   client.recoverControllerLease,
+			ReadOnly:       client.isReadOnly,
 		}
 	}
 	return service

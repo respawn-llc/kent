@@ -82,7 +82,7 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req serverapi.SessionPl
 			return PlanResult{}, err
 		}
 		authState := auth.EmptyState()
-		if req.Overrides.HasAny() && s.authStates != nil {
+		if req.Overrides.NeedsAuthState() && s.authStates != nil {
 			var authErr error
 			authState, authErr = s.authStates.CurrentState(ctx)
 			if authErr != nil {

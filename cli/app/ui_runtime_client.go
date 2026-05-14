@@ -19,6 +19,7 @@ const uiRuntimeHydrationReadTimeout = 10 * time.Second
 const runtimeLeaseRecoveryWarningText = "Lost connection to the session runtime; reconnected."
 
 var uiRuntimeReadTimeout = 300 * time.Millisecond
+var errReadOnlyRuntime = errors.New("session is read-only because it is controlled by an active headless run")
 
 type sessionRuntimeClient struct {
 	reads                   client.SessionViewClient
@@ -29,11 +30,41 @@ type sessionRuntimeClient struct {
 	transcriptDiagnostics   bool
 	connectionStateObserver func(error)
 	leaseRecoveryWarning    func(string, clientui.EntryVisibility)
+	readOnly                bool
 
 	mu                   sync.RWMutex
 	mainView             clientui.RuntimeMainView
 	hasMainView          bool
 	suffixRPCUnsupported bool
+}
+
+func (c *sessionRuntimeClient) SetReadOnly(readOnly bool) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.readOnly = readOnly
+	c.mu.Unlock()
+}
+
+func (c *sessionRuntimeClient) ensureWritable() error {
+	if c == nil {
+		return errReadOnlyRuntime
+	}
+	if c.isReadOnly() {
+		return errReadOnlyRuntime
+	}
+	return nil
+}
+
+func (c *sessionRuntimeClient) isReadOnly() bool {
+	if c == nil {
+		return true
+	}
+	c.mu.RLock()
+	readOnly := c.readOnly
+	c.mu.RUnlock()
+	return readOnly
 }
 
 func newRuntimeClient(sessionID string, reads client.SessionViewClient, controls client.RuntimeControlClient) clientui.RuntimeClient {

@@ -54,11 +54,14 @@ func prepareSharedRuntime(ctx context.Context, source runtimeAttachmentSource, p
 		Logger:            logger,
 		Wiring:            wiring,
 		ControllerLeaseID: lease.ID,
+		ReadOnly:          lease.ReadOnly,
 		controllerLease:   leaseManager,
 		close: func() {
 			stopAskEvents()
 			stopRuntimeEvents()
-			runtimeattach.Release(clients.SessionRuntime, plan.SessionID, leaseManager.Value())
+			if !lease.ReadOnly {
+				runtimeattach.Release(clients.SessionRuntime, plan.SessionID, leaseManager.Value())
+			}
 		},
 	}, nil
 }
@@ -73,6 +76,9 @@ func activateSharedRuntime(ctx context.Context, clients runtimeAttachmentClients
 	if err != nil {
 		return runtimeattach.Lease{}, nil, err
 	}
+	if lease.ReadOnly {
+		return lease, nil, nil
+	}
 	leaseManager := newControllerLeaseManager(lease.ID)
 	leaseManager.SetRecoverFunc(lease.Recover)
 	return lease, leaseManager, nil
@@ -83,6 +89,7 @@ func subscribeSharedRuntimeActivities(ctx context.Context, clients runtimeAttach
 		SessionID:       sessionID,
 		Runtime:         clients.SessionRuntime,
 		LeaseID:         leaseID,
+		ReadOnly:        strings.TrimSpace(leaseID) == "",
 		SessionActivity: clients.SessionActivity,
 		PromptActivity:  clients.PromptActivity,
 	})
@@ -90,7 +97,11 @@ func subscribeSharedRuntimeActivities(ctx context.Context, clients runtimeAttach
 
 func prepareSharedRuntimeWiring(ctx context.Context, clients runtimeAttachmentClients, plan sessionLaunchPlan, activities runtimeattach.Activities, leaseManager *controllerLeaseManager, logger *runLogger) (*runtimeWiring, func(), func()) {
 	runtimeClient := newUIRuntimeClientWithReads(plan.SessionID, clients.SessionViews, clients.RuntimeControls).(*sessionRuntimeClient)
-	runtimeClient.SetControllerLeaseManager(leaseManager)
+	if leaseManager != nil {
+		runtimeClient.SetControllerLeaseManager(leaseManager)
+	} else {
+		runtimeClient.SetReadOnly(true)
+	}
 	runtimeClient.SetTranscriptDiagnosticsEnabled(transcriptdiag.EnabledForProcess(plan.ActiveSettings.Debug))
 	runtimeEvents, stopRuntimeEvents := startSessionActivityEvents(ctx, activities.Session, func(ctx context.Context, afterSequence uint64) (serverapi.SessionActivitySubscription, error) {
 		return clients.SessionActivity.SubscribeSessionActivity(ctx, serverapi.SessionActivitySubscribeRequest{SessionID: plan.SessionID, AfterSequence: afterSequence})
@@ -106,9 +117,12 @@ func prepareSharedRuntimeWiring(ctx context.Context, clients runtimeAttachmentCl
 		}
 		return strings.TrimSpace(plan.SessionName)
 	}, terminalFocus.FocusedForAttention)
-	askEvents, stopAskEvents := startPendingPromptEvents(ctx, activities.Prompt, func(ctx context.Context, afterSequence uint64) (serverapi.PromptActivitySubscription, error) {
-		return clients.PromptActivity.SubscribePromptActivity(ctx, serverapi.PromptActivitySubscribeRequest{SessionID: plan.SessionID, AfterSequence: afterSequence})
-	}, clients.PromptControl, leaseManager)
+	askEvents, stopAskEvents := newClosedAskEventStream()
+	if leaseManager != nil && activities.Prompt != nil {
+		askEvents, stopAskEvents = startPendingPromptEvents(ctx, activities.Prompt, func(ctx context.Context, afterSequence uint64) (serverapi.PromptActivitySubscription, error) {
+			return clients.PromptActivity.SubscribePromptActivity(ctx, serverapi.PromptActivitySubscribeRequest{SessionID: plan.SessionID, AfterSequence: afterSequence})
+		}, clients.PromptControl, leaseManager)
+	}
 	wiring := &runtimeWiring{
 		runtimeEvents:         runtimeEvents,
 		askEvents:             askEvents,
@@ -130,4 +144,10 @@ func prepareSharedRuntimeWiring(ctx context.Context, clients runtimeAttachmentCl
 		hasOtherSessionsKnown: plan.HasOtherSessionsKnown,
 	}
 	return wiring, stopRuntimeEvents, stopAskEvents
+}
+
+func newClosedAskEventStream() (<-chan askEvent, func()) {
+	ch := make(chan askEvent)
+	close(ch)
+	return ch, func() {}
 }

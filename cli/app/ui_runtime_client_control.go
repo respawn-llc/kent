@@ -10,6 +10,9 @@ import (
 )
 
 func (c *sessionRuntimeClient) SetSessionName(name string) error {
+	if err := c.ensureWritable(); err != nil {
+		return err
+	}
 	ctx, cancel := c.controlContext()
 	defer cancel()
 	if err := c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {
@@ -24,6 +27,9 @@ func (c *sessionRuntimeClient) SetSessionName(name string) error {
 }
 
 func (c *sessionRuntimeClient) SetThinkingLevel(level string) error {
+	if err := c.ensureWritable(); err != nil {
+		return err
+	}
 	ctx, cancel := c.controlContext()
 	defer cancel()
 	if err := c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {
@@ -38,6 +44,9 @@ func (c *sessionRuntimeClient) SetThinkingLevel(level string) error {
 }
 
 func (c *sessionRuntimeClient) SetFastModeEnabled(enabled bool) (bool, error) {
+	if err := c.ensureWritable(); err != nil {
+		return false, err
+	}
 	ctx, cancel := c.controlContext()
 	defer cancel()
 	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeSetFastModeEnabledResponse, error) {
@@ -52,6 +61,9 @@ func (c *sessionRuntimeClient) SetFastModeEnabled(enabled bool) (bool, error) {
 }
 
 func (c *sessionRuntimeClient) SetReviewerEnabled(enabled bool) (bool, string, error) {
+	if err := c.ensureWritable(); err != nil {
+		return false, "", err
+	}
 	ctx, cancel := c.controlContext()
 	defer cancel()
 	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeSetReviewerEnabledResponse, error) {
@@ -67,6 +79,9 @@ func (c *sessionRuntimeClient) SetReviewerEnabled(enabled bool) (bool, string, e
 }
 
 func (c *sessionRuntimeClient) SetAutoCompactionEnabled(enabled bool) (bool, bool, error) {
+	if err := c.ensureWritable(); err != nil {
+		return false, false, err
+	}
 	ctx, cancel := c.controlContext()
 	defer cancel()
 	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeSetAutoCompactionEnabledResponse, error) {
@@ -98,6 +113,9 @@ func (c *sessionRuntimeClient) ShowGoal() (*clientui.RuntimeGoal, error) {
 }
 
 func (c *sessionRuntimeClient) SetGoal(objective string) (*clientui.RuntimeGoal, error) {
+	if err := c.ensureWritable(); err != nil {
+		return nil, err
+	}
 	ctx, cancel := c.controlContext()
 	defer cancel()
 	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeGoalShowResponse, error) {
@@ -126,6 +144,9 @@ func (c *sessionRuntimeClient) ResumeGoal() (*clientui.RuntimeGoal, error) {
 }
 
 func (c *sessionRuntimeClient) ClearGoal() (*clientui.RuntimeGoal, error) {
+	if err := c.ensureWritable(); err != nil {
+		return nil, err
+	}
 	ctx, cancel := c.controlContext()
 	defer cancel()
 	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeGoalShowResponse, error) {
@@ -142,6 +163,9 @@ func (c *sessionRuntimeClient) ClearGoal() (*clientui.RuntimeGoal, error) {
 }
 
 func (c *sessionRuntimeClient) setGoalStatus(call func(context.Context, serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error)) (*clientui.RuntimeGoal, error) {
+	if err := c.ensureWritable(); err != nil {
+		return nil, err
+	}
 	ctx, cancel := c.controlContext()
 	defer cancel()
 	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeGoalShowResponse, error) {
@@ -182,6 +206,9 @@ func (c *sessionRuntimeClient) AppendLocalEntry(role, text string) error {
 }
 
 func (c *sessionRuntimeClient) AppendLocalEntryWithNoticeID(role, text, noticeID string) error {
+	if err := c.ensureWritable(); err != nil {
+		return err
+	}
 	ctx, cancel := c.controlContext()
 	defer cancel()
 	return c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {
@@ -190,6 +217,9 @@ func (c *sessionRuntimeClient) AppendLocalEntryWithNoticeID(role, text, noticeID
 }
 
 func (c *sessionRuntimeClient) SubmitUserMessage(ctx context.Context, text string) (string, error) {
+	if err := c.ensureWritable(); err != nil {
+		return "", err
+	}
 	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeSubmitUserTurnResponse, error) {
 		return c.controls.SubmitUserTurn(ctx, serverapi.RuntimeSubmitUserTurnRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Text: text})
 	})
@@ -197,12 +227,18 @@ func (c *sessionRuntimeClient) SubmitUserMessage(ctx context.Context, text strin
 }
 
 func (c *sessionRuntimeClient) SubmitUserShellCommand(ctx context.Context, command string) error {
+	if err := c.ensureWritable(); err != nil {
+		return err
+	}
 	return c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {
 		return c.controls.SubmitUserShellCommand(ctx, serverapi.RuntimeSubmitUserShellCommandRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Command: command})
 	})
 }
 
 func (c *sessionRuntimeClient) CompactContext(ctx context.Context, args string) error {
+	if err := c.ensureWritable(); err != nil {
+		return err
+	}
 	return c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {
 		return c.controls.CompactContext(ctx, serverapi.RuntimeCompactContextRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Args: args})
 	})
@@ -221,6 +257,9 @@ func (c *sessionRuntimeClient) HasQueuedUserWork() (bool, error) {
 }
 
 func (c *sessionRuntimeClient) SubmitQueuedUserMessages(ctx context.Context) (string, error) {
+	if err := c.ensureWritable(); err != nil {
+		return "", err
+	}
 	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeSubmitQueuedUserMessagesResponse, error) {
 		return c.controls.SubmitQueuedUserMessages(ctx, serverapi.RuntimeSubmitQueuedUserMessagesRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID})
 	})
@@ -228,6 +267,9 @@ func (c *sessionRuntimeClient) SubmitQueuedUserMessages(ctx context.Context) (st
 }
 
 func (c *sessionRuntimeClient) Interrupt() error {
+	if err := c.ensureWritable(); err != nil {
+		return err
+	}
 	ctx, cancel := c.controlContext()
 	defer cancel()
 	return c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {
@@ -236,6 +278,9 @@ func (c *sessionRuntimeClient) Interrupt() error {
 }
 
 func (c *sessionRuntimeClient) QueueUserMessage(text string) (clientui.QueuedUserMessage, error) {
+	if err := c.ensureWritable(); err != nil {
+		return clientui.QueuedUserMessage{}, err
+	}
 	ctx, cancel := c.controlContext()
 	defer cancel()
 	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeQueueUserMessageResponse, error) {
@@ -249,6 +294,9 @@ func (c *sessionRuntimeClient) QueueUserMessage(text string) (clientui.QueuedUse
 }
 
 func (c *sessionRuntimeClient) DiscardQueuedUserMessage(queueItemID string) bool {
+	if err := c.ensureWritable(); err != nil {
+		return false
+	}
 	ctx, cancel := c.controlContext()
 	defer cancel()
 	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLease, func(controllerLeaseID string) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
@@ -261,6 +309,9 @@ func (c *sessionRuntimeClient) DiscardQueuedUserMessage(queueItemID string) bool
 }
 
 func (c *sessionRuntimeClient) RecordPromptHistory(text string) error {
+	if err := c.ensureWritable(); err != nil {
+		return err
+	}
 	ctx, cancel := c.controlContext()
 	defer cancel()
 	return c.retryControlCallNoResult(ctx, func(controllerLeaseID string) error {

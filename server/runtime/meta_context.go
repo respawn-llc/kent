@@ -261,9 +261,9 @@ func (b metaContextBuilder) subagentsMetaMessage() (llm.Message, bool) {
 	}
 	lines := make([]string, 0, len(roles)+3)
 	lines = append(lines, "Available subagent roles:")
-	lines = append(lines, "- default: not specifying any role will invoke an exact clone of you, the general-purpose agent")
+	lines = append(lines, "- `default`: not specifying any role will invoke the default general-purpose agent")
 	for _, role := range roles {
-		lines = append(lines, "- "+role.Name+": "+role.Description)
+		lines = append(lines, "- `"+role.Name+"`: "+role.Description)
 	}
 	lines = append(lines, "---")
 	lines = append(lines, "Invoke with `"+prompts.BuilderRunCommand()+" --agent=<role> \"<prompt>\"`.")

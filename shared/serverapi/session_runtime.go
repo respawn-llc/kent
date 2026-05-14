@@ -16,7 +16,8 @@ type SessionRuntimeActivateRequest struct {
 }
 
 type SessionRuntimeActivateResponse struct {
-	LeaseID string `json:"lease_id"`
+	LeaseID  string `json:"lease_id"`
+	ReadOnly bool   `json:"read_only,omitempty"`
 }
 
 type SessionRuntimeReleaseRequest struct {

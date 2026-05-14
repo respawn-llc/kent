@@ -523,6 +523,8 @@
 - JSON mode emits exactly one final object on `stdout`: `status`, `result`/`error`, `session_id`, `session_name`, `duration_ms`, plus continuation metadata and startup `warnings` when available.
 - Final-text mode emits startup warnings first, then the final assistant text, and optionally a continue hint.
 - Progress is quiet by default and is emitted to `stderr` only when `--progress-mode=stderr`.
+- A headless run owns the active session runtime it registers. Interactive activation for the same active session attaches read-only instead of creating a competing engine or interrupting the run.
+- Resuming a session with persisted subagent role metadata reapplies that role best-effort when the role exists. Missing roles do not block explicit continuation.
 
 ## Release Engineering
 

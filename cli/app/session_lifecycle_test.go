@@ -610,6 +610,73 @@ func TestResolveSessionActionResumeReopensPicker(t *testing.T) {
 	}
 }
 
+func TestResolveReadOnlySessionActionHandlesPureNavigationLocally(t *testing.T) {
+	tests := []struct {
+		name string
+		in   UITransition
+		want resolvedSessionAction
+	}{
+		{
+			name: "new session",
+			in:   UITransition{Action: UIActionNewSession, InitialPrompt: "start", ParentSessionID: "parent-1"},
+			want: resolvedSessionAction{InitialPrompt: "start", ParentSessionID: "parent-1", ForceNewSession: true, ShouldContinue: true},
+		},
+		{
+			name: "resume picker",
+			in:   UITransition{Action: UIActionResume},
+			want: resolvedSessionAction{ShouldContinue: true},
+		},
+		{
+			name: "open session",
+			in:   UITransition{Action: UIActionOpenSession, TargetSessionID: "next-1", InitialInput: "draft"},
+			want: resolvedSessionAction{NextSessionID: "next-1", InitialInput: "draft", ShouldContinue: true},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveReadOnlySessionAction(context.Background(), nil, nil, "session-1", tt.in)
+			if err != nil {
+				t.Fatalf("resolveReadOnlySessionAction: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("resolved = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveReadOnlySessionActionRejectsRollbackFork(t *testing.T) {
+	_, err := resolveReadOnlySessionAction(context.Background(), nil, nil, "session-1", UITransition{Action: UIActionForkRollback})
+	if !errors.Is(err, errReadOnlyRuntime) {
+		t.Fatalf("error = %v, want read-only runtime", err)
+	}
+}
+
+func TestResolveReadOnlySessionActionLogoutReauthenticatesWithoutLease(t *testing.T) {
+	reauthCalls := 0
+	resolved, err := resolveReadOnlySessionAction(
+		context.Background(),
+		narrowSessionLifecycleServer{
+			reauthenticate: func(context.Context, authInteractor) error {
+				reauthCalls++
+				return nil
+			},
+		},
+		nil,
+		"session-1",
+		UITransition{Action: UIActionLogout},
+	)
+	if err != nil {
+		t.Fatalf("resolveReadOnlySessionAction logout: %v", err)
+	}
+	if reauthCalls != 1 {
+		t.Fatalf("reauth calls = %d, want 1", reauthCalls)
+	}
+	if !resolved.ShouldContinue || resolved.NextSessionID != "session-1" {
+		t.Fatalf("resolved = %+v, want continue same session", resolved)
+	}
+}
+
 func TestResolveSessionActionExitStaysClientLocal(t *testing.T) {
 	resolved, err := resolveSessionAction(
 		context.Background(),

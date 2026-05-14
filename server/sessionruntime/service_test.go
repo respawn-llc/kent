@@ -273,6 +273,57 @@ func TestClaimActivationRejectsConcurrentDifferentTakeoverRequest(t *testing.T) 
 	}
 }
 
+func TestActivateSessionRuntimeWaitsForClosingHandleBeforeClaiming(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	fixture.service.authManager = auth.NewManager(auth.NewMemoryStore(auth.State{
+		Scope: auth.ScopeGlobal,
+		Method: auth.Method{
+			Type:   auth.MethodAPIKey,
+			APIKey: &auth.APIKeyMethod{Key: "sk-test"},
+		},
+	}), nil, time.Now)
+	ready := make(chan struct{})
+	close(ready)
+	handle := &runtimeHandle{
+		controllerRequestID: "req-1",
+		controllerLeaseID:   "lease-1",
+		closing:             true,
+		ready:               ready,
+		closed:              make(chan struct{}),
+	}
+	fixture.service.handles = map[string]*runtimeHandle{fixture.store.Meta().SessionID: handle}
+
+	done := make(chan serverapi.SessionRuntimeActivateResponse, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		resp, err := fixture.service.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
+			ClientRequestID: "req-2",
+			SessionID:       fixture.store.Meta().SessionID,
+			ActiveSettings: config.Settings{
+				Model: "gpt-5",
+				Reviewer: config.ReviewerSettings{
+					Frequency: "off",
+				},
+			},
+		})
+		done <- resp
+		errCh <- err
+	}()
+	select {
+	case <-done:
+		t.Fatal("expected activation to wait for closing handle")
+	default:
+	}
+
+	fixture.service.closeReleasedRuntimeHandle(fixture.store.Meta().SessionID, handle)
+	if err := <-errCh; err != nil {
+		t.Fatalf("ActivateSessionRuntime: %v", err)
+	}
+	if strings.TrimSpace((<-done).LeaseID) == "" {
+		t.Fatal("expected replacement activation lease id")
+	}
+}
+
 func TestActivateSessionRuntimeReplaysDuplicateRequestAfterReady(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
 	handle := &runtimeHandle{
@@ -378,6 +429,37 @@ func TestActivateSessionRuntimeIgnoresRecoveredWarningProviderError(t *testing.T
 	}
 	if strings.TrimSpace(resp.LeaseID) == "" {
 		t.Fatalf("expected runtime activation lease, got %+v", resp)
+	}
+}
+
+func TestActivateSessionRuntimeAttachesReadOnlyToExternalActiveRuntime(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	runtimes := registry.NewRuntimeRegistry()
+	engine, err := runtimepkg.New(fixture.store, &sessionRuntimeTestLLMClient{}, tools.NewRegistry(), runtimepkg.Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("runtime.New: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+	runtimes.Register(fixture.store.Meta().SessionID, engine)
+	t.Cleanup(func() { runtimes.Unregister(fixture.store.Meta().SessionID, engine) })
+	fixture.service.runtimes = runtimes
+
+	resp, err := fixture.service.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
+		ClientRequestID: "req-external",
+		SessionID:       fixture.store.Meta().SessionID,
+		ActiveSettings:  config.Settings{Model: "gpt-5"},
+	})
+	if err != nil {
+		t.Fatalf("ActivateSessionRuntime: %v", err)
+	}
+	if !resp.ReadOnly || strings.TrimSpace(resp.LeaseID) != "" {
+		t.Fatalf("response = %+v, want read-only without lease", resp)
+	}
+	if len(fixture.service.handles) != 0 {
+		t.Fatalf("external active runtime should not leave controller handles, got %+v", fixture.service.handles)
+	}
+	if !runtimes.IsSessionRuntimeActive(fixture.store.Meta().SessionID) {
+		t.Fatal("expected external runtime to remain registered")
 	}
 }
 

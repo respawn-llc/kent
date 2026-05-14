@@ -60,6 +60,7 @@ type runtimeLaunchPlan struct {
 	Logger            *runLogger
 	Wiring            *runtimeWiring
 	ControllerLeaseID string
+	ReadOnly          bool
 	controllerLease   *controllerLeaseManager
 	close             func()
 }
