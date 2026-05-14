@@ -36,6 +36,25 @@ func (q *Queries) AllocateProjectTaskSequence(ctx context.Context, arg AllocateP
 	return i, err
 }
 
+const archiveWorkflowNode = `-- name: ArchiveWorkflowNode :execrows
+UPDATE workflow_nodes
+SET metadata_json = json_set(metadata_json, '$.archived_at_unix_ms', ?1)
+WHERE id = ?2
+`
+
+type ArchiveWorkflowNodeParams struct {
+	ArchivedAtUnixMs interface{}
+	ID               string
+}
+
+func (q *Queries) ArchiveWorkflowNode(ctx context.Context, arg ArchiveWorkflowNodeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, archiveWorkflowNode, arg.ArchivedAtUnixMs, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const cancelTask = `-- name: CancelTask :execrows
 UPDATE tasks
 SET
@@ -115,6 +134,23 @@ func (q *Queries) CountNonTerminalTasksByProjectWorkflowLink(ctx context.Context
 	return task_count, err
 }
 
+const countNonTerminalTasksByWorkflow = `-- name: CountNonTerminalTasksByWorkflow :one
+SELECT CAST(COUNT(DISTINCT t.id) AS INTEGER) AS task_count
+FROM tasks t
+JOIN task_node_placements p ON p.task_id = t.id AND p.state IN ('active', 'waiting_approval')
+JOIN workflow_nodes n ON n.id = p.node_id
+WHERE t.workflow_id = ?1
+  AND t.canceled_at_unix_ms = 0
+  AND n.kind != 'terminal'
+`
+
+func (q *Queries) CountNonTerminalTasksByWorkflow(ctx context.Context, workflowID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countNonTerminalTasksByWorkflow, workflowID)
+	var task_count int64
+	err := row.Scan(&task_count)
+	return task_count, err
+}
+
 const countProjectWorkspaces = `-- name: CountProjectWorkspaces :one
 SELECT CAST(COUNT(*) AS INTEGER) AS workspace_count
 FROM workspaces
@@ -126,6 +162,39 @@ func (q *Queries) CountProjectWorkspaces(ctx context.Context, projectID string) 
 	var workspace_count int64
 	err := row.Scan(&workspace_count)
 	return workspace_count, err
+}
+
+const countTaskEdgeReferences = `-- name: CountTaskEdgeReferences :one
+SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
+FROM task_transition_edges
+WHERE workflow_edge_id = ?1
+`
+
+func (q *Queries) CountTaskEdgeReferences(ctx context.Context, edgeID sql.NullString) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countTaskEdgeReferences, edgeID)
+	var ref_count int64
+	err := row.Scan(&ref_count)
+	return ref_count, err
+}
+
+const countTaskNodeReferences = `-- name: CountTaskNodeReferences :one
+SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
+FROM (
+    SELECT p.id FROM task_node_placements p WHERE p.node_id = ?1
+    UNION ALL
+    SELECT r.id FROM task_runs r WHERE r.node_id = ?1
+    UNION ALL
+    SELECT tr.id FROM task_transitions tr WHERE tr.source_node_id = ?1
+    UNION ALL
+    SELECT te.id FROM task_transition_edges te WHERE te.target_node_id = ?1
+)
+`
+
+func (q *Queries) CountTaskNodeReferences(ctx context.Context, nodeID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countTaskNodeReferences, nodeID)
+	var ref_count int64
+	err := row.Scan(&ref_count)
+	return ref_count, err
 }
 
 const countTasksByProjectWorkflowLink = `-- name: CountTasksByProjectWorkflowLink :one
@@ -148,6 +217,32 @@ WHERE id = ?1
 
 func (q *Queries) DeleteProjectWorkflowLink(ctx context.Context, id string) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteProjectWorkflowLink, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteWorkflowEdge = `-- name: DeleteWorkflowEdge :execrows
+DELETE FROM workflow_edges
+WHERE id = ?1
+`
+
+func (q *Queries) DeleteWorkflowEdge(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteWorkflowEdge, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteWorkflowNode = `-- name: DeleteWorkflowNode :execrows
+DELETE FROM workflow_nodes
+WHERE id = ?1
+`
+
+func (q *Queries) DeleteWorkflowNode(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteWorkflowNode, id)
 	if err != nil {
 		return 0, err
 	}
@@ -583,6 +678,61 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 	return i, err
 }
 
+const getTaskRun = `-- name: GetTaskRun :one
+SELECT
+    id,
+    task_id,
+    placement_id,
+    node_id,
+    session_id,
+    run_generation,
+    workflow_revision_seen,
+    automation_requested_at_unix_ms,
+    created_at_unix_ms,
+    updated_at_unix_ms,
+    started_at_unix_ms,
+    completed_at_unix_ms,
+    interrupted_at_unix_ms,
+    interruption_reason,
+    interruption_detail_json,
+    waiting_ask_id,
+    final_answer_violation_count,
+    invalid_completion_count,
+    run_start_snapshot_json,
+    metadata_json
+FROM task_runs
+WHERE id = ?1
+LIMIT 1
+`
+
+func (q *Queries) GetTaskRun(ctx context.Context, id string) (TaskRun, error) {
+	row := q.db.QueryRowContext(ctx, getTaskRun, id)
+	var i TaskRun
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.PlacementID,
+		&i.NodeID,
+		&i.SessionID,
+		&i.RunGeneration,
+		&i.WorkflowRevisionSeen,
+		&i.AutomationRequestedAtUnixMs,
+		&i.CreatedAtUnixMs,
+		&i.UpdatedAtUnixMs,
+		&i.StartedAtUnixMs,
+		&i.CompletedAtUnixMs,
+		&i.InterruptedAtUnixMs,
+		&i.InterruptionReason,
+		&i.InterruptionDetailJson,
+		&i.WaitingAskID,
+		&i.FinalAnswerViolationCount,
+		&i.InvalidCompletionCount,
+		&i.RunStartSnapshotJson,
+		&i.MetadataJson,
+	)
+	return i, err
+}
+
 const getWorkflow = `-- name: GetWorkflow :one
 SELECT
     id,
@@ -607,6 +757,78 @@ func (q *Queries) GetWorkflow(ctx context.Context, id string) (Workflow, error) 
 		&i.GraphRevision,
 		&i.CreatedAtUnixMs,
 		&i.UpdatedAtUnixMs,
+		&i.MetadataJson,
+	)
+	return i, err
+}
+
+const getWorkflowEdge = `-- name: GetWorkflowEdge :one
+SELECT
+    id,
+    workflow_id,
+    transition_group_id,
+    edge_key,
+    target_node_id,
+    requires_approval,
+    context_mode,
+    input_bindings_json,
+    output_requirements_json,
+    sort_order,
+    metadata_json
+FROM workflow_edges
+WHERE id = ?1
+LIMIT 1
+`
+
+func (q *Queries) GetWorkflowEdge(ctx context.Context, id string) (WorkflowEdge, error) {
+	row := q.db.QueryRowContext(ctx, getWorkflowEdge, id)
+	var i WorkflowEdge
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowID,
+		&i.TransitionGroupID,
+		&i.EdgeKey,
+		&i.TargetNodeID,
+		&i.RequiresApproval,
+		&i.ContextMode,
+		&i.InputBindingsJson,
+		&i.OutputRequirementsJson,
+		&i.SortOrder,
+		&i.MetadataJson,
+	)
+	return i, err
+}
+
+const getWorkflowNode = `-- name: GetWorkflowNode :one
+SELECT
+    id,
+    workflow_id,
+    node_key,
+    kind,
+    display_name,
+    subagent_role,
+    prompt_template,
+    output_fields_json,
+    sort_order,
+    metadata_json
+FROM workflow_nodes
+WHERE id = ?1
+LIMIT 1
+`
+
+func (q *Queries) GetWorkflowNode(ctx context.Context, id string) (WorkflowNode, error) {
+	row := q.db.QueryRowContext(ctx, getWorkflowNode, id)
+	var i WorkflowNode
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowID,
+		&i.NodeKey,
+		&i.Kind,
+		&i.DisplayName,
+		&i.SubagentRole,
+		&i.PromptTemplate,
+		&i.OutputFieldsJson,
+		&i.SortOrder,
 		&i.MetadataJson,
 	)
 	return i, err

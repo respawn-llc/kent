@@ -176,6 +176,31 @@ FROM workflow_nodes
 WHERE workflow_id = sqlc.arg(workflow_id)
 ORDER BY sort_order ASC, rowid ASC;
 
+-- name: GetWorkflowNode :one
+SELECT
+    id,
+    workflow_id,
+    node_key,
+    kind,
+    display_name,
+    subagent_role,
+    prompt_template,
+    output_fields_json,
+    sort_order,
+    metadata_json
+FROM workflow_nodes
+WHERE id = sqlc.arg(id)
+LIMIT 1;
+
+-- name: ArchiveWorkflowNode :execrows
+UPDATE workflow_nodes
+SET metadata_json = json_set(metadata_json, '$.archived_at_unix_ms', sqlc.arg(archived_at_unix_ms))
+WHERE id = sqlc.arg(id);
+
+-- name: DeleteWorkflowNode :execrows
+DELETE FROM workflow_nodes
+WHERE id = sqlc.arg(id);
+
 -- name: InsertWorkflowTransitionGroup :exec
 INSERT INTO workflow_transition_groups (
     id,
@@ -251,6 +276,27 @@ SELECT
 FROM workflow_edges
 WHERE workflow_id = sqlc.arg(workflow_id)
 ORDER BY sort_order ASC, rowid ASC;
+
+-- name: GetWorkflowEdge :one
+SELECT
+    id,
+    workflow_id,
+    transition_group_id,
+    edge_key,
+    target_node_id,
+    requires_approval,
+    context_mode,
+    input_bindings_json,
+    output_requirements_json,
+    sort_order,
+    metadata_json
+FROM workflow_edges
+WHERE id = sqlc.arg(id)
+LIMIT 1;
+
+-- name: DeleteWorkflowEdge :execrows
+DELETE FROM workflow_edges
+WHERE id = sqlc.arg(id);
 
 -- name: ClearProjectDefaultWorkflowLinks :exec
 UPDATE project_workflow_links
@@ -355,6 +401,15 @@ WHERE t.project_workflow_link_id = sqlc.arg(project_workflow_link_id)
   AND t.canceled_at_unix_ms = 0
   AND n.kind != 'terminal';
 
+-- name: CountNonTerminalTasksByWorkflow :one
+SELECT CAST(COUNT(DISTINCT t.id) AS INTEGER) AS task_count
+FROM tasks t
+JOIN task_node_placements p ON p.task_id = t.id AND p.state IN ('active', 'waiting_approval')
+JOIN workflow_nodes n ON n.id = p.node_id
+WHERE t.workflow_id = sqlc.arg(workflow_id)
+  AND t.canceled_at_unix_ms = 0
+  AND n.kind != 'terminal';
+
 -- name: SoftUnlinkProjectWorkflowLink :execrows
 UPDATE project_workflow_links
 SET
@@ -367,6 +422,23 @@ WHERE id = sqlc.arg(id)
 -- name: DeleteProjectWorkflowLink :execrows
 DELETE FROM project_workflow_links
 WHERE id = sqlc.arg(id);
+
+-- name: CountTaskNodeReferences :one
+SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
+FROM (
+    SELECT p.id FROM task_node_placements p WHERE p.node_id = sqlc.arg(node_id)
+    UNION ALL
+    SELECT r.id FROM task_runs r WHERE r.node_id = sqlc.arg(node_id)
+    UNION ALL
+    SELECT tr.id FROM task_transitions tr WHERE tr.source_node_id = sqlc.arg(node_id)
+    UNION ALL
+    SELECT te.id FROM task_transition_edges te WHERE te.target_node_id = sqlc.arg(node_id)
+);
+
+-- name: CountTaskEdgeReferences :one
+SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
+FROM task_transition_edges
+WHERE workflow_edge_id = sqlc.arg(edge_id);
 
 -- name: InsertTask :exec
 INSERT INTO tasks (
@@ -595,6 +667,32 @@ SELECT
 FROM task_runs
 WHERE task_id = sqlc.arg(task_id)
 ORDER BY created_at_unix_ms ASC, rowid ASC;
+
+-- name: GetTaskRun :one
+SELECT
+    id,
+    task_id,
+    placement_id,
+    node_id,
+    session_id,
+    run_generation,
+    workflow_revision_seen,
+    automation_requested_at_unix_ms,
+    created_at_unix_ms,
+    updated_at_unix_ms,
+    started_at_unix_ms,
+    completed_at_unix_ms,
+    interrupted_at_unix_ms,
+    interruption_reason,
+    interruption_detail_json,
+    waiting_ask_id,
+    final_answer_violation_count,
+    invalid_completion_count,
+    run_start_snapshot_json,
+    metadata_json
+FROM task_runs
+WHERE id = sqlc.arg(id)
+LIMIT 1;
 
 -- name: InterruptActiveTaskRuns :execrows
 UPDATE task_runs

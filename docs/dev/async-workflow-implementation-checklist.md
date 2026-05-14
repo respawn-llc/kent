@@ -228,9 +228,9 @@ Goal: add DB shape and generated query surface before high-level store behavior.
 - [x] Add test for invalid JSON rejection or canonicalization for JSON columns.
 - [x] Add test that `workflows.start_node_id` does not exist and start node is enforced by partial unique index on node kind.
 - [x] Add test that `workflow_edges.source_node_id` does not exist and source is derived from transition group.
-- [ ] Add test that graph-affecting workflow edits increment `graph_revision`.
-- [ ] Add test graph revision does not bump on workflow name/description edits unless those values become model-facing.
-- [ ] Add test running node completion validates against run-start snapshot after workflow graph changes.
+- [x] Add test that graph-affecting workflow edits increment `graph_revision`.
+- [x] Add test graph revision does not bump on workflow name/description edits unless those values become model-facing.
+- [x] Add test running node completion validates against run-start snapshot after workflow graph changes.
 - [x] Add test that circular transition/placement references can be inserted with SQLite constraints, or choose nullable/domain-validated references and test that path.
 - [x] Add test for atomic task sequence allocation under concurrent creates.
 - [x] Add test for task short ID format and uniqueness per project.
@@ -263,7 +263,7 @@ Goal: add DB shape and generated query surface before high-level store behavior.
 - [x] Use a partial unique active link index for `(project_id, workflow_id)` where `unlinked_at_unix_ms = 0`, so terminal-history links can remain while a workflow is later relinked.
 - [x] Add partial unique default index on `(project_id)` where `is_default = 1 AND unlinked_at_unix_ms = 0`.
 - [x] Add composite foreign keys where practical for workflow-scoped references.
-- [ ] Add domain/store validation where SQLite cannot enforce scope cleanly.
+- [x] Add domain/store validation where SQLite cannot enforce scope cleanly.
 - [x] Resolve transition/placement circular-reference insertion explicitly; do not leave it as accidental SQLite behavior.
 
 ### 2A.3 SQLC
@@ -293,7 +293,7 @@ Goal: typed transactional store methods for workflows, project links, tasks, pla
 - [x] Add test for node/transition group/edge persistence.
 - [x] Add test for project-workflow link create/list/delete.
 - [x] Add test project workflow unlink rejects when non-terminal tasks reference link.
-- [ ] Add test project workflow unlink soft-disables link and preserves terminal task history.
+- [x] Add test project workflow unlink soft-disables link and preserves terminal task history.
 - [x] Add test unlinking current default requires replacement default when other active links remain.
 - [x] Add test for exactly one default workflow link per project.
 - [x] Add test invalid workflow can be linked/defaulted but task creation rejects with accumulated validation errors.
@@ -304,10 +304,10 @@ Goal: typed transactional store methods for workflows, project links, tasks, pla
 - [x] Add test that task creation rejects workflow not linked to task project.
 - [x] Add test task creation rejects invalid linked/default workflow.
 - [x] Add test `task start` applies start node's single outgoing transition group.
-- [ ] Add test `task start` rejects stale/invalid workflow with accumulated validation errors.
+- [x] Add test `task start` rejects stale/invalid workflow with accumulated validation errors.
 - [x] Add test for placement state transitions.
 - [x] Add test for run create/update state fields.
-- [ ] Add test terminal placement remains active and read models infer done.
+- [x] Add test terminal placement remains active and read models infer done.
 - [x] Add test task cancellation records task metadata, interrupts active runs, and suppresses scheduler.
 
 ### 2B.2 Store Implementation
@@ -328,32 +328,32 @@ Goal: transition/comment history and guarded graph mutation behavior.
 
 - [x] Add test for transition log create/read ordering.
 - [x] Add test for transition edge snapshot persistence.
-- [ ] Add test transition snapshot stores graph revision plus source node, transition, target node, and effective edge config snapshots.
-- [ ] Add test every applied transition stores transition-edge snapshots, not only approvals.
-- [ ] Add test for pending approval snapshot not changing after graph edit.
+- [x] Add test transition snapshot stores graph revision plus source node, transition, target node, and effective edge config snapshots.
+- [x] Add test every applied transition stores transition-edge snapshots, not only approvals.
+- [x] Add test for pending approval snapshot not changing after graph edit.
 - [x] Add test for comment add.
 - [x] Add test for comment body size limit.
 - [x] Add test for comment full-text replace.
 - [x] Add test for comment soft-delete.
 - [x] Add test for deleted comments hidden by default.
-- [ ] Add test for guarded graph delete rejected when non-terminal tasks reference graph element.
-- [ ] Add test physical graph row delete is rejected while any task history references the graph element.
-- [ ] Add test terminal-only graph references allow archive/hide semantics but not physical row deletion.
-- [ ] Add test for guarded graph delete allowed when safe.
+- [x] Add test for guarded graph delete rejected when non-terminal tasks reference graph element.
+- [x] Add test physical graph row delete is rejected while any task history references the graph element.
+- [x] Add test terminal-only graph references allow archive/hide semantics but not physical row deletion.
+- [x] Add test for guarded graph delete allowed when safe.
 
 ### 2C.2 Store Implementation
 
 - [x] Add store methods for transition log and edge snapshots.
 - [x] Add store methods for task comments.
-- [ ] Add guarded graph-delete checks.
+- [x] Add guarded graph-delete checks.
 - [x] Add transactional helpers for multi-row transition/comment operations.
 
 ### 2.5 Slice Verification
 
-- [ ] Run metadata migration tests.
-- [ ] Run `./scripts/test.sh ./server/metadata/... ./server/workflow/... ./server/workflowstore/...`.
-- [ ] Run `./scripts/build.sh --output ./bin/builder`.
-- [ ] Commit slice with message like `feat: persist workflow tasks`.
+- [x] Run metadata migration tests.
+- [x] Run `./scripts/test.sh ./server/metadata/... ./server/workflow/... ./server/workflowstore/...`.
+- [x] Run `./scripts/build.sh --output ./bin/builder`.
+- [x] Commit slice with message like `feat: persist workflow tasks`.
 
 ## Slice 3: API Contracts, Service Layer, And Read Models
 

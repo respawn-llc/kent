@@ -168,6 +168,176 @@ func TestTaskCreateStartCancelAndComments(t *testing.T) {
 	}
 }
 
+func TestCompleteRunUsesRunStartSnapshotAfterGraphChanges(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createValidWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	beforeEdit := currentWorkflowRevision(t, ctx, store, workflowID)
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	agent := nodeByKey(t, def, "agent")
+	if _, err := store.AddNode(ctx, NodeRecord{ID: "node-extra-terminal", WorkflowID: workflowID, Key: "archived", Kind: workflow.NodeKindTerminal, DisplayName: "Archived"}); err != nil {
+		t.Fatalf("AddNode extra terminal: %v", err)
+	}
+	if _, err := store.AddTransitionGroup(ctx, TransitionGroupRecord{ID: "group-archive", WorkflowID: workflowID, SourceNodeID: agent.ID, TransitionID: "archive", DisplayName: "Archive"}); err != nil {
+		t.Fatalf("AddTransitionGroup archive: %v", err)
+	}
+	if _, err := store.AddEdge(ctx, EdgeRecord{ID: "edge-archive", WorkflowID: workflowID, TransitionGroupID: "group-archive", Key: "archive", TargetNodeID: "node-extra-terminal", ContextMode: workflow.ContextModeNewSession}); err != nil {
+		t.Fatalf("AddEdge archive: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "archive", OutputValues: map[string]string{"summary": "done"}}); err == nil || !strings.Contains(err.Error(), "not available") {
+		t.Fatalf("expected completion to reject transition added after run start, got %v", err)
+	}
+	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}, Commentary: "finished"})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	if completed.State != "applied" || len(completed.PlacementIDs) != 1 || len(completed.RunIDs) != 0 {
+		t.Fatalf("completion result = %+v", completed)
+	}
+	transitions, err := store.ListTransitions(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTransitions: %v", err)
+	}
+	if len(transitions) != 2 || transitions[1].TransitionID != "done" || transitions[1].State != "applied" {
+		t.Fatalf("transitions after completion = %+v", transitions)
+	}
+	edges, err := store.ListTransitionEdges(ctx, transitions[1].ID)
+	if err != nil {
+		t.Fatalf("ListTransitionEdges: %v", err)
+	}
+	if len(edges) != 1 || edges[0].EdgeKey != "done" || edges[0].WorkflowRevisionSeen != beforeEdit || edges[0].TargetPlacementID != completed.PlacementIDs[0] {
+		t.Fatalf("completion edge snapshot = %+v, want one done edge at revision %d", edges, beforeEdit)
+	}
+	placements, err := store.ListPlacements(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListPlacements: %v", err)
+	}
+	terminalActive := false
+	sourceCompleted := false
+	for _, placement := range placements {
+		if placement.ID == started.PlacementID && placement.State == "completed" {
+			sourceCompleted = true
+		}
+		if placement.ID == completed.PlacementIDs[0] && placement.State == "active" {
+			terminalActive = true
+		}
+	}
+	if !sourceCompleted || !terminalActive {
+		t.Fatalf("placements after completion = %+v, want completed source and active terminal", placements)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].CompletedAt == 0 {
+		t.Fatalf("runs after completion = %+v", runs)
+	}
+}
+
+func TestCompleteRunPersistsPendingApprovalSnapshots(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createApprovalWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	beforeEdit := currentWorkflowRevision(t, ctx, store, workflowID)
+	if _, err := store.AddNode(ctx, NodeRecord{ID: "node-later", WorkflowID: workflowID, Key: "later", Kind: workflow.NodeKindTerminal, DisplayName: "Later"}); err != nil {
+		t.Fatalf("AddNode graph edit: %v", err)
+	}
+	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	if completed.State != "pending_approval" || len(completed.PlacementIDs) != 0 || len(completed.RunIDs) != 0 {
+		t.Fatalf("pending approval result = %+v", completed)
+	}
+	transitions, err := store.ListTransitions(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTransitions: %v", err)
+	}
+	if len(transitions) != 2 || transitions[1].State != "pending_approval" {
+		t.Fatalf("transitions after pending completion = %+v", transitions)
+	}
+	rows, err := store.queries.ListTaskTransitionEdges(ctx, string(transitions[1].ID))
+	if err != nil {
+		t.Fatalf("ListTaskTransitionEdges: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("pending edge rows = %+v", rows)
+	}
+	row := rows[0]
+	if row.State != "pending" || row.TargetPlacementID.Valid || row.WorkflowRevisionSeen != beforeEdit || row.RequiresApproval != 1 || row.EdgeKey != "done" || row.TargetNodeKind != string(workflow.NodeKindTerminal) {
+		t.Fatalf("pending approval edge snapshot = %+v, want stable pending approval snapshot at revision %d", row, beforeEdit)
+	}
+}
+
+func TestCompleteRunValidatesOutputRequirements(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createValidWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "  "}}); err == nil || !strings.Contains(err.Error(), "required output") {
+		t.Fatalf("expected missing required output error, got %v", err)
+	}
+}
+
+func TestTaskStartRejectsCurrentInvalidWorkflow(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createValidWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	done := nodeByKind(t, def, workflow.NodeKindTerminal)
+	if _, err := store.AddTransitionGroup(ctx, TransitionGroupRecord{ID: "group-terminal-invalid", WorkflowID: workflowID, SourceNodeID: done.ID, TransitionID: "invalid", DisplayName: "Invalid"}); err != nil {
+		t.Fatalf("AddTransitionGroup invalid terminal group: %v", err)
+	}
+	if _, err := store.StartTask(ctx, task.ID); err == nil || !strings.Contains(err.Error(), string(workflow.CodeTerminalHasOutgoingEdge)) {
+		t.Fatalf("expected current workflow validation error, got %v", err)
+	}
+}
+
 func TestTaskCreateRejectsInvalidOrUnlinkedWorkflow(t *testing.T) {
 	ctx := context.Background()
 	store, binding := newTestStore(t)
@@ -230,6 +400,105 @@ func TestProjectWorkflowUnlinkGuardsActiveAndDefaultLinks(t *testing.T) {
 	}
 }
 
+func TestProjectWorkflowUnlinkSoftDisablesTerminalHistory(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createValidWorkflow(t, ctx, store)
+	link, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true)
+	if err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}}); err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	if err := store.UnlinkProjectWorkflow(ctx, link.ID, ""); err != nil {
+		t.Fatalf("UnlinkProjectWorkflow terminal history: %v", err)
+	}
+	links, err := store.ListProjectWorkflowLinks(ctx, binding.ProjectID)
+	if err != nil {
+		t.Fatalf("ListProjectWorkflowLinks: %v", err)
+	}
+	if len(links) != 1 || links[0].ID != link.ID || links[0].UnlinkedAtUnixMs == 0 || links[0].IsDefault {
+		t.Fatalf("links after soft unlink = %+v", links)
+	}
+	if _, err := store.queries.GetTask(ctx, string(task.ID)); err != nil {
+		t.Fatalf("task history should remain readable after soft unlink: %v", err)
+	}
+}
+
+func TestGuardedGraphDeletesRespectTaskHistory(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createValidWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	agentID := workflow.NodeID("node-agent-" + string(workflowID))
+	if err := store.DeleteNode(ctx, agentID); err == nil || !strings.Contains(err.Error(), "non-terminal") {
+		t.Fatalf("expected non-terminal node delete guard, got %v", err)
+	}
+	if err := store.DeleteEdge(ctx, workflow.EdgeID("edge-start-"+string(workflowID))); err == nil || !strings.Contains(err.Error(), "non-terminal") {
+		t.Fatalf("expected non-terminal edge delete guard, got %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}}); err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	if err := store.DeleteNode(ctx, agentID); err == nil || !strings.Contains(err.Error(), "task history") {
+		t.Fatalf("expected node history delete guard, got %v", err)
+	}
+	if err := store.DeleteEdge(ctx, workflow.EdgeID("edge-done-"+string(workflowID))); err == nil || !strings.Contains(err.Error(), "task history") {
+		t.Fatalf("expected edge history delete guard, got %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	done := nodeByKind(t, def, workflow.NodeKindTerminal)
+	if err := store.ArchiveNode(ctx, done.ID); err != nil {
+		t.Fatalf("ArchiveNode terminal history: %v", err)
+	}
+	if err := store.DeleteNode(ctx, done.ID); err == nil || !strings.Contains(err.Error(), "task history") {
+		t.Fatalf("expected terminal physical delete guard, got %v", err)
+	}
+	if _, err := store.AddNode(ctx, NodeRecord{ID: "node-unused", WorkflowID: workflowID, Key: "unused", Kind: workflow.NodeKindTerminal, DisplayName: "Unused"}); err != nil {
+		t.Fatalf("AddNode unused: %v", err)
+	}
+	if err := store.DeleteNode(ctx, "node-unused"); err != nil {
+		t.Fatalf("DeleteNode unused: %v", err)
+	}
+	if _, err := store.queries.GetWorkflowNode(ctx, "node-unused"); err == nil {
+		t.Fatalf("unused node still exists after guarded delete")
+	}
+	if _, err := store.AddTransitionGroup(ctx, TransitionGroupRecord{ID: "group-unused", WorkflowID: workflowID, SourceNodeID: agentID, TransitionID: "unused", DisplayName: "Unused"}); err != nil {
+		t.Fatalf("AddTransitionGroup unused: %v", err)
+	}
+	if _, err := store.AddEdge(ctx, EdgeRecord{ID: "edge-unused", WorkflowID: workflowID, TransitionGroupID: "group-unused", Key: "unused", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession}); err != nil {
+		t.Fatalf("AddEdge unused: %v", err)
+	}
+	if err := store.DeleteEdge(ctx, "edge-unused"); err != nil {
+		t.Fatalf("DeleteEdge unused: %v", err)
+	}
+	if _, err := store.queries.GetWorkflowEdge(ctx, "edge-unused"); err == nil {
+		t.Fatalf("unused edge still exists after guarded delete")
+	}
+}
+
 func newTestStore(t *testing.T) (*Store, metadata.Binding) {
 	t.Helper()
 	home := t.TempDir()
@@ -289,6 +558,47 @@ func createValidWorkflow(t *testing.T, ctx context.Context, store *Store) workfl
 	return created.ID
 }
 
+func createApprovalWorkflow(t *testing.T, ctx context.Context, store *Store) workflow.WorkflowID {
+	t.Helper()
+	created, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: "Approval Workflow"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+	workflowID := created.ID
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	start := nodeByKind(t, def, workflow.NodeKindStart)
+	done := nodeByKind(t, def, workflow.NodeKindTerminal)
+	agentID := workflow.NodeID("node-agent-" + string(workflowID))
+	if _, err := store.AddNode(ctx, NodeRecord{ID: agentID, WorkflowID: workflowID, Key: "agent", Kind: workflow.NodeKindAgent, DisplayName: "Agent", SubagentRole: "coder", PromptTemplate: "Do work.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}}); err != nil {
+		t.Fatalf("AddNode: %v", err)
+	}
+	if _, err := store.AddTransitionGroup(ctx, TransitionGroupRecord{ID: workflow.TransitionGroupID("group-start-" + string(workflowID)), WorkflowID: workflowID, SourceNodeID: start.ID, TransitionID: "start", DisplayName: "Start"}); err != nil {
+		t.Fatalf("AddTransitionGroup start: %v", err)
+	}
+	if _, err := store.AddEdge(ctx, EdgeRecord{ID: workflow.EdgeID("edge-start-" + string(workflowID)), WorkflowID: workflowID, TransitionGroupID: workflow.TransitionGroupID("group-start-" + string(workflowID)), Key: "start", TargetNodeID: agentID, ContextMode: workflow.ContextModeNewSession}); err != nil {
+		t.Fatalf("AddEdge start: %v", err)
+	}
+	if _, err := store.AddTransitionGroup(ctx, TransitionGroupRecord{ID: workflow.TransitionGroupID("group-done-" + string(workflowID)), WorkflowID: workflowID, SourceNodeID: agentID, TransitionID: "done", DisplayName: "Done"}); err != nil {
+		t.Fatalf("AddTransitionGroup done: %v", err)
+	}
+	if _, err := store.AddEdge(ctx, EdgeRecord{ID: workflow.EdgeID("edge-done-approval-" + string(workflowID)), WorkflowID: workflowID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(workflowID)), Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession, RequiresApproval: true, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}}); err != nil {
+		t.Fatalf("AddEdge approval done: %v", err)
+	}
+	return workflowID
+}
+
+func currentWorkflowRevision(t *testing.T, ctx context.Context, store *Store, workflowID workflow.WorkflowID) int64 {
+	t.Helper()
+	_, record, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	return record.GraphRevision
+}
+
 func hasNode(def workflow.Definition, key string, kind workflow.NodeKind) bool {
 	for _, node := range def.Nodes {
 		if string(node.Key) == key && node.Kind == kind {
@@ -296,6 +606,17 @@ func hasNode(def workflow.Definition, key string, kind workflow.NodeKind) bool {
 		}
 	}
 	return false
+}
+
+func nodeByKey(t *testing.T, def workflow.Definition, key string) workflow.Node {
+	t.Helper()
+	for _, node := range def.Nodes {
+		if string(node.Key) == key {
+			return node
+		}
+	}
+	t.Fatalf("missing node key %q in %+v", key, def.Nodes)
+	return workflow.Node{}
 }
 
 func nodeByKind(t *testing.T, def workflow.Definition, kind workflow.NodeKind) workflow.Node {

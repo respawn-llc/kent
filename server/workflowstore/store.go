@@ -316,6 +316,117 @@ func (s *Store) AddEdge(ctx context.Context, edge EdgeRecord) (int64, error) {
 	return revision, nil
 }
 
+func (s *Store) DeleteNode(ctx context.Context, nodeID workflow.NodeID) error {
+	if strings.TrimSpace(string(nodeID)) == "" {
+		return errors.New("node id is required")
+	}
+	node, err := s.queries.GetWorkflowNode(ctx, string(nodeID))
+	if err != nil {
+		return err
+	}
+	nonTerminalRefs, err := s.queries.CountNonTerminalTasksByWorkflow(ctx, node.WorkflowID)
+	if err != nil {
+		return err
+	}
+	if nonTerminalRefs > 0 {
+		return fmt.Errorf("workflow has non-terminal task references")
+	}
+	refs, err := s.queries.CountTaskNodeReferences(ctx, string(nodeID))
+	if err != nil {
+		return err
+	}
+	if refs > 0 {
+		return fmt.Errorf("workflow node has task history references")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	q := s.queries.WithTx(tx)
+	if deleted, err := q.DeleteWorkflowNode(ctx, string(nodeID)); err != nil {
+		return fmt.Errorf("delete workflow node: %w", err)
+	} else if deleted != 1 {
+		return sql.ErrNoRows
+	}
+	if _, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: node.WorkflowID, UpdatedAtUnixMs: s.now().UnixMilli()}); err != nil {
+		return fmt.Errorf("increment graph revision: %w", err)
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ArchiveNode(ctx context.Context, nodeID workflow.NodeID) error {
+	if strings.TrimSpace(string(nodeID)) == "" {
+		return errors.New("node id is required")
+	}
+	node, err := s.queries.GetWorkflowNode(ctx, string(nodeID))
+	if err != nil {
+		return err
+	}
+	nonTerminalRefs, err := s.queries.CountNonTerminalTasksByWorkflow(ctx, node.WorkflowID)
+	if err != nil {
+		return err
+	}
+	if nonTerminalRefs > 0 {
+		return fmt.Errorf("workflow has non-terminal task references")
+	}
+	now := s.now().UnixMilli()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	q := s.queries.WithTx(tx)
+	if archived, err := q.ArchiveWorkflowNode(ctx, sqlitegen.ArchiveWorkflowNodeParams{ID: string(nodeID), ArchivedAtUnixMs: now}); err != nil {
+		return fmt.Errorf("archive workflow node: %w", err)
+	} else if archived != 1 {
+		return sql.ErrNoRows
+	}
+	if _, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: node.WorkflowID, UpdatedAtUnixMs: now}); err != nil {
+		return fmt.Errorf("increment graph revision: %w", err)
+	}
+	return tx.Commit()
+}
+
+func (s *Store) DeleteEdge(ctx context.Context, edgeID workflow.EdgeID) error {
+	if strings.TrimSpace(string(edgeID)) == "" {
+		return errors.New("edge id is required")
+	}
+	edge, err := s.queries.GetWorkflowEdge(ctx, string(edgeID))
+	if err != nil {
+		return err
+	}
+	nonTerminalRefs, err := s.queries.CountNonTerminalTasksByWorkflow(ctx, edge.WorkflowID)
+	if err != nil {
+		return err
+	}
+	if nonTerminalRefs > 0 {
+		return fmt.Errorf("workflow has non-terminal task references")
+	}
+	refs, err := s.queries.CountTaskEdgeReferences(ctx, sql.NullString{String: string(edgeID), Valid: true})
+	if err != nil {
+		return err
+	}
+	if refs > 0 {
+		return fmt.Errorf("workflow edge has task history references")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	q := s.queries.WithTx(tx)
+	if deleted, err := q.DeleteWorkflowEdge(ctx, string(edgeID)); err != nil {
+		return fmt.Errorf("delete workflow edge: %w", err)
+	} else if deleted != 1 {
+		return sql.ErrNoRows
+	}
+	if _, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: edge.WorkflowID, UpdatedAtUnixMs: s.now().UnixMilli()}); err != nil {
+		return fmt.Errorf("increment graph revision: %w", err)
+	}
+	return tx.Commit()
+}
+
 func (s *Store) GetDefinition(ctx context.Context, workflowID workflow.WorkflowID) (workflow.Definition, WorkflowRecord, error) {
 	row, err := s.queries.GetWorkflow(ctx, string(workflowID))
 	if err != nil {
