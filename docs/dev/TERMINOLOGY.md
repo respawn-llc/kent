@@ -1,20 +1,20 @@
 # Terminology
 
-This document defines Builder product/domain language. Use these terms consistently in specs, code names, CLI/API contracts, and implementation plans.
+This document defines Builder product and domain language. Use these terms consistently in specs, code names, CLI/API contracts, and implementation plans.
 
-## Async Workflow Orchestration
+## Workflow Orchestration
 
 ### Task
 
-A durable user-facing unit of work. In the future frontend, a task is the Kanban card. A task owns workflow state, task metadata, node history, edge-transition history, questions, and execution artifacts. Existing Builder sessions are artifacts under a task, not the task itself.
+A durable user-facing unit of work. A task owns workflow state, task metadata, node history, edge-transition history, questions, and execution artifacts. Builder sessions are artifacts under a task, not the task itself.
 
 ### Workflow
 
-A durable directed graph that describes how tasks move through work. A workflow contains nodes and edges. V1 workflow definitions are SQLite-authoritative and created/edited through backend API and a minimal CLI; frontend workflow editing comes later.
+A durable directed graph that describes how tasks move through work. A workflow contains nodes and edges.
 
 ### Node
 
-A visible workflow state and Kanban column/status. V1 intentionally keeps node identity equal to visible column identity to avoid ambiguity when a human moves a task. A task is in exactly one current node during normal linear execution, with join/parallel execution represented by child run state rather than dynamically created columns.
+A visible workflow state and Kanban column/status. Node identity is execution identity: when a task is in a node, that node determines which run behavior applies.
 
 A node configures agent-run behavior:
 
@@ -62,15 +62,15 @@ Construction of the next run's execution context from prior run output, task met
 
 ### Join
 
-An edge or node transition point that waits for all required inbound branch outputs before continuing. V1 does not support racing; aggregation waits for all required inputs.
+An edge or node transition point that waits for required inbound branch outputs before continuing.
 
 ### Question
 
-A user-blocking ask emitted by a run. Questions pause the affected run/task path until answered through shared prompt-control infrastructure. The future frontend should show questions grouped by task.
+A user-blocking ask emitted by a run. Questions pause the affected run or task path until answered.
 
 ### Orchestrator
 
-An ordinary agent node whose prompt asks it to coordinate work. V1 does not dynamically create workflow nodes or Kanban columns. Orchestration uses existing subagent/session infrastructure inside an agent run or through statically defined graph branches.
+An agent node whose prompt asks it to coordinate work. Orchestration may use subagent/session infrastructure inside an agent run or route work through workflow graph branches.
 
 ### Terminal State
 
