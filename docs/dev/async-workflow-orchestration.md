@@ -8,14 +8,14 @@ Frontend design is intentionally out of scope for this document except where bac
 
 ## Current Idea
 
-- Users define workflows made of nodes and transitions.
-- Nodes can map to Kanban statuses; several nodes may share one status.
-- A task entering an auto-runnable node can start an agent or other executor automatically.
-- Agent nodes use configured subagent roles, custom prompts, dynamic completion tools, and goal-like autonomous looping.
-- Completion tools return structured decisions such as advance, send back, request user input, fail, or move to another workflow branch.
+- Users define workflows made of nodes, transition groups, and edges.
+- Nodes are visible Kanban/status identity and execution identity.
+- A task entering an executable node can start an agent run automatically.
+- Agent nodes use configured subagent roles, custom prompts, static workflow completion control, and goal-like autonomous looping.
+- The static `complete_node` tool returns a selected transition group plus structured flat-string payload fields. User questions use `ask_question`; runtime failures and cancellations are orchestration states.
 - Review nodes can emit findings and move tasks back to implementation; architecture/design nodes can send underspecified work back to design.
-- Work should run asynchronously through a queue with global/project/workflow concurrency limits to avoid rate limits.
-- Work should use Builder's existing project, workspace, worktree, session, goal, ask_question, background process, and server architecture.
+- Work should run asynchronously through a durable queue with a global concurrency limit to avoid rate limits.
+- Work should reuse Builder's existing project, workspace, worktree, session, runtime, `ask_question`, background process, and server architecture while keeping workflow state separate from user goal state.
 
 ## External Reference
 
@@ -98,6 +98,8 @@ Decisions will be recorded here during the planning interview.
 - `RunPromptService` should not back workflow nodes. It is a one-shot final-string API, while workflow nodes need durable runs, structured completion, interruption, and resume.
 - Existing user goal state should not be reused as workflow autonomy state. Workflow needs a goal-like loop shape, but task/node/run identity must own completion, interruption, and resume semantics.
 - Task lifecycle state should derive from node placement/run state rather than a separate task status enum. The task's node placement is the workflow/Kanban state; blocked/running/interrupted/done conditions come from runs and terminal nodes.
+- CLI is an internal backend-testing and agent-control surface, not the primary manual QA surface for users. User manual QA should wait until there is a usable GUI/POC backed by the workflow APIs.
+- Workflow API/read-model shapes do not need public stability before Builder 2.0. A parallel POC GUI can consume them, but it should expect breaking changes while workflow orchestration is under active development.
 
 ## Completion Control Schema
 
@@ -481,4 +483,220 @@ Schema/domain validation must ensure workflow-scoped references do not cross wor
 
 ## Implementation Plan
 
-To be drafted after architecture review.
+Use TDD for production implementation. Each slice should leave the repo in a buildable state, with deterministic tests before the next slice begins. Prefer fake runtime/model adapters for workflow tests until the runtime integration slice; avoid real LLM calls in automated tests.
+
+### Slice 1: Workflow Domain And Graph Validation
+
+Build pure domain types and validation in `server/workflow` without DB or runtime dependencies.
+
+Scope:
+
+- Define workflow definition, node, transition group, edge, output schema, context-preservation mode, task/run/placement/transition identifiers, and validation error types.
+- Validate one start node, start-node constraints, terminal sink constraints, no detached islands, every non-terminal can reach a terminal, workflow-scoped references, node-kind constraints, transition group fan-out shape, payload requirement references, output schema field names, and context-preservation mode values.
+- Validate project-context dependencies through an injected role resolver so missing subagent roles fail before scheduling.
+
+Completion criteria:
+
+- Unit tests cover the default backlog-agent-done workflow, cycles and self-loops allowed, detached island rejected, unreachable terminal rejected, terminal outgoing edge rejected, missing start rejected, multi-start rejected, bad transition-group edge rejected, invalid payload requirement rejected, invalid context mode rejected, and missing subagent role rejected.
+- Validation returns structured errors with stable codes useful for CLI/API display.
+
+### Slice 2: Metadata Schema, Queries, And Store
+
+Add workflow/task persistence to metadata storage before runtime behavior.
+
+Scope:
+
+- Add migrations for project keys/task counters, workflow definitions, nodes, transition groups, edges, project workflow links, tasks, placements, runs, transitions, transition edge snapshots, and task comments.
+- Add sqlc queries and store methods for workflow CRUD, project workflow linking/default selection, task short-ID allocation, task creation at start node, placement/run state updates, transition logging, task views, comments, and guarded destructive edits.
+- Store edge snapshots for pending approvals so later graph edits do not change approval meaning.
+
+Completion criteria:
+
+- Migrations apply cleanly to empty DB and an existing metadata DB fixture.
+- Store tests prove project key backfill/collision handling, atomic task sequence allocation, one default workflow per project, task creation creates exactly one start placement, comment add/replace/soft-delete behavior, transition snapshots survive graph edits, and guarded graph deletes reject non-terminal task references.
+- `./scripts/test.sh ./server/metadata/... ./server/workflow/...` passes.
+
+### Slice 3: API Contracts, Service Layer, And Read Models
+
+Expose typed backend API/read-model shapes needed by CLI and future UI/POC GUI without runtime execution. These are implementation contracts, not public compatibility guarantees before Builder 2.0.
+
+Scope:
+
+- Add workflow/task DTOs under `shared/serverapi`, route-shaped service interfaces in `shared/servicecontract`, loopback/remote client support, transport routes, and server service composition.
+- Add `server/workflowview` read models for project boards, task detail, transition history, run summaries, comments, and validation results.
+- Keep API validation strict at boundaries while domain validation remains reusable by CLI and services.
+
+Completion criteria:
+
+- Contract tests cover request validation, project default workflow resolution, stable board ordering by workflow node order, task detail with active placements/runs, transition history ordering, and deleted comments hidden by default.
+- Loopback client and remote route tests exercise same service methods.
+- UI/POC GUI can obtain board and task detail views without reading session transcripts or `events.jsonl`.
+
+### Slice 4: Minimal Workflow And Task CLI
+
+Add clunky but complete backend-testing commands before automation. These commands are for engineering validation and agent usage, not for Nikita-led manual QA.
+
+Scope:
+
+- Implement minimal `builder workflow` commands for create, node add, edge add, link, validate, and inspect.
+- Implement minimal `builder task` commands for create, list, show, move, approve, resume placeholder, and comment add/replace/delete.
+- Prefer stable IDs in output where later commands need row identifiers; approval uses task transition row ID, not user-defined transition ID.
+
+Completion criteria:
+
+- CLI tests or command-level tests create a workflow, link it to a project, create a task, list/show board/task views, add/replace/delete comments, validate graph errors, and create a manual pending transition without queueing automation.
+- CLI output includes enough IDs for humans and agents to continue from terminal logs.
+- A no-LLM manual QA pass can be run by a coding agent against a temporary persistence root: create a real workflow graph, create tasks, inspect board/task views, move a task manually, and verify comments plus IDs behave as expected.
+
+### Slice 5: Task-Owned Worktree Primitive
+
+Create lower-level worktree capability for task automation, separate from interactive controller leases.
+
+Scope:
+
+- Add service method to create/register a managed task worktree for a task when first workspace-requiring executable run is scheduled.
+- Reuse existing branch/root collision handling and physical worktree operations.
+- Enforce non-terminal task blockers for managed worktree deletion/retargeting.
+
+Completion criteria:
+
+- Worktree tests with temp repos prove branch name defaults to task short ID, repeated ensure calls are idempotent, collisions get deterministic safe names, and no interactive session/controller lease is required.
+- Blocking tests prove non-terminal tasks prevent managed worktree deletion/retargeting.
+
+### Slice 6: Durable Queue, Claims, And Recovery
+
+Implement scheduling state and recovery without real model execution first.
+
+Scope:
+
+- Add queue service that claims `queued` runs with transactional compare-and-swap, claim IDs, claim metadata, global concurrency cap from config, and state generation/fencing.
+- Add startup reconciliation for queued, running, waiting-for-question, interrupted, completed, failed, canceled, and pending approvals.
+- Make completion/transition application one transaction so source run, source placement, transition log, target placements, and queued target runs commit atomically.
+
+Completion criteria:
+
+- Concurrent claim tests prove one run is claimed once and global concurrency is respected.
+- Fencing tests prove stale claim completion cannot mutate a run after a newer generation.
+- Recovery tests prove stale running runs become interrupted, queued runs stay queued, pending approvals stay pending, and interrupted runs are never auto-retried.
+- Transaction tests prove failed transition application leaves no half-created target placements/runs.
+
+### Slice 7: Runtime Completion Hook And `complete_node`
+
+Add workflow-aware runtime control before running full workflow nodes.
+
+Scope:
+
+- Register static `complete_node` as workflow-control infrastructure available in workflow runs regardless of subagent role tool config.
+- Carry active workflow run context into tool execution.
+- Add preflight that rejects assistant responses where `complete_node` is mixed with any other tool call.
+- Add terminal signal from accepted `complete_node` so the step loop persists the tool result and stops without another model turn.
+- Treat normal assistant final answers as invalid workflow output and append a developer nudge.
+
+Completion criteria:
+
+- Runtime/tool tests prove `complete_node` outside workflow returns explicit error, mixed tool calls are rejected before side effects, missing `transition_id` is rejected only when multiple transition groups exist, invalid payload field and missing edge-required payload return structured tool errors, valid completion stops the run, and final-answer-only workflow output nudges and continues.
+- Existing non-workflow tool execution behavior remains unchanged.
+
+### Slice 8: Single-Agent `new_session` Vertical Slice
+
+Connect persistence, queue, task worktree, runtime, and completion for the smallest useful async workflow.
+
+Scope:
+
+- Execute one agent node using `new_session`: task creation, manual move from start/backlog into executable node, worktree ensure, queued run claim, session creation, node prompt injection, fake/model runtime execution, `complete_node`, transition application, and terminal placement.
+- Use fake LLM/runtime in tests; reserve real provider use for manual QA later.
+
+Completion criteria:
+
+- Integration test creates workflow `start -> agent -> done`, creates a task, starts automation, completes via fake `complete_node`, and observes task placement in terminal node with stored payload/commentary.
+- CLI can create/show the same flow against embedded server state.
+- No test loads full `events.jsonl`.
+- Real-provider smoke testing is optional and requires explicit manual approval before spending provider credits.
+
+### Slice 9: Question Pause And Resume Proof
+
+Prove existing `ask_question` infrastructure is sufficient for workflow runs, or stop and design the persistence upgrade.
+
+Scope:
+
+- Run a workflow node that calls `ask_question`, transitions run state to `waiting_for_question`, accepts an answer, and resumes same run/session.
+- Test restart/reconciliation behavior around a pending question.
+- If existing ask persistence cannot support this reliably, upgrade ask persistence as the source of truth before continuing; do not add a shadow task-question table.
+
+Completion criteria:
+
+- Tests prove question answer resumes the same workflow run/session and can complete with `complete_node`.
+- Restart test proves pending ask can be rehydrated or run becomes interrupted with actionable resume path.
+- Any required ask persistence upgrade has focused tests and keeps task question views derived from source-of-truth ask state.
+
+### Slice 10: Context-Preservation Modes
+
+Implement edge context semantics after single-session execution works.
+
+Scope:
+
+- Implement `new_session`, `continue_session`, and `compact_and_continue_session`.
+- Enforce direct `continue_session` only when source and target use the same subagent/session contract.
+- Allow role changes for `new_session` and `compact_and_continue_session` because they use fresh context boundary or compacted continuation input.
+
+Completion criteria:
+
+- Tests prove same-role `continue_session` appends to existing session, cross-role `continue_session` is rejected before queueing, `new_session` creates separate session across roles, and compact mode creates a compacted continuation input before target execution.
+- Prompt/cache-sensitive behavior does not mutate prior transcript history.
+
+### Slice 11: Approvals And Manual Moves
+
+Implement human-controlled task movement and edge approval semantics.
+
+Scope:
+
+- Apply edge `requires_approval` by storing pending transition/edge snapshots after source run completion and queueing targets only after approval.
+- Implement manual moves through real edge/transition metadata or explicit equivalent metadata.
+- Require explicit user approval before queueing automation from manual moves into executable targets.
+- Support backward moves that reuse stored payloads when validation allows.
+
+Completion criteria:
+
+- Tests prove approval by task transition row ID queues stored target edge snapshots, later graph edits do not change pending approval behavior, forward manual move validates provided payload, backward manual move can reuse stored payload, missing required payload is rejected, continuation without valid source session is rejected, and executable manual target pauses before queue.
+
+### Slice 12: Fan-Out, Parallel Branches, And Joins
+
+Add explicit parallel branch support after serial execution is stable.
+
+Scope:
+
+- Apply multi-edge transition groups by creating a parallel batch and one branch placement per edge.
+- Carry `parallel_batch_transition_id` and `parallel_branch_edge_id` until branch reaches join or terminal.
+- Implement join nodes that wait for all required branch identities, aggregate deterministic branch results, and continue through their outgoing transition group.
+
+Completion criteria:
+
+- Tests prove fan-out creates multiple active placements under one task, branches can complete in any order, join waits until all expected branches arrive, duplicate branch arrivals are rejected or ignored idempotently, aggregate result ordering is deterministic, and next node receives bound aggregate input.
+
+### Slice 13: Recovery, Observability, And Hardening
+
+Close operational gaps before UI work.
+
+Scope:
+
+- Add resume/cancel/fail commands and service methods with clear state transitions.
+- Add structured logs/diagnostics around scheduler claims, run completion, transition application, validation blockers, and workflow runtime errors.
+- Add role-drift validation at scheduling/resume time and actionable error surfaces in CLI/API.
+- Update `docs/dev/decisions.md` only after decisions are stable and without staging unrelated user edits.
+
+Completion criteria:
+
+- Restart tests cover queued, running, interrupted, waiting-for-question, and pending approval tasks.
+- CLI/API surfaces validation and orchestration errors with stable codes and actionable messages.
+- `./scripts/test.sh ./server/workflow/... ./server/workflowruntime/... ./server/workflowview/... ./server/metadata/...` and `./scripts/build.sh --output ./bin/builder` pass once production code exists.
+
+### Suggested First Coding Milestone
+
+First implementation milestone should end after Slice 4:
+
+- It gives durable workflow/task CRUD, validation, board/task read models, and comments without runtime risk.
+- Builder can perform first internal no-LLM QA at this point by creating a real graph/task through CLI/API and validating status movement, comments, IDs, and read models.
+- This milestone needs no real LLM calls.
+- Nikita-led manual QA should be deferred until a usable GUI/POC exists on top of these APIs.
+
+After Slice 4, continue runtime work with automated fake-model/fake-runtime tests through Slice 8. Slice 8 proves the product's core async promise: one task, one worktree, one agent node, structured completion, and terminal status. Real-agent QA should remain an explicit manual approval step because it spends provider credits and can be flaky for reasons unrelated to orchestration correctness.
