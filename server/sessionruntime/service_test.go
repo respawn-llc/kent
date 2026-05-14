@@ -273,6 +273,57 @@ func TestClaimActivationRejectsConcurrentDifferentTakeoverRequest(t *testing.T) 
 	}
 }
 
+func TestActivateSessionRuntimeWaitsForClosingHandleBeforeClaiming(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	fixture.service.authManager = auth.NewManager(auth.NewMemoryStore(auth.State{
+		Scope: auth.ScopeGlobal,
+		Method: auth.Method{
+			Type:   auth.MethodAPIKey,
+			APIKey: &auth.APIKeyMethod{Key: "sk-test"},
+		},
+	}), nil, time.Now)
+	ready := make(chan struct{})
+	close(ready)
+	handle := &runtimeHandle{
+		controllerRequestID: "req-1",
+		controllerLeaseID:   "lease-1",
+		closing:             true,
+		ready:               ready,
+		closed:              make(chan struct{}),
+	}
+	fixture.service.handles = map[string]*runtimeHandle{fixture.store.Meta().SessionID: handle}
+
+	done := make(chan serverapi.SessionRuntimeActivateResponse, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		resp, err := fixture.service.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
+			ClientRequestID: "req-2",
+			SessionID:       fixture.store.Meta().SessionID,
+			ActiveSettings: config.Settings{
+				Model: "gpt-5",
+				Reviewer: config.ReviewerSettings{
+					Frequency: "off",
+				},
+			},
+		})
+		done <- resp
+		errCh <- err
+	}()
+	select {
+	case <-done:
+		t.Fatal("expected activation to wait for closing handle")
+	default:
+	}
+
+	fixture.service.closeReleasedRuntimeHandle(fixture.store.Meta().SessionID, handle)
+	if err := <-errCh; err != nil {
+		t.Fatalf("ActivateSessionRuntime: %v", err)
+	}
+	if strings.TrimSpace((<-done).LeaseID) == "" {
+		t.Fatal("expected replacement activation lease id")
+	}
+}
+
 func TestActivateSessionRuntimeReplaysDuplicateRequestAfterReady(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
 	handle := &runtimeHandle{
