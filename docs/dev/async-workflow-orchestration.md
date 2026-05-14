@@ -153,6 +153,8 @@ Add a server-owned workflow orchestration layer above sessions/runtimes:
 
 `server/core` should compose workflow services from the metadata store, runtime registry, session runtime service, worktree service, auth manager, and config. The workflow scheduler starts with the server process and stops with core shutdown.
 
+Implementation may split these responsibilities across narrower Go packages if that preserves a pure domain/validation boundary. In particular, if `server/workflow` is used as the pure domain package, persistence, scheduler, and runtime adapters should live in sibling packages instead of adding DB/runtime imports to the domain package.
+
 ### Runtime Model
 
 Workflow runtime is not `RunPromptService`. It needs durable run identity, structured completion, interruption, resume, and queue scheduling. Reuse lower-level runtime/session pieces:
@@ -281,6 +283,7 @@ Minimal testing-oriented commands:
 - `builder task comment add|replace|delete <short-id> ...`
 
 The exact CLI can be clunky; it exists to exercise backend behavior and teach agents task CLI usage.
+Commands whose backend semantics land later may initially fail loudly as unsupported placeholders rather than implementing partial behavior. In particular, full manual moves and approvals belong with the approval/manual-move slice, not the first CLI CRUD slice.
 
 ## Data Model Draft
 
@@ -538,19 +541,19 @@ Completion criteria:
 
 ### Slice 4: Minimal Workflow And Task CLI
 
-Add clunky but complete backend-testing commands before automation. These commands are for engineering validation and agent usage, not for Nikita-led manual QA.
+Add clunky but complete backend-testing commands for CRUD/read/comment/validation before automation. These commands are for engineering validation and agent usage, not for Nikita-led manual QA. Full manual moves and approvals land later; early `task move`/`task approve` commands may be explicit unsupported placeholders.
 
 Scope:
 
 - Implement minimal `builder workflow` commands for create, node add, edge add, link, validate, and inspect.
-- Implement minimal `builder task` commands for create, list, show, move, approve, resume placeholder, and comment add/replace/delete.
+- Implement minimal `builder task` commands for create, list, show, resume placeholder, comment add/replace/delete, and optional unsupported placeholders for move/approve.
 - Prefer stable IDs in output where later commands need row identifiers; approval uses task transition row ID, not user-defined transition ID.
 
 Completion criteria:
 
-- CLI tests or command-level tests create a workflow, link it to a project, create a task, list/show board/task views, add/replace/delete comments, validate graph errors, and create a manual pending transition without queueing automation.
+- CLI tests or command-level tests create a workflow, link it to a project, create a task, list/show board/task views, add/replace/delete comments, validate graph errors, and verify manual move/approval placeholders fail loudly until their implementation slice.
 - CLI output includes enough IDs for humans and agents to continue from terminal logs.
-- A no-LLM coding-agent smoke check can be run against a temporary persistence root: create a real workflow graph, create tasks, inspect board/task views, move a task manually, and verify comments plus IDs behave as expected.
+- A no-LLM coding-agent smoke check can be run against a temporary persistence root: create a real workflow graph, create tasks, inspect board/task views, verify comments plus IDs behave as expected, and verify manual move/approval commands fail loudly until their implementation slice.
 
 ### Slice 5: Task-Owned Worktree Primitive
 
@@ -607,12 +610,12 @@ Connect persistence, queue, task worktree, runtime, and completion for the small
 
 Scope:
 
-- Execute one agent node using `new_session`: task creation, manual move from start/backlog into executable node, worktree ensure, queued run claim, session creation, node prompt injection, fake/model runtime execution, `complete_node`, transition application, and terminal placement.
-- Use fake LLM/runtime in tests; reserve real provider use for manual QA later.
+- Execute one agent node using `new_session`: task creation, explicit start/schedule action from backlog into executable node, worktree ensure, queued run claim, session creation, node prompt injection, fake/model runtime execution through real runtime/tool handling, `complete_node`, transition application, and terminal placement.
+- Use fake provider/model adapters in tests while still exercising real runtime/tool handling for vertical completion behavior; reserve real provider use for manual QA later.
 
 Completion criteria:
 
-- Integration test creates workflow `start -> agent -> done`, creates a task, starts automation, completes via fake `complete_node`, and observes task placement in terminal node with stored payload/commentary.
+- Integration test creates workflow `backlog(start) -> agent -> done(terminal)`, creates a task, starts automation, completes via fake `complete_node`, and observes task placement in terminal node with stored payload/commentary.
 - CLI can create/show the same flow against embedded server state.
 - No test loads full `events.jsonl`.
 - Real-provider smoke testing is optional and requires explicit manual approval before spending provider credits.

@@ -24,11 +24,13 @@
 
 - Async workflow orchestration planning is backend/domain/persistence/runtime first. Frontend implementation is deferred except for backend read models and API shapes needed by a parallel POC GUI.
 - Workflow CLI is an internal backend-testing and agent-control surface, not the primary user manual QA surface.
+- Initial workflow CLI work may include loud unsupported placeholders for commands whose backend semantics land later. Full manual task moves and approvals are not part of the first CLI CRUD/read/comment milestone.
 - Nikita-led manual QA for async workflows should wait until a usable GUI/POC exists on top of workflow APIs.
 - Workflow API/read-model shapes do not need public compatibility stability before Builder 2.0 and may change while the workflow implementation evolves.
 - A parallel POC GUI should consume workflow APIs through a thin adapter layer so pre-2.0 backend DTO/read-model churn does not spread through UI code.
+- Workflow implementation may split Go packages to preserve a pure domain/validation boundary; persistence, scheduler, and runtime adapters should not force DB/runtime imports into a pure domain package.
 - First implementation milestone is workflow domain validation, metadata persistence, API/read models, and minimal CLI through internal no-LLM coding-agent smoke checks. Real runtime/LLM orchestration follows after that foundation.
-- Automated workflow runtime tests should use fake model/runtime adapters until real-provider smoke testing is explicitly approved.
+- Automated workflow runtime tests should use fake provider/model adapters until real-provider smoke testing is explicitly approved; vertical integration tests must still exercise real workflow runtime/tool handling where that behavior is under test.
 - Real-agent workflow QA requires explicit approval because it spends provider credits and can fail for model/provider reasons unrelated to orchestration correctness.
 
 ## Client/Server Lifecycle Boundary

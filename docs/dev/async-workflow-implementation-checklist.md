@@ -32,38 +32,49 @@ Checked before implementation in this worktree:
 - Existing shared boundary paths are `shared/serverapi`, `shared/servicecontract`, and `shared/client`.
 - Existing transport path is `server/transport`.
 - Existing CLI command path is `cli/builder`.
+- Existing composition/lifecycle paths relevant to workflow workers are `server/core`, `server/bootstrap`, `server/embedded`, and `server/serve`.
+- Existing runtime activation/control paths are `server/runtimewire`, `server/sessionruntime`, `server/runtimecontrol`, `server/launch`, and `server/registry`.
+- Existing worktree and tool-schema paths are `server/worktree`, `shared/serverapi/worktree.go`, `server/tools/definitions.go`, and `shared/toolspec`.
+- Existing RPC/method boundary path is `shared/protocol`.
 - If these paths change before a later slice starts, update this section before coding that slice.
 
 ## Slice 1: Workflow Domain And Graph Validation
 
-Goal: pure `server/workflow` package with domain types and graph validation. No DB, runtime, CLI, or transport dependencies.
+Goal: pure workflow domain package with domain types and graph validation. No DB, runtime, CLI, or transport dependencies.
 
 ### 1.1 Recon
 
 - [ ] Inspect existing Go package naming and error conventions near `server/metadata`, `server/projectview`, and `shared/serverapi`.
 - [ ] Confirm no existing workflow package or graph validator exists.
 - [ ] Identify subagent role/config lookup abstraction currently used by runtime/subagents.
+- [ ] Decide permanent package boundary before coding: keep `server/workflow` pure and put persistence/scheduler/runtime adapters in sibling packages, or choose a different pure-domain package name and update the spec/checklist.
 - [ ] Record any discovered naming conflicts in this checklist before coding.
 
 ### 1.2 Red Tests
 
 - [ ] Add `server/workflow` package test file for graph validation.
 - [ ] Define exact validation error code names before implementation and assert them in tests.
-- [ ] Add valid fixture helper for default workflow: `start/backlog -> agent -> done`.
+- [ ] Add valid fixture helper for default workflow: `backlog(start) -> agent -> done(terminal)`.
 - [ ] Add test: valid default workflow passes.
 - [ ] Add test: exactly one start node required.
 - [ ] Add test: missing start node rejected.
 - [ ] Add test: multiple start nodes rejected.
-- [ ] Add test: start node must be non-executable and have no input requirements.
+- [ ] Add test: start node must be non-executable, have no subagent role, have no prompt, and have no output/payload requirements.
+- [ ] Add test: start node incoming edges are rejected unless spec is explicitly changed.
 - [ ] Add test: terminal node cannot have outgoing edges.
-- [ ] Add test: terminal node cannot auto-run.
+- [ ] Add test: terminal node must be non-executable and have no subagent role/prompt.
+- [ ] Add test: join node must be non-executable and have no subagent role/prompt.
+- [ ] Add test: join node cannot also be terminal/start.
+- [ ] Add test: join node outgoing shape is valid for v1, with exactly one transition group unless routing is explicitly added.
 - [ ] Add test: every node reachable from start.
 - [ ] Add test: every non-terminal node can reach terminal.
 - [ ] Add test: detached island rejected.
 - [ ] Add test: cycles are allowed when terminal remains reachable.
 - [ ] Add test: self-loop is allowed when terminal remains reachable.
 - [ ] Add test: transition group source must match edge source.
+- [ ] Add test: transition group ID unique workflow-wide.
 - [ ] Add test: transition IDs unique per source node.
+- [ ] Add test: transition group must contain at least one edge.
 - [ ] Add test: edge keys unique per transition group.
 - [ ] Add test: edge target node must exist.
 - [ ] Add test: workflow-scoped references cannot cross workflow definitions.
@@ -84,9 +95,14 @@ Initial validation error code names:
 - [ ] `workflow.validation.invalid_start_node`
 - [ ] `workflow.validation.terminal_has_outgoing_edge`
 - [ ] `workflow.validation.terminal_is_executable`
+- [ ] `workflow.validation.join_is_executable`
+- [ ] `workflow.validation.invalid_join_node`
+- [ ] `workflow.validation.invalid_join_outgoing_shape`
 - [ ] `workflow.validation.node_unreachable_from_start`
 - [ ] `workflow.validation.non_terminal_cannot_reach_terminal`
 - [ ] `workflow.validation.missing_transition_group_id`
+- [ ] `workflow.validation.duplicate_transition_group_id`
+- [ ] `workflow.validation.empty_transition_group`
 - [ ] `workflow.validation.duplicate_transition_id`
 - [ ] `workflow.validation.transition_group_source_mismatch`
 - [ ] `workflow.validation.missing_edge_id`
@@ -120,6 +136,7 @@ Initial validation error code names:
 - [ ] Validate required IDs and keys.
 - [ ] Validate one start node.
 - [ ] Validate node kind constraints.
+- [ ] Validate start, join, and terminal execution config constraints.
 - [ ] Validate transition group and edge source/target references.
 - [ ] Validate uniqueness constraints.
 - [ ] Validate graph reachability from start.
@@ -149,35 +166,22 @@ Goal: persist workflow definitions, project links, tasks, placements, runs, tran
 - [ ] Inspect project/workspace/worktree/session table schemas.
 - [ ] Decide whether project task counter lives on `projects` or separate counter table; update spec/checklist if changed.
 
-### 2.2 Red Migration/Store Tests
+### 2A: Schema, Migrations, And SQLC
+
+Goal: add DB shape and generated query surface before high-level store behavior.
+
+### 2A.1 Red Migration/SQL Tests
 
 - [ ] Add migration test for empty DB.
 - [ ] Add migration test for existing metadata DB fixture.
 - [ ] Add test for project key backfill using default project-name logic.
+- [ ] Add test for explicit project key storage and validation.
 - [ ] Add test for project key collision handling.
+- [ ] Add test that circular transition/placement references can be inserted with SQLite constraints, or choose nullable/domain-validated references and test that path.
 - [ ] Add test for atomic task sequence allocation under concurrent creates.
-- [ ] Add test for workflow create/update/read/list.
-- [ ] Add test for default `backlog` and `done` node creation if creation API owns that behavior.
-- [ ] Add test for node/transition group/edge persistence.
-- [ ] Add test for project-workflow link create/list/delete.
-- [ ] Add test for exactly one default workflow link per project.
-- [ ] Add test for task create selecting default workflow.
-- [ ] Add test for task create with explicit workflow.
-- [ ] Add test for task create creates exactly one start node placement.
 - [ ] Add test for task short ID format and uniqueness per project.
-- [ ] Add test for placement state transitions.
-- [ ] Add test for run create/update state fields.
-- [ ] Add test for transition log create/read ordering.
-- [ ] Add test for transition edge snapshot persistence.
-- [ ] Add test for pending approval snapshot not changing after graph edit.
-- [ ] Add test for comment add.
-- [ ] Add test for comment full-text replace.
-- [ ] Add test for comment soft-delete.
-- [ ] Add test for deleted comments hidden by default.
-- [ ] Add test for guarded graph delete rejected when non-terminal tasks reference graph element.
-- [ ] Add test for guarded graph delete allowed when safe.
 
-### 2.3 Migrations
+### 2A.2 Migrations
 
 - [ ] Add project key column and task sequence storage.
 - [ ] Add `workflows`.
@@ -194,8 +198,9 @@ Goal: persist workflow definitions, project links, tasks, placements, runs, tran
 - [ ] Add indexes listed in spec.
 - [ ] Add composite foreign keys where practical for workflow-scoped references.
 - [ ] Add domain/store validation where SQLite cannot enforce scope cleanly.
+- [ ] Resolve transition/placement circular-reference insertion explicitly; do not leave it as accidental SQLite behavior.
 
-### 2.4 SQL And Store
+### 2A.3 SQLC
 
 - [ ] Add sqlc queries for workflow CRUD.
 - [ ] Add sqlc queries for nodes/groups/edges CRUD.
@@ -206,9 +211,57 @@ Goal: persist workflow definitions, project links, tasks, placements, runs, tran
 - [ ] Add sqlc queries for run create/update/read.
 - [ ] Add sqlc queries for transition log and transition edge snapshots.
 - [ ] Add sqlc queries for task comments.
-- [ ] Add store methods wrapping multi-row operations in transactions.
 - [ ] Regenerate sqlc output using existing repo command/pattern.
+
+### 2B: Workflow, Link, And Task Store
+
+Goal: typed transactional store methods for workflows, project links, tasks, placements, and runs.
+
+### 2B.1 Red Store Tests
+
+- [ ] Add test for workflow create/update/read/list.
+- [ ] Add test for workflow creation auto-creating editable `backlog` start node and `done` terminal node.
+- [ ] Add test for node/transition group/edge persistence.
+- [ ] Add test for project-workflow link create/list/delete.
+- [ ] Add test for exactly one default workflow link per project.
+- [ ] Add test for task create selecting default workflow.
+- [ ] Add test for task create with explicit workflow.
+- [ ] Add test for task create creates exactly one start node placement.
+- [ ] Add test for same task short sequence allowed in different projects but short ID uniqueness enforced within one project.
+- [ ] Add test that task creation rejects workflow not linked to task project.
+- [ ] Add test for placement state transitions.
+- [ ] Add test for run create/update state fields.
+
+### 2B.2 Store Implementation
+
+- [ ] Add store methods wrapping workflow create/default-node creation in one transaction.
+- [ ] Add store methods for project workflow links and default link changes.
+- [ ] Add store methods for atomic task sequence allocation and task creation.
+- [ ] Add store methods for placement and run state updates.
 - [ ] Keep store methods typed; avoid passing raw JSON strings across domain boundaries where avoidable.
+
+### 2C: Transitions, Comments, And Guards
+
+Goal: transition/comment history and guarded graph mutation behavior.
+
+### 2C.1 Red Store Tests
+
+- [ ] Add test for transition log create/read ordering.
+- [ ] Add test for transition edge snapshot persistence.
+- [ ] Add test for pending approval snapshot not changing after graph edit.
+- [ ] Add test for comment add.
+- [ ] Add test for comment full-text replace.
+- [ ] Add test for comment soft-delete.
+- [ ] Add test for deleted comments hidden by default.
+- [ ] Add test for guarded graph delete rejected when non-terminal tasks reference graph element.
+- [ ] Add test for guarded graph delete allowed when safe.
+
+### 2C.2 Store Implementation
+
+- [ ] Add store methods for transition log and edge snapshots.
+- [ ] Add store methods for task comments.
+- [ ] Add guarded graph-delete checks.
+- [ ] Add transactional helpers for multi-row transition/comment operations.
 
 ### 2.5 Slice Verification
 
@@ -227,32 +280,51 @@ Goal: typed backend service and read surfaces for CLI and POC GUI. Contracts are
 - [ ] Inspect `shared/servicecontract` interface patterns.
 - [ ] Inspect `shared/client` loopback/remote client patterns.
 - [ ] Inspect `server/transport` route registration patterns.
+- [ ] Inspect `shared/protocol` method constant and route-name patterns.
 - [ ] Inspect existing read-model packages such as `server/projectview`, `server/sessionview`, and `server/runtimeview`.
 
-### 3.2 Red Tests
+### 3A: DTOs, Service Contracts, Clients, And Transport
+
+Goal: route-shaped typed API surface without large read-model work.
+
+### 3A.1 Red Tests
 
 - [ ] Add DTO validation tests for workflow create/update requests.
 - [ ] Add DTO validation tests for node/edge creation requests.
 - [ ] Add DTO validation tests for task create/move/comment requests.
+- [ ] Add DTO/API tests for explicit project key create/update path, or document default-only task key support as a locked decision before skipping.
 - [ ] Add service test for project default workflow resolution.
 - [ ] Add service test for workflow validation endpoint using domain validator.
-- [ ] Add read-model test for board node ordering.
-- [ ] Add read-model test for board active placement summaries.
-- [ ] Add read-model test for task detail including placements, runs, transitions, comments.
-- [ ] Add read-model test for transition history ordering.
-- [ ] Add read-model test for deleted comments hidden by default.
+- [ ] Add service test: cannot create task with workflow not linked to project.
+- [ ] Add service test: default workflow resolves within project only.
 - [ ] Add loopback client test for at least one workflow route.
 - [ ] Add remote/transport route test for same route if repo has route test pattern.
 
-### 3.3 Contracts And Services
+### 3A.2 Implementation
 
 - [ ] Add `shared/serverapi/workflow.go` DTOs.
 - [ ] Add validation helpers with stable error codes.
 - [ ] Add `shared/servicecontract` workflow interface.
 - [ ] Add `shared/client` workflow client methods.
+- [ ] Add protocol/method constants if current transport pattern requires them.
 - [ ] Add server workflow service composition.
-- [ ] Add `server/workflowview` read-model package.
 - [ ] Add transport route registration.
+
+### 3B: Workflow Views
+
+Goal: board and task read models for CLI and POC GUI adapter.
+
+### 3B.1 Red Tests
+
+- [ ] Add read-model test for board node ordering.
+- [ ] Add read-model test for board active placement summaries.
+- [ ] Add read-model test for task detail including placements, runs, transitions, comments.
+- [ ] Add read-model test for transition history ordering.
+- [ ] Add read-model test for deleted comments hidden by default.
+
+### 3B.2 Implementation
+
+- [ ] Add `server/workflowview` read-model package.
 - [ ] Ensure read models do not read session transcripts or `events.jsonl`.
 - [ ] Document mutable pre-2.0 contract expectation in code comments only where useful.
 
@@ -264,7 +336,7 @@ Goal: typed backend service and read surfaces for CLI and POC GUI. Contracts are
 
 ## Slice 4: Minimal Workflow And Task CLI
 
-Goal: internal CLI harness and agent-control surface for workflow/task CRUD, comments, validation, manual moves, and approvals. Not Nikita manual QA surface.
+Goal: internal CLI harness and agent-control surface for workflow/task CRUD, comments, and validation. Not Nikita manual QA surface. Full manual moves and approvals are implemented in Slice 11.
 
 ### 4.1 Recon
 
@@ -272,11 +344,13 @@ Goal: internal CLI harness and agent-control surface for workflow/task CRUD, com
 - [ ] Inspect existing command files for flag parsing and client setup.
 - [ ] Inspect embedded/remote serverbridge usage for non-interactive commands.
 - [ ] Decide output format conventions for IDs and errors.
+- [ ] Plan dedicated workflow/task command files; keep `cli/builder/main.go` dispatch thin.
 
-### 4.2 Red Tests
+### 4.2 Command Parser/Handler Tests
 
 - [ ] Add command test for `builder workflow create`.
-- [ ] Add command test for `builder workflow node add`.
+- [ ] Add command test that `builder workflow create` auto-creates `backlog` and `done`.
+- [ ] Add command test for `builder workflow node add` adding extra agent/join nodes.
 - [ ] Add command test for `builder workflow edge add`.
 - [ ] Add command test for `builder workflow link`.
 - [ ] Add command test for `builder workflow validate`.
@@ -284,8 +358,9 @@ Goal: internal CLI harness and agent-control surface for workflow/task CRUD, com
 - [ ] Add command test for `builder task create`.
 - [ ] Add command test for `builder task list`.
 - [ ] Add command test for `builder task show`.
-- [ ] Add command test for `builder task move` creating pending/manual transition.
-- [ ] Add command test for `builder task approve` using task transition row ID.
+- [ ] Add command test that `builder task move` fails loudly/nonzero until Slice 11.
+- [ ] Add command test that `builder task approve` fails loudly/nonzero until Slice 11.
+- [ ] Add command test that `builder task resume` fails loudly/nonzero until runtime/resume slices.
 - [ ] Add command test for `builder task comment add`.
 - [ ] Add command test for `builder task comment replace`.
 - [ ] Add command test for `builder task comment delete`.
@@ -303,24 +378,25 @@ Goal: internal CLI harness and agent-control surface for workflow/task CRUD, com
 - [ ] Implement `builder task create --title <title> --body <body> [--workflow <workflow>]`.
 - [ ] Implement `builder task list [--project <project>]`.
 - [ ] Implement `builder task show <short-id>`.
-- [ ] Implement `builder task move <short-id> <node> --placement <placement-id> [--edge <edge-id>] [--payload field=value ...]`.
-- [ ] Implement `builder task approve <task-transition-id>`.
+- [ ] Add `builder task move ...` as explicit unsupported command until Slice 11, if reserving command shape is useful.
+- [ ] Add `builder task approve ...` as explicit unsupported command until Slice 11, if reserving command shape is useful.
 - [ ] Implement `builder task resume <short-id>` as placeholder or explicit unsupported command until runtime slice.
 - [ ] Implement `builder task comment add <short-id>`.
 - [ ] Implement `builder task comment replace <comment-id>`.
 - [ ] Implement `builder task comment delete <comment-id>`.
 - [ ] Ensure command errors return nonzero exit and stable message.
 - [ ] Ensure CLI does not bypass service/store invariants.
+- [ ] Put workflow/task command handlers in dedicated files or package-local command structs; keep `main.go` dispatch thin.
 
 ### 4.4 Internal Smoke Check
 
 - [ ] Run smoke against a temp persistent root and embedded-local server wiring, not the user's real daemon/root.
 - [ ] Create temporary persistence root.
+- [ ] Write temp Builder config/workspace config defining role `workflow-test` for contextual workflow validation.
 - [ ] Create or bind a test project/workspace through existing setup commands.
 - [ ] Create workflow.
-- [ ] Add start/backlog node.
-- [ ] Add agent node referencing existing test subagent role or role stub.
-- [ ] Add terminal done node.
+- [ ] Confirm workflow has auto-created editable `backlog` start node and `done` terminal node.
+- [ ] Add agent node referencing temp role `workflow-test`.
 - [ ] Add start-to-agent edge.
 - [ ] Add agent-to-done edge.
 - [ ] Link workflow to project as default.
@@ -331,8 +407,7 @@ Goal: internal CLI harness and agent-control surface for workflow/task CRUD, com
 - [ ] Add task comment.
 - [ ] Replace task comment.
 - [ ] Delete task comment.
-- [ ] Move task manually using valid edge/payload.
-- [ ] Show task and confirm transition/placement state.
+- [ ] Confirm `task move` and `task approve` are unavailable or unsupported until their implementation slices.
 - [ ] Capture exact smoke commands in PR/commit notes or checklist update if useful.
 
 ### 4.5 Milestone Verification
@@ -385,6 +460,8 @@ Goal: SQLite-backed runnable workflow queue with CAS claims, fencing, global con
 
 ### 6.1 Red Tests
 
+- [ ] Add config schema/default test for workflow global concurrency defaulting to `5`.
+- [ ] Add config validation test for invalid workflow concurrency values.
 - [ ] Add test for selecting oldest queued run.
 - [ ] Add test for global concurrency cap.
 - [ ] Add concurrent claim race test proving one claim wins.
@@ -400,8 +477,9 @@ Goal: SQLite-backed runnable workflow queue with CAS claims, fencing, global con
 
 ### 6.2 Implementation
 
-- [ ] Add queue service under `server/workflow` or separate cohesive scheduler file.
-- [ ] Add config read for global concurrency default 5.
+- [ ] Add queue service under pure workflow package or separate cohesive scheduler package according to Slice 1 package-boundary decision.
+- [ ] Add config field/read for global workflow concurrency default 5.
+- [ ] Add config validation for invalid values.
 - [ ] Implement transactional claim from `queued` to `running`.
 - [ ] Store `claim_id`, `claimed_by`, `claimed_at_unix_ms`, and `state_generation`.
 - [ ] Implement completion path requiring matching claim/generation.
@@ -416,6 +494,17 @@ Goal: SQLite-backed runnable workflow queue with CAS claims, fencing, global con
 - [ ] Run `./scripts/build.sh --output ./bin/builder`.
 - [ ] Commit slice with message like `feat: add workflow queue`.
 
+## Runtime Test Adapter Boundary
+
+Define this boundary before Slice 7 implementation, then reuse it in Slice 8. Fake provider/model transport is allowed; fake workflowruntime that bypasses real runtime/tool execution is allowed only for scheduler tests, not vertical completion tests.
+
+- [ ] Define fake provider/model adapter interface before Slice 7 runtime integration tests.
+- [ ] Adapter must simulate model output and tool calls without provider network calls.
+- [ ] Adapter must expose deterministic scripted steps: final answer, tool-call batch, `ask_question`, runtime error, and cancellation where needed by tests.
+- [ ] Adapter must record session/run/worktree inputs so tests can assert prompt/context/worktree behavior.
+- [ ] At least one Slice 8 vertical integration path must feed fake model output through the real runtime step loop and real `complete_node` tool handling.
+- [ ] Real-provider smoke must remain outside automated tests and behind Nikita approval.
+
 ## Slice 7: Runtime Completion Hook And `complete_node`
 
 Goal: runtime can identify workflow run context, expose static `complete_node`, validate completion, and stop node run cleanly.
@@ -426,6 +515,8 @@ Goal: runtime can identify workflow run context, expose static `complete_node`, 
 - [ ] Inspect `shared/toolspec/toolspec.go`.
 - [ ] Inspect `server/runtime/tool_executor.go`.
 - [ ] Inspect `server/runtime/step_executor.go`.
+- [ ] Inspect `server/runtimewire` workflow-relevant runtime construction.
+- [ ] Inspect `server/sessionruntime` and `server/runtimecontrol` activation/control boundaries.
 - [ ] Inspect runtime tests for tool call execution and final answer handling.
 - [ ] Identify where tool-call batch preflight belongs.
 
@@ -464,27 +555,23 @@ Goal: runtime can identify workflow run context, expose static `complete_node`, 
 
 Goal: one executable workflow node can run asynchronously through queue/session/worktree/runtime with fake model completion.
 
-### 8.0 Fake Runtime Boundary
-
-- [ ] Define fake workflow runtime/model adapter interface before writing Slice 8 tests.
-- [ ] Adapter must simulate model output and tool calls without provider network calls.
-- [ ] Adapter must expose deterministic scripted steps: final answer, tool-call batch, `ask_question`, runtime error, and cancellation where needed by tests.
-- [ ] Adapter must record session/run/worktree inputs so tests can assert prompt/context/worktree behavior.
-- [ ] Adapter must not share code path with real provider transport except through the same workflowruntime boundary used by production.
-- [ ] Real-provider smoke must remain outside automated tests and behind Nikita approval.
-
 ### 8.1 Red Tests
 
 - [ ] Add integration test for `start -> agent -> done`.
-- [ ] Add test task creation then manual move to executable node queues run.
+- [ ] Add test task creation then explicit start/schedule action queues first executable run without relying on full manual-move semantics.
 - [ ] Add test scheduling executable node ensures task worktree.
 - [ ] Add test run claim creates new Builder session.
 - [ ] Add test node prompt includes task title/body and bound transition payload.
-- [ ] Add fake model/tool flow that calls `complete_node`.
+- [ ] Add fake provider/model flow that drives real runtime step loop and real `complete_node` handling.
 - [ ] Add test transition application moves task to done terminal node.
 - [ ] Add test commentary and payload stored in transition log.
 - [ ] Add test no full `events.jsonl` read occurs.
 - [ ] Add CLI-backed integration/smoke test if practical.
+- [ ] Add test executable run is not queued/started if role disappeared after workflow validation.
+- [ ] Add test role-drift blocker surfaces stable validation code.
+- [ ] Add test worker starts and stops with server core lifecycle.
+- [ ] Add test shutdown cancels in-flight fake run and preserves interrupted state.
+- [ ] Add test two workers do not double-claim same run.
 
 ### 8.2 Implementation
 
@@ -596,6 +683,8 @@ Goal: edge approval and manual override transitions are durable, validated, and 
 - [ ] Implement payload reuse for backward moves.
 - [ ] Implement explicit approve-before-queue for executable manual target.
 - [ ] Update CLI/API/read models for pending approvals.
+- [ ] Replace Slice 4 unsupported `builder task move` placeholder with working manual move command.
+- [ ] Replace Slice 4 unsupported `builder task approve` placeholder with working approval command.
 
 ### 11.3 Verification
 
