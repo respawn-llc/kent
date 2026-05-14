@@ -9,12 +9,19 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
 	"builder/shared/config"
 	"builder/shared/protocol"
+	"builder/shared/sessionenv"
 )
+
+func TestMain(m *testing.M) {
+	_ = os.Unsetenv(sessionenv.BuilderSessionID)
+	os.Exit(m.Run())
+}
 
 type stubServiceBackend struct {
 	status        serviceStatus
@@ -304,6 +311,7 @@ func TestServiceInstallAllowsHealthyServerOwnedByLoadedService(t *testing.T) {
 }
 
 func TestServiceRestartAllowsHealthyServerOwnedByLoadedServiceBeforePIDIsVisible(t *testing.T) {
+	t.Setenv(sessionenv.BuilderSessionID, "")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/healthz" {
 			http.NotFound(w, r)
@@ -329,6 +337,131 @@ func TestServiceRestartAllowsHealthyServerOwnedByLoadedServiceBeforePIDIsVisible
 	want := []serviceAction{serviceActionStatus, serviceActionRestart}
 	if strings.Join(actionsToStrings(backend.calls), ",") != strings.Join(actionsToStrings(want), ",") {
 		t.Fatalf("calls = %+v, want %+v", backend.calls, want)
+	}
+}
+
+func TestServiceRestartRejectsBuilderShellSession(t *testing.T) {
+	t.Setenv(sessionenv.BuilderSessionID, "session-123")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"status":"ok","pid":123}`)
+	}))
+	t.Cleanup(server.Close)
+	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: true, PID: 123}}
+	withServiceCommandTestBackendEndpoint(t, backend, server.URL)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"restart"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if len(backend.calls) != 0 {
+		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
+	}
+	if got := strings.TrimSpace(stderr.String()); got != serviceRestartCurrentSessionError {
+		t.Fatalf("stderr = %q, want current session restart guard", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
+func TestServiceRestartIfInstalledRejectsBuilderShellSession(t *testing.T) {
+	t.Setenv(sessionenv.BuilderSessionID, "session-123")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"status":"ok","pid":123}`)
+	}))
+	t.Cleanup(server.Close)
+	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: true, PID: 123}}
+	withServiceCommandTestBackendEndpoint(t, backend, server.URL)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"restart", "--if-installed"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if len(backend.calls) != 1 || backend.calls[0] != serviceActionStatus {
+		t.Fatalf("calls = %+v, want status only", backend.calls)
+	}
+	if got := strings.TrimSpace(stderr.String()); got != serviceRestartCurrentSessionError {
+		t.Fatalf("stderr = %q, want current session restart guard", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
+func TestServiceRestartIfInstalledSkipsCurrentShellSessionGuardWhenServiceMissing(t *testing.T) {
+	t.Setenv(sessionenv.BuilderSessionID, "session-123")
+	backend := &stubServiceBackend{status: serviceStatus{Installed: false}}
+	withServiceCommandTestBackend(t, backend)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"restart", "--if-installed"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	if len(backend.calls) != 1 || backend.calls[0] != serviceActionStatus {
+		t.Fatalf("calls = %+v, want status only", backend.calls)
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("unexpected output stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestServiceRestartHelpMentionsBuilderShellGuard(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"restart", "--help"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	expected := "Usage of builder service restart:\n" +
+		"  builder service restart [--if-installed]\n" +
+		"\n" +
+		"Notes:\n" +
+		"  Refuses to run inside Builder shell commands to avoid halting active agent work.\n" +
+		"\n" +
+		"Flags:\n" +
+		"  -if-installed\n" +
+		"    \texit successfully without action when service is not installed\n"
+	if got := stderr.String(); got != expected {
+		t.Fatalf("stderr = %q, want exact help output %q", got, expected)
+	}
+}
+
+func TestServiceRestartRejectsCurrentShellSessionBeforeHealthProbe(t *testing.T) {
+	t.Setenv(sessionenv.BuilderSessionID, "session-123")
+	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: true, PID: 123}}
+	withServiceCommandTestBackend(t, backend)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"restart"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if len(backend.calls) != 0 {
+		t.Fatalf("calls = %+v, want no service backend calls", backend.calls)
+	}
+	if got := strings.TrimSpace(stderr.String()); got != serviceRestartCurrentSessionError {
+		t.Fatalf("stderr = %q, want current session restart guard", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 }
 

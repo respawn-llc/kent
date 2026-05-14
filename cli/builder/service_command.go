@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"time"
 
 	"builder/shared/config"
 	"builder/shared/protocol"
+	"builder/shared/sessionenv"
 )
 
 type serviceAction string
@@ -231,12 +233,15 @@ func runServiceCommandAction(ctx context.Context, action serviceAction, opts ser
 		fmt.Fprintf(stdout, "Stopped %s.\n", serviceDisplayName)
 	case serviceActionRestart:
 		if !opts.IfInstalled {
+			if err := ensureServiceRestartAllowed(); err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
 			if err := ensureNoUnmanagedServerConflict(ctx, backend, spec); err != nil {
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
-		}
-		if opts.IfInstalled {
+		} else {
 			status, err := backend.Status(ctx, spec)
 			if err != nil {
 				fmt.Fprintln(stderr, err)
@@ -244,6 +249,10 @@ func runServiceCommandAction(ctx context.Context, action serviceAction, opts ser
 			}
 			if !status.Installed {
 				return 0
+			}
+			if err := ensureServiceRestartAllowed(); err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
 			}
 			if err := ensureNoUnmanagedServerConflict(ctx, backend, spec); err != nil {
 				fmt.Fprintln(stderr, err)
@@ -298,6 +307,15 @@ func ensureNoUnmanagedServerConflict(ctx context.Context, backend serviceBackend
 		}
 	}
 	return nil
+}
+
+const serviceRestartCurrentSessionError = "you may not restart the service now as restarting the service will kill your current session, halting your work. Ask the user to restart the service manually."
+
+func ensureServiceRestartAllowed() error {
+	if _, ok := sessionenv.LookupBuilderSessionID(os.LookupEnv); !ok {
+		return nil
+	}
+	return errors.New(serviceRestartCurrentSessionError)
 }
 
 func readServiceStatus(ctx context.Context, backend serviceBackend, spec serviceSpec) (serviceStatus, error) {
