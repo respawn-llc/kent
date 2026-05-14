@@ -33,11 +33,11 @@ Source: https://www.anthropic.com/engineering/building-effective-agents
 - Existing `RunPromptService` is one-shot headless prompt execution and returns a final assistant string; async workflow agents need durable, resumable runs with structured terminal events.
 - Workflow definitions must validate referenced subagent roles before execution. If config changes remove or invalidate a role, affected workflow runs should fail fast with actionable validation errors rather than silently substituting another agent.
 - Each workflow edge may specify handoff mode for the next node: start a new blank session with previous output/task metadata, continue the prior session with a new prompt/goal, or compact then continue the prior session with metadata.
+- Domain language is defined in `docs/dev/TERMINOLOGY.md`; use it consistently before naming database tables and services.
 
 ## Open Questions
 
 - What CLI surface is enough to test v1 without building frontend?
-- Which node types exist in v1 beyond agent execution?
 - How flexible should per-node inputs/outputs be without exposing arbitrary JSON schema building?
 - How should user questions pause/resume tasks across many concurrent agents?
 - How should worktrees, branches, commits, PRs, and cleanup attach to tasks?
@@ -54,17 +54,15 @@ Decisions will be recorded here during the planning interview.
 - Workflow definitions may rely on TOML-configured subagent roles. This creates config drift risk; v1 accepts fail-fast validation rather than inventing a full stable workflow file/schema solution immediately.
 - Builder should support the major agentic workflow patterns from the Anthropic article in some form: prompt chaining, routing, parallelization with aggregation, orchestrator-workers, evaluator-optimizer loops, and open-ended autonomous agents.
 - Per-edge session handoff must be configurable in v1 with at least three modes: `new_session`, `continue_session`, and `compact_and_continue_session`.
+- V1 workflow definitions are SQLite-authoritative and created/edited through backend API plus a minimal CLI. No stable graph file format is required in v1.
+- Node config and edge config are distinct. Nodes configure agent runs: subagent role, prompt, limits, model/auth/settings/tool policy, and run stop conditions. Edges configure transitions: next node, human approval/manual interaction, context preservation, input/output bindings, routing, and join/aggregation behavior.
+- V1 should keep node identity equal to visible Kanban column/status identity. Multiple executable nodes sharing one column creates ambiguous manual moves and unclear debugging. Later UI can add display grouping if needed.
+- Parallel joins always wait for all required inputs in v1. Racing/first-success semantics are out of scope.
+- Orchestrator-workers should not dynamically create workflow nodes or Kanban columns in v1. An orchestrator is an ordinary agent node that may use existing subagent/session infrastructure inside its run or feed statically defined graph branches.
 
 ## Domain Vocabulary
 
-- `Task`: durable user-facing unit of work shown as a Kanban card and tracked through workflow state.
-- `Workflow`: reusable graph definition for how tasks move through nodes and transitions.
-- `Workflow Node`: one executable or manual step in a workflow graph; may map to a Kanban status.
-- `Workflow Edge`: transition between nodes; carries routing conditions and session handoff mode.
-- `Run`: one durable attempt to execute a node for a task.
-- `Session`: Builder transcript/runtime artifact created or continued by a run.
-- `Handoff`: construction of the next run's execution context from prior task metadata, node outputs, and optional session continuation.
-- `Question`: user-blocking ask emitted by an agent/run and answered later through shared prompt-control infrastructure.
+See `docs/dev/TERMINOLOGY.md`.
 
 ## Backend Architecture Draft
 
