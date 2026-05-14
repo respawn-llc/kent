@@ -54,6 +54,10 @@ func (s State) IsConfigured() bool {
 	return s.Method.Type != MethodNone
 }
 
+func (s State) IsNoAuthSelected() bool {
+	return s.Method.Type == MethodNone && s.EnvAPIKeyPreference == EnvAPIKeyPreferencePreferSaved
+}
+
 func (s State) Validate() error {
 	if s.Scope == "" {
 		return fmt.Errorf("%w: empty", ErrInvalidAuthScope)

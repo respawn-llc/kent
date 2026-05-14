@@ -181,7 +181,7 @@ func TestRunSessionLifecyclePickerWorkspaceChangeYesRetargetsSessionAndReplans(t
 	}()
 
 	pickerCalls := 0
-	runSessionPickerFlow = func(summaries []clientui.SessionSummary, theme string) (sessionPickerResult, error) {
+	runSessionPickerFlow = func(summaries []clientui.SessionSummary, theme string, header sessionPickerHeaderInfo) (sessionPickerResult, error) {
 		pickerCalls++
 		for _, summary := range summaries {
 			if summary.SessionID == store.Meta().SessionID {
@@ -291,7 +291,7 @@ func TestRunSessionLifecyclePickerWorkspaceChangeNoReturnsToPicker(t *testing.T)
 	}()
 
 	pickerCalls := 0
-	runSessionPickerFlow = func(summaries []clientui.SessionSummary, theme string) (sessionPickerResult, error) {
+	runSessionPickerFlow = func(summaries []clientui.SessionSummary, theme string, header sessionPickerHeaderInfo) (sessionPickerResult, error) {
 		pickerCalls++
 		if pickerCalls == 1 {
 			for _, summary := range summaries {
@@ -375,7 +375,7 @@ func TestRunSessionLifecycleStalePickedSessionReturnsToPickerAndOpensAnother(t *
 	}()
 
 	pickerCalls := 0
-	runSessionPickerFlow = func(summaries []clientui.SessionSummary, theme string) (sessionPickerResult, error) {
+	runSessionPickerFlow = func(summaries []clientui.SessionSummary, theme string, header sessionPickerHeaderInfo) (sessionPickerResult, error) {
 		pickerCalls++
 		for _, summary := range summaries {
 			if pickerCalls == 1 && summary.SessionID == staleSessionID {

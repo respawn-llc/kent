@@ -30,45 +30,44 @@ func (fileReadContextProcessor) ID() string {
 	return "builtin/file-read-context"
 }
 
-func (fileReadContextProcessor) Process(_ context.Context, req Request) (Result, error) {
-	if req.ToolName != toolspec.ToolExecCommand {
-		return Result{Output: req.Output}, nil
+func (fileReadContextProcessor) Scope() Scope {
+	return Scope{
+		ToolNames: []toolspec.ID{toolspec.ToolExecCommand},
+		ExitCodes: ExitCodeSuccess,
 	}
-	if req.ExitCode == nil || *req.ExitCode != 0 {
-		return Result{Output: req.Output}, nil
-	}
+}
+
+func (p fileReadContextProcessor) Process(_ context.Context, envelope Envelope) (Decision, error) {
+	req := envelope.Request
+	req.Output = envelope.CurrentOutput
 	if len(req.ParsedArgs) < 2 || strings.HasPrefix(req.Output, "[Total line count: ") {
-		return Result{Output: req.Output}, nil
+		return Skip(envelope), nil
 	}
 
 	args, ok := fileReadArgsWithoutCommand(req.CommandName, req.ParsedArgs)
 	if !ok {
-		return Result{Output: req.Output}, nil
+		return Skip(envelope), nil
 	}
 	candidate, ok := classifyFileRead(req.CommandName, args)
 	if !ok {
-		return Result{Output: req.Output}, nil
+		return Skip(envelope), nil
 	}
 	if candidate.certainlyFull {
-		return Result{Output: req.Output}, nil
+		return Skip(envelope), nil
 	}
 	path, ok := resolveReadPath(req.Workdir, candidate.path)
 	if !ok {
-		return Result{Output: req.Output}, nil
+		return Skip(envelope), nil
 	}
 	lineCount, ok := countSmallRegularFileLines(path)
 	if !ok {
-		return Result{Output: req.Output}, nil
+		return Skip(envelope), nil
 	}
 	if candidate.canInferFullFromLineCount && lineCount <= candidate.fullWhenLineCountAtMost {
-		return Result{Output: req.Output}, nil
+		return Skip(envelope), nil
 	}
 
-	return Result{
-		Output:      fmt.Sprintf("[Total line count: %d]\n%s", lineCount, req.Output),
-		Processed:   true,
-		ProcessorID: "builtin/file-read-context",
-	}, nil
+	return Continue(envelope.WithCurrent(fmt.Sprintf("[Total line count: %d]\n%s", lineCount, req.Output)), p.ID()), nil
 }
 
 func fileReadArgsWithoutCommand(commandName string, parsedArgs []string) ([]string, bool) {

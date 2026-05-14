@@ -212,7 +212,7 @@ func UserFacingError(err error) string {
 }
 
 func unauthenticatedWarning() string {
-	return "Authentication is not configured. Run /login or set OPENAI_API_KEY. If you're using a custom or local OpenAI-compatible server that needs no auth, set openai_base_url and continue without Builder auth."
+	return "Not authenticated, run /login to sign in with your provider"
 }
 
 func authenticationFailedWarning(provider string, statusCode int) string {

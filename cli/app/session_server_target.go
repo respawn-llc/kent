@@ -49,7 +49,7 @@ func startSessionServer(ctx context.Context, opts Options, interactor authIntera
 			if resolution.Source == serverattach.SourceEmbeddedFallback {
 				return serverattach.AuthReadinessUnchecked, nil
 			}
-			if err := resolution.Value.Reauthenticate(ctx, interactor); err != nil {
+			if err := resolution.Value.EnsureAuthReady(ctx, interactor); err != nil {
 				return serverattach.AuthReadinessUnchecked, err
 			}
 			return serverattach.AuthReadinessValidated, nil

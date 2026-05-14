@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"builder/cli/tui"
 	"builder/shared/clientui"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
@@ -16,10 +15,9 @@ import (
 )
 
 const (
-	sessionPickerHeaderMarkdown = "**Select session**"
-	sessionPickerCreateLabel    = "Create a new session"
-	defaultPickerWidth          = 80
-	defaultPickerHeight         = 24
+	sessionPickerCreateLabel = "Create a new session"
+	defaultPickerWidth       = 80
+	defaultPickerHeight      = 24
 )
 
 var runSessionPickerFlow = runSessionPicker
@@ -32,6 +30,11 @@ type sessionPickerResult struct {
 
 type sessionPickerStyles struct {
 	headerFallback lipgloss.Style
+	headerBox      lipgloss.Style
+	headerTitle    lipgloss.Style
+	headerText     lipgloss.Style
+	headerWarning  lipgloss.Style
+	headerSuccess  lipgloss.Style
 	row            lipgloss.Style
 	rowSelected    lipgloss.Style
 	marker         lipgloss.Style
@@ -42,38 +45,53 @@ type sessionPickerStyles struct {
 
 type sessionPickerModel struct {
 	sessions []clientui.SessionSummary
+	header   sessionPickerHeaderInfo
 	cursor   int
 	offset   int
 	width    int
 	height   int
 	theme    string
 	styles   sessionPickerStyles
-	headerMD *glamour.TermRenderer
 	result   sessionPickerResult
 }
 
-func newSessionPickerModel(summaries []clientui.SessionSummary, theme string) *sessionPickerModel {
+func newSessionPickerModel(summaries []clientui.SessionSummary, theme string, header sessionPickerHeaderInfo) *sessionPickerModel {
 	items := append([]clientui.SessionSummary(nil), summaries...)
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].UpdatedAt.After(items[j].UpdatedAt)
 	})
 	m := &sessionPickerModel{
 		sessions: items,
+		header:   header,
 		width:    defaultPickerWidth,
 		height:   defaultPickerHeight,
 		theme:    theme,
 		styles:   newSessionPickerStyles(theme),
 	}
-	m.headerMD = newStartupMarkdownRenderer(theme)
 	return m
 }
 
 func (m *sessionPickerModel) Init() tea.Cmd {
-	return nil
+	return collectSessionPickerStatusCmd(m.header)
 }
 
 func (m *sessionPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch key := msg.(type) {
+	case sessionPickerStatusMsg:
+		if strings.TrimSpace(key.cwd) != "" {
+			m.header.CWD = strings.TrimSpace(key.cwd)
+		}
+		if strings.TrimSpace(key.branch) != "" {
+			m.header.Branch = strings.TrimSpace(key.branch)
+		}
+		if strings.TrimSpace(key.auth) != "" {
+			m.header.Auth = strings.TrimSpace(key.auth)
+		}
+		if strings.TrimSpace(key.model) != "" {
+			m.header.Model = strings.TrimSpace(key.model)
+		}
+		m.ensureCursorVisible()
+		return m, nil
 	case tea.WindowSizeMsg:
 		if key.Width > 0 {
 			m.width = key.Width
@@ -176,7 +194,7 @@ func (m *sessionPickerModel) ensureCursorVisible() {
 }
 
 func (m *sessionPickerModel) visibleLineBudget() int {
-	rows := m.height - 2
+	rows := m.height - lipgloss.Height(m.renderHeader()) - 2
 	if rows < 1 {
 		return 1
 	}
@@ -240,16 +258,6 @@ func (m *sessionPickerModel) itemCount() int {
 	return len(m.sessions) + 1
 }
 
-func (m *sessionPickerModel) renderHeader() string {
-	if m.headerMD != nil {
-		rendered, err := m.headerMD.Render(sessionPickerHeaderMarkdown)
-		if err == nil {
-			return tui.ApplyThemeDefaultForeground(strings.TrimRight(rendered, "\n"), m.theme)
-		}
-	}
-	return m.styles.headerFallback.Render("Select session")
-}
-
 func (m *sessionPickerModel) renderRow(index int, showPreview bool) string {
 	selected := index == m.cursor
 	title := sessionPickerCreateLabel
@@ -308,6 +316,13 @@ func newSessionPickerStyles(theme string) sessionPickerStyles {
 	palette := uiPalette(theme)
 	return sessionPickerStyles{
 		headerFallback: lipgloss.NewStyle().Foreground(palette.primary).Bold(true),
+		headerBox: lipgloss.NewStyle().
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(palette.muted),
+		headerTitle:    lipgloss.NewStyle().Foreground(palette.primary).Bold(true),
+		headerText:     lipgloss.NewStyle().Foreground(palette.foreground),
+		headerWarning:  lipgloss.NewStyle().Foreground(statusAmberColor()).Bold(true),
+		headerSuccess:  lipgloss.NewStyle().Foreground(statusGreenColor()).Bold(true),
 		row:            lipgloss.NewStyle().Foreground(palette.foreground),
 		rowSelected:    lipgloss.NewStyle().Foreground(palette.primary).Bold(true),
 		marker:         lipgloss.NewStyle().Foreground(palette.muted),
@@ -353,8 +368,8 @@ func humanTime(ts time.Time) string {
 	return ts.Local().Format("2006-01-02 15:04")
 }
 
-func runSessionPicker(summaries []clientui.SessionSummary, theme string) (sessionPickerResult, error) {
-	model := newSessionPickerModel(summaries, theme)
+func runSessionPicker(summaries []clientui.SessionSummary, theme string, header sessionPickerHeaderInfo) (sessionPickerResult, error) {
+	model := newSessionPickerModel(summaries, theme, header)
 	program := tea.NewProgram(model, tea.WithAltScreen())
 	finalModel, err := program.Run()
 	if err != nil {

@@ -49,3 +49,4 @@ docs/tmp/
 # Local runtime state
 .env
 .builder/config.toml
+.builder/plans/

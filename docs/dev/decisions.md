@@ -59,19 +59,26 @@
 - Non-zero exit is recoverable (does not auto-abort the turn).
 - No automatic retry for shell process-launch failures.
 - Interrupt escalation is `SIGINT` then `SIGKILL` after 10s grace.
-- Command output semantic post-processing is built into Builder, not delegated to shell wrappers. It applies after command execution and base sanitization, not before execution.
-- `raw` is a first-class public parameter on `exec_command`; default is processed output, `raw=true` bypasses semantic post-processing while keeping transport hygiene/safety truncation.
+- Command output semantic post-processing is built into Builder, not delegated to shell wrappers. It applies after command execution, not before execution.
+- Output sanitization (ANSI stripping, line-ending normalization, and control-character cleanup) is a command post-processing processor, not an unavoidable transport mutation.
+- `raw` is a first-class public parameter on `exec_command`; default is processed output, `raw=true` bypasses command post-processing while keeping result encoding and truncation.
+- `[shell].postprocessing_mode=none` bypasses command post-processing while keeping result encoding and truncation.
+- The generic sanitizer runs before built-ins and user hooks for every non-raw mode except `none`.
 - Built-in post-processors run before the optional user-defined hook.
+- A halt inside the built-in processor chain stops later built-ins only; in `all` mode the optional user hook still receives the built-in-final current output.
 - User post-process hook is configured as a path to an executable/script; Builder sends JSON on stdin and expects JSON on stdout.
 - User post-process hook receives both original sanitized output and Builder's current built-in-processed output so it can either add on top or replace.
 - Builder does not hard-block the user hook on irreversible commands; hook responsibility stays with the user. Built-in Builder processors still target read-only/reversible command families by policy.
 - Command post-processing is configured under a dedicated `[shell]` config table.
 - `[shell].postprocessing_mode` is the global mode switch and uses explicit values: `none | builtin | user | all`.
-- Per-call `raw=true` still bypasses semantic shaping regardless of global mode.
+- Per-call `raw=true` still bypasses command post-processing regardless of global mode.
 - User hook has no separate timeout knob; it follows the same unlimited command lifetime and parent tool-call cancellation semantics.
 - Built-in processors may run on both success and failure; each processor decides based on exit code.
 - `exec_command` result JSON stays minimal in v1; processor metadata is internal and not added to the public tool result schema.
-- Built-in processors are implemented as Go code in a composable registry; v1 does not add a declarative filter DSL beyond the single user hook.
+- Built-in processors are implemented as Go code in composable chains; each processor can skip, continue with modified output, or halt its chain with final output.
+- Recoverable processor failures accumulate as model-visible warning lines and do not stop later processors.
+- Unrecoverable processor failures stop command post-processing and return a model-visible tool error for that tool call without stopping the model step.
+- Critical processor failures return a Go/tool execution error and stop the model step after persisting the tool error result.
 - Hook failures must not change the provider-facing command-output envelope in v1. Warning surfacing, if any, stays plain-text-compatible and warning deduplication is optional.
 - If an `exec_command` backgrounds, its selected processing mode persists with that process session for later `write_stdin` polls and completion notices.
 - Foreground `exec_command` processing does not add a dedicated raw-output artifact in v1; operators can rerun with `raw=true` when needed.
@@ -237,17 +244,16 @@
 - Startup only blocks on auth when the resolved provider path requires Builder-managed OpenAI auth; explicit OpenAI-compatible base URLs and other non-OpenAI provider paths may continue without auth.
 - Startup auth failures and 401s are surfaced as normal UX with actionable messaging rather than raw transport noise.
 - Startup auth selection uses the same themed startup picker style as session selection.
-- Startup auth picker always exposes the OAuth methods `oauth_browser`, `oauth_browser_paste`, and `oauth_device`, may expose `Use existing OPENAI_API_KEY from now on` when available, and always exposes `Continue without Builder auth`.
+- Startup auth picker always exposes browser OAuth, device-code OAuth, and `No auth`; it may expose `Use provided OPENAI_API_KEY from now on` when available. Browser OAuth uses a hybrid callback flow that accepts either the local browser callback or a pasted callback URL/code on the same page.
 - OAuth issuer routing is not configurable in production. Builder hardcodes the official provider issuer per provider, and `BUILDER_OAUTH_ISSUER` is intentionally unsupported to prevent credential routing to overridden domains.
 - `/status` subscription quota fetch uses a fixed ChatGPT usage endpoint. Custom `openai_base_url` values suppress quota fetch, but explicitly configured official ChatGPT hosts (`chatgpt.com`, `chat.openai.com`, with optional `/backend-api`) still allow it.
 - Startup auth picker uses friendly titles with one-line explanations and does not show raw method ids in the rows.
 - Interactive startup treats `OPENAI_API_KEY` as a chooser-backed auth source, not an unconditional override.
-- When `OPENAI_API_KEY` is present, the startup auth picker may also show a separate non-OAuth option: `Use existing OPENAI_API_KEY from now on`.
+- When `OPENAI_API_KEY` is present, the startup auth picker may also show a separate non-OAuth option: `Use provided OPENAI_API_KEY from now on`.
 - When saved subscription auth and `OPENAI_API_KEY` are both present with no remembered preference, startup shows a picker to choose which source should win from now on.
-- When `OPENAI_API_KEY` is present and no saved subscription auth is configured, startup auth adds `Use existing OPENAI_API_KEY from now on` as a first-class picker option.
+- When `OPENAI_API_KEY` is present and no saved subscription auth is configured, startup auth adds `Use provided OPENAI_API_KEY from now on` as a first-class picker option.
 - Choosing the env-key path remembers `prefer env api key when available`; choosing OAuth while an env key is available remembers `prefer saved/subscription auth`.
-- `/login` reopens auth selection; skipping there behaves like logout by clearing stored auth state when one exists.
-- `/logout` is retained as an alias and clears both the active auth method and the remembered env-vs-saved-auth preference so re-auth starts from a clean choice.
+- `/login` and `/logout` both reopen auth selection without clearing stored credentials first. Choosing `No auth` is the only interactive auth option that clears both the active auth method and the remembered env-vs-saved-auth preference.
 - After an interactive auth success or first-time env-key adoption, startup shows a centered success screen before session selection continues. Conflict-only auth-source preference resolution does not. The title is `Auth success for: <email>` when OAuth token claims provide an email; otherwise it is `Auth success`.
 - OAuth failure does not auto-fallback to API key.
 - OAuth tokens auto-refresh silently; only refresh failures are surfaced.

@@ -205,6 +205,10 @@ type uiNativeHistoryFeatureState struct {
 	nativeStreamingUnflushedStable     []tui.TranscriptProjectionLine
 	nativeStreamingStableFlushSequence uint64
 	nativeStreamingText                string
+	nativeStreamingStepID              string
+	nativeStreamingCommitStart         int
+	nativeStreamingCommitEnd           int
+	nativeStreamingCommitRangeSet      bool
 	nativeStreamingWidth               int
 	nativeStreamingFlushedLineCount    int
 	nativeStreamingDividerFlushed      bool

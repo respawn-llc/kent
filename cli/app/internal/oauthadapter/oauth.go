@@ -34,6 +34,10 @@ func CompleteOpenAIBrowserFlow(ctx context.Context, opts OpenAIOAuthOptions, ses
 	return serverbridge.CompleteOpenAIBrowserFlow(ctx, opts, session, callbackInput)
 }
 
+func ParseOAuthCallbackInput(callbackInput string) (BrowserCallback, error) {
+	return serverbridge.ParseOAuthCallbackInput(callbackInput)
+}
+
 func CollectOpenAIDeviceAuthorizationGrant(ctx context.Context, opts OpenAIOAuthOptions, onCode func(DeviceCode)) (DeviceAuthorizationGrant, error) {
 	return serverbridge.CollectOpenAIDeviceAuthorizationGrant(ctx, opts, onCode)
 }

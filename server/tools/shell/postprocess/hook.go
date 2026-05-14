@@ -38,10 +38,19 @@ type hookResponse struct {
 	ReplacedOutput string `json:"replaced_output,omitempty"`
 }
 
-func (r *Runner) applyHook(ctx context.Context, req Request, originalOutput string, currentOutput string) (Result, error) {
-	hookPath, ok := resolveHookPath(r.hookPath)
+type userHookProcessor struct {
+	hookPath string
+}
+
+func (p userHookProcessor) ID() string {
+	return "user/hook"
+}
+
+func (p userHookProcessor) Process(ctx context.Context, envelope Envelope) (Decision, error) {
+	req := envelope.Request
+	hookPath, ok := resolveHookPath(p.hookPath)
 	if !ok {
-		return Result{Output: currentOutput, Warning: "command postprocess hook unavailable"}, nil
+		return Decision{}, ProcessorError{Severity: FailureRecoverable, Message: "command postprocess hook unavailable"}
 	}
 	payload, err := json.Marshal(hookRequest{
 		ToolName:        req.ToolName,
@@ -49,14 +58,14 @@ func (r *Runner) applyHook(ctx context.Context, req Request, originalOutput stri
 		ParsedArgs:      append([]string(nil), req.ParsedArgs...),
 		CommandName:     req.CommandName,
 		Workdir:         req.Workdir,
-		OriginalOutput:  originalOutput,
-		CurrentOutput:   currentOutput,
+		OriginalOutput:  envelope.OriginalOutput,
+		CurrentOutput:   envelope.CurrentOutput,
 		ExitCode:        cloneIntPtr(req.ExitCode),
 		Backgrounded:    req.Backgrounded,
 		MaxDisplayChars: req.MaxDisplayChars,
 	})
 	if err != nil {
-		return Result{Output: currentOutput, Warning: "command postprocess hook request encode failed"}, nil
+		return Decision{}, ProcessorError{Severity: FailureRecoverable, Message: "command postprocess hook request encode failed", Err: err}
 	}
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, hookTimeout)
@@ -72,19 +81,19 @@ func (r *Runner) applyHook(ctx context.Context, req Request, originalOutput stri
 
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return Result{}, ctx.Err()
+			return Decision{}, ctx.Err()
 		}
-		return Result{Output: currentOutput, Warning: hookFailureWarning(err, stderr.String())}, nil
+		return Decision{}, ProcessorError{Severity: FailureRecoverable, Message: hookFailureWarning(err, stderr.String()), Err: err}
 	}
 
 	var response hookResponse
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
-		return Result{Output: currentOutput, Warning: "command postprocess hook returned invalid JSON"}, nil
+		return Decision{}, ProcessorError{Severity: FailureRecoverable, Message: "command postprocess hook returned invalid JSON", Err: err}
 	}
 	if !response.Processed {
-		return Result{Output: currentOutput}, nil
+		return Skip(envelope), nil
 	}
-	return Result{Output: response.ReplacedOutput, Processed: true, ProcessorID: "user/hook"}, nil
+	return Continue(envelope.WithCurrent(response.ReplacedOutput), p.ID()), nil
 }
 
 type limitedBuffer struct {

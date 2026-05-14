@@ -654,8 +654,8 @@ func TestServiceResolveTransitionLogoutUsesSessionIDWithoutStoreLookup(t *testin
 	if err != nil {
 		t.Fatalf("load auth state: %v", err)
 	}
-	if state.Method.Type != "" || state.Method.APIKey != nil {
-		t.Fatalf("expected auth method to be cleared, got %+v", state.Method)
+	if state.Method.Type != auth.MethodAPIKey || state.Method.APIKey == nil || state.Method.APIKey.Key != "sk-before" {
+		t.Fatalf("expected auth method to be preserved until reauth choice, got %+v", state.Method)
 	}
 }
 

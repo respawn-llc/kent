@@ -157,21 +157,21 @@ func (m *Manager) waitForExit(entry *processEntry) {
 	preview := ""
 	removed := 0
 	previewProcessed := false
-	fullOutput, readErr := readSanitizedOutputFile(entry.logPath)
+	fullOutput, readErr := readOutputFile(entry.logPath)
 	if readErr == nil {
 		processed, err := m.applyPostprocessing(context.Background(), entry, fullOutput, snapshot.ExitCode, true, defaultLimit)
 		if err == nil && processed.Processed {
 			preview = processed.Output
 			previewProcessed = true
 		} else {
-			preview, removed, err = readPreviewFromFile(entry.logPath, defaultLimit)
+			preview, removed, err = readPreviewFromFile(entry.logPath, defaultLimit, !snapshot.RawOutput)
 			if err != nil {
 				preview = fmt.Sprintf("failed to read output preview: %v", err)
 				removed = 0
 			}
 		}
 	} else {
-		preview, removed, readErr = readPreviewFromFile(entry.logPath, defaultLimit)
+		preview, removed, readErr = readPreviewFromFile(entry.logPath, defaultLimit, !snapshot.RawOutput)
 		if readErr != nil {
 			preview = fmt.Sprintf("failed to read output preview: %v", readErr)
 			removed = 0

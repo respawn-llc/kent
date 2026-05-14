@@ -617,6 +617,6 @@ type warningProcessor struct{}
 
 func (warningProcessor) ID() string { return "test/warning" }
 
-func (warningProcessor) Process(context.Context, Request) (Result, error) {
-	return Result{Output: "hi", Warning: "builtin warning"}, nil
+func (warningProcessor) Process(_ context.Context, envelope Envelope) (Decision, error) {
+	return Decision{Action: ActionSkip, Next: envelope, Warning: "builtin warning"}, nil
 }

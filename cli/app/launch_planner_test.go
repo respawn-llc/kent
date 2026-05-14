@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"builder/server/auth"
 	"builder/server/metadata"
 	"builder/server/session"
 	"builder/server/storagemigration"
@@ -49,6 +50,39 @@ func (s plannerNoAuthStateServer) SessionViewClient() client.SessionViewClient {
 	return s.inner.SessionViewClient()
 }
 
+type plannerAuthStatusClient struct {
+	resp serverapi.AuthStatusResponse
+}
+
+func (c plannerAuthStatusClient) GetAuthStatus(context.Context, serverapi.AuthStatusRequest) (serverapi.AuthStatusResponse, error) {
+	return c.resp, nil
+}
+
+type plannerAuthStatusServer struct {
+	inner      *testEmbeddedServer
+	authStatus client.AuthStatusClient
+}
+
+func (s plannerAuthStatusServer) OwnsServer() bool { return s.inner.OwnsServer() }
+func (s plannerAuthStatusServer) Config() config.App {
+	return s.inner.Config()
+}
+func (s plannerAuthStatusServer) ProjectID() string {
+	return s.inner.ProjectID()
+}
+func (s plannerAuthStatusServer) AuthStatusClient() client.AuthStatusClient {
+	return s.authStatus
+}
+func (s plannerAuthStatusServer) ProjectViewClient() client.ProjectViewClient {
+	return s.inner.ProjectViewClient()
+}
+func (s plannerAuthStatusServer) SessionLaunchClient() client.SessionLaunchClient {
+	return s.inner.SessionLaunchClient()
+}
+func (s plannerAuthStatusServer) SessionViewClient() client.SessionViewClient {
+	return s.inner.SessionViewClient()
+}
+
 type stubSessionViewClient struct {
 	getSessionMainView func(context.Context, serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error)
 }
@@ -76,6 +110,75 @@ func TestRuntimeLaunchPlanCurrentControllerLeaseIDFallsBackToRawID(t *testing.T)
 	plan := &runtimeLaunchPlan{ControllerLeaseID: " lease-raw ", controllerLease: newControllerLeaseManager("")}
 	if got := plan.CurrentControllerLeaseID(); got != "lease-raw" {
 		t.Fatalf("CurrentControllerLeaseID = %q, want lease-raw", got)
+	}
+}
+
+func TestSessionLaunchPlannerBuildsSessionPickerHeaderInfo(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	workspaceRoot := filepath.Join(home, "Developer", "builder-cli")
+	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	cfg := config.App{
+		WorkspaceRoot: workspaceRoot,
+		Settings: config.Settings{
+			Model:         "gpt-5.1",
+			ThinkingLevel: "high",
+			ServerHost:    "127.0.0.1",
+			ServerPort:    53082,
+		},
+	}
+	planner := &launchPlanner{server: &testEmbeddedServer{cfg: cfg}}
+
+	header := planner.sessionPickerHeaderInfo(cfg)
+	if header.CWD != "" {
+		t.Fatalf("header cwd = %q, want async lookup", header.CWD)
+	}
+	if header.Branch != "" {
+		t.Fatalf("header branch = %q, want async lookup", header.Branch)
+	}
+	if header.StatusRequest.WorkspaceRoot != workspaceRoot {
+		t.Fatalf("header status workspace root = %q, want %q", header.StatusRequest.WorkspaceRoot, workspaceRoot)
+	}
+	if header.StatusRequest.ModelName != "gpt-5.1" || header.StatusRequest.ThinkingLevel != "high" {
+		t.Fatalf("header status model = %q thinking=%q", header.StatusRequest.ModelName, header.StatusRequest.ThinkingLevel)
+	}
+	if header.StatusRequest.AuthStatus != nil {
+		t.Fatal("session picker header must not carry slow auth status client")
+	}
+	if !header.OwnsServer {
+		t.Fatal("expected owned server header")
+	}
+	if header.ServerAddress != "127.0.0.1:53082" {
+		t.Fatalf("header server address = %q", header.ServerAddress)
+	}
+}
+
+func TestSessionLaunchPlannerPickerHeaderUsesRemoteAuthStatusWhenLocalAuthUnavailable(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir(), Settings: config.Settings{Model: "gpt-5"}}
+	server := plannerAuthStatusServer{
+		inner: &testEmbeddedServer{cfg: cfg},
+		authStatus: plannerAuthStatusClient{resp: serverapi.AuthStatusResponse{
+			Auth: serverapi.AuthStatusInfo{Summary: "user@example.com", Visible: true, Method: auth.MethodOAuth, Provider: "chatgpt-codex"},
+		}},
+	}
+	planner := &launchPlanner{server: server}
+	header := planner.sessionPickerHeaderInfo(cfg)
+	if header.AuthManager != nil {
+		t.Fatal("expected no local auth manager")
+	}
+	if header.StatusRequest.AuthStatus == nil {
+		t.Fatal("expected remote auth status client in picker status request")
+	}
+
+	cmd := collectSessionPickerStatusCmd(header)
+	if cmd == nil {
+		t.Fatal("expected picker status command")
+	}
+	msg := cmd().(sessionPickerStatusMsg)
+	if msg.auth != "OpenAI Subscription" {
+		t.Fatalf("picker auth label = %q, want OpenAI Subscription", msg.auth)
 	}
 }
 
@@ -151,7 +254,7 @@ func TestSessionLaunchPlannerInteractiveUsesPickerSelection(t *testing.T) {
 				return serverapi.SessionMainViewResponse{MainView: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{ExecutionTarget: clientui.SessionExecutionTarget{WorkspaceRoot: cfg.WorkspaceRoot}}}}, nil
 			}},
 		},
-		pickSession: func(summaries []clientui.SessionSummary, theme string) (sessionPickerResult, error) {
+		pickSession: func(summaries []clientui.SessionSummary, theme string, header sessionPickerHeaderInfo) (sessionPickerResult, error) {
 			if len(summaries) != 2 {
 				t.Fatalf("expected two summaries, got %d", len(summaries))
 			}
@@ -246,7 +349,7 @@ func TestSessionLaunchPlannerPickerSelectionMissingMetadataMarksRecoveryInsteadO
 				return serverapi.SessionPlanResponse{Plan: serverapi.SessionPlan{SessionID: "missing-session", WorkspaceRoot: workspaceRoot, ActiveSettings: config.Settings{Theme: "dark"}}}, nil
 			}},
 		},
-		pickSession: func(summaries []clientui.SessionSummary, theme string) (sessionPickerResult, error) {
+		pickSession: func(summaries []clientui.SessionSummary, theme string, header sessionPickerHeaderInfo) (sessionPickerResult, error) {
 			picked := summaries[0]
 			return sessionPickerResult{Session: &picked}, nil
 		},
@@ -322,7 +425,7 @@ func TestSessionLaunchPlannerInteractiveUsesMigratedLegacySession(t *testing.T) 
 			},
 			containerDir: containerDir,
 		},
-		pickSession: func(summaries []clientui.SessionSummary, theme string) (sessionPickerResult, error) {
+		pickSession: func(summaries []clientui.SessionSummary, theme string, header sessionPickerHeaderInfo) (sessionPickerResult, error) {
 			if len(summaries) != 1 {
 				t.Fatalf("expected one legacy summary, got %d", len(summaries))
 			}
@@ -427,7 +530,7 @@ func TestSessionLaunchPlannerSelectedSessionIDBypassesPicker(t *testing.T) {
 				return serverapi.SessionMainViewResponse{}, nil
 			}},
 		},
-		pickSession: func([]clientui.SessionSummary, string) (sessionPickerResult, error) {
+		pickSession: func([]clientui.SessionSummary, string, sessionPickerHeaderInfo) (sessionPickerResult, error) {
 			t.Fatal("did not expect picker for explicit session id")
 			return sessionPickerResult{}, nil
 		},

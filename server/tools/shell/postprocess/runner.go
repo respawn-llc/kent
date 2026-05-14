@@ -3,6 +3,7 @@ package postprocess
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,21 +33,78 @@ type Request struct {
 }
 
 type Result struct {
-	Output      string
-	Processed   bool
-	ProcessorID string
-	Warning     string
+	Output             string
+	Processed          bool
+	ProcessorID        string
+	Warning            string
+	UnrecoverableError string
 }
 
 type Processor interface {
 	ID() string
-	Process(context.Context, Request) (Result, error)
+	Process(context.Context, Envelope) (Decision, error)
+}
+
+type ScopedProcessor interface {
+	Scope() Scope
+}
+
+type ExitCodeScope string
+
+const (
+	ExitCodeAny     ExitCodeScope = ""
+	ExitCodeSuccess ExitCodeScope = "success"
+	ExitCodeFailure ExitCodeScope = "failure"
+)
+
+type Scope struct {
+	ToolNames    []toolspec.ID
+	CommandNames []string
+	ExitCodes    ExitCodeScope
+}
+
+func (s Scope) Matches(req Request) bool {
+	if len(s.ToolNames) > 0 && !containsToolName(s.ToolNames, req.ToolName) {
+		return false
+	}
+	if len(s.CommandNames) > 0 && !containsString(s.CommandNames, req.CommandName) {
+		return false
+	}
+	switch s.ExitCodes {
+	case ExitCodeSuccess:
+		return req.ExitCode != nil && *req.ExitCode == 0
+	case ExitCodeFailure:
+		return req.ExitCode != nil && *req.ExitCode != 0
+	default:
+		return true
+	}
+}
+
+func containsToolName(values []toolspec.ID, target toolspec.ID) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(values []string, target string) bool {
+	target = strings.TrimSpace(target)
+	for _, value := range values {
+		if strings.TrimSpace(value) == target {
+			return true
+		}
+	}
+	return false
 }
 
 type Runner struct {
-	mode       config.ShellPostprocessingMode
-	hookPath   string
-	processors []Processor
+	mode             config.ShellPostprocessingMode
+	hookPath         string
+	globalProcessors []Processor
+	processors       []Processor
+	hookProcessor    Processor
 }
 
 func NewRunner(settings Settings) *Runner {
@@ -55,10 +113,18 @@ func NewRunner(settings Settings) *Runner {
 		mode = config.ShellPostprocessingModeBuiltin
 	}
 	return &Runner{
-		mode:       mode,
-		hookPath:   strings.TrimSpace(settings.HookPath),
-		processors: []Processor{goTestSuccessProcessor{}, fileReadContextProcessor{}},
+		mode:             mode,
+		hookPath:         strings.TrimSpace(settings.HookPath),
+		globalProcessors: []Processor{sanitizerProcessor{}},
+		processors:       []Processor{goTestSuccessProcessor{}, fileReadContextProcessor{}},
 	}
+}
+
+func (r *Runner) PreservesRawOutput(raw bool) bool {
+	if raw || r == nil {
+		return true
+	}
+	return effectiveMode(r.mode) == config.ShellPostprocessingModeNone
 }
 
 func (r *Runner) Apply(ctx context.Context, req Request) (Result, error) {
@@ -67,62 +133,59 @@ func (r *Runner) Apply(ctx context.Context, req Request) (Result, error) {
 		return Result{Output: request.Output}, nil
 	}
 
-	original := request.Output
-	current := original
+	envelope := NewEnvelope(request)
 	processed := false
 	processorID := ""
-	warning := ""
 
 	mode := effectiveMode(r.mode)
+	global, err := Chain{IDValue: "global", Processors: r.globalProcessors}.Process(ctx, envelope)
+	if err != nil {
+		return Result{}, err
+	}
+	envelope = global.Next
+	processed = processed || global.Processed()
+	if global.ProcessorID != "" {
+		processorID = global.ProcessorID
+	}
+	if global.Failure != nil {
+		return resultFromEnvelope(envelope, processed, processorID, *global.Failure), nil
+	}
+
 	if mode == config.ShellPostprocessingModeBuiltin || mode == config.ShellPostprocessingModeAll {
-		builtin, err := r.applyBuiltins(ctx, request)
+		builtin, err := Chain{IDValue: "builtin", Processors: r.processors}.Process(ctx, envelope)
 		if err != nil {
 			return Result{}, err
 		}
-		if builtin.Processed {
-			current = builtin.Output
+		envelope = builtin.Next
+		if builtin.Processed() {
 			processed = true
 			processorID = builtin.ProcessorID
 		}
-		warning = joinWarnings(warning, builtin.Warning)
+		if builtin.Failure != nil {
+			return resultFromEnvelope(envelope, processed, processorID, *builtin.Failure), nil
+		}
 	}
 
 	if mode == config.ShellPostprocessingModeUser || mode == config.ShellPostprocessingModeAll {
-		hook, err := r.applyHook(ctx, request, original, current)
+		hookProcessor := r.hookProcessor
+		if hookProcessor == nil {
+			hookProcessor = userHookProcessor{hookPath: r.hookPath}
+		}
+		hook, err := Chain{IDValue: "user", Processors: []Processor{hookProcessor}}.Process(ctx, envelope)
 		if err != nil {
 			return Result{}, err
 		}
-		warning = joinWarnings(warning, hook.Warning)
-		if hook.Processed {
-			current = hook.Output
+		envelope = hook.Next
+		if hook.Processed() {
 			processed = true
 			processorID = hook.ProcessorID
 		}
-	}
-
-	return Result{Output: current, Processed: processed, ProcessorID: processorID, Warning: warning}, nil
-}
-
-func (r *Runner) applyBuiltins(ctx context.Context, req Request) (Result, error) {
-	warning := ""
-	for _, processor := range r.processors {
-		if processor == nil {
-			continue
-		}
-		result, err := processor.Process(ctx, req)
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return Result{}, err
-			}
-			continue
-		}
-		warning = joinWarnings(warning, result.Warning)
-		if result.Processed {
-			result.Warning = warning
-			return result, nil
+		if hook.Failure != nil {
+			return resultFromEnvelope(envelope, processed, processorID, *hook.Failure), nil
 		}
 	}
-	return Result{Output: req.Output, Warning: warning}, nil
+
+	return resultFromEnvelope(envelope, processed, processorID, ProcessorFailure{}), nil
 }
 
 func effectiveMode(mode config.ShellPostprocessingMode) config.ShellPostprocessingMode {
@@ -185,4 +248,251 @@ func joinWarnings(existing string, next string) string {
 	default:
 		return existing + "\n" + next
 	}
+}
+
+type Action string
+
+const (
+	ActionSkip     Action = "skip"
+	ActionContinue Action = "continue"
+	ActionHalt     Action = "halt"
+)
+
+type Envelope struct {
+	Request           Request
+	OriginalOutput    string
+	CurrentOutput     string
+	Warnings          []string
+	RecoverableErrors []ProcessorFailure
+}
+
+func NewEnvelope(req Request) Envelope {
+	return Envelope{Request: req, OriginalOutput: req.Output, CurrentOutput: req.Output}
+}
+
+func (e Envelope) WithCurrent(output string) Envelope {
+	e.CurrentOutput = output
+	return e
+}
+
+func (e Envelope) WithOriginal(output string) Envelope {
+	e.OriginalOutput = output
+	return e
+}
+
+func (e Envelope) withWarning(warning string) Envelope {
+	if trimmed := strings.TrimSpace(warning); trimmed != "" {
+		e.Warnings = append(e.Warnings, trimmed)
+	}
+	return e
+}
+
+func (e Envelope) withRecoverableFailure(failure ProcessorFailure) Envelope {
+	if strings.TrimSpace(failure.Message) != "" {
+		e.RecoverableErrors = append(e.RecoverableErrors, failure)
+	}
+	return e
+}
+
+type Decision struct {
+	Action      Action
+	Next        Envelope
+	ProcessorID string
+	Warning     string
+	Failure     *ProcessorFailure
+}
+
+func (d Decision) Processed() bool {
+	return d.Action == ActionContinue || d.Action == ActionHalt
+}
+
+func Skip(e Envelope) Decision {
+	return Decision{Action: ActionSkip, Next: e}
+}
+
+func Continue(e Envelope, processorID string) Decision {
+	return Decision{Action: ActionContinue, Next: e, ProcessorID: strings.TrimSpace(processorID)}
+}
+
+func Halt(e Envelope, processorID string) Decision {
+	return Decision{Action: ActionHalt, Next: e, ProcessorID: strings.TrimSpace(processorID)}
+}
+
+type FailureSeverity string
+
+const (
+	FailureRecoverable    FailureSeverity = "recoverable"
+	FailureUnrecoverable  FailureSeverity = "unrecoverable"
+	FailureCritical       FailureSeverity = "critical"
+	defaultProcessorError                 = "processor failed"
+)
+
+type ProcessorFailure struct {
+	ProcessorID string
+	Severity    FailureSeverity
+	Message     string
+}
+
+type ProcessorError struct {
+	Severity FailureSeverity
+	Message  string
+	Err      error
+}
+
+func (e ProcessorError) Error() string {
+	if strings.TrimSpace(e.Message) != "" {
+		return e.Message
+	}
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return defaultProcessorError
+}
+
+func (e ProcessorError) Unwrap() error {
+	return e.Err
+}
+
+func IsCriticalError(err error) bool {
+	var processorErr ProcessorError
+	return errors.As(err, &processorErr) && processorErr.Severity == FailureCritical
+}
+
+type Chain struct {
+	IDValue    string
+	Processors []Processor
+}
+
+func (c Chain) ID() string {
+	if trimmed := strings.TrimSpace(c.IDValue); trimmed != "" {
+		return trimmed
+	}
+	return "chain"
+}
+
+func (c Chain) Process(ctx context.Context, envelope Envelope) (Decision, error) {
+	current := envelope
+	processedID := ""
+	processed := false
+	for _, processor := range c.Processors {
+		if processor == nil {
+			continue
+		}
+		decision, err := Proxy(processor).Process(ctx, current)
+		if err != nil {
+			failure := classifyProcessorFailure(processor.ID(), err)
+			if failure.Severity == FailureCritical {
+				return Decision{Action: ActionHalt, Next: current, Failure: &failure}, err
+			}
+			if failure.Severity == FailureUnrecoverable {
+				return Decision{Action: ActionHalt, Next: current, Failure: &failure}, nil
+			}
+			current = current.withRecoverableFailure(failure)
+			continue
+		}
+		current = decision.Next.withWarning(decision.Warning)
+		if decision.Processed() {
+			processed = true
+			processedID = decision.ProcessorID
+			if processedID == "" {
+				processedID = processor.ID()
+			}
+		}
+		if decision.Failure != nil {
+			failure := *decision.Failure
+			if failure.ProcessorID == "" {
+				failure.ProcessorID = processor.ID()
+			}
+			if failure.Severity == FailureCritical {
+				return Decision{Action: ActionHalt, Next: current, ProcessorID: processedID, Failure: &failure}, ProcessorError{Severity: FailureCritical, Message: failure.Message}
+			}
+			if failure.Severity == FailureUnrecoverable {
+				return Decision{Action: ActionHalt, Next: current, ProcessorID: processedID, Failure: &failure}, nil
+			}
+			current = current.withRecoverableFailure(failure)
+		}
+		if decision.Action == ActionHalt {
+			return Decision{Action: ActionHalt, Next: current, ProcessorID: processedID}, nil
+		}
+	}
+	action := ActionSkip
+	if processed {
+		action = ActionContinue
+	}
+	return Decision{Action: action, Next: current, ProcessorID: processedID}, nil
+}
+
+func Proxy(processor Processor) Processor {
+	return processorProxy{inner: processor}
+}
+
+type processorProxy struct {
+	inner Processor
+}
+
+func (p processorProxy) ID() string {
+	if p.inner == nil {
+		return "nil"
+	}
+	return p.inner.ID()
+}
+
+func (p processorProxy) Process(ctx context.Context, envelope Envelope) (decision Decision, err error) {
+	if p.inner == nil {
+		return Skip(envelope), nil
+	}
+	if scoped, ok := p.inner.(ScopedProcessor); ok && !scoped.Scope().Matches(envelope.Request) {
+		return Skip(envelope), nil
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = ProcessorError{
+				Severity: FailureCritical,
+				Message:  fmt.Sprintf("postprocess processor %s panicked: %v", p.ID(), recovered),
+			}
+		}
+	}()
+	return p.inner.Process(ctx, envelope)
+}
+
+func classifyProcessorFailure(processorID string, err error) ProcessorFailure {
+	severity := FailureRecoverable
+	var processorErr ProcessorError
+	if errors.As(err, &processorErr) {
+		severity = processorErr.Severity
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		severity = FailureCritical
+	}
+	if severity == "" {
+		severity = FailureRecoverable
+	}
+	return ProcessorFailure{ProcessorID: strings.TrimSpace(processorID), Severity: severity, Message: err.Error()}
+}
+
+func resultFromEnvelope(envelope Envelope, processed bool, processorID string, terminal ProcessorFailure) Result {
+	warning := ""
+	for _, processorErr := range envelope.RecoverableErrors {
+		warning = joinWarnings(warning, formatProcessorFailure(processorErr))
+	}
+	for _, item := range envelope.Warnings {
+		warning = joinWarnings(warning, item)
+	}
+	result := Result{Output: envelope.CurrentOutput, Processed: processed, ProcessorID: processorID, Warning: warning}
+	if terminal.Severity == FailureUnrecoverable {
+		result.UnrecoverableError = formatProcessorFailure(terminal)
+	}
+	return result
+}
+
+func formatProcessorFailure(failure ProcessorFailure) string {
+	processorID := strings.TrimSpace(failure.ProcessorID)
+	if processorID == "" {
+		processorID = "unknown"
+	}
+	message := strings.TrimSpace(failure.Message)
+	if message == "" {
+		message = defaultProcessorError
+	}
+	return "Postprocess processor " + processorID + " failed: " + message
 }

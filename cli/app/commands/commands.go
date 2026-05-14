@@ -91,10 +91,10 @@ func NewDefaultRegistry() *Registry {
 	r.Register("resume", "Go to startup screen (session picker)", func(string) Result {
 		return Result{Handled: true, Action: ActionResume}
 	})
-	r.Register("logout", "Log out and re-authenticate", func(string) Result {
+	r.Register("logout", "Open auth options", func(string) Result {
 		return Result{Handled: true, Action: ActionLogout}
 	})
-	r.Register("login", "Re-authenticate or continue without Builder auth", func(string) Result {
+	r.Register("login", "Open auth options", func(string) Result {
 		return Result{Handled: true, Action: ActionLogout}
 	})
 	r.Register("compact", "Compact the current context (optional: /compact <instructions>)", func(args string) Result {

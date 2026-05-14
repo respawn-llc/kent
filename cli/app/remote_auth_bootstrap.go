@@ -4,13 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 
 	"builder/cli/app/internal/oauthadapter"
 	"builder/shared/client"
 	"builder/shared/config"
 	"builder/shared/serverapi"
+)
+
+var (
+	ErrAuthCanceledByUser = errors.New("auth canceled by user")
+	ErrOAuthStateMismatch = errors.New("oauth state mismatch")
 )
 
 func ensureRemoteAuthReady(ctx context.Context, remote client.AuthBootstrapClient, settings config.Settings, interactor authInteractor) error {
@@ -31,7 +35,7 @@ func ensureRemoteAuthReady(ctx context.Context, remote client.AuthBootstrapClien
 		return nil
 	}
 	if interactive, ok := interactor.(*interactiveAuthInteractor); ok {
-		return interactive.completeRemoteAuthBootstrap(ctx, remote, settings, status)
+		return interactive.completeRemoteAuthBootstrap(ctx, remote, settings, status, false)
 	}
 	apiKey := strings.TrimSpace(interactor.LookupEnv("OPENAI_API_KEY"))
 	if apiKey == "" {
@@ -50,7 +54,7 @@ func ensureRemoteAuthReady(ctx context.Context, remote client.AuthBootstrapClien
 	return nil
 }
 
-func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Context, remote client.AuthBootstrapClient, settings config.Settings, status serverapi.AuthGetBootstrapStatusResponse) error {
+func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Context, remote client.AuthBootstrapClient, settings config.Settings, status serverapi.AuthGetBootstrapStatusResponse, force bool) error {
 	if i == nil {
 		return errors.New("interactive auth interactor is required")
 	}
@@ -70,6 +74,7 @@ func (i *interactiveAuthInteractor) completeRemoteAuthBootstrap(ctx context.Cont
 			req.FlowErr = err
 			continue
 		}
+		completeReq.Force = force
 		resp, err := remote.CompleteAuthBootstrap(ctx, completeReq)
 		if err != nil {
 			req.FlowErr = err
@@ -100,8 +105,6 @@ func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Co
 		return serverapi.AuthCompleteBootstrapRequest{Mode: serverapi.AuthBootstrapModeAPIKey, APIKey: apiKey}, nil
 	case authMethodChoiceBrowserAuto:
 		return i.collectRemoteBrowserAuto(ctx, oauthOpts, theme)
-	case authMethodChoiceBrowserPaste:
-		return i.collectRemoteBrowserPaste(ctx, oauthOpts, theme)
 	case authMethodChoiceDevice:
 		return i.collectRemoteDevice(ctx, oauthOpts, theme)
 	default:
@@ -110,7 +113,17 @@ func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Co
 }
 
 func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions, theme string) (serverapi.AuthCompleteBootstrapRequest, error) {
-	listener, err := i.startCallbackListener()
+	startListener := i.startCallbackListener
+	if startListener == nil {
+		startListener = func() (oauthCallbackListener, error) {
+			return oauthadapter.StartOAuthCallbackListener()
+		}
+	}
+	openBrowser := i.openBrowser
+	if openBrowser == nil {
+		openBrowser = oauthadapter.OpenBrowser
+	}
+	listener, err := startListener()
 	if err != nil {
 		return serverapi.AuthCompleteBootstrapRequest{}, err
 	}
@@ -119,48 +132,44 @@ func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context
 	if err != nil {
 		return serverapi.AuthCompleteBootstrapRequest{}, err
 	}
-	lines := []string{authURLStyle(theme).Render(session.AuthorizeURL)}
-	if err := i.openBrowser(session.AuthorizeURL); err != nil {
-		lines = append(lines, authMetaStyle(theme).Render(fmt.Sprintf("Builder could not open your browser automatically (%v). Open the URL manually.", err)))
-	} else {
-		lines = append(lines, authMetaStyle(theme).Render("Builder opened your default browser. If nothing appeared, open the URL manually."))
+	openErr := openBrowser(session.AuthorizeURL)
+	runPage := i.runCallbackPage
+	if runPage == nil {
+		runPage = runAuthCallbackPage
 	}
-	lines = append(lines, authMetaStyle(theme).Render("Waiting for browser callback..."))
-	i.printAuthSection(theme, authMethodDisplayTitle(authMethodChoiceBrowserAuto), lines)
-	callback, err := listener.Wait(ctx, opts.PollTimeout)
+	result, err := runPage(ctx, authCallbackPageData{
+		Theme:        theme,
+		AuthorizeURL: session.AuthorizeURL,
+		OpenErr:      openErr,
+	}, func(waitCtx context.Context) (oauthadapter.BrowserCallback, error) {
+		return listener.Wait(waitCtx, opts.PollTimeout)
+	}, func(_ context.Context, input string) (oauthadapter.Method, error) {
+		parsed, err := oauthadapter.ParseOAuthCallbackInput(input)
+		if err != nil {
+			return oauthadapter.Method{}, err
+		}
+		sessionState := strings.TrimSpace(session.State)
+		parsedState := strings.TrimSpace(parsed.State)
+		if sessionState != "" && parsedState != "" && parsedState != sessionState {
+			return oauthadapter.Method{}, ErrOAuthStateMismatch
+		}
+		if strings.TrimSpace(parsed.Code) == "" {
+			return oauthadapter.Method{}, errors.New("oauth callback is missing code")
+		}
+		return oauthadapter.Method{Type: "oauth"}, nil
+	})
 	if err != nil {
 		return serverapi.AuthCompleteBootstrapRequest{}, err
 	}
-	query := url.Values{"code": []string{callback.Code}, "state": []string{callback.State}}
+	if result.Canceled {
+		return serverapi.AuthCompleteBootstrapRequest{}, ErrAuthCanceledByUser
+	}
+	if result.Err != nil {
+		return serverapi.AuthCompleteBootstrapRequest{}, result.Err
+	}
 	return serverapi.AuthCompleteBootstrapRequest{
 		Mode:              serverapi.AuthBootstrapModeBrowserCallbackURL,
-		CallbackInput:     query.Encode(),
-		RedirectURI:       session.RedirectURI,
-		OAuthState:        session.State,
-		OAuthCodeVerifier: session.CodeVerifier,
-	}, nil
-}
-
-func (i *interactiveAuthInteractor) collectRemoteBrowserPaste(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions, theme string) (serverapi.AuthCompleteBootstrapRequest, error) {
-	session, err := oauthadapter.BeginOpenAIBrowserFlow(opts, "")
-	if err != nil {
-		return serverapi.AuthCompleteBootstrapRequest{}, err
-	}
-	lines := []string{authURLStyle(theme).Render(session.AuthorizeURL)}
-	if err := i.openBrowser(session.AuthorizeURL); err != nil {
-		lines = append(lines, authMetaStyle(theme).Render(fmt.Sprintf("Builder could not open your browser automatically (%v). Open the URL manually.", err)))
-	} else {
-		lines = append(lines, authMetaStyle(theme).Render("Builder opened your default browser. If nothing appeared, open the URL manually."))
-	}
-	lines = append(lines, authMetaStyle(theme).Render("After sign-in, paste the full callback URL or just the code below."))
-	i.printAuthSection(theme, authMethodDisplayTitle(authMethodChoiceBrowserPaste), lines)
-	callbackInput, err := i.prompt(authPromptStyle(theme).Render("Paste callback URL or code: "))
-	if err != nil {
-		return serverapi.AuthCompleteBootstrapRequest{}, err
-	}
-	return serverapi.AuthCompleteBootstrapRequest{
-		Mode:              serverapi.AuthBootstrapModeBrowserCallbackCode,
-		CallbackInput:     callbackInput,
+		CallbackInput:     result.CallbackInput,
 		RedirectURI:       session.RedirectURI,
 		OAuthState:        session.State,
 		OAuthCodeVerifier: session.CodeVerifier,

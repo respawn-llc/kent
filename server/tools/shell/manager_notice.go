@@ -14,13 +14,13 @@ import (
 
 const noOutputText = "No output"
 
-func readPreviewFromFile(path string, maxChars int) (string, int, error) {
+func readPreviewFromFile(path string, maxChars int, sanitize bool) (string, int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", 0, err
 	}
-	sanitized := sanitizeOutput(string(data))
-	preview, truncated, removed := truncateBackgroundOutput(sanitized, normalizeOutputChars(maxChars))
+	output := formatCapturedOutput(string(data), !sanitize)
+	preview, truncated, removed := truncateBackgroundOutput(output, normalizeOutputChars(maxChars))
 	if !truncated {
 		removed = 0
 	}
@@ -107,7 +107,7 @@ func backgroundNoticePreview(evt Event, maxChars int, mode BackgroundOutputMode)
 		return display, countOutputLines(preview), truncated
 	}
 	if strings.TrimSpace(evt.Snapshot.LogPath) != "" {
-		preview, lineCount, truncated, err := readBackgroundSummaryFromFile(evt.Snapshot.LogPath, maxChars, mode)
+		preview, lineCount, truncated, err := readBackgroundSummaryFromFile(evt.Snapshot.LogPath, maxChars, mode, !evt.Snapshot.RawOutput)
 		if err == nil {
 			return preview, lineCount, truncated
 		}
@@ -115,7 +115,7 @@ func backgroundNoticePreview(evt Event, maxChars int, mode BackgroundOutputMode)
 	if mode == BackgroundOutputConcise {
 		return "", 0, false
 	}
-	preview := sanitizeOutput(evt.Preview)
+	preview := formatCapturedOutput(evt.Preview, evt.Snapshot.RawOutput)
 	truncated := evt.Removed > 0
 	if strings.TrimSpace(preview) == "" {
 		return "", 0, truncated
@@ -123,13 +123,13 @@ func backgroundNoticePreview(evt Event, maxChars int, mode BackgroundOutputMode)
 	return preview, countOutputLines(preview), truncated
 }
 
-func readBackgroundSummaryFromFile(path string, maxChars int, mode BackgroundOutputMode) (string, int, bool, error) {
+func readBackgroundSummaryFromFile(path string, maxChars int, mode BackgroundOutputMode, sanitize bool) (string, int, bool, error) {
 	fp, err := os.Open(path)
 	if err != nil {
 		return "", 0, false, err
 	}
 	defer fp.Close()
-	builder := newBackgroundPreviewBuilder(maxChars, mode)
+	builder := newBackgroundPreviewBuilder(maxChars, mode, sanitize)
 	buf := make([]byte, 32*1024)
 	for {
 		n, readErr := fp.Read(buf)
@@ -157,6 +157,7 @@ func formatOutputLineCount(count int) string {
 type backgroundPreviewBuilder struct {
 	maxChars    int
 	mode        BackgroundOutputMode
+	sanitize    bool
 	carry       []byte
 	prevCR      bool
 	totalBytes  int
@@ -169,12 +170,13 @@ type backgroundPreviewBuilder struct {
 	tail        []byte
 }
 
-func newBackgroundPreviewBuilder(maxChars int, mode BackgroundOutputMode) *backgroundPreviewBuilder {
+func newBackgroundPreviewBuilder(maxChars int, mode BackgroundOutputMode, sanitize bool) *backgroundPreviewBuilder {
 	maxChars = normalizeOutputChars(maxChars)
 	mode = NormalizeBackgroundOutputMode(string(mode))
 	return &backgroundPreviewBuilder{
 		maxChars: maxChars,
 		mode:     mode,
+		sanitize: sanitize,
 		fullMode: mode == BackgroundOutputVerbose,
 		full:     make([]byte, 0, min(maxChars, 4096)),
 		head:     make([]byte, 0, headTailSize),
@@ -184,6 +186,10 @@ func newBackgroundPreviewBuilder(maxChars int, mode BackgroundOutputMode) *backg
 
 func (b *backgroundPreviewBuilder) WriteRaw(chunk []byte) {
 	if len(chunk) == 0 {
+		return
+	}
+	if !b.sanitize {
+		b.emitBytes(chunk)
 		return
 	}
 	data := append(append([]byte(nil), b.carry...), chunk...)
@@ -202,6 +208,11 @@ func (b *backgroundPreviewBuilder) WriteRaw(chunk []byte) {
 
 func (b *backgroundPreviewBuilder) Finish() {
 	if len(b.carry) == 0 {
+		return
+	}
+	if !b.sanitize {
+		b.emitBytes(b.carry)
+		b.carry = b.carry[:0]
 		return
 	}
 	b.writeSanitized(xansi.Strip(string(b.carry)))

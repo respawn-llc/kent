@@ -21,7 +21,7 @@ func TestInteractiveAuthOAuthPresenterRendersBrowserManualFallback(t *testing.T)
 
 	plain := ansi.Strip(out.String())
 	for _, want := range []string{
-		"Open browser and finish automatically",
+		"Sign in with OpenAI Codex using browser",
 		"https://auth.example/authorize",
 		"Builder could not open your browser automatically (blocked). Open the URL manually.",
 		"Waiting for browser callback...",
@@ -43,7 +43,7 @@ func TestInteractiveAuthOAuthPresenterRendersDeviceCode(t *testing.T) {
 
 	plain := ansi.Strip(out.String())
 	for _, want := range []string{
-		"Use a device code in any browser",
+		"Sign in with OpenAI Codex using device code",
 		"https://auth.example/device",
 		"Code: ABCD-EFGH",
 		"Waiting for authorization...",

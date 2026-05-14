@@ -61,6 +61,11 @@ func (c *nativeAssistantStreamController) Finalize() nativeAssistantStreamUpdate
 	return update
 }
 
+func (c *nativeAssistantStreamController) FinalizeSource(source string) nativeAssistantStreamUpdate {
+	c.source = source
+	return c.Finalize()
+}
+
 func (c *nativeAssistantStreamController) Resize(width int) {
 	c.Configure(c.theme, width)
 }

@@ -75,6 +75,7 @@ func (s *outputSubscription) readNextChunk() (OutputChunk, bool, error) {
 	s.entry.mu.Lock()
 	logPath := s.entry.logPath
 	running := s.entry.running
+	preserveOutput := s.entry.preserveOutput
 	s.entry.mu.Unlock()
 
 	file, err := os.Open(logPath)
@@ -95,7 +96,7 @@ func (s *outputSubscription) readNextChunk() (OutputChunk, bool, error) {
 			ProcessID:       s.processID,
 			OffsetBytes:     s.offset,
 			NextOffsetBytes: nextOffset,
-			Text:            sanitizeOutput(string(data)),
+			Text:            formatCapturedOutput(string(data), preserveOutput),
 		}
 		s.offset = nextOffset
 		return chunk, false, nil

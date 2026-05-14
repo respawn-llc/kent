@@ -7,13 +7,13 @@ import (
 )
 
 func TestInteractiveNeedsInteractionForRequiredAuthAndEnvConflict(t *testing.T) {
-	if !InteractiveNeedsInteraction(Request{
+	if InteractiveNeedsInteraction(Request{
 		AuthRequired: true,
 		Gate:         auth.StartupGate{Ready: true},
 		StoredState:  auth.EmptyState(),
 		HasEnvAPIKey: true,
 	}) {
-		t.Fatal("expected env-only startup without saved preference to require method selection")
+		t.Fatal("did not expect ready env-only startup to reopen auth picker")
 	}
 	if !InteractiveNeedsInteraction(Request{
 		Gate: auth.StartupGate{Ready: true},
@@ -45,6 +45,25 @@ func TestHeadlessNeedsInteractionOnlyForRequiredUnreadyAuth(t *testing.T) {
 	}
 	if HeadlessNeedsInteraction(Request{Gate: auth.StartupGate{Ready: false}}) {
 		t.Fatal("did not expect optional auth to need headless interaction")
+	}
+}
+
+func TestInteractiveNeedsInteractionForNoAuthSelectionOnlyWhenRequired(t *testing.T) {
+	req := Request{
+		Gate: auth.StartupGate{Ready: false, Reason: auth.ErrAuthNotConfigured.Error()},
+		State: auth.State{
+			Scope:               auth.ScopeGlobal,
+			Method:              auth.Method{Type: auth.MethodNone},
+			EnvAPIKeyPreference: auth.EnvAPIKeyPreferencePreferSaved,
+		},
+		PromptOptional: true,
+	}
+	if InteractiveNeedsInteraction(req) {
+		t.Fatal("did not expect optional no-auth preference to reopen auth picker")
+	}
+	req.AuthRequired = true
+	if !InteractiveNeedsInteraction(req) {
+		t.Fatal("expected required no-auth preference to require auth picker")
 	}
 }
 

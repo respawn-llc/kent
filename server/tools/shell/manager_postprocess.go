@@ -27,7 +27,7 @@ func (m *Manager) applyPostprocessing(ctx context.Context, entry *processEntry, 
 	})
 }
 
-func readSanitizedOutputFile(path string) (string, error) {
+func readOutputFile(path string) (string, error) {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
 		return "", fmt.Errorf("output log path is empty")
@@ -36,5 +36,5 @@ func readSanitizedOutputFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return sanitizeOutput(string(data)), nil
+	return string(data), nil
 }

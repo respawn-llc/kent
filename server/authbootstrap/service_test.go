@@ -89,6 +89,34 @@ func TestCompleteBootstrapNoneClearsAuthWhenAuthOptional(t *testing.T) {
 	if state.Method.Type != auth.MethodNone {
 		t.Fatalf("stored method = %+v, want none", state.Method)
 	}
+	if state.EnvAPIKeyPreference != auth.EnvAPIKeyPreferencePreferSaved {
+		t.Fatalf("env preference = %q, want no-auth preference", state.EnvAPIKeyPreference)
+	}
+}
+
+func TestCompleteBootstrapNoneSavesNoAuthPreferenceWhenAuthRequired(t *testing.T) {
+	service, store := newTestAuthBootstrapService(auth.State{
+		Scope: auth.ScopeGlobal,
+		Method: auth.Method{
+			Type:   auth.MethodAPIKey,
+			APIKey: &auth.APIKeyMethod{Key: "server-key"},
+		},
+	})
+
+	resp, err := service.CompleteBootstrap(context.Background(), serverapi.AuthCompleteBootstrapRequest{Mode: serverapi.AuthBootstrapModeNone})
+	if err != nil {
+		t.Fatalf("CompleteBootstrap none: %v", err)
+	}
+	if resp.AuthReady {
+		t.Fatal("did not expect no-auth preference to satisfy required startup readiness")
+	}
+	state, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !state.IsNoAuthSelected() {
+		t.Fatalf("stored state = %+v, want no-auth preference", state)
+	}
 }
 
 func newTestAuthBootstrapService(initial auth.State) (*Service, *auth.MemoryStore) {

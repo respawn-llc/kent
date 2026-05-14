@@ -52,7 +52,7 @@ func isNilAuthDependency(value any) bool {
 
 func AuthInfo(state auth.State, settings config.Settings, statusErr error) appstatus.AuthInfo {
 	if statusErr != nil && !state.IsConfigured() {
-		return appstatus.AuthInfo{Summary: "Auth unavailable", Details: []string{statusErr.Error()}, Visible: true}
+		return appstatus.AuthInfo{Summary: "Auth unavailable", Details: []string{statusErr.Error()}, Visible: true, Unavailable: true}
 	}
 	details := make([]string, 0, 2)
 	baseURL := strings.TrimSpace(settings.OpenAIBaseURL)
@@ -68,10 +68,11 @@ func AuthInfo(state auth.State, settings config.Settings, statusErr error) appst
 		if statusErr != nil {
 			details = append(details, statusErr.Error())
 		}
-		return appstatus.AuthInfo{Summary: summary, Details: details, Visible: true}
+		return appstatus.AuthInfo{Summary: summary, Details: details, Visible: true, Method: auth.MethodOAuth, Provider: ProviderLabel(state, settings)}
 	case auth.MethodAPIKey:
 		summary := auth.MaskedAPIKeySummary(state.Method.APIKey)
-		if provider := ProviderLabel(state, settings); provider != "" {
+		provider := ProviderLabel(state, settings)
+		if provider != "" {
 			details = append(details, provider)
 		}
 		if pref := EnvPreferenceLabel(state.EnvAPIKeyPreference); pref != "" {
@@ -80,12 +81,59 @@ func AuthInfo(state auth.State, settings config.Settings, statusErr error) appst
 		if statusErr != nil {
 			details = append(details, statusErr.Error())
 		}
-		return appstatus.AuthInfo{Summary: summary, Details: details, Visible: true}
+		return appstatus.AuthInfo{Summary: summary, Details: details, Visible: true, Method: auth.MethodAPIKey, Provider: provider}
 	default:
 		if statusErr != nil {
-			return appstatus.AuthInfo{Summary: "Auth unavailable", Details: []string{statusErr.Error()}, Visible: true}
+			return appstatus.AuthInfo{Summary: "Auth unavailable", Details: []string{statusErr.Error()}, Visible: true, Unavailable: true}
 		}
-		return appstatus.AuthInfo{Summary: "No Auth", Visible: true}
+		return appstatus.AuthInfo{Summary: "No Auth", Visible: true, Method: auth.MethodNone}
+	}
+}
+
+func FastAuthInfo(ctx context.Context, loader AuthStateLoader, settings config.Settings) appstatus.AuthInfo {
+	state := auth.EmptyState()
+	statusErr := error(nil)
+	loader = NormalizeAuthStateLoader(loader)
+	if loader != nil {
+		loaded, err := loader.Load(ctx)
+		if err != nil {
+			statusErr = err
+		} else {
+			state = loaded
+		}
+	}
+	return AuthInfo(state, settings, statusErr)
+}
+
+func AuthDisplayLabel(info appstatus.AuthInfo) string {
+	if !info.Visible {
+		return ""
+	}
+	if info.Unavailable {
+		return "Auth unavailable"
+	}
+	switch info.Method {
+	case auth.MethodNone:
+		return "No auth"
+	case auth.MethodAPIKey:
+		return authDisplayProviderLabel(info.Provider) + " API Key"
+	case auth.MethodOAuth:
+		return authDisplayProviderLabel(info.Provider) + " Subscription"
+	default:
+		// Older remote servers may not send structured auth metadata. In that
+		// case, preserve their summary instead of deriving semantics from copy.
+		return strings.TrimSpace(info.Summary)
+	}
+}
+
+func authDisplayProviderLabel(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "", "openai", "chatgpt-codex":
+		return "OpenAI"
+	case "openai-compatible":
+		return "OpenAI-compatible"
+	default:
+		return strings.TrimSpace(provider)
 	}
 }
 

@@ -123,6 +123,42 @@ func shouldClearAssistantStreamForCommittedAssistantEvent(evt clientui.Event) bo
 	return false
 }
 
+func (m *uiModel) observeNativeStreamingAssistantCommitCandidate(evt clientui.Event) {
+	if m == nil || evt.Kind != clientui.EventAssistantMessage {
+		return
+	}
+	streamStepID := strings.TrimSpace(m.nativeStreamingStepID)
+	eventStepID := strings.TrimSpace(evt.StepID)
+	if streamStepID != "" {
+		if eventStepID == "" || streamStepID != eventStepID {
+			return
+		}
+	}
+	start, _, ok := projectedTranscriptEventRange(evt, len(evt.TranscriptEntries))
+	if !ok {
+		return
+	}
+	assistantStart := -1
+	assistantEnd := -1
+	for idx, entry := range evt.TranscriptEntries {
+		if tui.TranscriptRoleFromWire(entry.Role) != tui.TranscriptRoleAssistant {
+			continue
+		}
+		if assistantStart >= 0 {
+			m.nativeStreamingCommitRangeSet = false
+			return
+		}
+		assistantStart = start + idx
+		assistantEnd = assistantStart + 1
+	}
+	if assistantStart < 0 {
+		return
+	}
+	m.nativeStreamingCommitStart = assistantStart
+	m.nativeStreamingCommitEnd = assistantEnd
+	m.nativeStreamingCommitRangeSet = true
+}
+
 func skippedAssistantCommitMatchesActiveLiveStream(m *uiModel, evt clientui.Event) bool {
 	if m == nil || strings.TrimSpace(m.view.OngoingStreamingText()) == "" {
 		return false

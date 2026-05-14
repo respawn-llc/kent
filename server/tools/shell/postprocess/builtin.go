@@ -3,9 +3,26 @@ package postprocess
 import (
 	"context"
 	"strings"
+	"unicode"
 
 	"builder/shared/toolspec"
+
+	xansi "github.com/charmbracelet/x/ansi"
 )
+
+type sanitizerProcessor struct{}
+
+func (sanitizerProcessor) ID() string {
+	return "builtin/sanitize-output"
+}
+
+func (p sanitizerProcessor) Process(_ context.Context, envelope Envelope) (Decision, error) {
+	sanitized := SanitizeOutput(envelope.CurrentOutput)
+	if sanitized == envelope.CurrentOutput {
+		return Skip(envelope), nil
+	}
+	return Continue(envelope.WithCurrent(sanitized), p.ID()), nil
+}
 
 type goTestSuccessProcessor struct{}
 
@@ -13,23 +30,27 @@ func (goTestSuccessProcessor) ID() string {
 	return "builtin/go-test-pass"
 }
 
-func (goTestSuccessProcessor) Process(_ context.Context, req Request) (Result, error) {
-	if req.ToolName != toolspec.ToolExecCommand {
-		return Result{Output: req.Output}, nil
+func (goTestSuccessProcessor) Scope() Scope {
+	return Scope{
+		ToolNames:    []toolspec.ID{toolspec.ToolExecCommand},
+		CommandNames: []string{"go"},
+		ExitCodes:    ExitCodeSuccess,
 	}
-	if req.ExitCode == nil || *req.ExitCode != 0 {
-		return Result{Output: req.Output}, nil
-	}
+}
+
+func (p goTestSuccessProcessor) Process(_ context.Context, envelope Envelope) (Decision, error) {
+	req := envelope.Request
+	req.Output = envelope.CurrentOutput
 	if len(req.ParsedArgs) < 2 {
-		return Result{Output: req.Output}, nil
+		return Skip(envelope), nil
 	}
-	if req.CommandName != "go" || strings.TrimSpace(req.ParsedArgs[1]) != "test" {
-		return Result{Output: req.Output}, nil
+	if strings.TrimSpace(req.ParsedArgs[1]) != "test" {
+		return Skip(envelope), nil
 	}
 	if goTestRequiresDetailedOutput(req.ParsedArgs[2:]) {
-		return Result{Output: req.Output}, nil
+		return Skip(envelope), nil
 	}
-	return Result{Output: "PASS", Processed: true, ProcessorID: "builtin/go-test-pass"}, nil
+	return Halt(envelope.WithCurrent("PASS"), p.ID()), nil
 }
 
 func goTestRequiresDetailedOutput(args []string) bool {
@@ -45,4 +66,23 @@ func goTestRequiresDetailedOutput(args []string) bool {
 		}
 	}
 	return false
+}
+
+func SanitizeOutput(s string) string {
+	if s == "" {
+		return s
+	}
+
+	stripped := xansi.Strip(s)
+	normalized := strings.ReplaceAll(stripped, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+
+	var b strings.Builder
+	b.Grow(len(normalized))
+	for _, r := range normalized {
+		if r == '\n' || r == '\t' || !unicode.IsControl(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }

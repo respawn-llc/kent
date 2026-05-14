@@ -73,7 +73,7 @@ func (s *Service) GetAuthStatus(ctx context.Context, req serverapi.AuthStatusReq
 
 func authInfo(state auth.State, settings config.Settings, statusErr error) serverapi.AuthStatusInfo {
 	if statusErr != nil && !state.IsConfigured() {
-		return serverapi.AuthStatusInfo{Summary: "Auth unavailable", Details: []string{statusErr.Error()}, Visible: true}
+		return serverapi.AuthStatusInfo{Summary: "Auth unavailable", Details: []string{statusErr.Error()}, Visible: true, Unavailable: true}
 	}
 	details := make([]string, 0, 2)
 	baseURL := strings.TrimSpace(settings.OpenAIBaseURL)
@@ -89,10 +89,11 @@ func authInfo(state auth.State, settings config.Settings, statusErr error) serve
 		if statusErr != nil {
 			details = append(details, statusErr.Error())
 		}
-		return serverapi.AuthStatusInfo{Summary: summary, Details: details, Visible: true}
+		return serverapi.AuthStatusInfo{Summary: summary, Details: details, Visible: true, Method: auth.MethodOAuth, Provider: providerLabel(state, settings)}
 	case auth.MethodAPIKey:
 		summary := auth.MaskedAPIKeySummary(state.Method.APIKey)
-		if provider := providerLabel(state, settings); provider != "" {
+		provider := providerLabel(state, settings)
+		if provider != "" {
 			details = append(details, provider)
 		}
 		if pref := envPreferenceLabel(state.EnvAPIKeyPreference); pref != "" {
@@ -101,12 +102,12 @@ func authInfo(state auth.State, settings config.Settings, statusErr error) serve
 		if statusErr != nil {
 			details = append(details, statusErr.Error())
 		}
-		return serverapi.AuthStatusInfo{Summary: summary, Details: details, Visible: true}
+		return serverapi.AuthStatusInfo{Summary: summary, Details: details, Visible: true, Method: auth.MethodAPIKey, Provider: provider}
 	default:
 		if statusErr != nil {
-			return serverapi.AuthStatusInfo{Summary: "Auth unavailable", Details: []string{statusErr.Error()}, Visible: true}
+			return serverapi.AuthStatusInfo{Summary: "Auth unavailable", Details: []string{statusErr.Error()}, Visible: true, Unavailable: true}
 		}
-		return serverapi.AuthStatusInfo{Summary: "No Auth", Visible: true}
+		return serverapi.AuthStatusInfo{Summary: "No Auth", Visible: true, Method: auth.MethodNone}
 	}
 }
 

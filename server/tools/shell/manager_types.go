@@ -57,6 +57,7 @@ type Snapshot struct {
 	OutputAvailable         bool
 	OutputRetainedFromBytes int64
 	OutputRetainedToBytes   int64
+	RawOutput               bool
 	Running                 bool
 	StdinOpen               bool
 	Backgrounded            bool
@@ -81,6 +82,7 @@ type ExecResult struct {
 	SessionID         string
 	WallTime          time.Duration
 	Warning           string
+	ToolError         string
 	Output            string
 	OutputPath        string
 	ExitCode          *int
@@ -157,6 +159,7 @@ type processEntry struct {
 	command        string
 	workdir        string
 	raw            bool
+	preserveOutput bool
 	startedAt      time.Time
 	finishedAt     time.Time
 	exitCode       *int
@@ -200,10 +203,11 @@ func (p *processEntry) snapshotLocked() Snapshot {
 		FinishedAt:              p.finishedAt,
 		ExitCode:                cloneIntPtr(p.exitCode),
 		LogPath:                 p.logPath,
-		RecentOutput:            sanitizeOutput(string(p.recentOutput)),
+		RecentOutput:            formatCapturedOutput(string(p.recentOutput), p.preserveOutput),
 		OutputAvailable:         p.logPath != "",
 		OutputRetainedFromBytes: 0,
 		OutputRetainedToBytes:   p.outputBytes,
+		RawOutput:               p.preserveOutput,
 		Running:                 p.running,
 		StdinOpen:               p.stdinOpen,
 		Backgrounded:            p.backgrounded,

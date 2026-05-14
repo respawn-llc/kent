@@ -10,6 +10,7 @@ import (
 	"builder/cli/app/internal/statuscollect"
 	"builder/shared/client"
 	"builder/shared/config"
+	"builder/shared/serverapi"
 )
 
 type appServerCore interface {
@@ -176,6 +177,21 @@ func (s *embeddedAppServer) RunPromptClient() client.RunPromptClient {
 }
 
 func (s *embeddedAppServer) Reauthenticate(ctx context.Context, interactor authInteractor) error {
+	if s == nil || s.inner == nil {
+		return errors.New("embedded server is required")
+	}
+	status, err := s.AuthBootstrapClient().GetAuthBootstrapStatus(ctx, serverapi.AuthGetBootstrapStatusRequest{})
+	if err != nil {
+		return err
+	}
+	cfg := s.inner.Config()
+	if interactive, ok := interactor.(*interactiveAuthInteractor); ok {
+		return interactive.completeRemoteAuthBootstrap(ctx, s.AuthBootstrapClient(), cfg.Settings, status, true)
+	}
+	return ensureRemoteAuthReady(ctx, s.AuthBootstrapClient(), cfg.Settings, interactor)
+}
+
+func (s *embeddedAppServer) EnsureAuthReady(ctx context.Context, interactor authInteractor) error {
 	if s == nil || s.inner == nil {
 		return errors.New("embedded server is required")
 	}

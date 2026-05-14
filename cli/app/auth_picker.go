@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	authPickerHeaderMarkdown         = "**Sign in to Builder**"
+	authPickerHeaderMarkdown         = "**Pick auth options**"
 	authConflictPickerHeaderMarkdown = "**Choose Auth Source**"
 )
 
@@ -357,37 +357,33 @@ type authMethodPickerResult struct {
 
 func authMethodOptions(includeEnvAPIKey bool, allowSkip bool) []startupPickerOption {
 	items := make([]startupPickerOption, 0, 5)
-	if includeEnvAPIKey {
-		items = append(items, startupPickerOption{
-			ID:    string(authMethodChoiceEnvAPIKey),
-			Title: "Use existing OPENAI_API_KEY from now on",
-		})
-	}
 	items = append(items,
 		startupPickerOption{
 			ID:    string(authMethodChoiceBrowserAuto),
-			Title: "Open browser and finish automatically",
-		},
-		startupPickerOption{
-			ID:    string(authMethodChoiceBrowserPaste),
-			Title: "Open browser and paste the callback manually",
+			Title: "Sign in with OpenAI Codex using browser",
 		},
 		startupPickerOption{
 			ID:    string(authMethodChoiceDevice),
-			Title: "Use a device code in any browser",
+			Title: "Sign in with OpenAI Codex using device code",
 		},
 	)
+	if includeEnvAPIKey {
+		items = append(items, startupPickerOption{
+			ID:    string(authMethodChoiceEnvAPIKey),
+			Title: "Use provided OPENAI_API_KEY from now on",
+		})
+	}
 	if allowSkip {
 		items = append(items, startupPickerOption{
 			ID:    string(authMethodChoiceSkip),
-			Title: "Continue without Builder auth",
+			Title: "No auth",
 		})
 	}
 	return items
 }
 
 func newAuthMethodPickerModel(theme string, notice startupPickerNotice, includeEnvAPIKey bool, allowSkip bool) *startupPickerModel {
-	model := newStartupPickerModel(authPickerHeaderMarkdown, "Sign in to Builder", theme, notice, authMethodOptions(includeEnvAPIKey, allowSkip))
+	model := newStartupPickerModel(authPickerHeaderMarkdown, "Pick auth options", theme, notice, authMethodOptions(includeEnvAPIKey, allowSkip))
 	model.banner = builderStartupBannerANSI
 	return model
 }
@@ -416,7 +412,7 @@ func authMethodDisplayTitle(choice authMethodChoice) string {
 }
 
 func runAuthMethodPicker(req authInteraction) (authMethodPickerResult, error) {
-	model := newAuthMethodPickerModel(req.Theme, authMethodPickerNoticeForRequest(req), req.HasEnvAPIKey, !req.AuthRequired)
+	model := newAuthMethodPickerModel(req.Theme, authMethodPickerNoticeForRequest(req), req.HasEnvAPIKey, true)
 	picked, err := runStartupPickerFlow(model)
 	if err != nil {
 		return authMethodPickerResult{}, err
@@ -440,7 +436,7 @@ func authConflictOptions() []startupPickerOption {
 	return []startupPickerOption{
 		{
 			ID:    string(authConflictChoiceEnvAPIKey),
-			Title: "Use existing OPENAI_API_KEY from now on",
+			Title: "Use provided OPENAI_API_KEY from now on",
 		},
 		{
 			ID:    string(authConflictChoiceSavedAuth),

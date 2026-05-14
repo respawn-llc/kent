@@ -9,8 +9,8 @@ description: Available slash commands, how their input is parsed, and how file-b
 | `/exit` | none | Exit Builder, same as Ctrl/CMD+C. |
 | `/new` | none | Start a new session. |
 | `/resume` | none | Return to the startup session picker. Hidden when there are no other sessions to resume. |
-| `/login` | none | Open the auth picker again. You can re-authenticate or continue without Builder auth. |
-| `/logout` | none | Alias for `/login`; clears saved auth first so re-auth starts from a clean choice. |
+| `/login` | none | Open auth options again without clearing saved credentials first. Choose `No auth` there to clear saved auth. |
+| `/logout` | none | Alias for `/login`; opens auth options without clearing saved credentials first. |
 | `/compact <instructions>` | optional free-form text | Compact the current context. Trailing text is passed through as compaction instructions. |
 | `/name <title>` | optional free-form text | Set the session title. Empty input resets it. |
 | <code>/thinking &lt;low&#124;medium&#124;high&#124;xhigh&gt;</code> | optional single value | Set the thinking level. Empty input shows the current level. |

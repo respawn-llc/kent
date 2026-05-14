@@ -95,6 +95,75 @@ func TestRunnerBrowserAutoUsesListenerRedirectAndCallbackQuery(t *testing.T) {
 	}
 }
 
+func TestRunnerBrowserAutoDelegatesToHybridPageAndClosesListener(t *testing.T) {
+	tests := []struct {
+		name      string
+		page      BrowserCallbackPageFunc
+		wantInput string
+		wantErr   string
+	}{
+		{
+			name: "listener callback succeeds",
+			page: func(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions, session oauthadapter.BrowserAuthSession, _ error, listener CallbackListener, complete CompleteBrowserFlowFunc) (oauthadapter.Method, error) {
+				callback, err := listener.Wait(ctx, opts.PollTimeout)
+				if err != nil {
+					return oauthadapter.Method{}, err
+				}
+				return complete(ctx, opts, session, callbackQuery(callback).Encode())
+			},
+			wantInput: "code=code-1&state=state-1",
+		},
+		{
+			name: "pasted callback succeeds",
+			page: func(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions, session oauthadapter.BrowserAuthSession, _ error, _ CallbackListener, complete CompleteBrowserFlowFunc) (oauthadapter.Method, error) {
+				return complete(ctx, opts, session, "http://localhost/callback?code=pasted&state=state-1")
+			},
+			wantInput: "http://localhost/callback?code=pasted&state=state-1",
+		},
+		{
+			name: "esc cancel returns error",
+			page: func(context.Context, oauthadapter.OpenAIOAuthOptions, oauthadapter.BrowserAuthSession, error, CallbackListener, CompleteBrowserFlowFunc) (oauthadapter.Method, error) {
+				return oauthadapter.Method{}, errors.New("auth canceled by user")
+			},
+			wantErr: "auth canceled by user",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			listener := &fakeListener{
+				redirectURI: "http://127.0.0.1/callback",
+				callback:    oauthadapter.BrowserCallback{Code: "code-1", State: "state-1"},
+			}
+			var completedInput string
+			_, err := (Runner{
+				StartCallbackListener: func() (CallbackListener, error) { return listener, nil },
+				BeginBrowserFlow: func(_ oauthadapter.OpenAIOAuthOptions, redirectURI string) (oauthadapter.BrowserAuthSession, error) {
+					return oauthadapter.BrowserAuthSession{AuthorizeURL: "https://auth.example/authorize", RedirectURI: redirectURI, State: "state-1"}, nil
+				},
+				OpenBrowser: func(string) error { return nil },
+				CompleteBrowserFlow: func(_ context.Context, _ oauthadapter.OpenAIOAuthOptions, _ oauthadapter.BrowserAuthSession, callbackInput string) (oauthadapter.Method, error) {
+					completedInput = callbackInput
+					return oauthadapter.Method{}, nil
+				},
+				BrowserCallbackPage: tt.page,
+			}).BrowserAuto(context.Background(), oauthadapter.OpenAIOAuthOptions{PollTimeout: 7 * time.Second})
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("BrowserAuto error=%v, want %q", err, tt.wantErr)
+				}
+			} else if err != nil {
+				t.Fatalf("BrowserAuto: %v", err)
+			}
+			if completedInput != tt.wantInput {
+				t.Fatalf("completed input=%q, want %q", completedInput, tt.wantInput)
+			}
+			if !listener.closed {
+				t.Fatal("expected listener to close")
+			}
+		})
+	}
+}
+
 func TestRunnerBrowserPastePromptsForCallbackInput(t *testing.T) {
 	presenter := &recordingPresenter{}
 	var beginRedirect string

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"builder/server/llm"
+	"builder/shared/auth"
 	"builder/shared/llmerrors"
 	"builder/shared/serverapi"
 )
@@ -39,6 +40,12 @@ func TestFormat(t *testing.T) {
 			name:     "empty remote api status body",
 			err:      &llmerrors.APIStatusError{StatusCode: 500},
 			contains: []string{"openai status 500", "<empty error body>"},
+		},
+		{
+			name:     "auth not configured",
+			err:      &llmerrors.AuthError{Err: auth.ErrAuthNotConfigured},
+			want:     "Not authenticated, run /login to sign in with your provider",
+			excludes: []string{"OPENAI_API_KEY", "openai_base_url"},
 		},
 		{
 			name:     "embedded friendly provider auth",

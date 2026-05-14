@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"builder/server/tools"
+	"builder/server/tools/shell/postprocess"
 	"builder/shared/toolspec"
 )
 
@@ -106,7 +107,13 @@ func (t *ExecCommandTool) Call(ctx context.Context, c tools.Call) (tools.Result,
 		Raw:            in.Raw,
 	})
 	if err != nil {
+		if postprocess.IsCriticalError(err) {
+			return tools.ErrorResultWith(c, formatToolCallError("exec_command", err), marshalNoHTMLEscape), nil
+		}
 		return tools.ErrorResultWith(c, formatToolCallError("exec_command", err), marshalNoHTMLEscape), nil
+	}
+	if strings.TrimSpace(result.ToolError) != "" {
+		return tools.ErrorResultWith(c, appendWarning(result.Warning, result.ToolError), marshalNoHTMLEscape), nil
 	}
 	body, marshalErr := marshalNoHTMLEscape(formatExecResponse(result))
 	if marshalErr != nil {

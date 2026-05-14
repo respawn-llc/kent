@@ -170,6 +170,7 @@ func (m *uiModel) observeDirectCommittedEventDelivery(evt clientui.Event) {
 		m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(evt.CommittedEntryCount, evt.TranscriptRevision)
 		return
 	}
+	m.ongoingCommittedDelivery.markApplied(evt.CommittedEntryCount, evt.TranscriptRevision)
 	if evt.CommittedEntryCount > m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount {
 		m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount = evt.CommittedEntryCount
 	}

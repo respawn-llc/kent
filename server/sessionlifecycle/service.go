@@ -172,9 +172,6 @@ func (s *Service) resolveTransitionOnce(ctx context.Context, req serverapi.Sessi
 		if s.authManager == nil {
 			return serverapi.SessionResolveTransitionResponse{}, errors.New("auth manager is required for logout")
 		}
-		if _, err := s.authManager.ClearMethod(ctx, true); err != nil {
-			return serverapi.SessionResolveTransitionResponse{}, err
-		}
 		return serverapi.SessionResolveTransitionResponse{
 			NextSessionID:  strings.TrimSpace(req.SessionID),
 			ShouldContinue: true,

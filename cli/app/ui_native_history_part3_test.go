@@ -48,6 +48,52 @@ func TestProjectedRuntimeAssistantFinalAfterPromotionMatchesTrimmedCommittedText
 	}
 }
 
+func TestProjectedRuntimeAssistantFinalExtendsPromotedStreamWithoutDuplicatePrefix(t *testing.T) {
+	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil,
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "auth status?"}}),
+	)
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	m = next.(*uiModel)
+	_ = collectCmdMessages(t, startupCmd)
+
+	streamText := "Yes, currently possible.\n\nCurrent code uses `/status` collector path.\n"
+	committedText := streamText + "\nI recommend changing picker auth to local state only.\n"
+	next, streamCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, StepID: "step-auth", AssistantDelta: streamText}),
+	}})
+	m = next.(*uiModel)
+	firstFlush := collectNativeHistoryFlushText(collectCmdMessages(t, streamCmd))
+	if !strings.Contains(firstFlush, "Yes, currently possible.") {
+		t.Fatalf("expected stream prefix to promote before final commit, got %q", firstFlush)
+	}
+
+	next, finalCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{
+			Kind:                       runtime.EventAssistantMessage,
+			StepID:                     "step-auth",
+			CommittedTranscriptChanged: true,
+			CommittedEntryStart:        1,
+			CommittedEntryStartSet:     true,
+			CommittedEntryCount:        2,
+			Message:                    llm.Message{Role: llm.RoleAssistant, Content: committedText, Phase: llm.MessagePhaseFinal},
+		}),
+	}})
+	m = next.(*uiModel)
+	finalFlush := collectNativeHistoryFlushText(collectCmdMessages(t, finalCmd))
+	if strings.Contains(finalFlush, "Yes, currently possible.") {
+		t.Fatalf("expected final commit to avoid duplicating promoted prefix, got %q", finalFlush)
+	}
+	if !strings.Contains(finalFlush, "I recommend changing picker auth") {
+		t.Fatalf("expected final commit to flush committed tail missing from stream, got %q", finalFlush)
+	}
+	if got := strings.Count(firstFlush+finalFlush, "Yes, currently possible."); got != 1 {
+		t.Fatalf("expected promoted prefix once, got %d in %q%q", got, firstFlush, finalFlush)
+	}
+	if got := len(splitPlainLines(normalizedOutput(firstFlush + "\n" + finalFlush))); got > 10 {
+		t.Fatalf("expected rendered output to stay bounded without duplicated block, got %d lines in %q%q", got, firstFlush, finalFlush)
+	}
+}
+
 func TestProjectedRuntimeAssistantCommentaryFinalizesStreamingPromotion(t *testing.T) {
 	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil,
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "commentary please"}}),

@@ -9,6 +9,7 @@ import (
 	"builder/shared/client"
 	"builder/shared/config"
 	"builder/shared/protocol"
+	"builder/shared/serverapi"
 )
 
 type remoteAppServer struct {
@@ -144,6 +145,20 @@ func (s *remoteAppServer) SessionViewClient() client.SessionViewClient {
 }
 
 func (s *remoteAppServer) Reauthenticate(ctx context.Context, interactor authInteractor) error {
+	if s == nil || s.remote == nil {
+		return errors.New("remote server is required")
+	}
+	status, err := s.remote.GetAuthBootstrapStatus(ctx, serverapi.AuthGetBootstrapStatusRequest{})
+	if err != nil {
+		return err
+	}
+	if interactive, ok := interactor.(*interactiveAuthInteractor); ok {
+		return interactive.completeRemoteAuthBootstrap(ctx, s.remote, s.cfg.Settings, status, true)
+	}
+	return ensureRemoteAuthReady(ctx, s.remote, s.cfg.Settings, interactor)
+}
+
+func (s *remoteAppServer) EnsureAuthReady(ctx context.Context, interactor authInteractor) error {
 	if s == nil || s.remote == nil {
 		return errors.New("remote server is required")
 	}

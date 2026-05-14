@@ -138,6 +138,7 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 		command:        strings.TrimSpace(req.DisplayCommand),
 		workdir:        workdir,
 		raw:            req.Raw,
+		preserveOutput: m.preserveRawOutput(req.Raw),
 		startedAt:      time.Now().UTC(),
 		lastUpdatedAt:  time.Now().UTC(),
 		state:          "starting",
@@ -194,7 +195,6 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 		_ = killManagedProcess(cmd.Process)
 		return ExecResult{}, err
 	}
-	sanitized := sanitizeOutput(string(output))
 	result := ExecResult{
 		SessionID:  id,
 		WallTime:   time.Since(start),
@@ -204,9 +204,8 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 	if !backgrounded {
 		if pending := entry.drainPending(); len(pending) > 0 {
 			output = append(output, pending...)
-			sanitized = sanitizeOutput(string(output))
 		}
-		processed, err := m.applyPostprocessing(ctx, entry, sanitized, snapshot.ExitCode, false, maxOutputChars)
+		processed, err := m.applyPostprocessing(ctx, entry, string(output), snapshot.ExitCode, false, maxOutputChars)
 		if err != nil {
 			return ExecResult{}, err
 		}
@@ -214,10 +213,11 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 		result.ExitCode = cloneIntPtr(snapshot.ExitCode)
 		result.Output = display
 		result.Warning = processed.Warning
+		result.ToolError = processed.UnrecoverableError
 		m.releaseEntry(id)
 		return result, nil
 	}
-	processed, err := m.applyPostprocessing(ctx, entry, sanitized, nil, true, maxOutputChars)
+	processed, err := m.applyPostprocessing(ctx, entry, string(output), nil, true, maxOutputChars)
 	if err != nil {
 		return ExecResult{}, err
 	}
@@ -227,8 +227,16 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 	result.MovedToBackground = true
 	result.Output = display
 	result.Warning = processed.Warning
+	result.ToolError = processed.UnrecoverableError
 	m.emitEvent(Event{Type: EventBackgrounded, Snapshot: snapshot})
 	return result, nil
+}
+
+func (m *Manager) preserveRawOutput(raw bool) bool {
+	if raw || m == nil || m.postprocessor == nil {
+		return true
+	}
+	return m.postprocessor.PreservesRawOutput(false)
 }
 
 func (m *Manager) WriteStdin(ctx context.Context, req WriteRequest) (ExecResult, error) {
@@ -275,7 +283,7 @@ func (m *Manager) WriteStdin(ctx context.Context, req WriteRequest) (ExecResult,
 	warning := ""
 	var processed postprocess.Result
 	if snapshot.Backgrounded && snapshot.ExitCode != nil && !entry.completionNoticeConsumed() {
-		fullOutput, readErr := readSanitizedOutputFile(snapshot.LogPath)
+		fullOutput, readErr := readOutputFile(snapshot.LogPath)
 		if readErr == nil {
 			processed, err = m.applyPostprocessing(ctx, entry, fullOutput, snapshot.ExitCode, true, maxOutputChars)
 			if err != nil {
@@ -287,8 +295,7 @@ func (m *Manager) WriteStdin(ctx context.Context, req WriteRequest) (ExecResult,
 		}
 	}
 	if !consumedCompletion {
-		sanitized := sanitizeOutput(string(output))
-		processed, err = m.applyPostprocessing(ctx, entry, sanitized, snapshot.ExitCode, snapshot.Backgrounded, maxOutputChars)
+		processed, err = m.applyPostprocessing(ctx, entry, string(output), snapshot.ExitCode, snapshot.Backgrounded, maxOutputChars)
 		if err != nil {
 			return ExecResult{}, err
 		}
@@ -301,6 +308,7 @@ func (m *Manager) WriteStdin(ctx context.Context, req WriteRequest) (ExecResult,
 		SessionID:    id,
 		WallTime:     time.Since(start),
 		Warning:      appendWarning(warning, processed.Warning),
+		ToolError:    processed.UnrecoverableError,
 		Output:       display,
 		OutputPath:   snapshot.LogPath,
 		Running:      snapshot.Running,
@@ -342,7 +350,8 @@ func (m *Manager) InlineOutput(id string, maxChars int) (string, string, error) 
 	if err != nil {
 		return "", "", err
 	}
-	preview, _, err := readPreviewFromFile(entry.snapshot().LogPath, normalizeOutputChars(maxChars))
+	snapshot := entry.snapshot()
+	preview, _, err := readPreviewFromFile(snapshot.LogPath, normalizeOutputChars(maxChars), !snapshot.RawOutput)
 	if err != nil {
 		return "", "", err
 	}

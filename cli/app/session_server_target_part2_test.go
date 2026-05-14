@@ -520,6 +520,63 @@ func TestRemoteSessionStatusDoesNotReuseLocalAuthState(t *testing.T) {
 	}
 }
 
+func TestStartSessionServerRemoteReadyAuthDoesNotOpenStartupPicker(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	registerAppWorkspace(t, workspace)
+
+	srv, err := serve.Start(context.Background(), serverstartup.Request{
+		WorkspaceRoot:         workspace,
+		WorkspaceRootExplicit: true,
+		Model:                 "gpt-5",
+	}, memoryAuthHandler{state: auth.State{
+		Scope: auth.ScopeGlobal,
+		Method: auth.Method{
+			Type: auth.MethodOAuth,
+			OAuth: &auth.OAuthMethod{
+				AccessToken: "server-access-token",
+				AccountID:   "server-acct",
+				Email:       "user@example.com",
+			},
+		},
+		UpdatedAt: time.Now().UTC(),
+	}}, autoOnboarding{})
+	if err != nil {
+		t.Fatalf("serve.Start: %v", err)
+	}
+	defer func() { _ = srv.Close() }()
+
+	serveCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.Serve(serveCtx)
+	}()
+	defer func() {
+		cancel()
+		if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {
+			t.Fatalf("Serve error = %v, want context canceled", serveErr)
+		}
+	}()
+	waitForConfiguredRemoteIdentity(t, workspace)
+
+	interactor := &interactiveAuthInteractor{
+		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
+			t.Fatal("remote startup validation must not open auth picker when server auth is ready")
+			return authMethodPickerResult{}, nil
+		},
+	}
+	server, err := startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, interactor)
+	if err != nil {
+		t.Fatalf("startSessionServer: %v", err)
+	}
+	defer func() { _ = server.Close() }()
+	if _, ok := server.(*remoteAppServer); !ok {
+		t.Fatalf("expected remote app server, got %T", server)
+	}
+}
+
 func TestStartSessionServerOwnsLaunchedDaemonCloser(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()

@@ -69,6 +69,10 @@ func CompleteOpenAIBrowserFlow(ctx context.Context, opts auth.OpenAIOAuthOptions
 	return auth.CompleteOpenAIBrowserFlow(ctx, opts, session, callbackInput)
 }
 
+func ParseOAuthCallbackInput(callbackInput string) (auth.BrowserCallback, error) {
+	return auth.ParseOAuthCallbackInput(callbackInput)
+}
+
 func CollectOpenAIDeviceAuthorizationGrant(ctx context.Context, opts auth.OpenAIOAuthOptions, onCode func(auth.DeviceCode)) (auth.DeviceAuthorizationGrant, error) {
 	return auth.CollectOpenAIDeviceAuthorizationGrant(ctx, opts, onCode)
 }

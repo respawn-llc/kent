@@ -104,14 +104,29 @@ func (m *uiModel) nativeStreamingCommitAssistantIndex(committedEntries []tui.Tra
 	if previousCommittedCount < 0 || previousCommittedCount > committedCount {
 		return -1
 	}
-	source := strings.TrimSpace(m.nativeStreamingController.source)
-	for idx := previousCommittedCount; idx < committedCount && idx < len(committedEntries); idx++ {
-		entry := committedEntries[idx]
-		if entry.Role == tui.TranscriptRoleAssistant && strings.TrimSpace(entry.Text) == source {
-			return idx
+	startIndex := previousCommittedCount
+	endIndex := committedCount
+	if m.nativeStreamingCommitRangeSet {
+		startIndex = m.nativeStreamingCommitStart - m.transcriptBaseOffset
+		endIndex = m.nativeStreamingCommitEnd - m.transcriptBaseOffset
+		if startIndex < previousCommittedCount || endIndex > committedCount || endIndex <= startIndex {
+			return -1
 		}
+	} else if strings.TrimSpace(m.nativeStreamingStepID) != "" {
+		return -1
 	}
-	return -1
+	assistantIndex := -1
+	for idx := startIndex; idx < endIndex && idx < len(committedEntries); idx++ {
+		entry := committedEntries[idx]
+		if entry.Role != tui.TranscriptRoleAssistant {
+			continue
+		}
+		if assistantIndex >= 0 {
+			return -1
+		}
+		assistantIndex = idx
+	}
+	return assistantIndex
 }
 
 func (m *uiModel) shouldEmitNativeHistory() bool {
@@ -149,6 +164,10 @@ func (m *uiModel) resetNativeStreamingState() {
 	m.nativeStreamingUnflushedStable = nil
 	m.nativeStreamingStableFlushSequence = 0
 	m.nativeStreamingText = ""
+	m.nativeStreamingStepID = ""
+	m.nativeStreamingCommitStart = 0
+	m.nativeStreamingCommitEnd = 0
+	m.nativeStreamingCommitRangeSet = false
 	m.nativeStreamingWidth = 0
 	m.nativeStreamingFlushedLineCount = 0
 	m.nativeStreamingDividerFlushed = false
@@ -227,7 +246,7 @@ func (m *uiModel) finalizeNativeStreamingCommit(projection tui.TranscriptProject
 		return m.emitCurrentNativeScrollbackState(true), true
 	}
 	hadCommittedHistory := previousCommittedCount > 0
-	finalUpdate := m.nativeStreamingController.Finalize()
+	finalUpdate := m.nativeStreamingController.FinalizeSource(committedEntries[streamedAssistantIndex].Text)
 	flushTail := m.emitNativeRenderedText(renderStyledNativeProjectionLines(m.nativeStreamingFinalizeLines(finalUpdate.stable, hadCommittedHistory), m.theme, m.nativeReplayRenderWidth()))
 	postAssistant := m.emitNativeProjectionLinesForEntryRangeExcluding(projection, previousCommittedCount, committedCount, streamedAssistantIndex)
 	m.consumeNativeHistoryReplayPermit()

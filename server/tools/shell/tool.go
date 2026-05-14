@@ -6,12 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
-	"unicode"
 
+	"builder/server/tools/shell/postprocess"
 	"builder/server/tools/shell/shellenv"
-
-	xansi "github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -58,22 +55,14 @@ func enrichEnvForSession(base []string, sessionID string) []string {
 }
 
 func sanitizeOutput(s string) string {
-	if s == "" {
+	return postprocess.SanitizeOutput(s)
+}
+
+func formatCapturedOutput(s string, preserveRaw bool) string {
+	if preserveRaw {
 		return s
 	}
-
-	stripped := xansi.Strip(s)
-	normalized := strings.ReplaceAll(stripped, "\r\n", "\n")
-	normalized = strings.ReplaceAll(normalized, "\r", "\n")
-
-	var b strings.Builder
-	b.Grow(len(normalized))
-	for _, r := range normalized {
-		if r == '\n' || r == '\t' || !unicode.IsControl(r) {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
+	return sanitizeOutput(s)
 }
 
 func truncate(s string, maxLen int) (string, bool, int) {

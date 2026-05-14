@@ -202,11 +202,25 @@ func statusNoticeStyle(theme string, kind uiStatusNoticeKind) lipgloss.Style {
 
 func (l uiViewLayout) statusModelLabel() string {
 	m := l.model
-	label := statuscollect.ModelDisplayLabel(m.modelName, m.thinkingLevel)
-	if m.fastModeAvailable && m.fastModeEnabled {
+	return statusModelLabelText(
+		m.modelName,
+		m.thinkingLevel,
+		m.fastModeAvailable,
+		m.fastModeEnabled,
+		m.modelContractLocked,
+		m.configuredModelName,
+	)
+}
+
+func statusModelLabelText(modelName string, thinkingLevel string, fastModeAvailable bool, fastModeEnabled bool, modelContractLocked bool, configuredModelName string) string {
+	label := statuscollect.ModelDisplayLabel(modelName, thinkingLevel)
+	if fastModeAvailable && fastModeEnabled {
 		label += " fast"
 	}
-	if !m.shouldShowModelLockedLabel() {
+	if !modelContractLocked {
+		return label
+	}
+	if strings.TrimSpace(modelName) == strings.TrimSpace(configuredModelName) {
 		return label
 	}
 	return label + " (model locked)"

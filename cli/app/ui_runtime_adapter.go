@@ -84,6 +84,7 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 	}
 	if len(evt.TranscriptEntries) > 0 {
 		if shouldDeliverCommittedRuntimeEventFromSuffix(m, evt) {
+			m.observeNativeStreamingAssistantCommitCandidate(evt)
 			cmds = append(cmds, m.requestRuntimeCommittedTranscriptSuffix(committedTranscriptSuffixRequestForEvent(m, evt)))
 			if shouldClearAssistantStreamForCommittedAssistantEvent(evt) || skippedAssistantCommitMatchesActiveLiveStream(m, evt) {
 				if stepID := strings.TrimSpace(evt.StepID); stepID != "" {
@@ -93,6 +94,7 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 				m.forwardToView(tui.ClearOngoingAssistantMsg{})
 			}
 		} else {
+			m.observeNativeStreamingAssistantCommitCandidate(evt)
 			cmd, mutated, needsHydration := a.applyProjectedTranscriptEntries(evt, flushNativeHistory)
 			cmds = append(cmds, cmd)
 			transcriptMutated = transcriptMutated || mutated
@@ -115,6 +117,10 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 			}
 			if isNoopFinalText(delta) {
 				continue
+			}
+			if stepID := strings.TrimSpace(streamCommand.StepID); stepID != "" {
+				m.nativeStreamingStepID = stepID
+				m.nativeStreamingCommitRangeSet = false
 			}
 			m.sawAssistantDelta = true
 			m.forwardToView(tui.StreamAssistantMsg{Delta: delta})

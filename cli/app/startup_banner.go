@@ -7,7 +7,7 @@ import (
 	ansi "github.com/charmbracelet/x/ansi"
 )
 
-const startupBannerHorizontalPadding = 2
+const startupBannerHorizontalPadding = 1
 
 //go:embed assets/builder-big-money-nw-block-full-builder-gradient.ansi
 var builderStartupBannerANSI string
@@ -23,7 +23,7 @@ func renderStartupBanner(raw string) string {
 	for _, line := range lines {
 		out = append(out, prefix+line)
 	}
-	return strings.Join(out, "\n")
+	return "\n" + strings.Join(out, "\n")
 }
 
 func startupBannerLineCount(raw string) int {

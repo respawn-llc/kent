@@ -21,6 +21,7 @@ type OpenBrowserFunc func(string) error
 type StartCallbackListenerFunc func() (CallbackListener, error)
 type RunDeviceFlowFunc func(context.Context, oauthadapter.OpenAIOAuthOptions, func(oauthadapter.DeviceCode)) (oauthadapter.Method, error)
 type PromptFunc func(string) (string, error)
+type BrowserCallbackPageFunc func(context.Context, oauthadapter.OpenAIOAuthOptions, oauthadapter.BrowserAuthSession, error, CallbackListener, CompleteBrowserFlowFunc) (oauthadapter.Method, error)
 
 type Presenter interface {
 	ShowBrowserAuto(session oauthadapter.BrowserAuthSession, openErr error)
@@ -36,6 +37,7 @@ type Runner struct {
 	RunDeviceFlow         RunDeviceFlowFunc
 	Prompt                PromptFunc
 	Presenter             Presenter
+	BrowserCallbackPage   BrowserCallbackPageFunc
 }
 
 func (r Runner) BrowserAuto(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions) (oauthadapter.Method, error) {
@@ -54,14 +56,14 @@ func (r Runner) BrowserAuto(ctx context.Context, opts oauthadapter.OpenAIOAuthOp
 	if r.Presenter != nil {
 		r.Presenter.ShowBrowserAuto(session, openErr)
 	}
+	if r.BrowserCallbackPage != nil {
+		return r.BrowserCallbackPage(ctx, opts, session, openErr, listener, r.completeBrowserFlow())
+	}
 	callback, err := listener.Wait(ctx, opts.PollTimeout)
 	if err != nil {
 		return oauthadapter.Method{}, err
 	}
-	query := url.Values{
-		"code":  []string{callback.Code},
-		"state": []string{callback.State},
-	}
+	query := callbackQuery(callback)
 	return r.completeBrowserFlow()(ctx, opts, session, query.Encode())
 }
 
@@ -79,6 +81,13 @@ func (r Runner) BrowserPaste(ctx context.Context, opts oauthadapter.OpenAIOAuthO
 		return oauthadapter.Method{}, err
 	}
 	return r.completeBrowserFlow()(ctx, opts, session, callbackInput)
+}
+
+func callbackQuery(callback oauthadapter.BrowserCallback) url.Values {
+	return url.Values{
+		"code":  []string{callback.Code},
+		"state": []string{callback.State},
+	}
 }
 
 func (r Runner) Device(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions) (oauthadapter.Method, error) {

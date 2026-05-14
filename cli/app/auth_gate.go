@@ -43,6 +43,7 @@ type interactiveAuthInteractor struct {
 	openBrowser           func(string) error
 	startCallbackListener func() (oauthCallbackListener, error)
 	runDeviceFlow         func(context.Context, oauthadapter.OpenAIOAuthOptions, func(oauthadapter.DeviceCode)) (authflowadapter.Method, error)
+	runCallbackPage       func(context.Context, authCallbackPageData, func(context.Context) (oauthadapter.BrowserCallback, error), func(context.Context, string) (oauthadapter.Method, error)) (authCallbackPageResult, error)
 	pickMethod            func(authInteraction) (authMethodPickerResult, error)
 	pickConflict          func(authInteraction) (authConflictPickerResult, error)
 	showSuccess           func(authSuccessScreenData) error
@@ -58,7 +59,8 @@ func newInteractiveAuthInteractor() authInteractor {
 		startCallbackListener: func() (oauthCallbackListener, error) {
 			return oauthadapter.StartOAuthCallbackListener()
 		},
-		runDeviceFlow: oauthadapter.RunOpenAIDeviceCodeFlow,
+		runDeviceFlow:   oauthadapter.RunOpenAIDeviceCodeFlow,
+		runCallbackPage: runAuthCallbackPage,
 	}
 }
 
@@ -122,9 +124,6 @@ func (i *interactiveAuthInteractor) Interact(ctx context.Context, req authIntera
 		var method authflowadapter.Method
 		switch choice {
 		case authMethodChoiceSkip:
-			if req.AuthRequired {
-				return authflowadapter.InteractionOutcome{}, errors.New("builder auth is required for this configuration")
-			}
 			if err := persistSkipAuthSelection(ctx, req); err != nil {
 				return authflowadapter.InteractionOutcome{}, err
 			}
@@ -171,22 +170,14 @@ func (i *interactiveAuthInteractor) Interact(ctx context.Context, req authIntera
 }
 
 func persistSkipAuthSelection(ctx context.Context, req authInteraction) error {
-	if req.HasEnvAPIKey {
-		if _, err := req.Manager.SwitchMethodAndSetEnvAPIKeyPreference(
-			ctx,
-			authflowadapter.Method{Type: authflowadapter.MethodNone},
-			authflowadapter.EnvAPIKeyPreferencePreferSaved,
-			true,
-			true,
-		); err != nil {
-			return fmt.Errorf("save skip-auth preference: %w", err)
-		}
-		return nil
-	}
-	if authinteraction.ShouldClearOnSkip(req) {
-		if _, err := req.Manager.ClearMethod(ctx, true); err != nil {
-			return fmt.Errorf("clear auth method: %w", err)
-		}
+	if _, err := req.Manager.SwitchMethodAndSetEnvAPIKeyPreference(
+		ctx,
+		authflowadapter.Method{Type: authflowadapter.MethodNone},
+		authflowadapter.EnvAPIKeyPreferencePreferSaved,
+		true,
+		true,
+	); err != nil {
+		return fmt.Errorf("save no-auth preference: %w", err)
 	}
 	return nil
 }
@@ -238,7 +229,7 @@ func (i *interactiveAuthInteractor) chooseMethod(req authInteraction) (authMetho
 		return "", err
 	}
 	if picked.Canceled {
-		return "", errors.New("auth canceled by user")
+		return "", ErrAuthCanceledByUser
 	}
 	return picked.Choice, nil
 }
@@ -266,7 +257,7 @@ func (i *interactiveAuthInteractor) authOAuthRunner(theme string) authoauth.Runn
 			return oauthadapter.StartOAuthCallbackListener()
 		}
 	}
-	return authoauth.Runner{
+	runner := authoauth.Runner{
 		OpenBrowser: openBrowser,
 		StartCallbackListener: func() (authoauth.CallbackListener, error) {
 			return startListener()
@@ -279,4 +270,10 @@ func (i *interactiveAuthInteractor) authOAuthRunner(theme string) authoauth.Runn
 		},
 		Presenter: interactiveAuthOAuthPresenter{interactor: i, theme: theme},
 	}
+	if i.runCallbackPage != nil {
+		runner.BrowserCallbackPage = func(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions, session oauthadapter.BrowserAuthSession, openErr error, listener authoauth.CallbackListener, complete authoauth.CompleteBrowserFlowFunc) (oauthadapter.Method, error) {
+			return i.runAuthBrowserHybridPage(ctx, theme, opts, session, openErr, listener, complete)
+		}
+	}
+	return runner
 }

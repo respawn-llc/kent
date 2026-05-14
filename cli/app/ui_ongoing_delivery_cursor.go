@@ -15,6 +15,7 @@ type ongoingCommittedRange struct {
 type ongoingCommittedDeliveryCursor struct {
 	initialized                    bool
 	lastEmittedCommittedEntryCount int
+	lastAppliedCommittedEntryCount int
 	lastEmittedTranscriptRevision  int64
 	nativeFlushInFlight            bool
 	emissionEnabledByMode          bool
@@ -32,6 +33,7 @@ func newOngoingCommittedDeliveryCursor(lastCommittedEntryCount int, revision int
 	return ongoingCommittedDeliveryCursor{
 		initialized:                    true,
 		lastEmittedCommittedEntryCount: lastCommittedEntryCount,
+		lastAppliedCommittedEntryCount: lastCommittedEntryCount,
 		lastEmittedTranscriptRevision:  revision,
 		emissionEnabledByMode:          true,
 	}
@@ -48,26 +50,45 @@ func (c *ongoingCommittedDeliveryCursor) recordCommittedAdvance(committedEntryCo
 	if c == nil || committedEntryCount <= c.lastEmittedCommittedEntryCount {
 		return
 	}
+	c.markApplied(committedEntryCount, revision)
 	if c.emissionEnabledByMode && !c.nativeFlushInFlight {
 		return
 	}
 	c.recordPendingRange(c.lastEmittedCommittedEntryCount, committedEntryCount, revision)
 }
 
+func (c *ongoingCommittedDeliveryCursor) markApplied(committedEntryCount int, _ int64) {
+	if c == nil {
+		return
+	}
+	if committedEntryCount > c.lastAppliedCommittedEntryCount {
+		c.lastAppliedCommittedEntryCount = committedEntryCount
+	}
+}
+
 func (c *ongoingCommittedDeliveryCursor) beginNativeFlush(suffix clientui.CommittedTranscriptSuffix, sequence uint64) error {
 	if c == nil {
 		return errors.New("ongoing delivery cursor is required")
 	}
-	if c.nativeFlushInFlight {
-		return errors.New("native flush already in flight")
-	}
 	if suffix.StartEntryCount != c.lastEmittedCommittedEntryCount {
-		return errors.New("suffix start does not match delivery cursor")
+		if !c.nativeFlushInFlight || suffix.StartEntryCount < c.lastEmittedCommittedEntryCount || suffix.StartEntryCount > c.flushNextEntryCount {
+			return errors.New("suffix start does not match delivery cursor")
+		}
 	}
 	if suffix.NextEntryCount < suffix.StartEntryCount {
 		return errors.New("suffix next cursor is before suffix start")
 	}
 	if suffix.NextEntryCount == suffix.StartEntryCount {
+		return nil
+	}
+	c.markApplied(suffix.NextEntryCount, suffix.Revision)
+	if c.nativeFlushInFlight {
+		if suffix.NextEntryCount <= c.flushNextEntryCount {
+			return nil
+		}
+		c.flushSequence = sequence
+		c.flushNextEntryCount = suffix.NextEntryCount
+		c.flushRevision = max(c.flushRevision, suffix.Revision)
 		return nil
 	}
 	c.nativeFlushInFlight = true
@@ -83,6 +104,9 @@ func (c *ongoingCommittedDeliveryCursor) ackNativeFlush(sequence uint64) bool {
 	}
 	c.lastEmittedCommittedEntryCount = c.flushNextEntryCount
 	c.lastEmittedTranscriptRevision = c.flushRevision
+	if c.lastAppliedCommittedEntryCount < c.lastEmittedCommittedEntryCount {
+		c.lastAppliedCommittedEntryCount = c.lastEmittedCommittedEntryCount
+	}
 	c.nativeFlushInFlight = false
 	c.flushSequence = 0
 	c.flushNextEntryCount = 0

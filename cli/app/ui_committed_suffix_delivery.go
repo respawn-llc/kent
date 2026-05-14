@@ -39,7 +39,7 @@ func committedTranscriptTailEnd(m *uiModel) int {
 		return 0
 	}
 	if m.ongoingCommittedDelivery.initialized {
-		return m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount
+		return m.ongoingCommittedDelivery.lastAppliedCommittedEntryCount
 	}
 	return committedTranscriptLocalFrontierEnd(m)
 }
@@ -98,6 +98,15 @@ func (m *uiModel) applyCommittedTranscriptSuffixAppend(suffix clientui.Committed
 	if !m.ongoingCommittedDelivery.initialized {
 		m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(committedTranscriptTailEnd(m), m.transcriptRevision)
 	}
+	// Multiple committed events can race their suffix reads while final-answer
+	// streaming is being finalized. Trim any already-delivered overlap so a late
+	// suffix cannot re-emit the final answer that advanced the delivery cursor.
+	suffix = m.trimCommittedTranscriptSuffixToDeliveryCursor(suffix)
+	if suffix.NextEntryCount <= suffix.StartEntryCount {
+		m.transcriptRevision = max(m.transcriptRevision, suffix.Revision)
+		m.transcriptTotalEntries = max(m.transcriptTotalEntries, suffix.CommittedEntryCount)
+		return nil
+	}
 	page := transcriptPageFromCommittedTranscriptSuffix(suffix)
 	entries := transcriptEntriesFromPage(page)
 	expectedStart := committedTranscriptTailEnd(m)
@@ -124,6 +133,7 @@ func (m *uiModel) applyCommittedTranscriptSuffixAppend(suffix clientui.Committed
 	m.transcriptRevision = max(m.transcriptRevision, suffix.Revision)
 	m.transcriptTotalEntries = max(m.transcriptTotalEntries, suffix.CommittedEntryCount)
 	m.transcriptLiveDirty = true
+	m.ongoingCommittedDelivery.markApplied(committedOngoingLocalFrontierEnd(m), suffix.Revision)
 	m.refreshRollbackCandidates()
 	if m.view.Mode() == tui.ModeDetail {
 		m.detailTranscript.apply(page)
@@ -174,4 +184,47 @@ func (m *uiModel) trackOngoingCommittedSuffixFlush(suffix clientui.CommittedTran
 		return m.requestRuntimeCommittedGapSync()
 	}
 	return nil
+}
+
+func (m *uiModel) trimCommittedTranscriptSuffixToDeliveryCursor(suffix clientui.CommittedTranscriptSuffix) clientui.CommittedTranscriptSuffix {
+	if m == nil {
+		return suffix
+	}
+	expectedStart := committedTranscriptTailEnd(m)
+	if suffix.StartEntryCount >= expectedStart {
+		return normalizeCommittedTranscriptSuffixEntryWindow(suffix)
+	}
+	if suffix.NextEntryCount <= expectedStart {
+		suffix.StartEntryCount = expectedStart
+		suffix.NextEntryCount = expectedStart
+		suffix.Entries = nil
+		return suffix
+	}
+	skip := expectedStart - suffix.StartEntryCount
+	if skip <= 0 {
+		return normalizeCommittedTranscriptSuffixEntryWindow(suffix)
+	}
+	if skip >= len(suffix.Entries) {
+		suffix.Entries = nil
+	} else {
+		suffix.Entries = append([]clientui.ChatEntry(nil), suffix.Entries[skip:]...)
+	}
+	suffix.StartEntryCount = expectedStart
+	return normalizeCommittedTranscriptSuffixEntryWindow(suffix)
+}
+
+func normalizeCommittedTranscriptSuffixEntryWindow(suffix clientui.CommittedTranscriptSuffix) clientui.CommittedTranscriptSuffix {
+	expectedCount := suffix.NextEntryCount - suffix.StartEntryCount
+	if expectedCount < 0 {
+		suffix.NextEntryCount = suffix.StartEntryCount
+		suffix.Entries = nil
+		return suffix
+	}
+	if len(suffix.Entries) > expectedCount {
+		suffix.Entries = append([]clientui.ChatEntry(nil), suffix.Entries[len(suffix.Entries)-expectedCount:]...)
+	}
+	if len(suffix.Entries) < expectedCount {
+		suffix.NextEntryCount = suffix.StartEntryCount + len(suffix.Entries)
+	}
+	return suffix
 }

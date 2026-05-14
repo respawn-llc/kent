@@ -37,6 +37,7 @@ type AuthGetBootstrapStatusResponse struct {
 
 type AuthCompleteBootstrapRequest struct {
 	Mode                    AuthBootstrapMode `json:"mode"`
+	Force                   bool              `json:"force,omitempty"`
 	APIKey                  string            `json:"api_key,omitempty"`
 	CallbackInput           string            `json:"callback_input,omitempty"`
 	RedirectURI             string            `json:"redirect_uri,omitempty"`

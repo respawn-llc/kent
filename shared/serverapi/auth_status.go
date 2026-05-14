@@ -3,6 +3,8 @@ package serverapi
 import (
 	"context"
 	"time"
+
+	"builder/shared/auth"
 )
 
 type AuthStatusRequest struct{}
@@ -14,9 +16,12 @@ type AuthStatusResponse struct {
 }
 
 type AuthStatusInfo struct {
-	Summary string   `json:"summary,omitempty"`
-	Details []string `json:"details,omitempty"`
-	Visible bool     `json:"visible,omitempty"`
+	Summary     string          `json:"summary,omitempty"`
+	Details     []string        `json:"details,omitempty"`
+	Visible     bool            `json:"visible,omitempty"`
+	Method      auth.MethodType `json:"method,omitempty"`
+	Provider    string          `json:"provider,omitempty"`
+	Unavailable bool            `json:"unavailable,omitempty"`
 }
 
 type AuthSubscriptionInfo struct {

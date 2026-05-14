@@ -34,6 +34,10 @@ type sessionTransitionServer interface {
 	Reauthenticate(ctx context.Context, interactor authInteractor) error
 }
 
+type sessionAuthReadinessServer interface {
+	EnsureAuthReady(ctx context.Context, interactor authInteractor) error
+}
+
 type sessionWorkspaceChangeServer interface {
 	sessionLifecycleClientProvider
 	sessionConfigProvider
@@ -53,6 +57,7 @@ type interactiveSessionServer interface {
 	sessionInitialInputServer
 	sessionDraftPersistenceServer
 	sessionTransitionServer
+	sessionAuthReadinessServer
 }
 
 func runSessionLifecycle(ctx context.Context, server interactiveSessionServer, interactor authInteractor, initialSessionID string) error {

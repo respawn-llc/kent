@@ -98,7 +98,7 @@ func TestUserFacingError(t *testing.T) {
 	if got := UserFacingError(&ProviderSelectionError{Model: "my-model", Err: ErrUnsupportedProvider}); got == "" || !containsAll(got, []string{"provider/auth path", "provider_override", "openai_base_url"}) {
 		t.Fatalf("expected provider selection warning, got %q", got)
 	}
-	if got := UserFacingError(&AuthError{Err: auth.ErrAuthNotConfigured}); got == "" || !containsAll(got, []string{"/login", "OPENAI_API_KEY", "openai_base_url"}) {
+	if got := UserFacingError(&AuthError{Err: auth.ErrAuthNotConfigured}); got != "Not authenticated, run /login to sign in with your provider" {
 		t.Fatalf("expected unauthenticated warning, got %q", got)
 	}
 	if got := UserFacingError(&ProviderAPIError{ProviderID: "openai-compatible", StatusCode: 401, Code: UnifiedErrorCodeAuthentication}); got == "" || !containsAll(got, []string{"401", "/login", "OPENAI_API_KEY"}) {
