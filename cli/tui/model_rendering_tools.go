@@ -106,11 +106,17 @@ func askQuestionDisplay(meta *transcript.ToolCallMeta, text string) (string, []s
 	return question, suggestions, recommendedOptionIndex
 }
 
+// RenderAskQuestionMarkdownLines renders question markdown for committed
+// ask_question transcript entries using theme and width, returning wrapped
+// display lines.
 func RenderAskQuestionMarkdownLines(question string, theme string, width int) []string {
 	renderer := transcriptProjectionRenderer(theme, width, 0)
 	return renderer.renderAskQuestionMarkdownLines(RenderIntentToolQuestion, question, width)
 }
 
+// RenderInlineAskQuestionMarkdownLines renders question markdown for compact
+// inline previews using theme and width, returning display lines without
+// transcript wrapping. It clamps width and falls back to raw line splitting.
 func RenderInlineAskQuestionMarkdownLines(question string, theme string, width int) []string {
 	renderer := transcriptProjectionRenderer(theme, width, 0)
 	if width < 1 {
