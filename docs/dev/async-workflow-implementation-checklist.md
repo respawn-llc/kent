@@ -567,21 +567,21 @@ Goal: task-managed worktree creation/registering without interactive session/con
 
 Goal: dedicated no-LLM manual smoke through real CLI/API/backend state before runtime/agent loop work.
 
-- [ ] Run smoke against a temp persistent root and embedded-local server wiring, not Nikita's real daemon/root.
-- [ ] Create or bind a test project/workspace.
-- [ ] Create a real workflow graph with start, agent, and terminal nodes.
-- [ ] Link workflow to project as default.
-- [ ] Validate workflow.
-- [ ] Create multiple tasks with title/body.
-- [ ] Inspect board view.
-- [ ] Inspect task detail view.
-- [ ] Add, replace, and soft-delete task comments.
-- [ ] Verify short IDs and stable row IDs needed by future commands.
-- [ ] Ensure task-owned worktree creation works from the temp root.
-- [ ] If `task start` is implemented by this point, run it and confirm the worktree is created on start; otherwise confirm the command fails loudly as unsupported until the scheduler slice.
-- [ ] Verify unsupported manual move/approval commands still fail loudly if Slice 11 is not implemented yet.
-- [ ] Capture exact smoke commands and results in implementation notes or this checklist.
-- [ ] Confirm no provider calls happened.
+- [x] Run smoke against a temp persistent root and embedded-local server wiring, not Nikita's real daemon/root.
+- [x] Create or bind a test project/workspace.
+- [x] Create a real workflow graph with start, agent, and terminal nodes.
+- [x] Link workflow to project as default.
+- [x] Validate workflow.
+- [x] Create multiple tasks with title/body.
+- [x] Inspect board view.
+- [x] Inspect task detail view.
+- [x] Add, replace, and soft-delete task comments.
+- [x] Verify short IDs and stable row IDs needed by future commands.
+- [x] Ensure task-owned worktree creation works from the temp root.
+- [x] If `task start` is implemented by this point, run it and confirm the worktree is created on start; otherwise confirm the command fails loudly as unsupported until the scheduler slice.
+- [x] Verify unsupported manual move/approval commands still fail loudly if Slice 11 is not implemented yet.
+- [x] Capture exact smoke commands and results in implementation notes or this checklist.
+- [x] Confirm no provider calls happened.
 
 ## Slice 6: Scheduler, Runnable Derivation, And Recovery
 
