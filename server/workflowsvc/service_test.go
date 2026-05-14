@@ -98,6 +98,35 @@ func TestServiceTaskStartValidatesCurrentGraph(t *testing.T) {
 	}
 }
 
+func TestServiceTaskStartEnsuresTaskWorktreeBeforeRun(t *testing.T) {
+	ctx := context.Background()
+	service, binding := newWorkflowServiceTestService(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	if _, err := service.LinkWorkflowToProject(ctx, serverapi.WorkflowLinkProjectRequest{ProjectID: binding.ProjectID, WorkflowID: workflowID, Default: true}); err != nil {
+		t.Fatalf("LinkWorkflowToProject: %v", err)
+	}
+	task, err := service.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateWorkflowTask: %v", err)
+	}
+	ensurer := &recordingTaskWorktreeEnsurer{hook: func(taskID string) {
+		runs, err := service.store.ListRuns(ctx, workflow.TaskID(taskID))
+		if err != nil {
+			t.Fatalf("ListRuns during ensure: %v", err)
+		}
+		if len(runs) != 0 {
+			t.Fatalf("task worktree ensure happened after run creation: %+v", runs)
+		}
+	}}
+	service.taskWorktrees = ensurer
+	if _, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{TaskID: task.Task.ID}); err != nil {
+		t.Fatalf("StartWorkflowTask: %v", err)
+	}
+	if ensurer.taskID != task.Task.ID {
+		t.Fatalf("ensured task id = %q, want %q", ensurer.taskID, task.Task.ID)
+	}
+}
+
 func TestServiceRejectsUnlinkedWorkflowAndInvalidDefault(t *testing.T) {
 	ctx := context.Background()
 	service, binding := newWorkflowServiceTestService(t)
@@ -114,6 +143,19 @@ func TestServiceRejectsUnlinkedWorkflowAndInvalidDefault(t *testing.T) {
 	if _, err := service.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"}); err == nil || !strings.Contains(err.Error(), "workflow validation failed") {
 		t.Fatalf("expected invalid default workflow error, got %v", err)
 	}
+}
+
+type recordingTaskWorktreeEnsurer struct {
+	taskID string
+	hook   func(string)
+}
+
+func (e *recordingTaskWorktreeEnsurer) EnsureTaskWorktree(ctx context.Context, taskID string) error {
+	e.taskID = taskID
+	if e.hook != nil {
+		e.hook(taskID)
+	}
+	return nil
 }
 
 func TestServiceDefaultWorkflowResolvesWithinProjectOnly(t *testing.T) {

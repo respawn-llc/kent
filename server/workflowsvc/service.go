@@ -11,19 +11,36 @@ import (
 )
 
 type Service struct {
-	store        *workflowstore.Store
-	view         *workflowview.Service
-	roleResolver workflow.RoleResolver
+	store         *workflowstore.Store
+	view          *workflowview.Service
+	roleResolver  workflow.RoleResolver
+	taskWorktrees taskWorktreeEnsurer
 }
 
-func New(store *workflowstore.Store, view *workflowview.Service, roleResolver workflow.RoleResolver) (*Service, error) {
+type taskWorktreeEnsurer interface {
+	EnsureTaskWorktree(ctx context.Context, taskID string) error
+}
+
+type Option func(*Service)
+
+func WithTaskWorktreeEnsurer(ensurer taskWorktreeEnsurer) Option {
+	return func(s *Service) {
+		s.taskWorktrees = ensurer
+	}
+}
+
+func New(store *workflowstore.Store, view *workflowview.Service, roleResolver workflow.RoleResolver, opts ...Option) (*Service, error) {
 	if store == nil {
 		return nil, errors.New("workflow store is required")
 	}
 	if view == nil {
 		return nil, errors.New("workflow view is required")
 	}
-	return &Service{store: store, view: view, roleResolver: roleResolver}, nil
+	service := &Service{store: store, view: view, roleResolver: roleResolver}
+	for _, opt := range opts {
+		opt(service)
+	}
+	return service, nil
 }
 
 func (s *Service) CreateWorkflow(ctx context.Context, req serverapi.WorkflowCreateRequest) (serverapi.WorkflowCreateResponse, error) {
@@ -185,6 +202,14 @@ func (s *Service) CreateWorkflowTask(ctx context.Context, req serverapi.Workflow
 func (s *Service) StartWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskStartRequest) (serverapi.WorkflowTaskStartResponse, error) {
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowTaskStartResponse{}, err
+	}
+	if s.taskWorktrees != nil {
+		if err := s.store.ValidateTaskStart(ctx, workflow.TaskID(req.TaskID)); err != nil {
+			return serverapi.WorkflowTaskStartResponse{}, err
+		}
+		if err := s.taskWorktrees.EnsureTaskWorktree(ctx, req.TaskID); err != nil {
+			return serverapi.WorkflowTaskStartResponse{}, err
+		}
 	}
 	started, err := s.store.StartTask(ctx, workflow.TaskID(req.TaskID))
 	if err != nil {

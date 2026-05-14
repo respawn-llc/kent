@@ -137,7 +137,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: view: %w", err)
 	}
-	workflowService, err := workflowsvc.New(workflowStore, workflowViewService, workflowRoleResolver)
+	workflowService, err := workflowsvc.New(workflowStore, workflowViewService, workflowRoleResolver, workflowsvc.WithTaskWorktreeEnsurer(taskWorktreeEnsurer{service: worktreeService}))
 	if err != nil {
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: service: %w", err)
@@ -191,4 +191,16 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	}
 	updateStatusService.Start()
 	return core, nil
+}
+
+type taskWorktreeEnsurer struct {
+	service *worktree.Service
+}
+
+func (e taskWorktreeEnsurer) EnsureTaskWorktree(ctx context.Context, taskID string) error {
+	if e.service == nil {
+		return nil
+	}
+	_, err := e.service.EnsureTaskWorktree(ctx, worktree.EnsureTaskWorktreeRequest{TaskID: taskID})
+	return err
 }

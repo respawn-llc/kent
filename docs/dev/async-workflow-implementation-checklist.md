@@ -532,35 +532,35 @@ Goal: task-managed worktree creation/registering without interactive session/con
 
 ### 5.1 Recon
 
-- [ ] Inspect `server/worktree` service public methods.
-- [ ] Inspect `shared/serverapi/worktree.go`.
-- [ ] Inspect worktree DB tables and existing worktree tests.
-- [ ] Identify where controller lease assumptions enter worktree creation.
-- [ ] Identify reusable branch/root collision helpers.
+- [x] Inspect `server/worktree` service public methods.
+- [x] Inspect `shared/serverapi/worktree.go`.
+- [x] Inspect worktree DB tables and existing worktree tests.
+- [x] Identify where controller lease assumptions enter worktree creation.
+- [x] Identify reusable branch/root collision helpers.
 
 ### 5.2 Red Tests
 
-- [ ] Add temp repo test for ensuring task worktree creates branch named task short ID.
-- [ ] Add test for repeated ensure returning existing managed worktree.
-- [ ] Add test for branch/root name collision handling.
-- [ ] Add test that task worktree ensure does not require controller lease.
-- [ ] Add test that task start can seed/ensure the managed worktree before runnable automation is recorded.
-- [ ] Add test that non-terminal task blocks managed worktree deletion.
-- [ ] Add test that terminal task allows cleanup when other blockers absent.
+- [x] Add temp repo test for ensuring task worktree creates branch named task short ID.
+- [x] Add test for repeated ensure returning existing managed worktree.
+- [x] Add test for branch/root name collision handling.
+- [x] Add test that task worktree ensure does not require controller lease.
+- [x] Add test that task start can seed/ensure the managed worktree before runnable automation is recorded.
+- [x] Add test that non-terminal task blocks managed worktree deletion.
+- [x] Add test that terminal task allows cleanup when other blockers absent.
 
 ### 5.3 Implementation
 
-- [ ] Add task-owned worktree ensure method to worktree service or focused adapter.
-- [ ] Register managed worktree ID on task metadata/store transaction.
-- [ ] Reuse existing physical worktree creation.
-- [ ] Reuse existing root/branch collision behavior.
-- [ ] Add blocker query/service path for non-terminal tasks using managed worktree.
-- [ ] Keep interactive session switching separate from task worktree creation.
+- [x] Add task-owned worktree ensure method to worktree service or focused adapter.
+- [x] Register managed worktree ID on task metadata/store transaction.
+- [x] Reuse existing physical worktree creation.
+- [x] Reuse existing root/branch collision behavior.
+- [x] Add blocker query/service path for non-terminal tasks using managed worktree.
+- [x] Keep interactive session switching separate from task worktree creation.
 
 ### 5.4 Verification
 
-- [ ] Run `./scripts/test.sh ./server/worktree/... ./server/metadata/... ./server/workflow/...`.
-- [ ] Run `./scripts/build.sh --output ./bin/builder`.
+- [x] Run `./scripts/test.sh ./server/worktree/... ./server/metadata/... ./server/workflow/...`.
+- [x] Run `./scripts/build.sh --output ./bin/builder`.
 - [ ] Commit slice with message like `feat: add task worktree primitive`.
 
 ## Slice 5.5: Full Non-Agent E2E Smoke Check

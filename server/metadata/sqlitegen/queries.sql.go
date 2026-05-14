@@ -117,6 +117,25 @@ func (q *Queries) CountActiveProjectWorkflowLinks(ctx context.Context, projectID
 	return active_link_count, err
 }
 
+const countNonTerminalTasksByManagedWorktree = `-- name: CountNonTerminalTasksByManagedWorktree :one
+SELECT CAST(COUNT(DISTINCT t.id) AS INTEGER) AS ref_count
+FROM tasks t
+JOIN task_node_placements p
+    ON p.task_id = t.id
+    AND p.state IN ('active', 'waiting_approval')
+JOIN workflow_nodes n ON n.id = p.node_id
+WHERE t.managed_worktree_id = ?1
+  AND t.canceled_at_unix_ms = 0
+  AND n.kind != 'terminal'
+`
+
+func (q *Queries) CountNonTerminalTasksByManagedWorktree(ctx context.Context, managedWorktreeID sql.NullString) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countNonTerminalTasksByManagedWorktree, managedWorktreeID)
+	var ref_count int64
+	err := row.Scan(&ref_count)
+	return ref_count, err
+}
+
 const countNonTerminalTasksByProjectWorkflowLink = `-- name: CountNonTerminalTasksByProjectWorkflowLink :one
 SELECT CAST(COUNT(DISTINCT t.id) AS INTEGER) AS task_count
 FROM tasks t
@@ -2923,6 +2942,28 @@ type UpdateTaskCommentBodyParams struct {
 
 func (q *Queries) UpdateTaskCommentBody(ctx context.Context, arg UpdateTaskCommentBodyParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateTaskCommentBody, arg.Body, arg.UpdatedAtUnixMs, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateTaskManagedWorktree = `-- name: UpdateTaskManagedWorktree :execrows
+UPDATE tasks
+SET
+    managed_worktree_id = ?1,
+    updated_at_unix_ms = ?2
+WHERE id = ?3
+`
+
+type UpdateTaskManagedWorktreeParams struct {
+	ManagedWorktreeID sql.NullString
+	UpdatedAtUnixMs   int64
+	ID                string
+}
+
+func (q *Queries) UpdateTaskManagedWorktree(ctx context.Context, arg UpdateTaskManagedWorktreeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateTaskManagedWorktree, arg.ManagedWorktreeID, arg.UpdatedAtUnixMs, arg.ID)
 	if err != nil {
 		return 0, err
 	}

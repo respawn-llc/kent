@@ -499,6 +499,13 @@ FROM tasks
 WHERE id = sqlc.arg(id)
 LIMIT 1;
 
+-- name: UpdateTaskManagedWorktree :execrows
+UPDATE tasks
+SET
+    managed_worktree_id = sqlc.narg(managed_worktree_id),
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
+WHERE id = sqlc.arg(id);
+
 -- name: ListTasksByProject :many
 SELECT
     id,
@@ -520,6 +527,17 @@ SELECT
 FROM tasks
 WHERE project_id = sqlc.arg(project_id)
 ORDER BY updated_at_unix_ms DESC, rowid DESC;
+
+-- name: CountNonTerminalTasksByManagedWorktree :one
+SELECT CAST(COUNT(DISTINCT t.id) AS INTEGER) AS ref_count
+FROM tasks t
+JOIN task_node_placements p
+    ON p.task_id = t.id
+    AND p.state IN ('active', 'waiting_approval')
+JOIN workflow_nodes n ON n.id = p.node_id
+WHERE t.managed_worktree_id = sqlc.arg(managed_worktree_id)
+  AND t.canceled_at_unix_ms = 0
+  AND n.kind != 'terminal';
 
 -- name: InsertTaskNodePlacement :exec
 INSERT INTO task_node_placements (
