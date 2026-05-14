@@ -136,11 +136,320 @@ See `docs/dev/TERMINOLOGY.md`.
 
 ## Backend Architecture Draft
 
-To be drafted after PRD decisions are explicit.
+### Composition
+
+Add a server-owned workflow orchestration layer above sessions/runtimes:
+
+- `server/workflow`: domain service for workflow definitions, graph validation, project links, tasks, comments, node placements, transitions, runs, queue reconciliation, and scheduler decisions.
+- `server/workflowruntime`: execution adapter that prepares sessions, starts/resumes node runs, injects node prompts, handles `complete_node`, and applies context-preservation modes.
+- `server/workflowview`: read-model service for project boards, task detail, run/transition history, and CLI-friendly views.
+- `shared/serverapi/workflow.go`: serializable request/response DTOs and validation for workflow/task APIs.
+- `shared/servicecontract`: workflow service interfaces following existing route-shaped contract pattern.
+- `shared/client`: loopback/remote workflow clients.
+- `server/transport`: RPC routes for workflow/task operations.
+- `cli/builder`: minimal `workflow` and `task` commands for backend testing and agent CLI usage.
+
+`server/core` should compose workflow services from the metadata store, runtime registry, session runtime service, worktree service, auth manager, and config. The workflow scheduler starts with the server process and stops with core shutdown.
+
+### Runtime Model
+
+Workflow runtime is not `RunPromptService`. It needs durable run identity, structured completion, interruption, resume, and queue scheduling. Reuse lower-level runtime/session pieces:
+
+- Session planning from `server/launch` and subagent role resolution.
+- Runtime activation/control from `server/sessionruntime` and `server/runtimecontrol`.
+- Step execution, compaction, queued user-message flushing, and transcript persistence from `server/runtime`.
+- Worktree creation/switching from `server/worktree`.
+- Existing `ask_question` tool/session flow.
+
+Do not reuse user goal state as workflow state. Workflow autonomy uses a goal-like loop shape:
+
+1. Prepare node prompt from task, node config, edge input bindings, comments accessible through CLI, and any transition payload.
+2. Start or resume a session according to context-preservation mode.
+3. Run model turns until one of: `complete_node`, `ask_question`, interruption/cancel/error.
+4. Treat normal assistant final answers as invalid output and append a developer nudge.
+5. On accepted `complete_node`, persist transition payload and stop the node run without sending another model turn.
+
+### Completion Tool
+
+`complete_node` is a static workflow-control tool exposed only when a session is executing a workflow node. It is available regardless of subagent role tool config.
+
+Stable schema:
+
+```json
+{
+  "transition_id": "string",
+  "commentary": "string",
+  "payload": {
+    "field_name": "string"
+  }
+}
+```
+
+Runtime validation:
+
+- If not in a workflow run, return a tool error.
+- If multiple transition groups are available, require `transition_id`.
+- Validate `transition_id` against source node transition groups.
+- Validate payload field names against node output schema.
+- Validate selected-edge payload requirements after transition group selection.
+- On validation failure, return a structured tool error and append a developer nudge; keep the run active.
+- On success, persist transition log, mark source run completed, apply approval/queue/fan-out/join rules.
+
+The runtime step loop needs a workflow completion signal so tool execution can terminate the node run immediately after persisting the tool result.
+
+### Node Transitions
+
+Automatic node transitions come from accepted `complete_node` payloads. Manual moves are user override executions with stricter validation:
+
+- They must choose a real edge/transition group or provide equivalent edge input metadata.
+- They can reuse stored payloads from prior completed runs when moving backward.
+- They pause before automation and require explicit user approval to queue the target run.
+- They reject continuation modes when no valid source session exists.
+
+Edge approvals persist as pending transition logs. Approval means: approve a selected transition payload from a specific completed run/edge. After approval, Builder schedules target placements/runs from the stored payload.
+
+### Parallelism And Joins
+
+Transition groups model fan-out. A selected transition group can contain multiple edges. Each edge creates a target node placement and, for executable nodes, a queued run. These are still one task, not subtasks.
+
+Join nodes are non-agent fan-in points:
+
+- They wait for all active branch placements created by the selected transition group that target the join's inbound set.
+- They aggregate inbound payloads into deterministic results collection.
+- They then follow their outgoing transition group.
+- Agent synthesis belongs in a normal agent node after the join.
+
+### Queue And Recovery
+
+The execution queue is durable SQLite state, separate from runtime leases.
+
+Run states:
+
+- `queued`: eligible for scheduler claim.
+- `running`: scheduler started runtime work.
+- `waiting_for_question`: run is blocked in `ask_question` flow.
+- `interrupted`: run stopped before valid transition payload; session/worktree preserved for resume.
+- `completed`: accepted transition payload or non-agent node finished.
+- `failed`: unrecoverable orchestration failure that cannot continue without user action.
+- `canceled`: user canceled the run.
+
+Startup reconciliation:
+
+- Leave `queued`, `completed`, `failed`, and `canceled` as-is.
+- Keep `waiting_for_question` only if the session/runtime can rehydrate the pending ask; otherwise mark interrupted and resume through the existing session transcript.
+- Leave pending approval transitions as-is.
+- Mark stale `running` runs as `interrupted`.
+- Do not auto-retry interrupted runs.
+- Explicit resume continues the interrupted session/run from its current transcript/worktree state.
+
+Concurrency is one global config value, defaulting to five automated runs.
+
+### Worktrees
+
+A task owns one managed worktree by default. Builder creates it when the first workspace-requiring executable run is scheduled. Branch name is the task short ID and should reuse existing worktree branch/root collision handling.
+
+Worktree deletion/retargeting must treat non-terminal tasks referencing a managed worktree as blockers.
+
+### CLI Surface
+
+Minimal testing-oriented commands:
+
+- `builder workflow create <name>`
+- `builder workflow node add <workflow> --id <id> --kind agent|join|terminal|start --prompt <text> --agent <role>`
+- `builder workflow edge add <workflow> --from <node> --transition <id> --to <node> --context new_session|continue_session|compact_and_continue_session`
+- `builder workflow link <project> <workflow> [--default]`
+- `builder workflow validate <workflow> [--project <project>]`
+- `builder task create --title <title> --body <body> [--workflow <workflow>]`
+- `builder task list [--project <project>]`
+- `builder task show <short-id>`
+- `builder task move <short-id> <node> [--payload field=value ...]`
+- `builder task approve <transition-id>`
+- `builder task resume <short-id>`
+- `builder task comment add|replace|delete <short-id> ...`
+
+The exact CLI can be clunky; it exists to exercise backend behavior and teach agents task CLI usage.
 
 ## Data Model Draft
 
-To be drafted after PRD decisions are explicit.
+Use SQLite for structured workflow/task state. Keep transcripts and large session artifacts file-backed through existing session persistence.
+
+### Existing Tables To Extend
+
+- `projects`
+  - Add `project_key TEXT` with global uniqueness in a persistence root.
+  - Add `next_task_seq INTEGER NOT NULL DEFAULT 1`, or use a separate counter table if cleaner for migration.
+- `sessions`
+  - Add index on `(worktree_id, updated_at_unix_ms DESC)` for task/worktree blockers and views.
+- `worktrees`
+  - Keep physical worktree metadata here. Task ownership can live on `tasks.managed_worktree_id`; add worktree provenance later only if views need it.
+
+### New Tables
+
+`workflows`
+
+- `id TEXT PRIMARY KEY`
+- `name TEXT NOT NULL`
+- `description TEXT NOT NULL DEFAULT ''`
+- `start_node_id TEXT`
+- `created_at_unix_ms INTEGER NOT NULL`
+- `updated_at_unix_ms INTEGER NOT NULL`
+- `metadata_json TEXT NOT NULL DEFAULT '{}'`
+
+`workflow_nodes`
+
+- `id TEXT PRIMARY KEY`
+- `workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE`
+- `node_key TEXT NOT NULL`
+- `kind TEXT NOT NULL` (`start|agent|join|terminal`)
+- `display_name TEXT NOT NULL`
+- `subagent_role TEXT NOT NULL DEFAULT ''`
+- `prompt_template TEXT NOT NULL DEFAULT ''`
+- `output_schema_json TEXT NOT NULL DEFAULT '{}'`
+- `sort_order INTEGER NOT NULL DEFAULT 0`
+- `metadata_json TEXT NOT NULL DEFAULT '{}'`
+- unique `(workflow_id, node_key)`
+
+`workflow_transition_groups`
+
+- `id TEXT PRIMARY KEY`
+- `workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE`
+- `source_node_id TEXT NOT NULL REFERENCES workflow_nodes(id) ON DELETE CASCADE`
+- `transition_id TEXT NOT NULL`
+- `display_name TEXT NOT NULL DEFAULT ''`
+- `sort_order INTEGER NOT NULL DEFAULT 0`
+- `metadata_json TEXT NOT NULL DEFAULT '{}'`
+- unique `(source_node_id, transition_id)`
+
+`workflow_edges`
+
+- `id TEXT PRIMARY KEY`
+- `workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE`
+- `transition_group_id TEXT NOT NULL REFERENCES workflow_transition_groups(id) ON DELETE CASCADE`
+- `source_node_id TEXT NOT NULL REFERENCES workflow_nodes(id) ON DELETE CASCADE`
+- `target_node_id TEXT NOT NULL REFERENCES workflow_nodes(id) ON DELETE CASCADE`
+- `requires_approval INTEGER NOT NULL DEFAULT 0`
+- `context_mode TEXT NOT NULL`
+- `input_bindings_json TEXT NOT NULL DEFAULT '{}'`
+- `payload_requirements_json TEXT NOT NULL DEFAULT '{}'`
+- `sort_order INTEGER NOT NULL DEFAULT 0`
+
+`project_workflow_links`
+
+- `id TEXT PRIMARY KEY`
+- `project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE`
+- `workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE RESTRICT`
+- `is_default INTEGER NOT NULL DEFAULT 0`
+- `created_at_unix_ms INTEGER NOT NULL`
+- `updated_at_unix_ms INTEGER NOT NULL`
+- unique `(project_id, workflow_id)`
+- partial unique default per project where `is_default = 1`
+
+`tasks`
+
+- `id TEXT PRIMARY KEY`
+- `project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE`
+- `workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE RESTRICT`
+- `task_seq INTEGER NOT NULL`
+- `short_id TEXT NOT NULL`
+- `title TEXT NOT NULL`
+- `body TEXT NOT NULL`
+- `source_url TEXT NOT NULL DEFAULT ''`
+- `managed_worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL`
+- `created_at_unix_ms INTEGER NOT NULL`
+- `updated_at_unix_ms INTEGER NOT NULL`
+- `metadata_json TEXT NOT NULL DEFAULT '{}'`
+- unique `(project_id, task_seq)`
+- unique `(project_id, short_id)`
+
+`task_node_placements`
+
+- `id TEXT PRIMARY KEY`
+- `task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE`
+- `node_id TEXT NOT NULL REFERENCES workflow_nodes(id) ON DELETE RESTRICT`
+- `state TEXT NOT NULL` (`active|waiting_approval|completed|superseded`)
+- `created_by_transition_id TEXT REFERENCES task_transitions(id) ON DELETE SET NULL`
+- `created_at_unix_ms INTEGER NOT NULL`
+- `updated_at_unix_ms INTEGER NOT NULL`
+
+`task_runs`
+
+- `id TEXT PRIMARY KEY`
+- `task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE`
+- `placement_id TEXT NOT NULL REFERENCES task_node_placements(id) ON DELETE CASCADE`
+- `node_id TEXT NOT NULL REFERENCES workflow_nodes(id) ON DELETE RESTRICT`
+- `session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL`
+- `state TEXT NOT NULL`
+- `queued_at_unix_ms INTEGER NOT NULL DEFAULT 0`
+- `started_at_unix_ms INTEGER NOT NULL DEFAULT 0`
+- `finished_at_unix_ms INTEGER NOT NULL DEFAULT 0`
+- `interrupted_at_unix_ms INTEGER NOT NULL DEFAULT 0`
+- `error_json TEXT NOT NULL DEFAULT '{}'`
+- `metadata_json TEXT NOT NULL DEFAULT '{}'`
+
+`task_transitions`
+
+- `id TEXT PRIMARY KEY`
+- `task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE`
+- `source_run_id TEXT REFERENCES task_runs(id) ON DELETE SET NULL`
+- `source_placement_id TEXT REFERENCES task_node_placements(id) ON DELETE SET NULL`
+- `source_node_id TEXT REFERENCES workflow_nodes(id) ON DELETE SET NULL`
+- `transition_group_id TEXT REFERENCES workflow_transition_groups(id) ON DELETE SET NULL`
+- `transition_id TEXT NOT NULL`
+- `actor TEXT NOT NULL` (`agent|user|system`)
+- `state TEXT NOT NULL` (`pending_approval|approved|applied|rejected|invalid`)
+- `commentary TEXT NOT NULL DEFAULT ''`
+- `payload_json TEXT NOT NULL DEFAULT '{}'`
+- `created_at_unix_ms INTEGER NOT NULL`
+- `applied_at_unix_ms INTEGER NOT NULL DEFAULT 0`
+
+`task_transition_edges`
+
+- `id TEXT PRIMARY KEY`
+- `task_transition_id TEXT NOT NULL REFERENCES task_transitions(id) ON DELETE CASCADE`
+- `workflow_edge_id TEXT REFERENCES workflow_edges(id) ON DELETE SET NULL`
+- `target_node_id TEXT REFERENCES workflow_nodes(id) ON DELETE SET NULL`
+- `target_placement_id TEXT REFERENCES task_node_placements(id) ON DELETE SET NULL`
+- `state TEXT NOT NULL` (`pending|queued|completed|blocked`)
+- `metadata_json TEXT NOT NULL DEFAULT '{}'`
+
+`task_comments`
+
+- `id TEXT PRIMARY KEY`
+- `task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE`
+- `body TEXT NOT NULL`
+- `author_kind TEXT NOT NULL`
+- `author_id TEXT NOT NULL DEFAULT ''`
+- `source_run_id TEXT REFERENCES task_runs(id) ON DELETE SET NULL`
+- `created_at_unix_ms INTEGER NOT NULL`
+- `updated_at_unix_ms INTEGER NOT NULL`
+- `deleted_at_unix_ms INTEGER NOT NULL DEFAULT 0`
+- `metadata_json TEXT NOT NULL DEFAULT '{}'`
+
+### Indexes
+
+- `workflow_nodes(workflow_id, sort_order)`
+- `workflow_transition_groups(source_node_id, transition_id)`
+- `workflow_edges(transition_group_id, sort_order)`
+- `workflow_edges(source_node_id)`
+- `workflow_edges(target_node_id)`
+- `tasks(project_id, updated_at_unix_ms DESC)`
+- `tasks(project_id, short_id)`
+- `task_node_placements(task_id, state)`
+- `task_node_placements(node_id, state)`
+- `task_runs(state, queued_at_unix_ms)`
+- `task_runs(task_id, created_at_unix_ms DESC)`
+- `task_transitions(task_id, created_at_unix_ms DESC)`
+- `task_comments(task_id, updated_at_unix_ms DESC)`
+
+### Core Query Shapes
+
+- Load project board: project workflow links, workflow nodes, active task placements, active/waiting/interrupted run summaries.
+- Create task: allocate project sequence atomically, create task, create start-node placement.
+- Move task manually: validate graph/input/continuation, create transition log, create pending approval state before queue.
+- Claim next run: count running runs globally, select queued run ordered by queued time, atomically mark running.
+- Complete run: persist transition payload, validate transition group/edges, create target placements/runs or pending approvals, mark source placement completed.
+- Join check: query active placements/runs created by same transition group/inbound set; aggregate once all complete.
+- Resume interrupted run: validate session/worktree still available, mark queued/running through scheduler, continue existing session.
 
 ## Implementation Plan
 
