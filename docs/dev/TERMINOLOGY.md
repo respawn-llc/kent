@@ -16,6 +16,10 @@ A human-facing project-scoped task identifier. A task short ID combines a projec
 
 A short human-facing prefix used in task short IDs.
 
+### Graph Revision
+
+A monotonic workflow graph counter incremented by graph-affecting workflow edits. It provides traceability for tasks, runs, transitions, approvals, and stale-behavior warnings without snapshotting the full workflow definition.
+
 ### Task Body
 
 The primary task description. A task has a title, task short ID, and body.
@@ -23,6 +27,14 @@ The primary task description. A task has a title, task short ID, and body.
 ### Workflow
 
 A durable directed graph that describes how tasks move through work. A workflow contains nodes and edges.
+
+### Workflow Draft
+
+A workflow definition that can be saved and edited while semantic validation reports graph or project-context errors. Drafts still satisfy hard storage invariants such as valid identifiers, valid references, and valid enum values. Draft status is validation behavior, not a separate copy of the workflow graph.
+
+### Validation Context
+
+The purpose for validating a workflow graph, such as draft editing, task creation, or execution scheduling. Different contexts can report the same errors but choose different blocking behavior.
 
 ### Project Workflow Link
 
@@ -41,7 +53,7 @@ Executable nodes configure agent-run behavior:
 - subagent role reference and validation policy;
 - node prompt/template;
 - output schema;
-- timeout, turn limit, retry policy, and stop conditions;
+- run limits and stop conditions;
 - worktree/session execution policy that applies while this node runs.
 
 Completing a node means its configured run reached a structured terminal outcome, not that an assistant wrote a natural-language final answer.
@@ -49,6 +61,10 @@ Completing a node means its configured run reached a structured terminal outcome
 ### Start Node
 
 The node where new tasks enter a workflow. A start node is non-executable and has no input requirements.
+
+### Task Start
+
+An explicit operation that moves a newly created task from its start-node placement into the workflow's first executable placement by applying the start node's outgoing transition.
 
 ### Terminal Node
 
@@ -99,6 +115,10 @@ One durable execution attempt for a node on a task. A run may create or continue
 
 A run whose execution stopped before producing valid transition output. Its session and worktree state remain available so execution can continue from the interruption point.
 
+### Session Contract
+
+The immutable execution setup captured by a Builder session after its first model request, including model/provider setup, generation parameters, tool schema snapshot, and system/developer prompt snapshot. Workflow direct continuation reuses this persisted setup.
+
 ### Node Output Schema
 
 A node-owned schema for the structured output fields available when a run completes. Workflow orchestration uses these fields for edge decisions, UI display, transition output, and the next node's input bindings.
@@ -122,6 +142,10 @@ The set of branch node placements created by one fan-out transition group for on
 ### Join
 
 A non-agent node that waits for required inbound branch outputs before continuing.
+
+### Task Cancellation
+
+A task-level stop operation that prevents further workflow automation for the task and interrupts active runs with cancellation reason metadata. Cancellation is not a terminal workflow node.
 
 ### Question
 
