@@ -64,6 +64,7 @@ Decisions will be recorded here during the planning interview.
 - Workflow creation should auto-create default `backlog` and `done` nodes as ordinary editable nodes. This avoids hardcoded unmapped statuses while keeping setup ergonomic.
 - Parallel joins always wait for all required inputs in v1. Racing/first-success semantics are out of scope.
 - Join nodes are non-agent fan-in points. They aggregate inbound transition payloads into a deterministic results collection and then follow their outgoing edge. If synthesis is needed, put an agent node after the join.
+- Parallel branches are ordinary workflow nodes that happen to run concurrently. They are not subtasks and do not require a separate child-task model. A task may have multiple active node placements/runs while explicit fan-out is active.
 - Orchestrator-workers should not dynamically create workflow nodes or Kanban columns in v1. An orchestrator is an ordinary agent node that may use existing subagent/session infrastructure inside its run or feed statically defined graph branches.
 - Agent nodes complete by calling a node-specific completion tool, not by returning natural language. The completion payload chooses a user-defined outgoing transition when the node has more than one outgoing edge and supplies node output fields. Runtime failure, cancellation, and unanswered questions are orchestration states, not model-selected terminal statuses.
 - Workflow runs should treat a normal assistant final answer as invalid output. Runtime should append a nudge and continue until the model calls the completion tool, calls `ask_question`, is canceled, or hits a runtime error.
@@ -85,13 +86,14 @@ Decisions will be recorded here during the planning interview.
 - If execution stops mid-node, mark the run `interrupted`, preserve session transcript and dirty worktree state, and require human resume. Resume continues the interrupted session/run instead of rerunning the whole node from scratch.
 - V1 has no automatic retry. Failures, cancellations, crashes, and model/runtime interruptions converge on an interrupted state with explicit human resume.
 - Concurrency limit is global only and configured in `config.toml`.
-- A task may have multiple active runs only when the workflow graph explicitly fans out into parallel branches; otherwise task execution is single-active-run.
+- A task may have multiple active node placements/runs only when the workflow graph explicitly fans out into parallel branches; otherwise task execution is single-active-run.
 - Task required fields are title, short ID, and body. Task metadata should be designed for future import/export and may include a source URL for imported external work.
 - Task short IDs are project-scoped sequential keys with a project key prefix, e.g. `BLD-123`. Project creation should choose the key explicitly; default suggestion can use the first three letters of the project name.
 - If a workflow references a subagent role that no longer exists in effective config, the node transition blocks with a validation error before scheduling the run. Same-name subagent setting changes are accepted.
 - Agents may add, replace, and soft-delete task comments through CLI/API task management, not model-callable comment tools. A skill or reminder should teach workflow agents the CLI. Comments should record author/source agent when available and stay in Builder persistence, not files in the worktree.
 - `RunPromptService` should not back workflow nodes. It is a one-shot final-string API, while workflow nodes need durable runs, structured completion, interruption, and resume.
 - Existing user goal state should not be reused as workflow autonomy state. Workflow needs a goal-like loop shape, but task/node/run identity must own completion, interruption, and resume semantics.
+- Task lifecycle state should derive from node placement/run state rather than a separate task status enum. The task's node placement is the workflow/Kanban state; blocked/running/interrupted/done conditions come from runs and terminal nodes.
 
 ## Completion Control Schema
 
@@ -108,6 +110,20 @@ Node-specific field guidance belongs in developer prompts, not in the tool schem
 ## Input Binding Direction
 
 Edges should use explicit input bindings from source fields to target input names. Target node prompts can reference bound input names with simple template placeholders such as `{{review_comments}}`.
+
+## Manual Move Requirements
+
+Manual moves are node transitions initiated by the user instead of the source node's completion tool:
+
+- A manual move must use an edge or synthesize equivalent edge input metadata explicitly.
+- Moving backward can reuse the latest stored transition payloads and task metadata from prior completed runs.
+- Moving to an executable node should pause before queueing and require explicit user approval to start automation from the manually selected node.
+- If the selected transition context-preservation mode requires continuing a session and no valid source session exists, the move is rejected. The user must choose a transition that can use `new_session` or provide a valid continuation source.
+- Manual move implementation needs regression tests for forward moves with provided payload, backward moves reusing existing payloads, rejection when required payload is absent, rejection when continuation is required but unavailable, and approval-before-queue behavior.
+
+## Audit Direction
+
+Keep normalized rows for tasks/runs/transitions/comments and durable transition logs for debugging and UI history. Do not design a full event-sourced task system for v1.
 
 ## Domain Vocabulary
 

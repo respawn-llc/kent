@@ -99,6 +99,10 @@ Builder transcript/runtime artifact used by a run. A task may have many sessions
 
 A task movement from one node to another through an edge. A node transition evaluates edge conditions, applies edge input/output bindings, applies the edge context-preservation mode, and schedules or blocks the next run.
 
+### Node Placement
+
+An occurrence of a task in a node. A task can have multiple active node placements when a workflow explicitly runs parallel branches.
+
 ### Join
 
 An edge or node transition point that waits for required inbound branch outputs before continuing.
