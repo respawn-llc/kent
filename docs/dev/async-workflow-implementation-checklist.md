@@ -588,6 +588,8 @@ Goal: scheduler rebuilds runnable workflow work from durable placement/run inten
 - [ ] Add config validation test for invalid workflow concurrency values.
 - [ ] Add config schema/default test for protocol caps: `[workflow].max_final_answer_violations = 3` and `[workflow].max_invalid_completion_attempts = 5`.
 - [ ] Add config validation test for invalid protocol cap values.
+- [ ] Add config surface test covering `[workflow].completion_mode`, `[workflow].concurrency`, `[workflow].max_final_answer_violations`, and `[workflow].max_invalid_completion_attempts` together.
+- [ ] Add composition-root test that `server/core` wires workflow store/service/scheduler and stops scheduler during core shutdown.
 - [ ] Add test for `StartTaskAutomation` validating current workflow/project context before scheduling.
 - [ ] Add test for `StartTaskAutomation` ensuring task worktree before recording runnable automation intent.
 - [ ] Add test for `StartTaskAutomation` applying the start node's single outgoing transition group.
@@ -613,9 +615,9 @@ Goal: scheduler rebuilds runnable workflow work from durable placement/run inten
 
 - [ ] Add scheduler service under `server/workflowscheduler`.
 - [ ] Implement `StartTaskAutomation` use case in `server/workflowsvc`.
-- [ ] Add config field/read for global workflow concurrency default 5.
-- [ ] Add config validation for invalid values.
-- [ ] Add config fields/read for protocol cap defaults and validation.
+- [ ] Wire `server/workflowstore`, `server/workflowsvc`, and `server/workflowscheduler` from `server/core` composition root.
+- [ ] Add config fields/read for `[workflow]` config surface: `completion_mode`, `concurrency`, `max_final_answer_violations`, and `max_invalid_completion_attempts`.
+- [ ] Add config validation for invalid workflow config values.
 - [ ] Implement runnable work derivation from active placements, automation intent, terminal outcomes, pending ask/approval state, and task cancellation.
 - [ ] Keep pending-work ordering and active runtime ownership in memory.
 - [ ] Define worker identity format and stale live-ownership strategy.

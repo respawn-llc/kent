@@ -53,7 +53,7 @@ Decisions will be recorded here during the planning interview.
 - Per-edge context preservation must be configurable in v1 with at least three modes: `new_session`, `continue_session`, and `compact_and_continue_session`.
 - V1 workflow definitions are SQLite-authoritative and created/edited through backend API plus a minimal CLI. No stable graph file format is required in v1.
 - Workflow definitions should be globally reusable. Projects link to workflow definitions rather than copying graph definitions. Workflow validation is project-contextual because subagent roles and workspace config may differ by project.
-- Workflow definitions may be saved, linked, and made a project default while graph/project-context validation fails. This supports GUI draft editing and lets validation surfaces accumulate all safe actionable errors. Task creation, task start/schedule, and runtime scheduling reject invalid workflows instead of creating invalid work.
+- Workflow definitions may be saved, linked, and made a project default while graph/project-context validation fails. This supports GUI draft editing and lets validation surfaces accumulate all safe actionable errors. Task creation, task start, and runtime scheduling reject invalid workflows instead of creating invalid work.
 - A project can link multiple workflows and has one default workflow for task creation. Invalid default workflows are allowed, but task creation against an invalid default fails with accumulated validation errors.
 - V1 does not snapshot/version workflow definitions for existing tasks. Workflows still carry a monotonic graph revision for traceability. Tasks, runs, transitions, and approval/edge snapshots store the revision they observed; anything snapshotted keeps using that snapshot, and anything not snapshotted uses the current workflow graph/config at execution time. Behavior-affecting workflow edits are allowed while tasks exist; UI/API should warn that active tasks may change behavior. Destructive graph deletes are still guarded: behavior-affecting removal is blocked by non-terminal task references, and physical row deletion is blocked by any task history reference. When only terminal task history references a graph element, UI/API may archive or hide it rather than physically deleting it.
 - Node config and edge config are distinct. Nodes configure agent runs: subagent role, prompt, output schema, limits, and run stop conditions. Edges configure transitions: next node, human approval/manual interaction, context preservation, input bindings, routing, and join/aggregation behavior.
@@ -342,7 +342,7 @@ Live state:
 
 - Pending work ordering is scheduler memory derived from runnable placements/runs.
 - Active execution is derived from the live runtime registry/scheduler ownership.
-- Concurrency is one global config value under `[workflow].concurrency`, defaulting to five automated runs.
+- Concurrency uses `[workflow].concurrency` from the workflow config surface.
 
 Startup reconciliation:
 
@@ -357,12 +357,16 @@ Completion/transition application still needs idempotency. Use a run generation/
 
 Pending asks must rehydrate through the ask subsystem, not by scanning transcripts. The scheduler depends on a boundary such as `PendingAskResolver.CanRehydrate(sessionID, runID, askID)`. A resolver may return true for a live runtime or a future durable ask record. It must not read full `events.jsonl`; if unresolved pending asks cannot be rehydrated from source-of-truth ask state, startup marks the workflow run interrupted with an actionable resume reason.
 
-### Protocol Caps
+### Workflow Config Surface
 
-Workflow protocol caps are per run and configured under `[workflow]`:
+Workflow runtime config lives under `[workflow]`:
 
-- `max_final_answer_violations = 3`
-- `max_invalid_completion_attempts = 5`
+- `completion_mode = "auto"`: one of `auto`, `structured_output`, or `tool`.
+- `concurrency = 5`: positive integer global automated-run concurrency.
+- `max_final_answer_violations = 3`: positive integer per-run final-answer protocol cap.
+- `max_invalid_completion_attempts = 5`: positive integer per-run invalid-completion protocol cap.
+
+Invalid workflow config values fail config validation before workflow workers start. No wall-clock runtime cap is required for v1.
 
 The counters count protocol failures since the last valid workflow progress signal for that run. A valid `ask_question` pause or accepted workflow completion stops/resets the failure loop; alternating final-answer and invalid-completion failures do not reset either counter. Hitting either cap interrupts the run with reason `workflow_protocol_cap_exceeded` and detail metadata containing the cap, counters, and last validation errors.
 
