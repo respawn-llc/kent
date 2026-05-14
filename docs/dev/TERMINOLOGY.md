@@ -16,7 +16,7 @@ A durable directed graph that describes how tasks move through work. A workflow 
 
 A visible workflow state and Kanban column/status. Node identity is execution identity: when a task is in a node, that node determines which run behavior applies.
 
-A node configures agent-run behavior:
+Executable nodes configure agent-run behavior:
 
 - subagent role reference and validation policy;
 - node prompt/template;
@@ -99,3 +99,7 @@ A workflow/task state where auto-execution stops because the task is done, cance
 ### Execution Queue
 
 Durable scheduling state for runnable workflow work. The execution queue decides when runs may start or resume; runtime leases remain separate execution-control state.
+
+### Task Comment
+
+A durable note attached to a task. Task comments capture user or agent observations, review notes, worklogs, and other task-local information that should not be committed into a worktree.
