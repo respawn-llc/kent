@@ -384,6 +384,9 @@ func writeServiceRestartUsage(fs *flag.FlagSet) {
 	writeHelpSection(out, "Usage of builder service restart:",
 		"  builder service restart [--if-installed]",
 	)
+	writeHelpSection(out, "Notes:",
+		"  Refuses to run inside Builder shell commands to avoid halting active agent work.",
+	)
 	writeHelpSection(out, "Flags:")
 	fs.PrintDefaults()
 }
