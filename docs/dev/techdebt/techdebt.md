@@ -20,7 +20,7 @@ Entry shape: checklist title line, summary evidence paragraph, impact paragraph,
 
 - [x] `TD-009` [P1] CLI packages import server-owned packages beyond the intended client boundary.
 
-- [ ] `TD-010` [P1] `shared/serverapi` mixes wire DTOs with server-owned service interfaces and headless runtime execution.
+- [x] `TD-010` [P1] `shared/serverapi` mixes wire DTOs with server-owned service interfaces and headless runtime execution.
 
   `shared/serverapi` defines request/response DTOs, validation, errors, 18 `*Service` interfaces, and concrete service behavior in one shared package. Examples include `shared/serverapi/runtime_control.go` defining `RuntimeControlService`, `shared/serverapi/session_view.go` defining `SessionViewService`, and `shared/serverapi/project_view.go` defining `ProjectViewService`. `shared/serverapi/run_prompt.go` goes further by defining `PromptSessionRuntime`, `HeadlessPromptLauncher`, concrete `PromptService`, `NewPromptService`, and `(*PromptService).RunPrompt`, which trims request input, prepares a runtime, applies timeout policy, submits the prompt, logs dropped runtime events, closes the runtime handle, and returns partial results on run errors. `shared/client` mirrors `shared/serverapi` with 16 matching non-test filenames such as `runtime_control.go`, `session_view.go`, `project_view.go`, and `worktree.go`.
 
