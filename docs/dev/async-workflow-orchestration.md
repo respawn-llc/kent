@@ -484,6 +484,8 @@ Schema/domain validation must ensure workflow-scoped references do not cross wor
 
 ## Implementation Plan
 
+Follow the execution checklist in `docs/dev/async-workflow-implementation-checklist.md` during implementation. This section defines slice boundaries and completion intent; the checklist is the lower-level handoff tracker with tests, smoke checks, and verification steps.
+
 Use TDD for production implementation. Each slice should leave the repo in a buildable state, with deterministic tests before the next slice begins. Prefer fake runtime/model adapters for workflow tests until the runtime integration slice; avoid real LLM calls in automated tests.
 
 ### Slice 1: Workflow Domain And Graph Validation
