@@ -557,7 +557,7 @@ Goal: one executable workflow node can run asynchronously through queue/session/
 
 ### 8.1 Red Tests
 
-- [ ] Add integration test for `start -> agent -> done`.
+- [ ] Add integration test for `backlog(start) -> agent -> done(terminal)`.
 - [ ] Add test task creation then explicit start/schedule action queues first executable run without relying on full manual-move semantics.
 - [ ] Add test scheduling executable node ensures task worktree.
 - [ ] Add test run claim creates new Builder session.
@@ -588,7 +588,7 @@ Goal: one executable workflow node can run asynchronously through queue/session/
 
 ### 8.3 Automated Verification
 
-- [ ] Run integration test with fake runtime/model.
+- [ ] Run integration test with fake provider/model adapter through real runtime/tool handling.
 - [ ] Run `./scripts/test.sh ./server/workflow/... ./server/workflowruntime/... ./server/worktree/... ./server/runtime/... ./server/metadata/...`.
 - [ ] Run `./scripts/build.sh --output ./bin/builder`.
 - [ ] Confirm no real provider calls happened.
