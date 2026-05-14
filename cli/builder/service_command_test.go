@@ -429,8 +429,17 @@ func TestServiceRestartHelpMentionsBuilderShellGuard(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "Refuses to run inside Builder shell commands") {
-		t.Fatalf("stderr = %q, want Builder shell guard note", stderr.String())
+	expected := "Usage of builder service restart:\n" +
+		"  builder service restart [--if-installed]\n" +
+		"\n" +
+		"Notes:\n" +
+		"  Refuses to run inside Builder shell commands to avoid halting active agent work.\n" +
+		"\n" +
+		"Flags:\n" +
+		"  -if-installed\n" +
+		"    \texit successfully without action when service is not installed\n"
+	if got := stderr.String(); got != expected {
+		t.Fatalf("stderr = %q, want exact help output %q", got, expected)
 	}
 }
 
