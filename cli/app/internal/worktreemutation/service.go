@@ -102,6 +102,9 @@ func (s Service) Delete(worktreeID string, deleteBranch bool) (serverapi.Worktre
 
 func runMutation[T any](s Service, call func(context.Context, string) (T, error)) (T, error) {
 	var zero T
+	if s.Runtime.ReadOnly != nil && s.Runtime.ReadOnly() {
+		return zero, ErrReadOnlyRuntime
+	}
 	ctx, cancel, _, err := s.controlContextWithLease()
 	if err != nil {
 		return zero, err
@@ -118,9 +121,6 @@ func (s Service) controlContextWithLease() (context.Context, context.CancelFunc,
 	}
 	if s.Runtime.Context == nil || s.Runtime.CurrentLeaseID == nil || s.Runtime.RecoverLease == nil {
 		return nil, nil, "", ErrControllerLeaseUnavailable
-	}
-	if s.Runtime.ReadOnly != nil && s.Runtime.ReadOnly() {
-		return nil, nil, "", ErrReadOnlyRuntime
 	}
 	ctx, cancel := s.Runtime.Context()
 	if ctx == nil || cancel == nil {
