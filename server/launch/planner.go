@@ -92,18 +92,22 @@ func (p Planner) PlanSession(ctx context.Context, req SessionRequest) (SessionPl
 	meta := store.Meta()
 	baseActive := EffectiveSettings(p.Config.Settings, meta.Locked)
 	baseSource := p.Config.Source
+	continuationAgentRole := ""
+	continuationBaseURL := ""
 	if meta.Continuation != nil {
-		if baseURL := strings.TrimSpace(meta.Continuation.OpenAIBaseURL); baseURL != "" {
-			baseActive.OpenAIBaseURL = baseURL
-		}
+		continuationAgentRole = strings.TrimSpace(meta.Continuation.AgentRole)
+		continuationBaseURL = strings.TrimSpace(meta.Continuation.OpenAIBaseURL)
 	}
 	active, source := baseActive, baseSource
 	if meta.Continuation != nil {
-		active, source = applyPersistedSubagentRoleSettings(baseActive, baseSource, meta.Continuation.AgentRole, meta.Locked == nil)
+		active, source = applyPersistedSubagentRoleSettings(baseActive, baseSource, continuationAgentRole, meta.Locked == nil)
+		if shouldApplyPersistedContinuationBaseURL(baseActive, continuationAgentRole) && continuationBaseURL != "" {
+			active.OpenAIBaseURL = continuationBaseURL
+		}
 	}
 	continuation := session.ContinuationContext{OpenAIBaseURL: active.OpenAIBaseURL}
 	if meta.Continuation != nil {
-		continuation.AgentRole = strings.TrimSpace(meta.Continuation.AgentRole)
+		continuation.AgentRole = continuationAgentRole
 	}
 	if err := store.SetContinuationContext(continuation); err != nil {
 		return SessionPlan{}, err
@@ -142,14 +146,24 @@ func applyPersistedSubagentRoleSettings(base config.Settings, source config.Sour
 	resolved := cloneSettings(base)
 	_ = applyBuiltInRoleHeuristics(&resolved, normalizedRole, persistedRoleProviderID(base), allowModelOverride)
 	applySubagentRoleOverrides(&resolved, role, allowModelOverride)
-	effectiveSource := sourceReportWithSubagentRoleSources(source, base, normalizedRole)
+	effectiveSource := sourceReportWithSubagentRoleSources(source, base, normalizedRole, allowModelOverride)
 	effectiveSources := cloneStringMap(effectiveSource.Sources)
-	for key := range role.Sources {
-		effectiveSources[key] = "subagent"
-	}
 	applyReviewerInheritance(&resolved, effectiveSources)
 	effectiveSource.Sources = effectiveSources
 	return resolved, effectiveSource
+}
+
+func shouldApplyPersistedContinuationBaseURL(base config.Settings, roleName string) bool {
+	normalizedRole := config.NormalizeSubagentSelector(roleName)
+	if normalizedRole == "" {
+		return true
+	}
+	role, hasRole := base.Subagents[normalizedRole]
+	if !hasRole && normalizedRole != config.BuiltInSubagentRoleFast {
+		return false
+	}
+	_, hasRoleBaseURL := role.Sources["openai_base_url"]
+	return !hasRoleBaseURL
 }
 
 func persistedRoleProviderID(settings config.Settings) string {
@@ -224,7 +238,7 @@ func ApplyRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPromptOver
 		if !plan.ModelContractLocked {
 			next.ConfiguredModelName = resolved.Model
 		}
-		roleSource := sourceReportWithSubagentRoleSources(baseSource, baseSettings, roleName)
+		roleSource := sourceReportWithSubagentRoleSources(baseSource, baseSettings, roleName, !plan.ModelContractLocked)
 		enabledTools, err := ActiveToolIDsForPlan(next.ActiveSettings, roleSource, plan.Store.Meta().Locked)
 		if err != nil {
 			return SessionPlan{}, nil, err
@@ -324,7 +338,7 @@ func mergeOverrideSources(base config.SourceReport, override config.SourceReport
 	return merged
 }
 
-func sourceReportWithSubagentRoleSources(base config.SourceReport, settings config.Settings, roleName string) config.SourceReport {
+func sourceReportWithSubagentRoleSources(base config.SourceReport, settings config.Settings, roleName string, allowModelOverride bool) config.SourceReport {
 	normalizedRole := config.NormalizeSubagentRole(roleName)
 	if normalizedRole == "" {
 		return base
@@ -336,6 +350,9 @@ func sourceReportWithSubagentRoleSources(base config.SourceReport, settings conf
 	next := base
 	next.Sources = cloneStringMap(base.Sources)
 	for key := range role.Sources {
+		if key == "model" && !allowModelOverride {
+			continue
+		}
 		next.Sources[key] = "subagent"
 	}
 	return next

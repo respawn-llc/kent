@@ -89,6 +89,21 @@ func TestActivateRecoverReactivatesRuntimeWithFreshRequestID(t *testing.T) {
 	}
 }
 
+func TestActivateRecoverReportsReadOnlyTransition(t *testing.T) {
+	service := &fakeRuntimeService{activateResponses: []serverapi.SessionRuntimeActivateResponse{{LeaseID: "lease-1"}, {ReadOnly: true}}}
+	lease, err := Activate(context.Background(), service, Request{
+		SessionID:          "session-1",
+		NewClientRequestID: fixedIDs("request-1", "request-2"),
+	})
+	if err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	_, err = lease.Recover(context.Background())
+	if !errors.Is(err, ErrReadOnlyControllerLease) {
+		t.Fatalf("Recover error = %v, want read-only transition", err)
+	}
+}
+
 func TestActivateRejectsEmptyLease(t *testing.T) {
 	service := &fakeRuntimeService{activateResponses: []serverapi.SessionRuntimeActivateResponse{{LeaseID: " "}}}
 	_, err := Activate(context.Background(), service, Request{NewClientRequestID: fixedIDs("request-1")})
