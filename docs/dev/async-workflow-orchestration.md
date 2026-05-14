@@ -59,17 +59,20 @@ Decisions will be recorded here during the planning interview.
 - Workflows can contain executable agent nodes, terminal nodes, and join nodes. Approval remains an edge property, not a separate manual-node requirement.
 - Backlog and done should be modeled as ordinary non-executable nodes instead of hardcoded unmapped statuses. This keeps Kanban/status identity in the workflow graph and avoids special-case task locations.
 - Parallel joins always wait for all required inputs in v1. Racing/first-success semantics are out of scope.
+- Join nodes are non-agent fan-in points. They aggregate inbound transition payloads into a deterministic results collection and then follow their outgoing edge. If synthesis is needed, put an agent node after the join.
 - Orchestrator-workers should not dynamically create workflow nodes or Kanban columns in v1. An orchestrator is an ordinary agent node that may use existing subagent/session infrastructure inside its run or feed statically defined graph branches.
 - Agent nodes complete by calling a node-specific completion tool, not by returning natural language. The completion payload chooses a user-defined outgoing transition when the node has more than one outgoing edge and supplies node output fields. Runtime failure, cancellation, and unanswered questions are orchestration states, not model-selected terminal statuses.
 - Workflow runs should treat a normal assistant final answer as invalid output. Runtime should append a nudge and continue until the model calls the completion tool, calls `ask_question`, is canceled, or hits a runtime error.
 - The model-facing completion control should be a static workflow-only tool, not a CLI command and not a dynamically generated per-node tool schema. Recommended shape: `complete_node` with `transition_id`, optional `commentary`, and `payload` as a flat `map[string]string`. Runtime validates the payload against active task/run/node state. If called outside an active workflow run, it returns an explicit not-in-workflow error.
-- User questions use `ask_question` interception. A model does not report `needs_user_input` as a completion status; it calls `ask_question`, and the run pauses until answered.
+- User questions use existing `ask_question` tool-call/session infrastructure. A model does not report `needs_user_input` as a completion status; it calls `ask_question`, and the run pauses until answered. V1 should not introduce a separate durable task-question source of truth unless existing session transcript/resume semantics prove insufficient.
 - Node output schemas are user-authored but intentionally flat. Fields are strings; arrays, nested objects, and mixed scalar types are out of scope for v1. String-only fields keep UI/query/schema generation tractable while allowing users to stringify richer content when needed.
 - Completion tools expose only `transition_id`, never `next_node`. The selected edge derives the target node and transition behavior.
 - Every completion tool includes optional `commentary` as a visible, pass-along string escape hatch for content not captured by configured fields.
 - Custom completion fields are optional in the generated tool schema. The selected edge may impose payload requirements after `transition_id` is known; if required fields are missing, runtime returns a structured tool error/developer nudge and keeps the same run going.
 - Edge approval is a boolean edge property. When approval is required, the source run finishes and the node transition waits before scheduling the target run.
 - A task owns one managed worktree by default. Implementation and review nodes reuse it unless later node/edge configuration adds an explicit override.
+- Builder creates the task worktree when scheduling the first executable run that needs workspace access. In the default pipeline this coincides with moving the task from backlog into executable work.
+- Task worktree branch creation should reuse existing worktree logic. The branch name is the task short ID.
 - Autonomous node stop limits are not part of v1. Operator cancellation and runtime errors still stop work.
 - The execution queue is durable in SQLite. Startup reconciliation should inspect runnable/running/interrupted state and requeue safe work.
 - The queue does not own runtime leases. Runtime leases remain execution-control state, similar to current client/frontend leases, not durable queue authority.
@@ -81,7 +84,9 @@ Decisions will be recorded here during the planning interview.
 - Task short IDs are project-scoped sequential keys with a project key prefix, e.g. `BLD-123`. Project creation should choose the key explicitly; default suggestion can use the first three letters of the project name.
 - Assignee belongs to nodes/statuses rather than tasks.
 - If a workflow references a subagent role that no longer exists in effective config, the node transition blocks with a validation error before scheduling the run. Same-name subagent setting changes are accepted.
-- Agents may add, replace, and soft-delete task comments as a semi-durable task-local worklog. Comments should record author/source agent when available and stay in Builder persistence, not files in the worktree.
+- Agents may add, replace, and soft-delete task comments through CLI/API task management, not model-callable comment tools. A skill or reminder should teach workflow agents the CLI. Comments should record author/source agent when available and stay in Builder persistence, not files in the worktree.
+- `RunPromptService` should not back workflow nodes. It is a one-shot final-string API, while workflow nodes need durable runs, structured completion, interruption, and resume.
+- Existing user goal state should not be reused as workflow autonomy state. Workflow needs a goal-like loop shape, but task/node/run identity must own completion, interruption, and resume semantics.
 
 ## Schema Direction
 
