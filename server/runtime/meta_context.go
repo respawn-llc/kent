@@ -48,6 +48,7 @@ type metaContextBuildOptions struct {
 	IncludeHeadless           bool
 	IncludeHeadlessExit       bool
 	IncludeWorkflow           bool
+	WorkflowCompletionMode    workflowruntime.CompletionMode
 	IncludeSkillWarnings      bool
 	PermissiveAgentsReadError bool
 }
@@ -203,7 +204,7 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 		}
 	}
 	if opts.IncludeWorkflow {
-		if message, ok := workflowModeMetaMessage(""); ok {
+		if message, ok := workflowModeMetaMessage(opts.WorkflowCompletionMode); ok {
 			collector.addMessages([]llm.Message{message})
 		}
 	}
@@ -394,7 +395,7 @@ func workflowModeMetaMessage(mode workflowruntime.CompletionMode) (llm.Message, 
 	case workflowruntime.CompletionModeStructuredOutput:
 		content = strings.TrimSpace(prompts.WorkflowStructuredOutputModePrompt)
 	default:
-		content = strings.TrimSpace(prompts.WorkflowStructuredOutputModePrompt)
+		return llm.Message{}, false
 	}
 	if content == "" {
 		return llm.Message{}, false

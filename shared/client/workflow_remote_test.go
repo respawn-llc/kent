@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"builder/shared/protocol"
@@ -11,28 +12,36 @@ import (
 )
 
 func TestRemoteWorkflowListRoute(t *testing.T) {
+	handlerErr := make(chan error, 1)
 	server := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
 		defer func() { _ = ws.Close() }()
 		var req protocol.Request
 		if err := websocket.JSON.Receive(ws, &req); err != nil {
-			t.Fatalf("receive handshake: %v", err)
+			handlerErr <- fmt.Errorf("receive handshake: %w", err)
+			return
 		}
 		if req.Method != protocol.MethodHandshake {
-			t.Fatalf("handshake method = %q", req.Method)
+			handlerErr <- fmt.Errorf("handshake method = %q", req.Method)
+			return
 		}
 		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, protocol.HandshakeResponse{Identity: protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"}})); err != nil {
-			t.Fatalf("send handshake response: %v", err)
+			handlerErr <- fmt.Errorf("send handshake response: %w", err)
+			return
 		}
 		if err := websocket.JSON.Receive(ws, &req); err != nil {
-			t.Fatalf("receive workflow list: %v", err)
+			handlerErr <- fmt.Errorf("receive workflow list: %w", err)
+			return
 		}
 		if req.Method != protocol.MethodWorkflowList {
-			t.Fatalf("workflow list method = %q", req.Method)
+			handlerErr <- fmt.Errorf("workflow list method = %q", req.Method)
+			return
 		}
 		resp := serverapi.WorkflowListResponse{Workflows: []serverapi.WorkflowRecord{{ID: "workflow-1", Name: "Workflow"}}}
 		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, resp)); err != nil {
-			t.Fatalf("send workflow list response: %v", err)
+			handlerErr <- fmt.Errorf("send workflow list response: %w", err)
+			return
 		}
+		handlerErr <- nil
 	}))
 	defer server.Close()
 
@@ -47,5 +56,8 @@ func TestRemoteWorkflowListRoute(t *testing.T) {
 	}
 	if len(resp.Workflows) != 1 || resp.Workflows[0].ID != "workflow-1" {
 		t.Fatalf("response = %+v", resp)
+	}
+	if err := <-handlerErr; err != nil {
+		t.Fatal(err)
 	}
 }

@@ -76,7 +76,7 @@ func goalSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 func goalShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("builder goal show", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.Usage = func() { writeGoalUsage(fs) }
+	fs.Usage = func() { writeGoalCommandUsage(fs) }
 	sessionFlag := fs.String("session", "", "target session id")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
 	if err := fs.Parse(args); err != nil {
@@ -121,7 +121,7 @@ func goalShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 func goalSetSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("builder goal set", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.Usage = func() { writeGoalUsage(fs) }
+	fs.Usage = func() { writeGoalCommandUsage(fs) }
 	sessionFlag := fs.String("session", "", "target session id")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -163,7 +163,7 @@ func goalSetSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 func goalStatusSubcommand(action string, args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("builder goal "+action, flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.Usage = func() { writeGoalUsage(fs) }
+	fs.Usage = func() { writeGoalCommandUsage(fs) }
 	sessionFlag := fs.String("session", "", "target session id")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -210,7 +210,7 @@ func goalStatusSubcommand(action string, args []string, stdout io.Writer, stderr
 func goalCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("builder goal complete", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.Usage = func() { writeGoalUsage(fs) }
+	fs.Usage = func() { writeGoalCommandUsage(fs) }
 	sessionFlag := fs.String("session", "", "target session id")
 	confirmed := fs.Bool("confirm", false, "confirm goal completion")
 	if err := fs.Parse(args); err != nil {
@@ -271,7 +271,7 @@ func goalAlreadyComplete(goal *serverapi.RuntimeGoal) bool {
 func goalClearSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("builder goal clear", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.Usage = func() { writeGoalUsage(fs) }
+	fs.Usage = func() { writeGoalCommandUsage(fs) }
 	sessionFlag := fs.String("session", "", "target session id")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {

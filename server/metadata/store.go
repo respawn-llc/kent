@@ -88,6 +88,12 @@ type Store struct {
 	queries         *sqlitegen.Queries
 }
 
+var (
+	ErrInvalidProjectKey      = errors.New("invalid project key")
+	ErrProjectKeyImmutable    = errors.New("project key immutable")
+	ErrProjectKeyAlreadyInUse = errors.New("project key already in use")
+)
+
 func (s *Store) PersistenceRoot() string {
 	if s == nil {
 		return ""
@@ -820,7 +826,7 @@ func (s *Store) SetProjectKey(ctx context.Context, projectID string, projectKey 
 		return fmt.Errorf("get project key state: %w", err)
 	}
 	if state.TaskCount > 0 && strings.TrimSpace(state.ProjectKey) != normalizedKey {
-		return fmt.Errorf("project key is immutable after tasks exist")
+		return fmt.Errorf("%w: after tasks exist", ErrProjectKeyImmutable)
 	}
 	if strings.TrimSpace(state.ProjectKey) == normalizedKey {
 		return nil
@@ -835,7 +841,7 @@ WHERE id = ?
   )`, normalizedKey, time.Now().UTC().UnixMilli(), trimmedProjectID, normalizedKey, trimmedProjectID)
 	if err != nil {
 		if isSQLiteUniqueConstraint(err) {
-			return fmt.Errorf("project key %q is already in use", normalizedKey)
+			return fmt.Errorf("%w: %q", ErrProjectKeyAlreadyInUse, normalizedKey)
 		}
 		return fmt.Errorf("set project key: %w", err)
 	}
@@ -844,7 +850,7 @@ WHERE id = ?
 		return fmt.Errorf("set project key rows affected: %w", err)
 	}
 	if updated == 0 {
-		return fmt.Errorf("project key is immutable after tasks exist")
+		return fmt.Errorf("%w: after tasks exist", ErrProjectKeyImmutable)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit set project key tx: %w", err)
@@ -880,6 +886,9 @@ func (s *Store) AllocateProjectTaskSequence(ctx context.Context, projectID strin
 			return "", 0, fmt.Errorf("get allocated project key: %w", stateErr)
 		}
 		key = strings.TrimSpace(state.ProjectKey)
+		if key == "" {
+			return "", 0, fmt.Errorf("%w: missing allocated project key for %q", ErrInvalidProjectKey, trimmedProjectID)
+		}
 	}
 	return key, row.NextTaskSeq - 1, nil
 }
@@ -887,7 +896,7 @@ func (s *Store) AllocateProjectTaskSequence(ctx context.Context, projectID strin
 func normalizeProjectKey(raw string) (string, error) {
 	key := strings.ToUpper(strings.TrimSpace(raw))
 	if !isValidProjectKey(key) {
-		return "", fmt.Errorf("project key must match ^[A-Z][A-Z0-9]{1,7}$")
+		return "", fmt.Errorf("%w: must match ^[A-Z][A-Z0-9]{1,7}$", ErrInvalidProjectKey)
 	}
 	return key, nil
 }

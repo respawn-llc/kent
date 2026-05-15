@@ -30,6 +30,23 @@ func TestLoadWorkflowConfigDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultSettingsTOMLRendersWorkflowDefaults(t *testing.T) {
+	rendered := defaultSettingsTOML()
+	if !strings.Contains(rendered, "[workflow]") {
+		t.Fatalf("default TOML missing workflow section:\n%s", rendered)
+	}
+	for _, want := range []string{
+		"completion_mode = \"auto\"",
+		"concurrency = 5",
+		"max_final_answer_violations = 3",
+		"max_invalid_completion_attempts = 5",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("default TOML missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestLoadWorkflowConfigFromFile(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
@@ -82,5 +99,23 @@ func TestLoadWorkflowConfigValidation(t *testing.T) {
 				t.Fatalf("Load error = %v, want workflow validation error", err)
 			}
 		})
+	}
+}
+
+func TestLoadSubagentRoleWorkflowConfigValidation(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte("[subagents.fast.workflow]\nconcurrency = 0\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(workspace, LoadOptions{})
+	if err == nil || !strings.Contains(err.Error(), "workflow.concurrency") {
+		t.Fatalf("Load error = %v, want subagent workflow validation error", err)
 	}
 }

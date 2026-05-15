@@ -47,9 +47,17 @@ func (e *Engine) buildRequestPlanWithExtraItems(ctx context.Context, stepID stri
 		return requestBuildPlan{}, err
 	}
 
+	var workflowMode workflowruntime.CompletionMode
+	if e.workflowRunActive() {
+		resolved, modeErr := e.workflowCompletionMode(ctx)
+		if modeErr != nil {
+			return requestBuildPlan{}, modeErr
+		}
+		workflowMode = resolved
+	}
 	var requestTools []llm.Tool
 	if allowTools {
-		requestTools = e.requestTools(ctx)
+		requestTools = e.requestTools(ctx, workflowMode)
 	} else {
 		requestTools = []llm.Tool{}
 	}
@@ -84,12 +92,8 @@ func (e *Engine) buildRequestPlanWithExtraItems(ctx context.Context, stepID stri
 		}
 		req.EnableNativeWebSearch = nativeWebSearch
 	}
-	if e.workflowRunActive() {
-		mode, modeErr := e.workflowCompletionMode(ctx)
-		if modeErr != nil {
-			return requestBuildPlan{}, modeErr
-		}
-		if mode == workflowruntime.CompletionModeStructuredOutput {
+	if workflowMode != "" {
+		if workflowMode == workflowruntime.CompletionModeStructuredOutput {
 			output, outputErr := workflowruntime.StructuredOutput(e.cfg.WorkflowRun.Contract)
 			if outputErr != nil {
 				return requestBuildPlan{}, outputErr
@@ -251,14 +255,8 @@ func hostedToolExecutionsFromOutputItems(items []llm.ResponseItem, defs []tools.
 	return out
 }
 
-func (e *Engine) requestTools(ctx context.Context) []llm.Tool {
-	workflowToolMode := false
-	if e.workflowRunActive() {
-		mode, err := e.workflowCompletionMode(ctx)
-		if err == nil && mode == workflowruntime.CompletionModeTool {
-			workflowToolMode = true
-		}
-	}
+func (e *Engine) requestTools(ctx context.Context, workflowMode workflowruntime.CompletionMode) []llm.Tool {
+	workflowToolMode := workflowMode == workflowruntime.CompletionModeTool
 	exposure := tools.RequestExposureContext{
 		SupportsVision:     llm.LockedContractSupportsVisionInputs(e.store.Meta().Locked, e.cfg.Model),
 		WorkflowCompletion: workflowToolMode,

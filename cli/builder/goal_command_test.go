@@ -265,13 +265,13 @@ func TestGoalCompleteUsesFreshTimeoutForCompletionRPC(t *testing.T) {
 	}
 }
 
-func TestGoalCompleteHelpDoesNotExposeConfirmTripwire(t *testing.T) {
+func TestGoalCompleteHelpExposesConfirmFlag(t *testing.T) {
 	stderr := new(strings.Builder)
 	if code := goalSubcommand([]string{"complete", "--help"}, new(strings.Builder), stderr); code != 0 {
 		t.Fatalf("goal complete --help exit = %d", code)
 	}
-	if strings.Contains(stderr.String(), "--confirm") {
-		t.Fatalf("goal complete help leaked hidden confirm flag: %q", stderr.String())
+	if !strings.Contains(stderr.String(), "-confirm") {
+		t.Fatalf("goal complete help missing confirm flag: %q", stderr.String())
 	}
 }
 

@@ -17,7 +17,7 @@ func MarshalString(value any) (string, error) {
 func MustMarshalString(value any) string {
 	raw, err := MarshalString(value)
 	if err != nil {
-		return "null"
+		panic(fmt.Errorf("MustMarshalString: %w", err))
 	}
 	return raw
 }

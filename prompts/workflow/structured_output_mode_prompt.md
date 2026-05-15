@@ -12,4 +12,4 @@ Rules:
 - Do not use normal prose final answer as completion.
 - When work is complete, return JSON matching workflow completion schema.
 - Do not invent transition IDs or output fields.
-- `ask_question` is unavailable in workflow runs until workflow questions/resume are wired.
+- Use `ask_question` when required; workflow pauses and resumes this run through the normal question mechanism.

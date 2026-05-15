@@ -94,18 +94,18 @@ func TestProjectKeyValidationCollisionAndTaskImmutability(t *testing.T) {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
 
-	if err := store.SetProjectKey(ctx, binding.ProjectID, "bad-key"); err == nil || !strings.Contains(err.Error(), "project key must match") {
+	if err := store.SetProjectKey(ctx, binding.ProjectID, "bad-key"); !errors.Is(err, ErrInvalidProjectKey) {
 		t.Fatalf("expected invalid project key error, got %v", err)
 	}
 	if err := store.SetProjectKey(ctx, binding.ProjectID, "BLD"); err != nil {
 		t.Fatalf("SetProjectKey BLD: %v", err)
 	}
-	if err := store.SetProjectKey(ctx, other.ProjectID, "BLD"); err == nil || !strings.Contains(err.Error(), "already in use") {
+	if err := store.SetProjectKey(ctx, other.ProjectID, "BLD"); !errors.Is(err, ErrProjectKeyAlreadyInUse) {
 		t.Fatalf("expected project key collision, got %v", err)
 	}
 	seedWorkflowGraph(t, store.db, binding.ProjectID, time.Now().UTC().UnixMilli())
 	seedWorkflowTask(t, store, binding.ProjectID, "BLD-1")
-	if err := store.SetProjectKey(ctx, binding.ProjectID, "NEW"); err == nil || !strings.Contains(err.Error(), "immutable") {
+	if err := store.SetProjectKey(ctx, binding.ProjectID, "NEW"); !errors.Is(err, ErrProjectKeyImmutable) {
 		t.Fatalf("expected immutable project key error, got %v", err)
 	}
 	if err := store.SetProjectKey(ctx, binding.ProjectID, "BLD"); err != nil {

@@ -76,7 +76,7 @@ func workflowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 func workflowCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("builder workflow create", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.Usage = func() { writeWorkflowUsage(fs) }
+	fs.Usage = func() { writeWorkflowCreateUsage(fs) }
 	description := fs.String("description", "", "workflow description")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -562,7 +562,7 @@ func resolveWorkflowDefinition(ctx context.Context, remote workflowCommandRemote
 	if len(matches) > 1 {
 		return serverapi.WorkflowDefinition{}, fmt.Errorf("workflow %q is ambiguous; use workflow id", trimmed)
 	}
-	getCtx, getCancel := workflowRPCContext(context.Background())
+	getCtx, getCancel := workflowRPCContext(ctx)
 	defer getCancel()
 	resp, err := remote.GetWorkflow(getCtx, serverapi.WorkflowGetRequest{WorkflowID: matches[0].ID})
 	if err != nil {

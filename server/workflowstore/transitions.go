@@ -237,10 +237,39 @@ func (s *Store) approvedTransitionResult(ctx context.Context, transitionID strin
 	}
 	result := CompleteRunResult{TransitionID: workflow.TransitionID(transitionID), State: state}
 	placementIDs := map[string]bool{}
+	runIDs := map[string]bool{}
 	for _, edge := range edges {
 		if edge.TargetPlacementID.Valid && strings.TrimSpace(edge.TargetPlacementID.String) != "" && !placementIDs[edge.TargetPlacementID.String] {
 			placementIDs[edge.TargetPlacementID.String] = true
 			result.PlacementIDs = append(result.PlacementIDs, workflow.PlacementID(edge.TargetPlacementID.String))
+		}
+		if !edge.TargetPlacementID.Valid || strings.TrimSpace(edge.TargetPlacementID.String) == "" {
+			continue
+		}
+		rows, err := s.db.QueryContext(ctx, `
+SELECT id
+FROM task_runs
+WHERE placement_id = ?
+ORDER BY created_at_unix_ms, id`, strings.TrimSpace(edge.TargetPlacementID.String))
+		if err != nil {
+			return CompleteRunResult{}, err
+		}
+		for rows.Next() {
+			var runID string
+			if err := rows.Scan(&runID); err != nil {
+				_ = rows.Close()
+				return CompleteRunResult{}, err
+			}
+			if trimmed := strings.TrimSpace(runID); trimmed != "" && !runIDs[trimmed] {
+				runIDs[trimmed] = true
+				result.RunIDs = append(result.RunIDs, workflow.RunID(trimmed))
+			}
+		}
+		if err := rows.Close(); err != nil {
+			return CompleteRunResult{}, err
+		}
+		if err := rows.Err(); err != nil {
+			return CompleteRunResult{}, err
 		}
 	}
 	return result, nil

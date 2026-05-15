@@ -111,7 +111,10 @@ type completeNodeUnavailableTool struct{}
 func (completeNodeUnavailableTool) Name() toolspec.ID { return toolspec.ToolCompleteNode }
 
 func (completeNodeUnavailableTool) Call(_ context.Context, c tools.Call) (tools.Result, error) {
-	output, _ := json.Marshal(map[string]string{"error": "complete_node is only available during a workflow run"})
+	output, err := json.Marshal(map[string]string{"error": "complete_node is only available during a workflow run"})
+	if err != nil {
+		output = json.RawMessage(`{"error":"complete_node is only available during a workflow run"}`)
+	}
 	return tools.Result{CallID: c.ID, Name: toolspec.ToolCompleteNode, IsError: true, Output: output, Summary: "not in workflow run"}, nil
 }
 

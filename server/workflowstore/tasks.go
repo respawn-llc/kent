@@ -168,7 +168,14 @@ func (s *Store) StartTask(ctx context.Context, taskID workflow.TaskID) (StartTas
 	updatedStart, err := tx.ExecContext(ctx, `
 UPDATE task_node_placements
 SET state = ?, updated_at_unix_ms = ?
-WHERE id = ? AND state = 'active'`, "completed", now, prepared.startPlacement.ID)
+WHERE id = ?
+  AND state = 'active'
+  AND task_id IN (
+      SELECT id
+      FROM tasks
+      WHERE id = ?
+        AND canceled_at_unix_ms = 0
+  )`, "completed", now, prepared.startPlacement.ID, string(taskID))
 	if err != nil {
 		return StartTaskResult{}, err
 	}

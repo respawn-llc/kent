@@ -41,6 +41,7 @@ func validateSubagentRoleState(state settingsState, sources map[string]string) e
 		{enabled: hasExplicitSource(sources, "shell.postprocessing_mode", "shell.postprocess_hook"), check: validateShellPostprocessing},
 		{enabled: hasExplicitSource(sources, "cache_warning_mode"), check: validateCacheWarningMode},
 		{enabled: hasExplicitSource(sources, "compaction_mode"), check: validateCompactionMode},
+		{enabled: hasExplicitPrefix(sources, "workflow."), check: validateWorkflowSettings},
 		{enabled: hasExplicitPrefix(sources, "reviewer."), check: validateReviewer},
 	}
 	for _, check := range checks {

@@ -103,9 +103,18 @@ func (s *Store) ManualMoveTask(ctx context.Context, req ManualMoveRequest) (Manu
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
-	if updated, err := q.UpdateTaskNodePlacementState(ctx, sqlitegen.UpdateTaskNodePlacementStateParams{ID: string(sourcePlacement), State: "completed", UpdatedAtUnixMs: now}); err != nil {
+	updatedResult, err := tx.ExecContext(ctx, `
+UPDATE task_node_placements
+SET state = 'completed', updated_at_unix_ms = ?
+WHERE id = ? AND state = 'active'`, now, string(sourcePlacement))
+	if err != nil {
 		return ManualMoveResult{}, err
-	} else if updated != 1 {
+	}
+	updated, err := updatedResult.RowsAffected()
+	if err != nil {
+		return ManualMoveResult{}, err
+	}
+	if updated != 1 {
 		return ManualMoveResult{}, sql.ErrNoRows
 	}
 	appliedAt := now

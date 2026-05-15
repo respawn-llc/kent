@@ -37,3 +37,25 @@ func TestScriptedClientRecordsRequestsAndSteps(t *testing.T) {
 		t.Fatalf("request count = %d, want 4", got)
 	}
 }
+
+func TestScriptedClientProviderCapabilitiesDefault(t *testing.T) {
+	client := NewScriptedClient(llm.ProviderCapabilities{})
+
+	caps, err := client.ProviderCapabilities(context.Background())
+	if err != nil {
+		t.Fatalf("ProviderCapabilities: %v", err)
+	}
+	if caps.ProviderID != "openai" || !caps.SupportsResponsesAPI || !caps.IsOpenAIFirstParty {
+		t.Fatalf("caps = %+v, want openai defaults", caps)
+	}
+}
+
+func TestScriptedClientCancellationReturnsContextErr(t *testing.T) {
+	client := NewScriptedClient(llm.ProviderCapabilities{ProviderID: "legacy"}, Cancellation())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := client.Generate(ctx, llm.Request{Model: "m"}); !errors.Is(err, ctx.Err()) {
+		t.Fatalf("Generate error = %v, want %v", err, ctx.Err())
+	}
+}
