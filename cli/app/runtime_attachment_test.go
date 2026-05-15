@@ -146,6 +146,49 @@ func TestRuntimeAttachmentCloseReleasesRuntime(t *testing.T) {
 	}
 }
 
+func TestRuntimeAttachmentReadOnlyCloseDoesNotReleaseRuntime(t *testing.T) {
+	releaseCount := 0
+	server := runtimeAttachmentTestServer{
+		runtime: &recordingSessionRuntimeClient{
+			activate: func(context.Context, serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
+				return serverapi.SessionRuntimeActivateResponse{ReadOnly: true}, nil
+			},
+			release: func(context.Context, serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
+				releaseCount++
+				return serverapi.SessionRuntimeReleaseResponse{}, nil
+			},
+		},
+		sessionEvents: &recordingSessionActivityClient{
+			subscribe: func(context.Context, serverapi.SessionActivitySubscribeRequest) (serverapi.SessionActivitySubscription, error) {
+				return noOpSessionActivitySubscription{}, nil
+			},
+		},
+		promptEvents: &recordingPromptActivityClient{
+			subscribe: func(context.Context, serverapi.PromptActivitySubscribeRequest) (serverapi.PromptActivitySubscription, error) {
+				t.Fatal("read-only attach should not subscribe to prompt control stream")
+				return nil, nil
+			},
+		},
+		sessionViews:   &countingSessionViewClient{},
+		runtimeControl: &leaseRetryRuntimeControlClient{},
+	}
+
+	plan, err := prepareSharedRuntime(context.Background(), server, sessionLaunchPlan{SessionID: "session-readonly"}, io.Discard, "test")
+	if err != nil {
+		t.Fatalf("prepareSharedRuntime: %v", err)
+	}
+	if !plan.ReadOnly {
+		t.Fatal("expected read-only runtime plan")
+	}
+	if _, err := plan.Wiring.runtimeClient.SubmitUserMessage(context.Background(), "hello"); !errors.Is(err, errReadOnlyRuntime) {
+		t.Fatalf("SubmitUserMessage error = %v, want read-only runtime", err)
+	}
+	plan.Close()
+	if releaseCount != 0 {
+		t.Fatalf("release count = %d, want none for read-only attach", releaseCount)
+	}
+}
+
 func TestRuntimeAttachmentLeaseRecoveryUsesActivation(t *testing.T) {
 	activateCalls := 0
 	server := runtimeAttachmentTestServer{

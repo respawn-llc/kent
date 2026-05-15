@@ -16,6 +16,7 @@ import (
 const ReleaseTimeout = 3 * time.Second
 
 var ErrEmptyControllerLease = errors.New("session runtime activation returned empty controller lease id")
+var ErrReadOnlyControllerLease = errors.New("session runtime activation switched to read-only mode")
 
 type Request struct {
 	SessionID          string
@@ -26,8 +27,9 @@ type Request struct {
 }
 
 type Lease struct {
-	ID      string
-	Recover func(context.Context) (string, error)
+	ID       string
+	ReadOnly bool
+	Recover  func(context.Context) (string, error)
 }
 
 func Activate(ctx context.Context, service servicecontract.SessionRuntimeService, req Request) (Lease, error) {
@@ -37,6 +39,9 @@ func Activate(ctx context.Context, service servicecontract.SessionRuntimeService
 	resp, err := service.ActivateSessionRuntime(ctx, activateRequest(req))
 	if err != nil {
 		return Lease{}, err
+	}
+	if resp.ReadOnly {
+		return Lease{ReadOnly: true}, nil
 	}
 	leaseID, err := normalizeLeaseID(resp.LeaseID)
 	if err != nil {
@@ -48,6 +53,9 @@ func Activate(ctx context.Context, service servicecontract.SessionRuntimeService
 			resp, err := service.ActivateSessionRuntime(ctx, activateRequest(req))
 			if err != nil {
 				return "", err
+			}
+			if resp.ReadOnly {
+				return "", ErrReadOnlyControllerLease
 			}
 			return normalizeLeaseID(resp.LeaseID)
 		},

@@ -50,8 +50,11 @@ type runtimeHandle struct {
 	controllerRequestID string
 	controllerLeaseID   string
 	activationErr       error
+	closing             bool
 	takeover            *runtimeTakeover
 	ready               chan struct{}
+	closed              chan struct{}
+	closedOnce          sync.Once
 	rebind              func(string) error
 	close               func()
 }
@@ -69,6 +72,7 @@ type activationClaim int
 const (
 	activationClaimOwner activationClaim = iota
 	activationClaimReuse
+	activationClaimClosing
 	activationClaimTakeoverReuse
 	activationClaimTakeover
 )
@@ -147,9 +151,24 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 	}
 	sessionID := strings.TrimSpace(req.SessionID)
 	requestID := strings.TrimSpace(req.ClientRequestID)
-	handle, takeover, claim, err := s.claimActivation(sessionID, requestID)
-	if err != nil {
-		return serverapi.SessionRuntimeActivateResponse{}, err
+	var handle *runtimeHandle
+	var takeover *runtimeTakeover
+	var claim activationClaim
+	var err error
+	for {
+		if s.confirmExternalSessionRuntimeActive(ctx, sessionID) {
+			return serverapi.SessionRuntimeActivateResponse{ReadOnly: true}, nil
+		}
+		handle, takeover, claim, err = s.claimActivation(sessionID, requestID)
+		if err != nil {
+			return serverapi.SessionRuntimeActivateResponse{}, err
+		}
+		if claim != activationClaimClosing {
+			break
+		}
+		if err := waitForRuntimeHandleClosed(ctx, handle); err != nil {
+			return serverapi.SessionRuntimeActivateResponse{}, err
+		}
 	}
 	if claim == activationClaimReuse {
 		if err := waitForRuntimeHandleReady(ctx, handle); err != nil {
@@ -265,6 +284,26 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 	return serverapi.SessionRuntimeActivateResponse{LeaseID: leaseID}, nil
 }
 
+func (s *Service) externalSessionRuntimeActive(sessionID string) bool {
+	if s == nil || s.runtimes == nil || !s.runtimes.IsSessionRuntimeActive(sessionID) {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.handles[strings.TrimSpace(sessionID)] == nil
+}
+
+func (s *Service) confirmExternalSessionRuntimeActive(ctx context.Context, sessionID string) bool {
+	if !s.externalSessionRuntimeActive(sessionID) || s.runtimes == nil {
+		return false
+	}
+	engine, err := s.runtimes.ResolveRuntime(ctx, sessionID)
+	if err != nil || engine == nil {
+		return false
+	}
+	return s.externalSessionRuntimeActive(sessionID)
+}
+
 func runtimeRebindFunc(localRebind func(string) error, engine *runtime.Engine) func(string) error {
 	return func(workdir string) error {
 		if localRebind != nil {
@@ -308,7 +347,7 @@ func (s *Service) ReleaseSessionRuntime(ctx context.Context, req serverapi.Sessi
 		s.mu.Unlock()
 		return serverapi.SessionRuntimeReleaseResponse{}, invalidControllerLeaseError(sessionID)
 	}
-	delete(s.handles, sessionID)
+	current.closing = true
 	closeFn := current.close
 	takeover := current.takeover
 	s.mu.Unlock()
@@ -316,6 +355,12 @@ func (s *Service) ReleaseSessionRuntime(ctx context.Context, req serverapi.Sessi
 	if closeFn != nil {
 		closeFn()
 	}
+	s.mu.Lock()
+	if s.handles[sessionID] == current {
+		delete(s.handles, sessionID)
+		signalRuntimeHandleClosed(current)
+	}
+	s.mu.Unlock()
 	return serverapi.SessionRuntimeReleaseResponse{}, leaseErr
 }
 
@@ -330,7 +375,7 @@ func (s *Service) closeReleasedRuntimeHandle(sessionID string, handle *runtimeHa
 		s.mu.Unlock()
 		return
 	}
-	delete(s.handles, trimmedSessionID)
+	current.closing = true
 	closeFn := current.close
 	takeover := current.takeover
 	s.mu.Unlock()
@@ -338,6 +383,12 @@ func (s *Service) closeReleasedRuntimeHandle(sessionID string, handle *runtimeHa
 	if closeFn != nil {
 		closeFn()
 	}
+	s.mu.Lock()
+	if s.handles[trimmedSessionID] == current {
+		delete(s.handles, trimmedSessionID)
+		signalRuntimeHandleClosed(current)
+	}
+	s.mu.Unlock()
 }
 
 func (s *Service) RequireControllerLease(ctx context.Context, sessionID string, leaseID string) error {
@@ -567,6 +618,9 @@ func (s *Service) claimActivation(sessionID string, requestID string) (*runtimeH
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if current := s.handles[sessionID]; current != nil {
+		if current.closing {
+			return current, nil, activationClaimClosing, nil
+		}
 		if current.controllerRequestID == requestID {
 			return current, nil, activationClaimReuse, nil
 		}
@@ -586,9 +640,17 @@ func (s *Service) claimActivation(sessionID string, requestID string) (*runtimeH
 		}
 		return nil, nil, activationClaimOwner, errors.Join(serverapi.ErrSessionAlreadyControlled, fmt.Errorf("session %q is already controlled by another client", sessionID))
 	}
-	handle := &runtimeHandle{controllerRequestID: requestID, ready: make(chan struct{})}
+	handle := newRuntimeHandle(requestID)
 	s.handles[sessionID] = handle
 	return handle, nil, activationClaimOwner, nil
+}
+
+func newRuntimeHandle(requestID string) *runtimeHandle {
+	return &runtimeHandle{
+		controllerRequestID: strings.TrimSpace(requestID),
+		ready:               make(chan struct{}),
+		closed:              make(chan struct{}),
+	}
 }
 
 func (s *Service) takeOverActivation(ctx context.Context, sessionID string, requestID string, handle *runtimeHandle, takeover *runtimeTakeover) (serverapi.SessionRuntimeActivateResponse, error) {
@@ -749,6 +811,27 @@ func waitForRuntimeHandleReady(ctx context.Context, handle *runtimeHandle) error
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func waitForRuntimeHandleClosed(ctx context.Context, handle *runtimeHandle) error {
+	if handle == nil || handle.closed == nil {
+		return nil
+	}
+	select {
+	case <-handle.closed:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func signalRuntimeHandleClosed(handle *runtimeHandle) {
+	if handle == nil || handle.closed == nil {
+		return
+	}
+	handle.closedOnce.Do(func() {
+		close(handle.closed)
+	})
 }
 
 func activationResponseForHandle(handle *runtimeHandle) (serverapi.SessionRuntimeActivateResponse, error) {

@@ -3,6 +3,8 @@ package serverapi
 import (
 	"strings"
 	"time"
+
+	"builder/shared/config"
 )
 
 type RunPromptRequest struct {
@@ -15,6 +17,7 @@ type RunPromptRequest struct {
 
 type RunPromptOverrides struct {
 	AgentRole           string
+	AgentRoleSet        bool
 	Model               string
 	ProviderOverride    string
 	ThinkingLevel       string
@@ -25,7 +28,8 @@ type RunPromptOverrides struct {
 }
 
 func (o RunPromptOverrides) HasAny() bool {
-	return strings.TrimSpace(o.AgentRole) != "" ||
+	return o.AgentRoleSet ||
+		strings.TrimSpace(o.AgentRole) != "" ||
 		strings.TrimSpace(o.Model) != "" ||
 		strings.TrimSpace(o.ProviderOverride) != "" ||
 		strings.TrimSpace(o.ThinkingLevel) != "" ||
@@ -43,6 +47,10 @@ func (o RunPromptOverrides) HasConfigOverrides() bool {
 		o.ModelTimeoutSeconds > 0 ||
 		strings.TrimSpace(o.Tools) != "" ||
 		strings.TrimSpace(o.OpenAIBaseURL) != ""
+}
+
+func (o RunPromptOverrides) NeedsAuthState() bool {
+	return config.NormalizeSubagentSelector(o.AgentRole) != ""
 }
 
 type RunPromptResponse struct {

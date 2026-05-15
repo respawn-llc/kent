@@ -59,7 +59,8 @@ Useful role-specific keys include:
 
 Headless runs are non-interactive. They do not stop to ask the human operator questions mid-run or issue tool preambles. That makes them suitable for background execution and automation and saves tokens, but it also means a headless run should be treated as a single unattended turn. If you continue the headless session as an interactive one (e.g. from the UI), expect the model to be less talkative going forward.
 
-- Continuing a session reuses most of initial config and parameters.
+- Continuing a session with a stored subagent role reapplies that role when it still exists. If the role was removed from config, continuation uses the base config.
+- An active headless run owns its session runtime until it exits. Opening the same session interactively attaches as a read-only watcher without interrupting the headless `builder run` process.
 - Sessions with a goal cannot be continued headlessly. Clear the goal from the interactive session before using `builder run --continue`.
 
 ## Workspace Binding

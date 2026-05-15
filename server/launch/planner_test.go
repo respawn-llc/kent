@@ -169,6 +169,510 @@ func TestPlannerInteractiveReopensSelectedSessionID(t *testing.T) {
 	}
 }
 
+func TestPlannerReappliesPersistedSubagentRoleSettingsOnResume(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	store, err := session.Create(containerDir, "workspace-a", workspace)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: "smart_reviewer"}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+	settings := config.Settings{
+		Model:         "gpt-5.5",
+		ThinkingLevel: "medium",
+		EnabledTools: map[toolspec.ID]bool{
+			toolspec.ToolExecCommand: true,
+			toolspec.ToolPatch:       true,
+		},
+		Subagents: map[string]config.SubagentRole{
+			"smart_reviewer": {
+				Settings: config.Settings{
+					Model:         "gpt-5.5",
+					ThinkingLevel: "xhigh",
+					EnabledTools: map[toolspec.ID]bool{
+						toolspec.ToolExecCommand: true,
+						toolspec.ToolPatch:       false,
+					},
+				},
+				Sources: map[string]string{"thinking_level": "file", "tools.patch": "file"},
+			},
+		},
+	}
+	planner := Planner{
+		Config: config.App{
+			WorkspaceRoot:   workspace,
+			PersistenceRoot: root,
+			Settings:        settings,
+			Source: config.SourceReport{Sources: map[string]string{
+				"model":          "file",
+				"thinking_level": "file",
+				"tools.shell":    "file",
+				"tools.patch":    "file",
+				"tools.edit":     "file",
+			}},
+		},
+		ContainerDir: containerDir,
+	}
+
+	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, SelectedSessionID: store.Meta().SessionID})
+	if err != nil {
+		t.Fatalf("PlanSession: %v", err)
+	}
+	if plan.ActiveSettings.ThinkingLevel != "xhigh" {
+		t.Fatalf("thinking level = %q, want persisted subagent role xhigh", plan.ActiveSettings.ThinkingLevel)
+	}
+	if plan.ActiveSettings.EnabledTools[toolspec.ToolPatch] {
+		t.Fatalf("patch tool should be disabled by persisted role: %+v", plan.ActiveSettings.EnabledTools)
+	}
+	if plan.Source.Sources["thinking_level"] != "subagent" || plan.Source.Sources["tools.patch"] != "subagent" {
+		t.Fatalf("source report did not mark role overrides as subagent: %+v", plan.Source.Sources)
+	}
+	if got := plan.Store.Meta().Continuation; got == nil || got.AgentRole != "smart_reviewer" {
+		t.Fatalf("continuation = %+v, want smart_reviewer preserved", got)
+	}
+}
+
+func TestPlannerIgnoresMissingPersistedSubagentRoleOnResume(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	store, err := session.Create(containerDir, "workspace-a", workspace)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: "deleted_role"}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+	planner := Planner{
+		Config: config.App{
+			WorkspaceRoot:   workspace,
+			PersistenceRoot: root,
+			Settings: config.Settings{
+				Model:         "gpt-5.5",
+				ThinkingLevel: "medium",
+			},
+		},
+		ContainerDir: containerDir,
+	}
+
+	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, SelectedSessionID: store.Meta().SessionID})
+	if err != nil {
+		t.Fatalf("PlanSession: %v", err)
+	}
+	if plan.ActiveSettings.ThinkingLevel != "medium" {
+		t.Fatalf("thinking level = %q, want base config when role is missing", plan.ActiveSettings.ThinkingLevel)
+	}
+	if got := plan.Store.Meta().Continuation; got == nil || got.AgentRole != "deleted_role" {
+		t.Fatalf("continuation = %+v, want missing role preserved", got)
+	}
+}
+
+func TestPlannerKeepsRoleBaseURLOutOfBaseSettingsOnResume(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	loaded, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	store, err := session.Create(containerDir, "workspace-a", workspace)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := store.SetContinuationContext(session.ContinuationContext{
+		OpenAIBaseURL: "https://worker.example/v1",
+		AgentRole:     "worker",
+	}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+	settings := loaded.Settings
+	settings.OpenAIBaseURL = "https://base.example/v1"
+	workerSettings := cloneSettings(settings)
+	workerSettings.OpenAIBaseURL = "https://worker.example/v1"
+	researchSettings := cloneSettings(settings)
+	researchSettings.ThinkingLevel = "high"
+	settings.Subagents = map[string]config.SubagentRole{
+		"worker": {
+			Settings: workerSettings,
+			Sources:  map[string]string{"openai_base_url": "file"},
+		},
+		"research": {
+			Settings: researchSettings,
+			Sources:  map[string]string{"thinking_level": "file"},
+		},
+	}
+	source := loaded.Source
+	source.Sources = cloneStringMap(loaded.Source.Sources)
+	source.Sources["openai_base_url"] = "file"
+	source.Sources["thinking_level"] = "file"
+	planner := Planner{
+		Config: config.App{
+			WorkspaceRoot:   workspace,
+			PersistenceRoot: root,
+			Settings:        settings,
+			Source:          source,
+		},
+		ContainerDir: containerDir,
+	}
+
+	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, SelectedSessionID: store.Meta().SessionID})
+	if err != nil {
+		t.Fatalf("PlanSession: %v", err)
+	}
+	if plan.ActiveSettings.OpenAIBaseURL != "https://worker.example/v1" {
+		t.Fatalf("active base url = %q, want worker", plan.ActiveSettings.OpenAIBaseURL)
+	}
+	if plan.BaseSettings.OpenAIBaseURL != "https://base.example/v1" {
+		t.Fatalf("base settings url = %q, want base", plan.BaseSettings.OpenAIBaseURL)
+	}
+
+	cleared, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRoleSet: true}, auth.EmptyState())
+	if err != nil {
+		t.Fatalf("ApplyRunPromptOverrides clear: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %+v", warnings)
+	}
+	if cleared.ActiveSettings.OpenAIBaseURL != "https://base.example/v1" {
+		t.Fatalf("cleared base url = %q, want base", cleared.ActiveSettings.OpenAIBaseURL)
+	}
+	if got := plan.Store.Meta().Continuation; got != nil && got.AgentRole != "" {
+		t.Fatalf("continuation after clear = %+v, want no role", got)
+	}
+
+	if err := plan.Store.SetContinuationContext(session.ContinuationContext{OpenAIBaseURL: "https://worker.example/v1", AgentRole: "worker"}); err != nil {
+		t.Fatalf("reset continuation: %v", err)
+	}
+	switched, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: "research"}, auth.EmptyState())
+	if err != nil {
+		t.Fatalf("ApplyRunPromptOverrides switch: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected switch warnings: %+v", warnings)
+	}
+	if switched.ActiveSettings.OpenAIBaseURL != "https://base.example/v1" {
+		t.Fatalf("switched base url = %q, want base", switched.ActiveSettings.OpenAIBaseURL)
+	}
+}
+
+func TestApplyRunPromptOverridesExplicitRoleUsesBaseSettingsAfterPersistedRoleResume(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	loaded, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	store, err := session.Create(filepath.Join(root, "sessions", "workspace-a"), "workspace-a", workspace)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: "old_role"}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+	baseSettings := loaded.Settings
+	baseSettings.EnabledTools = cloneEnabledToolSet(baseSettings.EnabledTools)
+	baseSettings.EnabledTools[toolspec.ToolExecCommand] = true
+	baseSettings.EnabledTools[toolspec.ToolPatch] = true
+	workerSettings := cloneSettings(baseSettings)
+	workerSettings.ThinkingLevel = "high"
+	baseSettings.Subagents = map[string]config.SubagentRole{
+		"worker": {
+			Settings: workerSettings,
+			Sources:  map[string]string{"thinking_level": "file"},
+		},
+	}
+	resumedSettings := cloneSettings(baseSettings)
+	resumedSettings.ThinkingLevel = "xhigh"
+	resumedSettings.EnabledTools[toolspec.ToolPatch] = false
+	baseSource := loaded.Source
+	baseSource.Sources = cloneStringMap(loaded.Source.Sources)
+	baseSource.Sources["thinking_level"] = "file"
+	baseSource.Sources["tools.shell"] = "file"
+	baseSource.Sources["tools.patch"] = "file"
+	baseSource.Sources["tools.edit"] = "file"
+	resumedSource := baseSource
+	resumedSource.Sources = cloneStringMap(baseSource.Sources)
+	resumedSource.Sources["thinking_level"] = "subagent"
+	resumedSource.Sources["tools.patch"] = "subagent"
+	plan := SessionPlan{
+		Store:               store,
+		ActiveSettings:      resumedSettings,
+		BaseSettings:        baseSettings,
+		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
+		ConfiguredModelName: "gpt-5.5",
+		WorkspaceRoot:       workspace,
+		Source:              resumedSource,
+		BaseSource:          baseSource,
+	}
+
+	updated, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: "worker"}, auth.EmptyState())
+	if err != nil {
+		t.Fatalf("ApplyRunPromptOverrides: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %+v", warnings)
+	}
+	if updated.ActiveSettings.ThinkingLevel != "high" {
+		t.Fatalf("thinking level = %q, want new role", updated.ActiveSettings.ThinkingLevel)
+	}
+	if !updated.ActiveSettings.EnabledTools[toolspec.ToolPatch] {
+		t.Fatalf("patch tool should come from base settings, got %+v", updated.ActiveSettings.EnabledTools)
+	}
+	if updated.Source.Sources["tools.patch"] != "file" {
+		t.Fatalf("tools.patch source = %q, want base source", updated.Source.Sources["tools.patch"])
+	}
+	if got := store.Meta().Continuation; got == nil || got.AgentRole != "worker" {
+		t.Fatalf("continuation = %+v, want worker", got)
+	}
+}
+
+func TestApplyRunPromptOverridesExplicitDefaultClearsPersistedRole(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	store, err := session.Create(filepath.Join(root, "sessions", "workspace-a"), "workspace-a", workspace)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: "old_role"}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+	baseSettings := config.Settings{
+		Model:         "gpt-5.5",
+		ThinkingLevel: "medium",
+		EnabledTools:  map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
+	}
+	resumedSettings := cloneSettings(baseSettings)
+	resumedSettings.ThinkingLevel = "xhigh"
+	plan := SessionPlan{
+		Store:               store,
+		ActiveSettings:      resumedSettings,
+		BaseSettings:        baseSettings,
+		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
+		ConfiguredModelName: "gpt-5.5",
+		WorkspaceRoot:       workspace,
+		Source:              config.SourceReport{Sources: map[string]string{"thinking_level": "subagent"}},
+		BaseSource:          config.SourceReport{Sources: map[string]string{"thinking_level": "file"}},
+	}
+
+	updated, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRoleSet: true}, auth.EmptyState())
+	if err != nil {
+		t.Fatalf("ApplyRunPromptOverrides: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %+v", warnings)
+	}
+	if updated.ActiveSettings.ThinkingLevel != "medium" {
+		t.Fatalf("thinking level = %q, want base config", updated.ActiveSettings.ThinkingLevel)
+	}
+	if updated.Source.Sources["thinking_level"] != "file" {
+		t.Fatalf("thinking source = %q, want base source", updated.Source.Sources["thinking_level"])
+	}
+	if got := store.Meta().Continuation; got != nil && got.AgentRole != "" {
+		t.Fatalf("continuation = %+v, want cleared role", got)
+	}
+}
+
+func TestApplyRunPromptOverridesResumedRoleMatrix(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	workspace := t.TempDir()
+	loaded, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	baseSettings := loaded.Settings
+	baseSettings.EnabledTools = cloneEnabledToolSet(baseSettings.EnabledTools)
+	baseSettings.Model = "gpt-5.5"
+	baseSettings.ThinkingLevel = "medium"
+	baseSettings.EnabledTools[toolspec.ToolExecCommand] = true
+	baseSettings.EnabledTools[toolspec.ToolPatch] = true
+	workerSettings := cloneSettings(baseSettings)
+	workerSettings.Model = "gpt-5.4-mini"
+	workerSettings.ThinkingLevel = "high"
+	baseSettings.Subagents = map[string]config.SubagentRole{
+		"worker": {
+			Settings: workerSettings,
+			Sources:  map[string]string{"model": "file", "thinking_level": "file"},
+		},
+	}
+	baseSource := loaded.Source
+	baseSource.Sources = cloneStringMap(loaded.Source.Sources)
+	baseSource.Sources["model"] = "file"
+	baseSource.Sources["thinking_level"] = "file"
+	baseSource.Sources["tools.shell"] = "file"
+	baseSource.Sources["tools.patch"] = "file"
+	baseSource.Sources["tools.edit"] = "file"
+	resumedSettings := cloneSettings(baseSettings)
+	resumedSettings.ThinkingLevel = "xhigh"
+	resumedSettings.EnabledTools[toolspec.ToolPatch] = false
+	resumedSource := baseSource
+	resumedSource.Sources = cloneStringMap(baseSource.Sources)
+	resumedSource.Sources["thinking_level"] = "subagent"
+	resumedSource.Sources["tools.patch"] = "subagent"
+
+	tests := []struct {
+		name             string
+		locked           bool
+		overrides        serverapi.RunPromptOverrides
+		wantModel        string
+		wantThinking     string
+		wantPatchSetting bool
+		wantAgentRole    string
+	}{
+		{
+			name:             "no override keeps resumed role",
+			overrides:        serverapi.RunPromptOverrides{},
+			wantModel:        "gpt-5.5",
+			wantThinking:     "xhigh",
+			wantPatchSetting: false,
+			wantAgentRole:    "old_role",
+		},
+		{
+			name:             "new role starts from base settings",
+			overrides:        serverapi.RunPromptOverrides{AgentRole: "worker"},
+			wantModel:        "gpt-5.4-mini",
+			wantThinking:     "high",
+			wantPatchSetting: true,
+			wantAgentRole:    "worker",
+		},
+		{
+			name:             "default alias clears resumed role",
+			overrides:        serverapi.RunPromptOverrides{AgentRoleSet: true},
+			wantModel:        "gpt-5.5",
+			wantThinking:     "medium",
+			wantPatchSetting: true,
+			wantAgentRole:    "",
+		},
+		{
+			name:             "locked model blocks new role model override",
+			locked:           true,
+			overrides:        serverapi.RunPromptOverrides{AgentRole: "worker"},
+			wantModel:        "locked-model",
+			wantThinking:     "high",
+			wantPatchSetting: true,
+			wantAgentRole:    "worker",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+			if err != nil {
+				t.Fatalf("create session: %v", err)
+			}
+			if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: "old_role"}); err != nil {
+				t.Fatalf("SetContinuationContext: %v", err)
+			}
+			planBaseSettings := cloneSettings(baseSettings)
+			planResumedSettings := cloneSettings(resumedSettings)
+			if tt.locked {
+				if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "locked-model", EnabledTools: []string{"shell"}}); err != nil {
+					t.Fatalf("MarkModelDispatchLocked: %v", err)
+				}
+				planBaseSettings.Model = "locked-model"
+				planResumedSettings.Model = "locked-model"
+			}
+			plan := SessionPlan{
+				Store:               store,
+				ActiveSettings:      planResumedSettings,
+				BaseSettings:        planBaseSettings,
+				EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
+				ConfiguredModelName: "gpt-5.5",
+				WorkspaceRoot:       workspace,
+				Source:              resumedSource,
+				BaseSource:          baseSource,
+				ModelContractLocked: tt.locked,
+			}
+
+			updated, warnings, err := ApplyRunPromptOverrides(plan, tt.overrides, auth.EmptyState())
+			if err != nil {
+				t.Fatalf("ApplyRunPromptOverrides: %v", err)
+			}
+			if len(warnings) != 0 {
+				t.Fatalf("unexpected warnings: %+v", warnings)
+			}
+			if updated.ActiveSettings.Model != tt.wantModel {
+				t.Fatalf("model = %q, want %q", updated.ActiveSettings.Model, tt.wantModel)
+			}
+			if updated.ActiveSettings.ThinkingLevel != tt.wantThinking {
+				t.Fatalf("thinking = %q, want %q", updated.ActiveSettings.ThinkingLevel, tt.wantThinking)
+			}
+			if updated.ActiveSettings.EnabledTools[toolspec.ToolPatch] != tt.wantPatchSetting {
+				t.Fatalf("patch setting = %t, want %t", updated.ActiveSettings.EnabledTools[toolspec.ToolPatch], tt.wantPatchSetting)
+			}
+			gotRole := ""
+			if continuation := store.Meta().Continuation; continuation != nil {
+				gotRole = continuation.AgentRole
+			}
+			if gotRole != tt.wantAgentRole {
+				t.Fatalf("continuation role = %q, want %q", gotRole, tt.wantAgentRole)
+			}
+		})
+	}
+}
+
+func TestApplyRunPromptOverridesLockedModelDoesNotMarkModelSourceAsSubagent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	workspace := t.TempDir()
+	loaded, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	baseSettings := loaded.Settings
+	baseSettings.Model = "locked-model"
+	workerSettings := cloneSettings(baseSettings)
+	workerSettings.Model = "gpt-5.4-mini"
+	workerSettings.ThinkingLevel = "high"
+	baseSettings.Subagents = map[string]config.SubagentRole{
+		"worker": {
+			Settings: workerSettings,
+			Sources:  map[string]string{"model": "file", "thinking_level": "file"},
+		},
+	}
+	baseSource := loaded.Source
+	baseSource.Sources = cloneStringMap(loaded.Source.Sources)
+	baseSource.Sources["model"] = "file"
+	baseSource.Sources["thinking_level"] = "file"
+	store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "locked-model", EnabledTools: []string{"shell"}}); err != nil {
+		t.Fatalf("MarkModelDispatchLocked: %v", err)
+	}
+	plan := SessionPlan{
+		Store:               store,
+		ActiveSettings:      baseSettings,
+		BaseSettings:        baseSettings,
+		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
+		ConfiguredModelName: "gpt-5.5",
+		WorkspaceRoot:       workspace,
+		Source:              baseSource,
+		BaseSource:          baseSource,
+		ModelContractLocked: true,
+	}
+
+	updated, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: "worker"}, auth.EmptyState())
+	if err != nil {
+		t.Fatalf("ApplyRunPromptOverrides: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %+v", warnings)
+	}
+	if updated.ActiveSettings.Model != "locked-model" {
+		t.Fatalf("model = %q, want locked-model", updated.ActiveSettings.Model)
+	}
+	if updated.Source.Sources["model"] != "file" {
+		t.Fatalf("model source = %q, want original file source under lock", updated.Source.Sources["model"])
+	}
+	if updated.Source.Sources["thinking_level"] != "subagent" {
+		t.Fatalf("thinking source = %q, want subagent", updated.Source.Sources["thinking_level"])
+	}
+}
+
 func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
@@ -623,7 +1127,7 @@ func TestSubagentRoleMetadataSurvivesCloneAndSourceReport(t *testing.T) {
 		t.Fatalf("metadata did not survive clone: %+v", cloned.Subagents["worker"])
 	}
 
-	report := sourceReportWithSubagentRoleSources(config.SourceReport{Sources: map[string]string{"model": "file"}}, settings, "worker")
+	report := sourceReportWithSubagentRoleSources(config.SourceReport{Sources: map[string]string{"model": "file"}}, settings, "worker", true)
 	if report.Sources["model"] != "subagent" {
 		t.Fatalf("source report model source = %q, want subagent", report.Sources["model"])
 	}
@@ -1201,6 +1705,106 @@ func TestApplyRunPromptOverridesFastRoleUsesCLIProviderOverrideForHeuristic(t *t
 	}
 	if !updated.ActiveSettings.PriorityRequestMode {
 		t.Fatal("expected priority request mode enabled")
+	}
+}
+
+func TestPlannerResumeFastRoleUsesProviderOverrideForHeuristic(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	contents := strings.Join([]string{
+		"model = \"my-team-alias\"",
+		"provider_override = \"openai\"",
+	}, "\n")
+	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	loaded, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	store, err := session.Create(containerDir, "workspace-a", workspace)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: config.BuiltInSubagentRoleFast}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+	planner := Planner{
+		Config: config.App{
+			WorkspaceRoot:   workspace,
+			PersistenceRoot: root,
+			Settings:        loaded.Settings,
+			Source:          loaded.Source,
+		},
+		ContainerDir: containerDir,
+	}
+
+	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, SelectedSessionID: store.Meta().SessionID})
+	if err != nil {
+		t.Fatalf("PlanSession: %v", err)
+	}
+	if plan.ActiveSettings.Model != "gpt-5.4-mini" {
+		t.Fatalf("model = %q, want fast heuristic model", plan.ActiveSettings.Model)
+	}
+	if !plan.ActiveSettings.PriorityRequestMode {
+		t.Fatal("expected fast heuristic priority mode")
+	}
+}
+
+func TestPlannerResumeFastRoleUsesOpenAIBaseURLForHeuristic(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(home, ".builder", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	contents := strings.Join([]string{
+		"model = \"my-team-alias\"",
+		"openai_base_url = \"https://api.openai.com/v1\"",
+	}, "\n")
+	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	loaded, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	store, err := session.Create(containerDir, "workspace-a", workspace)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: config.BuiltInSubagentRoleFast}); err != nil {
+		t.Fatalf("SetContinuationContext: %v", err)
+	}
+	planner := Planner{
+		Config: config.App{
+			WorkspaceRoot:   workspace,
+			PersistenceRoot: root,
+			Settings:        loaded.Settings,
+			Source:          loaded.Source,
+		},
+		ContainerDir: containerDir,
+	}
+
+	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, SelectedSessionID: store.Meta().SessionID})
+	if err != nil {
+		t.Fatalf("PlanSession: %v", err)
+	}
+	if plan.ActiveSettings.Model != "gpt-5.4-mini" {
+		t.Fatalf("model = %q, want fast heuristic model", plan.ActiveSettings.Model)
+	}
+	if !plan.ActiveSettings.PriorityRequestMode {
+		t.Fatal("expected fast heuristic priority mode")
 	}
 }
 

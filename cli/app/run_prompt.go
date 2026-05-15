@@ -46,6 +46,7 @@ func runPrompt(ctx context.Context, client client.RunPromptClient, opts Options,
 func runPromptOverridesFromOptions(opts Options) serverapi.RunPromptOverrides {
 	return serverapi.RunPromptOverrides{
 		AgentRole:           strings.TrimSpace(opts.AgentRole),
+		AgentRoleSet:        opts.AgentRoleSet,
 		Model:               strings.TrimSpace(opts.Model),
 		ProviderOverride:    strings.TrimSpace(opts.ProviderOverride),
 		ThinkingLevel:       strings.TrimSpace(opts.ThinkingLevel),

@@ -17,12 +17,14 @@ const defaultResolveTimeout = 3 * time.Second
 var (
 	ErrClientUnavailable          = errors.New("worktree client is unavailable")
 	ErrControllerLeaseUnavailable = errors.New("controller lease is unavailable")
+	ErrReadOnlyRuntime            = errors.New("runtime is read-only")
 )
 
 type RuntimeControl struct {
 	Context        func() (context.Context, context.CancelFunc)
 	CurrentLeaseID func() string
 	RecoverLease   func(context.Context, error) error
+	ReadOnly       func() bool
 }
 
 type Service struct {
@@ -34,6 +36,10 @@ type Service struct {
 }
 
 func (s Service) List(includeDirtyCount bool) (serverapi.WorktreeListResponse, error) {
+	if s.Runtime.ReadOnly != nil && s.Runtime.ReadOnly() {
+		// Server-side listing syncs workspace metadata under the controller lease.
+		return serverapi.WorktreeListResponse{}, ErrReadOnlyRuntime
+	}
 	ctx, cancel, leaseID, err := s.controlContextWithLease()
 	if err != nil {
 		return serverapi.WorktreeListResponse{}, err
@@ -100,6 +106,9 @@ func (s Service) Delete(worktreeID string, deleteBranch bool) (serverapi.Worktre
 
 func runMutation[T any](s Service, call func(context.Context, string) (T, error)) (T, error) {
 	var zero T
+	if s.Runtime.ReadOnly != nil && s.Runtime.ReadOnly() {
+		return zero, ErrReadOnlyRuntime
+	}
 	ctx, cancel, _, err := s.controlContextWithLease()
 	if err != nil {
 		return zero, err

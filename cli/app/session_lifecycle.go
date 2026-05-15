@@ -143,7 +143,12 @@ func runSessionLifecycle(ctx context.Context, server interactiveSessionServer, i
 			runtimePlan.Close()
 			return nil
 		}
-		resolved, err := resolveSessionAction(ctx, server, interactor, plan.SessionID, runtimePlan.CurrentControllerLeaseID(), transition)
+		var resolved resolvedSessionAction
+		if runtimePlan.ReadOnly {
+			resolved, err = resolveReadOnlySessionAction(ctx, server, interactor, plan.SessionID, transition)
+		} else {
+			resolved, err = resolveSessionAction(ctx, server, interactor, plan.SessionID, runtimePlan.CurrentControllerLeaseID(), transition)
+		}
 		runtimePlan.Close()
 		if err != nil {
 			return err
@@ -197,6 +202,9 @@ func persistSessionDraftToServer(ctx context.Context, server sessionDraftPersist
 	if strings.TrimSpace(sessionID) == "" {
 		return nil
 	}
+	if strings.TrimSpace(controllerLeaseID) == "" {
+		return nil
+	}
 	ui, ok := model.(*uiModel)
 	if !ok || ui == nil {
 		return nil
@@ -215,6 +223,38 @@ type resolvedSessionAction struct {
 	ParentSessionID string
 	ForceNewSession bool
 	ShouldContinue  bool
+}
+
+func resolveReadOnlySessionAction(ctx context.Context, server sessionTransitionServer, interactor authInteractor, sessionID string, transition UITransition) (resolvedSessionAction, error) {
+	switch transition.Action {
+	case UIActionNewSession:
+		return resolvedSessionAction{
+			InitialPrompt:   transition.InitialPrompt,
+			ParentSessionID: transition.ParentSessionID,
+			ForceNewSession: true,
+			ShouldContinue:  true,
+		}, nil
+	case UIActionResume:
+		return resolvedSessionAction{ShouldContinue: true}, nil
+	case UIActionOpenSession:
+		return resolvedSessionAction{
+			NextSessionID:  transition.TargetSessionID,
+			InitialInput:   transition.InitialInput,
+			ShouldContinue: true,
+		}, nil
+	case UIActionLogout:
+		if server == nil {
+			return resolvedSessionAction{}, errors.New("session lifecycle client is required")
+		}
+		if err := server.Reauthenticate(ctx, interactor); err != nil {
+			return resolvedSessionAction{}, err
+		}
+		return resolvedSessionAction{NextSessionID: strings.TrimSpace(sessionID), ShouldContinue: true}, nil
+	case UIActionExit, "":
+		return resolvedSessionAction{}, nil
+	default:
+		return resolvedSessionAction{}, errReadOnlyRuntime
+	}
 }
 
 func resolveSessionAction(ctx context.Context, server sessionTransitionServer, interactor authInteractor, sessionID string, controllerLeaseID string, transition UITransition) (resolvedSessionAction, error) {

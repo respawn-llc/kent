@@ -175,6 +175,32 @@ func TestMissingRuntimeControlReturnsLeaseUnavailable(t *testing.T) {
 	}
 }
 
+func TestReadOnlyRuntimeControlRejectsMutationsBeforeRPC(t *testing.T) {
+	client := &testWorktreeClient{}
+	service := newTestService(client)
+	service.Runtime.ReadOnly = func() bool { return true }
+
+	if _, err := service.Switch("wt-1"); !errors.Is(err, ErrReadOnlyRuntime) {
+		t.Fatalf("Switch error = %v, want ErrReadOnlyRuntime", err)
+	}
+	if len(client.switchRequests) != 0 {
+		t.Fatalf("switch requests = %d, want none", len(client.switchRequests))
+	}
+}
+
+func TestReadOnlyRuntimeControlRejectsListBeforeRPC(t *testing.T) {
+	client := &testWorktreeClient{}
+	service := newTestService(client)
+	service.Runtime.ReadOnly = func() bool { return true }
+
+	if _, err := service.List(false); !errors.Is(err, ErrReadOnlyRuntime) {
+		t.Fatalf("List error = %v, want ErrReadOnlyRuntime", err)
+	}
+	if len(client.listRequests) != 0 {
+		t.Fatalf("list requests = %d, want none", len(client.listRequests))
+	}
+}
+
 func newTestService(client *testWorktreeClient) Service {
 	return Service{
 		Client:    client,

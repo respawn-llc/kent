@@ -2,9 +2,11 @@ package sessionlaunch
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"builder/server/auth"
 	"builder/server/launch"
 	"builder/server/registry"
 	"builder/server/session"
@@ -12,6 +14,12 @@ import (
 	"builder/shared/serverapi"
 	"builder/shared/toolspec"
 )
+
+type failingAuthStateReader struct{}
+
+func (failingAuthStateReader) CurrentState(context.Context) (auth.State, error) {
+	return auth.State{}, errors.New("auth unavailable")
+}
 
 func TestServicePlanSessionRegistersStoreAndReturnsPlan(t *testing.T) {
 	persistenceRoot := t.TempDir()
@@ -203,5 +211,27 @@ func TestServicePlanSessionPropagatesOverrideToolConflict(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "tools.patch and tools.edit cannot both be enabled") {
 		t.Fatalf("error = %v, want tool conflict", err)
+	}
+}
+
+func TestServicePlanSessionDefaultRoleClearDoesNotRequireAuthState(t *testing.T) {
+	workspace := t.TempDir()
+	containerDir := t.TempDir()
+	service := NewService(launch.Planner{
+		Config: config.App{
+			WorkspaceRoot:   workspace,
+			PersistenceRoot: t.TempDir(),
+			Settings:        config.Settings{Model: "gpt-5.5"},
+		},
+		ContainerDir: containerDir,
+	}, registry.NewSessionStoreRegistry()).WithAuthStateReader(failingAuthStateReader{})
+
+	if _, err := service.PlanSession(context.Background(), serverapi.SessionPlanRequest{
+		ClientRequestID: "req-1",
+		Mode:            serverapi.SessionLaunchModeInteractive,
+		ForceNewSession: true,
+		Overrides:       serverapi.RunPromptOverrides{AgentRoleSet: true},
+	}); err != nil {
+		t.Fatalf("PlanSession with default role clear should not read auth state: %v", err)
 	}
 }

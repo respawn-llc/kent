@@ -62,8 +62,8 @@ func TestSubagentsMetaMessageRendersCallableNonNoopRoles(t *testing.T) {
 	content := result.Subagents[0].Content
 	for _, want := range []string{
 		"Available subagent roles:",
-		"- default: not specifying any role will invoke an exact clone of you, the general-purpose agent",
-		"- research: Repo research specialist.",
+		"- `default`: not specifying any role will invoke the default general-purpose agent",
+		"- `research`: Repo research specialist.",
 		"Invoke with `",
 		"--agent=<role> \"<prompt>\"`.",
 	} {
@@ -108,7 +108,7 @@ func TestSubagentsMetaMessageUsesFallbackAndRequiresCallerShell(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if len(result.Subagents) != 1 || !strings.Contains(result.Subagents[0].Content, "- worker: gpt-5.4-mini, thinking high, fast mode on, can edit, can call shell") {
+	if len(result.Subagents) != 1 || !strings.Contains(result.Subagents[0].Content, "- `worker`: gpt-5.4-mini, thinking high, fast mode on, can edit, can call shell") {
 		t.Fatalf("unexpected fallback content: %+v", result.Subagents)
 	}
 
@@ -154,7 +154,7 @@ func TestSubagentsMetaMessageCurrentNonCallableRoleDoesNotDisableOtherRoles(t *t
 		t.Fatalf("subagent messages = %d, want 1", len(result.Subagents))
 	}
 	content := result.Subagents[0].Content
-	if !strings.Contains(content, "- worker: Callable helper.") {
+	if !strings.Contains(content, "- `worker`: Callable helper.") {
 		t.Fatalf("expected callable helper in context:\n%s", content)
 	}
 	if strings.Contains(content, "current") {
@@ -197,7 +197,7 @@ func TestCompactionReinjectsSubagentsMetaContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compactionReinjectedBaseMessages: %v", err)
 	}
-	if !hasSubagentCatalog(messages, "- worker: Callable helper.") {
+	if !hasSubagentCatalog(messages, "- `worker`: Callable helper.") {
 		t.Fatalf("expected compaction-reinjected subagent catalog, got %+v", messages)
 	}
 }
@@ -245,7 +245,7 @@ func TestManualCompactionPersistsSubagentCatalogInCanonicalTranscript(t *testing
 	if err := eng.CompactContext(context.Background(), ""); err != nil {
 		t.Fatalf("compact: %v", err)
 	}
-	if !hasSubagentCatalog(eng.snapshotMessages(), "- worker: Callable helper.") {
+	if !hasSubagentCatalog(eng.snapshotMessages(), "- `worker`: Callable helper.") {
 		t.Fatalf("expected in-memory canonical transcript to keep subagent catalog, got %+v", eng.snapshotMessages())
 	}
 
@@ -257,7 +257,7 @@ func TestManualCompactionPersistsSubagentCatalogInCanonicalTranscript(t *testing
 	if err != nil {
 		t.Fatalf("restore engine: %v", err)
 	}
-	if !hasSubagentCatalog(restored.snapshotMessages(), "- worker: Callable helper.") {
+	if !hasSubagentCatalog(restored.snapshotMessages(), "- `worker`: Callable helper.") {
 		t.Fatalf("expected persisted canonical transcript to keep subagent catalog, got %+v", restored.snapshotMessages())
 	}
 }

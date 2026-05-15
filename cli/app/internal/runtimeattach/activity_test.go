@@ -116,3 +116,38 @@ func TestSubscribeActivitiesClosesSessionSubscriptionAndReleasesLeaseOnPromptFai
 		t.Fatalf("release requests = %d, want 1", len(runtime.releaseRequests))
 	}
 }
+
+func TestSubscribeActivitiesDoesNotReleaseReadOnlyAttachOnFailure(t *testing.T) {
+	runtime := &fakeRuntimeService{}
+	_, err := SubscribeActivities(context.Background(), ActivityRequest{
+		SessionID:       "session-1",
+		Runtime:         runtime,
+		ReadOnly:        true,
+		SessionActivity: &fakeSessionActivityService{err: errors.New("session subscribe failed")},
+		PromptActivity:  &fakePromptActivityService{sub: fakePromptActivitySubscription{}},
+	})
+	if err == nil {
+		t.Fatal("expected subscribe failure")
+	}
+	if len(runtime.releaseRequests) != 0 {
+		t.Fatalf("release requests = %d, want none for read-only attach", len(runtime.releaseRequests))
+	}
+}
+
+func TestSubscribeActivitiesReadOnlyDoesNotRequirePromptActivity(t *testing.T) {
+	sessionSub := &fakeSessionActivitySubscription{}
+	activities, err := SubscribeActivities(context.Background(), ActivityRequest{
+		SessionID:       "session-1",
+		ReadOnly:        true,
+		SessionActivity: &fakeSessionActivityService{sub: sessionSub},
+	})
+	if err != nil {
+		t.Fatalf("SubscribeActivities: %v", err)
+	}
+	if activities.Session != sessionSub {
+		t.Fatal("expected session subscription")
+	}
+	if activities.Prompt != nil {
+		t.Fatal("expected no prompt subscription for read-only attach")
+	}
+}
