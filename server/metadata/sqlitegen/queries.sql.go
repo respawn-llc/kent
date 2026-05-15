@@ -8,6 +8,7 @@ package sqlitegen
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 const allocateProjectTaskSequence = `-- name: AllocateProjectTaskSequence :one
@@ -90,7 +91,7 @@ SET
     updated_at_unix_ms = ?1,
     started_at_unix_ms = ?2,
     run_generation = run_generation + 1
-WHERE id = ?3
+WHERE task_runs.id = ?3
   AND run_generation = ?4
   AND automation_requested_at_unix_ms > 0
   AND started_at_unix_ms = 0
@@ -2503,6 +2504,65 @@ ORDER BY created_at_unix_ms ASC, rowid ASC
 
 func (q *Queries) ListTaskNodePlacements(ctx context.Context, taskID string) ([]TaskNodePlacement, error) {
 	rows, err := q.db.QueryContext(ctx, listTaskNodePlacements, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TaskNodePlacement
+	for rows.Next() {
+		var i TaskNodePlacement
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.NodeID,
+			&i.State,
+			&i.CreatedByTransitionID,
+			&i.ParallelBatchTransitionID,
+			&i.ParallelBranchEdgeID,
+			&i.CreatedAtUnixMs,
+			&i.UpdatedAtUnixMs,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTaskNodePlacementsByTasks = `-- name: ListTaskNodePlacementsByTasks :many
+SELECT
+    id,
+    task_id,
+    node_id,
+    state,
+    created_by_transition_id,
+    parallel_batch_transition_id,
+    parallel_branch_edge_id,
+    created_at_unix_ms,
+    updated_at_unix_ms
+FROM task_node_placements
+WHERE task_id IN (/*SLICE:task_ids*/?)
+ORDER BY task_id ASC, created_at_unix_ms ASC, rowid ASC
+`
+
+func (q *Queries) ListTaskNodePlacementsByTasks(ctx context.Context, taskIds []string) ([]TaskNodePlacement, error) {
+	query := listTaskNodePlacementsByTasks
+	var queryParams []interface{}
+	if len(taskIds) > 0 {
+		for _, v := range taskIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:task_ids*/?", strings.Repeat(",?", len(taskIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:task_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}

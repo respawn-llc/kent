@@ -231,7 +231,11 @@ func (s *Store) CreateWorkflow(ctx context.Context, req CreateWorkflowRequest) (
 }
 
 func (s *Store) UpdateWorkflowInfo(ctx context.Context, workflowID workflow.WorkflowID, name string, description string) error {
-	updated, err := s.queries.UpdateWorkflowInfo(ctx, sqlitegen.UpdateWorkflowInfoParams{ID: string(workflowID), Name: strings.TrimSpace(name), Description: strings.TrimSpace(description), UpdatedAtUnixMs: s.now().UnixMilli()})
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("workflow name is required")
+	}
+	updated, err := s.queries.UpdateWorkflowInfo(ctx, sqlitegen.UpdateWorkflowInfoParams{ID: string(workflowID), Name: name, Description: strings.TrimSpace(description), UpdatedAtUnixMs: s.now().UnixMilli()})
 	if err != nil {
 		return fmt.Errorf("update workflow info: %w", err)
 	}

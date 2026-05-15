@@ -50,6 +50,10 @@ func (s *Service) GetBoard(ctx context.Context, projectID string) (serverapi.Wor
 	if err != nil {
 		return serverapi.WorkflowBoard{}, err
 	}
+	placementsByTaskID, err := s.boardPlacementsByTask(ctx, tasks)
+	if err != nil {
+		return serverapi.WorkflowBoard{}, err
+	}
 	workflowIDs := make([]string, 0, len(links)+len(tasks))
 	seen := map[string]bool{}
 	for _, link := range links {
@@ -82,10 +86,7 @@ func (s *Service) GetBoard(ctx context.Context, projectID string) (serverapi.Wor
 			if task.WorkflowID != workflowID {
 				continue
 			}
-			placements, err := s.queries.ListTaskNodePlacements(ctx, task.ID)
-			if err != nil {
-				return serverapi.WorkflowBoard{}, err
-			}
+			placements := placementsByTaskID[task.ID]
 			summary := taskSummary(task, placements, nodeKinds)
 			wfBoard.Tasks = append(wfBoard.Tasks, summary)
 			for _, placement := range placements {
@@ -104,6 +105,25 @@ func (s *Service) GetBoard(ctx context.Context, projectID string) (serverapi.Wor
 		board.Workflows = append(board.Workflows, wfBoard)
 	}
 	return board, nil
+}
+
+func (s *Service) boardPlacementsByTask(ctx context.Context, tasks []sqlitegen.Task) (map[string][]sqlitegen.TaskNodePlacement, error) {
+	if len(tasks) == 0 {
+		return map[string][]sqlitegen.TaskNodePlacement{}, nil
+	}
+	taskIDs := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		taskIDs = append(taskIDs, task.ID)
+	}
+	placements, err := s.queries.ListTaskNodePlacementsByTasks(ctx, taskIDs)
+	if err != nil {
+		return nil, err
+	}
+	byTaskID := make(map[string][]sqlitegen.TaskNodePlacement, len(tasks))
+	for _, placement := range placements {
+		byTaskID[placement.TaskID] = append(byTaskID[placement.TaskID], placement)
+	}
+	return byTaskID, nil
 }
 
 func (s *Service) GetTask(ctx context.Context, taskID string) (serverapi.WorkflowTaskDetail, error) {

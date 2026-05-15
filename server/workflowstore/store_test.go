@@ -43,6 +43,9 @@ func TestWorkflowCreateUpdateReadAndGraphPersistence(t *testing.T) {
 	if renamed.Name != "Renamed" || renamed.GraphRevision != 1 {
 		t.Fatalf("workflow info update = %+v, want name changed without graph revision bump", renamed)
 	}
+	if err := store.UpdateWorkflowInfo(ctx, created.ID, "   ", "new desc"); err == nil || !strings.Contains(err.Error(), "workflow name is required") {
+		t.Fatalf("UpdateWorkflowInfo blank name error = %v", err)
+	}
 
 	start := nodeByKind(t, def, workflow.NodeKindStart)
 	done := nodeByKind(t, def, workflow.NodeKindTerminal)

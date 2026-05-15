@@ -584,6 +584,21 @@ FROM task_node_placements
 WHERE task_id = sqlc.arg(task_id)
 ORDER BY created_at_unix_ms ASC, rowid ASC;
 
+-- name: ListTaskNodePlacementsByTasks :many
+SELECT
+    id,
+    task_id,
+    node_id,
+    state,
+    created_by_transition_id,
+    parallel_batch_transition_id,
+    parallel_branch_edge_id,
+    created_at_unix_ms,
+    updated_at_unix_ms
+FROM task_node_placements
+WHERE task_id IN (sqlc.slice('task_ids'))
+ORDER BY task_id ASC, created_at_unix_ms ASC, rowid ASC;
+
 -- name: GetActiveStartPlacementForTask :one
 SELECT
     p.id,
@@ -755,7 +770,7 @@ SET
     updated_at_unix_ms = sqlc.arg(updated_at_unix_ms),
     started_at_unix_ms = sqlc.arg(started_at_unix_ms),
     run_generation = run_generation + 1
-WHERE id = sqlc.arg(id)
+WHERE task_runs.id = sqlc.arg(id)
   AND run_generation = sqlc.arg(expected_generation)
   AND automation_requested_at_unix_ms > 0
   AND started_at_unix_ms = 0
