@@ -808,7 +808,7 @@ Slice 9 note: workflow runs now store only the active `waiting_ask_id` pointer w
 - [x] Run ask/workflow tests.
 - [x] Run `./scripts/test.sh ./server/tools/askquestion/... ./server/runtime/... ./server/workflow/...`.
 - [x] Run `./scripts/build.sh --output ./bin/builder`.
-- [ ] Commit slice with message matching implemented path.
+- [x] Commit slice with message matching implemented path.
 
 ## Slice 10: Context-Preservation Modes
 
