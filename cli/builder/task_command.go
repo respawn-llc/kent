@@ -601,7 +601,7 @@ func writeTaskDetail(stdout io.Writer, task serverapi.WorkflowTaskDetail) {
 	fmt.Fprintf(stdout, "task_id\t%s\nshort_id\t%s\nworkflow_id\t%s\ntitle\t%s\ndone\t%t\ncanceled\t%t\n", task.Summary.ID, task.Summary.ShortID, task.Summary.WorkflowID, task.Summary.Title, task.Summary.Done, task.Summary.CanceledAt != 0)
 	fmt.Fprintln(stdout, "placements")
 	for _, placement := range task.Placements {
-		fmt.Fprintf(stdout, "%s\t%s\t%s\n", placement.ID, placement.NodeID, placement.State)
+		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\n", placement.ID, placement.NodeID, placement.State, placement.ParallelBatchTransitionID, placement.ParallelBranchEdgeID)
 	}
 	fmt.Fprintln(stdout, "runs")
 	for _, run := range task.Runs {

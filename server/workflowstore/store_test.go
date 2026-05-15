@@ -785,6 +785,34 @@ ORDER BY parallel_branch_edge_id ASC`, string(result.PlacementIDs[0]), string(re
 	}
 }
 
+func TestSerialCompletionDoesNotCreateParallelBranchPlacement(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createValidWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	if len(completed.PlacementIDs) != 1 {
+		t.Fatalf("completion result = %+v, want one target placement", completed)
+	}
+	batchID, branchID := placementParallelIDs(t, ctx, store, completed.PlacementIDs[0])
+	if batchID != "" || branchID != "" {
+		t.Fatalf("serial placement parallel ids batch=%q branch=%q, want empty", batchID, branchID)
+	}
+}
+
 func TestJoinWaitsForAllBranchesAndAggregatesDeterministically(t *testing.T) {
 	ctx := context.Background()
 	store, binding := newTestStore(t)
@@ -856,6 +884,115 @@ func TestJoinWaitsForAllBranchesAndAggregatesDeterministically(t *testing.T) {
 	if split.TransitionID == "" {
 		t.Fatalf("split transition id missing")
 	}
+}
+
+func TestDuplicateBranchArrivalIsRejectedAndDoesNotDuplicateJoin(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createFanoutJoinWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "split", OutputValues: map[string]string{"summary": "plan"}}); err != nil {
+		t.Fatalf("CompleteRun split: %v", err)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	implA := nodeByKey(t, def, "impl_a")
+	implB := nodeByKey(t, def, "impl_b")
+	branchRunsByNode := map[workflow.NodeID]workflow.RunID{}
+	for _, run := range runs {
+		if run.ID != started.RunID {
+			branchRunsByNode[run.NodeID] = run.ID
+		}
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: branchRunsByNode[implA.ID], TransitionID: "join", OutputValues: map[string]string{"summary": "branch a"}}); err != nil {
+		t.Fatalf("CompleteRun branch a: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: branchRunsByNode[implA.ID], TransitionID: "join", OutputValues: map[string]string{"summary": "branch a again"}}); err == nil || !strings.Contains(err.Error(), "run already completed") {
+		t.Fatalf("duplicate branch completion error = %v, want run already completed", err)
+	}
+	joined, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: branchRunsByNode[implB.ID], TransitionID: "join", OutputValues: map[string]string{"summary": "branch b"}})
+	if err != nil {
+		t.Fatalf("CompleteRun branch b: %v", err)
+	}
+	if len(joined.PlacementIDs) != 1 || len(joined.RunIDs) != 1 {
+		t.Fatalf("join result = %+v, want one downstream placement/run", joined)
+	}
+	transitions, err := store.ListTransitions(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTransitions: %v", err)
+	}
+	joinTransitions := 0
+	for _, transition := range transitions {
+		if transition.TransitionID == "done" && transition.State == "applied" {
+			joinTransitions++
+		}
+	}
+	if joinTransitions != 1 {
+		t.Fatalf("join transition count = %d, transitions=%+v", joinTransitions, transitions)
+	}
+}
+
+func TestUnrelatedFanoutBatchDoesNotSatisfyWaitingJoin(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createFanoutJoinWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	waitingTask, waitingRuns := startFanoutTask(t, ctx, store, binding.ProjectID, workflowID)
+	otherTask, otherRuns := startFanoutTask(t, ctx, store, binding.ProjectID, workflowID)
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	implA := nodeByKey(t, def, "impl_a")
+	implB := nodeByKey(t, def, "impl_b")
+	waitingFirst, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: waitingRuns[implA.ID], TransitionID: "join", OutputValues: map[string]string{"summary": "waiting a"}})
+	if err != nil {
+		t.Fatalf("CompleteRun waiting branch: %v", err)
+	}
+	if len(waitingFirst.PlacementIDs) != 0 || len(waitingFirst.RunIDs) != 0 {
+		t.Fatalf("waiting branch result = %+v, want no join yet", waitingFirst)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: otherRuns[implA.ID], TransitionID: "join", OutputValues: map[string]string{"summary": "other a"}}); err != nil {
+		t.Fatalf("CompleteRun other branch a: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: otherRuns[implB.ID], TransitionID: "join", OutputValues: map[string]string{"summary": "other b"}}); err != nil {
+		t.Fatalf("CompleteRun other branch b: %v", err)
+	}
+	transitions, err := store.ListTransitions(ctx, waitingTask.ID)
+	if err != nil {
+		t.Fatalf("ListTransitions waiting task: %v", err)
+	}
+	for _, transition := range transitions {
+		if transition.TransitionID == "done" {
+			t.Fatalf("waiting task transitions = %+v, unrelated batch satisfied join", transitions)
+		}
+	}
+	joined, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: waitingRuns[implB.ID], TransitionID: "join", OutputValues: map[string]string{"summary": "waiting b"}})
+	if err != nil {
+		t.Fatalf("CompleteRun waiting final branch: %v", err)
+	}
+	if len(joined.PlacementIDs) != 1 || len(joined.RunIDs) != 1 {
+		t.Fatalf("waiting final join = %+v, want downstream run after own missing branch", joined)
+	}
+	_ = otherTask
 }
 
 func TestApprovalUsesStoredEdgeSnapshotAfterGraphEdit(t *testing.T) {
@@ -1034,6 +1171,27 @@ func TestManualMoveExecutableTargetRequiresApprovalBeforeAutomation(t *testing.T
 	}
 	if moved.State != "pending_approval" || len(moved.PlacementIDs) != 0 || len(moved.RunIDs) != 0 {
 		t.Fatalf("manual executable move = %+v, want pending approval without automation", moved)
+	}
+}
+
+func TestManualMoveRejectsActiveParallelBatch(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createFanoutJoinWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, branchRuns := startFanoutTask(t, ctx, store, binding.ProjectID, workflowID)
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	join := nodeByKey(t, def, "join")
+	if _, err := store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: join.ID, OutputValues: map[string]string{"summary": "manual"}}); err == nil || !strings.Contains(err.Error(), "manual move during active parallel batch") {
+		t.Fatalf("ManualMoveTask active parallel error = %v, want active parallel rejection", err)
+	}
+	if len(branchRuns) != 2 {
+		t.Fatalf("branch runs = %+v, want two active branches", branchRuns)
 	}
 }
 
@@ -1921,6 +2079,48 @@ func createFanoutJoinWorkflow(t *testing.T, ctx context.Context, store *Store) w
 		}
 	}
 	return workflowID
+}
+
+func startFanoutTask(t *testing.T, ctx context.Context, store *Store, projectID string, workflowID workflow.WorkflowID) (TaskRecord, map[workflow.NodeID]workflow.RunID) {
+	t.Helper()
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: projectID, WorkflowID: workflowID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "split", OutputValues: map[string]string{"summary": "plan"}}); err != nil {
+		t.Fatalf("CompleteRun split: %v", err)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	branchRunsByNode := map[workflow.NodeID]workflow.RunID{}
+	for _, run := range runs {
+		if run.ID != started.RunID {
+			branchRunsByNode[run.NodeID] = run.ID
+		}
+	}
+	if len(branchRunsByNode) != 2 {
+		t.Fatalf("branch runs = %+v, want two branch runs", branchRunsByNode)
+	}
+	return task, branchRunsByNode
+}
+
+func placementParallelIDs(t *testing.T, ctx context.Context, store *Store, placementID workflow.PlacementID) (string, string) {
+	t.Helper()
+	var batchID sql.NullString
+	var branchID sql.NullString
+	if err := store.db.QueryRowContext(ctx, `
+SELECT parallel_batch_transition_id, parallel_branch_edge_id
+FROM task_node_placements
+WHERE id = ?`, string(placementID)).Scan(&batchID, &branchID); err != nil {
+		t.Fatalf("query placement parallel ids: %v", err)
+	}
+	return strings.TrimSpace(batchID.String), strings.TrimSpace(branchID.String)
 }
 
 func currentWorkflowRevision(t *testing.T, ctx context.Context, store *Store, workflowID workflow.WorkflowID) int64 {

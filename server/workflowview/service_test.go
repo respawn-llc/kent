@@ -80,6 +80,64 @@ func TestBoardAndTaskDetailUseDurableWorkflowMetadataOnly(t *testing.T) {
 	}
 }
 
+func TestBoardAndTaskDetailProjectParallelBranchPlacements(t *testing.T) {
+	ctx := context.Background()
+	store, workflowStore, binding := newWorkflowViewTestStore(t)
+	view, err := New(store)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	workflowID := createWorkflowViewFanoutWorkflow(t, ctx, workflowStore)
+	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := workflowStore.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	split, err := workflowStore.CompleteRun(ctx, workflowstore.CompleteRunRequest{RunID: started.RunID, TransitionID: "split", OutputValues: map[string]string{"summary": "plan"}})
+	if err != nil {
+		t.Fatalf("CompleteRun split: %v", err)
+	}
+
+	board, err := view.GetBoard(ctx, binding.ProjectID)
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	if len(board.Workflows) != 1 || len(board.Workflows[0].Tasks) != 1 || len(board.Workflows[0].Tasks[0].ActiveNodeIDs) != 2 {
+		t.Fatalf("board task summary = %+v, want two active branch nodes", board)
+	}
+	activeBranchPlacements := 0
+	for _, node := range board.Workflows[0].Nodes {
+		for _, placement := range node.ActivePlacements {
+			if placement.ParallelBatchTransitionID == string(split.TransitionID) && placement.ParallelBranchEdgeID != "" {
+				activeBranchPlacements++
+			}
+		}
+	}
+	if activeBranchPlacements != 2 {
+		t.Fatalf("board active placements = %+v, want two branch placements with batch/branch ids", board.Workflows[0].Nodes)
+	}
+
+	detail, err := view.GetTask(ctx, string(task.ID))
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	detailBranchPlacements := 0
+	for _, placement := range detail.Placements {
+		if placement.ParallelBatchTransitionID == string(split.TransitionID) && placement.ParallelBranchEdgeID != "" {
+			detailBranchPlacements++
+		}
+	}
+	if detailBranchPlacements != 2 {
+		t.Fatalf("detail placements = %+v, want two branch placements with batch/branch ids", detail.Placements)
+	}
+}
+
 func TestTaskDetailProjectsCancellationAndInterruptedRun(t *testing.T) {
 	ctx := context.Background()
 	store, workflowStore, binding := newWorkflowViewTestStore(t)
@@ -211,6 +269,68 @@ func createWorkflowViewValidWorkflow(t *testing.T, ctx context.Context, store *w
 	}
 	if _, err := store.AddEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID("edge-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(created.ID)), Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}}); err != nil {
 		t.Fatalf("AddEdge done: %v", err)
+	}
+	return created.ID
+}
+
+func createWorkflowViewFanoutWorkflow(t *testing.T, ctx context.Context, store *workflowstore.Store) workflow.WorkflowID {
+	t.Helper()
+	created, err := store.CreateWorkflow(ctx, workflowstore.CreateWorkflowRequest{Name: "Fanout Workflow"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	start := workflowViewNodeByKind(t, def, workflow.NodeKindStart)
+	done := workflowViewNodeByKind(t, def, workflow.NodeKindTerminal)
+	planID := workflow.NodeID("node-plan-" + string(created.ID))
+	implAID := workflow.NodeID("node-impl-a-" + string(created.ID))
+	implBID := workflow.NodeID("node-impl-b-" + string(created.ID))
+	joinID := workflow.NodeID("node-join-" + string(created.ID))
+	synthID := workflow.NodeID("node-synth-" + string(created.ID))
+	for _, node := range []workflowstore.NodeRecord{
+		{ID: planID, WorkflowID: created.ID, Key: "plan", Kind: workflow.NodeKindAgent, DisplayName: "Plan", SubagentRole: "coder", PromptTemplate: "Plan.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
+		{ID: implAID, WorkflowID: created.ID, Key: "impl_a", Kind: workflow.NodeKindAgent, DisplayName: "Implement A", SubagentRole: "coder", PromptTemplate: "A.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
+		{ID: implBID, WorkflowID: created.ID, Key: "impl_b", Kind: workflow.NodeKindAgent, DisplayName: "Implement B", SubagentRole: "coder", PromptTemplate: "B.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
+		{ID: joinID, WorkflowID: created.ID, Key: "join", Kind: workflow.NodeKindJoin, DisplayName: "Join"},
+		{ID: synthID, WorkflowID: created.ID, Key: "synth", Kind: workflow.NodeKindAgent, DisplayName: "Synthesize", SubagentRole: "coder", PromptTemplate: "Synthesize.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
+	} {
+		if _, err := store.AddNode(ctx, node); err != nil {
+			t.Fatalf("AddNode %s: %v", node.Key, err)
+		}
+	}
+	startGroup := workflow.TransitionGroupID("group-start-" + string(created.ID))
+	splitGroup := workflow.TransitionGroupID("group-split-" + string(created.ID))
+	joinAGroup := workflow.TransitionGroupID("group-join-a-" + string(created.ID))
+	joinBGroup := workflow.TransitionGroupID("group-join-b-" + string(created.ID))
+	synthGroup := workflow.TransitionGroupID("group-join-synth-" + string(created.ID))
+	doneGroup := workflow.TransitionGroupID("group-synth-done-" + string(created.ID))
+	for _, group := range []workflowstore.TransitionGroupRecord{
+		{ID: startGroup, WorkflowID: created.ID, SourceNodeID: start.ID, TransitionID: "start", DisplayName: "Start"},
+		{ID: splitGroup, WorkflowID: created.ID, SourceNodeID: planID, TransitionID: "split", DisplayName: "Split"},
+		{ID: joinAGroup, WorkflowID: created.ID, SourceNodeID: implAID, TransitionID: "join", DisplayName: "Join"},
+		{ID: joinBGroup, WorkflowID: created.ID, SourceNodeID: implBID, TransitionID: "join", DisplayName: "Join"},
+		{ID: synthGroup, WorkflowID: created.ID, SourceNodeID: joinID, TransitionID: "done", DisplayName: "Done"},
+		{ID: doneGroup, WorkflowID: created.ID, SourceNodeID: synthID, TransitionID: "done", DisplayName: "Done"},
+	} {
+		if _, err := store.AddTransitionGroup(ctx, group); err != nil {
+			t.Fatalf("AddTransitionGroup %s: %v", group.TransitionID, err)
+		}
+	}
+	for _, edge := range []workflowstore.EdgeRecord{
+		{ID: workflow.EdgeID("edge-start-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: startGroup, Key: "start", TargetNodeID: planID, ContextMode: workflow.ContextModeNewSession},
+		{ID: workflow.EdgeID("edge-split-a-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: splitGroup, Key: "split_a", TargetNodeID: implAID, ContextMode: workflow.ContextModeNewSession},
+		{ID: workflow.EdgeID("edge-split-b-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: splitGroup, Key: "split_b", TargetNodeID: implBID, ContextMode: workflow.ContextModeNewSession},
+		{ID: workflow.EdgeID("edge-join-a-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: joinAGroup, Key: "join_a", TargetNodeID: joinID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+		{ID: workflow.EdgeID("edge-join-b-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: joinBGroup, Key: "join_b", TargetNodeID: joinID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+		{ID: workflow.EdgeID("edge-join-synth-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: synthGroup, Key: "synth", TargetNodeID: synthID, ContextMode: workflow.ContextModeNewSession},
+		{ID: workflow.EdgeID("edge-synth-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: doneGroup, Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+	} {
+		if _, err := store.AddEdge(ctx, edge); err != nil {
+			t.Fatalf("AddEdge %s: %v", edge.Key, err)
+		}
 	}
 	return created.ID
 }

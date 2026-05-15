@@ -405,7 +405,8 @@ WHERE id = ?
 			continue
 		}
 		targetPlacementID := prefixedID("placement")
-		if err := q.InsertTaskNodePlacement(ctx, sqlitegen.InsertTaskNodePlacementParams{ID: targetPlacementID, TaskID: run.TaskID, NodeID: string(edge.TargetNode.ID), State: "active", CreatedByTransitionID: sql.NullString{String: transitionID, Valid: true}, ParallelBatchTransitionID: sql.NullString{String: transitionID, Valid: len(group.Edges) > 1}, ParallelBranchEdgeID: sql.NullString{String: string(edge.ID), Valid: true}, CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
+		isFanoutBranch := len(group.Edges) > 1
+		if err := q.InsertTaskNodePlacement(ctx, sqlitegen.InsertTaskNodePlacementParams{ID: targetPlacementID, TaskID: run.TaskID, NodeID: string(edge.TargetNode.ID), State: "active", CreatedByTransitionID: sql.NullString{String: transitionID, Valid: true}, ParallelBatchTransitionID: sql.NullString{String: transitionID, Valid: isFanoutBranch}, ParallelBranchEdgeID: sql.NullString{String: string(edge.ID), Valid: isFanoutBranch}, CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
 			return CompleteRunResult{}, fmt.Errorf("insert target placement: %w", err)
 		}
 		result.PlacementIDs = append(result.PlacementIDs, workflow.PlacementID(targetPlacementID))

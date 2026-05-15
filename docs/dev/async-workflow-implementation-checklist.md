@@ -885,41 +885,41 @@ Goal: transition groups can create parallel branch placements and join nodes can
 
 ### 12.1 Red Tests
 
-- [ ] Add test multi-edge transition group creates one placement per edge.
-- [ ] Add test parallel branch placements share `parallel_batch_transition_id`.
-- [ ] Add test each branch carries `parallel_branch_edge_id`.
-- [ ] Add test task can have multiple active placements only for explicit fan-out.
-- [ ] Add test branches complete in any order.
-- [ ] Add test static derivation finds one unambiguous nearest common join.
-- [ ] Add test ambiguous nearest common join topology rejected.
-- [ ] Add test nested fan-out before join rejected.
-- [ ] Add test cycle before join rejected.
-- [ ] Add test terminal before join rejected.
-- [ ] Add test join waits until all expected branch identities arrive.
-- [ ] Add test duplicate branch arrival is idempotently ignored or rejected.
-- [ ] Add test missing branch keeps join waiting.
-- [ ] Add test deterministic aggregate ordering by branch identity/source node.
-- [ ] Add test joined aggregate binds into next node input.
-- [ ] Add test terminal branch does not accidentally satisfy unrelated join.
+- [x] Add test multi-edge transition group creates one placement per edge.
+- [x] Add test parallel branch placements share `parallel_batch_transition_id`.
+- [x] Add test each branch carries `parallel_branch_edge_id`.
+- [x] Add test task can have multiple active placements only for explicit fan-out.
+- [x] Add test branches complete in any order.
+- [x] Add test static derivation finds one unambiguous nearest common join.
+- [x] Add test ambiguous nearest common join topology rejected.
+- [x] Add test nested fan-out before join rejected.
+- [x] Add test cycle before join rejected.
+- [x] Add test terminal before join rejected.
+- [x] Add test join waits until all expected branch identities arrive.
+- [x] Add test duplicate branch arrival is idempotently ignored or rejected.
+- [x] Add test missing branch keeps join waiting.
+- [x] Add test deterministic aggregate ordering by branch identity/source node.
+- [x] Add test joined aggregate binds into next node input.
+- [x] Add test terminal branch does not accidentally satisfy unrelated join.
 
 ### 12.2 Implementation
 
-- [ ] Implement fan-out transition application.
-- [ ] Implement static join derivation validation for multi-edge transition groups.
-- [ ] Persist parallel batch and branch edge identity on placements.
-- [ ] Use persisted transition-edge snapshot rows from the accepted fan-out transition as join expected wait set.
-- [ ] Implement join readiness query against expected fan-out edge set.
-- [ ] Reject or explicitly pause manual moves into/out of active parallel batches until dedicated UX exists.
-- [ ] Implement deterministic aggregation format.
-- [ ] Implement join auto-transition through outgoing transition group.
-- [ ] Update board/task read models for multiple active placements.
-- [ ] Update CLI/API output for branch placements.
+- [x] Implement fan-out transition application.
+- [x] Implement static join derivation validation for multi-edge transition groups.
+- [x] Persist parallel batch and branch edge identity on placements.
+- [x] Use persisted transition-edge snapshot rows from the accepted fan-out transition as join expected wait set.
+- [x] Implement join readiness query against expected fan-out edge set.
+- [x] Reject or explicitly pause manual moves into/out of active parallel batches until dedicated UX exists.
+- [x] Implement deterministic aggregation format.
+- [x] Implement join auto-transition through outgoing transition group.
+- [x] Update board/task read models for multiple active placements.
+- [x] Update CLI/API output for branch placements.
 
 ### 12.3 Verification
 
-- [ ] Run fan-out/join tests.
-- [ ] Run `./scripts/test.sh ./server/workflow/... ./server/workflowstore/... ./server/workflowview/... ./server/metadata/...`.
-- [ ] Run `./scripts/build.sh --output ./bin/builder`.
+- [x] Run fan-out/join tests.
+- [x] Run `./scripts/test.sh ./server/workflow/... ./server/workflowstore/... ./server/workflowview/... ./server/metadata/...`.
+- [x] Run `./scripts/build.sh --output ./bin/builder`.
 - [ ] Commit slice with message like `feat: add workflow fanout joins`.
 
 ## Slice 13: Recovery, Observability, And Hardening

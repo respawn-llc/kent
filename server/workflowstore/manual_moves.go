@@ -214,18 +214,44 @@ LIMIT 1`, string(sourcePlacement), string(targetNode.ID)).Scan(&groupID, &transi
 }
 
 func (s *Store) activeManualMoveSource(ctx context.Context, taskID workflow.TaskID) (workflow.PlacementID, workflow.NodeID, error) {
-	var placementID string
-	var nodeID string
-	err := s.db.QueryRowContext(ctx, `
-SELECT id, node_id
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, node_id, parallel_batch_transition_id
 FROM task_node_placements
 WHERE task_id = ? AND state = 'active'
-ORDER BY created_at_unix_ms DESC, rowid DESC
-LIMIT 1`, string(taskID)).Scan(&placementID, &nodeID)
+ORDER BY created_at_unix_ms DESC, rowid DESC`, string(taskID))
 	if err != nil {
 		return "", "", err
 	}
-	return workflow.PlacementID(placementID), workflow.NodeID(nodeID), nil
+	defer func() { _ = rows.Close() }()
+	var placements []struct {
+		id      string
+		nodeID  string
+		batchID sql.NullString
+	}
+	for rows.Next() {
+		var placement struct {
+			id      string
+			nodeID  string
+			batchID sql.NullString
+		}
+		if err := rows.Scan(&placement.id, &placement.nodeID, &placement.batchID); err != nil {
+			return "", "", err
+		}
+		if placement.batchID.Valid && strings.TrimSpace(placement.batchID.String) != "" {
+			return "", "", errors.New("manual move during active parallel batch is not supported")
+		}
+		placements = append(placements, placement)
+	}
+	if err := rows.Err(); err != nil {
+		return "", "", err
+	}
+	if len(placements) == 0 {
+		return "", "", sql.ErrNoRows
+	}
+	if len(placements) != 1 {
+		return "", "", errors.New("manual move with multiple active placements is not supported")
+	}
+	return workflow.PlacementID(placements[0].id), workflow.NodeID(placements[0].nodeID), nil
 }
 
 func definitionNode(def workflow.Definition, nodeID workflow.NodeID) (workflow.Node, bool) {

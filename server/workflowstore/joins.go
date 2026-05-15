@@ -12,6 +12,7 @@ import (
 )
 
 type joinArrival struct {
+	PlacementID   string
 	BranchEdgeID  string
 	SourceNodeKey string
 	OutputValues  map[string]string
@@ -48,7 +49,13 @@ LIMIT 1`, taskID, string(joinEdge.TargetNode.ID), batchID.String).Scan(&existing
 	if err != nil {
 		return CompleteRunResult{}, err
 	}
-	if len(arrivals) < len(expected) {
+	arrivedExpected := map[string]bool{}
+	for _, arrival := range arrivals {
+		if expected[arrival.PlacementID] {
+			arrivedExpected[arrival.PlacementID] = true
+		}
+	}
+	if len(arrivedExpected) < len(expected) {
 		return CompleteRunResult{}, nil
 	}
 	joinSnapshot, found, err := sourceSnapshot.forNode(joinEdge.TargetNode)
@@ -137,6 +144,7 @@ ORDER BY rowid ASC`, batchID)
 func joinArrivals(ctx context.Context, tx *sql.Tx, batchID string, joinNodeID workflow.NodeID) ([]joinArrival, error) {
 	rows, err := tx.QueryContext(ctx, `
 SELECT
+    p.id,
     p.parallel_branch_edge_id,
     tr.source_node_key,
     tr.output_values_json
@@ -154,22 +162,26 @@ ORDER BY p.parallel_branch_edge_id ASC, tr.created_at_unix_ms ASC`, batchID, str
 	arrivals := []joinArrival{}
 	seenPlacements := map[string]bool{}
 	for rows.Next() {
+		var placementID string
 		var branchEdgeID sql.NullString
 		var sourceNodeKey string
 		var outputValuesJSON string
-		if err := rows.Scan(&branchEdgeID, &sourceNodeKey, &outputValuesJSON); err != nil {
+		if err := rows.Scan(&placementID, &branchEdgeID, &sourceNodeKey, &outputValuesJSON); err != nil {
 			return nil, err
 		}
-		key := strings.TrimSpace(branchEdgeID.String)
-		if key == "" || seenPlacements[key] {
+		if strings.TrimSpace(placementID) == "" || seenPlacements[placementID] {
 			continue
 		}
-		seenPlacements[key] = true
+		seenPlacements[placementID] = true
+		key := strings.TrimSpace(branchEdgeID.String)
+		if key == "" {
+			continue
+		}
 		outputs := map[string]string{}
 		if err := unmarshalJSON(outputValuesJSON, &outputs); err != nil {
 			return nil, err
 		}
-		arrivals = append(arrivals, joinArrival{BranchEdgeID: key, SourceNodeKey: sourceNodeKey, OutputValues: outputs})
+		arrivals = append(arrivals, joinArrival{PlacementID: placementID, BranchEdgeID: key, SourceNodeKey: sourceNodeKey, OutputValues: outputs})
 	}
 	return arrivals, rows.Err()
 }

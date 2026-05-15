@@ -206,6 +206,26 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 	}
 }
 
+func TestWriteTaskDetailIncludesParallelBranchIDs(t *testing.T) {
+	var stdout bytes.Buffer
+	writeTaskDetail(&stdout, serverapi.WorkflowTaskDetail{
+		Summary: serverapi.WorkflowTaskSummary{ID: "task-1", ShortID: "WOR-1", WorkflowID: "workflow-1", Title: "Task"},
+		Placements: []serverapi.WorkflowPlacement{{
+			ID:                        "placement-1",
+			TaskID:                    "task-1",
+			NodeID:                    "node-impl-a",
+			State:                     "active",
+			ParallelBatchTransitionID: "transition-split",
+			ParallelBranchEdgeID:      "edge-split-a",
+		}},
+	})
+
+	output := stdout.String()
+	if !strings.Contains(output, "placement-1\tnode-impl-a\tactive\ttransition-split\tedge-split-a") {
+		t.Fatalf("task detail output = %q, want parallel batch and branch ids", output)
+	}
+}
+
 func TestWorkflowCommandValidationErrorsAreActionable(t *testing.T) {
 	cfg, _, remote := newWorkflowCommandLoopback(t)
 	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)

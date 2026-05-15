@@ -363,10 +363,12 @@ type WorkflowTaskDetail struct {
 }
 
 type WorkflowPlacement struct {
-	ID     string `json:"id"`
-	TaskID string `json:"task_id"`
-	NodeID string `json:"node_id"`
-	State  string `json:"state"`
+	ID                        string `json:"id"`
+	TaskID                    string `json:"task_id"`
+	NodeID                    string `json:"node_id"`
+	State                     string `json:"state"`
+	ParallelBatchTransitionID string `json:"parallel_batch_transition_id,omitempty"`
+	ParallelBranchEdgeID      string `json:"parallel_branch_edge_id,omitempty"`
 }
 
 type WorkflowRun struct {

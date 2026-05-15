@@ -248,7 +248,7 @@ func taskSummary(task sqlitegen.Task, placements []sqlitegen.TaskNodePlacement, 
 }
 
 func placementDTO(placement sqlitegen.TaskNodePlacement) serverapi.WorkflowPlacement {
-	return serverapi.WorkflowPlacement{ID: placement.ID, TaskID: placement.TaskID, NodeID: placement.NodeID, State: placement.State}
+	return serverapi.WorkflowPlacement{ID: placement.ID, TaskID: placement.TaskID, NodeID: placement.NodeID, State: placement.State, ParallelBatchTransitionID: strings.TrimSpace(placement.ParallelBatchTransitionID.String), ParallelBranchEdgeID: strings.TrimSpace(placement.ParallelBranchEdgeID.String)}
 }
 
 func commentDTO(comment sqlitegen.TaskComment) serverapi.WorkflowTaskComment {
