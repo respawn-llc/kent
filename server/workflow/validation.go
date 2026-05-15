@@ -8,6 +8,11 @@ import (
 
 var modelKeyRegexp = regexp.MustCompile(ModelKeyPattern)
 
+var reservedOutputFieldNames = map[string]bool{
+	"commentary":    true,
+	"transition_id": true,
+}
+
 func ValidateDefinition(def Definition, opts ValidationOptions) ValidationResult {
 	context := opts.Context
 	if context == "" {
@@ -239,7 +244,7 @@ func (s *validationState) validateOutputFields(node Node) {
 	for _, field := range node.OutputFields {
 		ref := ValidationError{WorkflowID: s.def.ID, NodeID: node.ID}
 		name := strings.TrimSpace(field.Name)
-		if name == "" || !validModelKey(name) || len(name) > MaxOutputFieldNameChars {
+		if name == "" || !validModelKey(name) || len(name) > MaxOutputFieldNameChars || reservedOutputFieldNames[name] {
 			s.addHard(CodeInvalidOutputField, "output field name is invalid", ref)
 		}
 		if seen[name] {
@@ -473,13 +478,24 @@ func (s *validationState) fanoutHasValidJoin(group TransitionGroup, edges []Edge
 			common[joinID] += distance
 		}
 	}
-	if len(common) != 1 {
+	if len(common) == 0 {
 		return false
 	}
-	for joinID := range common {
-		return joinID != group.SourceNodeID
+	nearestDistance := 0
+	var nearestJoinID NodeID
+	nearestCount := 0
+	for joinID, distance := range common {
+		if nearestCount == 0 || distance < nearestDistance {
+			nearestDistance = distance
+			nearestJoinID = joinID
+			nearestCount = 1
+			continue
+		}
+		if distance == nearestDistance {
+			nearestCount++
+		}
 	}
-	return false
+	return nearestCount == 1 && nearestJoinID != group.SourceNodeID
 }
 
 func (s *validationState) branchJoinDistances(start NodeID) (map[NodeID]int, bool) {

@@ -398,6 +398,12 @@ func TestOutputBindingsTemplatesContextAndRoles(t *testing.T) {
 		{name: "too long output field name", edit: func(def *workflow.Definition) {
 			def.Nodes[1].OutputFields[0].Name = "a" + stringOf("b", workflow.MaxOutputFieldNameChars)
 		}, code: workflow.CodeInvalidOutputField},
+		{name: "reserved output field name transition_id", edit: func(def *workflow.Definition) {
+			def.Nodes[1].OutputFields[0].Name = "transition_id"
+		}, code: workflow.CodeInvalidOutputField},
+		{name: "reserved output field name commentary", edit: func(def *workflow.Definition) {
+			def.Nodes[1].OutputFields[0].Name = "commentary"
+		}, code: workflow.CodeInvalidOutputField},
 		{name: "duplicate output field", edit: func(def *workflow.Definition) {
 			def.Nodes[1].OutputFields = append(def.Nodes[1].OutputFields, workflow.OutputField{Name: "summary", Description: "Another summary."})
 		}, code: workflow.CodeDuplicateOutputField},
@@ -455,6 +461,33 @@ func TestOutputBindingsTemplatesContextAndRoles(t *testing.T) {
 func TestFanoutJoinTopology(t *testing.T) {
 	t.Run("valid fanout has one nearest common join", func(t *testing.T) {
 		def := fanoutWorkflow()
+
+		result := validateForTask(def)
+
+		assertNoCode(t, result, workflow.CodeInvalidFanoutJoinTopology)
+	})
+
+	t.Run("valid fanout allows farther common join after unique nearest join", func(t *testing.T) {
+		def := fanoutWorkflow()
+		def.Nodes = append(def.Nodes,
+			workflow.Node{WorkflowID: def.ID, ID: "node_impl_a_late", Key: "impl_a_late", DisplayName: "Implement A Late", Kind: workflow.NodeKindAgent, SubagentRole: "coder", PromptTemplate: "A late."},
+			workflow.Node{WorkflowID: def.ID, ID: "node_impl_b_late", Key: "impl_b_late", DisplayName: "Implement B Late", Kind: workflow.NodeKindAgent, SubagentRole: "coder", PromptTemplate: "B late."},
+			workflow.Node{WorkflowID: def.ID, ID: "node_join_late", Key: "join_late", DisplayName: "Join Late", Kind: workflow.NodeKindJoin},
+		)
+		def.TransitionGroups = append(def.TransitionGroups,
+			workflow.TransitionGroup{WorkflowID: def.ID, ID: "group_impl_a_late", SourceNodeID: "node_impl_a", TransitionID: "join_late", DisplayName: "Join Late"},
+			workflow.TransitionGroup{WorkflowID: def.ID, ID: "group_impl_a_late_join", SourceNodeID: "node_impl_a_late", TransitionID: "join_late", DisplayName: "Join Late"},
+			workflow.TransitionGroup{WorkflowID: def.ID, ID: "group_impl_b_late", SourceNodeID: "node_impl_b", TransitionID: "join_late", DisplayName: "Join Late"},
+			workflow.TransitionGroup{WorkflowID: def.ID, ID: "group_impl_b_late_join", SourceNodeID: "node_impl_b_late", TransitionID: "join_late", DisplayName: "Join Late"},
+			workflow.TransitionGroup{WorkflowID: def.ID, ID: "group_join_late_done", SourceNodeID: "node_join_late", TransitionID: "done", DisplayName: "Done"},
+		)
+		def.Edges = append(def.Edges,
+			workflow.Edge{WorkflowID: def.ID, ID: "edge_impl_a_late", Key: "late_a", TransitionGroupID: "group_impl_a_late", TargetNodeID: "node_impl_a_late", ContextMode: workflow.ContextModeNewSession},
+			workflow.Edge{WorkflowID: def.ID, ID: "edge_impl_a_late_join", Key: "late_join_a", TransitionGroupID: "group_impl_a_late_join", TargetNodeID: "node_join_late", ContextMode: workflow.ContextModeNewSession},
+			workflow.Edge{WorkflowID: def.ID, ID: "edge_impl_b_late", Key: "late_b", TransitionGroupID: "group_impl_b_late", TargetNodeID: "node_impl_b_late", ContextMode: workflow.ContextModeNewSession},
+			workflow.Edge{WorkflowID: def.ID, ID: "edge_impl_b_late_join", Key: "late_join_b", TransitionGroupID: "group_impl_b_late_join", TargetNodeID: "node_join_late", ContextMode: workflow.ContextModeNewSession},
+			workflow.Edge{WorkflowID: def.ID, ID: "edge_join_late_done", Key: "done", TransitionGroupID: "group_join_late_done", TargetNodeID: "node_done", ContextMode: workflow.ContextModeNewSession},
+		)
 
 		result := validateForTask(def)
 
