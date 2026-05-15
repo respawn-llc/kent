@@ -962,7 +962,7 @@ Goal: operationally usable workflow backend ready for GUI-driven QA.
 - [x] Run full workflow package tests.
 - [x] Run `./scripts/test.sh ./server/workflow/... ./server/workflowstore/... ./server/workflowsvc/... ./server/workflowscheduler/... ./server/workflowruntime/... ./server/workflowview/... ./server/metadata/... ./cli/builder/...`.
 - [x] Run `./scripts/build.sh --output ./bin/builder`.
-- [ ] Commit slice with message like `feat: harden workflow recovery`.
+- [x] Commit slice with message like `feat: harden workflow recovery`.
 
 ## GUI/POC Integration Checkpoints
 
