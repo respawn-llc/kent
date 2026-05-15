@@ -167,6 +167,7 @@ const (
 	CodeInvalidTemplatePlaceholder     ValidationErrorCode = "workflow.validation.invalid_template_placeholder"
 	CodeInvalidContextMode             ValidationErrorCode = "workflow.validation.invalid_context_mode"
 	CodeInvalidFanoutJoinTopology      ValidationErrorCode = "workflow.validation.invalid_fanout_join_topology"
+	CodeUnsupportedContextMode         ValidationErrorCode = "workflow.validation.unsupported_context_mode"
 	CodeUnsupportedApprovalExecution   ValidationErrorCode = "workflow.validation.unsupported_approval_execution"
 	CodeUnsupportedJoinExecution       ValidationErrorCode = "workflow.validation.unsupported_join_execution"
 	CodeUnsupportedJoinBinding         ValidationErrorCode = "workflow.validation.unsupported_join_binding"

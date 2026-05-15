@@ -163,6 +163,9 @@ func TestTaskCreateStartCancelAndComments(t *testing.T) {
 	if err := store.CancelTask(ctx, task.ID, "stop"); err != nil {
 		t.Fatalf("CancelTask: %v", err)
 	}
+	if err := store.CancelTask(ctx, "task-missing", "stop"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("CancelTask missing = %v, want sql.ErrNoRows", err)
+	}
 	runs, err = store.ListRuns(ctx, task.ID)
 	if err != nil {
 		t.Fatalf("ListRuns after cancel: %v", err)
@@ -271,6 +274,13 @@ func TestCompleteRunRejectsUnsupportedRuntimeSnapshots(t *testing.T) {
 				snapshot.TransitionGroups[0].Edges[0].TargetNode.Kind = workflow.NodeKindJoin
 			},
 			want: "join targets cannot execute",
+		},
+		{
+			name: "non-new-session context mode",
+			mutate: func(snapshot *runStartSnapshot) {
+				snapshot.TransitionGroups[0].Edges[0].ContextMode = workflow.ContextModeContinueSession
+			},
+			want: "non-new-session context modes cannot execute",
 		},
 	}
 	for _, tt := range tests {

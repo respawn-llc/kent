@@ -476,6 +476,27 @@ func TestRuntimeValidationBlocksUnimplementedExecutionFeatures(t *testing.T) {
 		}
 	})
 
+	t.Run("non-new-session context modes warn in draft and block task creation", func(t *testing.T) {
+		for _, mode := range []workflow.ContextMode{workflow.ContextModeContinueSession, workflow.ContextModeCompactAndContinueSession} {
+			t.Run(string(mode), func(t *testing.T) {
+				def := validWorkflow()
+				def.Edges[1].ContextMode = mode
+
+				draft := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft})
+				assertHasCodes(t, draft, workflow.CodeUnsupportedContextMode)
+				if draft.HasBlockingErrors() {
+					t.Fatalf("draft context mode warning should not block saving: %+v", draft.BlockingErrors())
+				}
+
+				task := validateForTask(def)
+				assertHasCodes(t, task, workflow.CodeUnsupportedContextMode)
+				if !task.HasBlockingErrors() {
+					t.Fatalf("task context mode error should block execution")
+				}
+			})
+		}
+	})
+
 	t.Run("join targets warn in draft and block task creation", func(t *testing.T) {
 		def := fanoutWorkflow()
 

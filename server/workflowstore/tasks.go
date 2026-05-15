@@ -456,6 +456,9 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 	if group.requiresApproval() {
 		return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: "approval_execution_unsupported", Field: "transition_id", Message: "approval-gated transitions cannot execute until approval resume is implemented"}}}
 	}
+	if group.hasUnsupportedContextMode() {
+		return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: "context_mode_unsupported", Field: "transition_id", Message: "non-new-session context modes cannot execute until continuation modes are implemented"}}}
+	}
 	if group.targetsJoin() {
 		return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: "join_execution_unsupported", Field: "transition_id", Message: "join targets cannot execute until join progression is implemented"}}}
 	}
@@ -553,8 +556,10 @@ func (s *Store) CancelTask(ctx context.Context, taskID workflow.TaskID, reason s
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
-	if _, err := q.CancelTask(ctx, sqlitegen.CancelTaskParams{ID: string(taskID), CanceledAtUnixMs: now, CancellationReason: strings.TrimSpace(reason), UpdatedAtUnixMs: now}); err != nil {
+	if updated, err := q.CancelTask(ctx, sqlitegen.CancelTaskParams{ID: string(taskID), CanceledAtUnixMs: now, CancellationReason: strings.TrimSpace(reason), UpdatedAtUnixMs: now}); err != nil {
 		return err
+	} else if updated != 1 {
+		return sql.ErrNoRows
 	}
 	if _, err := q.InterruptActiveTaskRuns(ctx, sqlitegen.InterruptActiveTaskRunsParams{TaskID: string(taskID), UpdatedAtUnixMs: now, InterruptedAtUnixMs: now, InterruptionReason: "task_canceled", InterruptionDetailJson: "{}"}); err != nil {
 		return err
@@ -1062,6 +1067,15 @@ func (s runStartSnapshot) transitionByID(transitionID string) (transitionContrac
 func (g transitionContractSnapshot) requiresApproval() bool {
 	for _, edge := range g.Edges {
 		if edge.RequiresApproval {
+			return true
+		}
+	}
+	return false
+}
+
+func (g transitionContractSnapshot) hasUnsupportedContextMode() bool {
+	for _, edge := range g.Edges {
+		if edge.ContextMode != workflow.ContextModeNewSession {
 			return true
 		}
 	}

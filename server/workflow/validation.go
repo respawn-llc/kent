@@ -369,6 +369,9 @@ func (s *validationState) validateRuntimeSupport() {
 		if edge.RequiresApproval {
 			s.addSemantic(CodeUnsupportedApprovalExecution, "approval-gated edges cannot execute until approval resume is implemented", ref)
 		}
+		if validContextMode(edge.ContextMode) && edge.ContextMode != ContextModeNewSession {
+			s.addSemantic(CodeUnsupportedContextMode, "non-new-session context modes cannot execute until continuation modes are implemented", ref)
+		}
 		if target, exists := s.nodesByID[edge.TargetNodeID]; exists && target.Kind == NodeKindJoin {
 			s.addSemantic(CodeUnsupportedJoinExecution, "join targets cannot execute until join progression is implemented", ref)
 		}
