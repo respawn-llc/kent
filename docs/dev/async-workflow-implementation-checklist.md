@@ -846,26 +846,26 @@ Goal: edge approval and manual override transitions are durable, validated, and 
 
 ### 11.1 Red Tests
 
-- [ ] Add test edge requiring approval creates pending transition after source completion.
-- [ ] Add test approval by task transition row ID starts stored target edge snapshot.
-- [ ] Add test duplicate approval is idempotent.
-- [ ] Add test multi-edge transition group waits as a whole when any edge requires approval.
+- [x] Add test edge requiring approval creates pending transition after source completion.
+- [x] Add test approval by task transition row ID starts stored target edge snapshot.
+- [x] Add test duplicate approval is idempotent.
+- [x] Add test multi-edge transition group waits as a whole when any edge requires approval.
 - [ ] Add test graph edit after pending approval does not alter approved behavior.
-- [ ] Add test rejection path marks pending transition rejected.
-- [ ] Add test forward manual move validates supplied output values.
+- [x] Add test rejection path marks pending transition rejected.
+- [x] Add test forward manual move validates supplied output values.
 - [ ] Add test backward manual move reuses stored output values when valid.
-- [ ] Add test missing required output rejected.
+- [x] Add test missing required output rejected.
 - [ ] Add test continuation-required manual move rejected without valid source session.
 - [ ] Add test executable manual target pauses before automation and requires explicit approval.
 
 ### 11.2 Implementation
 
-- [ ] Persist pending approval transition and edge snapshots.
-- [ ] Ensure every applied transition stores transition-edge snapshots; approvals only change pending/approval behavior.
-- [ ] Add approval service method by task transition row ID.
-- [ ] Make approval idempotent and apply the whole transition group when any selected edge requires approval.
-- [ ] Add rejection/cancel service method if needed by UI/CLI.
-- [ ] Implement manual move validation against edge/equivalent metadata.
+- [x] Persist pending approval transition and edge snapshots.
+- [x] Ensure every applied transition stores transition-edge snapshots; approvals only change pending/approval behavior.
+- [x] Add approval service method by task transition row ID.
+- [x] Make approval idempotent and apply the whole transition group when any selected edge requires approval.
+- [x] Add rejection/cancel service method if needed by UI/CLI.
+- [x] Implement manual move validation against edge/equivalent metadata.
 - [ ] Implement output value reuse for backward moves.
 - [ ] Implement explicit approve-before-automation for executable manual target.
 - [ ] Update CLI/API/read models for pending approvals.
