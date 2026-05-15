@@ -639,7 +639,7 @@ Goal: scheduler rebuilds runnable workflow work from durable placement/run inten
 - [x] Run scheduler tests with race-sensitive cases repeatedly.
 - [x] Run `./scripts/test.sh ./server/workflow/... ./server/workflowstore/... ./server/workflowsvc/... ./server/workflowscheduler/... ./server/metadata/...`.
 - [x] Run `./scripts/build.sh --output ./bin/builder`.
-- [ ] Commit slice with message like `feat: add workflow scheduler`.
+- [x] Commit slice with message like `feat: add workflow scheduler`.
 
 ## Runtime Test Adapter Boundary
 
