@@ -88,6 +88,20 @@ WHERE id = ?`, id).Scan(&taskID, &sourceRunID, &state, &revision)
 	if err := unmarshalJSON(sourceRun.RunStartSnapshotJson, &sourceSnapshot); err != nil {
 		return CompleteRunResult{}, err
 	}
+	var fallbackDef workflow.Definition
+	var fallbackWorkflow WorkflowRecord
+	if !sourceSnapshot.hasFullGraphContract() {
+		for _, edge := range edges {
+			if workflow.NodeKind(edge.TargetNodeKind) != workflow.NodeKindAgent {
+				continue
+			}
+			fallbackDef, fallbackWorkflow, err = s.GetDefinition(ctx, sourceSnapshot.WorkflowID)
+			if err != nil {
+				return CompleteRunResult{}, err
+			}
+			break
+		}
+	}
 	now := s.now().UnixMilli()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -161,7 +175,10 @@ WHERE id = ? AND state = 'pending'`, targetPlacementID, edge.ID); err != nil {
 			return CompleteRunResult{}, err
 		}
 		if !foundSnapshot {
-			return CompleteRunResult{}, fmt.Errorf("approved target node %q missing from source run snapshot", targetEdge.TargetNode.ID)
+			targetSnapshot, err = newRunStartSnapshot(fallbackDef, fallbackWorkflow, targetEdge.TargetNode.ID)
+			if err != nil {
+				return CompleteRunResult{}, err
+			}
 		}
 		targetSnapshotJSON, err := marshalJSON(targetSnapshot)
 		if err != nil {

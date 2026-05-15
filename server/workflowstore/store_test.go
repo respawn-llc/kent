@@ -670,6 +670,49 @@ func TestApprovePendingAgentTransitionRetryPreservesRunIDs(t *testing.T) {
 	}
 }
 
+func TestApprovePendingAgentTransitionUsesDefinitionFallbackForLegacySnapshot(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
+	requireApprovalOnWorkflowEdge(t, ctx, store, workflowID, "next")
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	plan := nodeByKey(t, def, "plan")
+	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "next", OutputValues: map[string]string{"summary": "done"}})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	legacySnapshot := runStartSnapshot{WorkflowID: workflowID, WorkflowRevisionSeen: currentWorkflowRevision(t, ctx, store, workflowID), Node: nodeSnapshot(plan)}
+	legacySnapshotJSON, err := marshalJSON(legacySnapshot)
+	if err != nil {
+		t.Fatalf("marshal legacy snapshot: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE task_runs SET run_start_snapshot_json = ? WHERE id = ?`, legacySnapshotJSON, string(started.RunID)); err != nil {
+		t.Fatalf("update legacy snapshot: %v", err)
+	}
+
+	approved, err := store.ApproveTransition(ctx, completed.TransitionID)
+	if err != nil {
+		t.Fatalf("ApproveTransition: %v", err)
+	}
+	if len(approved.RunIDs) != 1 || len(approved.PlacementIDs) != 1 {
+		t.Fatalf("approved result = %+v, want target run and placement from fallback snapshot", approved)
+	}
+}
+
 func TestApprovePendingTransitionIsConcurrentIdempotent(t *testing.T) {
 	ctx := context.Background()
 	store, binding := newTestStore(t)
