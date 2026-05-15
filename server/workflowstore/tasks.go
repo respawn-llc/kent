@@ -397,7 +397,15 @@ WHERE id = ?
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		if err := q.InsertTaskRun(ctx, sqlitegen.InsertTaskRunParams{ID: targetRunID, TaskID: run.TaskID, PlacementID: targetPlacementID, NodeID: string(edge.TargetNode.ID), WorkflowRevisionSeen: targetSnapshot.WorkflowRevisionSeen, AutomationRequestedAtUnixMs: now, CreatedAtUnixMs: now, UpdatedAtUnixMs: now, InterruptionDetailJson: "{}", RunStartSnapshotJson: targetSnapshotJSON, MetadataJson: "{}"}); err != nil {
+		targetMetadataJSON, err := marshalJSON(map[string]string{
+			"context_mode":      string(edge.ContextMode),
+			"source_run_id":     run.ID,
+			"source_session_id": strings.TrimSpace(run.SessionID.String),
+		})
+		if err != nil {
+			return CompleteRunResult{}, err
+		}
+		if err := q.InsertTaskRun(ctx, sqlitegen.InsertTaskRunParams{ID: targetRunID, TaskID: run.TaskID, PlacementID: targetPlacementID, NodeID: string(edge.TargetNode.ID), WorkflowRevisionSeen: targetSnapshot.WorkflowRevisionSeen, AutomationRequestedAtUnixMs: now, CreatedAtUnixMs: now, UpdatedAtUnixMs: now, InterruptionDetailJson: "{}", RunStartSnapshotJson: targetSnapshotJSON, MetadataJson: targetMetadataJSON}); err != nil {
 			return CompleteRunResult{}, fmt.Errorf("insert target run: %w", err)
 		}
 		result.RunIDs = append(result.RunIDs, workflow.RunID(targetRunID))

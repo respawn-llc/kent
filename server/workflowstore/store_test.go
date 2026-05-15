@@ -435,15 +435,6 @@ func TestCompleteRunRejectsUnsupportedRuntimeSnapshots(t *testing.T) {
 			},
 			want: "join targets cannot execute",
 		},
-		{
-			name: "non-new-session context mode",
-			mutate: func(t *testing.T, snapshot *runStartSnapshot) {
-				mutateSnapshotTransition(t, snapshot, "done", func(group *transitionContractSnapshot) {
-					group.Edges[0].ContextMode = workflow.ContextModeContinueSession
-				})
-			},
-			want: "non-new-session context modes cannot execute",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -490,6 +481,85 @@ func TestCompleteRunRejectsUnsupportedRuntimeSnapshots(t *testing.T) {
 				t.Fatalf("run after rejected completion = %+v, want still active", runs)
 			}
 		})
+	}
+}
+
+func TestCompleteRunCreatesTargetRunForContinueSessionContextMode(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeContinueSession, "coder")
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+
+	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "next", OutputValues: map[string]string{"summary": "plan done"}})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	if len(completed.RunIDs) != 1 {
+		t.Fatalf("target run ids = %+v, want one continuation target", completed.RunIDs)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 2 || runs[0].CompletedAt == 0 || runs[1].CompletedAt != 0 || runs[1].InterruptedAt != 0 {
+		t.Fatalf("runs after continuation completion = %+v, want completed source and active target", runs)
+	}
+	edges, err := store.ListTransitionEdges(ctx, completed.TransitionID)
+	if err != nil {
+		t.Fatalf("ListTransitionEdges: %v", err)
+	}
+	var persistedContextMode string
+	if err := store.db.QueryRowContext(ctx, `SELECT context_mode FROM task_transition_edges WHERE id = ?`, edges[0].ID).Scan(&persistedContextMode); err != nil {
+		t.Fatalf("query transition edge context mode: %v", err)
+	}
+	if len(edges) != 1 || persistedContextMode != string(workflow.ContextModeContinueSession) || edges[0].TargetPlacementID != runs[1].PlacementID {
+		t.Fatalf("transition edge snapshot = %+v, want continue_session target edge", edges)
+	}
+	input, err := store.GetRunStartContext(ctx, completed.RunIDs[0])
+	if err != nil {
+		t.Fatalf("GetRunStartContext: %v", err)
+	}
+	if input.Node.Key != "implement" || input.InputValues["prior_summary"] != "plan done" {
+		t.Fatalf("target run context = %+v, want implement node with bound prior output", input)
+	}
+	var runMetadataJSON string
+	if err := store.db.QueryRowContext(ctx, `SELECT metadata_json FROM task_runs WHERE id = ?`, string(completed.RunIDs[0])).Scan(&runMetadataJSON); err != nil {
+		t.Fatalf("query target run metadata: %v", err)
+	}
+	runMetadata := struct {
+		ContextMode     string `json:"context_mode"`
+		SourceRunID     string `json:"source_run_id"`
+		SourceSessionID string `json:"source_session_id"`
+	}{}
+	if err := unmarshalJSON(runMetadataJSON, &runMetadata); err != nil {
+		t.Fatalf("unmarshal target run metadata: %v", err)
+	}
+	if runMetadata.ContextMode != string(workflow.ContextModeContinueSession) || runMetadata.SourceRunID != string(started.RunID) {
+		t.Fatalf("target run metadata = %+v, want context mode and source run", runMetadata)
+	}
+}
+
+func TestCreateTaskRejectsCrossRoleContinueSessionContextMode(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeContinueSession, "reviewer")
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+
+	_, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err == nil || !strings.Contains(err.Error(), string(workflow.CodeInvalidContinueSessionRole)) {
+		t.Fatalf("CreateTask error = %v, want %s", err, workflow.CodeInvalidContinueSessionRole)
 	}
 }
 
@@ -1166,7 +1236,7 @@ func newTestStoreWithConfig(t *testing.T) (*Store, metadata.Binding, config.App)
 	if err := metadataStore.SetProjectKey(context.Background(), binding.ProjectID, "WOR"); err != nil {
 		t.Fatalf("SetProjectKey: %v", err)
 	}
-	store, err := New(metadataStore, WithRoleResolver(workflow.StaticRoleResolver{"coder": true}))
+	store, err := New(metadataStore, WithRoleResolver(workflow.StaticRoleResolver{"coder": true, "reviewer": true}))
 	if err != nil {
 		t.Fatalf("workflowstore.New: %v", err)
 	}
@@ -1216,6 +1286,52 @@ func createValidWorkflow(t *testing.T, ctx context.Context, store *Store) workfl
 	}
 	if _, err := store.AddEdge(ctx, EdgeRecord{ID: workflow.EdgeID("edge-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(created.ID)), Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}}); err != nil {
 		t.Fatalf("AddEdge done: %v", err)
+	}
+	return created.ID
+}
+
+func createChainedContextModeWorkflow(t *testing.T, ctx context.Context, store *Store, contextMode workflow.ContextMode, targetRole string) workflow.WorkflowID {
+	t.Helper()
+	created, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: "Chained Context Workflow"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	start := nodeByKind(t, def, workflow.NodeKindStart)
+	done := nodeByKind(t, def, workflow.NodeKindTerminal)
+	planID := workflow.NodeID("node-plan-" + string(created.ID))
+	implID := workflow.NodeID("node-impl-" + string(created.ID))
+	for _, node := range []NodeRecord{
+		{ID: planID, WorkflowID: created.ID, Key: "plan", Kind: workflow.NodeKindAgent, DisplayName: "Plan", SubagentRole: "coder", PromptTemplate: "Plan work.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
+		{ID: implID, WorkflowID: created.ID, Key: "implement", Kind: workflow.NodeKindAgent, DisplayName: "Implement", SubagentRole: targetRole, PromptTemplate: "Implement {{.Inputs.prior_summary}}.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
+	} {
+		if _, err := store.AddNode(ctx, node); err != nil {
+			t.Fatalf("AddNode %s: %v", node.Key, err)
+		}
+	}
+	startGroup := workflow.TransitionGroupID("group-start-" + string(created.ID))
+	nextGroup := workflow.TransitionGroupID("group-next-" + string(created.ID))
+	doneGroup := workflow.TransitionGroupID("group-done-" + string(created.ID))
+	for _, group := range []TransitionGroupRecord{
+		{ID: startGroup, WorkflowID: created.ID, SourceNodeID: start.ID, TransitionID: "start", DisplayName: "Start"},
+		{ID: nextGroup, WorkflowID: created.ID, SourceNodeID: planID, TransitionID: "next", DisplayName: "Next"},
+		{ID: doneGroup, WorkflowID: created.ID, SourceNodeID: implID, TransitionID: "done", DisplayName: "Done"},
+	} {
+		if _, err := store.AddTransitionGroup(ctx, group); err != nil {
+			t.Fatalf("AddTransitionGroup %s: %v", group.TransitionID, err)
+		}
+	}
+	for _, edge := range []EdgeRecord{
+		{ID: workflow.EdgeID("edge-start-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: startGroup, Key: "start", TargetNodeID: planID, ContextMode: workflow.ContextModeNewSession},
+		{ID: workflow.EdgeID("edge-next-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: nextGroup, Key: "next", TargetNodeID: implID, ContextMode: contextMode, InputBindings: []workflow.InputBinding{{Name: "prior_summary", Source: workflow.BindingSourceTransitionOutput, Field: "summary"}}, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+		{ID: workflow.EdgeID("edge-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: doneGroup, Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+	} {
+		if _, err := store.AddEdge(ctx, edge); err != nil {
+			t.Fatalf("AddEdge %s: %v", edge.Key, err)
+		}
 	}
 	return created.ID
 }

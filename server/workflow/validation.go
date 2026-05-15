@@ -372,6 +372,15 @@ func (s *validationState) validateRuntimeSupport() {
 		if target, exists := s.nodesByID[edge.TargetNodeID]; exists {
 			targetKind = target.Kind
 		}
+		if edge.ContextMode == ContextModeContinueSession {
+			if group, groupExists := s.groupsByID[edge.TransitionGroupID]; groupExists {
+				source, sourceExists := s.nodesByID[group.SourceNodeID]
+				target, targetExists := s.nodesByID[edge.TargetNodeID]
+				if sourceExists && targetExists && source.Kind == NodeKindAgent && target.Kind == NodeKindAgent && strings.TrimSpace(source.SubagentRole) != strings.TrimSpace(target.SubagentRole) {
+					s.addSemantic(CodeInvalidContinueSessionRole, "continue_session requires source and target agent nodes to use the same subagent role", ref)
+				}
+			}
+		}
 		for _, issue := range UnsupportedRuntimeFeatures(RuntimeSupportEdge{ContextMode: edge.ContextMode, RequiresApproval: edge.RequiresApproval, TargetKind: targetKind, InputBindings: edge.InputBindings}) {
 			s.addSemantic(issue.Code, issue.Message, ref)
 		}

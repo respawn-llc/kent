@@ -9,6 +9,12 @@ Workflow node
 Node ID: {{.NodeId}}
 Node key: {{.NodeKey}}
 Node display name: {{.NodeDisplayName}}
+{{- if .ContextMode }}
+Context mode: {{.ContextMode}}
+{{- end }}
+{{- if .SourceSessionID }}
+Source session: {{.SourceSessionID}}
+{{- end }}
 Completion mode: {{.CompletionMode}}
 {{- if .OutputFields }}
 

@@ -149,6 +149,10 @@ type RunStartContext struct {
 	Run               RunRecord
 	Task              TaskRecord
 	Node              NodeRecord
+	ContextMode       workflow.ContextMode
+	SourceRunID       workflow.RunID
+	SourceSessionID   string
+	SourceNode        NodeRecord
 	TransitionIDs     []string
 	TransitionOptions []TransitionOption
 	InputValues       map[string]string

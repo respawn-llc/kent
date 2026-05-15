@@ -31,6 +31,8 @@ type WorkflowNodeContextArgs struct {
 	NodeId          string
 	NodeKey         string
 	NodeDisplayName string
+	ContextMode     string
+	SourceSessionID string
 	CompletionMode  string
 	OutputFields    []WorkflowOutputField
 	Transitions     []WorkflowTransition

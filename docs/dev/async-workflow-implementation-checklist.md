@@ -816,28 +816,28 @@ Goal: edge context modes work and enforce role/session contract constraints.
 
 ### 10.1 Red Tests
 
-- [ ] Add test `new_session` creates separate session.
-- [ ] Add test same-role `continue_session` appends/continues source session.
-- [ ] Add test same-role `continue_session` keeps immutable persisted session setup when current role config drifted.
-- [ ] Add test cross-role `continue_session` rejected before scheduler start.
-- [ ] Add test `compact_and_continue_session` creates compacted continuation input.
-- [ ] Add test compact mode can cross roles.
-- [ ] Add test prior transcript history remains immutable.
-- [ ] Add test cache-sensitive session setup is not mutated.
+- [x] Add test `new_session` creates separate session.
+- [x] Add test same-role `continue_session` appends/continues source session.
+- [x] Add test same-role `continue_session` keeps immutable persisted session setup when current role config drifted.
+- [x] Add test cross-role `continue_session` rejected before scheduler start.
+- [x] Add test `compact_and_continue_session` creates compacted continuation input.
+- [x] Add test compact mode can cross roles.
+- [x] Add test prior transcript history remains immutable.
+- [x] Add test cache-sensitive session setup is not mutated.
 
 ### 10.2 Implementation
 
-- [ ] Implement edge context mode selection in scheduler/runtime adapter.
-- [ ] Implement same-role check for `continue_session`; do not require current role config to match immutable session setup.
-- [ ] Implement new-session context injection.
-- [ ] Implement compact-then-continue path using existing compaction primitives.
-- [ ] Persist context mode used in transition edge snapshot/run metadata.
+- [x] Implement edge context mode selection in scheduler/runtime adapter.
+- [x] Implement same-role check for `continue_session`; do not require current role config to match immutable session setup.
+- [x] Implement new-session context injection.
+- [x] Implement compact-then-continue path using existing compaction primitives.
+- [x] Persist context mode used in transition edge snapshot/run metadata.
 
 ### 10.3 Verification
 
-- [ ] Run context mode tests.
-- [ ] Run `./scripts/test.sh ./server/workflowruntime/... ./server/runtime/... ./server/session/...`.
-- [ ] Run `./scripts/build.sh --output ./bin/builder`.
+- [x] Run context mode tests.
+- [x] Run `./scripts/test.sh ./server/workflowruntime/... ./server/runtime/... ./server/session/...`.
+- [x] Run `./scripts/build.sh --output ./bin/builder`.
 - [ ] Commit slice with message like `feat: add workflow context modes`.
 
 ## Slice 11: Approvals And Manual Moves

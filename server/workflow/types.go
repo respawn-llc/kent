@@ -166,6 +166,7 @@ const (
 	CodeInvalidInputBinding            ValidationErrorCode = "workflow.validation.invalid_input_binding"
 	CodeInvalidTemplatePlaceholder     ValidationErrorCode = "workflow.validation.invalid_template_placeholder"
 	CodeInvalidContextMode             ValidationErrorCode = "workflow.validation.invalid_context_mode"
+	CodeInvalidContinueSessionRole     ValidationErrorCode = "workflow.validation.invalid_continue_session_role"
 	CodeInvalidFanoutJoinTopology      ValidationErrorCode = "workflow.validation.invalid_fanout_join_topology"
 	CodeUnsupportedContextMode         ValidationErrorCode = "workflow.validation.unsupported_context_mode"
 	CodeUnsupportedApprovalExecution   ValidationErrorCode = "workflow.validation.unsupported_approval_execution"
@@ -204,9 +205,6 @@ func UnsupportedRuntimeFeatures(edge RuntimeSupportEdge) []RuntimeSupportIssue {
 	issues := []RuntimeSupportIssue{}
 	if edge.RequiresApproval {
 		issues = append(issues, RuntimeSupportIssue{Code: CodeUnsupportedApprovalExecution, Message: "approval-gated edges cannot execute until approval resume is implemented"})
-	}
-	if edge.ContextMode != "" && edge.ContextMode != ContextModeNewSession {
-		issues = append(issues, RuntimeSupportIssue{Code: CodeUnsupportedContextMode, Message: "non-new-session context modes cannot execute until continuation modes are implemented"})
 	}
 	if edge.TargetKind == NodeKindJoin {
 		issues = append(issues, RuntimeSupportIssue{Code: CodeUnsupportedJoinExecution, Message: "join targets cannot execute until join progression is implemented"})

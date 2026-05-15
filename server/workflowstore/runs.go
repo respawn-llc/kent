@@ -3,6 +3,7 @@ package workflowstore
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -119,12 +120,20 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 	if err != nil {
 		return RunStartContext{}, err
 	}
+	transitionContext, err := s.resolveRunTransitionContext(ctx, run.PlacementID)
+	if err != nil {
+		return RunStartContext{}, err
+	}
 	worktreeID := strings.TrimSpace(task.ManagedWorktreeID.String)
 	if worktreeID == "" {
 		return RunStartContext{
 			Run:               runRecordFromTaskRun(run),
 			Task:              taskRecordFromTask(task),
 			Node:              nodeRecordFromSnapshot(snapshot.Node, snapshot.WorkflowID),
+			ContextMode:       transitionContext.ContextMode,
+			SourceRunID:       transitionContext.SourceRunID,
+			SourceSessionID:   transitionContext.SourceSessionID,
+			SourceNode:        transitionContext.SourceNode,
 			TransitionIDs:     transitionIDsFromSnapshot(snapshot),
 			TransitionOptions: transitionOptionsFromSnapshot(snapshot),
 			InputValues:       inputValues,
@@ -142,6 +151,10 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 		Run:               runRecordFromTaskRun(run),
 		Task:              taskRecordFromTask(task),
 		Node:              nodeRecordFromSnapshot(snapshot.Node, snapshot.WorkflowID),
+		ContextMode:       transitionContext.ContextMode,
+		SourceRunID:       transitionContext.SourceRunID,
+		SourceSessionID:   transitionContext.SourceSessionID,
+		SourceNode:        transitionContext.SourceNode,
 		TransitionIDs:     transitionIDsFromSnapshot(snapshot),
 		TransitionOptions: transitionOptionsFromSnapshot(snapshot),
 		InputValues:       inputValues,
@@ -150,6 +163,55 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 		WorktreeID:        worktree.ID,
 		WorktreeRoot:      worktree.CanonicalRoot,
 	}, nil
+}
+
+type runTransitionContext struct {
+	ContextMode     workflow.ContextMode
+	SourceRunID     workflow.RunID
+	SourceSessionID string
+	SourceNode      NodeRecord
+}
+
+func (s *Store) resolveRunTransitionContext(ctx context.Context, placementID string) (runTransitionContext, error) {
+	var contextMode string
+	var sourceRunID sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+SELECT
+    te.context_mode,
+    tr.source_run_id
+FROM task_node_placements p
+JOIN task_transitions tr ON tr.id = p.created_by_transition_id
+JOIN task_transition_edges te
+    ON te.task_transition_id = tr.id
+    AND te.target_placement_id = p.id
+WHERE p.id = ?
+ORDER BY te.rowid ASC
+LIMIT 1`, placementID).Scan(&contextMode, &sourceRunID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return runTransitionContext{ContextMode: workflow.ContextModeNewSession}, nil
+	}
+	if err != nil {
+		return runTransitionContext{}, fmt.Errorf("resolve workflow run transition context: %w", err)
+	}
+	resolved := runTransitionContext{ContextMode: workflow.ContextMode(strings.TrimSpace(contextMode))}
+	if resolved.ContextMode == "" {
+		resolved.ContextMode = workflow.ContextModeNewSession
+	}
+	if !sourceRunID.Valid || strings.TrimSpace(sourceRunID.String) == "" {
+		return resolved, nil
+	}
+	sourceRun, err := s.queries.GetTaskRun(ctx, sourceRunID.String)
+	if err != nil {
+		return runTransitionContext{}, err
+	}
+	sourceSnapshot := runStartSnapshot{}
+	if err := unmarshalJSON(sourceRun.RunStartSnapshotJson, &sourceSnapshot); err != nil {
+		return runTransitionContext{}, err
+	}
+	resolved.SourceRunID = workflow.RunID(sourceRun.ID)
+	resolved.SourceSessionID = strings.TrimSpace(sourceRun.SessionID.String)
+	resolved.SourceNode = nodeRecordFromSnapshot(sourceSnapshot.Node, sourceSnapshot.WorkflowID)
+	return resolved, nil
 }
 
 func (s *Store) resolveRunInputValues(ctx context.Context, placementID string, task TaskRecord) (map[string]string, error) {
