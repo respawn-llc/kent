@@ -265,6 +265,20 @@ func (s *Service) ApproveWorkflowTask(ctx context.Context, req serverapi.Workflo
 	return serverapi.WorkflowTaskApproveResponse{TransitionID: string(approved.TransitionID), State: approved.State, PlacementIDs: placementIDs(approved.PlacementIDs), RunIDs: runIDs(approved.RunIDs)}, nil
 }
 
+func (s *Service) MoveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskMoveRequest) (serverapi.WorkflowTaskMoveResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.WorkflowTaskMoveResponse{}, err
+	}
+	moved, err := s.store.ManualMoveTask(ctx, workflowstore.ManualMoveRequest{TaskID: workflow.TaskID(req.TaskID), TargetNodeID: workflow.NodeID(req.TargetNodeID), OutputValues: req.OutputValues, Commentary: req.Commentary, Actor: "user"})
+	if err != nil {
+		return serverapi.WorkflowTaskMoveResponse{}, err
+	}
+	if s.schedulerWake != nil {
+		s.schedulerWake.Notify()
+	}
+	return serverapi.WorkflowTaskMoveResponse{TransitionID: string(moved.TransitionID), State: moved.State, PlacementIDs: placementIDs(moved.PlacementIDs), RunIDs: runIDs(moved.RunIDs)}, nil
+}
+
 func (s *Service) CancelWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCancelRequest) error {
 	if err := req.Validate(); err != nil {
 		return err

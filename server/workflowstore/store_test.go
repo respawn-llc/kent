@@ -742,6 +742,51 @@ func TestApprovalTransitionGroupWaitsAsWholeWhenAnyEdgeRequiresApproval(t *testi
 	}
 }
 
+func TestApprovalUsesStoredEdgeSnapshotAfterGraphEdit(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createApprovalWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	originalDone := nodeByKind(t, def, workflow.NodeKindTerminal)
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	archiveID := workflow.NodeID("node-archive-" + string(workflowID))
+	if _, err := store.AddNode(ctx, NodeRecord{ID: archiveID, WorkflowID: workflowID, Key: "archive", Kind: workflow.NodeKindTerminal, DisplayName: "Archive"}); err != nil {
+		t.Fatalf("AddNode archive: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE workflow_edges SET target_node_id = ? WHERE workflow_id = ? AND edge_key = 'done'`, string(archiveID), string(workflowID)); err != nil {
+		t.Fatalf("edit workflow edge target: %v", err)
+	}
+
+	approved, err := store.ApproveTransition(ctx, completed.TransitionID)
+	if err != nil {
+		t.Fatalf("ApproveTransition: %v", err)
+	}
+	placements, err := store.ListPlacements(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListPlacements: %v", err)
+	}
+	if len(placements) != 3 || placements[2].ID != approved.PlacementIDs[0] || placements[2].NodeID != originalDone.ID {
+		t.Fatalf("placements after graph edit approval = %+v, want snapshotted original target %s", placements, originalDone.ID)
+	}
+}
+
 func TestManualMoveForwardValidatesOutputValues(t *testing.T) {
 	ctx := context.Background()
 	store, binding := newTestStore(t)
@@ -778,6 +823,101 @@ func TestManualMoveForwardValidatesOutputValues(t *testing.T) {
 	}
 	if len(transitions) != 2 || transitions[1].OutputValues["summary"] != "manual done" {
 		t.Fatalf("manual move transition = %+v", transitions)
+	}
+}
+
+func TestManualMoveBackwardReusesStoredOutputValues(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createValidWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "reused"}}); err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	agent := nodeByKey(t, def, "agent")
+
+	moved, err := store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: agent.ID})
+	if err != nil {
+		t.Fatalf("ManualMoveTask backward: %v", err)
+	}
+	if moved.State != "pending_approval" || len(moved.PlacementIDs) != 0 || len(moved.RunIDs) != 0 {
+		t.Fatalf("backward move = %+v, want pending approval before executable target automation", moved)
+	}
+	transitions, err := store.ListTransitions(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTransitions: %v", err)
+	}
+	if len(transitions) != 3 || transitions[2].OutputValues["summary"] != "reused" {
+		t.Fatalf("backward transition outputs = %+v, want reused summary", transitions)
+	}
+}
+
+func TestManualMoveContinueSessionRequiresSourceSession(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeContinueSession, "coder")
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.StartTask(ctx, task.ID); err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	impl := nodeByKey(t, def, "implement")
+
+	_, err = store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: impl.ID, OutputValues: map[string]string{"summary": "done"}})
+	if err == nil || !strings.Contains(err.Error(), "continue_session requires source session") {
+		t.Fatalf("ManualMoveTask continue_session error = %v, want source session requirement", err)
+	}
+}
+
+func TestManualMoveExecutableTargetRequiresApprovalBeforeAutomation(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.StartTask(ctx, task.ID); err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	impl := nodeByKey(t, def, "implement")
+
+	moved, err := store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: impl.ID, OutputValues: map[string]string{"summary": "done"}})
+	if err != nil {
+		t.Fatalf("ManualMoveTask executable: %v", err)
+	}
+	if moved.State != "pending_approval" || len(moved.PlacementIDs) != 0 || len(moved.RunIDs) != 0 {
+		t.Fatalf("manual executable move = %+v, want pending approval without automation", moved)
 	}
 }
 

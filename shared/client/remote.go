@@ -235,6 +235,11 @@ func (c *Remote) ApproveWorkflowTask(ctx context.Context, req serverapi.Workflow
 	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskApprove, req, &resp)
 }
 
+func (c *Remote) MoveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskMoveRequest) (serverapi.WorkflowTaskMoveResponse, error) {
+	var resp serverapi.WorkflowTaskMoveResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskMove, req, &resp)
+}
+
 func (c *Remote) CancelWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCancelRequest) error {
 	return c.callUnscoped(ctx, protocol.MethodWorkflowTaskCancel, req, &struct{}{})
 }

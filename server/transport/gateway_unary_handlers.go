@@ -198,6 +198,11 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return g.deps.WorkflowClient().ApproveWorkflowTask(ctx, params)
 		})
 	},
+	protocol.MethodWorkflowTaskMove: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowTaskMoveRequest) (serverapi.WorkflowTaskMoveResponse, error) {
+			return g.deps.WorkflowClient().MoveWorkflowTask(ctx, params)
+		})
+	},
 	protocol.MethodWorkflowTaskCancel: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.WorkflowTaskCancelRequest) (struct{}, error) {
 			return struct{}{}, g.deps.WorkflowClient().CancelWorkflowTask(ctx, params)

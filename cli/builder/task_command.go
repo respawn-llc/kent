@@ -42,7 +42,9 @@ func taskSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return taskCancelSubcommand(args[1:], stdout, stderr)
 	case "approve":
 		return taskApproveSubcommand(args[1:], stdout, stderr)
-	case "move", "resume":
+	case "move":
+		return taskMoveSubcommand(args[1:], stdout, stderr)
+	case "resume":
 		return taskUnsupportedSubcommand(args[0], stdout, stderr)
 	case "comment":
 		return taskCommentSubcommand(args[1:], stdout, stderr)
@@ -291,10 +293,82 @@ func taskApproveSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 	return 0
 }
 
+func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
+	fs := flag.NewFlagSet("builder task move", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() { writeTaskMoveUsage(fs) }
+	projectRef := fs.String("project", ".", "project id or path for short ids")
+	commentary := fs.String("commentary", "", "transition commentary")
+	outputs := stringMapFlag{}
+	fs.Var(&outputs, "output", "output value as name=value; repeatable")
+	positionals, flagArgs := takeLeadingPositionals(args, 2)
+	if err := fs.Parse(flagArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	positionals = append(positionals, fs.Args()...)
+	if len(positionals) != 2 {
+		fmt.Fprintln(stderr, "task move requires <short-id-or-task-id> <target-node-id>")
+		return 2
+	}
+	cfg, remote, err := workflowOpen(context.Background(), ".")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer func() { _ = remote.Close() }()
+	taskID, err := resolveWorkflowTaskID(context.Background(), cfg, remote, *projectRef, positionals[0])
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	ctx, cancel := workflowRPCContext(context.Background())
+	defer cancel()
+	resp, err := remote.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{TaskID: taskID, TargetNodeID: positionals[1], OutputValues: outputs.values, Commentary: *commentary})
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "transition_id\t%s\nstate\t%s\n", resp.TransitionID, resp.State)
+	for _, placementID := range resp.PlacementIDs {
+		fmt.Fprintf(stdout, "placement_id\t%s\n", placementID)
+	}
+	for _, runID := range resp.RunIDs {
+		fmt.Fprintf(stdout, "run_id\t%s\n", runID)
+	}
+	return 0
+}
+
 func taskUnsupportedSubcommand(action string, stdout io.Writer, stderr io.Writer) int {
 	_ = stdout
 	fmt.Fprintf(stderr, "task %s is not implemented yet; reserved for a later workflow runtime slice\n", action)
 	return 1
+}
+
+type stringMapFlag struct {
+	values map[string]string
+}
+
+func (f *stringMapFlag) String() string {
+	if f == nil || len(f.values) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%v", f.values)
+}
+
+func (f *stringMapFlag) Set(raw string) error {
+	name, value, ok := strings.Cut(raw, "=")
+	name = strings.TrimSpace(name)
+	if !ok || name == "" {
+		return fmt.Errorf("output must be name=value")
+	}
+	if f.values == nil {
+		f.values = map[string]string{}
+	}
+	f.values[name] = value
+	return nil
 }
 
 func taskCommentSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {

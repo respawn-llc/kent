@@ -850,13 +850,13 @@ Goal: edge approval and manual override transitions are durable, validated, and 
 - [x] Add test approval by task transition row ID starts stored target edge snapshot.
 - [x] Add test duplicate approval is idempotent.
 - [x] Add test multi-edge transition group waits as a whole when any edge requires approval.
-- [ ] Add test graph edit after pending approval does not alter approved behavior.
+- [x] Add test graph edit after pending approval does not alter approved behavior.
 - [x] Add test rejection path marks pending transition rejected.
 - [x] Add test forward manual move validates supplied output values.
-- [ ] Add test backward manual move reuses stored output values when valid.
+- [x] Add test backward manual move reuses stored output values when valid.
 - [x] Add test missing required output rejected.
-- [ ] Add test continuation-required manual move rejected without valid source session.
-- [ ] Add test executable manual target pauses before automation and requires explicit approval.
+- [x] Add test continuation-required manual move rejected without valid source session.
+- [x] Add test executable manual target pauses before automation and requires explicit approval.
 
 ### 11.2 Implementation
 
@@ -866,17 +866,17 @@ Goal: edge approval and manual override transitions are durable, validated, and 
 - [x] Make approval idempotent and apply the whole transition group when any selected edge requires approval.
 - [x] Add rejection/cancel service method if needed by UI/CLI.
 - [x] Implement manual move validation against edge/equivalent metadata.
-- [ ] Implement output value reuse for backward moves.
-- [ ] Implement explicit approve-before-automation for executable manual target.
-- [ ] Update CLI/API/read models for pending approvals.
-- [ ] Replace Slice 4 unsupported `builder task move` placeholder with working manual move command.
-- [ ] Replace Slice 4 unsupported `builder task approve` placeholder with working approval command.
+- [x] Implement output value reuse for backward moves.
+- [x] Implement explicit approve-before-automation for executable manual target.
+- [x] Update CLI/API/read models for pending approvals.
+- [x] Replace Slice 4 unsupported `builder task move` placeholder with working manual move command.
+- [x] Replace Slice 4 unsupported `builder task approve` placeholder with working approval command.
 
 ### 11.3 Verification
 
-- [ ] Run approval/manual move tests.
-- [ ] Run `./scripts/test.sh ./server/workflow/... ./server/workflowsvc/... ./server/workflowview/... ./cli/builder/...`.
-- [ ] Run `./scripts/build.sh --output ./bin/builder`.
+- [x] Run approval/manual move tests.
+- [x] Run `./scripts/test.sh ./server/workflow/... ./server/workflowsvc/... ./server/workflowview/... ./cli/builder/...`.
+- [x] Run `./scripts/build.sh --output ./bin/builder`.
 - [ ] Commit slice with message like `feat: add workflow approvals`.
 
 ## Slice 12: Fan-Out, Parallel Branches, And Joins
