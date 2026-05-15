@@ -203,19 +203,23 @@ func (s *Service) StartWorkflowTask(ctx context.Context, req serverapi.WorkflowT
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowTaskStartResponse{}, err
 	}
-	if s.taskWorktrees != nil {
-		if err := s.store.ValidateTaskStart(ctx, workflow.TaskID(req.TaskID)); err != nil {
-			return serverapi.WorkflowTaskStartResponse{}, err
-		}
-		if err := s.taskWorktrees.EnsureTaskWorktree(ctx, req.TaskID); err != nil {
-			return serverapi.WorkflowTaskStartResponse{}, err
-		}
-	}
-	started, err := s.store.StartTask(ctx, workflow.TaskID(req.TaskID))
+	started, err := s.StartTaskAutomation(ctx, req.TaskID)
 	if err != nil {
 		return serverapi.WorkflowTaskStartResponse{}, err
 	}
 	return serverapi.WorkflowTaskStartResponse{TransitionID: started.TransitionID, PlacementID: string(started.PlacementID), RunID: string(started.RunID)}, nil
+}
+
+func (s *Service) StartTaskAutomation(ctx context.Context, taskID string) (workflowstore.StartTaskResult, error) {
+	if s.taskWorktrees != nil {
+		if err := s.store.ValidateTaskStart(ctx, workflow.TaskID(taskID)); err != nil {
+			return workflowstore.StartTaskResult{}, err
+		}
+		if err := s.taskWorktrees.EnsureTaskWorktree(ctx, taskID); err != nil {
+			return workflowstore.StartTaskResult{}, err
+		}
+	}
+	return s.store.StartTask(ctx, workflow.TaskID(taskID))
 }
 
 func (s *Service) CancelWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCancelRequest) error {

@@ -25,6 +25,7 @@ import (
 	"builder/server/sessionview"
 	shelltool "builder/server/tools/shell"
 	"builder/server/updatestatus"
+	"builder/server/workflowscheduler"
 	"builder/server/workflowsvc"
 	"builder/server/worktree"
 	"builder/shared/client"
@@ -109,6 +110,7 @@ type WorktreeBundle struct {
 
 type WorkflowBundle struct {
 	workflows client.WorkflowClient
+	scheduler *workflowscheduler.Service
 }
 
 func (s *Core) safeBundles() *Bundles {
@@ -193,6 +195,7 @@ type bundleCompositionInput struct {
 	sessionActivityService  *sessionactivity.Service
 	updateStatusService     *updatestatus.Service
 	workflowService         *workflowsvc.Service
+	workflowScheduler       *workflowscheduler.Service
 	worktreeService         *worktree.Service
 }
 
@@ -203,6 +206,12 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 			{name: "persistence root lock", close: in.rootLease.Close},
 			{name: "metadata store", close: in.metadataStore.Close},
 			{name: "background manager", close: in.runtimeSupport.Background.Close},
+			{name: "workflow scheduler", close: func() error {
+				if in.workflowScheduler == nil {
+					return nil
+				}
+				return in.workflowScheduler.Close()
+			}},
 		},
 		Persistence: newPersistenceBundle(in.rootLease, in.metadataStore, in.sessionStoreRegistry),
 		Processes:   newProcessBundle(in.processService, in.processOutputService),
@@ -211,7 +220,7 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 		Runtime:     newRuntimeBundle(in.runtimeSupport, in.runtimeRegistry, in.runtimeControlService, in.sessionRuntimeService, in.sessionActivityService),
 		Sessions:    newSessionBundle(in.sessionViewService, in.sessionLifecycleService),
 		Updates:     &UpdateBundle{updateStatus: in.updateStatusService},
-		Workflows:   newWorkflowBundle(in.workflowService),
+		Workflows:   newWorkflowBundle(in.workflowService, in.workflowScheduler),
 		Worktrees:   &WorktreeBundle{worktrees: client.NewLoopbackWorktreeClient(in.worktreeService)},
 	}
 }
@@ -269,8 +278,8 @@ func newRuntimeBundle(runtimeSupport serverbootstrap.RuntimeSupport, runtimeRegi
 	}
 }
 
-func newWorkflowBundle(workflowService *workflowsvc.Service) *WorkflowBundle {
-	return &WorkflowBundle{workflows: client.NewLoopbackWorkflowClient(workflowService)}
+func newWorkflowBundle(workflowService *workflowsvc.Service, scheduler *workflowscheduler.Service) *WorkflowBundle {
+	return &WorkflowBundle{workflows: client.NewLoopbackWorkflowClient(workflowService), scheduler: scheduler}
 }
 
 func newSessionBundle(sessionViewService *sessionview.Service, sessionLifecycleService *sessionlifecycle.Service) *SessionBundle {

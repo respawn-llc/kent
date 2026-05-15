@@ -127,10 +127,19 @@ type RunRecord struct {
 	TaskID                workflow.TaskID
 	PlacementID           workflow.PlacementID
 	NodeID                workflow.NodeID
+	SessionID             string
+	Generation            int64
 	AutomationRequestedAt int64
+	StartedAt             int64
 	CompletedAt           int64
 	InterruptedAt         int64
 	InterruptionReason    string
+	WaitingAskID          string
+}
+
+type RunnableRunRecord struct {
+	RunRecord
+	WorkflowRevisionSeen int64
 }
 
 type TransitionRecord struct {

@@ -22,6 +22,10 @@ const (
 	defaultBGShellsOutput                = "default"
 	defaultShellPostprocessingMode       = ShellPostprocessingModeBuiltin
 	defaultCacheWarningMode              = CacheWarningModeDefault
+	defaultWorkflowCompletionMode        = WorkflowCompletionModeAuto
+	defaultWorkflowConcurrency           = 5
+	defaultWorkflowFinalAnswerCap        = 3
+	defaultWorkflowInvalidCompletionCap  = 5
 	defaultCompactionThreshold           = defaultModelContextWindow * 95 / 100
 	defaultPreSubmitCompactionLeadTokens = compaction.DefaultPreSubmitRunwayTokens
 	defaultReviewerFrequency             = "edits"

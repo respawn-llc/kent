@@ -145,6 +145,51 @@ func TestServiceRejectsUnlinkedWorkflowAndInvalidDefault(t *testing.T) {
 	}
 }
 
+func TestServiceStartTaskAutomationValidatesEnsuresWorktreeAndRecordsRunnableRun(t *testing.T) {
+	ctx := context.Background()
+	service, binding := newWorkflowServiceTestService(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	if _, err := service.LinkWorkflowToProject(ctx, serverapi.WorkflowLinkProjectRequest{ProjectID: binding.ProjectID, WorkflowID: workflowID, Default: true}); err != nil {
+		t.Fatalf("LinkWorkflowToProject: %v", err)
+	}
+	task, err := service.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateWorkflowTask: %v", err)
+	}
+	ensurer := &recordingTaskWorktreeEnsurer{hook: func(taskID string) {
+		runs, err := service.store.ListRuns(ctx, workflow.TaskID(taskID))
+		if err != nil {
+			t.Fatalf("ListRuns during ensure: %v", err)
+		}
+		if len(runs) != 0 {
+			t.Fatalf("worktree ensure happened after automation intent: %+v", runs)
+		}
+	}}
+	service.taskWorktrees = ensurer
+
+	started, err := service.StartTaskAutomation(ctx, task.Task.ID)
+	if err != nil {
+		t.Fatalf("StartTaskAutomation: %v", err)
+	}
+	if ensurer.taskID != task.Task.ID {
+		t.Fatalf("ensured task id = %q, want %q", ensurer.taskID, task.Task.ID)
+	}
+	runs, err := service.store.ListRuns(ctx, workflow.TaskID(task.Task.ID))
+	if err != nil {
+		t.Fatalf("ListRuns after automation: %v", err)
+	}
+	if len(runs) != 1 || runs[0].ID != workflow.RunID(started.RunID) || runs[0].AutomationRequestedAt == 0 {
+		t.Fatalf("runs after automation = %+v", runs)
+	}
+	transitions, err := service.store.ListTransitions(ctx, workflow.TaskID(task.Task.ID))
+	if err != nil {
+		t.Fatalf("ListTransitions: %v", err)
+	}
+	if len(transitions) != 1 || transitions[0].TransitionID != "start" {
+		t.Fatalf("start transition not applied: %+v", transitions)
+	}
+}
+
 type recordingTaskWorktreeEnsurer struct {
 	taskID string
 	hook   func(string)

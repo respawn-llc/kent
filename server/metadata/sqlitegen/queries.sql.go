@@ -84,6 +84,82 @@ func (q *Queries) CancelTask(ctx context.Context, arg CancelTaskParams) (int64, 
 	return result.RowsAffected()
 }
 
+const claimWorkflowRun = `-- name: ClaimWorkflowRun :one
+UPDATE task_runs
+SET
+    updated_at_unix_ms = ?1,
+    started_at_unix_ms = ?2,
+    run_generation = run_generation + 1
+WHERE id = ?3
+  AND run_generation = ?4
+  AND automation_requested_at_unix_ms > 0
+  AND started_at_unix_ms = 0
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0
+  AND waiting_ask_id = ''
+RETURNING
+    id,
+    task_id,
+    placement_id,
+    node_id,
+    session_id,
+    run_generation,
+    workflow_revision_seen,
+    automation_requested_at_unix_ms,
+    created_at_unix_ms,
+    updated_at_unix_ms,
+    started_at_unix_ms,
+    completed_at_unix_ms,
+    interrupted_at_unix_ms,
+    interruption_reason,
+    interruption_detail_json,
+    waiting_ask_id,
+    final_answer_violation_count,
+    invalid_completion_count,
+    run_start_snapshot_json,
+    metadata_json
+`
+
+type ClaimWorkflowRunParams struct {
+	UpdatedAtUnixMs    int64
+	StartedAtUnixMs    int64
+	ID                 string
+	ExpectedGeneration int64
+}
+
+func (q *Queries) ClaimWorkflowRun(ctx context.Context, arg ClaimWorkflowRunParams) (TaskRun, error) {
+	row := q.db.QueryRowContext(ctx, claimWorkflowRun,
+		arg.UpdatedAtUnixMs,
+		arg.StartedAtUnixMs,
+		arg.ID,
+		arg.ExpectedGeneration,
+	)
+	var i TaskRun
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.PlacementID,
+		&i.NodeID,
+		&i.SessionID,
+		&i.RunGeneration,
+		&i.WorkflowRevisionSeen,
+		&i.AutomationRequestedAtUnixMs,
+		&i.CreatedAtUnixMs,
+		&i.UpdatedAtUnixMs,
+		&i.StartedAtUnixMs,
+		&i.CompletedAtUnixMs,
+		&i.InterruptedAtUnixMs,
+		&i.InterruptionReason,
+		&i.InterruptionDetailJson,
+		&i.WaitingAskID,
+		&i.FinalAnswerViolationCount,
+		&i.InvalidCompletionCount,
+		&i.RunStartSnapshotJson,
+		&i.MetadataJson,
+	)
+	return i, err
+}
+
 const clearProjectDefaultWorkflowLinks = `-- name: ClearProjectDefaultWorkflowLinks :exec
 UPDATE project_workflow_links
 SET
@@ -1919,6 +1995,73 @@ func (q *Queries) InterruptActiveTaskRuns(ctx context.Context, arg InterruptActi
 	return result.RowsAffected()
 }
 
+const interruptStartedWorkflowRunsForRecovery = `-- name: InterruptStartedWorkflowRunsForRecovery :execrows
+UPDATE task_runs
+SET
+    updated_at_unix_ms = ?1,
+    interrupted_at_unix_ms = ?2,
+    interruption_reason = ?3,
+    interruption_detail_json = ?4
+WHERE started_at_unix_ms > 0
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0
+  AND waiting_ask_id = ''
+`
+
+type InterruptStartedWorkflowRunsForRecoveryParams struct {
+	UpdatedAtUnixMs        int64
+	InterruptedAtUnixMs    int64
+	InterruptionReason     string
+	InterruptionDetailJson string
+}
+
+func (q *Queries) InterruptStartedWorkflowRunsForRecovery(ctx context.Context, arg InterruptStartedWorkflowRunsForRecoveryParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, interruptStartedWorkflowRunsForRecovery,
+		arg.UpdatedAtUnixMs,
+		arg.InterruptedAtUnixMs,
+		arg.InterruptionReason,
+		arg.InterruptionDetailJson,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const interruptWorkflowRun = `-- name: InterruptWorkflowRun :execrows
+UPDATE task_runs
+SET
+    updated_at_unix_ms = ?1,
+    interrupted_at_unix_ms = ?2,
+    interruption_reason = ?3,
+    interruption_detail_json = ?4
+WHERE id = ?5
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0
+`
+
+type InterruptWorkflowRunParams struct {
+	UpdatedAtUnixMs        int64
+	InterruptedAtUnixMs    int64
+	InterruptionReason     string
+	InterruptionDetailJson string
+	ID                     string
+}
+
+func (q *Queries) InterruptWorkflowRun(ctx context.Context, arg InterruptWorkflowRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, interruptWorkflowRun,
+		arg.UpdatedAtUnixMs,
+		arg.InterruptedAtUnixMs,
+		arg.InterruptionReason,
+		arg.InterruptionDetailJson,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const listProjectKeyRows = `-- name: ListProjectKeyRows :many
 SELECT
     id,
@@ -2093,6 +2236,88 @@ func (q *Queries) ListProjects(ctx context.Context) ([]ListProjectsRow, error) {
 			&i.RootPath,
 			&i.SessionCount,
 			&i.LatestActivityUnixMs,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRunnableWorkflowRuns = `-- name: ListRunnableWorkflowRuns :many
+SELECT
+    r.id,
+    r.task_id,
+    r.placement_id,
+    r.node_id,
+    r.session_id,
+    r.run_generation,
+    r.workflow_revision_seen,
+    r.automation_requested_at_unix_ms,
+    r.created_at_unix_ms,
+    r.updated_at_unix_ms,
+    r.started_at_unix_ms,
+    r.completed_at_unix_ms,
+    r.interrupted_at_unix_ms,
+    r.interruption_reason,
+    r.interruption_detail_json,
+    r.waiting_ask_id,
+    r.final_answer_violation_count,
+    r.invalid_completion_count,
+    r.run_start_snapshot_json,
+    r.metadata_json
+FROM task_runs r
+JOIN tasks t ON t.id = r.task_id
+JOIN task_node_placements p ON p.id = r.placement_id
+JOIN workflow_nodes n ON n.id = r.node_id
+WHERE r.automation_requested_at_unix_ms > 0
+  AND r.started_at_unix_ms = 0
+  AND r.completed_at_unix_ms = 0
+  AND r.interrupted_at_unix_ms = 0
+  AND r.waiting_ask_id = ''
+  AND t.canceled_at_unix_ms = 0
+  AND p.state = 'active'
+  AND n.kind = 'agent'
+ORDER BY r.automation_requested_at_unix_ms ASC, r.id ASC
+LIMIT ?1
+`
+
+func (q *Queries) ListRunnableWorkflowRuns(ctx context.Context, limit int64) ([]TaskRun, error) {
+	rows, err := q.db.QueryContext(ctx, listRunnableWorkflowRuns, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TaskRun
+	for rows.Next() {
+		var i TaskRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.PlacementID,
+			&i.NodeID,
+			&i.SessionID,
+			&i.RunGeneration,
+			&i.WorkflowRevisionSeen,
+			&i.AutomationRequestedAtUnixMs,
+			&i.CreatedAtUnixMs,
+			&i.UpdatedAtUnixMs,
+			&i.StartedAtUnixMs,
+			&i.CompletedAtUnixMs,
+			&i.InterruptedAtUnixMs,
+			&i.InterruptionReason,
+			&i.InterruptionDetailJson,
+			&i.WaitingAskID,
+			&i.FinalAnswerViolationCount,
+			&i.InvalidCompletionCount,
+			&i.RunStartSnapshotJson,
+			&i.MetadataJson,
 		); err != nil {
 			return nil, err
 		}
@@ -2546,6 +2771,79 @@ func (q *Queries) ListTasksByProject(ctx context.Context, projectID string) ([]T
 			&i.CancellationReason,
 			&i.CreatedAtUnixMs,
 			&i.UpdatedAtUnixMs,
+			&i.MetadataJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWaitingAskWorkflowRuns = `-- name: ListWaitingAskWorkflowRuns :many
+SELECT
+    id,
+    task_id,
+    placement_id,
+    node_id,
+    session_id,
+    run_generation,
+    workflow_revision_seen,
+    automation_requested_at_unix_ms,
+    created_at_unix_ms,
+    updated_at_unix_ms,
+    started_at_unix_ms,
+    completed_at_unix_ms,
+    interrupted_at_unix_ms,
+    interruption_reason,
+    interruption_detail_json,
+    waiting_ask_id,
+    final_answer_violation_count,
+    invalid_completion_count,
+    run_start_snapshot_json,
+    metadata_json
+FROM task_runs
+WHERE waiting_ask_id != ''
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0
+ORDER BY updated_at_unix_ms ASC, id ASC
+`
+
+func (q *Queries) ListWaitingAskWorkflowRuns(ctx context.Context) ([]TaskRun, error) {
+	rows, err := q.db.QueryContext(ctx, listWaitingAskWorkflowRuns)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TaskRun
+	for rows.Next() {
+		var i TaskRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.PlacementID,
+			&i.NodeID,
+			&i.SessionID,
+			&i.RunGeneration,
+			&i.WorkflowRevisionSeen,
+			&i.AutomationRequestedAtUnixMs,
+			&i.CreatedAtUnixMs,
+			&i.UpdatedAtUnixMs,
+			&i.StartedAtUnixMs,
+			&i.CompletedAtUnixMs,
+			&i.InterruptedAtUnixMs,
+			&i.InterruptionReason,
+			&i.InterruptionDetailJson,
+			&i.WaitingAskID,
+			&i.FinalAnswerViolationCount,
+			&i.InvalidCompletionCount,
+			&i.RunStartSnapshotJson,
 			&i.MetadataJson,
 		); err != nil {
 			return nil, err

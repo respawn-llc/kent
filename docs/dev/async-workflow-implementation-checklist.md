@@ -589,56 +589,56 @@ Goal: scheduler rebuilds runnable workflow work from durable placement/run inten
 
 ### 6.1 Red Tests
 
-- [ ] Add config schema/default test for workflow global concurrency defaulting to `5`.
-- [ ] Add config validation test for invalid workflow concurrency values.
-- [ ] Add config schema/default test for protocol caps: `[workflow].max_final_answer_violations = 3` and `[workflow].max_invalid_completion_attempts = 5`.
-- [ ] Add config validation test for invalid protocol cap values.
-- [ ] Add config surface test covering `[workflow].completion_mode`, `[workflow].concurrency`, `[workflow].max_final_answer_violations`, and `[workflow].max_invalid_completion_attempts` together.
-- [ ] Add composition-root test that `server/core` wires workflow store/service/scheduler and stops scheduler during core shutdown.
-- [ ] Add test for `StartTaskAutomation` validating current workflow/project context before scheduling.
-- [ ] Add test for `StartTaskAutomation` ensuring task worktree before recording runnable automation intent.
-- [ ] Add test for `StartTaskAutomation` applying the start node's single outgoing transition group.
-- [ ] Add test for selecting oldest runnable run from automation request time.
-- [ ] Add test for global concurrency cap.
-- [ ] Add concurrent scheduler race test proving one live runtime starts per runnable run.
-- [ ] Add test proving no durable state is written for pending scheduler work or active runtime ownership.
-- [ ] Add test canceled tasks never become runnable.
-- [ ] Add stale runtime completion rejected by generation/fence.
-- [ ] Add test for runnable work rebuilt on startup.
-- [ ] Add test for orphaned started run becoming interrupted on startup.
-- [ ] Add test for waiting-for-question retained when ask can rehydrate.
-- [ ] Add test for waiting-for-question becoming interrupted when ask cannot rehydrate.
-- [ ] Add test for `PendingAskResolver.CanRehydrate(sessionID, runID, askID)` boundary behavior.
-- [ ] Add test that pending ask recovery does not scan or load full `events.jsonl`.
-- [ ] Add test scheduling validation blockers become interrupted runs with stable reason metadata.
-- [ ] Add test for pending approval retained on startup.
-- [ ] Add test that interrupted runs are never auto-retried.
-- [ ] Add test shutdown begins: scheduler stops taking new claims while preserving in-flight interruption semantics.
-- [ ] Add transaction rollback test for unsuccessful transition application.
+- [x] Add config schema/default test for workflow global concurrency defaulting to `5`.
+- [x] Add config validation test for invalid workflow concurrency values.
+- [x] Add config schema/default test for protocol caps: `[workflow].max_final_answer_violations = 3` and `[workflow].max_invalid_completion_attempts = 5`.
+- [x] Add config validation test for invalid protocol cap values.
+- [x] Add config surface test covering `[workflow].completion_mode`, `[workflow].concurrency`, `[workflow].max_final_answer_violations`, and `[workflow].max_invalid_completion_attempts` together.
+- [x] Add composition-root test that `server/core` wires workflow store/service/scheduler and stops scheduler during core shutdown.
+- [x] Add test for `StartTaskAutomation` validating current workflow/project context before scheduling.
+- [x] Add test for `StartTaskAutomation` ensuring task worktree before recording runnable automation intent.
+- [x] Add test for `StartTaskAutomation` applying the start node's single outgoing transition group.
+- [x] Add test for selecting oldest runnable run from automation request time.
+- [x] Add test for global concurrency cap.
+- [x] Add concurrent scheduler race test proving one live runtime starts per runnable run.
+- [x] Add test proving no durable state is written for pending scheduler work or active runtime ownership.
+- [x] Add test canceled tasks never become runnable.
+- [x] Add stale runtime completion rejected by generation/fence.
+- [x] Add test for runnable work rebuilt on startup.
+- [x] Add test for orphaned started run becoming interrupted on startup.
+- [x] Add test for waiting-for-question retained when ask can rehydrate.
+- [x] Add test for waiting-for-question becoming interrupted when ask cannot rehydrate.
+- [x] Add test for `PendingAskResolver.CanRehydrate(sessionID, runID, askID)` boundary behavior.
+- [x] Add test that pending ask recovery does not scan or load full `events.jsonl`.
+- [x] Add test scheduling validation blockers become interrupted runs with stable reason metadata.
+- [x] Add test for pending approval retained on startup.
+- [x] Add test that interrupted runs are never auto-retried.
+- [x] Add test shutdown begins: scheduler stops taking new claims while preserving in-flight interruption semantics.
+- [x] Add transaction rollback test for unsuccessful transition application.
 
 ### 6.2 Implementation
 
-- [ ] Add scheduler service under `server/workflowscheduler`.
-- [ ] Implement `StartTaskAutomation` use case in `server/workflowsvc`.
-- [ ] Wire `server/workflowstore`, `server/workflowsvc`, and `server/workflowscheduler` from `server/core` composition root.
-- [ ] Add config fields/read for `[workflow]` config surface: `completion_mode`, `concurrency`, `max_final_answer_violations`, and `max_invalid_completion_attempts`.
-- [ ] Add config validation for invalid workflow config values.
-- [ ] Implement runnable work derivation from active placements, automation intent, terminal outcomes, pending ask/approval state, and task cancellation.
-- [ ] Keep pending-work ordering and active runtime ownership in memory.
-- [ ] Define worker identity format and stale live-ownership strategy.
-- [ ] Add DB-busy claim retry/backoff strategy.
-- [ ] Store and check run generation/fence for stale runtime callbacks.
-- [ ] Implement completion path requiring matching run generation.
-- [ ] Implement startup reconciliation.
-- [ ] Integrate `PendingAskResolver.CanRehydrate(sessionID, runID, askID)` into startup reconciliation before preserving waiting-for-question.
-- [ ] Implement atomic transition application transaction.
-- [ ] Add structured logs for scheduler selection/recovery/transition outcomes.
+- [x] Add scheduler service under `server/workflowscheduler`.
+- [x] Implement `StartTaskAutomation` use case in `server/workflowsvc`.
+- [x] Wire `server/workflowstore`, `server/workflowsvc`, and `server/workflowscheduler` from `server/core` composition root.
+- [x] Add config fields/read for `[workflow]` config surface: `completion_mode`, `concurrency`, `max_final_answer_violations`, and `max_invalid_completion_attempts`.
+- [x] Add config validation for invalid workflow config values.
+- [x] Implement runnable work derivation from active placements, automation intent, terminal outcomes, pending ask/approval state, and task cancellation.
+- [x] Keep pending-work ordering and active runtime ownership in memory.
+- [x] Define worker identity format and stale live-ownership strategy.
+- [x] Add DB-busy claim retry/backoff strategy.
+- [x] Store and check run generation/fence for stale runtime callbacks.
+- [x] Implement completion path requiring matching run generation.
+- [x] Implement startup reconciliation.
+- [x] Integrate `PendingAskResolver.CanRehydrate(sessionID, runID, askID)` into startup reconciliation before preserving waiting-for-question.
+- [x] Implement atomic transition application transaction.
+- [x] Add structured logs for scheduler selection/recovery/transition outcomes.
 
 ### 6.3 Verification
 
-- [ ] Run scheduler tests with race-sensitive cases repeatedly.
-- [ ] Run `./scripts/test.sh ./server/workflow/... ./server/workflowstore/... ./server/workflowsvc/... ./server/workflowscheduler/... ./server/metadata/...`.
-- [ ] Run `./scripts/build.sh --output ./bin/builder`.
+- [x] Run scheduler tests with race-sensitive cases repeatedly.
+- [x] Run `./scripts/test.sh ./server/workflow/... ./server/workflowstore/... ./server/workflowsvc/... ./server/workflowscheduler/... ./server/metadata/...`.
+- [x] Run `./scripts/build.sh --output ./bin/builder`.
 - [ ] Commit slice with message like `feat: add workflow scheduler`.
 
 ## Runtime Test Adapter Boundary

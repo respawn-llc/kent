@@ -64,4 +64,14 @@ func TestNewWithContextComposesRequiredBundles(t *testing.T) {
 	if appCore.bundles.Workflows == nil || appCore.bundles.Workflows.workflows == nil {
 		t.Fatal("expected workflow bundle client")
 	}
+	if appCore.bundles.Workflows.scheduler == nil || !appCore.bundles.Workflows.scheduler.Started() {
+		t.Fatal("expected started workflow scheduler")
+	}
+	scheduler := appCore.bundles.Workflows.scheduler
+	if err := appCore.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if !scheduler.Stopped() {
+		t.Fatal("expected workflow scheduler to stop during core close")
+	}
 }

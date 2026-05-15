@@ -312,6 +312,47 @@ func TestCompleteRunValidatesOutputRequirements(t *testing.T) {
 	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "  "}}); err == nil || !strings.Contains(err.Error(), "required output") {
 		t.Fatalf("expected missing required output error, got %v", err)
 	}
+	transitions, err := store.ListTransitions(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTransitions after rejected completion: %v", err)
+	}
+	if len(transitions) != 1 || transitions[0].TransitionID != "start" {
+		t.Fatalf("rejected completion left partial transition rows: %+v", transitions)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns after rejected completion: %v", err)
+	}
+	if len(runs) != 1 || runs[0].CompletedAt != 0 || runs[0].InterruptedAt != 0 {
+		t.Fatalf("rejected completion mutated run outcome: %+v", runs)
+	}
+}
+
+func TestCompleteRunRejectsStaleGeneration(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createValidWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	claimed, err := store.ClaimRun(ctx, started.RunID, 0)
+	if err != nil {
+		t.Fatalf("ClaimRun: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}, ExpectedGeneration: 0, RequireGeneration: true}); err == nil || !strings.Contains(err.Error(), "stale workflow run generation") {
+		t.Fatalf("expected stale generation error, got %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}, ExpectedGeneration: claimed.Generation, RequireGeneration: true}); err != nil {
+		t.Fatalf("CompleteRun current generation: %v", err)
+	}
 }
 
 func TestTaskStartRejectsCurrentInvalidWorkflow(t *testing.T) {

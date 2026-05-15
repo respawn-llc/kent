@@ -23,10 +23,18 @@ type BGShellsOutputMode string
 type CacheWarningMode string
 type ModelVerbosity string
 type ShellPostprocessingMode string
+type WorkflowCompletionMode string
 
 type WorktreeSettings struct {
 	BaseDir     string
 	SetupScript string
+}
+
+type WorkflowSettings struct {
+	CompletionMode               WorkflowCompletionMode
+	Concurrency                  int
+	MaxFinalAnswerViolations     int
+	MaxInvalidCompletionAttempts int
 }
 
 const (
@@ -50,6 +58,10 @@ const (
 	ShellPostprocessingModeBuiltin ShellPostprocessingMode = "builtin"
 	ShellPostprocessingModeUser    ShellPostprocessingMode = "user"
 	ShellPostprocessingModeAll     ShellPostprocessingMode = "all"
+
+	WorkflowCompletionModeAuto             WorkflowCompletionMode = "auto"
+	WorkflowCompletionModeStructuredOutput WorkflowCompletionMode = "structured_output"
+	WorkflowCompletionModeTool             WorkflowCompletionMode = "tool"
 )
 
 type LoadOptions struct {
@@ -126,6 +138,7 @@ type Settings struct {
 	Shell                            ShellSettings
 	CacheWarningMode                 CacheWarningMode
 	Worktrees                        WorktreeSettings
+	Workflow                         WorkflowSettings
 	Reviewer                         ReviewerSettings
 	Subagents                        map[string]SubagentRole
 }

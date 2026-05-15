@@ -27,6 +27,7 @@ import (
 	"builder/server/sessionview"
 	"builder/server/storagemigration"
 	"builder/server/updatestatus"
+	"builder/server/workflowscheduler"
 	"builder/server/workflowstore"
 	"builder/server/workflowsvc"
 	"builder/server/workflowview"
@@ -142,6 +143,11 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: service: %w", err)
 	}
+	workflowScheduler, err := workflowscheduler.New(workflowStore, nil, workflowscheduler.Config{Concurrency: cfg.Settings.Workflow.Concurrency})
+	if err != nil {
+		cleanupNewFailure()
+		return nil, fmt.Errorf("workflow bundle: scheduler: %w", err)
+	}
 	core := &Core{bundles: composeBundles(bundleCompositionInput{
 		cfg:                     cfg,
 		containerDir:            containerDir,
@@ -167,6 +173,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 		sessionActivityService:  sessionActivityService,
 		updateStatusService:     updateStatusService,
 		workflowService:         workflowService,
+		workflowScheduler:       workflowScheduler,
 		worktreeService:         worktreeService,
 	})}
 	if strings.TrimSpace(cfg.WorkspaceRoot) != "" {
@@ -188,6 +195,10 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 				return nil, fmt.Errorf("sessions bundle: run prompt client: %w", err)
 			}
 		}
+	}
+	if err := workflowScheduler.Start(context.Background()); err != nil {
+		_ = core.Close()
+		return nil, fmt.Errorf("workflow bundle: scheduler start: %w", err)
 	}
 	updateStatusService.Start()
 	return core, nil

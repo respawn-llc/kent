@@ -712,6 +712,129 @@ FROM task_runs
 WHERE id = sqlc.arg(id)
 LIMIT 1;
 
+-- name: ListRunnableWorkflowRuns :many
+SELECT
+    r.id,
+    r.task_id,
+    r.placement_id,
+    r.node_id,
+    r.session_id,
+    r.run_generation,
+    r.workflow_revision_seen,
+    r.automation_requested_at_unix_ms,
+    r.created_at_unix_ms,
+    r.updated_at_unix_ms,
+    r.started_at_unix_ms,
+    r.completed_at_unix_ms,
+    r.interrupted_at_unix_ms,
+    r.interruption_reason,
+    r.interruption_detail_json,
+    r.waiting_ask_id,
+    r.final_answer_violation_count,
+    r.invalid_completion_count,
+    r.run_start_snapshot_json,
+    r.metadata_json
+FROM task_runs r
+JOIN tasks t ON t.id = r.task_id
+JOIN task_node_placements p ON p.id = r.placement_id
+JOIN workflow_nodes n ON n.id = r.node_id
+WHERE r.automation_requested_at_unix_ms > 0
+  AND r.started_at_unix_ms = 0
+  AND r.completed_at_unix_ms = 0
+  AND r.interrupted_at_unix_ms = 0
+  AND r.waiting_ask_id = ''
+  AND t.canceled_at_unix_ms = 0
+  AND p.state = 'active'
+  AND n.kind = 'agent'
+ORDER BY r.automation_requested_at_unix_ms ASC, r.id ASC
+LIMIT sqlc.arg(limit);
+
+-- name: ClaimWorkflowRun :one
+UPDATE task_runs
+SET
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms),
+    started_at_unix_ms = sqlc.arg(started_at_unix_ms),
+    run_generation = run_generation + 1
+WHERE id = sqlc.arg(id)
+  AND run_generation = sqlc.arg(expected_generation)
+  AND automation_requested_at_unix_ms > 0
+  AND started_at_unix_ms = 0
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0
+  AND waiting_ask_id = ''
+RETURNING
+    id,
+    task_id,
+    placement_id,
+    node_id,
+    session_id,
+    run_generation,
+    workflow_revision_seen,
+    automation_requested_at_unix_ms,
+    created_at_unix_ms,
+    updated_at_unix_ms,
+    started_at_unix_ms,
+    completed_at_unix_ms,
+    interrupted_at_unix_ms,
+    interruption_reason,
+    interruption_detail_json,
+    waiting_ask_id,
+    final_answer_violation_count,
+    invalid_completion_count,
+    run_start_snapshot_json,
+    metadata_json;
+
+-- name: ListWaitingAskWorkflowRuns :many
+SELECT
+    id,
+    task_id,
+    placement_id,
+    node_id,
+    session_id,
+    run_generation,
+    workflow_revision_seen,
+    automation_requested_at_unix_ms,
+    created_at_unix_ms,
+    updated_at_unix_ms,
+    started_at_unix_ms,
+    completed_at_unix_ms,
+    interrupted_at_unix_ms,
+    interruption_reason,
+    interruption_detail_json,
+    waiting_ask_id,
+    final_answer_violation_count,
+    invalid_completion_count,
+    run_start_snapshot_json,
+    metadata_json
+FROM task_runs
+WHERE waiting_ask_id != ''
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0
+ORDER BY updated_at_unix_ms ASC, id ASC;
+
+-- name: InterruptWorkflowRun :execrows
+UPDATE task_runs
+SET
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms),
+    interrupted_at_unix_ms = sqlc.arg(interrupted_at_unix_ms),
+    interruption_reason = sqlc.arg(interruption_reason),
+    interruption_detail_json = sqlc.arg(interruption_detail_json)
+WHERE id = sqlc.arg(id)
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0;
+
+-- name: InterruptStartedWorkflowRunsForRecovery :execrows
+UPDATE task_runs
+SET
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms),
+    interrupted_at_unix_ms = sqlc.arg(interrupted_at_unix_ms),
+    interruption_reason = sqlc.arg(interruption_reason),
+    interruption_detail_json = sqlc.arg(interruption_detail_json)
+WHERE started_at_unix_ms > 0
+  AND completed_at_unix_ms = 0
+  AND interrupted_at_unix_ms = 0
+  AND waiting_ask_id = '';
+
 -- name: InterruptActiveTaskRuns :execrows
 UPDATE task_runs
 SET

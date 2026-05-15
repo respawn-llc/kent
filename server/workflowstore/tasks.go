@@ -26,11 +26,13 @@ type StartTaskResult struct {
 }
 
 type CompleteRunRequest struct {
-	RunID        workflow.RunID
-	TransitionID string
-	OutputValues map[string]string
-	Commentary   string
-	Actor        string
+	RunID              workflow.RunID
+	TransitionID       string
+	OutputValues       map[string]string
+	Commentary         string
+	Actor              string
+	ExpectedGeneration int64
+	RequireGeneration  bool
 }
 
 type CompleteRunResult struct {
@@ -369,6 +371,9 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 	if run.InterruptedAtUnixMs != 0 {
 		return CompleteRunResult{}, errors.New("run already interrupted")
 	}
+	if req.RequireGeneration && run.RunGeneration != req.ExpectedGeneration {
+		return CompleteRunResult{}, fmt.Errorf("stale workflow run generation: got %d want %d", req.ExpectedGeneration, run.RunGeneration)
+	}
 	snapshot := runStartSnapshot{}
 	if err := unmarshalJSON(run.RunStartSnapshotJson, &snapshot); err != nil {
 		return CompleteRunResult{}, err
@@ -499,7 +504,63 @@ func (s *Store) ListRuns(ctx context.Context, taskID workflow.TaskID) ([]RunReco
 	}
 	out := make([]RunRecord, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, RunRecord{ID: workflow.RunID(row.ID), TaskID: workflow.TaskID(row.TaskID), PlacementID: workflow.PlacementID(row.PlacementID), NodeID: workflow.NodeID(row.NodeID), AutomationRequestedAt: row.AutomationRequestedAtUnixMs, CompletedAt: row.CompletedAtUnixMs, InterruptedAt: row.InterruptedAtUnixMs, InterruptionReason: row.InterruptionReason})
+		out = append(out, runRecordFromTaskRun(row))
+	}
+	return out, nil
+}
+
+func (s *Store) ListRunnableRuns(ctx context.Context, limit int64) ([]RunnableRunRecord, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.queries.ListRunnableWorkflowRuns(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RunnableRunRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, RunnableRunRecord{RunRecord: runRecordFromTaskRun(row), WorkflowRevisionSeen: row.WorkflowRevisionSeen})
+	}
+	return out, nil
+}
+
+func (s *Store) ClaimRun(ctx context.Context, runID workflow.RunID, expectedGeneration int64) (RunnableRunRecord, error) {
+	now := s.now().UnixMilli()
+	row, err := s.queries.ClaimWorkflowRun(ctx, sqlitegen.ClaimWorkflowRunParams{ID: string(runID), ExpectedGeneration: expectedGeneration, UpdatedAtUnixMs: now, StartedAtUnixMs: now})
+	if err != nil {
+		return RunnableRunRecord{}, err
+	}
+	return RunnableRunRecord{RunRecord: runRecordFromTaskRun(row), WorkflowRevisionSeen: row.WorkflowRevisionSeen}, nil
+}
+
+func (s *Store) InterruptRun(ctx context.Context, runID workflow.RunID, reason string, detailJSON string) error {
+	if strings.TrimSpace(detailJSON) == "" {
+		detailJSON = "{}"
+	}
+	now := s.now().UnixMilli()
+	updated, err := s.queries.InterruptWorkflowRun(ctx, sqlitegen.InterruptWorkflowRunParams{ID: string(runID), UpdatedAtUnixMs: now, InterruptedAtUnixMs: now, InterruptionReason: strings.TrimSpace(reason), InterruptionDetailJson: detailJSON})
+	if err != nil {
+		return err
+	}
+	if updated != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) ReconcileStartedRuns(ctx context.Context, reason string) (int64, error) {
+	now := s.now().UnixMilli()
+	return s.queries.InterruptStartedWorkflowRunsForRecovery(ctx, sqlitegen.InterruptStartedWorkflowRunsForRecoveryParams{UpdatedAtUnixMs: now, InterruptedAtUnixMs: now, InterruptionReason: strings.TrimSpace(reason), InterruptionDetailJson: "{}"})
+}
+
+func (s *Store) ListWaitingAskRuns(ctx context.Context) ([]RunRecord, error) {
+	rows, err := s.queries.ListWaitingAskWorkflowRuns(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RunRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, runRecordFromTaskRun(row))
 	}
 	return out, nil
 }
@@ -535,6 +596,23 @@ func (s *Store) ListTransitionEdges(ctx context.Context, transitionID workflow.T
 		})
 	}
 	return out, nil
+}
+
+func runRecordFromTaskRun(row sqlitegen.TaskRun) RunRecord {
+	return RunRecord{
+		ID:                    workflow.RunID(row.ID),
+		TaskID:                workflow.TaskID(row.TaskID),
+		PlacementID:           workflow.PlacementID(row.PlacementID),
+		NodeID:                workflow.NodeID(row.NodeID),
+		SessionID:             row.SessionID.String,
+		Generation:            row.RunGeneration,
+		AutomationRequestedAt: row.AutomationRequestedAtUnixMs,
+		StartedAt:             row.StartedAtUnixMs,
+		CompletedAt:           row.CompletedAtUnixMs,
+		InterruptedAt:         row.InterruptedAtUnixMs,
+		InterruptionReason:    row.InterruptionReason,
+		WaitingAskID:          row.WaitingAskID,
+	}
 }
 
 func (s *Store) resolveTaskWorkflowLink(ctx context.Context, projectID string, workflowID workflow.WorkflowID) (sqlitegen.ProjectWorkflowLink, error) {
