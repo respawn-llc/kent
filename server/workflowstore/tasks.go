@@ -453,6 +453,12 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 	if len(issues) > 0 {
 		return CompleteRunResult{}, CompletionValidationError{Issues: issues}
 	}
+	if group.requiresApproval() {
+		return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: "approval_execution_unsupported", Field: "transition_id", Message: "approval-gated transitions cannot execute until approval resume is implemented"}}}
+	}
+	if group.targetsJoin() {
+		return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: "join_execution_unsupported", Field: "transition_id", Message: "join targets cannot execute until join progression is implemented"}}}
+	}
 	outputValuesJSON, err := marshalJSON(req.OutputValues)
 	if err != nil {
 		return CompleteRunResult{}, err
@@ -460,17 +466,11 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 	now := s.now().UnixMilli()
 	transitionState := "applied"
 	appliedAt := now
-	if group.requiresApproval() {
-		transitionState = "pending_approval"
-		appliedAt = 0
-	}
 	var targetDef workflow.Definition
 	var targetWorkflow WorkflowRecord
-	if !group.requiresApproval() {
-		targetDef, targetWorkflow, err = s.GetDefinition(ctx, snapshot.WorkflowID)
-		if err != nil {
-			return CompleteRunResult{}, err
-		}
+	targetDef, targetWorkflow, err = s.GetDefinition(ctx, snapshot.WorkflowID)
+	if err != nil {
+		return CompleteRunResult{}, err
 	}
 	transitionID := prefixedID("transition")
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -513,17 +513,6 @@ WHERE id = ?
 		return CompleteRunResult{}, fmt.Errorf("insert completion transition: %w", err)
 	}
 	result := CompleteRunResult{TransitionID: workflow.TransitionID(transitionID), State: transitionState}
-	if group.requiresApproval() {
-		for _, edge := range group.Edges {
-			if err := insertTransitionEdgeSnapshot(ctx, q, transitionID, snapshot.WorkflowRevisionSeen, edge, "", "pending"); err != nil {
-				return CompleteRunResult{}, err
-			}
-		}
-		if err := tx.Commit(); err != nil {
-			return CompleteRunResult{}, err
-		}
-		return result, nil
-	}
 	for _, edge := range group.Edges {
 		targetPlacementID := prefixedID("placement")
 		if err := q.InsertTaskNodePlacement(ctx, sqlitegen.InsertTaskNodePlacementParams{ID: targetPlacementID, TaskID: run.TaskID, NodeID: string(edge.TargetNode.ID), State: "active", CreatedByTransitionID: sql.NullString{String: transitionID, Valid: true}, ParallelBatchTransitionID: sql.NullString{String: transitionID, Valid: len(group.Edges) > 1}, ParallelBranchEdgeID: sql.NullString{String: string(edge.ID), Valid: true}, CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
@@ -1069,6 +1058,15 @@ func (s runStartSnapshot) transitionByID(transitionID string) (transitionContrac
 func (g transitionContractSnapshot) requiresApproval() bool {
 	for _, edge := range g.Edges {
 		if edge.RequiresApproval {
+			return true
+		}
+	}
+	return false
+}
+
+func (g transitionContractSnapshot) targetsJoin() bool {
+	for _, edge := range g.Edges {
+		if edge.TargetNode.Kind == workflow.NodeKindJoin {
 			return true
 		}
 	}

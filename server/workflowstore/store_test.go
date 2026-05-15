@@ -252,49 +252,72 @@ func TestCompleteRunUsesRunStartSnapshotAfterGraphChanges(t *testing.T) {
 	}
 }
 
-func TestCompleteRunPersistsPendingApprovalSnapshots(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
-	workflowID := createApprovalWorkflow(t, ctx, store)
-	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow: %v", err)
+func TestCompleteRunRejectsUnsupportedRuntimeSnapshots(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*runStartSnapshot)
+		want   string
+	}{
+		{
+			name: "approval gated transition",
+			mutate: func(snapshot *runStartSnapshot) {
+				snapshot.TransitionGroups[0].Edges[0].RequiresApproval = true
+			},
+			want: "approval-gated transitions cannot execute",
+		},
+		{
+			name: "join target",
+			mutate: func(snapshot *runStartSnapshot) {
+				snapshot.TransitionGroups[0].Edges[0].TargetNode.Kind = workflow.NodeKindJoin
+			},
+			want: "join targets cannot execute",
+		},
 	}
-	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
-	if err != nil {
-		t.Fatalf("CreateTask: %v", err)
-	}
-	started, err := store.StartTask(ctx, task.ID)
-	if err != nil {
-		t.Fatalf("StartTask: %v", err)
-	}
-	beforeEdit := currentWorkflowRevision(t, ctx, store, workflowID)
-	if _, err := store.AddNode(ctx, NodeRecord{ID: "node-later", WorkflowID: workflowID, Key: "later", Kind: workflow.NodeKindTerminal, DisplayName: "Later"}); err != nil {
-		t.Fatalf("AddNode graph edit: %v", err)
-	}
-	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}})
-	if err != nil {
-		t.Fatalf("CompleteRun: %v", err)
-	}
-	if completed.State != "pending_approval" || len(completed.PlacementIDs) != 0 || len(completed.RunIDs) != 0 {
-		t.Fatalf("pending approval result = %+v", completed)
-	}
-	transitions, err := store.ListTransitions(ctx, task.ID)
-	if err != nil {
-		t.Fatalf("ListTransitions: %v", err)
-	}
-	if len(transitions) != 2 || transitions[1].State != "pending_approval" {
-		t.Fatalf("transitions after pending completion = %+v", transitions)
-	}
-	rows, err := store.queries.ListTaskTransitionEdges(ctx, string(transitions[1].ID))
-	if err != nil {
-		t.Fatalf("ListTaskTransitionEdges: %v", err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("pending edge rows = %+v", rows)
-	}
-	row := rows[0]
-	if row.State != "pending" || row.TargetPlacementID.Valid || row.WorkflowRevisionSeen != beforeEdit || row.RequiresApproval != 1 || row.EdgeKey != "done" || row.TargetNodeKind != string(workflow.NodeKindTerminal) {
-		t.Fatalf("pending approval edge snapshot = %+v, want stable pending approval snapshot at revision %d", row, beforeEdit)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			store, binding := newTestStore(t)
+			workflowID := createValidWorkflow(t, ctx, store)
+			if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+				t.Fatalf("LinkWorkflow: %v", err)
+			}
+			task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+			if err != nil {
+				t.Fatalf("CreateTask: %v", err)
+			}
+			started, err := store.StartTask(ctx, task.ID)
+			if err != nil {
+				t.Fatalf("StartTask: %v", err)
+			}
+			row, err := store.queries.GetTaskRun(ctx, string(started.RunID))
+			if err != nil {
+				t.Fatalf("GetTaskRun: %v", err)
+			}
+			snapshot := runStartSnapshot{}
+			if err := unmarshalJSON(row.RunStartSnapshotJson, &snapshot); err != nil {
+				t.Fatalf("unmarshal snapshot: %v", err)
+			}
+			tt.mutate(&snapshot)
+			snapshotJSON, err := marshalJSON(snapshot)
+			if err != nil {
+				t.Fatalf("marshal snapshot: %v", err)
+			}
+			if _, err := store.db.ExecContext(ctx, `UPDATE task_runs SET run_start_snapshot_json = ? WHERE id = ?`, snapshotJSON, string(started.RunID)); err != nil {
+				t.Fatalf("update snapshot: %v", err)
+			}
+
+			_, err = store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("CompleteRun error = %v, want %q", err, tt.want)
+			}
+			runs, err := store.ListRuns(ctx, task.ID)
+			if err != nil {
+				t.Fatalf("ListRuns: %v", err)
+			}
+			if len(runs) != 1 || runs[0].CompletedAt != 0 {
+				t.Fatalf("run after rejected completion = %+v, want still active", runs)
+			}
+		})
 	}
 }
 

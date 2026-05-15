@@ -458,6 +458,41 @@ func TestOutputBindingsTemplatesContextAndRoles(t *testing.T) {
 	})
 }
 
+func TestRuntimeValidationBlocksUnimplementedExecutionFeatures(t *testing.T) {
+	t.Run("approval-gated edges warn in draft and block task creation", func(t *testing.T) {
+		def := validWorkflow()
+		def.Edges[1].RequiresApproval = true
+
+		draft := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft})
+		assertHasCodes(t, draft, workflow.CodeUnsupportedApprovalExecution)
+		if draft.HasBlockingErrors() {
+			t.Fatalf("draft approval warning should not block saving: %+v", draft.BlockingErrors())
+		}
+
+		task := validateForTask(def)
+		assertHasCodes(t, task, workflow.CodeUnsupportedApprovalExecution)
+		if !task.HasBlockingErrors() {
+			t.Fatalf("task approval error should block execution")
+		}
+	})
+
+	t.Run("join targets warn in draft and block task creation", func(t *testing.T) {
+		def := fanoutWorkflow()
+
+		draft := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft})
+		assertHasCodes(t, draft, workflow.CodeUnsupportedJoinExecution)
+		if draft.HasBlockingErrors() {
+			t.Fatalf("draft join warning should not block saving: %+v", draft.BlockingErrors())
+		}
+
+		task := validateForTask(def)
+		assertHasCodes(t, task, workflow.CodeUnsupportedJoinExecution)
+		if !task.HasBlockingErrors() {
+			t.Fatalf("task join error should block execution")
+		}
+	})
+}
+
 func TestFanoutJoinTopology(t *testing.T) {
 	t.Run("valid fanout has one nearest common join", func(t *testing.T) {
 		def := fanoutWorkflow()

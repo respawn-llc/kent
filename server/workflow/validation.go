@@ -303,6 +303,7 @@ func (s *validationState) validateInputBindings(source Node, edge Edge) {
 
 func (s *validationState) validateGraph() {
 	s.validateKindConstraints()
+	s.validateRuntimeSupport()
 	if len(s.startNodes) != 1 {
 		return
 	}
@@ -358,6 +359,18 @@ func (s *validationState) validateKindConstraints() {
 			if len(node.OutputFields) > 0 {
 				s.addHard(CodeTerminalIsExecutable, "terminal node cannot define agent output fields", ref)
 			}
+		}
+	}
+}
+
+func (s *validationState) validateRuntimeSupport() {
+	for _, edge := range s.def.Edges {
+		ref := ValidationError{WorkflowID: s.def.ID, EdgeID: edge.ID, TransitionGroupID: edge.TransitionGroupID}
+		if edge.RequiresApproval {
+			s.addSemantic(CodeUnsupportedApprovalExecution, "approval-gated edges cannot execute until approval resume is implemented", ref)
+		}
+		if target, exists := s.nodesByID[edge.TargetNodeID]; exists && target.Kind == NodeKindJoin {
+			s.addSemantic(CodeUnsupportedJoinExecution, "join targets cannot execute until join progression is implemented", ref)
 		}
 	}
 }
