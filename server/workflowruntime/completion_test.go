@@ -97,3 +97,43 @@ func TestDecodeCompletionRejectsUnknownAndNonStringFields(t *testing.T) {
 		t.Fatalf("codes = %+v, want non_string_value and unknown_output_field", codes)
 	}
 }
+
+func TestDecodeCompletionRequiresProtocolAndOutputFields(t *testing.T) {
+	_, err := DecodeCompletion(json.RawMessage(`{"transition_id":"done"}`), CompletionContract{
+		OutputFields: []workflow.OutputField{
+			{Name: "summary", Description: "Summary."},
+			{Name: "risk", Description: "Risk."},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	validation, ok := err.(ValidationError)
+	if !ok {
+		t.Fatalf("error type = %T, want ValidationError", err)
+	}
+	missing := map[string]bool{}
+	for _, issue := range validation.Issues {
+		if issue.Code == "required_field_missing" {
+			missing[issue.Field] = true
+		}
+	}
+	for _, field := range []string{"commentary", "risk", "summary"} {
+		if !missing[field] {
+			t.Fatalf("missing required field %q in issues %+v", field, validation.Issues)
+		}
+	}
+
+	parsed, err := DecodeCompletion(json.RawMessage(`{"transition_id":"done","commentary":"","summary":"","risk":""}`), CompletionContract{
+		OutputFields: []workflow.OutputField{
+			{Name: "summary", Description: "Summary."},
+			{Name: "risk", Description: "Risk."},
+		},
+	})
+	if err != nil {
+		t.Fatalf("DecodeCompletion valid empty strings: %v", err)
+	}
+	if parsed.TransitionID != "done" {
+		t.Fatalf("transition_id = %q, want done", parsed.TransitionID)
+	}
+}

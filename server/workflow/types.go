@@ -169,6 +169,7 @@ const (
 	CodeInvalidFanoutJoinTopology      ValidationErrorCode = "workflow.validation.invalid_fanout_join_topology"
 	CodeUnsupportedApprovalExecution   ValidationErrorCode = "workflow.validation.unsupported_approval_execution"
 	CodeUnsupportedJoinExecution       ValidationErrorCode = "workflow.validation.unsupported_join_execution"
+	CodeUnsupportedJoinBinding         ValidationErrorCode = "workflow.validation.unsupported_join_binding"
 	CodeAgentRoleRequired              ValidationErrorCode = "workflow.validation.agent_role_required"
 	CodeAgentRoleMissing               ValidationErrorCode = "workflow.validation.agent_role_missing"
 	CodeInvalidNodeKind                ValidationErrorCode = "workflow.validation.invalid_node_kind"

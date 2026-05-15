@@ -246,6 +246,7 @@ func DecodeCompletion(raw json.RawMessage, contract CompletionContract) (ParsedC
 	knownOutputs := outputFieldSet(contract.OutputFields)
 	parsed := ParsedCompletion{OutputValues: map[string]string{}}
 	issues := []ValidationIssue{}
+	seen := map[string]bool{}
 	for _, key := range sortedRawMessageKeys(payload) {
 		value := payload[key]
 		field := strings.TrimSpace(key)
@@ -253,6 +254,7 @@ func DecodeCompletion(raw json.RawMessage, contract CompletionContract) (ParsedC
 			issues = append(issues, ValidationIssue{Code: "invalid_field", Message: "field name is required"})
 			continue
 		}
+		seen[field] = true
 		var text string
 		if err := json.Unmarshal(value, &text); err != nil {
 			issues = append(issues, ValidationIssue{Code: "non_string_value", Field: field, Message: "value must be a string"})
@@ -269,6 +271,18 @@ func DecodeCompletion(raw json.RawMessage, contract CompletionContract) (ParsedC
 				continue
 			}
 			parsed.OutputValues[field] = text
+		}
+	}
+	if !seen["transition_id"] || parsed.TransitionID == "" {
+		issues = append(issues, ValidationIssue{Code: "required_field_missing", Field: "transition_id", Message: "transition_id is required"})
+	}
+	if !seen["commentary"] {
+		issues = append(issues, ValidationIssue{Code: "required_field_missing", Field: "commentary", Message: "commentary is required"})
+	}
+	for _, field := range sortedOutputFields(contract.OutputFields) {
+		name := strings.TrimSpace(field.Name)
+		if name != "" && !seen[name] {
+			issues = append(issues, ValidationIssue{Code: "required_field_missing", Field: name, Message: "declared output field is required"})
 		}
 	}
 	if len(issues) > 0 {

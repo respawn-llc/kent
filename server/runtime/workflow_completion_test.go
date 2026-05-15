@@ -130,7 +130,7 @@ func TestWorkflowModePromptInjectedBeforeUserPrompt(t *testing.T) {
 		ToolCalls: []llm.ToolCall{{
 			ID:    "call_complete",
 			Name:  string(toolspec.ToolCompleteNode),
-			Input: json.RawMessage(`{"summary":"done"}`),
+			Input: json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`),
 		}},
 		Usage: llm.Usage{WindowTokens: 200000},
 	}}}
@@ -287,14 +287,14 @@ func TestWorkflowMixedCompleteNodePreflightSkipsSideEffects(t *testing.T) {
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "mixed", Phase: llm.MessagePhaseCommentary},
 			ToolCalls: []llm.ToolCall{
-				{ID: "call_complete", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"summary":"done"}`)},
+				{ID: "call_complete", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)},
 				{ID: "call_shell", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"echo side-effect"}`)},
 			},
 			Usage: llm.Usage{WindowTokens: 200000},
 		},
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "complete", Phase: llm.MessagePhaseCommentary},
-			ToolCalls: []llm.ToolCall{{ID: "call_complete_2", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"summary":"done"}`)}},
+			ToolCalls: []llm.ToolCall{{ID: "call_complete_2", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)}},
 			Usage:     llm.Usage{WindowTokens: 200000},
 		},
 	}}
@@ -330,14 +330,14 @@ func TestWorkflowDuplicateCompleteNodePreflightSkipsSideEffects(t *testing.T) {
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "duplicated", Phase: llm.MessagePhaseCommentary},
 			ToolCalls: []llm.ToolCall{
-				{ID: "call_complete_1", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"summary":"done"}`)},
-				{ID: "call_complete_2", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"summary":"done"}`)},
+				{ID: "call_complete_1", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)},
+				{ID: "call_complete_2", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)},
 			},
 			Usage: llm.Usage{WindowTokens: 200000},
 		},
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "complete", Phase: llm.MessagePhaseCommentary},
-			ToolCalls: []llm.ToolCall{{ID: "call_complete_3", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"summary":"done"}`)}},
+			ToolCalls: []llm.ToolCall{{ID: "call_complete_3", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)}},
 			Usage:     llm.Usage{WindowTokens: 200000},
 		},
 	}}
@@ -367,7 +367,7 @@ func TestWorkflowStructuredCompletionStopsWithoutAnotherTurn(t *testing.T) {
 	}
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"summary":"done"}`, Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"transition_id":"done","commentary":"complete","summary":"done"}`, Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
 		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "unexpected", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
 	}}
 	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{

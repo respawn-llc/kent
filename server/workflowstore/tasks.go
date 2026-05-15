@@ -765,12 +765,12 @@ LIMIT 1`, placementID)
 	if err := unmarshalJSON(inputBindingsJSON, &bindings); err != nil {
 		return nil, err
 	}
-	return resolveInputBindingValues(task, commentary, outputValues, bindings), nil
+	return resolveInputBindingValues(task, commentary, outputValues, bindings)
 }
 
-func resolveInputBindingValues(task TaskRecord, commentary string, outputValues map[string]string, bindings []workflow.InputBinding) map[string]string {
+func resolveInputBindingValues(task TaskRecord, commentary string, outputValues map[string]string, bindings []workflow.InputBinding) (map[string]string, error) {
 	if len(bindings) == 0 {
-		return map[string]string{}
+		return map[string]string{}, nil
 	}
 	values := make(map[string]string, len(bindings))
 	for _, binding := range bindings {
@@ -788,9 +788,13 @@ func resolveInputBindingValues(task TaskRecord, commentary string, outputValues 
 			} else {
 				values[name] = outputValues[field]
 			}
+		case workflow.BindingSourceJoin:
+			return nil, fmt.Errorf("join-sourced input bindings cannot execute until join aggregation is implemented")
+		default:
+			return nil, fmt.Errorf("unsupported input binding source %q", binding.Source)
 		}
 	}
-	return values
+	return values, nil
 }
 
 func taskInputBindingValue(task TaskRecord, field string) string {

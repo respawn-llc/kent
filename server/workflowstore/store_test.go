@@ -585,6 +585,24 @@ func TestRunStartContextHandlesMissingInputEdgeAndMalformedJSON(t *testing.T) {
 	if _, err := store.GetRunStartContext(ctx, startedMalformedInputs.RunID); err == nil {
 		t.Fatalf("expected malformed transition edge input bindings error")
 	}
+	taskWithJoinInputs, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task 3", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask join inputs: %v", err)
+	}
+	startedJoinInputs, err := store.StartTask(ctx, taskWithJoinInputs.ID)
+	if err != nil {
+		t.Fatalf("StartTask join inputs: %v", err)
+	}
+	joinInputsJSON, err := marshalJSON([]workflow.InputBinding{{Name: "joined", Source: workflow.BindingSourceJoin, Field: "aggregate"}})
+	if err != nil {
+		t.Fatalf("marshal join inputs: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE task_transition_edges SET input_bindings_json = ? WHERE target_placement_id = ?`, joinInputsJSON, string(startedJoinInputs.PlacementID)); err != nil {
+		t.Fatalf("set join transition edge inputs: %v", err)
+	}
+	if _, err := store.GetRunStartContext(ctx, startedJoinInputs.RunID); err == nil || !strings.Contains(err.Error(), "join-sourced input bindings cannot execute") {
+		t.Fatalf("GetRunStartContext join inputs error = %v", err)
+	}
 }
 
 func TestAttachRunSessionGenerationGuard(t *testing.T) {

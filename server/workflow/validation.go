@@ -372,6 +372,11 @@ func (s *validationState) validateRuntimeSupport() {
 		if target, exists := s.nodesByID[edge.TargetNodeID]; exists && target.Kind == NodeKindJoin {
 			s.addSemantic(CodeUnsupportedJoinExecution, "join targets cannot execute until join progression is implemented", ref)
 		}
+		for _, binding := range edge.InputBindings {
+			if binding.Source == BindingSourceJoin {
+				s.addSemantic(CodeUnsupportedJoinBinding, "join-sourced input bindings cannot execute until join aggregation is implemented", ref)
+			}
+		}
 	}
 }
 
