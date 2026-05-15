@@ -36,6 +36,7 @@ const (
 	MethodWorkflowValidate                      = "workflow.validate"
 	MethodWorkflowTaskCreate                    = "workflow.task.create"
 	MethodWorkflowTaskStart                     = "workflow.task.start"
+	MethodWorkflowTaskApprove                   = "workflow.task.approve"
 	MethodWorkflowTaskCancel                    = "workflow.task.cancel"
 	MethodWorkflowTaskCommentAdd                = "workflow.task.comment.add"
 	MethodWorkflowTaskCommentList               = "workflow.task.comment.list"

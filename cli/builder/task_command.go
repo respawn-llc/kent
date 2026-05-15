@@ -40,7 +40,9 @@ func taskSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return taskShowSubcommand(args[1:], stdout, stderr)
 	case "cancel":
 		return taskCancelSubcommand(args[1:], stdout, stderr)
-	case "move", "approve", "resume":
+	case "approve":
+		return taskApproveSubcommand(args[1:], stdout, stderr)
+	case "move", "resume":
 		return taskUnsupportedSubcommand(args[0], stdout, stderr)
 	case "comment":
 		return taskCommentSubcommand(args[1:], stdout, stderr)
@@ -247,6 +249,45 @@ func taskCancelSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 		return 1
 	}
 	fmt.Fprintf(stdout, "canceled_task_id\t%s\n", taskID)
+	return 0
+}
+
+func taskApproveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
+	fs := flag.NewFlagSet("builder task approve", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() { writeTaskApproveUsage(fs) }
+	positionals, flagArgs := takeLeadingPositionals(args, 1)
+	if err := fs.Parse(flagArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	positionals = append(positionals, fs.Args()...)
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "task approve requires <transition-id>")
+		return 2
+	}
+	_, remote, err := workflowOpen(context.Background(), ".")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer func() { _ = remote.Close() }()
+	ctx, cancel := workflowRPCContext(context.Background())
+	defer cancel()
+	resp, err := remote.ApproveWorkflowTask(ctx, serverapi.WorkflowTaskApproveRequest{TransitionID: positionals[0]})
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "transition_id\t%s\nstate\t%s\n", resp.TransitionID, resp.State)
+	for _, placementID := range resp.PlacementIDs {
+		fmt.Fprintf(stdout, "placement_id\t%s\n", placementID)
+	}
+	for _, runID := range resp.RunIDs {
+		fmt.Fprintf(stdout, "run_id\t%s\n", runID)
+	}
 	return 0
 }
 

@@ -192,11 +192,14 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 		t.Fatalf("cancel output = %q, want task id", cancelOut)
 	}
 
-	for _, action := range []string{"move", "approve", "resume"} {
+	for _, action := range []string{"move", "resume"} {
 		_, unsupportedErr, unsupportedCode := runWorkflowRootCommand("task", action)
 		if unsupportedCode == 0 || !strings.Contains(unsupportedErr, "not implemented yet") {
 			t.Fatalf("task %s code=%d stderr=%q, want unsupported", action, unsupportedCode, unsupportedErr)
 		}
+	}
+	if _, approveErr, approveCode := runWorkflowRootCommand("task", "approve"); approveCode != 2 || !strings.Contains(approveErr, "requires <transition-id>") {
+		t.Fatalf("task approve validation code=%d stderr=%q, want transition id requirement", approveCode, approveErr)
 	}
 }
 

@@ -88,6 +88,16 @@ type CompleteRunResult struct {
 	RunIDs       []workflow.RunID
 }
 
+type ManualMoveRequest struct {
+	TaskID       workflow.TaskID
+	TargetNodeID workflow.NodeID
+	OutputValues map[string]string
+	Commentary   string
+	Actor        string
+}
+
+type ManualMoveResult = CompleteRunResult
+
 func (s *Store) CreateTask(ctx context.Context, req CreateTaskRequest) (TaskRecord, error) {
 	title := strings.TrimSpace(req.Title)
 	body := strings.TrimSpace(req.Body)
@@ -321,6 +331,11 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 	now := s.now().UnixMilli()
 	transitionState := "applied"
 	appliedAt := now
+	requiresApproval := transitionGroupRequiresApproval(group)
+	if requiresApproval {
+		transitionState = "pending_approval"
+		appliedAt = 0
+	}
 	var fallbackDef workflow.Definition
 	var fallbackWorkflow WorkflowRecord
 	if !snapshot.hasFullGraphContract() && transitionGroupHasAgentTarget(group) {
@@ -371,6 +386,12 @@ WHERE id = ?
 	}
 	result := CompleteRunResult{TransitionID: workflow.TransitionID(transitionID), State: transitionState}
 	for _, edge := range group.Edges {
+		if requiresApproval {
+			if err := insertTransitionEdgeSnapshot(ctx, q, transitionID, snapshot.WorkflowRevisionSeen, edge, "", "pending"); err != nil {
+				return CompleteRunResult{}, err
+			}
+			continue
+		}
 		targetPlacementID := prefixedID("placement")
 		if err := q.InsertTaskNodePlacement(ctx, sqlitegen.InsertTaskNodePlacementParams{ID: targetPlacementID, TaskID: run.TaskID, NodeID: string(edge.TargetNode.ID), State: "active", CreatedByTransitionID: sql.NullString{String: transitionID, Valid: true}, ParallelBatchTransitionID: sql.NullString{String: transitionID, Valid: len(group.Edges) > 1}, ParallelBranchEdgeID: sql.NullString{String: string(edge.ID), Valid: true}, CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
 			return CompleteRunResult{}, fmt.Errorf("insert target placement: %w", err)
@@ -414,6 +435,15 @@ WHERE id = ?
 		return CompleteRunResult{}, err
 	}
 	return result, nil
+}
+
+func transitionGroupRequiresApproval(group transitionContractSnapshot) bool {
+	for _, edge := range group.Edges {
+		if edge.RequiresApproval {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) CancelTask(ctx context.Context, taskID workflow.TaskID, reason string) error {

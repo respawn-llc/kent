@@ -476,20 +476,20 @@ func TestOutputBindingsTemplatesContextAndRoles(t *testing.T) {
 }
 
 func TestRuntimeValidationBlocksUnimplementedExecutionFeatures(t *testing.T) {
-	t.Run("approval-gated edges warn in draft and block task creation", func(t *testing.T) {
+	t.Run("approval-gated edges are valid runtime features", func(t *testing.T) {
 		def := validWorkflow()
 		def.Edges[1].RequiresApproval = true
 
 		draft := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft})
-		assertHasCodes(t, draft, workflow.CodeUnsupportedApprovalExecution)
+		assertNoCode(t, draft, workflow.CodeUnsupportedApprovalExecution)
 		if draft.HasBlockingErrors() {
-			t.Fatalf("draft approval warning should not block saving: %+v", draft.BlockingErrors())
+			t.Fatalf("draft approval should not block saving: %+v", draft.BlockingErrors())
 		}
 
 		task := validateForTask(def)
-		assertHasCodes(t, task, workflow.CodeUnsupportedApprovalExecution)
-		if !task.HasBlockingErrors() {
-			t.Fatalf("task approval error should block execution")
+		assertNoCode(t, task, workflow.CodeUnsupportedApprovalExecution)
+		if task.HasBlockingErrors() {
+			t.Fatalf("task approval should not block execution: %+v", task.BlockingErrors())
 		}
 	})
 

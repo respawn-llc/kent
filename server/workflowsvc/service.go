@@ -251,6 +251,20 @@ func (s *Service) StartTaskAutomation(ctx context.Context, taskID string) (workf
 	return started, nil
 }
 
+func (s *Service) ApproveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskApproveRequest) (serverapi.WorkflowTaskApproveResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.WorkflowTaskApproveResponse{}, err
+	}
+	approved, err := s.store.ApproveTransition(ctx, workflow.TransitionID(req.TransitionID))
+	if err != nil {
+		return serverapi.WorkflowTaskApproveResponse{}, err
+	}
+	if s.schedulerWake != nil {
+		s.schedulerWake.Notify()
+	}
+	return serverapi.WorkflowTaskApproveResponse{TransitionID: string(approved.TransitionID), State: approved.State, PlacementIDs: placementIDs(approved.PlacementIDs), RunIDs: runIDs(approved.RunIDs)}, nil
+}
+
 func (s *Service) CancelWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCancelRequest) error {
 	if err := req.Validate(); err != nil {
 		return err
@@ -358,6 +372,22 @@ func outputRequirements(in []serverapi.WorkflowOutputRequirement) []workflow.Out
 	out := make([]workflow.OutputRequirement, 0, len(in))
 	for _, requirement := range in {
 		out = append(out, workflow.OutputRequirement{FieldName: requirement.FieldName})
+	}
+	return out
+}
+
+func placementIDs(in []workflow.PlacementID) []string {
+	out := make([]string, 0, len(in))
+	for _, id := range in {
+		out = append(out, string(id))
+	}
+	return out
+}
+
+func runIDs(in []workflow.RunID) []string {
+	out := make([]string, 0, len(in))
+	for _, id := range in {
+		out = append(out, string(id))
 	}
 	return out
 }

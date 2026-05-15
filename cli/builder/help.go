@@ -202,6 +202,7 @@ func writeTaskUsage(fs *flag.FlagSet) {
 	writeHelpSection(out, "Usage of builder task:",
 		"  builder task create --title <title> --body <body> [--workflow <workflow>] [--project <project>]",
 		"  builder task start <short-id-or-task-id>",
+		"  builder task approve <transition-id>",
 		"  builder task list [--project <project>]",
 		"  builder task show <short-id-or-task-id>",
 		"  builder task cancel <short-id-or-task-id> [--reason <text>]",
@@ -223,6 +224,12 @@ func writeTaskCreateUsage(fs *flag.FlagSet) {
 }
 
 func writeTaskStartUsage(fs *flag.FlagSet) {
+	writeTaskUsage(fs)
+	writeHelpSection(fs.Output(), "Flags:")
+	fs.PrintDefaults()
+}
+
+func writeTaskApproveUsage(fs *flag.FlagSet) {
 	writeTaskUsage(fs)
 	writeHelpSection(fs.Output(), "Flags:")
 	fs.PrintDefaults()

@@ -203,9 +203,6 @@ type RuntimeSupportIssue struct {
 
 func UnsupportedRuntimeFeatures(edge RuntimeSupportEdge) []RuntimeSupportIssue {
 	issues := []RuntimeSupportIssue{}
-	if edge.RequiresApproval {
-		issues = append(issues, RuntimeSupportIssue{Code: CodeUnsupportedApprovalExecution, Message: "approval-gated edges cannot execute until approval resume is implemented"})
-	}
 	if edge.TargetKind == NodeKindJoin {
 		issues = append(issues, RuntimeSupportIssue{Code: CodeUnsupportedJoinExecution, Message: "join targets cannot execute until join progression is implemented"})
 	}

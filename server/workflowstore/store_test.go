@@ -418,15 +418,6 @@ func TestCompleteRunRejectsUnsupportedRuntimeSnapshots(t *testing.T) {
 		want   string
 	}{
 		{
-			name: "approval gated transition",
-			mutate: func(t *testing.T, snapshot *runStartSnapshot) {
-				mutateSnapshotTransition(t, snapshot, "done", func(group *transitionContractSnapshot) {
-					group.Edges[0].RequiresApproval = true
-				})
-			},
-			want: "approval-gated edges cannot execute",
-		},
-		{
 			name: "join target",
 			mutate: func(t *testing.T, snapshot *runStartSnapshot) {
 				mutateSnapshotTransition(t, snapshot, "done", func(group *transitionContractSnapshot) {
@@ -546,6 +537,247 @@ func TestCompleteRunCreatesTargetRunForContinueSessionContextMode(t *testing.T) 
 	}
 	if runMetadata.ContextMode != string(workflow.ContextModeContinueSession) || runMetadata.SourceRunID != string(started.RunID) {
 		t.Fatalf("target run metadata = %+v, want context mode and source run", runMetadata)
+	}
+}
+
+func TestCompleteRunCreatesPendingApprovalTransition(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createApprovalWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+
+	result, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	if result.State != "pending_approval" || len(result.PlacementIDs) != 0 || len(result.RunIDs) != 0 {
+		t.Fatalf("completion result = %+v, want pending approval without target placement/run", result)
+	}
+	transitions, err := store.ListTransitions(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTransitions: %v", err)
+	}
+	if len(transitions) != 2 || transitions[1].State != "pending_approval" || transitions[1].OutputValues["summary"] != "done" {
+		t.Fatalf("transitions after approval completion = %+v", transitions)
+	}
+	edges, err := store.ListTransitionEdges(ctx, result.TransitionID)
+	if err != nil {
+		t.Fatalf("ListTransitionEdges: %v", err)
+	}
+	if len(edges) != 1 || edges[0].State != "pending" || edges[0].TargetPlacementID != "" {
+		t.Fatalf("approval edge snapshots = %+v, want pending edge without placement", edges)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].CompletedAt == 0 {
+		t.Fatalf("runs after pending approval = %+v, want source run completed", runs)
+	}
+}
+
+func TestApprovePendingTransitionStartsStoredTargetEdgeSnapshot(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createApprovalWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+
+	approved, err := store.ApproveTransition(ctx, completed.TransitionID)
+	if err != nil {
+		t.Fatalf("ApproveTransition: %v", err)
+	}
+	if approved.State != "approved" || len(approved.PlacementIDs) != 1 || len(approved.RunIDs) != 0 {
+		t.Fatalf("approved result = %+v, want approved terminal placement without run", approved)
+	}
+	again, err := store.ApproveTransition(ctx, completed.TransitionID)
+	if err != nil {
+		t.Fatalf("ApproveTransition duplicate: %v", err)
+	}
+	if again.State != "approved" || len(again.PlacementIDs) != 1 || again.PlacementIDs[0] != approved.PlacementIDs[0] {
+		t.Fatalf("duplicate approval = %+v, want idempotent same placement", again)
+	}
+	transitions, err := store.ListTransitions(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTransitions: %v", err)
+	}
+	if len(transitions) != 2 || transitions[1].State != "approved" {
+		t.Fatalf("transitions after approval = %+v", transitions)
+	}
+	edges, err := store.ListTransitionEdges(ctx, completed.TransitionID)
+	if err != nil {
+		t.Fatalf("ListTransitionEdges: %v", err)
+	}
+	if len(edges) != 1 || edges[0].State != "applied" || edges[0].TargetPlacementID == "" {
+		t.Fatalf("approval edges = %+v, want applied edge with target placement", edges)
+	}
+	placements, err := store.ListPlacements(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListPlacements: %v", err)
+	}
+	if len(placements) != 3 || placements[2].ID != approved.PlacementIDs[0] || placements[2].State != "active" {
+		t.Fatalf("placements after approval = %+v", placements)
+	}
+}
+
+func TestRejectPendingApprovalTransitionMarksRejected(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createApprovalWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+
+	rejected, err := store.RejectTransition(ctx, completed.TransitionID)
+	if err != nil {
+		t.Fatalf("RejectTransition: %v", err)
+	}
+	if rejected.State != "rejected" {
+		t.Fatalf("reject result = %+v, want rejected", rejected)
+	}
+	if _, err := store.ApproveTransition(ctx, completed.TransitionID); err == nil || !strings.Contains(err.Error(), "not pending approval") {
+		t.Fatalf("ApproveTransition rejected error = %v, want not pending", err)
+	}
+	transitions, err := store.ListTransitions(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTransitions: %v", err)
+	}
+	if len(transitions) != 2 || transitions[1].State != "rejected" {
+		t.Fatalf("transitions after rejection = %+v", transitions)
+	}
+	edges, err := store.ListTransitionEdges(ctx, completed.TransitionID)
+	if err != nil {
+		t.Fatalf("ListTransitionEdges: %v", err)
+	}
+	if len(edges) != 1 || edges[0].State != "blocked" || edges[0].TargetPlacementID != "" {
+		t.Fatalf("edges after rejection = %+v, want blocked without target", edges)
+	}
+}
+
+func TestApprovalTransitionGroupWaitsAsWholeWhenAnyEdgeRequiresApproval(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createApprovalWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	row, err := store.queries.GetTaskRun(ctx, string(started.RunID))
+	if err != nil {
+		t.Fatalf("GetTaskRun: %v", err)
+	}
+	snapshot := runStartSnapshot{}
+	if err := unmarshalJSON(row.RunStartSnapshotJson, &snapshot); err != nil {
+		t.Fatalf("unmarshal snapshot: %v", err)
+	}
+	mutateSnapshotTransition(t, &snapshot, "done", func(group *transitionContractSnapshot) {
+		second := group.Edges[0]
+		second.Key = "second"
+		second.RequiresApproval = false
+		group.Edges = append(group.Edges, second)
+	})
+	snapshotJSON, err := marshalJSON(snapshot)
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE task_runs SET run_start_snapshot_json = ? WHERE id = ?`, snapshotJSON, string(started.RunID)); err != nil {
+		t.Fatalf("update snapshot: %v", err)
+	}
+
+	result, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	if result.State != "pending_approval" || len(result.PlacementIDs) != 0 {
+		t.Fatalf("completion result = %+v, want whole group pending approval", result)
+	}
+	edges, err := store.ListTransitionEdges(ctx, result.TransitionID)
+	if err != nil {
+		t.Fatalf("ListTransitionEdges: %v", err)
+	}
+	if len(edges) != 2 || edges[0].State != "pending" || edges[1].State != "pending" {
+		t.Fatalf("transition edges = %+v, want both edges pending", edges)
+	}
+}
+
+func TestManualMoveForwardValidatesOutputValues(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createValidWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.StartTask(ctx, task.ID); err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	done := nodeByKind(t, def, workflow.NodeKindTerminal)
+
+	if _, err := store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: done.ID}); err == nil || !strings.Contains(err.Error(), "required output") {
+		t.Fatalf("ManualMoveTask missing output error = %v, want required output", err)
+	}
+	moved, err := store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: done.ID, OutputValues: map[string]string{"summary": "manual done"}})
+	if err != nil {
+		t.Fatalf("ManualMoveTask: %v", err)
+	}
+	if moved.State != "applied" || len(moved.PlacementIDs) != 1 || len(moved.RunIDs) != 0 {
+		t.Fatalf("manual move result = %+v, want applied terminal placement", moved)
+	}
+	transitions, err := store.ListTransitions(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTransitions: %v", err)
+	}
+	if len(transitions) != 2 || transitions[1].OutputValues["summary"] != "manual done" {
+		t.Fatalf("manual move transition = %+v", transitions)
 	}
 }
 
