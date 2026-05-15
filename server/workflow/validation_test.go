@@ -514,36 +514,36 @@ func TestRuntimeValidationBlocksUnimplementedExecutionFeatures(t *testing.T) {
 		}
 	})
 
-	t.Run("join targets warn in draft and block task creation", func(t *testing.T) {
+	t.Run("join targets are valid runtime features", func(t *testing.T) {
 		def := fanoutWorkflow()
 
 		draft := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft})
-		assertHasCodes(t, draft, workflow.CodeUnsupportedJoinExecution)
+		assertNoCode(t, draft, workflow.CodeUnsupportedJoinExecution)
 		if draft.HasBlockingErrors() {
-			t.Fatalf("draft join warning should not block saving: %+v", draft.BlockingErrors())
+			t.Fatalf("draft join should not block saving: %+v", draft.BlockingErrors())
 		}
 
 		task := validateForTask(def)
-		assertHasCodes(t, task, workflow.CodeUnsupportedJoinExecution)
-		if !task.HasBlockingErrors() {
-			t.Fatalf("task join error should block execution")
+		assertNoCode(t, task, workflow.CodeUnsupportedJoinExecution)
+		if task.HasBlockingErrors() {
+			t.Fatalf("task join should not block execution: %+v", task.BlockingErrors())
 		}
 	})
 
-	t.Run("join bindings warn in draft and block task creation", func(t *testing.T) {
+	t.Run("join bindings are valid runtime features", func(t *testing.T) {
 		def := validWorkflow()
 		def.Edges[0].InputBindings = []workflow.InputBinding{{Name: "joined", Source: workflow.BindingSourceJoin, Field: "aggregate"}}
 
 		draft := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft})
-		assertHasCodes(t, draft, workflow.CodeUnsupportedJoinBinding)
+		assertNoCode(t, draft, workflow.CodeUnsupportedJoinBinding)
 		if draft.HasBlockingErrors() {
-			t.Fatalf("draft join binding warning should not block saving: %+v", draft.BlockingErrors())
+			t.Fatalf("draft join binding should not block saving: %+v", draft.BlockingErrors())
 		}
 
 		task := validateForTask(def)
-		assertHasCodes(t, task, workflow.CodeUnsupportedJoinBinding)
-		if !task.HasBlockingErrors() {
-			t.Fatalf("task join binding error should block execution")
+		assertNoCode(t, task, workflow.CodeUnsupportedJoinBinding)
+		if task.HasBlockingErrors() {
+			t.Fatalf("task join binding should not block execution: %+v", task.BlockingErrors())
 		}
 	})
 }

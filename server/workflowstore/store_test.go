@@ -416,17 +416,7 @@ func TestCompleteRunRejectsUnsupportedRuntimeSnapshots(t *testing.T) {
 		name   string
 		mutate func(*testing.T, *runStartSnapshot)
 		want   string
-	}{
-		{
-			name: "join target",
-			mutate: func(t *testing.T, snapshot *runStartSnapshot) {
-				mutateSnapshotTransition(t, snapshot, "done", func(group *transitionContractSnapshot) {
-					group.Edges[0].TargetNode.Kind = workflow.NodeKindJoin
-				})
-			},
-			want: "join targets cannot execute",
-		},
-	}
+	}{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -739,6 +729,132 @@ func TestApprovalTransitionGroupWaitsAsWholeWhenAnyEdgeRequiresApproval(t *testi
 	}
 	if len(edges) != 2 || edges[0].State != "pending" || edges[1].State != "pending" {
 		t.Fatalf("transition edges = %+v, want both edges pending", edges)
+	}
+}
+
+func TestCompleteRunFanoutCreatesParallelBranchPlacements(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createFanoutJoinWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+
+	result, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "split", OutputValues: map[string]string{"summary": "plan"}})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	if len(result.PlacementIDs) != 2 || len(result.RunIDs) != 2 {
+		t.Fatalf("fanout result = %+v, want two branch placements and runs", result)
+	}
+	rows, err := store.db.QueryContext(ctx, `
+SELECT id, parallel_batch_transition_id, parallel_branch_edge_id
+FROM task_node_placements
+WHERE id IN (?, ?)
+ORDER BY parallel_branch_edge_id ASC`, string(result.PlacementIDs[0]), string(result.PlacementIDs[1]))
+	if err != nil {
+		t.Fatalf("query branch placements: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+	branches := map[string]string{}
+	for rows.Next() {
+		var placementID string
+		var batchID sql.NullString
+		var branchEdgeID sql.NullString
+		if err := rows.Scan(&placementID, &batchID, &branchEdgeID); err != nil {
+			t.Fatalf("scan branch placement: %v", err)
+		}
+		if batchID.String != string(result.TransitionID) || !branchEdgeID.Valid || branchEdgeID.String == "" {
+			t.Fatalf("branch placement %s batch=%+v branch=%+v, want batch transition and branch edge", placementID, batchID, branchEdgeID)
+		}
+		branches[branchEdgeID.String] = placementID
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("branch rows: %v", err)
+	}
+	if len(branches) != 2 || branches["edge-split-a-"+string(workflowID)] == "" || branches["edge-split-b-"+string(workflowID)] == "" {
+		t.Fatalf("branch identities = %+v, want split edge ids", branches)
+	}
+}
+
+func TestJoinWaitsForAllBranchesAndAggregatesDeterministically(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createFanoutJoinWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	split, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "split", OutputValues: map[string]string{"summary": "plan"}})
+	if err != nil {
+		t.Fatalf("CompleteRun split: %v", err)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	branchRunsByNode := map[workflow.NodeID]workflow.RunID{}
+	for _, run := range runs {
+		if run.ID != started.RunID {
+			branchRunsByNode[run.NodeID] = run.ID
+		}
+	}
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	implA := nodeByKey(t, def, "impl_a")
+	implB := nodeByKey(t, def, "impl_b")
+
+	first, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: branchRunsByNode[implB.ID], TransitionID: "join", OutputValues: map[string]string{"summary": "branch b"}})
+	if err != nil {
+		t.Fatalf("CompleteRun branch b: %v", err)
+	}
+	if len(first.PlacementIDs) != 0 || len(first.RunIDs) != 0 {
+		t.Fatalf("first branch result = %+v, want join waiting for missing branch", first)
+	}
+	second, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: branchRunsByNode[implA.ID], TransitionID: "join", OutputValues: map[string]string{"summary": "branch a"}})
+	if err != nil {
+		t.Fatalf("CompleteRun branch a: %v", err)
+	}
+	if len(second.PlacementIDs) != 1 || len(second.RunIDs) != 1 {
+		t.Fatalf("second branch result = %+v, want joined aggregate agent run", second)
+	}
+	transitions, err := store.ListTransitions(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTransitions: %v", err)
+	}
+	joinTransition := transitions[len(transitions)-1]
+	if joinTransition.TransitionID != "done" || !strings.Contains(joinTransition.OutputValues["aggregate"], "impl_a") || !strings.Contains(joinTransition.OutputValues["aggregate"], "branch a") || !strings.Contains(joinTransition.OutputValues["aggregate"], "impl_b") || !strings.Contains(joinTransition.OutputValues["aggregate"], "branch b") {
+		t.Fatalf("join transition = %+v, want deterministic aggregate output", joinTransition)
+	}
+	if strings.Index(joinTransition.OutputValues["aggregate"], "impl_a") > strings.Index(joinTransition.OutputValues["aggregate"], "impl_b") {
+		t.Fatalf("join aggregate = %q, want impl_a before impl_b regardless of completion order", joinTransition.OutputValues["aggregate"])
+	}
+	input, err := store.GetRunStartContext(ctx, second.RunIDs[0])
+	if err != nil {
+		t.Fatalf("GetRunStartContext joined run: %v", err)
+	}
+	if input.InputValues["joined"] != joinTransition.OutputValues["aggregate"] {
+		t.Fatalf("joined input = %+v, want aggregate %q", input.InputValues, joinTransition.OutputValues["aggregate"])
+	}
+	if split.TransitionID == "" {
+		t.Fatalf("split transition id missing")
 	}
 }
 
@@ -1225,8 +1341,12 @@ func TestRunStartContextHandlesMissingInputEdgeAndMalformedJSON(t *testing.T) {
 	if _, err := store.db.ExecContext(ctx, `UPDATE task_transition_edges SET input_bindings_json = ? WHERE target_placement_id = ?`, joinInputsJSON, string(startedJoinInputs.PlacementID)); err != nil {
 		t.Fatalf("set join transition edge inputs: %v", err)
 	}
-	if _, err := store.GetRunStartContext(ctx, startedJoinInputs.RunID); err == nil || !strings.Contains(err.Error(), "join-sourced input bindings cannot execute") {
-		t.Fatalf("GetRunStartContext join inputs error = %v", err)
+	joinInput, err := store.GetRunStartContext(ctx, startedJoinInputs.RunID)
+	if err != nil {
+		t.Fatalf("GetRunStartContext join inputs: %v", err)
+	}
+	if joinInput.InputValues["joined"] != "" {
+		t.Fatalf("join input without aggregate = %+v, want empty value", joinInput.InputValues)
 	}
 }
 
@@ -1736,6 +1856,69 @@ func createApprovalWorkflow(t *testing.T, ctx context.Context, store *Store) wor
 	}
 	if _, err := store.AddEdge(ctx, EdgeRecord{ID: workflow.EdgeID("edge-done-approval-" + string(workflowID)), WorkflowID: workflowID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(workflowID)), Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession, RequiresApproval: true, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}}); err != nil {
 		t.Fatalf("AddEdge approval done: %v", err)
+	}
+	return workflowID
+}
+
+func createFanoutJoinWorkflow(t *testing.T, ctx context.Context, store *Store) workflow.WorkflowID {
+	t.Helper()
+	created, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: "Fanout Workflow"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+	workflowID := created.ID
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	start := nodeByKind(t, def, workflow.NodeKindStart)
+	done := nodeByKind(t, def, workflow.NodeKindTerminal)
+	planID := workflow.NodeID("node-plan-" + string(workflowID))
+	implAID := workflow.NodeID("node-impl-a-" + string(workflowID))
+	implBID := workflow.NodeID("node-impl-b-" + string(workflowID))
+	joinID := workflow.NodeID("node-join-" + string(workflowID))
+	synthID := workflow.NodeID("node-synth-" + string(workflowID))
+	for _, node := range []NodeRecord{
+		{ID: planID, WorkflowID: workflowID, Key: "plan", Kind: workflow.NodeKindAgent, DisplayName: "Plan", SubagentRole: "coder", PromptTemplate: "Plan.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
+		{ID: implAID, WorkflowID: workflowID, Key: "impl_a", Kind: workflow.NodeKindAgent, DisplayName: "Implement A", SubagentRole: "coder", PromptTemplate: "A.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
+		{ID: implBID, WorkflowID: workflowID, Key: "impl_b", Kind: workflow.NodeKindAgent, DisplayName: "Implement B", SubagentRole: "coder", PromptTemplate: "B.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
+		{ID: joinID, WorkflowID: workflowID, Key: "join", Kind: workflow.NodeKindJoin, DisplayName: "Join"},
+		{ID: synthID, WorkflowID: workflowID, Key: "synth", Kind: workflow.NodeKindAgent, DisplayName: "Synthesize", SubagentRole: "coder", PromptTemplate: "Synthesize {{.Inputs.joined}}.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
+	} {
+		if _, err := store.AddNode(ctx, node); err != nil {
+			t.Fatalf("AddNode %s: %v", node.Key, err)
+		}
+	}
+	startGroup := workflow.TransitionGroupID("group-start-" + string(workflowID))
+	splitGroup := workflow.TransitionGroupID("group-split-" + string(workflowID))
+	joinAGroup := workflow.TransitionGroupID("group-join-a-" + string(workflowID))
+	joinBGroup := workflow.TransitionGroupID("group-join-b-" + string(workflowID))
+	synthGroup := workflow.TransitionGroupID("group-join-synth-" + string(workflowID))
+	doneGroup := workflow.TransitionGroupID("group-synth-done-" + string(workflowID))
+	for _, group := range []TransitionGroupRecord{
+		{ID: startGroup, WorkflowID: workflowID, SourceNodeID: start.ID, TransitionID: "start", DisplayName: "Start"},
+		{ID: splitGroup, WorkflowID: workflowID, SourceNodeID: planID, TransitionID: "split", DisplayName: "Split"},
+		{ID: joinAGroup, WorkflowID: workflowID, SourceNodeID: implAID, TransitionID: "join", DisplayName: "Join"},
+		{ID: joinBGroup, WorkflowID: workflowID, SourceNodeID: implBID, TransitionID: "join", DisplayName: "Join"},
+		{ID: synthGroup, WorkflowID: workflowID, SourceNodeID: joinID, TransitionID: "done", DisplayName: "Done"},
+		{ID: doneGroup, WorkflowID: workflowID, SourceNodeID: synthID, TransitionID: "done", DisplayName: "Done"},
+	} {
+		if _, err := store.AddTransitionGroup(ctx, group); err != nil {
+			t.Fatalf("AddTransitionGroup %s: %v", group.TransitionID, err)
+		}
+	}
+	for _, edge := range []EdgeRecord{
+		{ID: workflow.EdgeID("edge-start-" + string(workflowID)), WorkflowID: workflowID, TransitionGroupID: startGroup, Key: "start", TargetNodeID: planID, ContextMode: workflow.ContextModeNewSession},
+		{ID: workflow.EdgeID("edge-split-a-" + string(workflowID)), WorkflowID: workflowID, TransitionGroupID: splitGroup, Key: "split_a", TargetNodeID: implAID, ContextMode: workflow.ContextModeNewSession},
+		{ID: workflow.EdgeID("edge-split-b-" + string(workflowID)), WorkflowID: workflowID, TransitionGroupID: splitGroup, Key: "split_b", TargetNodeID: implBID, ContextMode: workflow.ContextModeNewSession},
+		{ID: workflow.EdgeID("edge-join-a-" + string(workflowID)), WorkflowID: workflowID, TransitionGroupID: joinAGroup, Key: "join_a", TargetNodeID: joinID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+		{ID: workflow.EdgeID("edge-join-b-" + string(workflowID)), WorkflowID: workflowID, TransitionGroupID: joinBGroup, Key: "join_b", TargetNodeID: joinID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+		{ID: workflow.EdgeID("edge-join-synth-" + string(workflowID)), WorkflowID: workflowID, TransitionGroupID: synthGroup, Key: "synth", TargetNodeID: synthID, ContextMode: workflow.ContextModeNewSession, InputBindings: []workflow.InputBinding{{Name: "joined", Source: workflow.BindingSourceJoin, Field: "aggregate"}}},
+		{ID: workflow.EdgeID("edge-synth-done-" + string(workflowID)), WorkflowID: workflowID, TransitionGroupID: doneGroup, Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+	} {
+		if _, err := store.AddEdge(ctx, edge); err != nil {
+			t.Fatalf("AddEdge %s: %v", edge.Key, err)
+		}
 	}
 	return workflowID
 }

@@ -277,11 +277,7 @@ func resolveInputBindingValues(task TaskRecord, commentary string, outputValues 
 				values[name] = outputValues[field]
 			}
 		case workflow.BindingSourceJoin:
-			issues := workflow.UnsupportedRuntimeFeatures(workflow.RuntimeSupportEdge{InputBindings: []workflow.InputBinding{binding}})
-			if len(issues) > 0 {
-				return nil, fmt.Errorf("%s", issues[0].Message)
-			}
-			return nil, fmt.Errorf("join-sourced input bindings cannot execute until join aggregation is implemented")
+			values[name] = outputValues[strings.TrimSpace(binding.Field)]
 		default:
 			return nil, fmt.Errorf("unsupported input binding source %q", binding.Source)
 		}

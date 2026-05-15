@@ -203,14 +203,6 @@ type RuntimeSupportIssue struct {
 
 func UnsupportedRuntimeFeatures(edge RuntimeSupportEdge) []RuntimeSupportIssue {
 	issues := []RuntimeSupportIssue{}
-	if edge.TargetKind == NodeKindJoin {
-		issues = append(issues, RuntimeSupportIssue{Code: CodeUnsupportedJoinExecution, Message: "join targets cannot execute until join progression is implemented"})
-	}
-	for _, binding := range edge.InputBindings {
-		if binding.Source == BindingSourceJoin {
-			issues = append(issues, RuntimeSupportIssue{Code: CodeUnsupportedJoinBinding, Message: "join-sourced input bindings cannot execute until join aggregation is implemented"})
-		}
-	}
 	return issues
 }
 

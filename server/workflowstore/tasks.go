@@ -392,6 +392,18 @@ WHERE id = ?
 			}
 			continue
 		}
+		if edge.TargetNode.Kind == workflow.NodeKindJoin {
+			if err := insertTransitionEdgeSnapshot(ctx, q, transitionID, snapshot.WorkflowRevisionSeen, edge, "", "applied"); err != nil {
+				return CompleteRunResult{}, err
+			}
+			joined, err := s.applyJoinIfReady(ctx, tx, q, now, run.TaskID, run.PlacementID, snapshot, edge)
+			if err != nil {
+				return CompleteRunResult{}, err
+			}
+			result.PlacementIDs = append(result.PlacementIDs, joined.PlacementIDs...)
+			result.RunIDs = append(result.RunIDs, joined.RunIDs...)
+			continue
+		}
 		targetPlacementID := prefixedID("placement")
 		if err := q.InsertTaskNodePlacement(ctx, sqlitegen.InsertTaskNodePlacementParams{ID: targetPlacementID, TaskID: run.TaskID, NodeID: string(edge.TargetNode.ID), State: "active", CreatedByTransitionID: sql.NullString{String: transitionID, Valid: true}, ParallelBatchTransitionID: sql.NullString{String: transitionID, Valid: len(group.Edges) > 1}, ParallelBranchEdgeID: sql.NullString{String: string(edge.ID), Valid: true}, CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
 			return CompleteRunResult{}, fmt.Errorf("insert target placement: %w", err)
