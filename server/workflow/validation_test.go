@@ -427,6 +427,10 @@ func TestOutputBindingsTemplatesContextAndRoles(t *testing.T) {
 			def.Nodes[1].PromptTemplate = "Use {{.Inputs.missing}}."
 			def.Edges[0].InputBindings = []workflow.InputBinding{{Name: "task_title", Source: workflow.BindingSourceTask, Field: "title"}}
 		}, code: workflow.CodeInvalidTemplatePlaceholder},
+		{name: "invalid template syntax", edit: func(def *workflow.Definition) {
+			def.Nodes[1].PromptTemplate = "Use {{.Inputs.task_title"
+			def.Edges[0].InputBindings = []workflow.InputBinding{{Name: "task_title", Source: workflow.BindingSourceTask, Field: "title"}}
+		}, code: workflow.CodeInvalidTemplatePlaceholder},
 		{name: "invalid context mode", edit: func(def *workflow.Definition) { def.Edges[1].ContextMode = workflow.ContextMode("reuse") }, code: workflow.CodeInvalidContextMode},
 		{name: "agent role required", edit: func(def *workflow.Definition) { def.Nodes[1].SubagentRole = "" }, code: workflow.CodeAgentRoleRequired},
 		{name: "agent role missing", edit: func(def *workflow.Definition) { def.Nodes[1].SubagentRole = "reviewer" }, code: workflow.CodeAgentRoleMissing},
@@ -454,6 +458,19 @@ func TestOutputBindingsTemplatesContextAndRoles(t *testing.T) {
 		result := validateForTask(def)
 
 		assertNoCode(t, result, workflow.CodeInvalidInputBinding)
+		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("template functions do not count as input placeholders", func(t *testing.T) {
+		def := validWorkflow()
+		def.Nodes[1].PromptTemplate = `{{if eq .Inputs.task_title "Task"}}{{printf "%s" .Inputs.prior_summary}}{{end}}`
+		def.Edges[0].InputBindings = []workflow.InputBinding{
+			{Name: "task_title", Source: workflow.BindingSourceTask, Field: "title"},
+			{Name: "prior_summary", Source: workflow.BindingSourceTransitionOutput, Field: "commentary"},
+		}
+
+		result := validateForTask(def)
+
 		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
 	})
 }

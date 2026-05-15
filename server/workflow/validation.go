@@ -3,6 +3,7 @@ package workflow
 import (
 	"fmt"
 	"strings"
+	"text/template"
 	"text/template/parse"
 
 	"builder/shared/workflowkey"
@@ -408,7 +409,12 @@ func (s *validationState) validatePromptPlaceholders() {
 		for _, binding := range edge.InputBindings {
 			bindings[strings.TrimSpace(binding.Name)] = true
 		}
-		for _, placeholder := range templatePlaceholders(target.PromptTemplate) {
+		placeholders, err := templatePlaceholders(target.PromptTemplate)
+		if err != nil {
+			s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template syntax is invalid", ValidationError{WorkflowID: s.def.ID, NodeID: target.ID, EdgeID: edge.ID})
+			continue
+		}
+		for _, placeholder := range placeholders {
 			if !validModelKey(placeholder) || !bindings[placeholder] {
 				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references an unknown input binding", ValidationError{WorkflowID: s.def.ID, NodeID: target.ID, EdgeID: edge.ID})
 			}
@@ -607,16 +613,15 @@ func nodeOutputFieldSet(node Node) map[string]bool {
 	return out
 }
 
-func templatePlaceholders(template string) []string {
-	tree, err := parse.Parse("workflow_node_prompt", template, "{{", "}}", nil)
+func templatePlaceholders(promptTemplate string) ([]string, error) {
+	parsed, err := template.New("workflow_node_prompt").Parse(promptTemplate)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	root := tree["workflow_node_prompt"]
-	if root == nil || root.Root == nil {
-		return nil
+	if parsed.Tree == nil || parsed.Tree.Root == nil {
+		return nil, nil
 	}
-	return templatePlaceholderWalker{}.collect(root.Root)
+	return templatePlaceholderWalker{}.collect(parsed.Tree.Root), nil
 }
 
 type templatePlaceholderWalker struct{}
@@ -624,40 +629,69 @@ type templatePlaceholderWalker struct{}
 func (templatePlaceholderWalker) collect(node parse.Node) []string {
 	out := []string{}
 	var walk func(parse.Node)
+	var walkList func(*parse.ListNode)
+	walkList = func(list *parse.ListNode) {
+		if list == nil {
+			return
+		}
+		for _, child := range list.Nodes {
+			walk(child)
+		}
+	}
 	walk = func(current parse.Node) {
+		if current == nil {
+			return
+		}
 		switch typed := current.(type) {
 		case *parse.ListNode:
-			for _, child := range typed.Nodes {
-				walk(child)
-			}
+			walkList(typed)
 		case *parse.ActionNode:
+			if typed == nil {
+				return
+			}
 			walk(typed.Pipe)
 		case *parse.IfNode:
+			if typed == nil {
+				return
+			}
 			walk(typed.Pipe)
-			walk(typed.List)
-			walk(typed.ElseList)
+			walkList(typed.List)
+			walkList(typed.ElseList)
 		case *parse.RangeNode:
+			if typed == nil {
+				return
+			}
 			walk(typed.Pipe)
-			walk(typed.List)
-			walk(typed.ElseList)
+			walkList(typed.List)
+			walkList(typed.ElseList)
 		case *parse.WithNode:
+			if typed == nil {
+				return
+			}
 			walk(typed.Pipe)
-			walk(typed.List)
-			walk(typed.ElseList)
+			walkList(typed.List)
+			walkList(typed.ElseList)
 		case *parse.PipeNode:
+			if typed == nil {
+				return
+			}
 			for _, command := range typed.Cmds {
 				walk(command)
 			}
 		case *parse.CommandNode:
+			if typed == nil {
+				return
+			}
 			for _, arg := range typed.Args {
 				walk(arg)
 			}
 		case *parse.FieldNode:
+			if typed == nil {
+				return
+			}
 			if len(typed.Ident) == 2 && typed.Ident[0] == "Inputs" {
 				out = append(out, typed.Ident[1])
 			}
-		case *parse.IdentifierNode:
-			out = append(out, typed.Ident)
 		}
 	}
 	walk(node)
