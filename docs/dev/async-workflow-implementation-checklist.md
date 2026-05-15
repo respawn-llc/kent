@@ -920,7 +920,7 @@ Goal: transition groups can create parallel branch placements and join nodes can
 - [x] Run fan-out/join tests.
 - [x] Run `./scripts/test.sh ./server/workflow/... ./server/workflowstore/... ./server/workflowview/... ./server/metadata/...`.
 - [x] Run `./scripts/build.sh --output ./bin/builder`.
-- [ ] Commit slice with message like `feat: add workflow fanout joins`.
+- [x] Commit slice with message like `feat: add workflow fanout joins`.
 
 ## Slice 13: Recovery, Observability, And Hardening
 
