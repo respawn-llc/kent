@@ -146,6 +146,13 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 	if !strings.Contains(taskShowOut, "placements") || !strings.Contains(taskShowOut, taskID) {
 		t.Fatalf("task show output = %q, want placement section", taskShowOut)
 	}
+	taskShowOut, taskShowErr, code = runWorkflowRootCommand("task", "show", "--project", "missing-project", taskID)
+	if code != 0 {
+		t.Fatalf("task show by full id exit=%d stderr=%q", code, taskShowErr)
+	}
+	if !strings.Contains(taskShowOut, taskID) {
+		t.Fatalf("task show by full id output = %q, want task id", taskShowOut)
+	}
 
 	commentOut, commentErr, code := runWorkflowRootCommand("task", "comment", "add", "--project", binding.ProjectID, "--body", "note", shortID)
 	if code != 0 {

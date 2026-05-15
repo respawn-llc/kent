@@ -452,6 +452,15 @@ func resolveWorkflowTaskID(ctx context.Context, cfg config.App, remote workflowC
 	if trimmed == "" {
 		return "", errors.New("task id is required")
 	}
+	if strings.HasPrefix(trimmed, "task-") {
+		rpcCtx, cancel := workflowRPCContext(ctx)
+		defer cancel()
+		resp, err := remote.GetWorkflowTask(rpcCtx, serverapi.WorkflowTaskGetRequest{TaskID: trimmed})
+		if err != nil {
+			return "", err
+		}
+		return resp.Task.Summary.ID, nil
+	}
 	board, err := workflowBoardForProject(ctx, cfg, remote, projectRef)
 	if err == nil {
 		matches := make([]serverapi.WorkflowTaskSummary, 0, 1)
