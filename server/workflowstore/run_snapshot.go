@@ -13,6 +13,7 @@ type runStartSnapshot struct {
 	WorkflowID           workflow.WorkflowID          `json:"workflow_id"`
 	WorkflowRevisionSeen int64                        `json:"workflow_revision_seen"`
 	Node                 nodeContractSnapshot         `json:"node"`
+	Nodes                []nodeContractSnapshot       `json:"nodes,omitempty"`
 	TransitionGroups     []transitionContractSnapshot `json:"transition_groups"`
 }
 
@@ -28,6 +29,7 @@ type nodeContractSnapshot struct {
 
 type transitionContractSnapshot struct {
 	ID           workflow.TransitionGroupID `json:"id"`
+	SourceNodeID workflow.NodeID            `json:"source_node_id,omitempty"`
 	TransitionID string                     `json:"transition_id"`
 	DisplayName  string                     `json:"display_name"`
 	Edges        []edgeContractSnapshot     `json:"edges"`
@@ -58,7 +60,7 @@ func nodeRecordFromSnapshot(node nodeContractSnapshot, workflowID workflow.Workf
 
 func transitionIDsFromSnapshot(snapshot runStartSnapshot) []string {
 	out := make([]string, 0, len(snapshot.TransitionGroups))
-	for _, group := range snapshot.TransitionGroups {
+	for _, group := range snapshot.transitionGroupsForNode(snapshot.Node.ID) {
 		id := strings.TrimSpace(group.TransitionID)
 		if id != "" {
 			out = append(out, id)
@@ -69,7 +71,7 @@ func transitionIDsFromSnapshot(snapshot runStartSnapshot) []string {
 
 func transitionOptionsFromSnapshot(snapshot runStartSnapshot) []TransitionOption {
 	out := make([]TransitionOption, 0, len(snapshot.TransitionGroups))
-	for _, group := range snapshot.TransitionGroups {
+	for _, group := range snapshot.transitionGroupsForNode(snapshot.Node.ID) {
 		id := strings.TrimSpace(group.TransitionID)
 		if id == "" {
 			continue
@@ -92,10 +94,6 @@ func newRunStartSnapshot(def workflow.Definition, record WorkflowRecord, nodeID 
 	if !ok {
 		return runStartSnapshot{}, fmt.Errorf("snapshot node %q missing", nodeID)
 	}
-	groupsBySource := make(map[workflow.NodeID][]workflow.TransitionGroup, len(def.TransitionGroups))
-	for _, group := range def.TransitionGroups {
-		groupsBySource[group.SourceNodeID] = append(groupsBySource[group.SourceNodeID], group)
-	}
 	edgesByGroup := make(map[workflow.TransitionGroupID][]workflow.Edge, len(def.Edges))
 	for _, edge := range def.Edges {
 		edgesByGroup[edge.TransitionGroupID] = append(edgesByGroup[edge.TransitionGroupID], edge)
@@ -105,8 +103,11 @@ func newRunStartSnapshot(def workflow.Definition, record WorkflowRecord, nodeID 
 		WorkflowRevisionSeen: record.GraphRevision,
 		Node:                 nodeSnapshot(node),
 	}
-	for _, group := range groupsBySource[nodeID] {
-		groupSnapshot := transitionContractSnapshot{ID: group.ID, TransitionID: string(group.TransitionID), DisplayName: group.DisplayName}
+	for _, defNode := range def.Nodes {
+		snapshot.Nodes = append(snapshot.Nodes, nodeSnapshot(defNode))
+	}
+	for _, group := range def.TransitionGroups {
+		groupSnapshot := transitionContractSnapshot{ID: group.ID, SourceNodeID: group.SourceNodeID, TransitionID: string(group.TransitionID), DisplayName: group.DisplayName}
 		for _, edge := range edgesByGroup[group.ID] {
 			target, ok := nodes[edge.TargetNodeID]
 			if !ok {
@@ -140,12 +141,70 @@ func nodeSnapshot(node workflow.Node) nodeContractSnapshot {
 }
 
 func (s runStartSnapshot) transitionByID(transitionID string) (transitionContractSnapshot, bool) {
-	for _, group := range s.TransitionGroups {
+	for _, group := range s.transitionGroupsForNode(s.Node.ID) {
 		if group.TransitionID == transitionID {
 			return group, true
 		}
 	}
 	return transitionContractSnapshot{}, false
+}
+
+func (s runStartSnapshot) transitionGroupsForNode(nodeID workflow.NodeID) []transitionContractSnapshot {
+	out := make([]transitionContractSnapshot, 0, len(s.TransitionGroups))
+	for _, group := range s.TransitionGroups {
+		if group.SourceNodeID == "" || group.SourceNodeID == nodeID {
+			out = append(out, group)
+		}
+	}
+	return out
+}
+
+func (s runStartSnapshot) hasFullGraphContract() bool {
+	return len(s.Nodes) > 0
+}
+
+func (s runStartSnapshot) forNode(target nodeContractSnapshot) (runStartSnapshot, bool, error) {
+	if !s.hasFullGraphContract() {
+		return runStartSnapshot{}, false, nil
+	}
+	node, ok := s.nodeByID(target.ID)
+	if !ok {
+		return runStartSnapshot{}, true, fmt.Errorf("snapshot target node %q missing", target.ID)
+	}
+	return runStartSnapshot{
+		WorkflowID:           s.WorkflowID,
+		WorkflowRevisionSeen: s.WorkflowRevisionSeen,
+		Node:                 node,
+		Nodes:                append([]nodeContractSnapshot(nil), s.Nodes...),
+		TransitionGroups:     cloneTransitionContractSnapshots(s.TransitionGroups),
+	}, true, nil
+}
+
+func (s runStartSnapshot) nodeByID(nodeID workflow.NodeID) (nodeContractSnapshot, bool) {
+	for _, node := range s.Nodes {
+		if node.ID == nodeID {
+			return node, true
+		}
+	}
+	return nodeContractSnapshot{}, false
+}
+
+func cloneTransitionContractSnapshots(groups []transitionContractSnapshot) []transitionContractSnapshot {
+	out := make([]transitionContractSnapshot, 0, len(groups))
+	for _, group := range groups {
+		group.Edges = append([]edgeContractSnapshot(nil), group.Edges...)
+		out = append(out, group)
+	}
+	return out
+}
+
+func transitionGroupHasAgentTarget(group transitionContractSnapshot) bool {
+	for _, edge := range group.Edges {
+		if edge.TargetNode.Kind == workflow.NodeKindAgent {
+			return true
+		}
+	}
+	return false
 }
 
 func (g transitionContractSnapshot) unsupportedRuntimeIssues() []workflow.RuntimeSupportIssue {

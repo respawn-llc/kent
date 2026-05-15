@@ -288,14 +288,15 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 		return CompleteRunResult{}, err
 	}
 	selectedTransitionID := strings.TrimSpace(req.TransitionID)
+	availableGroups := snapshot.transitionGroupsForNode(snapshot.Node.ID)
 	if selectedTransitionID == "" {
-		if len(snapshot.TransitionGroups) == 0 {
+		if len(availableGroups) == 0 {
 			return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: "no_outgoing_transition", Field: "transition_id", Message: "no outgoing transition is available in run-start snapshot"}}}
 		}
-		if len(snapshot.TransitionGroups) != 1 {
+		if len(availableGroups) != 1 {
 			return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: "transition_id_required", Field: "transition_id", Message: "transition id is required when multiple transitions are available"}}}
 		}
-		selectedTransitionID = snapshot.TransitionGroups[0].TransitionID
+		selectedTransitionID = availableGroups[0].TransitionID
 	}
 	group, ok := snapshot.transitionByID(selectedTransitionID)
 	if !ok {
@@ -320,11 +321,13 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 	now := s.now().UnixMilli()
 	transitionState := "applied"
 	appliedAt := now
-	var targetDef workflow.Definition
-	var targetWorkflow WorkflowRecord
-	targetDef, targetWorkflow, err = s.GetDefinition(ctx, snapshot.WorkflowID)
-	if err != nil {
-		return CompleteRunResult{}, err
+	var fallbackDef workflow.Definition
+	var fallbackWorkflow WorkflowRecord
+	if !snapshot.hasFullGraphContract() && transitionGroupHasAgentTarget(group) {
+		fallbackDef, fallbackWorkflow, err = s.GetDefinition(ctx, snapshot.WorkflowID)
+		if err != nil {
+			return CompleteRunResult{}, err
+		}
 	}
 	transitionID := prefixedID("transition")
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -380,15 +383,21 @@ WHERE id = ?
 			continue
 		}
 		targetRunID := prefixedID("run")
-		targetSnapshot, err := newRunStartSnapshot(targetDef, targetWorkflow, edge.TargetNode.ID)
+		targetSnapshot, foundSnapshot, err := snapshot.forNode(edge.TargetNode)
 		if err != nil {
 			return CompleteRunResult{}, err
+		}
+		if !foundSnapshot {
+			targetSnapshot, err = newRunStartSnapshot(fallbackDef, fallbackWorkflow, edge.TargetNode.ID)
+			if err != nil {
+				return CompleteRunResult{}, err
+			}
 		}
 		targetSnapshotJSON, err := marshalJSON(targetSnapshot)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		if err := q.InsertTaskRun(ctx, sqlitegen.InsertTaskRunParams{ID: targetRunID, TaskID: run.TaskID, PlacementID: targetPlacementID, NodeID: string(edge.TargetNode.ID), WorkflowRevisionSeen: targetWorkflow.GraphRevision, AutomationRequestedAtUnixMs: now, CreatedAtUnixMs: now, UpdatedAtUnixMs: now, InterruptionDetailJson: "{}", RunStartSnapshotJson: targetSnapshotJSON, MetadataJson: "{}"}); err != nil {
+		if err := q.InsertTaskRun(ctx, sqlitegen.InsertTaskRunParams{ID: targetRunID, TaskID: run.TaskID, PlacementID: targetPlacementID, NodeID: string(edge.TargetNode.ID), WorkflowRevisionSeen: targetSnapshot.WorkflowRevisionSeen, AutomationRequestedAtUnixMs: now, CreatedAtUnixMs: now, UpdatedAtUnixMs: now, InterruptionDetailJson: "{}", RunStartSnapshotJson: targetSnapshotJSON, MetadataJson: "{}"}); err != nil {
 			return CompleteRunResult{}, fmt.Errorf("insert target run: %w", err)
 		}
 		result.RunIDs = append(result.RunIDs, workflow.RunID(targetRunID))

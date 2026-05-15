@@ -259,6 +259,69 @@ func TestCompleteRunUsesRunStartSnapshotAfterGraphChanges(t *testing.T) {
 	}
 }
 
+func TestCompleteRunBuildsChildSnapshotFromParentRevision(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createValidWorkflow(t, ctx, store)
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	agent := nodeByKey(t, def, "agent")
+	done := nodeByKind(t, def, workflow.NodeKindTerminal)
+	reviewerID := workflow.NodeID("node-reviewer-" + string(workflowID))
+	if _, err := store.AddNode(ctx, NodeRecord{ID: reviewerID, WorkflowID: workflowID, Key: "reviewer", Kind: workflow.NodeKindAgent, DisplayName: "Reviewer", SubagentRole: "coder", PromptTemplate: "Review work.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}}); err != nil {
+		t.Fatalf("AddNode reviewer: %v", err)
+	}
+	if _, err := store.AddTransitionGroup(ctx, TransitionGroupRecord{ID: workflow.TransitionGroupID("group-review-" + string(workflowID)), WorkflowID: workflowID, SourceNodeID: agent.ID, TransitionID: "review", DisplayName: "Review"}); err != nil {
+		t.Fatalf("AddTransitionGroup review: %v", err)
+	}
+	if _, err := store.AddEdge(ctx, EdgeRecord{ID: workflow.EdgeID("edge-review-" + string(workflowID)), WorkflowID: workflowID, TransitionGroupID: workflow.TransitionGroupID("group-review-" + string(workflowID)), Key: "review", TargetNodeID: reviewerID, ContextMode: workflow.ContextModeNewSession}); err != nil {
+		t.Fatalf("AddEdge review: %v", err)
+	}
+	if _, err := store.AddTransitionGroup(ctx, TransitionGroupRecord{ID: workflow.TransitionGroupID("group-review-done-" + string(workflowID)), WorkflowID: workflowID, SourceNodeID: reviewerID, TransitionID: "review_done", DisplayName: "Review Done"}); err != nil {
+		t.Fatalf("AddTransitionGroup review done: %v", err)
+	}
+	if _, err := store.AddEdge(ctx, EdgeRecord{ID: workflow.EdgeID("edge-review-done-" + string(workflowID)), WorkflowID: workflowID, TransitionGroupID: workflow.TransitionGroupID("group-review-done-" + string(workflowID)), Key: "review_done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}}); err != nil {
+		t.Fatalf("AddEdge review done: %v", err)
+	}
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	archiveID := workflow.NodeID("node-archive-" + string(workflowID))
+	if _, err := store.AddNode(ctx, NodeRecord{ID: archiveID, WorkflowID: workflowID, Key: "archive", Kind: workflow.NodeKindTerminal, DisplayName: "Archive"}); err != nil {
+		t.Fatalf("AddNode archive: %v", err)
+	}
+	if _, err := store.AddTransitionGroup(ctx, TransitionGroupRecord{ID: workflow.TransitionGroupID("group-review-archive-" + string(workflowID)), WorkflowID: workflowID, SourceNodeID: reviewerID, TransitionID: "archive", DisplayName: "Archive"}); err != nil {
+		t.Fatalf("AddTransitionGroup archive: %v", err)
+	}
+	if _, err := store.AddEdge(ctx, EdgeRecord{ID: workflow.EdgeID("edge-review-archive-" + string(workflowID)), WorkflowID: workflowID, TransitionGroupID: workflow.TransitionGroupID("group-review-archive-" + string(workflowID)), Key: "archive", TargetNodeID: archiveID, ContextMode: workflow.ContextModeNewSession}); err != nil {
+		t.Fatalf("AddEdge archive: %v", err)
+	}
+	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "review", OutputValues: map[string]string{"summary": "done"}})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	if len(completed.RunIDs) != 1 {
+		t.Fatalf("completion child runs = %+v, want one", completed.RunIDs)
+	}
+	runContext, err := store.GetRunStartContext(ctx, completed.RunIDs[0])
+	if err != nil {
+		t.Fatalf("GetRunStartContext: %v", err)
+	}
+	if len(runContext.TransitionIDs) != 1 || runContext.TransitionIDs[0] != "review_done" {
+		t.Fatalf("child transition ids = %+v, want only review_done from parent snapshot", runContext.TransitionIDs)
+	}
+}
+
 func TestStartTaskRejectsCanceledAndAlreadyStartedTasks(t *testing.T) {
 	ctx := context.Background()
 	store, binding := newTestStore(t)
@@ -351,27 +414,33 @@ func TestStartTaskConcurrentCallsCreateOneRun(t *testing.T) {
 func TestCompleteRunRejectsUnsupportedRuntimeSnapshots(t *testing.T) {
 	tests := []struct {
 		name   string
-		mutate func(*runStartSnapshot)
+		mutate func(*testing.T, *runStartSnapshot)
 		want   string
 	}{
 		{
 			name: "approval gated transition",
-			mutate: func(snapshot *runStartSnapshot) {
-				snapshot.TransitionGroups[0].Edges[0].RequiresApproval = true
+			mutate: func(t *testing.T, snapshot *runStartSnapshot) {
+				mutateSnapshotTransition(t, snapshot, "done", func(group *transitionContractSnapshot) {
+					group.Edges[0].RequiresApproval = true
+				})
 			},
 			want: "approval-gated edges cannot execute",
 		},
 		{
 			name: "join target",
-			mutate: func(snapshot *runStartSnapshot) {
-				snapshot.TransitionGroups[0].Edges[0].TargetNode.Kind = workflow.NodeKindJoin
+			mutate: func(t *testing.T, snapshot *runStartSnapshot) {
+				mutateSnapshotTransition(t, snapshot, "done", func(group *transitionContractSnapshot) {
+					group.Edges[0].TargetNode.Kind = workflow.NodeKindJoin
+				})
 			},
 			want: "join targets cannot execute",
 		},
 		{
 			name: "non-new-session context mode",
-			mutate: func(snapshot *runStartSnapshot) {
-				snapshot.TransitionGroups[0].Edges[0].ContextMode = workflow.ContextModeContinueSession
+			mutate: func(t *testing.T, snapshot *runStartSnapshot) {
+				mutateSnapshotTransition(t, snapshot, "done", func(group *transitionContractSnapshot) {
+					group.Edges[0].ContextMode = workflow.ContextModeContinueSession
+				})
 			},
 			want: "non-new-session context modes cannot execute",
 		},
@@ -400,7 +469,7 @@ func TestCompleteRunRejectsUnsupportedRuntimeSnapshots(t *testing.T) {
 			if err := unmarshalJSON(row.RunStartSnapshotJson, &snapshot); err != nil {
 				t.Fatalf("unmarshal snapshot: %v", err)
 			}
-			tt.mutate(&snapshot)
+			tt.mutate(t, &snapshot)
 			snapshotJSON, err := marshalJSON(snapshot)
 			if err != nil {
 				t.Fatalf("marshal snapshot: %v", err)
@@ -422,6 +491,17 @@ func TestCompleteRunRejectsUnsupportedRuntimeSnapshots(t *testing.T) {
 			}
 		})
 	}
+}
+
+func mutateSnapshotTransition(t *testing.T, snapshot *runStartSnapshot, transitionID string, mutate func(*transitionContractSnapshot)) {
+	t.Helper()
+	for index := range snapshot.TransitionGroups {
+		if snapshot.TransitionGroups[index].TransitionID == transitionID {
+			mutate(&snapshot.TransitionGroups[index])
+			return
+		}
+	}
+	t.Fatalf("snapshot transition %q missing from %+v", transitionID, snapshot.TransitionGroups)
 }
 
 func TestCompleteRunValidatesOutputRequirements(t *testing.T) {
