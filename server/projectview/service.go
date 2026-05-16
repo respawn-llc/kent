@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"builder/server/metadata"
 	"builder/shared/clientui"
@@ -21,6 +23,11 @@ type Service struct {
 	syncOnce     sync.Once
 	syncErr      error
 }
+
+const (
+	defaultProjectHomePageSize = 50
+	maxProjectHomePageSize     = 100
+)
 
 func NewMetadataService(metadataStore *metadata.Store, projectID string, containerDir string) (*Service, error) {
 	if metadataStore == nil {
@@ -58,6 +65,54 @@ func (s *Service) ListProjects(ctx context.Context, _ serverapi.ProjectListReque
 		return serverapi.ProjectListResponse{Projects: filtered}, nil
 	}
 	return serverapi.ProjectListResponse{Projects: projects}, nil
+}
+
+func (s *Service) ListProjectHome(ctx context.Context, req serverapi.ProjectHomeListRequest) (serverapi.ProjectHomeListResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.ProjectHomeListResponse{}, err
+	}
+	if s == nil {
+		return serverapi.ProjectHomeListResponse{}, errors.New("project service is required")
+	}
+	if err := s.syncMetadata(ctx); err != nil {
+		return serverapi.ProjectHomeListResponse{}, err
+	}
+	pageSize := req.PageSize
+	if pageSize == 0 {
+		pageSize = defaultProjectHomePageSize
+	}
+	if pageSize > maxProjectHomePageSize {
+		pageSize = maxProjectHomePageSize
+	}
+	offset, err := parseProjectHomePageToken(req.PageToken)
+	if err != nil {
+		return serverapi.ProjectHomeListResponse{}, err
+	}
+	summaries, err := s.metadata.ListProjectHomeSummaries(ctx, pageSize+1, offset)
+	if err != nil {
+		return serverapi.ProjectHomeListResponse{}, err
+	}
+	if trimmedProjectID := strings.TrimSpace(s.projectID); trimmedProjectID != "" {
+		filtered := make([]serverapi.ProjectHomeSummary, 0, 1)
+		for _, summary := range summaries {
+			if strings.TrimSpace(summary.ProjectID) == trimmedProjectID {
+				filtered = append(filtered, summary)
+				break
+			}
+		}
+		summaries = filtered
+	}
+	nextPageToken := ""
+	if len(summaries) > pageSize {
+		summaries = summaries[:pageSize]
+		nextPageToken = strconv.Itoa(offset + pageSize)
+	}
+	return serverapi.ProjectHomeListResponse{
+		Projects:            summaries,
+		NextPageToken:       nextPageToken,
+		GeneratedAtUnixMs:   time.Now().UTC().UnixMilli(),
+		LatestEventSequence: 0,
+	}, nil
 }
 
 func (s *Service) ResolveProjectPath(ctx context.Context, req serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
@@ -138,7 +193,7 @@ func (s *Service) CreateProject(ctx context.Context, req serverapi.ProjectCreate
 	if s == nil {
 		return serverapi.ProjectCreateResponse{}, errors.New("project service is required")
 	}
-	binding, err := s.metadata.CreateProjectForWorkspace(ctx, req.WorkspaceRoot, req.DisplayName)
+	binding, err := s.metadata.CreateProjectForWorkspaceWithKey(ctx, req.WorkspaceRoot, req.DisplayName, req.ProjectKey)
 	if err != nil {
 		return serverapi.ProjectCreateResponse{}, err
 	}
@@ -173,6 +228,34 @@ func (s *Service) selectSingleAvailableWorkspace(ctx context.Context) (serverapi
 		return serverapi.ProjectWorkspacePlanSelected{}, false, nil
 	}
 	return selection, true, nil
+}
+
+func (s *Service) ListProjectWorkspaces(ctx context.Context, req serverapi.ProjectWorkspaceListRequest) (serverapi.ProjectWorkspaceListResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.ProjectWorkspaceListResponse{}, err
+	}
+	if s == nil {
+		return serverapi.ProjectWorkspaceListResponse{}, errors.New("project service is required")
+	}
+	if err := s.requireProjectID(req.ProjectID); err != nil {
+		return serverapi.ProjectWorkspaceListResponse{}, err
+	}
+	workspaces, err := s.metadata.ListProjectWorkspaces(ctx, req.ProjectID)
+	if err != nil {
+		return serverapi.ProjectWorkspaceListResponse{}, err
+	}
+	response := serverapi.ProjectWorkspaceListResponse{
+		ProjectID:  strings.TrimSpace(req.ProjectID),
+		Workspaces: make([]serverapi.ProjectWorkspaceSummary, 0, len(workspaces)),
+	}
+	for _, workspace := range workspaces {
+		summary := projectWorkspaceSummaryFromClientUI(workspace)
+		response.Workspaces = append(response.Workspaces, summary)
+		if workspace.IsPrimary {
+			response.DefaultWorkspaceID = workspace.WorkspaceID
+		}
+	}
+	return response, nil
 }
 
 func (s *Service) AttachWorkspaceToProject(ctx context.Context, req serverapi.ProjectAttachWorkspaceRequest) (serverapi.ProjectAttachWorkspaceResponse, error) {
@@ -250,6 +333,18 @@ func (s *Service) requireProjectID(projectID string) error {
 	return nil
 }
 
+func parseProjectHomePageToken(token string) (int, error) {
+	trimmed := strings.TrimSpace(token)
+	if trimmed == "" {
+		return 0, nil
+	}
+	offset, err := strconv.Atoi(trimmed)
+	if err != nil || offset < 0 {
+		return 0, errors.New("page_token is invalid")
+	}
+	return offset, nil
+}
+
 func availabilityForProjectPath(path string) string {
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -260,9 +355,21 @@ func availabilityForProjectPath(path string) string {
 	return string(clientui.ProjectAvailabilityAvailable)
 }
 
+func projectWorkspaceSummaryFromClientUI(workspace clientui.ProjectWorkspaceSummary) serverapi.ProjectWorkspaceSummary {
+	return serverapi.ProjectWorkspaceSummary{
+		WorkspaceID:     workspace.WorkspaceID,
+		DisplayName:     workspace.DisplayName,
+		RootPath:        workspace.RootPath,
+		Availability:    string(workspace.Availability),
+		IsPrimary:       workspace.IsPrimary,
+		UpdatedAtUnixMs: workspace.UpdatedAt.UnixMilli(),
+	}
+}
+
 func projectBindingFromMetadata(binding metadata.Binding) serverapi.ProjectBinding {
 	return serverapi.ProjectBinding{
 		ProjectID:       binding.ProjectID,
+		ProjectKey:      binding.ProjectKey,
 		ProjectName:     binding.ProjectName,
 		WorkspaceID:     binding.WorkspaceID,
 		CanonicalRoot:   binding.CanonicalRoot,

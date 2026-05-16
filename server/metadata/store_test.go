@@ -761,11 +761,11 @@ func TestInsertWorkspaceBindingRecoversFromCanonicalRootConflict(t *testing.T) {
 		t.Fatalf("CanonicalWorkspaceRoot: %v", err)
 	}
 	now := time.Now().UTC()
-	winner, err := store.insertWorkspaceBinding(ctx, canonicalRoot, filepath.Base(canonicalRoot), filepath.Base(canonicalRoot), "project-winner", "workspace-winner", now, true)
+	winner, err := store.insertWorkspaceBinding(ctx, canonicalRoot, filepath.Base(canonicalRoot), "", filepath.Base(canonicalRoot), "project-winner", "workspace-winner", now, true)
 	if err != nil {
 		t.Fatalf("insertWorkspaceBinding winner: %v", err)
 	}
-	loser, err := store.insertWorkspaceBinding(ctx, canonicalRoot, filepath.Base(canonicalRoot), filepath.Base(canonicalRoot), "project-loser", "workspace-loser", now, true)
+	loser, err := store.insertWorkspaceBinding(ctx, canonicalRoot, filepath.Base(canonicalRoot), "", filepath.Base(canonicalRoot), "project-loser", "workspace-loser", now, true)
 	if err != nil {
 		t.Fatalf("insertWorkspaceBinding loser: %v", err)
 	}
@@ -905,7 +905,7 @@ func TestInsertWorkspaceBindingRollsBackProjectOnWorkspaceFailure(t *testing.T) 
 	ctx, cancel := context.WithCancel(ctx)
 	insertWorkspaceBindingAfterProjectUpsertHook = cancel
 	t.Cleanup(func() { insertWorkspaceBindingAfterProjectUpsertHook = nil })
-	_, err = store.insertWorkspaceBinding(ctx, canonicalRoot, filepath.Base(canonicalRoot), filepath.Base(canonicalRoot), "project-cancelled", "workspace-cancelled", time.Now().UTC(), true)
+	_, err = store.insertWorkspaceBinding(ctx, canonicalRoot, filepath.Base(canonicalRoot), "", filepath.Base(canonicalRoot), "project-cancelled", "workspace-cancelled", time.Now().UTC(), true)
 	if err == nil {
 		t.Fatal("expected insertWorkspaceBinding to fail after context cancellation")
 	}

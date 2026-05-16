@@ -7,7 +7,7 @@ Goal: implement backend slices 0-5 with server-authoritative APIs/read models/ac
 Current focus:
 
 - [x] Slice 0: connectivity/readiness/capabilities.
-- [ ] Slice 1: Home/project admin/project key/workspaces.
+- [x] Slice 1: Home/project admin/project key/workspaces.
 - [ ] Slice 2: workflow picker, selected board, groups, live updates.
 - [ ] Slice 3: task source workspace and Backlog editing.
 - [ ] Slice 4: actions, attention inbox, questions, approvals.
@@ -33,4 +33,18 @@ Slice 0 notes:
 
 Slice 1 notes:
 
-- Current next step: start Slice 1 recon and first TDD tracer for explicit `project_key` create.
+- Started: 2026-05-16.
+- Completed tracer: explicit `ProjectCreateRequest.ProjectKey` flows through projectview service, metadata store, response binding, list/overview summaries.
+- Completed tracer: invalid/duplicate/omitted project-key create behavior in `server/projectview`.
+- Completed tracer: `ProjectWorkspaceListRequest` service method returns all workspaces and default primary workspace using GUI DTO shape.
+- Completed tracer: `project.workspace.list` route/client/protocol/servicecontract/transport wiring.
+- Completed tracer: `project.home.list` paginated Home summaries include project key, primary workspace, default workflow ID/name/validity, task/workflow/attention counts, generated timestamp, and event watermark field.
+- Current implementation returns `latest_event_sequence=0` as a foundation watermark until Slice 2 adds durable subscription sequence delivery.
+- Verification passed:
+  - `./scripts/test.sh ./server/metadata ./server/projectview ./shared/serverapi ./shared/clientui`
+  - `./scripts/test.sh ./shared/serverapi ./shared/servicecontract ./shared/client ./shared/protocol ./shared/rpccontract ./server/transport ./server/projectview ./server/metadata ./server/workflowstore ./server/workflowview ./server/core ./server/serve ./cli/app`
+  - `./scripts/build.sh --output ./bin/builder`
+
+Slice 2 notes:
+
+- Current next step: add selected-workflow board/picker tracer tests and wire group/live-update foundations from the plan.

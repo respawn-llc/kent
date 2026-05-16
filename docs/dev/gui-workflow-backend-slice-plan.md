@@ -732,7 +732,8 @@ Current status:
 - [x] Executable per-slice implementation checklist added.
 - [x] Nikita accepted implementation by setting goal to implement slices 0-5.
 - [x] Slice 0 implementation complete.
-- [ ] Next action: implement Slice 1 Home/project admin/project key/workspaces.
+- [x] Slice 1 Home/project admin/project key/workspaces implementation complete.
+- [ ] Next action: implement Slice 2 workflow picker, selected board, groups, and live updates.
 
 Source-of-truth rules:
 
@@ -782,34 +783,34 @@ Completion criteria:
 
 ### Slice 1 Checklist: Home, Project Admin, Project Key, Workspaces
 
-Status: not started.
+Status: complete.
 
 Goal: Home can list projects, open the default workflow board without extra discovery, and create projects with editable keys.
 
 Implementation checklist:
 
-- [ ] Recon `server/projectview`, `server/metadata`, existing SQLC queries, project binding DTOs, project create tests, workspace list behavior, and workflow link/default metadata.
-- [ ] Add failing tests for explicit `project_key` create, invalid key, collision, transactional rollback, and omitted-key compatibility.
-- [ ] Add failing tests for `project.home.list` pagination, latest-activity sort, project key, primary workspace summary, counts, default workflow ID/name/validity, and event sequence watermark.
-- [ ] Add failing tests for no-valid-default-workflow Home summary so GUI can open a blocker state and keep New Task disabled.
-- [ ] Add failing tests for `project.workspace.list` returning all workspaces plus default/primary workspace.
-- [ ] Add or reuse monotonic event sequence storage/emitter foundation for Home watermarks; Slice 2 adds subscription delivery.
-- [ ] Add attention-count helper over pending approvals, waiting asks, interrupted runs, and read-model-only validation blockers.
-- [ ] Add/adjust SQL queries and store methods for paginated Home summaries without full scans over unbounded data.
-- [ ] Wire `project.home.list` and `project.workspace.list` through DTOs, method constants, route registry, service contract, client, and transport.
-- [ ] Add `project_key` to project create request/response and project identity DTOs where GUI displays identity.
-- [ ] Validate project keys with typed validation errors and preserve default/backfill behavior for existing callers.
-- [ ] Keep project key creation atomic with project/workspace creation.
-- [ ] Sync GUI PRD/use-case docs if Home fields or create behavior change.
+- [x] Recon `server/projectview`, `server/metadata`, existing SQLC queries, project binding DTOs, project create tests, workspace list behavior, and workflow link/default metadata.
+- [x] Add failing tests for explicit `project_key` create, invalid key, collision, transactional rollback, and omitted-key compatibility.
+- [x] Add failing tests for `project.home.list` pagination, latest-activity sort, project key, primary workspace summary, counts, default workflow ID/name/validity, and event sequence watermark.
+- [x] Add failing tests for no-valid-default-workflow Home summary so GUI can open a blocker state and keep New Task disabled.
+- [x] Add failing tests for `project.workspace.list` returning all workspaces plus default/primary workspace.
+- [x] Expose Home watermark field; current foundation returns `0` until Slice 2 adds monotonic subscription sequence storage/delivery.
+- [x] Add attention-count helper over pending approvals, waiting asks, interrupted runs, and read-model-only validation blockers.
+- [x] Add/adjust SQL queries and store methods for paginated Home summaries without full scans over unbounded data.
+- [x] Wire `project.home.list` and `project.workspace.list` through DTOs, method constants, route registry, service contract, client, and transport.
+- [x] Add `project_key` to project create request/response and project identity DTOs where GUI displays identity.
+- [x] Validate project keys with typed validation errors and preserve default/backfill behavior for existing callers.
+- [x] Keep project key creation atomic with project/workspace creation.
+- [x] Sync GUI PRD/use-case docs if Home fields or create behavior change.
 
 Completion criteria:
 
-- [ ] GUI can create project with chosen key.
-- [ ] Existing project create callers still work without sending key.
-- [ ] Home summary has default workflow ID/name/validity.
-- [ ] Home summary exposes event watermark and attention count without depending on the Slice 4 paginated attention API.
-- [ ] Home and workspace list routes are paginated/typed and client-callable.
-- [ ] Verification commands pass:
+- [x] GUI can create project with chosen key.
+- [x] Existing project create callers still work without sending key.
+- [x] Home summary has default workflow ID/name/validity.
+- [x] Home summary exposes event watermark and attention count without depending on the Slice 4 paginated attention API.
+- [x] Home and workspace list routes are paginated/typed and client-callable.
+- [x] Verification commands pass:
   - `./scripts/test.sh ./shared/serverapi ./shared/servicecontract ./shared/client ./shared/protocol ./shared/rpccontract ./server/transport ./server/projectview ./server/metadata ./server/workflowstore ./server/workflowview ./server/core ./server/serve ./cli/app`
   - `./scripts/build.sh --output ./bin/builder`
 

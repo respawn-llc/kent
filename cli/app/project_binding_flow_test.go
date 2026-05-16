@@ -806,6 +806,10 @@ func (s projectBindingFlowStubProjectViewService) ListProjects(context.Context, 
 	return s.listProjectsResp, s.listProjectsErr
 }
 
+func (projectBindingFlowStubProjectViewService) ListProjectHome(context.Context, serverapi.ProjectHomeListRequest) (serverapi.ProjectHomeListResponse, error) {
+	return serverapi.ProjectHomeListResponse{}, errors.New("unexpected ListProjectHome call")
+}
+
 func (s projectBindingFlowStubProjectViewService) ResolveProjectPath(context.Context, serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
 	return s.resolveResp, s.resolveErr
 }
@@ -834,6 +838,10 @@ func (s projectBindingFlowStubProjectViewService) PlanWorkspaceBinding(context.C
 
 func (projectBindingFlowStubProjectViewService) CreateProject(context.Context, serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
 	return serverapi.ProjectCreateResponse{}, errors.New("unexpected CreateProject call")
+}
+
+func (projectBindingFlowStubProjectViewService) ListProjectWorkspaces(context.Context, serverapi.ProjectWorkspaceListRequest) (serverapi.ProjectWorkspaceListResponse, error) {
+	return serverapi.ProjectWorkspaceListResponse{}, errors.New("unexpected ListProjectWorkspaces call")
 }
 
 func (projectBindingFlowStubProjectViewService) AttachWorkspaceToProject(context.Context, serverapi.ProjectAttachWorkspaceRequest) (serverapi.ProjectAttachWorkspaceResponse, error) {

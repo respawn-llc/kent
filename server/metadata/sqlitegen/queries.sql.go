@@ -524,6 +524,7 @@ const getProjectSummary = `-- name: GetProjectSummary :one
 SELECT
     p.id,
     p.display_name,
+    p.project_key,
     w.canonical_root_path AS root_path,
     CAST(COALESCE(COUNT(s.id), 0) AS INTEGER) AS session_count,
     COALESCE(MAX(s.updated_at_unix_ms), p.updated_at_unix_ms) AS latest_activity_unix_ms
@@ -531,13 +532,14 @@ FROM projects p
 JOIN workspaces w ON w.project_id = p.id AND w.is_primary = 1
 LEFT JOIN sessions s ON s.project_id = p.id AND s.launch_visible <> 0
 WHERE p.id = ?1
-GROUP BY p.id, p.display_name, w.canonical_root_path, p.updated_at_unix_ms
+GROUP BY p.id, p.display_name, p.project_key, w.canonical_root_path, p.updated_at_unix_ms
 LIMIT 1
 `
 
 type GetProjectSummaryRow struct {
 	ID                   string
 	DisplayName          string
+	ProjectKey           string
 	RootPath             string
 	SessionCount         int64
 	LatestActivityUnixMs int64
@@ -549,6 +551,7 @@ func (q *Queries) GetProjectSummary(ctx context.Context, projectID string) (GetP
 	err := row.Scan(
 		&i.ID,
 		&i.DisplayName,
+		&i.ProjectKey,
 		&i.RootPath,
 		&i.SessionCount,
 		&i.LatestActivityUnixMs,
@@ -944,6 +947,7 @@ const getWorkspaceBindingByCanonicalRoot = `-- name: GetWorkspaceBindingByCanoni
 SELECT
     p.id AS project_id,
     p.display_name AS project_display_name,
+    p.project_key,
     w.id AS workspace_id,
     w.canonical_root_path AS workspace_root
 FROM workspaces w
@@ -955,6 +959,7 @@ LIMIT 1
 type GetWorkspaceBindingByCanonicalRootRow struct {
 	ProjectID          string
 	ProjectDisplayName string
+	ProjectKey         string
 	WorkspaceID        string
 	WorkspaceRoot      string
 }
@@ -965,6 +970,7 @@ func (q *Queries) GetWorkspaceBindingByCanonicalRoot(ctx context.Context, canoni
 	err := row.Scan(
 		&i.ProjectID,
 		&i.ProjectDisplayName,
+		&i.ProjectKey,
 		&i.WorkspaceID,
 		&i.WorkspaceRoot,
 	)
@@ -975,6 +981,7 @@ const getWorkspaceBindingByID = `-- name: GetWorkspaceBindingByID :one
 SELECT
     p.id AS project_id,
     p.display_name AS project_display_name,
+    p.project_key,
     w.id AS workspace_id,
     w.canonical_root_path AS workspace_root
 FROM workspaces w
@@ -986,6 +993,7 @@ LIMIT 1
 type GetWorkspaceBindingByIDRow struct {
 	ProjectID          string
 	ProjectDisplayName string
+	ProjectKey         string
 	WorkspaceID        string
 	WorkspaceRoot      string
 }
@@ -996,6 +1004,7 @@ func (q *Queries) GetWorkspaceBindingByID(ctx context.Context, workspaceID strin
 	err := row.Scan(
 		&i.ProjectID,
 		&i.ProjectDisplayName,
+		&i.ProjectKey,
 		&i.WorkspaceID,
 		&i.WorkspaceRoot,
 	)
@@ -2075,6 +2084,134 @@ func (q *Queries) InterruptWorkflowRun(ctx context.Context, arg InterruptWorkflo
 	return result.RowsAffected()
 }
 
+const listProjectHomeSummaries = `-- name: ListProjectHomeSummaries :many
+SELECT
+    p.id AS project_id,
+    p.project_key,
+    p.display_name,
+    w.id AS primary_workspace_id,
+    w.display_name AS primary_workspace_display_name,
+    w.canonical_root_path AS primary_workspace_root_path,
+    w.updated_at_unix_ms AS primary_workspace_updated_at_unix_ms,
+    COALESCE(default_workflow.id, '') AS default_workflow_id,
+    COALESCE(default_workflow.name, '') AS default_workflow_name,
+    CASE WHEN default_workflow.id IS NULL THEN 0 ELSE 1 END AS default_workflow_valid,
+    CAST(MAX(
+        p.updated_at_unix_ms,
+        w.updated_at_unix_ms,
+        COALESCE((SELECT MAX(s.updated_at_unix_ms) FROM sessions s WHERE s.project_id = p.id AND s.launch_visible <> 0), 0),
+        COALESCE((SELECT MAX(t.updated_at_unix_ms) FROM tasks t WHERE t.project_id = p.id), 0),
+        COALESCE((SELECT MAX(pwl.updated_at_unix_ms) FROM project_workflow_links pwl WHERE pwl.project_id = p.id AND pwl.unlinked_at_unix_ms = 0), 0)
+    ) AS INTEGER) AS latest_activity_unix_ms,
+    CAST((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) AS INTEGER) AS task_count,
+    CAST((
+        SELECT COUNT(DISTINCT attention_tasks.id)
+        FROM tasks attention_tasks
+        WHERE attention_tasks.project_id = p.id
+          AND attention_tasks.canceled_at_unix_ms = 0
+          AND (
+              EXISTS (
+                  SELECT 1
+                  FROM task_node_placements tnp
+                  WHERE tnp.task_id = attention_tasks.id
+                    AND tnp.state = 'waiting_approval'
+              )
+              OR EXISTS (
+                  SELECT 1
+                  FROM task_transitions tt
+                  WHERE tt.task_id = attention_tasks.id
+                    AND tt.state = 'pending_approval'
+              )
+              OR EXISTS (
+                  SELECT 1
+                  FROM task_runs tr
+                  WHERE tr.task_id = attention_tasks.id
+                    AND tr.completed_at_unix_ms = 0
+                    AND (
+                        tr.interrupted_at_unix_ms > 0
+                        OR trim(tr.waiting_ask_id) <> ''
+                    )
+              )
+          )
+    ) AS INTEGER) AS attention_count,
+    CAST((
+        SELECT COUNT(*)
+        FROM project_workflow_links pwl
+        WHERE pwl.project_id = p.id
+          AND pwl.unlinked_at_unix_ms = 0
+    ) AS INTEGER) AS workflow_count
+FROM projects p
+JOIN workspaces w ON w.project_id = p.id AND w.is_primary = 1
+LEFT JOIN project_workflow_links default_link
+    ON default_link.project_id = p.id
+   AND default_link.is_default = 1
+   AND default_link.unlinked_at_unix_ms = 0
+LEFT JOIN workflows default_workflow ON default_workflow.id = default_link.workflow_id
+ORDER BY latest_activity_unix_ms DESC, p.rowid DESC
+LIMIT ?2
+OFFSET ?1
+`
+
+type ListProjectHomeSummariesParams struct {
+	OffsetRows int64
+	LimitRows  int64
+}
+
+type ListProjectHomeSummariesRow struct {
+	ProjectID                       string
+	ProjectKey                      string
+	DisplayName                     string
+	PrimaryWorkspaceID              string
+	PrimaryWorkspaceDisplayName     string
+	PrimaryWorkspaceRootPath        string
+	PrimaryWorkspaceUpdatedAtUnixMs int64
+	DefaultWorkflowID               string
+	DefaultWorkflowName             string
+	DefaultWorkflowValid            int64
+	LatestActivityUnixMs            int64
+	TaskCount                       int64
+	AttentionCount                  int64
+	WorkflowCount                   int64
+}
+
+func (q *Queries) ListProjectHomeSummaries(ctx context.Context, arg ListProjectHomeSummariesParams) ([]ListProjectHomeSummariesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listProjectHomeSummaries, arg.OffsetRows, arg.LimitRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProjectHomeSummariesRow
+	for rows.Next() {
+		var i ListProjectHomeSummariesRow
+		if err := rows.Scan(
+			&i.ProjectID,
+			&i.ProjectKey,
+			&i.DisplayName,
+			&i.PrimaryWorkspaceID,
+			&i.PrimaryWorkspaceDisplayName,
+			&i.PrimaryWorkspaceRootPath,
+			&i.PrimaryWorkspaceUpdatedAtUnixMs,
+			&i.DefaultWorkflowID,
+			&i.DefaultWorkflowName,
+			&i.DefaultWorkflowValid,
+			&i.LatestActivityUnixMs,
+			&i.TaskCount,
+			&i.AttentionCount,
+			&i.WorkflowCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProjectKeyRows = `-- name: ListProjectKeyRows :many
 SELECT
     id,
@@ -2216,19 +2353,21 @@ const listProjects = `-- name: ListProjects :many
 SELECT
     p.id,
     p.display_name,
+    p.project_key,
     w.canonical_root_path AS root_path,
     CAST(COALESCE(COUNT(s.id), 0) AS INTEGER) AS session_count,
     COALESCE(MAX(s.updated_at_unix_ms), p.updated_at_unix_ms) AS latest_activity_unix_ms
 FROM projects p
 JOIN workspaces w ON w.project_id = p.id AND w.is_primary = 1
 LEFT JOIN sessions s ON s.project_id = p.id AND s.launch_visible <> 0
-GROUP BY p.id, p.display_name, w.canonical_root_path, p.updated_at_unix_ms
+GROUP BY p.id, p.display_name, p.project_key, w.canonical_root_path, p.updated_at_unix_ms
 ORDER BY latest_activity_unix_ms DESC
 `
 
 type ListProjectsRow struct {
 	ID                   string
 	DisplayName          string
+	ProjectKey           string
 	RootPath             string
 	SessionCount         int64
 	LatestActivityUnixMs int64
@@ -2246,6 +2385,7 @@ func (q *Queries) ListProjects(ctx context.Context) ([]ListProjectsRow, error) {
 		if err := rows.Scan(
 			&i.ID,
 			&i.DisplayName,
+			&i.ProjectKey,
 			&i.RootPath,
 			&i.SessionCount,
 			&i.LatestActivityUnixMs,

@@ -117,6 +117,11 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return g.deps.ProjectViewClient().ListProjects(ctx, params)
 		})
 	},
+	protocol.MethodProjectHomeList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ProjectHomeListRequest) (serverapi.ProjectHomeListResponse, error) {
+			return g.deps.ProjectViewClient().ListProjectHome(ctx, params)
+		})
+	},
 	protocol.MethodProjectResolvePath: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
 			return g.deps.ProjectViewClient().ResolveProjectPath(ctx, params)
@@ -130,6 +135,11 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 	protocol.MethodProjectCreate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
 			return g.deps.ProjectViewClient().CreateProject(ctx, params)
+		})
+	},
+	protocol.MethodProjectWorkspaceList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ProjectWorkspaceListRequest) (serverapi.ProjectWorkspaceListResponse, error) {
+			return g.deps.ProjectViewClient().ListProjectWorkspaces(ctx, params)
 		})
 	},
 	protocol.MethodProjectAttachWorkspace: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {

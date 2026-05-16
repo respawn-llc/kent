@@ -41,6 +41,7 @@ func SetAvailabilityStatForTest(fn func(string) (os.FileInfo, error)) func() {
 
 type Binding struct {
 	ProjectID       string
+	ProjectKey      string
 	ProjectName     string
 	WorkspaceID     string
 	CanonicalRoot   string
@@ -231,6 +232,7 @@ func (s *Store) LookupWorkspaceBindingByID(ctx context.Context, workspaceID stri
 	if err == nil {
 		return Binding{
 			ProjectID:       row.ProjectID,
+			ProjectKey:      row.ProjectKey,
 			ProjectName:     row.ProjectDisplayName,
 			WorkspaceID:     row.WorkspaceID,
 			CanonicalRoot:   row.WorkspaceRoot,
@@ -435,6 +437,10 @@ func (s *Store) lookupWorkspaceBinding(ctx context.Context, workspaceRoot string
 }
 
 func (s *Store) CreateProjectForWorkspace(ctx context.Context, workspaceRoot string, projectName string) (Binding, error) {
+	return s.CreateProjectForWorkspaceWithKey(ctx, workspaceRoot, projectName, "")
+}
+
+func (s *Store) CreateProjectForWorkspaceWithKey(ctx context.Context, workspaceRoot string, projectName string, projectKey string) (Binding, error) {
 	if s == nil || s.queries == nil {
 		return Binding{}, errors.New("metadata store is required")
 	}
@@ -455,7 +461,7 @@ func (s *Store) CreateProjectForWorkspace(ctx context.Context, workspaceRoot str
 	projectID := "project-" + uuid.NewString()
 	workspaceID := "workspace-" + uuid.NewString()
 	workspaceName := filepath.Base(canonicalRoot)
-	return s.insertWorkspaceBinding(ctx, canonicalRoot, trimmedProjectName, workspaceName, projectID, workspaceID, now, true)
+	return s.insertWorkspaceBinding(ctx, canonicalRoot, trimmedProjectName, strings.TrimSpace(projectKey), workspaceName, projectID, workspaceID, now, true)
 }
 
 func (s *Store) AttachWorkspaceToProject(ctx context.Context, projectID string, workspaceRoot string) (Binding, error) {
@@ -491,7 +497,7 @@ func (s *Store) AttachWorkspaceToProject(ctx context.Context, projectID string, 
 	}
 	now := time.Now().UTC()
 	workspaceID := "workspace-" + uuid.NewString()
-	binding, err := s.insertWorkspaceBinding(ctx, canonicalRoot, projectName, filepath.Base(canonicalRoot), trimmedProjectID, workspaceID, now, workspaceCount == 0)
+	binding, err := s.insertWorkspaceBinding(ctx, canonicalRoot, projectName, "", filepath.Base(canonicalRoot), trimmedProjectID, workspaceID, now, workspaceCount == 0)
 	if err != nil {
 		return Binding{}, err
 	}
@@ -800,6 +806,35 @@ func setMissingProjectKey(ctx context.Context, q *sqlitegen.Queries, projectID s
 	return fmt.Errorf("set project key for %q: exhausted unique-key retries", projectID)
 }
 
+func setInitialProjectKey(ctx context.Context, q *sqlitegen.Queries, projectID string, displayName string, projectKey string, updatedAtUnixMs int64) (string, error) {
+	trimmedKey := strings.TrimSpace(projectKey)
+	if trimmedKey == "" {
+		if err := setMissingProjectKey(ctx, q, projectID, displayName, updatedAtUnixMs); err != nil {
+			return "", err
+		}
+		state, err := q.GetProjectKeyState(ctx, projectID)
+		if err != nil {
+			return "", fmt.Errorf("get allocated project key: %w", err)
+		}
+		return strings.TrimSpace(state.ProjectKey), nil
+	}
+	normalizedKey, err := normalizeProjectKey(trimmedKey)
+	if err != nil {
+		return "", err
+	}
+	updated, err := q.SetProjectKey(ctx, sqlitegen.SetProjectKeyParams{ProjectKey: normalizedKey, UpdatedAtUnixMs: updatedAtUnixMs, ProjectID: projectID})
+	if err != nil {
+		if isSQLiteUniqueConstraint(err) {
+			return "", fmt.Errorf("%w: %q", ErrProjectKeyAlreadyInUse, normalizedKey)
+		}
+		return "", fmt.Errorf("set project key for %q: %w", projectID, err)
+	}
+	if updated == 0 {
+		return "", fmt.Errorf("set project key for %q: project not found", projectID)
+	}
+	return normalizedKey, nil
+}
+
 func (s *Store) SetProjectKey(ctx context.Context, projectID string, projectKey string) error {
 	if s == nil || s.queries == nil {
 		return errors.New("metadata store is required")
@@ -980,7 +1015,7 @@ func projectKeyBase(value string) string {
 	return base
 }
 
-func (s *Store) insertWorkspaceBinding(ctx context.Context, canonicalRoot string, projectDisplayName string, workspaceDisplayName string, projectID string, workspaceID string, now time.Time, isPrimary bool) (Binding, error) {
+func (s *Store) insertWorkspaceBinding(ctx context.Context, canonicalRoot string, projectDisplayName string, projectKey string, workspaceDisplayName string, projectID string, workspaceID string, now time.Time, isPrimary bool) (Binding, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Binding{}, fmt.Errorf("begin workspace binding tx: %w", err)
@@ -996,7 +1031,8 @@ func (s *Store) insertWorkspaceBinding(ctx context.Context, canonicalRoot string
 	}); err != nil {
 		return Binding{}, fmt.Errorf("upsert project: %w", err)
 	}
-	if err := setMissingProjectKey(ctx, q, projectID, projectDisplayName, now.UnixMilli()); err != nil {
+	storedProjectKey, err := setInitialProjectKey(ctx, q, projectID, projectDisplayName, projectKey, now.UnixMilli())
+	if err != nil {
 		return Binding{}, err
 	}
 	if insertWorkspaceBindingAfterProjectUpsertHook != nil {
@@ -1033,6 +1069,7 @@ func (s *Store) insertWorkspaceBinding(ctx context.Context, canonicalRoot string
 	}
 	return Binding{
 		ProjectID:       projectID,
+		ProjectKey:      storedProjectKey,
 		ProjectName:     projectDisplayName,
 		WorkspaceID:     workspaceID,
 		CanonicalRoot:   canonicalRoot,
@@ -1097,7 +1134,31 @@ func (s *Store) ListProjects(ctx context.Context) ([]clientui.ProjectSummary, er
 	}
 	out := make([]clientui.ProjectSummary, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, projectSummaryFromRow(row.ID, row.DisplayName, row.RootPath, row.SessionCount, row.LatestActivityUnixMs))
+		out = append(out, projectSummaryFromRow(row.ID, row.ProjectKey, row.DisplayName, row.RootPath, row.SessionCount, row.LatestActivityUnixMs))
+	}
+	return out, nil
+}
+
+func (s *Store) ListProjectHomeSummaries(ctx context.Context, pageSize int, offset int) ([]serverapi.ProjectHomeSummary, error) {
+	if s == nil || s.queries == nil {
+		return nil, errors.New("metadata store is required")
+	}
+	if pageSize < 0 {
+		return nil, errors.New("page size must be non-negative")
+	}
+	if offset < 0 {
+		return nil, errors.New("offset must be non-negative")
+	}
+	rows, err := s.queries.ListProjectHomeSummaries(ctx, sqlitegen.ListProjectHomeSummariesParams{
+		LimitRows:  int64(pageSize),
+		OffsetRows: int64(offset),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list project home summaries: %w", err)
+	}
+	out := make([]serverapi.ProjectHomeSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, projectHomeSummaryFromRow(row))
 	}
 	return out, nil
 }
@@ -1122,7 +1183,7 @@ func (s *Store) GetProjectOverview(ctx context.Context, projectID string) (clien
 		return clientui.ProjectOverview{}, err
 	}
 	return clientui.ProjectOverview{
-		Project:    projectSummaryFromRow(project.ID, project.DisplayName, project.RootPath, project.SessionCount, project.LatestActivityUnixMs),
+		Project:    projectSummaryFromRow(project.ID, project.ProjectKey, project.DisplayName, project.RootPath, project.SessionCount, project.LatestActivityUnixMs),
 		Workspaces: workspaces,
 		Sessions:   sessions,
 	}, nil
@@ -1480,9 +1541,10 @@ func unmarshalStoredJSON(body string, target any) error {
 	return json.Unmarshal([]byte(trimmed), target)
 }
 
-func projectSummaryFromRow(projectID string, displayName string, rootPath string, sessionCount int64, latestActivityUnixMs int64) clientui.ProjectSummary {
+func projectSummaryFromRow(projectID string, projectKey string, displayName string, rootPath string, sessionCount int64, latestActivityUnixMs int64) clientui.ProjectSummary {
 	return clientui.ProjectSummary{
 		ProjectID:    projectID,
+		ProjectKey:   projectKey,
 		DisplayName:  displayName,
 		RootPath:     rootPath,
 		Availability: clientui.ProjectAvailability(availabilityForPath(rootPath)),
@@ -1500,6 +1562,29 @@ func projectWorkspaceSummaryFromRow(workspaceID string, displayName string, root
 		IsPrimary:    isPrimary,
 		SessionCount: int(sessionCount),
 		UpdatedAt:    timeFromStoredTimestamp(latestActivityUnixMs),
+	}
+}
+
+func projectHomeSummaryFromRow(row sqlitegen.ListProjectHomeSummariesRow) serverapi.ProjectHomeSummary {
+	return serverapi.ProjectHomeSummary{
+		ProjectID:   row.ProjectID,
+		ProjectKey:  row.ProjectKey,
+		DisplayName: row.DisplayName,
+		PrimaryWorkspace: serverapi.ProjectWorkspaceSummary{
+			WorkspaceID:     row.PrimaryWorkspaceID,
+			DisplayName:     row.PrimaryWorkspaceDisplayName,
+			RootPath:        row.PrimaryWorkspaceRootPath,
+			Availability:    availabilityForPath(row.PrimaryWorkspaceRootPath),
+			IsPrimary:       true,
+			UpdatedAtUnixMs: row.PrimaryWorkspaceUpdatedAtUnixMs,
+		},
+		DefaultWorkflowID:    row.DefaultWorkflowID,
+		DefaultWorkflowName:  row.DefaultWorkflowName,
+		DefaultWorkflowValid: row.DefaultWorkflowValid != 0,
+		UpdatedAtUnixMs:      row.LatestActivityUnixMs,
+		TaskCount:            int(row.TaskCount),
+		AttentionCount:       int(row.AttentionCount),
+		WorkflowCount:        int(row.WorkflowCount),
 	}
 }
 

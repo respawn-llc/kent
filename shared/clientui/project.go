@@ -12,6 +12,7 @@ const (
 
 type ProjectSummary struct {
 	ProjectID    string
+	ProjectKey   string
 	DisplayName  string
 	RootPath     string
 	Availability ProjectAvailability

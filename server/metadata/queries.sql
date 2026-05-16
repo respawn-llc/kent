@@ -2,6 +2,7 @@
 SELECT
     p.id AS project_id,
     p.display_name AS project_display_name,
+    p.project_key,
     w.id AS workspace_id,
     w.canonical_root_path AS workspace_root
 FROM workspaces w
@@ -1064,6 +1065,7 @@ ORDER BY updated_at_unix_ms DESC, rowid DESC;
 SELECT
     p.id AS project_id,
     p.display_name AS project_display_name,
+    p.project_key,
     w.id AS workspace_id,
     w.canonical_root_path AS workspace_root
 FROM workspaces w
@@ -1345,19 +1347,88 @@ WHERE project_id = sqlc.arg(project_id);
 SELECT
     p.id,
     p.display_name,
+    p.project_key,
     w.canonical_root_path AS root_path,
     CAST(COALESCE(COUNT(s.id), 0) AS INTEGER) AS session_count,
     COALESCE(MAX(s.updated_at_unix_ms), p.updated_at_unix_ms) AS latest_activity_unix_ms
 FROM projects p
 JOIN workspaces w ON w.project_id = p.id AND w.is_primary = 1
 LEFT JOIN sessions s ON s.project_id = p.id AND s.launch_visible <> 0
-GROUP BY p.id, p.display_name, w.canonical_root_path, p.updated_at_unix_ms
+GROUP BY p.id, p.display_name, p.project_key, w.canonical_root_path, p.updated_at_unix_ms
 ORDER BY latest_activity_unix_ms DESC;
+
+-- name: ListProjectHomeSummaries :many
+SELECT
+    p.id AS project_id,
+    p.project_key,
+    p.display_name,
+    w.id AS primary_workspace_id,
+    w.display_name AS primary_workspace_display_name,
+    w.canonical_root_path AS primary_workspace_root_path,
+    w.updated_at_unix_ms AS primary_workspace_updated_at_unix_ms,
+    COALESCE(default_workflow.id, '') AS default_workflow_id,
+    COALESCE(default_workflow.name, '') AS default_workflow_name,
+    CASE WHEN default_workflow.id IS NULL THEN 0 ELSE 1 END AS default_workflow_valid,
+    CAST(MAX(
+        p.updated_at_unix_ms,
+        w.updated_at_unix_ms,
+        COALESCE((SELECT MAX(s.updated_at_unix_ms) FROM sessions s WHERE s.project_id = p.id AND s.launch_visible <> 0), 0),
+        COALESCE((SELECT MAX(t.updated_at_unix_ms) FROM tasks t WHERE t.project_id = p.id), 0),
+        COALESCE((SELECT MAX(pwl.updated_at_unix_ms) FROM project_workflow_links pwl WHERE pwl.project_id = p.id AND pwl.unlinked_at_unix_ms = 0), 0)
+    ) AS INTEGER) AS latest_activity_unix_ms,
+    CAST((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) AS INTEGER) AS task_count,
+    CAST((
+        SELECT COUNT(DISTINCT attention_tasks.id)
+        FROM tasks attention_tasks
+        WHERE attention_tasks.project_id = p.id
+          AND attention_tasks.canceled_at_unix_ms = 0
+          AND (
+              EXISTS (
+                  SELECT 1
+                  FROM task_node_placements tnp
+                  WHERE tnp.task_id = attention_tasks.id
+                    AND tnp.state = 'waiting_approval'
+              )
+              OR EXISTS (
+                  SELECT 1
+                  FROM task_transitions tt
+                  WHERE tt.task_id = attention_tasks.id
+                    AND tt.state = 'pending_approval'
+              )
+              OR EXISTS (
+                  SELECT 1
+                  FROM task_runs tr
+                  WHERE tr.task_id = attention_tasks.id
+                    AND tr.completed_at_unix_ms = 0
+                    AND (
+                        tr.interrupted_at_unix_ms > 0
+                        OR trim(tr.waiting_ask_id) <> ''
+                    )
+              )
+          )
+    ) AS INTEGER) AS attention_count,
+    CAST((
+        SELECT COUNT(*)
+        FROM project_workflow_links pwl
+        WHERE pwl.project_id = p.id
+          AND pwl.unlinked_at_unix_ms = 0
+    ) AS INTEGER) AS workflow_count
+FROM projects p
+JOIN workspaces w ON w.project_id = p.id AND w.is_primary = 1
+LEFT JOIN project_workflow_links default_link
+    ON default_link.project_id = p.id
+   AND default_link.is_default = 1
+   AND default_link.unlinked_at_unix_ms = 0
+LEFT JOIN workflows default_workflow ON default_workflow.id = default_link.workflow_id
+ORDER BY latest_activity_unix_ms DESC, p.rowid DESC
+LIMIT sqlc.arg(limit_rows)
+OFFSET sqlc.arg(offset_rows);
 
 -- name: GetProjectSummary :one
 SELECT
     p.id,
     p.display_name,
+    p.project_key,
     w.canonical_root_path AS root_path,
     CAST(COALESCE(COUNT(s.id), 0) AS INTEGER) AS session_count,
     COALESCE(MAX(s.updated_at_unix_ms), p.updated_at_unix_ms) AS latest_activity_unix_ms
@@ -1365,7 +1436,7 @@ FROM projects p
 JOIN workspaces w ON w.project_id = p.id AND w.is_primary = 1
 LEFT JOIN sessions s ON s.project_id = p.id AND s.launch_visible <> 0
 WHERE p.id = sqlc.arg(project_id)
-GROUP BY p.id, p.display_name, w.canonical_root_path, p.updated_at_unix_ms
+GROUP BY p.id, p.display_name, p.project_key, w.canonical_root_path, p.updated_at_unix_ms
 LIMIT 1;
 
 -- name: ListProjectWorkspaces :many

@@ -234,6 +234,10 @@ func (s *configuredProjectViewRemoteStub) ListProjects(ctx context.Context, req 
 	return serverapi.ProjectListResponse{}, errors.New("unexpected ListProjects call")
 }
 
+func (*configuredProjectViewRemoteStub) ListProjectHome(context.Context, serverapi.ProjectHomeListRequest) (serverapi.ProjectHomeListResponse, error) {
+	return serverapi.ProjectHomeListResponse{}, errors.New("unexpected ListProjectHome call")
+}
+
 func (s *configuredProjectViewRemoteStub) ResolveProjectPath(ctx context.Context, req serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
 	if s != nil && s.resolveProjectPath != nil {
 		return s.resolveProjectPath(ctx, req)
@@ -247,6 +251,10 @@ func (s *configuredProjectViewRemoteStub) PlanWorkspaceBinding(ctx context.Conte
 
 func (*configuredProjectViewRemoteStub) CreateProject(context.Context, serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
 	return serverapi.ProjectCreateResponse{}, errors.New("unexpected CreateProject call")
+}
+
+func (*configuredProjectViewRemoteStub) ListProjectWorkspaces(context.Context, serverapi.ProjectWorkspaceListRequest) (serverapi.ProjectWorkspaceListResponse, error) {
+	return serverapi.ProjectWorkspaceListResponse{}, errors.New("unexpected ListProjectWorkspaces call")
 }
 
 func (*configuredProjectViewRemoteStub) AttachWorkspaceToProject(context.Context, serverapi.ProjectAttachWorkspaceRequest) (serverapi.ProjectAttachWorkspaceResponse, error) {
@@ -272,6 +280,10 @@ func (s headlessProjectViewStubService) ListProjects(context.Context, serverapi.
 	return s.listProjectsResp, s.listProjectsErr
 }
 
+func (headlessProjectViewStubService) ListProjectHome(context.Context, serverapi.ProjectHomeListRequest) (serverapi.ProjectHomeListResponse, error) {
+	return serverapi.ProjectHomeListResponse{}, errors.New("unexpected ListProjectHome call")
+}
+
 func (headlessProjectViewStubService) ResolveProjectPath(context.Context, serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
 	return serverapi.ProjectResolvePathResponse{}, errors.New("unexpected ResolveProjectPath call")
 }
@@ -295,6 +307,10 @@ func (s headlessProjectViewStubService) PlanWorkspaceBinding(ctx context.Context
 
 func (headlessProjectViewStubService) CreateProject(context.Context, serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
 	return serverapi.ProjectCreateResponse{}, errors.New("unexpected CreateProject call")
+}
+
+func (headlessProjectViewStubService) ListProjectWorkspaces(context.Context, serverapi.ProjectWorkspaceListRequest) (serverapi.ProjectWorkspaceListResponse, error) {
+	return serverapi.ProjectWorkspaceListResponse{}, errors.New("unexpected ListProjectWorkspaces call")
 }
 
 func (headlessProjectViewStubService) AttachWorkspaceToProject(context.Context, serverapi.ProjectAttachWorkspaceRequest) (serverapi.ProjectAttachWorkspaceResponse, error) {

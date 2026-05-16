@@ -136,6 +136,11 @@ func (c *Remote) ListProjects(ctx context.Context, req serverapi.ProjectListRequ
 	return resp, c.callUnscoped(ctx, protocol.MethodProjectList, req, &resp)
 }
 
+func (c *Remote) ListProjectHome(ctx context.Context, req serverapi.ProjectHomeListRequest) (serverapi.ProjectHomeListResponse, error) {
+	var resp serverapi.ProjectHomeListResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodProjectHomeList, req, &resp)
+}
+
 func (c *Remote) ResolveProjectPath(ctx context.Context, req serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
 	var resp serverapi.ProjectResolvePathResponse
 	return resp, c.callUnscoped(ctx, protocol.MethodProjectResolvePath, req, &resp)
@@ -149,6 +154,11 @@ func (c *Remote) PlanWorkspaceBinding(ctx context.Context, req serverapi.Project
 func (c *Remote) CreateProject(ctx context.Context, req serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
 	var resp serverapi.ProjectCreateResponse
 	return resp, c.callUnscoped(ctx, protocol.MethodProjectCreate, req, &resp)
+}
+
+func (c *Remote) ListProjectWorkspaces(ctx context.Context, req serverapi.ProjectWorkspaceListRequest) (serverapi.ProjectWorkspaceListResponse, error) {
+	var resp serverapi.ProjectWorkspaceListResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodProjectWorkspaceList, req, &resp)
 }
 
 func (c *Remote) AttachWorkspaceToProject(ctx context.Context, req serverapi.ProjectAttachWorkspaceRequest) (serverapi.ProjectAttachWorkspaceResponse, error) {

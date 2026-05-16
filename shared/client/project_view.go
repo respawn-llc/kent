@@ -10,9 +10,11 @@ import (
 
 type ProjectViewClient interface {
 	ListProjects(ctx context.Context, req serverapi.ProjectListRequest) (serverapi.ProjectListResponse, error)
+	ListProjectHome(ctx context.Context, req serverapi.ProjectHomeListRequest) (serverapi.ProjectHomeListResponse, error)
 	ResolveProjectPath(ctx context.Context, req serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error)
 	PlanWorkspaceBinding(ctx context.Context, req serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error)
 	CreateProject(ctx context.Context, req serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error)
+	ListProjectWorkspaces(ctx context.Context, req serverapi.ProjectWorkspaceListRequest) (serverapi.ProjectWorkspaceListResponse, error)
 	AttachWorkspaceToProject(ctx context.Context, req serverapi.ProjectAttachWorkspaceRequest) (serverapi.ProjectAttachWorkspaceResponse, error)
 	RebindWorkspace(ctx context.Context, req serverapi.ProjectRebindWorkspaceRequest) (serverapi.ProjectRebindWorkspaceResponse, error)
 	GetProjectOverview(ctx context.Context, req serverapi.ProjectGetOverviewRequest) (serverapi.ProjectGetOverviewResponse, error)
@@ -34,6 +36,13 @@ func (c *loopbackProjectViewClient) ListProjects(ctx context.Context, req server
 	return c.service.ListProjects(ctx, req)
 }
 
+func (c *loopbackProjectViewClient) ListProjectHome(ctx context.Context, req serverapi.ProjectHomeListRequest) (serverapi.ProjectHomeListResponse, error) {
+	if c == nil || c.service == nil {
+		return serverapi.ProjectHomeListResponse{}, errors.New("project view service is required")
+	}
+	return c.service.ListProjectHome(ctx, req)
+}
+
 func (c *loopbackProjectViewClient) ResolveProjectPath(ctx context.Context, req serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
 	if c == nil || c.service == nil {
 		return serverapi.ProjectResolvePathResponse{}, errors.New("project view service is required")
@@ -53,6 +62,13 @@ func (c *loopbackProjectViewClient) CreateProject(ctx context.Context, req serve
 		return serverapi.ProjectCreateResponse{}, errors.New("project view service is required")
 	}
 	return c.service.CreateProject(ctx, req)
+}
+
+func (c *loopbackProjectViewClient) ListProjectWorkspaces(ctx context.Context, req serverapi.ProjectWorkspaceListRequest) (serverapi.ProjectWorkspaceListResponse, error) {
+	if c == nil || c.service == nil {
+		return serverapi.ProjectWorkspaceListResponse{}, errors.New("project view service is required")
+	}
+	return c.service.ListProjectWorkspaces(ctx, req)
 }
 
 func (c *loopbackProjectViewClient) AttachWorkspaceToProject(ctx context.Context, req serverapi.ProjectAttachWorkspaceRequest) (serverapi.ProjectAttachWorkspaceResponse, error) {
