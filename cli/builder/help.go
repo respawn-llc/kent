@@ -26,6 +26,7 @@ func writeRootUsage(fs *flag.FlagSet) {
 	out := fs.Output()
 	writeHelpSection(out, "Usage of builder:",
 		"  builder [flags]",
+		"  builder --continue <session-id>",
 		"  builder run [flags] <prompt>",
 		"  builder serve [flags]",
 		"  builder service <status|install|uninstall|start|stop|restart>",
@@ -41,6 +42,7 @@ func writeRootUsage(fs *flag.FlagSet) {
 	)
 	writeHelpSection(out, "What This Does:",
 		"  `builder` without a subcommand starts the interactive TUI.",
+		"  `builder --continue <session-id>` reopens a previous session in the interactive TUI.",
 		"  `builder run` executes one headless prompt and exits.",
 		"  `builder serve` starts the app server in daemon mode.",
 		"  `builder service` manages the Builder server background service.",
@@ -64,6 +66,7 @@ func writeRootUsage(fs *flag.FlagSet) {
 	)
 	writeHelpSection(out, "Examples:",
 		"  builder",
+		"  builder --continue <session-id>",
 		"  builder run --fast \"summarize the repo\"",
 		"  builder service status",
 		"  builder service install",
