@@ -23,7 +23,7 @@ type CreateTaskRequest struct {
 type UpdateTaskRequest struct {
 	TaskID            workflow.TaskID
 	Title             string
-	Body              string
+	Body              *string
 	SourceWorkspaceID string
 }
 
@@ -161,7 +161,6 @@ func (s *Store) CreateTask(ctx context.Context, req CreateTaskRequest) (TaskReco
 
 func (s *Store) UpdateTask(ctx context.Context, req UpdateTaskRequest) (TaskRecord, error) {
 	title := strings.TrimSpace(req.Title)
-	body := strings.TrimSpace(req.Body)
 	if strings.TrimSpace(string(req.TaskID)) == "" {
 		return TaskRecord{}, errors.New("task id is required")
 	}
@@ -181,6 +180,10 @@ func (s *Store) UpdateTask(ctx context.Context, req UpdateTaskRequest) (TaskReco
 	}
 	if task.CanceledAtUnixMs != 0 {
 		return TaskRecord{}, fmt.Errorf("cannot edit canceled task")
+	}
+	body := task.Body
+	if req.Body != nil {
+		body = strings.TrimSpace(*req.Body)
 	}
 	if task.ManagedWorktreeID.Valid && strings.TrimSpace(task.ManagedWorktreeID.String) != "" {
 		return TaskRecord{}, fmt.Errorf("cannot edit task after automation starts")

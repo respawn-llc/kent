@@ -252,17 +252,26 @@ func TestTaskUpdateEditsBacklogFieldsUntilAutomationStarts(t *testing.T) {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
-	updated, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: " After ", Body: " after body ", SourceWorkspaceID: source.WorkspaceID})
+	afterBody := " after body "
+	updated, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: " After ", Body: &afterBody, SourceWorkspaceID: source.WorkspaceID})
 	if err != nil {
 		t.Fatalf("UpdateTask: %v", err)
 	}
 	if updated.Title != "After" || updated.Body != "after body" || updated.SourceWorkspaceID != source.WorkspaceID {
 		t.Fatalf("updated task = %+v", updated)
 	}
+	renamed, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: "Renamed"})
+	if err != nil {
+		t.Fatalf("UpdateTask title only: %v", err)
+	}
+	if renamed.Title != "Renamed" || renamed.Body != "after body" || renamed.SourceWorkspaceID != source.WorkspaceID {
+		t.Fatalf("title-only update = %+v, want previous body and source workspace preserved", renamed)
+	}
 	if _, err := store.StartTask(ctx, task.ID); err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
-	if _, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: "Too late", Body: "body", SourceWorkspaceID: source.WorkspaceID}); err == nil || !strings.Contains(err.Error(), "cannot edit task after automation starts") {
+	tooLateBody := "body"
+	if _, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: "Too late", Body: &tooLateBody, SourceWorkspaceID: source.WorkspaceID}); err == nil || !strings.Contains(err.Error(), "cannot edit task after automation starts") {
 		t.Fatalf("UpdateTask after start error = %v", err)
 	}
 
@@ -273,7 +282,7 @@ func TestTaskUpdateEditsBacklogFieldsUntilAutomationStarts(t *testing.T) {
 	if err := store.CancelTask(ctx, canceled.ID, "stop"); err != nil {
 		t.Fatalf("CancelTask: %v", err)
 	}
-	if _, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: canceled.ID, Title: "Too late", Body: "body", SourceWorkspaceID: binding.WorkspaceID}); err == nil || !strings.Contains(err.Error(), "canceled") {
+	if _, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: canceled.ID, Title: "Too late", Body: &tooLateBody, SourceWorkspaceID: binding.WorkspaceID}); err == nil || !strings.Contains(err.Error(), "canceled") {
 		t.Fatalf("UpdateTask canceled error = %v", err)
 	}
 }

@@ -3,8 +3,8 @@ package workflowsvc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -116,11 +116,10 @@ func (s *Service) CreateWorkflow(ctx context.Context, req serverapi.WorkflowCrea
 	return serverapi.WorkflowCreateResponse{Workflow: workflowRecord(created)}, nil
 }
 
-func (s *Service) publishWorkflowEvent(ctx context.Context, projectID string, workflowID string, resource string, action string, changedIDs ...string) error {
+func (s *Service) publishWorkflowEvent(ctx context.Context, projectID string, workflowID string, resource string, action string, changedIDs ...string) {
 	if _, err := s.store.RecordWorkflowEvent(ctx, workflowstore.WorkflowEventRecord{ProjectID: projectID, WorkflowID: workflowID, Resource: resource, Action: action, ChangedIDs: changedIDs}); err != nil {
-		return fmt.Errorf("record workflow event: %w", err)
+		slog.Warn("record workflow event failed", "project_id", strings.TrimSpace(projectID), "workflow_id", strings.TrimSpace(workflowID), "resource", strings.TrimSpace(resource), "action", strings.TrimSpace(action), "changed_ids", changedIDs, "error", err)
 	}
-	return nil
 }
 
 func (s *Service) UpdateWorkflow(ctx context.Context, req serverapi.WorkflowUpdateRequest) (serverapi.WorkflowGetResponse, error) {
@@ -164,9 +163,7 @@ func (s *Service) AddWorkflowNode(ctx context.Context, req serverapi.WorkflowNod
 	if err != nil {
 		return serverapi.WorkflowNodeAddResponse{}, err
 	}
-	if err := s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "node_added", req.NodeID); err != nil {
-		return serverapi.WorkflowNodeAddResponse{}, err
-	}
+	s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "node_added", req.NodeID)
 	return serverapi.WorkflowNodeAddResponse{GraphRevision: revision}, nil
 }
 
@@ -178,9 +175,7 @@ func (s *Service) AddWorkflowNodeGroup(ctx context.Context, req serverapi.Workfl
 	if err != nil {
 		return serverapi.WorkflowNodeGroupResponse{}, err
 	}
-	if err := s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "node_group_added", group.ID); err != nil {
-		return serverapi.WorkflowNodeGroupResponse{}, err
-	}
+	s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "node_group_added", group.ID)
 	return serverapi.WorkflowNodeGroupResponse{Group: workflowNodeGroup(group), GraphRevision: revision}, nil
 }
 
@@ -192,9 +187,7 @@ func (s *Service) UpdateWorkflowNodeGroup(ctx context.Context, req serverapi.Wor
 	if err != nil {
 		return serverapi.WorkflowNodeGroupResponse{}, err
 	}
-	if err := s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "node_group_updated", group.ID); err != nil {
-		return serverapi.WorkflowNodeGroupResponse{}, err
-	}
+	s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "node_group_updated", group.ID)
 	return serverapi.WorkflowNodeGroupResponse{Group: workflowNodeGroup(group), GraphRevision: revision}, nil
 }
 
@@ -205,7 +198,8 @@ func (s *Service) DeleteWorkflowNodeGroup(ctx context.Context, req serverapi.Wor
 	if _, err := s.store.DeleteNodeGroup(ctx, workflow.WorkflowID(req.WorkflowID), req.GroupID); err != nil {
 		return err
 	}
-	return s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "node_group_deleted", req.GroupID)
+	s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "node_group_deleted", req.GroupID)
+	return nil
 }
 
 func (s *Service) AddWorkflowTransitionGroup(ctx context.Context, req serverapi.WorkflowTransitionGroupAddRequest) (serverapi.WorkflowTransitionGroupAddResponse, error) {
@@ -216,9 +210,7 @@ func (s *Service) AddWorkflowTransitionGroup(ctx context.Context, req serverapi.
 	if err != nil {
 		return serverapi.WorkflowTransitionGroupAddResponse{}, err
 	}
-	if err := s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "transition_group_added", req.GroupID); err != nil {
-		return serverapi.WorkflowTransitionGroupAddResponse{}, err
-	}
+	s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "transition_group_added", req.GroupID)
 	return serverapi.WorkflowTransitionGroupAddResponse{GraphRevision: revision}, nil
 }
 
@@ -230,9 +222,7 @@ func (s *Service) AddWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdg
 	if err != nil {
 		return serverapi.WorkflowEdgeAddResponse{}, err
 	}
-	if err := s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "edge_added", req.EdgeID); err != nil {
-		return serverapi.WorkflowEdgeAddResponse{}, err
-	}
+	s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "edge_added", req.EdgeID)
 	return serverapi.WorkflowEdgeAddResponse{GraphRevision: revision}, nil
 }
 
@@ -244,9 +234,7 @@ func (s *Service) LinkWorkflowToProject(ctx context.Context, req serverapi.Workf
 	if err != nil {
 		return serverapi.WorkflowLinkProjectResponse{}, err
 	}
-	if err := s.publishWorkflowEvent(ctx, req.ProjectID, req.WorkflowID, "workflow_link", "linked", link.ID); err != nil {
-		return serverapi.WorkflowLinkProjectResponse{}, err
-	}
+	s.publishWorkflowEvent(ctx, req.ProjectID, req.WorkflowID, "workflow_link", "linked", link.ID)
 	return serverapi.WorkflowLinkProjectResponse{Link: projectWorkflowLink(link)}, nil
 }
 
@@ -273,9 +261,7 @@ func (s *Service) SetDefaultProjectWorkflowLink(ctx context.Context, req servera
 	if err != nil {
 		return serverapi.WorkflowSetDefaultProjectLinkResponse{}, err
 	}
-	if err := s.publishWorkflowEvent(ctx, req.ProjectID, req.WorkflowID, "workflow_link", "default_changed", link.ID); err != nil {
-		return serverapi.WorkflowSetDefaultProjectLinkResponse{}, err
-	}
+	s.publishWorkflowEvent(ctx, req.ProjectID, req.WorkflowID, "workflow_link", "default_changed", link.ID)
 	return serverapi.WorkflowSetDefaultProjectLinkResponse{Link: projectWorkflowLink(link)}, nil
 }
 
@@ -290,7 +276,8 @@ func (s *Service) UnlinkWorkflowFromProject(ctx context.Context, req serverapi.W
 	if err := s.store.UnlinkProjectWorkflow(ctx, req.LinkID, req.ReplacementDefaultLinkID); err != nil {
 		return err
 	}
-	return s.publishWorkflowEvent(ctx, link.ProjectID, string(link.WorkflowID), "workflow_link", "unlinked", req.LinkID)
+	s.publishWorkflowEvent(ctx, link.ProjectID, string(link.WorkflowID), "workflow_link", "unlinked", req.LinkID)
+	return nil
 }
 
 func (s *Service) ValidateWorkflow(ctx context.Context, req serverapi.WorkflowValidateRequest) (serverapi.WorkflowValidateResponse, error) {
@@ -321,9 +308,7 @@ func (s *Service) CreateWorkflowTask(ctx context.Context, req serverapi.Workflow
 	if err != nil {
 		return serverapi.WorkflowTaskCreateResponse{}, err
 	}
-	if err := s.publishWorkflowEvent(ctx, task.ProjectID, string(task.WorkflowID), "task", "created", string(task.ID)); err != nil {
-		return serverapi.WorkflowTaskCreateResponse{}, err
-	}
+	s.publishWorkflowEvent(ctx, task.ProjectID, string(task.WorkflowID), "task", "created", string(task.ID))
 	detail, err := s.view.GetTask(ctx, string(task.ID))
 	if err != nil {
 		return serverapi.WorkflowTaskCreateResponse{}, err
@@ -339,9 +324,7 @@ func (s *Service) UpdateWorkflowTask(ctx context.Context, req serverapi.Workflow
 	if err != nil {
 		return serverapi.WorkflowTaskUpdateResponse{}, err
 	}
-	if err := s.publishWorkflowEvent(ctx, task.ProjectID, string(task.WorkflowID), "task", "updated", string(task.ID)); err != nil {
-		return serverapi.WorkflowTaskUpdateResponse{}, err
-	}
+	s.publishWorkflowEvent(ctx, task.ProjectID, string(task.WorkflowID), "task", "updated", string(task.ID))
 	detail, err := s.view.GetTask(ctx, string(task.ID))
 	if err != nil {
 		return serverapi.WorkflowTaskUpdateResponse{}, err
@@ -358,9 +341,7 @@ func (s *Service) StartWorkflowTask(ctx context.Context, req serverapi.WorkflowT
 		return serverapi.WorkflowTaskStartResponse{}, err
 	}
 	if detail, detailErr := s.view.GetTask(ctx, req.TaskID); detailErr == nil {
-		if err := s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "started", req.TaskID, string(started.RunID)); err != nil {
-			return serverapi.WorkflowTaskStartResponse{}, err
-		}
+		s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "started", req.TaskID, string(started.RunID))
 	}
 	return serverapi.WorkflowTaskStartResponse{TransitionID: started.TransitionID, PlacementID: string(started.PlacementID), RunID: string(started.RunID)}, nil
 }
@@ -379,9 +360,7 @@ func (s *Service) InterruptWorkflowTask(ctx context.Context, req serverapi.Workf
 		}
 	}
 	if detail, detailErr := s.view.GetTask(ctx, req.TaskID); detailErr == nil {
-		if err := s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "interrupted", req.TaskID, string(interrupted.ID)); err != nil {
-			return serverapi.WorkflowTaskInterruptResponse{}, err
-		}
+		s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "interrupted", req.TaskID, string(interrupted.ID))
 	}
 	return serverapi.WorkflowTaskInterruptResponse{RunID: string(interrupted.ID)}, nil
 }
@@ -398,9 +377,7 @@ func (s *Service) ResumeWorkflowTask(ctx context.Context, req serverapi.Workflow
 		s.schedulerWake.Notify()
 	}
 	if detail, detailErr := s.view.GetTask(ctx, req.TaskID); detailErr == nil {
-		if err := s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "resumed", req.TaskID, string(resumed.ID)); err != nil {
-			return serverapi.WorkflowTaskResumeResponse{}, err
-		}
+		s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "resumed", req.TaskID, string(resumed.ID))
 	}
 	return serverapi.WorkflowTaskResumeResponse{RunID: string(resumed.ID), PlacementID: string(resumed.PlacementID), NodeID: string(resumed.NodeID), Generation: resumed.Generation, SessionID: resumed.SessionID}, nil
 }
@@ -440,9 +417,7 @@ func (s *Service) ApproveWorkflowTask(ctx context.Context, req serverapi.Workflo
 		s.schedulerWake.Notify()
 	}
 	if taskID, projectID, workflowID, detailErr := s.taskIdentityForTransition(ctx, transitionID); detailErr == nil {
-		if err := s.publishWorkflowEvent(ctx, projectID, workflowID, "task", "approved", taskID, transitionID); err != nil {
-			return serverapi.WorkflowTaskApproveResponse{}, err
-		}
+		s.publishWorkflowEvent(ctx, projectID, workflowID, "task", "approved", taskID, transitionID)
 	}
 	return serverapi.WorkflowTaskApproveResponse{TransitionID: string(approved.TransitionID), State: approved.State, PlacementIDs: placementIDs(approved.PlacementIDs), RunIDs: runIDs(approved.RunIDs)}, nil
 }
@@ -473,9 +448,7 @@ func (s *Service) CancelWorkflowTask(ctx context.Context, req serverapi.Workflow
 		return err
 	}
 	if detail, detailErr := s.view.GetTask(ctx, req.TaskID); detailErr == nil {
-		if err := s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "canceled", req.TaskID); err != nil {
-			return err
-		}
+		s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "canceled", req.TaskID)
 	}
 	if s.runtimeCancel != nil {
 		return s.runtimeCancel.CancelTaskRuns(ctx, workflow.TaskID(req.TaskID))
@@ -518,9 +491,7 @@ func (s *Service) AnswerWorkflowTaskQuestion(ctx context.Context, req serverapi.
 			return struct{}{}, err
 		}
 		if detail, detailErr := s.view.GetTask(ctx, req.TaskID); detailErr == nil {
-			if err := s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "question_answered", req.TaskID, string(run.ID), req.AskID); err != nil {
-				return struct{}{}, err
-			}
+			s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "question_answered", req.TaskID, string(run.ID), req.AskID)
 		}
 		return struct{}{}, nil
 	})
@@ -550,9 +521,7 @@ func (s *Service) AddWorkflowTaskComment(ctx context.Context, req serverapi.Work
 		return serverapi.WorkflowTaskCommentAddResponse{}, err
 	}
 	if detail, detailErr := s.view.GetTask(ctx, req.TaskID); detailErr == nil {
-		if err := s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "comment_added", req.TaskID, comment.ID); err != nil {
-			return serverapi.WorkflowTaskCommentAddResponse{}, err
-		}
+		s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "comment_added", req.TaskID, comment.ID)
 	}
 	return serverapi.WorkflowTaskCommentAddResponse{Comment: commentRecord(comment)}, nil
 }
@@ -583,7 +552,8 @@ func (s *Service) ReplaceWorkflowTaskComment(ctx context.Context, req serverapi.
 	if err := s.store.ReplaceComment(ctx, req.CommentID, req.Body); err != nil {
 		return err
 	}
-	return s.publishWorkflowEvent(ctx, projectID, workflowID, "task", "comment_updated", taskID, req.CommentID)
+	s.publishWorkflowEvent(ctx, projectID, workflowID, "task", "comment_updated", taskID, req.CommentID)
+	return nil
 }
 
 func (s *Service) DeleteWorkflowTaskComment(ctx context.Context, req serverapi.WorkflowTaskCommentDeleteRequest) error {
@@ -597,7 +567,8 @@ func (s *Service) DeleteWorkflowTaskComment(ctx context.Context, req serverapi.W
 	if err := s.store.DeleteComment(ctx, req.CommentID); err != nil {
 		return err
 	}
-	return s.publishWorkflowEvent(ctx, projectID, workflowID, "task", "comment_deleted", taskID, req.CommentID)
+	s.publishWorkflowEvent(ctx, projectID, workflowID, "task", "comment_deleted", taskID, req.CommentID)
+	return nil
 }
 
 func (s *Service) ListWorkflowTaskActivity(ctx context.Context, req serverapi.WorkflowTaskActivityListRequest) (serverapi.WorkflowTaskActivityListResponse, error) {

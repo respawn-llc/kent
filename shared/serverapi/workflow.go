@@ -284,10 +284,10 @@ type WorkflowTaskCreateResponse struct {
 }
 
 type WorkflowTaskUpdateRequest struct {
-	TaskID            string `json:"task_id"`
-	Title             string `json:"title"`
-	Body              string `json:"body,omitempty"`
-	SourceWorkspaceID string `json:"source_workspace_id,omitempty"`
+	TaskID            string  `json:"task_id"`
+	Title             string  `json:"title"`
+	Body              *string `json:"body,omitempty"`
+	SourceWorkspaceID string  `json:"source_workspace_id,omitempty"`
 }
 
 type WorkflowTaskUpdateResponse struct {
