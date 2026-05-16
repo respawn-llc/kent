@@ -315,7 +315,7 @@ Keep MVP sections in dependency order: macOS/native surface, visual design syste
 
 ## PRD Questions To Resolve
 
-- [x] What exact backend slices must be complete before real MVP integration starts? Lock order: connectivity/capabilities plus Home/project admin/key/workspaces; workflow picker plus project-wide board/groups/live updates; task create/backlog/workspace default; drag-to-start/interrupt/cancel/resume/inbox; detail feed/comments/teleport.
+- [x] What exact backend slices must be complete before real MVP integration starts? Lock order: connectivity/capabilities; Home/project admin/key/workspaces; workflow picker plus selected board/groups/live updates; task create/backlog/workspace default/drag-to-start; interrupt/cancel/resume/inbox/questions/approvals; detail feed/comments/teleport.
 - [x] What is the minimal task creation form? Required title, optional body/details, source URL hidden/backend-only, workflow picker outside the basic form.
 - [x] Does creating task also start automation by default? No. It creates backlog task; user drags to first active node to start.
 - [x] What exact agent status vocabulary is canonical for card badges? Use backend-native status verbatim on cards, no compact UI aggregation.
@@ -328,7 +328,7 @@ Keep MVP sections in dependency order: macOS/native surface, visual design syste
 - [x] Are transition approval queue and approve actions MVP, or only future workflow-state surfaces? Home inbox lists/deep-links only; approval flow appears through contextual Resume modal when needed.
 - [x] Are task start/cancel/resume controls MVP, or is MVP limited to task creation plus visual progression? No Start button. Cancel and Resume in task detail; Resume also on cards when task is resumable.
 - [x] What card/detail action appears for active task sessions? Interrupt appears where Resume would be; Resume appears only when paused/resumable.
-- [x] What terminal command is canonical for teleport? Backend returns launch command; GUI does not hardcode CLI args.
+- [x] What terminal command is canonical for teleport? Backend returns task/session attach identifiers; GUI/native bridge owns the local TUI attach command once final.
 - [x] How should project creation map directory picker result to Builder project/workspace binding? Dedicated New Project/Add Workspace buttons resolve path; existing bound workspace opens project; unbound workspace opens project creation page with name confirmation.
 - [x] Is multi-workspace per project visible in MVP or hidden behind selected workspace? Visible through main workspace dropdown in task creation/edit before start; immutable after start.
 - [x] What is board workspace scope after backend task/workspace model update? Board is project-wide for selected project and selected workflow; cards show workspace context when needed, and additional workspaces are complementary/optional by default.

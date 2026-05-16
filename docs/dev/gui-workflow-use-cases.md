@@ -75,19 +75,17 @@ Deferred from MVP:
 
 ## Backend Readiness Map
 
-This map keeps GUI sequencing concrete. "Ready now" means the GUI can build the surface with local fixtures/mock transport before workflow APIs exist. "Backend-gated" means the surface should wait for the named async-workflow backend slice before real integration.
+This map keeps GUI sequencing concrete. "Ready now" means the GUI can build the surface with local fixtures/mock transport before workflow APIs exist. "Backend-gated" means the surface should wait for the named GUI workflow backend slice in `docs/dev/gui-workflow-backend-slice-plan.md` before real integration.
 
 - [x] Backend slice/API plan is tracked in `docs/dev/gui-workflow-backend-slice-plan.md`.
 - [ ] Ready now: App shell, splash, navigation, global toasts, and rendering states. Use local fixtures and app-level state.
 - [ ] Partly ready now: Server connectivity, config loading, and capability registry. Existing `/healthz` and `/readyz` can prove connectivity. Capability/config registry needs a small server API contract before real feature gating.
-- [ ] Backend-gated: Project picker and workflow context. Depends on Slice 3 API/read models for project workflows, validation, default workflow, and task read models.
-- [ ] Backend-gated: Board and task detail read-only views. Depends on Slice 3 board/task/detail read models. Slice 4 CLI output can provide reference fixtures.
-- [ ] Backend-gated: Task create, drag-to-start, detail, comments, cancel, and resume actions. Depends on Slice 3 service/API contracts. Slice 4 gives seed/reference flows. Slice 5.5 proves no-LLM smoke data is usable.
-- [ ] Backend-gated: Worktree/branch display. Depends on Slice 5 and Slice 5.5 task-owned worktree primitive/smoke.
-- [ ] Backend-gated: Live automated run status and completion output. Depends on Slice 8 single-agent `new_session` vertical slice.
-- [ ] Backend-gated: Home attention inbox question rows and contextual resume question answering. Depends on Slice 9 question pause/resume.
-- [ ] Backend-gated: Home attention inbox approval rows and contextual resume approval action. Depends on Slice 11 approvals.
-- [ ] Backend-gated: Manual moves/recovery controls. Depends on Slice 11 for manual moves and Slice 13 for recovery/observability hardening.
+- [ ] Backend-gated: Project picker and Home project rows. Depends on GUI backend Slice 1 Home/project admin/project key/workspaces.
+- [ ] Backend-gated: Board read-only views. Depends on GUI backend Slice 2 workflow picker, selected board, groups, and live updates.
+- [ ] Backend-gated: Task create, Backlog editing, source workspace, drag-to-start, and worktree/branch display. Depends on GUI backend Slice 3 task source workspace and Backlog editing.
+- [ ] Backend-gated: Cancel, resume, interrupt, attention rows, questions, and approvals. Depends on GUI backend Slice 4 actions, attention inbox, questions, and approvals.
+- [ ] Backend-gated: Task detail read-only views, activity feed, comments, and teleport identifiers. Depends on GUI backend Slice 5 task detail, activity feed, comments, and teleport target.
+- [ ] Backend-gated: Manual moves/recovery controls. Later than MVP unless promoted into a GUI backend slice.
 
 ## PRD Coverage Audit
 
@@ -551,7 +549,7 @@ This inventory tracks user-facing capabilities described by `docs/dev/async-work
 - [x] Decide Interrupt confirmation: Interrupt acts immediately with no confirmation.
 - [x] Decide interrupt success outcome: same as TUI, task becomes interrupted/resumable and feed records `Interrupted by user`.
 - [x] Decide whether MVP uses WebSocket JSON-RPC, HTTP polling endpoints, or both: initial snapshot plus WebSocket updates; full refresh on reconnect.
-- [x] Decide whether task-session teleport identifies target by session ID, task ID, or backend-provided launch command: local Builder TUI attach command in user's default terminal, using server-provided task/session identifiers.
+- [x] Decide whether task-session teleport identifies target by session ID, task ID, or backend-provided identifiers: backend returns task/session attach identifiers; GUI/native bridge owns the local Builder TUI attach command in user's default terminal.
 - [x] Decide whether MVP accessibility/keyboard-complete pass is required: no; i18n-ready strings are mandatory.
 - [x] Decide task detail missing-field rendering: hide expected-not-yet-created fields when not meaningful, show UX-continuity fields such as assignee as unassigned/empty, and render unexpected missing meaningful fields as unavailable/error states.
 - [x] Decide task detail history shape: fixed-height resizable dialog with fixed top task identity/content and paginated unified activity feed for comments and changes.
@@ -567,7 +565,7 @@ This inventory tracks user-facing capabilities described by `docs/dev/async-work
 - [x] Decide task main workspace default: current/opened workspace context if present, otherwise project default/main workspace.
 - [x] Decide project-key API scope for MVP: add project-key create/edit support to project administration API/UI with collision validation and existing immutability rules.
 - [x] Decide workflow group MVP rendering: build the best implementation-led MVP first pass; initial preferred shape is group islands wrapping related columns, with Nikita QA driving changes if it feels bad.
-- [x] Decide exact backend slice order: connectivity/capabilities plus Home/project admin/key/workspaces; workflow picker plus project-wide board/groups/live updates; task create/backlog/workspace default; drag-to-start/interrupt/cancel/resume/inbox; detail feed/comments/teleport.
+- [x] Decide exact backend slice order: connectivity/capabilities; Home/project admin/key/workspaces; workflow picker plus selected board/groups/live updates; task create/backlog/workspace default/drag-to-start; interrupt/cancel/resume/inbox/questions/approvals; detail feed/comments/teleport.
 - [x] Decide Home attention inbox ordering: newest activity first across all attention items.
 - [x] Decide Home attention inbox row content: task short ID, title, project key/name, workflow, attention type, latest activity time, and small status/action hint.
 - [x] Decide Home project list rows: latest-activity descending rows with project key/name, primary workspace path/status, updated time, and attention/task count chips when backend provides them.

@@ -237,6 +237,10 @@ Store/query changes:
 - `project.workspace.list` can initially reuse existing `ListProjectWorkspaces` query.
 - Do not add primary-workspace switching unless GUI needs it; first workspace remains primary/default.
 
+Dependency note:
+
+- Slice 1 owns Home fields and the shared foundations they need, but not every consumer API. `latest_event_sequence` is backed by the event sequence foundation until Slice 2 adds subscriptions. `attention_count` is backed by a durable count helper until Slice 4 adds paginated attention lists and actions.
+
 Tests:
 
 - Project create accepts explicit key and rejects collision/invalid key.
@@ -412,11 +416,13 @@ Workflow group model:
   - `workflow_node_groups(id, workflow_id, group_key, display_name, sort_order, metadata_json)`
   - `workflow_nodes.group_id` nullable reference.
 - Minimal authoring mutation contract:
-  - Existing workflow definition create/update APIs accept optional `node_groups []WorkflowNodeGroupSpec`.
-  - Workflow node specs accept optional `group_key`.
-  - `WorkflowNodeGroupSpec` fields: `group_key string`, `display_name string`, `sort_order int`, `metadata_json string`.
+  - `WorkflowDefinition` adds `node_groups []WorkflowNodeGroup`.
+  - `WorkflowNode` and `WorkflowNodeAddRequest` add optional `group_key string`.
+  - `WorkflowNodeGroup` fields: `group_id string`, `workflow_id string`, `group_key string`, `display_name string`, `sort_order int`, `metadata_json string`.
+  - Add incremental authoring routes matching the current workflow API shape: `workflow.nodeGroup.add`, `workflow.nodeGroup.update`, and `workflow.nodeGroup.delete`.
+  - Group add/update/delete requests carry `workflow_id`, optional `group_id`, `group_key`, `display_name`, `sort_order`, and `metadata_json` as relevant.
   - Group keys are unique within a workflow, stable across graph revisions, and use the same key style as node keys.
-  - Node group assignment is validated against declared groups during workflow definition create/update.
+  - Node group assignment is validated when adding/updating nodes and when deleting groups.
 - Grouped workflows with group metadata render group islands.
 - Workflows without group metadata return one implicit ungrouped group or empty `groups` with groupless columns.
 - Group metadata changes are graph-affecting and increment `workflows.graph_revision`.
@@ -443,6 +449,7 @@ Live updates:
     - `change string`
     - `occurred_at_unix_ms int64`
 - Event resources include `project`, `workspace`, `workflow`, `board`, `task`, `run`, `transition`, `comment`, and `attention`.
+- Use one monotonic global event sequence for GUI workflow invalidations. Scoped reads return the latest global sequence observed at generation time. Scoped subscriptions filter events but keep the same `after_sequence` namespace.
 - Board and Home read models include the latest event sequence as a snapshot watermark. Clients subscribe with that watermark to avoid fetch-then-subscribe races.
 - `project_id` is optional for the subscription. Empty `project_id` subscribes to global Home invalidations across projects; non-empty `project_id` subscribes to one project. `workflow_id` is valid only with non-empty `project_id`.
 - GUI treats events as invalidations and refetches relevant read models.
@@ -459,7 +466,8 @@ Tests:
 - Card action flags follow single active run interrupt decision.
 - Grouped workflow returns group metadata and node membership.
 - Ungrouped workflow returns deterministic ungrouped representation.
-- Workflow definition create/update validates group keys, node assignments, and graph revision bumps for group metadata changes.
+- Workflow node group routes validate group keys, node assignments, and graph revision bumps for group metadata changes.
+- Grouped workflow is seedable via API, CLI, or test fixture without direct DB writes.
 - Subscription emits invalidation events for task create/start/comment/transition/cancel.
 - Subscription can resume from board snapshot watermark and does not lose mutations between fetch and subscribe.
 - Empty-project subscription resumes from Home snapshot watermark and does not lose global Home/attention mutations between fetch and subscribe.
@@ -570,7 +578,7 @@ Rules:
 - `validation_blocker` is read-model-only. It is derived from interrupted run reason metadata or workflow validation state and must not introduce a separate durable validation-blocker table.
 - Question details are resolved through a task/run/ask bridge when task detail opens contextual resume.
 - Question answer action validates that `ask_id` belongs to the task run/session, then delegates to the existing prompt-control answer path with server-owned workflow authority instead of requiring GUI to hold a TUI controller lease.
-- Question answer accepts exactly one answer mode. `selected_option_number` is used for option asks, `freeform_answer` is used for freeform asks, and conflicting/empty mode input returns typed validation. `client_request_id` is an idempotency key scoped to task/run/ask and should return the first successful answer result on retry.
+- Question answer accepts exactly one answer mode. `selected_option_number` is used for option asks, `freeform_answer` is used for freeform asks, and conflicting/empty mode input returns typed validation. `client_request_id` reuses existing prompt-control request memo/idempotency semantics scoped to task/run/ask and must not add a separate durable/shared dedup table.
 - If ask details cannot rehydrate, represent it as interrupted/validation attention with actionable resume path.
 - Board/card Interrupt is available only when exactly one active run is interruptible.
 - Task detail exposes per-run inline Interrupt controls when multiple active runs/fan-out branches exist.
@@ -846,6 +854,8 @@ Completion criteria:
 Status: not started.
 
 Goal: GUI can create Backlog tasks with optional body and selected main/source workspace, then edit those fields until automation starts.
+
+Boundary note: drag-to-start is user-facing task operation scope, but Slice 3 verifies `workflow.task.start` drop semantics because source-workspace and worktree-source selection belong with Backlog/source workspace implementation. Slice 4 owns interrupt, cancel, resume, inbox, approval, and question actions.
 
 Implementation checklist:
 
