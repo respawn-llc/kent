@@ -1,0 +1,270 @@
+import { type z } from "zod";
+
+import { ContractError } from "./errors";
+import { compactJsonObject, emptyJsonObject } from "./json";
+import type {
+  ActivityPage,
+  AttentionPage,
+  BindingPlan,
+  PendingAsk,
+  ProjectBinding,
+  ProjectPage,
+  ServerCapabilities,
+  ServerReadiness,
+  TaskComment,
+  TaskDetail,
+  TeleportTarget,
+  WorkflowBoard,
+  WorkspaceList,
+} from "./models";
+import { bindingPlanSchema, projectCreateSchema, projectPageSchema, workspaceListSchema } from "./schemas/project";
+import { capabilitiesSchema, readinessSchema } from "./schemas/status";
+import {
+  activityPageSchema,
+  attentionPageSchema,
+  commentAddResponseSchema,
+  pendingAskListSchema,
+  taskCreateResponseSchema,
+  taskDetailSchema,
+  taskUpdateResponseSchema,
+  teleportTargetSchema,
+  workflowBoardSchema,
+} from "./schemas/workflow";
+import type { RpcEventHandler, RpcSubscription, RpcTransport } from "./transport";
+
+export class BuilderApiClient {
+  readonly transport: RpcTransport;
+
+  constructor(transport: RpcTransport) {
+    this.transport = transport;
+  }
+
+  async getReadiness(): Promise<ServerReadiness> {
+    return parse("server.readiness.get", readinessSchema, await this.transport.call("server.readiness.get", emptyJsonObject));
+  }
+
+  async getCapabilities(): Promise<ServerCapabilities> {
+    return parse(
+      "server.capabilities.get",
+      capabilitiesSchema,
+      await this.transport.call("server.capabilities.get", emptyJsonObject),
+    );
+  }
+
+  async listProjects(pageToken: string): Promise<ProjectPage> {
+    return parse(
+      "project.home.list",
+      projectPageSchema,
+      await this.transport.call("project.home.list", { page_size: 40, page_token: pageToken }),
+    );
+  }
+
+  async listWorkspaces(projectID: string): Promise<WorkspaceList> {
+    return parse(
+      "project.workspace.list",
+      workspaceListSchema,
+      await this.transport.call("project.workspace.list", { project_id: projectID }),
+    );
+  }
+
+  async planWorkspace(path: string): Promise<BindingPlan> {
+    return parse(
+      "project.planWorkspaceBinding",
+      bindingPlanSchema,
+      await this.transport.call("project.planWorkspaceBinding", { path, mode: "interactive" }),
+    );
+  }
+
+  async createProject(displayName: string, projectKey: string, workspaceRoot: string): Promise<ProjectBinding> {
+    return parse(
+      "project.create",
+      projectCreateSchema,
+      await this.transport.call("project.create", { display_name: displayName, project_key: projectKey, workspace_root: workspaceRoot }),
+    );
+  }
+
+  async attachWorkspace(projectID: string, workspaceRoot: string): Promise<ProjectBinding> {
+    return parse(
+      "project.attachWorkspace",
+      projectCreateSchema,
+      await this.transport.call("project.attachWorkspace", { project_id: projectID, workspace_root: workspaceRoot }),
+    );
+  }
+
+  async getBoard(projectID: string, workflowID: string): Promise<WorkflowBoard> {
+    return parse(
+      "workflow.board.get",
+      workflowBoardSchema,
+      await this.transport.call(
+        "workflow.board.get",
+        compactJsonObject({
+          project_id: projectID,
+          workflow_id: workflowID.length > 0 ? workflowID : undefined,
+          done_preview_limit: 5,
+          page_size: 300,
+          page_token: "",
+        }),
+      ),
+    );
+  }
+
+  async listAttention(projectID: string, pageToken: string): Promise<AttentionPage> {
+    return parse(
+      "workflow.attention.list",
+      attentionPageSchema,
+      await this.transport.call(
+        "workflow.attention.list",
+        compactJsonObject({ project_id: projectID.length > 0 ? projectID : undefined, page_size: 40, page_token: pageToken }),
+      ),
+    );
+  }
+
+  async createTask(input: TaskMutationInput): Promise<string> {
+    const response = parse(
+      "workflow.task.create",
+      taskCreateResponseSchema,
+      await this.transport.call(
+        "workflow.task.create",
+        compactJsonObject({
+          project_id: input.projectID,
+          workflow_id: input.workflowID,
+          title: input.title,
+          body: input.body,
+          source_workspace_id: input.sourceWorkspaceID,
+        }),
+      ),
+    );
+    return response.task.id;
+  }
+
+  async updateTask(input: TaskEditInput): Promise<string> {
+    const response = parse(
+      "workflow.task.update",
+      taskUpdateResponseSchema,
+      await this.transport.call(
+        "workflow.task.update",
+        compactJsonObject({
+          task_id: input.taskID,
+          title: input.title,
+          body: input.body,
+          source_workspace_id: input.sourceWorkspaceID,
+        }),
+      ),
+    );
+    return response.task.id;
+  }
+
+  async startTask(taskID: string): Promise<void> {
+    await this.transport.call("workflow.task.start", { task_id: taskID });
+  }
+
+  async moveTask(taskID: string, targetNodeID: string): Promise<void> {
+    await this.transport.call("workflow.task.move", { task_id: taskID, target_node_id: targetNodeID, output_values: {} });
+  }
+
+  async interruptTask(taskID: string, runID: string): Promise<void> {
+    await this.transport.call("workflow.task.interrupt", compactJsonObject({ task_id: taskID, run_id: runID }));
+  }
+
+  async resumeTask(taskID: string, runID: string): Promise<void> {
+    await this.transport.call("workflow.task.resume", compactJsonObject({ task_id: taskID, run_id: runID }));
+  }
+
+  async approveTransition(taskTransitionID: string): Promise<void> {
+    await this.transport.call("workflow.task.approve", { task_transition_id: taskTransitionID });
+  }
+
+  async cancelTask(taskID: string): Promise<void> {
+    await this.transport.call("workflow.task.cancel", { task_id: taskID });
+  }
+
+  async getTask(taskID: string): Promise<TaskDetail> {
+    return parse("workflow.task.get", taskDetailSchema, await this.transport.call("workflow.task.get", { task_id: taskID }));
+  }
+
+  async listTaskActivity(taskID: string, pageToken: string): Promise<ActivityPage> {
+    return parse(
+      "workflow.task.activity.list",
+      activityPageSchema,
+      await this.transport.call("workflow.task.activity.list", { task_id: taskID, page_size: 40, page_token: pageToken }),
+    );
+  }
+
+  async addComment(taskID: string, body: string): Promise<TaskComment> {
+    return parse(
+      "workflow.task.comment.add",
+      commentAddResponseSchema,
+      await this.transport.call("workflow.task.comment.add", { task_id: taskID, body, author: "GUI" }),
+    ).comment;
+  }
+
+  async replaceComment(commentID: string, body: string): Promise<void> {
+    await this.transport.call("workflow.task.comment.replace", { comment_id: commentID, body });
+  }
+
+  async deleteComment(commentID: string): Promise<void> {
+    await this.transport.call("workflow.task.comment.delete", { comment_id: commentID });
+  }
+
+  async answerQuestion(input: QuestionAnswerInput): Promise<void> {
+    await this.transport.call(
+      "workflow.task.question.answer",
+      compactJsonObject({
+        client_request_id: input.clientRequestID,
+        task_id: input.taskID,
+        run_id: input.runID,
+        ask_id: input.askID,
+        selected_option_number: input.selectedOptionNumber > 0 ? input.selectedOptionNumber : undefined,
+        freeform_answer: input.freeformAnswer,
+      }),
+    );
+  }
+
+  async listPendingAsks(sessionID: string): Promise<readonly PendingAsk[]> {
+    return parse("ask.listPendingBySession", pendingAskListSchema, await this.transport.call("ask.listPendingBySession", { SessionID: sessionID }));
+  }
+
+  async getTeleportTarget(taskID: string, runID: string): Promise<TeleportTarget> {
+    return parse(
+      "workflow.task.teleportTarget.get",
+      teleportTargetSchema,
+      await this.transport.call("workflow.task.teleportTarget.get", compactJsonObject({ task_id: taskID, run_id: runID })),
+    );
+  }
+
+  subscribeProject(projectID: string, afterSequence: number, handler: RpcEventHandler): RpcSubscription {
+    return this.transport.subscribe("workflow.subscribeProject", { project_id: projectID, after_sequence: afterSequence }, handler);
+  }
+}
+
+export type TaskMutationInput = Readonly<{
+  projectID: string;
+  workflowID: string;
+  title: string;
+  body: string;
+  sourceWorkspaceID: string;
+}>;
+
+export type TaskEditInput = Readonly<{
+  taskID: string;
+  title: string;
+  body: string;
+  sourceWorkspaceID: string;
+}>;
+
+export type QuestionAnswerInput = Readonly<{
+  clientRequestID: string;
+  taskID: string;
+  runID: string;
+  askID: string;
+  selectedOptionNumber: number;
+  freeformAnswer: string;
+}>;
+
+function parse<T>(method: string, schema: z.ZodType<T>, value: unknown): T {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    throw new ContractError(`${method} response did not match GUI contract.`);
+  }
+  return result.data;
+}

@@ -46,6 +46,7 @@
       ]
     },
     "@builder/desktop-native-bridge": {
+      "dependencies": ["@tauri-apps/api"],
       "devDependencies": ["typescript", "vitest"]
     }
   }

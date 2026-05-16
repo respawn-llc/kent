@@ -1,0 +1,186 @@
+import { createJsonRpcTransport } from "./jsonRpc";
+
+type SentFrame = Readonly<{
+  id: string;
+  method: string;
+}>;
+
+class MockWebSocket extends EventTarget {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+
+  readonly sent: string[] = [];
+  readyState = MockWebSocket.CONNECTING;
+
+  constructor(readonly url: string) {
+    super();
+    sockets.push(this);
+  }
+
+  send(data: string): void {
+    this.sent.push(data);
+  }
+
+  close(): void {
+    this.readyState = MockWebSocket.CLOSED;
+    this.dispatchEvent(new Event("close"));
+  }
+
+  open(): void {
+    this.readyState = MockWebSocket.OPEN;
+    this.dispatchEvent(new Event("open"));
+  }
+
+  receive(data: string): void {
+    this.dispatchEvent(new MessageEvent("message", { data }));
+  }
+}
+
+const sockets: MockWebSocket[] = [];
+
+describe("JsonRpcWebSocketTransport", () => {
+  beforeEach(() => {
+    sockets.length = 0;
+    vi.stubGlobal("WebSocket", MockWebSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects pending mutations on disconnect and does not replay them on reconnect", async () => {
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const mutation = transport.call("workflow.task.start", { task_id: "task-1" });
+    const firstSocket = sockets[0] ?? failTest("first socket missing");
+
+    firstSocket.open();
+    await waitForSent(firstSocket, 1);
+    ack(firstSocket, 0);
+    await waitForSent(firstSocket, 2);
+    expect(frame(firstSocket, 1)).toMatchObject({ method: "workflow.task.start" });
+
+    firstSocket.close();
+    await expect(mutation).rejects.toThrow("closed");
+    expect(firstSocket.sent).toHaveLength(2);
+
+    const retry = transport.call("workflow.task.start", { task_id: "task-1" });
+    const secondSocket = sockets[1] ?? failTest("second socket missing");
+    secondSocket.open();
+    await waitForSent(secondSocket, 1);
+    ack(secondSocket, 0);
+    await waitForSent(secondSocket, 2);
+    expect(secondSocket.sent).toHaveLength(2);
+    ack(secondSocket, 1);
+
+    await expect(retry).resolves.toEqual({});
+    expect(firstSocket.sent).toHaveLength(2);
+  });
+
+  it("installs subscription event listener before subscribe ack can race with first event", async () => {
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const events: string[] = [];
+
+    transport.subscribe("workflow.subscribeProject", { project_id: "project-1", after_sequence: 10 }, {
+      onEvent(method) {
+        events.push(method);
+      },
+      onComplete() {
+        return;
+      },
+      onError(error) {
+        throw error;
+      },
+    });
+
+    const socket = sockets[0] ?? failTest("subscription socket missing");
+    socket.open();
+    await waitForSent(socket, 1);
+    ack(socket, 0);
+    await waitForSent(socket, 2);
+    expect(frame(socket, 1)).toMatchObject({ method: "workflow.subscribeProject" });
+
+    ack(socket, 1);
+    socket.receive(JSON.stringify({ jsonrpc: "2.0", method: "workflow.project.event", params: { sequence: 11 } }));
+    await flushPromises();
+
+    expect(events).toEqual(["workflow.project.event"]);
+  });
+
+  it("reopens subscription socket after unexpected close", async () => {
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const errors: string[] = [];
+    const subscription = transport.subscribe("workflow.subscribeProject", { project_id: "project-1", after_sequence: 10 }, {
+      onEvent() {
+        return;
+      },
+      onComplete() {
+        return;
+      },
+      onError(error) {
+        errors.push(error.message);
+      },
+    });
+
+    const firstSocket = sockets[0] ?? failTest("subscription socket missing");
+    firstSocket.open();
+    await waitForSent(firstSocket, 1);
+    ack(firstSocket, 0);
+    await waitForSent(firstSocket, 2);
+    ack(firstSocket, 1);
+    await flushPromises();
+
+    firstSocket.close();
+    await vi.waitFor(() => {
+      expect(sockets.length).toBeGreaterThanOrEqual(2);
+    });
+    const secondSocket = sockets[1] ?? failTest("resubscription socket missing");
+    secondSocket.open();
+    await waitForSent(secondSocket, 1);
+    ack(secondSocket, 0);
+    await waitForSent(secondSocket, 2);
+
+    expect(frame(secondSocket, 1)).toMatchObject({ method: "workflow.subscribeProject" });
+    expect(errors).toEqual(["Subscription socket closed."]);
+    subscription.close();
+  });
+});
+
+function ack(socket: MockWebSocket, sentIndex: number): void {
+  const sent = frame(socket, sentIndex);
+  socket.receive(JSON.stringify({ jsonrpc: "2.0", id: sent.id, result: {} }));
+}
+
+function frame(socket: MockWebSocket, sentIndex: number): SentFrame {
+  const raw = socket.sent[sentIndex] ?? failTest(`sent frame ${sentIndex.toString()} missing`);
+  const parsed: unknown = JSON.parse(raw);
+  if (!isSentFrame(parsed)) {
+    throw new Error("Mock WebSocket frame missing id or method.");
+  }
+  return { id: parsed.id, method: parsed.method };
+}
+
+function isSentFrame(value: unknown): value is SentFrame {
+  return typeof value === "object"
+    && value !== null
+    && "id" in value
+    && "method" in value
+    && typeof value.id === "string"
+    && typeof value.method === "string";
+}
+
+async function flushPromises(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+async function waitForSent(socket: MockWebSocket, count: number): Promise<void> {
+  await vi.waitFor(() => {
+    expect(socket.sent.length).toBeGreaterThanOrEqual(count);
+  });
+}
+
+function failTest(message: string): never {
+  throw new Error(message);
+}

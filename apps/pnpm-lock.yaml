@@ -116,6 +116,10 @@ importers:
         version: 4.1.6(@types/node@25.8.0)(jsdom@29.1.1)(vite@8.0.13(@types/node@25.8.0))
 
   desktop/packages/native-bridge:
+    dependencies:
+      '@tauri-apps/api':
+        specifier: ^2.11.0
+        version: 2.11.0
     devDependencies:
       typescript:
         specifier: ^6.0.3

@@ -1,12 +1,13 @@
 import { render, screen } from "@testing-library/react";
 
 import { App } from "./App";
+import { createTestServices, startupRoutes } from "./testSupport/appServices";
 
 describe("App", () => {
-  it("renders the desktop foundation shell", () => {
-    render(<App />);
+  it("renders the startup-gated home shell", async () => {
+    render(<App services={createTestServices(startupRoutes)} />);
 
-    expect(screen.getByRole("heading", { name: "Builder Desktop" })).toBeInTheDocument();
-    expect(screen.getByText(/remote-control surface/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    expect(screen.getByText("Workflow remote control")).toBeInTheDocument();
   });
 });

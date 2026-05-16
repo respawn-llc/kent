@@ -1,0 +1,334 @@
+import { z } from "zod";
+
+import type {
+  AttentionItem,
+  BoardCard,
+  BoardColumn,
+  BoardGroup,
+  ProjectBinding,
+  TaskActions,
+  TaskComment,
+  TaskRun,
+  TaskStatus,
+  TaskTransition,
+  TransitionEdge,
+  WorkflowPickerItem,
+  WorkflowValidationError,
+  WorkspaceSummary,
+} from "../models";
+
+export const emptyString = z.string().optional().default("");
+export const numberValue = z.number().default(0);
+export const stringList = z.array(z.string()).optional().default([]);
+
+export const workspaceSummarySchema: z.ZodType<WorkspaceSummary> = z
+  .object({
+    workspace_id: z.string(),
+    display_name: z.string(),
+    root_path: z.string(),
+    availability: z.string(),
+    is_primary: z.boolean(),
+    updated_at_unix_ms: z.number(),
+  })
+  .transform((value) => ({
+    id: value.workspace_id,
+    name: value.display_name,
+    rootPath: value.root_path,
+    availability: value.availability,
+    isPrimary: value.is_primary,
+    updatedAt: value.updated_at_unix_ms,
+  }));
+
+export const projectBindingSchema: z.ZodType<ProjectBinding> = z
+  .object({
+    project_id: z.string(),
+    project_key: emptyString,
+    project_name: emptyString,
+    workspace_id: emptyString,
+    canonical_root: emptyString,
+    workspace_name: emptyString,
+    workspace_status: emptyString,
+  })
+  .transform((value) => ({
+    projectID: value.project_id,
+    projectKey: value.project_key,
+    projectName: value.project_name,
+    workspaceID: value.workspace_id,
+    canonicalRoot: value.canonical_root,
+    workspaceName: value.workspace_name,
+    workspaceStatus: value.workspace_status,
+  }));
+
+export const validationErrorSchema: z.ZodType<WorkflowValidationError> = z
+  .object({
+    code: z.string(),
+    message: z.string(),
+    node_id: emptyString,
+    edge_id: emptyString,
+    blocks_context: z.boolean().default(false),
+  })
+  .transform((value) => ({
+    code: value.code,
+    message: value.message,
+    nodeID: value.node_id,
+    edgeID: value.edge_id,
+    blocksContext: value.blocks_context,
+  }));
+
+export const workflowPickerItemSchema: z.ZodType<WorkflowPickerItem> = z
+  .object({
+    workflow_id: z.string(),
+    display_name: z.string(),
+    description: emptyString,
+    graph_revision: z.number(),
+    is_project_default: z.boolean(),
+    valid_for_task_creation: z.boolean(),
+    validation_errors: z.array(validationErrorSchema).optional().default([]),
+  })
+  .transform((value) => ({
+    id: value.workflow_id,
+    name: value.display_name,
+    description: value.description,
+    graphRevision: value.graph_revision,
+    isProjectDefault: value.is_project_default,
+    validForTaskCreation: value.valid_for_task_creation,
+    validationErrors: value.validation_errors,
+  }));
+
+export const taskStatusSchema: z.ZodType<TaskStatus> = z
+  .object({
+    kind: z.string(),
+    label: z.string(),
+    native_state: z.string(),
+    node_ids: stringList,
+    run_ids: stringList,
+    attention_types: stringList,
+  })
+  .transform((value) => ({
+    kind: value.kind,
+    label: value.label,
+    nativeState: value.native_state,
+    nodeIDs: value.node_ids,
+    runIDs: value.run_ids,
+    attentionTypes: value.attention_types,
+  }));
+
+export const taskActionsSchema: z.ZodType<TaskActions> = z
+  .object({
+    can_start: z.boolean(),
+    can_interrupt: z.boolean(),
+    interrupt_run_id: emptyString,
+    can_resume: z.boolean(),
+    resume_run_id: emptyString,
+    can_cancel: z.boolean(),
+    needs_detail_for_interrupt: z.boolean(),
+    needs_detail_for_resume: z.boolean(),
+  })
+  .transform((value) => ({
+    canStart: value.can_start,
+    canInterrupt: value.can_interrupt,
+    interruptRunID: value.interrupt_run_id,
+    canResume: value.can_resume,
+    resumeRunID: value.resume_run_id,
+    canCancel: value.can_cancel,
+    needsDetailForInterrupt: value.needs_detail_for_interrupt,
+    needsDetailForResume: value.needs_detail_for_resume,
+  }));
+
+export const boardColumnSchema: z.ZodType<BoardColumn> = z
+  .object({
+    node: z.object({
+      node_id: z.string(),
+      key: z.string(),
+      display_name: z.string(),
+    }),
+    group_id: emptyString,
+    sort_order: z.number(),
+    is_backlog: z.boolean(),
+    is_done: z.boolean(),
+    task_count: z.number(),
+  })
+  .transform((value) => ({
+    id: value.node.node_id,
+    key: value.node.key,
+    name: value.node.display_name,
+    groupID: value.group_id,
+    sortOrder: value.sort_order,
+    isBacklog: value.is_backlog,
+    isDone: value.is_done,
+    taskCount: value.task_count,
+  }));
+
+export const boardGroupSchema: z.ZodType<BoardGroup> = z
+  .object({
+    group_id: z.string(),
+    key: z.string(),
+    display_name: z.string(),
+    sort_order: z.number(),
+    node_ids: z.array(z.string()).optional().default([]),
+  })
+  .transform((value) => ({
+    id: value.group_id,
+    key: value.key,
+    name: value.display_name,
+    sortOrder: value.sort_order,
+    nodeIDs: value.node_ids,
+  }));
+
+export const boardCardSchema: z.ZodType<BoardCard> = z
+  .object({
+    task_id: z.string(),
+    short_id: z.string(),
+    title: z.string(),
+    body_preview: emptyString,
+    workflow_id: z.string(),
+    active_node_ids: stringList,
+    source_workspace: workspaceSummarySchema,
+    status: taskStatusSchema,
+    actions: taskActionsSchema,
+    updated_at_unix_ms: z.number(),
+  })
+  .transform((value) => ({
+    id: value.task_id,
+    shortID: value.short_id,
+    title: value.title,
+    bodyPreview: value.body_preview,
+    workflowID: value.workflow_id,
+    activeNodeIDs: value.active_node_ids,
+    sourceWorkspace: value.source_workspace,
+    status: value.status,
+    actions: value.actions,
+    updatedAt: value.updated_at_unix_ms,
+  }));
+
+export const attentionItemSchema: z.ZodType<AttentionItem> = z
+  .object({
+    id: z.string(),
+    kind: z.string(),
+    project_id: emptyString,
+    workflow_id: emptyString,
+    task_id: emptyString,
+    task_short_id: emptyString,
+    task_title: emptyString,
+    run_id: emptyString,
+    session_id: emptyString,
+    ask_id: emptyString,
+    task_transition_id: emptyString,
+    message: z.string(),
+    occurred_at_unix_ms: z.number(),
+    latest_event_sequence: numberValue,
+  })
+  .transform((value) => ({
+    id: value.id,
+    kind: value.kind,
+    projectID: value.project_id,
+    workflowID: value.workflow_id,
+    taskID: value.task_id,
+    taskShortID: value.task_short_id,
+    taskTitle: value.task_title,
+    runID: value.run_id,
+    sessionID: value.session_id,
+    askID: value.ask_id,
+    taskTransitionID: value.task_transition_id,
+    message: value.message,
+    occurredAt: value.occurred_at_unix_ms,
+    latestEventSequence: value.latest_event_sequence,
+  }));
+
+export const commentSchema: z.ZodType<TaskComment> = z
+  .object({
+    id: z.string(),
+    task_id: z.string(),
+    body: z.string(),
+    author: z.string(),
+    deleted_at_unix_ms: numberValue,
+    created_at_unix_ms: z.number(),
+    updated_at_unix_ms: z.number(),
+  })
+  .transform((value) => ({
+    id: value.id,
+    taskID: value.task_id,
+    body: value.body,
+    author: value.author,
+    deletedAt: value.deleted_at_unix_ms,
+    createdAt: value.created_at_unix_ms,
+    updatedAt: value.updated_at_unix_ms,
+  }));
+
+export const runSchema: z.ZodType<TaskRun> = z
+  .object({
+    id: z.string(),
+    task_id: z.string(),
+    placement_id: z.string(),
+    node_id: z.string(),
+    session_id: emptyString,
+    session_name: emptyString,
+    role: emptyString,
+    status: z.string(),
+    generation: z.number(),
+    waiting_ask_id: emptyString,
+    started_at_unix_ms: numberValue,
+    completed_at_unix_ms: numberValue,
+    interrupted_at_unix_ms: numberValue,
+  })
+  .transform((value) => ({
+    id: value.id,
+    taskID: value.task_id,
+    placementID: value.placement_id,
+    nodeID: value.node_id,
+    sessionID: value.session_id,
+    sessionName: value.session_name,
+    role: value.role,
+    status: value.status,
+    generation: value.generation,
+    waitingAskID: value.waiting_ask_id,
+    startedAt: value.started_at_unix_ms,
+    completedAt: value.completed_at_unix_ms,
+    interruptedAt: value.interrupted_at_unix_ms,
+  }));
+
+export const transitionEdgeSchema: z.ZodType<TransitionEdge> = z
+  .object({
+    id: z.string(),
+    edge_key: z.string(),
+    target_node_display_name: emptyString,
+    state: z.string(),
+    requires_approval: z.boolean(),
+    output_requirements: z.array(z.object({ field_name: z.string() })).optional().default([]),
+  })
+  .transform((value) => ({
+    id: value.id,
+    edgeKey: value.edge_key,
+    targetNodeName: value.target_node_display_name,
+    state: value.state,
+    requiresApproval: value.requires_approval,
+    outputRequirements: value.output_requirements.map((item) => item.field_name),
+  }));
+
+export const transitionSchema: z.ZodType<TaskTransition> = z
+  .object({
+    id: z.string(),
+    transition_id: z.string(),
+    transition_display_name: emptyString,
+    source_node_display_name: emptyString,
+    state: z.string(),
+    commentary: emptyString,
+    output_values: z.record(z.string(), z.string()).optional().default({}),
+    edges: z.array(transitionEdgeSchema).optional().default([]),
+    workflow_revision_seen: z.number().optional().default(0),
+    created_at_unix_ms: z.number(),
+    applied_at_unix_ms: numberValue,
+  })
+  .transform((value) => ({
+    id: value.id,
+    transitionID: value.transition_id,
+    transitionName: value.transition_display_name,
+    sourceNodeName: value.source_node_display_name,
+    state: value.state,
+    commentary: value.commentary,
+    outputValues: value.output_values,
+    edges: value.edges,
+    graphRevision: value.workflow_revision_seen,
+    createdAt: value.created_at_unix_ms,
+    appliedAt: value.applied_at_unix_ms,
+  }));
