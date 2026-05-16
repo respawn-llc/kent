@@ -955,23 +955,16 @@ func (r WorkflowTaskQuestionAnswerRequest) Validate() error {
 			return err
 		}
 	}
-	answerModes := 0
-	if strings.TrimSpace(r.Answer) != "" {
-		answerModes++
-	}
-	if strings.TrimSpace(r.FreeformAnswer) != "" {
-		answerModes++
-	}
-	if r.SelectedOptionNumber != 0 {
-		answerModes++
-	}
-	hasAnswer := answerModes > 0
+	hasTextAnswer := strings.TrimSpace(r.Answer) != ""
+	hasFreeform := strings.TrimSpace(r.FreeformAnswer) != ""
+	hasSelected := r.SelectedOptionNumber != 0
+	hasAnswer := hasTextAnswer || hasFreeform || hasSelected
 	hasError := strings.TrimSpace(r.ErrorMessage) != ""
 	if hasAnswer && hasError {
 		return WorkflowRequestValidationError{Code: WorkflowRequestErrorInvalidMode, Field: "error_message", Message: "error_message cannot be combined with answer fields"}
 	}
-	if answerModes > 1 {
-		return WorkflowRequestValidationError{Code: WorkflowRequestErrorInvalidMode, Field: "answer", Message: "exactly one answer mode is allowed"}
+	if hasTextAnswer && (hasFreeform || hasSelected) {
+		return WorkflowRequestValidationError{Code: WorkflowRequestErrorInvalidMode, Field: "answer", Message: "answer cannot be combined with selected_option_number or freeform_answer"}
 	}
 	if !hasAnswer && !hasError {
 		return WorkflowRequestValidationError{Code: WorkflowRequestErrorRequired, Field: "answer", Message: "answer is required"}

@@ -253,6 +253,53 @@ func TestBoardSelectsWorkflowAndReturnsPickerAndGroups(t *testing.T) {
 	}
 }
 
+func TestBoardPickerRetainsUnlinkedWorkflowState(t *testing.T) {
+	ctx := context.Background()
+	store, workflowStore, binding := newWorkflowViewTestStore(t)
+	view, err := New(store)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defaultWorkflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
+	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, defaultWorkflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow default: %v", err)
+	}
+	unlinkedWorkflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
+	unlinkedLink, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, unlinkedWorkflowID, false)
+	if err != nil {
+		t.Fatalf("LinkWorkflow unlinked: %v", err)
+	}
+	task, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, WorkflowID: unlinkedWorkflowID, Title: "Historical", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask historical: %v", err)
+	}
+	started, err := workflowStore.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask historical: %v", err)
+	}
+	if _, err := workflowStore.CompleteRun(ctx, workflowstore.CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}}); err != nil {
+		t.Fatalf("CompleteRun historical: %v", err)
+	}
+	if err := workflowStore.UnlinkProjectWorkflow(ctx, unlinkedLink.ID, ""); err != nil {
+		t.Fatalf("UnlinkProjectWorkflow: %v", err)
+	}
+
+	board, err := view.GetBoard(ctx, serverapi.WorkflowBoardRequest{ProjectID: binding.ProjectID}, workflow.StaticRoleResolver{"coder": true})
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	var unlinked serverapi.WorkflowPickerItem
+	for _, item := range board.WorkflowPicker {
+		if item.WorkflowID == string(unlinkedWorkflowID) {
+			unlinked = item
+			break
+		}
+	}
+	if unlinked.WorkflowID == "" || unlinked.UnlinkedAtUnixMs == 0 || unlinked.ValidForTaskCreation {
+		t.Fatalf("unlinked picker item = %+v", unlinked)
+	}
+}
+
 func TestTaskDetailProjectsCancellationAndInterruptedRun(t *testing.T) {
 	ctx := context.Background()
 	store, workflowStore, binding := newWorkflowViewTestStore(t)
