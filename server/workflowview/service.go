@@ -1525,13 +1525,14 @@ func taskStatusAndActions(task sqlitegen.Task, summary serverapi.WorkflowTaskSum
 		}
 	}
 	actions.CanStart = task.CanceledAtUnixMs == 0 && backlog && len(runs) == 0
-	actions.CanInterrupt = len(runningRunIDs) == 1
-	actions.NeedsDetailForInterrupt = len(runningRunIDs) > 1
+	taskActive := task.CanceledAtUnixMs == 0
+	actions.CanInterrupt = taskActive && len(runningRunIDs) == 1
+	actions.NeedsDetailForInterrupt = taskActive && len(runningRunIDs) > 1
 	if actions.CanInterrupt {
 		actions.InterruptRunID = runningRunIDs[0]
 	}
-	actions.CanResume = len(interruptedRunIDs) == 1
-	actions.NeedsDetailForResume = len(interruptedRunIDs) > 1
+	actions.CanResume = taskActive && len(interruptedRunIDs) == 1
+	actions.NeedsDetailForResume = taskActive && len(interruptedRunIDs) > 1
 	if actions.CanResume {
 		actions.ResumeRunID = interruptedRunIDs[0]
 	}

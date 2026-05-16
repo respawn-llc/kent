@@ -406,6 +406,9 @@ func TestTaskDetailProjectsCancellationAndInterruptedRun(t *testing.T) {
 	if len(detail.Runs) != 1 || detail.Runs[0].InterruptedAtUnixMs == 0 || detail.Runs[0].InterruptionReason != "task_canceled" {
 		t.Fatalf("runs do not project interruption: %+v", detail.Runs)
 	}
+	if detail.Actions.CanResume || detail.Actions.ResumeRunID != "" || detail.Actions.NeedsDetailForResume {
+		t.Fatalf("canceled task should not expose resume actions: %+v", detail.Actions)
+	}
 }
 
 func TestTaskDetailProjectsWaitingAskRun(t *testing.T) {
