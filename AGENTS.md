@@ -1,4 +1,4 @@
-This repository contains a terminal coding agent focused on output quality, built for professional engineers.
+This repository contains a coding agent focused on output quality, built for professional engineers.
 
 The product philosophy is:
 - minimal restrictions on model behavior: enabling the model to do its work unhindered.
@@ -8,8 +8,6 @@ The product philosophy is:
 The scope is intentionally narrow and quality-oriented.
 
 ## Repository Layout
-- `cli/builder/main.go`
-  - CLI entrypoint for launching the Bubble Tea app.
 - `VERSION`
   - Source of truth for release version/tag used by the release workflow and versioned builds.
 - `cli/app`
@@ -31,7 +29,7 @@ The scope is intentionally narrow and quality-oriented.
 - `server/runtimewire`
   - Server-owned runtime preparation, local tool registry construction, background-event routing, outside-workspace approvals, and runtime event bridging.
 - `server/session`
-  - Session persistence (`session.json`, `events.jsonl`) and resume/list primitives.
+  - Session persistence (`events.jsonl`) and resume/list primitives.
 - `server/tools`
   - Tool contracts and concrete tools (`shell`, `patch`, `ask_question`).
 - `server/llm`
@@ -48,23 +46,19 @@ The scope is intentionally narrow and quality-oriented.
   - Typed action registry scaffold for `ask_question` post-answer hooks.
 - `docs`
   - Public Astro/Starlight documentation site. Internal product/engineering docs stay under `docs/dev`, and scratch/internal working notes stay under `docs/tmp`. Keep docs up-to-date on your own and proactively.
-- `prompts`
-  - Embedded prompt source files.
+- `apps`
+  - GUI workspace for desktop/web client surfaces. `apps/desktop` contains the Tauri desktop app, `apps/desktop/packages/*` contains desktop-only shared packages, and `apps/shared/*` is reserved for packages shared by multiple GUI apps.
 - `server/tools/definitions.go`
   - Centralized compile-time tool interface declarations (name, descriptions, JSON schemas).
-- `~/.builder/config.toml`
-  - Home settings file (auto-created on first run) for model, thinking level, tool toggles, timeouts, and theme.
-- `scripts/update-brew-tap.sh`
-  - Updates the Homebrew tap formula after a tagged release.
+- `docs/dev/TERMINOLOGY.md` - DDD's ubiquitous language, must read during design phases to communicate with user.
 
 ## Engineering Principles
 - Keep the model unburdened.
   - Prefer runtime contracts and deterministic infrastructure over prompt complexity. Minimize extra tools.
 - Design for composability.
   - New tools and handlers should require minimal boilerplate and minimal cross-cutting edits.
-- Maximize API cache hits, avoid mutation of past conversation history.
-- Keep TUI fast, avoid flicker, stable scroll, adaptive layouts, avoid affecting scrollback buffer in ongoing mode or re-emitting full history.
-- When reviewer comments expose a repeatable bug family, stop hunk-by-hunk fixing. Audit the whole family, implement the family-wide fix, and add regression coverage for the family before returning to the review loop.
+- Maximize API cache hits, avoid mutation of past conversation history, including tool lists, system prompts.
+- Keep TUI fast, avoid flicker, stable scroll, build adaptive layouts, avoid affecting scrollback buffer in ongoing mode or re-emitting full history.
 - Never use regex-based matching, parsing, replace hacks. Never use substring-based lookup to determine information presence. Avoid brittle and fragile text/string-based logic, and develop type-safe data structures, store structured data or metadata that can reliably be extracted instead.
 -  Breaking changes are allowed, but the UX of migration should be straightforward, e.g. a migration note for config entries or a clear error message. Ask user what migration strat they want.
 
@@ -72,11 +66,12 @@ The scope is intentionally narrow and quality-oriented.
 - Prefer robust, forward-compatible, reusable, well-architected implementations over hacks, one-shot, temporary fixes or features bolted onto the existing arch.
 - Keep modules cohesive; each package should have one primary responsibility.
 - Introduce interfaces where they reduce coupling, not by default.
-- Make failure paths explicit, observable.
-- Handle and surface errors cleanly
+- Make failure paths explicit, observable. Handle and surface errors cleanly. Write easy to understand error messages for both the model and the operator.
 - Maintain good user experience when adding new features (e.g. display loading states, events or ongoing processes).
 - Validate invariants at boundaries (input, filesystem, process execution, API responses).
 - Keep behavior configurable only when it serves real operator value.
+- GUI clients are remote-control surfaces over Builder server APIs/read models. The server remains authoritative for runtime, worktrees, DB, orchestration, validation, approvals, asks, workflow state, scheduling, and persistence.
+- Tauri/native APIs must stay behind GUI-side bridge packages; do not import Tauri APIs directly from feature components.
 
 ## When designing model prompts:
 - Clearly explain **how** and **when** the model should use the tool in descriptions.
@@ -95,9 +90,8 @@ If user asks you to fix a github issue and you commit the fix, use 'closes #xx' 
 - All business logic covered by tests. Production code is written to be unit-testable.
 - Use red/green TDD when developing new features.
 - Before handing off to the user after code changes, rebuild via `./scripts/build.sh --output ./bin/builder`. Don't ask for confirmation to run/write tests and run checks.
-- Run Go tests via `./scripts/test.sh` passing normal go test arguments.
-- Do not run interactive/manual TUI QA unless the user explicitly asks for it. Prefer non-interactive tests, targeted automation, and build verification by default.
-- Releases are driven by `VERSION` and `.github/workflows/release.yml`; keep Homebrew release plumbing in sync with `scripts/update-brew-tap.sh` and the tap formula. Tap formula lives in a separate repo.
+- Run tests via `./scripts/test.sh` passing normal go test arguments. With no package args this also runs GUI frontend tests.
+- Releases are driven by `VERSION`; keep Homebrew release plumbing in sync with `scripts/update-brew-tap.sh` and the tap formula. Tap formula lives in a separate repo.
 - `docs/dev/decisions.md` is the source of truth for locked product and architecture decisions, keep it up to date if user makes a new decision.
 - Ongoing mode must not use `?1007`.
 - Ongoing normal-buffer transcript history is append-only after startup. Once a line is emitted into scrollback, it is immutable: never retroactively restyle it, rewrite it, clear-and-replay it, or re-emit the full buffer to reflect later tool state.
