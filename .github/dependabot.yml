@@ -7,6 +7,8 @@ updates:
       day: monday
       time: "08:00"
       timezone: "Etc/UTC"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
 
   - package-ecosystem: github-actions
@@ -16,6 +18,8 @@ updates:
       day: monday
       time: "08:00"
       timezone: "Etc/UTC"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps-actions)"
@@ -34,4 +38,28 @@ updates:
       day: monday
       time: "08:00"
       timezone: "Etc/UTC"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: "/apps"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: "Etc/UTC"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: cargo
+    directory: "/apps/desktop/src-tauri"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: "Etc/UTC"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5

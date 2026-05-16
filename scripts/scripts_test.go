@@ -255,6 +255,168 @@ func TestTestScriptCanDisableWallClockTimeout(t *testing.T) {
 	}
 }
 
+func TestTestScriptRunsFrontendForDefaultFullSuite(t *testing.T) {
+	root := repoRoot(t)
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	writeFakeCommand(t, binDir, "go", `#!/usr/bin/env bash
+printf 'go %s\n' "$*" >>"$SCRIPT_TEST_LOG"
+exit 0
+`)
+	writeFakeCommand(t, binDir, "pnpm", `#!/usr/bin/env bash
+printf 'pnpm %s\n' "$*" >>"$SCRIPT_TEST_LOG"
+exit 0
+`)
+
+	cmd := exec.Command(filepath.Join(root, "scripts", "test.sh"))
+	cmd.Dir = root
+	cmd.Env = append(
+		sanitizedScriptTestEnv(os.Environ()),
+		"SCRIPT_TEST_LOG="+logPath,
+		"BUILDER_TEST_FRONTEND=auto",
+		"PATH="+binDir+string(os.PathListSeparator)+mustLookupEnv(t, "PATH"),
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected test script to pass: %v (%s)", err, output)
+	}
+
+	logText := readTextFile(t, logPath)
+	for _, needle := range []string{
+		"go test ./...",
+		"pnpm --dir apps install --frozen-lockfile",
+		"pnpm --dir apps test",
+	} {
+		if !strings.Contains(logText, needle) {
+			t.Fatalf("expected %q in command log, got %q", needle, logText)
+		}
+	}
+}
+
+func TestTestScriptSkipsFrontendForTargetedGoArgs(t *testing.T) {
+	root := repoRoot(t)
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	writeFakeCommand(t, binDir, "go", `#!/usr/bin/env bash
+printf 'go %s\n' "$*" >>"$SCRIPT_TEST_LOG"
+exit 0
+`)
+	writeFakeCommand(t, binDir, "pnpm", `#!/usr/bin/env bash
+printf 'pnpm %s\n' "$*" >>"$SCRIPT_TEST_LOG"
+exit 0
+`)
+
+	cmd := exec.Command(filepath.Join(root, "scripts", "test.sh"), "./server/...", "-count=1")
+	cmd.Dir = root
+	cmd.Env = append(
+		sanitizedScriptTestEnv(os.Environ()),
+		"SCRIPT_TEST_LOG="+logPath,
+		"BUILDER_TEST_FRONTEND=auto",
+		"PATH="+binDir+string(os.PathListSeparator)+mustLookupEnv(t, "PATH"),
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected test script to pass: %v (%s)", err, output)
+	}
+
+	logText := readTextFile(t, logPath)
+	if !strings.Contains(logText, "go test ./server/... -count=1") {
+		t.Fatalf("expected targeted go test in command log, got %q", logText)
+	}
+	if strings.Contains(logText, "pnpm ") {
+		t.Fatalf("expected targeted go test to skip frontend, got %q", logText)
+	}
+}
+
+func TestTestScriptCanForceFrontendForTargetedGoArgs(t *testing.T) {
+	root := repoRoot(t)
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	writeFakeCommand(t, binDir, "go", `#!/usr/bin/env bash
+printf 'go %s\n' "$*" >>"$SCRIPT_TEST_LOG"
+exit 0
+`)
+	writeFakeCommand(t, binDir, "pnpm", `#!/usr/bin/env bash
+printf 'pnpm %s\n' "$*" >>"$SCRIPT_TEST_LOG"
+exit 0
+`)
+
+	cmd := exec.Command(filepath.Join(root, "scripts", "test.sh"), "./server/...", "-count=1")
+	cmd.Dir = root
+	cmd.Env = append(
+		sanitizedScriptTestEnv(os.Environ()),
+		"SCRIPT_TEST_LOG="+logPath,
+		"BUILDER_TEST_FRONTEND=1",
+		"PATH="+binDir+string(os.PathListSeparator)+mustLookupEnv(t, "PATH"),
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected test script to pass: %v (%s)", err, output)
+	}
+
+	logText := readTextFile(t, logPath)
+	for _, needle := range []string{
+		"go test ./server/... -count=1",
+		"pnpm --dir apps install --frozen-lockfile",
+		"pnpm --dir apps test",
+	} {
+		if !strings.Contains(logText, needle) {
+			t.Fatalf("expected %q in command log, got %q", needle, logText)
+		}
+	}
+}
+
+func TestBuildScriptSkipFrontendSuppressesFrontendBuild(t *testing.T) {
+	root := repoRoot(t)
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	outPath := filepath.Join(t.TempDir(), "builder")
+	writeFakeCommand(t, binDir, "go", `#!/usr/bin/env bash
+printf 'go %s\n' "$*" >>"$SCRIPT_TEST_LOG"
+output=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then
+    output="$2"
+    shift 2
+    continue
+  fi
+  shift
+done
+if [ -n "$output" ]; then
+  mkdir -p "$(dirname "$output")"
+  printf 'fake builder\n' >"$output"
+fi
+exit 0
+`)
+	writeFakeCommand(t, binDir, "pnpm", `#!/usr/bin/env bash
+printf 'pnpm %s\n' "$*" >>"$SCRIPT_TEST_LOG"
+exit 0
+`)
+
+	cmd := exec.Command(filepath.Join(root, "scripts", "build.sh"), "--output", outPath, "--skip-frontend")
+	cmd.Dir = root
+	cmd.Env = append(
+		sanitizedScriptTestEnv(os.Environ()),
+		"SCRIPT_TEST_LOG="+logPath,
+		"PATH="+binDir+string(os.PathListSeparator)+mustLookupEnv(t, "PATH"),
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected build script to pass: %v (%s)", err, output)
+	}
+
+	logText := readTextFile(t, logPath)
+	if !strings.Contains(logText, "go build ") {
+		t.Fatalf("expected go build in command log, got %q", logText)
+	}
+	if strings.Contains(logText, "pnpm ") {
+		t.Fatalf("expected --skip-frontend to skip frontend build, got %q", logText)
+	}
+	if _, err := os.Stat(outPath); err != nil {
+		t.Fatalf("expected fake output binary: %v", err)
+	}
+}
+
 func newSlowTestPackage(t *testing.T, root string, sleepDuration string) string {
 	t.Helper()
 	tempPkg, err := os.MkdirTemp(root, "_script-timeout-test-*")
@@ -282,6 +444,23 @@ func TestSlow(t *testing.T) {
 		t.Fatalf("relative temp package: %v", err)
 	}
 	return "./" + filepath.ToSlash(relPkg)
+}
+
+func writeFakeCommand(t *testing.T, dir string, name string, content string) {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake command %s: %v", name, err)
+	}
+}
+
+func readTextFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(data)
 }
 
 func gitHookEnv(t *testing.T, root string) []string {

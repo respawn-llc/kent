@@ -73,7 +73,8 @@ build_archives() {
 	local staging_dir
 	staging_dir="$(mktemp -d)"
 
-	local build_os build_arch ext archive_ext out
+	local build_os build_arch ext archive_ext out frontend_build_done
+	frontend_build_done=0
 	while read -r build_os build_arch; do
 		if [ "$build_os" = "windows" ]; then
 			ext=".exe"
@@ -84,8 +85,14 @@ build_archives() {
 		fi
 
 		out="builder_${version}_${build_os}_${build_arch}"
-		env GOOS="$build_os" GOARCH="$build_arch" BUILDER_VERSION="$version" \
-			bash scripts/build.sh --output "$staging_dir/${out}${ext}"
+		if [ "$frontend_build_done" -eq 0 ]; then
+			env GOOS="$build_os" GOARCH="$build_arch" BUILDER_VERSION="$version" \
+				bash scripts/build.sh --output "$staging_dir/${out}${ext}"
+			frontend_build_done=1
+		else
+			env GOOS="$build_os" GOARCH="$build_arch" BUILDER_VERSION="$version" BUILDER_SKIP_FRONTEND=1 \
+				bash scripts/build.sh --output "$staging_dir/${out}${ext}"
+		fi
 
 		if [ "$archive_ext" = "zip" ]; then
 			(

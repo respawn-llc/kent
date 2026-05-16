@@ -1,6 +1,6 @@
 # Terminology
 
-This document defines Builder product and domain language. Use these terms consistently in specs, code names, CLI/API contracts, and implementation plans.
+This document defines Builder's DDD ubiquitous language. Use these terms consistently in specs, code names, CLI/API contracts, and implementation plans.
 
 ## Workflow Orchestration
 

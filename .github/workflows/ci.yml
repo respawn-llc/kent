@@ -42,6 +42,18 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.0.3
+        with:
+          version: 10.33.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/pnpm-lock.yaml
+
       - name: Build
         run: ./scripts/ci-check.sh build
 
@@ -57,6 +69,18 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.0.3
+        with:
+          version: 10.33.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/pnpm-lock.yaml
 
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
@@ -80,6 +104,18 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.0.3
+        with:
+          version: 10.33.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/pnpm-lock.yaml
 
       - name: Build mocked Windows release asset
         env:
@@ -176,3 +212,63 @@ jobs:
 
       - name: Build docs
         run: pnpm build
+
+  gui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.0.3
+        with:
+          version: 10.33.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/pnpm-lock.yaml
+
+      - name: Check GUI dependency policy
+        working-directory: apps
+        run: node scripts/check-dependency-policy.mjs
+
+      - name: Install GUI dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint GUI
+        run: pnpm lint
+
+      - name: Typecheck GUI
+        run: pnpm typecheck
+
+      - name: Test GUI
+        run: pnpm test
+
+      - name: Build GUI web assets
+        run: pnpm build
+
+  gui-native:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/desktop/src-tauri
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@1.95.0
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Check Tauri native shell
+        run: cargo check --locked

@@ -14,6 +14,40 @@
 - If `~/.builder/recovered` is non-empty, every new session gets a user-facing, non-model-visible warning asking the user to clean recovered files and not edit `~/.builder/.generated`; existing sessions are not warned every turn.
 - Generated skills are always seeded regardless of config. Existing `[skills]` toggles only disable injection by normalized skill name.
 - Generated skills are shadowed by any user skill with the same normalized name from workspace/global roots. Do not redesign existing non-generated duplicate behavior as part of generated skills.
+- GUI MVP visible app chrome uses `Kent` while the rebrand is underway. Final signed-release naming and app identity remain release decisions.
+- GUI MVP TypeScript API client starts as a hand-written typed JSON-RPC/WebSocket client plus GUI-side DTO adapters and contract tests against Go DTO/schema fixtures. Generated clients are deferred until contracts stabilize enough to justify generation.
+- GUI MVP does not use tRPC for protocol typing. Builder's Go server and JSON-RPC contracts should stay behind typed adapters, Zod boundary validation, and contract tests.
+- GUI MVP frontend state uses `@tanstack/react-query` for server read models/cache/mutations and React local state for local UI state. Zustand, Redux Toolkit, and RTK Query are deferred from MVP.
+- GUI MVP routing uses `@tanstack/react-router`, boxed behind Builder destination helpers. Route/search params are validated with Zod at the boundary.
+- GUI MVP forms use React Hook Form, `@hookform/resolvers`, and Zod. TanStack Form is deferred until workflow editor forms become genuinely complex.
+- GUI MVP WebSocket client uses native browser `WebSocket` plus an in-repo JSON-RPC transport/reconnect layer. Third-party reconnect/RPC WebSocket wrappers are deferred.
+- GUI MVP never replays mutations after reconnect; it refetches, resubscribes, and lets the user issue a new command.
+- GUI MVP desktop server endpoint selection uses Builder config/default host and port only. If unreachable, the app shows startup error and `builder service install` instructions; endpoint editing is deferred.
+- GUI MVP Markdown rendering uses shared `MarkdownText` built on `react-markdown`, `remark-gfm`, and `rehype-sanitize`; feature components do not import `react-markdown` directly.
+- GUI MVP Markdown does not render raw HTML, does not use `rehype-raw`, and still sanitizes output. Markdown links use safe-protocol allowlisting and native bridge external-link opening.
+- GUI MVP date/time formatting uses native `Intl`, not Temporal.
+- GUI MVP command palette is deferred. When product-relevant, use `cmdk`.
+- GUI shortcut map is deferred. GUI keyboard conventions use platform-native modifiers, do not capture global shortcuts while typing, expose shortcuts through visible menu/tooltip discovery, and avoid keyboard-only hidden paths.
+- GUI uses TanStack Virtual later for long lists/chats when a single visible surface regularly renders more than roughly 300 mixed-height rows or profiling shows list render/scroll jank; until then, paginate.
+- GUI web UI hosting is deferred from workflow MVP. Future direction is Go server serving built SPA assets under an explicit route prefix without taking over server root or conflicting with `/rpc`, `/healthz`, and `/readyz`.
+- GUI exact web UI route prefix, cache policy, and SPA fallback behavior are deferred until web UI implementation.
+- GUI CI runs checks/tests/lint/typecheck/web build/native check in regular CI, while full release bundles ship through `release.yml`.
+- GUI CI PR/native-check artifacts use short/default retention; release artifacts are kept by GitHub Releases.
+- GUI first MVP release bundle uses manual QA only for packaged-app smoke. CI still runs build/checks, but automated packaged-app smoke is not required for the first MVP release.
+- GUI toolchain should not downgrade to Node 22 just because it is an LTS floor; use the current Node 25+ line where available unless a concrete toolchain issue appears. Keep pnpm pinned through package manager/Corepack policy.
+- Root `VERSION` remains source of truth for desktop app version; release/build scripts sync Tauri and package metadata from it.
+- GUI MVP has no external crash reporting or telemetry. Use local logs/errors only, including a local GUI log file for startup, connection, API, and native bridge failures.
+- GUI MVP local GUI log lives under the Builder persistence root, is bounded to 10 MB, and redacts auth headers, tokens, env values, and request bodies by default.
+- GUI MVP startup failure UI is summary-first: show human-readable failure text and next action; write deeper diagnostics to the local GUI log file.
+- GUI MVP auth missing, auth expired, and auth not ready use the same generic startup failure path as other readiness failures rather than a dedicated auth UX.
+- GUI browser/native bridge fallback uses capability registry gates. Browser implementations use real browser APIs when available, no-op only cosmetic shell features, and disable terminal teleport, updater, and window controls with explicit explanations.
+- GUI desktop app never bundles the Builder server binary as a Tauri sidecar.
+- GUI desktop release platform is macOS first. Windows/Linux are later after MVP QA, with no broader v1 matrix locked now.
+- GUI desktop signing/notarization and update-channel strategy are deferred until after MVP and release scope start.
+- GUI desktop app identifier `sh.kent` is final now.
+- GUI web UI command naming is deferred until web UI implementation after inspecting `server/serve` and the CLI command shape.
+- GUI feature code stays in `apps/desktop/src` for MVP. Split feature packages only when there is a second real consumer, a stable independent boundary, or a module becomes too large and cohesive enough to test independently.
+- GUI accessibility stays best-effort until after v1; no stronger post-MVP release bar is locked now.
 - Initial preinstalled skill framework ships `skill-creator`, but `prompts/skills/skill-creator/SKILL.md` must be valid before commit: non-empty file, valid frontmatter with non-empty `name` and `description`, non-empty body. Generated skill validation must also reject duplicate generated skill names and symlinks/non-regular entries.
 - Full-access execution in v1 (no sandbox).
 - Architecture must remain pluggable/composable with low-friction extension points.
@@ -28,6 +62,38 @@
 - Nikita-led manual QA for async workflows should wait until a usable GUI/POC exists on top of workflow APIs.
 - Workflow API/read-model shapes do not need public compatibility stability before Builder 2.0 and may change while the workflow implementation evolves.
 - A parallel POC GUI should consume workflow APIs through a thin adapter layer so pre-2.0 backend DTO/read-model churn does not spread through UI code.
+- GUI MVP workflow board scope is selected project plus selected workflow. It shows tasks from all project workspaces; workspace is card/context metadata rather than primary board scope.
+- GUI MVP task creation defaults to the current/opened workspace context when available, otherwise the project default/main workspace. Additional workspaces are complementary/optional context by default.
+- GUI MVP New Task action is only available inside a workflow/Kanban view and uses the currently selected board workflow. Project default workflow chooses the initial workflow/Kanban view when opening a project.
+- GUI MVP grouped workflows must render through group-aware board UI; grouped workflows are not flattened, blocked, or ignored. The first group-board UX pass is implementation-led, with group islands wrapping related columns as the preferred starting point unless implementation evidence shows a better approach.
+- GUI MVP Home attention inbox sorts newest activity first across all attention items.
+- GUI MVP Home attention inbox rows show task short ID, task title, project key/name, workflow, attention type, latest activity time, and small status/action hint.
+- GUI MVP Home project list sorts by latest activity descending and shows project key/name, primary workspace path/status, updated time, and attention/task count chips when backend provides them.
+- GUI MVP clicking a Home project row opens that project's default workflow board.
+- GUI MVP clicking a Home attention inbox row opens standalone task detail route over Home without loading the board.
+- GUI MVP task detail activity feed sorts newest-to-oldest with pagination for older entries.
+- GUI MVP task detail comment composer sits under fixed task identity/header and above the newest-first activity feed.
+- GUI MVP standalone task detail opened from Home attention stays open after attention resolution; feed/status update and Home inbox row is removed or resorted in background.
+- GUI MVP delivery order is backend-first vertical slices: connectivity/capabilities plus Home/project admin/key/workspaces; workflow picker plus project-wide board/groups/live updates; task create/backlog/workspace default; drag-to-start/interrupt/cancel/resume/inbox; detail feed/comments/teleport.
+- GUI MVP task bodies and comments use plain multiline text input with shared Markdown rendering. No WYSIWYG editor is part of MVP.
+- GUI MVP drag-to-start starts automation immediately when a backlog task is dropped onto the first active workflow node; no default confirmation is shown.
+- GUI MVP task cancellation uses confirmation only and does not ask for a cancellation reason.
+- GUI MVP shows Interrupt where Resume would appear when a task session is active/running. Resume appears only when the task is paused/resumable.
+- GUI MVP Interrupt acts immediately with no confirmation. On success, it follows TUI semantics: task becomes interrupted/resumable and activity feed records `Interrupted by user`.
+- GUI MVP board/card Interrupt is available only when exactly one active run is interruptible. Tasks with multiple active runs open task detail for per-run inline Interrupt controls.
+- GUI MVP approval resume flow exposes Approve only. Reject is not shown until negative semantics are product-defined; use Interrupt or Cancel for negative paths.
+- GUI MVP approval UI shows the stored approval snapshot: source node, transition label/id, target node(s), required output fields/values, commentary, graph revision, and stale warning if relevant.
+- GUI MVP question answer UI preserves ask functionality but uses normal controls: options plus blank commentary/freeform field, click or arrows plus Enter, standard Tab focus, recommended marker when present, and no source-origin label.
+- GUI MVP shows all unresolved task attention feed items with inline action controls; the top detail action opens the next/highest-priority unresolved item.
+- GUI MVP project creation does not expose every DB field by default. Additional project/config fields are per-field product decisions based on operator value and backend safety.
+- GUI MVP projects with no valid linked/default workflow show a board blocker/empty state, disable New Task, and point to CLI/agent/API workflow setup.
+- GUI MVP workflow picker orders project default workflow first, then most-recently-used workflows, then display name.
+- GUI MVP preserves active form/comment drafts during disconnect, disables submit while disconnected, refreshes on reconnect, and lets the preserved user draft overwrite remote state on save regardless of remote freshness.
+- GUI MVP reusable component library starts app-local in `apps/desktop/src/ui`, with clean imports and extraction path when a second GUI app exists.
+- GUI MVP styling uses CSS custom properties for semantic design tokens plus CSS Modules/plain CSS in components. Tailwind and vanilla-extract are not part of MVP.
+- GUI MVP feature code cannot import Tauri APIs, `react-markdown`, raw transport, or raw server DTOs directly. Use native bridge packages, shared `MarkdownText`, API adapters, and app-local UI kit exports.
+- GUI MVP task form shows a compact disabled workspace selector/chip when a project has exactly one workspace.
+- GUI MVP disables or reduces blur/glass and motion in tests/snapshots so visual checks remain deterministic.
 - Workflow implementation uses split Go packages to preserve a pure domain/validation boundary; persistence, scheduler, and runtime adapters must not force DB/runtime imports into the pure domain package.
 - Workflow package boundaries are locked for implementation: `server/workflow` is pure domain types, validation, and state-machine logic; `server/workflowstore` adapts metadata persistence; `server/workflowsvc` owns use-case/service orchestration; `server/workflowscheduler` owns runnable derivation and workers; `server/workflowruntime` owns workflow completion/runtime contracts used by `server/runtime`; `server/workflowrunner` adapts sessions/runtime/headless infrastructure to workflow scheduling without creating an import cycle; `server/workflowview` owns read models.
 - First implementation milestone is workflow domain validation, metadata persistence, API/read models, and minimal CLI through internal no-LLM coding-agent smoke checks. Real runtime/LLM orchestration follows after that foundation.
@@ -50,7 +116,7 @@
 - SQLite workflow schema should derive the start node from `workflow_nodes.kind = 'start'` and enforce one start node with a partial unique index rather than storing `workflows.start_node_id`. This one-start rule is a hard storage invariant even for drafts. `workflow_edges.source_node_id` should not duplicate the transition group's source node unless profiling later proves denormalization necessary.
 - Project workflow unlink is blocked while non-terminal tasks reference the link. If only terminal tasks reference it, unlink may soft-disable the link while preserving the row/history needed by task read models.
 - Project keys are uppercase, globally unique within a persistence root, 2-8 characters, and match `^[A-Z][A-Z0-9]{1,7}$`. Project keys are immutable after the project has tasks. Existing task short IDs keep their historical key forever.
-- The first workflow API surface does not expose project-key create/update endpoints. Project keys are still stored and validated in metadata, but external workflow/task APIs use the existing project identity and default project-key allocation path until project administration APIs are designed.
+- The initial workflow/task API surface does not own project-key create/update endpoints. GUI MVP project administration APIs must expose project-key create/edit during project creation, validate collisions, and preserve existing project-key immutability once tasks exist.
 - Workflow model-facing keys (`node_key`, `transition_id`, `edge_key`, output field names, and binding names) match `^[a-z][a-z0-9_]{0,63}$`. Workflow display names are labels, not references, and are trimmed non-empty strings capped at 120 chars.
 - Ask rehydration must be proven before scheduler recovery depends on it. The scheduler boundary should include an ask rehydration check such as `PendingAskResolver.CanRehydrate(sessionID, runID, askID)`; if ask cannot rehydrate, the workflow run becomes interrupted with an actionable resume path. Do not add a shadow task-question table.
 - Direct `continue_session` may continue only when the target node uses the same subagent role name as the source session. Same-role config drift does not block continuation: the immutable persisted session setup remains authoritative for snapshotted model/provider/tool/system-prompt fields, while non-snapshotted workflow inputs use current graph/config. `new_session` and `compact_and_continue_session` use current role config at their fresh context boundary.

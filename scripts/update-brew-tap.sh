@@ -180,6 +180,8 @@ class ${formula_class} < Formula
   end
 
   depends_on "go" => :build
+  depends_on "node" => :build
+  depends_on "pnpm" => :build
   depends_on "git"
   depends_on "ripgrep"
 

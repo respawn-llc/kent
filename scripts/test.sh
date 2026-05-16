@@ -9,7 +9,7 @@ cd "$repo_root"
 if [ "${BUILDER_TEST_INHERIT_ENV:-}" != "1" ]; then
     while IFS= read -r name; do
         case "$name" in
-            BUILDER_TEST_DISABLE_WALL_CLOCK_CAP|BUILDER_TEST_INHERIT_ENV|BUILDER_TEST_TIMEOUT_SECONDS)
+            BUILDER_SKIP_FRONTEND|BUILDER_TEST_DISABLE_WALL_CLOCK_CAP|BUILDER_TEST_FRONTEND|BUILDER_TEST_INHERIT_ENV|BUILDER_TEST_TIMEOUT_SECONDS)
                 ;;
             BUILDER_*)
                 unset "$name"
@@ -18,10 +18,11 @@ if [ "${BUILDER_TEST_INHERIT_ENV:-}" != "1" ]; then
     done < <(compgen -e BUILDER_ || true)
 fi
 
-log_file="$(mktemp -t builder-go-test.XXXXXX.log)"
+go_log_file="$(mktemp -t builder-go-test.XXXXXX.log)"
+frontend_log_file="$(mktemp -t builder-frontend-test.XXXXXX.log)"
 test_pid=""
 cleanup() {
-    rm -f "$log_file"
+    rm -f "$go_log_file" "$frontend_log_file"
 }
 trap cleanup EXIT
 
@@ -71,19 +72,48 @@ if [ "$disable_wall_clock_cap" != "1" ]; then
     fi
 fi
 args=("$@")
+run_frontend="${BUILDER_TEST_FRONTEND:-auto}"
 if [ ${#args[@]} -eq 0 ]; then
     args=(./...)
+    if [ "$run_frontend" = "auto" ]; then
+        run_frontend=1
+    fi
+elif [ "$run_frontend" = "auto" ]; then
+    run_frontend=0
 fi
+
+run_frontend_tests() {
+    if [ "${BUILDER_SKIP_FRONTEND:-0}" = "1" ]; then
+        return
+    fi
+    if [ "$run_frontend" != "1" ]; then
+        return
+    fi
+    if [ ! -f apps/package.json ]; then
+        return
+    fi
+    if ! command -v pnpm >/dev/null 2>&1; then
+        printf 'pnpm is required to run frontend tests. Install pnpm or set BUILDER_SKIP_FRONTEND=1.\n' >&2
+        exit 2
+    fi
+    if pnpm --dir apps install --frozen-lockfile >"$frontend_log_file" 2>&1 &&
+        pnpm --dir apps test >>"$frontend_log_file" 2>&1; then
+        return
+    fi
+    cat "$frontend_log_file"
+    exit 1
+}
 
 if [ "$disable_wall_clock_cap" = "1" ]; then
     set +e
-    go test "${args[@]}" >"$log_file" 2>&1
+    go test "${args[@]}" >"$go_log_file" 2>&1
     status=$?
     set -e
     if [ "$status" -eq 0 ]; then
+        run_frontend_tests
         exit 0
     fi
-    cat "$log_file"
+    cat "$go_log_file"
     exit "$status"
 fi
 
@@ -92,7 +122,7 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 2
 fi
 
-python3 - "$log_file" "${args[@]}" <<'PY' &
+python3 - "$go_log_file" "${args[@]}" <<'PY' &
 import os
 import sys
 
@@ -125,6 +155,7 @@ wait "$test_pid"
 status=$?
 set -e
 if [ "$status" -eq 0 ]; then
+    run_frontend_tests
     exit 0
 fi
 
@@ -133,5 +164,5 @@ if [ "$timed_out" -eq 1 ]; then
 elif [ "$status" -eq 143 ] || [ "$status" -eq 137 ]; then
     printf 'test process was terminated by a signal (exit status %d)\n' "$status"
 fi
-cat "$log_file"
+cat "$go_log_file"
 exit 1

@@ -26,6 +26,15 @@ $RECYCLE.BIN/
 # Logs
 *.log
 
+# JavaScript/TypeScript
+node_modules/
+**/node_modules/
+**/.pnpm-store/
+**/.turbo/
+**/.vite/
+**/dist/
+*.tsbuildinfo
+
 # Go build/test artifacts
 bin/
 dist/
@@ -39,6 +48,10 @@ cover.out
 
 # Go workspace/module local files
 go.work.sum
+
+# Rust/Tauri build artifacts
+target/
+**/target/
 
 # Vendored dependencies (enable if vendoring is used)
 # vendor/

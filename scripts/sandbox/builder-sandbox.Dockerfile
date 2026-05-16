@@ -7,7 +7,7 @@ WORKDIR /src
 
 COPY . /src
 
-RUN /src/scripts/build.sh --output /out/builder
+RUN BUILDER_SKIP_FRONTEND=1 /src/scripts/build.sh --output /out/builder
 
 FROM debian:bookworm-slim
 

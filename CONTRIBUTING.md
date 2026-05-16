@@ -34,6 +34,7 @@ Current prerequisites:
 
 - Go `1.25`
 - Node `22` and `pnpm` `10` for docs work in `docs/`
+- Rust toolchain for Tauri native builds in `apps/desktop`
 
 If you want the repository pre-push hook locally, enable it with:
 
@@ -48,6 +49,10 @@ For code changes, run:
 ```bash
 ./scripts/ci-check.sh all
 ```
+
+`scripts/build.sh --output <path>` treats `--output` as the Go binary path and builds GUI frontend assets as a preflight when `apps/` exists. Use `--skip-frontend` or `BUILDER_SKIP_FRONTEND=1` only for infrastructure contexts that intentionally do not need frontend validation.
+
+`scripts/test.sh` with no package args runs Go tests and GUI frontend tests. Targeted Go test runs such as `./scripts/test.sh ./server/...` do not run GUI tests unless `BUILDER_TEST_FRONTEND=1` is set.
 
 For manual Go test runs outside the full check, use:
 
@@ -73,6 +78,19 @@ pnpm install --frozen-lockfile
 pnpm test
 pnpm build
 ```
+
+If you changed GUI code under `apps/`, also run frontend-specific checks:
+
+```bash
+cd apps
+pnpm install --frozen-lockfile
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+Native Tauri builds additionally require the Rust toolchain and platform-specific WebView/build prerequisites.
 
 ## Pull Request Expectations
 

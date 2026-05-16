@@ -1,0 +1,52 @@
+{
+  "$schema": "./dependency-policy.schema.json",
+  "minimumReleaseAgeMinutes": 10080,
+  "minimumReleaseAgeExclude": ["@types/node", "vite", "@rolldown/*"],
+  "directDependencyAllowlist": {
+    "@builder/apps": {
+      "devDependencies": ["prettier"]
+    },
+    "@builder/desktop": {
+      "dependencies": [
+        "@builder/desktop-native-bridge",
+        "@hookform/resolvers",
+        "@tanstack/react-query",
+        "@tanstack/react-router",
+        "@tauri-apps/api",
+        "i18next",
+        "react",
+        "react-dom",
+        "react-hook-form",
+        "react-i18next",
+        "react-markdown",
+        "rehype-sanitize",
+        "remark-gfm",
+        "zod"
+      ],
+      "devDependencies": [
+        "@eslint/js",
+        "@tauri-apps/cli",
+        "@testing-library/jest-dom",
+        "@testing-library/react",
+        "@types/node",
+        "@types/react",
+        "@types/react-dom",
+        "@vitejs/plugin-react",
+        "eslint",
+        "eslint-config-prettier",
+        "eslint-plugin-jsx-a11y",
+        "eslint-plugin-react-hooks",
+        "eslint-plugin-react-refresh",
+        "eslint-plugin-testing-library",
+        "jsdom",
+        "typescript",
+        "typescript-eslint",
+        "vite",
+        "vitest"
+      ]
+    },
+    "@builder/desktop-native-bridge": {
+      "devDependencies": ["typescript", "vitest"]
+    }
+  }
+}
