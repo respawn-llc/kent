@@ -633,6 +633,10 @@ New server API:
     - `items []WorkflowTaskActivityItem`
     - `next_page_token string`
     - `generated_at_unix_ms int64`
+  - Paging:
+    - Sort is newest-to-oldest by `occurred_at_unix_ms`, then `activity_id`.
+    - `next_page_token` is an opaque cursor over the last returned `(occurred_at_unix_ms, activity_id)` position.
+    - Clients must pass tokens back unchanged and must not parse, synthesize, or persist assumptions about token structure.
 
 - `workflow.task.teleportTarget.get`
   - Request: `WorkflowTaskTeleportTargetRequest`
@@ -704,7 +708,7 @@ Comment DTO changes:
 
 Rules:
 
-- Activity feed sorts newest-to-oldest and paginates older entries.
+- Activity feed sorts newest-to-oldest and paginates older entries with opaque cursor tokens.
 - Feed is backed by existing `task_comments`, `task_transitions`, task cancellation metadata, and `task_runs`; do not add a separate event table solely for GUI.
 - Comments remain full CRUD in MVP.
 - Teleport endpoint returns identifiers only. GUI/native bridge owns opening terminal and exact local CLI command once CLI attach surface is final.
