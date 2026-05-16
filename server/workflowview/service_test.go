@@ -411,6 +411,60 @@ func TestTaskDetailProjectsCancellationAndInterruptedRun(t *testing.T) {
 	}
 }
 
+func TestInterruptedTaskStatusUsesAttentionKind(t *testing.T) {
+	ctx := context.Background()
+	store, workflowStore, binding := newWorkflowViewTestStore(t)
+	view, err := New(store)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
+	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := workflowStore.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	claimed, err := workflowStore.ClaimRun(ctx, started.RunID, 0)
+	if err != nil {
+		t.Fatalf("ClaimRun: %v", err)
+	}
+	if err := workflowStore.InterruptRunGeneration(ctx, started.RunID, claimed.Generation, "manual", "{}"); err != nil {
+		t.Fatalf("InterruptRunGeneration: %v", err)
+	}
+
+	board, err := view.GetBoard(ctx, serverapi.WorkflowBoardRequest{ProjectID: binding.ProjectID}, workflow.StaticRoleResolver{"coder": true})
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	var card serverapi.WorkflowBoardTaskCard
+	for _, candidate := range board.Cards {
+		if candidate.TaskID == string(task.ID) {
+			card = candidate
+			break
+		}
+	}
+	if card.TaskID == "" || card.Status.Kind != "interrupted" || len(card.Status.AttentionTypes) != 1 || card.Status.AttentionTypes[0] != attentionKindInterruptedRun {
+		t.Fatalf("board status = %+v", card.Status)
+	}
+
+	detail, err := view.GetTask(ctx, string(task.ID))
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if detail.Status.Kind != "interrupted" || len(detail.Status.AttentionTypes) != 1 || detail.Status.AttentionTypes[0] != attentionKindInterruptedRun {
+		t.Fatalf("detail status = %+v", detail.Status)
+	}
+	if len(detail.Attention) != 1 || detail.Attention[0].Kind != attentionKindInterruptedRun || detail.Attention[0].RunID != string(started.RunID) {
+		t.Fatalf("detail attention = %+v", detail.Attention)
+	}
+}
+
 func TestTaskDetailProjectsWaitingAskRun(t *testing.T) {
 	ctx := context.Background()
 	store, workflowStore, binding := newWorkflowViewTestStore(t)

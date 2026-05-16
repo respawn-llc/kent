@@ -23,6 +23,8 @@ type Service struct {
 	queries  *sqlitegen.Queries
 }
 
+const attentionKindInterruptedRun = "interrupted_run"
+
 func New(metadataStore *metadata.Store) (*Service, error) {
 	if metadataStore == nil || metadataStore.Queries() == nil {
 		return nil, errors.New("metadata store is required")
@@ -777,7 +779,7 @@ func (s *Service) activityItemsFromRows(task sqlitegen.Task, rows []taskActivity
 				item.Summary = "Run completed"
 			case "run_interrupted":
 				item.Summary = "Run interrupted"
-				attention := serverapi.WorkflowAttentionItem{ID: "interrupted_run:" + run.ID, Kind: "interrupted_run", ProjectID: task.ProjectID, WorkflowID: task.WorkflowID, TaskID: task.ID, TaskShortID: task.ShortID, TaskTitle: task.Title, RunID: run.ID, SessionID: run.SessionID.String, Message: "Run interrupted", OccurredAtUnixMs: run.InterruptedAtUnixMs}
+				attention := serverapi.WorkflowAttentionItem{ID: attentionKindInterruptedRun + ":" + run.ID, Kind: attentionKindInterruptedRun, ProjectID: task.ProjectID, WorkflowID: task.WorkflowID, TaskID: task.ID, TaskShortID: task.ShortID, TaskTitle: task.Title, RunID: run.ID, SessionID: run.SessionID.String, Message: "Run interrupted", OccurredAtUnixMs: run.InterruptedAtUnixMs}
 				item.Attention = &attention
 			}
 		case "task_canceled":
@@ -1293,7 +1295,7 @@ ORDER BY r.interrupted_at_unix_ms DESC, r.rowid DESC`, strings.TrimSpace(project
 		if strings.TrimSpace(reason) != "" {
 			message = "Run interrupted: " + strings.TrimSpace(reason)
 		}
-		items = append(items, serverapi.WorkflowAttentionItem{ID: "interrupted_run:" + runID, Kind: "interrupted_run", ProjectID: rowProjectID, WorkflowID: workflowID, TaskID: rowTaskID, TaskShortID: shortID, TaskTitle: title, RunID: runID, SessionID: sessionID, Message: message, OccurredAtUnixMs: occurred})
+		items = append(items, serverapi.WorkflowAttentionItem{ID: attentionKindInterruptedRun + ":" + runID, Kind: attentionKindInterruptedRun, ProjectID: rowProjectID, WorkflowID: workflowID, TaskID: rowTaskID, TaskShortID: shortID, TaskTitle: title, RunID: runID, SessionID: sessionID, Message: message, OccurredAtUnixMs: occurred})
 	}
 	return items, rows.Err()
 }
@@ -1561,7 +1563,7 @@ func taskStatusAndActions(task sqlitegen.Task, summary serverapi.WorkflowTaskSum
 		status.Label = "Interrupted"
 		status.NativeState = "interrupted"
 		status.RunIDs = interruptedRunIDs
-		status.AttentionTypes = []string{"interrupted"}
+		status.AttentionTypes = []string{attentionKindInterruptedRun}
 	case len(runningRunIDs) > 0:
 		status.Kind = "running"
 		status.Label = "Running"
