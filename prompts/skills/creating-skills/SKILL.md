@@ -3,7 +3,7 @@ name: creating-skills
 description: Create or improve agent skills. Use when the user wants to add a new skill or update an existing skill.
 ---
 
-Skills is a specialized technical documentation standard intended for AI Agents to read on-demand, and designed to teach them a specific technology, tool, or approach that is **outside of their training data** (aka "knowledge cutoff"). Agents learn about skills when they see the injected frontmatter description, just like you did in this session for this skill. When agents need the skill, they read SKILL.md and change their behavior to follow skill instructions, just like you are doing right now.
+Skills are a specialized technical documentation standard intended for AI Agents to read on-demand, and designed to teach them a specific technology, tool, or approach that is **outside of their training data** (aka "knowledge cutoff"). Agents learn about skills when they see the injected frontmatter description, just like you did in this session for this skill. When agents need the skill, they read SKILL.md and change their behavior to follow skill instructions, just like you are doing right now.
 
 Builder discovers skills from these roots (priority order):
 
@@ -50,7 +50,7 @@ Write `description` as trigger condition. Keep description to 1-3 terse sentence
 
 - Include what the skill does and when to use it. Mention concrete task types, workflows, or domains that should activate the skill.
 - **Do not repeat trigger rules** in the SKILL.md body text.
-- Speak in terms of practical work tasks when the skill will be useful. Use terms generic enough that the skill will be triggered when the **task type** or **intent** matches where the tool might be useful, but not generic enough that it will be ambiguous as to when to use the skill, and not specific enough that the skill will be sitting idle. 
+- Speak in terms of practical work tasks when the skill will be useful. Use terms generic enough that the skill will be triggered when the **task type** or **intent** matches where the tool might be useful, but not generic enough that it will be ambiguous as to when to use the skill, and not specific enough that the skill will be sitting idle.
 
 BAD: "wterm is an npm package. Trigger when tasks mention wterm, @wterm/dom, @wterm/core, PTY-over-WebSocket harnesses" (why: this is too specific and unclear, the skill will not be triggered often enough, because wterm is a general automation tool but description only mentions narrow packages)
 GOOD: "wterm is a tool for browser-based TUI automation. Trigger to perform manual TUI QA, verify your TUI changes, check TUI layouts, or reproduce bugs in a real terminal."

@@ -14,7 +14,7 @@
 - If `~/.builder/recovered` is non-empty, every new session gets a user-facing, non-model-visible warning asking the user to clean recovered files and not edit `~/.builder/.generated`; existing sessions are not warned every turn.
 - Generated skills are always seeded regardless of config. Existing `[skills]` toggles only disable injection by normalized skill name.
 - Generated skills are shadowed by any user skill with the same normalized name from workspace/global roots. Do not redesign existing non-generated duplicate behavior as part of generated skills.
-- GUI MVP visible app chrome uses `Kent` while the rebrand is underway. Final signed-release naming and app identity remain release decisions.
+- GUI MVP visible app chrome uses `Kent` while the rebrand is underway. Final signed-release display naming remains a release decision; the native app identifier is locked separately.
 - GUI MVP TypeScript API client starts as a hand-written typed JSON-RPC/WebSocket client plus GUI-side DTO adapters and contract tests against Go DTO/schema fixtures. Generated clients are deferred until contracts stabilize enough to justify generation.
 - GUI MVP does not use tRPC for protocol typing. Builder's Go server and JSON-RPC contracts should stay behind typed adapters, Zod boundary validation, and contract tests.
 - GUI MVP frontend state uses `@tanstack/react-query` for server read models/cache/mutations and React local state for local UI state. Zustand, Redux Toolkit, and RTK Query are deferred from MVP.

@@ -11,7 +11,9 @@ test("rejects explicit any annotations", async () => {
     "app/src/file.ts": "const value: any = 1;\n",
   });
 
-  assert.deepEqual(await checkTypeScriptPolicy(workspaceRoot), ["app/src/file.ts uses explicit any."]);
+  assert.deepEqual(await checkTypeScriptPolicy(workspaceRoot), [
+    "app/src/file.ts uses explicit any.",
+  ]);
 });
 
 test("rejects as any casts", async () => {
@@ -19,15 +21,28 @@ test("rejects as any casts", async () => {
     "shared/file.ts": "const value = unknownValue as any;\n",
   });
 
-  assert.deepEqual(await checkTypeScriptPolicy(workspaceRoot), ["shared/file.ts uses explicit any."]);
+  assert.deepEqual(await checkTypeScriptPolicy(workspaceRoot), [
+    "shared/file.ts uses explicit any.",
+  ]);
 });
 
 test("ignores comments and string literals", async () => {
   const workspaceRoot = await makeWorkspace({
-    "app/src/file.ts": "const text = 'any';\n// any in comment\n/* any in block */\n",
+    "app/src/file.ts":
+      "const text = 'any';\n// any in comment\n/* any in block */\n",
   });
 
   assert.deepEqual(await checkTypeScriptPolicy(workspaceRoot), []);
+});
+
+test("rejects explicit any inside template interpolation", async () => {
+  const workspaceRoot = await makeWorkspace({
+    "app/src/file.ts": "const text = `value ${unknownValue as any}`;\n",
+  });
+
+  assert.deepEqual(await checkTypeScriptPolicy(workspaceRoot), [
+    "app/src/file.ts uses explicit any.",
+  ]);
 });
 
 async function makeWorkspace(files) {

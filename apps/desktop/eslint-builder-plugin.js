@@ -38,15 +38,42 @@ export const builderArchitecture = {
           description: "Disallow exported mutable bindings.",
         },
         messages: {
-          mutableExport: "Do not export mutable bindings. Export constants, functions, classes, or immutable factories.",
+          mutableExport:
+            "Do not export mutable bindings. Export constants, functions, classes, or immutable factories.",
         },
         schema: [],
       },
       create(context) {
+        const mutableNames = new Set();
+        const exportedSpecifiers = [];
+
         return {
+          VariableDeclaration(node) {
+            if (node.kind === "const") {
+              return;
+            }
+            for (const declaration of node.declarations) {
+              collectPatternNames(declaration.id, mutableNames);
+            }
+          },
           ExportNamedDeclaration(node) {
             if (node.declaration?.type === "VariableDeclaration" && node.declaration.kind !== "const") {
               context.report({ node, messageId: "mutableExport" });
+            }
+            if (node.source !== null || node.declaration !== null) {
+              return;
+            }
+            for (const specifier of node.specifiers) {
+              if (specifier.type === "ExportSpecifier") {
+                exportedSpecifiers.push(specifier);
+              }
+            }
+          },
+          "Program:exit"() {
+            for (const specifier of exportedSpecifiers) {
+              if (mutableNames.has(getSpecifierName(specifier.local))) {
+                context.report({ node: specifier, messageId: "mutableExport" });
+              }
             }
           },
         };
@@ -59,7 +86,8 @@ export const builderArchitecture = {
           description: "Keep generated protocol DTOs out of React component files.",
         },
         messages: {
-          rawDto: "Do not import raw protocol DTOs in component files. Map DTOs to view models at feature boundaries.",
+          rawDto:
+            "Do not import raw protocol DTOs in component files. Map DTOs to view models at feature boundaries.",
         },
         schema: [],
       },
@@ -184,6 +212,42 @@ function getSpecifierName(specifier) {
   return String(specifier.value);
 }
 
+function collectPatternNames(pattern, names) {
+  if (pattern.type === "Identifier") {
+    names.add(pattern.name);
+    return;
+  }
+
+  if (pattern.type === "ArrayPattern") {
+    for (const element of pattern.elements) {
+      if (element !== null) {
+        collectPatternNames(element, names);
+      }
+    }
+    return;
+  }
+
+  if (pattern.type === "ObjectPattern") {
+    for (const property of pattern.properties) {
+      if (property.type === "RestElement") {
+        collectPatternNames(property.argument, names);
+      } else {
+        collectPatternNames(property.value, names);
+      }
+    }
+    return;
+  }
+
+  if (pattern.type === "AssignmentPattern") {
+    collectPatternNames(pattern.left, names);
+    return;
+  }
+
+  if (pattern.type === "RestElement") {
+    collectPatternNames(pattern.argument, names);
+  }
+}
+
 function isDtoName(name) {
   return [...dtoImportNames].some((suffix) => name.endsWith(suffix));
 }
@@ -256,7 +320,10 @@ function isDisallowedEffectCallee(callee, bridgeIdentifiers) {
     return false;
   }
 
-  return disallowedEffectCalls.has(getMemberPropertyName(callee)) || isKnownBridgeObject(callee.object, bridgeIdentifiers);
+  return (
+    disallowedEffectCalls.has(getMemberPropertyName(callee)) ||
+    isKnownBridgeObject(callee.object, bridgeIdentifiers)
+  );
 }
 
 function isKnownBridgeObject(expression, bridgeIdentifiers) {
@@ -314,5 +381,5 @@ function visit(node, seen, callback) {
 }
 
 function isAstNode(value) {
-  return typeof value === "object" && typeof value.type === "string";
+  return value !== null && typeof value === "object" && typeof value.type === "string";
 }

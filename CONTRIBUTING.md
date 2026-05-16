@@ -34,6 +34,7 @@ Current prerequisites:
 
 - Go `1.25`
 - Node `22` and `pnpm` `10` for docs work in `docs/`
+- Current Node `25+` where available and pnpm through Corepack/packageManager policy for GUI work in `apps/`
 - Rust toolchain for Tauri native builds in `apps/desktop`
 
 If you want the repository pre-push hook locally, enable it with:

@@ -6,14 +6,18 @@ const defaultWorkspaceRoot = fileURLToPath(new URL("..", import.meta.url));
 const checkedExtensions = new Set([".ts", ".tsx", ".mts", ".cts"]);
 const ignoredDirectories = new Set(["node_modules", "dist", "target", "gen"]);
 
-export async function checkTypeScriptPolicy(workspaceRoot = defaultWorkspaceRoot) {
+export async function checkTypeScriptPolicy(
+  workspaceRoot = defaultWorkspaceRoot,
+) {
   const errors = [];
   const sourceFiles = await findTypeScriptFiles(workspaceRoot);
 
   for (const sourceFile of sourceFiles) {
     const text = await readFile(sourceFile, "utf8");
     if (containsExplicitAny(text)) {
-      errors.push(`${displayPath(workspaceRoot, sourceFile)} uses explicit any.`);
+      errors.push(
+        `${displayPath(workspaceRoot, sourceFile)} uses explicit any.`,
+      );
     }
   }
 
@@ -28,25 +32,35 @@ function containsExplicitAny(text) {
 function stripComments(text) {
   let result = "";
   let index = 0;
-  let state = "code";
+  const states = ["code"];
+  const expressionDepths = [];
+  let stringQuote = "";
 
   while (index < text.length) {
     const char = text[index];
     const next = text[index + 1] ?? "";
+    const state = states.at(-1);
 
     if (state === "code") {
       if (char === "/" && next === "/") {
-        state = "line-comment";
+        states.push("line-comment");
         index += 2;
         continue;
       }
       if (char === "/" && next === "*") {
-        state = "block-comment";
+        states.push("block-comment");
         index += 2;
         continue;
       }
-      if (char === '"' || char === "'" || char === "`") {
-        state = char;
+      if (char === '"' || char === "'") {
+        stringQuote = char;
+        states.push("string");
+        result += " ";
+        index += 1;
+        continue;
+      }
+      if (char === "`") {
+        states.push("template");
         result += " ";
         index += 1;
         continue;
@@ -59,7 +73,7 @@ function stripComments(text) {
     if (state === "line-comment") {
       if (char === "\n") {
         result += char;
-        state = "code";
+        states.pop();
       }
       index += 1;
       continue;
@@ -70,7 +84,7 @@ function stripComments(text) {
         result += char;
       }
       if (char === "*" && next === "/") {
-        state = "code";
+        states.pop();
         index += 2;
         continue;
       }
@@ -78,15 +92,80 @@ function stripComments(text) {
       continue;
     }
 
-    if (char === "\\") {
-      index += 2;
+    if (state === "string") {
+      if (char === "\\") {
+        index += 2;
+        continue;
+      }
+      if (char === stringQuote) {
+        states.pop();
+        result += " ";
+      }
+      index += 1;
       continue;
     }
-    if (char === state) {
-      state = "code";
-      result += " ";
+
+    if (state === "template") {
+      if (char === "$" && next === "{") {
+        states.push("template-expression");
+        expressionDepths.push(1);
+        result += "  ";
+        index += 2;
+        continue;
+      }
+      if (char === "\\") {
+        index += 2;
+        continue;
+      }
+      if (char === "`") {
+        states.pop();
+        result += " ";
+      }
+      index += 1;
+      continue;
     }
-    index += 1;
+
+    if (state === "template-expression") {
+      if (char === "/" && next === "/") {
+        states.push("line-comment");
+        index += 2;
+        continue;
+      }
+      if (char === "/" && next === "*") {
+        states.push("block-comment");
+        index += 2;
+        continue;
+      }
+      if (char === '"' || char === "'") {
+        stringQuote = char;
+        states.push("string");
+        result += " ";
+        index += 1;
+        continue;
+      }
+      if (char === "`") {
+        states.push("template");
+        result += " ";
+        index += 1;
+        continue;
+      }
+      if (char === "{") {
+        expressionDepths[expressionDepths.length - 1] += 1;
+      }
+      if (char === "}") {
+        expressionDepths[expressionDepths.length - 1] -= 1;
+        if (expressionDepths.at(-1) === 0) {
+          expressionDepths.pop();
+          states.pop();
+          result += " ";
+          index += 1;
+          continue;
+        }
+      }
+      result += char;
+      index += 1;
+      continue;
+    }
   }
 
   return result;

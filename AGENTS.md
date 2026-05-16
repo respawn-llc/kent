@@ -60,7 +60,7 @@ The scope is intentionally narrow and quality-oriented.
 - Maximize API cache hits, avoid mutation of past conversation history, including tool lists, system prompts.
 - Keep TUI fast, avoid flicker, stable scroll, build adaptive layouts, avoid affecting scrollback buffer in ongoing mode or re-emitting full history.
 - Never use regex-based matching, parsing, replace hacks. Never use substring-based lookup to determine information presence. Avoid brittle and fragile text/string-based logic, and develop type-safe data structures, store structured data or metadata that can reliably be extracted instead.
--  Breaking changes are allowed, but the UX of migration should be straightforward, e.g. a migration note for config entries or a clear error message. Ask user what migration strat they want.
+-  Breaking changes are allowed, but the UX of migration should be straightforward, e.g. a migration note for config entries or a clear error message. Ask user what migration strategy they want.
 
 ## Coding Guidelines
 - Prefer robust, forward-compatible, reusable, well-architected implementations over hacks, one-shot, temporary fixes or features bolted onto the existing arch.

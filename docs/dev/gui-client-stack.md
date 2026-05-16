@@ -97,7 +97,7 @@ Decision: use `sh.kent` as the final Tauri identifier for the `kent.sh` product 
 
 Changing it after shipping signed app updates is treated as a migration because native app identity, app data, signing, and updater behavior can be affected.
 
-Visible MVP app chrome uses `Kent` while the rebrand is underway. Final signed-release naming and app identity remain release decisions.
+Visible MVP app chrome uses `Kent` while the rebrand is underway. Final signed-release display naming remains a release decision; the native app identifier is locked above.
 
 ### TypeScript API Client
 
