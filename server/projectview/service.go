@@ -88,19 +88,10 @@ func (s *Service) ListProjectHome(ctx context.Context, req serverapi.ProjectHome
 	if err != nil {
 		return serverapi.ProjectHomeListResponse{}, err
 	}
-	summaries, err := s.metadata.ListProjectHomeSummaries(ctx, pageSize+1, offset)
+	scopedProjectID := strings.TrimSpace(s.projectID)
+	summaries, err := s.metadata.ListProjectHomeSummaries(ctx, scopedProjectID, pageSize+1, offset)
 	if err != nil {
 		return serverapi.ProjectHomeListResponse{}, err
-	}
-	if trimmedProjectID := strings.TrimSpace(s.projectID); trimmedProjectID != "" {
-		filtered := make([]serverapi.ProjectHomeSummary, 0, 1)
-		for _, summary := range summaries {
-			if strings.TrimSpace(summary.ProjectID) == trimmedProjectID {
-				filtered = append(filtered, summary)
-				break
-			}
-		}
-		summaries = filtered
 	}
 	nextPageToken := ""
 	if len(summaries) > pageSize {

@@ -2347,12 +2347,14 @@ LEFT JOIN project_workflow_links default_link
    AND default_link.is_default = 1
    AND default_link.unlinked_at_unix_ms = 0
 LEFT JOIN workflows default_workflow ON default_workflow.id = default_link.workflow_id
+WHERE (?1 = '' OR p.id = ?1)
 ORDER BY latest_activity_unix_ms DESC, p.rowid DESC
-LIMIT ?2
-OFFSET ?1
+LIMIT ?3
+OFFSET ?2
 `
 
 type ListProjectHomeSummariesParams struct {
+	ProjectID  interface{}
 	OffsetRows int64
 	LimitRows  int64
 }
@@ -2375,7 +2377,7 @@ type ListProjectHomeSummariesRow struct {
 }
 
 func (q *Queries) ListProjectHomeSummaries(ctx context.Context, arg ListProjectHomeSummariesParams) ([]ListProjectHomeSummariesRow, error) {
-	rows, err := q.db.QueryContext(ctx, listProjectHomeSummaries, arg.OffsetRows, arg.LimitRows)
+	rows, err := q.db.QueryContext(ctx, listProjectHomeSummaries, arg.ProjectID, arg.OffsetRows, arg.LimitRows)
 	if err != nil {
 		return nil, err
 	}

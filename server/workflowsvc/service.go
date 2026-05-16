@@ -160,6 +160,7 @@ func (s *Service) AddWorkflowNode(ctx context.Context, req serverapi.WorkflowNod
 	if err != nil {
 		return serverapi.WorkflowNodeAddResponse{}, err
 	}
+	s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "node_added", req.NodeID)
 	return serverapi.WorkflowNodeAddResponse{GraphRevision: revision}, nil
 }
 
@@ -206,6 +207,7 @@ func (s *Service) AddWorkflowTransitionGroup(ctx context.Context, req serverapi.
 	if err != nil {
 		return serverapi.WorkflowTransitionGroupAddResponse{}, err
 	}
+	s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "transition_group_added", req.GroupID)
 	return serverapi.WorkflowTransitionGroupAddResponse{GraphRevision: revision}, nil
 }
 
@@ -217,6 +219,7 @@ func (s *Service) AddWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdg
 	if err != nil {
 		return serverapi.WorkflowEdgeAddResponse{}, err
 	}
+	s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "edge_added", req.EdgeID)
 	return serverapi.WorkflowEdgeAddResponse{GraphRevision: revision}, nil
 }
 

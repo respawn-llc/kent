@@ -340,6 +340,34 @@ func TestMetadataServiceListsProjectHomeForGUI(t *testing.T) {
 	}
 }
 
+func TestMetadataServiceListsScopedProjectHomeBeforePagination(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	unscoped, err := NewMetadataService(store, "", "")
+	if err != nil {
+		t.Fatalf("NewMetadataService unscoped: %v", err)
+	}
+	created, err := unscoped.CreateProject(context.Background(), serverapi.ProjectCreateRequest{
+		DisplayName:   "Newer GUI Home",
+		ProjectKey:    "NEW",
+		WorkspaceRoot: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	scoped, err := NewMetadataService(store, binding.ProjectID, "")
+	if err != nil {
+		t.Fatalf("NewMetadataService scoped: %v", err)
+	}
+
+	home, err := scoped.ListProjectHome(context.Background(), serverapi.ProjectHomeListRequest{PageSize: 1})
+	if err != nil {
+		t.Fatalf("ListProjectHome scoped: %v", err)
+	}
+	if len(home.Projects) != 1 || home.Projects[0].ProjectID != binding.ProjectID || home.NextPageToken != "" {
+		t.Fatalf("scoped home = %+v, created project %s should not displace scoped project", home, created.Binding.ProjectID)
+	}
+}
+
 func TestMetadataServiceResolveProjectPathLeavesNestedDirectoryUnbound(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()

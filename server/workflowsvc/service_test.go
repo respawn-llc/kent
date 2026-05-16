@@ -649,6 +649,45 @@ func TestServiceWorkflowProjectSubscriptionReplaysEvents(t *testing.T) {
 	}
 }
 
+func TestServiceWorkflowGraphMutationsPublishInvalidations(t *testing.T) {
+	ctx := context.Background()
+	service, _ := newWorkflowServiceTestService(t)
+	created, err := service.CreateWorkflow(ctx, serverapi.WorkflowCreateRequest{Name: "Workflow"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+	def, err := service.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: created.Workflow.ID})
+	if err != nil {
+		t.Fatalf("GetWorkflow: %v", err)
+	}
+	startID := workflowServiceNodeIDByKind(t, def.Definition, "start")
+	doneID := workflowServiceNodeIDByKind(t, def.Definition, "terminal")
+	if _, err := service.AddWorkflowNode(ctx, serverapi.WorkflowNodeAddRequest{WorkflowID: created.Workflow.ID, NodeID: "node-agent-events", Key: "agent_events", Kind: "agent", DisplayName: "Agent", SubagentRole: "coder", PromptTemplate: "Do work."}); err != nil {
+		t.Fatalf("AddWorkflowNode: %v", err)
+	}
+	if _, err := service.AddWorkflowTransitionGroup(ctx, serverapi.WorkflowTransitionGroupAddRequest{WorkflowID: created.Workflow.ID, GroupID: "group-start-events", SourceNodeID: startID, TransitionID: "start", DisplayName: "Start"}); err != nil {
+		t.Fatalf("AddWorkflowTransitionGroup: %v", err)
+	}
+	if _, err := service.AddWorkflowEdge(ctx, serverapi.WorkflowEdgeAddRequest{WorkflowID: created.Workflow.ID, EdgeID: "edge-start-events", TransitionGroupID: "group-start-events", Key: "start", TargetNodeID: doneID, ContextMode: "new_session"}); err != nil {
+		t.Fatalf("AddWorkflowEdge: %v", err)
+	}
+	events, err := service.store.ListWorkflowEventsAfter(ctx, "", 0, 100)
+	if err != nil {
+		t.Fatalf("ListWorkflowEventsAfter: %v", err)
+	}
+	actions := map[string]bool{}
+	for _, event := range events {
+		if event.WorkflowID == created.Workflow.ID {
+			actions[event.Action] = true
+		}
+	}
+	for _, action := range []string{"node_added", "transition_group_added", "edge_added"} {
+		if !actions[action] {
+			t.Fatalf("events = %+v, missing %s", events, action)
+		}
+	}
+}
+
 func newWorkflowServiceTestService(t *testing.T) (*Service, metadata.Binding) {
 	t.Helper()
 	service, binding, _ := newWorkflowServiceTestServiceWithMetadata(t)

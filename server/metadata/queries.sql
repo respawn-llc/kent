@@ -1548,6 +1548,7 @@ LEFT JOIN project_workflow_links default_link
    AND default_link.is_default = 1
    AND default_link.unlinked_at_unix_ms = 0
 LEFT JOIN workflows default_workflow ON default_workflow.id = default_link.workflow_id
+WHERE (sqlc.arg(project_id) = '' OR p.id = sqlc.arg(project_id))
 ORDER BY latest_activity_unix_ms DESC, p.rowid DESC
 LIMIT sqlc.arg(limit_rows)
 OFFSET sqlc.arg(offset_rows);

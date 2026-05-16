@@ -1139,7 +1139,7 @@ func (s *Store) ListProjects(ctx context.Context) ([]clientui.ProjectSummary, er
 	return out, nil
 }
 
-func (s *Store) ListProjectHomeSummaries(ctx context.Context, pageSize int, offset int) ([]serverapi.ProjectHomeSummary, error) {
+func (s *Store) ListProjectHomeSummaries(ctx context.Context, projectID string, pageSize int, offset int) ([]serverapi.ProjectHomeSummary, error) {
 	if s == nil || s.queries == nil {
 		return nil, errors.New("metadata store is required")
 	}
@@ -1150,6 +1150,7 @@ func (s *Store) ListProjectHomeSummaries(ctx context.Context, pageSize int, offs
 		return nil, errors.New("offset must be non-negative")
 	}
 	rows, err := s.queries.ListProjectHomeSummaries(ctx, sqlitegen.ListProjectHomeSummariesParams{
+		ProjectID:  strings.TrimSpace(projectID),
 		LimitRows:  int64(pageSize),
 		OffsetRows: int64(offset),
 	})
