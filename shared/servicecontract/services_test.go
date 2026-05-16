@@ -22,6 +22,7 @@ func TestServiceContractsCoverEveryNonProtocolRoute(t *testing.T) {
 		rpccontract.DependencyPromptActivity:   typeOfService[PromptActivityService](),
 		rpccontract.DependencyPromptControl:    typeOfService[PromptControlService](),
 		rpccontract.DependencyRunPrompt:        typeOfService[RunPromptService](),
+		rpccontract.DependencyServerStatus:     typeOfService[ServerStatusService](),
 		rpccontract.DependencyRuntimeControl:   typeOfService[RuntimeControlService](),
 		rpccontract.DependencySessionActivity:  typeOfService[SessionActivityService](),
 		rpccontract.DependencySessionLaunch:    typeOfService[SessionLaunchService](),

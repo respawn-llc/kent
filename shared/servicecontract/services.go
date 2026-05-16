@@ -64,6 +64,11 @@ type RunPromptService interface {
 	RunPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (serverapi.RunPromptResponse, error)
 }
 
+type ServerStatusService interface {
+	GetServerReadiness(ctx context.Context, req serverapi.ServerReadinessRequest) (serverapi.ServerReadinessResponse, error)
+	GetServerCapabilities(ctx context.Context, req serverapi.ServerCapabilitiesRequest) (serverapi.ServerCapabilitiesResponse, error)
+}
+
 type RuntimeControlService interface {
 	SetSessionName(ctx context.Context, req serverapi.RuntimeSetSessionNameRequest) error
 	SetThinkingLevel(ctx context.Context, req serverapi.RuntimeSetThinkingLevelRequest) error

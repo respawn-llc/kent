@@ -58,6 +58,7 @@ type Dependency string
 
 const (
 	DependencyProtocol           Dependency = "protocol"
+	DependencyServerStatus       Dependency = "server_status"
 	DependencyAuthBootstrap      Dependency = "auth_bootstrap"
 	DependencyAuthStatus         Dependency = "auth_status"
 	DependencyProjectView        Dependency = "project_view"
@@ -177,6 +178,8 @@ func implementsValidator(t reflect.Type) bool {
 
 var routeContracts = []Route{
 	unary[protocol.HandshakeRequest, protocol.HandshakeResponse](protocol.MethodHandshake, AuthNone, ScopeNone, ConnectionControl, DependencyProtocol),
+	unary[serverapi.ServerReadinessRequest, serverapi.ServerReadinessResponse](protocol.MethodServerReadinessGet, AuthPreServerAuth, ScopeNone, ConnectionUnscoped, DependencyServerStatus),
+	unary[serverapi.ServerCapabilitiesRequest, serverapi.ServerCapabilitiesResponse](protocol.MethodServerCapabilitiesGet, AuthPreServerAuth, ScopeNone, ConnectionUnscoped, DependencyServerStatus),
 	unary[serverapi.AuthGetBootstrapStatusRequest, serverapi.AuthGetBootstrapStatusResponse](protocol.MethodAuthGetBootstrapStatus, AuthPreServerAuth, ScopeNone, ConnectionUnscoped, DependencyAuthBootstrap),
 	unary[serverapi.AuthCompleteBootstrapRequest, serverapi.AuthCompleteBootstrapResponse](protocol.MethodAuthCompleteBootstrap, AuthPreServerAuth, ScopeNone, ConnectionUnscoped, DependencyAuthBootstrap),
 	unary[serverapi.AuthStatusRequest, serverapi.AuthStatusResponse](protocol.MethodAuthGetStatus, AuthPreServerAuth, ScopeNone, ConnectionUnscoped, DependencyAuthStatus),

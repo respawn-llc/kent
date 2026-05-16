@@ -25,6 +25,7 @@ type Gateway struct {
 }
 
 type GatewayDependencies interface {
+	GatewayServerStatusDependencies
 	GatewayAuthDependencies
 	GatewayProjectDependencies
 	GatewaySessionDependencies
@@ -32,6 +33,10 @@ type GatewayDependencies interface {
 	GatewayPromptDependencies
 	GatewayProcessDependencies
 	GatewayWorktreeDependencies
+}
+
+type GatewayServerStatusDependencies interface {
+	ServerStatusClient() client.ServerStatusClient
 }
 
 type GatewayAuthDependencies interface {

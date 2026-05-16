@@ -21,6 +21,7 @@ import (
 	"builder/server/registry"
 	"builder/server/rootlock"
 	"builder/server/runtimecontrol"
+	"builder/server/serverstatus"
 	"builder/server/sessionactivity"
 	"builder/server/sessionlifecycle"
 	"builder/server/sessionruntime"
@@ -118,6 +119,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	projectViews := client.NewLoopbackProjectViewClient(projectService)
 	authBootstrapService := authbootstrap.NewService(authSupport.AuthManager, authSupport.OAuthOptions, cfg.Settings, rpccontract.AllowedPreAuthMethods())
 	authStatusService := authstatus.NewService(authSupport.AuthManager, cfg.Settings)
+	serverStatusService := serverstatus.NewService(authSupport.AuthManager, cfg)
 	updateStatusService := updatestatus.NewService(buildinfo.Version)
 	sessionViewService := sessionview.NewService(registry.NewGlobalPersistenceSessionResolver(cfg.PersistenceRoot, storeOptions...), runtimeRegistry, metadataStore).WithCacheWarningMode(cfg.Settings.CacheWarningMode).WithUpdateStatusProvider(updateStatusService)
 	sessionLifecycleService := sessionlifecycle.NewGlobalService(cfg.PersistenceRoot, sessionStoreRegistry, authSupport.AuthManager, storeOptions...).WithControllerLeaseVerifier(sessionRuntimeService)
@@ -183,6 +185,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 		promptControlService:    promptControlService,
 		promptActivityService:   promptActivityService,
 		runtimeControlService:   runtimeControlService,
+		serverStatusService:     serverStatusService,
 		sessionRuntimeService:   sessionRuntimeService,
 		sessionViewService:      sessionViewService,
 		sessionLifecycleService: sessionLifecycleService,

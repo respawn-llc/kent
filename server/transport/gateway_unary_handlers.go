@@ -35,6 +35,35 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return bootstrapClient.GetAuthBootstrapStatus(ctx, params)
 		})
 	},
+	protocol.MethodServerReadinessGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ServerReadinessRequest) (serverapi.ServerReadinessResponse, error) {
+			statusClient := g.deps.ServerStatusClient()
+			if statusClient == nil {
+				return serverapi.ServerReadinessResponse{}, errors.New("server status client is required")
+			}
+			response, err := statusClient.GetServerReadiness(ctx, params)
+			if err != nil {
+				return serverapi.ServerReadinessResponse{}, err
+			}
+			response.ServerID = g.identity.ServerID
+			response.ProtocolVersion = g.identity.ProtocolVersion
+			return response, nil
+		})
+	},
+	protocol.MethodServerCapabilitiesGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.ServerCapabilitiesRequest) (serverapi.ServerCapabilitiesResponse, error) {
+			statusClient := g.deps.ServerStatusClient()
+			if statusClient == nil {
+				return serverapi.ServerCapabilitiesResponse{}, errors.New("server status client is required")
+			}
+			response, err := statusClient.GetServerCapabilities(ctx, params)
+			if err != nil {
+				return serverapi.ServerCapabilitiesResponse{}, err
+			}
+			response.ProtocolVersion = g.identity.ProtocolVersion
+			return response, nil
+		})
+	},
 	protocol.MethodAuthCompleteBootstrap: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.AuthCompleteBootstrapRequest) (serverapi.AuthCompleteBootstrapResponse, error) {
 			bootstrapClient := g.deps.AuthBootstrapClient()

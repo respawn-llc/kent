@@ -18,6 +18,7 @@ import (
 	"builder/server/runtime"
 	"builder/server/runtimecontrol"
 	"builder/server/runtimewire"
+	"builder/server/serverstatus"
 	"builder/server/sessionactivity"
 	"builder/server/sessionlaunch"
 	"builder/server/sessionlifecycle"
@@ -51,6 +52,7 @@ type AuthBundle struct {
 	support       serverbootstrap.AuthSupport
 	authBootstrap client.AuthBootstrapClient
 	authStatus    client.AuthStatusClient
+	serverStatus  client.ServerStatusClient
 }
 
 type PersistenceBundle struct {
@@ -190,6 +192,7 @@ type bundleCompositionInput struct {
 	promptControlService    *promptcontrol.Service
 	promptActivityService   *promptactivity.Service
 	runtimeControlService   *runtimecontrol.Service
+	serverStatusService     *serverstatus.Service
 	sessionRuntimeService   *sessionruntime.Service
 	sessionViewService      *sessionview.Service
 	sessionLifecycleService *sessionlifecycle.Service
@@ -203,7 +206,7 @@ type bundleCompositionInput struct {
 
 func composeBundles(in bundleCompositionInput) *Bundles {
 	return &Bundles{
-		Auth: newAuthBundle(in.authSupport, in.authBootstrapService, in.authStatusService),
+		Auth: newAuthBundle(in.authSupport, in.authBootstrapService, in.authStatusService, in.serverStatusService),
 		cleanup: []lifecycleResource{
 			{name: "persistence root lock", close: in.rootLease.Close},
 			{name: "metadata store", close: in.metadataStore.Close},
@@ -233,11 +236,12 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 	}
 }
 
-func newAuthBundle(authSupport serverbootstrap.AuthSupport, bootstrapService *authbootstrap.Service, statusService *authstatus.Service) *AuthBundle {
+func newAuthBundle(authSupport serverbootstrap.AuthSupport, bootstrapService *authbootstrap.Service, statusService *authstatus.Service, serverStatusService *serverstatus.Service) *AuthBundle {
 	return &AuthBundle{
 		support:       authSupport,
 		authBootstrap: client.NewLoopbackAuthBootstrapClient(bootstrapService),
 		authStatus:    client.NewLoopbackAuthStatusClient(statusService),
+		serverStatus:  client.NewLoopbackServerStatusClient(serverStatusService),
 	}
 }
 

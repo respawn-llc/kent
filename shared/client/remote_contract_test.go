@@ -139,6 +139,8 @@ func expectedLoopbackServiceContractType(dependency rpccontract.Dependency) stri
 		return "PromptControlService"
 	case rpccontract.DependencyRunPrompt:
 		return "RunPromptService"
+	case rpccontract.DependencyServerStatus:
+		return "ServerStatusService"
 	case rpccontract.DependencyRuntimeControl:
 		return "RuntimeControlService"
 	case rpccontract.DependencySessionActivity:

@@ -521,6 +521,175 @@ func TestServeStartsUnauthenticatedAndReportsBootstrapReadiness(t *testing.T) {
 	}
 }
 
+func TestConfiguredRemoteGetsServerReadinessWhenAuthMissing(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	request := startup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, AllowUnauthenticated: true}
+	authHandler := envAuthHandler{lookupEnv: func(string) string { return "" }}
+	onboarding := noopOnboarding{}
+	registerServeWorkspace(t, workspace)
+
+	server, err := Start(context.Background(), request, authHandler, onboarding)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = server.Close() }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.Serve(ctx)
+	}()
+	defer func() {
+		cancel()
+		if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {
+			t.Fatalf("Serve error = %v, want context canceled", serveErr)
+		}
+	}()
+
+	loadCfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	healthURL := config.ServerHTTPBaseURL(loadCfg) + protocol.HealthPath
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		resp, err := http.Get(healthURL)
+		if err == nil {
+			_ = resp.Body.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("GET health: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	remote, err := client.DialConfiguredRemote(context.Background(), loadCfg)
+	if err != nil {
+		t.Fatalf("DialConfiguredRemote: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	readiness, err := remote.GetServerReadiness(context.Background(), serverapi.ServerReadinessRequest{})
+	if err != nil {
+		t.Fatalf("GetServerReadiness: %v", err)
+	}
+	if readiness.Ready {
+		t.Fatalf("ready = true, want false: %+v", readiness)
+	}
+	if readiness.ServerID == "" || readiness.ProtocolVersion != protocol.Version || readiness.ServerVersion == "" {
+		t.Fatalf("missing readiness identity fields: %+v", readiness)
+	}
+	if readiness.AuthReady || !readiness.AuthRequired {
+		t.Fatalf("auth flags = ready:%t required:%t, want ready:false required:true", readiness.AuthReady, readiness.AuthRequired)
+	}
+	if readiness.Endpoint == "" {
+		t.Fatalf("expected endpoint in readiness response: %+v", readiness)
+	}
+	if len(readiness.Causes) != 1 {
+		t.Fatalf("cause count = %d, want 1: %+v", len(readiness.Causes), readiness.Causes)
+	}
+	cause := readiness.Causes[0]
+	if cause.Code != "server_not_ready" || cause.Severity != "error" || cause.Summary == "" || cause.NextAction == "" {
+		t.Fatalf("unexpected generic readiness cause: %+v", cause)
+	}
+}
+
+func TestConfiguredRemoteGetsServerCapabilities(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	request := startup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, AllowUnauthenticated: true}
+	authHandler := envAuthHandler{lookupEnv: func(string) string { return "" }}
+	onboarding := noopOnboarding{}
+	registerServeWorkspace(t, workspace)
+
+	server, err := Start(context.Background(), request, authHandler, onboarding)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = server.Close() }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.Serve(ctx)
+	}()
+	defer func() {
+		cancel()
+		if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {
+			t.Fatalf("Serve error = %v, want context canceled", serveErr)
+		}
+	}()
+
+	loadCfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	healthURL := config.ServerHTTPBaseURL(loadCfg) + protocol.HealthPath
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		resp, err := http.Get(healthURL)
+		if err == nil {
+			_ = resp.Body.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("GET health: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	remote, err := client.DialConfiguredRemote(context.Background(), loadCfg)
+	if err != nil {
+		t.Fatalf("DialConfiguredRemote: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	capabilities, err := remote.GetServerCapabilities(context.Background(), serverapi.ServerCapabilitiesRequest{})
+	if err != nil {
+		t.Fatalf("GetServerCapabilities: %v", err)
+	}
+	if capabilities.ServerVersion == "" || capabilities.ProtocolVersion != protocol.Version {
+		t.Fatalf("missing capability identity fields: %+v", capabilities)
+	}
+	got := map[string]serverapi.ServerCapability{}
+	for _, capability := range capabilities.Capabilities {
+		got[capability.ID] = capability
+	}
+	for _, id := range []string{
+		"gui.home",
+		"project.key.create",
+		"project.workspace.list",
+		"workflow.board.selected",
+		"workflow.board.groups",
+		"workflow.live_updates",
+		"workflow.task.source_workspace",
+		"workflow.task.create",
+		"workflow.task.edit_backlog",
+		"workflow.task.start",
+		"workflow.task.interrupt",
+		"workflow.task.resume",
+		"workflow.task.cancel",
+		"workflow.attention.list",
+		"workflow.task.activity",
+		"workflow.task.comments",
+		"workflow.task.teleport",
+	} {
+		capability, ok := got[id]
+		if !ok {
+			t.Fatalf("missing capability %q in %+v", id, capabilities.Capabilities)
+		}
+		if !capability.RequiredForMVP {
+			t.Fatalf("capability %q required_for_mvp = false", id)
+		}
+	}
+}
+
 func TestServeFailsWhenConfiguredPortIsOccupied(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()

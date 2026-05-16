@@ -85,6 +85,16 @@ func (c *Remote) Identity() protocol.ServerIdentity {
 	return c.identity
 }
 
+func (c *Remote) GetServerReadiness(ctx context.Context, req serverapi.ServerReadinessRequest) (serverapi.ServerReadinessResponse, error) {
+	var resp serverapi.ServerReadinessResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodServerReadinessGet, req, &resp)
+}
+
+func (c *Remote) GetServerCapabilities(ctx context.Context, req serverapi.ServerCapabilitiesRequest) (serverapi.ServerCapabilitiesResponse, error) {
+	var resp serverapi.ServerCapabilitiesResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodServerCapabilitiesGet, req, &resp)
+}
+
 func (c *Remote) ProjectID() string {
 	if c == nil {
 		return ""

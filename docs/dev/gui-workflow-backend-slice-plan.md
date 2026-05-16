@@ -730,8 +730,9 @@ Current status:
 - [x] GUI backend contracts drafted.
 - [x] Smart reviewer gaps integrated.
 - [x] Executable per-slice implementation checklist added.
-- [ ] Next action: Nikita reviews/accepts this checklist shape or requests changes.
-- [ ] Slice 0 implementation started only after explicit approval.
+- [x] Nikita accepted implementation by setting goal to implement slices 0-5.
+- [x] Slice 0 implementation complete.
+- [ ] Next action: implement Slice 1 Home/project admin/project key/workspaces.
 
 Source-of-truth rules:
 
@@ -753,29 +754,29 @@ Common slice loop:
 
 ### Slice 0 Checklist: Connectivity, Readiness, Capabilities
 
-Status: not started.
+Status: complete.
 
 Goal: desktop can attach to the configured server, show startup blockers safely, and gate GUI features by server capability.
 
 Implementation checklist:
 
-- [ ] Recon existing handshake, auth readiness, server version, health/ready endpoints, route auth policy, client startup paths, and JSON-RPC method registration.
-- [ ] Add failing tests for `server.readiness.get` DTO validation, route registration, client call path, and auth/startup blocker summary.
-- [ ] Add failing tests for `server.capabilities.get` returning all required MVP capability IDs with available/reason metadata.
-- [ ] Add `shared/serverapi` DTOs with explicit JSON tags and unix-ms timestamps if any timestamp is needed.
-- [ ] Add method constants, route registration, service contract, remote client method, and unary transport dispatch.
-- [ ] Implement readiness service composition using existing server/auth/bootstrap state instead of duplicating auth logic.
-- [ ] Implement capability registry with stable IDs from the contract above.
-- [ ] Ensure readiness is available early enough for desktop startup while mutating routes remain auth-gated.
-- [ ] Add typed generic auth/startup blocker cause behavior.
-- [ ] Sync docs if capability IDs or readiness cause semantics change.
+- [x] Recon existing handshake, auth readiness, server version, health/ready endpoints, route auth policy, client startup paths, and JSON-RPC method registration.
+- [x] Add failing tests for `server.readiness.get` DTO validation, route registration, client call path, and auth/startup blocker summary.
+- [x] Add failing tests for `server.capabilities.get` returning all required MVP capability IDs with available/reason metadata.
+- [x] Add `shared/serverapi` DTOs with explicit JSON tags and unix-ms timestamps if any timestamp is needed.
+- [x] Add method constants, route registration, service contract, remote client method, and unary transport dispatch.
+- [x] Implement readiness service composition using existing server/auth/bootstrap state instead of duplicating auth logic.
+- [x] Implement capability registry with stable IDs from the contract above.
+- [x] Ensure readiness is available early enough for desktop startup while mutating routes remain auth-gated.
+- [x] Add typed generic auth/startup blocker cause behavior.
+- [x] Sync docs if capability IDs or readiness cause semantics change.
 
 Completion criteria:
 
-- [ ] `server.readiness.get` returns version, protocol, server ID, auth flags, ready flag, endpoint, and typed causes.
-- [ ] Missing/expired auth produces generic readiness blocker, not a special GUI auth flow.
-- [ ] `server.capabilities.get` returns every MVP capability ID.
-- [ ] Verification commands pass:
+- [x] `server.readiness.get` returns version, protocol, server ID, auth flags, ready flag, endpoint, and typed causes.
+- [x] Missing/expired auth produces generic readiness blocker, not a special GUI auth flow.
+- [x] `server.capabilities.get` returns every MVP capability ID.
+- [x] Verification commands pass:
   - `./scripts/test.sh ./shared/serverapi ./shared/servicecontract ./shared/client ./shared/protocol ./shared/rpccontract ./server/transport ./server/auth ./server/bootstrap ./server/embedded ./server/core ./server/serve ./cli/app`
   - `./scripts/build.sh --output ./bin/builder`
 

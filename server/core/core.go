@@ -426,6 +426,13 @@ func (s *Core) RuntimeControlClient() client.RuntimeControlClient {
 	return s.safeBundles().Runtime.runtimeControls
 }
 
+func (s *Core) ServerStatusClient() client.ServerStatusClient {
+	if s == nil {
+		return nil
+	}
+	return s.safeBundles().Auth.serverStatus
+}
+
 func (s *Core) PromptControlClient() client.PromptControlClient {
 	if s == nil {
 		return nil
