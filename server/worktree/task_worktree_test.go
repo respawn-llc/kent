@@ -68,6 +68,34 @@ func TestEnsureTaskWorktreeReturnsExistingManagedWorktree(t *testing.T) {
 	}
 }
 
+func TestEnsureTaskWorktreeUsesTaskSourceWorkspace(t *testing.T) {
+	env := newServiceTestEnv(t)
+	sourceRoot := filepath.Join(t.TempDir(), "source")
+	if err := os.MkdirAll(sourceRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll source root: %v", err)
+	}
+	initGitRepo(t, sourceRoot)
+	source, err := env.store.AttachWorkspaceToProject(env.ctx, env.binding.ProjectID, sourceRoot)
+	if err != nil {
+		t.Fatalf("AttachWorkspaceToProject source: %v", err)
+	}
+	task, _ := createTaskWorktreeTestTaskWithSource(t, env, source.WorkspaceID)
+
+	resp, err := env.service.EnsureTaskWorktree(env.ctx, EnsureTaskWorktreeRequest{TaskID: string(task.ID)})
+	if err != nil {
+		t.Fatalf("EnsureTaskWorktree: %v", err)
+	}
+	if resp.Worktree.WorktreeID == "" || !strings.Contains(resp.Worktree.CanonicalRoot, source.WorkspaceID) {
+		t.Fatalf("worktree = %+v, want root under source workspace id %q", resp.Worktree, source.WorkspaceID)
+	}
+	if got := runGit(t, sourceRoot, "branch", "--list", task.ShortID); !strings.Contains(got, task.ShortID) {
+		t.Fatalf("source branch list = %q, want task branch %q", got, task.ShortID)
+	}
+	if got := runGit(t, env.workspaceRoot, "branch", "--list", task.ShortID); strings.Contains(got, task.ShortID) {
+		t.Fatalf("primary branch list = %q, did not expect task branch %q", got, task.ShortID)
+	}
+}
+
 func TestEnsureTaskWorktreeHandlesRootCollisionAndReportsBranchCollision(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, _ := createTaskWorktreeTestTask(t, env)
@@ -147,6 +175,11 @@ func TestDeleteWorktreeAllowsTerminalTaskManagedWorktree(t *testing.T) {
 
 func createTaskWorktreeTestTask(t *testing.T, env *serviceTestEnv) (workflowstore.TaskRecord, *workflowstore.Store) {
 	t.Helper()
+	return createTaskWorktreeTestTaskWithSource(t, env, "")
+}
+
+func createTaskWorktreeTestTaskWithSource(t *testing.T, env *serviceTestEnv, sourceWorkspaceID string) (workflowstore.TaskRecord, *workflowstore.Store) {
+	t.Helper()
 	resolver := workflow.StaticRoleResolver{"workflow-test": true}
 	store, err := workflowstore.New(env.store, workflowstore.WithRoleResolver(resolver))
 	if err != nil {
@@ -181,7 +214,7 @@ func createTaskWorktreeTestTask(t *testing.T, env *serviceTestEnv) (workflowstor
 	if _, err := store.LinkWorkflow(env.ctx, env.binding.ProjectID, created.ID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
-	task, err := store.CreateTask(env.ctx, workflowstore.CreateTaskRequest{ProjectID: env.binding.ProjectID, Title: "Task", Body: "Body"})
+	task, err := store.CreateTask(env.ctx, workflowstore.CreateTaskRequest{ProjectID: env.binding.ProjectID, Title: "Task", Body: "Body", SourceWorkspaceID: sourceWorkspaceID})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}

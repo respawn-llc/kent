@@ -9,7 +9,7 @@ Current focus:
 - [x] Slice 0: connectivity/readiness/capabilities.
 - [x] Slice 1: Home/project admin/project key/workspaces.
 - [x] Slice 2: workflow picker, selected board, groups, live updates.
-- [ ] Slice 3: task source workspace and Backlog editing.
+- [x] Slice 3: task source workspace and Backlog editing.
 - [ ] Slice 4: actions, attention inbox, questions, approvals.
 - [ ] Slice 5: task detail, activity feed, comments, teleport.
 
@@ -60,4 +60,13 @@ Slice 2 notes:
 
 Slice 3 notes:
 
-- Current next step: add migration/store tracer for `tasks.source_workspace_id`, optional body, pre-start update, and worktree source fallback.
+- Started: 2026-05-16.
+- Completed tracer: `tasks.source_workspace_id` migration, optional body schema, project-scoped source workspace trigger, and SQLC/query/store support.
+- Completed tracer: task create persists selected source workspace, defaults omitted source workspace to primary, allows empty body, and rejects foreign-project source workspace.
+- Completed tracer: `workflow.task.update` edits title/body/source workspace while task is still Backlog, rejects edits after cancellation or automation/worktree start, and emits task update invalidations.
+- Completed tracer: board cards and task detail expose persisted source workspace, body preview, body/source URL, and created/updated timestamps; legacy missing source workspace falls back to project primary workspace in read/worktree paths.
+- Completed tracer: `workflow.task.start` remains the drag-to-start backend operation and emits task start invalidation; worktree creation now uses selected task source workspace before primary fallback.
+- Verification passed:
+  - `./scripts/test.sh ./shared/serverapi ./shared/servicecontract ./shared/client ./shared/protocol ./shared/rpccontract ./server/transport ./server/metadata ./server/workflowsvc ./server/workflowstore ./server/workflowview ./server/worktree`
+  - `./scripts/test.sh ./cli/builder ./server/workflowscheduler ./server/workflowrunner`
+  - `./scripts/build.sh --output ./bin/builder`

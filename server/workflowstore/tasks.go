@@ -12,11 +12,19 @@ import (
 )
 
 type CreateTaskRequest struct {
-	ProjectID  string
-	WorkflowID workflow.WorkflowID
-	Title      string
-	Body       string
-	SourceURL  string
+	ProjectID         string
+	WorkflowID        workflow.WorkflowID
+	Title             string
+	Body              string
+	SourceURL         string
+	SourceWorkspaceID string
+}
+
+type UpdateTaskRequest struct {
+	TaskID            workflow.TaskID
+	Title             string
+	Body              string
+	SourceWorkspaceID string
 }
 
 type StartTaskResult struct {
@@ -104,10 +112,11 @@ func (s *Store) CreateTask(ctx context.Context, req CreateTaskRequest) (TaskReco
 	if title == "" {
 		return TaskRecord{}, errors.New("task title is required")
 	}
-	if body == "" {
-		return TaskRecord{}, errors.New("task body is required")
-	}
 	link, err := s.resolveTaskWorkflowLink(ctx, req.ProjectID, req.WorkflowID)
+	if err != nil {
+		return TaskRecord{}, err
+	}
+	sourceWorkspaceID, err := s.resolveTaskSourceWorkspace(ctx, req.ProjectID, req.SourceWorkspaceID)
 	if err != nil {
 		return TaskRecord{}, err
 	}
@@ -138,7 +147,7 @@ func (s *Store) CreateTask(ctx context.Context, req CreateTaskRequest) (TaskReco
 	}
 	seq := allocated.NextTaskSeq - 1
 	shortID := fmt.Sprintf("%s-%d", strings.TrimSpace(allocated.ProjectKey), seq)
-	if err := q.InsertTask(ctx, sqlitegen.InsertTaskParams{ID: taskID, ProjectID: req.ProjectID, ProjectWorkflowLinkID: link.ID, WorkflowID: link.WorkflowID, WorkflowRevisionSeen: wf.GraphRevision, TaskSeq: seq, ShortID: shortID, Title: title, Body: body, SourceUrl: strings.TrimSpace(req.SourceURL), ManagedWorktreeID: sql.NullString{}, CreatedAtUnixMs: now, UpdatedAtUnixMs: now, MetadataJson: "{}"}); err != nil {
+	if err := q.InsertTask(ctx, sqlitegen.InsertTaskParams{ID: taskID, ProjectID: req.ProjectID, ProjectWorkflowLinkID: link.ID, WorkflowID: link.WorkflowID, WorkflowRevisionSeen: wf.GraphRevision, TaskSeq: seq, ShortID: shortID, Title: title, Body: body, SourceUrl: strings.TrimSpace(req.SourceURL), SourceWorkspaceID: sql.NullString{String: sourceWorkspaceID, Valid: sourceWorkspaceID != ""}, ManagedWorktreeID: sql.NullString{}, CreatedAtUnixMs: now, UpdatedAtUnixMs: now, MetadataJson: "{}"}); err != nil {
 		return TaskRecord{}, fmt.Errorf("insert task: %w", err)
 	}
 	if err := q.InsertTaskNodePlacement(ctx, sqlitegen.InsertTaskNodePlacementParams{ID: placementID, TaskID: taskID, NodeID: string(startNode.ID), State: "active", CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
@@ -147,7 +156,137 @@ func (s *Store) CreateTask(ctx context.Context, req CreateTaskRequest) (TaskReco
 	if err := tx.Commit(); err != nil {
 		return TaskRecord{}, err
 	}
-	return TaskRecord{ID: workflow.TaskID(taskID), ProjectID: req.ProjectID, WorkflowID: workflow.WorkflowID(link.WorkflowID), LinkID: link.ID, ShortID: shortID, Title: title, Body: body, SourceURL: strings.TrimSpace(req.SourceURL), GraphRevision: wf.GraphRevision}, nil
+	return TaskRecord{ID: workflow.TaskID(taskID), ProjectID: req.ProjectID, WorkflowID: workflow.WorkflowID(link.WorkflowID), LinkID: link.ID, ShortID: shortID, Title: title, Body: body, SourceURL: strings.TrimSpace(req.SourceURL), SourceWorkspaceID: sourceWorkspaceID, GraphRevision: wf.GraphRevision}, nil
+}
+
+func (s *Store) UpdateTask(ctx context.Context, req UpdateTaskRequest) (TaskRecord, error) {
+	title := strings.TrimSpace(req.Title)
+	body := strings.TrimSpace(req.Body)
+	if strings.TrimSpace(string(req.TaskID)) == "" {
+		return TaskRecord{}, errors.New("task id is required")
+	}
+	if title == "" {
+		return TaskRecord{}, errors.New("task title is required")
+	}
+	now := s.now().UnixMilli()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return TaskRecord{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	q := s.queries.WithTx(tx)
+	task, err := q.GetTask(ctx, string(req.TaskID))
+	if err != nil {
+		return TaskRecord{}, err
+	}
+	if task.CanceledAtUnixMs != 0 {
+		return TaskRecord{}, fmt.Errorf("cannot edit canceled task")
+	}
+	if task.ManagedWorktreeID.Valid && strings.TrimSpace(task.ManagedWorktreeID.String) != "" {
+		return TaskRecord{}, fmt.Errorf("cannot edit task after automation starts")
+	}
+	runCount, err := q.CountTaskRunsByTask(ctx, task.ID)
+	if err != nil {
+		return TaskRecord{}, err
+	}
+	if runCount != 0 {
+		return TaskRecord{}, fmt.Errorf("cannot edit task after automation starts")
+	}
+	if _, err := q.GetActiveStartPlacementForTask(ctx, task.ID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return TaskRecord{}, fmt.Errorf("cannot edit task after automation starts")
+		}
+		return TaskRecord{}, err
+	}
+	sourceWorkspaceID := strings.TrimSpace(req.SourceWorkspaceID)
+	if sourceWorkspaceID == "" {
+		sourceWorkspaceID = strings.TrimSpace(task.SourceWorkspaceID.String)
+	}
+	sourceWorkspaceID, err = resolveTaskSourceWorkspaceWithQueries(ctx, q, task.ProjectID, sourceWorkspaceID)
+	if err != nil {
+		return TaskRecord{}, err
+	}
+	updated, err := q.UpdateTaskEditableFields(ctx, sqlitegen.UpdateTaskEditableFieldsParams{ID: task.ID, Title: title, Body: body, SourceWorkspaceID: sql.NullString{String: sourceWorkspaceID, Valid: sourceWorkspaceID != ""}, UpdatedAtUnixMs: now})
+	if err != nil {
+		return TaskRecord{}, fmt.Errorf("update task: %w", err)
+	}
+	if updated != 1 {
+		return TaskRecord{}, sql.ErrNoRows
+	}
+	row, err := q.GetTask(ctx, task.ID)
+	if err != nil {
+		return TaskRecord{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return TaskRecord{}, err
+	}
+	return taskRecordFromTask(row), nil
+}
+
+func (s *Store) resolveTaskSourceWorkspace(ctx context.Context, projectID string, workspaceID string) (string, error) {
+	trimmedProjectID := strings.TrimSpace(projectID)
+	trimmedWorkspaceID := strings.TrimSpace(workspaceID)
+	if trimmedProjectID == "" {
+		return "", errors.New("project id is required")
+	}
+	if trimmedWorkspaceID != "" {
+		workspace, err := s.metadata.GetWorkspaceByID(ctx, trimmedWorkspaceID)
+		if err != nil {
+			return "", fmt.Errorf("source workspace %q: %w", trimmedWorkspaceID, err)
+		}
+		if strings.TrimSpace(workspace.ProjectID) != trimmedProjectID {
+			return "", fmt.Errorf("source workspace %q does not belong to project %q", trimmedWorkspaceID, trimmedProjectID)
+		}
+		return trimmedWorkspaceID, nil
+	}
+	workspaces, err := s.metadata.ListProjectWorkspaces(ctx, trimmedProjectID)
+	if err != nil {
+		return "", err
+	}
+	for _, workspace := range workspaces {
+		if workspace.IsPrimary && strings.TrimSpace(workspace.WorkspaceID) != "" {
+			return strings.TrimSpace(workspace.WorkspaceID), nil
+		}
+	}
+	for _, workspace := range workspaces {
+		if strings.TrimSpace(workspace.WorkspaceID) != "" {
+			return strings.TrimSpace(workspace.WorkspaceID), nil
+		}
+	}
+	return "", fmt.Errorf("project %q has no source workspace", trimmedProjectID)
+}
+
+func resolveTaskSourceWorkspaceWithQueries(ctx context.Context, q *sqlitegen.Queries, projectID string, workspaceID string) (string, error) {
+	trimmedProjectID := strings.TrimSpace(projectID)
+	trimmedWorkspaceID := strings.TrimSpace(workspaceID)
+	if trimmedProjectID == "" {
+		return "", errors.New("project id is required")
+	}
+	if trimmedWorkspaceID != "" {
+		workspace, err := q.GetWorkspaceByID(ctx, trimmedWorkspaceID)
+		if err != nil {
+			return "", fmt.Errorf("source workspace %q: %w", trimmedWorkspaceID, err)
+		}
+		if strings.TrimSpace(workspace.ProjectID) != trimmedProjectID {
+			return "", fmt.Errorf("source workspace %q does not belong to project %q", trimmedWorkspaceID, trimmedProjectID)
+		}
+		return trimmedWorkspaceID, nil
+	}
+	workspaces, err := q.ListProjectWorkspaces(ctx, trimmedProjectID)
+	if err != nil {
+		return "", err
+	}
+	for _, workspace := range workspaces {
+		if workspace.IsPrimary != 0 && strings.TrimSpace(workspace.ID) != "" {
+			return strings.TrimSpace(workspace.ID), nil
+		}
+	}
+	for _, workspace := range workspaces {
+		if strings.TrimSpace(workspace.ID) != "" {
+			return strings.TrimSpace(workspace.ID), nil
+		}
+	}
+	return "", fmt.Errorf("project %q has no source workspace", trimmedProjectID)
 }
 
 func (s *Store) StartTask(ctx context.Context, taskID workflow.TaskID) (StartTaskResult, error) {

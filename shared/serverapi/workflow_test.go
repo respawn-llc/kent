@@ -49,11 +49,17 @@ func TestWorkflowNodeAndEdgeRequestValidation(t *testing.T) {
 }
 
 func TestWorkflowTaskAndCommentRequestValidation(t *testing.T) {
-	if err := (WorkflowTaskCreateRequest{ProjectID: "project-1", Title: "Task", Body: "Body"}).Validate(); err != nil {
+	if err := (WorkflowTaskCreateRequest{ProjectID: "project-1", Title: "Task"}).Validate(); err != nil {
 		t.Fatalf("valid task create rejected: %v", err)
 	}
 	if err := (WorkflowTaskCreateRequest{ProjectID: "project-1", Title: "", Body: "Body"}).Validate(); err == nil || !strings.Contains(err.Error(), "title") {
 		t.Fatalf("empty title error = %v", err)
+	}
+	if err := (WorkflowTaskUpdateRequest{TaskID: "task-1", Title: "Task"}).Validate(); err != nil {
+		t.Fatalf("valid task update rejected: %v", err)
+	}
+	if err := (WorkflowTaskUpdateRequest{TaskID: "task-1", Title: " "}).Validate(); err == nil || !strings.Contains(err.Error(), "title") {
+		t.Fatalf("empty update title error = %v", err)
 	}
 	if err := (WorkflowTaskStartRequest{TaskID: "task-1"}).Validate(); err != nil {
 		t.Fatalf("valid task start rejected: %v", err)

@@ -42,6 +42,7 @@ const (
 	MethodWorkflowUnlinkProject                 = "workflow.unlinkProject"
 	MethodWorkflowValidate                      = "workflow.validate"
 	MethodWorkflowTaskCreate                    = "workflow.task.create"
+	MethodWorkflowTaskUpdate                    = "workflow.task.update"
 	MethodWorkflowTaskStart                     = "workflow.task.start"
 	MethodWorkflowTaskResume                    = "workflow.task.resume"
 	MethodWorkflowTaskApprove                   = "workflow.task.approve"

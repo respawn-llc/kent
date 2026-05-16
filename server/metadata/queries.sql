@@ -519,6 +519,7 @@ INSERT INTO tasks (
     title,
     body,
     source_url,
+    source_workspace_id,
     managed_worktree_id,
     canceled_at_unix_ms,
     cancellation_reason,
@@ -536,6 +537,7 @@ INSERT INTO tasks (
     sqlc.arg(title),
     sqlc.arg(body),
     sqlc.arg(source_url),
+    sqlc.narg(source_workspace_id),
     sqlc.narg(managed_worktree_id),
     0,
     '',
@@ -556,6 +558,7 @@ SELECT
     title,
     body,
     source_url,
+    source_workspace_id,
     managed_worktree_id,
     canceled_at_unix_ms,
     cancellation_reason,
@@ -585,6 +588,7 @@ SELECT
     title,
     body,
     source_url,
+    source_workspace_id,
     managed_worktree_id,
     canceled_at_unix_ms,
     cancellation_reason,
@@ -594,6 +598,20 @@ SELECT
 FROM tasks
 WHERE project_id = sqlc.arg(project_id)
 ORDER BY updated_at_unix_ms DESC, rowid DESC;
+
+-- name: UpdateTaskEditableFields :execrows
+UPDATE tasks
+SET
+    title = sqlc.arg(title),
+    body = sqlc.arg(body),
+    source_workspace_id = sqlc.narg(source_workspace_id),
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
+WHERE id = sqlc.arg(id);
+
+-- name: CountTaskRunsByTask :one
+SELECT CAST(COUNT(*) AS INTEGER) AS run_count
+FROM task_runs
+WHERE task_id = sqlc.arg(task_id);
 
 -- name: CountNonTerminalTasksByManagedWorktree :one
 SELECT CAST(COUNT(DISTINCT t.id) AS INTEGER) AS ref_count

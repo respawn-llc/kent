@@ -161,7 +161,7 @@ func (s *Service) EnsureTaskWorktree(ctx context.Context, req EnsureTaskWorktree
 		}
 		return EnsureTaskWorktreeResponse{Worktree: view}, nil
 	}
-	workspace, err := s.taskSourceWorkspace(ctx, task.ProjectID)
+	workspace, err := s.taskSourceWorkspace(ctx, task.ProjectID, task.SourceWorkspaceID.String)
 	if err != nil {
 		return EnsureTaskWorktreeResponse{}, err
 	}
@@ -249,7 +249,21 @@ type taskSourceWorkspace struct {
 	RootPath    string
 }
 
-func (s *Service) taskSourceWorkspace(ctx context.Context, projectID string) (taskSourceWorkspace, error) {
+func (s *Service) taskSourceWorkspace(ctx context.Context, projectID string, sourceWorkspaceID string) (taskSourceWorkspace, error) {
+	trimmedSourceWorkspaceID := strings.TrimSpace(sourceWorkspaceID)
+	if trimmedSourceWorkspaceID != "" {
+		workspace, err := s.metadata.GetWorkspaceByID(ctx, trimmedSourceWorkspaceID)
+		if err != nil {
+			return taskSourceWorkspace{}, err
+		}
+		if strings.TrimSpace(workspace.ProjectID) != strings.TrimSpace(projectID) {
+			return taskSourceWorkspace{}, fmt.Errorf("task source workspace %q does not belong to project %q", trimmedSourceWorkspaceID, strings.TrimSpace(projectID))
+		}
+		if strings.TrimSpace(workspace.CanonicalRootPath) == "" {
+			return taskSourceWorkspace{}, fmt.Errorf("task source workspace %q has no root path", trimmedSourceWorkspaceID)
+		}
+		return taskSourceWorkspace{WorkspaceID: workspace.ID, RootPath: workspace.CanonicalRootPath}, nil
+	}
 	workspaces, err := s.metadata.ListProjectWorkspaces(ctx, projectID)
 	if err != nil {
 		return taskSourceWorkspace{}, err

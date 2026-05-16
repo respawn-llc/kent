@@ -81,6 +81,45 @@ func TestBoardAndTaskDetailUseDurableWorkflowMetadataOnly(t *testing.T) {
 	}
 }
 
+func TestBoardAndTaskDetailProjectTaskSourceWorkspaceAndBody(t *testing.T) {
+	ctx := context.Background()
+	store, workflowStore, binding := newWorkflowViewTestStore(t)
+	view, err := New(store)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	source, err := store.AttachWorkspaceToProject(ctx, binding.ProjectID, t.TempDir())
+	if err != nil {
+		t.Fatalf("AttachWorkspaceToProject source: %v", err)
+	}
+	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
+	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: strings.Repeat("a", 120), SourceWorkspaceID: source.WorkspaceID})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	board, err := view.GetBoard(ctx, serverapi.WorkflowBoardRequest{ProjectID: binding.ProjectID}, workflow.StaticRoleResolver{"coder": true})
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	if len(board.Cards) != 1 || board.Cards[0].SourceWorkspace.WorkspaceID != source.WorkspaceID || board.Cards[0].BodyPreview == "" {
+		t.Fatalf("board cards = %+v, want source workspace %q and body preview", board.Cards, source.WorkspaceID)
+	}
+	detail, err := view.GetTask(ctx, string(task.ID))
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if detail.Summary.SourceWorkspaceID != source.WorkspaceID || detail.SourceWorkspace.WorkspaceID != source.WorkspaceID || detail.Body != strings.Repeat("a", 120) {
+		t.Fatalf("detail = %+v, want source workspace %q and body", detail, source.WorkspaceID)
+	}
+	if detail.Summary.BodyPreview == "" || detail.Summary.CreatedAtUnixMs == 0 || detail.Summary.UpdatedAtUnixMs == 0 {
+		t.Fatalf("detail summary missing preview/timestamps: %+v", detail.Summary)
+	}
+}
+
 func TestBoardAndTaskDetailProjectParallelBranchPlacements(t *testing.T) {
 	ctx := context.Background()
 	store, workflowStore, binding := newWorkflowViewTestStore(t)

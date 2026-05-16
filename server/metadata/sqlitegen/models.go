@@ -73,6 +73,7 @@ type Task struct {
 	Title                 string
 	Body                  string
 	SourceUrl             string
+	SourceWorkspaceID     sql.NullString
 	ManagedWorktreeID     sql.NullString
 	CanceledAtUnixMs      int64
 	CancellationReason    string

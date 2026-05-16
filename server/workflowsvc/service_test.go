@@ -74,6 +74,57 @@ func TestServiceCreatesValidatesLinksAndStartsDefaultWorkflowTask(t *testing.T) 
 	}
 }
 
+func TestServiceCreatesAndUpdatesTaskSourceWorkspaceBeforeStart(t *testing.T) {
+	ctx := context.Background()
+	service, binding, metadataStore := newWorkflowServiceTestServiceWithMetadata(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	if _, err := service.LinkWorkflowToProject(ctx, serverapi.WorkflowLinkProjectRequest{ProjectID: binding.ProjectID, WorkflowID: workflowID, Default: true}); err != nil {
+		t.Fatalf("LinkWorkflowToProject: %v", err)
+	}
+	source, err := metadataStore.AttachWorkspaceToProject(ctx, binding.ProjectID, t.TempDir())
+	if err != nil {
+		t.Fatalf("AttachWorkspaceToProject source: %v", err)
+	}
+
+	created, err := service.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{ProjectID: binding.ProjectID, Title: "Task", SourceWorkspaceID: source.WorkspaceID})
+	if err != nil {
+		t.Fatalf("CreateWorkflowTask: %v", err)
+	}
+	if created.Task.SourceWorkspaceID != source.WorkspaceID || created.Task.BodyPreview != "" {
+		t.Fatalf("created task = %+v", created.Task)
+	}
+	updated, err := service.UpdateWorkflowTask(ctx, serverapi.WorkflowTaskUpdateRequest{TaskID: created.Task.ID, Title: "Updated", Body: "Details", SourceWorkspaceID: binding.WorkspaceID})
+	if err != nil {
+		t.Fatalf("UpdateWorkflowTask: %v", err)
+	}
+	if updated.Task.Title != "Updated" || updated.Task.SourceWorkspaceID != binding.WorkspaceID || updated.Task.BodyPreview != "Details" {
+		t.Fatalf("updated task = %+v", updated.Task)
+	}
+	started, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{TaskID: created.Task.ID})
+	if err != nil {
+		t.Fatalf("StartWorkflowTask: %v", err)
+	}
+	if started.RunID == "" {
+		t.Fatalf("start response = %+v", started)
+	}
+	if _, err := service.UpdateWorkflowTask(ctx, serverapi.WorkflowTaskUpdateRequest{TaskID: created.Task.ID, Title: "Too late", Body: "", SourceWorkspaceID: binding.WorkspaceID}); err == nil || !strings.Contains(err.Error(), "automation starts") {
+		t.Fatalf("UpdateWorkflowTask after start error = %v", err)
+	}
+	events, err := service.store.ListWorkflowEventsAfter(ctx, binding.ProjectID, 0, 100)
+	if err != nil {
+		t.Fatalf("ListWorkflowEvents: %v", err)
+	}
+	actions := map[string]bool{}
+	for _, event := range events {
+		if event.Resource == "task" {
+			actions[event.Action] = true
+		}
+	}
+	if !actions["created"] || !actions["updated"] || !actions["started"] {
+		t.Fatalf("task events = %+v, want created/updated/started", events)
+	}
+}
+
 func TestServiceTaskStartValidatesCurrentGraph(t *testing.T) {
 	ctx := context.Background()
 	service, binding := newWorkflowServiceTestService(t)

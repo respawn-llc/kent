@@ -72,10 +72,12 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 		return serverapi.WorkflowBoard{}, err
 	}
 	primaryWorkspace := serverapi.ProjectWorkspaceSummary{}
+	workspacesByID := map[string]serverapi.ProjectWorkspaceSummary{}
 	for _, workspace := range project.Workspaces {
+		dto := projectWorkspaceSummary(workspace)
+		workspacesByID[dto.WorkspaceID] = dto
 		if workspace.IsPrimary {
-			primaryWorkspace = projectWorkspaceSummary(workspace)
-			break
+			primaryWorkspace = dto
 		}
 	}
 	placementsByTaskID, err := s.boardPlacementsByTask(ctx, tasks)
@@ -156,7 +158,7 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 		if task.WorkflowID != selected.WorkflowID {
 			continue
 		}
-		card, done, err := s.taskCard(ctx, task, placementsByTaskID[task.ID], nodeKinds, primaryWorkspace)
+		card, done, err := s.taskCard(ctx, task, placementsByTaskID[task.ID], nodeKinds, sourceWorkspaceForTask(task, workspacesByID, primaryWorkspace))
 		if err != nil {
 			return serverapi.WorkflowBoard{}, err
 		}
@@ -244,7 +246,20 @@ func (s *Service) GetTask(ctx context.Context, taskID string) (serverapi.Workflo
 	if err != nil {
 		return serverapi.WorkflowTaskDetail{}, err
 	}
-	detail := serverapi.WorkflowTaskDetail{Summary: taskSummary(task, placements, nodeKinds)}
+	project, err := s.metadata.GetProjectOverview(ctx, task.ProjectID)
+	if err != nil {
+		return serverapi.WorkflowTaskDetail{}, err
+	}
+	primaryWorkspace := serverapi.ProjectWorkspaceSummary{}
+	workspacesByID := map[string]serverapi.ProjectWorkspaceSummary{}
+	for _, workspace := range project.Workspaces {
+		dto := projectWorkspaceSummary(workspace)
+		workspacesByID[dto.WorkspaceID] = dto
+		if workspace.IsPrimary {
+			primaryWorkspace = dto
+		}
+	}
+	detail := serverapi.WorkflowTaskDetail{Summary: taskSummary(task, placements, nodeKinds), Body: task.Body, SourceURL: task.SourceUrl, SourceWorkspace: sourceWorkspaceForTask(task, workspacesByID, primaryWorkspace)}
 	for _, placement := range placements {
 		detail.Placements = append(detail.Placements, placementDTO(placement))
 	}
@@ -332,7 +347,7 @@ func (s *Service) definition(ctx context.Context, workflowID string) (serverapi.
 }
 
 func taskSummary(task sqlitegen.Task, placements []sqlitegen.TaskNodePlacement, nodeKinds map[string]workflow.NodeKind) serverapi.WorkflowTaskSummary {
-	summary := serverapi.WorkflowTaskSummary{ID: task.ID, ProjectID: task.ProjectID, WorkflowID: task.WorkflowID, ShortID: task.ShortID, Title: task.Title, CanceledAt: task.CanceledAtUnixMs, CancelReason: task.CancellationReason}
+	summary := serverapi.WorkflowTaskSummary{ID: task.ID, ProjectID: task.ProjectID, WorkflowID: task.WorkflowID, ShortID: task.ShortID, Title: task.Title, BodyPreview: bodyPreview(task.Body), SourceWorkspaceID: strings.TrimSpace(task.SourceWorkspaceID.String), CanceledAt: task.CanceledAtUnixMs, CancelReason: task.CancellationReason, CreatedAtUnixMs: task.CreatedAtUnixMs, UpdatedAtUnixMs: task.UpdatedAtUnixMs}
 	seenActive := map[string]bool{}
 	for _, placement := range placements {
 		if placement.State != "active" && placement.State != "waiting_approval" {
@@ -375,6 +390,22 @@ func projectBoardProject(project clientui.ProjectOverview) serverapi.ProjectBoar
 
 func projectWorkspaceSummary(workspace clientui.ProjectWorkspaceSummary) serverapi.ProjectWorkspaceSummary {
 	return serverapi.ProjectWorkspaceSummary{WorkspaceID: workspace.WorkspaceID, DisplayName: workspace.DisplayName, RootPath: workspace.RootPath, Availability: string(workspace.Availability), IsPrimary: workspace.IsPrimary, UpdatedAtUnixMs: workspace.UpdatedAt.UnixMilli()}
+}
+
+func sourceWorkspaceForTask(task sqlitegen.Task, workspacesByID map[string]serverapi.ProjectWorkspaceSummary, fallback serverapi.ProjectWorkspaceSummary) serverapi.ProjectWorkspaceSummary {
+	if workspace, ok := workspacesByID[strings.TrimSpace(task.SourceWorkspaceID.String)]; ok {
+		return workspace
+	}
+	return fallback
+}
+
+func bodyPreview(body string) string {
+	trimmed := strings.TrimSpace(body)
+	const limit = 96
+	if len(trimmed) <= limit {
+		return trimmed
+	}
+	return trimmed[:limit]
 }
 
 func definitionForValidation(def serverapi.WorkflowDefinition) workflow.Definition {
@@ -466,7 +497,7 @@ func (s *Service) taskCard(ctx context.Context, task sqlitegen.Task, placements 
 		return serverapi.WorkflowBoardTaskCard{}, false, err
 	}
 	status, actions := taskStatusAndActions(task, summary, placements, runs, nodeKinds)
-	return serverapi.WorkflowBoardTaskCard{TaskID: task.ID, ShortID: task.ShortID, Title: task.Title, WorkflowID: task.WorkflowID, ActiveNodeIDs: summary.ActiveNodeIDs, SourceWorkspace: sourceWorkspace, Status: status, Actions: actions, UpdatedAtUnixMs: task.UpdatedAtUnixMs}, summary.Done, nil
+	return serverapi.WorkflowBoardTaskCard{TaskID: task.ID, ShortID: task.ShortID, Title: task.Title, BodyPreview: summary.BodyPreview, WorkflowID: task.WorkflowID, ActiveNodeIDs: summary.ActiveNodeIDs, SourceWorkspace: sourceWorkspace, Status: status, Actions: actions, UpdatedAtUnixMs: task.UpdatedAtUnixMs}, summary.Done, nil
 }
 
 func taskStatusAndActions(task sqlitegen.Task, summary serverapi.WorkflowTaskSummary, placements []sqlitegen.TaskNodePlacement, runs []sqlitegen.TaskRun, nodeKinds map[string]workflow.NodeKind) (serverapi.WorkflowTaskStatus, serverapi.WorkflowTaskActions) {

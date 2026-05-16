@@ -271,14 +271,26 @@ type WorkflowValidationError struct {
 }
 
 type WorkflowTaskCreateRequest struct {
-	ProjectID  string `json:"project_id"`
-	WorkflowID string `json:"workflow_id,omitempty"`
-	Title      string `json:"title"`
-	Body       string `json:"body"`
-	SourceURL  string `json:"source_url,omitempty"`
+	ProjectID         string `json:"project_id"`
+	WorkflowID        string `json:"workflow_id,omitempty"`
+	Title             string `json:"title"`
+	Body              string `json:"body,omitempty"`
+	SourceURL         string `json:"source_url,omitempty"`
+	SourceWorkspaceID string `json:"source_workspace_id,omitempty"`
 }
 
 type WorkflowTaskCreateResponse struct {
+	Task WorkflowTaskSummary `json:"task"`
+}
+
+type WorkflowTaskUpdateRequest struct {
+	TaskID            string `json:"task_id"`
+	Title             string `json:"title"`
+	Body              string `json:"body,omitempty"`
+	SourceWorkspaceID string `json:"source_workspace_id,omitempty"`
+}
+
+type WorkflowTaskUpdateResponse struct {
 	Task WorkflowTaskSummary `json:"task"`
 }
 
@@ -437,6 +449,7 @@ type WorkflowBoardTaskCard struct {
 	TaskID          string                  `json:"task_id"`
 	ShortID         string                  `json:"short_id"`
 	Title           string                  `json:"title"`
+	BodyPreview     string                  `json:"body_preview,omitempty"`
 	WorkflowID      string                  `json:"workflow_id"`
 	ActiveNodeIDs   []string                `json:"active_node_ids,omitempty"`
 	SourceWorkspace ProjectWorkspaceSummary `json:"source_workspace"`
@@ -506,23 +519,30 @@ type WorkflowTaskGetResponse struct {
 }
 
 type WorkflowTaskSummary struct {
-	ID            string   `json:"id"`
-	ProjectID     string   `json:"project_id"`
-	WorkflowID    string   `json:"workflow_id"`
-	ShortID       string   `json:"short_id"`
-	Title         string   `json:"title"`
-	CanceledAt    int64    `json:"canceled_at_unix_ms"`
-	CancelReason  string   `json:"cancel_reason,omitempty"`
-	Done          bool     `json:"done"`
-	ActiveNodeIDs []string `json:"active_node_ids,omitempty"`
+	ID                string   `json:"id"`
+	ProjectID         string   `json:"project_id"`
+	WorkflowID        string   `json:"workflow_id"`
+	ShortID           string   `json:"short_id"`
+	Title             string   `json:"title"`
+	BodyPreview       string   `json:"body_preview,omitempty"`
+	SourceWorkspaceID string   `json:"source_workspace_id,omitempty"`
+	CanceledAt        int64    `json:"canceled_at_unix_ms"`
+	CancelReason      string   `json:"cancel_reason,omitempty"`
+	CreatedAtUnixMs   int64    `json:"created_at_unix_ms"`
+	UpdatedAtUnixMs   int64    `json:"updated_at_unix_ms"`
+	Done              bool     `json:"done"`
+	ActiveNodeIDs     []string `json:"active_node_ids,omitempty"`
 }
 
 type WorkflowTaskDetail struct {
-	Summary     WorkflowTaskSummary      `json:"summary"`
-	Placements  []WorkflowPlacement      `json:"placements"`
-	Runs        []WorkflowRun            `json:"runs"`
-	Transitions []WorkflowTaskTransition `json:"transitions"`
-	Comments    []WorkflowTaskComment    `json:"comments"`
+	Summary         WorkflowTaskSummary      `json:"summary"`
+	Body            string                   `json:"body"`
+	SourceURL       string                   `json:"source_url,omitempty"`
+	SourceWorkspace ProjectWorkspaceSummary  `json:"source_workspace"`
+	Placements      []WorkflowPlacement      `json:"placements"`
+	Runs            []WorkflowRun            `json:"runs"`
+	Transitions     []WorkflowTaskTransition `json:"transitions"`
+	Comments        []WorkflowTaskComment    `json:"comments"`
 }
 
 type WorkflowPlacement struct {
@@ -736,7 +756,16 @@ func (r WorkflowValidateRequest) Validate() error {
 }
 
 func (r WorkflowTaskCreateRequest) Validate() error {
-	for _, field := range []struct{ name, value string }{{"project_id", r.ProjectID}, {"title", r.Title}, {"body", r.Body}} {
+	for _, field := range []struct{ name, value string }{{"project_id", r.ProjectID}, {"title", r.Title}} {
+		if err := validateRequired(field.name, field.value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r WorkflowTaskUpdateRequest) Validate() error {
+	for _, field := range []struct{ name, value string }{{"task_id", r.TaskID}, {"title", r.Title}} {
 		if err := validateRequired(field.name, field.value); err != nil {
 			return err
 		}

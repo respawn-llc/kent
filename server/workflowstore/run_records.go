@@ -36,6 +36,7 @@ func taskRecordFromTask(row sqlitegen.Task) TaskRecord {
 		Title:             row.Title,
 		Body:              row.Body,
 		SourceURL:         row.SourceUrl,
+		SourceWorkspaceID: strings.TrimSpace(row.SourceWorkspaceID.String),
 		ManagedWorktreeID: strings.TrimSpace(row.ManagedWorktreeID.String),
 		CanceledAt:        row.CanceledAtUnixMs,
 		CancelReason:      row.CancellationReason,

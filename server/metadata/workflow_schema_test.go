@@ -129,6 +129,29 @@ func TestWorkflowSchemaConstraints(t *testing.T) {
 	assertSQLiteConstraint(t, store.db, `INSERT INTO task_comments (id, task_id, body, author_kind, created_at_unix_ms, updated_at_unix_ms) VALUES ('comment-too-large', 'task-1', ?, 'agent', 1, 1)`, strings.Repeat("a", 262145))
 }
 
+func TestTaskSchemaAllowsEmptyBodyAndProjectScopedSourceWorkspace(t *testing.T) {
+	store, _, binding := newMetadataTestStore(t)
+	ctx := t.Context()
+	other, err := store.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
+	if err != nil {
+		t.Fatalf("CreateProjectForWorkspace: %v", err)
+	}
+	source, err := store.AttachWorkspaceToProject(ctx, binding.ProjectID, t.TempDir())
+	if err != nil {
+		t.Fatalf("AttachWorkspaceToProject source: %v", err)
+	}
+	now := time.Now().UTC().UnixMilli()
+	seedWorkflowGraph(t, store.db, binding.ProjectID, now)
+	seedWorkflowGraphForProject(t, store.db, other.ProjectID, now, "2")
+
+	if _, err := store.db.Exec(`INSERT INTO tasks (id, project_id, project_workflow_link_id, workflow_id, workflow_revision_seen, task_seq, short_id, title, body, source_workspace_id, created_at_unix_ms, updated_at_unix_ms, metadata_json)
+VALUES ('task-empty-body', ?, 'link-1', 'workflow-1', 1, 1, 'BLD-1', 'Task', '', ?, ?, ?, '{}')`, binding.ProjectID, source.WorkspaceID, now, now); err != nil {
+		t.Fatalf("empty task body with source workspace should be allowed: %v", err)
+	}
+	assertSQLiteConstraint(t, store.db, `INSERT INTO tasks (id, project_id, project_workflow_link_id, workflow_id, workflow_revision_seen, task_seq, short_id, title, body, source_workspace_id, created_at_unix_ms, updated_at_unix_ms, metadata_json)
+VALUES ('task-foreign-workspace', ?, 'link-2', 'workflow-2', 1, 1, 'OTH-1', 'Task', '', ?, ?, ?, '{}')`, other.ProjectID, source.WorkspaceID, now, now)
+}
+
 func TestTaskShortIDUniquenessIsProjectScoped(t *testing.T) {
 	store, _, binding := newMetadataTestStore(t)
 	ctx := t.Context()

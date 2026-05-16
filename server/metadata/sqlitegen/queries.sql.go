@@ -303,6 +303,19 @@ func (q *Queries) CountTaskNodeReferences(ctx context.Context, nodeID string) (i
 	return ref_count, err
 }
 
+const countTaskRunsByTask = `-- name: CountTaskRunsByTask :one
+SELECT CAST(COUNT(*) AS INTEGER) AS run_count
+FROM task_runs
+WHERE task_id = ?1
+`
+
+func (q *Queries) CountTaskRunsByTask(ctx context.Context, taskID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countTaskRunsByTask, taskID)
+	var run_count int64
+	err := row.Scan(&run_count)
+	return run_count, err
+}
+
 const countTasksByProjectWorkflowLink = `-- name: CountTasksByProjectWorkflowLink :one
 SELECT CAST(COUNT(*) AS INTEGER) AS task_count
 FROM tasks
@@ -799,6 +812,7 @@ SELECT
     title,
     body,
     source_url,
+    source_workspace_id,
     managed_worktree_id,
     canceled_at_unix_ms,
     cancellation_reason,
@@ -824,6 +838,7 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.Title,
 		&i.Body,
 		&i.SourceUrl,
+		&i.SourceWorkspaceID,
 		&i.ManagedWorktreeID,
 		&i.CanceledAtUnixMs,
 		&i.CancellationReason,
@@ -1398,6 +1413,7 @@ INSERT INTO tasks (
     title,
     body,
     source_url,
+    source_workspace_id,
     managed_worktree_id,
     canceled_at_unix_ms,
     cancellation_reason,
@@ -1416,11 +1432,12 @@ INSERT INTO tasks (
     ?9,
     ?10,
     ?11,
+    ?12,
     0,
     '',
-    ?12,
     ?13,
-    ?14
+    ?14,
+    ?15
 )
 `
 
@@ -1435,6 +1452,7 @@ type InsertTaskParams struct {
 	Title                 string
 	Body                  string
 	SourceUrl             string
+	SourceWorkspaceID     sql.NullString
 	ManagedWorktreeID     sql.NullString
 	CreatedAtUnixMs       int64
 	UpdatedAtUnixMs       int64
@@ -1453,6 +1471,7 @@ func (q *Queries) InsertTask(ctx context.Context, arg InsertTaskParams) error {
 		arg.Title,
 		arg.Body,
 		arg.SourceUrl,
+		arg.SourceWorkspaceID,
 		arg.ManagedWorktreeID,
 		arg.CreatedAtUnixMs,
 		arg.UpdatedAtUnixMs,
@@ -3128,6 +3147,7 @@ SELECT
     title,
     body,
     source_url,
+    source_workspace_id,
     managed_worktree_id,
     canceled_at_unix_ms,
     cancellation_reason,
@@ -3159,6 +3179,7 @@ func (q *Queries) ListTasksByProject(ctx context.Context, projectID string) ([]T
 			&i.Title,
 			&i.Body,
 			&i.SourceUrl,
+			&i.SourceWorkspaceID,
 			&i.ManagedWorktreeID,
 			&i.CanceledAtUnixMs,
 			&i.CancellationReason,
@@ -3749,6 +3770,38 @@ type UpdateTaskCommentBodyParams struct {
 
 func (q *Queries) UpdateTaskCommentBody(ctx context.Context, arg UpdateTaskCommentBodyParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateTaskCommentBody, arg.Body, arg.UpdatedAtUnixMs, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateTaskEditableFields = `-- name: UpdateTaskEditableFields :execrows
+UPDATE tasks
+SET
+    title = ?1,
+    body = ?2,
+    source_workspace_id = ?3,
+    updated_at_unix_ms = ?4
+WHERE id = ?5
+`
+
+type UpdateTaskEditableFieldsParams struct {
+	Title             string
+	Body              string
+	SourceWorkspaceID sql.NullString
+	UpdatedAtUnixMs   int64
+	ID                string
+}
+
+func (q *Queries) UpdateTaskEditableFields(ctx context.Context, arg UpdateTaskEditableFieldsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateTaskEditableFields,
+		arg.Title,
+		arg.Body,
+		arg.SourceWorkspaceID,
+		arg.UpdatedAtUnixMs,
+		arg.ID,
+	)
 	if err != nil {
 		return 0, err
 	}

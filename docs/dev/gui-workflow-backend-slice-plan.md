@@ -734,7 +734,7 @@ Current status:
 - [x] Slice 0 implementation complete.
 - [x] Slice 1 Home/project admin/project key/workspaces implementation complete.
 - [x] Slice 2 workflow picker, selected board, groups, and live updates implementation complete.
-- [ ] Next action: implement Slice 3 task source workspace and Backlog editing.
+- [ ] Next action: implement Slice 4 actions, attention inbox, questions, and approvals.
 
 Source-of-truth rules:
 
@@ -854,7 +854,7 @@ Completion criteria:
 
 ### Slice 3 Checklist: Task Source Workspace And Backlog Editing
 
-Status: not started.
+Status: complete.
 
 Goal: GUI can create Backlog tasks with optional body and selected main/source workspace, then edit those fields until automation starts.
 
@@ -862,28 +862,28 @@ Boundary note: drag-to-start is user-facing task operation scope, but Slice 3 ve
 
 Implementation checklist:
 
-- [ ] Recon task schema/store/create/start/update paths, worktree creation, workspace foreign keys, and task detail/board read models.
-- [ ] Add failing migration/store tests for `tasks.source_workspace_id`, project-bound workspace invariant, backfill/default behavior, and legacy fallback.
-- [ ] Add failing service/API tests for task create with selected workspace, omitted body, omitted workspace defaulting to primary, and foreign-project workspace rejection.
-- [ ] Add failing tests for `workflow.task.update` editing title/body/source workspace before start and rejecting edits after start/cancel.
-- [ ] Add failing tests for GUI drag-to-start/drop semantics using `workflow.task.start`: Backlog task dropped onto first active node starts immediately, uses selected workflow/source workspace, and emits invalidation.
-- [ ] Add failing tests that `EnsureTaskWorktree` uses task source workspace before primary fallback.
-- [ ] Add migration with DB-level project-bound invariant when feasible; otherwise enforce equivalent checked transaction and document reason in code.
-- [ ] Update task create validation so body is optional.
-- [ ] Add task source workspace fields to summary/detail/card DTOs and read models.
-- [ ] Wire `workflow.task.update` through DTOs, route registry, service contract, client, and transport.
-- [ ] Confirm existing `workflow.task.start` is sufficient for GUI drop-to-start or narrow its request/validation without adding a visible Start button concept.
-- [ ] Update worktree service to select source workspace first.
-- [ ] Sync GUI docs if pre-start edit rules or workspace labels change.
+- [x] Recon task schema/store/create/start/update paths, worktree creation, workspace foreign keys, and task detail/board read models.
+- [x] Add failing migration/store tests for `tasks.source_workspace_id`, project-bound workspace invariant, backfill/default behavior, and legacy fallback.
+- [x] Add failing service/API tests for task create with selected workspace, omitted body, omitted workspace defaulting to primary, and foreign-project workspace rejection.
+- [x] Add failing tests for `workflow.task.update` editing title/body/source workspace before start and rejecting edits after start/cancel.
+- [x] Add failing tests for GUI drag-to-start/drop semantics using `workflow.task.start`: Backlog task dropped onto first active node starts immediately, uses selected workflow/source workspace, and emits invalidation.
+- [x] Add failing tests that `EnsureTaskWorktree` uses task source workspace before primary fallback.
+- [x] Add migration with DB-level project-bound invariant when feasible; otherwise enforce equivalent checked transaction and document reason in code.
+- [x] Update task create validation so body is optional.
+- [x] Add task source workspace fields to summary/detail/card DTOs and read models.
+- [x] Wire `workflow.task.update` through DTOs, route registry, service contract, client, and transport.
+- [x] Confirm existing `workflow.task.start` is sufficient for GUI drop-to-start or narrow its request/validation without adding a visible Start button concept.
+- [x] Update worktree service to select source workspace first.
+- [x] Sync GUI docs if pre-start edit rules or workspace labels change.
 
 Completion criteria:
 
-- [ ] New tasks persist source workspace and optional body.
-- [ ] Task source workspace is immutable after first run/start.
-- [ ] Worktree creation uses selected source workspace.
-- [ ] Drag-to-start behavior is covered by server tests and invalidation events.
-- [ ] Board/task detail expose source workspace from persisted task state.
-- [ ] Verification commands pass:
+- [x] New tasks persist source workspace and optional body.
+- [x] Task source workspace is immutable after first run/start.
+- [x] Worktree creation uses selected source workspace.
+- [x] Drag-to-start behavior is covered by server tests and invalidation events.
+- [x] Board/task detail expose source workspace from persisted task state.
+- [x] Verification commands pass:
   - `./scripts/test.sh ./shared/serverapi ./shared/servicecontract ./shared/client ./shared/protocol ./shared/rpccontract ./server/transport ./server/metadata ./server/workflowsvc ./server/workflowstore ./server/workflowview ./server/worktree`
   - `./scripts/build.sh --output ./bin/builder`
 
