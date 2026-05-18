@@ -138,11 +138,12 @@ function BoardContent({
     }
 
     return (
-        <div
-            className="h-full min-h-0"
-            data-testid="board-transition-source"
-            style={{ viewTransitionName: projectToBoardTransitionName }}
-        >
+        <div className="relative h-full min-h-0">
+            <div
+                className="pointer-events-none absolute left-0 top-0 h-0 w-full"
+                data-testid="board-transition-source"
+                style={{ viewTransitionName: projectToBoardTransitionName }}
+            />
             <div className="h-full min-h-0 overflow-visible" role="list">
                 <div className="flex h-full min-h-0 gap-[var(--space-3)]">
                     {sections.map((section) =>
