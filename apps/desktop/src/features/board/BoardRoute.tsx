@@ -139,7 +139,7 @@ function BoardContent({
     return (
         <div className="h-full min-h-0 overflow-x-auto" role="list">
             <div
-                className="flex h-full min-h-0 w-max min-w-full gap-[var(--space-3)] p-[var(--space-2)]"
+                className="flex h-full min-h-0 w-max min-w-full gap-[var(--space-3)] px-[var(--space-2)] pb-[var(--space-2)]"
                 data-testid="board-column-rail"
             >
                 {sections.map((section) =>

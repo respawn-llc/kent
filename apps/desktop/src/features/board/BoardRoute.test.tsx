@@ -101,7 +101,13 @@ describe("BoardRoute", () => {
     expect(screen.getByRole("listitem", { name: "Backlog" })).toHaveClass("w-[min(560px,80vw)]", "shrink-0");
     expect(screen.queryByRole("button", { name: "Expand Done" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("board-transition-source")).not.toBeInTheDocument();
-    expect(screen.getByTestId("board-column-rail")).toHaveClass("w-max", "min-w-full", "p-[var(--space-2)]");
+    expect(screen.getByTestId("board-column-rail")).toHaveClass(
+      "w-max",
+      "min-w-full",
+      "px-[var(--space-2)]",
+      "pb-[var(--space-2)]",
+    );
+    expect(screen.getByTestId("board-column-rail")).not.toHaveClass("pt-[var(--space-2)]", "p-[var(--space-2)]");
     expect(screen.getByTestId("kanban-column-scroll-backlog")).toHaveClass(
       "overflow-y-auto",
       "pr-[var(--space-1)]",
