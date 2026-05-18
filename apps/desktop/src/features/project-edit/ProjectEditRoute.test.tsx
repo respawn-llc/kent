@@ -39,6 +39,7 @@ describe("ProjectEditRoute", () => {
     render(<App services={services} />);
 
     expect(await screen.findByRole("heading", { name: "Workspaces" })).toHaveClass("font-bold");
+    expect(screen.getByTestId("route-transition-frame")).toHaveClass("p-[var(--space-2)]");
     expect(screen.getByTestId("app-chrome-title")).toHaveTextContent("Project");
     expect(screen.queryByRole("heading", { name: "Project edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();

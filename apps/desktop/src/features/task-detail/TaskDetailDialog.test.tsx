@@ -33,6 +33,7 @@ describe("TaskDetailDialog", () => {
     render(<App services={services} />);
 
     const recommendedOption = await screen.findByRole("radio", { name: /Use option A/u });
+    expect(screen.getByTestId("route-transition-frame")).toHaveClass("p-[var(--space-2)]");
     expect(recommendedOption).toBeInTheDocument();
     fireEvent.click(recommendedOption);
     fireEvent.click(screen.getByRole("button", { name: "Submit answer" }));
