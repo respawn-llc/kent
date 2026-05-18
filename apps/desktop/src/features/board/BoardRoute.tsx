@@ -138,7 +138,7 @@ function BoardContent({
 
     return (
         <div className="h-full min-h-0">
-            <div className="h-full min-h-0 overflow-visible" role="list">
+            <div className="h-full min-h-0 overflow-x-auto pb-[var(--space-2)]" role="list">
                 <div className="flex h-full min-h-0 gap-[var(--space-3)]">
                     {sections.map((section) =>
                         section.kind === "group" ? (

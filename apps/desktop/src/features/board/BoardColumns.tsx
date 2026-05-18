@@ -117,7 +117,7 @@ export function KanbanColumn({
   return (
     <section
       aria-label={column.name}
-      className="island-glass grid h-full min-h-0 w-[min(320px,80vw)] grid-rows-[auto_auto_auto_minmax(0,1fr)] gap-[var(--space-3)] rounded-[var(--radius-xl)] p-[var(--space-3)] align-top"
+      className="island-glass grid h-full min-h-0 w-[min(560px,80vw)] shrink-0 grid-rows-[auto_auto_auto_minmax(0,1fr)] gap-[var(--space-3)] rounded-[var(--radius-xl)] p-[var(--space-3)] align-top"
       onDragOver={(event) => {
         event.preventDefault();
       }}

@@ -89,10 +89,15 @@ describe("BoardRoute", () => {
     expect(screen.queryByRole("heading", { name: "Project" })).not.toBeInTheDocument();
     expect(screen.queryByText("proj")).not.toBeInTheDocument();
     expect(screen.queryByText("Drag Backlog task to first active node to start automation.")).not.toBeInTheDocument();
-    expect(screen.getByRole("list")).toHaveClass("overflow-visible");
-    expect(screen.getByRole("list")).not.toHaveClass("overflow-y-hidden", "pb-[var(--shadow-bleed-island)]");
+    expect(screen.getByRole("list")).toHaveClass("overflow-x-auto", "pb-[var(--space-2)]");
+    expect(screen.getByRole("list")).not.toHaveClass(
+      "hide-scrollbar",
+      "overflow-y-hidden",
+      "pb-[var(--shadow-bleed-island)]",
+    );
     expect(screen.getByText("coder")).toBeInTheDocument();
     expect(screen.getByRole("listitem", { name: "Backlog" })).toHaveClass("island-glass");
+    expect(screen.getByRole("listitem", { name: "Backlog" })).toHaveClass("w-[min(560px,80vw)]", "shrink-0");
     expect(screen.queryByRole("button", { name: "Expand Done" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("board-transition-source")).not.toBeInTheDocument();
     expect(screen.getByTestId("kanban-column-scroll-backlog")).toHaveClass(
