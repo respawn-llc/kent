@@ -138,17 +138,12 @@ function BoardContent({
     }
 
     return (
-        <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-[var(--space-4)]">
-            <header
-                className="flex flex-wrap items-start justify-between gap-[var(--space-4)]"
-                data-testid="board-transition-source"
-                style={{ viewTransitionName: projectToBoardTransitionName }}
-            >
-                {board.selectedWorkflow.validForTaskCreation ? (
-                    <p className="m-0 text-[var(--color-muted)]">{t("board.dragStart")}</p>
-                ) : null}
-            </header>
-            <div className="min-h-0 overflow-x-auto overflow-y-hidden pr-[var(--shadow-bleed-island)] pb-[var(--shadow-bleed-island)] hide-scrollbar -mr-[var(--shadow-bleed-island)] -mb-[var(--shadow-bleed-island)]" role="list">
+        <div
+            className="h-full min-h-0"
+            data-testid="board-transition-source"
+            style={{ viewTransitionName: projectToBoardTransitionName }}
+        >
+            <div className="h-full min-h-0 overflow-visible" role="list">
                 <div className="flex h-full min-h-0 gap-[var(--space-3)]">
                     {sections.map((section) =>
                         section.kind === "group" ? (

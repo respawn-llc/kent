@@ -113,7 +113,6 @@ export const englishResources = {
       resume: "Resume",
       interrupt: "Interrupt",
       detail: "Open task detail",
-      dragStart: "Drag Backlog task to first active node to start automation.",
       invalidWorkflow: "Workflow validation blocks automation. Backlog tasks and comments remain available.",
       workflowIssues: "Workflow issues",
       invalidWorkflowUnknown: "Workflow must be fixed before automation can run.",

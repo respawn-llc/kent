@@ -88,12 +88,9 @@ describe("BoardRoute", () => {
     expect(screen.getByTestId("app-chrome-title")).toHaveClass(...appChromeTitleClassNames, "left-[var(--space-2)]");
     expect(screen.queryByRole("heading", { name: "Project" })).not.toBeInTheDocument();
     expect(screen.queryByText("proj")).not.toBeInTheDocument();
-    expect(screen.getByRole("list")).toHaveClass(
-      "overflow-x-auto",
-      "overflow-y-hidden",
-      "pb-[var(--shadow-bleed-island)]",
-      "-mb-[var(--shadow-bleed-island)]",
-    );
+    expect(screen.queryByText("Drag Backlog task to first active node to start automation.")).not.toBeInTheDocument();
+    expect(screen.getByRole("list")).toHaveClass("overflow-visible");
+    expect(screen.getByRole("list")).not.toHaveClass("overflow-y-hidden", "pb-[var(--shadow-bleed-island)]");
     expect(screen.getByText("coder")).toBeInTheDocument();
     expect(screen.getByRole("listitem", { name: "Backlog" })).toHaveClass("island-glass");
     expect(screen.queryByRole("button", { name: "Expand Done" })).not.toBeInTheDocument();
