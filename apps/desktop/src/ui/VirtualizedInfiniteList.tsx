@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { cx } from "./classes";
+import { Spinner } from "./Spinner";
 
 export type VirtualizedInfiniteListProps<TItem> = Readonly<{
   items: readonly TItem[];
@@ -205,10 +206,17 @@ function VirtualizedPlaceholder({
 }: Readonly<{ loading: boolean; loadingLabel: string }>) {
   return (
     <div
+      aria-label={loading ? loadingLabel : undefined}
       aria-live="polite"
-      className="grid min-h-12 place-items-center text-sm text-[var(--color-muted)]"
+      className="grid min-h-12 place-items-center"
+      role={loading ? "status" : undefined}
     >
-      {loading ? loadingLabel : null}
+      {loading ? (
+        <>
+          <Spinner size="sm" />
+          <span className="sr-only">{loadingLabel}</span>
+        </>
+      ) : null}
     </div>
   );
 }

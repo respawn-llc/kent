@@ -173,8 +173,13 @@ export function KanbanColumn({
                     />
                 ))}
                 {isLoadingMoreCards ? (
-                    <div className="grid place-items-center py-[var(--space-3)]" aria-label={t("app.loadingMore")}>
+                    <div
+                        aria-label={t("app.loadingMore")}
+                        className="grid place-items-center py-[var(--space-3)]"
+                        role="status"
+                    >
                         <Spinner size="sm" />
+                        <span className="sr-only">{t("app.loadingMore")}</span>
                     </div>
                 ) : null}
             </div>
