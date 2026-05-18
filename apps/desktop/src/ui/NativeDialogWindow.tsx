@@ -7,9 +7,15 @@ export type NativeDialogWindowProps = Readonly<{
   title: string;
   children: ReactNode;
   fitToContent?: boolean;
+  contentMaxWidth?: string;
 }>;
 
-export function NativeDialogWindow({ title, children, fitToContent = true }: NativeDialogWindowProps) {
+export function NativeDialogWindow({
+  title,
+  children,
+  fitToContent = true,
+  contentMaxWidth = "var(--content-max-width-dialog)",
+}: NativeDialogWindowProps) {
   const { nativeBridge } = useAppServices();
   const shellRef = useRef<HTMLElement | null>(null);
 
@@ -63,15 +69,20 @@ export function NativeDialogWindow({ title, children, fitToContent = true }: Nat
         aria-label={title}
         aria-modal="true"
         className={cx(
-          "app-region-no-drag island-glass grid min-h-0 gap-[var(--space-3)] rounded-[var(--radius-xl)] p-[var(--space-4)]",
+          "app-region-no-drag island-glass grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-[var(--space-3)] rounded-[var(--radius-xl)] p-[var(--space-4)]",
           fitToContent ? "w-max" : "h-full",
         )}
         role="dialog"
       >
-        <header className="min-w-0">
-          <h1 className="m-0 text-[1.15rem]">{title}</h1>
-        </header>
-        {children}
+        <div
+          className="mx-auto grid h-full min-h-0 w-full gap-[var(--space-3)] grid-rows-[auto_minmax(0,1fr)]"
+          style={{ maxWidth: contentMaxWidth }}
+        >
+          <header className="min-w-0">
+            <h1 className="m-0 text-[1.15rem] font-bold">{title}</h1>
+          </header>
+          <div className="min-h-0 overflow-auto hide-scrollbar">{children}</div>
+        </div>
       </section>
     </main>
   );

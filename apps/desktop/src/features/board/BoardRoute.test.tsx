@@ -343,7 +343,8 @@ describe("BoardRoute", () => {
     });
     const openedDialog = onlyOpenedDialog(opened);
     expect(openedDialog.initialHeight).toBe(560);
-    expect(openedDialog.initialWidth).toBe(680);
+    expect(openedDialog.initialWidth).toBe(608);
+    expect(openedDialog.resizable).toBe(true);
     expect(openedDialog.label).toMatch(/^new-task-project-1-/u);
     expect(openedDialog.params).toEqual({
       projectID: "project-1",
@@ -386,6 +387,7 @@ describe("BoardRoute", () => {
     expect(screen.getByText("Native dialog windows are unavailable in this shell.")).toBeInTheDocument();
     const dialog = await screen.findByRole("dialog", { name: "Create Backlog task" });
     expect(within(dialog).getByText("Main")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create task" })).toHaveClass("mx-auto", "max-w-[400px]");
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Fallback task" } });
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
 
@@ -432,6 +434,7 @@ describe("BoardRoute", () => {
 
     expect(await screen.findByRole("dialog", { name: "Create Backlog task" })).toBeInTheDocument();
     expect(await screen.findByText("Main")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create task" })).toHaveClass("mx-auto", "max-w-[400px]");
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Native task" } });
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
 

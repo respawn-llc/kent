@@ -49,9 +49,13 @@ function TaskEditPreview() {
     <form className="grid gap-[var(--space-3)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-2)] p-[var(--space-3)]">
       <TextInput label="Title" value="Add UI showcase board" readOnly />
       <TextArea label="Details" rows={3} value="Editable backlog preview with Markdown body." readOnly />
-      <SelectField disabled label="Source workspace" value="workspace-api">
-        <option value="workspace-api">builder-cli</option>
-      </SelectField>
+      <SelectField
+        disabled
+        label="Source workspace"
+        onValueChange={() => undefined}
+        options={[{ label: "builder-cli", value: "workspace-api" }]}
+        value="workspace-api"
+      />
       <Button variant="primary">Save changes</Button>
     </form>
   );

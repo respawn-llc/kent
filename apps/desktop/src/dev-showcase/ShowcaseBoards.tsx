@@ -48,10 +48,16 @@ export function PrimitiveBoard({
         </div>
         <div className="grid gap-[var(--space-3)] md:grid-cols-2">
           <TextInput error={["Required", "Use one line."]} label="Project name" value="Builder Desktop" readOnly />
-          <SelectField disabled label="Source workspace" value="workspace-api">
-            <option value="workspace-api">builder-cli</option>
-            <option value="workspace-docs">docs</option>
-          </SelectField>
+          <SelectField
+            disabled
+            label="Source workspace"
+            onValueChange={() => undefined}
+            options={[
+              { label: "builder-cli", value: "workspace-api" },
+              { label: "docs", value: "workspace-docs" },
+            ]}
+            value="workspace-api"
+          />
           <TextArea
             hint="Markdown accepted."
             label="Task body"

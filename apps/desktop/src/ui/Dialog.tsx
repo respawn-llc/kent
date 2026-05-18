@@ -41,7 +41,7 @@ export function Dialog({ title, closeLabel, open, children, className, style, on
         style={style}
       >
         <header className="flex items-center justify-between gap-[var(--space-4)]">
-          <h2 className="m-0 text-[1.15rem]" id={titleId}>{title}</h2>
+          <h2 className="m-0 text-[1.15rem] font-bold" id={titleId}>{title}</h2>
           <button
             aria-label={closeLabel}
             className="grid h-9 w-9 place-items-center rounded-full border border-transparent bg-transparent text-[var(--color-on-island)]"

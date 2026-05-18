@@ -7,7 +7,7 @@ import type { WorkspaceSummary } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useAppServices } from "../../app/useAppServices";
 import { useStatusController } from "../../app/useStatusController";
-import { Button, Dialog, NativeDialogWindow } from "../../ui";
+import { Button, Dialog, fieldLabelClassName, NativeDialogWindow } from "../../ui";
 import { cx } from "../../ui/classes";
 
 export const workspaceUnlinkDialogWidth = 400;
@@ -42,7 +42,7 @@ export function ProjectNameField({
   const { t } = useTranslation();
   return (
     <div className="grid gap-[var(--space-3)]">
-      <label className="text-[0.82rem] font-extrabold text-[var(--color-muted)]" htmlFor="project-edit-name">
+      <label className={fieldLabelClassName} htmlFor="project-edit-name">
         {t("home.projectName")}
       </label>
       <div className="grid gap-[var(--space-2)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">

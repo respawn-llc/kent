@@ -9,12 +9,14 @@ export function newTaskWindowOptions({
 }>) {
   return {
     initialHeight: 560,
-    initialWidth: 680,
+    initialWidth: 608,
     label: `new-task-${projectID}-${Date.now().toString()}`,
+    maximizable: true,
     params: {
       projectID,
       workflowID,
     },
+    resizable: true,
     route: "/native-dialog/new-task",
     title,
   };

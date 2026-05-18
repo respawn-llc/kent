@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect, useRef } from "react";
-import { useForm } from "react-hook-form";
+import { useEffect, useMemo, useRef } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 
@@ -29,8 +29,19 @@ export function NewTaskFallbackDialog({ projectID, workflowID, onClose }: NewTas
   const { t } = useTranslation();
 
   return (
-    <Dialog closeLabel={t("app.close")} onClose={onClose} open title={t("task.newTitle")}>
-      <NewTaskForm onSubmitted={onClose} projectID={projectID} workflowID={workflowID} />
+    <Dialog
+      className="w-[min(calc(var(--content-max-width-task-create)+var(--space-4)*2),calc(100vw-32px))]"
+      closeLabel={t("app.close")}
+      onClose={onClose}
+      open
+      title={t("task.newTitle")}
+    >
+      <NewTaskForm
+        className="mx-auto w-full max-w-[var(--content-max-width-task-create)]"
+        onSubmitted={onClose}
+        projectID={projectID}
+        workflowID={workflowID}
+      />
     </Dialog>
   );
 }
@@ -46,9 +57,9 @@ export function NewTaskWindowRoute({
   const { nativeBridge } = useAppServices();
 
   return (
-    <NativeDialogWindow title={t("task.newTitle")}>
+    <NativeDialogWindow contentMaxWidth="var(--content-max-width-task-create)" fitToContent={false} title={t("task.newTitle")}>
       <NewTaskForm
-        className="w-[560px]"
+        className="w-full"
         onSubmitted={() => {
           void nativeBridge.window.closeCurrent();
         }}
@@ -107,7 +118,12 @@ export function NewTaskForm({
     onSubmitted();
   }
 
-  const workspaceItems = workspaces.data?.workspaces ?? [];
+  const workspaceItems = useMemo(() => workspaces.data?.workspaces ?? [], [workspaces.data?.workspaces]);
+  const workspaceOptions = useMemo(
+    () => workspaceItems.map((workspace) => ({ label: workspace.name, value: workspace.id })),
+    [workspaceItems],
+  );
+  const selectedWorkspaceID = useWatch({ control: form.control, name: "sourceWorkspaceID" });
   const disabled = connection.phase !== "connected" || createTask.isPending || defaultWorkspaceID.length === 0;
 
   return (
@@ -132,19 +148,18 @@ export function NewTaskForm({
         <SelectField
           disabled={workspaceItems.length <= 1}
           label={t("task.sourceWorkspace")}
-          {...form.register("sourceWorkspaceID")}
-        >
-          {workspaceItems.map((workspace) => (
-            <option key={workspace.id} value={workspace.id}>
-              {workspace.name}
-            </option>
-          ))}
-        </SelectField>
+          name="sourceWorkspaceID"
+          onValueChange={(value) => {
+            form.setValue("sourceWorkspaceID", value, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+          }}
+          options={workspaceOptions}
+          value={selectedWorkspaceID}
+        />
       )}
       {createTask.error !== null ? (
         <p className="m-0 text-[var(--color-error)]">{errorMessage(createTask.error)}</p>
       ) : null}
-      <Button disabled={disabled} type="submit" variant="primary">
+      <Button className="mx-auto w-full max-w-[400px]" disabled={disabled} type="submit" variant="primary">
         {t("task.create")}
       </Button>
     </form>
