@@ -94,9 +94,7 @@ describe("BoardRoute", () => {
     expect(screen.getByText("coder")).toBeInTheDocument();
     expect(screen.getByRole("listitem", { name: "Backlog" })).toHaveClass("island-glass");
     expect(screen.queryByRole("button", { name: "Expand Done" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("board-transition-source")).toHaveStyle({
-      viewTransitionName: "builder-project-to-board",
-    });
+    expect(screen.queryByTestId("board-transition-source")).not.toBeInTheDocument();
     expect(screen.getByTestId("kanban-column-scroll-backlog")).toHaveClass(
       "overflow-y-auto",
       "pr-[var(--space-1)]",

@@ -244,10 +244,4 @@
     animation: route-fade-scale var(--motion-fast) both;
   }
 
-  ::view-transition-old(builder-project-to-board),
-  ::view-transition-new(builder-project-to-board) {
-    animation-duration: var(--motion-normal);
-    height: 100%;
-    overflow: clip;
-  }
 }

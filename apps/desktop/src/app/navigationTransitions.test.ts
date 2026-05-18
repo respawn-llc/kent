@@ -1,6 +1,6 @@
 import { afterEach, vi } from "vitest";
 
-import { projectToBoardTransitionName, startProjectToBoardTransition } from "./navigationTransitions";
+import { startProjectToBoardTransition } from "./navigationTransitions";
 
 describe("navigationTransitions", () => {
   const originalMatchMedia = globalThis.matchMedia;
@@ -15,21 +15,15 @@ describe("navigationTransitions", () => {
       value: originalMatchMedia,
     });
     restoreStartViewTransition(originalStartViewTransitionDescriptor);
-    delete document.documentElement.dataset.builderNavigationTransition;
   });
 
-  it("uses the View Transition API for project to board shared element navigation", async () => {
+  it("uses the View Transition API for project to board navigation without a shared element", () => {
     installMatchMedia(false);
-    let finishTransition: () => void = () => undefined;
-    const finished = new Promise<void>((resolve) => {
-      finishTransition = resolve;
-    });
     const source = document.createElement("article");
     const startViewTransition = vi.fn((update: () => void): ViewTransitionTestHandle => {
-      expect(source.style.viewTransitionName).toBe(projectToBoardTransitionName);
-      expect(document.documentElement.dataset.builderNavigationTransition).toBe("project-to-board");
+      expect(source.style.viewTransitionName).toBe("");
       update();
-      return { finished };
+      return { finished: Promise.resolve() };
     });
     installStartViewTransition(startViewTransition);
 
@@ -38,11 +32,7 @@ describe("navigationTransitions", () => {
 
     expect(startViewTransition).toHaveBeenCalledOnce();
     expect(update).toHaveBeenCalledOnce();
-    finishTransition();
-    await finished;
-    await Promise.resolve();
     expect(source.style.viewTransitionName).toBe("");
-    expect(document.documentElement.dataset.builderNavigationTransition).toBeUndefined();
   });
 
   it("falls back to immediate navigation when reduced motion is enabled", () => {

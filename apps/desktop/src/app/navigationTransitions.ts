@@ -1,6 +1,4 @@
-export const projectToBoardTransitionName = "builder-project-to-board";
-
-export function startProjectToBoardTransition(source: HTMLElement, update: () => void | Promise<void>): void {
+export function startProjectToBoardTransition(_source: HTMLElement, update: () => void | Promise<void>): void {
   const reducedMotion =
     typeof globalThis.matchMedia === "function" &&
     globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -12,13 +10,5 @@ export function startProjectToBoardTransition(source: HTMLElement, update: () =>
     return;
   }
 
-  const previousName = source.style.viewTransitionName;
-  source.style.viewTransitionName = projectToBoardTransitionName;
-  document.documentElement.dataset.builderNavigationTransition = "project-to-board";
-  const transition = document.startViewTransition(update);
-  const restoreSource = () => {
-    source.style.viewTransitionName = previousName;
-    delete document.documentElement.dataset.builderNavigationTransition;
-  };
-  void transition.finished.then(restoreSource, restoreSource);
+  document.startViewTransition(update);
 }

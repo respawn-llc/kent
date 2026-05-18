@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import type { BoardColumn, WorkflowBoard, WorkflowPickerItem } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useAppNavigation } from "../../app/navigation";
-import { projectToBoardTransitionName } from "../../app/navigationTransitions";
 import { useAppServices } from "../../app/useAppServices";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
@@ -138,12 +137,7 @@ function BoardContent({
     }
 
     return (
-        <div className="relative h-full min-h-0">
-            <div
-                className="pointer-events-none absolute left-0 top-0 h-0 w-full"
-                data-testid="board-transition-source"
-                style={{ viewTransitionName: projectToBoardTransitionName }}
-            />
+        <div className="h-full min-h-0">
             <div className="h-full min-h-0 overflow-visible" role="list">
                 <div className="flex h-full min-h-0 gap-[var(--space-3)]">
                     {sections.map((section) =>
