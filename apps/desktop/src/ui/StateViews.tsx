@@ -4,6 +4,7 @@ import { CircleAlert, Inbox } from "lucide-react";
 import { Button } from "./Button";
 import { cx } from "./classes";
 import { Island } from "./Island";
+import { Spinner } from "./Spinner";
 
 export type LoadingStateProps = Readonly<{
   title?: ReactNode;
@@ -34,12 +35,7 @@ export function LoadingState({
     <StateIsland
       contentTestID="loading-state-content"
       fullPage={fullPage}
-      icon={
-        <div
-          className="h-7 w-7 motion-safe:animate-spin rounded-full border-[3px] border-[var(--color-outline)] border-t-[var(--color-primary)]"
-          data-testid="loading-state-spinner"
-        />
-      }
+      icon={<Spinner testID="loading-state-spinner" />}
       iconClassName="text-[var(--color-primary)]"
       reveal={reveal}
       testID="loading-state"

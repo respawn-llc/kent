@@ -1,7 +1,6 @@
 import {
   CircleCheckIcon,
   InfoIcon,
-  Loader2Icon,
   OctagonXIcon,
   TriangleAlertIcon,
 } from "lucide-react";
@@ -9,6 +8,7 @@ import type { ComponentProps } from "react";
 import { Toaster as SonnerToaster } from "sonner";
 
 import { readEffectiveTheme } from "../appEnvironment";
+import { Spinner } from "./Spinner";
 
 type ToasterProps = ComponentProps<typeof SonnerToaster>;
 
@@ -25,7 +25,7 @@ export function Toaster(props: ToasterProps) {
         info: <InfoIcon className="size-4 text-[var(--color-primary)]" />,
         warning: <TriangleAlertIcon className="size-4 text-[var(--color-warning)]" />,
         error: <OctagonXIcon className="size-4 text-[var(--color-error)]" />,
-        loading: <Loader2Icon className="size-4 animate-spin text-[var(--color-on-background)]" />,
+        loading: <Spinner size="sm" />,
       }}
       position="top-right"
       theme={readEffectiveTheme()}

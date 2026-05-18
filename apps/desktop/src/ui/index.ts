@@ -14,6 +14,8 @@ export { Item, ItemContent, ItemGroup, ItemTitle } from "./Item";
 export { Island } from "./Island";
 export { MarkdownText } from "./MarkdownText";
 export { NativeDialogWindow } from "./NativeDialogWindow";
+export { Spinner } from "./Spinner";
+export type { SpinnerProps } from "./Spinner";
 export { Toaster } from "./Sonner";
 export { dismissStatusToast, showStatusToast } from "./statusToast";
 export { VirtualizedInfiniteList } from "./VirtualizedInfiniteList";

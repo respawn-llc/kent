@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import type { BoardCard, BoardColumn, BoardGroup, WorkflowBoard } from "../../api";
 import { formatRelativeTime } from "../../app/formatters";
-import { Badge, Button } from "../../ui";
+import { Badge, Button, Spinner } from "../../ui";
 import { cardsForColumn } from "./BoardModel";
 
 export type KanbanColumnProps = Readonly<{
@@ -173,9 +173,9 @@ export function KanbanColumn({
                     />
                 ))}
                 {isLoadingMoreCards ? (
-                    <p className="m-0 py-[var(--space-2)] text-sm text-[var(--color-muted)]">
-                        {t("app.loadingMore")}
-                    </p>
+                    <div className="grid place-items-center py-[var(--space-3)]" aria-label={t("app.loadingMore")}>
+                        <Spinner size="sm" />
+                    </div>
                 ) : null}
             </div>
         </section>
@@ -218,7 +218,12 @@ function TaskCard({
                 onClick={onClick}
                 type="button"
             >
-                <span className="font-mono text-[0.78rem] text-[var(--color-muted)]">{card.shortID}</span>
+                <span className="flex min-w-0 items-center justify-between gap-[var(--space-2)]">
+                    <span className="shrink-0 font-mono text-[0.78rem] text-[var(--color-muted)]">{card.shortID}</span>
+                    <span className="min-w-0 truncate text-right text-sm text-[var(--color-muted)]">
+                        {formatRelativeTime(card.updatedAt)}
+                    </span>
+                </span>
                 <strong>{card.title}</strong>
                 <span className="line-clamp-3 text-sm text-[var(--color-muted)]">{card.bodyPreview}</span>
             </button>
@@ -227,7 +232,6 @@ function TaskCard({
                 {card.status.runIDs.length > 0 ? (
                     <Badge tone="neutral">{t("task.runs")}: {card.status.runIDs.length}</Badge>
                 ) : null}
-                <span>{formatRelativeTime(card.updatedAt)}</span>
             </div>
             <TaskCardActions
                 actionsDisabled={actionsDisabled}
