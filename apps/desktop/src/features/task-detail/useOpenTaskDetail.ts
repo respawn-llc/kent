@@ -12,7 +12,7 @@ export function useOpenTaskDetail() {
       const openFallback =
         fallback ??
         (() => {
-          navigation.openTask(taskId);
+          void navigation.openTask(taskId);
         });
       if (!nativeBridge.capabilities.taskDetailWindow) {
         openFallback();

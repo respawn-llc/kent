@@ -1,15 +1,20 @@
 /* eslint-disable react-refresh/only-export-components -- TanStack Router route config intentionally colocates route components with route definitions. */
 import { createRoute, createRouter, createRootRoute, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { z } from "zod";
 
 import { BoardRoute } from "../features/board/BoardRoute";
 import { HomeRoute } from "../features/home/HomeRoute";
 import { ProjectCreateWindowRoute } from "../features/home/ProjectCreateForm";
 import { ProjectEditRoute } from "../features/project-edit/ProjectEditRoute";
+import { WorkspaceUnlinkWindowRoute } from "../features/project-edit/ProjectEditParts";
 import { StandaloneTaskRoute, TaskDetailWindowRoute } from "../features/task-detail/StandaloneTaskRoute";
 import { StartupGate } from "../features/startup/StartupGate";
+import { NewTaskWindowRoute } from "../features/tasks/NewTaskDialog";
 import { AppChrome } from "./AppChrome";
+import { RouteTransitionFrame } from "./RouteTransitionFrame";
+import { useWindowChromeTitle } from "./windowChromeTitle";
 
 const optionalSearchString = z.preprocess(
   (value: unknown) => (typeof value === "string" ? value : ""),
@@ -33,6 +38,17 @@ const taskDetailSearchSchema = z.object({
   resumeRunId: optionalSearchString,
 });
 
+const newTaskSearchSchema = z.object({
+  projectID: optionalSearchString,
+  workflowID: optionalSearchString,
+});
+
+const workspaceUnlinkSearchSchema = z.object({
+  projectID: optionalSearchString,
+  workspaceID: optionalSearchString,
+  rootPath: optionalSearchString,
+});
+
 const storedProjectRouteSchema = z.object({
   projectId: z.string(),
   workflowId: z.string(),
@@ -49,7 +65,7 @@ const rootRoute = createRootRoute({
 const homeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: HomeRoute,
+  component: HomeShellRoute,
 });
 
 const projectRoute = createRoute({
@@ -85,6 +101,20 @@ const taskDetailWindowRoute = createRoute({
   component: TaskDetailNativeRoute,
 });
 
+const newTaskWindowRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/native-dialog/new-task",
+  validateSearch: (search: Record<string, unknown>) => newTaskSearchSchema.parse(search),
+  component: NewTaskNativeRoute,
+});
+
+const workspaceUnlinkWindowRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/native-dialog/workspace-unlink",
+  validateSearch: (search: Record<string, unknown>) => workspaceUnlinkSearchSchema.parse(search),
+  component: WorkspaceUnlinkNativeRoute,
+});
+
 const routeTree = rootRoute.addChildren([
   homeRoute,
   projectRoute,
@@ -92,6 +122,8 @@ const routeTree = rootRoute.addChildren([
   taskRoute,
   projectCreateRoute,
   taskDetailWindowRoute,
+  newTaskWindowRoute,
+  workspaceUnlinkWindowRoute,
 ]);
 
 export function createAppRouter() {
@@ -104,6 +136,9 @@ function RootRoute() {
   const isNativeDialogWindow =
     typeof window !== "undefined" && window.location.pathname.startsWith("/native-dialog/");
   if (isNativeDialogWindow) {
+    if (shouldSkipNativeDialogStartupGate(window.location.pathname)) {
+      return <Outlet />;
+    }
     return (
       <StartupGate>
         <Outlet />
@@ -115,10 +150,14 @@ function RootRoute() {
     <AppChrome>
       <RoutePersistence />
       <StartupGate>
-        <Outlet />
+        <RouteTransitionFrame />
       </StartupGate>
     </AppChrome>
   );
+}
+
+export function shouldSkipNativeDialogStartupGate(pathname: string): boolean {
+  return pathname === "/native-dialog/workspace-unlink";
 }
 
 function RoutePersistence() {
@@ -211,6 +250,7 @@ function safeStorage(kind: "local" | "session"): Storage | null {
 function ProjectRoute() {
   const params = projectRoute.useParams();
   const search = projectRoute.useSearch();
+  useWindowChromeTitle(null);
   return (
     <BoardRoute
       projectId={params.projectId}
@@ -221,13 +261,22 @@ function ProjectRoute() {
   );
 }
 
+function HomeShellRoute() {
+  const { t } = useTranslation();
+  useWindowChromeTitle(t("home.projectsPane"));
+  return <HomeRoute />;
+}
+
 function ProjectEditShellRoute() {
   const params = projectEditRoute.useParams();
+  useWindowChromeTitle(null);
   return <ProjectEditRoute projectId={params.projectId} />;
 }
 
 function TaskRoute() {
+  const { t } = useTranslation();
   const params = taskRoute.useParams();
+  useWindowChromeTitle(t("task.title"));
   return <StandaloneTaskRoute taskId={params.taskId} />;
 }
 
@@ -239,6 +288,22 @@ function ProjectCreateRoute() {
 function TaskDetailNativeRoute() {
   const search = taskDetailWindowRoute.useSearch();
   return <TaskDetailWindowRoute resumeRunId={search.resumeRunId} taskId={search.taskId} />;
+}
+
+function NewTaskNativeRoute() {
+  const search = newTaskWindowRoute.useSearch();
+  return <NewTaskWindowRoute projectID={search.projectID} workflowID={search.workflowID} />;
+}
+
+function WorkspaceUnlinkNativeRoute() {
+  const search = workspaceUnlinkWindowRoute.useSearch();
+  return (
+    <WorkspaceUnlinkWindowRoute
+      projectID={search.projectID}
+      rootPath={search.rootPath}
+      workspaceID={search.workspaceID}
+    />
+  );
 }
 
 declare module "@tanstack/react-router" {

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Pencil, Plus } from "lucide-react";
@@ -8,7 +8,9 @@ import { errorMessage } from "../../api/errors";
 import { basename, formatRelativeTime, projectKeyFromName } from "../../app/formatters";
 import { useAppNavigation } from "../../app/navigation";
 import { queryKeys } from "../../app/queryKeys";
+import { startProjectToBoardTransition } from "../../app/navigationTransitions";
 import { useAppServices } from "../../app/useAppServices";
+import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
 import { useStatusController } from "../../app/useStatusController";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { Badge, ErrorState, VirtualizedInfiniteList } from "../../ui";
@@ -33,8 +35,23 @@ export function HomeRoute() {
   const attention = useGlobalAttentionPages();
   const projectItems = projects.data?.pages.flatMap((page) => page.projects) ?? [];
   const attentionItems = attention.data?.pages.flatMap((page) => page.items) ?? [];
-  const [draft, setDraft] = useState<ProjectDraft | null>(null);
   const disabled = connection.phase !== "connected";
+  const projectCreationDialog = useNativeDialogFallback<ProjectDraft>({
+    errorNoticeID: "project-create-window-error",
+    errorTitle: t("home.projectCreateWindowError"),
+    openNative: async (nextDraft) => {
+      await nativeBridge.projectCreation.openWindow(nextDraft);
+    },
+    renderFallback: (nextDraft, close) => (
+      <ProjectCreateDialog
+        creationError={creation.error}
+        draft={nextDraft}
+        isCreating={creation.isPending}
+        onClose={close}
+        onSubmitDraft={(values) => void submitDraft(values, close)}
+      />
+    ),
+  });
 
   async function chooseWorkspace(): Promise<void> {
     try {
@@ -57,26 +74,12 @@ export function HomeRoute() {
     try {
       const plan = await api.planWorkspace(workspacePath);
       if (plan.binding !== null) {
-        navigation.openProject(plan.binding.projectID);
+        void navigation.openProject(plan.binding.projectID);
         return;
       }
       const name = basename(plan.canonicalRoot);
       const nextDraft = { name, key: projectKeyFromName(name), workspaceRoot: plan.canonicalRoot };
-      if (nativeBridge.capabilities.projectCreationWindow) {
-        try {
-          await nativeBridge.projectCreation.openWindow(nextDraft);
-        } catch (error) {
-          push({
-            id: "project-create-window-error",
-            tone: "danger",
-            title: t("home.projectCreateWindowError"),
-            body: errorMessage(error),
-          });
-          setDraft(nextDraft);
-        }
-        return;
-      }
-      setDraft(nextDraft);
+      await projectCreationDialog.open(nextDraft);
     } catch (error) {
       push({
         id: "project-create-plan-error",
@@ -87,11 +90,11 @@ export function HomeRoute() {
     }
   }
 
-  async function submitDraft(values: ProjectDraft): Promise<void> {
+  async function submitDraft(values: ProjectDraft, close: () => void): Promise<void> {
     const plan = await api.planWorkspace(values.workspaceRoot);
     if (plan.binding !== null) {
-      setDraft(null);
-      navigation.openProject(plan.binding.projectID);
+      close();
+      void navigation.openProject(plan.binding.projectID);
       return;
     }
     const binding = await creation.mutateAsync({
@@ -99,14 +102,14 @@ export function HomeRoute() {
       key: values.key.trim().toUpperCase(),
       workspaceRoot: values.workspaceRoot,
     });
-    setDraft(null);
-    navigation.openProject(binding.projectID);
+    close();
+    void navigation.openProject(binding.projectID);
   }
 
   const handleNativeProjectCreated = useCallback(
     (binding: Readonly<{ projectID: string }>) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
-      navigation.openProject(binding.projectID);
+      void navigation.openProject(binding.projectID);
     },
     [navigation, queryClient],
   );
@@ -115,17 +118,7 @@ export function HomeRoute() {
 
   return (
     <div className="h-full min-h-0" data-testid="home-route-root">
-      {draft !== null ? (
-        <ProjectCreateDialog
-          creationError={creation.error}
-          draft={draft}
-          isCreating={creation.isPending}
-          onClose={() => {
-            setDraft(null);
-          }}
-          onSubmitDraft={(values) => void submitDraft(values)}
-        />
-      ) : null}
+      {projectCreationDialog.fallback}
       <div
         className="grid h-full min-h-0 grid-cols-[repeat(auto-fit,minmax(min(100%,360px),1fr))] gap-[var(--space-2)]"
         data-testid="home-pane-grid"
@@ -165,11 +158,11 @@ function ProjectList({ disabled, items, onChooseWorkspace, query }: ProjectListP
     return <p>{t("states.loading")}</p>;
   }
   if (query.isError) {
-    return <ErrorState body={errorMessage(query.error)} title={t("states.error")} />;
+    return <ErrorState body={errorMessage(query.error)} reveal={false} title={t("states.error")} />;
   }
   return (
     <VirtualizedInfiniteList
-      className="h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch]"
+      className="h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[var(--content-max-width-home-pane)]"
       empty={<HomeInlineEmptyState body={t("home.emptyBody")} />}
       estimateSize={() => 96}
       getItemKey={(project) => project.id}
@@ -217,15 +210,17 @@ function ProjectRow({ project }: Readonly<{ project: ProjectSummary }>) {
     <article className="relative rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)]">
       <button
         className="grid w-full gap-[var(--space-1)] p-[var(--space-3)] pr-14 text-left text-[var(--color-on-island)]"
-        onClick={() => {
-          navigation.openProject(project.id, project.defaultWorkflowID);
+        onClick={(event) => {
+          startProjectToBoardTransition(event.currentTarget.parentElement ?? event.currentTarget, async () => {
+            await navigation.openProject(project.id, project.defaultWorkflowID);
+          });
         }}
         aria-label={`${project.name} ${project.primaryWorkspace.rootPath}`}
         type="button"
       >
-        <span className="font-mono text-[0.78rem] text-[var(--color-secondary)]">{project.key}</span>
+        <span className="font-mono text-[0.78rem] text-[var(--color-muted)]">{project.key}</span>
         <strong>{project.name}</strong>
-        <span className="truncate font-mono text-sm text-[var(--color-secondary)]">
+        <span className="truncate font-mono text-sm text-[var(--color-muted)]">
           {project.primaryWorkspace.rootPath}
         </span>
       </button>
@@ -233,7 +228,7 @@ function ProjectRow({ project }: Readonly<{ project: ProjectSummary }>) {
         aria-label={editLabel}
         className="absolute top-[var(--space-3)] right-[var(--space-3)] grid h-9 w-9 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-on-island)]"
         onClick={() => {
-          navigation.openProjectEdit(project.id);
+          void navigation.openProjectEdit(project.id);
         }}
         type="button"
       >
@@ -260,11 +255,11 @@ function AttentionList({ items, query }: AttentionListProps) {
     return <p>{t("states.loading")}</p>;
   }
   if (query.isError) {
-    return <ErrorState body={errorMessage(query.error)} title={t("states.error")} />;
+    return <ErrorState body={errorMessage(query.error)} reveal={false} title={t("states.error")} />;
   }
   return (
     <VirtualizedInfiniteList
-      className="h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch]"
+      className="h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[var(--content-max-width-home-pane)]"
       empty={<HomeInlineEmptyState body={t("home.noAttentionBody")} />}
       estimateSize={() => 144}
       getItemKey={(item) => item.id}
@@ -308,21 +303,21 @@ function AttentionRow({
       <div className="flex min-w-0 flex-wrap items-center gap-[var(--space-2)]" data-testid="attention-row-meta">
         <Badge tone="warning">{item.kind}</Badge>
         {item.taskShortID.length > 0 ? (
-          <span className="min-w-0 truncate font-mono text-sm text-[var(--color-secondary)]">
+          <span className="min-w-0 truncate font-mono text-sm text-[var(--color-muted)]">
             {item.taskShortID}
           </span>
         ) : null}
       </div>
       {item.taskTitle.length > 0 ? <strong className="min-w-0 truncate">{item.taskTitle}</strong> : null}
       <span className="min-w-0 text-sm break-words">{item.message}</span>
-      <span className="text-sm text-[var(--color-secondary)]">{formatRelativeTime(item.occurredAt)}</span>
+      <span className="text-sm text-[var(--color-muted)]">{formatRelativeTime(item.occurredAt)}</span>
     </button>
   );
 }
 
 function HomeInlineEmptyState({ body }: Readonly<{ body: string }>) {
   return (
-    <div className="rounded-[var(--radius-l)] border border-dashed border-[var(--color-outline)] p-[var(--space-4)] text-[var(--color-secondary)]">
+    <div className="rounded-[var(--radius-l)] border border-dashed border-[var(--color-outline)] p-[var(--space-4)] text-[var(--color-muted)]">
       <p>{body}</p>
     </div>
   );

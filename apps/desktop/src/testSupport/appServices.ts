@@ -10,13 +10,19 @@ export type TestAppServices = AppServices &
     transport: FakeRpcTransport;
   }>;
 
+export type CreateTestServicesOptions = Readonly<{
+  debugThemeOverrideEnabled?: boolean | undefined;
+}>;
+
 export function createTestServices(
   routes: readonly FakeRoute[],
   nativeBridge = createBrowserNativeBridge(),
+  options: CreateTestServicesOptions = {},
 ): TestAppServices {
   const transport = new FakeRpcTransport(routes);
   return {
     api: new BuilderApiClient(transport),
+    debugThemeOverrideEnabled: options.debugThemeOverrideEnabled ?? false,
     endpoint: "ws://127.0.0.1:53082/rpc",
     logger: createGuiLogger(nativeBridge),
     nativeBridge,

@@ -32,7 +32,7 @@ export function StartupGate({ children }: StartupGateProps): ReactElement {
   }, [connection.phase, dismiss, push, t]);
 
   if (startup.kind === "loading") {
-    return <LoadingState body={t("startup.loadingBody")} title={t("startup.loadingTitle")} />;
+    return <LoadingState body={t("startup.loadingBody")} reveal={false} title={t("startup.loadingTitle")} />;
   }
 
   if (startup.kind === "error") {
@@ -40,6 +40,7 @@ export function StartupGate({ children }: StartupGateProps): ReactElement {
       <ErrorState
         body={startup.body}
         onRetry={startup.retry}
+        reveal={false}
         retryLabel={t("app.retry")}
         title={t(startup.titleKey)}
       >

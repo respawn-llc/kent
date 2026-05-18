@@ -5,6 +5,7 @@ import type { GuiLogger } from "./logging";
 
 export type AppServices = Readonly<{
   api: BuilderApiClient;
+  debugThemeOverrideEnabled: boolean;
   endpoint: string;
   logger: GuiLogger;
   nativeBridge: NativeBridge;

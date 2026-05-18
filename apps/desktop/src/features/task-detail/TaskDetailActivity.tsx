@@ -117,7 +117,7 @@ function ActivityRow({ item }: Readonly<{ item: { id: string; summary: string; o
   return (
     <article className="grid gap-[var(--space-1)] rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]">
       <span>{item.summary}</span>
-      <time className="text-sm text-[var(--color-secondary)]">{formatRelativeTime(item.occurredAt)}</time>
+      <time className="text-sm text-[var(--color-muted)]">{formatRelativeTime(item.occurredAt)}</time>
     </article>
   );
 }

@@ -10,6 +10,7 @@ import type { AppServices } from "./services";
 import { AppServicesProvider } from "./servicesContext";
 import { StatusProvider } from "./statusStore";
 import { useTaskDetailMutationInvalidator } from "./taskDetailInvalidation";
+import { WindowChromeTitleProvider } from "./windowChromeTitle";
 
 void initializeI18n();
 
@@ -25,11 +26,13 @@ export function AppProviders({ services, children }: AppProvidersProps) {
     <I18nextProvider i18n={appI18n}>
       <QueryClientProvider client={queryClient}>
         <AppServicesProvider services={services}>
-          <StatusProvider>
-            <ReconnectRefresh />
-            <TaskDetailMutationInvalidator />
-            {children}
-          </StatusProvider>
+          <WindowChromeTitleProvider>
+            <StatusProvider>
+              <ReconnectRefresh />
+              <TaskDetailMutationInvalidator />
+              {children}
+            </StatusProvider>
+          </WindowChromeTitleProvider>
         </AppServicesProvider>
       </QueryClientProvider>
     </I18nextProvider>

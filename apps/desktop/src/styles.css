@@ -6,6 +6,7 @@
   --font-main:
     Montserrat, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "Monaspace Neon", "SFMono-Regular", Consolas, monospace;
+  --space-0: 0px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -13,6 +14,8 @@
   --space-5: 24px;
   --space-6: 32px;
   --space-7: 48px;
+  --content-max-width-project-edit: 1200px;
+  --content-max-width-home-pane: 600px;
   --radius-s: 8px;
   --radius-m: 12px;
   --radius-l: 16px;
@@ -21,36 +24,44 @@
   --motion-fast: 140ms ease;
   --motion-normal: 400ms ease;
   --motion-expressive: 700ms ease;
-  --color-island-0: rgba(18, 16, 14, 0.78);
-  --color-island-1: rgba(255, 255, 255, 0.04);
-  --color-island-2: rgba(255, 255, 255, 0.08);
-  --color-island-3: rgba(25, 32, 44, 0.9);
-  --color-outline: rgba(255, 255, 255, 0.12);
-  --color-on-island: #f5f7fb;
-  --color-on-background: var(--color-on-island);
-  --color-primary: #8bb5ff;
-  --color-on-primary: #061222;
-  --color-secondary: #aeb8c7;
-  --color-on-secondary: #061222;
-  --color-warning: #ffd37a;
-  --color-on-warning: #061222;
-  --color-success: #7ee2ad;
-  --color-on-success: #061222;
-  --color-error: #ff8f8f;
-  --color-on-error: #061222;
+  --motion-morph: 350ms ease-in-out;
+  --motion-morph-stage-delay: 200ms;
+  --motion-morph-stage: 200ms ease-in-out;
+  --color-island-0: light-dark(rgba(255, 255, 255, 0.78), rgba(18, 16, 14, 0.78));
+  --color-island-1: light-dark(rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.04));
+  --color-island-2: light-dark(rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.08));
+  --color-island-3: light-dark(rgba(255, 255, 255, 0.92), rgba(25, 32, 44, 0.9));
+  --color-outline: light-dark(rgba(21, 30, 46, 0.12), rgba(255, 255, 255, 0.12));
+  --color-on-island: light-dark(#12100e, #ffffff);
+  --color-on-background: light-dark(#12100e, #ffffff);
+  --color-muted: color-mix(in srgb, var(--color-on-background) 56%, transparent);
+  --color-primary: #3185fc;
+  --color-on-primary: var(--color-on-background);
+  --color-secondary: #ffe74c;
+  --color-on-secondary: #12100e;
+  --color-warning: #f96824;
+  --color-on-warning: #12100e;
+  --color-success: #12ba85;
+  --color-on-success: var(--color-on-background);
+  --color-error: #dc2e3c;
+  --color-on-error: var(--color-on-background);
+  --color-notice-collapsed-icon: #ffffff;
   --shadow-island-0: 0 24px 70px rgba(0, 0, 0, 0.32);
   --shadow-island-1: 0 16px 48px rgba(0, 0, 0, 0.24);
   --shadow-island-2: 0 24px 70px rgba(0, 0, 0, 0.32);
   --shadow-island-3: 0 32px 90px rgba(0, 0, 0, 0.38);
-  --window-glass-tint: rgba(12, 15, 20, 0.34);
+  --shadow-bleed-island: 96px;
+  --window-glass-tint: light-dark(rgba(255, 255, 255, 0.28), rgba(0, 0, 0, 0.11));
+  --window-noise-opacity: 0.12;
+  --window-noise-size: 512px;
   --native-titlebar-height: 38px;
-  --native-traffic-light-cluster-width: 74px;
+  --native-traffic-light-cluster-width: 60px;
   --native-home-link-left-default: var(--space-4);
   --native-home-link-left-macos: calc(
     var(--native-traffic-light-cluster-width) + var(--native-home-link-left-default)
   );
   color: var(--color-on-island);
-  color-scheme: dark;
+  color-scheme: light dark;
   background: transparent;
   font-family: var(--font-main);
   font-synthesis: none;
@@ -64,68 +75,11 @@
   --font-mono: var(--font-mono);
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --color-island-0: rgba(255, 255, 255, 0.78);
-    --color-island-1: rgba(255, 255, 255, 0.68);
-    --color-island-2: rgba(255, 255, 255, 0.82);
-    --color-island-3: rgba(255, 255, 255, 0.92);
-    --color-outline: rgba(21, 30, 46, 0.12);
-    --color-on-island: #111827;
-    --color-primary: #155eef;
-    --color-on-primary: #f8fbff;
-    --color-secondary: #536171;
-    --color-on-secondary: #f8fbff;
-    --color-warning: #a15c07;
-    --color-on-warning: #f8fbff;
-    --color-success: #067647;
-    --color-on-success: #f8fbff;
-    --color-error: #b42318;
-    --color-on-error: #f8fbff;
-    --window-glass-tint: rgba(238, 243, 251, 0.42);
-    color-scheme: light;
-  }
-}
-
 :root[data-builder-theme="light"] {
-  --color-island-0: rgba(255, 255, 255, 0.78);
-  --color-island-1: rgba(255, 255, 255, 0.68);
-  --color-island-2: rgba(255, 255, 255, 0.82);
-  --color-island-3: rgba(255, 255, 255, 0.92);
-  --color-outline: rgba(21, 30, 46, 0.12);
-  --color-on-island: #111827;
-  --color-primary: #155eef;
-  --color-on-primary: #f8fbff;
-  --color-secondary: #536171;
-  --color-on-secondary: #f8fbff;
-  --color-warning: #a15c07;
-  --color-on-warning: #f8fbff;
-  --color-success: #067647;
-  --color-on-success: #f8fbff;
-  --color-error: #b42318;
-  --color-on-error: #f8fbff;
-  --window-glass-tint: rgba(238, 243, 251, 0.42);
   color-scheme: light;
 }
 
 :root[data-builder-theme="dark"] {
-  --color-island-0: rgba(18, 16, 14, 0.78);
-  --color-island-1: rgba(255, 255, 255, 0.04);
-  --color-island-2: rgba(255, 255, 255, 0.08);
-  --color-island-3: rgba(25, 32, 44, 0.9);
-  --color-outline: rgba(255, 255, 255, 0.12);
-  --color-on-island: #f5f7fb;
-  --color-primary: #8bb5ff;
-  --color-on-primary: #061222;
-  --color-secondary: #aeb8c7;
-  --color-on-secondary: #061222;
-  --color-warning: #ffd37a;
-  --color-on-warning: #061222;
-  --color-success: #7ee2ad;
-  --color-on-success: #061222;
-  --color-error: #ff8f8f;
-  --color-on-error: #061222;
-  --window-glass-tint: rgba(12, 15, 20, 0.34);
   color-scheme: dark;
 }
 
@@ -134,18 +88,9 @@
     --motion-fast: 0ms ease;
     --motion-normal: 0ms ease;
     --motion-expressive: 0ms ease;
-  }
-}
-
-@keyframes board-menu-reveal {
-  from {
-    opacity: 0;
-    transform: scale(0.96);
-  }
-
-  to {
-    opacity: 1;
-    transform: scale(1);
+    --motion-morph: 0ms ease-in-out;
+    --motion-morph-stage-delay: 0ms;
+    --motion-morph-stage: 0ms ease-in-out;
   }
 }
 
@@ -158,6 +103,30 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes route-fade-scale {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes route-fade-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.995);
   }
 }
 
@@ -206,18 +175,26 @@
   border: 1px solid var(--color-outline);
   background: var(--color-island-0);
   box-shadow: var(--shadow-island-0);
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
 }
 
 @utility window-glass-fill {
-  background:
-    radial-gradient(
-      circle at 12% 0%,
-      color-mix(in srgb, var(--color-primary) 22%, transparent),
-      transparent 42%
-    ),
-    var(--window-glass-tint);
+  position: relative;
+  background: var(--window-glass-tint);
+
+  &::before {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    content: "";
+    opacity: var(--window-noise-opacity);
+    background-image: url("./assets/acrylic-noise.svg");
+    background-repeat: repeat;
+    background-size: var(--window-noise-size) var(--window-noise-size);
+    mix-blend-mode: soft-light;
+  }
 }
 
 @utility contain-strict {
@@ -229,5 +206,46 @@
 
   &::-webkit-scrollbar {
     display: none;
+  }
+}
+
+.floating-notice-collapsed-danger {
+  background: var(--color-error);
+}
+
+.floating-notice-collapsed-neutral {
+  background: var(--color-island-2);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .floating-notice-morph {
+    transform-origin: right bottom;
+    transition:
+      width var(--motion-morph),
+      height var(--motion-morph),
+      padding var(--motion-morph),
+      background-color var(--motion-morph),
+      border-radius var(--motion-morph),
+      bottom var(--motion-fast);
+  }
+
+  .route-transition-frame {
+    animation: route-fade-scale var(--motion-fast) both;
+    transform-origin: center;
+  }
+
+  ::view-transition-old(root) {
+    animation: route-fade-out var(--motion-fast) both;
+  }
+
+  ::view-transition-new(root) {
+    animation: route-fade-scale var(--motion-fast) both;
+  }
+
+  ::view-transition-old(builder-project-to-board),
+  ::view-transition-new(builder-project-to-board) {
+    animation-duration: var(--motion-normal);
+    height: 100%;
+    overflow: clip;
   }
 }

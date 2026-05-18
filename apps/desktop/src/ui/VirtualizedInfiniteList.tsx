@@ -206,7 +206,7 @@ function VirtualizedPlaceholder({
   return (
     <div
       aria-live="polite"
-      className="grid min-h-12 place-items-center text-sm text-[var(--color-secondary)]"
+      className="grid min-h-12 place-items-center text-sm text-[var(--color-muted)]"
     >
       {loading ? loadingLabel : null}
     </div>

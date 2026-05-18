@@ -10,6 +10,7 @@ export type KanbanColumnProps = Readonly<{
   cards: readonly BoardCard[];
   canRunTasks: boolean;
   column: BoardColumn;
+  canToggleDone: boolean;
   doneExpanded: boolean;
   hasMoreCards: boolean;
   isLoadingMoreCards: boolean;
@@ -28,6 +29,7 @@ export function KanbanGroup({
   canRunTasks,
   columns,
   doneExpanded,
+  canToggleDone,
   firstActiveColumnID,
   group,
   hasMoreCards,
@@ -55,6 +57,7 @@ export function KanbanGroup({
   onResumeTask: (taskID: string, runID: string) => void;
   onToggleDone: () => void;
   actionsDisabled: boolean;
+  canToggleDone: boolean;
 }>) {
   return (
     <section
@@ -62,7 +65,7 @@ export function KanbanGroup({
       role="listitem"
     >
       <header>
-        <p className="m-0 text-[0.72rem] font-extrabold uppercase tracking-[0.16em] text-[var(--color-secondary)]">
+        <p className="m-0 text-[0.72rem] font-extrabold uppercase tracking-[0.16em] text-[var(--color-muted)]">
           {group.key}
         </p>
         <h2 className="m-0 text-[1rem]">{group.name}</h2>
@@ -72,6 +75,7 @@ export function KanbanGroup({
           <KanbanColumn
             cards={cardsForColumn(board, column, doneExpanded)}
             canRunTasks={canRunTasks}
+            canToggleDone={canToggleDone}
             column={column}
             doneExpanded={doneExpanded}
             hasMoreCards={hasMoreCards}
@@ -95,6 +99,7 @@ export function KanbanGroup({
 export function KanbanColumn({
   cards,
   canRunTasks,
+  canToggleDone,
   column,
   doneExpanded,
   hasMoreCards,
@@ -125,17 +130,17 @@ export function KanbanColumn({
         <div>
           <h2 className="m-0 text-[1rem]">{column.name}</h2>
           {column.assigneeRole.length > 0 ? (
-            <p className="m-0 font-mono text-sm text-[var(--color-secondary)]">{column.assigneeRole}</p>
+            <p className="m-0 font-mono text-sm text-[var(--color-muted)]">{column.assigneeRole}</p>
           ) : null}
         </div>
         <Badge tone={isFirstActive ? "info" : "neutral"}>{t("board.taskCount", { count: column.taskCount })}</Badge>
       </header>
       {isFirstActive ? (
-        <p className="m-0 rounded-[var(--radius-m)] border border-dashed border-[var(--color-outline)] p-[var(--space-2)] text-sm text-[var(--color-secondary)]">
+        <p className="m-0 rounded-[var(--radius-m)] border border-dashed border-[var(--color-outline)] p-[var(--space-2)] text-sm text-[var(--color-muted)]">
           {t("board.dropToStart")}
         </p>
       ) : null}
-      {column.isDone ? (
+      {column.isDone && canToggleDone ? (
         <Button onClick={onToggleDone} variant="ghost">
           {doneExpanded ? t("board.collapseDone") : t("board.expandDone")}
         </Button>
@@ -168,7 +173,7 @@ export function KanbanColumn({
           />
         ))}
         {isLoadingMoreCards ? (
-          <p className="m-0 py-[var(--space-2)] text-sm text-[var(--color-secondary)]">
+          <p className="m-0 py-[var(--space-2)] text-sm text-[var(--color-muted)]">
             {t("app.loadingMore")}
           </p>
         ) : null}
@@ -213,11 +218,11 @@ function TaskCard({
         onClick={onClick}
         type="button"
       >
-        <span className="font-mono text-[0.78rem] text-[var(--color-secondary)]">{card.shortID}</span>
+        <span className="font-mono text-[0.78rem] text-[var(--color-muted)]">{card.shortID}</span>
         <strong>{card.title}</strong>
-        <span className="line-clamp-3 text-sm text-[var(--color-secondary)]">{card.bodyPreview}</span>
+        <span className="line-clamp-3 text-sm text-[var(--color-muted)]">{card.bodyPreview}</span>
       </button>
-      <div className="flex flex-wrap items-center gap-[var(--space-2)] text-sm text-[var(--color-secondary)]">
+      <div className="flex flex-wrap items-center gap-[var(--space-2)] text-sm text-[var(--color-muted)]">
         <Badge tone={statusTone(card.status.kind)}>{card.status.label}</Badge>
         <Badge tone="neutral">{card.sourceWorkspace.name || t("board.workspace")}</Badge>
         {card.status.runIDs.length > 0 ? (

@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useId, type CSSProperties, type ReactNode } from "react";
 import { X } from "lucide-react";
 
 import { cx } from "./classes";
@@ -9,10 +9,11 @@ export type DialogProps = Readonly<{
   open: boolean;
   children: ReactNode;
   className?: string;
+  style?: CSSProperties;
   onClose: () => void;
 }>;
 
-export function Dialog({ title, closeLabel, open, children, className, onClose }: DialogProps) {
+export function Dialog({ title, closeLabel, open, children, className, style, onClose }: DialogProps) {
   const titleId = useId();
 
   if (!open) {
@@ -37,9 +38,10 @@ export function Dialog({ title, closeLabel, open, children, className, onClose }
           className,
         )}
         role="dialog"
+        style={style}
       >
         <header className="flex items-center justify-between gap-[var(--space-4)]">
-          <h2 className="m-0 text-[1.15rem]">{title}</h2>
+          <h2 className="m-0 text-[1.15rem]" id={titleId}>{title}</h2>
           <button
             aria-label={closeLabel}
             className="grid h-9 w-9 place-items-center rounded-full border border-transparent bg-transparent text-[var(--color-on-island)]"

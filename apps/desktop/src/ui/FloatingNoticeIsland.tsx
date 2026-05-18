@@ -1,0 +1,107 @@
+import { useId, type ReactNode } from "react";
+import { Maximize2, Minus } from "lucide-react";
+
+import { cx } from "./classes";
+
+export type FloatingNoticeTone = "danger" | "neutral";
+
+export type FloatingNoticeIslandProps = Readonly<{
+    children: ReactNode;
+    className?: string | undefined;
+    collapsed: boolean;
+    collapseLabel: string;
+    expandLabel: string;
+    icon?: ReactNode;
+    onCollapsedChange: (collapsed: boolean) => void;
+    positionClassName?: string | undefined;
+    title: string;
+    tone?: FloatingNoticeTone;
+}>;
+
+export function FloatingNoticeIsland({
+    children,
+    className,
+    collapsed,
+    collapseLabel,
+    expandLabel,
+    icon,
+    onCollapsedChange,
+    positionClassName = "right-[var(--space-4)] bottom-[var(--space-4)]",
+    title,
+    tone = "danger",
+}: FloatingNoticeIslandProps) {
+    const titleID = useId();
+    const styles = noticeToneStyles[tone];
+
+    return (
+        <aside
+            aria-label={collapsed ? title : undefined}
+            aria-labelledby={collapsed ? undefined : titleID}
+            className={cx(
+                "floating-notice-morph island-glass app-region-no-drag fixed z-50 overflow-hidden border shadow-[var(--shadow-island-1)]",
+                collapsed
+                    ? "floating-notice-collapsed grid h-12 w-12 place-items-center rounded-[var(--radius-m)] p-0 text-[var(--color-notice-collapsed-icon)]"
+                    : "floating-notice-expanded grid h-[176px] w-[min(420px,calc(100vw-32px))] gap-[6px] rounded-[var(--radius-xl)] p-[var(--space-3)]",
+                positionClassName,
+                styles.borderClassName,
+                collapsed ? styles.collapsedClassName : undefined,
+                className,
+            )}
+        >
+            {collapsed ? (
+                <button
+                    aria-label={expandLabel}
+                    className="grid h-full w-full place-items-center rounded-[var(--radius-m)] border border-transparent bg-transparent text-[var(--color-notice-collapsed-icon)]"
+                    onClick={() => {
+                        onCollapsedChange(false);
+                    }}
+                    type="button"
+                >
+                    {icon ?? <Maximize2 aria-hidden="true" size={24} strokeWidth={1.7} />}
+                </button>
+            ) : (
+                <>
+                    <header
+                        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-[var(--space-2)] leading-none"
+                        data-testid="floating-notice-header"
+                    >
+                        <h2 className={cx("m-0 text-lg font-bold leading-none", styles.titleClassName)} id={titleID}>
+                            {title}
+                        </h2>
+                        <button
+                            aria-label={collapseLabel}
+                            className="grid h-[18px] w-[18px] place-items-center rounded-full border border-transparent bg-transparent text-[var(--color-on-island)]"
+                            onClick={() => {
+                                onCollapsedChange(true);
+                            }}
+                            type="button"
+                        >
+                            <Minus aria-hidden="true" size={18} strokeWidth={1.5} />
+                        </button>
+                    </header>
+                    {children}
+                </>
+            )}
+        </aside>
+    );
+}
+
+const noticeToneStyles: Record<
+    FloatingNoticeTone,
+    Readonly<{
+        borderClassName: string;
+        collapsedClassName: string;
+        titleClassName: string;
+    }>
+> = {
+    danger: {
+        borderClassName: "border-[var(--color-error)]",
+        collapsedClassName: "floating-notice-collapsed-danger",
+        titleClassName: "text-[var(--color-error)]",
+    },
+    neutral: {
+        borderClassName: "border-[var(--color-outline)]",
+        collapsedClassName: "floating-notice-collapsed-neutral",
+        titleClassName: "text-[var(--color-on-island)]",
+    },
+};

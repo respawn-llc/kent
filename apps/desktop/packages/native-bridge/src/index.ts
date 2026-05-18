@@ -12,7 +12,7 @@ import {
   type NativeDialogWindowOptions,
 } from "./dialogs";
 
-export type { NativeDialogContentSize, NativeDialogWindowOptions } from "./dialogs";
+export type { NativeDialogContentSize, NativeDialogTheme, NativeDialogWindowOptions } from "./dialogs";
 
 export type NativeCapabilityState = Readonly<{
   clipboard: Readonly<{
@@ -81,6 +81,10 @@ export type NativeBridge = Readonly<{
     notifyCreated(binding: NativeProjectBinding): Promise<void>;
     onCreated(handler: (binding: NativeProjectBinding) => void): Promise<NativeUnlisten>;
   }>;
+  projectWorkspace: Readonly<{
+    requestUnlink(target: NativeWorkspaceUnlinkTarget): Promise<void>;
+    onUnlinkRequested(handler: (target: NativeWorkspaceUnlinkTarget) => void): Promise<NativeUnlisten>;
+  }>;
   taskDetail: Readonly<{
     openWindow(target: NativeTaskDetailTarget): Promise<void>;
     onOpen(handler: (target: NativeTaskDetailTarget) => void): Promise<NativeUnlisten>;
@@ -132,6 +136,12 @@ export type NativeProjectBinding = Readonly<{
   projectID: string;
 }>;
 
+export type NativeWorkspaceUnlinkTarget = Readonly<{
+  projectID: string;
+  workspaceID: string;
+  rootPath: string;
+}>;
+
 export type NativeTaskDetailTarget = Readonly<{
   taskId: string;
   resumeRunId: string;
@@ -176,6 +186,7 @@ const unavailableCapabilities: NativeCapabilityState = {
 const taskDetailWindowLabel = "native-dialog-task-detail";
 const taskDetailOpenEvent = "builder://task-detail-open";
 const taskDetailChangedEvent = "builder://task-detail-changed";
+const workspaceUnlinkRequestEvent = "builder://workspace-unlink-request";
 
 declare global {
   interface Window {
@@ -248,6 +259,14 @@ export function createBrowserNativeBridge(): NativeBridge {
         return Promise.resolve();
       },
       async onCreated(): Promise<NativeUnlisten> {
+        return () => undefined;
+      },
+    },
+    projectWorkspace: {
+      async requestUnlink(): Promise<void> {
+        return Promise.resolve();
+      },
+      async onUnlinkRequested(): Promise<NativeUnlisten> {
         return () => undefined;
       },
     },
@@ -347,6 +366,16 @@ export function createTauriNativeBridge(): NativeBridge {
       },
       async onCreated(handler: (binding: NativeProjectBinding) => void): Promise<NativeUnlisten> {
         return listen<NativeProjectBinding>("builder://project-created", (event) => {
+          handler(event.payload);
+        });
+      },
+    },
+    projectWorkspace: {
+      async requestUnlink(target: NativeWorkspaceUnlinkTarget): Promise<void> {
+        await emitTo("main", workspaceUnlinkRequestEvent, target);
+      },
+      async onUnlinkRequested(handler: (target: NativeWorkspaceUnlinkTarget) => void): Promise<NativeUnlisten> {
+        return listen<NativeWorkspaceUnlinkTarget>(workspaceUnlinkRequestEvent, (event) => {
           handler(event.payload);
         });
       },

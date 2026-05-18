@@ -93,11 +93,11 @@ function TaskDetailHeader({ detail }: Readonly<{ detail: TaskDetail }>) {
   return (
     <header className="flex flex-wrap items-start justify-between gap-[var(--space-4)]">
       <div className="min-w-0">
-        <p className="m-0 font-mono text-sm text-[var(--color-secondary)]">
+        <p className="m-0 font-mono text-sm text-[var(--color-muted)]">
           {t("task.shortId", { id: detail.shortID })}
         </p>
         <h2 className="my-[var(--space-1)] min-w-0 truncate">{detail.title}</h2>
-        <p className="m-0 min-w-0 truncate text-[var(--color-secondary)]">
+        <p className="m-0 min-w-0 truncate text-[var(--color-muted)]">
           {detail.projectName} · {detail.workflowName}
         </p>
       </div>
@@ -128,7 +128,7 @@ function TaskEditForm({
   const [workspaceID, setWorkspaceID] = useState(detail.sourceWorkspace.id);
 
   if (!editable) {
-    return <p className="m-0 text-sm text-[var(--color-secondary)]">{t("task.sourceWorkspaceLocked")}</p>;
+    return <p className="m-0 text-sm text-[var(--color-muted)]">{t("task.sourceWorkspaceLocked")}</p>;
   }
 
   async function save(): Promise<void> {

@@ -25,12 +25,12 @@ function FieldShell({ label, error, hint, inputId, errorId, hintId, children }: 
 
   return (
     <div className="grid gap-[var(--space-3)]">
-      <label className="text-[0.82rem] font-extrabold text-[var(--color-secondary)]" htmlFor={inputId}>
+      <label className="text-[0.82rem] font-extrabold text-[var(--color-muted)]" htmlFor={inputId}>
         {label}
       </label>
       {children}
       {hint !== undefined ? (
-        <span className="text-[var(--color-secondary)]" id={hintId}>
+        <span className="text-[var(--color-muted)]" id={hintId}>
           {hint}
         </span>
       ) : null}

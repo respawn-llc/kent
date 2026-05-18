@@ -1,43 +1,46 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Builder",
-  "version": "0.0.0",
-  "identifier": "sh.kent",
-  "build": {
-    "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm build:web",
-    "frontendDist": "../dist"
-  },
-  "app": {
-    "windows": [
-      {
-        "title": "Builder",
-        "width": 1280,
-        "height": 860,
-        "minWidth": 960,
-        "minHeight": 640,
-        "transparent": true,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true,
-        "trafficLightPosition": {
-          "x": 20,
-          "y": 22
-        },
-        "windowEffects": {
-          "effects": ["underWindowBackground", "acrylic"],
-          "state": "active",
-          "radius": 18
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "Builder",
+    "version": "0.0.0",
+    "identifier": "sh.kent",
+    "build": {
+        "beforeDevCommand": "pnpm dev",
+        "devUrl": "http://127.0.0.1:1420",
+        "beforeBuildCommand": "pnpm build:web",
+        "frontendDist": "../dist"
+    },
+    "app": {
+        "windows": [
+            {
+                "title": "Builder",
+                "width": 1280,
+                "height": 860,
+                "minWidth": 960,
+                "minHeight": 640,
+                "transparent": true,
+                "titleBarStyle": "Overlay",
+                "hiddenTitle": true,
+                "trafficLightPosition": {
+                    "x": 12,
+                    "y": 22
+                },
+                "windowEffects": {
+                    "effects": [
+                        "underWindowBackground",
+                        "acrylic"
+                    ],
+                    "state": "active",
+                    "radius": 12
+                }
+            }
+        ],
+        "macOSPrivateApi": true,
+        "security": {
+            "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost; font-src 'self'; connect-src ipc: http://ipc.localhost ws:; object-src 'none'; frame-src 'none'; base-uri 'self'"
         }
-      }
-    ],
-    "macOSPrivateApi": true,
-    "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost; font-src 'self'; connect-src ipc: http://ipc.localhost ws:; object-src 'none'; frame-src 'none'; base-uri 'self'"
+    },
+    "bundle": {
+        "active": true,
+        "targets": "all"
     }
-  },
-  "bundle": {
-    "active": true,
-    "targets": "all"
-  }
 }

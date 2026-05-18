@@ -1,18 +1,21 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft } from "lucide-react";
+import { Plus } from "lucide-react";
 
 import type { ProjectEdit, WorkspaceSummary } from "../../api";
 import { errorMessage } from "../../api/errors";
-import { useAppNavigation } from "../../app/navigation";
 import { useAppServices } from "../../app/useAppServices";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
-import { Badge, Button, ErrorState, SelectField, TextInput, VirtualizedInfiniteList } from "../../ui";
+import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
+import { useStatusController } from "../../app/useStatusController";
+import { useWindowChromeTitle } from "../../app/windowChromeTitle";
+import { ErrorState, LoadingState, TextInput, VirtualizedInfiniteList } from "../../ui";
 import {
-  ProjectEditStatusMessage,
-  type ProjectEditStatus,
+  ProjectNameField,
   WorkspaceRow,
-  WorkspaceUnlinkDialog,
+  WorkspaceUnlinkFallbackDialog,
+  type WorkspaceUnlinkTarget,
+  workspaceUnlinkDialogWidth,
 } from "./ProjectEditParts";
 import { findWorkspaceByPath, projectNameErrors } from "./ProjectEditUtils";
 import {
@@ -20,6 +23,7 @@ import {
   useProjectEdit,
   useProjectNameSave,
   useProjectWorkspaceAttach,
+  useProjectWorkspaceUnlinkRequests,
   useProjectWorkspaceUnlink,
 } from "./useProjectEditData";
 
@@ -29,14 +33,10 @@ export function ProjectEditRoute({ projectId }: Readonly<{ projectId: string }>)
   const pages = query.data?.pages;
   const project = pages?.[0];
   const workspaces = useMemo(() => pages?.flatMap((page) => page.workspaces) ?? [], [pages]);
+  useWindowChromeTitle(project?.displayName ?? null);
 
   if (query.isPending) {
-    return (
-      <section className="island-glass grid h-full min-h-0 place-items-start gap-[var(--space-3)] overflow-hidden rounded-[var(--radius-xl)] p-[var(--space-4)]">
-        <h1>{t("projectEdit.loadingTitle")}</h1>
-        <p>{t("states.loading")}</p>
-      </section>
-    );
+    return <LoadingState body={t("states.loading")} reveal={false} title={t("projectEdit.loadingTitle")} />;
   }
 
   if (query.isError || project === undefined) {
@@ -44,6 +44,7 @@ export function ProjectEditRoute({ projectId }: Readonly<{ projectId: string }>)
       <ErrorState
         body={query.isError ? errorMessage(query.error) : t("projectEdit.missingProject")}
         onRetry={() => void query.refetch()}
+        reveal={false}
         retryLabel={t("app.retry")}
         title={t("states.error")}
       />
@@ -76,23 +77,70 @@ function ProjectEditContent({
   workspaces: readonly WorkspaceSummary[];
 }>) {
   const { t } = useTranslation();
-  const navigation = useAppNavigation();
   const { nativeBridge } = useAppServices();
+  const { push } = useStatusController();
   const connection = useConnectionSnapshot();
   const nameSave = useProjectNameSave(project.projectID);
   const defaultSave = useProjectDefaultWorkspaceSave(project.projectID);
   const attach = useProjectWorkspaceAttach(project.projectID);
   const unlink = useProjectWorkspaceUnlink(project.projectID);
   const [nameDraft, setNameDraft] = useState(project.displayName);
-  const [defaultDraft, setDefaultDraft] = useState(project.defaultWorkspaceID);
-  const [status, setStatus] = useState<ProjectEditStatus | null>(null);
-  const [highlightedWorkspaceID, setHighlightedWorkspaceID] = useState("");
-  const [unlinkTarget, setUnlinkTarget] = useState<WorkspaceSummary | null>(null);
   const disabled = connection.phase !== "connected";
   const mutating = disabled || nameSave.isPending || defaultSave.isPending || attach.isPending || unlink.isPending;
   const nameErrors = projectNameErrors(nameDraft, t);
   const nameChanged = nameDraft !== project.displayName;
-  const defaultChanged = defaultDraft !== project.defaultWorkspaceID;
+  const pushToast = useCallback(
+    (id: string, tone: "info" | "success" | "danger", body: string, title = t("projectEdit.title")) => {
+      push({ id, tone, title, body });
+    },
+    [push, t],
+  );
+  const confirmUnlink = useCallback(
+    async (target: WorkspaceUnlinkTarget, close?: () => void): Promise<void> => {
+      try {
+        const response = await unlink.mutateAsync(target.workspaceID);
+        if (response.unlinked) {
+          close?.();
+          pushToast("project-edit-workspace-unlinked", "success", t("projectEdit.workspaceUnlinked"));
+          return;
+        }
+        pushToast(
+          "project-edit-workspace-unlink-blocked",
+          "danger",
+          response.blockers.map((blocker) => blocker.message).join("\n") || t("projectEdit.workspaceUnlinkBlocked"),
+          t("projectEdit.workspaceUnlinkBlocked"),
+        );
+      } catch (error) {
+        pushToast("project-edit-workspace-unlink-error", "danger", errorMessage(error));
+      }
+    },
+    [pushToast, t, unlink],
+  );
+  const unlinkDialog = useNativeDialogFallback<WorkspaceUnlinkTarget>({
+    errorNoticeID: "workspace-unlink-window-error",
+    errorTitle: t("projectEdit.unlinkWindowError"),
+    openNative: async (target) => {
+      await nativeBridge.dialogs.openWindow(workspaceUnlinkWindowOptions(target, t("projectEdit.unlinkTitle")));
+    },
+    renderFallback: (target, close) => (
+      <WorkspaceUnlinkFallbackDialog
+        disabled={mutating}
+        onClose={close}
+        onConfirm={(nextTarget) => void confirmUnlink(nextTarget, close)}
+        target={target}
+      />
+    ),
+  });
+  const handleWorkspaceUnlinkRequest = useCallback(
+    (target: WorkspaceUnlinkTarget) => {
+      if (target.projectID === project.projectID) {
+        void confirmUnlink(target);
+      }
+    },
+    [confirmUnlink, project.projectID],
+  );
+
+  useProjectWorkspaceUnlinkRequests(nativeBridge, handleWorkspaceUnlinkRequest);
 
   async function chooseWorkspace(): Promise<void> {
     try {
@@ -104,195 +152,124 @@ function ProjectEditContent({
       }
       const loadedMatch = findWorkspaceByPath(workspaces, selected.path);
       if (loadedMatch !== undefined) {
-        setHighlightedWorkspaceID(loadedMatch.id);
-        setStatus({ tone: "info", message: t("projectEdit.workspaceAlreadyLinked") });
+        pushToast("project-edit-workspace-duplicate", "info", t("projectEdit.workspaceAlreadyLinked"));
         return;
       }
-      const binding = await attach.mutateAsync(selected.path);
-      setHighlightedWorkspaceID(binding.workspaceID);
-      setStatus({ tone: "info", message: t("projectEdit.workspaceAttached") });
+      await attach.mutateAsync(selected.path);
+      pushToast("project-edit-workspace-attached", "success", t("projectEdit.workspaceAttached"));
     } catch (error) {
-      setStatus({ tone: "danger", message: errorMessage(error) });
+      pushToast("project-edit-workspace-attach-error", "danger", errorMessage(error));
     }
   }
 
   async function saveName(): Promise<void> {
     try {
       await nameSave.mutateAsync(nameDraft);
-      setStatus({ tone: "info", message: t("projectEdit.projectSaved") });
+      pushToast("project-edit-name-saved", "success", t("projectEdit.projectSaved"));
     } catch (error) {
-      setStatus({ tone: "danger", message: errorMessage(error) });
+      pushToast("project-edit-name-save-error", "danger", errorMessage(error));
     }
   }
 
-  async function saveDefaultWorkspace(): Promise<void> {
-    try {
-      await defaultSave.mutateAsync(defaultDraft);
-      setStatus({ tone: "info", message: t("projectEdit.defaultWorkspaceSaved") });
-    } catch (error) {
-      setStatus({ tone: "danger", message: errorMessage(error) });
-    }
-  }
-
-  async function confirmUnlink(workspace: WorkspaceSummary): Promise<void> {
-    try {
-      const response = await unlink.mutateAsync(workspace.id);
-      if (response.unlinked) {
-        setUnlinkTarget(null);
-        setHighlightedWorkspaceID("");
-        setStatus({ tone: "info", message: t("projectEdit.workspaceUnlinked") });
-        return;
-      }
-      setStatus({
-        tone: "danger",
-        message: t("projectEdit.workspaceUnlinkBlocked"),
-        blockers: response.blockers,
-      });
-    } catch (error) {
-      setStatus({ tone: "danger", message: errorMessage(error) });
-    }
-  }
-
-  function goBack(): void {
-    if (window.history.length > 1) {
-      window.history.back();
+  async function saveDefaultWorkspace(workspace: WorkspaceSummary): Promise<void> {
+    if (workspace.id === project.defaultWorkspaceID) {
       return;
     }
-    navigation.openHome();
+    try {
+      await defaultSave.mutateAsync(workspace.id);
+      pushToast("project-edit-default-saved", "success", t("projectEdit.defaultWorkspaceSaved"));
+    } catch (error) {
+      pushToast("project-edit-default-save-error", "danger", errorMessage(error));
+    }
   }
+
+  const header = (
+    <ProjectEditListHeader
+      disabled={mutating}
+      nameChanged={nameChanged}
+      nameDraft={nameDraft}
+      nameErrors={nameErrors}
+      onAttach={() => void chooseWorkspace()}
+      onNameChange={setNameDraft}
+      onNameSave={() => void saveName()}
+      project={project}
+    />
+  );
 
   return (
     <section
-      className="island-glass grid h-full min-h-0 grid-rows-[auto_auto_1fr] gap-[var(--space-4)] overflow-hidden rounded-[var(--radius-xl)] p-[var(--space-4)]"
+      aria-labelledby="workspaces-title"
+      className="island-glass h-full min-h-0 overflow-hidden rounded-[var(--radius-xl)]"
       data-testid="project-edit-route"
     >
-      <ProjectEditHeader onBack={goBack} project={project} />
-      <ProjectEditForm
-        defaultChanged={defaultChanged}
-        defaultDraft={defaultDraft}
-        disabled={mutating}
-        nameChanged={nameChanged}
-        nameDraft={nameDraft}
-        nameErrors={nameErrors}
-        onDefaultChange={setDefaultDraft}
-        onDefaultSave={() => void saveDefaultWorkspace()}
-        onNameChange={setNameDraft}
-        onNameSave={() => void saveName()}
-        project={project}
-        workspaces={workspaces}
-      />
+      {unlinkDialog.fallback}
       <ProjectWorkspaceList
         defaultWorkspaceID={project.defaultWorkspaceID}
         disabled={mutating}
         hasNextPage={hasNextPage}
-        highlightedWorkspaceID={highlightedWorkspaceID}
+        header={header}
         isFetchingNextPage={isFetchingNextPage}
-        onAttach={() => void chooseWorkspace()}
         onLoadMore={onLoadMore}
-        onUnlink={setUnlinkTarget}
-        status={status}
-        workspaces={workspaces}
-      />
-      <WorkspaceUnlinkDialog
-        disabled={mutating}
-        onClose={() => {
-          setUnlinkTarget(null);
+        onMakeDefault={(workspace) => void saveDefaultWorkspace(workspace)}
+        onUnlink={(workspace) => {
+          void unlinkDialog.open({
+            projectID: project.projectID,
+            rootPath: workspace.rootPath,
+            workspaceID: workspace.id,
+          });
         }}
-        onConfirm={(workspace) => void confirmUnlink(workspace)}
-        workspace={unlinkTarget}
+        workspaces={workspaces}
       />
     </section>
   );
 }
 
-function ProjectEditHeader({
-  onBack,
-  project,
-}: Readonly<{ onBack: () => void; project: ProjectEdit }>) {
-  const { t } = useTranslation();
-  return (
-    <header className="flex min-w-0 items-start justify-between gap-[var(--space-3)]">
-      <div className="min-w-0">
-        <button
-          className="mb-[var(--space-2)] inline-flex items-center gap-[var(--space-2)] rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] px-3 py-2 text-sm text-[var(--color-on-island)]"
-          onClick={onBack}
-          type="button"
-        >
-          <ArrowLeft aria-hidden="true" size={16} strokeWidth={1.5} />
-          {t("projectEdit.back")}
-        </button>
-        <p className="m-0 font-mono text-sm text-[var(--color-secondary)]">{project.projectKey}</p>
-        <h1 className="m-0 truncate">{t("projectEdit.title")}</h1>
-      </div>
-      <Badge tone="info">{t("projectEdit.filesStayOnDisk")}</Badge>
-    </header>
-  );
-}
-
-function ProjectEditForm({
-  defaultChanged,
-  defaultDraft,
+function ProjectEditListHeader({
   disabled,
   nameChanged,
   nameDraft,
   nameErrors,
-  onDefaultChange,
-  onDefaultSave,
+  onAttach,
   onNameChange,
   onNameSave,
   project,
-  workspaces,
 }: Readonly<{
-  defaultChanged: boolean;
-  defaultDraft: string;
   disabled: boolean;
   nameChanged: boolean;
   nameDraft: string;
   nameErrors: readonly string[];
-  onDefaultChange: (value: string) => void;
-  onDefaultSave: () => void;
+  onAttach: () => void;
   onNameChange: (value: string) => void;
   onNameSave: () => void;
   project: ProjectEdit;
-  workspaces: readonly WorkspaceSummary[];
 }>) {
   const { t } = useTranslation();
   return (
-    <div className="grid min-w-0 gap-[var(--space-3)] lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.7fr)]">
-      <div className="grid gap-[var(--space-3)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]">
+    <div className="mx-auto grid w-full max-w-[var(--content-max-width-project-edit)] gap-[var(--space-3)]">
+      <div className="grid min-w-0 gap-[var(--space-3)]">
+        <ProjectNameField
+          disabled={disabled}
+          nameChanged={nameChanged}
+          nameDraft={nameDraft}
+          nameErrors={nameErrors}
+          onNameChange={onNameChange}
+          onNameSave={onNameSave}
+        />
         <TextInput disabled label={t("home.projectKey")} value={project.projectKey} />
-        <div className="grid gap-[var(--space-2)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-          <TextInput
-            error={nameErrors}
-            label={t("home.projectName")}
-            onChange={(event) => {
-              onNameChange(event.target.value);
-            }}
-            value={nameDraft}
-          />
-          <Button disabled={disabled || !nameChanged || nameErrors.length > 0} onClick={onNameSave} variant="primary">
-            {t("projectEdit.saveName")}
-          </Button>
-        </div>
       </div>
-      <div className="grid gap-[var(--space-3)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]">
-        <SelectField
-          disabled={workspaces.length <= 1 || disabled}
-          label={t("projectEdit.defaultWorkspace")}
-          onChange={(event) => {
-            onDefaultChange(event.target.value);
-          }}
-          value={defaultDraft}
+      <div className="flex min-w-0 items-center justify-between gap-[var(--space-3)]">
+        <h1 className="m-0 text-[1.15rem] font-bold" id="workspaces-title">
+          {t("projectEdit.workspaces")}
+        </h1>
+        <button
+          aria-label={t("projectEdit.attachWorkspace")}
+          className="grid h-9 w-9 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-on-island)] disabled:cursor-not-allowed disabled:opacity-55"
+          disabled={disabled}
+          onClick={onAttach}
+          type="button"
         >
-          {workspaces.map((workspace) => (
-            <option key={workspace.id} value={workspace.id}>
-              {workspace.rootPath}
-            </option>
-          ))}
-        </SelectField>
-        <Button disabled={disabled || !defaultChanged} onClick={onDefaultSave} variant="primary">
-          {t("projectEdit.saveDefault")}
-        </Button>
+          <Plus aria-hidden="true" size={20} strokeWidth={1.5} />
+        </button>
       </div>
     </div>
   );
@@ -302,58 +279,68 @@ function ProjectWorkspaceList({
   defaultWorkspaceID,
   disabled,
   hasNextPage,
-  highlightedWorkspaceID,
+  header,
   isFetchingNextPage,
-  onAttach,
   onLoadMore,
+  onMakeDefault,
   onUnlink,
-  status,
   workspaces,
 }: Readonly<{
   defaultWorkspaceID: string;
   disabled: boolean;
   hasNextPage: boolean;
-  highlightedWorkspaceID: string;
+  header: ReactNode;
   isFetchingNextPage: boolean;
-  onAttach: () => void;
   onLoadMore: () => void;
+  onMakeDefault: (workspace: WorkspaceSummary) => void;
   onUnlink: (workspace: WorkspaceSummary) => void;
-  status: ProjectEditStatus | null;
   workspaces: readonly WorkspaceSummary[];
 }>) {
   const { t } = useTranslation();
   return (
-    <div className="grid min-h-0 gap-[var(--space-3)]">
-      <div className="flex min-w-0 items-center justify-between gap-[var(--space-3)]">
-        <h2 className="m-0 text-[1.15rem]">{t("projectEdit.workspaces")}</h2>
-        <Button disabled={disabled} onClick={onAttach} variant="secondary">
-          {t("projectEdit.attachWorkspace")}
-        </Button>
-      </div>
-      {status !== null ? <ProjectEditStatusMessage status={status} /> : null}
-      <VirtualizedInfiniteList
-        className="min-h-0 overflow-auto hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch]"
-        empty={<p className="text-[var(--color-secondary)]">{t("projectEdit.noWorkspaces")}</p>}
-        estimateSize={() => 72}
-        getItemKey={(workspace) => workspace.id}
-        hasNextPage={hasNextPage}
-        isFetchingNextPage={isFetchingNextPage}
-        items={workspaces}
-        loadingLabel={t("app.loadingMore")}
-        onLoadMore={onLoadMore}
-        paddingEnd={12}
-        renderItem={(workspace) => (
+    <VirtualizedInfiniteList
+      className="h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch]"
+      empty={<p className="m-0 text-[var(--color-muted)]">{t("projectEdit.noWorkspaces")}</p>}
+      estimateSize={() => 72}
+      getItemKey={(workspace) => workspace.id}
+      hasNextPage={hasNextPage}
+      header={header}
+      isFetchingNextPage={isFetchingNextPage}
+      items={workspaces}
+      loadingLabel={t("app.loadingMore")}
+      onLoadMore={onLoadMore}
+      paddingEnd={16}
+      paddingStart={16}
+      renderItem={(workspace) => (
+        <div className="mx-auto w-full max-w-[var(--content-max-width-project-edit)]">
           <WorkspaceRow
             defaultWorkspaceID={defaultWorkspaceID}
             disabled={disabled}
-            highlighted={highlightedWorkspaceID === workspace.id}
+            onMakeDefault={() => {
+              onMakeDefault(workspace);
+            }}
             onUnlink={() => {
               onUnlink(workspace);
             }}
             workspace={workspace}
           />
-        )}
-      />
-    </div>
+        </div>
+      )}
+    />
   );
+}
+
+function workspaceUnlinkWindowOptions(target: WorkspaceUnlinkTarget, title: string) {
+  return {
+    initialHeight: 320,
+    initialWidth: workspaceUnlinkDialogWidth,
+    label: `workspace-unlink-${target.projectID}-${target.workspaceID}`,
+    params: {
+      projectID: target.projectID,
+      rootPath: target.rootPath,
+      workspaceID: target.workspaceID,
+    },
+    route: "/native-dialog/workspace-unlink",
+    title,
+  };
 }

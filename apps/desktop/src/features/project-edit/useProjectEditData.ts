@@ -1,4 +1,6 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
+import type { NativeBridge, NativeWorkspaceUnlinkTarget } from "@builder/desktop-native-bridge";
 
 import type { ProjectBinding } from "../../api";
 import { queryKeys } from "../../app/queryKeys";
@@ -58,6 +60,27 @@ export function useProjectWorkspaceUnlink(projectID: string) {
       await invalidateProjectEditQueries(queryClient, projectID);
     },
   });
+}
+
+export function useProjectWorkspaceUnlinkRequests(
+  nativeBridge: NativeBridge,
+  handler: (target: NativeWorkspaceUnlinkTarget) => void,
+) {
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | null = null;
+    void nativeBridge.projectWorkspace.onUnlinkRequested(handler).then((nextUnlisten) => {
+      if (active) {
+        unlisten = nextUnlisten;
+        return;
+      }
+      nextUnlisten();
+    });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [handler, nativeBridge.projectWorkspace]);
 }
 
 async function invalidateProjectEditQueries(

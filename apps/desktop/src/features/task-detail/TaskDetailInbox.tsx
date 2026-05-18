@@ -39,7 +39,7 @@ export function TaskInbox({
         resumeRunId={resumeRunId}
       />
       {detail.attention.length === 0 ? (
-        <p className="m-0 text-[var(--color-secondary)]">{t("task.noInbox")}</p>
+        <p className="m-0 text-[var(--color-muted)]">{t("task.noInbox")}</p>
       ) : null}
       {detail.attention.map((item) => (
         <InboxItem

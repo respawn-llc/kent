@@ -1,9 +1,13 @@
 import { Link } from "@tanstack/react-router";
-import { Home } from "lucide-react";
+import { ChevronLeft, ChevronRight, Home, SunMoon } from "lucide-react";
 import type { PointerEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
+import { toggleInMemoryThemeOverride } from "../appEnvironment";
+import { appChromeTitleClassNames, appChromeTitlePlacementClassNames } from "./appChromeStyles";
+import { useAppNavigation, useNavigationStackState } from "./navigation";
 import { useAppServices } from "./useAppServices";
+import { useCurrentWindowChromeTitle } from "./windowChromeTitle";
 
 export type AppChromeProps = Readonly<{
   children: ReactNode;
@@ -11,7 +15,11 @@ export type AppChromeProps = Readonly<{
 
 export function AppChrome({ children }: AppChromeProps) {
   const { t } = useTranslation();
-  const { nativeBridge } = useAppServices();
+  const { debugThemeOverrideEnabled, nativeBridge } = useAppServices();
+  const navigation = useAppNavigation();
+  const stack = useNavigationStackState();
+  const macOS = isMacOS();
+  const title = useCurrentWindowChromeTitle();
 
   return (
     <main className="window-glass-fill grid h-screen w-screen overflow-hidden p-[var(--native-titlebar-height)_var(--space-2)_var(--space-2)]">
@@ -22,14 +30,46 @@ export function AppChrome({ children }: AppChromeProps) {
           void startNativeWindowDrag(event, nativeBridge.window.startDragging);
         }}
       />
-      <Link
-        aria-label={t("app.home")}
-        className={`app-region-no-drag fixed top-[8px] z-30 grid h-6 w-6 place-items-center rounded-full border border-transparent text-[var(--color-on-island)] ${isMacOS() ? "left-[var(--native-home-link-left-macos)]" : "left-[var(--native-home-link-left-default)]"}`}
-        to="/"
+      <div
+        className={`app-region-no-drag fixed top-[8px] z-30 flex h-6 items-center ${macOS ? "left-[var(--native-home-link-left-macos)]" : "right-[var(--space-4)]"}`}
+        data-testid="app-chrome-navigation"
       >
-        <Home aria-hidden="true" size={16} strokeWidth={1.125} />
-      </Link>
-      <div className="app-region-no-drag min-h-0 overflow-hidden" data-testid="app-shell-content">
+        {stack.hasHistory && !macOS ? (
+          <HistoryButtons
+            backLabel={t("app.back")}
+            forwardLabel={t("app.forward")}
+            navigation={navigation}
+            placement="before-home"
+            stack={stack}
+          />
+        ) : null}
+        <Link
+          aria-label={t("app.home")}
+          className="grid h-6 w-6 place-items-center rounded-full border border-transparent text-[var(--color-on-island)]"
+          to="/"
+        >
+          <Home aria-hidden="true" size={16} strokeWidth={1.125} />
+        </Link>
+        {stack.hasHistory && macOS ? (
+          <HistoryButtons
+            backLabel={t("app.back")}
+            forwardLabel={t("app.forward")}
+            navigation={navigation}
+            placement="after-home"
+            stack={stack}
+          />
+        ) : null}
+        {debugThemeOverrideEnabled ? <DebugThemeToggle label={t("app.toggleTheme")} /> : null}
+      </div>
+      {title !== null ? (
+        <div
+          className={[...appChromeTitleClassNames, ...appChromeTitlePlacementClassNames(macOS)].join(" ")}
+          data-testid="app-chrome-title"
+        >
+          {title}
+        </div>
+      ) : null}
+      <div className="app-region-no-drag min-h-0 overflow-visible" data-testid="app-shell-content">
         {children}
       </div>
     </main>
@@ -38,6 +78,59 @@ export function AppChrome({ children }: AppChromeProps) {
 
 function isMacOS(): boolean {
   return typeof navigator !== "undefined" && /Mac OS|Macintosh/u.test(navigator.userAgent);
+}
+
+function DebugThemeToggle({ label }: Readonly<{ label: string }>) {
+  return (
+    <button
+      aria-label={label}
+      className="grid h-6 w-6 place-items-center rounded-full border border-transparent bg-transparent text-[var(--color-on-island)]"
+      data-testid="app-chrome-debug-theme-toggle"
+      onClick={() => {
+        toggleInMemoryThemeOverride();
+      }}
+      type="button"
+    >
+      <SunMoon aria-hidden="true" size={16} strokeWidth={1.25} />
+    </button>
+  );
+}
+
+function HistoryButtons({
+  navigation,
+  stack,
+  backLabel,
+  forwardLabel,
+  placement,
+}: Readonly<{
+  backLabel: string;
+  forwardLabel: string;
+  navigation: ReturnType<typeof useAppNavigation>;
+  placement: "before-home" | "after-home";
+  stack: ReturnType<typeof useNavigationStackState>;
+}>) {
+  return (
+    <div className="grid grid-cols-2" data-placement={placement} data-testid="app-chrome-history-buttons">
+      <button
+        aria-label={backLabel}
+        className="grid h-6 w-6 place-items-center rounded-full border border-transparent bg-transparent text-[var(--color-on-island)] disabled:opacity-35"
+        disabled={!stack.canGoBack}
+        onClick={() => void navigation.back()}
+        type="button"
+      >
+        <ChevronLeft aria-hidden="true" size={16} strokeWidth={1.25} />
+      </button>
+      <button
+        aria-label={forwardLabel}
+        className="grid h-6 w-6 place-items-center rounded-full border border-transparent bg-transparent text-[var(--color-on-island)] disabled:opacity-35"
+        disabled={!stack.canGoForward}
+        onClick={() => void navigation.forward()}
+        type="button"
+      >
+        <ChevronRight aria-hidden="true" size={16} strokeWidth={1.25} />
+      </button>
+    </div>
+  );
 }
 
 async function startNativeWindowDrag(

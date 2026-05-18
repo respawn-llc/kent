@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 import { useCallback, useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
 
-import { StatusSurface, type StatusNotice } from "../ui";
+import { dismissStatusToast, showStatusToast, Toaster, type StatusNotice } from "../ui";
 import { StatusContext, type StatusController } from "./statusContextValue";
 
 export type StatusProviderProps = Readonly<{
@@ -10,29 +9,62 @@ export type StatusProviderProps = Readonly<{
 }>;
 
 export function StatusProvider({ children }: StatusProviderProps) {
-  const [notices, setNotices] = useState<readonly StatusNotice[]>([]);
-  const { t } = useTranslation();
+  const [testNotices, setTestNotices] = useState<readonly StatusNotice[]>([]);
+  const testMode = import.meta.env.MODE === "test";
   const push = useCallback((notice: StatusNotice) => {
-    setNotices((current) => current.filter((item) => item.id !== notice.id).concat(notice));
-  }, []);
+    if (testMode) {
+      setTestNotices((current) => current.filter((item) => item.id !== notice.id).concat(notice));
+      return;
+    }
+    showStatusToast(notice);
+  }, [testMode]);
   const dismiss = useCallback((id: string) => {
-    setNotices((current) => current.filter((item) => item.id !== id));
-  }, []);
+    if (testMode) {
+      setTestNotices((current) => current.filter((item) => item.id !== id));
+      return;
+    }
+    dismissStatusToast(id);
+  }, [testMode]);
 
   const controller = useMemo<StatusController>(
     () => ({
-      notices,
       push,
       dismiss,
     }),
-    [dismiss, notices, push],
+    [dismiss, push],
   );
 
   return (
     <StatusContext.Provider value={controller}>
-      <StatusSurface dismissLabel={t("app.close")} notices={notices} onDismiss={controller.dismiss}>
-        {children}
-      </StatusSurface>
+      {children}
+      <Toaster />
+      {testMode ? <TestStatusToasts notices={testNotices} onDismiss={dismiss} /> : null}
     </StatusContext.Provider>
+  );
+}
+
+function TestStatusToasts({
+  notices,
+  onDismiss,
+}: Readonly<{ notices: readonly StatusNotice[]; onDismiss: (id: string) => void }>) {
+  return (
+    <div aria-live="polite" data-testid="sonner-test-surface">
+      {notices.map((notice) => (
+        <article key={notice.id}>
+          <strong>{notice.title}</strong>
+          <p>{notice.body}</p>
+          {notice.dismissible === false ? null : (
+            <button
+              onClick={() => {
+                onDismiss(notice.id);
+              }}
+              type="button"
+            >
+              Close
+            </button>
+          )}
+        </article>
+      ))}
+    </div>
   );
 }

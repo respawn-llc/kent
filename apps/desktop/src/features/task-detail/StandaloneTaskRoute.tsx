@@ -22,7 +22,7 @@ export function StandaloneTaskRoute({ taskId }: StandaloneTaskRouteProps) {
     <section className="island-glass grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-[var(--space-4)] rounded-[var(--radius-xl)] p-[var(--space-4)]">
       <header className="flex items-center justify-between gap-[var(--space-3)]">
         <h1 className="m-0 text-[1.25rem]">{t("task.title")}</h1>
-        <Button onClick={navigation.openHome} variant="ghost">
+        <Button onClick={() => void navigation.openHome()} variant="ghost">
           {t("app.backHome")}
         </Button>
       </header>

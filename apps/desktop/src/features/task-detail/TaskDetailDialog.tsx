@@ -47,7 +47,7 @@ export function TaskDetailSurface({ taskId, enabled, resumeRunId, onMutated }: T
     return <p>{t("states.loading")}</p>;
   }
   if (detail.isError) {
-    return <ErrorState body={errorMessage(detail.error)} title={t("states.error")} />;
+    return <ErrorState body={errorMessage(detail.error)} reveal={false} title={t("states.error")} />;
   }
   return (
     <TaskDetailContent

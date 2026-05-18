@@ -16,6 +16,7 @@
         "@tauri-apps/api",
         "i18next",
         "lucide-react",
+        "sonner",
         "react",
         "react-dom",
         "react-hook-form",

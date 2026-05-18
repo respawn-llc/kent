@@ -10,6 +10,13 @@ const slidingWindowPageLimit = 5;
 
 export function useProjectPages() {
   const { api } = useAppServices();
+  const queryClient = useQueryClient();
+  useEffect(
+    () => () => {
+      queryClient.removeQueries({ queryKey: queryKeys.projects, exact: true });
+    },
+    [queryClient],
+  );
   return useInfiniteQuery({
     queryKey: queryKeys.projects,
     queryFn: async ({ pageParam }) => api.listProjects(pageParam),

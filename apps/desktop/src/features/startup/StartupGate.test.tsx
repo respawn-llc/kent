@@ -98,6 +98,7 @@ describe("StartupGate", () => {
     });
 
     expect(await screen.findByText("Server disconnected. Cached data remains visible; mutations are disabled.")).toBeInTheDocument();
+    expect(screen.getByText("Reconnecting")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
 
     act(() => {

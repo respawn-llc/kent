@@ -20,8 +20,8 @@ export function RunsTab({ detail, disabled }: Readonly<{ detail: TaskDetail; dis
         >
           <span className="font-mono">{run.id}</span>
           <span>{run.status}</span>
-          <span className="font-mono text-sm text-[var(--color-secondary)]">{run.sessionID}</span>
-          <span className="text-sm text-[var(--color-secondary)]">{run.role}</span>
+          <span className="font-mono text-sm text-[var(--color-muted)]">{run.sessionID}</span>
+          <span className="text-sm text-[var(--color-muted)]">{run.role}</span>
         </article>
       ))}
     </section>
@@ -77,7 +77,7 @@ function TeleportBox({ detail, disabled }: Readonly<{ detail: TaskDetail; disabl
         {t("task.teleport")}
       </Button>
       {!terminalAvailable ? (
-        <p className="m-0 text-[var(--color-secondary)]">{t("task.teleportUnavailable")}</p>
+        <p className="m-0 text-[var(--color-muted)]">{t("task.teleportUnavailable")}</p>
       ) : null}
       {error.length > 0 ? <p className="m-0 text-[var(--color-error)]">{error}</p> : null}
     </section>

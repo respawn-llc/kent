@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "dev:showcase": "vite --host 127.0.0.1 --open /dev-showcase.html",
     "build": "pnpm build:web",
     "build:web": "tsc -b --pretty false && vite build",
     "preview": "vite preview",
@@ -12,6 +13,7 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "test:watch": "vitest",
+    "proof:showcase": "../../scripts/capture-gui-ui-showcase-proof.sh",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "tauri": "tauri",
@@ -34,6 +36,7 @@
     "react-markdown": "^10.1.0",
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
+    "sonner": "^2.0.7",
     "zod": "^4.4.3"
   },
   "devDependencies": {

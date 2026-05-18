@@ -3,7 +3,7 @@ import {
   type NativeBridge,
   type NativeDirectorySelection,
 } from "@builder/desktop-native-bridge";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
 import { App } from "./App";
@@ -20,6 +20,7 @@ describe("App", () => {
     window.history.pushState(null, "", "/");
     clearStorage("localStorage");
     clearStorage("sessionStorage");
+    document.documentElement.removeAttribute("data-builder-theme");
     HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
     globalThis.ResizeObserver = originalResizeObserver;
     setNavigatorUserAgent(originalUserAgent);
@@ -28,6 +29,7 @@ describe("App", () => {
   afterEach(() => {
     HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
     globalThis.ResizeObserver = originalResizeObserver;
+    document.documentElement.removeAttribute("data-builder-theme");
     setNavigatorUserAgent(originalUserAgent);
   });
 
@@ -42,12 +44,22 @@ describe("App", () => {
     render(<App services={createTestServices(startupRoutes)} />);
 
     expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
-    expect(screen.getByTestId("app-shell-content")).toHaveClass("app-region-no-drag", "min-h-0");
+    expect(screen.getByTestId("app-shell-content")).toHaveClass(
+      "app-region-no-drag",
+      "min-h-0",
+      "overflow-visible",
+    );
     expect(screen.getByTestId("app-shell-content")).not.toHaveClass("island-glass");
+    expect(screen.getByTestId("route-transition-frame")).toHaveClass(
+      "route-transition-frame",
+      "h-full",
+      "min-h-0",
+    );
     expect(screen.getByTestId("home-route-root")).toHaveClass("h-full", "min-h-0");
     expect(screen.getByTestId("home-route-root").className).not.toContain("p-[var(--space-4)]");
     expect(screen.getByTestId("home-pane-grid")).toHaveClass("gap-[var(--space-2)]");
     expect(screen.getByTestId("home-pane-grid").className).not.toContain("gap-[var(--space-4)]");
+    expect(screen.queryByTestId("app-chrome-history-buttons")).not.toBeInTheDocument();
   });
 
   it("keeps the macOS home chrome link offset tied to the native titlebar tokens", async () => {
@@ -56,7 +68,40 @@ describe("App", () => {
     render(<App services={createTestServices(startupRoutes)} />);
 
     expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Home")).toHaveClass("left-[var(--native-home-link-left-macos)]");
+    expect(screen.getByTestId("app-chrome-navigation")).toHaveClass(
+      "left-[var(--native-home-link-left-macos)]",
+    );
+  });
+
+  it("shows browser-backed history controls as a contiguous macOS chrome row", async () => {
+    setNavigatorUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0)");
+    window.history.replaceState({ __TSR_index: 1, __TSR_key: "current", key: "current" }, "", "/");
+
+    render(<App services={createTestServices(startupRoutes)} />);
+
+    expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    const chromeNavigation = screen.getByTestId("app-chrome-navigation");
+    const historyButtons = within(chromeNavigation).getByTestId("app-chrome-history-buttons");
+    expect(chromeNavigation).toHaveClass("flex", "h-6", "left-[var(--native-home-link-left-macos)]");
+    expect(within(chromeNavigation).getByLabelText("Home")).toHaveClass("h-6", "w-6");
+    expect(historyButtons).toHaveClass("grid", "grid-cols-2");
+    expect(historyButtons).toHaveAttribute("data-placement", "after-home");
+    expect(within(historyButtons).getByLabelText("Back")).toBeEnabled();
+    expect(within(historyButtons).getByLabelText("Forward")).toBeDisabled();
+  });
+
+  it("places history controls before Home on non-macOS chrome", async () => {
+    setNavigatorUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+    window.history.replaceState({ __TSR_index: 1, __TSR_key: "current", key: "current" }, "", "/");
+
+    render(<App services={createTestServices(startupRoutes)} />);
+
+    expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    const chromeNavigation = screen.getByTestId("app-chrome-navigation");
+    const historyButtons = within(chromeNavigation).getByTestId("app-chrome-history-buttons");
+    expect(chromeNavigation).toHaveClass("right-[var(--space-4)]");
+    expect(historyButtons).toHaveAttribute("data-placement", "before-home");
+    expect(within(historyButtons).getByLabelText("Back")).toBeEnabled();
   });
 
   it("renders workflow validation blockers with wrapping inbox metadata", async () => {

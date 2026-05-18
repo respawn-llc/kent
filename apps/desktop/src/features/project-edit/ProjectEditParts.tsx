@@ -1,33 +1,85 @@
+import type { NativeBridge } from "@builder/desktop-native-bridge";
+import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { Link2Off, Star, Unlink } from "lucide-react";
+import { Link2Off, Save, Star, Unlink } from "lucide-react";
 
-import type { WorkspaceSummary, WorkspaceUnlinkBlocker } from "../../api";
-import { Button, Dialog } from "../../ui";
+import type { WorkspaceSummary } from "../../api";
+import { errorMessage } from "../../api/errors";
+import { useAppServices } from "../../app/useAppServices";
+import { useStatusController } from "../../app/useStatusController";
+import { Button, Dialog, NativeDialogWindow } from "../../ui";
 import { cx } from "../../ui/classes";
 
-export type ProjectEditStatus = Readonly<{
-  tone: "info" | "danger";
-  message: string;
-  blockers?: readonly WorkspaceUnlinkBlocker[] | undefined;
+export const workspaceUnlinkDialogWidth = 400;
+
+type WorkspaceUnlinkDialogStyle = CSSProperties & Readonly<Record<"--workspace-unlink-dialog-width", string>>;
+
+const workspaceUnlinkDialogStyle: WorkspaceUnlinkDialogStyle = {
+  "--workspace-unlink-dialog-width": `${workspaceUnlinkDialogWidth.toString()}px`,
+};
+
+export type WorkspaceUnlinkTarget = Readonly<{
+  projectID: string;
+  workspaceID: string;
+  rootPath: string;
 }>;
 
-export function ProjectEditStatusMessage({ status }: Readonly<{ status: ProjectEditStatus }>) {
+export function ProjectNameField({
+  disabled,
+  nameChanged,
+  nameDraft,
+  nameErrors,
+  onNameChange,
+  onNameSave,
+}: Readonly<{
+  disabled: boolean;
+  nameChanged: boolean;
+  nameDraft: string;
+  nameErrors: readonly string[];
+  onNameChange: (value: string) => void;
+  onNameSave: () => void;
+}>) {
+  const { t } = useTranslation();
   return (
-    <div
-      className={cx(
-        "rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]",
-        status.tone === "danger" && "text-[var(--color-error)]",
-      )}
-      role="status"
-    >
-      <p className="m-0">{status.message}</p>
-      {status.blockers !== undefined && status.blockers.length > 0 ? (
-        <ul className="m-0 mt-[var(--space-2)] grid gap-[var(--space-1)] pl-[var(--space-4)]">
-          {status.blockers.map((blocker) => (
-            <li key={blocker.code}>{blocker.message}</li>
+    <div className="grid gap-[var(--space-3)]">
+      <label className="text-[0.82rem] font-extrabold text-[var(--color-muted)]" htmlFor="project-edit-name">
+        {t("home.projectName")}
+      </label>
+      <div className="grid gap-[var(--space-2)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <input
+          aria-describedby="project-edit-name-error"
+          aria-invalid={nameErrors.length > 0 ? true : undefined}
+          className="app-region-no-drag w-full rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] px-[14px] py-3 text-[var(--color-on-island)]"
+          id="project-edit-name"
+          onChange={(event) => {
+            onNameChange(event.target.value);
+          }}
+          value={nameDraft}
+        />
+        <button
+          aria-label={t("projectEdit.saveName")}
+          className="grid aspect-square self-stretch place-items-center rounded-full border border-transparent bg-[var(--color-primary)] text-[var(--color-on-primary)] disabled:cursor-not-allowed disabled:opacity-55"
+          disabled={disabled || !nameChanged || nameErrors.length > 0}
+          onClick={onNameSave}
+          type="button"
+        >
+          <Save aria-hidden="true" size={18} strokeWidth={1.5} />
+        </button>
+      </div>
+      <span
+        aria-live="polite"
+        className="grid overflow-hidden opacity-0 transition-[grid-template-rows,opacity] duration-[var(--motion-normal)] data-[visible=true]:grid-rows-[1fr] data-[visible=true]:opacity-100 grid-rows-[0fr]"
+        data-visible={nameErrors.length > 0 ? "true" : "false"}
+        id="project-edit-name-error"
+      >
+        <span className="grid min-h-0 gap-[var(--space-1)]">
+          {nameErrors.map((message) => (
+            <span className="text-[var(--color-error)]" key={message}>
+              {message}
+            </span>
           ))}
-        </ul>
-      ) : null}
+        </span>
+      </span>
     </div>
   );
 }
@@ -35,13 +87,13 @@ export function ProjectEditStatusMessage({ status }: Readonly<{ status: ProjectE
 export function WorkspaceRow({
   defaultWorkspaceID,
   disabled,
-  highlighted,
+  onMakeDefault,
   onUnlink,
   workspace,
 }: Readonly<{
   defaultWorkspaceID: string;
   disabled: boolean;
-  highlighted: boolean;
+  onMakeDefault: () => void;
   onUnlink: () => void;
   workspace: WorkspaceSummary;
 }>) {
@@ -49,27 +101,33 @@ export function WorkspaceRow({
   const isDefault = workspace.id === defaultWorkspaceID;
   return (
     <article
-      className={cx(
-        "grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]",
-        highlighted && "outline outline-2 outline-[var(--color-primary)]",
-      )}
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]"
       data-testid="workspace-row"
     >
       <span className="min-w-0 truncate font-mono text-sm">{workspace.rootPath}</span>
-      {isDefault ? (
-        <span
-          aria-label={t("projectEdit.default")}
-          className="inline-flex items-center text-[var(--color-secondary)]"
-          title={t("projectEdit.default")}
-        >
-          <Star aria-hidden="true" size={16} strokeWidth={1.5} />
-        </span>
-      ) : (
-        <span aria-hidden="true" />
-      )}
+      <button
+        aria-label={t("projectEdit.makeDefaultWorkspace", { path: workspace.rootPath })}
+        aria-pressed={isDefault}
+        className={cx(
+          "grid h-9 w-9 place-items-center border border-transparent bg-transparent transition-colors duration-[var(--motion-fast)] disabled:cursor-not-allowed disabled:opacity-55",
+          isDefault ? "text-[var(--color-secondary)] opacity-100" : "text-[var(--color-muted)]",
+        )}
+        disabled={disabled}
+        onClick={onMakeDefault}
+        title={isDefault ? t("projectEdit.default") : t("projectEdit.makeDefault")}
+        type="button"
+      >
+        <Star
+          aria-hidden="true"
+          className="transition-[color,fill,opacity,transform] duration-[var(--motion-normal)]"
+          fill={isDefault ? "currentColor" : "none"}
+          size={17}
+          strokeWidth={1.5}
+        />
+      </button>
       <button
         aria-label={t("projectEdit.unlinkWorkspace", { path: workspace.rootPath })}
-        className="grid h-9 w-9 place-items-center rounded-full border border-[var(--color-outline)] bg-transparent text-[var(--color-on-island)] disabled:cursor-not-allowed disabled:opacity-55"
+        className="grid h-9 w-9 place-items-center rounded-full border border-[var(--color-outline)] bg-transparent text-[var(--color-on-island)] transition-colors duration-[var(--motion-fast)] disabled:cursor-not-allowed disabled:opacity-55"
         disabled={disabled}
         onClick={onUnlink}
         type="button"
@@ -80,50 +138,119 @@ export function WorkspaceRow({
   );
 }
 
-export function WorkspaceUnlinkDialog({
+export function WorkspaceUnlinkFallbackDialog({
   disabled,
   onClose,
   onConfirm,
-  workspace,
+  target,
 }: Readonly<{
   disabled: boolean;
   onClose: () => void;
-  onConfirm: (workspace: WorkspaceSummary) => void;
-  workspace: WorkspaceSummary | null;
+  onConfirm: (target: WorkspaceUnlinkTarget) => void;
+  target: WorkspaceUnlinkTarget;
 }>) {
   const { t } = useTranslation();
   return (
     <Dialog
+      className="w-[min(var(--workspace-unlink-dialog-width),calc(100vw-32px))]"
       closeLabel={t("app.close")}
       onClose={onClose}
-      open={workspace !== null}
+      open
+      style={workspaceUnlinkDialogStyle}
       title={t("projectEdit.unlinkTitle")}
     >
-      {workspace !== null ? (
-        <div className="grid gap-[var(--space-3)]">
-          <p className="m-0">{t("projectEdit.unlinkBody")}</p>
-          <p className="m-0 rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] font-mono text-sm">
-            {workspace.rootPath}
-          </p>
-          <div className="flex flex-wrap justify-end gap-[var(--space-2)]">
-            <Button disabled={disabled} onClick={onClose} variant="secondary">
-              {t("app.cancel")}
-            </Button>
-            <Button
-              disabled={disabled}
-              onClick={() => {
-                onConfirm(workspace);
-              }}
-              variant="danger"
-            >
-              <span className="inline-flex items-center gap-[var(--space-2)]">
-                <Unlink aria-hidden="true" size={16} strokeWidth={1.5} />
-                {t("projectEdit.unlinkConfirm")}
-              </span>
-            </Button>
-          </div>
-        </div>
-      ) : null}
+      <WorkspaceUnlinkContent
+        disabled={disabled}
+        onCancel={onClose}
+        onConfirm={() => {
+          onConfirm(target);
+        }}
+        rootPath={target.rootPath}
+      />
     </Dialog>
   );
+}
+
+export function WorkspaceUnlinkWindowRoute({
+  projectID,
+  workspaceID,
+  rootPath,
+}: WorkspaceUnlinkTarget) {
+  const { t } = useTranslation();
+  const { nativeBridge } = useAppServices();
+  const { push } = useStatusController();
+  const target = { projectID, rootPath, workspaceID };
+  return (
+    <NativeDialogWindow title={t("projectEdit.unlinkTitle")}>
+      <WorkspaceUnlinkContent
+        className="w-[calc(var(--workspace-unlink-dialog-width)-(var(--space-2)*2)-(var(--space-4)*2))]"
+        disabled={false}
+        onCancel={() => {
+          void nativeBridge.window.closeCurrent();
+        }}
+        onConfirm={() => {
+          void confirmNativeWorkspaceUnlink(nativeBridge, target, (message) => {
+            push({
+              body: message,
+              id: "workspace-unlink-confirm-error",
+              title: t("projectEdit.unlinkWindowError"),
+              tone: "danger",
+            });
+          });
+        }}
+        rootPath={rootPath}
+        style={workspaceUnlinkDialogStyle}
+      />
+    </NativeDialogWindow>
+  );
+}
+
+function WorkspaceUnlinkContent({
+  className,
+  disabled,
+  onCancel,
+  onConfirm,
+  rootPath,
+  style,
+}: Readonly<{
+  className?: string;
+  disabled: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  rootPath: string;
+  style?: CSSProperties;
+}>) {
+  const { t } = useTranslation();
+  return (
+    <div className={cx("grid gap-[var(--space-3)]", className)} style={style}>
+      <p className="m-0">{t("projectEdit.unlinkBody")}</p>
+      <p className="m-0 break-words rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] font-mono text-sm">
+        {rootPath}
+      </p>
+      <div className="flex flex-wrap justify-end gap-[var(--space-2)]">
+        <Button disabled={disabled} onClick={onCancel} variant="secondary">
+          {t("app.cancel")}
+        </Button>
+        <Button disabled={disabled} onClick={onConfirm} variant="danger">
+          <span className="inline-flex items-center gap-[var(--space-2)]">
+            <Unlink aria-hidden="true" size={16} strokeWidth={1.5} />
+            {t("projectEdit.unlinkConfirm")}
+          </span>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+async function confirmNativeWorkspaceUnlink(
+  nativeBridge: NativeBridge,
+  target: WorkspaceUnlinkTarget,
+  onError: (message: string) => void,
+): Promise<void> {
+  try {
+    await nativeBridge.projectWorkspace.requestUnlink(target);
+    await nativeBridge.window.closeCurrent();
+  } catch (error) {
+    onError(errorMessage(error));
+  }
 }
