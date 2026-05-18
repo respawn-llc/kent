@@ -56,6 +56,7 @@ const (
 	MessageTypeManualCompactionCarryover = clientui.MessageTypeManualCompactionCarryover
 	MessageTypeHeadlessMode              = clientui.MessageTypeHeadlessMode
 	MessageTypeHeadlessModeExit          = clientui.MessageTypeHeadlessModeExit
+	MessageTypeWorkflowMode              = clientui.MessageTypeWorkflowMode
 	MessageTypeWorktreeMode              = clientui.MessageTypeWorktreeMode
 	MessageTypeWorktreeModeExit          = clientui.MessageTypeWorktreeModeExit
 	MessageTypeGoal                      = clientui.MessageTypeGoal

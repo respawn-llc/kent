@@ -489,6 +489,13 @@ func (s *Core) WorktreeClient() client.WorktreeClient {
 	return s.safeBundles().Worktrees.worktrees
 }
 
+func (s *Core) WorkflowClient() client.WorkflowClient {
+	if s == nil {
+		return nil
+	}
+	return s.safeBundles().Workflows.workflows
+}
+
 func (s *Core) RegisterSessionStore(store *session.Store) {
 	if s == nil || s.safeBundles().Persistence.sessionStores == nil {
 		return

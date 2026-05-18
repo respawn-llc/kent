@@ -23,6 +23,37 @@ type systemPromptTemplateData struct {
 	DefaultSystemPrompt          string
 }
 
+type WorkflowNodeContextArgs struct {
+	TaskId          string
+	TaskShortId     string
+	TaskTitle       string
+	TaskBody        string
+	NodeId          string
+	NodeKey         string
+	NodeDisplayName string
+	CompletionMode  string
+	OutputFields    []WorkflowOutputField
+	Transitions     []WorkflowTransition
+	InputValues     []WorkflowInputValue
+	NodePrompt      string
+}
+
+type WorkflowOutputField struct {
+	Name        string
+	Description string
+}
+
+type WorkflowTransition struct {
+	ID          string
+	DisplayName string
+	Description string
+}
+
+type WorkflowInputValue struct {
+	Name  string
+	Value string
+}
+
 //go:embed system_prompt.md
 var SystemPrompt string
 
@@ -88,6 +119,15 @@ var HeadlessModePrompt string
 
 //go:embed headless_mode_exit_prompt.md
 var HeadlessModeExitPrompt string
+
+//go:embed workflow/tool_mode_prompt.md
+var WorkflowToolModePrompt string
+
+//go:embed workflow/structured_output_mode_prompt.md
+var WorkflowStructuredOutputModePrompt string
+
+//go:embed workflow/node_context.md
+var WorkflowNodeContextPrompt string
 
 //go:embed worktree_mode_prompt.md
 var WorktreeModePrompt string
@@ -180,6 +220,10 @@ func RenderWorktreeModeExitPrompt(branch, cwd, worktreePath, workspaceRoot strin
 	})
 }
 
+func RenderWorkflowNodeContextPrompt(args WorkflowNodeContextArgs) (string, error) {
+	return renderNamedTemplate("workflow node context", WorkflowNodeContextPrompt, args)
+}
+
 func renderSystemPromptTemplate(text string, args SystemPromptTemplateArgs, defaultSystemPrompt string) string {
 	rendered, err := renderSystemPromptTemplateErr(text, args, defaultSystemPrompt)
 	if err != nil {
@@ -193,18 +237,26 @@ func renderSystemPromptTemplateErr(text string, args SystemPromptTemplateArgs, d
 	if trimmed == "" {
 		return "", nil
 	}
-	tmpl, err := template.New("system_prompt").Option("missingkey=error").Parse(trimmed)
-	if err != nil {
-		return "", fmt.Errorf("parse system prompt template: %w", err)
-	}
-	var out bytes.Buffer
-	if err := tmpl.Execute(&out, systemPromptTemplateData{
+	return renderNamedTemplate("system prompt", trimmed, systemPromptTemplateData{
 		BuilderRunCommand:            selfcmd.RunCommandPrefix(),
 		EstimatedToolCallsForContext: args.EstimatedToolCallsForContext,
 		EditingToolName:              strings.TrimSpace(args.EditingToolName),
 		DefaultSystemPrompt:          strings.TrimSpace(defaultSystemPrompt),
-	}); err != nil {
-		return "", fmt.Errorf("render system prompt template: %w", err)
+	})
+}
+
+func renderNamedTemplate(name string, text string, data any) (string, error) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return "", nil
+	}
+	tmpl, err := template.New(name).Option("missingkey=error").Parse(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("parse %s template: %w", name, err)
+	}
+	var out bytes.Buffer
+	if err := tmpl.Execute(&out, data); err != nil {
+		return "", fmt.Errorf("render %s template: %w", name, err)
 	}
 	return out.String(), nil
 }

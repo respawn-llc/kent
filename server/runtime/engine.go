@@ -11,6 +11,7 @@ import (
 	"builder/server/llm"
 	"builder/server/session"
 	"builder/server/tools"
+	"builder/server/workflowruntime"
 	"builder/shared/clientui"
 	"builder/shared/compaction"
 	"builder/shared/config"
@@ -105,6 +106,7 @@ type Config struct {
 	Reviewer                      ReviewerConfig
 	HeadlessMode                  bool
 	ToolPreambles                 bool
+	WorkflowRun                   *workflowruntime.Config
 	TranscriptWorkingDir          string
 	OnEvent                       func(Event)
 }
@@ -389,6 +391,9 @@ func (e *Engine) SubmitUserMessage(ctx context.Context, text string) (assistant 
 			return err
 		}
 		if err := e.injectHeadlessModeTransitionPromptIfNeeded(stepID); err != nil {
+			return err
+		}
+		if err := e.injectWorkflowModePromptIfNeeded(stepCtx, stepID); err != nil {
 			return err
 		}
 		if err := e.materializePendingWorktreeReminder(stepID); err != nil {

@@ -275,6 +275,34 @@ func validateCacheWarningMode(state settingsState, _ map[string]string) error {
 	}
 }
 
+func normalizeWorkflowCompletionMode(raw string) WorkflowCompletionMode {
+	return WorkflowCompletionMode(strings.ToLower(strings.TrimSpace(raw)))
+}
+
+func validateWorkflowSettings(state settingsState, _ map[string]string) error {
+	if state.Settings.Workflow.CompletionMode == "" &&
+		state.Settings.Workflow.Concurrency == 0 &&
+		state.Settings.Workflow.MaxFinalAnswerViolations == 0 &&
+		state.Settings.Workflow.MaxInvalidCompletionAttempts == 0 {
+		return nil
+	}
+	switch state.Settings.Workflow.CompletionMode {
+	case WorkflowCompletionModeAuto, WorkflowCompletionModeStructuredOutput, WorkflowCompletionModeTool:
+	default:
+		return fmt.Errorf("invalid workflow.completion_mode %q (expected auto|structured_output|tool)", state.Settings.Workflow.CompletionMode)
+	}
+	if state.Settings.Workflow.Concurrency <= 0 {
+		return fmt.Errorf("workflow.concurrency must be > 0")
+	}
+	if state.Settings.Workflow.MaxFinalAnswerViolations <= 0 {
+		return fmt.Errorf("workflow.max_final_answer_violations must be > 0")
+	}
+	if state.Settings.Workflow.MaxInvalidCompletionAttempts <= 0 {
+		return fmt.Errorf("workflow.max_invalid_completion_attempts must be > 0")
+	}
+	return nil
+}
+
 func validateContextWindow(state settingsState, _ map[string]string) error {
 	if state.Settings.ContextCompactionThresholdTokens <= 0 {
 		return fmt.Errorf("context_compaction_threshold_tokens must be > 0")

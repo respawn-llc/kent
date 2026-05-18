@@ -9,6 +9,7 @@ import (
 
 	"builder/server/llm"
 	"builder/server/tools"
+	"builder/server/workflowruntime"
 	"builder/shared/toolspec"
 
 	"github.com/google/uuid"
@@ -53,6 +54,15 @@ func (t *defaultToolExecutor) ExecuteToolCalls(ctx context.Context, stepID strin
 
 			if !knownTool {
 				results[idx] = tools.Result{CallID: tc.ID, Name: toolspec.ID(tc.Name), IsError: true, Output: mustJSON(map[string]any{"error": "unknown tool"}), Summary: "unknown tool"}
+				if err := e.persistToolCompletion(stepID, results[idx]); err != nil {
+					callErrs[idx] = fmt.Errorf("persist tool completion (call_id=%s tool=%s): %w", tc.ID, results[idx].Name, err)
+				} else {
+					e.emit(Event{Kind: EventToolCallCompleted, StepID: stepID, ToolResult: copiedToolResult(results[idx]), CommittedTranscriptChanged: true})
+				}
+				return
+			}
+			if toolID == toolspec.ToolCompleteNode {
+				results[idx] = t.executeCompleteNodeTool(ctx, stepID, tc)
 				if err := e.persistToolCompletion(stepID, results[idx]); err != nil {
 					callErrs[idx] = fmt.Errorf("persist tool completion (call_id=%s tool=%s): %w", tc.ID, results[idx].Name, err)
 				} else {
@@ -109,6 +119,36 @@ func (t *defaultToolExecutor) ExecuteToolCalls(ctx context.Context, stepID strin
 		return results, joined
 	}
 	return results, nil
+}
+
+func (t *defaultToolExecutor) executeCompleteNodeTool(ctx context.Context, stepID string, call llm.ToolCall) tools.Result {
+	e := t.engine
+	result := tools.Result{CallID: call.ID, Name: toolspec.ToolCompleteNode}
+	if !e.workflowRunActive() || e.cfg.WorkflowRun.Controller == nil {
+		result.IsError = true
+		result.Output = mustJSON(map[string]any{"error": "complete_node is only available during a workflow run"})
+		result.Summary = "not in workflow run"
+		return result
+	}
+	parsed, err := workflowruntime.DecodeCompletion(call.Input, e.cfg.WorkflowRun.Contract)
+	if err != nil {
+		return e.workflowCompletionRejectedResult(ctx, result, err)
+	}
+	completed, err := e.cfg.WorkflowRun.Controller.CompleteWorkflowRun(ctx, workflowruntime.CompletionRequest{
+		RunID:              e.cfg.WorkflowRun.Contract.RunID,
+		ExpectedGeneration: e.cfg.WorkflowRun.Contract.ExpectedGeneration,
+		RequireGeneration:  e.cfg.WorkflowRun.Contract.RequireGeneration,
+		TransitionID:       parsed.TransitionID,
+		OutputValues:       parsed.OutputValues,
+		Commentary:         parsed.Commentary,
+	})
+	if err != nil {
+		return e.workflowCompletionRejectedResult(ctx, result, err)
+	}
+	result.Output = workflowruntime.ToolSuccessPayload(completed)
+	result.Summary = "workflow node completed"
+	result.Terminal = true
+	return result
 }
 
 func executorInputForCustomTool(toolID toolspec.ID, input string) json.RawMessage {

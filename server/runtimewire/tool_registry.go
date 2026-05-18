@@ -1,6 +1,9 @@
 package runtimewire
 
 import (
+	"context"
+	"encoding/json"
+
 	"builder/server/tools"
 	askquestion "builder/server/tools/askquestion"
 	edittool "builder/server/tools/edit"
@@ -79,6 +82,8 @@ func BuildLocalRuntimeHandler(def tools.Definition, ctx LocalToolRuntimeContext)
 			return nil, fmt.Errorf("ask_question broker is unavailable")
 		}
 		return askquestion.NewTool(ctx.AskQuestionBroker), nil
+	case tools.LocalRuntimeBuilderCompleteNode:
+		return completeNodeUnavailableTool{}, nil
 	case tools.LocalRuntimeBuilderTriggerHandoff:
 		if ctx.TriggerHandoffController == nil {
 			return nil, fmt.Errorf("trigger_handoff controller is unavailable")
@@ -99,6 +104,15 @@ func BuildLocalRuntimeHandler(def tools.Definition, ctx LocalToolRuntimeContext)
 	default:
 		return nil, fmt.Errorf("unsupported local runtime builder %q for tool %q", def.LocalRuntimeBuilder(), def.ID)
 	}
+}
+
+type completeNodeUnavailableTool struct{}
+
+func (completeNodeUnavailableTool) Name() toolspec.ID { return toolspec.ToolCompleteNode }
+
+func (completeNodeUnavailableTool) Call(_ context.Context, c tools.Call) (tools.Result, error) {
+	output, _ := json.Marshal(map[string]string{"error": "complete_node is only available during a workflow run"})
+	return tools.Result{CallID: c.ID, Name: toolspec.ToolCompleteNode, IsError: true, Output: output, Summary: "not in workflow run"}, nil
 }
 
 func (b *LocalToolRegistryBinding) Registry() *tools.Registry {

@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"builder/server/metadata/sqlitegen"
 	"builder/server/session"
@@ -93,6 +95,20 @@ func (s *Store) PersistenceRoot() string {
 	return s.persistenceRoot
 }
 
+func (s *Store) DB() *sql.DB {
+	if s == nil {
+		return nil
+	}
+	return s.db
+}
+
+func (s *Store) Queries() *sqlitegen.Queries {
+	if s == nil {
+		return nil
+	}
+	return s.queries
+}
+
 var registerWorkspaceBindingAfterLookupMissHook func()
 var insertWorkspaceBindingAfterProjectUpsertHook func()
 var rebindWorkspaceBeforeUpdateHook func()
@@ -118,11 +134,16 @@ func OpenAtPath(persistenceRoot string, databasePath string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{
+	store := &Store{
 		persistenceRoot: trimmedRoot,
 		db:              db,
 		queries:         sqlitegen.New(db),
-	}, nil
+	}
+	if err := store.BackfillProjectKeys(context.Background()); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return store, nil
 }
 
 func ResolveBinding(ctx context.Context, persistenceRoot string, workspaceRoot string) (Binding, error) {
@@ -694,6 +715,262 @@ func isSQLiteUniqueConstraint(err error) bool {
 	return sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE
 }
 
+func (s *Store) BackfillProjectKeys(ctx context.Context) error {
+	if s == nil || s.queries == nil {
+		return errors.New("metadata store is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin project key backfill tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	q := s.queries.WithTx(tx)
+	rows, err := q.ListProjectKeyRows(ctx)
+	if err != nil {
+		return fmt.Errorf("list project keys: %w", err)
+	}
+	used := map[string]bool{}
+	for _, row := range rows {
+		key := strings.TrimSpace(row.ProjectKey)
+		if key != "" {
+			used[key] = true
+		}
+	}
+	now := time.Now().UTC().UnixMilli()
+	for _, row := range rows {
+		if strings.TrimSpace(row.ProjectKey) != "" {
+			continue
+		}
+		key := suggestProjectKey(row.DisplayName, row.ID, used)
+		used[key] = true
+		updated, err := q.SetProjectKey(ctx, sqlitegen.SetProjectKeyParams{ProjectKey: key, UpdatedAtUnixMs: now, ProjectID: row.ID})
+		if err != nil {
+			return fmt.Errorf("set project key for %q: %w", row.ID, err)
+		}
+		if updated == 0 {
+			return fmt.Errorf("set project key for %q: project not found", row.ID)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit project key backfill tx: %w", err)
+	}
+	return nil
+}
+
+func setMissingProjectKey(ctx context.Context, q *sqlitegen.Queries, projectID string, displayName string, updatedAtUnixMs int64) error {
+	const maxProjectKeyRetries = 8
+	for attempt := 0; attempt < maxProjectKeyRetries; attempt++ {
+		rows, err := q.ListProjectKeyRows(ctx)
+		if err != nil {
+			return fmt.Errorf("list project keys: %w", err)
+		}
+		used := map[string]bool{}
+		alreadySet := false
+		for _, row := range rows {
+			key := strings.TrimSpace(row.ProjectKey)
+			if key != "" {
+				used[key] = true
+			}
+			if row.ID == projectID && key != "" {
+				alreadySet = true
+			}
+		}
+		if alreadySet {
+			return nil
+		}
+		key := suggestProjectKey(displayName, projectID, used)
+		updated, err := q.SetProjectKey(ctx, sqlitegen.SetProjectKeyParams{ProjectKey: key, UpdatedAtUnixMs: updatedAtUnixMs, ProjectID: projectID})
+		if err != nil {
+			if isSQLiteUniqueConstraint(err) {
+				continue
+			}
+			return fmt.Errorf("set project key for %q: %w", projectID, err)
+		}
+		if updated == 0 {
+			return fmt.Errorf("set project key for %q: project not found", projectID)
+		}
+		return nil
+	}
+	return fmt.Errorf("set project key for %q: exhausted unique-key retries", projectID)
+}
+
+func (s *Store) SetProjectKey(ctx context.Context, projectID string, projectKey string) error {
+	if s == nil || s.queries == nil {
+		return errors.New("metadata store is required")
+	}
+	trimmedProjectID := strings.TrimSpace(projectID)
+	if trimmedProjectID == "" {
+		return errors.New("project id is required")
+	}
+	normalizedKey, err := normalizeProjectKey(projectKey)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin set project key tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	q := s.queries.WithTx(tx)
+	state, err := q.GetProjectKeyState(ctx, trimmedProjectID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, trimmedProjectID)
+		}
+		return fmt.Errorf("get project key state: %w", err)
+	}
+	if state.TaskCount > 0 && strings.TrimSpace(state.ProjectKey) != normalizedKey {
+		return fmt.Errorf("project key is immutable after tasks exist")
+	}
+	if strings.TrimSpace(state.ProjectKey) == normalizedKey {
+		return nil
+	}
+	result, err := tx.ExecContext(ctx, `
+UPDATE projects
+SET project_key = ?, updated_at_unix_ms = ?
+WHERE id = ?
+  AND (
+    project_key = ?
+    OR NOT EXISTS (SELECT 1 FROM tasks WHERE project_id = ?)
+  )`, normalizedKey, time.Now().UTC().UnixMilli(), trimmedProjectID, normalizedKey, trimmedProjectID)
+	if err != nil {
+		if isSQLiteUniqueConstraint(err) {
+			return fmt.Errorf("project key %q is already in use", normalizedKey)
+		}
+		return fmt.Errorf("set project key: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set project key rows affected: %w", err)
+	}
+	if updated == 0 {
+		return fmt.Errorf("project key is immutable after tasks exist")
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit set project key tx: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) AllocateProjectTaskSequence(ctx context.Context, projectID string) (string, int64, error) {
+	if s == nil || s.queries == nil {
+		return "", 0, errors.New("metadata store is required")
+	}
+	trimmedProjectID := strings.TrimSpace(projectID)
+	if trimmedProjectID == "" {
+		return "", 0, errors.New("project id is required")
+	}
+	row, err := s.queries.AllocateProjectTaskSequence(ctx, sqlitegen.AllocateProjectTaskSequenceParams{
+		ProjectID:       trimmedProjectID,
+		UpdatedAtUnixMs: time.Now().UTC().UnixMilli(),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", 0, fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, trimmedProjectID)
+		}
+		return "", 0, fmt.Errorf("allocate project task sequence: %w", err)
+	}
+	key := strings.TrimSpace(row.ProjectKey)
+	if key == "" {
+		if err := s.BackfillProjectKeys(ctx); err != nil {
+			return "", 0, err
+		}
+		state, stateErr := s.queries.GetProjectKeyState(ctx, trimmedProjectID)
+		if stateErr != nil {
+			return "", 0, fmt.Errorf("get allocated project key: %w", stateErr)
+		}
+		key = strings.TrimSpace(state.ProjectKey)
+	}
+	return key, row.NextTaskSeq - 1, nil
+}
+
+func normalizeProjectKey(raw string) (string, error) {
+	key := strings.ToUpper(strings.TrimSpace(raw))
+	if !isValidProjectKey(key) {
+		return "", fmt.Errorf("project key must match ^[A-Z][A-Z0-9]{1,7}$")
+	}
+	return key, nil
+}
+
+func isValidProjectKey(key string) bool {
+	if len(key) < 2 || len(key) > 8 {
+		return false
+	}
+	for i, r := range key {
+		if i == 0 {
+			if r < 'A' || r > 'Z' {
+				return false
+			}
+			continue
+		}
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func suggestProjectKey(displayName string, projectID string, used map[string]bool) string {
+	base := projectKeyBase(displayName)
+	if len(base) < 2 {
+		base = projectKeyBase(projectID)
+	}
+	if len(base) < 2 {
+		base = "PRJ"
+	}
+	if len(base) > 3 {
+		base = base[:3]
+	}
+	if isValidProjectKey(base) && !used[base] {
+		return base
+	}
+	for suffix := 2; ; suffix++ {
+		suffixText := strconv.Itoa(suffix)
+		prefixLimit := 8 - len(suffixText)
+		prefix := base
+		if len(prefix) > prefixLimit {
+			prefix = prefix[:prefixLimit]
+		}
+		if len(prefix) < 1 {
+			prefix = "P"
+		}
+		candidate := prefix + suffixText
+		if isValidProjectKey(candidate) && !used[candidate] {
+			return candidate
+		}
+	}
+}
+
+func projectKeyBase(value string) string {
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(value) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			upper := unicode.ToUpper(r)
+			if upper >= 'A' && upper <= 'Z' || upper >= '0' && upper <= '9' {
+				b.WriteRune(upper)
+			}
+		}
+		if b.Len() >= 8 {
+			break
+		}
+	}
+	base := b.String()
+	if base == "" {
+		return ""
+	}
+	if base[0] < 'A' || base[0] > 'Z' {
+		base = "P" + base
+	}
+	if len(base) == 1 {
+		base += "R"
+	}
+	if len(base) > 8 {
+		base = base[:8]
+	}
+	return base
+}
+
 func (s *Store) insertWorkspaceBinding(ctx context.Context, canonicalRoot string, projectDisplayName string, workspaceDisplayName string, projectID string, workspaceID string, now time.Time, isPrimary bool) (Binding, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -709,6 +986,9 @@ func (s *Store) insertWorkspaceBinding(ctx context.Context, canonicalRoot string
 		MetadataJson:    "{}",
 	}); err != nil {
 		return Binding{}, fmt.Errorf("upsert project: %w", err)
+	}
+	if err := setMissingProjectKey(ctx, q, projectID, projectDisplayName, now.UnixMilli()); err != nil {
+		return Binding{}, err
 	}
 	if insertWorkspaceBindingAfterProjectUpsertHook != nil {
 		insertWorkspaceBindingAfterProjectUpsertHook()

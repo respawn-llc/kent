@@ -45,6 +45,7 @@ type GatewayProjectDependencies interface {
 	ProjectID() string
 	ProjectExists(context.Context, string) error
 	ProjectViewClient() client.ProjectViewClient
+	WorkflowClient() client.WorkflowClient
 }
 
 type GatewaySessionDependencies interface {

@@ -27,6 +27,11 @@ import (
 	"builder/server/sessionview"
 	"builder/server/storagemigration"
 	"builder/server/updatestatus"
+	"builder/server/workflowrunner"
+	"builder/server/workflowscheduler"
+	"builder/server/workflowstore"
+	"builder/server/workflowsvc"
+	"builder/server/workflowview"
 	"builder/server/worktree"
 	"builder/shared/buildinfo"
 	"builder/shared/client"
@@ -116,6 +121,48 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	sessionViewService := sessionview.NewService(registry.NewGlobalPersistenceSessionResolver(cfg.PersistenceRoot, storeOptions...), runtimeRegistry, metadataStore).WithCacheWarningMode(cfg.Settings.CacheWarningMode).WithUpdateStatusProvider(updateStatusService)
 	sessionLifecycleService := sessionlifecycle.NewGlobalService(cfg.PersistenceRoot, sessionStoreRegistry, authSupport.AuthManager, storeOptions...).WithControllerLeaseVerifier(sessionRuntimeService)
 	sessionActivityService := sessionactivity.NewService(runtimeRegistry)
+	var workflowRuntimeStarter *workflowrunner.Starter
+	var workflowScheduler *workflowscheduler.Service
+	cleanupNewFailure := func() {
+		if workflowScheduler != nil {
+			_ = workflowScheduler.Close()
+		}
+		if workflowRuntimeStarter != nil {
+			_ = workflowRuntimeStarter.Close()
+		}
+		_ = rootLease.Close()
+		_ = metadataStore.Close()
+		if runtimeSupport.Background != nil {
+			_ = runtimeSupport.Background.Close()
+		}
+	}
+	workflowRoleResolver := configRoleResolver{settings: cfg.Settings}
+	workflowStore, err := workflowstore.New(metadataStore, workflowstore.WithRoleResolver(workflowRoleResolver))
+	if err != nil {
+		cleanupNewFailure()
+		return nil, fmt.Errorf("workflow bundle: store: %w", err)
+	}
+	workflowViewService, err := workflowview.New(metadataStore)
+	if err != nil {
+		cleanupNewFailure()
+		return nil, fmt.Errorf("workflow bundle: view: %w", err)
+	}
+	workflowRuntimeStarter, err = workflowrunner.NewStarter(cfg, metadataStore, workflowStore, authSupport.AuthManager, runtimeSupport.Background, runtimeSupport.BackgroundRouter, runtimeRegistry, workflowrunner.StarterOptions{Worktrees: taskWorktreeEnsurer{service: worktreeService}})
+	if err != nil {
+		cleanupNewFailure()
+		return nil, fmt.Errorf("workflow bundle: runtime starter: %w", err)
+	}
+	workflowScheduler, err = workflowscheduler.New(workflowStore, workflowRuntimeStarter, workflowscheduler.Config{Concurrency: cfg.Settings.Workflow.Concurrency})
+	if err != nil {
+		cleanupNewFailure()
+		return nil, fmt.Errorf("workflow bundle: scheduler: %w", err)
+	}
+	workflowRuntimeStarter.SetRuntimeFinished(workflowScheduler.RuntimeFinished)
+	workflowService, err := workflowsvc.New(workflowStore, workflowViewService, workflowRoleResolver, workflowsvc.WithTaskWorktreeEnsurer(taskWorktreeEnsurer{service: worktreeService}), workflowsvc.WithTaskRuntimeCanceler(workflowRuntimeStarter), workflowsvc.WithSchedulerNotifier(workflowScheduler))
+	if err != nil {
+		cleanupNewFailure()
+		return nil, fmt.Errorf("workflow bundle: service: %w", err)
+	}
 	core := &Core{bundles: composeBundles(bundleCompositionInput{
 		cfg:                     cfg,
 		containerDir:            containerDir,
@@ -140,6 +187,9 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 		sessionLifecycleService: sessionLifecycleService,
 		sessionActivityService:  sessionActivityService,
 		updateStatusService:     updateStatusService,
+		workflowService:         workflowService,
+		workflowScheduler:       workflowScheduler,
+		workflowRuntimeStarter:  workflowRuntimeStarter,
 		worktreeService:         worktreeService,
 	})}
 	if strings.TrimSpace(cfg.WorkspaceRoot) != "" {
@@ -162,6 +212,22 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 			}
 		}
 	}
+	if err := workflowScheduler.Start(context.Background()); err != nil {
+		_ = core.Close()
+		return nil, fmt.Errorf("workflow bundle: scheduler start: %w", err)
+	}
 	updateStatusService.Start()
 	return core, nil
+}
+
+type taskWorktreeEnsurer struct {
+	service *worktree.Service
+}
+
+func (e taskWorktreeEnsurer) EnsureTaskWorktree(ctx context.Context, taskID string) error {
+	if e.service == nil {
+		return nil
+	}
+	_, err := e.service.EnsureTaskWorktree(ctx, worktree.EnsureTaskWorktreeRequest{TaskID: taskID})
+	return err
 }

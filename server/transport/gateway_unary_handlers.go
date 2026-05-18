@@ -123,6 +123,111 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return g.deps.ProjectViewClient().ListSessionsByProject(ctx, params)
 		})
 	},
+	protocol.MethodWorkflowCreate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowCreateRequest) (serverapi.WorkflowCreateResponse, error) {
+			return g.deps.WorkflowClient().CreateWorkflow(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowUpdate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowUpdateRequest) (serverapi.WorkflowGetResponse, error) {
+			return g.deps.WorkflowClient().UpdateWorkflow(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowListRequest) (serverapi.WorkflowListResponse, error) {
+			return g.deps.WorkflowClient().ListWorkflows(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowGetRequest) (serverapi.WorkflowGetResponse, error) {
+			return g.deps.WorkflowClient().GetWorkflow(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowAddNode: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowNodeAddRequest) (serverapi.WorkflowNodeAddResponse, error) {
+			return g.deps.WorkflowClient().AddWorkflowNode(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowAddTransitionGroup: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowTransitionGroupAddRequest) (serverapi.WorkflowTransitionGroupAddResponse, error) {
+			return g.deps.WorkflowClient().AddWorkflowTransitionGroup(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowAddEdge: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowEdgeAddRequest) (serverapi.WorkflowEdgeAddResponse, error) {
+			return g.deps.WorkflowClient().AddWorkflowEdge(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowLinkProject: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowLinkProjectRequest) (serverapi.WorkflowLinkProjectResponse, error) {
+			return g.deps.WorkflowClient().LinkWorkflowToProject(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowListProjectLinks: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowListProjectLinksRequest) (serverapi.WorkflowListProjectLinksResponse, error) {
+			return g.deps.WorkflowClient().ListProjectWorkflowLinks(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowSetDefaultProjectLink: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowSetDefaultProjectLinkRequest) (serverapi.WorkflowSetDefaultProjectLinkResponse, error) {
+			return g.deps.WorkflowClient().SetDefaultProjectWorkflowLink(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowUnlinkProject: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowUnlinkProjectRequest) (struct{}, error) {
+			return struct{}{}, g.deps.WorkflowClient().UnlinkWorkflowFromProject(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowValidate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowValidateRequest) (serverapi.WorkflowValidateResponse, error) {
+			return g.deps.WorkflowClient().ValidateWorkflow(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowTaskCreate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowTaskCreateRequest) (serverapi.WorkflowTaskCreateResponse, error) {
+			return g.deps.WorkflowClient().CreateWorkflowTask(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowTaskStart: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowTaskStartRequest) (serverapi.WorkflowTaskStartResponse, error) {
+			return g.deps.WorkflowClient().StartWorkflowTask(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowTaskCancel: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowTaskCancelRequest) (struct{}, error) {
+			return struct{}{}, g.deps.WorkflowClient().CancelWorkflowTask(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowTaskCommentAdd: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowTaskCommentAddRequest) (serverapi.WorkflowTaskCommentAddResponse, error) {
+			return g.deps.WorkflowClient().AddWorkflowTaskComment(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowTaskCommentList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowTaskCommentListRequest) (serverapi.WorkflowTaskCommentListResponse, error) {
+			return g.deps.WorkflowClient().ListWorkflowTaskComments(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowTaskCommentReplace: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowTaskCommentReplaceRequest) (struct{}, error) {
+			return struct{}{}, g.deps.WorkflowClient().ReplaceWorkflowTaskComment(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowTaskCommentDelete: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowTaskCommentDeleteRequest) (struct{}, error) {
+			return struct{}{}, g.deps.WorkflowClient().DeleteWorkflowTaskComment(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowBoardGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
+			return g.deps.WorkflowClient().GetWorkflowBoard(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowTaskGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
+			return g.deps.WorkflowClient().GetWorkflowTask(ctx, params)
+		})
+	},
 	protocol.MethodSessionPlan: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.SessionPlanRequest) (serverapi.SessionPlanResponse, error) {
 			launchClient, err := g.sessionLaunchClientForState(ctx, state)

@@ -10,6 +10,7 @@ import (
 	"builder/server/llm"
 	"builder/server/session"
 	"builder/server/tools"
+	"builder/server/workflowruntime"
 	"builder/shared/cachewarn"
 	compactionutil "builder/shared/compaction"
 	"builder/shared/toolspec"
@@ -83,6 +84,22 @@ func (e *Engine) buildRequestPlanWithExtraItems(ctx context.Context, stepID stri
 		}
 		req.EnableNativeWebSearch = nativeWebSearch
 	}
+	if e.workflowRunActive() {
+		mode, modeErr := e.workflowCompletionMode(ctx)
+		if modeErr != nil {
+			return requestBuildPlan{}, modeErr
+		}
+		if mode == workflowruntime.CompletionModeStructuredOutput {
+			output, outputErr := workflowruntime.StructuredOutput(e.cfg.WorkflowRun.Contract)
+			if outputErr != nil {
+				return requestBuildPlan{}, outputErr
+			}
+			req.StructuredOutput = output
+		}
+		if err := req.Validate(); err != nil {
+			return requestBuildPlan{}, err
+		}
+	}
 	return requestBuildPlan{Request: req}, nil
 }
 
@@ -118,6 +135,21 @@ func (e *Engine) enableNativeWebSearch(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("resolve provider capabilities for native web search: %w", err)
 	}
 	return caps.SupportsNativeWebSearch, nil
+}
+
+func (e *Engine) workflowRunActive() bool {
+	return e != nil && e.cfg.WorkflowRun != nil && strings.TrimSpace(string(e.cfg.WorkflowRun.Contract.RunID)) != ""
+}
+
+func (e *Engine) workflowCompletionMode(ctx context.Context) (workflowruntime.CompletionMode, error) {
+	if !e.workflowRunActive() {
+		return "", nil
+	}
+	caps, err := e.providerCapabilities(ctx)
+	if err != nil {
+		return "", fmt.Errorf("resolve provider capabilities for workflow completion: %w", err)
+	}
+	return workflowruntime.SelectCompletionMode(e.cfg.WorkflowRun.CompletionMode, caps)
 }
 
 func (e *Engine) systemPrompt(locked session.LockedContract) (string, error) {
@@ -220,10 +252,23 @@ func hostedToolExecutionsFromOutputItems(items []llm.ResponseItem, defs []tools.
 }
 
 func (e *Engine) requestTools(ctx context.Context) []llm.Tool {
+	workflowToolMode := false
+	if e.workflowRunActive() {
+		mode, err := e.workflowCompletionMode(ctx)
+		if err == nil && mode == workflowruntime.CompletionModeTool {
+			workflowToolMode = true
+		}
+	}
 	exposure := tools.RequestExposureContext{
-		SupportsVision: llm.LockedContractSupportsVisionInputs(e.store.Meta().Locked, e.cfg.Model),
+		SupportsVision:     llm.LockedContractSupportsVisionInputs(e.store.Meta().Locked, e.cfg.Model),
+		WorkflowCompletion: workflowToolMode,
 	}
 	defs := tools.RequestExposedDefinitionsForSession(e.cfg.EnabledTools, e.registry.Definitions(), exposure)
+	if workflowToolMode {
+		if def, ok := tools.DefinitionFor(toolspec.ToolCompleteNode); ok && !definitionListContains(defs, toolspec.ToolCompleteNode) {
+			defs = append(defs, def)
+		}
+	}
 	if len(defs) == 0 {
 		return nil
 	}
@@ -231,6 +276,13 @@ func (e *Engine) requestTools(ctx context.Context) []llm.Tool {
 	customPatchSupported := e.supportsCustomPatchTool(ctx)
 	for _, d := range defs {
 		tool := llm.Tool{Name: string(d.ID), Description: d.Description, Schema: d.Schema}
+		if d.ID == toolspec.ToolCompleteNode {
+			schema, err := workflowruntime.CompletionJSONSchema(e.cfg.WorkflowRun.Contract)
+			if err != nil {
+				continue
+			}
+			tool.Schema = schema
+		}
 		if d.ID == toolspec.ToolPatch && customPatchSupported {
 			tool.Schema = nil
 			tool.Custom = &llm.CustomToolFormat{Type: "grammar", Syntax: "lark", Definition: llm.PatchToolLarkGrammar}
@@ -238,6 +290,15 @@ func (e *Engine) requestTools(ctx context.Context) []llm.Tool {
 		out = append(out, tool)
 	}
 	return out
+}
+
+func definitionListContains(defs []tools.Definition, id toolspec.ID) bool {
+	for _, def := range defs {
+		if def.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Engine) supportsCustomPatchTool(ctx context.Context) bool {

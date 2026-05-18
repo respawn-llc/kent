@@ -25,6 +25,9 @@ import (
 	"builder/server/sessionview"
 	shelltool "builder/server/tools/shell"
 	"builder/server/updatestatus"
+	"builder/server/workflowrunner"
+	"builder/server/workflowscheduler"
+	"builder/server/workflowsvc"
 	"builder/server/worktree"
 	"builder/shared/client"
 	"builder/shared/config"
@@ -40,6 +43,7 @@ type Bundles struct {
 	Runtime     *RuntimeBundle
 	Sessions    *SessionBundle
 	Updates     *UpdateBundle
+	Workflows   *WorkflowBundle
 	Worktrees   *WorktreeBundle
 }
 
@@ -105,6 +109,11 @@ type WorktreeBundle struct {
 	worktrees client.WorktreeClient
 }
 
+type WorkflowBundle struct {
+	workflows client.WorkflowClient
+	scheduler *workflowscheduler.Service
+}
+
 func (s *Core) safeBundles() *Bundles {
 	if s == nil {
 		return emptyBundles()
@@ -140,6 +149,9 @@ func (b *Bundles) withDefaults() *Bundles {
 	}
 	if withDefaults.Updates == nil {
 		withDefaults.Updates = &UpdateBundle{}
+	}
+	if withDefaults.Workflows == nil {
+		withDefaults.Workflows = &WorkflowBundle{}
 	}
 	if withDefaults.Worktrees == nil {
 		withDefaults.Worktrees = &WorktreeBundle{}
@@ -183,6 +195,9 @@ type bundleCompositionInput struct {
 	sessionLifecycleService *sessionlifecycle.Service
 	sessionActivityService  *sessionactivity.Service
 	updateStatusService     *updatestatus.Service
+	workflowService         *workflowsvc.Service
+	workflowScheduler       *workflowscheduler.Service
+	workflowRuntimeStarter  *workflowrunner.Starter
 	worktreeService         *worktree.Service
 }
 
@@ -193,6 +208,18 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 			{name: "persistence root lock", close: in.rootLease.Close},
 			{name: "metadata store", close: in.metadataStore.Close},
 			{name: "background manager", close: in.runtimeSupport.Background.Close},
+			{name: "workflow runtime starter", close: func() error {
+				if in.workflowRuntimeStarter == nil {
+					return nil
+				}
+				return in.workflowRuntimeStarter.Close()
+			}},
+			{name: "workflow scheduler", close: func() error {
+				if in.workflowScheduler == nil {
+					return nil
+				}
+				return in.workflowScheduler.Close()
+			}},
 		},
 		Persistence: newPersistenceBundle(in.rootLease, in.metadataStore, in.sessionStoreRegistry),
 		Processes:   newProcessBundle(in.processService, in.processOutputService),
@@ -201,6 +228,7 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 		Runtime:     newRuntimeBundle(in.runtimeSupport, in.runtimeRegistry, in.runtimeControlService, in.sessionRuntimeService, in.sessionActivityService),
 		Sessions:    newSessionBundle(in.sessionViewService, in.sessionLifecycleService),
 		Updates:     &UpdateBundle{updateStatus: in.updateStatusService},
+		Workflows:   newWorkflowBundle(in.workflowService, in.workflowScheduler),
 		Worktrees:   &WorktreeBundle{worktrees: client.NewLoopbackWorktreeClient(in.worktreeService)},
 	}
 }
@@ -256,6 +284,10 @@ func newRuntimeBundle(runtimeSupport serverbootstrap.RuntimeSupport, runtimeRegi
 		sessionRuntime:   client.NewLoopbackSessionRuntimeClient(sessionRuntimeService),
 		sessionActivity:  client.NewLoopbackSessionActivityClient(sessionActivityService),
 	}
+}
+
+func newWorkflowBundle(workflowService *workflowsvc.Service, scheduler *workflowscheduler.Service) *WorkflowBundle {
+	return &WorkflowBundle{workflows: client.NewLoopbackWorkflowClient(workflowService), scheduler: scheduler}
 }
 
 func newSessionBundle(sessionViewService *sessionview.Service, sessionLifecycleService *sessionlifecycle.Service) *SessionBundle {

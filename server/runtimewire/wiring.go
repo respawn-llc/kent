@@ -12,6 +12,7 @@ import (
 	askquestion "builder/server/tools/askquestion"
 	shelltool "builder/server/tools/shell"
 	triggerhandofftool "builder/server/tools/triggerhandoff"
+	"builder/server/workflowruntime"
 	"builder/shared/config"
 	"builder/shared/toolspec"
 )
@@ -33,10 +34,12 @@ func (w *RuntimeWiring) Close() error {
 }
 
 type RuntimeWiringOptions struct {
-	OnEvent  func(evt runtime.Event)
-	Headless bool
-	FastMode *runtime.FastModeState
-	Sources  map[string]string
+	OnEvent     func(evt runtime.Event)
+	Headless    bool
+	FastMode    *runtime.FastModeState
+	Sources     map[string]string
+	Client      llm.Client
+	WorkflowRun *workflowruntime.Config
 }
 
 func NewRuntimeWiring(store *session.Store, active config.Settings, enabledTools []toolspec.ID, workspaceRoot string, mgr *auth.Manager, logger Logger, opts RuntimeWiringOptions) (*RuntimeWiring, error) {
@@ -68,9 +71,14 @@ func NewRuntimeWiringWithBackground(store *session.Store, active config.Settings
 	toolRegistry := localTools.Registry()
 
 	mainProvider := mainProviderRuntimeSettings(active)
-	client, err := newRuntimeProviderClient(mainProvider, mgr, llm.NewHTTPClient(time.Duration(active.Timeouts.ModelRequestSeconds)*time.Second))
-	if err != nil {
-		return nil, err
+	var client llm.Client
+	if opts.Client != nil {
+		client = opts.Client
+	} else {
+		client, err = newRuntimeProviderClient(mainProvider, mgr, llm.NewHTTPClient(time.Duration(active.Timeouts.ModelRequestSeconds)*time.Second))
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	reviewerProvider := reviewerProviderRuntimeSettings(active)
@@ -118,6 +126,7 @@ func NewRuntimeWiringWithBackground(store *session.Store, active config.Settings
 		AutoCompactionEnabled:         boolRef(true),
 		HeadlessMode:                  opts.Headless,
 		ToolPreambles:                 active.ToolPreambles,
+		WorkflowRun:                   opts.WorkflowRun,
 		TranscriptWorkingDir:          workspaceRoot,
 		Reviewer: runtime.ReviewerConfig{
 			Frequency:         active.Reviewer.Frequency,

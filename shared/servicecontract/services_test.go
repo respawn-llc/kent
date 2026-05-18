@@ -29,6 +29,7 @@ func TestServiceContractsCoverEveryNonProtocolRoute(t *testing.T) {
 		rpccontract.DependencySessionRuntime:   typeOfService[SessionRuntimeService](),
 		rpccontract.DependencySessionView:      typeOfService[SessionViewService](),
 		rpccontract.DependencyWorktree:         typeOfService[WorktreeService](),
+		rpccontract.DependencyWorkflow:         typeOfService[WorkflowService](),
 	}
 	for _, route := range rpccontract.Routes() {
 		if route.Kind == rpccontract.KindNotification || route.Dependency == rpccontract.DependencyProtocol || route.Dependency == rpccontract.DependencyStreamNotification {

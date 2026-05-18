@@ -1,0 +1,260 @@
+package workflow
+
+type WorkflowID string
+type NodeID string
+type TransitionGroupID string
+type EdgeID string
+type TaskID string
+type PlacementID string
+type RunID string
+type TransitionID string
+type ModelKey string
+
+type NodeKind string
+
+const (
+	NodeKindStart    NodeKind = "start"
+	NodeKindAgent    NodeKind = "agent"
+	NodeKindJoin     NodeKind = "join"
+	NodeKindTerminal NodeKind = "terminal"
+)
+
+type ContextMode string
+
+const (
+	ContextModeNewSession                ContextMode = "new_session"
+	ContextModeContinueSession           ContextMode = "continue_session"
+	ContextModeCompactAndContinueSession ContextMode = "compact_and_continue_session"
+)
+
+type BindingSource string
+
+const (
+	BindingSourceTask             BindingSource = "task"
+	BindingSourceTransitionOutput BindingSource = "transition_output"
+	BindingSourceJoin             BindingSource = "join"
+)
+
+const (
+	MaxModelKeyChars               = 64
+	MaxDisplayNameChars            = 120
+	MaxOutputFieldNameChars        = 64
+	MaxOutputFieldDescriptionChars = 1000
+	MaxOutputValueBytes            = 64 * 1024
+	MaxCommentaryBytes             = 64 * 1024
+	MaxTaskCommentBytes            = 256 * 1024
+)
+
+type Definition struct {
+	ID               WorkflowID
+	DisplayName      string
+	Nodes            []Node
+	TransitionGroups []TransitionGroup
+	Edges            []Edge
+}
+
+type Node struct {
+	WorkflowID     WorkflowID
+	ID             NodeID
+	Key            ModelKey
+	DisplayName    string
+	Kind           NodeKind
+	SubagentRole   string
+	PromptTemplate string
+	OutputFields   []OutputField
+}
+
+type TransitionGroup struct {
+	WorkflowID   WorkflowID
+	ID           TransitionGroupID
+	SourceNodeID NodeID
+	TransitionID TransitionID
+	DisplayName  string
+}
+
+type Edge struct {
+	WorkflowID         WorkflowID
+	ID                 EdgeID
+	Key                ModelKey
+	TransitionGroupID  TransitionGroupID
+	TargetNodeID       NodeID
+	ContextMode        ContextMode
+	RequiresApproval   bool
+	InputBindings      []InputBinding
+	OutputRequirements []OutputRequirement
+}
+
+type OutputField struct {
+	Name        string
+	Description string
+}
+
+type OutputRequirement struct {
+	FieldName string
+}
+
+type TemplatePlaceholder string
+
+type InputBinding struct {
+	Name   string
+	Source BindingSource
+	Field  string
+}
+
+type ValidationContext string
+
+const (
+	ValidationContextDraft        ValidationContext = "draft"
+	ValidationContextTaskCreation ValidationContext = "task_creation"
+	ValidationContextExecution    ValidationContext = "execution"
+)
+
+type RoleResolver interface {
+	RoleExists(role string) bool
+}
+
+type StaticRoleResolver map[string]bool
+
+func (r StaticRoleResolver) RoleExists(role string) bool {
+	return r[role]
+}
+
+type ValidationOptions struct {
+	Context      ValidationContext
+	RoleResolver RoleResolver
+}
+
+type ValidationErrorCode string
+
+const (
+	CodeMissingWorkflowID              ValidationErrorCode = "workflow.validation.missing_workflow_id"
+	CodeMissingNodeID                  ValidationErrorCode = "workflow.validation.missing_node_id"
+	CodeDuplicateNodeID                ValidationErrorCode = "workflow.validation.duplicate_node_id"
+	CodeMissingNodeKey                 ValidationErrorCode = "workflow.validation.missing_node_key"
+	CodeInvalidNodeKey                 ValidationErrorCode = "workflow.validation.invalid_node_key"
+	CodeDuplicateNodeKey               ValidationErrorCode = "workflow.validation.duplicate_node_key"
+	CodeMissingStartNode               ValidationErrorCode = "workflow.validation.missing_start_node"
+	CodeMultipleStartNodes             ValidationErrorCode = "workflow.validation.multiple_start_nodes"
+	CodeInvalidStartNode               ValidationErrorCode = "workflow.validation.invalid_start_node"
+	CodeInvalidStartOutgoingShape      ValidationErrorCode = "workflow.validation.invalid_start_outgoing_shape"
+	CodeTerminalHasOutgoingEdge        ValidationErrorCode = "workflow.validation.terminal_has_outgoing_edge"
+	CodeTerminalIsExecutable           ValidationErrorCode = "workflow.validation.terminal_is_executable"
+	CodeJoinIsExecutable               ValidationErrorCode = "workflow.validation.join_is_executable"
+	CodeInvalidJoinNode                ValidationErrorCode = "workflow.validation.invalid_join_node"
+	CodeInvalidJoinOutgoingShape       ValidationErrorCode = "workflow.validation.invalid_join_outgoing_shape"
+	CodeNodeUnreachableFromStart       ValidationErrorCode = "workflow.validation.node_unreachable_from_start"
+	CodeNonTerminalCannotReachTerminal ValidationErrorCode = "workflow.validation.non_terminal_cannot_reach_terminal"
+	CodeMissingTransitionGroupID       ValidationErrorCode = "workflow.validation.missing_transition_group_id"
+	CodeDuplicateTransitionGroupID     ValidationErrorCode = "workflow.validation.duplicate_transition_group_id"
+	CodeEmptyTransitionGroup           ValidationErrorCode = "workflow.validation.empty_transition_group"
+	CodeMissingTransitionID            ValidationErrorCode = "workflow.validation.missing_transition_id"
+	CodeInvalidTransitionID            ValidationErrorCode = "workflow.validation.invalid_transition_id"
+	CodeDuplicateTransitionID          ValidationErrorCode = "workflow.validation.duplicate_transition_id"
+	CodeEdgeTransitionGroupMissing     ValidationErrorCode = "workflow.validation.edge_transition_group_missing"
+	CodeMissingEdgeID                  ValidationErrorCode = "workflow.validation.missing_edge_id"
+	CodeDuplicateEdgeID                ValidationErrorCode = "workflow.validation.duplicate_edge_id"
+	CodeMissingEdgeKey                 ValidationErrorCode = "workflow.validation.missing_edge_key"
+	CodeInvalidEdgeKey                 ValidationErrorCode = "workflow.validation.invalid_edge_key"
+	CodeDuplicateEdgeKey               ValidationErrorCode = "workflow.validation.duplicate_edge_key"
+	CodeEdgeTargetMissing              ValidationErrorCode = "workflow.validation.edge_target_missing"
+	CodeCrossWorkflowReference         ValidationErrorCode = "workflow.validation.cross_workflow_reference"
+	CodeInvalidOutputField             ValidationErrorCode = "workflow.validation.invalid_output_field"
+	CodeDuplicateOutputField           ValidationErrorCode = "workflow.validation.duplicate_output_field"
+	CodeOutputFieldDescriptionRequired ValidationErrorCode = "workflow.validation.output_field_description_required"
+	CodeOutputSchemaTooLarge           ValidationErrorCode = "workflow.validation.output_schema_too_large"
+	CodeUnknownOutputRequirement       ValidationErrorCode = "workflow.validation.unknown_output_requirement"
+	CodeInvalidInputBinding            ValidationErrorCode = "workflow.validation.invalid_input_binding"
+	CodeInvalidTemplatePlaceholder     ValidationErrorCode = "workflow.validation.invalid_template_placeholder"
+	CodeInvalidContextMode             ValidationErrorCode = "workflow.validation.invalid_context_mode"
+	CodeInvalidFanoutJoinTopology      ValidationErrorCode = "workflow.validation.invalid_fanout_join_topology"
+	CodeUnsupportedContextMode         ValidationErrorCode = "workflow.validation.unsupported_context_mode"
+	CodeUnsupportedApprovalExecution   ValidationErrorCode = "workflow.validation.unsupported_approval_execution"
+	CodeUnsupportedJoinExecution       ValidationErrorCode = "workflow.validation.unsupported_join_execution"
+	CodeUnsupportedJoinBinding         ValidationErrorCode = "workflow.validation.unsupported_join_binding"
+	CodeAgentRoleRequired              ValidationErrorCode = "workflow.validation.agent_role_required"
+	CodeAgentRoleMissing               ValidationErrorCode = "workflow.validation.agent_role_missing"
+	CodeInvalidNodeKind                ValidationErrorCode = "workflow.validation.invalid_node_kind"
+	CodeInvalidDisplayName             ValidationErrorCode = "workflow.validation.invalid_display_name"
+)
+
+type ValidationError struct {
+	Code              ValidationErrorCode
+	Message           string
+	WorkflowID        WorkflowID
+	NodeID            NodeID
+	TransitionGroupID TransitionGroupID
+	EdgeID            EdgeID
+	RelatedIDs        []string
+	BlocksContext     bool
+}
+
+type RuntimeSupportEdge struct {
+	ContextMode      ContextMode
+	RequiresApproval bool
+	TargetKind       NodeKind
+	InputBindings    []InputBinding
+}
+
+type RuntimeSupportIssue struct {
+	Code    ValidationErrorCode
+	Message string
+}
+
+func UnsupportedRuntimeFeatures(edge RuntimeSupportEdge) []RuntimeSupportIssue {
+	issues := []RuntimeSupportIssue{}
+	if edge.RequiresApproval {
+		issues = append(issues, RuntimeSupportIssue{Code: CodeUnsupportedApprovalExecution, Message: "approval-gated edges cannot execute until approval resume is implemented"})
+	}
+	if edge.ContextMode != "" && edge.ContextMode != ContextModeNewSession {
+		issues = append(issues, RuntimeSupportIssue{Code: CodeUnsupportedContextMode, Message: "non-new-session context modes cannot execute until continuation modes are implemented"})
+	}
+	if edge.TargetKind == NodeKindJoin {
+		issues = append(issues, RuntimeSupportIssue{Code: CodeUnsupportedJoinExecution, Message: "join targets cannot execute until join progression is implemented"})
+	}
+	for _, binding := range edge.InputBindings {
+		if binding.Source == BindingSourceJoin {
+			issues = append(issues, RuntimeSupportIssue{Code: CodeUnsupportedJoinBinding, Message: "join-sourced input bindings cannot execute until join aggregation is implemented"})
+		}
+	}
+	return issues
+}
+
+type ValidationResult struct {
+	Context ValidationContext
+	Errors  []ValidationError
+}
+
+func (r ValidationResult) HasErrors() bool {
+	return len(r.Errors) > 0
+}
+
+func (r ValidationResult) HasBlockingErrors() bool {
+	for _, err := range r.Errors {
+		if err.BlocksContext {
+			return true
+		}
+	}
+	return false
+}
+
+func (r ValidationResult) Valid() bool {
+	return !r.HasBlockingErrors()
+}
+
+func (r ValidationResult) BlockingErrors() []ValidationError {
+	out := make([]ValidationError, 0, len(r.Errors))
+	for _, err := range r.Errors {
+		if err.BlocksContext {
+			out = append(out, err)
+		}
+	}
+	return out
+}
+
+func (r ValidationResult) Codes() []ValidationErrorCode {
+	out := make([]ValidationErrorCode, 0, len(r.Errors))
+	for _, err := range r.Errors {
+		out = append(out, err.Code)
+	}
+	return out
+}

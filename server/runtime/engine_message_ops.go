@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -81,6 +82,26 @@ func (e *Engine) injectHeadlessModeTransitionPromptIfNeeded(stepID string) error
 		return nil
 	}
 	return e.appendMessage(stepID, metaResult.HeadlessExit[0])
+}
+
+func (e *Engine) injectWorkflowModePromptIfNeeded(ctx context.Context, stepID string) error {
+	if !e.workflowRunActive() {
+		return nil
+	}
+	for _, msg := range e.snapshotMessages() {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeWorkflowMode {
+			return nil
+		}
+	}
+	mode, err := e.workflowCompletionMode(ctx)
+	if err != nil {
+		return err
+	}
+	message, ok := workflowModeMetaMessage(mode)
+	if !ok {
+		return nil
+	}
+	return e.appendMessage(stepID, message)
 }
 
 func shouldInjectHeadlessModePromptForState(active bool) bool {

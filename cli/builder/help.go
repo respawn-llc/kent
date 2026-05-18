@@ -31,6 +31,8 @@ func writeRootUsage(fs *flag.FlagSet) {
 		"  builder service <status|install|uninstall|start|stop|restart>",
 		"  builder session-id",
 		"  builder goal <show|set|pause|resume|clear|complete>",
+		"  builder workflow <create|list|node|edge|link|unlink|default|validate|inspect>",
+		"  builder task <create|start|list|show|cancel|comment>",
 		"  builder project [path]",
 		"  builder project list",
 		"  builder project create --path <server-path> --name <project-name>",
@@ -44,6 +46,8 @@ func writeRootUsage(fs *flag.FlagSet) {
 		"  `builder service` manages the Builder server background service.",
 		"  `builder session-id` prints the caller session id when invoked from a Builder shell command.",
 		"  `builder goal` manages the active session goal through the live runtime.",
+		"  `builder workflow` manages workflow definitions and project links.",
+		"  `builder task` manages workflow tasks and comments.",
 		"  `builder project` / `attach` / `rebind` inspect or repair workspace bindings.",
 	)
 	writeHelpSection(out, "Commands:",
@@ -52,6 +56,8 @@ func writeRootUsage(fs *flag.FlagSet) {
 		"  service  Install, inspect, or restart the Builder server background service.",
 		"  session-id  Print the Builder caller session id from BUILDER_SESSION_ID.",
 		"  goal     Show or update the live session goal.",
+		"  workflow Manage workflow definitions and project workflow links.",
+		"  task     Manage workflow tasks and task comments.",
 		"  project  Inspect project bindings, list projects, or create a project.",
 		"  attach   Attach another workspace path to an existing project.",
 		"  rebind   Retarget one session to a different workspace root.",
@@ -63,6 +69,8 @@ func writeRootUsage(fs *flag.FlagSet) {
 		"  builder service install",
 		"  builder session-id",
 		"  builder goal show",
+		"  builder workflow list",
+		"  builder task list",
 		"  builder project",
 		"  builder attach ../other-checkout",
 		"  builder rebind <session-id> ../moved-workspace",
@@ -138,24 +146,130 @@ func writeGoalUsage(fs *flag.FlagSet) {
 	)
 }
 
-func writeGoalShowUsage(fs *flag.FlagSet) {
-	writeGoalUsage(fs)
+func writeWorkflowUsage(fs *flag.FlagSet) {
+	if fs == nil {
+		return
+	}
+	out := fs.Output()
+	writeHelpSection(out, "Usage of builder workflow:",
+		"  builder workflow create [--description <text>] <name>",
+		"  builder workflow list",
+		"  builder workflow node add <workflow> --key <node-key> --kind start|agent|join|terminal [--display-name <name>] [--prompt <text>] [--agent <role>]",
+		"  builder workflow edge add <workflow> --from <source-node-key> --transition <transition-id> --edge-key <edge-key> --to <target-node-key> --context <mode>",
+		"  builder workflow link <project> <workflow> [--default]",
+		"  builder workflow unlink <project> <workflow>",
+		"  builder workflow default <project> <workflow>",
+		"  builder workflow validate <workflow> [--mode draft|task_creation|execution]",
+		"  builder workflow inspect <workflow>",
+	)
+	writeHelpSection(out, "What This Does:",
+		"  Manage workflow definitions, graph nodes/edges, and project workflow links through the Builder server API.",
+		"  Workflows describe durable agent pipelines: tasks start at a start node, agent nodes execute Builder runs, and terminal nodes mark completion.",
+		"  Use `workflow create`, add nodes/edges, link a workflow to a project, then create/start tasks with `builder task`.",
+		"  Workflow references may be exact workflow ids or exact workflow names.",
+	)
 }
 
-func writeGoalSetUsage(fs *flag.FlagSet) {
-	writeGoalUsage(fs)
+func writeWorkflowNodeAddUsage(fs *flag.FlagSet) {
+	writeWorkflowUsage(fs)
+	writeHelpSection(fs.Output(), "Flags:")
+	fs.PrintDefaults()
 }
 
-func writeGoalStatusUsage(fs *flag.FlagSet, _ string) {
-	writeGoalUsage(fs)
+func writeWorkflowEdgeAddUsage(fs *flag.FlagSet) {
+	writeWorkflowUsage(fs)
+	writeHelpSection(fs.Output(), "Flags:")
+	fs.PrintDefaults()
 }
 
-func writeGoalCompleteUsage(fs *flag.FlagSet) {
-	writeGoalUsage(fs)
+func writeWorkflowLinkUsage(fs *flag.FlagSet) {
+	writeWorkflowUsage(fs)
+	writeHelpSection(fs.Output(), "Flags:")
+	fs.PrintDefaults()
 }
 
-func writeGoalClearUsage(fs *flag.FlagSet) {
-	writeGoalUsage(fs)
+func writeWorkflowValidateUsage(fs *flag.FlagSet) {
+	writeWorkflowUsage(fs)
+	writeHelpSection(fs.Output(), "Flags:")
+	fs.PrintDefaults()
+}
+
+func writeTaskUsage(fs *flag.FlagSet) {
+	if fs == nil {
+		return
+	}
+	out := fs.Output()
+	writeHelpSection(out, "Usage of builder task:",
+		"  builder task create --title <title> --body <body> [--workflow <workflow>] [--project <project>]",
+		"  builder task start <short-id-or-task-id>",
+		"  builder task list [--project <project>]",
+		"  builder task show <short-id-or-task-id>",
+		"  builder task cancel <short-id-or-task-id> [--reason <text>]",
+		"  builder task comment add <short-id-or-task-id> --body <text>",
+		"  builder task comment list <short-id-or-task-id>",
+		"  builder task comment replace <comment-id> --body <text>",
+		"  builder task comment delete <comment-id>",
+	)
+	writeHelpSection(out, "What This Does:",
+		"  Manage workflow tasks and comments through the Builder server API.",
+		"  Short ids are resolved within the current project by default.",
+	)
+}
+
+func writeTaskCreateUsage(fs *flag.FlagSet) {
+	writeTaskUsage(fs)
+	writeHelpSection(fs.Output(), "Flags:")
+	fs.PrintDefaults()
+}
+
+func writeTaskStartUsage(fs *flag.FlagSet) {
+	writeTaskUsage(fs)
+	writeHelpSection(fs.Output(), "Flags:")
+	fs.PrintDefaults()
+}
+
+func writeTaskListUsage(fs *flag.FlagSet) {
+	writeTaskUsage(fs)
+	writeHelpSection(fs.Output(), "Flags:")
+	fs.PrintDefaults()
+}
+
+func writeTaskShowUsage(fs *flag.FlagSet) {
+	writeTaskUsage(fs)
+	writeHelpSection(fs.Output(), "Flags:")
+	fs.PrintDefaults()
+}
+
+func writeTaskCancelUsage(fs *flag.FlagSet) {
+	writeTaskUsage(fs)
+	writeHelpSection(fs.Output(), "Flags:")
+	fs.PrintDefaults()
+}
+
+func writeTaskCommentUsage(fs *flag.FlagSet) {
+	writeTaskUsage(fs)
+}
+
+func writeTaskCommentAddUsage(fs *flag.FlagSet) {
+	writeTaskUsage(fs)
+	writeHelpSection(fs.Output(), "Flags:")
+	fs.PrintDefaults()
+}
+
+func writeTaskCommentListUsage(fs *flag.FlagSet) {
+	writeTaskUsage(fs)
+	writeHelpSection(fs.Output(), "Flags:")
+	fs.PrintDefaults()
+}
+
+func writeTaskCommentReplaceUsage(fs *flag.FlagSet) {
+	writeTaskUsage(fs)
+	writeHelpSection(fs.Output(), "Flags:")
+	fs.PrintDefaults()
+}
+
+func writeTaskCommentDeleteUsage(fs *flag.FlagSet) {
+	writeTaskUsage(fs)
 }
 
 func writeProjectUsage(fs *flag.FlagSet) {

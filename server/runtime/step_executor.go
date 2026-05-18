@@ -6,6 +6,7 @@ import (
 
 	"builder/server/llm"
 	"builder/server/tools"
+	"builder/server/workflowruntime"
 	"builder/shared/toolspec"
 )
 
@@ -73,15 +74,29 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 			e.clearStreamingAssistantState(stepID)
 		}
 
+		if preflightErr := workflowPreflightError(e.workflowRunActive(), localToolCalls, hostedToolExecutions); preflightErr != nil {
+			terminal, err := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, preflightErr)
+			if err != nil {
+				return stepLoopResult{}, err
+			}
+			if terminal {
+				return stepLoopResult{Message: assistantMsg, ExecutedToolCall: executedToolCall}, nil
+			}
+			continue
+		}
+
 		finalAnswerWithToolCalls := assistantMsg.Phase == llm.MessagePhaseFinal &&
 			strings.TrimSpace(assistantMsg.Content) != "" &&
 			(len(localToolCalls) > 0 || len(hostedToolExecutions) > 0)
 		if finalAnswerWithToolCalls {
-			applied, err := s.materializeFinalAnswerToolCalls(ctx, stepID, localToolCalls, hostedToolExecutions)
+			applied, terminal, err := s.materializeFinalAnswerToolCalls(ctx, stepID, localToolCalls, hostedToolExecutions)
 			if err != nil {
 				return stepLoopResult{}, err
 			}
 			patchEditsApplied = patchEditsApplied || applied
+			if terminal {
+				return stepLoopResult{Message: assistantMsg, ExecutedToolCall: true}, nil
+			}
 			assistantMsg.ToolCalls = nil
 			localToolCalls = nil
 			hostedToolExecutions = nil
@@ -141,6 +156,19 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 			msg := llm.Message{Role: llm.RoleTool, Content: string(hosted.Result.Output), ToolCallID: hosted.Result.CallID, Name: string(hosted.Result.Name)}
 			if err := e.appendMessage(stepID, msg); err != nil {
 				return stepLoopResult{}, err
+			}
+		}
+
+		if len(localToolCalls) == 0 && len(hostedToolExecutions) == 0 {
+			handled, terminal, err := s.handleWorkflowAssistantWithoutTools(ctx, stepID, assistantMsg)
+			if err != nil {
+				return stepLoopResult{}, err
+			}
+			if terminal {
+				return stepLoopResult{Message: assistantMsg, ExecutedToolCall: executedToolCall}, nil
+			}
+			if handled {
+				continue
 			}
 		}
 
@@ -249,18 +277,21 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 			return stepLoopResult{Message: resolved, ExecutedToolCall: executedToolCall, AssistantCommittedStart: resolvedCommittedStart, AssistantCommittedStartSet: resolvedCommittedStartSet}, nil
 		}
 
-		applied, err := s.executeLocalToolCallsAndAppendResults(ctx, stepID, localToolCalls)
+		applied, terminal, err := s.executeLocalToolCallsAndAppendResults(ctx, stepID, localToolCalls)
 		if err != nil {
 			return stepLoopResult{}, err
 		}
 		patchEditsApplied = patchEditsApplied || applied
+		if terminal {
+			return stepLoopResult{Message: assistantMsg, ExecutedToolCall: true}, nil
+		}
 		if _, err := s.messages.FlushPendingUserInjections(stepID); err != nil {
 			return stepLoopResult{}, err
 		}
 	}
 }
 
-func (s *defaultStepExecutor) materializeFinalAnswerToolCalls(ctx context.Context, stepID string, localToolCalls []llm.ToolCall, hostedToolExecutions []hostedToolExecution) (bool, error) {
+func (s *defaultStepExecutor) materializeFinalAnswerToolCalls(ctx context.Context, stepID string, localToolCalls []llm.ToolCall, hostedToolExecutions []hostedToolExecution) (bool, bool, error) {
 	e := s.engine
 	toolCallMessage := llm.Message{
 		Role:      llm.RoleAssistant,
@@ -271,7 +302,7 @@ func (s *defaultStepExecutor) materializeFinalAnswerToolCalls(ctx context.Contex
 		toolCallMessage.ToolCalls = append(toolCallMessage.ToolCalls, hosted.Call)
 	}
 	if err := e.appendAssistantMessage(stepID, toolCallMessage); err != nil {
-		return false, err
+		return false, false, err
 	}
 
 	executableCallIDs := make(map[string]struct{}, len(localToolCalls))
@@ -283,26 +314,27 @@ func (s *defaultStepExecutor) materializeFinalAnswerToolCalls(ctx context.Contex
 	_, toolCallStarts := committedStartsForPersistedAssistantMessage(e, toolCallMessage, executableCallIDs)
 	e.rememberPendingToolCallStarts(toolCallStarts)
 
-	patchEditsApplied, err := s.executeLocalToolCallsAndAppendResults(ctx, stepID, localToolCalls)
+	patchEditsApplied, terminal, err := s.executeLocalToolCallsAndAppendResults(ctx, stepID, localToolCalls)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	if err := s.appendHostedToolExecutionResults(stepID, hostedToolExecutions); err != nil {
-		return false, err
+		return false, false, err
 	}
-	return patchEditsApplied, nil
+	return patchEditsApplied, terminal, nil
 }
 
-func (s *defaultStepExecutor) executeLocalToolCallsAndAppendResults(ctx context.Context, stepID string, localToolCalls []llm.ToolCall) (bool, error) {
+func (s *defaultStepExecutor) executeLocalToolCallsAndAppendResults(ctx context.Context, stepID string, localToolCalls []llm.ToolCall) (bool, bool, error) {
 	if len(localToolCalls) == 0 {
-		return false, nil
+		return false, false, nil
 	}
 	e := s.engine
 	results, err := s.tools.ExecuteToolCalls(ctx, stepID, localToolCalls)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	patchEditsApplied := false
+	terminal := hasWorkflowTerminalResult(results)
 	customToolCalls := customToolCallIDs(localToolCalls)
 	for _, result := range results {
 		if isSuccessfulFileEditResult(result) {
@@ -311,10 +343,10 @@ func (s *defaultStepExecutor) executeLocalToolCallsAndAppendResults(ctx context.
 		msg := llm.Message{Role: llm.RoleTool, Content: string(result.Output), ToolCallID: result.CallID, Name: string(result.Name)}
 		msg.MessageType = llm.ToolOutputMessageType(customToolCalls[result.CallID])
 		if err := e.appendMessage(stepID, msg); err != nil {
-			return false, err
+			return false, false, err
 		}
 	}
-	return patchEditsApplied, nil
+	return patchEditsApplied, terminal, nil
 }
 
 func (s *defaultStepExecutor) appendHostedToolExecutionResults(stepID string, hostedToolExecutions []hostedToolExecution) error {
@@ -329,6 +361,68 @@ func (s *defaultStepExecutor) appendHostedToolExecutionResults(stepID string, ho
 		}
 	}
 	return nil
+}
+
+func (s *defaultStepExecutor) handleWorkflowAssistantWithoutTools(ctx context.Context, stepID string, assistantMsg llm.Message) (bool, bool, error) {
+	e := s.engine
+	if !e.workflowRunActive() || e.cfg.WorkflowRun.Controller == nil {
+		return false, false, nil
+	}
+	mode, err := e.workflowCompletionMode(ctx)
+	if err != nil {
+		return false, false, err
+	}
+	content := strings.TrimSpace(assistantMsg.Content)
+	if mode == workflowruntime.CompletionModeStructuredOutput && assistantMsg.Phase == llm.MessagePhaseFinal {
+		parsed, parseErr := workflowruntime.DecodeCompletion([]byte(content), e.cfg.WorkflowRun.Contract)
+		if parseErr != nil {
+			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, parseErr)
+			return true, terminal, nudgeErr
+		}
+		_, completeErr := e.cfg.WorkflowRun.Controller.CompleteWorkflowRun(ctx, workflowruntime.CompletionRequest{
+			RunID:              e.cfg.WorkflowRun.Contract.RunID,
+			ExpectedGeneration: e.cfg.WorkflowRun.Contract.ExpectedGeneration,
+			RequireGeneration:  e.cfg.WorkflowRun.Contract.RequireGeneration,
+			TransitionID:       parsed.TransitionID,
+			OutputValues:       parsed.OutputValues,
+			Commentary:         parsed.Commentary,
+		})
+		if completeErr != nil {
+			terminal, nudgeErr := s.appendWorkflowInvalidCompletionNudge(ctx, stepID, completeErr)
+			return true, terminal, nudgeErr
+		}
+		return true, true, nil
+	}
+	if mode == workflowruntime.CompletionModeTool && assistantMsg.Phase == llm.MessagePhaseFinal {
+		record, recordErr := e.recordWorkflowProtocolViolation(ctx, workflowruntime.ViolationKindFinalAnswer, content)
+		if recordErr != nil {
+			return true, false, recordErr
+		}
+		if record.Interrupted {
+			return true, true, nil
+		}
+		if err := e.appendMessage(stepID, llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeErrorFeedback, Content: workflowFinalAnswerNudge}); err != nil {
+			return true, false, err
+		}
+		return true, false, nil
+	}
+	return false, false, nil
+}
+
+func (s *defaultStepExecutor) appendWorkflowInvalidCompletionNudge(ctx context.Context, stepID string, err error) (bool, error) {
+	e := s.engine
+	record, recordErr := e.recordWorkflowProtocolViolation(ctx, workflowruntime.ViolationKindInvalidCompletion, err.Error())
+	if recordErr != nil {
+		return false, recordErr
+	}
+	if record.Interrupted {
+		return true, nil
+	}
+	content := workflowInvalidNudge
+	if strings.TrimSpace(err.Error()) != "" {
+		content += "\n\n" + err.Error()
+	}
+	return false, e.appendMessage(stepID, llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeErrorFeedback, Content: content})
 }
 
 func isSuccessfulFileEditResult(result tools.Result) bool {

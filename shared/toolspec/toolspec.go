@@ -14,12 +14,14 @@ const (
 	ToolPatch          ID = "patch"
 	ToolEdit           ID = "edit"
 	ToolAskQuestion    ID = "ask_question"
+	ToolCompleteNode   ID = "complete_node"
 	ToolTriggerHandoff ID = "trigger_handoff"
 	ToolWebSearch      ID = "web_search"
 )
 
 var catalogIDs = []ID{
 	ToolAskQuestion,
+	ToolCompleteNode,
 	ToolEdit,
 	ToolExecCommand,
 	ToolPatch,
@@ -44,6 +46,7 @@ var parseAliases = map[string]ID{
 	"bash_command":    ToolExecCommand,
 	"exec_command":    ToolExecCommand,
 	"edit":            ToolEdit,
+	"complete_node":   ToolCompleteNode,
 	"patch":           ToolPatch,
 	"read_image":      ToolViewImage,
 	"shell":           ToolExecCommand,

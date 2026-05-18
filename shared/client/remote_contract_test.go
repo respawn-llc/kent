@@ -153,6 +153,8 @@ func expectedLoopbackServiceContractType(dependency rpccontract.Dependency) stri
 		return "SessionViewService"
 	case rpccontract.DependencyWorktree:
 		return "WorktreeService"
+	case rpccontract.DependencyWorkflow:
+		return "WorkflowService"
 	default:
 		return ""
 	}

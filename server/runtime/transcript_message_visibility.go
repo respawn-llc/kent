@@ -37,7 +37,8 @@ func visibleDeveloperChatEntry(msg llm.Message) (ChatEntry, bool) {
 		llm.MessageTypeSkills,
 		llm.MessageTypeEnvironment,
 		llm.MessageTypeHeadlessMode,
-		llm.MessageTypeHeadlessModeExit:
+		llm.MessageTypeHeadlessModeExit,
+		llm.MessageTypeWorkflowMode:
 		return developerContextEntry(msg, transcript.EntryVisibilityDetailOnly), true
 	case llm.MessageTypeWorktreeMode, llm.MessageTypeWorktreeModeExit:
 		return developerContextEntry(msg, transcript.EntryVisibilityAll), true
@@ -107,6 +108,8 @@ func compactLabelForMessage(msg llm.Message) string {
 		return "Headless mode instructions"
 	case llm.MessageTypeHeadlessModeExit:
 		return "Interactive mode restored"
+	case llm.MessageTypeWorkflowMode:
+		return "Workflow mode instructions"
 	case llm.MessageTypeWorktreeMode:
 		return worktreeLabel("Switched to worktree", "Switched worktree", msg.SourcePath)
 	case llm.MessageTypeWorktreeModeExit:

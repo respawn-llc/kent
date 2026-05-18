@@ -1,0 +1,44 @@
+package workflowstore
+
+import (
+	"strings"
+
+	"builder/server/metadata/sqlitegen"
+	"builder/server/workflow"
+)
+
+func runRecordFromTaskRun(row sqlitegen.TaskRun) RunRecord {
+	return RunRecord{
+		ID:                    workflow.RunID(row.ID),
+		TaskID:                workflow.TaskID(row.TaskID),
+		PlacementID:           workflow.PlacementID(row.PlacementID),
+		NodeID:                workflow.NodeID(row.NodeID),
+		SessionID:             row.SessionID.String,
+		Generation:            row.RunGeneration,
+		AutomationRequestedAt: row.AutomationRequestedAtUnixMs,
+		StartedAt:             row.StartedAtUnixMs,
+		CompletedAt:           row.CompletedAtUnixMs,
+		InterruptedAt:         row.InterruptedAtUnixMs,
+		InterruptionReason:    row.InterruptionReason,
+		WaitingAskID:          row.WaitingAskID,
+		FinalAnswerViolations: row.FinalAnswerViolationCount,
+		InvalidCompletions:    row.InvalidCompletionCount,
+	}
+}
+
+func taskRecordFromTask(row sqlitegen.Task) TaskRecord {
+	return TaskRecord{
+		ID:                workflow.TaskID(row.ID),
+		ProjectID:         row.ProjectID,
+		WorkflowID:        workflow.WorkflowID(row.WorkflowID),
+		LinkID:            row.ProjectWorkflowLinkID,
+		ShortID:           row.ShortID,
+		Title:             row.Title,
+		Body:              row.Body,
+		SourceURL:         row.SourceUrl,
+		ManagedWorktreeID: strings.TrimSpace(row.ManagedWorktreeID.String),
+		CanceledAt:        row.CanceledAtUnixMs,
+		CancelReason:      row.CancellationReason,
+		GraphRevision:     row.WorkflowRevisionSeen,
+	}
+}

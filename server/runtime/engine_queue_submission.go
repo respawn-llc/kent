@@ -23,6 +23,9 @@ func (e *Engine) SubmitQueuedUserMessages(ctx context.Context) (assistant llm.Me
 			if err := e.injectHeadlessModeTransitionPromptIfNeeded(stepID); err != nil {
 				return err
 			}
+			if err := e.injectWorkflowModePromptIfNeeded(stepCtx, stepID); err != nil {
+				return err
+			}
 			flushed, err := e.flushPendingUserInjections(stepID)
 			if err != nil {
 				return err

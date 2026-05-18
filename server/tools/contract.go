@@ -21,12 +21,14 @@ const (
 )
 
 type RequestExposure struct {
-	Enabled        bool
-	RequiresVision bool
+	Enabled             bool
+	RequiresVision      bool
+	RequiresWorkflowRun bool
 }
 
 type RequestExposureContext struct {
-	SupportsVision bool
+	SupportsVision     bool
+	WorkflowCompletion bool
 }
 
 func (r RequestExposure) Allowed(ctx RequestExposureContext) bool {
@@ -34,6 +36,9 @@ func (r RequestExposure) Allowed(ctx RequestExposureContext) bool {
 		return false
 	}
 	if r.RequiresVision && !ctx.SupportsVision {
+		return false
+	}
+	if r.RequiresWorkflowRun && !ctx.WorkflowCompletion {
 		return false
 	}
 	return true
@@ -79,6 +84,7 @@ const (
 	LocalRuntimeBuilderPatch          LocalRuntimeBuilder = "patch"
 	LocalRuntimeBuilderEdit           LocalRuntimeBuilder = "edit"
 	LocalRuntimeBuilderAskQuestion    LocalRuntimeBuilder = "ask_question"
+	LocalRuntimeBuilderCompleteNode   LocalRuntimeBuilder = "complete_node"
 	LocalRuntimeBuilderTriggerHandoff LocalRuntimeBuilder = "trigger_handoff"
 )
 

@@ -161,6 +161,107 @@ func (c *Remote) ListSessionsByProject(ctx context.Context, req serverapi.Sessio
 	return resp, c.callUnscoped(ctx, protocol.MethodSessionListByProject, req, &resp)
 }
 
+func (c *Remote) CreateWorkflow(ctx context.Context, req serverapi.WorkflowCreateRequest) (serverapi.WorkflowCreateResponse, error) {
+	var resp serverapi.WorkflowCreateResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowCreate, req, &resp)
+}
+
+func (c *Remote) UpdateWorkflow(ctx context.Context, req serverapi.WorkflowUpdateRequest) (serverapi.WorkflowGetResponse, error) {
+	var resp serverapi.WorkflowGetResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowUpdate, req, &resp)
+}
+
+func (c *Remote) ListWorkflows(ctx context.Context, req serverapi.WorkflowListRequest) (serverapi.WorkflowListResponse, error) {
+	var resp serverapi.WorkflowListResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowList, req, &resp)
+}
+
+func (c *Remote) GetWorkflow(ctx context.Context, req serverapi.WorkflowGetRequest) (serverapi.WorkflowGetResponse, error) {
+	var resp serverapi.WorkflowGetResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowGet, req, &resp)
+}
+
+func (c *Remote) AddWorkflowNode(ctx context.Context, req serverapi.WorkflowNodeAddRequest) (serverapi.WorkflowNodeAddResponse, error) {
+	var resp serverapi.WorkflowNodeAddResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowAddNode, req, &resp)
+}
+
+func (c *Remote) AddWorkflowTransitionGroup(ctx context.Context, req serverapi.WorkflowTransitionGroupAddRequest) (serverapi.WorkflowTransitionGroupAddResponse, error) {
+	var resp serverapi.WorkflowTransitionGroupAddResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowAddTransitionGroup, req, &resp)
+}
+
+func (c *Remote) AddWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdgeAddRequest) (serverapi.WorkflowEdgeAddResponse, error) {
+	var resp serverapi.WorkflowEdgeAddResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowAddEdge, req, &resp)
+}
+
+func (c *Remote) LinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowLinkProjectRequest) (serverapi.WorkflowLinkProjectResponse, error) {
+	var resp serverapi.WorkflowLinkProjectResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowLinkProject, req, &resp)
+}
+
+func (c *Remote) ListProjectWorkflowLinks(ctx context.Context, req serverapi.WorkflowListProjectLinksRequest) (serverapi.WorkflowListProjectLinksResponse, error) {
+	var resp serverapi.WorkflowListProjectLinksResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowListProjectLinks, req, &resp)
+}
+
+func (c *Remote) SetDefaultProjectWorkflowLink(ctx context.Context, req serverapi.WorkflowSetDefaultProjectLinkRequest) (serverapi.WorkflowSetDefaultProjectLinkResponse, error) {
+	var resp serverapi.WorkflowSetDefaultProjectLinkResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowSetDefaultProjectLink, req, &resp)
+}
+
+func (c *Remote) UnlinkWorkflowFromProject(ctx context.Context, req serverapi.WorkflowUnlinkProjectRequest) error {
+	return c.callUnscoped(ctx, protocol.MethodWorkflowUnlinkProject, req, &struct{}{})
+}
+
+func (c *Remote) ValidateWorkflow(ctx context.Context, req serverapi.WorkflowValidateRequest) (serverapi.WorkflowValidateResponse, error) {
+	var resp serverapi.WorkflowValidateResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowValidate, req, &resp)
+}
+
+func (c *Remote) CreateWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCreateRequest) (serverapi.WorkflowTaskCreateResponse, error) {
+	var resp serverapi.WorkflowTaskCreateResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskCreate, req, &resp)
+}
+
+func (c *Remote) StartWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskStartRequest) (serverapi.WorkflowTaskStartResponse, error) {
+	var resp serverapi.WorkflowTaskStartResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskStart, req, &resp)
+}
+
+func (c *Remote) CancelWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCancelRequest) error {
+	return c.callUnscoped(ctx, protocol.MethodWorkflowTaskCancel, req, &struct{}{})
+}
+
+func (c *Remote) AddWorkflowTaskComment(ctx context.Context, req serverapi.WorkflowTaskCommentAddRequest) (serverapi.WorkflowTaskCommentAddResponse, error) {
+	var resp serverapi.WorkflowTaskCommentAddResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskCommentAdd, req, &resp)
+}
+
+func (c *Remote) ListWorkflowTaskComments(ctx context.Context, req serverapi.WorkflowTaskCommentListRequest) (serverapi.WorkflowTaskCommentListResponse, error) {
+	var resp serverapi.WorkflowTaskCommentListResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskCommentList, req, &resp)
+}
+
+func (c *Remote) ReplaceWorkflowTaskComment(ctx context.Context, req serverapi.WorkflowTaskCommentReplaceRequest) error {
+	return c.callUnscoped(ctx, protocol.MethodWorkflowTaskCommentReplace, req, &struct{}{})
+}
+
+func (c *Remote) DeleteWorkflowTaskComment(ctx context.Context, req serverapi.WorkflowTaskCommentDeleteRequest) error {
+	return c.callUnscoped(ctx, protocol.MethodWorkflowTaskCommentDelete, req, &struct{}{})
+}
+
+func (c *Remote) GetWorkflowBoard(ctx context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
+	var resp serverapi.WorkflowBoardResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowBoardGet, req, &resp)
+}
+
+func (c *Remote) GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
+	var resp serverapi.WorkflowTaskGetResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskGet, req, &resp)
+}
+
 func (c *Remote) PlanSession(ctx context.Context, req serverapi.SessionPlanRequest) (serverapi.SessionPlanResponse, error) {
 	var resp serverapi.SessionPlanResponse
 	return resp, c.call(ctx, protocol.MethodSessionPlan, req, &resp)

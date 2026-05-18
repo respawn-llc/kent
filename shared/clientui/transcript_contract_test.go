@@ -32,6 +32,7 @@ func TestTranscriptMessageContractWireValues(t *testing.T) {
 		MessageTypeManualCompactionCarryover: "manual_compaction_carryover",
 		MessageTypeHeadlessMode:              "headless_mode",
 		MessageTypeHeadlessModeExit:          "headless_mode_exit",
+		MessageTypeWorkflowMode:              "workflow_mode",
 		MessageTypeWorktreeMode:              "worktree_mode",
 		MessageTypeWorktreeModeExit:          "worktree_mode_exit",
 		MessageTypeGoal:                      "goal",

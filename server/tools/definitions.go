@@ -236,6 +236,37 @@ var catalogEntries = []CatalogEntry{
 }`),
 	},
 	{
+		ID:             toolspec.ToolCompleteNode,
+		Aliases:        nil,
+		Description:    "Complete the current workflow node. Use this only in workflow tool-completion mode, exactly once when the node work is done.",
+		DefaultEnabled: false,
+		Contract: localContract(
+			LocalRuntimeBuilderCompleteNode,
+			RequestExposure{Enabled: true, RequiresWorkflowRun: true},
+			transcript.ToolPresentationDefault,
+			transcript.ToolCallRenderBehaviorDefault,
+			false,
+			defaultToolCallMeta(toolspec.ToolCompleteNode),
+			formatGenericToolResult,
+		),
+		// Runtime requests replace this fallback with the current workflow
+		// run contract, including valid transition IDs and node output fields.
+		Schema: json.RawMessage(`{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "transition_id": {
+      "type": "string",
+      "description": "Transition ID to take. Required when multiple outgoing transitions are available."
+    },
+    "commentary": {
+      "type": "string",
+      "description": "Brief explanation of what was completed and why this transition was selected."
+    }
+  }
+}`),
+	},
+	{
 		ID:             toolspec.ToolTriggerHandoff,
 		Aliases:        nil,
 		Description:    "Trigger a proactive handoff to another agent. By default, this tool is disallowed even if visible. Using this tool is allowed only after a specific developer message appears in transcript that allows this tool. Do not use this tool before the reminder. The tool is private to you, so you can use 'analysis' channel content in its parameters.",

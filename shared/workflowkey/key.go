@@ -1,0 +1,28 @@
+package workflowkey
+
+import "strings"
+
+const (
+	MaxChars    = 64
+	Description = "start with a lowercase letter and contain only lowercase letters, digits, or underscores, up to 64 characters"
+)
+
+func Valid(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) == 0 || len(trimmed) > MaxChars {
+		return false
+	}
+	for index, char := range trimmed {
+		if index == 0 {
+			if char < 'a' || char > 'z' {
+				return false
+			}
+			continue
+		}
+		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}

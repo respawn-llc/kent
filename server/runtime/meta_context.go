@@ -12,6 +12,7 @@ import (
 	"builder/prompts"
 	"builder/server/llm"
 	"builder/server/session"
+	"builder/server/workflowruntime"
 	"builder/shared/config"
 	"builder/shared/toolspec"
 )
@@ -26,6 +27,7 @@ const (
 	metaContextKindEnvironment
 	metaContextKindHeadless
 	metaContextKindHeadlessExit
+	metaContextKindWorkflow
 	metaContextKindWorktree
 	metaContextKindWorktreeExit
 )
@@ -45,6 +47,7 @@ type metaContextBuildOptions struct {
 	IncludeEnvironment        bool
 	IncludeHeadless           bool
 	IncludeHeadlessExit       bool
+	IncludeWorkflow           bool
 	IncludeSkillWarnings      bool
 	PermissiveAgentsReadError bool
 }
@@ -57,15 +60,17 @@ type metaContextBuildResult struct {
 	Environment   []llm.Message
 	Headless      []llm.Message
 	HeadlessExit  []llm.Message
+	Workflow      []llm.Message
 	Worktree      []llm.Message
 	WorktreeExit  []llm.Message
 }
 
 func (r metaContextBuildResult) OrderedMetaMessages() []llm.Message {
-	out := make([]llm.Message, 0, len(r.Agents)+len(r.Skills)+len(r.Subagents)+len(r.Environment)+len(r.Headless)+len(r.HeadlessExit)+len(r.Worktree)+len(r.WorktreeExit))
+	out := make([]llm.Message, 0, len(r.Agents)+len(r.Skills)+len(r.Subagents)+len(r.Environment)+len(r.Headless)+len(r.HeadlessExit)+len(r.Workflow)+len(r.Worktree)+len(r.WorktreeExit))
 	out = append(out, r.OrderedBaseMessages()...)
 	out = append(out, r.Headless...)
 	out = append(out, r.HeadlessExit...)
+	out = append(out, r.Workflow...)
 	out = append(out, r.Worktree...)
 	out = append(out, r.WorktreeExit...)
 	return out
@@ -194,6 +199,11 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 
 	if opts.IncludeHeadlessExit {
 		if message, ok := headlessModeExitMetaMessage(); ok {
+			collector.addMessages([]llm.Message{message})
+		}
+	}
+	if opts.IncludeWorkflow {
+		if message, ok := workflowModeMetaMessage(""); ok {
 			collector.addMessages([]llm.Message{message})
 		}
 	}
@@ -376,6 +386,22 @@ func headlessModeExitMetaMessage() (llm.Message, bool) {
 	return llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessModeExit, Content: content}, true
 }
 
+func workflowModeMetaMessage(mode workflowruntime.CompletionMode) (llm.Message, bool) {
+	content := ""
+	switch mode {
+	case workflowruntime.CompletionModeTool:
+		content = strings.TrimSpace(prompts.WorkflowToolModePrompt)
+	case workflowruntime.CompletionModeStructuredOutput:
+		content = strings.TrimSpace(prompts.WorkflowStructuredOutputModePrompt)
+	default:
+		content = strings.TrimSpace(prompts.WorkflowStructuredOutputModePrompt)
+	}
+	if content == "" {
+		return llm.Message{}, false
+	}
+	return llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorkflowMode, Content: content}, true
+}
+
 func worktreeModeMetaMessage(state session.WorktreeReminderState) (llm.Message, bool) {
 	content := prompts.RenderWorktreeModePrompt(state.Branch, state.EffectiveCwd, state.WorktreePath, state.WorkspaceRoot)
 	if strings.TrimSpace(content) == "" {
@@ -444,6 +470,7 @@ type metaContextCollector struct {
 	environment         *llm.Message
 	headless            *llm.Message
 	headlessExit        *llm.Message
+	workflow            *llm.Message
 	worktree            *llm.Message
 	worktreeExit        *llm.Message
 	warnings            []string
@@ -520,6 +547,8 @@ func (c *metaContextCollector) slot(kind metaContextKind) **llm.Message {
 		return &c.headless
 	case metaContextKindHeadlessExit:
 		return &c.headlessExit
+	case metaContextKindWorkflow:
+		return &c.workflow
 	case metaContextKindWorktree:
 		return &c.worktree
 	case metaContextKindWorktreeExit:
@@ -557,6 +586,9 @@ func (c *metaContextCollector) result() metaContextBuildResult {
 	}
 	if c.headlessExit != nil {
 		result.HeadlessExit = []llm.Message{*c.headlessExit}
+	}
+	if c.workflow != nil {
+		result.Workflow = []llm.Message{*c.workflow}
 	}
 	if c.worktree != nil {
 		result.Worktree = []llm.Message{*c.worktree}
@@ -606,6 +638,8 @@ func classifyMetaContextMessage(message llm.Message) (metaContextClassification,
 		return metaContextClassification{kind: metaContextKindHeadless, key: "headless", messageType: llm.MessageTypeHeadlessMode}, true
 	case llm.MessageTypeHeadlessModeExit:
 		return metaContextClassification{kind: metaContextKindHeadlessExit, key: "headless_exit", messageType: llm.MessageTypeHeadlessModeExit}, true
+	case llm.MessageTypeWorkflowMode:
+		return metaContextClassification{kind: metaContextKindWorkflow, key: "workflow", messageType: llm.MessageTypeWorkflowMode}, true
 	case llm.MessageTypeWorktreeMode:
 		return metaContextClassification{kind: metaContextKindWorktree, key: "worktree", messageType: llm.MessageTypeWorktreeMode}, true
 	case llm.MessageTypeWorktreeModeExit:

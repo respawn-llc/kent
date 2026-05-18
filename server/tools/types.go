@@ -22,6 +22,7 @@ type Result struct {
 	Name         toolspec.ID              `json:"name"`
 	Output       json.RawMessage          `json:"output"`
 	IsError      bool                     `json:"is_error"`
+	Terminal     bool                     `json:"terminal,omitempty"`
 	Summary      string                   `json:"summary,omitempty"`
 	OngoingText  string                   `json:"ongoing_text,omitempty"`
 	Presentation *transcript.ToolCallMeta `json:"presentation,omitempty"`

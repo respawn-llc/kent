@@ -38,6 +38,7 @@ const (
 	MessageTypeManualCompactionCarryover MessageType = "manual_compaction_carryover"
 	MessageTypeHeadlessMode              MessageType = "headless_mode"
 	MessageTypeHeadlessModeExit          MessageType = "headless_mode_exit"
+	MessageTypeWorkflowMode              MessageType = "workflow_mode"
 	MessageTypeWorktreeMode              MessageType = "worktree_mode"
 	MessageTypeWorktreeModeExit          MessageType = "worktree_mode_exit"
 	MessageTypeGoal                      MessageType = "goal"
