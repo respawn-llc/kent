@@ -72,6 +72,8 @@ The scope is intentionally narrow and quality-oriented.
 - Keep behavior configurable only when it serves real operator value.
 - GUI clients are remote-control surfaces over Builder server APIs/read models. The server remains authoritative for runtime, worktrees, DB, orchestration, validation, approvals, asks, workflow state, scheduling, and persistence.
 - Tauri/native APIs must stay behind GUI-side bridge packages; do not import Tauri APIs directly from feature components.
+- Desktop GUI chrome must use a fixed window shell with scrollable islands/panes. Do not restore global/document/root scrolling for desktop GUI overscroll experiments; it makes macOS traffic lights overlap content and is rejected.
+- GUI pagination must use infinite scroll. Do not add page-number, next/previous, "Load more", or other button-based pagination controls.
 
 ## When designing model prompts:
 - Clearly explain **how** and **when** the model should use the tool in descriptions.
