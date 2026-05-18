@@ -70,7 +70,7 @@ export function KanbanGroup({
         </p>
         <h2 className="m-0 text-[1rem]">{group.name}</h2>
       </header>
-      <div className="grid h-full min-h-0 grid-flow-col auto-cols-[minmax(280px,320px)] gap-[var(--space-3)]">
+      <div className="grid h-full min-h-0 grid-flow-col auto-cols-[min(560px,80vw)] gap-[var(--space-3)]">
         {columns.map((column) => (
           <KanbanColumn
             cards={cardsForColumn(board, column, doneExpanded)}
