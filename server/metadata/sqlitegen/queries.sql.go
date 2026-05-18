@@ -2492,8 +2492,31 @@ SELECT
     CAST(MAX(
         p.updated_at_unix_ms,
         w.updated_at_unix_ms,
-        COALESCE((SELECT MAX(s.updated_at_unix_ms) FROM sessions s WHERE s.project_id = p.id AND s.launch_visible <> 0), 0),
         COALESCE((SELECT MAX(t.updated_at_unix_ms) FROM tasks t WHERE t.project_id = p.id), 0),
+        COALESCE((
+            SELECT MAX(tnp.updated_at_unix_ms)
+            FROM task_node_placements tnp
+            JOIN tasks placement_tasks ON placement_tasks.id = tnp.task_id
+            WHERE placement_tasks.project_id = p.id
+        ), 0),
+        COALESCE((
+            SELECT MAX(tr.updated_at_unix_ms)
+            FROM task_runs tr
+            JOIN tasks run_tasks ON run_tasks.id = tr.task_id
+            WHERE run_tasks.project_id = p.id
+        ), 0),
+        COALESCE((
+            SELECT MAX(MAX(tt.created_at_unix_ms, tt.applied_at_unix_ms))
+            FROM task_transitions tt
+            JOIN tasks transition_tasks ON transition_tasks.id = tt.task_id
+            WHERE transition_tasks.project_id = p.id
+        ), 0),
+        COALESCE((
+            SELECT MAX(tc.updated_at_unix_ms)
+            FROM task_comments tc
+            JOIN tasks comment_tasks ON comment_tasks.id = tc.task_id
+            WHERE comment_tasks.project_id = p.id
+        ), 0),
         COALESCE((SELECT MAX(pwl.updated_at_unix_ms) FROM project_workflow_links pwl WHERE pwl.project_id = p.id AND pwl.unlinked_at_unix_ms = 0), 0)
     ) AS INTEGER) AS latest_activity_unix_ms,
     CAST((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) AS INTEGER) AS task_count,

@@ -458,6 +458,7 @@ type WorkflowBoard struct {
 	Columns             []WorkflowBoardColumn   `json:"columns"`
 	Cards               []WorkflowBoardTaskCard `json:"cards"`
 	DonePreview         []WorkflowBoardTaskCard `json:"done_preview"`
+	HasHiddenDoneCards  bool                    `json:"has_hidden_done_cards"`
 	NextPageToken       string                  `json:"next_page_token"`
 	GeneratedAtUnixMs   int64                   `json:"generated_at_unix_ms"`
 	LatestEventSequence int64                   `json:"latest_event_sequence"`

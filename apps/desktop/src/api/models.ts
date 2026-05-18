@@ -189,6 +189,7 @@ export type WorkflowBoard = Readonly<{
   columns: readonly BoardColumn[];
   cards: readonly BoardCard[];
   donePreview: readonly BoardCard[];
+  hasHiddenDoneCards: boolean;
   nextPageToken: string;
   generatedAt: number;
   latestEventSequence: number;

@@ -651,7 +651,7 @@ func TestMetadataServicePlansHeadlessAmbiguousRemoteWorkspaces(t *testing.T) {
 	}
 }
 
-func newProjectViewMetadataStore(t *testing.T) (*metadata.Store, config.App, metadata.Binding) {
+func newProjectViewMetadataStore(t testing.TB) (*metadata.Store, config.App, metadata.Binding) {
 	t.Helper()
 	home := t.TempDir()
 	workspace := t.TempDir()
