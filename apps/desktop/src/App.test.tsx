@@ -54,6 +54,7 @@ describe("App", () => {
       "route-transition-frame",
       "h-full",
       "min-h-0",
+      "p-[var(--space-2)]",
     );
     expect(screen.getByTestId("home-route-root")).toHaveClass("h-full", "min-h-0");
     expect(screen.getByTestId("home-route-root").className).not.toContain("p-[var(--space-4)]");

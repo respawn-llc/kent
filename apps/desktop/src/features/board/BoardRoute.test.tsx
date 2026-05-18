@@ -89,6 +89,7 @@ describe("BoardRoute", () => {
     expect(screen.queryByRole("heading", { name: "Project" })).not.toBeInTheDocument();
     expect(screen.queryByText("proj")).not.toBeInTheDocument();
     expect(screen.queryByText("Drag Backlog task to first active node to start automation.")).not.toBeInTheDocument();
+    expect(screen.getByTestId("route-transition-frame")).not.toHaveClass("p-[var(--space-2)]");
     expect(screen.getByRole("list")).toHaveClass("overflow-x-auto");
     expect(screen.getByRole("list")).not.toHaveClass(
       "hide-scrollbar",
