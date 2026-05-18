@@ -137,64 +137,62 @@ function BoardContent({
     }
 
     return (
-        <div className="h-full min-h-0">
-            <div className="h-full min-h-0 overflow-x-auto pb-[var(--shadow-bleed-island)]" role="list">
-                <div className="flex h-full min-h-0 w-max min-w-full gap-[var(--space-3)]" data-testid="board-column-rail">
-                    {sections.map((section) =>
-                        section.kind === "group" ? (
-                            <KanbanGroup
-                                board={board}
-                                actionsDisabled={actionsDisabled}
-                                canToggleDone={canToggleDone}
-                                canRunTasks={board.selectedWorkflow.validForTaskCreation}
-                                columns={section.columns}
-                                doneExpanded={doneExpanded}
-                                firstActiveColumnID={firstActive?.id ?? ""}
-                                group={section.group}
-                                hasMoreCards={hasMoreCards}
-                                isLoadingMoreCards={isLoadingMoreCards}
-                                key={section.id}
-                                onCardClick={(taskID) => {
-                                    openTaskDetail(taskID, "", () => {
-                                        void navigation.openProjectTask(board.projectID, board.selectedWorkflow.id, taskID);
-                                    });
-                                }}
-                                onDropTask={dropTask}
-                                onInterruptTask={(taskID, runID) => void actions.interrupt.mutateAsync({ taskID, runID })}
-                                onLoadMoreCards={onLoadMoreCards}
-                                onResumeTask={(taskID, runID) => void actions.resume.mutateAsync({ taskID, runID })}
-                                onToggleDone={() => {
-                                    setDoneExpanded((current) => !current);
-                                }}
-                            />
-                        ) : (
-                            <KanbanColumn
-                                cards={cardsForColumn(board, section.column, doneExpanded)}
-                                actionsDisabled={actionsDisabled}
-                                canToggleDone={canToggleDone}
-                                canRunTasks={board.selectedWorkflow.validForTaskCreation}
-                                column={section.column}
-                                doneExpanded={doneExpanded}
-                                hasMoreCards={hasMoreCards}
-                                isLoadingMoreCards={isLoadingMoreCards}
-                                isFirstActive={section.column.id === firstActive?.id}
-                                key={section.id}
-                                onCardClick={(taskID) => {
-                                    openTaskDetail(taskID, "", () => {
-                                        void navigation.openProjectTask(board.projectID, board.selectedWorkflow.id, taskID);
-                                    });
-                                }}
-                                onDropTask={dropTask}
-                                onInterruptTask={(taskID, runID) => void actions.interrupt.mutateAsync({ taskID, runID })}
-                                onLoadMoreCards={onLoadMoreCards}
-                                onResumeTask={(taskID, runID) => void actions.resume.mutateAsync({ taskID, runID })}
-                                onToggleDone={() => {
-                                    setDoneExpanded((current) => !current);
-                                }}
-                            />
-                        ),
-                    )}
-                </div>
+        <div className="h-full min-h-0 overflow-x-auto" role="list">
+            <div className="flex h-full min-h-0 w-max min-w-full gap-[var(--space-3)]" data-testid="board-column-rail">
+                {sections.map((section) =>
+                    section.kind === "group" ? (
+                        <KanbanGroup
+                            board={board}
+                            actionsDisabled={actionsDisabled}
+                            canToggleDone={canToggleDone}
+                            canRunTasks={board.selectedWorkflow.validForTaskCreation}
+                            columns={section.columns}
+                            doneExpanded={doneExpanded}
+                            firstActiveColumnID={firstActive?.id ?? ""}
+                            group={section.group}
+                            hasMoreCards={hasMoreCards}
+                            isLoadingMoreCards={isLoadingMoreCards}
+                            key={section.id}
+                            onCardClick={(taskID) => {
+                                openTaskDetail(taskID, "", () => {
+                                    void navigation.openProjectTask(board.projectID, board.selectedWorkflow.id, taskID);
+                                });
+                            }}
+                            onDropTask={dropTask}
+                            onInterruptTask={(taskID, runID) => void actions.interrupt.mutateAsync({ taskID, runID })}
+                            onLoadMoreCards={onLoadMoreCards}
+                            onResumeTask={(taskID, runID) => void actions.resume.mutateAsync({ taskID, runID })}
+                            onToggleDone={() => {
+                                setDoneExpanded((current) => !current);
+                            }}
+                        />
+                    ) : (
+                        <KanbanColumn
+                            cards={cardsForColumn(board, section.column, doneExpanded)}
+                            actionsDisabled={actionsDisabled}
+                            canToggleDone={canToggleDone}
+                            canRunTasks={board.selectedWorkflow.validForTaskCreation}
+                            column={section.column}
+                            doneExpanded={doneExpanded}
+                            hasMoreCards={hasMoreCards}
+                            isLoadingMoreCards={isLoadingMoreCards}
+                            isFirstActive={section.column.id === firstActive?.id}
+                            key={section.id}
+                            onCardClick={(taskID) => {
+                                openTaskDetail(taskID, "", () => {
+                                    void navigation.openProjectTask(board.projectID, board.selectedWorkflow.id, taskID);
+                                });
+                            }}
+                            onDropTask={dropTask}
+                            onInterruptTask={(taskID, runID) => void actions.interrupt.mutateAsync({ taskID, runID })}
+                            onLoadMoreCards={onLoadMoreCards}
+                            onResumeTask={(taskID, runID) => void actions.resume.mutateAsync({ taskID, runID })}
+                            onToggleDone={() => {
+                                setDoneExpanded((current) => !current);
+                            }}
+                        />
+                    ),
+                )}
             </div>
             <TaskDetailDialog
                 onClose={() => {
