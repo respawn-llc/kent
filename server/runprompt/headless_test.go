@@ -60,6 +60,45 @@ func newTestHeadlessSessionLaunch(cfg config.App, containerDir string, authManag
 	}, registry.NewSessionStoreRegistry()).WithAuthStateReader(authManager)
 }
 
+func TestHeadlessRuntimeWorkdirUsesInheritedWorktreeReminderCWD(t *testing.T) {
+	store, err := session.Create(t.TempDir(), "workspace", "/tmp/workspace")
+	if err != nil {
+		t.Fatalf("session.Create: %v", err)
+	}
+	if err := store.SetWorktreeReminderState(&session.WorktreeReminderState{
+		Mode:          session.WorktreeReminderModeEnter,
+		WorktreePath:  "/tmp/worktree",
+		WorkspaceRoot: "/tmp/workspace",
+		EffectiveCwd:  "/tmp/worktree/pkg",
+	}); err != nil {
+		t.Fatalf("SetWorktreeReminderState: %v", err)
+	}
+
+	got := headlessRuntimeWorkdir(launch.SessionPlan{Store: store, WorkspaceRoot: "/tmp/workspace"})
+	if got != "/tmp/worktree/pkg" {
+		t.Fatalf("headless runtime workdir = %q, want /tmp/worktree/pkg", got)
+	}
+}
+
+func TestHeadlessRuntimeWorkdirFallsBackToInheritedWorktreePath(t *testing.T) {
+	store, err := session.Create(t.TempDir(), "workspace", "/tmp/workspace")
+	if err != nil {
+		t.Fatalf("session.Create: %v", err)
+	}
+	if err := store.SetWorktreeReminderState(&session.WorktreeReminderState{
+		Mode:          session.WorktreeReminderModeEnter,
+		WorktreePath:  "/tmp/worktree",
+		WorkspaceRoot: "/tmp/workspace",
+	}); err != nil {
+		t.Fatalf("SetWorktreeReminderState: %v", err)
+	}
+
+	got := headlessRuntimeWorkdir(launch.SessionPlan{Store: store, WorkspaceRoot: "/tmp/workspace"})
+	if got != "/tmp/worktree" {
+		t.Fatalf("headless runtime workdir = %q, want /tmp/worktree", got)
+	}
+}
+
 func TestGuardingPromptServiceRejectsConcurrentSelectedSessionRun(t *testing.T) {
 	release := make(chan struct{})
 	inner := &stubRunPromptService{run: func(_ context.Context, req serverapi.RunPromptRequest, _ serverapi.RunPromptProgressSink) (serverapi.RunPromptResponse, error) {

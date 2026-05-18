@@ -30,6 +30,26 @@ func TestRunPromptOverridesAgentRoleSetJSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRunPromptRequestParentSessionIDJSONRoundTrip(t *testing.T) {
+	req := RunPromptRequest{
+		ClientRequestID:   "req-1",
+		ParentSessionID:   "parent-session",
+		SelectedSessionID: "selected-session",
+		Prompt:            "hello",
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var got RunPromptRequest
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if got.ParentSessionID != "parent-session" {
+		t.Fatalf("ParentSessionID = %q, want parent-session", got.ParentSessionID)
+	}
+}
+
 func TestRunPromptOverridesAgentRoleCompatJSON(t *testing.T) {
 	var got SessionPlanRequest
 	if err := json.Unmarshal([]byte(`{"ClientRequestID":"req-1","Mode":"headless","ForceNewSession":true,"Overrides":{"AgentRole":"worker"}}`), &got); err != nil {

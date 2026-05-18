@@ -711,6 +711,32 @@ func TestProjectedAssistantMessageClearsStreamingTextOnCommit(t *testing.T) {
 	if m.sawAssistantDelta {
 		t.Fatal("expected committed assistant message to clear assistant delta flag")
 	}
+	if got := strings.Count(stripANSIPreserve(m.view.OngoingSnapshot()), "partial"); got != 1 {
+		t.Fatalf("expected committed final to render once after stream clear, got %d in %q", got, stripANSIPreserve(m.view.OngoingSnapshot()))
+	}
+}
+
+func TestProjectedAssistantCommentaryDoesNotClearStreamingFinal(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.setBusy(true)
+	_ = m.runtimeAdapter().handleRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: "final still streaming"})
+
+	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
+		Kind:                       clientui.EventAssistantMessage,
+		CommittedTranscriptChanged: true,
+		TranscriptEntries: []clientui.ChatEntry{{
+			Role:  "assistant",
+			Text:  "commentary note",
+			Phase: string(llm.MessagePhaseCommentary),
+		}},
+	})
+
+	if got := m.view.OngoingStreamingText(); got != "final still streaming" {
+		t.Fatalf("expected commentary commit to preserve live stream, got %q", got)
+	}
+	if !m.sawAssistantDelta {
+		t.Fatal("expected commentary commit to preserve assistant delta flag")
+	}
 }
 
 func TestProjectedAssistantMessageDoesNotClearStreamingTextWhenCommitIsSkipped(t *testing.T) {

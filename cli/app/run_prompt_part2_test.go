@@ -2,6 +2,7 @@ package app
 
 import (
 	"builder/server/llm"
+	"builder/server/metadata"
 	"builder/server/session"
 	"builder/shared/config"
 	"builder/shared/serverapi"
@@ -107,6 +108,92 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	if !sawAssistant {
 		t.Fatal("expected persisted final assistant message in event log")
 	}
+}
+
+func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	workspace := t.TempDir()
+	worktree := filepath.Join(home, ".builder", "worktrees", "project", "feature")
+	worktreeSubdir := filepath.Join(worktree, "pkg")
+	if err := os.MkdirAll(worktreeSubdir, 0o755); err != nil {
+		t.Fatalf("mkdir worktree subdir: %v", err)
+	}
+	t.Setenv("HOME", home)
+	configureAppTestServerPort(t)
+	cfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load workspace: %v", err)
+	}
+	parent := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
+	if err != nil {
+		t.Fatalf("metadata.Open: %v", err)
+	}
+	defer func() { _ = metadataStore.Close() }()
+	binding, err := metadata.ResolveBinding(ctx, cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("ResolveBinding: %v", err)
+	}
+	canonicalWorktreeRoot, err := config.CanonicalWorkspaceRoot(worktree)
+	if err != nil {
+		t.Fatalf("CanonicalWorkspaceRoot worktree: %v", err)
+	}
+	if err := metadataStore.UpsertWorktreeRecord(ctx, metadata.WorktreeRecord{
+		ID:              "worktree-feature",
+		WorkspaceID:     binding.WorkspaceID,
+		CanonicalRoot:   canonicalWorktreeRoot,
+		DisplayName:     "feature",
+		Availability:    "available",
+		GitMetadataJSON: `{}`,
+	}); err != nil {
+		t.Fatalf("UpsertWorktreeRecord: %v", err)
+	}
+	if err := metadataStore.UpdateSessionExecutionTargetByID(ctx, parent.Meta().SessionID, binding.WorkspaceID, "worktree-feature", "pkg"); err != nil {
+		t.Fatalf("UpdateSessionExecutionTargetByID parent: %v", err)
+	}
+	if err := parent.SetWorktreeReminderState(&session.WorktreeReminderState{
+		Mode:                  session.WorktreeReminderModeEnter,
+		Branch:                "feature/worktree",
+		WorktreePath:          canonicalWorktreeRoot,
+		WorkspaceRoot:         cfg.WorkspaceRoot,
+		EffectiveCwd:          worktreeSubdir,
+		HasIssuedInGeneration: true,
+		IssuedCompactionCount: 2,
+	}); err != nil {
+		t.Fatalf("SetWorktreeReminderState parent: %v", err)
+	}
+	saveReadyAppAuthState(t, workspace)
+	fakeResponses, _ := newFakeResponsesServer(t, []string{"child reply"})
+	defer fakeResponses.Close()
+
+	result, err := RunPrompt(ctx, Options{
+		WorkspaceRoot:             worktreeSubdir,
+		WorkspaceContextSessionID: parent.Meta().SessionID,
+		Model:                     "gpt-5",
+		OpenAIBaseURL:             fakeResponses.URL,
+		OpenAIBaseURLExplicit:     true,
+	}, "hello from worktree", 0, nil)
+	if err != nil {
+		t.Fatalf("RunPrompt: %v", err)
+	}
+	child := openAuthoritativeAppSession(t, cfg.PersistenceRoot, result.SessionID)
+	childMeta := child.Meta()
+	if childMeta.ParentSessionID != parent.Meta().SessionID {
+		t.Fatalf("child parent session id = %q, want %q", childMeta.ParentSessionID, parent.Meta().SessionID)
+	}
+	if childMeta.WorktreeReminder == nil {
+		t.Fatal("expected child worktree reminder")
+	}
+	if childMeta.WorktreeReminder.Branch != "feature/worktree" || childMeta.WorktreeReminder.WorktreePath != canonicalWorktreeRoot {
+		t.Fatalf("child worktree reminder = %+v", childMeta.WorktreeReminder)
+	}
+	messages, err := readStoredMessages(child)
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	assertEnvironmentCWD(t, messages, worktreeSubdir)
+	assertWorktreeReminderMessage(t, messages, "feature/worktree", worktreeSubdir, cfg.WorkspaceRoot)
 }
 
 func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.T) {
@@ -347,6 +434,31 @@ func readStoredMessages(store *session.Store) ([]llm.Message, error) {
 		messages = append(messages, msg)
 	}
 	return messages, nil
+}
+
+func assertEnvironmentCWD(t *testing.T, messages []llm.Message, cwd string) {
+	t.Helper()
+	want := "\nCWD: " + cwd + "\n"
+	for _, msg := range messages {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeEnvironment && strings.Contains(msg.Content, want) {
+			return
+		}
+	}
+	t.Fatalf("expected environment CWD %q in messages %+v", cwd, messages)
+}
+
+func assertWorktreeReminderMessage(t *testing.T, messages []llm.Message, branch string, cwd string, workspaceRoot string) {
+	t.Helper()
+	for _, msg := range messages {
+		if msg.Role != llm.RoleDeveloper || msg.MessageType != llm.MessageTypeWorktreeMode {
+			continue
+		}
+		if strings.Contains(msg.Content, branch) && strings.Contains(msg.Content, cwd) && strings.Contains(msg.Content, workspaceRoot) {
+			return
+		}
+		t.Fatalf("worktree reminder content = %q, want branch %q cwd %q workspace %q", msg.Content, branch, cwd, workspaceRoot)
+	}
+	t.Fatalf("expected worktree reminder message in %+v", messages)
 }
 
 func assertMessagePresent(t *testing.T, messages []llm.Message, role llm.Role, content string) {

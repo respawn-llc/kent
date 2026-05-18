@@ -26,6 +26,7 @@ func runPrompt(ctx context.Context, client client.RunPromptClient, opts Options,
 	response, err := client.RunPrompt(ctx, serverapi.RunPromptRequest{
 		ClientRequestID:   uuid.NewString(),
 		SelectedSessionID: strings.TrimSpace(initialSessionID),
+		ParentSessionID:   runPromptParentSessionID(opts, initialSessionID),
 		Prompt:            prompt,
 		Timeout:           timeout,
 		Overrides:         runPromptOverridesFromOptions(opts),
@@ -41,6 +42,13 @@ func runPrompt(ctx context.Context, client client.RunPromptClient, opts Options,
 		return result, err
 	}
 	return result, nil
+}
+
+func runPromptParentSessionID(opts Options, initialSessionID string) string {
+	if strings.TrimSpace(initialSessionID) != "" {
+		return ""
+	}
+	return strings.TrimSpace(opts.WorkspaceContextSessionID)
 }
 
 func runPromptOverridesFromOptions(opts Options) serverapi.RunPromptOverrides {

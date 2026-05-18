@@ -116,11 +116,55 @@ func shouldClearAssistantStreamForCommittedAssistantEvent(evt clientui.Event) bo
 		return false
 	}
 	for _, entry := range evt.TranscriptEntries {
-		if tui.TranscriptRoleFromWire(entry.Role) == tui.TranscriptRoleAssistant {
+		if isFinalAssistantProjectedEntry(entry) {
 			return true
 		}
 	}
 	return false
+}
+
+func shouldClearAssistantStreamForCommittedTranscriptEntries(entries []tui.TranscriptEntry, activeStream string) bool {
+	trimmedActiveStream := strings.TrimSpace(activeStream)
+	for _, entry := range entries {
+		if !isAssistantTranscriptEntry(entry) || !transcriptEntryCommittedForApp(entry) {
+			continue
+		}
+		if isFinalAssistantTranscriptEntry(entry) {
+			return true
+		}
+		if trimmedActiveStream != "" && strings.TrimSpace(entry.Text) == trimmedActiveStream {
+			return true
+		}
+	}
+	return false
+}
+
+func isAssistantTranscriptEntry(entry tui.TranscriptEntry) bool {
+	return entry.Role == tui.TranscriptRoleAssistant
+}
+
+func isFinalAssistantProjectedEntry(entry clientui.ChatEntry) bool {
+	if tui.TranscriptRoleFromWire(entry.Role) != tui.TranscriptRoleAssistant {
+		return false
+	}
+	phase := strings.TrimSpace(entry.Phase)
+	return phase == "" || phase == string(clientui.MessagePhaseFinal)
+}
+
+func isFinalAssistantTranscriptEntry(entry tui.TranscriptEntry) bool {
+	if !isAssistantTranscriptEntry(entry) {
+		return false
+	}
+	phase := strings.TrimSpace(string(entry.Phase))
+	return phase == "" || phase == string(clientui.MessagePhaseFinal)
+}
+
+func (m *uiModel) clearAssistantStreamForCommittedAppend() {
+	if m == nil {
+		return
+	}
+	m.sawAssistantDelta = false
+	m.forwardToView(tui.ClearOngoingAssistantMsg{})
 }
 
 func (m *uiModel) observeNativeStreamingAssistantCommitCandidate(evt clientui.Event) {

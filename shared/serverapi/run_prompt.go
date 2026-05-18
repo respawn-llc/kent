@@ -10,6 +10,7 @@ import (
 type RunPromptRequest struct {
 	ClientRequestID   string
 	SelectedSessionID string
+	ParentSessionID   string
 	Prompt            string
 	Timeout           time.Duration
 	Overrides         RunPromptOverrides

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"builder/server/auth"
 	"builder/server/launch"
@@ -53,6 +54,7 @@ func (l *headlessPromptLauncher) PrepareHeadlessPrompt(ctx context.Context, req 
 		Mode:              serverapi.SessionLaunchModeHeadless,
 		SelectedSessionID: req.SelectedSessionID,
 		ForceNewSession:   req.SelectedSessionID == "",
+		ParentSessionID:   req.ParentSessionID,
 		Overrides:         req.Overrides,
 	}
 	result, err := l.boot.SessionLaunch.PlanLaunchSession(ctx, launchReq)
@@ -93,12 +95,13 @@ func (l *headlessPromptLauncher) prepareRuntime(plan launch.SessionPlan, progres
 	if err != nil {
 		return nil, err
 	}
-	logger.Logf("app.run_prompt.start session_id=%s workspace=%s model=%s", plan.Store.Meta().SessionID, plan.WorkspaceRoot, plan.ActiveSettings.Model)
+	workdir := headlessRuntimeWorkdir(plan)
+	logger.Logf("app.run_prompt.start session_id=%s workspace=%s workdir=%s model=%s", plan.Store.Meta().SessionID, plan.WorkspaceRoot, workdir, plan.ActiveSettings.Model)
 	logger.Logf("config.settings path=%s created=%t", plan.Source.SettingsPath, plan.Source.CreatedDefaultConfig)
 	for _, line := range configSourceLines(plan.Source.Sources) {
 		logger.Logf("config.source %s", line)
 	}
-	wiring, err := runtimewire.NewRuntimeWiringWithBackground(plan.Store, plan.ActiveSettings, plan.EnabledTools, plan.WorkspaceRoot, l.boot.AuthManager, logger, l.boot.Background, runtimewire.RuntimeWiringOptions{
+	wiring, err := runtimewire.NewRuntimeWiringWithBackground(plan.Store, plan.ActiveSettings, plan.EnabledTools, workdir, l.boot.AuthManager, logger, l.boot.Background, runtimewire.RuntimeWiringOptions{
 		Headless: true,
 		FastMode: l.boot.FastModeState,
 		Sources:  plan.Source.Sources,
@@ -141,6 +144,21 @@ func (l *headlessPromptLauncher) prepareRuntime(plan launch.SessionPlan, progres
 			_ = logger.Close()
 		},
 	}, nil
+}
+
+func headlessRuntimeWorkdir(plan launch.SessionPlan) string {
+	meta := plan.Store.Meta()
+	if meta.WorktreeReminder != nil {
+		effectiveCwd := strings.TrimSpace(meta.WorktreeReminder.EffectiveCwd)
+		if effectiveCwd != "" {
+			return effectiveCwd
+		}
+		worktreePath := strings.TrimSpace(meta.WorktreeReminder.WorktreePath)
+		if worktreePath != "" {
+			return worktreePath
+		}
+	}
+	return strings.TrimSpace(plan.WorkspaceRoot)
 }
 
 type headlessPromptRuntime struct {

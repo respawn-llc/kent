@@ -617,6 +617,39 @@ func TestCommittedSuffixAppendTrimsOverlappedRowsAlreadyDelivered(t *testing.T) 
 	}
 }
 
+func TestCommittedSuffixAppendClearsStreamBeforeFinalAnswerAppend(t *testing.T) {
+	m := newProjectedStaticUIModel()
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	m.sawAssistantDelta = true
+	m.forwardToView(tui.SetConversationMsg{Ongoing: "final answer"})
+	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(0, 1)
+
+	cmd := m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
+		Revision:            2,
+		CommittedEntryCount: 1,
+		StartEntryCount:     0,
+		NextEntryCount:      1,
+		Entries:             []clientui.ChatEntry{{Role: "assistant", Text: "final answer", Phase: string(llm.MessagePhaseFinal)}},
+	})
+
+	if got := m.view.OngoingStreamingText(); got != "" {
+		t.Fatalf("expected committed suffix final to clear live stream, got %q", got)
+	}
+	if m.sawAssistantDelta {
+		t.Fatal("expected committed suffix final to clear assistant delta flag")
+	}
+	view := stripANSIPreserve(m.view.OngoingSnapshot())
+	if got := strings.Count(view, "final answer"); got != 1 {
+		t.Fatalf("expected suffix final rendered once, got %d in %q", got, view)
+	}
+	flush := collectNativeHistoryFlushText(collectCmdMessages(t, cmd))
+	if got := strings.Count(normalizedOutput(flush), "final answer"); got != 1 {
+		t.Fatalf("expected suffix final native flush once, got %d in %q", got, normalizedOutput(flush))
+	}
+}
+
 func TestCommittedSuffixAppendCursorAdvancesAfterNativeFlushAck(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.windowSizeKnown = true

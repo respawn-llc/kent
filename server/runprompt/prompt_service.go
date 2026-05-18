@@ -41,6 +41,7 @@ func (s *PromptService) RunPrompt(ctx context.Context, req serverapi.RunPromptRe
 	}
 	req.ClientRequestID = strings.TrimSpace(req.ClientRequestID)
 	req.SelectedSessionID = strings.TrimSpace(req.SelectedSessionID)
+	req.ParentSessionID = strings.TrimSpace(req.ParentSessionID)
 	req.Prompt = strings.TrimSpace(req.Prompt)
 	if req.ClientRequestID == "" {
 		return serverapi.RunPromptResponse{}, errors.New("client_request_id is required")

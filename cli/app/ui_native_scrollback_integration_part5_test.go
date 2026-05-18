@@ -2,6 +2,7 @@ package app
 
 import (
 	"builder/cli/tui"
+	"builder/server/llm"
 	"builder/server/runtime"
 	"bytes"
 	tea "github.com/charmbracelet/bubbletea"
@@ -95,6 +96,48 @@ func TestNativeAssistantDeltaSuppressedInDetailMode(t *testing.T) {
 	}
 	if strings.Contains(normalizedOutput(out.String()), "hidden-delta") {
 		t.Fatalf("expected assistant delta to stay suppressed while in detail mode, got %q", normalizedOutput(out.String()))
+	}
+}
+
+func TestNativeStreamedFinalThenCommitAppearsOnceInScrollback(t *testing.T) {
+	out := &bytes.Buffer{}
+	model := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), closedAskEvents())
+	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
+	done := make(chan error, 1)
+	go func() {
+		_, err := program.Run()
+		done <- err
+	}()
+	time.Sleep(30 * time.Millisecond)
+	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
+	program.Send(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventAssistantDelta, StepID: "step-1", AssistantDelta: "final answer"}))
+	waitForTestCondition(t, 2*time.Second, "streamed final visible", func() bool {
+		return strings.Contains(normalizedOutput(out.String()), "final answer")
+	})
+	program.Send(projectedRuntimeEventMsg(runtime.Event{
+		Kind:                       runtime.EventAssistantMessage,
+		StepID:                     "step-1",
+		CommittedTranscriptChanged: true,
+		CommittedEntryCount:        1,
+		CommittedEntryStartSet:     true,
+		Message:                    llm.Message{Role: llm.RoleAssistant, Content: "final answer", Phase: llm.MessagePhaseFinal},
+	}))
+	waitForTestCondition(t, 2*time.Second, "committed final rendered once", func() bool {
+		normalized := normalizedOutput(out.String())
+		return strings.Contains(normalized, "final answer")
+	})
+	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("program run failed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("program did not terminate")
+	}
+	normalized := normalizedOutput(out.String())
+	if got := strings.Count(normalized, "final answer"); got != 1 {
+		t.Fatalf("expected streamed final plus commit to appear once, got %d in %q", got, normalized)
 	}
 }
 

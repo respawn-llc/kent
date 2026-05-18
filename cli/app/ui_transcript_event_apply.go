@@ -70,6 +70,9 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, fl
 	for _, entry := range entries {
 		convertedEntries = append(convertedEntries, transcriptEntryFromProjectedChatEntry(entry, reduction.projectedTransient, reduction.projectedCommitted))
 	}
+	if shouldClearAssistantStreamForCommittedTranscriptEntries(convertedEntries, m.view.OngoingStreamingText()) {
+		m.clearAssistantStreamForCommittedAppend()
+	}
 	showTransientInCurrentView := m.view.Mode() != tui.ModeDetail || !allTranscriptEntriesTransient(convertedEntries)
 	replaceLoadedTransientEntries := shouldReplaceLoadedTransientEntriesWithCommittedAppend(m, convertedEntries)
 	if plan.mode == projectedTranscriptEntryPlanAppend {

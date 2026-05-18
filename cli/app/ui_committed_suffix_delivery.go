@@ -124,6 +124,9 @@ func (m *uiModel) applyCommittedTranscriptSuffixAppend(suffix clientui.Committed
 		return m.syncNativeHistoryFromTranscript()
 	}
 	m.truncatePendingOngoingTailBeforeSuffix(expectedStart)
+	if shouldClearAssistantStreamForCommittedTranscriptEntries(entries, m.view.OngoingStreamingText()) {
+		m.clearAssistantStreamForCommittedAppend()
+	}
 	for _, entry := range entries {
 		m.transcriptEntries = append(m.transcriptEntries, entry)
 		if m.view.Mode() == tui.ModeOngoing {
@@ -137,10 +140,6 @@ func (m *uiModel) applyCommittedTranscriptSuffixAppend(suffix clientui.Committed
 	m.refreshRollbackCandidates()
 	if m.view.Mode() == tui.ModeDetail {
 		m.detailTranscript.apply(page)
-	}
-	if suffix.NextEntryCount > suffix.StartEntryCount {
-		m.sawAssistantDelta = false
-		m.forwardToView(tui.ClearOngoingAssistantMsg{})
 	}
 	beforeSequence := m.nativeFlushSequence
 	cmd := m.syncNativeHistoryFromTranscript()

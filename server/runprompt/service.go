@@ -11,6 +11,7 @@ import (
 
 type runPromptMemoRequest struct {
 	SelectedSessionID string
+	ParentSessionID   string
 	Prompt            string
 	Timeout           string
 	Overrides         serverapi.RunPromptOverrides
@@ -34,6 +35,7 @@ func newMemoizingPromptService(inner servicecontract.RunPromptService) serviceco
 func (s *memoizingPromptService) RunPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (serverapi.RunPromptResponse, error) {
 	memoReq := runPromptMemoRequest{
 		SelectedSessionID: strings.TrimSpace(req.SelectedSessionID),
+		ParentSessionID:   strings.TrimSpace(req.ParentSessionID),
 		Prompt:            strings.TrimSpace(req.Prompt),
 		Timeout:           req.Timeout.String(),
 		Overrides:         req.Overrides,
@@ -45,6 +47,7 @@ func (s *memoizingPromptService) RunPrompt(ctx context.Context, req serverapi.Ru
 
 func sameRunPromptMemoRequest(a runPromptMemoRequest, b runPromptMemoRequest) bool {
 	return a.SelectedSessionID == b.SelectedSessionID &&
+		a.ParentSessionID == b.ParentSessionID &&
 		a.Prompt == b.Prompt &&
 		a.Timeout == b.Timeout &&
 		a.Overrides == b.Overrides
