@@ -87,11 +87,12 @@ export function useProjectBoardSubscription(
   ]);
 
   useEffect(() => {
-    if (connection.phase === "connected") {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectID, boardQueryWorkflowID) });
-      if (selectedWorkflowID !== boardQueryWorkflowID) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectID, selectedWorkflowID) });
-      }
+    if (projectID.length === 0 || connection.phase !== "connected") {
+      return;
+    }
+    void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectID, boardQueryWorkflowID) });
+    if (selectedWorkflowID !== boardQueryWorkflowID) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectID, selectedWorkflowID) });
     }
   }, [boardQueryWorkflowID, connection.generation, connection.phase, projectID, queryClient, selectedWorkflowID]);
 }
