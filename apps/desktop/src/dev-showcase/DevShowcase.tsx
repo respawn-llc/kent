@@ -24,6 +24,7 @@ export function DevShowcaseApp() {
       api: new BuilderApiClient(new FakeRpcTransport([])),
       debugThemeOverrideEnabled: true,
       endpoint: "mock://ui-showcase",
+      homePath: "",
       logger: createGuiLogger(nativeBridge),
       nativeBridge,
     };

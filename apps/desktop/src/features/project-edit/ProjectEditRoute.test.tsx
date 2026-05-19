@@ -128,6 +128,30 @@ describe("ProjectEditRoute", () => {
     expect(services.transport.calls.some((call) => call.method === "project.attachWorkspace")).toBe(false);
   });
 
+  it("shows workspace rows relative to the user's home directory while retaining absolute titles", async () => {
+    const homeWorkspacePath = "/Users/nek/Developer/builder-cli";
+    const services = createTestServices(
+      [
+        ...startupRoutes,
+        {
+          method: "project.edit.get",
+          result: {
+            ...projectEditResponse,
+            workspaces: [{ ...workspace1, root_path: homeWorkspacePath }, workspace2],
+          },
+        },
+      ],
+      undefined,
+      { homePath: "/Users/nek" },
+    );
+
+    render(<App services={services} />);
+
+    const workspacePath = await screen.findByText("~/Developer/builder-cli");
+    expect(workspacePath).toHaveAttribute("title", homeWorkspacePath);
+    expect(screen.getByRole("button", { name: "Make ~/Developer/builder-cli the default workspace" }));
+  });
+
   it("attaches new workspace through native picker", async () => {
     const services = createTestServices(
       [

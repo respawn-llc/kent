@@ -8,6 +8,7 @@
   "scripts": {
     "deps:policy": "node ./scripts/check-dependency-policy.mjs",
     "desktop:dev": "pnpm --filter @builder/desktop tauri:dev",
+    "desktop:dev:browser": "pnpm --filter @builder/desktop dev:browser",
     "desktop:build": "pnpm --filter @builder/desktop tauri:build",
     "lint": "pnpm deps:policy && pnpm ts:policy && pnpm --recursive --if-present lint",
     "ts:policy": "node ./scripts/check-typescript-policy.mjs",

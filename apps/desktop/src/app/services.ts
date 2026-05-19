@@ -7,6 +7,7 @@ export type AppServices = Readonly<{
   api: BuilderApiClient;
   debugThemeOverrideEnabled: boolean;
   endpoint: string;
+  homePath: string;
   logger: GuiLogger;
   nativeBridge: NativeBridge;
 }>;

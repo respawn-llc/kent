@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "dev:browser": "vite --host 127.0.0.1 --open /",
     "dev:showcase": "vite --host 127.0.0.1 --open /dev-showcase.html",
     "build": "pnpm build:web",
     "build:web": "tsc -b --pretty false && vite build",
@@ -13,6 +14,7 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "test:watch": "vitest",
+    "proof:browser": "../../scripts/capture-gui-browser-proof.sh",
     "proof:showcase": "../../scripts/capture-gui-ui-showcase-proof.sh",
     "format": "prettier --check .",
     "format:write": "prettier --write .",

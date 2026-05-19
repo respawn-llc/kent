@@ -1,6 +1,6 @@
 # GUI UI Showcase
 
-The desktop app has a dev-only browser page for visual review of hard-to-reach UI states.
+The static UI showcase is a secondary path for hard-to-reach UI states. It uses mock data and does not replace browser-client QA against a real Builder server.
 
 Run it from the repo root:
 

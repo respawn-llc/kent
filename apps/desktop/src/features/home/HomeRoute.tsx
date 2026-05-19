@@ -1,14 +1,13 @@
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Pencil, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 
 import type { AttentionItem, ProjectSummary } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { basename, formatRelativeTime, projectKeyFromName } from "../../app/formatters";
 import { useAppNavigation } from "../../app/navigation";
 import { queryKeys } from "../../app/queryKeys";
-import { startProjectToBoardTransition } from "../../app/navigationTransitions";
 import { useAppServices } from "../../app/useAppServices";
 import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
 import { useStatusController } from "../../app/useStatusController";
@@ -16,6 +15,7 @@ import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { Badge, ErrorState, VirtualizedInfiniteList } from "../../ui";
 import { useOpenTaskDetail } from "../task-detail/useOpenTaskDetail";
 import { ProjectCreateDialog, type ProjectDraft } from "./ProjectCreateForm";
+import { ProjectRow } from "./ProjectRow";
 import {
   useGlobalAttentionPages,
   useProjectCreation,
@@ -231,50 +231,6 @@ function ProjectListHeader({
       </button>
     </div>
   );
-}
-
-function ProjectRow({ project }: Readonly<{ project: ProjectSummary }>) {
-  const navigation = useAppNavigation();
-  const editLabel = useProjectEditLabel(project.name);
-
-  return (
-    <article className="relative rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)]">
-      <button
-        className="grid w-full gap-[var(--space-1)] p-[var(--space-3)] pr-14 text-left text-[var(--color-on-island)]"
-        onClick={(event) => {
-          startProjectToBoardTransition(
-            event.currentTarget.parentElement ?? event.currentTarget,
-            async () => {
-              await navigation.openProject(project.id, project.defaultWorkflowID);
-            },
-          );
-        }}
-        aria-label={`${project.name} ${project.primaryWorkspace.rootPath}`}
-        type="button"
-      >
-        <span className="font-mono text-[0.78rem] text-[var(--color-muted)]">{project.key}</span>
-        <strong>{project.name}</strong>
-        <span className="truncate font-mono text-sm text-[var(--color-muted)]">
-          {project.primaryWorkspace.rootPath}
-        </span>
-      </button>
-      <button
-        aria-label={editLabel}
-        className="absolute top-[var(--space-3)] right-[var(--space-3)] grid h-9 w-9 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-on-island)]"
-        onClick={() => {
-          void navigation.openProjectEdit(project.id);
-        }}
-        type="button"
-      >
-        <Pencil aria-hidden="true" size={16} strokeWidth={1.5} />
-      </button>
-    </article>
-  );
-}
-
-function useProjectEditLabel(projectName: string): string {
-  const { t } = useTranslation();
-  return t("home.editProject", { name: projectName });
 }
 
 type AttentionListProps = Readonly<{

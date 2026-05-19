@@ -13,6 +13,7 @@ export type TestAppServices = AppServices &
 
 export type CreateTestServicesOptions = Readonly<{
   debugThemeOverrideEnabled?: boolean | undefined;
+  homePath?: string | undefined;
 }>;
 
 export function createTestServices(
@@ -25,6 +26,7 @@ export function createTestServices(
     api: new BuilderApiClient(transport),
     debugThemeOverrideEnabled: options.debugThemeOverrideEnabled ?? false,
     endpoint: "ws://127.0.0.1:53082/rpc",
+    homePath: options.homePath ?? "",
     logger: createGuiLogger(nativeBridge),
     nativeBridge,
     transport,

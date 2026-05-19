@@ -63,3 +63,4 @@ docs/tmp/
 .env
 .builder/config.toml
 .builder/plans/
+.builder/proofs/

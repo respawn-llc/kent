@@ -3,9 +3,64 @@ import { afterEach, vi } from "vitest";
 import {
   applyNativeDialogThemeOverride,
   applyConfiguredTheme,
+  createDefaultAppServices,
   installProductionContextMenuGuard,
+  parseBrowserRpcEndpoint,
+  readBrowserRpcEndpoint,
   toggleInMemoryThemeOverride,
 } from "./appEnvironment";
+
+describe("browser RPC endpoint configuration", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    window.history.pushState(null, "", "/");
+  });
+
+  it("defaults browser clients to the existing local Builder server", () => {
+    expect(readBrowserRpcEndpoint()).toBe("ws://127.0.0.1:53082/rpc");
+  });
+
+  it("uses Vite env override for isolated browser QA environments", () => {
+    vi.stubEnv("VITE_BUILDER_RPC_ENDPOINT", "ws://127.0.0.1:53100/rpc");
+
+    expect(readBrowserRpcEndpoint()).toBe("ws://127.0.0.1:53100/rpc");
+  });
+
+  it("lets URL search params override env for one browser session", () => {
+    vi.stubEnv("VITE_BUILDER_RPC_ENDPOINT", "ws://127.0.0.1:53100/rpc");
+    window.history.pushState(null, "", "/?builderRpcEndpoint=ws%3A%2F%2F127.0.0.1%3A53101%2Frpc");
+
+    expect(readBrowserRpcEndpoint()).toBe("ws://127.0.0.1:53101/rpc");
+  });
+
+  it("rejects non-websocket browser RPC endpoints", () => {
+    const endpoint = parseBrowserRpcEndpoint("http://127.0.0.1:53082/rpc");
+
+    expect(endpoint).toBeInstanceOf(Error);
+    expect(endpoint).toHaveProperty("message", "Browser RPC endpoint must use ws:// or wss://.");
+  });
+
+  it("rejects browser RPC endpoints with credentials or fragments", () => {
+    expect(parseBrowserRpcEndpoint("ws://user:pass@127.0.0.1:53082/rpc")).toBeInstanceOf(Error);
+    expect(parseBrowserRpcEndpoint("ws://127.0.0.1:53082/rpc#debug")).toBeInstanceOf(Error);
+  });
+
+  it("creates default browser services against the existing local Builder server", async () => {
+    const services = await createDefaultAppServices();
+
+    expect(services.endpoint).toBe("ws://127.0.0.1:53082/rpc");
+    await expect(services.nativeBridge.builder.resolvePlatform()).resolves.toBe("browser");
+  });
+
+  it("creates browser services with query override taking precedence over env override", async () => {
+    vi.stubEnv("VITE_BUILDER_RPC_ENDPOINT", "ws://127.0.0.1:53100/rpc");
+    window.history.pushState(null, "", "/?builderRpcEndpoint=ws%3A%2F%2F127.0.0.1%3A53101%2Frpc");
+
+    const services = await createDefaultAppServices();
+
+    expect(services.endpoint).toBe("ws://127.0.0.1:53101/rpc");
+  });
+});
 
 describe("applyConfiguredTheme", () => {
   afterEach(() => {

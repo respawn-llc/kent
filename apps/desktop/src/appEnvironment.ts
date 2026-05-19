@@ -9,6 +9,8 @@ import { createGuiLogger } from "./app/logging";
 import type { AppServices } from "./app/services";
 
 const defaultServerEndpoint = "ws://127.0.0.1:53082/rpc";
+const browserRpcEndpointSearchParam = "builderRpcEndpoint";
+const browserRpcEndpointEnvVar = "VITE_BUILDER_RPC_ENDPOINT";
 const builderThemeAttribute = "data-builder-theme";
 const nativeDialogThemeSearchParam = "__builderTheme";
 let productionContextMenuGuardInstalled = false;
@@ -31,21 +33,76 @@ export async function createDefaultAppServices(): Promise<AppServices> {
       api: new BuilderApiClient(new BootstrapErrorTransport(context)),
       debugThemeOverrideEnabled: import.meta.env.DEV,
       endpoint: defaultServerEndpoint,
+      homePath: "",
       logger,
       nativeBridge,
     };
   }
   applyConfiguredTheme(context.theme);
   applyNativeDialogThemeOverride();
-  const endpoint = context.serverEndpoint.length > 0 ? context.serverEndpoint : defaultServerEndpoint;
+  const browserEndpoint = nativeBridge.capabilities.platform === "browser" ? readBrowserRpcEndpoint() : null;
+  if (browserEndpoint instanceof Error) {
+    await logger.append("error", "Builder browser RPC endpoint configuration failed.", {
+      error: browserEndpoint.message,
+    });
+    return {
+      api: new BuilderApiClient(new BootstrapErrorTransport(browserEndpoint)),
+      debugThemeOverrideEnabled: import.meta.env.DEV,
+      endpoint: defaultServerEndpoint,
+      homePath: context.homePath,
+      logger,
+      nativeBridge,
+    };
+  }
+  const endpoint =
+    browserEndpoint ?? (context.serverEndpoint.length > 0 ? context.serverEndpoint : defaultServerEndpoint);
   const api = new BuilderApiClient(createJsonRpcTransport(endpoint));
   return {
     api,
     debugThemeOverrideEnabled: import.meta.env.DEV,
     endpoint,
+    homePath: context.homePath,
     logger,
     nativeBridge,
   };
+}
+
+export function readBrowserRpcEndpoint(): string | null | StartupConfigurationError {
+  const raw = firstNonEmptyString(
+    readBrowserRpcEndpointSearchParam(),
+    import.meta.env[browserRpcEndpointEnvVar],
+  );
+  if (raw === null) {
+    return defaultServerEndpoint;
+  }
+  const endpoint = parseBrowserRpcEndpoint(raw);
+  if (endpoint instanceof Error) {
+    return endpoint;
+  }
+  return endpoint;
+}
+
+export function parseBrowserRpcEndpoint(raw: string): string | StartupConfigurationError {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return new StartupConfigurationError("Browser RPC endpoint is empty.");
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return new StartupConfigurationError("Browser RPC endpoint must be an absolute ws:// or wss:// URL.");
+  }
+  if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
+    return new StartupConfigurationError("Browser RPC endpoint must use ws:// or wss://.");
+  }
+  if (parsed.username.length > 0 || parsed.password.length > 0) {
+    return new StartupConfigurationError("Browser RPC endpoint must not include credentials.");
+  }
+  if (parsed.hash.length > 0) {
+    return new StartupConfigurationError("Browser RPC endpoint must not include a URL fragment.");
+  }
+  return parsed.toString();
 }
 
 export function applyConfiguredTheme(theme: string): void {
@@ -86,6 +143,22 @@ export function setInMemoryThemeOverride(theme: BuilderTheme): void {
     return;
   }
   document.documentElement.setAttribute(builderThemeAttribute, theme);
+}
+
+function readBrowserRpcEndpointSearchParam(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return new URLSearchParams(window.location.search).get(browserRpcEndpointSearchParam);
+}
+
+function firstNonEmptyString(...values: readonly unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+  return null;
 }
 
 function readNativeDialogThemeOverride(): BuilderTheme | null {

@@ -74,6 +74,7 @@ The scope is intentionally narrow and quality-oriented.
 - Tauri/native APIs must stay behind GUI-side bridge packages; do not import Tauri APIs directly from feature components.
 - Desktop GUI chrome must use a fixed window shell with scrollable islands/panes. Do not restore global/document/root scrolling for desktop GUI overscroll experiments; it makes macOS traffic lights overlap content and is rejected.
 - GUI pagination must use infinite scroll. Do not add page-number, next/previous, "Load more", or other button-based pagination controls.
+- Use browser-client QA as the primary manual GUI QA path. Run `pnpm --dir apps/desktop dev:browser` for interactive QA, or `./scripts/capture-gui-browser-proof.sh` for agent-browser screenshot proof capture against an existing Builder server.
 
 ## When designing model prompts:
 - Clearly explain **how** and **when** the model should use the tool in descriptions.

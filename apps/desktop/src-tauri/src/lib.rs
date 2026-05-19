@@ -21,6 +21,7 @@ struct BuilderNativeContext {
     persistence_root: String,
     platform: String,
     theme: String,
+    home_path: String,
 }
 
 #[tauri::command]
@@ -148,11 +149,13 @@ fn ensure_builder_executable_available() -> Result<(), String> {
 
 fn builder_native_context() -> Result<BuilderNativeContext, String> {
     let settings = load_builder_settings()?;
+    let home_path = home_dir()?.to_string_lossy().to_string();
     Ok(BuilderNativeContext {
         server_endpoint: server_rpc_url(&settings.server_host, settings.server_port),
         persistence_root: settings.persistence_root.to_string_lossy().to_string(),
         platform: builder_platform().to_string(),
         theme: settings.theme,
+        home_path,
     })
 }
 

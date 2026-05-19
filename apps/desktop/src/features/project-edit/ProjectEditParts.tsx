@@ -5,6 +5,7 @@ import { Link2Off, Save, Star, Unlink } from "lucide-react";
 
 import type { WorkspaceSummary } from "../../api";
 import { errorMessage } from "../../api/errors";
+import { formatHomeRelativePath } from "../../app/formatters";
 import { useAppServices } from "../../app/useAppServices";
 import { useStatusController } from "../../app/useStatusController";
 import { Button, Dialog, fieldLabelClassName, NativeDialogWindow } from "../../ui";
@@ -98,15 +99,23 @@ export function WorkspaceRow({
   workspace: WorkspaceSummary;
 }>) {
   const { t } = useTranslation();
+  const { homePath, nativeBridge } = useAppServices();
   const isDefault = workspace.id === defaultWorkspaceID;
+  const workspacePathLabel = formatHomeRelativePath(
+    workspace.rootPath,
+    homePath,
+    nativeBridge.capabilities.platform,
+  );
   return (
     <article
       className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]"
       data-testid="workspace-row"
     >
-      <span className="min-w-0 truncate font-mono text-sm">{workspace.rootPath}</span>
+      <span className="min-w-0 truncate font-mono text-sm" title={workspace.rootPath}>
+        {workspacePathLabel}
+      </span>
       <button
-        aria-label={t("projectEdit.makeDefaultWorkspace", { path: workspace.rootPath })}
+        aria-label={t("projectEdit.makeDefaultWorkspace", { path: workspacePathLabel })}
         aria-pressed={isDefault}
         className={cx(
           "grid h-9 w-9 place-items-center border border-transparent bg-transparent transition-colors duration-[var(--motion-fast)] disabled:cursor-not-allowed disabled:opacity-55",
@@ -126,7 +135,7 @@ export function WorkspaceRow({
         />
       </button>
       <button
-        aria-label={t("projectEdit.unlinkWorkspace", { path: workspace.rootPath })}
+        aria-label={t("projectEdit.unlinkWorkspace", { path: workspacePathLabel })}
         className="grid h-9 w-9 place-items-center rounded-full border border-[var(--color-outline)] bg-transparent text-[var(--color-on-island)] transition-colors duration-[var(--motion-fast)] disabled:cursor-not-allowed disabled:opacity-55"
         disabled={disabled}
         onClick={onUnlink}
@@ -234,11 +243,16 @@ function WorkspaceUnlinkContent({
   style?: CSSProperties;
 }>) {
   const { t } = useTranslation();
+  const { homePath, nativeBridge } = useAppServices();
+  const rootPathLabel = formatHomeRelativePath(rootPath, homePath, nativeBridge.capabilities.platform);
   return (
     <div className={cx("grid gap-[var(--space-3)]", className)} style={style}>
       <p className="m-0">{t("projectEdit.unlinkBody")}</p>
-      <p className="m-0 break-words rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] font-mono text-sm">
-        {rootPath}
+      <p
+        className="m-0 break-words rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] font-mono text-sm"
+        title={rootPath}
+      >
+        {rootPathLabel}
       </p>
       <div className="flex flex-wrap justify-end gap-[var(--space-2)]">
         <Button disabled={disabled} onClick={onCancel} variant="secondary">

@@ -36,6 +36,8 @@ The React/TypeScript UI should not depend directly on Tauri APIs. Native functio
 
 Do not freeze command and route names yet. Current server routes are `/rpc`, `/healthz`, and `/readyz`. Static UI hosting and web UI command naming are deferred until web UI implementation after inspecting `server/serve` and the CLI command shape.
 
+Manual GUI QA uses the browser client path in `docs/dev/gui-browser-qa.md`.
+
 ## Native Bridge
 
 Native bridge capabilities must be explicit and capability-checked:

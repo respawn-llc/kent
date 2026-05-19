@@ -48,10 +48,10 @@
   --color-error: #dc2e3c;
   --color-on-error: var(--color-on-background);
   --color-notice-collapsed-icon: #ffffff;
-  --shadow-island-0: 0 24px 70px rgba(0, 0, 0, 0.32);
-  --shadow-island-1: 0 16px 48px rgba(0, 0, 0, 0.24);
-  --shadow-island-2: 0 24px 70px rgba(0, 0, 0, 0.32);
-  --shadow-island-3: 0 32px 90px rgba(0, 0, 0, 0.38);
+  --shadow-island-0: 0 4px 4px rgba(0, 0, 0, 0.20);
+  --shadow-island-1: 0 4px 4px rgba(0, 0, 0, 0.24);
+  --shadow-island-2: 0 8px 8px rgba(0, 0, 0, 0.32);
+  --shadow-island-3: 0 16px 16px rgba(0, 0, 0, 0.38);
   --shadow-bleed-island: 96px;
   --window-glass-tint: light-dark(rgba(255, 255, 255, 0.28), rgba(0, 0, 0, 0.11));
   --window-noise-opacity: 0.12;
@@ -193,7 +193,7 @@
     pointer-events: none;
     content: "";
     opacity: var(--window-noise-opacity);
-    background-image: url("./assets/acrylic-noise.svg");
+    /* background-image: url("./assets/acrylic-noise.svg"); */
     background-repeat: repeat;
     background-size: var(--window-noise-size) var(--window-noise-size);
     mix-blend-mode: soft-light;

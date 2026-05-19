@@ -61,6 +61,30 @@ describe("HomeRoute", () => {
       });
     });
   });
+
+  it("shows project card workspace paths relative to the user's home directory", async () => {
+    const services = createTestServices(
+      [
+        ...startupRoutes,
+        {
+          method: "project.home.list",
+          result: projectPage(
+            [projectSummary("project-builder", "Builder", 10, "/Users/nek/Developer/builder-cli")],
+            "",
+          ),
+        },
+      ],
+      undefined,
+      { homePath: "/Users/nek" },
+    );
+
+    render(<App services={services} />);
+
+    const projectCard = await screen.findByRole("button", { name: "Builder ~/Developer/builder-cli" });
+    expect(projectCard).toBeInTheDocument();
+    expect(projectCard).toHaveAttribute("title", "/Users/nek/Developer/builder-cli");
+    expect(screen.queryByText("/Users/nek/Developer/builder-cli")).not.toBeInTheDocument();
+  });
 });
 
 function createHomeRevisitServices() {
@@ -73,7 +97,10 @@ function createHomeRevisitServices() {
           return projectPage([projectSummary("project-beta", "Beta", 20)], "");
         }
         if (callIndex >= 2) {
-          return projectPage([projectSummary("project-beta", "Beta", 30), projectSummary("project-alpha", "Alpha", 10)], "");
+          return projectPage(
+            [projectSummary("project-beta", "Beta", 30), projectSummary("project-alpha", "Alpha", 10)],
+            "",
+          );
         }
         return projectPage([projectSummary("project-alpha", "Alpha", 10)], "next");
       },
@@ -99,12 +126,17 @@ function projectPage(projects: readonly ReturnType<typeof projectSummary>[], nex
   };
 }
 
-function projectSummary(projectID: string, name: string, updatedAtUnixMs: number) {
+function projectSummary(
+  projectID: string,
+  name: string,
+  updatedAtUnixMs: number,
+  rootPath = `/tmp/${projectID}`,
+) {
   return {
     project_id: projectID,
     project_key: name.slice(0, 3).toUpperCase(),
     display_name: name,
-    primary_workspace: workspaceSummary(`workspace-${projectID}`, `/tmp/${projectID}`, updatedAtUnixMs),
+    primary_workspace: workspaceSummary(`workspace-${projectID}`, rootPath, updatedAtUnixMs),
     default_workflow_id: "workflow-1",
     default_workflow_name: "Default",
     default_workflow_valid: true,
