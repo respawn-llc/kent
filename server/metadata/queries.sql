@@ -646,6 +646,7 @@ WITH board_node_task_ids AS (
     WHERE t.project_id = sqlc.arg(project_id)
       AND t.workflow_id = sqlc.arg(workflow_id)
       AND t.canceled_at_unix_ms != 0
+      AND sqlc.arg(node_id) = sqlc.arg(canceled_terminal_node_id)
       AND EXISTS (
         SELECT 1
         FROM workflow_nodes n

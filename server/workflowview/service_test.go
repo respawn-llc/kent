@@ -481,6 +481,58 @@ WHERE task_id = ?
 	}
 }
 
+func TestBoardNodeCardsDoNotArchiveCanceledTaskInAlternateTerminalNode(t *testing.T) {
+	ctx := context.Background()
+	store, workflowStore, binding := newWorkflowViewTestStore(t)
+	view, err := New(store)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
+	archiveNodeID := workflow.NodeID("node-archive-" + string(workflowID))
+	if _, err := workflowStore.AddNode(ctx, workflowstore.NodeRecord{ID: archiveNodeID, WorkflowID: workflowID, Key: "archive", Kind: workflow.NodeKindTerminal, DisplayName: "Archive"}); err != nil {
+		t.Fatalf("AddNode archive: %v", err)
+	}
+	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, WorkflowID: workflowID, Title: "Canceled backlog", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if err := workflowStore.CancelTask(ctx, task.ID, "stop"); err != nil {
+		t.Fatalf("CancelTask: %v", err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `
+DELETE FROM task_node_placements
+WHERE task_id = ?
+  AND node_id IN (SELECT id FROM workflow_nodes WHERE workflow_id = ? AND kind = 'terminal')`, string(task.ID), string(workflowID)); err != nil {
+		t.Fatalf("force legacy canceled terminal placement removal: %v", err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `
+UPDATE task_node_placements
+SET state = 'active'
+WHERE task_id = ?
+  AND node_id IN (SELECT id FROM workflow_nodes WHERE workflow_id = ? AND kind = 'start')`, string(task.ID), string(workflowID)); err != nil {
+		t.Fatalf("force legacy canceled backlog placement: %v", err)
+	}
+	board, err := view.GetBoard(ctx, serverapi.WorkflowBoardRequest{ProjectID: binding.ProjectID}, workflow.StaticRoleResolver{"coder": true})
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	archiveColumn := workflowViewColumnByKey(t, board, "archive")
+	if archiveColumn.TaskCount != 0 {
+		t.Fatalf("archive count = %d, want no fallback canceled tasks", archiveColumn.TaskCount)
+	}
+	page, err := view.ListBoardNodeCards(ctx, serverapi.WorkflowBoardNodeCardsListRequest{ProjectID: binding.ProjectID, WorkflowID: string(workflowID), NodeID: string(archiveNodeID)}, workflow.StaticRoleResolver{"coder": true})
+	if err != nil {
+		t.Fatalf("ListBoardNodeCards archive: %v", err)
+	}
+	if len(page.Cards) != 0 {
+		t.Fatalf("archive node cards = %+v, want no fallback canceled tasks", page.Cards)
+	}
+}
+
 func TestBoardProjectsManualMoveTargetsFromServerPermissions(t *testing.T) {
 	ctx := context.Background()
 	store, workflowStore, binding := newWorkflowViewTestStore(t)

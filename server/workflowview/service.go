@@ -230,13 +230,14 @@ func (s *Service) ListBoardNodeCards(ctx context.Context, req serverapi.Workflow
 		cursorSet = 1
 	}
 	tasks, err := s.queries.ListBoardNodeTasks(ctx, sqlitegen.ListBoardNodeTasksParams{
-		ProjectID:             projectID,
-		WorkflowID:            workflowID,
-		CursorSet:             cursorSet,
-		CursorUpdatedAtUnixMs: cursor.updatedAtUnixMs,
-		CursorTaskID:          cursor.taskID,
-		NodeID:                nodeID,
-		LimitRows:             int64(pageSize + 1),
+		ProjectID:              projectID,
+		WorkflowID:             workflowID,
+		CursorSet:              cursorSet,
+		CursorUpdatedAtUnixMs:  cursor.updatedAtUnixMs,
+		CursorTaskID:           cursor.taskID,
+		NodeID:                 nodeID,
+		CanceledTerminalNodeID: canceledBoardTerminalNodeID(def),
+		LimitRows:              int64(pageSize + 1),
 	})
 	if err != nil {
 		return serverapi.WorkflowBoardNodeCardsListResponse{}, err

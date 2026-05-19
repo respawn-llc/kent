@@ -2499,6 +2499,7 @@ WITH board_node_task_ids AS (
     WHERE t.project_id = ?6
       AND t.workflow_id = ?7
       AND t.canceled_at_unix_ms != 0
+      AND ?5 = ?8
       AND EXISTS (
         SELECT 1
         FROM workflow_nodes n
@@ -2547,13 +2548,14 @@ LIMIT ?4
 `
 
 type ListBoardNodeTasksParams struct {
-	CursorSet             int64
-	CursorUpdatedAtUnixMs int64
-	CursorTaskID          string
-	LimitRows             int64
-	NodeID                string
-	ProjectID             string
-	WorkflowID            string
+	CursorSet              int64
+	CursorUpdatedAtUnixMs  int64
+	CursorTaskID           string
+	LimitRows              int64
+	NodeID                 string
+	ProjectID              string
+	WorkflowID             string
+	CanceledTerminalNodeID interface{}
 }
 
 func (q *Queries) ListBoardNodeTasks(ctx context.Context, arg ListBoardNodeTasksParams) ([]Task, error) {
@@ -2565,6 +2567,7 @@ func (q *Queries) ListBoardNodeTasks(ctx context.Context, arg ListBoardNodeTasks
 		arg.NodeID,
 		arg.ProjectID,
 		arg.WorkflowID,
+		arg.CanceledTerminalNodeID,
 	)
 	if err != nil {
 		return nil, err
