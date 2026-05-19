@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from "react";
 
 import { cx } from "./classes";
 
@@ -13,6 +13,7 @@ export type ButtonProps = Readonly<{
 export function Button({
     children,
     className,
+    style,
     variant = "secondary",
     type = "button",
     ...props
@@ -20,13 +21,10 @@ export function Button({
     return (
         <button
             className={cx(
-                "rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] px-[10px] py-[4px] text-[var(--color-on-island)] disabled:cursor-not-allowed disabled:opacity-55",
-                variant === "primary" &&
-                "border-transparent bg-[var(--color-primary)] text-[var(--color-on-primary)]",
-                variant === "danger" && "border-[var(--color-error)] text-[var(--color-error)]",
-                variant === "ghost" && "border-transparent bg-transparent",
+                "rounded-[var(--radius-m)] border border-[var(--button-border)] bg-[var(--button-bg)] px-[10px] py-[4px] text-[var(--button-color)] disabled:cursor-not-allowed disabled:opacity-55",
                 className,
             )}
+            style={{ ...buttonVariantStyles[variant], ...style }}
             type={type}
             {...props}
         >
@@ -34,3 +32,28 @@ export function Button({
         </button>
     );
 }
+
+type ButtonVariantStyle = CSSProperties & Record<"--button-bg" | "--button-border" | "--button-color", string>;
+
+const buttonVariantStyles = {
+    danger: {
+        "--button-bg": "var(--color-island-1)",
+        "--button-border": "var(--color-error)",
+        "--button-color": "var(--color-error)",
+    },
+    ghost: {
+        "--button-bg": "transparent",
+        "--button-border": "transparent",
+        "--button-color": "var(--color-on-island)",
+    },
+    primary: {
+        "--button-bg": "var(--color-primary)",
+        "--button-border": "transparent",
+        "--button-color": "var(--color-on-primary)",
+    },
+    secondary: {
+        "--button-bg": "var(--color-island-1)",
+        "--button-border": "var(--color-outline)",
+        "--button-color": "var(--color-on-island)",
+    },
+} satisfies Record<ButtonVariant, ButtonVariantStyle>;

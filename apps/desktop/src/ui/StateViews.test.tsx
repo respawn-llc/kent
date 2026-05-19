@@ -9,12 +9,30 @@ describe("EmptyState", () => {
   it("fills the available page space and centers default empty content", () => {
     render(<EmptyState body="Nothing to do yet." title="No items yet" />);
 
-    expect(screen.getByTestId("empty-state")).toHaveClass("h-full", "min-h-0", "place-items-center");
+    expect(screen.getByTestId("empty-state")).toHaveClass(
+      "h-full",
+      "min-h-0",
+      "place-items-center",
+    );
+    expect(screen.getByTestId("empty-state")).not.toHaveClass("p-[var(--space-2)]");
+    expect(screen.getByTestId("empty-state-island")).toHaveClass(
+      "h-full",
+      "min-h-0",
+      "p-[var(--space-4)]",
+      "place-items-center",
+    );
     expect(screen.getByTestId("empty-state")).not.toHaveClass("animate-[surface-reveal_var(--motion-normal)]");
     expect(screen.getByTestId("empty-state-content")).toHaveClass("justify-items-center", "text-center");
     expect(screen.getByTestId("empty-state-icon")).not.toBeEmptyDOMElement();
     expect(screen.getByRole("heading", { name: "No items yet" })).toHaveClass("font-bold");
     expect(screen.getByText("Nothing to do yet.")).toHaveClass("text-[var(--color-muted)]");
+  });
+
+  it("can own chrome padding for edge-to-edge shell fallback states", () => {
+    render(<EmptyState body="Nothing to do yet." chromePadding title="No items yet" />);
+
+    expect(screen.getByTestId("empty-state")).toHaveClass("p-[var(--space-2)]");
+    expect(screen.getByTestId("empty-state-island")).toHaveClass("p-[var(--space-4)]");
   });
 
   it("renders custom icon and action flow row", () => {
@@ -70,7 +88,18 @@ describe("LoadingState", () => {
     render(<LoadingState appearanceDelayMs={0} body="Booting." reveal={false} title="Loading" />);
 
     expect(screen.getByTestId("loading-state")).not.toHaveClass("animate-[surface-reveal_var(--motion-normal)]");
-    expect(screen.getByTestId("loading-state")).toHaveClass("h-full", "min-h-0", "place-items-center");
+    expect(screen.getByTestId("loading-state")).toHaveClass(
+      "h-full",
+      "min-h-0",
+      "place-items-center",
+    );
+    expect(screen.getByTestId("loading-state")).not.toHaveClass("p-[var(--space-2)]");
+    expect(screen.getByTestId("loading-state-island")).toHaveClass(
+      "h-full",
+      "min-h-0",
+      "p-[var(--space-4)]",
+      "place-items-center",
+    );
     expect(screen.getByTestId("loading-state-content")).toHaveClass("justify-items-center", "text-center");
     expect(screen.getByTestId("loading-state-spinner")).toHaveClass("motion-safe:animate-spin");
     expect(screen.getByRole("heading", { name: "Loading" })).toHaveClass("font-bold");
@@ -114,6 +143,25 @@ describe("LoadingState", () => {
     expect(screen.getByRole("heading", { name: "Loading" })).toBeInTheDocument();
   });
 
+  it("keeps delayed loading placeholder aligned with chrome-padded loading layout", () => {
+    vi.useFakeTimers();
+    render(
+      <LoadingState
+        appearanceDelayKey="state-view-chrome-delay-test"
+        body="Booting."
+        chromePadding
+        title="Loading"
+      />,
+    );
+
+    expect(screen.getByTestId("loading-state-placeholder")).toHaveClass(
+      "h-full",
+      "min-h-0",
+      "p-[var(--space-2)]",
+    );
+    expect(screen.queryByTestId("loading-state")).not.toBeInTheDocument();
+  });
+
   it("does not delay later loading remounts for the same state key", () => {
     vi.useFakeTimers();
     const key = "state-view-remount-test";
@@ -137,7 +185,18 @@ describe("ErrorState", () => {
     render(<ErrorState body="Failed." reveal={false} title="Error" />);
 
     expect(screen.getByTestId("error-state")).not.toHaveClass("animate-[surface-reveal_var(--motion-normal)]");
-    expect(screen.getByTestId("error-state")).toHaveClass("h-full", "min-h-0", "place-items-center");
+    expect(screen.getByTestId("error-state")).toHaveClass(
+      "h-full",
+      "min-h-0",
+      "place-items-center",
+    );
+    expect(screen.getByTestId("error-state")).not.toHaveClass("p-[var(--space-2)]");
+    expect(screen.getByTestId("error-state-island")).toHaveClass(
+      "h-full",
+      "min-h-0",
+      "p-[var(--space-4)]",
+      "place-items-center",
+    );
     expect(screen.getByTestId("error-state-icon")).toHaveClass("text-[var(--color-error)]");
     expect(screen.getByRole("heading", { name: "Error" })).toHaveClass(
       "font-bold",

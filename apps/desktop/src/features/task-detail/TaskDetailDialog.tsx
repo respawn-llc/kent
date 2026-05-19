@@ -4,6 +4,7 @@ import { errorMessage } from "../../api/errors";
 import { useOpenExternalLink } from "../../app/nativeHooks";
 import { Dialog, ErrorState } from "../../ui";
 import { TaskDetailContent } from "./TaskDetailContent";
+import { taskDetailContentMaxWidth, taskDetailDialogOuterMaxWidth } from "./taskDetailLayout";
 import { useTaskActivity, useTaskDetail } from "./useTaskDetailData";
 
 export type TaskDetailDialogProps = Readonly<{
@@ -19,13 +20,20 @@ export function TaskDetailDialog({ taskId, open, resumeRunId, onClose, onMutated
 
   return (
     <Dialog
-      className="h-[min(860px,calc(100vh-32px))] w-[min(1080px,calc(100vw-32px))]"
+      className="h-[min(860px,calc(100vh-32px))] w-[calc(100vw-32px)]"
       closeLabel={t("app.close")}
       onClose={onClose}
       open={open}
+      style={{ maxWidth: taskDetailDialogOuterMaxWidth }}
       title={t("task.title")}
     >
-      <TaskDetailSurface enabled={open} onMutated={onMutated} resumeRunId={resumeRunId} taskId={taskId} />
+      <div
+        className="mx-auto h-full min-h-0 w-full"
+        data-testid="task-detail-dialog-content"
+        style={{ maxWidth: taskDetailContentMaxWidth }}
+      >
+        <TaskDetailSurface enabled={open} onMutated={onMutated} resumeRunId={resumeRunId} taskId={taskId} />
+      </div>
     </Dialog>
   );
 }

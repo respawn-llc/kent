@@ -10,6 +10,7 @@ export type LoadingStateProps = Readonly<{
   title?: ReactNode;
   body?: ReactNode;
   fullPage?: boolean;
+  chromePadding?: boolean;
   reveal?: boolean;
   appearanceDelayMs?: number;
   appearanceDelayKey?: string;
@@ -23,16 +24,18 @@ export function LoadingState({
   title = null,
   body = null,
   fullPage = true,
+  chromePadding = false,
   reveal = true,
   appearanceDelayMs = defaultLoadingAppearanceDelayMs,
   appearanceDelayKey = defaultLoadingAppearanceDelayKey,
 }: LoadingStateProps) {
   const visible = useOneShotDelayedAppearance(appearanceDelayMs, appearanceDelayKey);
   if (!visible) {
-    return <LoadingPlaceholder fullPage={fullPage} />;
+    return <LoadingPlaceholder chromePadding={chromePadding} fullPage={fullPage} />;
   }
   return (
     <StateIsland
+      chromePadding={chromePadding}
       contentTestID="loading-state-content"
       fullPage={fullPage}
       icon={<Spinner testID="loading-state-spinner" />}
@@ -68,11 +71,18 @@ function useOneShotDelayedAppearance(delayMs: number, key: string): boolean {
   return visible;
 }
 
-function LoadingPlaceholder({ fullPage }: Readonly<{ fullPage: boolean }>) {
+function LoadingPlaceholder({
+  chromePadding,
+  fullPage,
+}: Readonly<{ chromePadding: boolean; fullPage: boolean }>) {
   return (
     <div
       aria-hidden="true"
-      className={cx("loading-state-placeholder", fullPage && "h-full min-h-0")}
+      className={cx(
+        "loading-state-placeholder",
+        fullPage && "h-full min-h-0",
+        fullPage && chromePadding && "p-[var(--space-2)]",
+      )}
       data-testid="loading-state-placeholder"
     />
   );
@@ -85,12 +95,14 @@ export type EmptyStateProps = Readonly<{
   actions?: ReactNode;
   action?: ReactNode;
   fullPage?: boolean;
+  chromePadding?: boolean;
 }>;
 
-export function EmptyState({ title, body, icon, actions, action, fullPage = true }: EmptyStateProps) {
+export function EmptyState({ title, body, icon, actions, action, fullPage = true, chromePadding = false }: EmptyStateProps) {
   const renderedActions = actions ?? action;
   return (
     <StateIsland
+      chromePadding={chromePadding}
       contentTestID="empty-state-content"
       fullPage={fullPage}
       icon={icon ?? <Inbox size={28} strokeWidth={1.5} />}
@@ -114,6 +126,7 @@ export type ErrorStateProps = Readonly<{
   onRetry?: () => void;
   children?: ReactNode;
   fullPage?: boolean;
+  chromePadding?: boolean;
   reveal?: boolean;
 }>;
 
@@ -125,10 +138,12 @@ export function ErrorState({
   onRetry,
   children,
   fullPage = true,
+  chromePadding = false,
   reveal = true,
 }: ErrorStateProps) {
   return (
     <StateIsland
+      chromePadding={chromePadding}
       contentTestID="error-state-content"
       fullPage={fullPage}
       icon={<CircleAlert size={28} strokeWidth={1.5} />}
@@ -161,6 +176,7 @@ export function ErrorState({
 
 type StateIslandProps = Readonly<{
   children: ReactNode;
+  chromePadding: boolean;
   contentTestID: string;
   fullPage: boolean;
   icon: ReactNode;
@@ -174,6 +190,7 @@ type StateIslandProps = Readonly<{
 
 function StateIsland({
   children,
+  chromePadding,
   contentTestID,
   fullPage,
   icon,
@@ -184,33 +201,57 @@ function StateIsland({
   titleClassName,
   tone = "floating",
 }: StateIslandProps) {
+  const content = (
+    <div
+      className="mx-auto grid max-w-[560px] justify-items-center gap-[var(--space-3)] text-center"
+      data-testid={contentTestID}
+    >
+      <div
+        aria-hidden="true"
+        className={cx(
+          "grid h-14 w-14 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-muted)]",
+          iconClassName,
+        )}
+        data-testid={`${testID}-icon`}
+      >
+        {icon}
+      </div>
+      {title !== null ? <h2 className={cx("m-0 text-[1.25rem] font-bold", titleClassName)}>{title}</h2> : null}
+      <div className="grid max-w-full justify-items-center gap-[var(--space-2)]">{children}</div>
+    </div>
+  );
+  if (fullPage) {
+    return (
+      <div
+        className={cx(
+          "grid h-full min-h-0 overflow-hidden place-items-center",
+          chromePadding && "p-[var(--space-2)]",
+        )}
+        data-testid={testID}
+      >
+        <Island
+          className={cx(
+            "grid h-full min-h-0 w-full place-items-center overflow-hidden",
+            reveal && "animate-[surface-reveal_var(--motion-normal)]",
+          )}
+          data-testid={`${testID}-island`}
+          tone={tone}
+        >
+          {content}
+        </Island>
+      </div>
+    );
+  }
   return (
     <Island
       className={cx(
         "grid place-items-center",
         reveal && "animate-[surface-reveal_var(--motion-normal)]",
-        fullPage && "h-full min-h-0 overflow-hidden",
       )}
       data-testid={testID}
       tone={tone}
     >
-      <div
-        className="mx-auto grid max-w-[560px] justify-items-center gap-[var(--space-3)] text-center"
-        data-testid={contentTestID}
-      >
-        <div
-          aria-hidden="true"
-          className={cx(
-            "grid h-14 w-14 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-muted)]",
-            iconClassName,
-          )}
-          data-testid={`${testID}-icon`}
-        >
-          {icon}
-        </div>
-        {title !== null ? <h2 className={cx("m-0 text-[1.25rem] font-bold", titleClassName)}>{title}</h2> : null}
-        <div className="grid max-w-full justify-items-center gap-[var(--space-2)]">{children}</div>
-      </div>
+      {content}
     </Island>
   );
 }

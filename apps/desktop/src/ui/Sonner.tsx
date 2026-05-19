@@ -45,7 +45,7 @@ export function Toaster(props: ToasterProps) {
           success: "border-[var(--color-success)]",
           title: "font-extrabold text-[var(--color-on-island)]",
           toast:
-            "rounded-[var(--radius-l)] border bg-[var(--color-island-0)] text-[var(--color-on-island)] shadow-[var(--shadow-island-1)] backdrop-blur-[20px]",
+            "rounded-[var(--radius-m)] border bg-[var(--color-island-2)] text-[var(--color-on-island)] shadow-[var(--shadow-island-1)] backdrop-blur-[20px]",
           warning: "border-[var(--color-warning)]",
         },
       }}
