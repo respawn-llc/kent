@@ -107,7 +107,7 @@ describe("App", () => {
         {
           method: "project.planWorkspaceBinding",
           result: {
-            kind: "unbound",
+            kind: "local_unbound",
             canonical_root: "/tmp/example-project",
             binding: null,
           },
@@ -165,7 +165,7 @@ describe("App", () => {
         {
           method: "project.planWorkspaceBinding",
           result: {
-            kind: "unbound",
+            kind: "local_unbound",
             canonical_root: "/tmp/example-project",
             binding: null,
           },
@@ -182,6 +182,52 @@ describe("App", () => {
     expect(screen.getByText("window.get_all_windows not allowed")).toBeInTheDocument();
     expect(screen.queryByText("Server rejected request")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Create project" })).toBeInTheDocument();
+  });
+
+  it("does not create projects for server workspace selection plans", async () => {
+    const services = createTestServices(
+      [
+        ...startupRoutes,
+        {
+          method: "project.planWorkspaceBinding",
+          result: {
+            kind: "server_workspace_selection",
+            canonical_root: "/tmp/example-project",
+            binding: null,
+          },
+        },
+        {
+          method: "project.create",
+          result: {
+            binding: {
+              project_id: "project-created",
+              project_key: "EXP",
+              display_name: "Example Project",
+              workspace_id: "workspace-created",
+              canonical_root: "/tmp/example-project",
+              workspace_name: "example-project",
+              workspace_status: "available",
+            },
+          },
+        },
+      ],
+      directoryBridge("/tmp/example-project"),
+    );
+
+    render(<App services={services} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "New Project" }));
+
+    expect(await screen.findByText("Choose an existing project")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Create project" })).not.toBeInTheDocument();
+    expect(services.transport.calls).not.toContainEqual({
+      method: "project.create",
+      params: {
+        display_name: "Example Project",
+        project_key: "EXP",
+        workspace_root: "/tmp/example-project",
+      },
+    });
   });
 
   it("fits native dialog window to rendered dialog content", async () => {

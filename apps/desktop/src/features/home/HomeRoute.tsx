@@ -21,6 +21,8 @@ import {
   useProjectPages,
 } from "./useHomeData";
 
+const LOCAL_UNBOUND_PLAN_KIND = "local_unbound";
+
 export function HomeRoute() {
   const { t } = useTranslation();
   const { api, nativeBridge } = useAppServices();
@@ -60,6 +62,15 @@ export function HomeRoute() {
         navigation.openProject(plan.binding.projectID);
         return;
       }
+      if (plan.kind !== LOCAL_UNBOUND_PLAN_KIND) {
+        push({
+          id: "project-create-selection-required",
+          tone: "info",
+          title: t("home.workspaceSelectionRequired"),
+          body: t("home.workspaceSelectionRequiredBody"),
+        });
+        return;
+      }
       const name = basename(plan.canonicalRoot);
       const nextDraft = { name, key: projectKeyFromName(name), workspaceRoot: plan.canonicalRoot };
       if (nativeBridge.capabilities.projectCreationWindow) {
@@ -93,6 +104,16 @@ export function HomeRoute() {
       if (plan.binding !== null) {
         setDraft(null);
         navigation.openProject(plan.binding.projectID);
+        return;
+      }
+      if (plan.kind !== LOCAL_UNBOUND_PLAN_KIND) {
+        setDraft(null);
+        push({
+          id: "project-create-selection-required",
+          tone: "info",
+          title: t("home.workspaceSelectionRequired"),
+          body: t("home.workspaceSelectionRequiredBody"),
+        });
         return;
       }
       const binding = await creation.mutateAsync({

@@ -52,6 +52,9 @@ export const englishResources = {
       workspacePickerError: "Workspace picker failed",
       workspacePlanError: "Workspace check failed",
       projectCreateWindowError: "Project creation window failed",
+      workspaceSelectionRequired: "Choose an existing project",
+      workspaceSelectionRequiredBody:
+        "This workspace is already linked to Builder projects. Open one from the project list instead of creating another.",
       boundWorkspace: "Workspace already belongs to a project. Opening existing project.",
       unboundWorkspace: "Workspace is unbound. Create a project before opening board.",
       noAttentionBody: "Blocked tasks and approvals will appear here.",
