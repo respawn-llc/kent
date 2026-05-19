@@ -153,6 +153,22 @@ type WorkflowNodeAddResponse struct {
 	GraphRevision int64 `json:"graph_revision"`
 }
 
+type WorkflowNodeUpdateRequest struct {
+	WorkflowID     string                `json:"workflow_id"`
+	NodeID         string                `json:"node_id"`
+	Key            string                `json:"key"`
+	Kind           string                `json:"kind"`
+	DisplayName    string                `json:"display_name"`
+	GroupKey       string                `json:"group_key,omitempty"`
+	SubagentRole   string                `json:"subagent_role,omitempty"`
+	PromptTemplate string                `json:"prompt_template,omitempty"`
+	OutputFields   []WorkflowOutputField `json:"output_fields,omitempty"`
+}
+
+type WorkflowNodeUpdateResponse struct {
+	GraphRevision int64 `json:"graph_revision"`
+}
+
 type WorkflowNodeGroupAddRequest struct {
 	WorkflowID   string `json:"workflow_id"`
 	GroupID      string `json:"group_id,omitempty"`
@@ -193,6 +209,18 @@ type WorkflowTransitionGroupAddResponse struct {
 	GraphRevision int64 `json:"graph_revision"`
 }
 
+type WorkflowTransitionGroupUpdateRequest struct {
+	WorkflowID   string `json:"workflow_id"`
+	GroupID      string `json:"group_id"`
+	SourceNodeID string `json:"source_node_id"`
+	TransitionID string `json:"transition_id"`
+	DisplayName  string `json:"display_name,omitempty"`
+}
+
+type WorkflowTransitionGroupUpdateResponse struct {
+	GraphRevision int64 `json:"graph_revision"`
+}
+
 type WorkflowEdgeAddRequest struct {
 	WorkflowID         string                      `json:"workflow_id"`
 	EdgeID             string                      `json:"edge_id,omitempty"`
@@ -206,6 +234,22 @@ type WorkflowEdgeAddRequest struct {
 }
 
 type WorkflowEdgeAddResponse struct {
+	GraphRevision int64 `json:"graph_revision"`
+}
+
+type WorkflowEdgeUpdateRequest struct {
+	WorkflowID         string                      `json:"workflow_id"`
+	EdgeID             string                      `json:"edge_id"`
+	TransitionGroupID  string                      `json:"transition_group_id"`
+	Key                string                      `json:"key"`
+	TargetNodeID       string                      `json:"target_node_id"`
+	ContextMode        string                      `json:"context_mode"`
+	RequiresApproval   bool                        `json:"requires_approval"`
+	InputBindings      []WorkflowInputBinding      `json:"input_bindings,omitempty"`
+	OutputRequirements []WorkflowOutputRequirement `json:"output_requirements,omitempty"`
+}
+
+type WorkflowEdgeUpdateResponse struct {
 	GraphRevision int64 `json:"graph_revision"`
 }
 
@@ -775,24 +819,35 @@ func (r WorkflowGetRequest) Validate() error {
 }
 
 func (r WorkflowNodeAddRequest) Validate() error {
-	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
+	return validateWorkflowNodeFields(r.WorkflowID, "", r.Key, r.Kind, r.DisplayName, r.GroupKey, r.OutputFields)
+}
+
+func (r WorkflowNodeUpdateRequest) Validate() error {
+	if err := validateRequired("node_id", r.NodeID); err != nil {
 		return err
 	}
-	if err := validateModelKey("key", r.Key); err != nil {
+	return validateWorkflowNodeFields(r.WorkflowID, r.NodeID, r.Key, r.Kind, r.DisplayName, r.GroupKey, r.OutputFields)
+}
+
+func validateWorkflowNodeFields(workflowID string, nodeID string, key string, kind string, displayName string, groupKey string, outputFields []WorkflowOutputField) error {
+	if err := validateRequired("workflow_id", workflowID); err != nil {
 		return err
 	}
-	if err := validateRequired("kind", r.Kind); err != nil {
+	if err := validateModelKey("key", key); err != nil {
 		return err
 	}
-	if err := validateDisplayName(r.DisplayName); err != nil {
+	if err := validateRequired("kind", kind); err != nil {
 		return err
 	}
-	if strings.TrimSpace(r.GroupKey) != "" {
-		if err := validateModelKey("group_key", r.GroupKey); err != nil {
+	if err := validateDisplayName(displayName); err != nil {
+		return err
+	}
+	if strings.TrimSpace(groupKey) != "" {
+		if err := validateModelKey("group_key", groupKey); err != nil {
 			return err
 		}
 	}
-	for _, field := range r.OutputFields {
+	for _, field := range outputFields {
 		if err := validateModelKey("output_field.name", field.Name); err != nil {
 			return err
 		}
@@ -846,25 +901,55 @@ func (r WorkflowNodeGroupDeleteRequest) Validate() error {
 }
 
 func (r WorkflowTransitionGroupAddRequest) Validate() error {
-	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
+	return validateWorkflowTransitionGroupFields(r.WorkflowID, "", r.SourceNodeID, r.TransitionID, r.DisplayName)
+}
+
+func (r WorkflowTransitionGroupUpdateRequest) Validate() error {
+	if err := validateRequired("group_id", r.GroupID); err != nil {
 		return err
 	}
-	if err := validateRequired("source_node_id", r.SourceNodeID); err != nil {
+	return validateWorkflowTransitionGroupFields(r.WorkflowID, r.GroupID, r.SourceNodeID, r.TransitionID, r.DisplayName)
+}
+
+func validateWorkflowTransitionGroupFields(workflowID string, groupID string, sourceNodeID string, transitionID string, displayName string) error {
+	_ = groupID
+	if err := validateRequired("workflow_id", workflowID); err != nil {
 		return err
 	}
-	return validateModelKey("transition_id", r.TransitionID)
+	if err := validateRequired("source_node_id", sourceNodeID); err != nil {
+		return err
+	}
+	if err := validateModelKey("transition_id", transitionID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(displayName) != "" {
+		return validateDisplayName(displayName)
+	}
+	return nil
 }
 
 func (r WorkflowEdgeAddRequest) Validate() error {
-	for _, field := range []struct{ name, value string }{{"workflow_id", r.WorkflowID}, {"transition_group_id", r.TransitionGroupID}, {"target_node_id", r.TargetNodeID}, {"context_mode", r.ContextMode}} {
+	return validateWorkflowEdgeFields(r.WorkflowID, "", r.TransitionGroupID, r.Key, r.TargetNodeID, r.ContextMode, r.InputBindings, r.OutputRequirements)
+}
+
+func (r WorkflowEdgeUpdateRequest) Validate() error {
+	if err := validateRequired("edge_id", r.EdgeID); err != nil {
+		return err
+	}
+	return validateWorkflowEdgeFields(r.WorkflowID, r.EdgeID, r.TransitionGroupID, r.Key, r.TargetNodeID, r.ContextMode, r.InputBindings, r.OutputRequirements)
+}
+
+func validateWorkflowEdgeFields(workflowID string, edgeID string, transitionGroupID string, key string, targetNodeID string, contextMode string, inputBindings []WorkflowInputBinding, outputRequirements []WorkflowOutputRequirement) error {
+	_ = edgeID
+	for _, field := range []struct{ name, value string }{{"workflow_id", workflowID}, {"transition_group_id", transitionGroupID}, {"target_node_id", targetNodeID}, {"context_mode", contextMode}} {
 		if err := validateRequired(field.name, field.value); err != nil {
 			return err
 		}
 	}
-	if err := validateModelKey("key", r.Key); err != nil {
+	if err := validateModelKey("key", key); err != nil {
 		return err
 	}
-	for _, binding := range r.InputBindings {
+	for _, binding := range inputBindings {
 		if err := validateModelKey("input_binding.name", binding.Name); err != nil {
 			return err
 		}
@@ -872,7 +957,7 @@ func (r WorkflowEdgeAddRequest) Validate() error {
 			return err
 		}
 	}
-	for _, requirement := range r.OutputRequirements {
+	for _, requirement := range outputRequirements {
 		if err := validateModelKey("output_requirement.field_name", requirement.FieldName); err != nil {
 			return err
 		}

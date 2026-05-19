@@ -276,6 +276,9 @@ func (s *Store) validateRunnableRole(role string) error {
 	if trimmed == "" {
 		return fmt.Errorf("workflow validation failed: [%s]", workflow.CodeAgentRoleRequired)
 	}
+	if workflow.IsDefaultAgentRole(trimmed) {
+		return nil
+	}
 	if s.roleResolver != nil && !s.roleResolver.RoleExists(trimmed) {
 		return fmt.Errorf("workflow validation failed: [%s]", workflow.CodeAgentRoleMissing)
 	}

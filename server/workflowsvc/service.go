@@ -167,6 +167,18 @@ func (s *Service) AddWorkflowNode(ctx context.Context, req serverapi.WorkflowNod
 	return serverapi.WorkflowNodeAddResponse{GraphRevision: revision}, nil
 }
 
+func (s *Service) UpdateWorkflowNode(ctx context.Context, req serverapi.WorkflowNodeUpdateRequest) (serverapi.WorkflowNodeUpdateResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.WorkflowNodeUpdateResponse{}, err
+	}
+	revision, err := s.store.UpdateNode(ctx, workflowstore.NodeRecord{ID: workflow.NodeID(req.NodeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), Key: workflow.ModelKey(req.Key), Kind: workflow.NodeKind(req.Kind), DisplayName: req.DisplayName, GroupKey: req.GroupKey, SubagentRole: req.SubagentRole, PromptTemplate: req.PromptTemplate, OutputFields: outputFields(req.OutputFields)})
+	if err != nil {
+		return serverapi.WorkflowNodeUpdateResponse{}, err
+	}
+	s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "node_updated", req.NodeID)
+	return serverapi.WorkflowNodeUpdateResponse{GraphRevision: revision}, nil
+}
+
 func (s *Service) AddWorkflowNodeGroup(ctx context.Context, req serverapi.WorkflowNodeGroupAddRequest) (serverapi.WorkflowNodeGroupResponse, error) {
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowNodeGroupResponse{}, err
@@ -214,6 +226,18 @@ func (s *Service) AddWorkflowTransitionGroup(ctx context.Context, req serverapi.
 	return serverapi.WorkflowTransitionGroupAddResponse{GraphRevision: revision}, nil
 }
 
+func (s *Service) UpdateWorkflowTransitionGroup(ctx context.Context, req serverapi.WorkflowTransitionGroupUpdateRequest) (serverapi.WorkflowTransitionGroupUpdateResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.WorkflowTransitionGroupUpdateResponse{}, err
+	}
+	revision, err := s.store.UpdateTransitionGroup(ctx, workflowstore.TransitionGroupRecord{ID: workflow.TransitionGroupID(req.GroupID), WorkflowID: workflow.WorkflowID(req.WorkflowID), SourceNodeID: workflow.NodeID(req.SourceNodeID), TransitionID: workflow.TransitionID(req.TransitionID), DisplayName: req.DisplayName})
+	if err != nil {
+		return serverapi.WorkflowTransitionGroupUpdateResponse{}, err
+	}
+	s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "transition_group_updated", req.GroupID)
+	return serverapi.WorkflowTransitionGroupUpdateResponse{GraphRevision: revision}, nil
+}
+
 func (s *Service) AddWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdgeAddRequest) (serverapi.WorkflowEdgeAddResponse, error) {
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowEdgeAddResponse{}, err
@@ -224,6 +248,18 @@ func (s *Service) AddWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdg
 	}
 	s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "edge_added", req.EdgeID)
 	return serverapi.WorkflowEdgeAddResponse{GraphRevision: revision}, nil
+}
+
+func (s *Service) UpdateWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdgeUpdateRequest) (serverapi.WorkflowEdgeUpdateResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.WorkflowEdgeUpdateResponse{}, err
+	}
+	revision, err := s.store.UpdateEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID(req.EdgeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), TransitionGroupID: workflow.TransitionGroupID(req.TransitionGroupID), Key: workflow.ModelKey(req.Key), TargetNodeID: workflow.NodeID(req.TargetNodeID), RequiresApproval: req.RequiresApproval, ContextMode: workflow.ContextMode(req.ContextMode), InputBindings: inputBindings(req.InputBindings), OutputRequirements: outputRequirements(req.OutputRequirements)})
+	if err != nil {
+		return serverapi.WorkflowEdgeUpdateResponse{}, err
+	}
+	s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "edge_updated", req.EdgeID)
+	return serverapi.WorkflowEdgeUpdateResponse{GraphRevision: revision}, nil
 }
 
 func (s *Service) LinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowLinkProjectRequest) (serverapi.WorkflowLinkProjectResponse, error) {

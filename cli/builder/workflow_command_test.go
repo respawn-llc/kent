@@ -219,6 +219,61 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 	}
 }
 
+func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
+	cfg, _, remote := newWorkflowCommandLoopback(t)
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	workflowOut, workflowErr, code := runWorkflowRootCommand("workflow", "create", "Editable Workflow")
+	if code != 0 {
+		t.Fatalf("workflow create exit=%d stderr=%q", code, workflowErr)
+	}
+	workflowID := labeledOutputValue(t, workflowOut, "workflow_id")
+	if workflowID == "" {
+		t.Fatalf("workflow create output = %q, want workflow id", workflowOut)
+	}
+	if _, nodeErr, code := runWorkflowRootCommand("workflow", "node", "add", workflowID, "--key", "triaging", "--kind", "agent", "--display-name", "Triaging", "--agent", "fast", "--prompt", "Triage.", "--output", "summary=Summary."); code != 0 {
+		t.Fatalf("workflow node add exit=%d stderr=%q", code, nodeErr)
+	}
+	if _, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "new_session"); code != 0 {
+		t.Fatalf("workflow start edge add exit=%d stderr=%q", code, edgeErr)
+	}
+	edgeOut, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "triaging", "--transition", "done", "--edge-key", "done", "--to", "done", "--context", "new_session")
+	if code != 0 {
+		t.Fatalf("workflow done edge add exit=%d stderr=%q", code, edgeErr)
+	}
+	edgeID := labeledOutputValue(t, edgeOut, "edge_id")
+	if edgeID == "" {
+		t.Fatalf("edge output = %q, want edge id", edgeOut)
+	}
+
+	updateNodeOut, updateNodeErr, code := runWorkflowRootCommand("workflow", "node", "update", workflowID, "triaging", "--prompt", "Decide whether the ticket is actionable.", "--output", "triage_result_text=Triage result and rationale.")
+	if code != 0 {
+		t.Fatalf("workflow node update exit=%d stderr=%q", code, updateNodeErr)
+	}
+	if !strings.Contains(updateNodeOut, "triaging") {
+		t.Fatalf("node update output = %q, want node key", updateNodeOut)
+	}
+
+	updateEdgeOut, updateEdgeErr, code := runWorkflowRootCommand("workflow", "edge", "update", workflowID, edgeID, "--transition", "not_actionable", "--edge-key", "not_actionable", "--require-output", "triage_result_text")
+	if code != 0 {
+		t.Fatalf("workflow edge update exit=%d stderr=%q", code, updateEdgeErr)
+	}
+	if !strings.Contains(updateEdgeOut, edgeID) {
+		t.Fatalf("edge update output = %q, want edge id", updateEdgeOut)
+	}
+
+	inspectOut, inspectErr, code := runWorkflowRootCommand("workflow", "inspect", workflowID)
+	if code != 0 {
+		t.Fatalf("workflow inspect exit=%d stderr=%q", code, inspectErr)
+	}
+	for _, want := range []string{"output_field\ttriaging\ttriage_result_text", "\tnot_actionable\tNot Actionable", "output_requirement\tnot_actionable\ttriage_result_text"} {
+		if !strings.Contains(inspectOut, want) {
+			t.Fatalf("inspect output = %q, want %q", inspectOut, want)
+		}
+	}
+}
+
 type pagedTaskListRemote struct {
 	client.WorkflowClient
 	board    serverapi.WorkflowBoard

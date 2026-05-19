@@ -164,7 +164,9 @@ func writeWorkflowUsage(fs *flag.FlagSet) {
 		"  builder workflow create [--description <text>] <name>",
 		"  builder workflow list",
 		"  builder workflow node add <workflow> --key <node-key> --kind start|agent|join|terminal [--display-name <name>] [--prompt <text>] [--agent <role>]",
+		"  builder workflow node update <workflow> <node-key> [--key <node-key>] [--kind start|agent|join|terminal] [--display-name <name>] [--prompt <text>] [--agent <role>]",
 		"  builder workflow edge add <workflow> --from <source-node-key> --transition <transition-id> --edge-key <edge-key> --to <target-node-key> --context <mode>",
+		"  builder workflow edge update <workflow> <edge-id> [--transition <transition-id>] [--transition-display-name <name>] [--edge-key <edge-key>] [--to <target-node-key>] [--context <mode>]",
 		"  builder workflow link <project> <workflow> [--default]",
 		"  builder workflow unlink <project> <workflow>",
 		"  builder workflow default <project> <workflow>",
@@ -191,7 +193,19 @@ func writeWorkflowNodeAddUsage(fs *flag.FlagSet) {
 	fs.PrintDefaults()
 }
 
+func writeWorkflowNodeUpdateUsage(fs *flag.FlagSet) {
+	writeWorkflowUsage(fs)
+	writeHelpSection(fs.Output(), "Flags:")
+	fs.PrintDefaults()
+}
+
 func writeWorkflowEdgeAddUsage(fs *flag.FlagSet) {
+	writeWorkflowUsage(fs)
+	writeHelpSection(fs.Output(), "Flags:")
+	fs.PrintDefaults()
+}
+
+func writeWorkflowEdgeUpdateUsage(fs *flag.FlagSet) {
 	writeWorkflowUsage(fs)
 	writeHelpSection(fs.Output(), "Flags:")
 	fs.PrintDefaults()

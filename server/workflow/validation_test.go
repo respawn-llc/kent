@@ -23,6 +23,20 @@ func TestValidateDefaultWorkflowPasses(t *testing.T) {
 	}
 }
 
+func TestValidateWorkflowAllowsDefaultAgentRole(t *testing.T) {
+	def := validWorkflow()
+	def.Nodes[1].SubagentRole = workflow.DefaultAgentRole
+
+	result := workflow.ValidateDefinition(def, workflow.ValidationOptions{
+		Context:      workflow.ValidationContextTaskCreation,
+		RoleResolver: workflow.StaticRoleResolver{"coder": true},
+	})
+
+	if result.HasErrors() {
+		t.Fatalf("expected default role to be valid, got errors: %+v", result.Errors)
+	}
+}
+
 func TestDraftValidationAllowsSemanticErrorsButBlocksHardStorageErrors(t *testing.T) {
 	def := validWorkflow()
 	def.Nodes = append(def.Nodes, workflow.Node{

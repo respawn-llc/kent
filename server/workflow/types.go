@@ -1,5 +1,7 @@
 package workflow
 
+import "strings"
+
 type WorkflowID string
 type NodeID string
 type TransitionGroupID string
@@ -85,20 +87,20 @@ type Edge struct {
 }
 
 type OutputField struct {
-	Name        string
-	Description string
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 type OutputRequirement struct {
-	FieldName string
+	FieldName string `json:"field_name"`
 }
 
 type TemplatePlaceholder string
 
 type InputBinding struct {
-	Name   string
-	Source BindingSource
-	Field  string
+	Name   string        `json:"name"`
+	Source BindingSource `json:"source"`
+	Field  string        `json:"field"`
 }
 
 type ValidationContext string
@@ -113,9 +115,18 @@ type RoleResolver interface {
 	RoleExists(role string) bool
 }
 
+const DefaultAgentRole = "default"
+
+func IsDefaultAgentRole(role string) bool {
+	return strings.TrimSpace(role) == DefaultAgentRole
+}
+
 type StaticRoleResolver map[string]bool
 
 func (r StaticRoleResolver) RoleExists(role string) bool {
+	if IsDefaultAgentRole(role) {
+		return true
+	}
 	return r[role]
 }
 

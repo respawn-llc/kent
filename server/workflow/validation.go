@@ -335,7 +335,7 @@ func (s *validationState) validateKindConstraints() {
 		case NodeKindAgent:
 			if strings.TrimSpace(node.SubagentRole) == "" {
 				s.addSemantic(CodeAgentRoleRequired, "agent node requires a subagent role", ref)
-			} else if s.opts.RoleResolver == nil || !s.opts.RoleResolver.RoleExists(strings.TrimSpace(node.SubagentRole)) {
+			} else if !IsDefaultAgentRole(node.SubagentRole) && (s.opts.RoleResolver == nil || !s.opts.RoleResolver.RoleExists(strings.TrimSpace(node.SubagentRole))) {
 				s.addSemantic(CodeAgentRoleMissing, "agent node references a missing subagent role", ref)
 			}
 		case NodeKindJoin:

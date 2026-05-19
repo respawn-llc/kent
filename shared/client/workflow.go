@@ -17,8 +17,11 @@ type WorkflowClient interface {
 	UpdateWorkflowNodeGroup(ctx context.Context, req serverapi.WorkflowNodeGroupUpdateRequest) (serverapi.WorkflowNodeGroupResponse, error)
 	DeleteWorkflowNodeGroup(ctx context.Context, req serverapi.WorkflowNodeGroupDeleteRequest) error
 	AddWorkflowNode(ctx context.Context, req serverapi.WorkflowNodeAddRequest) (serverapi.WorkflowNodeAddResponse, error)
+	UpdateWorkflowNode(ctx context.Context, req serverapi.WorkflowNodeUpdateRequest) (serverapi.WorkflowNodeUpdateResponse, error)
 	AddWorkflowTransitionGroup(ctx context.Context, req serverapi.WorkflowTransitionGroupAddRequest) (serverapi.WorkflowTransitionGroupAddResponse, error)
+	UpdateWorkflowTransitionGroup(ctx context.Context, req serverapi.WorkflowTransitionGroupUpdateRequest) (serverapi.WorkflowTransitionGroupUpdateResponse, error)
 	AddWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdgeAddRequest) (serverapi.WorkflowEdgeAddResponse, error)
+	UpdateWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdgeUpdateRequest) (serverapi.WorkflowEdgeUpdateResponse, error)
 	LinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowLinkProjectRequest) (serverapi.WorkflowLinkProjectResponse, error)
 	ListProjectWorkflowLinks(ctx context.Context, req serverapi.WorkflowListProjectLinksRequest) (serverapi.WorkflowListProjectLinksResponse, error)
 	SetDefaultProjectWorkflowLink(ctx context.Context, req serverapi.WorkflowSetDefaultProjectLinkRequest) (serverapi.WorkflowSetDefaultProjectLinkResponse, error)
@@ -111,6 +114,13 @@ func (c *loopbackWorkflowClient) AddWorkflowNode(ctx context.Context, req server
 	return c.service.AddWorkflowNode(ctx, req)
 }
 
+func (c *loopbackWorkflowClient) UpdateWorkflowNode(ctx context.Context, req serverapi.WorkflowNodeUpdateRequest) (serverapi.WorkflowNodeUpdateResponse, error) {
+	if c == nil || c.service == nil {
+		return serverapi.WorkflowNodeUpdateResponse{}, errors.New("workflow service is required")
+	}
+	return c.service.UpdateWorkflowNode(ctx, req)
+}
+
 func (c *loopbackWorkflowClient) AddWorkflowTransitionGroup(ctx context.Context, req serverapi.WorkflowTransitionGroupAddRequest) (serverapi.WorkflowTransitionGroupAddResponse, error) {
 	if c == nil || c.service == nil {
 		return serverapi.WorkflowTransitionGroupAddResponse{}, errors.New("workflow service is required")
@@ -118,11 +128,25 @@ func (c *loopbackWorkflowClient) AddWorkflowTransitionGroup(ctx context.Context,
 	return c.service.AddWorkflowTransitionGroup(ctx, req)
 }
 
+func (c *loopbackWorkflowClient) UpdateWorkflowTransitionGroup(ctx context.Context, req serverapi.WorkflowTransitionGroupUpdateRequest) (serverapi.WorkflowTransitionGroupUpdateResponse, error) {
+	if c == nil || c.service == nil {
+		return serverapi.WorkflowTransitionGroupUpdateResponse{}, errors.New("workflow service is required")
+	}
+	return c.service.UpdateWorkflowTransitionGroup(ctx, req)
+}
+
 func (c *loopbackWorkflowClient) AddWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdgeAddRequest) (serverapi.WorkflowEdgeAddResponse, error) {
 	if c == nil || c.service == nil {
 		return serverapi.WorkflowEdgeAddResponse{}, errors.New("workflow service is required")
 	}
 	return c.service.AddWorkflowEdge(ctx, req)
+}
+
+func (c *loopbackWorkflowClient) UpdateWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdgeUpdateRequest) (serverapi.WorkflowEdgeUpdateResponse, error) {
+	if c == nil || c.service == nil {
+		return serverapi.WorkflowEdgeUpdateResponse{}, errors.New("workflow service is required")
+	}
+	return c.service.UpdateWorkflowEdge(ctx, req)
 }
 
 func (c *loopbackWorkflowClient) LinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowLinkProjectRequest) (serverapi.WorkflowLinkProjectResponse, error) {

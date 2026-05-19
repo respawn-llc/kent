@@ -343,6 +343,9 @@ func appendWorkflowCompactContinuation(store *session.Store, input workflowstore
 
 func (s *Starter) validateRole(role string) error {
 	trimmed := strings.TrimSpace(role)
+	if workflow.IsDefaultAgentRole(trimmed) {
+		return nil
+	}
 	for _, available := range config.AvailableSubagentRoleNames(s.cfg.Settings, false) {
 		if available == trimmed {
 			return nil

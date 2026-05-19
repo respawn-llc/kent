@@ -208,14 +208,29 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return g.deps.WorkflowClient().AddWorkflowNode(ctx, params)
 		})
 	},
+	protocol.MethodWorkflowUpdateNode: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowNodeUpdateRequest) (serverapi.WorkflowNodeUpdateResponse, error) {
+			return g.deps.WorkflowClient().UpdateWorkflowNode(ctx, params)
+		})
+	},
 	protocol.MethodWorkflowAddTransitionGroup: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.WorkflowTransitionGroupAddRequest) (serverapi.WorkflowTransitionGroupAddResponse, error) {
 			return g.deps.WorkflowClient().AddWorkflowTransitionGroup(ctx, params)
 		})
 	},
+	protocol.MethodWorkflowUpdateTransitionGroup: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowTransitionGroupUpdateRequest) (serverapi.WorkflowTransitionGroupUpdateResponse, error) {
+			return g.deps.WorkflowClient().UpdateWorkflowTransitionGroup(ctx, params)
+		})
+	},
 	protocol.MethodWorkflowAddEdge: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.WorkflowEdgeAddRequest) (serverapi.WorkflowEdgeAddResponse, error) {
 			return g.deps.WorkflowClient().AddWorkflowEdge(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowUpdateEdge: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowEdgeUpdateRequest) (serverapi.WorkflowEdgeUpdateResponse, error) {
+			return g.deps.WorkflowClient().UpdateWorkflowEdge(ctx, params)
 		})
 	},
 	protocol.MethodWorkflowLinkProject: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {

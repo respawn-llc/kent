@@ -235,14 +235,29 @@ func (c *Remote) AddWorkflowNode(ctx context.Context, req serverapi.WorkflowNode
 	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowAddNode, req, &resp)
 }
 
+func (c *Remote) UpdateWorkflowNode(ctx context.Context, req serverapi.WorkflowNodeUpdateRequest) (serverapi.WorkflowNodeUpdateResponse, error) {
+	var resp serverapi.WorkflowNodeUpdateResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowUpdateNode, req, &resp)
+}
+
 func (c *Remote) AddWorkflowTransitionGroup(ctx context.Context, req serverapi.WorkflowTransitionGroupAddRequest) (serverapi.WorkflowTransitionGroupAddResponse, error) {
 	var resp serverapi.WorkflowTransitionGroupAddResponse
 	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowAddTransitionGroup, req, &resp)
 }
 
+func (c *Remote) UpdateWorkflowTransitionGroup(ctx context.Context, req serverapi.WorkflowTransitionGroupUpdateRequest) (serverapi.WorkflowTransitionGroupUpdateResponse, error) {
+	var resp serverapi.WorkflowTransitionGroupUpdateResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowUpdateTransitionGroup, req, &resp)
+}
+
 func (c *Remote) AddWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdgeAddRequest) (serverapi.WorkflowEdgeAddResponse, error) {
 	var resp serverapi.WorkflowEdgeAddResponse
 	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowAddEdge, req, &resp)
+}
+
+func (c *Remote) UpdateWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdgeUpdateRequest) (serverapi.WorkflowEdgeUpdateResponse, error) {
+	var resp serverapi.WorkflowEdgeUpdateResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowUpdateEdge, req, &resp)
 }
 
 func (c *Remote) LinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowLinkProjectRequest) (serverapi.WorkflowLinkProjectResponse, error) {

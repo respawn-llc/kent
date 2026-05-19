@@ -144,6 +144,9 @@ func workflowNodeSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 	if len(args) > 0 && args[0] == "add" {
 		return workflowNodeAddSubcommand(args[1:], stdout, stderr)
 	}
+	if len(args) > 0 && args[0] == "update" {
+		return workflowNodeUpdateSubcommand(args[1:], stdout, stderr)
+	}
 	fs := flag.NewFlagSet("builder workflow node", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { writeWorkflowUsage(fs) }
@@ -168,6 +171,8 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	displayName := fs.String("display-name", "", "node display name")
 	prompt := fs.String("prompt", "", "agent prompt template")
 	agent := fs.String("agent", "", "subagent role for agent nodes")
+	outputs := workflowOutputFieldFlag{}
+	fs.Var(&outputs, "output", "node output field as name=description; repeatable")
 	workflowRef, flagArgs := takeLeadingPositionals(args, 1)
 	if err := fs.Parse(flagArgs); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -201,7 +206,7 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	}
 	ctx, cancel := workflowRPCContext(context.Background())
 	defer cancel()
-	resp, err := remote.AddWorkflowNode(ctx, serverapi.WorkflowNodeAddRequest{WorkflowID: workflowID, NodeID: nodeID, Key: *key, Kind: *kind, DisplayName: *displayName, SubagentRole: *agent, PromptTemplate: *prompt})
+	resp, err := remote.AddWorkflowNode(ctx, serverapi.WorkflowNodeAddRequest{WorkflowID: workflowID, NodeID: nodeID, Key: *key, Kind: *kind, DisplayName: *displayName, SubagentRole: *agent, PromptTemplate: *prompt, OutputFields: outputs.values})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -210,9 +215,81 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	return 0
 }
 
+func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
+	fs := flag.NewFlagSet("builder workflow node update", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() { writeWorkflowNodeUpdateUsage(fs) }
+	key := fs.String("key", "", "node model key")
+	kind := fs.String("kind", "", "node kind: start|agent|join|terminal")
+	displayName := fs.String("display-name", "", "node display name")
+	prompt := fs.String("prompt", "", "agent prompt template")
+	agent := fs.String("agent", "", "subagent role for agent nodes")
+	outputs := workflowOutputFieldFlag{}
+	fs.Var(&outputs, "output", "node output field as name=description; repeatable")
+	positionals, flagArgs := takeLeadingPositionals(args, 2)
+	if err := fs.Parse(flagArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	positionals = append(positionals, fs.Args()...)
+	if len(positionals) != 2 {
+		fmt.Fprintln(stderr, "workflow node update requires <workflow> <node-key>")
+		return 2
+	}
+	_, remote, err := workflowOpen(context.Background(), ".")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer func() { _ = remote.Close() }()
+	def, err := resolveWorkflowDefinition(context.Background(), remote, positionals[0])
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	node, err := workflowNodeByKey(def, positionals[1])
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	updated := node
+	if strings.TrimSpace(*key) != "" {
+		updated.Key = strings.TrimSpace(*key)
+	}
+	if strings.TrimSpace(*kind) != "" {
+		updated.Kind = strings.TrimSpace(*kind)
+	}
+	if strings.TrimSpace(*displayName) != "" {
+		updated.DisplayName = strings.TrimSpace(*displayName)
+	}
+	if fs.Lookup("prompt") != nil && flagWasProvided(fs, "prompt") {
+		updated.PromptTemplate = *prompt
+	}
+	if fs.Lookup("agent") != nil && flagWasProvided(fs, "agent") {
+		updated.SubagentRole = *agent
+	}
+	if outputs.seen {
+		updated.OutputFields = outputs.values
+	}
+	ctx, cancel := workflowRPCContext(context.Background())
+	defer cancel()
+	resp, err := remote.UpdateWorkflowNode(ctx, serverapi.WorkflowNodeUpdateRequest{WorkflowID: def.Workflow.ID, NodeID: updated.ID, Key: updated.Key, Kind: updated.Kind, DisplayName: updated.DisplayName, GroupKey: updated.GroupKey, SubagentRole: updated.SubagentRole, PromptTemplate: updated.PromptTemplate, OutputFields: updated.OutputFields})
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "node_id\t%s\nkey\t%s\ngraph_revision\t%d\n", updated.ID, updated.Key, resp.GraphRevision)
+	return 0
+}
+
 func workflowEdgeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "add" {
 		return workflowEdgeAddSubcommand(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "update" {
+		return workflowEdgeUpdateSubcommand(args[1:], stdout, stderr)
 	}
 	fs := flag.NewFlagSet("builder workflow edge", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -239,6 +316,10 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	toKey := fs.String("to", "", "target node key")
 	contextMode := fs.String("context", "", "context mode: new_session|continue_session|compact_and_continue_session")
 	requiresApproval := fs.Bool("requires-approval", false, "require approval before target runs")
+	inputs := workflowInputBindingFlag{}
+	outputRequirements := workflowOutputRequirementFlag{}
+	fs.Var(&inputs, "input", "target input binding as name=source:field; repeatable")
+	fs.Var(&outputRequirements, "require-output", "source output field required before taking this edge; repeatable")
 	workflowRef, flagArgs := takeLeadingPositionals(args, 1)
 	if err := fs.Parse(flagArgs); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -296,13 +377,110 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	}
 	edgeID := "edge-" + uuid.NewString()
 	ctx, cancel := workflowRPCContext(context.Background())
-	resp, err := remote.AddWorkflowEdge(ctx, serverapi.WorkflowEdgeAddRequest{WorkflowID: def.Workflow.ID, EdgeID: edgeID, TransitionGroupID: groupID, Key: *edgeKey, TargetNodeID: target.ID, ContextMode: *contextMode, RequiresApproval: *requiresApproval})
+	resp, err := remote.AddWorkflowEdge(ctx, serverapi.WorkflowEdgeAddRequest{WorkflowID: def.Workflow.ID, EdgeID: edgeID, TransitionGroupID: groupID, Key: *edgeKey, TargetNodeID: target.ID, ContextMode: *contextMode, RequiresApproval: *requiresApproval, InputBindings: inputs.values, OutputRequirements: outputRequirements.values})
 	cancel()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	fmt.Fprintf(stdout, "edge_id\t%s\ngroup_id\t%s\ngraph_revision\t%d\n", edgeID, groupID, resp.GraphRevision)
+	return 0
+}
+
+func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
+	fs := flag.NewFlagSet("builder workflow edge update", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() { writeWorkflowEdgeUpdateUsage(fs) }
+	transitionID := fs.String("transition", "", "transition id for the edge's transition group")
+	transitionDisplayName := fs.String("transition-display-name", "", "transition display name")
+	edgeKey := fs.String("edge-key", "", "edge key")
+	toKey := fs.String("to", "", "target node key")
+	contextMode := fs.String("context", "", "context mode: new_session|continue_session|compact_and_continue_session")
+	inputs := workflowInputBindingFlag{}
+	outputRequirements := workflowOutputRequirementFlag{}
+	fs.Var(&inputs, "input", "target input binding as name=source:field; repeatable")
+	fs.Var(&outputRequirements, "require-output", "source output field required before taking this edge; repeatable")
+	positionals, flagArgs := takeLeadingPositionals(args, 2)
+	if err := fs.Parse(flagArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	positionals = append(positionals, fs.Args()...)
+	if len(positionals) != 2 {
+		fmt.Fprintln(stderr, "workflow edge update requires <workflow> <edge-id>")
+		return 2
+	}
+	_, remote, err := workflowOpen(context.Background(), ".")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer func() { _ = remote.Close() }()
+	def, err := resolveWorkflowDefinition(context.Background(), remote, positionals[0])
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	edge, err := workflowEdgeByID(def, positionals[1])
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	group, err := workflowTransitionGroupByID(def, edge.TransitionGroupID)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	updatedGroup := group
+	if strings.TrimSpace(*transitionID) != "" {
+		updatedGroup.TransitionID = strings.TrimSpace(*transitionID)
+	}
+	if strings.TrimSpace(*transitionDisplayName) != "" {
+		updatedGroup.DisplayName = strings.TrimSpace(*transitionDisplayName)
+	} else if strings.TrimSpace(*transitionID) != "" {
+		updatedGroup.DisplayName = workflowDisplayNameFromKey(*transitionID)
+	}
+	if updatedGroup != group {
+		ctx, cancel := workflowRPCContext(context.Background())
+		resp, updateErr := remote.UpdateWorkflowTransitionGroup(ctx, serverapi.WorkflowTransitionGroupUpdateRequest{WorkflowID: def.Workflow.ID, GroupID: updatedGroup.ID, SourceNodeID: updatedGroup.SourceNodeID, TransitionID: updatedGroup.TransitionID, DisplayName: updatedGroup.DisplayName})
+		cancel()
+		if updateErr != nil {
+			fmt.Fprintln(stderr, updateErr)
+			return 1
+		}
+		_ = resp
+	}
+	updatedEdge := edge
+	if strings.TrimSpace(*edgeKey) != "" {
+		updatedEdge.Key = strings.TrimSpace(*edgeKey)
+	}
+	if strings.TrimSpace(*toKey) != "" {
+		target, targetErr := workflowNodeByKey(def, *toKey)
+		if targetErr != nil {
+			fmt.Fprintln(stderr, targetErr)
+			return 1
+		}
+		updatedEdge.TargetNodeID = target.ID
+	}
+	if strings.TrimSpace(*contextMode) != "" {
+		updatedEdge.ContextMode = strings.TrimSpace(*contextMode)
+	}
+	if inputs.seen {
+		updatedEdge.InputBindings = inputs.values
+	}
+	if outputRequirements.seen {
+		updatedEdge.OutputRequirements = outputRequirements.values
+	}
+	ctx, cancel := workflowRPCContext(context.Background())
+	defer cancel()
+	resp, err := remote.UpdateWorkflowEdge(ctx, serverapi.WorkflowEdgeUpdateRequest{WorkflowID: def.Workflow.ID, EdgeID: updatedEdge.ID, TransitionGroupID: updatedEdge.TransitionGroupID, Key: updatedEdge.Key, TargetNodeID: updatedEdge.TargetNodeID, ContextMode: updatedEdge.ContextMode, RequiresApproval: updatedEdge.RequiresApproval, InputBindings: updatedEdge.InputBindings, OutputRequirements: updatedEdge.OutputRequirements})
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "edge_id\t%s\ngroup_id\t%s\ngraph_revision\t%d\n", updatedEdge.ID, updatedEdge.TransitionGroupID, resp.GraphRevision)
 	return 0
 }
 
@@ -507,6 +685,9 @@ func workflowInspectSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	fmt.Fprintln(stdout, "nodes")
 	for _, node := range def.Nodes {
 		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\n", node.ID, node.Key, node.Kind, node.DisplayName, node.SubagentRole)
+		for _, field := range node.OutputFields {
+			fmt.Fprintf(stdout, "output_field\t%s\t%s\t%s\n", node.Key, field.Name, field.Description)
+		}
 	}
 	fmt.Fprintln(stdout, "transition_groups")
 	for _, group := range def.TransitionGroups {
@@ -515,8 +696,86 @@ func workflowInspectSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	fmt.Fprintln(stdout, "edges")
 	for _, edge := range def.Edges {
 		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\t%t\n", edge.ID, edge.TransitionGroupID, edge.Key, edge.TargetNodeID, edge.ContextMode, edge.RequiresApproval)
+		for _, binding := range edge.InputBindings {
+			fmt.Fprintf(stdout, "input_binding\t%s\t%s\t%s\t%s\n", edge.Key, binding.Name, binding.Source, binding.Field)
+		}
+		for _, requirement := range edge.OutputRequirements {
+			fmt.Fprintf(stdout, "output_requirement\t%s\t%s\n", edge.Key, requirement.FieldName)
+		}
 	}
 	return 0
+}
+
+type workflowOutputFieldFlag struct {
+	seen   bool
+	values []serverapi.WorkflowOutputField
+}
+
+func (f *workflowOutputFieldFlag) String() string {
+	if f == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", f.values)
+}
+
+func (f *workflowOutputFieldFlag) Set(raw string) error {
+	f.seen = true
+	name, description, ok := strings.Cut(raw, "=")
+	name = strings.TrimSpace(name)
+	description = strings.TrimSpace(description)
+	if !ok || name == "" || description == "" {
+		return fmt.Errorf("output must be name=description")
+	}
+	f.values = append(f.values, serverapi.WorkflowOutputField{Name: name, Description: description})
+	return nil
+}
+
+type workflowInputBindingFlag struct {
+	seen   bool
+	values []serverapi.WorkflowInputBinding
+}
+
+func (f *workflowInputBindingFlag) String() string {
+	if f == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", f.values)
+}
+
+func (f *workflowInputBindingFlag) Set(raw string) error {
+	f.seen = true
+	name, rest, ok := strings.Cut(raw, "=")
+	source, field, sourceOK := strings.Cut(rest, ":")
+	name = strings.TrimSpace(name)
+	source = strings.TrimSpace(source)
+	field = strings.TrimSpace(field)
+	if !ok || !sourceOK || name == "" || source == "" || field == "" {
+		return fmt.Errorf("input must be name=source:field")
+	}
+	f.values = append(f.values, serverapi.WorkflowInputBinding{Name: name, Source: source, Field: field})
+	return nil
+}
+
+type workflowOutputRequirementFlag struct {
+	seen   bool
+	values []serverapi.WorkflowOutputRequirement
+}
+
+func (f *workflowOutputRequirementFlag) String() string {
+	if f == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", f.values)
+}
+
+func (f *workflowOutputRequirementFlag) Set(raw string) error {
+	f.seen = true
+	field := strings.TrimSpace(raw)
+	if field == "" {
+		return fmt.Errorf("require-output must be a field name")
+	}
+	f.values = append(f.values, serverapi.WorkflowOutputRequirement{FieldName: field})
+	return nil
 }
 
 func openWorkflowCommandRemote(ctx context.Context, path string) (config.App, workflowCommandRemote, error) {
@@ -579,6 +838,36 @@ func workflowNodeByKey(def serverapi.WorkflowDefinition, key string) (serverapi.
 		}
 	}
 	return serverapi.WorkflowNode{}, fmt.Errorf("workflow node key %q not found", trimmed)
+}
+
+func workflowEdgeByID(def serverapi.WorkflowDefinition, edgeID string) (serverapi.WorkflowEdge, error) {
+	trimmed := strings.TrimSpace(edgeID)
+	for _, edge := range def.Edges {
+		if edge.ID == trimmed {
+			return edge, nil
+		}
+	}
+	return serverapi.WorkflowEdge{}, fmt.Errorf("workflow edge id %q not found", trimmed)
+}
+
+func workflowTransitionGroupByID(def serverapi.WorkflowDefinition, groupID string) (serverapi.WorkflowTransitionGroup, error) {
+	trimmed := strings.TrimSpace(groupID)
+	for _, group := range def.TransitionGroups {
+		if group.ID == trimmed {
+			return group, nil
+		}
+	}
+	return serverapi.WorkflowTransitionGroup{}, fmt.Errorf("workflow transition group id %q not found", trimmed)
+}
+
+func flagWasProvided(fs *flag.FlagSet, name string) bool {
+	provided := false
+	fs.Visit(func(flag *flag.Flag) {
+		if flag.Name == name {
+			provided = true
+		}
+	})
+	return provided
 }
 
 func resolveWorkflowProjectID(ctx context.Context, cfg config.App, remote workflowCommandRemote, ref string) (string, error) {
