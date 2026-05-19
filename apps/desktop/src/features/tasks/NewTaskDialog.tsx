@@ -31,7 +31,7 @@ export function NewTaskDialog({ board, open, onClose }: NewTaskDialogProps) {
   const createTask = useCreateTask(board.projectID, board.selectedWorkflow.id);
   const defaultWorkspaceID = workspaces.data?.defaultWorkspaceID ?? "";
   const workspaceItems = workspaces.data?.workspaces ?? [];
-  const fallbackWorkspaceID = workspaceItems[0]?.id ?? "";
+  const initialWorkspaceID = initialSourceWorkspaceID(defaultWorkspaceID, workspaceItems);
   const initializedOpenRef = useRef(false);
   const form = useForm<NewTaskFormValues>({
     resolver: zodResolver(newTaskSchema),
@@ -47,12 +47,11 @@ export function NewTaskDialog({ board, open, onClose }: NewTaskDialogProps) {
       initializedOpenRef.current = false;
       return;
     }
-    const sourceWorkspaceID = defaultWorkspaceID.length > 0 ? defaultWorkspaceID : fallbackWorkspaceID;
-    if (!initializedOpenRef.current && sourceWorkspaceID.length > 0) {
-      form.reset({ title: "", body: "", sourceWorkspaceID });
+    if (!initializedOpenRef.current && initialWorkspaceID.length > 0) {
+      form.reset({ title: "", body: "", sourceWorkspaceID: initialWorkspaceID });
       initializedOpenRef.current = true;
     }
-  }, [defaultWorkspaceID, fallbackWorkspaceID, form, open]);
+  }, [form, initialWorkspaceID, open]);
 
   async function submit(values: NewTaskFormValues): Promise<void> {
     await createTask.mutateAsync({
@@ -105,4 +104,14 @@ export function NewTaskDialog({ board, open, onClose }: NewTaskDialogProps) {
       </form>
     </Dialog>
   );
+}
+
+function initialSourceWorkspaceID(
+  defaultWorkspaceID: string,
+  workspaceItems: readonly { id: string }[],
+): string {
+  if (defaultWorkspaceID.length > 0) {
+    return defaultWorkspaceID;
+  }
+  return workspaceItems[0]?.id ?? "";
 }
