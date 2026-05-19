@@ -4,6 +4,7 @@ import { useAppNavigation } from "../../app/navigation";
 import { useAppServices } from "../../app/useAppServices";
 import { Button, NativeDialogWindow } from "../../ui";
 import { TaskDetailSurface } from "./TaskDetailDialog";
+import { taskDetailContentMaxWidth } from "./taskDetailLayout";
 import { useNativeTaskDetailTarget } from "./taskDetailNativeHooks";
 
 export type StandaloneTaskRouteProps = Readonly<{
@@ -37,7 +38,7 @@ export function TaskDetailWindowRoute({ resumeRunId, taskId }: TaskDetailWindowR
   const target = useNativeTaskDetailTarget(taskId, resumeRunId);
 
   return (
-    <NativeDialogWindow fitToContent={false} title={t("task.title")}>
+    <NativeDialogWindow contentMaxWidth={taskDetailContentMaxWidth} fitToContent={false} title={t("task.title")}>
       <div className="h-full min-h-0 w-full min-w-0">
         <TaskDetailSurface
           enabled

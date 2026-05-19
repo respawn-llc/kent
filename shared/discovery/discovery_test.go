@@ -11,7 +11,7 @@ import (
 )
 
 func TestPathForContainer(t *testing.T) {
-	containerDir := filepath.Join(t.TempDir(), "sessions", "workspace-a")
+	containerDir := filepath.Join(t.TempDir(), "projects", "project-a", "sessions")
 	path, err := PathForContainer(containerDir)
 	if err != nil {
 		t.Fatalf("PathForContainer: %v", err)

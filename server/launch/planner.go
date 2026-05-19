@@ -46,7 +46,6 @@ type MetadataExecutionTargetStoreOpener func(persistenceRoot string) (MetadataEx
 type Planner struct {
 	Config              config.App
 	ContainerDir        string
-	ProjectID           string
 	StoreOptions        []session.StoreOption
 	ReloadConfig        func() (config.App, error)
 	MetadataStoreOpener MetadataExecutionTargetStoreOpener
@@ -457,7 +456,7 @@ func (p Planner) initializeChildSessionContext(ctx context.Context, child *sessi
 func (p Planner) openParentSession(parentSessionID string) (*session.Store, error) {
 	parent, err := p.openScopedSession(parentSessionID)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, session.ErrSessionNotFound) {
 			return nil, nil
 		}
 		return nil, err

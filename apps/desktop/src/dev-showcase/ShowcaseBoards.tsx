@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 
 import type { WorkspaceSummary } from "../api";
 import { BoardHoverMenu } from "../features/board/BoardHoverMenu";
-import { KanbanGroup } from "../features/board/BoardColumns";
+import { KanbanColumn, KanbanGroup } from "../features/board/BoardColumns";
+import { toKanbanCardVM, toKanbanColumnVM, toKanbanGroupVM } from "../features/board/BoardColumnViewModel";
 import { WorkspaceRow, WorkspaceUnlinkFallbackDialog } from "../features/project-edit/ProjectEditParts";
 import {
   Badge,
@@ -21,6 +22,7 @@ import {
 import {
   mockAttentionRows,
   mockBoard,
+  mockBoardNodeCards,
   mockProjectRows,
   mockWorkspaces,
 } from "./mockData";
@@ -47,7 +49,12 @@ export function PrimitiveBoard({
           <Badge tone="danger">Danger</Badge>
         </div>
         <div className="grid gap-[var(--space-3)] md:grid-cols-2">
-          <TextInput error={["Required", "Use one line."]} label="Project name" value="Builder Desktop" readOnly />
+          <TextInput
+            error={["Required", "Use one line."]}
+            label="Project name"
+            value="Builder Desktop"
+            readOnly
+          />
           <SelectField
             disabled
             label="Source workspace"
@@ -82,7 +89,11 @@ export function PrimitiveBoard({
           title="Error"
         />
         <article className="rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]">
-          <MarkdownText value={"**Markdown** body with `inline code`, [safe link](https://example.com), and\n\n> quote preview"} />
+          <MarkdownText
+            value={
+              "**Markdown** body with `inline code`, [safe link](https://example.com), and\n\n> quote preview"
+            }
+          />
         </article>
         <Button
           onClick={() => {
@@ -102,7 +113,12 @@ export function PrimitiveBoard({
         >
           <div className="grid gap-[var(--space-3)]">
             <TextInput label="Title" value="Document UI showcase" readOnly />
-            <TextArea label="Details" rows={4} value="This dialog is intentionally open on first load." readOnly />
+            <TextArea
+              label="Details"
+              rows={4}
+              value="This dialog is intentionally open on first load."
+              readOnly
+            />
             <Button variant="primary">Create task</Button>
           </div>
         </Dialog>
@@ -150,7 +166,11 @@ export function HomeProjectBoard({
             onConfirm={() => {
               onUnlinkWorkspaceChange(null);
             }}
-            target={{ projectID: "project-api", rootPath: unlinkWorkspace.rootPath, workspaceID: unlinkWorkspace.id }}
+            target={{
+              projectID: "project-api",
+              rootPath: unlinkWorkspace.rootPath,
+              workspaceID: unlinkWorkspace.id,
+            }}
           />
         ) : null}
       </Panel>
@@ -158,37 +178,34 @@ export function HomeProjectBoard({
   );
 }
 
-export function KanbanBoard({
-  doneExpanded,
-  onDoneExpandedChange,
-}: Readonly<{ doneExpanded: boolean; onDoneExpandedChange: (expanded: boolean) => void }>) {
+export function KanbanBoard() {
   return (
     <div className="island-glass h-[760px] overflow-auto rounded-[var(--radius-xl)] p-[var(--space-3)] hide-scrollbar">
       <div className="grid h-full w-max min-w-full grid-flow-col gap-[var(--space-4)]">
         {mockBoard.groups.map((group) => {
           const columns = mockBoard.columns.filter((column) => column.groupID === group.id);
           return (
-            <KanbanGroup
-              actionsDisabled={false}
-              board={mockBoard}
-              canRunTasks
-              canToggleDone
-              columns={columns}
-              doneExpanded={doneExpanded}
-              firstActiveColumnID="node-design"
-              group={group}
-              hasMoreCards={group.id === "group-delivery"}
-              isLoadingMoreCards={group.id === "group-delivery"}
-              key={group.id}
-              onCardClick={() => undefined}
-              onDropTask={() => undefined}
-              onInterruptTask={() => undefined}
-              onLoadMoreCards={() => undefined}
-              onResumeTask={() => undefined}
-              onToggleDone={() => {
-                onDoneExpandedChange(!doneExpanded);
-              }}
-            />
+            <KanbanGroup group={toKanbanGroupVM(group)} key={group.id}>
+              {columns.map((column) => (
+                <KanbanColumn
+                  actionsDisabled={false}
+                  cards={(mockBoardNodeCards[column.id] ?? []).map(toKanbanCardVM)}
+                  column={toKanbanColumnVM(column)}
+                  dropState="idle"
+                  hasMoreCards={group.id === "group-delivery"}
+                  isFirstActive={column.id === "node-design"}
+                  isLoadingMoreCards={group.id === "group-delivery"}
+                  key={column.id}
+                  onCardClick={() => undefined}
+                  onCardDragEnd={() => undefined}
+                  onCardDragStart={() => undefined}
+                  onDropTask={() => undefined}
+                  onInterruptTask={() => undefined}
+                  onLoadMoreCards={() => undefined}
+                  onResumeTask={() => undefined}
+                />
+              ))}
+            </KanbanGroup>
           );
         })}
       </div>
@@ -264,7 +281,10 @@ function ProjectPreviewRow(item: (typeof mockProjectRows)[number]) {
 
 function AttentionPreviewRow(item: (typeof mockAttentionRows)[number]) {
   return (
-    <button className="grid w-full gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] text-left text-[var(--color-on-island)]" type="button">
+    <button
+      className="grid w-full gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] text-left text-[var(--color-on-island)]"
+      type="button"
+    >
       <div className="flex flex-wrap gap-[var(--space-2)]">
         <Badge tone="warning">{item.kind}</Badge>
         <span className="font-mono text-sm text-[var(--color-muted)]">{item.shortId}</span>

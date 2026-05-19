@@ -89,7 +89,7 @@ const statuses = {
 const taskActions = {
   start: actions({ canStart: true, manualMoveTargetNodeIDs: ["node-design"] }),
   running: actions({ canInterrupt: true, interruptRunID: "run-a7f2" }),
-  waiting: actions({ needsDetailForInterrupt: true }),
+  waiting: actions({}),
   resume: actions({ canResume: true, resumeRunID: "run-99da" }),
   done: actions({}),
 } as const;
@@ -120,20 +120,24 @@ const mockCards: readonly BoardCard[] = [
   card({ actions: taskActions.running, activeNodeIDs: ["node-design"], bodyPreview: "Keep workflow picker accessible by hover, focus, and pin states.", id: "task-2", minutesAgo: 12, shortID: "BLDR-102", status: statuses.running, title: "Prototype hover menu states" }),
   card({ actions: taskActions.waiting, activeNodeIDs: ["node-build"], bodyPreview: "Approval card should include transition snapshot and target nodes.", id: "task-3", minutesAgo: 24, shortID: "BLDR-103", status: statuses.approval, title: "Review approval inbox" }),
   card({ actions: taskActions.waiting, activeNodeIDs: ["node-review"], bodyPreview: "Question card exercises suggestions, recommended choice, and freeform answer.", id: "task-4", minutesAgo: 36, shortID: "BLDR-104", status: statuses.question, title: "Answer model clarification" }),
-  card({ actions: taskActions.resume, activeNodeIDs: ["node-review"], bodyPreview: "Interrupted task exposes resume and detail buttons.", id: "task-5", minutesAgo: 48, shortID: "BLDR-105", status: statuses.interrupted, title: "Resume interrupted run" }),
-  card({ actions: taskActions.done, activeNodeIDs: ["node-done"], bodyPreview: "Completed proof remains collapsed until reviewer expands Done.", id: "task-6", minutesAgo: 70, shortID: "BLDR-090", status: statuses.done, title: "Capture dark proof" }),
-  card({ actions: taskActions.done, activeNodeIDs: ["node-done"], bodyPreview: "Older done task appears after expanding Done.", id: "task-7", minutesAgo: 120, shortID: "BLDR-089", status: statuses.done, title: "Compact board screenshot" }),
+  card({ actions: taskActions.resume, activeNodeIDs: ["node-review"], bodyPreview: "Interrupted task exposes resume control.", id: "task-5", minutesAgo: 48, shortID: "BLDR-105", status: statuses.interrupted, title: "Resume interrupted run" }),
+  card({ actions: taskActions.done, activeNodeIDs: ["node-done"], bodyPreview: "Completed proof remains visible through the regular Done node card stream.", id: "task-6", minutesAgo: 70, shortID: "BLDR-090", status: statuses.done, title: "Capture dark proof" }),
+  card({ actions: taskActions.done, activeNodeIDs: ["node-done"], bodyPreview: "Older done task appears through Done pagination when needed.", id: "task-7", minutesAgo: 120, shortID: "BLDR-089", status: statuses.done, title: "Compact board screenshot" }),
 ];
 
+export const mockBoardNodeCards: Readonly<Record<string, readonly BoardCard[]>> = {
+  "node-backlog": mockCards.filter((card) => card.activeNodeIDs.includes("node-backlog")),
+  "node-design": mockCards.filter((card) => card.activeNodeIDs.includes("node-design")),
+  "node-build": mockCards.filter((card) => card.activeNodeIDs.includes("node-build")),
+  "node-review": mockCards.filter((card) => card.activeNodeIDs.includes("node-review")),
+  "node-done": mockCards.filter((card) => card.activeNodeIDs.includes("node-done")),
+};
+
 export const mockBoard: WorkflowBoard = {
-  cards: mockCards,
   columns: mockColumns,
-  donePreview: [mockCards[5]].filter((item): item is BoardCard => item !== undefined),
   generatedAt: now,
   groups: mockGroups,
-  hasHiddenDoneCards: true,
   latestEventSequence: 42,
-  nextPageToken: "next",
   projectID: "project-builder",
   projectKey: "BLDR",
   projectName: "Builder Desktop",

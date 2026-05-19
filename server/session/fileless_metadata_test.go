@@ -205,48 +205,11 @@ func TestOpenByIDRejectsResolverRecordWithRelativeSessionDir(t *testing.T) {
 	}
 }
 
-func TestOpenByIDDoesNotFallbackResolverOnSessionLookupError(t *testing.T) {
+func TestOpenByIDRequiresPersistedSessionResolver(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, sessionsDirName), []byte("not-a-directory"), 0o644); err != nil {
-		t.Fatalf("write fake sessions root: %v", err)
-	}
-	_, err := OpenByID(
-		root,
-		"session-1",
-		WithPersistedSessionResolver(stubPersistedSessionResolver{record: PersistedSessionRecord{
-			SessionDir: filepath.Join(root, "projects", "project-1", "sessions", "session-1"),
-			Meta:       &Meta{SessionID: "session-1"},
-		}}),
-		WithFilelessMetadataPersistence(),
-	)
-	if err == nil || !strings.Contains(err.Error(), "read session root") {
-		t.Fatalf("expected session root read error, got %v", err)
-	}
-}
-
-func TestOpenByIDDoesNotFallbackResolverOnCorruptSessionMeta(t *testing.T) {
-	root := t.TempDir()
-	sessionDir := filepath.Join(root, sessionsDirName, "session-1")
-	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
-		t.Fatalf("mkdir session dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(sessionDir, sessionFile), []byte("{"), 0o644); err != nil {
-		t.Fatalf("write corrupt session meta: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(sessionDir, eventsFile), nil, 0o644); err != nil {
-		t.Fatalf("write events file: %v", err)
-	}
-	_, err := OpenByID(
-		root,
-		"session-1",
-		WithPersistedSessionResolver(stubPersistedSessionResolver{record: PersistedSessionRecord{
-			SessionDir: sessionDir,
-			Meta:       &Meta{SessionID: "session-1"},
-		}}),
-		WithFilelessMetadataPersistence(),
-	)
-	if err == nil || !strings.Contains(err.Error(), "parse session meta") {
-		t.Fatalf("expected corrupt session meta error, got %v", err)
+	_, err := OpenByID(root, "session-1")
+	if err == nil || !strings.Contains(err.Error(), "persisted session resolver is required") {
+		t.Fatalf("expected resolver-required error, got %v", err)
 	}
 }
 

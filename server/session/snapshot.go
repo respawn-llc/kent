@@ -30,14 +30,6 @@ func SnapshotFromStore(store *Store) (Snapshot, error) {
 	}, nil
 }
 
-func SnapshotByID(persistenceRoot, sessionID string) (Snapshot, error) {
-	sessionDir, err := FindSessionDir(persistenceRoot, sessionID)
-	if err != nil {
-		return Snapshot{}, err
-	}
-	return SnapshotFromDir(sessionDir)
-}
-
 func SnapshotFromDir(sessionDir string) (Snapshot, error) {
 	meta, err := ReadMetaFromDir(sessionDir)
 	if err != nil {

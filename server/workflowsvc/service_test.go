@@ -631,8 +631,25 @@ func TestServiceCommentsAndReadModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetWorkflowBoard: %v", err)
 	}
-	if len(board.Board.Cards) != 1 {
+	if len(board.Board.Cards) != 1 || len(board.Board.Columns) == 0 {
 		t.Fatalf("board = %+v", board.Board)
+	}
+	backlogNodeID := ""
+	for _, column := range board.Board.Columns {
+		if column.IsBacklog {
+			backlogNodeID = column.Node.NodeID
+			break
+		}
+	}
+	if backlogNodeID == "" {
+		t.Fatalf("board columns missing backlog: %+v", board.Board.Columns)
+	}
+	cards, err := service.ListWorkflowBoardNodeCards(ctx, serverapi.WorkflowBoardNodeCardsListRequest{ProjectID: binding.ProjectID, WorkflowID: workflowID, NodeID: backlogNodeID})
+	if err != nil {
+		t.Fatalf("ListWorkflowBoardNodeCards: %v", err)
+	}
+	if len(cards.Cards) != 1 {
+		t.Fatalf("node cards = %+v", cards)
 	}
 	detail, err := service.GetWorkflowTask(ctx, serverapi.WorkflowTaskGetRequest{TaskID: task.Task.ID})
 	if err != nil {
@@ -679,6 +696,53 @@ func TestServiceWorkflowProjectSubscriptionReplaysEvents(t *testing.T) {
 	}
 	if board.Board.LatestEventSequence < event.Sequence {
 		t.Fatalf("board watermark = %d, want >= event %d", board.Board.LatestEventSequence, event.Sequence)
+	}
+}
+
+func TestServiceWorkflowProjectSubscriptionEmitsRunCompletionEvent(t *testing.T) {
+	ctx := context.Background()
+	service, binding := newWorkflowServiceTestService(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	if _, err := service.LinkWorkflowToProject(ctx, serverapi.WorkflowLinkProjectRequest{ProjectID: binding.ProjectID, WorkflowID: workflowID, Default: true}); err != nil {
+		t.Fatalf("LinkWorkflowToProject: %v", err)
+	}
+	task, err := service.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateWorkflowTask: %v", err)
+	}
+	started, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{TaskID: task.Task.ID})
+	if err != nil {
+		t.Fatalf("StartWorkflowTask: %v", err)
+	}
+	boardBefore, err := service.GetWorkflowBoard(ctx, serverapi.WorkflowBoardRequest{ProjectID: binding.ProjectID, WorkflowID: workflowID})
+	if err != nil {
+		t.Fatalf("GetWorkflowBoard before completion: %v", err)
+	}
+	sub, err := service.SubscribeWorkflowProject(ctx, serverapi.WorkflowProjectSubscribeRequest{ProjectID: binding.ProjectID, AfterSequence: boardBefore.Board.LatestEventSequence})
+	if err != nil {
+		t.Fatalf("SubscribeWorkflowProject: %v", err)
+	}
+	defer func() { _ = sub.Close() }()
+	completed, err := service.store.CompleteRun(ctx, workflowstore.CompleteRunRequest{RunID: workflow.RunID(started.RunID), TransitionID: "done", OutputValues: map[string]string{"summary": "done"}})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	event, err := sub.Next(ctx)
+	if err != nil {
+		t.Fatalf("subscription Next: %v", err)
+	}
+	if event.ProjectID != binding.ProjectID || event.WorkflowID != workflowID || event.Resource != "task" || event.Action != "completed" {
+		t.Fatalf("event = %+v, want task completed event", event)
+	}
+	if !sameStringSet(event.ChangedIDs, []string{task.Task.ID, string(completed.TransitionID), started.RunID}) {
+		t.Fatalf("changed IDs = %+v", event.ChangedIDs)
+	}
+	boardAfter, err := service.GetWorkflowBoard(ctx, serverapi.WorkflowBoardRequest{ProjectID: binding.ProjectID, WorkflowID: workflowID})
+	if err != nil {
+		t.Fatalf("GetWorkflowBoard after completion: %v", err)
+	}
+	if boardAfter.Board.LatestEventSequence < event.Sequence {
+		t.Fatalf("board watermark = %d, want >= event %d", boardAfter.Board.LatestEventSequence, event.Sequence)
 	}
 }
 
@@ -804,4 +868,24 @@ func workflowServiceNodeIDByKind(t *testing.T, def serverapi.WorkflowDefinition,
 	}
 	t.Fatalf("missing node kind %q in %+v", kind, def.Nodes)
 	return ""
+}
+
+func sameStringSet(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	values := make(map[string]struct{}, len(left))
+	for _, value := range left {
+		values[value] = struct{}{}
+	}
+	if len(values) != len(left) {
+		return false
+	}
+	for _, value := range right {
+		if _, ok := values[value]; !ok {
+			return false
+		}
+		delete(values, value)
+	}
+	return len(values) == 0
 }

@@ -82,6 +82,26 @@ func createAuthoritativeSessionLifecycleSession(t *testing.T, workspaceRoot stri
 	return cfg, store, binding, sess
 }
 
+func TestMetadataBackedLoopbackClientOwnsMetadataStore(t *testing.T) {
+	cfg, _, _, sess := createAuthoritativeSessionLifecycleSession(t, t.TempDir())
+	lifecycleClient, err := NewMetadataBackedLoopbackClient(cfg.PersistenceRoot, nil)
+	if err != nil {
+		t.Fatalf("NewMetadataBackedLoopbackClient: %v", err)
+	}
+	if _, err := lifecycleClient.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{SessionID: sess.Meta().SessionID}); err != nil {
+		t.Fatalf("GetInitialInput before Close: %v", err)
+	}
+	if err := lifecycleClient.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := lifecycleClient.Close(); err != nil {
+		t.Fatalf("Close duplicate: %v", err)
+	}
+	if _, err := lifecycleClient.GetInitialInput(context.Background(), serverapi.SessionInitialInputRequest{SessionID: sess.Meta().SessionID}); err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Fatalf("GetInitialInput after Close error = %v, want closed client", err)
+	}
+}
+
 func TestServiceGetInitialInputPrefersStoredDraft(t *testing.T) {
 	_, containerDir, store := createPersistedSession(t)
 	if err := store.SetInputDraft("draft from store"); err != nil {

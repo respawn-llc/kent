@@ -43,6 +43,7 @@ type WorkflowClient interface {
 	GetWorkflowTaskTeleportTarget(ctx context.Context, req serverapi.WorkflowTaskTeleportTargetRequest) (serverapi.WorkflowTaskTeleportTargetResponse, error)
 	SubscribeWorkflowProject(ctx context.Context, req serverapi.WorkflowProjectSubscribeRequest) (serverapi.WorkflowProjectSubscription, error)
 	GetWorkflowBoard(ctx context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error)
+	ListWorkflowBoardNodeCards(ctx context.Context, req serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error)
 	GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error)
 }
 
@@ -290,6 +291,13 @@ func (c *loopbackWorkflowClient) GetWorkflowBoard(ctx context.Context, req serve
 		return serverapi.WorkflowBoardResponse{}, errors.New("workflow service is required")
 	}
 	return c.service.GetWorkflowBoard(ctx, req)
+}
+
+func (c *loopbackWorkflowClient) ListWorkflowBoardNodeCards(ctx context.Context, req serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error) {
+	if c == nil || c.service == nil {
+		return serverapi.WorkflowBoardNodeCardsListResponse{}, errors.New("workflow service is required")
+	}
+	return c.service.ListWorkflowBoardNodeCards(ctx, req)
 }
 
 func (c *loopbackWorkflowClient) GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {

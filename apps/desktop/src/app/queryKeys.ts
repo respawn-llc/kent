@@ -13,6 +13,13 @@ export const queryKeys = {
   allActivity: ["activity"],
   allPendingAsks: ["pending-asks"],
   board: (projectID: string, workflowID: string) => ["board", projectID, workflowID],
+  boardNodeCardsRoot: (projectID: string, workflowID: string) => ["board-node-cards", projectID, workflowID],
+  boardNodeCards: (projectID: string, workflowID: string, nodeID: string) => [
+    "board-node-cards",
+    projectID,
+    workflowID,
+    nodeID,
+  ],
   task: (taskID: string) => ["task", taskID],
   activity: (taskID: string) => ["activity", taskID],
   pendingAsks: (sessionID: string) => ["pending-asks", sessionID],

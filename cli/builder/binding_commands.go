@@ -311,7 +311,9 @@ func retargetSessionWorkspace(ctx context.Context, sessionID string, newPath str
 	_, remote, err := bindingCommandRemoteOpener(ctx, newPath)
 	if err != nil {
 		if shouldFallbackToLocalSessionRetargetOpenError(newCfg, err) {
-			resp, localErr := bindingCommandSessionRetargeter(ctx, bindingCommandLocalSessionLifecycleClient(newCfg), sessionID, newCfg.WorkspaceRoot)
+			localClient := bindingCommandLocalSessionLifecycleClient(newCfg)
+			defer func() { _ = localClient.Close() }()
+			resp, localErr := bindingCommandSessionRetargeter(ctx, localClient, sessionID, newCfg.WorkspaceRoot)
 			if localErr != nil {
 				return serverapi.ProjectBinding{}, localErr
 			}
@@ -323,7 +325,9 @@ func retargetSessionWorkspace(ctx context.Context, sessionID string, newPath str
 	resp, err := bindingCommandSessionRetargeter(ctx, remote, sessionID, newCfg.WorkspaceRoot)
 	if err != nil {
 		if shouldFallbackToLocalSessionRetargetRPCError(newCfg, err) {
-			resp, err = bindingCommandSessionRetargeter(ctx, bindingCommandLocalSessionLifecycleClient(newCfg), sessionID, newCfg.WorkspaceRoot)
+			localClient := bindingCommandLocalSessionLifecycleClient(newCfg)
+			defer func() { _ = localClient.Close() }()
+			resp, err = bindingCommandSessionRetargeter(ctx, localClient, sessionID, newCfg.WorkspaceRoot)
 		}
 	}
 	if err != nil {

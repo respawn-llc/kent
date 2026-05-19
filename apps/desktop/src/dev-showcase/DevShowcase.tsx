@@ -49,7 +49,6 @@ export function DevShowcaseApp() {
 
 function DevShowcaseBoard() {
   const [theme, setTheme] = useState<BuilderTheme>(() => readEffectiveTheme());
-  const [doneExpanded, setDoneExpanded] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [unlinkWorkspace, setUnlinkWorkspace] = useState(mockWorkspaces[1] ?? null);
   const [cancelExpanded, setCancelExpanded] = useState(false);
@@ -92,7 +91,7 @@ function DevShowcaseBoard() {
           eyebrow="03"
           title="Kanban Board"
         >
-          <KanbanBoard doneExpanded={doneExpanded} onDoneExpandedChange={setDoneExpanded} />
+          <KanbanBoard />
         </ShowcaseSection>
         <ShowcaseSection
           description="Real board hover menu. Hover/focus expands; pin button keeps workflow picker open."

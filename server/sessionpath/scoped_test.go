@@ -1,11 +1,13 @@
 package sessionpath
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"builder/server/session"
+	"builder/shared/sessioncontract"
 )
 
 func TestResolveScopedSessionDirReturnsRealPathInsideContainer(t *testing.T) {
@@ -44,5 +46,21 @@ func TestResolveScopedSessionDirRejectsSymlinkOutsideContainer(t *testing.T) {
 	}
 	if _, err := ResolveScopedSessionDir(containerA, "escaped-link"); err == nil {
 		t.Fatal("expected symlink escape to be rejected")
+	}
+}
+
+func TestResolveScopedSessionDirWrapsSessionNotFound(t *testing.T) {
+	root := t.TempDir()
+	containerDir := filepath.Join(root, "workspace-a")
+	if err := os.MkdirAll(containerDir, 0o755); err != nil {
+		t.Fatalf("mkdir container: %v", err)
+	}
+
+	_, err := ResolveScopedSessionDir(containerDir, "missing-session")
+	if err == nil {
+		t.Fatal("expected missing scoped session to fail")
+	}
+	if !errors.Is(err, sessioncontract.ErrSessionNotFound) {
+		t.Fatalf("error = %v, want ErrSessionNotFound", err)
 	}
 }

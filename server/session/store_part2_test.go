@@ -2,7 +2,6 @@ package session
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,8 +45,8 @@ func TestOpenByIDUsesPersistedSessionResolver(t *testing.T) {
 
 func TestOpenByIDRejectsWithoutPersistedSessionResolver(t *testing.T) {
 	root := t.TempDir()
-	if _, err := OpenByID(root, "missing-session"); err == nil || !errors.Is(err, ErrSessionNotFound) {
-		t.Fatalf("expected session-not-found error, got %v", err)
+	if _, err := OpenByID(root, "missing-session"); err == nil || !strings.Contains(err.Error(), "persisted session resolver is required") {
+		t.Fatalf("expected missing resolver error, got %v", err)
 	}
 }
 

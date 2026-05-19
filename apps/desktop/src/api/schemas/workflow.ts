@@ -3,6 +3,7 @@ import { z } from "zod";
 import type {
   ActivityPage,
   AttentionPage,
+  BoardNodeCardsPage,
   PendingAsk,
   TaskDetail,
   TeleportTarget,
@@ -52,10 +53,6 @@ export const workflowBoardSchema: z.ZodType<WorkflowBoard> = z
       workflows: workflowPickerSchema,
       groups: boardGroupsSchema,
       columns: boardColumnsSchema,
-      cards: boardCardsSchema,
-      done_preview: boardCardsSchema,
-      has_hidden_done_cards: z.boolean().optional().default(false),
-      next_page_token: z.string().optional().default(""),
       generated_at_unix_ms: z.number(),
       latest_event_sequence: z.number(),
     }),
@@ -68,12 +65,28 @@ export const workflowBoardSchema: z.ZodType<WorkflowBoard> = z
     workflows: value.board.workflows,
     groups: value.board.groups,
     columns: value.board.columns,
-    cards: value.board.cards,
-    donePreview: value.board.done_preview,
-    hasHiddenDoneCards: value.board.has_hidden_done_cards,
-    nextPageToken: value.board.next_page_token,
     generatedAt: value.board.generated_at_unix_ms,
     latestEventSequence: value.board.latest_event_sequence,
+  }));
+
+export const boardNodeCardsPageSchema: z.ZodType<BoardNodeCardsPage> = z
+  .object({
+    project_id: z.string(),
+    workflow_id: z.string(),
+    node_id: z.string(),
+    cards: boardCardsSchema,
+    next_page_token: z.string().optional().default(""),
+    generated_at_unix_ms: z.number(),
+    latest_event_sequence: z.number(),
+  })
+  .transform((value) => ({
+    projectID: value.project_id,
+    workflowID: value.workflow_id,
+    nodeID: value.node_id,
+    cards: value.cards,
+    nextPageToken: value.next_page_token,
+    generatedAt: value.generated_at_unix_ms,
+    latestEventSequence: value.latest_event_sequence,
   }));
 
 export const attentionPageSchema: z.ZodType<AttentionPage> = z

@@ -187,9 +187,15 @@ export type WorkflowBoard = Readonly<{
   workflows: readonly WorkflowPickerItem[];
   groups: readonly BoardGroup[];
   columns: readonly BoardColumn[];
+  generatedAt: number;
+  latestEventSequence: number;
+}>;
+
+export type BoardNodeCardsPage = Readonly<{
+  projectID: string;
+  workflowID: string;
+  nodeID: string;
   cards: readonly BoardCard[];
-  donePreview: readonly BoardCard[];
-  hasHiddenDoneCards: boolean;
   nextPageToken: string;
   generatedAt: number;
   latestEventSequence: number;

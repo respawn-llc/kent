@@ -35,6 +35,10 @@ type bindingCommandTimeoutSessionLifecycleStub struct {
 	retargetSessionWorkspace func(context.Context, serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error)
 }
 
+func (bindingCommandTimeoutSessionLifecycleStub) Close() error {
+	return nil
+}
+
 func (s bindingCommandTimeoutProjectViewStub) ListProjects(ctx context.Context, req serverapi.ProjectListRequest) (serverapi.ProjectListResponse, error) {
 	if s.listProjects == nil {
 		return serverapi.ProjectListResponse{}, errors.New("unexpected ListProjects call")

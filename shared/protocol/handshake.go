@@ -62,6 +62,7 @@ const (
 	MethodWorkflowTaskActivityList              = "workflow.task.activity.list"
 	MethodWorkflowTaskTeleportTargetGet         = "workflow.task.teleportTarget.get"
 	MethodWorkflowBoardGet                      = "workflow.board.get"
+	MethodWorkflowBoardNodeCardsList            = "workflow.board.nodeCards.list"
 	MethodWorkflowSubscribeProject              = "workflow.subscribeProject"
 	MethodWorkflowProjectEvent                  = "workflow.project"
 	MethodWorkflowProjectComplete               = "workflow.project.complete"

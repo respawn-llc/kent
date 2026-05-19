@@ -144,6 +144,21 @@ describe("TaskDetailDialog", () => {
     });
   });
 
+  it("uses the large task detail content width in native dialog windows", async () => {
+    window.history.pushState(null, "", "/native-dialog/task-detail?taskId=task-1&resumeRunId=");
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.task.get", result: taskDetailResponse },
+      { method: "workflow.task.activity.list", result: activityResponse },
+      { method: "ask.listPendingBySession", result: pendingAskResponse },
+    ]);
+
+    render(<App services={services} />);
+
+    expect(await screen.findByRole("dialog", { name: "Task" })).toBeInTheDocument();
+    expect(screen.getByTestId("native-dialog-content")).toHaveStyle({ maxWidth: "1200px" });
+  });
+
   it("shows plain backend and native teleport failures", async () => {
     window.history.pushState(null, "", "/tasks/task-1");
     const services = createTestServices(

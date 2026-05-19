@@ -169,7 +169,7 @@ func TestMemoizingPromptServiceRejectsClientRequestIDPayloadMismatch(t *testing.
 
 func TestLoopbackRunPromptClientUsesSelectedSessionContinuationContext(t *testing.T) {
 	root := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store, err := session.Create(containerDir, "workspace-a", "/tmp/workspace-a")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -234,7 +234,7 @@ func TestLoopbackRunPromptClientUsesSelectedSessionContinuationContext(t *testin
 
 func TestLoopbackRunPromptClientRejectsSelectedSessionWithGoal(t *testing.T) {
 	root := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store, err := session.Create(containerDir, "workspace-a", "/tmp/workspace-a")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -267,7 +267,7 @@ func TestLoopbackRunPromptClientRejectsSelectedSessionWithGoal(t *testing.T) {
 
 func TestLoopbackRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T) {
 	root := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store, err := session.Create(containerDir, "workspace-a", "/tmp/workspace-a")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -348,7 +348,7 @@ func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	root := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store, err := session.Create(containerDir, "workspace-a", "/tmp/workspace-a")
 	if err != nil {
 		t.Fatalf("create session: %v", err)

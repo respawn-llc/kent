@@ -6,12 +6,14 @@ package serverbridge
 
 import (
 	"context"
+	"errors"
 
 	"builder/server/serve"
 	"builder/server/sessionlifecycle"
 	serverstartup "builder/server/startup"
 	"builder/shared/client"
 	"builder/shared/config"
+	"builder/shared/serverapi"
 )
 
 type StartupRequest = serverstartup.Request
@@ -24,7 +26,42 @@ type ServeServer interface {
 }
 
 func NewLocalSessionLifecycleClient(cfg config.App) client.SessionLifecycleClient {
-	return client.NewLoopbackSessionLifecycleClient(sessionlifecycle.NewGlobalService(cfg.PersistenceRoot, nil, nil))
+	client, err := sessionlifecycle.NewMetadataBackedLoopbackClient(cfg.PersistenceRoot, nil)
+	if err != nil {
+		return failingSessionLifecycleClient{err: err}
+	}
+	return client
+}
+
+type failingSessionLifecycleClient struct {
+	err error
+}
+
+func (c failingSessionLifecycleClient) failure() error {
+	if c.err == nil {
+		return errors.New("session lifecycle client unavailable")
+	}
+	return c.err
+}
+
+func (c failingSessionLifecycleClient) Close() error {
+	return nil
+}
+
+func (c failingSessionLifecycleClient) GetInitialInput(context.Context, serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
+	return serverapi.SessionInitialInputResponse{}, c.failure()
+}
+
+func (c failingSessionLifecycleClient) PersistInputDraft(context.Context, serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
+	return serverapi.SessionPersistInputDraftResponse{}, c.failure()
+}
+
+func (c failingSessionLifecycleClient) RetargetSessionWorkspace(context.Context, serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
+	return serverapi.SessionRetargetWorkspaceResponse{}, c.failure()
+}
+
+func (c failingSessionLifecycleClient) ResolveTransition(context.Context, serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
+	return serverapi.SessionResolveTransitionResponse{}, c.failure()
 }
 
 func StartServe(ctx context.Context, req StartupRequest, authHandler StartupAuthHandler, onboardingHandler StartupOnboardingHandler) (ServeServer, error) {

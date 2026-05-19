@@ -624,6 +624,75 @@ FROM tasks
 WHERE project_id = sqlc.arg(project_id)
 ORDER BY updated_at_unix_ms DESC, rowid DESC;
 
+-- name: ListBoardNodeTasks :many
+WITH board_node_task_ids AS (
+    SELECT
+        t.id
+    FROM task_node_placements p
+    JOIN tasks t ON t.id = p.task_id
+    JOIN workflow_nodes n ON n.id = p.node_id
+    WHERE p.node_id = sqlc.arg(node_id)
+      AND p.state IN ('active', 'waiting_approval')
+      AND t.project_id = sqlc.arg(project_id)
+      AND t.workflow_id = sqlc.arg(workflow_id)
+      AND (
+        t.canceled_at_unix_ms = 0
+        OR n.kind = 'terminal'
+      )
+    UNION
+    SELECT
+        t.id
+    FROM tasks t
+    WHERE t.project_id = sqlc.arg(project_id)
+      AND t.workflow_id = sqlc.arg(workflow_id)
+      AND t.canceled_at_unix_ms != 0
+      AND sqlc.arg(node_id) = sqlc.arg(canceled_terminal_node_id)
+      AND EXISTS (
+        SELECT 1
+        FROM workflow_nodes n
+        WHERE n.id = sqlc.arg(node_id)
+          AND n.kind = 'terminal'
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM task_node_placements p
+        JOIN workflow_nodes n ON n.id = p.node_id
+        WHERE p.task_id = t.id
+          AND p.state IN ('active', 'waiting_approval')
+          AND n.kind = 'terminal'
+      )
+)
+SELECT
+    t.id,
+    t.project_id,
+    t.project_workflow_link_id,
+    t.workflow_id,
+    t.workflow_revision_seen,
+    t.task_seq,
+    t.short_id,
+    t.title,
+    t.body,
+    t.source_url,
+    t.source_workspace_id,
+    t.managed_worktree_id,
+    t.canceled_at_unix_ms,
+    t.cancellation_reason,
+    t.created_at_unix_ms,
+    t.updated_at_unix_ms,
+    t.metadata_json
+FROM tasks t
+WHERE t.id IN (SELECT id FROM board_node_task_ids)
+  AND (
+    CAST(sqlc.arg(cursor_set) AS INTEGER) = 0
+    OR t.updated_at_unix_ms < sqlc.arg(cursor_updated_at_unix_ms)
+    OR (
+        t.updated_at_unix_ms = sqlc.arg(cursor_updated_at_unix_ms)
+        AND t.id < sqlc.arg(cursor_task_id)
+    )
+  )
+ORDER BY t.updated_at_unix_ms DESC, t.id DESC
+LIMIT sqlc.arg(limit_rows);
+
 -- name: UpdateTaskEditableFields :execrows
 UPDATE tasks
 SET

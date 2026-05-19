@@ -6,6 +6,7 @@ import type {
   ActivityPage,
   AttentionPage,
   BindingPlan,
+  BoardNodeCardsPage,
   PendingAsk,
   ProjectBinding,
   ProjectEdit,
@@ -32,6 +33,7 @@ import { readinessSchema } from "./schemas/status";
 import {
   activityPageSchema,
   attentionPageSchema,
+  boardNodeCardsPageSchema,
   commentAddResponseSchema,
   pendingAskListSchema,
   taskCreateResponseSchema,
@@ -157,7 +159,7 @@ export class BuilderApiClient {
     );
   }
 
-  async getBoard(projectID: string, workflowID: string, pageToken = ""): Promise<WorkflowBoard> {
+  async getBoard(projectID: string, workflowID: string): Promise<WorkflowBoard> {
     return parse(
       "workflow.board.get",
       workflowBoardSchema,
@@ -166,7 +168,26 @@ export class BuilderApiClient {
         compactJsonObject({
           project_id: projectID,
           workflow_id: workflowID.length > 0 ? workflowID : undefined,
-          done_preview_limit: 5,
+        }),
+      ),
+    );
+  }
+
+  async listBoardNodeCards(
+    projectID: string,
+    workflowID: string,
+    nodeID: string,
+    pageToken = "",
+  ): Promise<BoardNodeCardsPage> {
+    return parse(
+      "workflow.board.nodeCards.list",
+      boardNodeCardsPageSchema,
+      await this.transport.call(
+        "workflow.board.nodeCards.list",
+        compactJsonObject({
+          project_id: projectID,
+          workflow_id: workflowID,
+          node_id: nodeID,
           page_size: 100,
           page_token: pageToken,
         }),

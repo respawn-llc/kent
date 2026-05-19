@@ -43,7 +43,7 @@ func (s *failingUpdateMetadataExecutionTargetStore) Close() error {
 
 func TestPlannerHeadlessCreatesNewSessionAndAppliesContinuationContext(t *testing.T) {
 	root := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	planner := Planner{
 		Config: config.App{
 			WorkspaceRoot:   "/tmp/workspace-a",
@@ -88,7 +88,7 @@ func TestPlannerHeadlessUsesDefaultGPT55ModelAndOpenAIProviderInference(t *testi
 	}
 	planner := Planner{
 		Config:       cfg,
-		ContainerDir: filepath.Join(cfg.PersistenceRoot, "sessions", "workspace-a"),
+		ContainerDir: filepath.Join(cfg.PersistenceRoot, "projects", "project-a", "sessions"),
 	}
 
 	plan, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeHeadless})
@@ -112,7 +112,7 @@ func TestPlannerHeadlessUsesDefaultGPT55ModelAndOpenAIProviderInference(t *testi
 
 func TestPlannerInteractiveRequiresExplicitOpenOrCreateIntent(t *testing.T) {
 	root := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	if _, err := session.Create(containerDir, "workspace-a", "/tmp/workspace-a"); err != nil {
 		t.Fatalf("create existing session: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestPlannerInteractiveRequiresExplicitOpenOrCreateIntent(t *testing.T) {
 
 func TestPlannerInteractiveReopensSelectedSessionID(t *testing.T) {
 	root := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	first, err := session.Create(containerDir, "workspace-a", "/tmp/workspace-a")
 	if err != nil {
 		t.Fatalf("create first session: %v", err)
@@ -172,7 +172,7 @@ func TestPlannerInteractiveReopensSelectedSessionID(t *testing.T) {
 func TestPlannerReappliesPersistedSubagentRoleSettingsOnResume(t *testing.T) {
 	root := t.TempDir()
 	workspace := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store, err := session.Create(containerDir, "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -238,7 +238,7 @@ func TestPlannerReappliesPersistedSubagentRoleSettingsOnResume(t *testing.T) {
 func TestPlannerIgnoresMissingPersistedSubagentRoleOnResume(t *testing.T) {
 	root := t.TempDir()
 	workspace := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store, err := session.Create(containerDir, "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -278,7 +278,7 @@ func TestPlannerKeepsRoleBaseURLOutOfBaseSettingsOnResume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store, err := session.Create(containerDir, "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -367,7 +367,7 @@ func TestApplyRunPromptOverridesExplicitRoleUsesBaseSettingsAfterPersistedRoleRe
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	store, err := session.Create(filepath.Join(root, "sessions", "workspace-a"), "workspace-a", workspace)
+	store, err := session.Create(filepath.Join(root, "projects", "project-a", "sessions"), "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -434,7 +434,7 @@ func TestApplyRunPromptOverridesExplicitRoleUsesBaseSettingsAfterPersistedRoleRe
 func TestApplyRunPromptOverridesExplicitDefaultClearsPersistedRole(t *testing.T) {
 	root := t.TempDir()
 	workspace := t.TempDir()
-	store, err := session.Create(filepath.Join(root, "sessions", "workspace-a"), "workspace-a", workspace)
+	store, err := session.Create(filepath.Join(root, "projects", "project-a", "sessions"), "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -559,7 +559,7 @@ func TestApplyRunPromptOverridesResumedRoleMatrix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+			store, err := session.Create(filepath.Join(t.TempDir(), "projects", "project-a", "sessions"), "workspace-a", workspace)
 			if err != nil {
 				t.Fatalf("create session: %v", err)
 			}
@@ -636,7 +636,7 @@ func TestApplyRunPromptOverridesLockedModelDoesNotMarkModelSourceAsSubagent(t *t
 	baseSource.Sources = cloneStringMap(loaded.Source.Sources)
 	baseSource.Sources["model"] = "file"
 	baseSource.Sources["thinking_level"] = "file"
-	store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+	store, err := session.Create(filepath.Join(t.TempDir(), "projects", "project-a", "sessions"), "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -802,7 +802,7 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 
 func TestPlannerNewChildSessionFallsBackWhenParentExecutionTargetIsNotMetadataBacked(t *testing.T) {
 	root := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	parent, err := session.Create(containerDir, "workspace-a", "/tmp/workspace-a")
 	if err != nil {
 		t.Fatalf("create parent session: %v", err)
@@ -848,8 +848,8 @@ func TestPlannerNewChildSessionFallsBackWhenParentExecutionTargetIsNotMetadataBa
 
 func TestPlannerNewChildSessionIgnoresParentOutsideActiveContainer(t *testing.T) {
 	root := t.TempDir()
-	containerA := filepath.Join(root, "sessions", "workspace-a")
-	containerB := filepath.Join(root, "sessions", "workspace-b")
+	containerA := filepath.Join(root, "projects", "project-a", "sessions")
+	containerB := filepath.Join(root, "projects", "project-b", "sessions")
 	parent, err := session.Create(containerB, "workspace-b", "/tmp/workspace-b")
 	if err != nil {
 		t.Fatalf("create foreign parent session: %v", err)
@@ -880,8 +880,8 @@ func TestPlannerNewChildSessionIgnoresParentOutsideActiveContainer(t *testing.T)
 	if childMeta.ParentSessionID != parent.Meta().SessionID {
 		t.Fatalf("parent session id = %q, want %q", childMeta.ParentSessionID, parent.Meta().SessionID)
 	}
-	if childMeta.WorkspaceRoot != "/tmp/workspace-a" || childMeta.WorkspaceContainer != "workspace-a" {
-		t.Fatalf("child workspace context = root %q container %q, want active workspace", childMeta.WorkspaceRoot, childMeta.WorkspaceContainer)
+	if childMeta.WorkspaceRoot != "/tmp/workspace-a" || childMeta.WorkspaceContainer != "sessions" {
+		t.Fatalf("child workspace context = root %q container %q, want active project session root", childMeta.WorkspaceRoot, childMeta.WorkspaceContainer)
 	}
 	if childMeta.Locked != nil {
 		t.Fatalf("locked contract = %+v, want no foreign parent lock copied", childMeta.Locked)
@@ -981,7 +981,7 @@ func TestPlannerNewChildSessionRollsBackDurableChildWhenExecutionTargetCopyFails
 
 func TestPlannerNewSessionHonorsCanceledContextBeforeDurableCreation(t *testing.T) {
 	root := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	planner := Planner{
 		Config: config.App{
 			WorkspaceRoot:   "/tmp/workspace-a",
@@ -1006,7 +1006,7 @@ func TestPlannerNewSessionHonorsCanceledContextBeforeDurableCreation(t *testing.
 
 func TestPlannerNewChildSessionHonorsCanceledContextBeforeParentCopy(t *testing.T) {
 	root := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	parent, err := session.Create(containerDir, "workspace-a", "/tmp/workspace-a")
 	if err != nil {
 		t.Fatalf("create parent session: %v", err)
@@ -1035,7 +1035,7 @@ func TestApplyRunPromptOverridesOverridesHeadlessSettingsWithoutMutatingBasePlan
 	root := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store, err := session.Create(containerDir, "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -1174,7 +1174,7 @@ func TestApplyRunPromptOverridesRejectsInvalidAgentRole(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store, err := session.Create(containerDir, "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -1200,7 +1200,7 @@ func TestApplyRunPromptOverridesRecomputesEnabledToolsForModelOverride(t *testin
 	root := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store, err := session.Create(containerDir, "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -1237,7 +1237,7 @@ func TestApplyRunPromptOverridesKeepsExplicitToolSourcesWhenOnlyModelOverrides(t
 	root := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store, err := session.Create(containerDir, "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -1292,7 +1292,7 @@ func TestApplyRunPromptOverridesFastRoleWarnsWhenHeuristicDoesNothing(t *testing
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+	store, err := session.Create(filepath.Join(t.TempDir(), "projects", "project-a", "sessions"), "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -1355,7 +1355,7 @@ func TestApplyRunPromptOverridesFastRoleAppliesBuiltInHeuristics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+	store, err := session.Create(filepath.Join(t.TempDir(), "projects", "project-a", "sessions"), "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -1416,7 +1416,7 @@ func TestApplyRunPromptOverridesFastRoleWarnsWhenExplicitRoleMatchesBase(t *test
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+	store, err := session.Create(filepath.Join(t.TempDir(), "projects", "project-a", "sessions"), "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -1463,7 +1463,7 @@ func TestApplyRunPromptOverridesSubagentProviderOverrideCanInheritBaseModel(t *t
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+	store, err := session.Create(filepath.Join(t.TempDir(), "projects", "project-a", "sessions"), "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -1518,7 +1518,7 @@ func TestApplyRunPromptOverridesSubagentReviewerSystemPromptFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+	store, err := session.Create(filepath.Join(t.TempDir(), "projects", "project-a", "sessions"), "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -1567,7 +1567,7 @@ func TestApplyRunPromptOverridesRoleModelOverrideRecomputesContextBudget(t *test
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+	store, err := session.Create(filepath.Join(t.TempDir(), "projects", "project-a", "sessions"), "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -1626,7 +1626,7 @@ func TestApplyRunPromptOverridesRoleModelOverrideKeepsExplicitContextWindow(t *t
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+	store, err := session.Create(filepath.Join(t.TempDir(), "projects", "project-a", "sessions"), "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -1676,7 +1676,7 @@ func TestApplyRunPromptOverridesFastRoleUsesCLIProviderOverrideForHeuristic(t *t
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+	store, err := session.Create(filepath.Join(t.TempDir(), "projects", "project-a", "sessions"), "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -1728,7 +1728,7 @@ func TestPlannerResumeFastRoleUsesProviderOverrideForHeuristic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store, err := session.Create(containerDir, "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -1778,7 +1778,7 @@ func TestPlannerResumeFastRoleUsesOpenAIBaseURLForHeuristic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	containerDir := filepath.Join(root, "sessions", "workspace-a")
+	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store, err := session.Create(containerDir, "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -1831,7 +1831,7 @@ func TestApplyRunPromptOverridesFailedConfigOverrideDoesNotPersistContinuation(t
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+	store, err := session.Create(filepath.Join(t.TempDir(), "projects", "project-a", "sessions"), "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -1883,7 +1883,7 @@ func TestApplyRunPromptOverridesRoleOnlyOverridePersistsContinuation(t *testing.
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+	store, err := session.Create(filepath.Join(t.TempDir(), "projects", "project-a", "sessions"), "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -1923,7 +1923,7 @@ func TestApplyRunPromptOverridesCLIModelOverrideRecomputesBudgetAfterFastRole(t 
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+	store, err := session.Create(filepath.Join(t.TempDir(), "projects", "project-a", "sessions"), "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}

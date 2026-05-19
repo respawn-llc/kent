@@ -200,6 +200,13 @@ const unavailableCapabilities: NativeCapabilityState = {
 const taskDetailWindowLabel = "native-dialog-task-detail";
 const taskDetailOpenEvent = "builder://task-detail-open";
 const taskDetailChangedEvent = "builder://task-detail-changed";
+export const taskDetailContentMaxWidthPx = 1200;
+export const taskDetailDialogHorizontalPaddingPx = 32;
+export const nativeDialogWindowHorizontalInsetPx = 16;
+export const taskDetailDialogOuterMaxWidthPx =
+  taskDetailContentMaxWidthPx + taskDetailDialogHorizontalPaddingPx;
+export const taskDetailNativeWindowInitialWidthPx =
+  taskDetailDialogOuterMaxWidthPx + nativeDialogWindowHorizontalInsetPx;
 const workspaceUnlinkRequestEvent = "builder://workspace-unlink-request";
 const projectWorkspaceChangedEvent = "builder://project-workspace-changed";
 
@@ -437,7 +444,7 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
         try {
           await openNativeDialogWindow({
             initialHeight: 760,
-            initialWidth: 980,
+            initialWidth: taskDetailNativeWindowInitialWidthPx,
             label: taskDetailWindowLabel,
             maximizable: true,
             params: {

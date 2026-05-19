@@ -11,9 +11,9 @@ import (
 	"builder/server/session"
 )
 
-func TestSnapshotByIDReturnsDurableSessionState(t *testing.T) {
+func TestSnapshotFromDirReturnsDurableSessionState(t *testing.T) {
 	root := t.TempDir()
-	containerDir := filepath.Join(root, "sessions", "workspace-x")
+	containerDir := filepath.Join(root, "projects", "project-1", "sessions")
 	if err := os.MkdirAll(containerDir, 0o755); err != nil {
 		t.Fatalf("mkdir container dir: %v", err)
 	}
@@ -32,9 +32,9 @@ func TestSnapshotByIDReturnsDurableSessionState(t *testing.T) {
 		t.Fatalf("append run start: %v", err)
 	}
 
-	snapshot, err := session.SnapshotByID(root, store.Meta().SessionID)
+	snapshot, err := session.SnapshotFromDir(store.Dir())
 	if err != nil {
-		t.Fatalf("snapshot by id: %v", err)
+		t.Fatalf("snapshot from dir: %v", err)
 	}
 	if snapshot.Meta.SessionID != store.Meta().SessionID || snapshot.Meta.Name != "incident triage" {
 		t.Fatalf("unexpected snapshot meta: %+v", snapshot.Meta)

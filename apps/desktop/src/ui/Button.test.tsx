@@ -11,10 +11,10 @@ describe("Button", () => {
       </Button>,
     );
 
-    expect(screen.getByRole("button", { name: "Delete" })).toHaveClass(
-      "border-[var(--color-error)]",
-      "text-[var(--color-error)]",
-    );
+    expect(screen.getByRole("button", { name: "Delete" })).toHaveStyle({
+      "--button-border": "var(--color-error)",
+      "--button-color": "var(--color-error)",
+    });
     expect(screen.getByTestId("danger-icon")).toHaveAttribute("stroke", "currentColor");
   });
 });

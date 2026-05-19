@@ -34,7 +34,7 @@ func TestApplyRunPromptOverridesCLIModelOverridePreservesExplicitThreshold(t *te
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	store, err := session.Create(filepath.Join(t.TempDir(), "sessions", "workspace-a"), "workspace-a", workspace)
+	store, err := session.Create(filepath.Join(t.TempDir(), "projects", "project-a", "sessions"), "workspace-a", workspace)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -67,9 +67,9 @@ func TestApplyRunPromptOverridesCLIModelOverridePreservesExplicitThreshold(t *te
 
 func TestPlannerInteractiveReopensSelectedSessionWithinActiveContainer(t *testing.T) {
 	root := t.TempDir()
-	containerA := filepath.Join(root, "sessions", "workspace-a")
-	containerB := filepath.Join(root, "sessions", "workspace-b")
-	selected, err := session.Create(containerA, "workspace-a", "/tmp/workspace-a")
+	containerA := filepath.Join(root, "projects", "project-a", "sessions")
+	containerB := filepath.Join(root, "projects", "project-b", "sessions")
+	selected, err := session.Create(containerA, "sessions", "/tmp/workspace-a")
 	if err != nil {
 		t.Fatalf("create selected session: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestPlannerInteractiveReopensSelectedSessionWithinActiveContainer(t *testin
 		t.Fatalf("mkdir duplicate session dir: %v", err)
 	}
 	duplicateMeta := selected.Meta()
-	duplicateMeta.WorkspaceContainer = "workspace-b"
+	duplicateMeta.WorkspaceContainer = "sessions"
 	duplicateMeta.WorkspaceRoot = "/tmp/workspace-b"
 	duplicateMeta.Name = "duplicate"
 	duplicateData, err := json.Marshal(duplicateMeta)
@@ -114,16 +114,16 @@ func TestPlannerInteractiveReopensSelectedSessionWithinActiveContainer(t *testin
 	if openedDir != selectedDir {
 		t.Fatalf("opened session dir = %q, want %q", openedDir, selectedDir)
 	}
-	if plan.Store.Meta().WorkspaceContainer != "workspace-a" {
-		t.Fatalf("opened workspace container = %q, want workspace-a", plan.Store.Meta().WorkspaceContainer)
+	if plan.Store.Meta().WorkspaceRoot != "/tmp/workspace-a" {
+		t.Fatalf("opened workspace root = %q, want /tmp/workspace-a", plan.Store.Meta().WorkspaceRoot)
 	}
 }
 
 func TestPlannerSelectedSessionIDUsesActiveContainerScope(t *testing.T) {
 	root := t.TempDir()
-	containerA := filepath.Join(root, "sessions", "workspace-a")
-	containerB := filepath.Join(root, "sessions", "workspace-b")
-	selected, err := session.Create(containerA, "workspace-a", "/tmp/workspace-a")
+	containerA := filepath.Join(root, "projects", "project-a", "sessions")
+	containerB := filepath.Join(root, "projects", "project-b", "sessions")
+	selected, err := session.Create(containerA, "sessions", "/tmp/workspace-a")
 	if err != nil {
 		t.Fatalf("create selected session: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestPlannerSelectedSessionIDUsesActiveContainerScope(t *testing.T) {
 		t.Fatalf("mkdir duplicate session dir: %v", err)
 	}
 	duplicateMeta := selected.Meta()
-	duplicateMeta.WorkspaceContainer = "workspace-b"
+	duplicateMeta.WorkspaceContainer = "sessions"
 	duplicateMeta.WorkspaceRoot = "/tmp/workspace-b"
 	duplicateData, err := json.Marshal(duplicateMeta)
 	if err != nil {
@@ -169,14 +169,39 @@ func TestPlannerSelectedSessionIDUsesActiveContainerScope(t *testing.T) {
 	}
 }
 
+func TestPlannerSelectedSessionIDDoesNotFallbackOutsideActiveContainer(t *testing.T) {
+	root := t.TempDir()
+	projectContainer := filepath.Join(root, "projects", "project-123", "sessions")
+	otherProjectContainer := filepath.Join(root, "projects", "project-456", "sessions")
+	if err := os.MkdirAll(projectContainer, 0o755); err != nil {
+		t.Fatalf("mkdir project container: %v", err)
+	}
+	otherProjectSession, err := session.Create(otherProjectContainer, "sessions", "/tmp/other-project-workspace")
+	if err != nil {
+		t.Fatalf("create other project session: %v", err)
+	}
+	if err := otherProjectSession.SetName("other project session"); err != nil {
+		t.Fatalf("persist other project session meta: %v", err)
+	}
+	planner := Planner{
+		Config:       config.App{WorkspaceRoot: "/tmp/project-workspace", PersistenceRoot: root, Settings: config.Settings{}},
+		ContainerDir: projectContainer,
+	}
+
+	_, err = planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, SelectedSessionID: otherProjectSession.Meta().SessionID})
+	if err == nil || !errors.Is(err, session.ErrSessionNotFound) {
+		t.Fatalf("plan session err = %v, want ErrSessionNotFound", err)
+	}
+}
+
 func TestPlannerSelectedSessionIDRejectsSymlinkOutsideActiveContainer(t *testing.T) {
 	root := t.TempDir()
-	containerA := filepath.Join(root, "sessions", "workspace-a")
-	containerB := filepath.Join(root, "sessions", "workspace-b")
+	containerA := filepath.Join(root, "projects", "project-a", "sessions")
+	containerB := filepath.Join(root, "projects", "project-b", "sessions")
 	if err := os.MkdirAll(containerA, 0o755); err != nil {
 		t.Fatalf("mkdir container A: %v", err)
 	}
-	escaped, err := session.Create(containerB, "workspace-b", "/tmp/workspace-b")
+	escaped, err := session.Create(containerB, "sessions", "/tmp/workspace-b")
 	if err != nil {
 		t.Fatalf("create escaped session: %v", err)
 	}

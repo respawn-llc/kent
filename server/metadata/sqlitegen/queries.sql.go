@@ -2421,6 +2421,137 @@ func (q *Queries) InterruptWorkflowRun(ctx context.Context, arg InterruptWorkflo
 	return result.RowsAffected()
 }
 
+const listBoardNodeTasks = `-- name: ListBoardNodeTasks :many
+WITH board_node_task_ids AS (
+    SELECT
+        t.id
+    FROM task_node_placements p
+    JOIN tasks t ON t.id = p.task_id
+    JOIN workflow_nodes n ON n.id = p.node_id
+    WHERE p.node_id = ?5
+      AND p.state IN ('active', 'waiting_approval')
+      AND t.project_id = ?6
+      AND t.workflow_id = ?7
+      AND (
+        t.canceled_at_unix_ms = 0
+        OR n.kind = 'terminal'
+      )
+    UNION
+    SELECT
+        t.id
+    FROM tasks t
+    WHERE t.project_id = ?6
+      AND t.workflow_id = ?7
+      AND t.canceled_at_unix_ms != 0
+      AND ?5 = ?8
+      AND EXISTS (
+        SELECT 1
+        FROM workflow_nodes n
+        WHERE n.id = ?5
+          AND n.kind = 'terminal'
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM task_node_placements p
+        JOIN workflow_nodes n ON n.id = p.node_id
+        WHERE p.task_id = t.id
+          AND p.state IN ('active', 'waiting_approval')
+          AND n.kind = 'terminal'
+      )
+)
+SELECT
+    t.id,
+    t.project_id,
+    t.project_workflow_link_id,
+    t.workflow_id,
+    t.workflow_revision_seen,
+    t.task_seq,
+    t.short_id,
+    t.title,
+    t.body,
+    t.source_url,
+    t.source_workspace_id,
+    t.managed_worktree_id,
+    t.canceled_at_unix_ms,
+    t.cancellation_reason,
+    t.created_at_unix_ms,
+    t.updated_at_unix_ms,
+    t.metadata_json
+FROM tasks t
+WHERE t.id IN (SELECT id FROM board_node_task_ids)
+  AND (
+    CAST(?1 AS INTEGER) = 0
+    OR t.updated_at_unix_ms < ?2
+    OR (
+        t.updated_at_unix_ms = ?2
+        AND t.id < ?3
+    )
+  )
+ORDER BY t.updated_at_unix_ms DESC, t.id DESC
+LIMIT ?4
+`
+
+type ListBoardNodeTasksParams struct {
+	CursorSet              int64
+	CursorUpdatedAtUnixMs  int64
+	CursorTaskID           string
+	LimitRows              int64
+	NodeID                 string
+	ProjectID              string
+	WorkflowID             string
+	CanceledTerminalNodeID interface{}
+}
+
+func (q *Queries) ListBoardNodeTasks(ctx context.Context, arg ListBoardNodeTasksParams) ([]Task, error) {
+	rows, err := q.db.QueryContext(ctx, listBoardNodeTasks,
+		arg.CursorSet,
+		arg.CursorUpdatedAtUnixMs,
+		arg.CursorTaskID,
+		arg.LimitRows,
+		arg.NodeID,
+		arg.ProjectID,
+		arg.WorkflowID,
+		arg.CanceledTerminalNodeID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Task
+	for rows.Next() {
+		var i Task
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.ProjectWorkflowLinkID,
+			&i.WorkflowID,
+			&i.WorkflowRevisionSeen,
+			&i.TaskSeq,
+			&i.ShortID,
+			&i.Title,
+			&i.Body,
+			&i.SourceUrl,
+			&i.SourceWorkspaceID,
+			&i.ManagedWorktreeID,
+			&i.CanceledAtUnixMs,
+			&i.CancellationReason,
+			&i.CreatedAtUnixMs,
+			&i.UpdatedAtUnixMs,
+			&i.MetadataJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProjectHomeSummaries = `-- name: ListProjectHomeSummaries :many
 SELECT
     p.id AS project_id,

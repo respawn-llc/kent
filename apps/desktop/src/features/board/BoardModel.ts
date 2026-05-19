@@ -1,23 +1,9 @@
-import type { BoardCard, BoardColumn, BoardGroup, WorkflowBoard } from "../../api";
+import type { BoardColumn, BoardGroup, WorkflowBoard } from "../../api";
 
 export type BoardSection = Readonly<
   | { kind: "column"; id: string; column: BoardColumn }
   | { kind: "group"; id: string; group: BoardGroup; columns: readonly BoardColumn[] }
 >;
-
-export function cardsForColumn(
-  board: WorkflowBoard,
-  column: BoardColumn,
-  doneExpanded: boolean,
-): readonly BoardCard[] {
-  if (column.isDone) {
-    return doneExpanded ? board.cards.filter((card) => card.status.kind === "done") : board.donePreview;
-  }
-  if (column.isBacklog) {
-    return board.cards.filter((card) => card.status.kind === "backlog" || card.actions.canStart);
-  }
-  return board.cards.filter((card) => card.activeNodeIDs.includes(column.id));
-}
 
 export function boardSections(board: WorkflowBoard): readonly BoardSection[] {
   const columnsByID = new Map(board.columns.map((column) => [column.id, column]));

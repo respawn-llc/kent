@@ -18,9 +18,8 @@ import (
 )
 
 const (
-	sessionFile     = "session.json"
-	eventsFile      = "events.jsonl"
-	sessionsDirName = "sessions"
+	sessionFile = "session.json"
+	eventsFile  = "events.jsonl"
 )
 
 var ErrSessionNotFound = sessioncontract.ErrSessionNotFound
@@ -132,10 +131,8 @@ func resolvePersistedSessionRecord(persistenceRoot, sessionID string, storeOpts 
 	if id == "" {
 		return PersistedSessionRecord{}, errors.New("session id is required")
 	}
-	if sessionDir, err := FindSessionDir(root, id); err == nil {
-		return PersistedSessionRecord{SessionDir: sessionDir}, nil
-	} else if storeOpts.resolver == nil || !errors.Is(err, ErrSessionNotFound) {
-		return PersistedSessionRecord{}, err
+	if storeOpts.resolver == nil {
+		return PersistedSessionRecord{}, errors.New("persisted session resolver is required")
 	}
 	record, err := storeOpts.resolver.ResolvePersistedSession(context.Background(), id)
 	if err != nil {
@@ -151,39 +148,6 @@ func resolvePersistedSessionRecord(persistenceRoot, sessionID string, storeOpts 
 		return PersistedSessionRecord{}, fmt.Errorf("resolver returned invalid persisted session record for %q: missing metadata", id)
 	}
 	return record, nil
-}
-
-func FindSessionDir(persistenceRoot, sessionID string) (string, error) {
-	root := strings.TrimSpace(persistenceRoot)
-	id := strings.TrimSpace(sessionID)
-	if root == "" {
-		return "", errors.New("persistence root is required")
-	}
-	if id == "" {
-		return "", errors.New("session id is required")
-	}
-
-	searchRoot := filepath.Join(root, sessionsDirName)
-	if direct := filepath.Join(searchRoot, id); hasSessionMeta(direct) {
-		return direct, nil
-	}
-	entries, err := os.ReadDir(searchRoot)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("%w: %q", ErrSessionNotFound, id)
-		}
-		return "", fmt.Errorf("read session root: %w", err)
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		candidate := filepath.Join(searchRoot, entry.Name(), id)
-		if hasSessionMeta(candidate) {
-			return candidate, nil
-		}
-	}
-	return "", fmt.Errorf("%w: %q", ErrSessionNotFound, id)
 }
 
 func hasSessionMeta(sessionDir string) bool {

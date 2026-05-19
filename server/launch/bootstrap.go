@@ -2,7 +2,6 @@ package launch
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"builder/server/metadata"
@@ -66,19 +65,14 @@ func ResolveBootstrapPlan(persistenceRoot string, req BootstrapRequest) (Bootstr
 }
 
 func openSessionByID(persistenceRoot string, sessionID string) (*session.Store, error) {
-	store, err := session.OpenByID(persistenceRoot, sessionID)
-	if err == nil {
-		return store, nil
-	}
-	primaryErr := err
-	metadataStore, metadataErr := metadata.Open(persistenceRoot)
-	if metadataErr != nil {
-		return nil, fmt.Errorf("%w; metadata.Open fallback failed: %v", primaryErr, metadataErr)
+	metadataStore, err := metadata.Open(persistenceRoot)
+	if err != nil {
+		return nil, err
 	}
 	defer func() { _ = metadataStore.Close() }()
-	store, err = session.OpenByID(persistenceRoot, sessionID, metadataStore.AuthoritativeSessionStoreOptions()...)
+	store, err := session.OpenByID(persistenceRoot, sessionID, metadataStore.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
-		return nil, fmt.Errorf("%w; session.OpenByID fallback failed: %v", primaryErr, err)
+		return nil, err
 	}
 	return store, nil
 }

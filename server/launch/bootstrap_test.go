@@ -12,8 +12,17 @@ import (
 
 func TestResolveBootstrapPlanUsesSessionWorkspaceAndPersistedBaseURL(t *testing.T) {
 	persistenceRoot := t.TempDir()
-	containerDir := filepath.Join(persistenceRoot, "sessions", "workspace-a")
-	store, err := session.Create(containerDir, "workspace-a", "/tmp/original-workspace")
+	metadataStore, err := metadata.Open(persistenceRoot)
+	if err != nil {
+		t.Fatalf("metadata.Open: %v", err)
+	}
+	defer func() { _ = metadataStore.Close() }()
+	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), "/tmp/original-workspace")
+	if err != nil {
+		t.Fatalf("RegisterWorkspaceBinding: %v", err)
+	}
+	containerDir := config.ProjectSessionsRoot(config.App{PersistenceRoot: persistenceRoot}, binding.ProjectID)
+	store, err := session.Create(containerDir, filepath.Base(containerDir), "/tmp/original-workspace", metadataStore.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -41,8 +50,17 @@ func TestResolveBootstrapPlanUsesSessionWorkspaceAndPersistedBaseURL(t *testing.
 
 func TestResolveBootstrapPlanRespectsExplicitOverrides(t *testing.T) {
 	persistenceRoot := t.TempDir()
-	containerDir := filepath.Join(persistenceRoot, "sessions", "workspace-a")
-	store, err := session.Create(containerDir, "workspace-a", "/tmp/original-workspace")
+	metadataStore, err := metadata.Open(persistenceRoot)
+	if err != nil {
+		t.Fatalf("metadata.Open: %v", err)
+	}
+	defer func() { _ = metadataStore.Close() }()
+	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), "/tmp/original-workspace")
+	if err != nil {
+		t.Fatalf("RegisterWorkspaceBinding: %v", err)
+	}
+	containerDir := config.ProjectSessionsRoot(config.App{PersistenceRoot: persistenceRoot}, binding.ProjectID)
+	store, err := session.Create(containerDir, filepath.Base(containerDir), "/tmp/original-workspace", metadataStore.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -71,10 +89,19 @@ func TestResolveBootstrapPlanRespectsExplicitOverrides(t *testing.T) {
 	}
 }
 
-func TestResolveBootstrapPlanStillUsesGlobalSessionLookupByID(t *testing.T) {
+func TestResolveBootstrapPlanUsesMetadataSessionLookupByID(t *testing.T) {
 	persistenceRoot := t.TempDir()
-	containerB := filepath.Join(persistenceRoot, "sessions", "workspace-b")
-	store, err := session.Create(containerB, "workspace-b", "/tmp/workspace-b")
+	metadataStore, err := metadata.Open(persistenceRoot)
+	if err != nil {
+		t.Fatalf("metadata.Open: %v", err)
+	}
+	defer func() { _ = metadataStore.Close() }()
+	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), "/tmp/workspace-b")
+	if err != nil {
+		t.Fatalf("RegisterWorkspaceBinding: %v", err)
+	}
+	containerB := config.ProjectSessionsRoot(config.App{PersistenceRoot: persistenceRoot}, binding.ProjectID)
+	store, err := session.Create(containerB, filepath.Base(containerB), "/tmp/workspace-b", metadataStore.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}

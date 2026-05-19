@@ -32,13 +32,14 @@ export function StartupGate({ children }: StartupGateProps): ReactElement {
   }, [connection.phase, dismiss, push, t]);
 
   if (startup.kind === "loading") {
-    return <LoadingState body={t("startup.loadingBody")} reveal={false} title={t("startup.loadingTitle")} />;
+    return <LoadingState body={t("startup.loadingBody")} chromePadding reveal={false} title={t("startup.loadingTitle")} />;
   }
 
   if (startup.kind === "error") {
     return (
       <ErrorState
         body={startup.body}
+        chromePadding
         onRetry={startup.retry}
         reveal={false}
         retryLabel={t("app.retry")}

@@ -449,6 +449,24 @@ type WorkflowBoardResponse struct {
 	Board WorkflowBoard `json:"board"`
 }
 
+type WorkflowBoardNodeCardsListRequest struct {
+	ProjectID  string `json:"project_id"`
+	WorkflowID string `json:"workflow_id"`
+	NodeID     string `json:"node_id"`
+	PageSize   int    `json:"page_size"`
+	PageToken  string `json:"page_token"`
+}
+
+type WorkflowBoardNodeCardsListResponse struct {
+	ProjectID           string                  `json:"project_id"`
+	WorkflowID          string                  `json:"workflow_id"`
+	NodeID              string                  `json:"node_id"`
+	Cards               []WorkflowBoardTaskCard `json:"cards"`
+	NextPageToken       string                  `json:"next_page_token"`
+	GeneratedAtUnixMs   int64                   `json:"generated_at_unix_ms"`
+	LatestEventSequence int64                   `json:"latest_event_sequence"`
+}
+
 type WorkflowBoard struct {
 	ProjectID           string                  `json:"project_id"`
 	Project             ProjectBoardProject     `json:"project"`
@@ -1008,6 +1026,25 @@ func (r WorkflowBoardRequest) Validate() error {
 	}
 	if r.DonePreviewLimit < 0 {
 		return workflowRequestError(WorkflowRequestErrorInvalidMode, "done_preview_limit", "done_preview_limit must be non-negative")
+	}
+	if r.PageSize < 0 {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "page_size", "page_size must be non-negative")
+	}
+	if strings.TrimSpace(r.PageToken) != r.PageToken {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "page_token", "page_token must not have leading or trailing whitespace")
+	}
+	return nil
+}
+
+func (r WorkflowBoardNodeCardsListRequest) Validate() error {
+	if err := validateRequired("project_id", r.ProjectID); err != nil {
+		return err
+	}
+	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
+		return err
+	}
+	if err := validateRequired("node_id", r.NodeID); err != nil {
+		return err
 	}
 	if r.PageSize < 0 {
 		return workflowRequestError(WorkflowRequestErrorInvalidMode, "page_size", "page_size must be non-negative")

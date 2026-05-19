@@ -80,6 +80,7 @@ export function NativeDialogWindow({
       >
         <div
           className="mx-auto grid h-full min-h-0 w-full gap-[var(--space-3)] grid-rows-[auto_minmax(0,1fr)]"
+          data-testid="native-dialog-content"
           style={{ maxWidth: contentMaxWidth }}
         >
           <header className="min-w-0">

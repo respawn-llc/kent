@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"builder/shared/sessioncontract"
 )
 
 func ResolveScopedSessionDir(containerDir string, sessionID string) (string, error) {
@@ -55,7 +57,7 @@ func resolveRealSessionPath(containerDir string, sessionDir string) (string, str
 	realSessionDir, err := filepath.EvalSymlinks(sessionDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", "", fmt.Errorf("session dir %q not found: %w", filepath.Base(sessionDir), err)
+			return "", "", fmt.Errorf("%w: session dir %q not found: %w", sessioncontract.ErrSessionNotFound, filepath.Base(sessionDir), err)
 		}
 		return "", "", fmt.Errorf("resolve session dir: %w", err)
 	}

@@ -145,6 +145,9 @@ WHERE id = ? AND state = 'pending_approval'`, now, id)
 		}
 		return CompleteRunResult{}, sql.ErrNoRows
 	}
+	if err := touchTaskUpdatedAt(ctx, tx, taskID, now); err != nil {
+		return CompleteRunResult{}, err
+	}
 	result := CompleteRunResult{TransitionID: workflow.TransitionID(id), State: "approved"}
 	for _, edge := range edges {
 		if edge.State != "pending" {
