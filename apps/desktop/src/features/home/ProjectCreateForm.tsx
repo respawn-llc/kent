@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { errorMessage } from "../../api/errors";
 import { useAppNavigation } from "../../app/navigation";
 import { useAppServices } from "../../app/useAppServices";
+import { useStatusController } from "../../app/useStatusController";
 import { Button, Dialog, NativeDialogWindow, TextInput } from "../../ui";
 import { cx } from "../../ui/classes";
 import { useProjectCreation } from "./useHomeData";
@@ -55,22 +56,32 @@ export function ProjectCreateWindowRoute({ draft }: Readonly<{ draft: ProjectDra
   const creation = useProjectCreation();
   const { api, nativeBridge } = useAppServices();
   const navigation = useAppNavigation();
+  const { push } = useStatusController();
 
   async function submitDraft(values: ProjectDraft): Promise<void> {
-    const plan = await api.planWorkspace(values.workspaceRoot);
-    if (plan.binding !== null) {
-      await nativeBridge.projectCreation.notifyCreated({ projectID: plan.binding.projectID });
+    try {
+      const plan = await api.planWorkspace(values.workspaceRoot);
+      if (plan.binding !== null) {
+        await nativeBridge.projectCreation.notifyCreated({ projectID: plan.binding.projectID });
+        await nativeBridge.window.closeCurrent();
+        return;
+      }
+      const binding = await creation.mutateAsync({
+        name: values.name.trim(),
+        key: values.key.trim().toUpperCase(),
+        workspaceRoot: values.workspaceRoot,
+      });
+      await nativeBridge.projectCreation.notifyCreated({ projectID: binding.projectID });
+      navigation.openProject(binding.projectID);
       await nativeBridge.window.closeCurrent();
-      return;
+    } catch (error) {
+      push({
+        id: "project-create-submit-error",
+        tone: "danger",
+        title: t("home.workspacePlanError"),
+        body: errorMessage(error),
+      });
     }
-    const binding = await creation.mutateAsync({
-      name: values.name.trim(),
-      key: values.key.trim().toUpperCase(),
-      workspaceRoot: values.workspaceRoot,
-    });
-    await nativeBridge.projectCreation.notifyCreated({ projectID: binding.projectID });
-    navigation.openProject(binding.projectID);
-    await nativeBridge.window.closeCurrent();
   }
 
   return (

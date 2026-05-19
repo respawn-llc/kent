@@ -204,6 +204,9 @@ func (s *Service) UpdateProject(ctx context.Context, req serverapi.ProjectUpdate
 	if s == nil {
 		return serverapi.ProjectUpdateResponse{}, errors.New("project service is required")
 	}
+	if err := s.syncMetadata(ctx); err != nil {
+		return serverapi.ProjectUpdateResponse{}, err
+	}
 	if err := s.requireProjectID(req.ProjectID); err != nil {
 		return serverapi.ProjectUpdateResponse{}, err
 	}
@@ -226,6 +229,9 @@ func (s *Service) GetProjectEdit(ctx context.Context, req serverapi.ProjectEditG
 	}
 	if s == nil {
 		return serverapi.ProjectEditGetResponse{}, errors.New("project service is required")
+	}
+	if err := s.syncMetadata(ctx); err != nil {
+		return serverapi.ProjectEditGetResponse{}, err
 	}
 	if err := s.requireProjectID(req.ProjectID); err != nil {
 		return serverapi.ProjectEditGetResponse{}, err
@@ -263,6 +269,9 @@ func (s *Service) SetDefaultWorkspace(ctx context.Context, req serverapi.Project
 	if s == nil {
 		return serverapi.ProjectDefaultWorkspaceSetResponse{}, errors.New("project service is required")
 	}
+	if err := s.syncMetadata(ctx); err != nil {
+		return serverapi.ProjectDefaultWorkspaceSetResponse{}, err
+	}
 	if err := s.requireProjectID(req.ProjectID); err != nil {
 		return serverapi.ProjectDefaultWorkspaceSetResponse{}, err
 	}
@@ -285,6 +294,9 @@ func (s *Service) UnlinkWorkspaceFromProject(ctx context.Context, req serverapi.
 	}
 	if s == nil {
 		return serverapi.ProjectWorkspaceUnlinkResponse{}, errors.New("project service is required")
+	}
+	if err := s.syncMetadata(ctx); err != nil {
+		return serverapi.ProjectWorkspaceUnlinkResponse{}, err
 	}
 	if err := s.requireProjectID(req.ProjectID); err != nil {
 		return serverapi.ProjectWorkspaceUnlinkResponse{}, err
@@ -401,6 +413,9 @@ func (s *Service) AttachWorkspaceToProject(ctx context.Context, req serverapi.Pr
 	}
 	if s == nil {
 		return serverapi.ProjectAttachWorkspaceResponse{}, errors.New("project service is required")
+	}
+	if err := s.syncMetadata(ctx); err != nil {
+		return serverapi.ProjectAttachWorkspaceResponse{}, err
 	}
 	if err := s.requireProjectID(req.ProjectID); err != nil {
 		return serverapi.ProjectAttachWorkspaceResponse{}, err

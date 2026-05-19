@@ -22,8 +22,8 @@ export const readinessSchema: z.ZodType<ServerReadiness> = z
           diagnostic_id: z.string().optional().default(""),
         }),
       )
-      .optional()
-      .default([]),
+      .nullish()
+      .transform((value) => value ?? []),
   })
   .transform((value) => ({
     ready: value.ready,

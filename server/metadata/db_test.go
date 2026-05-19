@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -168,8 +169,17 @@ VALUES ('task-1', 'project-1', 'link-1', 'workflow-1', 1, 1, 'PR-1', 'Task', '',
 	if err := store.db.QueryRow(`SELECT metadata_json FROM tasks WHERE id = 'task-1'`).Scan(&taskMetadata); err != nil {
 		t.Fatalf("scan task metadata: %v", err)
 	}
-	if !strings.Contains(taskMetadata, "/tmp/workspace-1") || !strings.Contains(taskMetadata, "Workspace One") {
-		t.Fatalf("task metadata lacks workspace snapshot: %s", taskMetadata)
+	var taskMetadataJSON struct {
+		SourceWorkspaceSnapshot struct {
+			RootPath    string `json:"root_path"`
+			DisplayName string `json:"display_name"`
+		} `json:"source_workspace_snapshot"`
+	}
+	if err := json.Unmarshal([]byte(taskMetadata), &taskMetadataJSON); err != nil {
+		t.Fatalf("unmarshal task metadata: %v", err)
+	}
+	if taskMetadataJSON.SourceWorkspaceSnapshot.RootPath != "/tmp/workspace-1" || taskMetadataJSON.SourceWorkspaceSnapshot.DisplayName != "Workspace One" {
+		t.Fatalf("task workspace snapshot = %+v", taskMetadataJSON.SourceWorkspaceSnapshot)
 	}
 }
 

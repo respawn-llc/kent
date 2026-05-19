@@ -80,7 +80,7 @@ describe("App", () => {
                   session_id: "",
                   ask_id: "",
                   task_transition_id: "",
-                  message: 'Workflow "Default nodes" is invalid for task creation',
+                  message: 'Workflow "Default nodes" is invalid for task start',
                   occurred_at_unix_ms: 1,
                   latest_event_sequence: 1,
                 },
@@ -95,7 +95,7 @@ describe("App", () => {
     );
 
     expect(await screen.findByText("validation_blocker")).toBeInTheDocument();
-    expect(screen.getByText('Workflow "Default nodes" is invalid for task creation')).toBeInTheDocument();
+    expect(screen.getByText('Workflow "Default nodes" is invalid for task start')).toBeInTheDocument();
     expect(screen.getByTestId("attention-row")).toHaveClass("min-w-0");
     expect(screen.getByTestId("attention-row-meta")).toHaveClass("flex", "flex-wrap", "min-w-0");
   });

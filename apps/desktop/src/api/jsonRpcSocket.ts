@@ -134,6 +134,10 @@ export async function sendSocketRequest(
 
 export async function waitForSubscriptionEnd(socket: WebSocket, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (signal.aborted || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) {
+      resolve();
+      return;
+    }
     const cleanup = () => {
       socket.removeEventListener("close", close);
       socket.removeEventListener("error", error);
@@ -163,6 +167,10 @@ export async function waitForSubscriptionEnd(socket: WebSocket, signal: AbortSig
 
 export async function delay(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
     const finish = () => {
       clearTimeout(timeout);
       signal.removeEventListener("abort", abort);

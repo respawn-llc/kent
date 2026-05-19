@@ -35,6 +35,7 @@ export function VirtualizedInfiniteList<TItem>({
   className,
 }: VirtualizedInfiniteListProps<TItem>) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const lastLoadMoreItemsLengthRef = useRef(-1);
   const headerCount = header === undefined ? 0 : 1;
   const emptyCount = items.length === 0 && empty !== undefined ? 1 : 0;
   const placeholderCount = hasNextPage ? 1 : 0;
@@ -77,7 +78,14 @@ export function VirtualizedInfiniteList<TItem>({
   useEffect(() => {
     const lastItem = virtualItems.at(-1);
     const lastDataIndex = headerCount + items.length - 1;
-    if (lastItem !== undefined && lastItem.index >= lastDataIndex && hasNextPage && !isFetchingNextPage) {
+    if (
+      lastItem !== undefined &&
+      lastItem.index >= lastDataIndex &&
+      hasNextPage &&
+      !isFetchingNextPage &&
+      lastLoadMoreItemsLengthRef.current !== items.length
+    ) {
+      lastLoadMoreItemsLengthRef.current = items.length;
       onLoadMore();
     }
   }, [hasNextPage, headerCount, isFetchingNextPage, items.length, onLoadMore, virtualItems]);

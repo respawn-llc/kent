@@ -255,9 +255,16 @@ fn resolve_configured_path(value: &str) -> Result<PathBuf, String> {
 }
 
 fn home_dir() -> Result<PathBuf, String> {
-    env::var_os("HOME")
-        .map(PathBuf::from)
-        .ok_or_else(|| "HOME is not set; cannot resolve Builder paths.".to_string())
+    if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
+        return Ok(home);
+    }
+    if let Some(home) = env::var_os("USERPROFILE").map(PathBuf::from) {
+        return Ok(home);
+    }
+    match (env::var_os("HOMEDRIVE"), env::var_os("HOMEPATH")) {
+        (Some(drive), Some(path)) => Ok(PathBuf::from(drive).join(path)),
+        _ => Err("HOME is not set; cannot resolve Builder paths.".to_string()),
+    }
 }
 
 fn server_rpc_url(host: &str, port: u16) -> String {

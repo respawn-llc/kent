@@ -7,6 +7,10 @@ export function useNativeTaskDetailTarget(taskId: string, resumeRunId: string) {
   const [target, setTarget] = useState({ resumeRunId, taskId });
 
   useEffect(() => {
+    setTarget({ resumeRunId, taskId });
+  }, [resumeRunId, taskId]);
+
+  useEffect(() => {
     let active = true;
     let unlisten: (() => void) | null = null;
     void nativeBridge.taskDetail.onOpen((nextTarget) => {

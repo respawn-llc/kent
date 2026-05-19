@@ -43,9 +43,11 @@ export function useTaskMutations(taskID: string, onChanged?: () => void) {
     await queryClient.invalidateQueries({ queryKey: queryKeys.task(taskID) });
     await queryClient.invalidateQueries({ queryKey: queryKeys.activity(taskID) });
     await queryClient.invalidateQueries({ queryKey: queryKeys.projects });
-    await queryClient.invalidateQueries({ queryKey: ["attention"] });
-    await queryClient.invalidateQueries({ queryKey: ["board"] });
-    await queryClient.invalidateQueries({ queryKey: ["pending-asks"] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.allAttention });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.allBoards });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.allTasks });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.allActivity });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.allPendingAsks });
     onChanged?.();
   }
   return {

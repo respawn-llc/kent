@@ -88,19 +88,28 @@ export function HomeRoute() {
   }
 
   async function submitDraft(values: ProjectDraft): Promise<void> {
-    const plan = await api.planWorkspace(values.workspaceRoot);
-    if (plan.binding !== null) {
+    try {
+      const plan = await api.planWorkspace(values.workspaceRoot);
+      if (plan.binding !== null) {
+        setDraft(null);
+        navigation.openProject(plan.binding.projectID);
+        return;
+      }
+      const binding = await creation.mutateAsync({
+        name: values.name.trim(),
+        key: values.key.trim().toUpperCase(),
+        workspaceRoot: values.workspaceRoot,
+      });
       setDraft(null);
-      navigation.openProject(plan.binding.projectID);
-      return;
+      navigation.openProject(binding.projectID);
+    } catch (error) {
+      push({
+        id: "project-create-submit-error",
+        tone: "danger",
+        title: t("home.workspacePlanError"),
+        body: errorMessage(error),
+      });
     }
-    const binding = await creation.mutateAsync({
-      name: values.name.trim(),
-      key: values.key.trim().toUpperCase(),
-      workspaceRoot: values.workspaceRoot,
-    });
-    setDraft(null);
-    navigation.openProject(binding.projectID);
   }
 
   const handleNativeProjectCreated = useCallback(

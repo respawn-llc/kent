@@ -509,7 +509,13 @@ func (s *Store) UpdateProjectDisplayName(ctx context.Context, projectID string, 
 		return errors.New("project id is required")
 	}
 	now := time.Now().UTC().UnixMilli()
-	updated, err := s.queries.SetProjectDisplayName(ctx, sqlitegen.SetProjectDisplayNameParams{
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin project display name tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	q := s.queries.WithTx(tx)
+	updated, err := q.SetProjectDisplayName(ctx, sqlitegen.SetProjectDisplayNameParams{
 		ProjectID:       trimmedProjectID,
 		DisplayName:     displayName,
 		UpdatedAtUnixMs: now,
@@ -520,8 +526,11 @@ func (s *Store) UpdateProjectDisplayName(ctx context.Context, projectID string, 
 	if updated == 0 {
 		return fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, trimmedProjectID)
 	}
-	if err := s.recordProjectEvent(ctx, trimmedProjectID, "project", "update", []string{trimmedProjectID}, now); err != nil {
+	if err := recordProjectEventWithQueries(ctx, q, trimmedProjectID, "project", "update", []string{trimmedProjectID}, now); err != nil {
 		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit project display name tx: %w", err)
 	}
 	return nil
 }
@@ -617,6 +626,16 @@ func (s *Store) UnlinkProjectWorkspace(ctx context.Context, projectID string, wo
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
+	workspace, err = q.GetWorkspaceByID(ctx, trimmedWorkspaceID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: %q", serverapi.ErrWorkspaceNotRegistered, trimmedWorkspaceID)
+		}
+		return nil, fmt.Errorf("get workspace by id: %w", err)
+	}
+	if strings.TrimSpace(workspace.ProjectID) != trimmedProjectID {
+		return nil, fmt.Errorf("%w: %q", serverapi.ErrWorkspaceNotRegistered, trimmedWorkspaceID)
+	}
 	blockers, err = workspaceUnlinkBlockersWithQueries(ctx, q, trimmedProjectID, workspace)
 	if err != nil {
 		return nil, err
@@ -1667,7 +1686,17 @@ func (s *Store) upsertSessionSnapshot(ctx context.Context, snapshot session.Pers
 	}
 	binding, err := s.EnsureWorkspaceBinding(ctx, snapshot.Meta.WorkspaceRoot)
 	if err != nil {
-		return err
+		if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
+			return err
+		}
+		existingTarget, targetErr := s.queries.GetSessionExecutionTargetByID(ctx, strings.TrimSpace(snapshot.Meta.SessionID))
+		if targetErr != nil {
+			if errors.Is(targetErr, sql.ErrNoRows) {
+				return err
+			}
+			return fmt.Errorf("get existing session execution target: %w", targetErr)
+		}
+		binding = Binding{ProjectID: existingTarget.ProjectID}
 	}
 	relpath, err := relativePathWithinRoot(s.persistenceRoot, snapshot.SessionDir)
 	if err != nil {
@@ -1689,7 +1718,7 @@ func (s *Store) upsertSessionSnapshot(ctx context.Context, snapshot session.Pers
 	worktreeID := sql.NullString{}
 	cwdRelpath := "."
 	if existingTarget, targetErr := s.queries.GetSessionExecutionTargetByID(ctx, strings.TrimSpace(snapshot.Meta.SessionID)); targetErr == nil {
-		if strings.TrimSpace(existingTarget.WorkspaceID) == binding.WorkspaceID {
+		if strings.TrimSpace(binding.WorkspaceID) != "" && strings.TrimSpace(existingTarget.WorkspaceID) == binding.WorkspaceID {
 			worktreeID = existingTarget.WorktreeID
 			cwdRelpath = normalizeSessionCwdRelpath(existingTarget.CwdRelpath)
 		} else {

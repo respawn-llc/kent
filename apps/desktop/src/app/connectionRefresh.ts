@@ -25,12 +25,12 @@ export function useReconnectRefresh() {
 async function refreshVisibleQueries(queryClient: ReturnType<typeof useQueryClient>): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
-    queryClient.invalidateQueries({ queryKey: ["attention"] }),
-    queryClient.invalidateQueries({ queryKey: ["board"] }),
-    queryClient.invalidateQueries({ queryKey: ["project-edit"] }),
-    queryClient.invalidateQueries({ queryKey: ["workspaces"] }),
-    queryClient.invalidateQueries({ queryKey: ["task"] }),
-    queryClient.invalidateQueries({ queryKey: ["activity"] }),
-    queryClient.invalidateQueries({ queryKey: ["pending-asks"] }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.allAttention }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.allBoards }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.allProjectEdits }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.allWorkspaces }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.allTasks }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.allActivity }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.allPendingAsks }),
   ]);
 }

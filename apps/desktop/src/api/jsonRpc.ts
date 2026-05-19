@@ -182,6 +182,9 @@ class JsonRpcWebSocketTransport implements RpcTransport {
         await this.#openSubscriptionSession(method, params, handler, signal);
         return;
       } catch (error) {
+        if (signal.aborted) {
+          return;
+        }
         handler.onError(error instanceof Error ? error : new TransportError("Subscription failed."));
         await delay(Math.min(subscriptionReconnectBaseMs * 2 ** attempt, subscriptionReconnectMaxMs), signal);
         attempt += 1;
@@ -195,7 +198,14 @@ class JsonRpcWebSocketTransport implements RpcTransport {
     handler: RpcEventHandler,
     signal: AbortSignal,
   ): Promise<void> {
+    if (signal.aborted) {
+      return;
+    }
     const socket = await openSocket(this.#endpoint, socketOpenTimeoutMs);
+    if (signal.aborted) {
+      socket.close();
+      return;
+    }
     signal.addEventListener(
       "abort",
       () => {

@@ -105,8 +105,8 @@ export const workspaceUnlinkResponseSchema: z.ZodType<WorkspaceUnlinkResponse> =
           count: z.number().optional().default(0),
         }),
       )
-      .optional()
-      .default([]),
+      .nullish()
+      .transform((value) => value ?? []),
     project: projectSummarySchema.nullish(),
   })
   .transform((value) => ({

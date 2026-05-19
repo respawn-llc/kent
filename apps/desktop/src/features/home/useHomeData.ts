@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type { ProjectBinding } from "../../api";
+import { errorMessage } from "../../api/errors";
 import type { NativeProjectBinding } from "@builder/desktop-native-bridge";
 import { queryKeys } from "../../app/queryKeys";
 import { useAppServices } from "../../app/useAppServices";
@@ -31,19 +32,27 @@ export function useGlobalAttentionPages() {
 }
 
 export function useProjectCreationEvents(onCreated: (binding: NativeProjectBinding) => void) {
-  const { nativeBridge } = useAppServices();
+  const { logger, nativeBridge } = useAppServices();
   useEffect(() => {
     if (!nativeBridge.capabilities.projectCreationWindow) {
       return undefined;
     }
+    let active = true;
     let unlisten: (() => void) | undefined;
     void nativeBridge.projectCreation.onCreated(onCreated).then((nextUnlisten) => {
+      if (!active) {
+        nextUnlisten();
+        return;
+      }
       unlisten = nextUnlisten;
+    }).catch((error: unknown) => {
+      void logger.append("warn", "Project creation event listener failed.", { error: errorMessage(error) });
     });
     return () => {
+      active = false;
       unlisten?.();
     };
-  }, [nativeBridge, onCreated]);
+  }, [logger, nativeBridge, onCreated]);
 }
 
 export function useProjectCreation() {
