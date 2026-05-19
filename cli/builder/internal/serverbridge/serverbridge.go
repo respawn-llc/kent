@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 
-	"builder/server/metadata"
 	"builder/server/serve"
 	"builder/server/sessionlifecycle"
 	serverstartup "builder/server/startup"
@@ -27,12 +26,11 @@ type ServeServer interface {
 }
 
 func NewLocalSessionLifecycleClient(cfg config.App) client.SessionLifecycleClient {
-	store, err := metadata.Open(cfg.PersistenceRoot)
+	client, err := sessionlifecycle.NewMetadataBackedLoopbackClient(cfg.PersistenceRoot, nil)
 	if err != nil {
 		return failingSessionLifecycleClient{err: err}
 	}
-	service := sessionlifecycle.NewGlobalService(cfg.PersistenceRoot, nil, nil, store.AuthoritativeSessionStoreOptions()...)
-	return client.NewLoopbackSessionLifecycleClient(service)
+	return client
 }
 
 type failingSessionLifecycleClient struct {

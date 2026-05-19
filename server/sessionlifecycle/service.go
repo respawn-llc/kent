@@ -12,6 +12,7 @@ import (
 	"builder/server/requestmemo"
 	"builder/server/session"
 	"builder/server/sessionpath"
+	"builder/shared/client"
 	"builder/shared/rollbacktarget"
 	"builder/shared/serverapi"
 )
@@ -51,6 +52,15 @@ func NewService(containerDir string, stores sessionStoreResolver, authManager *a
 
 func NewGlobalService(persistenceRoot string, stores sessionStoreResolver, authManager *auth.Manager, storeOptions ...session.StoreOption) *Service {
 	return &Service{persistenceRoot: strings.TrimSpace(persistenceRoot), stores: stores, authManager: authManager, storeOptions: append([]session.StoreOption(nil), storeOptions...), drafts: requestmemo.New[sessionDraftMemoRequest, serverapi.SessionPersistInputDraftResponse](), transitions: requestmemo.New[sessionTransitionMemoRequest, serverapi.SessionResolveTransitionResponse]()}
+}
+
+func NewMetadataBackedLoopbackClient(persistenceRoot string, authManager *auth.Manager) (client.SessionLifecycleClient, error) {
+	store, err := metadata.Open(persistenceRoot)
+	if err != nil {
+		return nil, err
+	}
+	service := NewGlobalService(persistenceRoot, nil, authManager, store.AuthoritativeSessionStoreOptions()...)
+	return client.NewLoopbackSessionLifecycleClient(service), nil
 }
 
 func (s *Service) WithControllerLeaseVerifier(verifier ControllerLeaseVerifier) *Service {
