@@ -1281,39 +1281,6 @@ func (q *Queries) GetWorkspaceBindingByProjectAndCanonicalRoot(ctx context.Conte
 	return i, err
 }
 
-const getWorkspaceByCanonicalRoot = `-- name: GetWorkspaceByCanonicalRoot :one
-SELECT
-    id,
-    project_id,
-    canonical_root_path,
-    display_name,
-    availability,
-    is_primary,
-    git_metadata_json,
-    created_at_unix_ms,
-    updated_at_unix_ms
-FROM workspaces
-WHERE canonical_root_path = ?1
-LIMIT 1
-`
-
-func (q *Queries) GetWorkspaceByCanonicalRoot(ctx context.Context, canonicalRootPath string) (Workspace, error) {
-	row := q.db.QueryRowContext(ctx, getWorkspaceByCanonicalRoot, canonicalRootPath)
-	var i Workspace
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.CanonicalRootPath,
-		&i.DisplayName,
-		&i.Availability,
-		&i.IsPrimary,
-		&i.GitMetadataJson,
-		&i.CreatedAtUnixMs,
-		&i.UpdatedAtUnixMs,
-	)
-	return i, err
-}
-
 const getWorkspaceByID = `-- name: GetWorkspaceByID :one
 SELECT
     id,
@@ -3841,6 +3808,55 @@ func (q *Queries) ListWorkspaceBindingsByCanonicalRoot(ctx context.Context, cano
 			&i.ProjectKey,
 			&i.WorkspaceID,
 			&i.WorkspaceRoot,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWorkspacesByCanonicalRoot = `-- name: ListWorkspacesByCanonicalRoot :many
+SELECT
+    id,
+    project_id,
+    canonical_root_path,
+    display_name,
+    availability,
+    is_primary,
+    git_metadata_json,
+    created_at_unix_ms,
+    updated_at_unix_ms
+FROM workspaces
+WHERE canonical_root_path = ?1
+ORDER BY created_at_unix_ms ASC, rowid ASC
+`
+
+func (q *Queries) ListWorkspacesByCanonicalRoot(ctx context.Context, canonicalRootPath string) ([]Workspace, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkspacesByCanonicalRoot, canonicalRootPath)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Workspace
+	for rows.Next() {
+		var i Workspace
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.CanonicalRootPath,
+			&i.DisplayName,
+			&i.Availability,
+			&i.IsPrimary,
+			&i.GitMetadataJson,
+			&i.CreatedAtUnixMs,
+			&i.UpdatedAtUnixMs,
 		); err != nil {
 			return nil, err
 		}

@@ -23,7 +23,7 @@ WHERE w.project_id = sqlc.arg(project_id)
   AND w.canonical_root_path = sqlc.arg(canonical_root_path)
 LIMIT 1;
 
--- name: GetWorkspaceByCanonicalRoot :one
+-- name: ListWorkspacesByCanonicalRoot :many
 SELECT
     id,
     project_id,
@@ -36,7 +36,7 @@ SELECT
     updated_at_unix_ms
 FROM workspaces
 WHERE canonical_root_path = sqlc.arg(canonical_root_path)
-LIMIT 1;
+ORDER BY created_at_unix_ms ASC, rowid ASC;
 
 -- name: GetWorkspaceByID :one
 SELECT

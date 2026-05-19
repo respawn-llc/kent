@@ -10,6 +10,8 @@ import { Button, Dialog, NativeDialogWindow, TextInput } from "../../ui";
 import { cx } from "../../ui/classes";
 import { useProjectCreation } from "./useHomeData";
 
+const LOCAL_UNBOUND_PLAN_KIND = "local_unbound";
+
 export type ProjectDraft = Readonly<{
   name: string;
   key: string;
@@ -64,6 +66,15 @@ export function ProjectCreateWindowRoute({ draft }: Readonly<{ draft: ProjectDra
       if (plan.binding !== null) {
         await nativeBridge.projectCreation.notifyCreated({ projectID: plan.binding.projectID });
         await nativeBridge.window.closeCurrent();
+        return;
+      }
+      if (plan.kind !== LOCAL_UNBOUND_PLAN_KIND) {
+        push({
+          id: "project-create-selection-required",
+          tone: "info",
+          title: t("home.workspaceSelectionRequired"),
+          body: t("home.workspaceSelectionRequiredBody"),
+        });
         return;
       }
       const binding = await creation.mutateAsync({
