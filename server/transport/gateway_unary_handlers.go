@@ -333,6 +333,11 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return g.deps.WorkflowClient().GetWorkflowBoard(ctx, params)
 		})
 	},
+	protocol.MethodWorkflowBoardNodeCardsList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error) {
+			return g.deps.WorkflowClient().ListWorkflowBoardNodeCards(ctx, params)
+		})
+	},
 	protocol.MethodWorkflowTaskGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
 			return g.deps.WorkflowClient().GetWorkflowTask(ctx, params)

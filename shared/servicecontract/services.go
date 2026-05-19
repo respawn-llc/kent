@@ -171,5 +171,6 @@ type WorkflowService interface {
 	GetWorkflowTaskTeleportTarget(ctx context.Context, req serverapi.WorkflowTaskTeleportTargetRequest) (serverapi.WorkflowTaskTeleportTargetResponse, error)
 	SubscribeWorkflowProject(ctx context.Context, req serverapi.WorkflowProjectSubscribeRequest) (serverapi.WorkflowProjectSubscription, error)
 	GetWorkflowBoard(ctx context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error)
+	ListWorkflowBoardNodeCards(ctx context.Context, req serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error)
 	GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error)
 }

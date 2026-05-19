@@ -355,6 +355,11 @@ func (c *Remote) GetWorkflowBoard(ctx context.Context, req serverapi.WorkflowBoa
 	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowBoardGet, req, &resp)
 }
 
+func (c *Remote) ListWorkflowBoardNodeCards(ctx context.Context, req serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error) {
+	var resp serverapi.WorkflowBoardNodeCardsListResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowBoardNodeCardsList, req, &resp)
+}
+
 func (c *Remote) GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
 	var resp serverapi.WorkflowTaskGetResponse
 	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskGet, req, &resp)

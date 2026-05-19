@@ -433,6 +433,9 @@ func (s *Service) MoveWorkflowTask(ctx context.Context, req serverapi.WorkflowTa
 	if s.schedulerWake != nil {
 		s.schedulerWake.Notify()
 	}
+	if detail, detailErr := s.view.GetTask(ctx, req.TaskID); detailErr == nil {
+		s.publishWorkflowEvent(ctx, detail.Summary.ProjectID, detail.Summary.WorkflowID, "task", "moved", req.TaskID, string(moved.TransitionID))
+	}
 	return serverapi.WorkflowTaskMoveResponse{TransitionID: string(moved.TransitionID), State: moved.State, PlacementIDs: placementIDs(moved.PlacementIDs), RunIDs: runIDs(moved.RunIDs)}, nil
 }
 
@@ -594,6 +597,13 @@ func (s *Service) GetWorkflowBoard(ctx context.Context, req serverapi.WorkflowBo
 		return serverapi.WorkflowBoardResponse{}, err
 	}
 	return serverapi.WorkflowBoardResponse{Board: board}, nil
+}
+
+func (s *Service) ListWorkflowBoardNodeCards(ctx context.Context, req serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.WorkflowBoardNodeCardsListResponse{}, err
+	}
+	return s.view.ListBoardNodeCards(ctx, req, s.roleResolver)
 }
 
 func (s *Service) SubscribeWorkflowProject(ctx context.Context, req serverapi.WorkflowProjectSubscribeRequest) (serverapi.WorkflowProjectSubscription, error) {

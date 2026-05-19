@@ -48,7 +48,9 @@ func (s *Store) ManualMoveTask(ctx context.Context, req ManualMoveRequest) (Manu
 		return ManualMoveResult{}, err
 	}
 	reusedOutputValues := map[string]string(nil)
-	if !ok {
+	if targetNode.Kind == workflow.NodeKindTerminal && sourceNode.Kind != workflow.NodeKindTerminal {
+		group, edge, ok = terminalArchiveManualMoveContract(sourceNode, targetNode)
+	} else if !ok {
 		group, edge, reusedOutputValues, sourceRunID, sourceSessionID, ok, err = s.backwardManualMoveEdge(ctx, sourcePlacement, targetNode)
 		if err != nil {
 			return ManualMoveResult{}, err
@@ -120,6 +122,9 @@ WHERE id = ? AND state = 'active'`, now, string(sourcePlacement))
 	if updated != 1 {
 		return ManualMoveResult{}, sql.ErrNoRows
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET updated_at_unix_ms = ? WHERE id = ?`, now, string(req.TaskID)); err != nil {
+		return ManualMoveResult{}, fmt.Errorf("update task timestamp: %w", err)
+	}
 	appliedAt := now
 	if transitionState == "pending_approval" {
 		appliedAt = 0
@@ -143,6 +148,25 @@ WHERE id = ? AND state = 'active'`, now, string(sourcePlacement))
 		return ManualMoveResult{}, err
 	}
 	return result, nil
+}
+
+func terminalArchiveManualMoveContract(sourceNode workflow.Node, targetNode workflow.Node) (workflow.TransitionGroup, workflow.Edge, bool) {
+	group := workflow.TransitionGroup{
+		ID:           "",
+		SourceNodeID: sourceNode.ID,
+		TransitionID: "manual_done",
+		DisplayName:  "Move to Done",
+	}
+	edge := workflow.Edge{
+		ID:                 "",
+		Key:                "manual_done",
+		TargetNodeID:       targetNode.ID,
+		ContextMode:        workflow.ContextModeNewSession,
+		RequiresApproval:   false,
+		InputBindings:      nil,
+		OutputRequirements: nil,
+	}
+	return group, edge, true
 }
 
 func (s *Store) latestRunForPlacement(ctx context.Context, placementID workflow.PlacementID) (workflow.RunID, string, error) {

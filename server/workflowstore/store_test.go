@@ -199,6 +199,30 @@ func TestTaskCreateStartCancelAndComments(t *testing.T) {
 	if runs[0].InterruptedAt == 0 || runs[0].InterruptionReason != "task_canceled" {
 		t.Fatalf("run not interrupted by cancel: %+v", runs[0])
 	}
+	placements, err = store.ListPlacements(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListPlacements after cancel: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	done := nodeByKind(t, def, workflow.NodeKindTerminal)
+	activeDone := false
+	activeNonTerminal := false
+	for _, placement := range placements {
+		if placement.State != "active" {
+			continue
+		}
+		if placement.NodeID == done.ID {
+			activeDone = true
+			continue
+		}
+		activeNonTerminal = true
+	}
+	if !activeDone || activeNonTerminal {
+		t.Fatalf("placements after cancel = %+v, want only active Done placement", placements)
+	}
 }
 
 func TestTaskCreatePersistsSourceWorkspaceAndOptionalBody(t *testing.T) {
@@ -1371,7 +1395,7 @@ func TestApprovalUsesStoredEdgeSnapshotAfterGraphEdit(t *testing.T) {
 	}
 }
 
-func TestManualMoveForwardValidatesOutputValues(t *testing.T) {
+func TestManualMoveToTerminalArchivesWithoutOutputValues(t *testing.T) {
 	ctx := context.Background()
 	store, binding := newTestStore(t)
 	workflowID := createValidWorkflow(t, ctx, store)
@@ -1391,10 +1415,7 @@ func TestManualMoveForwardValidatesOutputValues(t *testing.T) {
 	}
 	done := nodeByKind(t, def, workflow.NodeKindTerminal)
 
-	if _, err := store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: done.ID}); err == nil || !strings.Contains(err.Error(), "required output") {
-		t.Fatalf("ManualMoveTask missing output error = %v, want required output", err)
-	}
-	moved, err := store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: done.ID, OutputValues: map[string]string{"summary": "manual done"}})
+	moved, err := store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: done.ID})
 	if err != nil {
 		t.Fatalf("ManualMoveTask: %v", err)
 	}
@@ -1405,8 +1426,15 @@ func TestManualMoveForwardValidatesOutputValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTransitions: %v", err)
 	}
-	if len(transitions) != 2 || transitions[1].OutputValues["summary"] != "manual done" {
+	if len(transitions) != 2 || transitions[1].ID == "" || transitions[1].TransitionID != "manual_done" || len(transitions[1].OutputValues) != 0 {
 		t.Fatalf("manual move transition = %+v", transitions)
+	}
+	placements, err := store.ListPlacements(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListPlacements: %v", err)
+	}
+	if len(placements) != 3 || placements[1].State != "completed" || placements[2].NodeID != done.ID || placements[2].State != "active" {
+		t.Fatalf("manual terminal placements = %+v", placements)
 	}
 }
 
