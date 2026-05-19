@@ -44,6 +44,10 @@ func (c failingSessionLifecycleClient) failure() error {
 	return c.err
 }
 
+func (c failingSessionLifecycleClient) Close() error {
+	return nil
+}
+
 func (c failingSessionLifecycleClient) GetInitialInput(context.Context, serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
 	return serverapi.SessionInitialInputResponse{}, c.failure()
 }

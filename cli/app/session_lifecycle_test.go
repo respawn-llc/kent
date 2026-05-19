@@ -1180,6 +1180,10 @@ type recordingSessionLifecycleClient struct {
 	resolveTransition        func(context.Context, serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error)
 }
 
+func (c *recordingSessionLifecycleClient) Close() error {
+	return nil
+}
+
 func (c *recordingSessionLifecycleClient) GetInitialInput(ctx context.Context, req serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
 	if c.getInitialInput == nil {
 		return serverapi.SessionInitialInputResponse{}, errors.New("unexpected GetInitialInput call")

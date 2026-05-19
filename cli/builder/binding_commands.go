@@ -312,7 +312,7 @@ func retargetSessionWorkspace(ctx context.Context, sessionID string, newPath str
 	if err != nil {
 		if shouldFallbackToLocalSessionRetargetOpenError(newCfg, err) {
 			localClient := bindingCommandLocalSessionLifecycleClient(newCfg)
-			defer closeSessionLifecycleClient(localClient)
+			defer func() { _ = localClient.Close() }()
 			resp, localErr := bindingCommandSessionRetargeter(ctx, localClient, sessionID, newCfg.WorkspaceRoot)
 			if localErr != nil {
 				return serverapi.ProjectBinding{}, localErr
@@ -326,7 +326,7 @@ func retargetSessionWorkspace(ctx context.Context, sessionID string, newPath str
 	if err != nil {
 		if shouldFallbackToLocalSessionRetargetRPCError(newCfg, err) {
 			localClient := bindingCommandLocalSessionLifecycleClient(newCfg)
-			defer closeSessionLifecycleClient(localClient)
+			defer func() { _ = localClient.Close() }()
 			resp, err = bindingCommandSessionRetargeter(ctx, localClient, sessionID, newCfg.WorkspaceRoot)
 		}
 	}
@@ -334,13 +334,6 @@ func retargetSessionWorkspace(ctx context.Context, sessionID string, newPath str
 		return serverapi.ProjectBinding{}, err
 	}
 	return resp.Binding, nil
-}
-
-func closeSessionLifecycleClient(client client.SessionLifecycleClient) {
-	closer, ok := client.(io.Closer)
-	if ok {
-		_ = closer.Close()
-	}
 }
 
 func shouldFallbackToLocalSessionRetargetOpenError(cfg config.App, err error) bool {

@@ -9,6 +9,7 @@ import (
 )
 
 type SessionLifecycleClient interface {
+	Close() error
 	GetInitialInput(ctx context.Context, req serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error)
 	PersistInputDraft(ctx context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error)
 	RetargetSessionWorkspace(ctx context.Context, req serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error)
@@ -21,6 +22,10 @@ type loopbackSessionLifecycleClient struct {
 
 func NewLoopbackSessionLifecycleClient(service servicecontract.SessionLifecycleService) SessionLifecycleClient {
 	return &loopbackSessionLifecycleClient{service: service}
+}
+
+func (c *loopbackSessionLifecycleClient) Close() error {
+	return nil
 }
 
 func (c *loopbackSessionLifecycleClient) GetInitialInput(ctx context.Context, req serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
