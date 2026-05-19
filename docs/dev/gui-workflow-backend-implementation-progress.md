@@ -48,7 +48,7 @@ Slice 1 notes:
 Slice 2 notes:
 
 - Started: 2026-05-16.
-- Completed tracer: selected `workflow.board.get` returns project identity, picker, selected workflow, safe columns, groups, cards, done preview, action facts, generated timestamp, and event watermark.
+- Completed tracer: selected `workflow.board.get` returns project identity, picker, selected workflow, safe columns, groups, generated timestamp, and event watermark; per-node card pages come from `workflow.board.nodeCards.list`.
 - Completed tracer: visual workflow node groups have schema, store/service/API routes, graph revision bumps, node group assignment, and board group projection.
 - Completed tracer: `workflow.subscribeProject` route/client/transport/service streams durable monotonic invalidation events after `after_sequence`; empty project ID subscribes to global Home invalidations.
 - Home `latest_event_sequence` now reads durable workflow event watermark instead of Slice 1 placeholder `0`.

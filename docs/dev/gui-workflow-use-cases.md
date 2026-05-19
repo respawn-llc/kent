@@ -1,6 +1,8 @@
 # GUI Workflow Use-Case Inventory
 
-Status: draft full-scope inventory for GUI planning.
+> Superseded for MVP implementation: use `docs/dev/gui-workflow-mvp-prd.md` for active product behavior and `docs/dev/gui-workflow-mvp-implementation-plan.md` for implementation sequence. This file remains a broader inventory/reference.
+
+Status: superseded for MVP implementation; broad full-scope inventory reference only.
 
 Date: 2026-05-16.
 
@@ -11,6 +13,8 @@ Define the GUI-visible work scope from the async workflow orchestration plan. Th
 Source backend plan: `docs/dev/async-workflow-orchestration.md`.
 
 Related broader GUI parity inventory: `docs/dev/gui-cli-parity-checklist.md`.
+
+Related final MVP PRD: `docs/dev/gui-workflow-mvp-prd.md`.
 
 Related MVP PRD-writing checklist: `docs/dev/gui-workflow-mvp-prd-checklist.md`.
 
@@ -134,7 +138,7 @@ This inventory tracks user-facing capabilities described by `docs/dev/async-work
 - [x] MVP decision: User gets Montserrat as main UI font and Monaspace Neon as monospace font.
 - [x] MVP decision: User gets dark and light themes with config-based override and auto/system default.
 - [x] MVP decision: Palette starts from current TUI and docs-site colors, with architecture for dynamic overrides and easy future changes.
-- [x] MVP decision: Shared UI/theme source of truth starts in `apps/shared/ui/theme`.
+- [x] MVP decision: Shared UI/theme source of truth starts app-local in `apps/desktop/src/ui/theme`; `apps/shared/*` stays reserved until a second GUI app consumer exists.
 - [x] MVP decision: GUI uses `i18next`/`react-i18next` with static English locale files, no runtime language switch, and no hardcoded user-facing strings in components.
 - [x] MVP decision: UI kit uses Lucide as icon pack.
 - [ ] MVP: User can see global toasts/errors/progress for background operations.
@@ -276,9 +280,8 @@ This inventory tracks user-facing capabilities described by `docs/dev/async-work
 - [ ] MVP: User can distinguish backlog/not started, runnable, running, waiting for question, waiting for approval, interrupted, canceled, and done.
 - [ ] MVP: User can see terminal-node placement as done state.
 - [ ] MVP: User can view completed tasks.
-- [x] MVP decision: Done is an expandable drop target/dropbox, not a full always-expanded column.
-- [x] MVP decision: Done shows a small recent-task preview by default, around 3-5 tasks.
-- [x] MVP decision: Done expands to show more completed tasks when requested.
+- [x] MVP decision: Done is a normal paginated node column and drop target.
+- [x] MVP decision: Done uses the same per-node infinite-scroll card pagination as every other column.
 - [x] MVP decision: User can drag tasks to Done manually when backend permits manual transition.
 - [ ] MVP: User can see active placement(s) for a task.
 - [ ] MVP: User can see that ordinary serial execution has one active placement and fan-out can create multiple active placements.
@@ -386,7 +389,7 @@ This inventory tracks user-facing capabilities described by `docs/dev/async-work
 - [x] MVP decision: If local Builder executable is unavailable, teleport fails with plain text error; no resolution flow required.
 - [ ] MVP: User can open task session chat in terminal through OS-native open/process command instead of built-in GUI chat.
 - [ ] MVP: User can see teleport failure as plain-text problem cause.
-- [x] MVP decision: Exact local Builder TUI attach command/arguments are decided with the CLI surface.
+- [x] MVP decision: Exact local Builder TUI attach command is `builder --continue <session-id>`.
 
 ### Connection Loss
 
@@ -549,7 +552,7 @@ This inventory tracks user-facing capabilities described by `docs/dev/async-work
 - [x] Decide Interrupt confirmation: Interrupt acts immediately with no confirmation.
 - [x] Decide interrupt success outcome: same as TUI, task becomes interrupted/resumable and feed records `Interrupted by user`.
 - [x] Decide whether MVP uses WebSocket JSON-RPC, HTTP polling endpoints, or both: initial snapshot plus WebSocket updates; full refresh on reconnect.
-- [x] Decide whether task-session teleport identifies target by session ID, task ID, or backend-provided identifiers: backend returns task/session attach identifiers; GUI/native bridge owns the local Builder TUI attach command in user's default terminal.
+- [x] Decide whether task-session teleport identifies target by session ID, task ID, or backend-provided identifiers: backend returns task/session attach identifiers; GUI/native bridge opens the user's default terminal and runs `builder --continue <session-id>`.
 - [x] Decide whether MVP accessibility/keyboard-complete pass is required: no; i18n-ready strings are mandatory.
 - [x] Decide task detail missing-field rendering: hide expected-not-yet-created fields when not meaningful, show UX-continuity fields such as assignee as unassigned/empty, and render unexpected missing meaningful fields as unavailable/error states.
 - [x] Decide task detail history shape: fixed-height resizable dialog with fixed top task identity/content and paginated unified activity feed for comments and changes.

@@ -1,10 +1,10 @@
 # GUI Workflow Backend Slice Plan
 
-Status: planning contract and executable checklist for backend work needed before real GUI workflow integration.
+Status: backend slices 0-5 complete; contract and historical executable checklist for GUI workflow integration.
 
 Date: 2026-05-16.
 
-Implementation gate: do not start Slice 0 until Nikita accepts this checklist shape and explicitly asks to start backend implementation.
+Implementation status: Slices 0-5 were implemented and verified on this branch. Keep this document as the backend contract for GUI integration and future backend follow-ups.
 
 ## Purpose
 
@@ -326,12 +326,21 @@ Changed server API:
   - Fields:
     - `project_id string`
     - `workflow_id string`
-    - `done_preview_limit int`
-    - `page_size int`
-    - `page_token string`
   - Response: `WorkflowBoardResponse`
   - Fields:
     - `board WorkflowBoard`
+- `workflow.board.nodeCards.list`
+  - Request: `WorkflowBoardNodeCardsListRequest`
+  - Fields:
+    - `project_id string`
+    - `workflow_id string`
+    - `node_id string`
+    - `page_size int`
+    - `page_token string`
+  - Response: `WorkflowBoardNodeCardsListResponse`
+  - Fields:
+    - `cards []WorkflowBoardTaskCard`
+    - `next_page_token string`
 
 New or expanded DTO fields:
 
@@ -341,9 +350,6 @@ New or expanded DTO fields:
   - `workflows []WorkflowPickerItem`
   - `groups []WorkflowBoardGroup`
   - `columns []WorkflowBoardColumn`
-  - `cards []WorkflowBoardTaskCard`
-  - `done_preview []WorkflowBoardTaskCard`
-  - `next_page_token string`
   - `generated_at_unix_ms int64`
   - `latest_event_sequence int64`
 
@@ -461,7 +467,7 @@ Tests:
 - Workflow picker includes default flag and validation blockers.
 - Columns use workflow node sort order with start/backlog left and terminal/done separately identifiable.
 - Board columns expose `WorkflowBoardNodeSummary` and do not leak prompt templates or output schemas from authoring DTOs.
-- Done preview respects limit.
+- Done is a normal node card stream fetched through per-node pagination.
 - Task cards include source workspace chip metadata for multi-workspace projects.
 - Card action flags follow single active run interrupt decision.
 - Grouped workflow returns group metadata and node membership.
@@ -825,7 +831,7 @@ Completion criteria:
 
 Status: complete.
 
-Goal: GUI can render one selected workflow board with picker, groups, task cards, action facts, done preview, and race-safe invalidations.
+Goal: GUI can render one selected workflow board with picker, groups, per-node task cards, action facts, and race-safe invalidations.
 
 Implementation checklist:
 
@@ -834,7 +840,7 @@ Implementation checklist:
 - [x] Add failing tests for picker ordering by default, MRU, then display name.
 - [x] Add failing tests for picker default flag, validation blockers, display names, graph revisions, and unlinked workflow handling.
 - [x] Add failing tests that board columns expose `WorkflowBoardNodeSummary` and do not leak authoring prompt templates/output schemas.
-- [x] Add failing tests for column order, Backlog left, Done preview limit, card statuses, action flags, and multi-active interrupt detail requirement.
+- [x] Add failing tests for column order, Backlog left, Done node pagination, card statuses, action flags, and multi-active interrupt detail requirement.
 - [x] Add failing tests for grouped workflow metadata, deterministic ungrouped representation, and graph revision bump on group metadata changes.
 - [x] Add failing tests for `workflow.subscribeProject` invalidation events, monotonic sequence, `after_sequence`, and snapshot watermark race safety.
 - [x] Add visual group schema/store/service/API support before relying on grouped board output.
@@ -849,7 +855,7 @@ Implementation checklist:
 
 Completion criteria:
 
-- [x] Board route returns selected workflow board, picker, columns, groups, cards, done preview, and latest event sequence.
+- [x] Board route returns selected workflow metadata, picker, columns, groups, per-node card pages, and latest event sequence.
 - [x] Live update subscription can resume from read-model watermark without lost invalidations.
 - [x] Board DTO contains no workflow authoring prompt/template internals.
 - [x] Group metadata is first-class and revisioned.

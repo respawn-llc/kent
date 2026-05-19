@@ -6,7 +6,9 @@ Date: 2026-05-15.
 
 ## Purpose
 
-Define the frontend stack for Builder's new GUI client. The GUI starts with projects, Kanban boards, workflow editor, task view/chat, question queue, and approvals. Over time it should be capable of replacing the current TUI.
+Define the frontend stack for Builder's new GUI client. The first workflow MVP starts with projects, workflow Kanban boards, task details, comments, questions, approvals, and terminal teleport. Workflow editor and built-in chat are later. Over time the GUI should be capable of replacing the current TUI.
+
+Workflow MVP behavior lives in `docs/dev/gui-workflow-mvp-prd.md`; implementation sequence lives in `docs/dev/gui-workflow-mvp-implementation-plan.md`.
 
 ## Stack Lock
 
@@ -115,6 +117,12 @@ Use `@tanstack/react-query` for server read models, request cache, mutations, in
 
 Use `@tanstack/react-router` for typed routes/destinations, boxed behind Builder destination helpers so feature code does not depend on router details. Validate route/search params with Zod at the boundary. Dialog and modal routes should remain deterministic and restorable; task detail/resume state can live in route search params when it affects back/close/deep-restore behavior.
 
+Desktop modal actions must go through `useNativeDialogFallback` and the native dialog bridge. The hook owns native open, status-toast error handling, and explicit fallback rendering. Feature-owned ad hoc in-page modal fallbacks are not allowed unless that fallback is intentionally registered through this helper.
+
+Native dialog windows inherit the opener's effective app theme through `NativeDialogWindowOptions.theme` and the bridge's internal route serialization. Feature routes should not hand-roll theme query params.
+
+Native dialog startup gates must match dialog responsibilities. API-backed dialogs, such as task creation and project creation, stay behind `StartupGate` because they need server readiness before rendering mutable forms. Event-only dialogs, such as workspace unlink confirmation, bypass `StartupGate` and communicate back to the main window through native events so they do not pay a WebSocket readiness handshake before showing confirmation UI.
+
 Use React Hook Form with `@hookform/resolvers` and Zod for MVP forms. Zod schemas should live at GUI adapter/form boundaries and produce i18n error keys rather than English strings. Defer TanStack Form until the workflow editor has genuinely complex form/editor needs.
 
 ### Styling And Import Boundaries
@@ -148,6 +156,16 @@ Exact shortcut map is deferred. GUI keyboard conventions use platform-native mod
 The GUI foundation dependencies are added to `apps/desktop/package.json`: `@tanstack/react-query`, `@tanstack/react-router`, `react-hook-form`, `@hookform/resolvers`, `zod`, `react-markdown`, `remark-gfm`, `rehype-sanitize`, `i18next`, and `react-i18next`.
 
 Keep `apps/dependency-policy.json` and `apps/pnpm-lock.yaml` in sync with package additions. Respect `minimumReleaseAge: 10080`; do not bypass the 7-day dependency cooldown for TanStack or other packages without explicit security review.
+
+Shadcn components are adapted into the local UI kit rather than generated blindly. `pnpm dlx shadcn@latest add item` prompts for `components.json` in `apps/desktop`; use `pnpm dlx shadcn@latest view item` plus local adaptation unless adding shadcn config is an intentional architecture change.
+
+Dropdown controls use the app-local UI kit `SelectField`, adapted in shadcn style as a custom combobox/listbox. Do not use native `<select>` controls in desktop GUI feature code.
+
+Shared empty, loading, and error surfaces live in `apps/desktop/src/ui/StateViews.tsx`. Use `EmptyState` for route-level no-content states instead of hand-rolled cards; it defaults to a full-page island with a centered icon/title/body/actions column, `Inbox` as the empty icon, optional `icon`, and `actions` rendered as a wrapping button row. `LoadingState` delays its visible spinner layout by 500ms the first time a loading key is used and renders blank space first to avoid fast-loading flicker; later remounts for the same key show immediately. Embedded demos/cards should pass `fullPage={false}`. Route-level loading/error states under `RouteTransitionFrame` should pass `reveal={false}` to avoid nested post-navigation reveal flashes.
+
+### CSS Ownership
+
+Keep `apps/desktop/src/styles.css` global: theme tokens, base rules, shared utilities, and shared UI motion only. Feature-specific selectors and CSS variables belong with the owning feature. Board-only styles, including workflow board hover menu variables and workflow issue bullets, live in `apps/desktop/src/features/board/board.css`.
 
 ### CI And Runtime Versions
 

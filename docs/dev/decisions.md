@@ -3,7 +3,7 @@
 ## Product Scope
 
 - Build a minimal terminal coding agent focused on output quality, speed, and professional workflows.
-- Tech stack: Go + Bubble Tea; no TypeScript.
+- CLI/TUI tech stack is Go + Bubble Tea. GUI MVP tech stack is Tauri + React + TypeScript.
 - Public docs site uses Astro + Starlight from the repository `docs/` directory, deploys as a fully static GitHub Pages site, mirrors the root `README.md` as the initial docs home, and uses Algolia DocSearch for site search.
 - Skills are supported via AGENTS-driven `SKILL.md` discovery/injection from `~/.builder/skills` and `<workspace>/.builder/skills`.
 - First-run onboarding may optionally symlink skills and slash-command roots from `~/.claude`, `~/.codex`, or `~/.agents` into Builder's `~/.builder` layout; normal runtime discovery still reads only Builder-owned directories.
@@ -63,6 +63,7 @@
 - Workflow API/read-model shapes do not need public compatibility stability before Builder 2.0 and may change while the workflow implementation evolves.
 - A parallel POC GUI should consume workflow APIs through a thin adapter layer so pre-2.0 backend DTO/read-model churn does not spread through UI code.
 - GUI MVP workflow board scope is selected project plus selected workflow. It shows tasks from all project workspaces; workspace is card/context metadata rather than primary board scope.
+- GUI MVP workflow board card pagination is server-owned per workflow node. `workflow.board.get` returns board metadata and per-node counts only; card pages are fetched through `workflow.board.nodeCards.list` by `project_id`, `workflow_id`, and `node_id`, including first pages. GUI must not derive column membership by filtering a partial global card page. Done is a normal paginated node column; there is no Expand/Collapse Done mode.
 - GUI MVP task creation defaults to the current/opened workspace context when available, otherwise the project default/main workspace. Additional workspaces are complementary/optional context by default.
 - GUI MVP New Task action is only available inside a workflow/Kanban view and uses the currently selected board workflow. Project default workflow chooses the initial workflow/Kanban view when opening a project.
 - GUI MVP grouped workflows must render through group-aware board UI; grouped workflows are not flattened, blocked, or ignored. The first group-board UX pass is implementation-led, with group islands wrapping related columns as the preferred starting point unless implementation evidence shows a better approach.
@@ -77,6 +78,7 @@
 - GUI MVP delivery order is backend-first vertical slices: connectivity/capabilities plus Home/project admin/key/workspaces; workflow picker plus project-wide board/groups/live updates; task create/backlog/workspace default; drag-to-start/interrupt/cancel/resume/inbox; detail feed/comments/teleport.
 - GUI MVP task bodies and comments use plain multiline text input with shared Markdown rendering. No WYSIWYG editor is part of MVP.
 - GUI MVP drag-to-start starts automation immediately when a backlog task is dropped onto the first active workflow node; no default confirmation is shown.
+- GUI MVP dragging a task to Done is a user archive action, not normal edge completion. The server exposes terminal/Done as a manual move target for any single active non-terminal placement and applies it without output requirements or automation.
 - GUI MVP task cancellation uses confirmation only and does not ask for a cancellation reason.
 - GUI MVP shows Interrupt where Resume would appear when a task session is active/running. Resume appears only when the task is paused/resumable.
 - GUI MVP Interrupt acts immediately with no confirmation. On success, it follows TUI semantics: task becomes interrupted/resumable and activity feed records `Interrupted by user`.
@@ -90,10 +92,12 @@
 - GUI MVP workflow picker orders project default workflow first, then most-recently-used workflows, then display name.
 - GUI MVP preserves active form/comment drafts during disconnect, disables submit while disconnected, refreshes on reconnect, and lets the preserved user draft overwrite remote state on save regardless of remote freshness.
 - GUI MVP reusable component library starts app-local in `apps/desktop/src/ui`, with clean imports and extraction path when a second GUI app exists.
+- GUI MVP dropdown controls use the app-local UI kit `SelectField`, adapted in shadcn style as a custom combobox/listbox. Native `<select>` controls are not used in desktop GUI feature code.
 - GUI MVP styling uses CSS custom properties for semantic design tokens plus CSS Modules/plain CSS in components. Tailwind and vanilla-extract are not part of MVP.
 - GUI MVP feature code cannot import Tauri APIs, `react-markdown`, raw transport, or raw server DTOs directly. Use native bridge packages, shared `MarkdownText`, API adapters, and app-local UI kit exports.
 - GUI MVP task form shows a compact disabled workspace selector/chip when a project has exactly one workspace.
 - GUI MVP disables or reduces blur/glass and motion in tests/snapshots so visual checks remain deterministic.
+- GUI MVP terminal teleport launches the interactive TUI with `builder --continue <session-id>` from the user's default terminal. `builder run --continue <session-id>` is headless prompt execution and must not be used for teleport.
 - Workflow implementation uses split Go packages to preserve a pure domain/validation boundary; persistence, scheduler, and runtime adapters must not force DB/runtime imports into the pure domain package.
 - Workflow package boundaries are locked for implementation: `server/workflow` is pure domain types, validation, and state-machine logic; `server/workflowstore` adapts metadata persistence; `server/workflowsvc` owns use-case/service orchestration; `server/workflowscheduler` owns runnable derivation and workers; `server/workflowruntime` owns workflow completion/runtime contracts used by `server/runtime`; `server/workflowrunner` adapts sessions/runtime/headless infrastructure to workflow scheduling without creating an import cycle; `server/workflowview` owns read models.
 - First implementation milestone is workflow domain validation, metadata persistence, API/read models, and minimal CLI through internal no-LLM coding-agent smoke checks. Real runtime/LLM orchestration follows after that foundation.
@@ -124,7 +128,7 @@
 - Fan-out join readiness uses persisted transition-edge snapshot rows from the accepted source transition as the expected edge set. Later workflow graph edits do not change an in-flight parallel batch's wait set.
 - If any edge in a selected transition group requires approval, the whole transition group waits for one approval before any target placement/run starts.
 - Terminal-node placements remain active sink placements; board/task read models infer done from an active placement whose node kind is terminal.
-- Task cancellation is task-level metadata, not a synthetic terminal placement. Canceling a task records cancellation timestamp/reason, interrupts active runs with a cancel reason, and suppresses scheduler automation for that task.
+- Task cancellation records cancellation timestamp/reason, interrupts active runs with a cancel reason, suppresses scheduler automation for that task, and archives the task to the workflow terminal/Done node so canceled work does not remain in active board columns.
 - Fixable scheduling validation blockers, such as graph drift, role drift, or missing resumable session/worktree, are represented as interrupted run outcomes with reason metadata. `failed` is reserved for unrecoverable corrupted orchestration state.
 - Workflow/task CLI does not need a machine-readable JSON output mode or workflow-specific environment-variable contract in the first CLI milestone. CLI output must still include stable IDs needed by later commands, and workflow prompts may show task identity plus human-readable command examples.
 
@@ -253,9 +257,8 @@
 
 - Sessions support stop/resume.
 - Persistence root is configurable; default `~/.builder`.
-- Storage layout is workspace-scoped containers (`<workspace-folder-name>-<random-uuid>`) with UUID session directories.
-- The server-driven migration target uses hybrid persistence: SQLite is authoritative for structured metadata and server-owned resources; large append-only session artifacts stay file-backed.
-- The durable domain model is `project > workspace > worktree`; legacy workspace-scoped containers are migration input, not future protocol identity.
+- Storage layout is project-scoped: SQLite is authoritative for structured metadata and server-owned resources; large append-only session artifacts stay file-backed under `projects/<project-id>/sessions/<session-id>`.
+- The durable domain model is `project > workspace > worktree`; old workspace-container/index fallback handling is removed.
 - Sessions remain project-scoped durable objects and carry a mutable current execution target `(workspace_id, worktree_id?, cwd_relpath)`.
 - The app-global daemon listen configuration is explicit and user-configurable via separate `server_host` and `server_port` settings. Builder uses a fixed built-in default port in the private/dynamic range, binds exactly that configured address, and fails startup if the port is occupied; it must not silently rebind, fall back, or use `:0` ephemeral assignment.
 - Same-machine transport optimization is local-first and additive. On Unix platforms the daemon also exposes a derived Unix domain socket under runtime-local ephemeral state keyed by the persistence root; this does not add a new config surface and does not replace configured TCP.
@@ -274,14 +277,13 @@
 - Those server-admin commands must prefer RPC to the configured running daemon when one exists; they must not require shutting the server down or taking local ownership of the persistence root.
 - Explicit relocation recovery is `builder rebind <session-id> <new-path>`, which retargets one session to a different workspace root. Unknown-cwd startup does not infer relocation; it stays on the normal bind/create flow.
 - When a session is chosen from the interactive session picker and its stored workspace root differs from Builder's current workspace root, startup must show a `Workspace changed` confirmation. `Yes` retargets that session to the current workspace root before opening it; `No` returns to the session picker.
-- For the migration's runtime-residency model, lease identity is explicit and distinct from `client_request_id`; reconnect rehydrates, reattaches, and acquires a fresh lease rather than reclaiming an abandoned one.
+- For the runtime-residency model, lease identity is explicit and distinct from `client_request_id`; reconnect rehydrates, reattaches, and acquires a fresh lease rather than reclaiming an abandoned one.
 - The attempted SQLite-backed `client_request_id` dedup persistence expansion is being hard-cut before ship. Current shipping direction keeps `client_request_id` on the API surface, retains lease-specific semantics for `sessionruntime.activate` / `sessionruntime.release`, and defers any durable/shared dedup authority to later dedicated session-control work.
-- Post-migration, `session.json` is removed. Session metadata authority moves to SQLite. `events.jsonl` and `steps.log` remain file-backed for now.
+- `session.json` is removed from the authoritative session layout. Session metadata authority lives in SQLite. `events.jsonl` and `steps.log` remain file-backed for now.
 - Interactive session creation remains lazily durable; creating a new interactive session does not immediately force durable metadata writes.
-- The one-time storage migration is blocking at startup, stages the new database/layout before cutover, and keeps the old tree as a timestamped backup after success.
 - Workspace path rebinding after relocation is always explicit user action; Builder must not auto-rebind inferred matches.
-- Database access for the migration architecture is SQL-first and explicit. Prefer typed code generation from hand-written SQL (`sqlc`) plus Goose-managed SQL migrations over ORM-owned schema/runtime state.
-- Session persistence format today is split `session.json` + `events.jsonl`.
+- Database access is SQL-first and explicit. Prefer typed code generation from hand-written SQL (`sqlc`) plus Goose-managed SQL migrations over ORM-owned schema/runtime state.
+- Session persistence format today is split SQLite metadata plus `events.jsonl`.
 - `events.jsonl` is append-only on normal writes; periodic compaction rewrites canonical JSONL to control long-session growth.
 - Session directory names are UUID-only.
 - Session start/setup becomes immutable at first model request dispatch.

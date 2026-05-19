@@ -145,7 +145,7 @@ A non-agent node that waits for required inbound branch outputs before continuin
 
 ### Task Cancellation
 
-A task-level stop operation that prevents further workflow automation for the task and interrupts active runs with cancellation reason metadata. Cancellation is not a terminal workflow node.
+A task-level stop operation that prevents further workflow automation for the task and interrupts active runs with cancellation reason metadata. Cancellation archives the task to the workflow's terminal/Done node for board visibility while preserving cancellation metadata as the task status/activity.
 
 ### Question
 
@@ -166,6 +166,12 @@ Server-owned automation scheduler for runnable workflow work. Runnable work is d
 ### Task Comment
 
 A durable note attached to a task. Task comments capture user or agent observations, review notes, worklogs, and other task-local information that should not be committed into a worktree. A task comment can be added, replaced as a whole, or soft-deleted.
+
+## GUI
+
+### Toast
+
+A transient or persistent global notification surfaced by the desktop app. Toast and snackbar are equivalent terms in Builder GUI docs and code.
 
 ## TUI And Transcript
 

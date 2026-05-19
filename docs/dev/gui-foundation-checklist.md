@@ -6,6 +6,8 @@ Date: 2026-05-15.
 
 This checklist is for decisions and setup needed before implementing product features in the desktop app. It assumes one monorepo, a GUI codebase that can grow to 200-500k LoC, and eventual feature parity with the TUI.
 
+For the first workflow GUI MVP implementation sequence, use `docs/dev/gui-workflow-mvp-implementation-plan.md`.
+
 ## Locked Baseline
 
 - [x] Keep GUI in this repository, not a separate GitHub repo.
@@ -22,7 +24,7 @@ This checklist is for decisions and setup needed before implementing product fea
 - [x] First workflow MVP attaches to an existing Builder server and does not start the server automatically.
 - [x] If the server is not running, first workflow MVP shows instructions to run `builder service install`.
 - [x] First workflow MVP uses island-style floating UI over native glass/acrylic-style window material.
-- [x] Shared UI/theme source of truth starts in `apps/shared/ui/theme`.
+- [x] Shared UI/theme source of truth starts app-local in `apps/desktop/src/ui/theme`; `apps/shared/*` stays reserved until a second GUI app consumer exists.
 
 ## Project Skeleton
 
@@ -32,7 +34,7 @@ This checklist is for decisions and setup needed before implementing product fea
 - [x] Add `NativeBridge` package boundary before feature components need native APIs.
 - [ ] Add final app icons, bundle metadata, copyright, category, and product naming after rebrand direction is clear.
 - [x] Decide whether `Builder`, `Kent`, or another name appears in app chrome for MVP: use `Kent` while rebrand is underway.
-- [x] Decide design-system/theme package start point: shared theme starts in `apps/shared/ui/theme`.
+- [x] Decide design-system/theme package start point: app-local theme starts in `apps/desktop/src/ui/theme`.
 - [x] Decide component library start point: app-local `apps/desktop/src/ui` for MVP, with clean imports and extraction path when a second GUI app exists.
 
 ## Phase 0 Product Shell
@@ -120,7 +122,7 @@ This checklist is for decisions and setup needed before implementing product fea
 - [ ] Define project-wide board read-model adapter for selected project/workflow, including workspace metadata per task card when multiple workspaces exist.
 - [ ] Define group-aware board rendering adapter contract so workflow groups can render without flattening or blocking grouped workflows; first UX pass is implementation-led and should remain flexible for Nikita QA changes.
 - [ ] Define board action adapter for drag/drop backlog-to-first-active-node start.
-- [ ] Define board action adapter for dragging tasks to expandable Done drop target when backend permits manual transition.
+- [ ] Define board action adapter for dragging tasks to the fixed-right Done node column when backend permits manual transition.
 - [ ] Define task action adapter for interrupt, cancel, and resume.
 - [ ] Define task resume adapter capable of surfacing contextual question-answer and approval flows.
 - [ ] Define task comment adapter for create, edit, delete, and list.
@@ -217,6 +219,8 @@ This checklist is for decisions and setup needed before implementing product fea
 - [x] Add contributor setup docs for GUI prerequisites.
 - [x] Add GUI workflow use-case inventory in `docs/dev/gui-workflow-use-cases.md`.
 - [x] Add GUI workflow MVP PRD-writing checklist in `docs/dev/gui-workflow-mvp-prd-checklist.md`.
+- [x] Add final GUI workflow MVP PRD in `docs/dev/gui-workflow-mvp-prd.md`.
+- [x] Add GUI workflow MVP implementation plan in `docs/dev/gui-workflow-mvp-implementation-plan.md`.
 - [x] Add CLI/TUI feature-parity checklist in `docs/dev/gui-cli-parity-checklist.md`.
 - [x] Add CLI/TUI parity evidence and command inventories in `docs/dev/gui-cli-parity-evidence.md`.
 - [ ] Add troubleshooting docs for Tauri native prerequisites.

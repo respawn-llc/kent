@@ -1,10 +1,12 @@
 # GUI Workflow MVP PRD Checklist
 
-Status: draft checklist for a later PRD/planning session.
+> Superseded: do not use this as the active MVP spec. Use `docs/dev/gui-workflow-mvp-prd.md` for product behavior and `docs/dev/gui-workflow-mvp-implementation-plan.md` for frontend implementation sequence. This file remains source/audit history.
+
+Status: superseded source checklist. Not active implementation guidance.
 
 Date: 2026-05-16.
 
-This is not the PRD. It is a working checklist for defining the first workflow GUI MVP. It records current product intent, open design choices, and implementation questions to resolve before writing the real PRD.
+This is no longer the PRD. It is the source checklist used to define the first workflow GUI MVP. The final product spec is `docs/dev/gui-workflow-mvp-prd.md`; the frontend implementation sequence is `docs/dev/gui-workflow-mvp-implementation-plan.md`.
 
 Goal: user can run real work through a workflow from the desktop app.
 
@@ -60,7 +62,7 @@ Keep MVP sections in dependency order: macOS/native surface, visual design syste
 - [x] UI has font tokens locked in code: Montserrat for main UI and Monaspace Neon for monospace values.
 - [x] UI supports dark and light themes, with config override when set and auto/system otherwise.
 - [x] Initial color source should come from current TUI and docs-site palette rather than inventing a separate palette.
-- [x] Shared UI/theme source of truth starts in `apps/shared/ui/theme`.
+- [x] Shared UI/theme source of truth starts app-local in `apps/desktop/src/ui/theme`; `apps/shared/*` stays reserved until a second GUI app consumer exists.
 - [ ] UI has spacing/radius/shadow tokens locked in code.
 - [ ] UI has main widgets locked in code: app shell, nav item, button, input, select, dialog, card, badge, toast, empty state, loading state, error state, Kanban column, Kanban card.
 - [x] UI kit uses Lucide as icon pack.
@@ -199,10 +201,9 @@ Keep MVP sections in dependency order: macOS/native surface, visual design syste
 - [ ] Board can show approval-gated tasks.
 - [ ] Board can show idle/not-started tasks.
 - [ ] Board can show done/completed tasks.
-- [x] Done is an expandable drop target/dropbox, not a full always-expanded column.
-- [x] Done shows a small recent-task preview by default, around 3-5 tasks.
-- [x] Done expands to show more completed tasks when requested.
-- [x] User can drag tasks to Done manually when backend permits manual transition.
+- [x] Done is a normal paginated node column and drop target.
+- [x] Done uses the same per-node infinite-scroll card pagination as every other column.
+- [x] User can drag tasks to Done manually when the server reports Done as an allowed manual target. For MVP, this is a user archive move to the terminal/Done node without edge output requirements or automation.
 - [x] Board card fields are limited to task ID, task name, and rich status component for MVP.
 - [x] Rich status component uses spinner for in-progress states and icons/colors for other states.
 - [ ] Board card shows task ID.
@@ -301,7 +302,7 @@ Keep MVP sections in dependency order: macOS/native surface, visual design syste
 - [x] GUI does not use backend-generated launch artifacts or signed/opaque launch tokens for MVP teleport.
 - [x] If local Builder executable is unavailable, teleport fails with plain text error; no resolution flow required.
 - [ ] Teleport failure shows plain-text problem cause.
-- [ ] Decide exact local Builder TUI attach command/arguments once CLI surface is final.
+- [x] Exact local Builder TUI attach command is `builder --continue <session-id>`.
 
 ## Connection Loss
 
@@ -320,7 +321,7 @@ Keep MVP sections in dependency order: macOS/native surface, visual design syste
 - [x] Does creating task also start automation by default? No. It creates backlog task; user drags to first active node to start.
 - [x] What exact agent status vocabulary is canonical for card badges? Use backend-native status verbatim on cards, no compact UI aggregation.
 - [x] What exact board column ordering is canonical? Workflow-defined node order, Backlog fixed left, Done fixed right.
-- [x] Are completed tasks shown in same board, separate completed column, or separate completed view? Same board as expandable Done dropbox with 3-5 recent tasks by default.
+- [x] Are completed tasks shown in same board, separate completed column, or separate completed view? Same board in the fixed-right Done node column with per-node infinite-scroll pagination.
 - [x] What task detail fields are required vs optional if backend data is missing? Hide expected-not-yet-created fields when not meaningful, show UX-continuity fields such as assignee as unassigned/empty, and render unexpected missing meaningful fields as unavailable/error states.
 - [x] What edit actions, if any, belong in MVP task dialog? Title/body edit only while task is still in Backlog; source URL hidden.
 - [x] Are task comments MVP, read-only later detail, or fully deferred? Full create/edit/delete in task detail.
@@ -328,7 +329,7 @@ Keep MVP sections in dependency order: macOS/native surface, visual design syste
 - [x] Are transition approval queue and approve actions MVP, or only future workflow-state surfaces? Home inbox lists/deep-links only; approval flow appears through contextual Resume modal when needed.
 - [x] Are task start/cancel/resume controls MVP, or is MVP limited to task creation plus visual progression? No Start button. Cancel and Resume in task detail; Resume also on cards when task is resumable.
 - [x] What card/detail action appears for active task sessions? Interrupt appears where Resume would be; Resume appears only when paused/resumable.
-- [x] What terminal command is canonical for teleport? Backend returns task/session attach identifiers; GUI/native bridge owns the local TUI attach command once final.
+- [x] What terminal command is canonical for teleport? GUI/native bridge opens the user's default terminal and runs `builder --continue <session-id>` from backend-provided identifiers.
 - [x] How should project creation map directory picker result to Builder project/workspace binding? Dedicated New Project/Add Workspace buttons resolve path; existing bound workspace opens project; unbound workspace opens project creation page with name confirmation.
 - [x] Is multi-workspace per project visible in MVP or hidden behind selected workspace? Visible through main workspace dropdown in task creation/edit before start; immutable after start.
 - [x] What is board workspace scope after backend task/workspace model update? Board is project-wide for selected project and selected workflow; cards show workspace context when needed, and additional workspaces are complementary/optional by default.
