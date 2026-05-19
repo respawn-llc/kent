@@ -49,17 +49,13 @@ const boardHoverMenuWorkflowContentClassNames = [
 ] as const;
 
 describe("BoardRoute", () => {
-  const originalUserAgent = window.navigator.userAgent;
-
   beforeEach(() => {
     installStorage("localStorage");
     installStorage("sessionStorage");
-    setNavigatorUserAgent(originalUserAgent);
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    setNavigatorUserAgent(originalUserAgent);
   });
 
   it("restores the last valid project workflow route on relaunch", async () => {
@@ -193,12 +189,11 @@ describe("BoardRoute", () => {
   });
 
   it("places the chrome title on the right side on macOS", async () => {
-    setNavigatorUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0)");
     window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
-    const services = createTestServices([
-      ...startupRoutes,
-      { method: "workflow.board.get", result: boardResponse },
-    ]);
+    const services = createTestServices(
+      [...startupRoutes, { method: "workflow.board.get", result: boardResponse }],
+      createBrowserNativeBridge({ platform: "macos" }),
+    );
 
     render(<App services={services} />);
 
@@ -765,13 +760,6 @@ function installStorage(name: "localStorage" | "sessionStorage"): void {
         values.set(key, value);
       },
     },
-  });
-}
-
-function setNavigatorUserAgent(userAgent: string): void {
-  Object.defineProperty(window.navigator, "userAgent", {
-    configurable: true,
-    value: userAgent,
   });
 }
 

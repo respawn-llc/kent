@@ -14,7 +14,6 @@ describe("App", () => {
     HTMLElement.prototype,
   );
   const originalResizeObserver = globalThis.ResizeObserver;
-  const originalUserAgent = window.navigator.userAgent;
 
   beforeEach(() => {
     window.history.pushState(null, "", "/");
@@ -23,14 +22,12 @@ describe("App", () => {
     document.documentElement.removeAttribute("data-builder-theme");
     HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
     globalThis.ResizeObserver = originalResizeObserver;
-    setNavigatorUserAgent(originalUserAgent);
   });
 
   afterEach(() => {
     HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
     globalThis.ResizeObserver = originalResizeObserver;
     document.documentElement.removeAttribute("data-builder-theme");
-    setNavigatorUserAgent(originalUserAgent);
   });
 
   it("renders the startup-gated home shell", async () => {
@@ -68,9 +65,9 @@ describe("App", () => {
   });
 
   it("keeps the macOS home chrome link offset tied to the native titlebar tokens", async () => {
-    setNavigatorUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0)");
-
-    render(<App services={createTestServices(startupRoutes)} />);
+    render(
+      <App services={createTestServices(startupRoutes, createBrowserNativeBridge({ platform: "macos" }))} />,
+    );
 
     expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
     expect(screen.getByTestId("app-chrome-navigation")).toHaveClass(
@@ -79,10 +76,11 @@ describe("App", () => {
   });
 
   it("shows browser-backed history controls as a contiguous macOS chrome row", async () => {
-    setNavigatorUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0)");
     window.history.replaceState({ __TSR_index: 1, __TSR_key: "current", key: "current" }, "", "/");
 
-    render(<App services={createTestServices(startupRoutes)} />);
+    render(
+      <App services={createTestServices(startupRoutes, createBrowserNativeBridge({ platform: "macos" }))} />,
+    );
 
     expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
     const chromeNavigation = screen.getByTestId("app-chrome-navigation");
@@ -96,7 +94,6 @@ describe("App", () => {
   });
 
   it("places history controls before Home on non-macOS chrome", async () => {
-    setNavigatorUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
     window.history.replaceState({ __TSR_index: 1, __TSR_key: "current", key: "current" }, "", "/");
 
     render(<App services={createTestServices(startupRoutes)} />);
@@ -312,13 +309,6 @@ function projectCreationWindowBridge(path: string, error: unknown): NativeBridge
       },
     },
   };
-}
-
-function setNavigatorUserAgent(userAgent: string): void {
-  Object.defineProperty(window.navigator, "userAgent", {
-    configurable: true,
-    value: userAgent,
-  });
 }
 
 function clearStorage(name: "localStorage" | "sessionStorage"): void {

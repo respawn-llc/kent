@@ -19,6 +19,7 @@ const GUI_LOG_MAX_ENTRY_BYTES: usize = 64 * 1024;
 struct BuilderNativeContext {
     server_endpoint: String,
     persistence_root: String,
+    platform: String,
     theme: String,
 }
 
@@ -30,16 +31,19 @@ fn resolve_builder_context() -> Result<BuilderNativeContext, String> {
 #[tauri::command]
 async fn select_directory(app: tauri::AppHandle, title: String) -> Result<Option<String>, String> {
     let (sender, receiver) = tokio::sync::oneshot::channel();
-    app.dialog().file().set_title(title).pick_folder(move |selection| {
-        let result = selection
-            .map(|path| {
-                path.into_path()
-                    .map(|path| path.to_string_lossy().to_string())
-                    .map_err(|error| format!("Directory picker returned invalid path: {error}"))
-            })
-            .transpose();
-        let _ = sender.send(result);
-    });
+    app.dialog()
+        .file()
+        .set_title(title)
+        .pick_folder(move |selection| {
+            let result = selection
+                .map(|path| {
+                    path.into_path()
+                        .map(|path| path.to_string_lossy().to_string())
+                        .map_err(|error| format!("Directory picker returned invalid path: {error}"))
+                })
+                .transpose();
+            let _ = sender.send(result);
+        });
     receiver
         .await
         .map_err(|_| "Directory picker closed before returning a result.".to_string())?
@@ -74,7 +78,8 @@ fn append_gui_log(entry: String) -> Result<(), String> {
     }
     let path = gui_log_path()?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| format!("Create GUI log directory failed: {error}"))?;
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Create GUI log directory failed: {error}"))?;
     }
     trim_log_if_needed(&path, entry_bytes.len() as u64 + 1)?;
     let mut file = OpenOptions::new()
@@ -111,11 +116,18 @@ fn launch_builder_session_impl(session_id: &str, cwd: &str) -> Result<(), String
         "tell application \"Terminal\"\ndo script \"{}\"\nactivate\nend tell",
         escape_applescript_string(&command),
     );
-    run_command(Command::new("osascript").arg("-e").arg(script), "launch Builder terminal session")
+    run_command(
+        Command::new("osascript").arg("-e").arg(script),
+        "launch Builder terminal session",
+    )
 }
 
 fn builder_continue_command(session_id: &str, cwd: &str) -> String {
-    format!("cd {}; builder --continue {}", shell_quote(cwd), shell_quote(session_id))
+    format!(
+        "cd {}; builder --continue {}",
+        shell_quote(cwd),
+        shell_quote(session_id)
+    )
 }
 
 fn ensure_builder_executable_available() -> Result<(), String> {
@@ -133,8 +145,18 @@ fn builder_native_context() -> Result<BuilderNativeContext, String> {
     Ok(BuilderNativeContext {
         server_endpoint: server_rpc_url(&settings.server_host, settings.server_port),
         persistence_root: settings.persistence_root.to_string_lossy().to_string(),
+        platform: builder_platform().to_string(),
         theme: settings.theme,
     })
+}
+
+fn builder_platform() -> &'static str {
+    match std::env::consts::OS {
+        "linux" => "linux",
+        "macos" => "macos",
+        "windows" => "windows",
+        _ => "unknown",
+    }
 }
 
 struct BuilderSettings {
@@ -232,7 +254,9 @@ fn parse_theme(value: &str, setting_name: &str) -> Result<String, String> {
     let normalized = value.trim().to_ascii_lowercase();
     match normalized.as_str() {
         "auto" | "light" | "dark" => Ok(normalized),
-        _ => Err(format!("{setting_name} must be one of auto, light, or dark.")),
+        _ => Err(format!(
+            "{setting_name} must be one of auto, light, or dark."
+        )),
     }
 }
 
@@ -338,7 +362,9 @@ fn shell_quote(value: &str) -> String {
 }
 
 fn gui_log_path() -> Result<PathBuf, String> {
-    Ok(PathBuf::from(builder_native_context()?.persistence_root).join("gui").join("desktop.log"))
+    Ok(PathBuf::from(builder_native_context()?.persistence_root)
+        .join("gui")
+        .join("desktop.log"))
 }
 
 fn trim_log_if_needed(path: &Path, append_bytes: u64) -> Result<(), String> {
@@ -351,7 +377,8 @@ fn trim_log_if_needed(path: &Path, append_bytes: u64) -> Result<(), String> {
         return Ok(());
     }
     let retain_bytes = GUI_LOG_RETAIN_BYTES.min(metadata.len());
-    let mut file = File::open(path).map_err(|error| format!("Open GUI log for trimming failed: {error}"))?;
+    let mut file =
+        File::open(path).map_err(|error| format!("Open GUI log for trimming failed: {error}"))?;
     file.seek(SeekFrom::End(-(retain_bytes as i64)))
         .map_err(|error| format!("Seek GUI log failed: {error}"))?;
     let mut retained = Vec::new();
@@ -374,7 +401,10 @@ mod tests {
 
     #[test]
     fn shell_quote_handles_single_quotes() {
-        assert_eq!(shell_quote("/tmp/nek's worktree"), "'/tmp/nek'\\''s worktree'");
+        assert_eq!(
+            shell_quote("/tmp/nek's worktree"),
+            "'/tmp/nek'\\''s worktree'"
+        );
     }
 
     #[test]
@@ -384,13 +414,19 @@ mod tests {
 
     #[test]
     fn server_rpc_url_uses_configured_remote_hosts() {
-        assert_eq!(server_rpc_url("192.0.2.10", 53082), "ws://192.0.2.10:53082/rpc");
+        assert_eq!(
+            server_rpc_url("192.0.2.10", 53082),
+            "ws://192.0.2.10:53082/rpc"
+        );
     }
 
     #[test]
     fn parse_theme_accepts_supported_values_case_insensitively() {
         assert_eq!(parse_theme("auto", "theme").expect("auto theme"), "auto");
-        assert_eq!(parse_theme(" Light ", "theme").expect("light theme"), "light");
+        assert_eq!(
+            parse_theme(" Light ", "theme").expect("light theme"),
+            "light"
+        );
         assert_eq!(parse_theme("DARK", "theme").expect("dark theme"), "dark");
     }
 

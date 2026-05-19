@@ -6,6 +6,7 @@ describe("native bridge capabilities", () => {
   it("keeps browser fallback capabilities disabled and explicit", async () => {
     const bridge = createBrowserNativeBridge();
 
+    expect(bridge.capabilities.platform).toBe("browser");
     expect(bridge.capabilities.clipboard).toEqual({ readText: false, writeText: false });
     expect(bridge.capabilities.directories.select).toBe(false);
     expect(bridge.capabilities.links.openExternal).toBe(false);
@@ -16,8 +17,9 @@ describe("native bridge capabilities", () => {
   });
 
   it("advertises Tauri capabilities only for implemented bridge methods", () => {
-    const bridge = createTauriNativeBridge();
+    const bridge = createTauriNativeBridge("macos");
 
+    expect(bridge.capabilities.platform).toBe("macos");
     expect(bridge.capabilities.clipboard).toEqual({ readText: true, writeText: true });
     expect(bridge.capabilities.directories.select).toBe(true);
     expect(bridge.capabilities.links.openExternal).toBe(true);
@@ -30,9 +32,8 @@ describe("native bridge capabilities", () => {
     expect(bridge.capabilities.appMenu).toBe(false);
     expect(bridge.capabilities.updater).toBe(false);
     expect(bridge.capabilities.macosVibrancy).toBe(false);
-    expect(bridge.capabilities.terminal.launchBuilderSession).toBe(
-      /Mac OS|Macintosh/u.test(navigator.userAgent),
-    );
+    expect(bridge.capabilities.terminal.launchBuilderSession).toBe(true);
+    expect(createTauriNativeBridge("windows").capabilities.terminal.launchBuilderSession).toBe(false);
   });
 
   it("keeps Tauri permissions aligned with bridge event and window APIs", () => {

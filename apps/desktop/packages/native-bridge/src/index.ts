@@ -15,6 +15,7 @@ import {
 export type { NativeDialogContentSize, NativeDialogTheme, NativeDialogWindowOptions } from "./dialogs";
 
 export type NativeCapabilityState = Readonly<{
+  platform: NativePlatform;
   clipboard: Readonly<{
     writeText: boolean;
     readText: boolean;
@@ -43,6 +44,8 @@ export type NativeCapabilityState = Readonly<{
   taskDetailWindow: boolean;
   macosVibrancy: boolean;
 }>;
+
+export type NativePlatform = "browser" | "linux" | "macos" | "unknown" | "windows";
 
 export type NativeBridge = Readonly<{
   capabilities: NativeCapabilityState;
@@ -123,6 +126,7 @@ export type NativeBuilderTheme = "auto" | "light" | "dark";
 export type NativeBuilderContext = Readonly<{
   serverEndpoint: string;
   persistenceRoot: string;
+  platform: NativePlatform;
   theme: NativeBuilderTheme;
 }>;
 
@@ -154,6 +158,7 @@ export type NativeTaskDetailChanged = Readonly<{
 export type NativeUnlisten = () => void;
 
 const unavailableCapabilities: NativeCapabilityState = {
+  platform: "browser",
   clipboard: {
     writeText: false,
     readText: false,
@@ -194,9 +199,14 @@ declare global {
   }
 }
 
-export function createBrowserNativeBridge(): NativeBridge {
+export type BrowserNativeBridgeOptions = Readonly<{
+  platform?: NativePlatform | undefined;
+}>;
+
+export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = {}): NativeBridge {
+  const capabilities = { ...unavailableCapabilities, platform: options.platform ?? "browser" };
   return {
-    capabilities: unavailableCapabilities,
+    capabilities,
     clipboard: {
       async writeText(): Promise<void> {
         throw new Error("Native clipboard is unavailable in this shell.");
@@ -232,7 +242,12 @@ export function createBrowserNativeBridge(): NativeBridge {
     },
     builder: {
       async resolveContext(): Promise<NativeBuilderContext> {
-        return { serverEndpoint: "ws://127.0.0.1:53082/rpc", persistenceRoot: "", theme: "auto" };
+        return {
+          serverEndpoint: "ws://127.0.0.1:53082/rpc",
+          persistenceRoot: "",
+          platform: capabilities.platform,
+          theme: "auto",
+        };
       },
     },
     window: {
@@ -287,8 +302,8 @@ export function createBrowserNativeBridge(): NativeBridge {
   };
 }
 
-export function createTauriNativeBridge(): NativeBridge {
-  const capabilities = createTauriCapabilities();
+export function createTauriNativeBridge(platform: NativePlatform = "unknown"): NativeBridge {
+  const capabilities = createTauriCapabilities(platform);
   return {
     capabilities,
     clipboard: {
@@ -374,7 +389,9 @@ export function createTauriNativeBridge(): NativeBridge {
       async requestUnlink(target: NativeWorkspaceUnlinkTarget): Promise<void> {
         await emitTo("main", workspaceUnlinkRequestEvent, target);
       },
-      async onUnlinkRequested(handler: (target: NativeWorkspaceUnlinkTarget) => void): Promise<NativeUnlisten> {
+      async onUnlinkRequested(
+        handler: (target: NativeWorkspaceUnlinkTarget) => void,
+      ): Promise<NativeUnlisten> {
         return listen<NativeWorkspaceUnlinkTarget>(workspaceUnlinkRequestEvent, (event) => {
           handler(event.payload);
         });
@@ -427,8 +444,10 @@ export function createTauriNativeBridge(): NativeBridge {
   };
 }
 
-export function createAutoNativeBridge(): NativeBridge {
-  return isTauriRuntime() ? createTauriNativeBridge() : createBrowserNativeBridge();
+export function createAutoNativeBridge(platform: NativePlatform = "unknown"): NativeBridge {
+  return isTauriRuntime()
+    ? createTauriNativeBridge(platform)
+    : createBrowserNativeBridge({ platform: "browser" });
 }
 
 function isTauriRuntime(): boolean {
@@ -451,8 +470,9 @@ async function retargetTaskDetailWindow(
   await window.setFocus();
 }
 
-function createTauriCapabilities(): NativeCapabilityState {
+function createTauriCapabilities(platform: NativePlatform): NativeCapabilityState {
   return {
+    platform,
     clipboard: {
       writeText: true,
       readText: true,
@@ -467,7 +487,7 @@ function createTauriCapabilities(): NativeCapabilityState {
       openExternal: true,
     },
     terminal: {
-      launchBuilderSession: isMacOS(),
+      launchBuilderSession: platform === "macos",
     },
     logging: {
       localFile: true,
@@ -481,8 +501,4 @@ function createTauriCapabilities(): NativeCapabilityState {
     taskDetailWindow: true,
     macosVibrancy: false,
   };
-}
-
-function isMacOS(): boolean {
-  return /Mac OS|Macintosh/u.test(navigator.userAgent);
 }
