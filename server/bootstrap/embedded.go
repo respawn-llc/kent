@@ -12,7 +12,6 @@ import (
 	"builder/server/launch"
 	"builder/server/runtime"
 	"builder/server/runtimewire"
-	"builder/server/storagemigration"
 	shelltool "builder/server/tools/shell"
 	"builder/server/tools/shell/postprocess"
 	"builder/shared/config"
@@ -79,9 +78,6 @@ func ResolveConfig(req Request) (ConfigPlan, error) {
 	if err != nil {
 		return ConfigPlan{}, err
 	}
-	if err := storagemigration.EnsureProjectV1(context.Background(), cfg.PersistenceRoot, now); err != nil {
-		return ConfigPlan{}, err
-	}
 	bootstrapPlan, err = launch.ResolveBootstrapPlan(cfg.PersistenceRoot, launch.BootstrapRequest{
 		WorkspaceRoot:         strings.TrimSpace(req.WorkspaceRoot),
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
@@ -96,15 +92,7 @@ func ResolveConfig(req Request) (ConfigPlan, error) {
 	if err != nil {
 		return ConfigPlan{}, err
 	}
-	containerDir := ""
-	if strings.TrimSpace(cfg.WorkspaceRoot) != "" {
-		_, resolvedContainerDir, err := config.ResolveWorkspaceContainer(cfg)
-		if err != nil {
-			return ConfigPlan{}, err
-		}
-		containerDir = resolvedContainerDir
-	}
-	return ConfigPlan{Config: cfg, ContainerDir: containerDir}, nil
+	return ConfigPlan{Config: cfg}, nil
 }
 
 func BuildAuthSupport(store auth.Store, lookupEnv func(string) string, now func() time.Time) (AuthSupport, error) {

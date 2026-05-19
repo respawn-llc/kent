@@ -67,9 +67,6 @@ func preparePersistenceRoot(path string) (string, error) {
 	if err := os.MkdirAll(absRoot, 0o755); err != nil {
 		return "", fmt.Errorf("create persistence root: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Join(absRoot, sessionsDirName), 0o755); err != nil {
-		return "", fmt.Errorf("create sessions root: %w", err)
-	}
 	return absRoot, nil
 }
 

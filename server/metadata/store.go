@@ -1383,41 +1383,6 @@ func recordProjectEventWithQueries(ctx context.Context, q *sqlitegen.Queries, pr
 	return nil
 }
 
-func (s *Store) SyncLegacyContainer(ctx context.Context, containerDir string) error {
-	trimmedDir := strings.TrimSpace(containerDir)
-	if trimmedDir == "" {
-		return nil
-	}
-	entries, err := os.ReadDir(trimmedDir)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("read legacy session container: %w", err)
-	}
-	var syncErrs []error
-	observer := sessionObserver{store: s}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		sessionDir := filepath.Join(trimmedDir, entry.Name())
-		meta, err := session.ReadMetaFromDir(sessionDir)
-		if err != nil {
-			continue
-		}
-		if err := observer.ObservePersistedStore(ctx, session.PersistedStoreSnapshot{SessionDir: sessionDir, Meta: meta}); err != nil {
-			syncErrs = append(syncErrs, fmt.Errorf("sync legacy session %s: %w", entry.Name(), err))
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-	}
-	return errors.Join(syncErrs...)
-}
-
 func (s *Store) ListProjects(ctx context.Context) ([]clientui.ProjectSummary, error) {
 	if s == nil || s.queries == nil {
 		return nil, errors.New("metadata store is required")
@@ -1641,6 +1606,9 @@ func (s *Store) ResolvePersistedSession(ctx context.Context, sessionID string) (
 	}
 	row, err := s.queries.GetSessionRecordByID(ctx, strings.TrimSpace(sessionID))
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return session.PersistedSessionRecord{}, fmt.Errorf("%w: %q", session.ErrSessionNotFound, strings.TrimSpace(sessionID))
+		}
 		return session.PersistedSessionRecord{}, fmt.Errorf("get session record: %w", err)
 	}
 	meta, err := sessionMetaFromRecordRow(row)

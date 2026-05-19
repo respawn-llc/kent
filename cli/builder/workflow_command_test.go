@@ -219,6 +219,83 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 	}
 }
 
+type pagedTaskListRemote struct {
+	client.WorkflowClient
+	board    serverapi.WorkflowBoard
+	pages    map[string]serverapi.WorkflowBoardNodeCardsListResponse
+	requests []serverapi.WorkflowBoardNodeCardsListRequest
+}
+
+func (r *pagedTaskListRemote) Close() error { return nil }
+
+func (r *pagedTaskListRemote) ResolveProjectPath(context.Context, serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
+	return serverapi.ProjectResolvePathResponse{}, nil
+}
+
+func (r *pagedTaskListRemote) GetWorkflowBoard(context.Context, serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
+	return serverapi.WorkflowBoardResponse{Board: r.board}, nil
+}
+
+func (r *pagedTaskListRemote) ListWorkflowBoardNodeCards(_ context.Context, req serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error) {
+	r.requests = append(r.requests, req)
+	key := req.NodeID + "|" + req.PageToken
+	return r.pages[key], nil
+}
+
+func TestTaskListFetchesPaginatedNodeCardsWithoutDuplicates(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &pagedTaskListRemote{
+		board: serverapi.WorkflowBoard{
+			ProjectID:        "project-1",
+			SelectedWorkflow: serverapi.WorkflowPickerItem{WorkflowID: "workflow-1"},
+			Columns: []serverapi.WorkflowBoardColumn{
+				{Node: serverapi.WorkflowBoardNodeSummary{NodeID: "node-a"}},
+				{Node: serverapi.WorkflowBoardNodeSummary{NodeID: "node-b"}},
+			},
+		},
+		pages: map[string]serverapi.WorkflowBoardNodeCardsListResponse{
+			"node-a|": {
+				Cards:         []serverapi.WorkflowBoardTaskCard{testTaskCard("task-a", "BLD-1", "A")},
+				NextPageToken: "a-next",
+			},
+			"node-a|a-next": {
+				Cards: []serverapi.WorkflowBoardTaskCard{testTaskCard("task-b", "BLD-2", "B")},
+			},
+			"node-b|": {
+				Cards: []serverapi.WorkflowBoardTaskCard{
+					testTaskCard("task-b", "BLD-2", "B"),
+					testTaskCard("task-c", "BLD-3", "C"),
+				},
+			},
+		},
+	}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	stdout, stderr, code := runWorkflowRootCommand("task", "list", "--project", "project-1")
+	if code != 0 {
+		t.Fatalf("task list exit=%d stderr=%q", code, stderr)
+	}
+	for _, shortID := range []string{"BLD-1", "BLD-2", "BLD-3"} {
+		if got := strings.Count(stdout, shortID+"\t"); got != 1 {
+			t.Fatalf("task list output = %q, want %s exactly once, got %d", stdout, shortID, got)
+		}
+	}
+	if len(remote.requests) != 3 || remote.requests[1].NodeID != "node-a" || remote.requests[1].PageToken != "a-next" {
+		t.Fatalf("node card requests = %+v, want paginated node-a fetch plus node-b fetch", remote.requests)
+	}
+}
+
+func testTaskCard(taskID string, shortID string, title string) serverapi.WorkflowBoardTaskCard {
+	return serverapi.WorkflowBoardTaskCard{
+		TaskID:     taskID,
+		ShortID:    shortID,
+		Title:      title,
+		WorkflowID: "workflow-1",
+		Status:     serverapi.WorkflowTaskStatus{Kind: "active"},
+	}
+}
+
 func TestWriteTaskDetailIncludesParallelBranchIDs(t *testing.T) {
 	var stdout bytes.Buffer
 	writeTaskDetail(&stdout, serverapi.WorkflowTaskDetail{

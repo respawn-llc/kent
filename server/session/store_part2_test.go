@@ -9,29 +9,25 @@ import (
 	"time"
 )
 
-func TestOpenByIDFindsSessionAcrossContainers(t *testing.T) {
+func ptrMeta(meta Meta) *Meta {
+	return &meta
+}
+
+func TestOpenByIDUsesPersistedSessionResolver(t *testing.T) {
 	root := t.TempDir()
-	containerA := filepath.Join(root, sessionsDirName, "workspace-a")
-	containerB := filepath.Join(root, sessionsDirName, "workspace-b")
-	if err := os.MkdirAll(containerA, 0o755); err != nil {
-		t.Fatalf("mkdir container a: %v", err)
-	}
-	if err := os.MkdirAll(containerB, 0o755); err != nil {
-		t.Fatalf("mkdir container b: %v", err)
-	}
-	_, err := Create(containerA, "workspace-a", "/tmp/work-a")
+	sessionDir := filepath.Join(root, "projects", "project-b", "sessions", "session-b")
+	target, err := Create(sessionDir, "sessions", "/tmp/work-b")
 	if err != nil {
-		t.Fatalf("create session a: %v", err)
-	}
-	target, err := Create(containerB, "workspace-b", "/tmp/work-b")
-	if err != nil {
-		t.Fatalf("create session b: %v", err)
+		t.Fatalf("create session: %v", err)
 	}
 	if err := target.SetContinuationContext(ContinuationContext{OpenAIBaseURL: "http://target.local/v1"}); err != nil {
 		t.Fatalf("set continuation context: %v", err)
 	}
 
-	opened, err := OpenByID(root, target.Meta().SessionID)
+	opened, err := OpenByID(root, target.Meta().SessionID, WithPersistedSessionResolver(stubPersistedSessionResolver{record: PersistedSessionRecord{
+		SessionDir: target.Dir(),
+		Meta:       ptrMeta(target.Meta()),
+	}}))
 	if err != nil {
 		t.Fatalf("open by id: %v", err)
 	}
@@ -47,45 +43,10 @@ func TestOpenByIDFindsSessionAcrossContainers(t *testing.T) {
 	}
 }
 
-func TestOpenByIDRejectsLegacyPersistenceRootLayout(t *testing.T) {
+func TestOpenByIDRejectsWithoutPersistedSessionResolver(t *testing.T) {
 	root := t.TempDir()
-	legacyContainer := filepath.Join(root, "workspace-legacy")
-	if err := os.MkdirAll(legacyContainer, 0o755); err != nil {
-		t.Fatalf("mkdir legacy container: %v", err)
-	}
-	store, err := Create(legacyContainer, "workspace-legacy", "/tmp/work-legacy")
-	if err != nil {
-		t.Fatalf("create legacy session: %v", err)
-	}
-	if _, err := store.AppendEvent("step1", "message", map[string]any{"role": "user", "content": "hello"}); err != nil {
-		t.Fatalf("append event: %v", err)
-	}
-
-	if _, err := OpenByID(root, store.Meta().SessionID); err == nil {
-		t.Fatal("expected legacy persistence root layout to be ignored")
-	}
-}
-
-func TestOpenByIDFindsLegacySessionDirectlyUnderSessionsRoot(t *testing.T) {
-	root := t.TempDir()
-	sessionDir := filepath.Join(root, sessionsDirName, "legacy-session")
-	writeSessionFixtureMeta(t, sessionDir, Meta{
-		SessionID:          "legacy-session",
-		WorkspaceRoot:      "/tmp/work-legacy",
-		WorkspaceContainer: "workspace-legacy",
-		CreatedAt:          time.Now().UTC(),
-		UpdatedAt:          time.Now().UTC(),
-	})
-
-	opened, err := OpenByID(root, "legacy-session")
-	if err != nil {
-		t.Fatalf("open by id: %v", err)
-	}
-	if opened.Meta().SessionID != "legacy-session" {
-		t.Fatalf("expected legacy session id, got %q", opened.Meta().SessionID)
-	}
-	if opened.Meta().WorkspaceRoot != "/tmp/work-legacy" {
-		t.Fatalf("expected legacy workspace root, got %q", opened.Meta().WorkspaceRoot)
+	if _, err := OpenByID(root, "missing-session"); err == nil || !strings.Contains(err.Error(), "persisted session resolver is required") {
+		t.Fatalf("expected resolver-required error, got %v", err)
 	}
 }
 
@@ -120,7 +81,7 @@ func TestSetWorkspaceRootPreservesWorkspaceContainer(t *testing.T) {
 
 func TestEventLogOnlySessionDirectoryRemainsUndiscoverable(t *testing.T) {
 	root := t.TempDir()
-	container := filepath.Join(root, sessionsDirName, "workspace-x")
+	container := filepath.Join(root, "projects", "project-1", "sessions")
 	sessionDir := filepath.Join(container, "ghost-session")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatalf("mkdir session dir: %v", err)

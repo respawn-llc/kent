@@ -45,7 +45,7 @@ func newTestSessionLifecycleService(containerDir string, authManager *auth.Manag
 func createPersistedSession(t *testing.T) (string, string, *session.Store) {
 	t.Helper()
 	persistenceRoot := t.TempDir()
-	containerDir := filepath.Join(persistenceRoot, "sessions", "workspace-x")
+	containerDir := filepath.Join(persistenceRoot, "projects", "project-x", "sessions")
 	store, err := session.Create(containerDir, "workspace-x", "/tmp/work")
 	if err != nil {
 		t.Fatalf("create session store: %v", err)
@@ -307,7 +307,7 @@ func TestServicePersistInputDraftFailsClosedWithoutControllerVerifier(t *testing
 }
 
 func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
-	root, containerDir, store := createPersistedSession(t)
+	_, containerDir, store := createPersistedSession(t)
 	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
@@ -344,13 +344,13 @@ func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
 	if resp.InitialPrompt != "edited prompt" {
 		t.Fatalf("initial prompt = %q, want %q", resp.InitialPrompt, "edited prompt")
 	}
-	if _, err := session.OpenByID(root, resp.NextSessionID); err != nil {
+	if _, err := session.Open(filepath.Join(containerDir, resp.NextSessionID)); err != nil {
 		t.Fatalf("open forked session store: %v", err)
 	}
 }
 
 func TestServiceResolveTransitionForkRollbackUsesTargetToken(t *testing.T) {
-	root, containerDir, store := createPersistedSession(t)
+	_, containerDir, store := createPersistedSession(t)
 	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
@@ -378,7 +378,7 @@ func TestServiceResolveTransitionForkRollbackUsesTargetToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveTransition: %v", err)
 	}
-	if _, err := session.OpenByID(root, resp.NextSessionID); err != nil {
+	if _, err := session.Open(filepath.Join(containerDir, resp.NextSessionID)); err != nil {
 		t.Fatalf("open forked session store: %v", err)
 	}
 	if resp.InitialPrompt != "edited prompt" {
@@ -570,8 +570,8 @@ func TestServiceResolveTransitionForkRollbackRejectsInvalidTargetToken(t *testin
 
 func TestServiceGetInitialInputRejectsSessionOutsideContainer(t *testing.T) {
 	root := t.TempDir()
-	containerA := filepath.Join(root, "sessions", "workspace-a")
-	containerB := filepath.Join(root, "sessions", "workspace-b")
+	containerA := filepath.Join(root, "projects", "project-a", "sessions")
+	containerB := filepath.Join(root, "projects", "project-b", "sessions")
 	if err := os.MkdirAll(containerA, 0o755); err != nil {
 		t.Fatalf("mkdir container A: %v", err)
 	}
@@ -595,8 +595,8 @@ func TestServiceGetInitialInputRejectsSessionOutsideContainer(t *testing.T) {
 
 func TestServicePersistInputDraftRejectsSessionOutsideContainer(t *testing.T) {
 	root := t.TempDir()
-	containerA := filepath.Join(root, "sessions", "workspace-a")
-	containerB := filepath.Join(root, "sessions", "workspace-b")
+	containerA := filepath.Join(root, "projects", "project-a", "sessions")
+	containerB := filepath.Join(root, "projects", "project-b", "sessions")
 	if err := os.MkdirAll(containerA, 0o755); err != nil {
 		t.Fatalf("mkdir container A: %v", err)
 	}

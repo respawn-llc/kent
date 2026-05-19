@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"builder/server/approvalview"
@@ -26,7 +27,6 @@ import (
 	"builder/server/sessionlifecycle"
 	"builder/server/sessionruntime"
 	"builder/server/sessionview"
-	"builder/server/storagemigration"
 	"builder/server/updatestatus"
 	"builder/server/workflow"
 	"builder/server/workflowrunner"
@@ -60,19 +60,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 		return nil, fmt.Errorf("persistence bundle: generated support: %w", err)
 	}
 	runtimeSupport.Generated = generatedSupport
-	if err := storagemigration.EnsureProjectV1(context.Background(), cfg.PersistenceRoot, nil); err != nil {
-		_ = rootLease.Close()
-		return nil, fmt.Errorf("persistence bundle: project storage migration: %w", err)
-	}
 	containerDir := ""
-	if strings.TrimSpace(cfg.WorkspaceRoot) != "" {
-		_, resolvedContainerDir, err := config.ResolveWorkspaceContainer(cfg)
-		if err != nil {
-			_ = rootLease.Close()
-			return nil, fmt.Errorf("projects bundle: workspace container: %w", err)
-		}
-		containerDir = resolvedContainerDir
-	}
 	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
 	if err != nil {
 		_ = rootLease.Close()
@@ -91,7 +79,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	storeOptions := metadataStore.AuthoritativeSessionStoreOptions()
 	runtimeRegistry := registry.NewRuntimeRegistry()
 	sessionStoreRegistry := registry.NewSessionStoreRegistry()
-	projectService, err := projectview.NewMetadataService(metadataStore, "", "")
+	projectService, err := projectview.NewMetadataService(metadataStore, "")
 	if err != nil {
 		_ = rootLease.Close()
 		_ = metadataStore.Close()
@@ -204,6 +192,11 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 		}
 		if err == nil {
 			core.bundles.Projects.projectID = binding.ProjectID
+			core.bundles.Projects.containerDir = config.ProjectSessionsRoot(cfg, binding.ProjectID)
+			if err := os.MkdirAll(core.bundles.Projects.containerDir, 0o755); err != nil {
+				_ = core.Close()
+				return nil, fmt.Errorf("projects bundle: sessions root: %w", err)
+			}
 			core.bundles.Sessions.sessionLaunch, err = core.SessionLaunchClientForProjectWorkspace(context.Background(), binding.ProjectID, cfg.WorkspaceRoot)
 			if err != nil {
 				_ = core.Close()

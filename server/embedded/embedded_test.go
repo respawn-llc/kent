@@ -191,10 +191,7 @@ func TestStartBuildsEmbeddedServerAndRunsOnboarding(t *testing.T) {
 	if got := server.OAuthOptions().ClientID; got != "client-test" {
 		t.Fatalf("oauth client id = %q", got)
 	}
-	_, wantContainerDir, err := config.ResolveWorkspaceContainer(server.Config())
-	if err != nil {
-		t.Fatalf("resolve workspace container: %v", err)
-	}
+	wantContainerDir := embeddedProjectSessionsRoot(server)
 	if server.ContainerDir() != wantContainerDir {
 		t.Fatalf("container dir = %q, want %q", server.ContainerDir(), wantContainerDir)
 	}

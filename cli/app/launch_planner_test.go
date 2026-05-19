@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,9 +10,7 @@ import (
 	"time"
 
 	"builder/server/auth"
-	"builder/server/metadata"
 	"builder/server/session"
-	"builder/server/storagemigration"
 	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/config"
@@ -370,82 +367,6 @@ func TestSessionLaunchPlannerPickerSelectionMissingMetadataMarksRecoveryInsteadO
 	}
 }
 
-func TestSessionLaunchPlannerInteractiveUsesMigratedLegacySession(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-
-	legacyContainer := "workspace-a-legacy"
-	indexPath := filepath.Join(cfg.PersistenceRoot, "workspaces.json")
-	if err := os.MkdirAll(filepath.Dir(indexPath), 0o755); err != nil {
-		t.Fatalf("mkdir workspace index dir: %v", err)
-	}
-	indexData, err := json.Marshal(map[string]any{"entries": map[string]string{cfg.WorkspaceRoot: legacyContainer}})
-	if err != nil {
-		t.Fatalf("marshal workspace index: %v", err)
-	}
-	if err := os.WriteFile(indexPath, indexData, 0o644); err != nil {
-		t.Fatalf("write workspace index: %v", err)
-	}
-
-	legacyContainerDir, err := filepath.Abs(filepath.Join(cfg.PersistenceRoot, "sessions", legacyContainer))
-	if err != nil {
-		t.Fatalf("abs legacy container dir: %v", err)
-	}
-	legacySession, err := session.Create(legacyContainerDir, legacyContainer, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("create legacy session: %v", err)
-	}
-	if err := legacySession.SetName("legacy session"); err != nil {
-		t.Fatalf("persist legacy session meta: %v", err)
-	}
-
-	if err := storagemigration.EnsureProjectV1(context.Background(), cfg.PersistenceRoot, func() time.Time {
-		return time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
-	}); err != nil {
-		t.Fatalf("EnsureProjectV1: %v", err)
-	}
-	binding, err := metadata.ResolveBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("ResolveBinding: %v", err)
-	}
-	containerDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
-
-	planner := &launchPlanner{
-		server: &testEmbeddedServer{
-			cfg: config.App{
-				WorkspaceRoot:   cfg.WorkspaceRoot,
-				PersistenceRoot: cfg.PersistenceRoot,
-				Settings:        config.Settings{Theme: "dark"},
-			},
-			containerDir: containerDir,
-		},
-		pickSession: func(summaries []clientui.SessionSummary, theme string, header sessionPickerHeaderInfo) (sessionPickerResult, error) {
-			if len(summaries) != 1 {
-				t.Fatalf("expected one legacy summary, got %d", len(summaries))
-			}
-			if summaries[0].SessionID != legacySession.Meta().SessionID {
-				t.Fatalf("expected legacy session %q, got %q", legacySession.Meta().SessionID, summaries[0].SessionID)
-			}
-			picked := summaries[0]
-			return sessionPickerResult{Session: &picked}, nil
-		},
-	}
-
-	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive})
-	if err != nil {
-		t.Fatalf("plan session: %v", err)
-	}
-	if plan.SessionID != legacySession.Meta().SessionID {
-		t.Fatalf("expected legacy session %q, got %q", legacySession.Meta().SessionID, plan.SessionID)
-	}
-}
-
 func TestSessionLaunchPlannerPropagatesServerOwnershipToStatusConfig(t *testing.T) {
 	for _, tt := range []struct {
 		name string
@@ -456,11 +377,13 @@ func TestSessionLaunchPlannerPropagatesServerOwnershipToStatusConfig(t *testing.
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			root := t.TempDir()
-			containerDir := filepath.Join(root, "sessions", "workspace-a")
+			workspaceRoot := "/tmp/workspace-a"
+			binding := mustRegisterAppBinding(t, root, workspaceRoot)
+			containerDir := config.ProjectSessionsRoot(config.App{PersistenceRoot: root}, binding.ProjectID)
 			planner := newSessionLaunchPlanner(&plannerOwnershipServer{
 				testEmbeddedServer: &testEmbeddedServer{
 					cfg: config.App{
-						WorkspaceRoot:   "/tmp/workspace-a",
+						WorkspaceRoot:   workspaceRoot,
 						PersistenceRoot: root,
 						Settings:        config.Settings{Theme: "dark"},
 					},

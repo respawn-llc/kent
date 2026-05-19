@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"builder/server/auth"
+	"builder/server/metadata"
 	"builder/shared/config"
 )
 
@@ -29,10 +30,11 @@ func TestBootstrapAppIgnoresOAuthIssuerOverrideEnv(t *testing.T) {
 	if got := boot.OAuthOptions().ClientID; got != "client-test" {
 		t.Fatalf("oauth client id = %q", got)
 	}
-	_, containerDir, err := config.ResolveWorkspaceContainer(boot.Config())
+	binding, err := metadata.ResolveBinding(context.Background(), boot.Config().PersistenceRoot, boot.Config().WorkspaceRoot)
 	if err != nil {
-		t.Fatalf("resolve bootstrap container dir: %v", err)
+		t.Fatalf("resolve bootstrap binding: %v", err)
 	}
+	containerDir := config.ProjectSessionsRoot(boot.Config(), binding.ProjectID)
 	if _, err := os.Stat(containerDir); err != nil {
 		t.Fatalf("expected bootstrap container dir to exist: %v", err)
 	}

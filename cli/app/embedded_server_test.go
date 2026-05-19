@@ -223,7 +223,7 @@ func (s *testEmbeddedServer) ProjectViewClient() client.ProjectViewClient {
 		return s.projectViewClient
 	}
 	if metadataStore, binding, ok := s.metadataBinding(); ok {
-		service, err := projectview.NewMetadataService(metadataStore, binding.ProjectID, s.containerDir)
+		service, err := projectview.NewMetadataService(metadataStore, binding.ProjectID)
 		if err == nil {
 			return client.NewLoopbackProjectViewClient(service)
 		}
@@ -236,7 +236,7 @@ func (s *testEmbeddedServer) ProjectViewClient() client.ProjectViewClient {
 		return nil
 	}
 	s.metadataStore = store
-	service, err := projectview.NewMetadataService(store, "", s.containerDir)
+	service, err := projectview.NewMetadataService(store, "")
 	if err != nil {
 		_ = store.Close()
 		return nil
@@ -324,7 +324,6 @@ func (s *testEmbeddedServer) SessionLaunchClient() client.SessionLaunchClient {
 		service := sessionlaunch.NewService(launch.Planner{
 			Config:       s.cfg,
 			ContainerDir: config.ProjectSessionsRoot(s.cfg, binding.ProjectID),
-			ProjectID:    binding.ProjectID,
 			StoreOptions: metadataStore.AuthoritativeSessionStoreOptions(),
 		}, s.sessionStoreRegistry())
 		return client.NewLoopbackSessionLaunchClient(service)
@@ -352,11 +351,11 @@ func (s *testEmbeddedServer) SessionLifecycleClient() client.SessionLifecycleCli
 	}
 	containerDir := strings.TrimSpace(s.containerDir)
 	if containerDir == "" {
-		_, resolvedContainerDir, err := config.ResolveWorkspaceContainer(s.cfg)
-		if err != nil {
-			panic(err)
+		projectID := strings.TrimSpace(s.ProjectID())
+		if projectID == "" {
+			projectID = "test-project"
 		}
-		containerDir = resolvedContainerDir
+		containerDir = config.ProjectSessionsRoot(s.cfg, projectID)
 	}
 	service := sessionlifecycle.NewService(containerDir, s.sessionStoreRegistry(), s.authManager).WithPersistenceRoot(s.cfg.PersistenceRoot).WithControllerLeaseVerifier(noopEmbeddedSessionLifecycleLeaseVerifier{})
 	return client.NewLoopbackSessionLifecycleClient(service)

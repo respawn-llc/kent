@@ -165,12 +165,12 @@ func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 1
 	}
 	defer func() { _ = remote.Close() }()
-	board, err := workflowBoardForProject(context.Background(), cfg, remote, *projectRef)
+	tasks, _, err := workflowTasksForProject(context.Background(), cfg, remote, *projectRef)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	for _, task := range sortedWorkflowTasks(board) {
+	for _, task := range tasks {
 		fmt.Fprintf(stdout, "%s\t%s\t%s\t%t\t%t\t%s\n", task.ShortID, task.ID, task.WorkflowID, task.Done, task.CanceledAt != 0, task.Title)
 	}
 	return 0
@@ -618,10 +618,10 @@ func resolveWorkflowTaskID(ctx context.Context, cfg config.App, remote workflowC
 		}
 		return resp.Task.Summary.ID, nil
 	}
-	board, err := workflowBoardForProject(ctx, cfg, remote, projectRef)
+	tasks, projectID, err := workflowTasksForProject(ctx, cfg, remote, projectRef)
 	if err == nil {
 		matches := make([]serverapi.WorkflowTaskSummary, 0, 1)
-		for _, task := range sortedWorkflowTasks(board) {
+		for _, task := range tasks {
 			if task.ID == trimmed || task.ShortID == trimmed {
 				matches = append(matches, task)
 			}
@@ -636,7 +636,7 @@ func resolveWorkflowTaskID(ctx context.Context, cfg config.App, remote workflowC
 	if err != nil {
 		return "", err
 	}
-	return "", fmt.Errorf("task %q not found in project %s", trimmed, board.ProjectID)
+	return "", fmt.Errorf("task %q not found in project %s", trimmed, projectID)
 }
 
 func writeTaskDetail(stdout io.Writer, task serverapi.WorkflowTaskDetail) {

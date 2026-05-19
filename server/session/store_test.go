@@ -491,13 +491,13 @@ func TestAppendTurnAtomicPersistsFirstPromptPreview(t *testing.T) {
 	}
 }
 
-func TestListSessionsDoesNotDeriveFirstPromptPreviewFromLegacySessionMeta(t *testing.T) {
+func TestListSessionsUsesPersistedFirstPromptPreviewOnly(t *testing.T) {
 	root := t.TempDir()
 	store, err := Create(root, "workspace-x", "/tmp/work")
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "Legacy preview source\nsecond line"}); err != nil {
+	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "Preview source\nsecond line"}); err != nil {
 		t.Fatalf("append user event: %v", err)
 	}
 
@@ -527,7 +527,7 @@ func TestListSessionsDoesNotDeriveFirstPromptPreviewFromLegacySessionMeta(t *tes
 		t.Fatalf("expected one session, got %d", len(items))
 	}
 	if items[0].FirstPromptPreview != "" {
-		t.Fatalf("expected legacy session preview to remain empty after hard cutover, got %q", items[0].FirstPromptPreview)
+		t.Fatalf("expected listed session preview to remain empty, got %q", items[0].FirstPromptPreview)
 	}
 
 	reloaded, err := Open(store.Dir())
@@ -535,7 +535,7 @@ func TestListSessionsDoesNotDeriveFirstPromptPreviewFromLegacySessionMeta(t *tes
 		t.Fatalf("open store: %v", err)
 	}
 	if reloaded.Meta().FirstPromptPreview != "" {
-		t.Fatalf("expected legacy metadata preview to remain empty after list, got %q", reloaded.Meta().FirstPromptPreview)
+		t.Fatalf("expected persisted metadata preview to remain empty after list, got %q", reloaded.Meta().FirstPromptPreview)
 	}
 }
 
