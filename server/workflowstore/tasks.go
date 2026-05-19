@@ -354,6 +354,9 @@ WHERE id = ?
 	} else if updated != 1 {
 		return StartTaskResult{}, sql.ErrNoRows
 	}
+	if err := touchTaskUpdatedAt(ctx, tx, string(taskID), now); err != nil {
+		return StartTaskResult{}, err
+	}
 	if err := q.InsertTaskTransition(ctx, sqlitegen.InsertTaskTransitionParams{ID: transitionID, TaskID: string(taskID), SourcePlacementID: sql.NullString{String: prepared.startPlacement.ID, Valid: true}, SourceNodeID: sql.NullString{String: string(prepared.start.ID), Valid: true}, SourceNodeKey: string(prepared.start.Key), SourceNodeDisplayName: prepared.start.DisplayName, TransitionGroupID: sql.NullString{String: string(prepared.group.ID), Valid: true}, TransitionID: string(prepared.group.TransitionID), TransitionDisplayName: prepared.group.DisplayName, WorkflowRevisionSeen: prepared.workflow.GraphRevision, Actor: "system", State: "applied", OutputValuesJson: "{}", CreatedAtUnixMs: now, AppliedAtUnixMs: now}); err != nil {
 		return StartTaskResult{}, err
 	}
@@ -558,6 +561,9 @@ WHERE id = ?
 	} else if updated != 1 {
 		return CompleteRunResult{}, sql.ErrNoRows
 	}
+	if err := touchTaskUpdatedAt(ctx, tx, run.TaskID, now); err != nil {
+		return CompleteRunResult{}, err
+	}
 	if err := q.InsertTaskTransition(ctx, sqlitegen.InsertTaskTransitionParams{ID: transitionID, TaskID: run.TaskID, SourceRunID: sql.NullString{String: run.ID, Valid: true}, SourcePlacementID: sql.NullString{String: run.PlacementID, Valid: true}, SourceNodeID: sql.NullString{String: string(snapshot.Node.ID), Valid: true}, SourceNodeKey: string(snapshot.Node.Key), SourceNodeDisplayName: snapshot.Node.DisplayName, TransitionGroupID: sql.NullString{String: string(group.ID), Valid: true}, TransitionID: group.TransitionID, TransitionDisplayName: group.DisplayName, WorkflowRevisionSeen: snapshot.WorkflowRevisionSeen, Actor: actor, State: transitionState, Commentary: strings.TrimSpace(req.Commentary), OutputValuesJson: outputValuesJSON, CreatedAtUnixMs: now, AppliedAtUnixMs: appliedAt}); err != nil {
 		return CompleteRunResult{}, fmt.Errorf("insert completion transition: %w", err)
 	}
@@ -649,6 +655,21 @@ func recordRunCompletedWorkflowEvent(ctx context.Context, tx *sql.Tx, q *sqliteg
 		OccurredAtUnixMs: now,
 	}); err != nil {
 		return fmt.Errorf("record completion workflow event: %w", err)
+	}
+	return nil
+}
+
+func touchTaskUpdatedAt(ctx context.Context, tx *sql.Tx, taskID string, now int64) error {
+	result, err := tx.ExecContext(ctx, `UPDATE tasks SET updated_at_unix_ms = ? WHERE id = ?`, now, taskID)
+	if err != nil {
+		return fmt.Errorf("update task timestamp: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if updated != 1 {
+		return sql.ErrNoRows
 	}
 	return nil
 }

@@ -491,6 +491,46 @@ func TestStartTaskRejectsCanceledAndAlreadyStartedTasks(t *testing.T) {
 	}
 }
 
+func TestWorkflowTransitionsRefreshTaskUpdatedAt(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createValidWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE tasks SET updated_at_unix_ms = 1 WHERE id = ?`, string(task.ID)); err != nil {
+		t.Fatalf("force stale task timestamp: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	afterStart, err := store.queries.GetTask(ctx, string(task.ID))
+	if err != nil {
+		t.Fatalf("GetTask after start: %v", err)
+	}
+	if afterStart.UpdatedAtUnixMs <= 1 {
+		t.Fatalf("task updated_at after start = %d, want refreshed", afterStart.UpdatedAtUnixMs)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE tasks SET updated_at_unix_ms = 2 WHERE id = ?`, string(task.ID)); err != nil {
+		t.Fatalf("force stale task timestamp after start: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}}); err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	afterComplete, err := store.queries.GetTask(ctx, string(task.ID))
+	if err != nil {
+		t.Fatalf("GetTask after complete: %v", err)
+	}
+	if afterComplete.UpdatedAtUnixMs <= 2 {
+		t.Fatalf("task updated_at after complete = %d, want refreshed", afterComplete.UpdatedAtUnixMs)
+	}
+}
+
 func TestStartTaskConcurrentCallsCreateOneRun(t *testing.T) {
 	ctx := context.Background()
 	store, binding := newTestStore(t)
