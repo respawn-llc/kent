@@ -63,6 +63,7 @@
     var(--native-traffic-light-cluster-width) + var(--native-home-link-left-default)
   );
   color: var(--color-on-island);
+
   color-scheme: light dark;
   background: transparent;
   font-family: var(--font-main);
@@ -243,5 +244,4 @@
   ::view-transition-new(root) {
     animation: route-fade-scale var(--motion-fast) both;
   }
-
 }

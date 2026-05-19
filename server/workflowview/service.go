@@ -117,7 +117,7 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 		definitions[workflowID] = def
 		nodeKindsByWorkflowID[workflowID] = nodeKinds
 		link := linkByWorkflowID[workflowID]
-		validation := workflow.ValidateDefinition(definitionForValidation(def), workflow.ValidationOptions{Context: workflow.ValidationContextTaskCreation, RoleResolver: roleResolver})
+		validation := workflow.ValidateDefinition(definitionForValidation(def), workflow.ValidationOptions{Context: workflow.ValidationContextExecution, RoleResolver: roleResolver})
 		picker = append(picker, serverapi.WorkflowPickerItem{
 			WorkflowID:           workflowID,
 			DisplayName:          def.Workflow.Name,
@@ -189,7 +189,7 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 		Columns:             columns,
 		Cards:               cards,
 		DonePreview:         donePreview,
-		HasHiddenDoneCards:  len(doneCards) > len(donePreview),
+		HasHiddenDoneCards:  false,
 		NextPageToken:       nextPageToken,
 		GeneratedAtUnixMs:   time.Now().UTC().UnixMilli(),
 		LatestEventSequence: latestSequence,
@@ -1412,11 +1412,11 @@ ORDER BY updated_at_unix_ms DESC, rowid DESC`, strings.TrimSpace(projectID), str
 		if err != nil {
 			return nil, err
 		}
-		validation := workflow.ValidateDefinition(definitionForValidation(def), workflow.ValidationOptions{Context: workflow.ValidationContextTaskCreation, RoleResolver: roleResolver})
+		validation := workflow.ValidateDefinition(definitionForValidation(def), workflow.ValidationOptions{Context: workflow.ValidationContextExecution, RoleResolver: roleResolver})
 		if validation.Valid() {
 			continue
 		}
-		items = append(items, serverapi.WorkflowAttentionItem{ID: "validation_blocker:" + link.projectID + ":" + link.workflowID, Kind: "validation_blocker", ProjectID: link.projectID, WorkflowID: link.workflowID, Message: fmt.Sprintf("Workflow %q is invalid for task creation", def.Workflow.Name), OccurredAtUnixMs: link.occurredAt})
+		items = append(items, serverapi.WorkflowAttentionItem{ID: "validation_blocker:" + link.projectID + ":" + link.workflowID, Kind: "validation_blocker", ProjectID: link.projectID, WorkflowID: link.workflowID, Message: fmt.Sprintf("Workflow %q is invalid for task start", def.Workflow.Name), OccurredAtUnixMs: link.occurredAt})
 	}
 	return items, nil
 }

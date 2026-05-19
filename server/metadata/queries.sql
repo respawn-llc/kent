@@ -1,4 +1,4 @@
--- name: GetWorkspaceBindingByCanonicalRoot :one
+-- name: ListWorkspaceBindingsByCanonicalRoot :many
 SELECT
     p.id AS project_id,
     p.display_name AS project_display_name,
@@ -8,7 +8,7 @@ SELECT
 FROM workspaces w
 JOIN projects p ON p.id = w.project_id
 WHERE w.canonical_root_path = sqlc.arg(canonical_root_path)
-LIMIT 1;
+ORDER BY p.created_at_unix_ms ASC, p.rowid ASC, w.created_at_unix_ms ASC, w.rowid ASC;
 
 -- name: GetWorkspaceBindingByProjectAndCanonicalRoot :one
 SELECT
@@ -23,7 +23,7 @@ WHERE w.project_id = sqlc.arg(project_id)
   AND w.canonical_root_path = sqlc.arg(canonical_root_path)
 LIMIT 1;
 
--- name: GetWorkspaceByCanonicalRoot :one
+-- name: ListWorkspacesByCanonicalRoot :many
 SELECT
     id,
     project_id,
@@ -36,7 +36,7 @@ SELECT
     updated_at_unix_ms
 FROM workspaces
 WHERE canonical_root_path = sqlc.arg(canonical_root_path)
-LIMIT 1;
+ORDER BY created_at_unix_ms ASC, rowid ASC;
 
 -- name: GetWorkspaceByID :one
 SELECT
@@ -722,13 +722,24 @@ WHERE t.managed_worktree_id = sqlc.arg(managed_worktree_id)
 -- name: CountNonTerminalTasksBySourceWorkspace :one
 SELECT CAST(COUNT(DISTINCT t.id) AS INTEGER) AS task_count
 FROM tasks t
-JOIN task_node_placements p
-    ON p.task_id = t.id
-    AND p.state IN ('active', 'waiting_approval')
-JOIN workflow_nodes n ON n.id = p.node_id
 WHERE t.source_workspace_id = sqlc.arg(workspace_id)
   AND t.canceled_at_unix_ms = 0
-  AND n.kind != 'terminal';
+  AND (
+      EXISTS (
+          SELECT 1
+          FROM task_node_placements p
+          JOIN workflow_nodes n ON n.id = p.node_id
+          WHERE p.task_id = t.id
+            AND p.state IN ('active', 'waiting_approval')
+            AND n.kind != 'terminal'
+      )
+      OR EXISTS (
+          SELECT 1
+          FROM task_transitions tt
+          WHERE tt.task_id = t.id
+            AND tt.state = 'pending_approval'
+      )
+  );
 
 -- name: InsertTaskNodePlacement :exec
 INSERT INTO task_node_placements (
@@ -1379,7 +1390,7 @@ INSERT INTO workspaces (
     sqlc.arg(created_at_unix_ms),
     sqlc.arg(updated_at_unix_ms)
 )
-ON CONFLICT(id) DO NOTHING;
+ON CONFLICT(project_id, canonical_root_path) DO NOTHING;
 
 -- name: UpdateWorkspaceBindingCanonicalRoot :execrows
 UPDATE workspaces
@@ -1693,6 +1704,7 @@ SELECT
             JOIN tasks comment_tasks ON comment_tasks.id = tc.task_id
             WHERE comment_tasks.project_id = p.id
         ), 0),
+        COALESCE((SELECT MAX(s.updated_at_unix_ms) FROM sessions s WHERE s.project_id = p.id AND s.launch_visible <> 0), 0),
         COALESCE((SELECT MAX(pwl.updated_at_unix_ms) FROM project_workflow_links pwl WHERE pwl.project_id = p.id AND pwl.unlinked_at_unix_ms = 0), 0)
     ) AS INTEGER) AS latest_activity_unix_ms,
     CAST((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) AS INTEGER) AS task_count,
@@ -1785,7 +1797,7 @@ FROM workspaces w
 LEFT JOIN sessions s ON s.workspace_id = w.id AND s.launch_visible <> 0
 WHERE w.project_id = sqlc.arg(project_id)
 GROUP BY w.id, w.display_name, w.canonical_root_path, w.is_primary, w.updated_at_unix_ms
-ORDER BY w.created_at_unix_ms DESC, w.rowid DESC
+ORDER BY w.is_primary DESC, w.created_at_unix_ms DESC, w.rowid DESC
 LIMIT sqlc.arg(limit_rows)
 OFFSET sqlc.arg(offset_rows);
 

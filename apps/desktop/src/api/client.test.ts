@@ -1,6 +1,7 @@
 import { BuilderApiClient } from "./client";
 import { ContractError } from "./errors";
 import { FakeRpcTransport } from "./fakeTransport";
+import { protocolVersion } from "./jsonRpcSocket";
 
 describe("BuilderApiClient", () => {
   it("parses readiness and sends mutation params through typed method boundary", async () => {
@@ -11,7 +12,7 @@ describe("BuilderApiClient", () => {
           ready: true,
           server_id: "server-1",
           server_version: "1.3.0",
-          protocol_version: "2",
+          protocol_version: protocolVersion,
           auth_ready: true,
           auth_required: false,
           endpoint: "ws://127.0.0.1:53082/rpc",
@@ -25,7 +26,7 @@ describe("BuilderApiClient", () => {
       ready: true,
       serverID: "server-1",
       serverVersion: "1.3.0",
-      protocolVersion: "2",
+      protocolVersion: protocolVersion,
     });
     await client.startTask("task-1");
 

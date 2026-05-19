@@ -9,8 +9,34 @@ import (
 )
 
 var ErrWorkspaceNotRegistered = errors.New("workspace is not registered")
+var ErrWorkspaceBindingAmbiguous = errors.New("workspace binding is ambiguous")
 var ErrProjectNotFound = errors.New("project not found")
 var ErrProjectUnavailable = errors.New("project is unavailable")
+
+type WorkspaceBindingAmbiguousError struct {
+	CanonicalRoot string
+	ProjectIDs    []string
+}
+
+func (e WorkspaceBindingAmbiguousError) Error() string {
+	trimmedRoot := strings.TrimSpace(e.CanonicalRoot)
+	if len(e.ProjectIDs) == 0 {
+		return fmt.Sprintf("%s: %q", ErrWorkspaceBindingAmbiguous, trimmedRoot)
+	}
+	return fmt.Sprintf("%s: %q is attached to projects %s", ErrWorkspaceBindingAmbiguous, trimmedRoot, strings.Join(e.ProjectIDs, ", "))
+}
+
+func (e WorkspaceBindingAmbiguousError) Is(target error) bool {
+	return target == ErrWorkspaceBindingAmbiguous
+}
+
+func AsWorkspaceBindingAmbiguous(err error) (WorkspaceBindingAmbiguousError, bool) {
+	var ambiguous WorkspaceBindingAmbiguousError
+	if !errors.As(err, &ambiguous) {
+		return WorkspaceBindingAmbiguousError{}, false
+	}
+	return ambiguous, true
+}
 
 type ProjectUnavailableError struct {
 	ProjectID    string

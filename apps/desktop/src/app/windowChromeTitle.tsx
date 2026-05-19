@@ -21,7 +21,7 @@ export type WindowChromeTitleProviderProps = Readonly<{
 export function WindowChromeTitleProvider({ children }: WindowChromeTitleProviderProps) {
   const [registrations, setRegistrations] = useState<readonly WindowChromeTitleRegistration[]>([]);
   const title = registrations[registrations.length - 1]?.title ?? null;
-  const setTitle = useCallback((nextTitle: string) => {
+  const setTitle = useCallback((nextTitle: string | null) => {
     const id = Symbol("window-chrome-title");
     const registration = { id, title: nextTitle };
     setRegistrations((current) => current.concat(registration));

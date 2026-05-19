@@ -1,5 +1,10 @@
 /* eslint-disable max-lines -- Board route integration tests keep representative board fixtures local. */
-import { createBrowserNativeBridge, type NativeBridge, type NativeDialogWindowOptions } from "@builder/desktop-native-bridge";
+import {
+  createBrowserNativeBridge,
+  createTauriNativeBridge,
+  type NativeBridge,
+  type NativeDialogWindowOptions,
+} from "@builder/desktop-native-bridge";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
@@ -86,10 +91,15 @@ describe("BoardRoute", () => {
 
     expect(await screen.findByRole("heading", { name: "Core" })).toBeInTheDocument();
     expect(screen.getByTestId("app-chrome-title")).toHaveTextContent("Delivery");
-    expect(screen.getByTestId("app-chrome-title")).toHaveClass(...appChromeTitleClassNames, "left-[var(--space-2)]");
+    expect(screen.getByTestId("app-chrome-title")).toHaveClass(
+      ...appChromeTitleClassNames,
+      "left-[var(--space-2)]",
+    );
     expect(screen.queryByRole("heading", { name: "Project" })).not.toBeInTheDocument();
     expect(screen.queryByText("proj")).not.toBeInTheDocument();
-    expect(screen.queryByText("Drag Backlog task to first active node to start automation.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Drag Backlog task to first active node to start automation."),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId("route-transition-frame")).not.toHaveClass("p-[var(--space-2)]");
     expect(screen.getByTestId("route-transition-frame")).toHaveClass("min-w-0", "w-full");
     expect(screen.getByRole("list")).toHaveClass("min-w-0", "w-full", "overflow-x-auto");
@@ -109,7 +119,10 @@ describe("BoardRoute", () => {
       "px-[var(--space-2)]",
       "pb-[var(--space-2)]",
     );
-    expect(screen.getByTestId("board-column-rail")).not.toHaveClass("pt-[var(--space-2)]", "p-[var(--space-2)]");
+    expect(screen.getByTestId("board-column-rail")).not.toHaveClass(
+      "pt-[var(--space-2)]",
+      "p-[var(--space-2)]",
+    );
     expect(screen.getByTestId("kanban-column-scroll-backlog")).toHaveClass(
       "overflow-y-auto",
       "pr-[var(--space-1)]",
@@ -262,7 +275,9 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     expect(await screen.findByRole("heading", { name: "No workflows yet" })).toBeInTheDocument();
-    expect(screen.getByText("Set up a valid project workflow from CLI, agent, or API before creating tasks.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Set up a valid project workflow from CLI, agent, or API before creating tasks."),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("empty-state")).toHaveClass("h-full", "min-h-0", "place-items-center");
     expect(screen.getByTestId("empty-state-content")).toHaveClass("justify-items-center", "text-center");
     expect(screen.getByTestId("empty-state-icon")).not.toBeEmptyDOMElement();
@@ -287,9 +302,11 @@ describe("BoardRoute", () => {
   });
 
   it("places the chrome title on the right side on macOS", async () => {
-    setNavigatorUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0)");
     window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
-    const services = createTestServices([...startupRoutes, ...boardRoutes()]);
+    const services = createTestServices(
+      [...startupRoutes, ...boardRoutes()],
+      createBrowserNativeBridge({ platform: "macos" }),
+    );
 
     render(<App services={services} />);
 
@@ -365,14 +382,32 @@ describe("BoardRoute", () => {
 
     expect(await screen.findByRole("heading", { name: "Backlog" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Done" })).toBeInTheDocument();
-    expect(screen.queryByText("Workflow validation blocks automation. Backlog tasks and comments remain available.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Workflow validation blocks automation. Backlog tasks and comments remain available.",
+      ),
+    ).not.toBeInTheDocument();
     const issues = screen.getByRole("complementary", { name: "Workflow issues" });
     expect(issues).toHaveClass("fixed", "right-[var(--space-4)]", "bottom-[var(--space-4)]", "gap-[6px]");
     expect(within(issues).getByTestId("floating-notice-header")).toHaveClass("items-center", "leading-none");
-    expect(within(issues).getByRole("heading", { name: "Workflow issues" })).toHaveClass("text-lg", "font-bold", "leading-none", "text-[var(--color-error)]");
+    expect(within(issues).getByRole("heading", { name: "Workflow issues" })).toHaveClass(
+      "text-lg",
+      "font-bold",
+      "leading-none",
+      "text-[var(--color-error)]",
+    );
     expect(within(issues).getByRole("button", { name: "Collapse" })).toHaveClass("h-[18px]", "w-[18px]");
-    expect(within(issues).getByRole("list")).toHaveClass("workflow-issues-list", "list-none", "leading-snug", "max-w-[72ch]");
-    expect(within(issues).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+    expect(within(issues).getByRole("list")).toHaveClass(
+      "workflow-issues-list",
+      "list-none",
+      "leading-snug",
+      "max-w-[72ch]",
+    );
+    expect(
+      within(issues)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual([
       "task start requires exactly one outgoing transition group",
       "non-terminal node cannot reach a terminal node",
       "node is not reachable from start",
@@ -410,10 +445,7 @@ describe("BoardRoute", () => {
   it("opens Create Task in a native dialog window when native dialogs are available", async () => {
     window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
     const opened: NativeDialogWindowOptions[] = [];
-    const services = createTestServices(
-      [...startupRoutes, ...boardRoutes()],
-      nativeDialogBridge(opened),
-    );
+    const services = createTestServices([...startupRoutes, ...boardRoutes()], nativeDialogBridge(opened));
 
     render(<App services={services} />);
 
@@ -567,7 +599,10 @@ describe("BoardRoute", () => {
       "leading-none",
     );
     expect(screen.queryByText("Default")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Pin menu" })).toHaveClass("size-[24px]", "text-[var(--color-muted)]");
+    expect(screen.getByRole("button", { name: "Pin menu" })).toHaveClass(
+      "size-[24px]",
+      "text-[var(--color-muted)]",
+    );
     expect(screen.getByTestId("board-hover-menu-workflows")).toHaveClass(
       ...boardHoverMenuWorkflowContentClassNames,
     );
@@ -700,7 +735,8 @@ describe("BoardRoute", () => {
       {
         method: "workflow.board.get",
         handler: (params: JsonValue) => {
-          const requestedWorkflowID = isObject(params) && typeof params.workflow_id === "string" ? params.workflow_id : "";
+          const requestedWorkflowID =
+            isObject(params) && typeof params.workflow_id === "string" ? params.workflow_id : "";
           return {
             board: {
               ...boardResponse.board,
@@ -714,8 +750,13 @@ describe("BoardRoute", () => {
         method: "workflow.board.nodeCards.list",
         handler: (params: JsonValue) => {
           const nodeID = isObject(params) && typeof params.node_id === "string" ? params.node_id : "";
-          const workflowID = isObject(params) && typeof params.workflow_id === "string" ? params.workflow_id : "";
-          return boardNodeCardsResponse(nodeID, workflowID === "workflow-2" ? [workflow2Card] : [firstBoardCard()], "");
+          const workflowID =
+            isObject(params) && typeof params.workflow_id === "string" ? params.workflow_id : "";
+          return boardNodeCardsResponse(
+            nodeID,
+            workflowID === "workflow-2" ? [workflow2Card] : [firstBoardCard()],
+            "",
+          );
         },
       },
     ]);
@@ -777,7 +818,12 @@ describe("BoardRoute", () => {
         method: "workflow.board.nodeCards.list",
         handler: (params: JsonValue) => {
           const nodeID = isObject(params) && typeof params.node_id === "string" ? params.node_id : "";
-          const cards = nodeID === "backlog" && !canceled ? [firstBoardCard()] : nodeID === "done" && canceled ? [canceledCard] : [];
+          const cards =
+            nodeID === "backlog" && !canceled
+              ? [firstBoardCard()]
+              : nodeID === "done" && canceled
+                ? [canceledCard]
+                : [];
           return boardNodeCardsResponse(nodeID, cards, "");
         },
       },
@@ -800,13 +846,24 @@ describe("BoardRoute", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
 
     await waitFor(() => {
-      expect(within(screen.getByTestId("kanban-column-scroll-backlog")).queryByRole("article", { name: "Write focused tests" })).not.toBeInTheDocument();
+      expect(
+        within(screen.getByTestId("kanban-column-scroll-backlog")).queryByRole("article", {
+          name: "Write focused tests",
+        }),
+      ).not.toBeInTheDocument();
     });
 
     await waitFor(() => {
-      expect(within(screen.getByTestId("kanban-column-scroll-done")).getByRole("article", { name: "Write focused tests" })).toBeInTheDocument();
+      expect(
+        within(screen.getByTestId("kanban-column-scroll-done")).getByRole("article", {
+          name: "Write focused tests",
+        }),
+      ).toBeInTheDocument();
     });
-    expect(services.transport.calls).toContainEqual({ method: "workflow.task.cancel", params: { task_id: "task-1" } });
+    expect(services.transport.calls).toContainEqual({
+      method: "workflow.task.cancel",
+      params: { task_id: "task-1" },
+    });
   });
 
   it("fetches the next board task page when a column scroll reaches the end", async () => {
@@ -823,8 +880,13 @@ describe("BoardRoute", () => {
       {
         method: "workflow.board.nodeCards.list",
         handler: (params: JsonValue) => {
-          const pageToken = isObject(params) && typeof params.page_token === "string" ? params.page_token : "";
-          return boardNodeCardsResponse("backlog", pageToken === "cursor-2" ? [secondPageCard] : [firstBoardCard()], pageToken === "cursor-2" ? "" : "cursor-2");
+          const pageToken =
+            isObject(params) && typeof params.page_token === "string" ? params.page_token : "";
+          return boardNodeCardsResponse(
+            "backlog",
+            pageToken === "cursor-2" ? [secondPageCard] : [firstBoardCard()],
+            pageToken === "cursor-2" ? "" : "cursor-2",
+          );
         },
       },
     ]);
@@ -1086,7 +1148,12 @@ const boardCards: readonly BoardRouteCard[] = [
 
 function boardRoutes(
   response = boardResponse,
-  nodePages: Readonly<Record<string, Readonly<{ cards: readonly (typeof boardResponse.board.cards)[number][]; nextPageToken?: string }>>> = {
+  nodePages: Readonly<
+    Record<
+      string,
+      Readonly<{ cards: readonly (typeof boardResponse.board.cards)[number][]; nextPageToken?: string }>
+    >
+  > = {
     backlog: { cards: boardResponse.board.cards },
     "node-1": { cards: [] },
     done: { cards: [] },
@@ -1222,7 +1289,7 @@ function firstBoardCard(): (typeof boardResponse.board.cards)[number] {
 }
 
 function nativeDialogBridge(opened: NativeDialogWindowOptions[]): NativeBridge {
-  const base = createBrowserNativeBridge();
+  const base = createTauriNativeBridge("macos");
   return {
     ...base,
     dialogs: {
@@ -1234,7 +1301,7 @@ function nativeDialogBridge(opened: NativeDialogWindowOptions[]): NativeBridge {
 }
 
 function rejectingNativeDialogBridge(opened: NativeDialogWindowOptions[]): NativeBridge {
-  const base = createBrowserNativeBridge();
+  const base = createTauriNativeBridge("macos");
   return {
     ...base,
     dialogs: {

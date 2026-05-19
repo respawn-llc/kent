@@ -32,7 +32,18 @@ export type SelectFieldProps = Readonly<{
   name?: string | undefined;
 }>;
 
-export function SelectField({ label, value, options, onValueChange, className, error, hint, placeholder, disabled = false, name }: SelectFieldProps) {
+export function SelectField({
+  label,
+  value,
+  options,
+  onValueChange,
+  className,
+  error,
+  hint,
+  placeholder,
+  disabled = false,
+  name,
+}: SelectFieldProps) {
   const inputId = useId();
   const hintId = `${inputId}-hint`;
   const errorId = `${inputId}-error`;
@@ -88,11 +99,15 @@ function SelectFieldControl({
   const listboxId = `${inputId}-listbox`;
   const selectedOption = useMemo(() => options.find((option) => option.value === value), [options, value]);
   const firstEnabledIndex = useMemo(() => findFirstEnabledOptionIndex(options), [options]);
-  const selectedIndex = useMemo(() => options.findIndex((option) => option.value === value), [options, value]);
+  const selectedIndex = useMemo(
+    () => options.findIndex((option) => option.value === value),
+    [options, value],
+  );
   const [activeIndex, setActiveIndex] = useState(selectedIndex >= 0 ? selectedIndex : firstEnabledIndex);
   const normalizedActiveIndex = normalizeActiveIndex(options, activeIndex, selectedIndex, firstEnabledIndex);
   const activeOption = normalizedActiveIndex >= 0 ? options[normalizedActiveIndex] : undefined;
-  const activeOptionId = open && activeOption !== undefined ? optionId(inputId, activeOption.value) : undefined;
+  const activeOptionId =
+    open && activeOption !== undefined ? optionId(inputId, activeOption.value) : undefined;
   const interactiveDisabled = disabled || options.length === 0;
 
   useEffect(() => {
@@ -126,7 +141,11 @@ function SelectFieldControl({
     (direction: 1 | -1) => {
       setOpen(true);
       setActiveIndex((current) =>
-        nextEnabledOptionIndex(options, normalizeActiveIndex(options, current, selectedIndex, firstEnabledIndex), direction),
+        nextEnabledOptionIndex(
+          options,
+          normalizeActiveIndex(options, current, selectedIndex, firstEnabledIndex),
+          direction,
+        ),
       );
     },
     [firstEnabledIndex, options, selectedIndex],
@@ -147,11 +166,15 @@ function SelectFieldControl({
         event,
         moveActive,
         open,
+        openWithReset: () => {
+          setActiveIndex(selectedIndex >= 0 ? selectedIndex : firstEnabledIndex);
+          setOpen(true);
+        },
         selectOption,
         setOpen,
       });
     },
-    [activeOption, interactiveDisabled, moveActive, open, selectOption],
+    [activeOption, firstEnabledIndex, interactiveDisabled, moveActive, open, selectOption, selectedIndex],
   );
 
   return (
@@ -193,11 +216,21 @@ type SelectKeyDownState = Readonly<{
   open: boolean;
   activeOption: SelectFieldOption | undefined;
   moveActive: (direction: 1 | -1) => void;
+  openWithReset: () => void;
   selectOption: (option: SelectFieldOption) => void;
   setOpen: (open: boolean) => void;
 }>;
 
-function handleSelectKeyDown({ event, disabled, open, activeOption, moveActive, selectOption, setOpen }: SelectKeyDownState) {
+function handleSelectKeyDown({
+  event,
+  disabled,
+  open,
+  activeOption,
+  moveActive,
+  openWithReset,
+  selectOption,
+  setOpen,
+}: SelectKeyDownState) {
   if (disabled) {
     return;
   }
@@ -218,7 +251,7 @@ function handleSelectKeyDown({ event, disabled, open, activeOption, moveActive, 
   if (event.key === "Enter" || event.key === " ") {
     event.preventDefault();
     if (!open) {
-      setOpen(true);
+      openWithReset();
       return;
     }
     if (activeOption !== undefined) {
@@ -231,7 +264,12 @@ function findFirstEnabledOptionIndex(options: readonly SelectFieldOption[]): num
   return options.findIndex((option) => option.disabled !== true);
 }
 
-function normalizeActiveIndex(options: readonly SelectFieldOption[], currentIndex: number, selectedIndex: number, firstEnabledIndex: number): number {
+function normalizeActiveIndex(
+  options: readonly SelectFieldOption[],
+  currentIndex: number,
+  selectedIndex: number,
+  firstEnabledIndex: number,
+): number {
   if (currentIndex >= 0 && currentIndex < options.length && options[currentIndex]?.disabled !== true) {
     return currentIndex;
   }
@@ -241,7 +279,11 @@ function normalizeActiveIndex(options: readonly SelectFieldOption[], currentInde
   return firstEnabledIndex;
 }
 
-function nextEnabledOptionIndex(options: readonly SelectFieldOption[], currentIndex: number, direction: 1 | -1): number {
+function nextEnabledOptionIndex(
+  options: readonly SelectFieldOption[],
+  currentIndex: number,
+  direction: 1 | -1,
+): number {
   const enabledIndexes = options
     .map((option, index) => (option.disabled === true ? -1 : index))
     .filter((index) => index >= 0);

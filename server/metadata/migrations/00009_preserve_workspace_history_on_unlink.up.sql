@@ -74,9 +74,17 @@ SELECT
     json_set(
         CASE WHEN json_valid(s.metadata_json) THEN s.metadata_json ELSE '{}' END,
         '$.workspace_root',
-        COALESCE(NULLIF(w.canonical_root_path, ''), NULLIF(json_extract(s.metadata_json, '$.workspace_root'), ''), ''),
+        COALESCE(
+            NULLIF(w.canonical_root_path, ''),
+            NULLIF(CASE WHEN json_valid(s.metadata_json) THEN json_extract(s.metadata_json, '$.workspace_root') ELSE '' END, ''),
+            ''
+        ),
         '$.workspace_container',
-        COALESCE(NULLIF(json_extract(s.metadata_json, '$.workspace_container'), ''), NULLIF(w.display_name, ''), '')
+        COALESCE(
+            NULLIF(CASE WHEN json_valid(s.metadata_json) THEN json_extract(s.metadata_json, '$.workspace_container') ELSE '' END, ''),
+            NULLIF(w.display_name, ''),
+            ''
+        )
     )
 FROM sessions s
 LEFT JOIN workspaces w ON w.id = s.workspace_id;

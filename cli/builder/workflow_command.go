@@ -656,45 +656,22 @@ func workflowTasksForProject(ctx context.Context, cfg config.App, remote workflo
 	if err != nil {
 		return nil, "", err
 	}
-	cards, err := workflowBoardTaskCards(ctx, remote, board)
-	if err != nil {
-		return nil, "", err
-	}
-	return sortedWorkflowTasksFromCards(board, cards), board.ProjectID, nil
-}
-
-func workflowBoardTaskCards(ctx context.Context, remote workflowCommandRemote, board serverapi.WorkflowBoard) ([]serverapi.WorkflowBoardTaskCard, error) {
-	if remote == nil {
-		return nil, nil
-	}
-	cards := make([]serverapi.WorkflowBoardTaskCard, 0)
-	for _, column := range board.Columns {
-		nodeID := strings.TrimSpace(column.Node.NodeID)
-		if nodeID == "" {
-			continue
+	for pageToken := strings.TrimSpace(board.NextPageToken); pageToken != ""; {
+		rpcCtx, cancel := workflowRPCContext(ctx)
+		resp, err := remote.GetWorkflowBoard(rpcCtx, serverapi.WorkflowBoardRequest{
+			ProjectID:  board.ProjectID,
+			WorkflowID: board.SelectedWorkflow.WorkflowID,
+			PageSize:   200,
+			PageToken:  pageToken,
+		})
+		cancel()
+		if err != nil {
+			return nil, "", err
 		}
-		pageToken := ""
-		for {
-			rpcCtx, cancel := workflowRPCContext(ctx)
-			resp, err := remote.ListWorkflowBoardNodeCards(rpcCtx, serverapi.WorkflowBoardNodeCardsListRequest{
-				ProjectID:  board.ProjectID,
-				WorkflowID: board.SelectedWorkflow.WorkflowID,
-				NodeID:     nodeID,
-				PageSize:   200,
-				PageToken:  pageToken,
-			})
-			cancel()
-			if err != nil {
-				return nil, err
-			}
-			cards = append(cards, resp.Cards...)
-			pageToken = strings.TrimSpace(resp.NextPageToken)
-			if pageToken == "" {
-				break
-			}
-		}
+		board.Cards = append(board.Cards, resp.Board.Cards...)
+		pageToken = strings.TrimSpace(resp.Board.NextPageToken)
 	}
-	return cards, nil
+	return sortedWorkflowTasks(board), board.ProjectID, nil
 }
 
 func sortedWorkflowTasksFromCards(board serverapi.WorkflowBoard, cards []serverapi.WorkflowBoardTaskCard) []serverapi.WorkflowTaskSummary {

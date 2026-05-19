@@ -222,8 +222,8 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 type pagedTaskListRemote struct {
 	client.WorkflowClient
 	board    serverapi.WorkflowBoard
-	pages    map[string]serverapi.WorkflowBoardNodeCardsListResponse
-	requests []serverapi.WorkflowBoardNodeCardsListRequest
+	pages    map[string]serverapi.WorkflowBoard
+	requests []serverapi.WorkflowBoardRequest
 }
 
 func (r *pagedTaskListRemote) Close() error { return nil }
@@ -232,39 +232,30 @@ func (r *pagedTaskListRemote) ResolveProjectPath(context.Context, serverapi.Proj
 	return serverapi.ProjectResolvePathResponse{}, nil
 }
 
-func (r *pagedTaskListRemote) GetWorkflowBoard(context.Context, serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
-	return serverapi.WorkflowBoardResponse{Board: r.board}, nil
-}
-
-func (r *pagedTaskListRemote) ListWorkflowBoardNodeCards(_ context.Context, req serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error) {
+func (r *pagedTaskListRemote) GetWorkflowBoard(_ context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
 	r.requests = append(r.requests, req)
-	key := req.NodeID + "|" + req.PageToken
-	return r.pages[key], nil
+	if strings.TrimSpace(req.PageToken) == "" {
+		return serverapi.WorkflowBoardResponse{Board: r.board}, nil
+	}
+	return serverapi.WorkflowBoardResponse{Board: r.pages[req.PageToken]}, nil
 }
 
-func TestTaskListFetchesPaginatedNodeCardsWithoutDuplicates(t *testing.T) {
+func TestTaskListFetchesPaginatedBoardCardsWithoutDuplicates(t *testing.T) {
 	cfg := config.App{WorkspaceRoot: t.TempDir()}
 	remote := &pagedTaskListRemote{
 		board: serverapi.WorkflowBoard{
 			ProjectID:        "project-1",
 			SelectedWorkflow: serverapi.WorkflowPickerItem{WorkflowID: "workflow-1"},
-			Columns: []serverapi.WorkflowBoardColumn{
-				{Node: serverapi.WorkflowBoardNodeSummary{NodeID: "node-a"}},
-				{Node: serverapi.WorkflowBoardNodeSummary{NodeID: "node-b"}},
-			},
+			Cards:            []serverapi.WorkflowBoardTaskCard{testTaskCard("task-a", "BLD-1", "A")},
+			NextPageToken:    "next",
 		},
-		pages: map[string]serverapi.WorkflowBoardNodeCardsListResponse{
-			"node-a|": {
-				Cards:         []serverapi.WorkflowBoardTaskCard{testTaskCard("task-a", "BLD-1", "A")},
-				NextPageToken: "a-next",
-			},
-			"node-a|a-next": {
-				Cards: []serverapi.WorkflowBoardTaskCard{testTaskCard("task-b", "BLD-2", "B")},
-			},
-			"node-b|": {
+		pages: map[string]serverapi.WorkflowBoard{
+			"next": {
+				ProjectID:        "project-1",
+				SelectedWorkflow: serverapi.WorkflowPickerItem{WorkflowID: "workflow-1"},
 				Cards: []serverapi.WorkflowBoardTaskCard{
 					testTaskCard("task-b", "BLD-2", "B"),
-					testTaskCard("task-c", "BLD-3", "C"),
+					testTaskCard("task-a", "BLD-1", "A"),
 				},
 			},
 		},
@@ -276,13 +267,13 @@ func TestTaskListFetchesPaginatedNodeCardsWithoutDuplicates(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("task list exit=%d stderr=%q", code, stderr)
 	}
-	for _, shortID := range []string{"BLD-1", "BLD-2", "BLD-3"} {
+	for _, shortID := range []string{"BLD-1", "BLD-2"} {
 		if got := strings.Count(stdout, shortID+"\t"); got != 1 {
 			t.Fatalf("task list output = %q, want %s exactly once, got %d", stdout, shortID, got)
 		}
 	}
-	if len(remote.requests) != 3 || remote.requests[1].NodeID != "node-a" || remote.requests[1].PageToken != "a-next" {
-		t.Fatalf("node card requests = %+v, want paginated node-a fetch plus node-b fetch", remote.requests)
+	if len(remote.requests) != 2 || remote.requests[1].PageToken != "next" {
+		t.Fatalf("board requests = %+v, want initial fetch plus next page", remote.requests)
 	}
 }
 

@@ -14,18 +14,24 @@ import { useCreateTask, useWorkspaces } from "./useTaskMutations";
 const newTaskSchema = z.object({
   title: z.string().trim().min(1),
   body: z.string(),
-  sourceWorkspaceID: z.string().min(1),
+  sourceWorkspaceID: z.string(),
 });
 
 type NewTaskFormValues = z.output<typeof newTaskSchema>;
 
 export type NewTaskFallbackDialogProps = Readonly<{
+  boardQueryWorkflowID: string;
   projectID: string;
   workflowID: string;
   onClose: () => void;
 }>;
 
-export function NewTaskFallbackDialog({ projectID, workflowID, onClose }: NewTaskFallbackDialogProps) {
+export function NewTaskFallbackDialog({
+  boardQueryWorkflowID,
+  projectID,
+  workflowID,
+  onClose,
+}: NewTaskFallbackDialogProps) {
   const { t } = useTranslation();
 
   return (
@@ -37,6 +43,7 @@ export function NewTaskFallbackDialog({ projectID, workflowID, onClose }: NewTas
       title={t("task.newTitle")}
     >
       <NewTaskForm
+        boardQueryWorkflowID={boardQueryWorkflowID}
         className="mx-auto w-full max-w-[var(--content-max-width-task-create)]"
         onSubmitted={onClose}
         projectID={projectID}
@@ -57,8 +64,13 @@ export function NewTaskWindowRoute({
   const { nativeBridge } = useAppServices();
 
   return (
-    <NativeDialogWindow contentMaxWidth="var(--content-max-width-task-create)" fitToContent={false} title={t("task.newTitle")}>
+    <NativeDialogWindow
+      contentMaxWidth="var(--content-max-width-task-create)"
+      fitToContent={false}
+      title={t("task.newTitle")}
+    >
       <NewTaskForm
+        boardQueryWorkflowID={workflowID}
         className="w-full"
         onSubmitted={() => {
           void nativeBridge.window.closeCurrent();
@@ -71,11 +83,13 @@ export function NewTaskWindowRoute({
 }
 
 export function NewTaskForm({
+  boardQueryWorkflowID,
   className,
   onSubmitted,
   projectID,
   workflowID,
 }: Readonly<{
+  boardQueryWorkflowID: string;
   className?: string;
   onSubmitted: () => void;
   projectID: string;
@@ -84,47 +98,49 @@ export function NewTaskForm({
   const { t } = useTranslation();
   const connection = useConnectionSnapshot();
   const workspaces = useWorkspaces(projectID);
-  const createTask = useCreateTask(projectID, workflowID);
+  const createTask = useCreateTask(projectID, boardQueryWorkflowID, workflowID);
   const defaultWorkspaceID = workspaces.data?.defaultWorkspaceID ?? "";
-  const initializedOpenRef = useRef(false);
+  const workspaceItems = useMemo(() => workspaces.data?.workspaces ?? [], [workspaces.data?.workspaces]);
+  const initialWorkspaceID = initialSourceWorkspaceID(defaultWorkspaceID, workspaceItems);
+  const initializedRef = useRef(false);
   const form = useForm<NewTaskFormValues>({
     resolver: zodResolver(newTaskSchema),
     defaultValues: {
       title: "",
       body: "",
-      sourceWorkspaceID: defaultWorkspaceID,
+      sourceWorkspaceID: initialWorkspaceID,
     },
   });
 
   useEffect(() => {
-    if (!initializedOpenRef.current && defaultWorkspaceID.length > 0) {
-      form.setValue("sourceWorkspaceID", defaultWorkspaceID, {
-        shouldDirty: false,
-        shouldTouch: false,
-        shouldValidate: true,
-      });
-      initializedOpenRef.current = true;
+    if (!initializedRef.current && initialWorkspaceID.length > 0) {
+      form.reset({ title: "", body: "", sourceWorkspaceID: initialWorkspaceID });
+      initializedRef.current = true;
     }
-  }, [defaultWorkspaceID, form]);
+  }, [form, initialWorkspaceID]);
 
   async function submit(values: NewTaskFormValues): Promise<void> {
+    const sourceWorkspaceID = values.sourceWorkspaceID.trim() || initialWorkspaceID;
+    if (sourceWorkspaceID.length === 0) {
+      return;
+    }
     await createTask.mutateAsync({
       projectID,
       workflowID,
       title: values.title,
       body: values.body,
-      sourceWorkspaceID: values.sourceWorkspaceID,
+      sourceWorkspaceID,
     });
     onSubmitted();
   }
 
-  const workspaceItems = useMemo(() => workspaces.data?.workspaces ?? [], [workspaces.data?.workspaces]);
   const workspaceOptions = useMemo(
     () => workspaceItems.map((workspace) => ({ label: workspace.name, value: workspace.id })),
     [workspaceItems],
   );
   const selectedWorkspaceID = useWatch({ control: form.control, name: "sourceWorkspaceID" });
-  const disabled = connection.phase !== "connected" || createTask.isPending || defaultWorkspaceID.length === 0;
+  const disabled =
+    connection.phase !== "connected" || createTask.isPending || initialWorkspaceID.length === 0;
 
   return (
     <form
@@ -143,14 +159,21 @@ export function NewTaskForm({
         {...form.register("body")}
       />
       {workspaceItems.length === 1 ? (
-        <Badge tone="info">{workspaceItems[0]?.name ?? t("task.sourceWorkspace")}</Badge>
+        <>
+          <input type="hidden" {...form.register("sourceWorkspaceID")} />
+          <Badge tone="info">{workspaceItems[0]?.name ?? t("task.sourceWorkspace")}</Badge>
+        </>
       ) : (
         <SelectField
           disabled={workspaceItems.length <= 1}
           label={t("task.sourceWorkspace")}
           name="sourceWorkspaceID"
           onValueChange={(value) => {
-            form.setValue("sourceWorkspaceID", value, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+            form.setValue("sourceWorkspaceID", value, {
+              shouldDirty: true,
+              shouldTouch: true,
+              shouldValidate: true,
+            });
           }}
           options={workspaceOptions}
           value={selectedWorkspaceID}
@@ -164,4 +187,14 @@ export function NewTaskForm({
       </Button>
     </form>
   );
+}
+
+function initialSourceWorkspaceID(
+  defaultWorkspaceID: string,
+  workspaceItems: readonly { id: string }[],
+): string {
+  if (defaultWorkspaceID.length > 0) {
+    return defaultWorkspaceID;
+  }
+  return workspaceItems[0]?.id ?? "";
 }

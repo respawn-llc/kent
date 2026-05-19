@@ -11,11 +11,13 @@ export type NativeDialogFallbackController<TPayload> = Readonly<{
 export function useNativeDialogFallback<TPayload>({
   errorNoticeID,
   errorTitle,
+  nativeAvailable = true,
   openNative,
   renderFallback,
 }: Readonly<{
   errorNoticeID: string;
   errorTitle: string;
+  nativeAvailable?: boolean | undefined;
   openNative: (payload: TPayload) => Promise<void>;
   renderFallback: (payload: TPayload, close: () => void) => ReactNode;
 }>): NativeDialogFallbackController<TPayload> {
@@ -26,6 +28,10 @@ export function useNativeDialogFallback<TPayload>({
   }, []);
   const open = useCallback(
     async (payload: TPayload): Promise<void> => {
+      if (!nativeAvailable) {
+        setFallbackPayload(payload);
+        return;
+      }
       try {
         await openNative(payload);
         setFallbackPayload(null);
@@ -39,7 +45,7 @@ export function useNativeDialogFallback<TPayload>({
         setFallbackPayload(payload);
       }
     },
-    [errorNoticeID, errorTitle, openNative, push],
+    [errorNoticeID, errorTitle, nativeAvailable, openNative, push],
   );
 
   return {

@@ -128,6 +128,27 @@ func (s *Service) PlanWorkspaceBinding(ctx context.Context, req serverapi.Projec
 	}
 	resolved, err := s.ResolveProjectPath(ctx, serverapi.ProjectResolvePathRequest{Path: req.Path})
 	if err != nil {
+		if ambiguous, ok := serverapi.AsWorkspaceBindingAmbiguous(err); ok {
+			resp := serverapi.ProjectBindingPlanResponse{
+				CanonicalRoot:    ambiguous.CanonicalRoot,
+				PathAvailability: clientui.ProjectAvailability(availabilityForProjectPath(ambiguous.CanonicalRoot)),
+			}
+			switch req.Mode {
+			case serverapi.ProjectBindingPlanModeInteractive:
+				projects, err := s.ListProjects(ctx, serverapi.ProjectListRequest{})
+				if err != nil {
+					return serverapi.ProjectBindingPlanResponse{}, err
+				}
+				resp.Kind = serverapi.ProjectBindingPlanKindServerWorkspaceSelection
+				resp.Projects = projects.Projects
+				return resp, nil
+			case serverapi.ProjectBindingPlanModeHeadless:
+				resp.Kind = serverapi.ProjectBindingPlanKindHeadlessRemoteAmbiguous
+				return resp, nil
+			default:
+				return serverapi.ProjectBindingPlanResponse{}, errors.New("mode must be interactive or headless")
+			}
+		}
 		return serverapi.ProjectBindingPlanResponse{}, err
 	}
 	resp := serverapi.ProjectBindingPlanResponse{

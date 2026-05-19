@@ -88,6 +88,43 @@ func TestBoardAndTaskDetailUseDurableWorkflowMetadataOnly(t *testing.T) {
 	}
 }
 
+func TestBoardDoesNotAdvertiseHiddenDoneCardsWithoutFetchPath(t *testing.T) {
+	ctx := context.Background()
+	store, workflowStore, binding := newWorkflowViewTestStore(t)
+	view, err := New(store)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
+	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	for index := 0; index < 2; index++ {
+		task, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Done task", Body: "Body"})
+		if err != nil {
+			t.Fatalf("CreateTask %d: %v", index, err)
+		}
+		started, err := workflowStore.StartTask(ctx, task.ID)
+		if err != nil {
+			t.Fatalf("StartTask %d: %v", index, err)
+		}
+		if _, err := workflowStore.CompleteRun(ctx, workflowstore.CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}}); err != nil {
+			t.Fatalf("CompleteRun %d: %v", index, err)
+		}
+	}
+
+	board, err := view.GetBoard(ctx, serverapi.WorkflowBoardRequest{ProjectID: binding.ProjectID, DonePreviewLimit: 1}, workflow.StaticRoleResolver{"coder": true})
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	if len(board.DonePreview) != 1 {
+		t.Fatalf("done preview count = %d, want 1", len(board.DonePreview))
+	}
+	if board.HasHiddenDoneCards {
+		t.Fatalf("has hidden done cards = true without hidden-done fetch path")
+	}
+}
+
 func TestBoardAndTaskDetailProjectTaskSourceWorkspaceAndBody(t *testing.T) {
 	ctx := context.Background()
 	store, workflowStore, binding := newWorkflowViewTestStore(t)

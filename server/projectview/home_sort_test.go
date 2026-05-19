@@ -3,17 +3,20 @@ package projectview
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"builder/server/metadata"
+	"builder/server/session"
 	"builder/server/workflowstore"
+	"builder/shared/config"
 	"builder/shared/serverapi"
 )
 
 func TestMetadataServiceSortsProjectHomeByLatestTaskActivityOrEdit(t *testing.T) {
 	ctx := context.Background()
-	store, _, older := newProjectViewMetadataStore(t)
+	store, cfg, older := newProjectViewMetadataStore(t)
 	svc, err := NewMetadataService(store, "")
 	if err != nil {
 		t.Fatalf("NewMetadataService: %v", err)
@@ -61,6 +64,29 @@ func TestMetadataServiceSortsProjectHomeByLatestTaskActivityOrEdit(t *testing.T)
 	}
 	if got := projectHomeIDs(home.Projects); len(got) != 2 || got[0] != newer.Binding.ProjectID || got[1] != older.ProjectID {
 		t.Fatalf("project order after edit = %+v, want [%s %s]", got, newer.Binding.ProjectID, older.ProjectID)
+	}
+
+	projectSessionsDir := config.ProjectSessionsRoot(cfg, older.ProjectID)
+	sess, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatalf("session.Create: %v", err)
+	}
+	if err := sess.SetName("Recent chat"); err != nil {
+		t.Fatalf("SetName: %v", err)
+	}
+	sessionActivityUnixMs := taskActivityUnixMs + 2
+	if _, err := store.DB().ExecContext(ctx, `UPDATE sessions SET updated_at_unix_ms = ? WHERE id = ?`, sessionActivityUnixMs, sess.Meta().SessionID); err != nil {
+		t.Fatalf("touch session activity: %v", err)
+	}
+	home, err = svc.ListProjectHome(ctx, serverapi.ProjectHomeListRequest{PageSize: 2})
+	if err != nil {
+		t.Fatalf("ListProjectHome after session activity: %v", err)
+	}
+	if got := projectHomeIDs(home.Projects); len(got) != 2 || got[0] != older.ProjectID || got[1] != newer.Binding.ProjectID {
+		t.Fatalf("project order after session activity = %+v, want [%s %s]", got, older.ProjectID, newer.Binding.ProjectID)
+	}
+	if got := home.Projects[0].UpdatedAtUnixMs; got != sessionActivityUnixMs {
+		t.Fatalf("latest session activity timestamp = %d, want %d", got, sessionActivityUnixMs)
 	}
 }
 

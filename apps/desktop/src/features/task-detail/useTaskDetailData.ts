@@ -4,8 +4,6 @@ import type { QuestionAnswerInput } from "../../api";
 import { queryKeys } from "../../app/queryKeys";
 import { useAppServices } from "../../app/useAppServices";
 
-const slidingWindowPageLimit = 6;
-
 export function useTaskDetail(taskID: string, enabled: boolean) {
   const { api } = useAppServices();
   return useQuery({
@@ -22,7 +20,6 @@ export function useTaskActivity(taskID: string, enabled: boolean) {
     queryFn: async ({ pageParam }) => api.listTaskActivity(taskID, pageParam),
     enabled: enabled && taskID.length > 0,
     initialPageParam: "",
-    maxPages: slidingWindowPageLimit,
     getNextPageParam: (lastPage) => (lastPage.nextPageToken.length > 0 ? lastPage.nextPageToken : undefined),
   });
 }
@@ -43,10 +40,12 @@ export function useTaskMutations(taskID: string, onChanged?: () => void) {
     await queryClient.invalidateQueries({ queryKey: queryKeys.task(taskID) });
     await queryClient.invalidateQueries({ queryKey: queryKeys.activity(taskID) });
     await queryClient.invalidateQueries({ queryKey: queryKeys.projects });
-    await queryClient.invalidateQueries({ queryKey: ["attention"] });
-    await queryClient.invalidateQueries({ queryKey: ["board"] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.allAttention });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.allBoards });
     await queryClient.invalidateQueries({ queryKey: ["board-node-cards"] });
-    await queryClient.invalidateQueries({ queryKey: ["pending-asks"] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.allTasks });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.allActivity });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.allPendingAsks });
     onChanged?.();
   }
   return {

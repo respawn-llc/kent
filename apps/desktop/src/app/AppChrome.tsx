@@ -18,7 +18,7 @@ export function AppChrome({ children }: AppChromeProps) {
   const { debugThemeOverrideEnabled, nativeBridge } = useAppServices();
   const navigation = useAppNavigation();
   const stack = useNavigationStackState();
-  const macOS = isMacOS();
+  const macOS = nativeBridge.capabilities.platform === "macos";
   const title = useCurrentWindowChromeTitle();
 
   return (
@@ -69,15 +69,14 @@ export function AppChrome({ children }: AppChromeProps) {
           {title}
         </div>
       ) : null}
-      <div className="app-region-no-drag min-h-0 min-w-0 w-full overflow-visible" data-testid="app-shell-content">
+      <div
+        className="app-region-no-drag min-h-0 min-w-0 w-full overflow-visible"
+        data-testid="app-shell-content"
+      >
         {children}
       </div>
     </main>
   );
-}
-
-function isMacOS(): boolean {
-  return typeof navigator !== "undefined" && /Mac OS|Macintosh/u.test(navigator.userAgent);
 }
 
 function DebugThemeToggle({ label }: Readonly<{ label: string }>) {

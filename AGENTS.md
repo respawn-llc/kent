@@ -91,12 +91,14 @@ If user asks you to fix a github issue and you commit the fix, use 'closes #xx' 
 ## Important rules:
 - All business logic covered by tests. Production code is written to be unit-testable.
 - Use red/green TDD when developing new features.
-- Before handing off to the user after code changes, rebuild via `./scripts/build.sh --output ./bin/builder`. Don't ask for confirmation to run/write tests and run checks.
+- Before handing off to the user after Go code changes, rebuild via `./scripts/build.sh --output ./bin/builder`. Don't ask for confirmation to run/write tests and run checks.
 - Run tests via `./scripts/test.sh` passing normal go test arguments. With no package args this also runs GUI frontend tests.
 - Releases are driven by `VERSION`; keep Homebrew release plumbing in sync with `scripts/update-brew-tap.sh` and the tap formula. Tap formula lives in a separate repo.
 - `docs/dev/decisions.md` is the source of truth for locked product and architecture decisions, keep it up to date if user makes a new decision.
 - Ongoing mode must not use `?1007`.
 - Ongoing normal-buffer transcript history is append-only after startup. Once a line is emitted into scrollback, it is immutable: never retroactively restyle it, rewrite it, clear-and-replay it, or re-emit the full buffer to reflect later tool state.
-- Proactively keep documentation up-to-date on your own when you make UX or other user-facing changes. Example areas that warrant a docs check include setup, startup, config, env variables, slash commands, model providers, etc.
+- Proactively keep documentation up-to-date on your own when you make UX or other user-facing changes. Example areas that warrant a docs check include setup, startup, config, env variables, slash commands, model providers, worktrees, server arch, etc.
 - Full transcript history is unbounded & weighs gigabytes, thus no code must ever attempt to load `events.jsonl` fully into memory.
+
+
 - Keep this AGENTS.md file up-to-date and comprehensive. Avoid adding info that can become outdated, otherwise keep this as project guidelines, rules, and learnings for future team members. Persist info that should be preserved here.

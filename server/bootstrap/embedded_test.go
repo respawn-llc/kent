@@ -87,7 +87,7 @@ func TestBuildGeneratedSupportUsesSharedSyncPath(t *testing.T) {
 	}
 }
 
-func TestResolveConfigUsesWorkspaceContainer(t *testing.T) {
+func TestResolveConfigDoesNotCreateLegacyWorkspaceContainer(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
@@ -110,6 +110,6 @@ func TestResolveConfigUsesWorkspaceContainer(t *testing.T) {
 		t.Fatalf("resolved config model = %q, want %q", plan.Config.Settings.Model, loaded.Settings.Model)
 	}
 	if plan.ContainerDir != "" {
-		t.Fatalf("container dir = %q, want empty before project binding", plan.ContainerDir)
+		t.Fatalf("container dir = %q, want empty after legacy workspace containers removal", plan.ContainerDir)
 	}
 }

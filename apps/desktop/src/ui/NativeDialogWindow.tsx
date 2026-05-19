@@ -16,7 +16,7 @@ export function NativeDialogWindow({
   fitToContent = true,
   contentMaxWidth = "var(--content-max-width-dialog)",
 }: NativeDialogWindowProps) {
-  const { nativeBridge } = useAppServices();
+  const { logger, nativeBridge } = useAppServices();
   const shellRef = useRef<HTMLElement | null>(null);
 
   useLayoutEffect(() => {
@@ -38,7 +38,11 @@ export function NativeDialogWindow({
         return;
       }
       lastSize = key;
-      void nativeBridge.window.fitCurrentToContent({ height, width });
+      void nativeBridge.window.fitCurrentToContent({ height, width }).catch((error: unknown) => {
+        void logger.append("warn", "Fit native dialog window failed.", {
+          error: error instanceof Error ? error.message : "unknown",
+        });
+      });
     };
     const scheduleFit = () => {
       cancelAnimationFrame(frame);
@@ -51,7 +55,7 @@ export function NativeDialogWindow({
       cancelAnimationFrame(frame);
       observer?.disconnect();
     };
-  }, [fitToContent, nativeBridge.window]);
+  }, [fitToContent, logger, nativeBridge.window]);
 
   return (
     <main

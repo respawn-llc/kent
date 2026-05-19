@@ -2,6 +2,7 @@ package projectview
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -255,11 +256,11 @@ func TestMetadataServiceListsProjectWorkspacesForGUI(t *testing.T) {
 	if len(list.Workspaces) != 2 {
 		t.Fatalf("workspace count = %d, want 2: %+v", len(list.Workspaces), list.Workspaces)
 	}
-	if list.Workspaces[0].WorkspaceID != attached.WorkspaceID {
-		t.Fatalf("first workspace = %+v, want newest attached %q", list.Workspaces[0], attached.WorkspaceID)
+	if list.Workspaces[0].WorkspaceID != binding.WorkspaceID || !list.Workspaces[0].IsPrimary {
+		t.Fatalf("first workspace = %+v, want primary %q", list.Workspaces[0], binding.WorkspaceID)
 	}
-	if list.Workspaces[1].WorkspaceID != binding.WorkspaceID || !list.Workspaces[1].IsPrimary {
-		t.Fatalf("second workspace = %+v, want primary %q", list.Workspaces[1], binding.WorkspaceID)
+	if list.Workspaces[1].WorkspaceID != attached.WorkspaceID {
+		t.Fatalf("second workspace = %+v, want newest attached %q", list.Workspaces[1], attached.WorkspaceID)
 	}
 }
 
@@ -282,8 +283,8 @@ func TestMetadataServicePaginatesProjectWorkspacesForGUI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListProjectWorkspaces page1: %v", err)
 	}
-	if got := workspaceIDs(page1.Workspaces); len(got) != 2 || got[0] != second.WorkspaceID || got[1] != first.WorkspaceID {
-		t.Fatalf("page1 workspace ids = %+v, want [%s %s]", got, second.WorkspaceID, first.WorkspaceID)
+	if got := workspaceIDs(page1.Workspaces); len(got) != 2 || got[0] != binding.WorkspaceID || got[1] != second.WorkspaceID {
+		t.Fatalf("page1 workspace ids = %+v, want [%s %s]", got, binding.WorkspaceID, second.WorkspaceID)
 	}
 	if page1.NextPageToken == "" {
 		t.Fatalf("page1 next token empty: %+v", page1)
@@ -293,8 +294,8 @@ func TestMetadataServicePaginatesProjectWorkspacesForGUI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListProjectWorkspaces page2: %v", err)
 	}
-	if got := workspaceIDs(page2.Workspaces); len(got) != 1 || got[0] != binding.WorkspaceID {
-		t.Fatalf("page2 workspace ids = %+v, want [%s]", got, binding.WorkspaceID)
+	if got := workspaceIDs(page2.Workspaces); len(got) != 1 || got[0] != first.WorkspaceID {
+		t.Fatalf("page2 workspace ids = %+v, want [%s]", got, first.WorkspaceID)
 	}
 	if page2.NextPageToken != "" {
 		t.Fatalf("page2 next token = %q, want empty", page2.NextPageToken)
@@ -423,7 +424,7 @@ func TestMetadataServiceUnlinksWorkspaceForEditPage(t *testing.T) {
 
 func TestMetadataServiceGetsProjectEditForGUI(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	attached, err := store.AttachWorkspaceToProject(context.Background(), binding.ProjectID, t.TempDir())
+	_, err := store.AttachWorkspaceToProject(context.Background(), binding.ProjectID, t.TempDir())
 	if err != nil {
 		t.Fatalf("AttachWorkspaceToProject: %v", err)
 	}
@@ -442,8 +443,8 @@ func TestMetadataServiceGetsProjectEditForGUI(t *testing.T) {
 	if edit.DefaultWorkspaceID != binding.WorkspaceID {
 		t.Fatalf("default workspace = %q, want %q", edit.DefaultWorkspaceID, binding.WorkspaceID)
 	}
-	if got := workspaceIDs(edit.Workspaces); len(got) != 1 || got[0] != attached.WorkspaceID {
-		t.Fatalf("edit page1 workspaces = %+v, want newest attached %q", got, attached.WorkspaceID)
+	if got := workspaceIDs(edit.Workspaces); len(got) != 1 || got[0] != binding.WorkspaceID {
+		t.Fatalf("edit page1 workspaces = %+v, want default workspace %q", got, binding.WorkspaceID)
 	}
 	if edit.NextPageToken == "" {
 		t.Fatalf("edit next token empty: %+v", edit)
@@ -610,6 +611,43 @@ func TestMetadataServicePlansInteractiveLocalUnboundWorkspace(t *testing.T) {
 	}
 	if len(plan.Projects) != 1 || plan.Projects[0].ProjectID != binding.ProjectID {
 		t.Fatalf("plan projects = %+v, want registered project %q", plan.Projects, binding.ProjectID)
+	}
+}
+
+func TestMetadataServicePlansAmbiguousDuplicateWorkspaceBinding(t *testing.T) {
+	store, cfg, first := newProjectViewMetadataStore(t)
+	second, err := store.CreateProjectForWorkspace(context.Background(), cfg.WorkspaceRoot, "second")
+	if err != nil {
+		t.Fatalf("CreateProjectForWorkspace second: %v", err)
+	}
+	svc, err := NewMetadataService(store, "")
+	if err != nil {
+		t.Fatalf("NewMetadataService: %v", err)
+	}
+
+	if _, err := svc.ResolveProjectPath(context.Background(), serverapi.ProjectResolvePathRequest{Path: cfg.WorkspaceRoot}); !errors.Is(err, serverapi.ErrWorkspaceBindingAmbiguous) {
+		t.Fatalf("ResolveProjectPath duplicate binding error = %v, want ErrWorkspaceBindingAmbiguous", err)
+	}
+	plan, err := svc.PlanWorkspaceBinding(context.Background(), serverapi.ProjectBindingPlanRequest{Path: cfg.WorkspaceRoot, Mode: serverapi.ProjectBindingPlanModeInteractive})
+	if err != nil {
+		t.Fatalf("PlanWorkspaceBinding interactive duplicate: %v", err)
+	}
+	if plan.Kind != serverapi.ProjectBindingPlanKindServerWorkspaceSelection {
+		t.Fatalf("interactive plan kind = %q, want %q", plan.Kind, serverapi.ProjectBindingPlanKindServerWorkspaceSelection)
+	}
+	if len(plan.Projects) != 2 {
+		t.Fatalf("interactive plan projects = %+v, want two projects", plan.Projects)
+	}
+	if plan.CanonicalRoot != first.CanonicalRoot || second.CanonicalRoot != first.CanonicalRoot {
+		t.Fatalf("duplicate canonical roots = %q/%q, want %q", first.CanonicalRoot, second.CanonicalRoot, cfg.WorkspaceRoot)
+	}
+
+	plan, err = svc.PlanWorkspaceBinding(context.Background(), serverapi.ProjectBindingPlanRequest{Path: cfg.WorkspaceRoot, Mode: serverapi.ProjectBindingPlanModeHeadless})
+	if err != nil {
+		t.Fatalf("PlanWorkspaceBinding headless duplicate: %v", err)
+	}
+	if plan.Kind != serverapi.ProjectBindingPlanKindHeadlessRemoteAmbiguous {
+		t.Fatalf("headless plan kind = %q, want %q", plan.Kind, serverapi.ProjectBindingPlanKindHeadlessRemoteAmbiguous)
 	}
 }
 

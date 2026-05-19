@@ -2,6 +2,7 @@ import { createBrowserNativeBridge } from "@builder/desktop-native-bridge";
 
 import { BuilderApiClient } from "../api";
 import { FakeRpcTransport, type FakeRoute } from "../api/fakeTransport";
+import { protocolVersion } from "../api/jsonRpcSocket";
 import { createGuiLogger } from "../app/logging";
 import type { AppServices } from "../app/services";
 
@@ -38,7 +39,7 @@ export const startupRoutes: readonly FakeRoute[] = [
       server_id: "server-1",
       server_version: "1.3.0",
       server_build: "1.3.0",
-      protocol_version: "2",
+      protocol_version: protocolVersion,
       auth_ready: true,
       auth_required: true,
       endpoint: "ws://127.0.0.1:53082/rpc",

@@ -449,14 +449,18 @@ func assertEnvironmentCWD(t *testing.T, messages []llm.Message, cwd string) {
 
 func assertWorktreeReminderMessage(t *testing.T, messages []llm.Message, branch string, cwd string, workspaceRoot string) {
 	t.Helper()
+	sawWorktreeReminder := false
 	for _, msg := range messages {
 		if msg.Role != llm.RoleDeveloper || msg.MessageType != llm.MessageTypeWorktreeMode {
 			continue
 		}
+		sawWorktreeReminder = true
 		if strings.Contains(msg.Content, branch) && strings.Contains(msg.Content, cwd) && strings.Contains(msg.Content, workspaceRoot) {
 			return
 		}
-		t.Fatalf("worktree reminder content = %q, want branch %q cwd %q workspace %q", msg.Content, branch, cwd, workspaceRoot)
+	}
+	if sawWorktreeReminder {
+		t.Fatalf("no matching worktree reminder found for branch %q cwd %q workspace %q", branch, cwd, workspaceRoot)
 	}
 	t.Fatalf("expected worktree reminder message in %+v", messages)
 }

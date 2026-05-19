@@ -1,5 +1,5 @@
 import type { NativeBridge } from "@builder/desktop-native-bridge";
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Link2Off, Save, Star, Unlink } from "lucide-react";
 
@@ -171,31 +171,44 @@ export function WorkspaceUnlinkFallbackDialog({
   );
 }
 
-export function WorkspaceUnlinkWindowRoute({
-  projectID,
-  workspaceID,
-  rootPath,
-}: WorkspaceUnlinkTarget) {
+export function WorkspaceUnlinkWindowRoute({ projectID, workspaceID, rootPath }: WorkspaceUnlinkTarget) {
+  const [submitting, setSubmitting] = useState(false);
   const { t } = useTranslation();
-  const { nativeBridge } = useAppServices();
+  const { api, nativeBridge } = useAppServices();
   const { push } = useStatusController();
   const target = { projectID, rootPath, workspaceID };
   return (
     <NativeDialogWindow title={t("projectEdit.unlinkTitle")}>
       <WorkspaceUnlinkContent
         className="w-[calc(var(--workspace-unlink-dialog-width)-(var(--space-2)*2)-(var(--space-4)*2))]"
-        disabled={false}
+        disabled={submitting}
         onCancel={() => {
           void nativeBridge.window.closeCurrent();
         }}
         onConfirm={() => {
-          void confirmNativeWorkspaceUnlink(nativeBridge, target, (message) => {
-            push({
-              body: message,
-              id: "workspace-unlink-confirm-error",
-              title: t("projectEdit.unlinkWindowError"),
-              tone: "danger",
-            });
+          if (submitting) {
+            return;
+          }
+          setSubmitting(true);
+          void confirmNativeWorkspaceUnlink(api, nativeBridge, target, {
+            onBlocked: (message) => {
+              push({
+                body: message.length > 0 ? message : t("projectEdit.workspaceUnlinkBlocked"),
+                id: "workspace-unlink-blocked",
+                title: t("projectEdit.workspaceUnlinkBlocked"),
+                tone: "danger",
+              });
+              setSubmitting(false);
+            },
+            onError: (message) => {
+              push({
+                body: message,
+                id: "workspace-unlink-confirm-error",
+                title: t("projectEdit.unlinkWindowError"),
+                tone: "danger",
+              });
+              setSubmitting(false);
+            },
           });
         }}
         rootPath={rootPath}
@@ -243,14 +256,23 @@ function WorkspaceUnlinkContent({
 }
 
 async function confirmNativeWorkspaceUnlink(
+  api: ReturnType<typeof useAppServices>["api"],
   nativeBridge: NativeBridge,
   target: WorkspaceUnlinkTarget,
-  onError: (message: string) => void,
+  callbacks: Readonly<{
+    onBlocked: (message: string) => void;
+    onError: (message: string) => void;
+  }>,
 ): Promise<void> {
   try {
-    await nativeBridge.projectWorkspace.requestUnlink(target);
+    const response = await api.unlinkWorkspace(target.projectID, target.workspaceID);
+    if (!response.unlinked) {
+      callbacks.onBlocked(response.blockers.map((blocker) => blocker.message).join("\n"));
+      return;
+    }
+    await nativeBridge.projectWorkspace.notifyChanged({ projectID: target.projectID });
     await nativeBridge.window.closeCurrent();
   } catch (error) {
-    onError(errorMessage(error));
+    callbacks.onError(errorMessage(error));
   }
 }

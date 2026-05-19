@@ -108,7 +108,7 @@ Acceptance:
 Goal: server exposes durable project edit and workspace binding operations required by GUI.
 
 - [x] Add project detail/read model for edit page, including project key/name/default workspace and paginated workspaces.
-- [x] Add cursor-paginated workspace list sorted by attach time descending with page size support.
+- [x] Add cursor-paginated workspace list with the default workspace first, remaining rows sorted by attach time descending, and page size support.
 - [x] Add project name update mutation using creation-equivalent validation.
 - [x] Add default workspace update mutation.
 - [x] Add workspace attach mutation behavior that de-dupes within a project and allows same path across projects.

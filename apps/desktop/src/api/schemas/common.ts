@@ -19,7 +19,10 @@ import type {
 
 export const emptyString = z.string().optional().default("");
 export const numberValue = z.number().default(0);
-export const stringList = z.array(z.string()).optional().default([]);
+export const stringList = z
+  .array(z.string())
+  .nullish()
+  .transform((value) => value ?? []);
 
 export const workspaceSummarySchema: z.ZodType<WorkspaceSummary> = z
   .object({
@@ -172,7 +175,7 @@ export const boardGroupSchema: z.ZodType<BoardGroup> = z
     key: z.string(),
     display_name: z.string(),
     sort_order: z.number(),
-    node_ids: z.array(z.string()).optional().default([]),
+    node_ids: stringList,
   })
   .transform((value) => ({
     id: value.group_id,
@@ -303,8 +306,8 @@ export const transitionEdgeSchema: z.ZodType<TransitionEdge> = z
     requires_approval: z.boolean(),
     output_requirements: z
       .array(z.object({ field_name: z.string() }))
-      .optional()
-      .default([]),
+      .nullish()
+      .transform((value) => value ?? []),
   })
   .transform((value) => ({
     id: value.id,
@@ -323,8 +326,14 @@ export const transitionSchema: z.ZodType<TaskTransition> = z
     source_node_display_name: emptyString,
     state: z.string(),
     commentary: emptyString,
-    output_values: z.record(z.string(), z.string()).optional().default({}),
-    edges: z.array(transitionEdgeSchema).optional().default([]),
+    output_values: z
+      .record(z.string(), z.string())
+      .nullish()
+      .transform((value) => value ?? {}),
+    edges: z
+      .array(transitionEdgeSchema)
+      .nullish()
+      .transform((value) => value ?? []),
     workflow_revision_seen: z.number().optional().default(0),
     created_at_unix_ms: z.number(),
     applied_at_unix_ms: numberValue,

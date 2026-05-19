@@ -23,6 +23,8 @@ import {
   useProjectPages,
 } from "./useHomeData";
 
+const LOCAL_UNBOUND_PLAN_KIND = "local_unbound";
+
 export function HomeRoute() {
   const { t } = useTranslation();
   const { api, nativeBridge } = useAppServices();
@@ -39,6 +41,7 @@ export function HomeRoute() {
   const projectCreationDialog = useNativeDialogFallback<ProjectDraft>({
     errorNoticeID: "project-create-window-error",
     errorTitle: t("home.projectCreateWindowError"),
+    nativeAvailable: nativeBridge.capabilities.projectCreationWindow,
     openNative: async (nextDraft) => {
       await nativeBridge.projectCreation.openWindow(nextDraft);
     },
@@ -77,6 +80,15 @@ export function HomeRoute() {
         void navigation.openProject(plan.binding.projectID);
         return;
       }
+      if (plan.kind !== LOCAL_UNBOUND_PLAN_KIND) {
+        push({
+          id: "project-create-selection-required",
+          tone: "info",
+          title: t("home.workspaceSelectionRequired"),
+          body: t("home.workspaceSelectionRequiredBody"),
+        });
+        return;
+      }
       const name = basename(plan.canonicalRoot);
       const nextDraft = { name, key: projectKeyFromName(name), workspaceRoot: plan.canonicalRoot };
       await projectCreationDialog.open(nextDraft);
@@ -91,19 +103,38 @@ export function HomeRoute() {
   }
 
   async function submitDraft(values: ProjectDraft, close: () => void): Promise<void> {
-    const plan = await api.planWorkspace(values.workspaceRoot);
-    if (plan.binding !== null) {
+    try {
+      const plan = await api.planWorkspace(values.workspaceRoot);
+      if (plan.binding !== null) {
+        close();
+        void navigation.openProject(plan.binding.projectID);
+        return;
+      }
+      if (plan.kind !== LOCAL_UNBOUND_PLAN_KIND) {
+        close();
+        push({
+          id: "project-create-selection-required",
+          tone: "info",
+          title: t("home.workspaceSelectionRequired"),
+          body: t("home.workspaceSelectionRequiredBody"),
+        });
+        return;
+      }
+      const binding = await creation.mutateAsync({
+        name: values.name.trim(),
+        key: values.key.trim().toUpperCase(),
+        workspaceRoot: values.workspaceRoot,
+      });
       close();
-      void navigation.openProject(plan.binding.projectID);
-      return;
+      void navigation.openProject(binding.projectID);
+    } catch (error) {
+      push({
+        id: "project-create-submit-error",
+        tone: "danger",
+        title: t("home.workspacePlanError"),
+        body: errorMessage(error),
+      });
     }
-    const binding = await creation.mutateAsync({
-      name: values.name.trim(),
-      key: values.key.trim().toUpperCase(),
-      workspaceRoot: values.workspaceRoot,
-    });
-    close();
-    void navigation.openProject(binding.projectID);
   }
 
   const handleNativeProjectCreated = useCallback(
@@ -211,9 +242,12 @@ function ProjectRow({ project }: Readonly<{ project: ProjectSummary }>) {
       <button
         className="grid w-full gap-[var(--space-1)] p-[var(--space-3)] pr-14 text-left text-[var(--color-on-island)]"
         onClick={(event) => {
-          startProjectToBoardTransition(event.currentTarget.parentElement ?? event.currentTarget, async () => {
-            await navigation.openProject(project.id, project.defaultWorkflowID);
-          });
+          startProjectToBoardTransition(
+            event.currentTarget.parentElement ?? event.currentTarget,
+            async () => {
+              await navigation.openProject(project.id, project.defaultWorkflowID);
+            },
+          );
         }}
         aria-label={`${project.name} ${project.primaryWorkspace.rootPath}`}
         type="button"
@@ -275,9 +309,7 @@ function AttentionList({ items, query }: AttentionListProps) {
       onLoadMore={() => void query.fetchNextPage()}
       paddingEnd={16}
       paddingStart={16}
-      renderItem={(item) => (
-        <AttentionRow item={item} openTaskDetail={openTaskDetail} />
-      )}
+      renderItem={(item) => <AttentionRow item={item} openTaskDetail={openTaskDetail} />}
     />
   );
 }
@@ -300,7 +332,10 @@ function AttentionRow({
       }}
       type="button"
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-[var(--space-2)]" data-testid="attention-row-meta">
+      <div
+        className="flex min-w-0 flex-wrap items-center gap-[var(--space-2)]"
+        data-testid="attention-row-meta"
+      >
         <Badge tone="warning">{item.kind}</Badge>
         {item.taskShortID.length > 0 ? (
           <span className="min-w-0 truncate font-mono text-sm text-[var(--color-muted)]">

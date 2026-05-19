@@ -16,13 +16,17 @@ let productionContextMenuGuardInstalled = false;
 export async function createDefaultAppServices(): Promise<AppServices> {
   installProductionContextMenuGuard(import.meta.env.PROD);
   applyNativeDialogThemeOverride();
-  const nativeBridge = createAutoNativeBridge();
+  const bootstrapNativeBridge = createAutoNativeBridge("unknown");
+  const platform = await bootstrapNativeBridge.builder.resolvePlatform().catch(() => "unknown" as const);
+  const nativeBridge = createAutoNativeBridge(platform);
   const logger = createGuiLogger(nativeBridge);
   const context = await nativeBridge.builder
     .resolveContext()
     .catch((error: unknown) => new StartupConfigurationError(errorMessage(error)));
   if (context instanceof Error) {
-    await logger.append("error", "Builder native context resolution failed.", { error: context.message });
+    await logger.append("error", "Builder native context resolution failed.", {
+      error: context.message,
+    });
     return {
       api: new BuilderApiClient(new BootstrapErrorTransport(context)),
       debugThemeOverrideEnabled: import.meta.env.DEV,

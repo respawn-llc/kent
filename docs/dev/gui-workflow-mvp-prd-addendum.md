@@ -63,7 +63,7 @@ The desktop GUI remains a remote-control client over an already-running Builder 
 - Back/navigation discards unsaved project name/default changes silently.
 - Attach/detach workspace changes are immediate.
 - Workspace list is backend-paginated and frontend infinite-scrolled from first implementation.
-- Workspace list uses cursor pagination, sorted by attach time descending, page size 100.
+- Workspace list uses cursor pagination, keeps the default workspace first, then sorts by attach time descending, page size 100.
 - Workspace row shows only workspace path, default icon, and unlink icon.
 - Workspace unlink icon uses unchain/unlink semantics, not trash semantics.
 - Same workspace path can be linked to multiple different projects.

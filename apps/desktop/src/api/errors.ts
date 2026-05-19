@@ -48,7 +48,11 @@ export function errorMessage(error: unknown): string {
     return normalizeMessage(error.message);
   }
   if (isObject(error)) {
-    return normalizeMessage(JSON.stringify(error));
+    try {
+      return normalizeMessage(JSON.stringify(error));
+    } catch {
+      return "Unknown error";
+    }
   }
   return "Unknown error";
 }

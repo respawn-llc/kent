@@ -422,19 +422,22 @@ func (s *Store) lookupWorkspaceBinding(ctx context.Context, workspaceRoot string
 	if err != nil {
 		return Binding{}, err
 	}
-	row, err := s.queries.GetWorkspaceBindingByCanonicalRoot(ctx, canonicalRoot)
-	if err == nil {
-		return Binding{
-			ProjectID:       row.ProjectID,
-			ProjectKey:      row.ProjectKey,
-			ProjectName:     row.ProjectDisplayName,
-			WorkspaceID:     row.WorkspaceID,
-			CanonicalRoot:   row.WorkspaceRoot,
-			WorkspaceName:   filepath.Base(row.WorkspaceRoot),
-			WorkspaceStatus: availabilityForPath(row.WorkspaceRoot),
-		}, nil
+	rows, err := s.queries.ListWorkspaceBindingsByCanonicalRoot(ctx, canonicalRoot)
+	if err != nil {
+		return Binding{}, err
 	}
-	return Binding{}, fmt.Errorf("lookup workspace binding: %w", err)
+	switch len(rows) {
+	case 0:
+		return Binding{}, sql.ErrNoRows
+	case 1:
+		return bindingFromCanonicalRootRow(rows[0]), nil
+	default:
+		projectIDs := make([]string, 0, len(rows))
+		for _, row := range rows {
+			projectIDs = append(projectIDs, row.ProjectID)
+		}
+		return Binding{}, serverapi.WorkspaceBindingAmbiguousError{CanonicalRoot: canonicalRoot, ProjectIDs: projectIDs}
+	}
 }
 
 func (s *Store) CreateProjectForWorkspace(ctx context.Context, workspaceRoot string, projectName string) (Binding, error) {
@@ -509,7 +512,13 @@ func (s *Store) UpdateProjectDisplayName(ctx context.Context, projectID string, 
 		return errors.New("project id is required")
 	}
 	now := time.Now().UTC().UnixMilli()
-	updated, err := s.queries.SetProjectDisplayName(ctx, sqlitegen.SetProjectDisplayNameParams{
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin project display name tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	q := s.queries.WithTx(tx)
+	updated, err := q.SetProjectDisplayName(ctx, sqlitegen.SetProjectDisplayNameParams{
 		ProjectID:       trimmedProjectID,
 		DisplayName:     displayName,
 		UpdatedAtUnixMs: now,
@@ -520,8 +529,11 @@ func (s *Store) UpdateProjectDisplayName(ctx context.Context, projectID string, 
 	if updated == 0 {
 		return fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, trimmedProjectID)
 	}
-	if err := s.recordProjectEvent(ctx, trimmedProjectID, "project", "update", []string{trimmedProjectID}, now); err != nil {
+	if err := recordProjectEventWithQueries(ctx, q, trimmedProjectID, "project", "update", []string{trimmedProjectID}, now); err != nil {
 		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit project display name tx: %w", err)
 	}
 	return nil
 }
@@ -617,6 +629,16 @@ func (s *Store) UnlinkProjectWorkspace(ctx context.Context, projectID string, wo
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
+	workspace, err = q.GetWorkspaceByID(ctx, trimmedWorkspaceID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: %q", serverapi.ErrWorkspaceNotRegistered, trimmedWorkspaceID)
+		}
+		return nil, fmt.Errorf("get workspace by id: %w", err)
+	}
+	if strings.TrimSpace(workspace.ProjectID) != trimmedProjectID {
+		return nil, fmt.Errorf("%w: %q", serverapi.ErrWorkspaceNotRegistered, trimmedWorkspaceID)
+	}
 	blockers, err = workspaceUnlinkBlockersWithQueries(ctx, q, trimmedProjectID, workspace)
 	if err != nil {
 		return nil, err
@@ -713,7 +735,7 @@ func (s *Store) RebindWorkspace(ctx context.Context, oldWorkspaceRoot string, ne
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
 
-	oldWorkspace, err := q.GetWorkspaceByCanonicalRoot(ctx, oldCanonicalRoot)
+	oldWorkspace, err := singleWorkspaceByCanonicalRoot(ctx, q, oldCanonicalRoot)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Binding{}, serverapi.ErrWorkspaceNotRegistered
@@ -724,14 +746,17 @@ func (s *Store) RebindWorkspace(ctx context.Context, oldWorkspaceRoot string, ne
 		if err := tx.Commit(); err != nil {
 			return Binding{}, fmt.Errorf("commit workspace rebind noop tx: %w", err)
 		}
-		return s.lookupWorkspaceBinding(ctx, newCanonicalRoot)
+		return s.lookupProjectWorkspaceBinding(ctx, oldWorkspace.ProjectID, newCanonicalRoot)
 	}
-	if existing, err := q.GetWorkspaceByCanonicalRoot(ctx, newCanonicalRoot); err == nil {
-		if existing.ID == oldWorkspace.ID {
+	if existing, err := q.GetWorkspaceBindingByProjectAndCanonicalRoot(ctx, sqlitegen.GetWorkspaceBindingByProjectAndCanonicalRootParams{
+		ProjectID:         oldWorkspace.ProjectID,
+		CanonicalRootPath: newCanonicalRoot,
+	}); err == nil {
+		if existing.WorkspaceID == oldWorkspace.ID {
 			if err := tx.Commit(); err != nil {
 				return Binding{}, fmt.Errorf("commit workspace rebind noop tx: %w", err)
 			}
-			return s.lookupWorkspaceBinding(ctx, newCanonicalRoot)
+			return s.lookupProjectWorkspaceBinding(ctx, oldWorkspace.ProjectID, newCanonicalRoot)
 		}
 		return Binding{}, fmt.Errorf("workspace %q is already bound", newCanonicalRoot)
 	} else if !errors.Is(err, sql.ErrNoRows) {
@@ -756,7 +781,7 @@ func (s *Store) RebindWorkspace(ctx context.Context, oldWorkspaceRoot string, ne
 		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
 			return Binding{}, fmt.Errorf("rollback workspace rebind tx: %w", rollbackErr)
 		}
-		if binding, lookupErr := s.lookupWorkspaceBinding(ctx, newCanonicalRoot); lookupErr == nil && binding.WorkspaceID != oldWorkspace.ID {
+		if binding, lookupErr := s.lookupProjectWorkspaceBinding(ctx, oldWorkspace.ProjectID, newCanonicalRoot); lookupErr == nil && binding.WorkspaceID != oldWorkspace.ID {
 			return Binding{}, fmt.Errorf("workspace %q is already bound", newCanonicalRoot)
 		}
 		if isSQLiteUniqueConstraint(err) {
@@ -792,7 +817,26 @@ func (s *Store) RebindWorkspace(ctx context.Context, oldWorkspaceRoot string, ne
 	if err := tx.Commit(); err != nil {
 		return Binding{}, fmt.Errorf("commit workspace rebind tx: %w", err)
 	}
-	return s.lookupWorkspaceBinding(ctx, newCanonicalRoot)
+	return s.lookupProjectWorkspaceBinding(ctx, oldWorkspace.ProjectID, newCanonicalRoot)
+}
+
+func singleWorkspaceByCanonicalRoot(ctx context.Context, q *sqlitegen.Queries, canonicalRoot string) (sqlitegen.Workspace, error) {
+	rows, err := q.ListWorkspacesByCanonicalRoot(ctx, canonicalRoot)
+	if err != nil {
+		return sqlitegen.Workspace{}, err
+	}
+	switch len(rows) {
+	case 0:
+		return sqlitegen.Workspace{}, sql.ErrNoRows
+	case 1:
+		return rows[0], nil
+	default:
+		projectIDs := make([]string, 0, len(rows))
+		for _, row := range rows {
+			projectIDs = append(projectIDs, row.ProjectID)
+		}
+		return sqlitegen.Workspace{}, serverapi.WorkspaceBindingAmbiguousError{CanonicalRoot: canonicalRoot, ProjectIDs: projectIDs}
+	}
 }
 
 func (s *Store) lookupProjectWorkspaceBinding(ctx context.Context, projectID string, canonicalRoot string) (Binding, error) {
@@ -892,21 +936,23 @@ func (s *Store) registerWorkspaceBindingConverged(ctx context.Context, canonical
 		return Binding{}, fmt.Errorf("acquire workspace registration lock: %w", err)
 	}
 	q := s.queries.WithTx(tx)
-	if row, err := q.GetWorkspaceBindingByCanonicalRoot(ctx, canonicalRoot); err == nil {
+	rows, err := q.ListWorkspaceBindingsByCanonicalRoot(ctx, canonicalRoot)
+	if err != nil {
+		return Binding{}, fmt.Errorf("lookup workspace binding: %w", err)
+	}
+	switch len(rows) {
+	case 0:
+	case 1:
 		if err := tx.Commit(); err != nil {
 			return Binding{}, fmt.Errorf("commit workspace registration lookup tx: %w", err)
 		}
-		return Binding{
-			ProjectID:       row.ProjectID,
-			ProjectKey:      row.ProjectKey,
-			ProjectName:     row.ProjectDisplayName,
-			WorkspaceID:     row.WorkspaceID,
-			CanonicalRoot:   row.WorkspaceRoot,
-			WorkspaceName:   filepath.Base(row.WorkspaceRoot),
-			WorkspaceStatus: availabilityForPath(row.WorkspaceRoot),
-		}, nil
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return Binding{}, fmt.Errorf("lookup workspace binding: %w", err)
+		return bindingFromCanonicalRootRow(rows[0]), nil
+	default:
+		projectIDs := make([]string, 0, len(rows))
+		for _, row := range rows {
+			projectIDs = append(projectIDs, row.ProjectID)
+		}
+		return Binding{}, serverapi.WorkspaceBindingAmbiguousError{CanonicalRoot: canonicalRoot, ProjectIDs: projectIDs}
 	}
 
 	now := time.Now().UTC()
@@ -954,6 +1000,18 @@ func (s *Store) registerWorkspaceBindingConverged(ctx context.Context, canonical
 		WorkspaceName:   displayName,
 		WorkspaceStatus: availabilityForPath(canonicalRoot),
 	}, nil
+}
+
+func bindingFromCanonicalRootRow(row sqlitegen.ListWorkspaceBindingsByCanonicalRootRow) Binding {
+	return Binding{
+		ProjectID:       row.ProjectID,
+		ProjectKey:      row.ProjectKey,
+		ProjectName:     row.ProjectDisplayName,
+		WorkspaceID:     row.WorkspaceID,
+		CanonicalRoot:   row.WorkspaceRoot,
+		WorkspaceName:   filepath.Base(row.WorkspaceRoot),
+		WorkspaceStatus: availabilityForPath(row.WorkspaceRoot),
+	}
 }
 
 func requireExistingDirectory(path string) error {
@@ -1635,7 +1693,17 @@ func (s *Store) upsertSessionSnapshot(ctx context.Context, snapshot session.Pers
 	}
 	binding, err := s.EnsureWorkspaceBinding(ctx, snapshot.Meta.WorkspaceRoot)
 	if err != nil {
-		return err
+		if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
+			return err
+		}
+		existingTarget, targetErr := s.queries.GetSessionExecutionTargetByID(ctx, strings.TrimSpace(snapshot.Meta.SessionID))
+		if targetErr != nil {
+			if errors.Is(targetErr, sql.ErrNoRows) {
+				return err
+			}
+			return fmt.Errorf("get existing session execution target: %w", targetErr)
+		}
+		binding = Binding{ProjectID: existingTarget.ProjectID}
 	}
 	relpath, err := relativePathWithinRoot(s.persistenceRoot, snapshot.SessionDir)
 	if err != nil {
@@ -1657,7 +1725,7 @@ func (s *Store) upsertSessionSnapshot(ctx context.Context, snapshot session.Pers
 	worktreeID := sql.NullString{}
 	cwdRelpath := "."
 	if existingTarget, targetErr := s.queries.GetSessionExecutionTargetByID(ctx, strings.TrimSpace(snapshot.Meta.SessionID)); targetErr == nil {
-		if strings.TrimSpace(existingTarget.WorkspaceID) == binding.WorkspaceID {
+		if strings.TrimSpace(binding.WorkspaceID) != "" && strings.TrimSpace(existingTarget.WorkspaceID) == binding.WorkspaceID {
 			worktreeID = existingTarget.WorktreeID
 			cwdRelpath = normalizeSessionCwdRelpath(existingTarget.CwdRelpath)
 		} else {

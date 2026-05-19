@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 
 import { App } from "../../App";
 import { StartupConfigurationError } from "../../api/errors";
+import { protocolVersion } from "../../api/jsonRpcSocket";
 import { createTestServices, startupRoutes } from "../../testSupport/appServices";
 
 describe("StartupGate", () => {
@@ -31,7 +32,7 @@ describe("StartupGate", () => {
               ready: false,
               server_id: "server-1",
               server_version: "1.3.0",
-              protocol_version: "2",
+              protocol_version: protocolVersion,
               auth_ready: false,
               auth_required: true,
               endpoint: "ws://127.0.0.1:53082/rpc",
@@ -131,7 +132,7 @@ describe("StartupGate", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "Update Builder" })).toBeInTheDocument();
-    expect(screen.getByText(/Client protocol 2/)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`Client protocol ${protocolVersion}`, "u"))).toBeInTheDocument();
     expect(screen.getByText(/Server protocol 1/)).toBeInTheDocument();
     expect(
       screen.getByText(/Update Builder CLI\/service and desktop app from the same build/),

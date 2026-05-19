@@ -18,10 +18,10 @@ Builder is a coding agent for professional engineers. It gives frontier coding m
 
 Codex and Claude Code are good defaults for quick demos and vibe-coding. Builder is for the moment you want the model to work freely but safely, for hours, on large codebases, as your pair programmer & collaborator.
 
-Try it if you have ever lost work quality after compaction, watched an agent hide the command that mattered, babysat a long refactor with "continue" or ralph loops, fixed a hallucinated output, or yelled at the agent for missing test coverage.
+Try it if you have ever lost work quality after compaction, watched an agent hide the command that mattered, babysat a long refactor with "continue" or ralph loops or fixed broken code after the agent ignored repository rules.
 
 <p align="center">
-  <img src="./docs/public/readme/builder-demo-hero.webp" alt="Builder running a transparent coding task in the terminal" width="900">
+  <img src="./docs/public/readme/builder-demo-hero.webp" alt="Builder running a coding task in the terminal" width="900">
 </p>
 
 ## Why Builder
@@ -39,14 +39,14 @@ The expensive failure is when model half-remembers a decision, forgets an in-fli
 
 - Builder teaches the model to **ask you questions** instead of bulldozing through changes to produce slop. Expect to make important product decisions, learn about caveats, perform refactoring, and ship high-quality code with Builder.
 - Builder runs a **customizable supervisor agent** in parallel with the main agent. The supervisor reviews the agent's changes and steers it to follow instructions and do its best work.
-- Subagents are real Builder runs, not obscure tool calls. The model delegates to **customizable agent roles, runs everything in async shells**, sleeps and wakes up in a natural, **0-token ralph loop** until the task is done, no matter the scope.
+- Subagents are real Builder runs. The model delegates to **customizable agent roles, runs everything in async shells**, sleeps and wakes up in a natural, **0-token ralph loop** until the task is done, no matter the scope.
 
 ### Token-efficient & cheap
 
 - Smart tool processing. Use **built-in shell optimizers** natively or **connect tools like `rtk`**, and unlike other popular coding agents, the model controls how the output is optimized.
 - Unlike harnesses which overload models, Builder ships just **three tools** that enable the model to do everything: `patch`, `shell`, and `ask`. Everything else is smart, contextual, composable, non-blocking.
 - Efficient shells. **Tools run async** with the main model: no timeouts, no retries, and compact file-based inspection of shell outputs lead to **1.6-2x token savings**.
-- Cache invalidation tracking. Unlike some harnesses that drain your limits in minutes due to a caching bug, with Builder **you know about every unwanted cache miss**. Not that they will happen, with Builder's **lock-based cache preservation** mechanisms.
+- Cache invalidation tracking. Unlike some harnesses that drain your limits in minutes due to a caching bug, with Builder **you know about every unwanted cache miss**. Not that they will happen, with Builder's **snapshot-based cache preservation** mechanisms.
 - **Shell-native, scriptable search/read stack** with optimized `rg` config enables **40% more efficient searches** instead of clunky Search, Glob, Grep, Read, Scroll chains.
 
 <p align="center">
@@ -84,7 +84,7 @@ The expensive failure is when model half-remembers a decision, forgets an in-fli
 
 Builder covers the core coding-agent loop and the surrounding engineering workflow:
 
-- Terminal UI with ongoing mode, detail mode, native scrollback, markdown rendering, syntax highlighting, real input cursor behavior, prompt history, message editing, session forks, and system notifications.
+- Terminal UI with ongoing mode, detail mode, native scrollback, markdown rendering, syntax highlighting, text editing, prompt history, message editing, session forks, and system notifications.
 - Model tools for shell execution, background process interaction, patch editing, interactive questions, local image/PDF viewing, and native web search.
 - OpenAI/Codex subscription OAuth, OpenAI API-key auth, OpenAI-compatible base URL support (including local models), model reasoning/verbosity settings, `/fast` mode.
 - Local and workspace `AGENTS.md`, system prompt files (`SYSTEM.md`), reviewer prompt overrides, skills, built-in slash commands, and file-backed custom prompts.
@@ -95,8 +95,7 @@ Builder covers the core coding-agent loop and the surrounding engineering workfl
 
 ## Philosophy
 
-Builder is intentionally narrow. It optimizes for engineers who want a strong model, collaborative workflows, and great outputs.
-The model stays unburdened; the harness should provide infrastructure around it. As such, there will not be:
+Builder is intentionally narrow. It optimizes for engineers who want a strong model, collaborative workflows, and great outputs. The model stays unburdened; the harness should provide infrastructure around it. As such, there will not be:
 
 - MCP support; MCP is outdated, use `mcporter` or migrate to CLIs.
 - Plan mode; just prompt the model to plan with you, there's no need to handicap it.
@@ -105,7 +104,7 @@ The model stays unburdened; the harness should provide infrastructure around it.
 ## Why no Anthropic/Gemini model support?
 
 - Anthropic and Gemini disallow use of third-party harnesses with subscriptions. Using them can get you banned, asking for their support will get people behind Builder sued. Please do not ask for support here.
-- Using models with API keys can be supported, but the priority is low due to high costs and significant effort to optimize the harness for models. Please create or upvote an issue if you want to use Builder with an API key. Builder already supports OpenAI Responses-compatible APIs.
+- Using models with API keys can be supported, but the priority is low due to high costs and significant effort to optimize the harness for different models. Please create or upvote an issue if you want to use Builder with an API key. Builder already supports OpenAI Responses-compatible APIs and OpenAI API keys.
 
 ## License
 
