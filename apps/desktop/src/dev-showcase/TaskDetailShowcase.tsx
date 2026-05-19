@@ -19,7 +19,7 @@ export function TaskDetailBoard({
           </div>
         </header>
         <article className="rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]">
-          <MarkdownText value={"Review all high-value UI states with **static mock data**.\n\n- Expand Done\n- Pin hover menu\n- Confirm cancel\n- Edit comments"} />
+          <MarkdownText value={"Review all high-value UI states with **static mock data**.\n\n- Pin hover menu\n- Confirm cancel\n- Edit comments"} />
         </article>
         <TaskEditPreview />
         <TaskInboxPreview cancelExpanded={cancelExpanded} onCancelExpandedChange={onCancelExpandedChange} />

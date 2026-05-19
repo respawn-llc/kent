@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import type { WorkspaceSummary } from "../api";
 import { BoardHoverMenu } from "../features/board/BoardHoverMenu";
-import { KanbanGroup } from "../features/board/BoardColumns";
+import { KanbanColumn, KanbanGroup } from "../features/board/BoardColumns";
 import { WorkspaceRow, WorkspaceUnlinkFallbackDialog } from "../features/project-edit/ProjectEditParts";
 import {
   Badge,
@@ -21,6 +21,7 @@ import {
 import {
   mockAttentionRows,
   mockBoard,
+  mockBoardNodeCards,
   mockProjectRows,
   mockWorkspaces,
 } from "./mockData";
@@ -158,37 +159,34 @@ export function HomeProjectBoard({
   );
 }
 
-export function KanbanBoard({
-  doneExpanded,
-  onDoneExpandedChange,
-}: Readonly<{ doneExpanded: boolean; onDoneExpandedChange: (expanded: boolean) => void }>) {
+export function KanbanBoard() {
   return (
     <div className="island-glass h-[760px] overflow-auto rounded-[var(--radius-xl)] p-[var(--space-3)] hide-scrollbar">
       <div className="grid h-full w-max min-w-full grid-flow-col gap-[var(--space-4)]">
         {mockBoard.groups.map((group) => {
           const columns = mockBoard.columns.filter((column) => column.groupID === group.id);
           return (
-            <KanbanGroup
-              actionsDisabled={false}
-              board={mockBoard}
-              canRunTasks
-              canToggleDone
-              columns={columns}
-              doneExpanded={doneExpanded}
-              firstActiveColumnID="node-design"
-              group={group}
-              hasMoreCards={group.id === "group-delivery"}
-              isLoadingMoreCards={group.id === "group-delivery"}
-              key={group.id}
-              onCardClick={() => undefined}
-              onDropTask={() => undefined}
-              onInterruptTask={() => undefined}
-              onLoadMoreCards={() => undefined}
-              onResumeTask={() => undefined}
-              onToggleDone={() => {
-                onDoneExpandedChange(!doneExpanded);
-              }}
-            />
+            <KanbanGroup group={group} key={group.id}>
+              {columns.map((column) => (
+                <KanbanColumn
+                  actionsDisabled={false}
+                  cards={mockBoardNodeCards[column.id] ?? []}
+                  column={column}
+                  dropState="idle"
+                  hasMoreCards={group.id === "group-delivery"}
+                  isFirstActive={column.id === "node-design"}
+                  isLoadingMoreCards={group.id === "group-delivery"}
+                  key={column.id}
+                  onCardClick={() => undefined}
+                  onCardDragEnd={() => undefined}
+                  onCardDragStart={() => undefined}
+                  onDropTask={() => undefined}
+                  onInterruptTask={() => undefined}
+                  onLoadMoreCards={() => undefined}
+                  onResumeTask={() => undefined}
+                />
+              ))}
+            </KanbanGroup>
           );
         })}
       </div>

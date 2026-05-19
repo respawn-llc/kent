@@ -1,63 +1,40 @@
-import type { DragEvent } from "react";
+import type { DragEvent, KeyboardEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { BoardCard, BoardColumn, BoardGroup, WorkflowBoard } from "../../api";
+import type { BoardCard, BoardColumn, BoardGroup } from "../../api";
 import { formatRelativeTime } from "../../app/formatters";
 import { Badge, Button, Spinner } from "../../ui";
-import { cardsForColumn } from "./BoardModel";
+import {
+    type BoardCardDragPayload,
+    type BoardColumnDropState,
+    boardDragTypeCanStart,
+    boardDragTypeManualTarget,
+} from "./BoardDragTypes";
 
 export type KanbanColumnProps = Readonly<{
     cards: readonly BoardCard[];
-    canRunTasks: boolean;
     column: BoardColumn;
-    canToggleDone: boolean;
-    doneExpanded: boolean;
     hasMoreCards: boolean;
     isLoadingMoreCards: boolean;
     isFirstActive: boolean;
+    dropState: BoardColumnDropState;
     actionsDisabled: boolean;
+    columnRef?: (element: HTMLElement | null) => void;
     onCardClick: (taskID: string) => void;
+    onCardDragEnd: () => void;
+    onCardDragStart: (payload: BoardCardDragPayload) => void;
     onDropTask: (event: DragEvent<HTMLElement>, column: BoardColumn) => void;
     onInterruptTask: (taskID: string, runID: string) => void;
     onLoadMoreCards: () => void;
     onResumeTask: (taskID: string, runID: string) => void;
-    onToggleDone: () => void;
 }>;
 
 export function KanbanGroup({
-    board,
-    canRunTasks,
-    columns,
-    doneExpanded,
-    canToggleDone,
-    firstActiveColumnID,
     group,
-    hasMoreCards,
-    isLoadingMoreCards,
-    actionsDisabled,
-    onCardClick,
-    onDropTask,
-    onInterruptTask,
-    onLoadMoreCards,
-    onResumeTask,
-    onToggleDone,
+    children,
 }: Readonly<{
-    board: WorkflowBoard;
-    canRunTasks: boolean;
-    columns: readonly BoardColumn[];
-    doneExpanded: boolean;
-    firstActiveColumnID: string;
     group: BoardGroup;
-    hasMoreCards: boolean;
-    isLoadingMoreCards: boolean;
-    onCardClick: (taskID: string) => void;
-    onDropTask: (event: DragEvent<HTMLElement>, column: BoardColumn) => void;
-    onInterruptTask: (taskID: string, runID: string) => void;
-    onLoadMoreCards: () => void;
-    onResumeTask: (taskID: string, runID: string) => void;
-    onToggleDone: () => void;
-    actionsDisabled: boolean;
-    canToggleDone: boolean;
+    children: ReactNode;
 }>) {
     return (
         <section
@@ -70,56 +47,38 @@ export function KanbanGroup({
                 </p>
                 <h2 className="m-0 text-[1rem]">{group.name}</h2>
             </header>
-            <div className="grid h-full min-h-0 grid-flow-col auto-cols-[min(480px,80vw)] gap-[var(--space-3)]">
-                {columns.map((column) => (
-                    <KanbanColumn
-                        cards={cardsForColumn(board, column, doneExpanded)}
-                        canRunTasks={canRunTasks}
-                        canToggleDone={canToggleDone}
-                        column={column}
-                        doneExpanded={doneExpanded}
-                        hasMoreCards={hasMoreCards}
-                        isLoadingMoreCards={isLoadingMoreCards}
-                        isFirstActive={column.id === firstActiveColumnID}
-                        actionsDisabled={actionsDisabled}
-                        key={column.id}
-                        onCardClick={onCardClick}
-                        onDropTask={onDropTask}
-                        onInterruptTask={onInterruptTask}
-                        onLoadMoreCards={onLoadMoreCards}
-                        onResumeTask={onResumeTask}
-                        onToggleDone={onToggleDone}
-                    />
-                ))}
-            </div>
+            <div className="grid h-full min-h-0 grid-flow-col auto-cols-[min(480px,80vw)] gap-[var(--space-3)]">{children}</div>
         </section>
     );
 }
 
 export function KanbanColumn({
     cards,
-    canRunTasks,
-    canToggleDone,
     column,
-    doneExpanded,
     hasMoreCards,
     isLoadingMoreCards,
     isFirstActive,
+    dropState,
     actionsDisabled,
+    columnRef,
     onCardClick,
+    onCardDragEnd,
+    onCardDragStart,
     onDropTask,
     onInterruptTask,
     onLoadMoreCards,
     onResumeTask,
-    onToggleDone,
 }: KanbanColumnProps) {
     const { t } = useTranslation();
     return (
         <section
             aria-label={column.name}
-            className="island-glass grid h-full min-h-0 w-[min(480px,80vw)] shrink-0 grid-rows-[auto_auto_auto_minmax(0,1fr)] gap-[var(--space-3)] rounded-[var(--radius-xl)] p-[var(--space-3)] align-top"
+            className={`island-glass board-column-drop-${dropState} grid h-full min-h-0 w-[min(480px,80vw)] shrink-0 grid-rows-[auto_auto_auto_minmax(0,1fr)] gap-[var(--space-3)] rounded-[var(--radius-xl)] p-[var(--space-3)] align-top`}
+            data-drop-state={dropState}
+            ref={columnRef}
             onDragOver={(event) => {
                 event.preventDefault();
+                event.dataTransfer.dropEffect = dropState === "allowed" ? "move" : "none";
             }}
             onDrop={(event) => {
                 onDropTask(event, column);
@@ -140,11 +99,6 @@ export function KanbanColumn({
                     {t("board.dropToStart")}
                 </p>
             ) : null}
-            {column.isDone && canToggleDone ? (
-                <Button onClick={onToggleDone} variant="ghost">
-                    {doneExpanded ? t("board.collapseDone") : t("board.expandDone")}
-                </Button>
-            ) : null}
             <div
                 className="min-h-0 overflow-y-auto pr-[var(--space-1)] hide-scrollbar"
                 data-testid={`kanban-column-scroll-${column.id}`}
@@ -158,12 +112,13 @@ export function KanbanColumn({
                 {cards.map((card) => (
                     <TaskCard
                         card={card}
-                        canRunTasks={canRunTasks}
                         actionsDisabled={actionsDisabled}
                         key={card.id}
                         onClick={() => {
                             onCardClick(card.id);
                         }}
+                        onDragEnd={onCardDragEnd}
+                        onDragStart={onCardDragStart}
                         onInterrupt={(runID) => {
                             onInterruptTask(card.id, runID);
                         }}
@@ -194,35 +149,50 @@ function isNearScrollEnd(element: HTMLElement): boolean {
 
 function TaskCard({
     actionsDisabled,
-    canRunTasks,
     card,
     onClick,
+    onDragEnd,
+    onDragStart,
     onInterrupt,
     onResume,
 }: Readonly<{
-    canRunTasks: boolean;
     card: BoardCard;
     actionsDisabled: boolean;
     onClick: () => void;
+    onDragEnd: () => void;
+    onDragStart: (payload: BoardCardDragPayload) => void;
     onInterrupt: (runID: string) => void;
     onResume: (runID: string) => void;
 }>) {
     const { t } = useTranslation();
-    const draggable = canRunTasks && (card.actions.canStart || card.actions.manualMoveTargetNodeIDs.length > 0);
     return (
         <article
             aria-label={card.title}
-            className="mb-[var(--space-3)] grid gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]"
-            draggable={draggable}
+            className="mb-[var(--space-3)] grid cursor-pointer gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] outline-none focus-visible:border-[var(--color-primary)] focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_26%,transparent)]"
+            draggable
+            onClick={onClick}
+            onDragEnd={onDragEnd}
             onDragStart={(event) => {
                 event.dataTransfer.setData("text/task-id", card.id);
+                event.dataTransfer.effectAllowed = "move";
+                if (card.actions.canStart) {
+                    event.dataTransfer.setData(boardDragTypeCanStart, "1");
+                }
+                for (const nodeID of card.actions.manualMoveTargetNodeIDs) {
+                    event.dataTransfer.setData(boardDragTypeManualTarget(nodeID), "1");
+                }
+                onDragStart({
+                    taskID: card.id,
+                    canStart: card.actions.canStart,
+                    manualMoveTargetNodeIDs: card.actions.manualMoveTargetNodeIDs,
+                });
             }}
+            onKeyDown={(event) => {
+                activateCardFromKeyboard(event, onClick);
+            }}
+            tabIndex={0}
         >
-            <button
-                className="grid gap-[var(--space-1)] bg-transparent p-0 text-left text-[var(--color-on-island)]"
-                onClick={onClick}
-                type="button"
-            >
+            <div className="grid gap-[var(--space-1)] text-left text-[var(--color-on-island)]">
                 <span className="flex min-w-0 items-center justify-between gap-[var(--space-2)]">
                     <span className="shrink-0 font-mono text-[0.78rem] text-[var(--color-muted)]">{card.shortID}</span>
                     <span className="min-w-0 truncate text-right text-sm text-[var(--color-muted)]">
@@ -231,47 +201,69 @@ function TaskCard({
                 </span>
                 <strong>{card.title}</strong>
                 <span className="line-clamp-3 text-sm text-[var(--color-muted)]">{card.bodyPreview}</span>
-            </button>
-            <div className="flex flex-wrap items-center gap-[var(--space-2)] text-sm text-[var(--color-muted)]">
-                <Badge tone="neutral">{card.sourceWorkspace.name || t("board.workspace")}</Badge>
-                {card.status.runIDs.length > 0 ? (
-                    <Badge tone="neutral">{t("task.runs")}: {card.status.runIDs.length}</Badge>
-                ) : null}
             </div>
-            <TaskCardActions
-                actionsDisabled={actionsDisabled}
-                card={card}
-                onClick={onClick}
-                onInterrupt={onInterrupt}
-                onResume={onResume}
-            />
+            <div className="flex items-start justify-between gap-[var(--space-2)]" data-testid="task-card-footer">
+                <div
+                    className="task-card-chip-row flex min-w-0 flex-1 flex-wrap items-center gap-[var(--space-2)] text-sm text-[var(--color-muted)]"
+                    data-testid="task-card-chips"
+                >
+                    <span className="task-card-chip-slot inline-flex items-center" data-testid="task-card-chip-slot">
+                        <Badge tone="neutral">{card.sourceWorkspace.name || t("board.workspace")}</Badge>
+                    </span>
+                </div>
+                <TaskCardActions
+                    actionsDisabled={actionsDisabled}
+                    card={card}
+                    onInterrupt={onInterrupt}
+                    onResume={onResume}
+                />
+            </div>
         </article>
     );
+}
+
+function activateCardFromKeyboard(event: KeyboardEvent<HTMLElement>, onClick: () => void): void {
+    if (event.defaultPrevented) {
+        return;
+    }
+    if (isInteractiveEventTarget(event.target)) {
+        return;
+    }
+    if (event.key !== "Enter" && event.key !== " ") {
+        return;
+    }
+    event.preventDefault();
+    onClick();
+}
+
+function isInteractiveEventTarget(target: EventTarget): boolean {
+    if (!(target instanceof Element)) {
+        return false;
+    }
+    return target.closest("button,a,input,select,textarea,[role='button']") !== null;
 }
 
 function TaskCardActions({
     card,
     actionsDisabled,
-    onClick,
     onInterrupt,
     onResume,
 }: Readonly<{
     card: BoardCard;
     actionsDisabled: boolean;
-    onClick: () => void;
     onInterrupt: (runID: string) => void;
     onResume: (runID: string) => void;
 }>) {
     const { t } = useTranslation();
-    const needsDetail = card.actions.needsDetailForInterrupt || card.actions.needsDetailForResume;
-    if (!card.actions.canInterrupt && !card.actions.canResume && !needsDetail) {
+    if (!card.actions.canInterrupt && !card.actions.canResume) {
         return null;
     }
     return (
-        <div className="flex flex-wrap gap-[var(--space-2)]">
+        <div className="flex shrink-0 flex-wrap justify-end gap-[var(--space-2)]">
             {card.actions.canResume ? (
                 <Button
-                    onClick={() => {
+                    onClick={(event) => {
+                        event.stopPropagation();
                         onResume(card.actions.resumeRunID);
                     }}
                     disabled={actionsDisabled}
@@ -282,18 +274,14 @@ function TaskCardActions({
             ) : null}
             {card.actions.canInterrupt ? (
                 <Button
-                    onClick={() => {
+                    onClick={(event) => {
+                        event.stopPropagation();
                         onInterrupt(card.actions.interruptRunID);
                     }}
                     disabled={actionsDisabled}
-                    variant="secondary"
+                    variant="danger"
                 >
                     {t("board.interrupt")}
-                </Button>
-            ) : null}
-            {needsDetail ? (
-                <Button onClick={onClick} variant="secondary">
-                    {t("board.detail")}
                 </Button>
             ) : null}
         </div>

@@ -184,10 +184,10 @@ describe("ProjectEditRoute", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Unlink /tmp/project-alt" }));
     expect(await screen.findByRole("heading", { name: "Unlink workspace?" })).toBeInTheDocument();
     expect(screen.getByText(/completed history remains readable/u)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Unlink workspace" })).toHaveClass(
-      "border-[var(--color-error)]",
-      "text-[var(--color-error)]",
-    );
+    expect(screen.getByRole("button", { name: "Unlink workspace" })).toHaveStyle({
+      "--button-border": "var(--color-error)",
+      "--button-color": "var(--color-error)",
+    });
     fireEvent.click(screen.getByRole("button", { name: "Unlink workspace" }));
 
     expect(await screen.findByText("Workspace cannot be unlinked yet.")).toBeInTheDocument();

@@ -1,3 +1,25 @@
+.task-card-chip-row {
+  /* Matches current board action button height so wrapped chip rows align to the button box. */
+  --task-card-action-row-height: 30px;
+}
+
+.task-card-chip-slot {
+  height: var(--task-card-action-row-height);
+}
+
+.board-column-drop-allowed {
+  --board-column-drop-color: color-mix(in srgb, var(--color-primary) 70%, var(--color-outline));
+
+  border-color: var(--board-column-drop-color);
+}
+
+.board-column-drop-blocked {
+  --board-column-drop-color: color-mix(in srgb, var(--color-error) 60%, var(--color-outline));
+
+  border-color: var(--board-column-drop-color);
+  opacity: 0.72;
+}
+
 .board-hover-menu-morph {
   --board-menu-padding: var(--space-1);
   --board-menu-icon-row-size: 40px;
@@ -20,6 +42,14 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .board-column-drop-idle,
+  .board-column-drop-allowed,
+  .board-column-drop-blocked {
+    transition:
+      border-color var(--motion-fast),
+      opacity var(--motion-fast);
+  }
+
   .board-hover-menu-morph {
     transform-origin: left bottom;
     transition:
