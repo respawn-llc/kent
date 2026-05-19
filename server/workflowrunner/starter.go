@@ -249,10 +249,11 @@ func (s *Starter) CancelRun(ctx context.Context, runID workflow.RunID) error {
 func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartContext) (launch.SessionPlan, []string, error) {
 	cfg := s.cfg
 	cfg.WorkspaceRoot = strings.TrimSpace(input.WorkspaceRoot)
-	_, containerDir, err := config.ResolveWorkspaceContainer(cfg)
-	if err != nil {
-		return launch.SessionPlan{}, nil, err
+	projectID := strings.TrimSpace(input.Task.ProjectID)
+	if projectID == "" {
+		return launch.SessionPlan{}, nil, errors.New("workflow task project id is required")
 	}
+	containerDir := config.ProjectSessionsRoot(cfg, projectID)
 	planner := launch.Planner{
 		Config:       cfg,
 		ContainerDir: containerDir,
@@ -272,6 +273,7 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 		return plan, nil, nil
 	}
 	var plan launch.SessionPlan
+	var err error
 	switch input.ContextMode {
 	case "", workflow.ContextModeNewSession:
 		plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, ForceNewSession: true})

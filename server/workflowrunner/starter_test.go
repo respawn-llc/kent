@@ -661,6 +661,13 @@ func (f starterFixture) waitForInterruptedRun(t *testing.T, scheduler *workflows
 
 func (f starterFixture) assertRunSessionUsesTaskWorktree(t *testing.T, sessionID string) string {
 	t.Helper()
+	record, err := f.metadata.ResolvePersistedSession(context.Background(), sessionID)
+	if err != nil {
+		t.Fatalf("ResolvePersistedSession: %v", err)
+	}
+	if got, want := filepath.Dir(record.SessionDir), config.ProjectSessionsRoot(f.cfg, f.projectID); got != want {
+		t.Fatalf("session dir parent = %q, want project sessions root %q", got, want)
+	}
 	target, err := f.metadata.ResolveSessionExecutionTarget(context.Background(), sessionID)
 	if err != nil {
 		t.Fatalf("ResolveSessionExecutionTarget: %v", err)
