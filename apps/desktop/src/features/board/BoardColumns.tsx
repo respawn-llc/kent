@@ -1,7 +1,6 @@
 import type { DragEvent, KeyboardEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { BoardCard, BoardColumn, BoardGroup } from "../../api";
 import { formatRelativeTime } from "../../app/formatters";
 import { Badge, Button, Spinner } from "../../ui";
 import {
@@ -10,10 +9,11 @@ import {
   boardCardDragPayloadType,
   encodeBoardCardDragPayload,
 } from "./BoardDragTypes";
+import type { KanbanCardVM, KanbanColumnVM, KanbanGroupVM } from "./BoardColumnViewModel";
 
 export type KanbanColumnProps = Readonly<{
-  cards: readonly BoardCard[];
-  column: BoardColumn;
+  cards: readonly KanbanCardVM[];
+  column: KanbanColumnVM;
   hasMoreCards: boolean;
   isLoadingMoreCards: boolean;
   isFirstActive: boolean;
@@ -23,7 +23,7 @@ export type KanbanColumnProps = Readonly<{
   onCardClick: (taskID: string) => void;
   onCardDragEnd: () => void;
   onCardDragStart: (payload: BoardCardDragPayload) => void;
-  onDropTask: (event: DragEvent<HTMLElement>, column: BoardColumn) => void;
+  onDropTask: (event: DragEvent<HTMLElement>) => void;
   onInterruptTask: (taskID: string, runID: string) => void;
   onLoadMoreCards: () => void;
   onResumeTask: (taskID: string, runID: string) => void;
@@ -33,7 +33,7 @@ export function KanbanGroup({
   group,
   children,
 }: Readonly<{
-  group: BoardGroup;
+  group: KanbanGroupVM;
   children: ReactNode;
 }>) {
   return (
@@ -86,7 +86,7 @@ export function KanbanColumn({
         event.dataTransfer.dropEffect = dropState === "allowed" ? "move" : "none";
       }}
       onDrop={(event) => {
-        onDropTask(event, column);
+        onDropTask(event);
       }}
       role="listitem"
     >
@@ -163,7 +163,7 @@ function TaskCard({
   onInterrupt,
   onResume,
 }: Readonly<{
-  card: BoardCard;
+  card: KanbanCardVM;
   actionsDisabled: boolean;
   onClick: () => void;
   onDragEnd: () => void;
@@ -172,14 +172,20 @@ function TaskCard({
   onResume: (runID: string) => void;
 }>) {
   const { t } = useTranslation();
+  const canDrag =
+    !actionsDisabled && (card.actions.canStart || card.actions.manualMoveTargetNodeIDs.length > 0);
   return (
     <article
       aria-label={card.title}
       className="mb-[var(--space-3)] grid cursor-pointer gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] outline-none focus-visible:border-[var(--color-primary)] focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_26%,transparent)]"
-      draggable
+      draggable={canDrag}
       onClick={onClick}
       onDragEnd={onDragEnd}
       onDragStart={(event) => {
+        if (!canDrag) {
+          event.preventDefault();
+          return;
+        }
         const payload = {
           taskID: card.id,
           canStart: card.actions.canStart,
@@ -211,7 +217,7 @@ function TaskCard({
           data-testid="task-card-chips"
         >
           <span className="task-card-chip-slot inline-flex items-center" data-testid="task-card-chip-slot">
-            <Badge tone="neutral">{card.sourceWorkspace.name || t("board.workspace")}</Badge>
+            <Badge tone="neutral">{card.sourceWorkspaceName || t("board.workspace")}</Badge>
           </span>
         </div>
         <TaskCardActions
@@ -252,7 +258,7 @@ function TaskCardActions({
   onInterrupt,
   onResume,
 }: Readonly<{
-  card: BoardCard;
+  card: KanbanCardVM;
   actionsDisabled: boolean;
   onInterrupt: (runID: string) => void;
   onResume: (runID: string) => void;

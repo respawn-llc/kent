@@ -18,6 +18,7 @@ import { newTaskWindowOptions } from "../tasks/newTaskWindowOptions";
 import { BoardColumnController } from "./BoardColumnController";
 import { BoardHoverMenu } from "./BoardHoverMenu";
 import { KanbanGroup } from "./BoardColumns";
+import { toKanbanGroupVM } from "./BoardColumnViewModel";
 import {
   type BoardCardDragPayload,
   type BoardColumnDropState,
@@ -213,7 +214,7 @@ function BoardContent({
       >
         {sections.map((section) =>
           section.kind === "group" ? (
-            <KanbanGroup group={section.group} key={section.id}>
+            <KanbanGroup group={toKanbanGroupVM(section.group)} key={section.id}>
               {section.columns.map((column) => (
                 <BoardColumnController
                   actionsDisabled={actionsDisabled}

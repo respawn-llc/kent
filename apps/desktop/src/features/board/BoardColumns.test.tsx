@@ -2,9 +2,9 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import { beforeAll, vi } from "vitest";
 
-import type { BoardCard, BoardColumn } from "../../api";
 import { appI18n, initializeI18n } from "../../i18n/setup";
 import { KanbanColumn } from "./BoardColumns";
+import type { KanbanCardVM, KanbanColumnVM } from "./BoardColumnViewModel";
 import { boardCardDragPayloadType, decodeBoardCardDragPayload } from "./BoardDragTypes";
 
 describe("KanbanColumn", () => {
@@ -55,11 +55,6 @@ describe("KanbanColumn", () => {
                 ...card.actions,
                 canInterrupt: true,
                 interruptRunID: "run-1",
-                needsDetailForInterrupt: true,
-              },
-              status: {
-                ...card.status,
-                runIDs: ["run-1"],
               },
             },
           ]}
@@ -140,7 +135,7 @@ describe("KanbanColumn", () => {
     expect(onCardClick).toHaveBeenCalledWith("task-1");
   });
 
-  it("lets every card start dragging and reports drop affordance state on columns", () => {
+  it("does not start dragging cards without start or move targets", () => {
     const onCardDragStart = vi.fn();
     const onCardClick = vi.fn();
 
@@ -155,12 +150,6 @@ describe("KanbanColumn", () => {
                 ...card.actions,
                 canStart: false,
                 manualMoveTargetNodeIDs: [],
-              },
-              status: {
-                ...card.status,
-                kind: "canceled",
-                label: "Canceled",
-                nativeState: "canceled",
               },
             },
           ]}
@@ -182,22 +171,14 @@ describe("KanbanColumn", () => {
 
     const dataTransfer = new TestDataTransfer();
     const renderedCard = screen.getByRole("article", { name: "Task" });
-    expect(renderedCard).toHaveAttribute("draggable", "true");
+    expect(renderedCard).toHaveAttribute("draggable", "false");
     expect(screen.getByRole("listitem", { name: "Backlog" })).toHaveAttribute("data-drop-state", "blocked");
 
     fireEvent.dragStart(renderedCard, { dataTransfer });
 
-    expect(dataTransfer.getData("text/task-id")).toBe("task-1");
-    expect(decodeBoardCardDragPayload(dataTransfer.getData(boardCardDragPayloadType))).toEqual({
-      taskID: "task-1",
-      canStart: false,
-      manualMoveTargetNodeIDs: [],
-    });
-    expect(onCardDragStart).toHaveBeenCalledWith({
-      taskID: "task-1",
-      canStart: false,
-      manualMoveTargetNodeIDs: [],
-    });
+    expect(dataTransfer.getData("text/task-id")).toBe("");
+    expect(decodeBoardCardDragPayload(dataTransfer.getData(boardCardDragPayloadType))).toBeNull();
+    expect(onCardDragStart).not.toHaveBeenCalled();
     expect(onCardClick).not.toHaveBeenCalled();
   });
 });
@@ -215,51 +196,26 @@ class TestDataTransfer {
   }
 }
 
-const column: BoardColumn = {
+const column: KanbanColumnVM = {
   assigneeRole: "",
-  groupID: "",
   id: "backlog",
-  isBacklog: true,
-  isDone: false,
-  key: "backlog",
   name: "Backlog",
-  sortOrder: 0,
   taskCount: 1,
 };
 
-const card: BoardCard = {
+const card: KanbanCardVM = {
   actions: {
-    canCancel: false,
     canInterrupt: false,
     canResume: false,
     canStart: true,
     interruptRunID: "",
     manualMoveTargetNodeIDs: [],
-    needsDetailForInterrupt: false,
-    needsDetailForResume: false,
     resumeRunID: "",
   },
-  activeNodeIDs: [],
   bodyPreview: "Body",
   id: "task-1",
   shortID: "T-1",
-  sourceWorkspace: {
-    availability: "available",
-    id: "workspace-1",
-    isPrimary: true,
-    name: "Main",
-    rootPath: "/tmp/project",
-    updatedAt: 1,
-  },
-  status: {
-    attentionTypes: [],
-    kind: "backlog",
-    label: "Backlog",
-    nativeState: "backlog",
-    nodeIDs: [],
-    runIDs: [],
-  },
+  sourceWorkspaceName: "Main",
   title: "Task",
-  updatedAt: 1,
-  workflowID: "workflow-1",
+  updatedAt: Date.UTC(2026, 0, 1),
 };
