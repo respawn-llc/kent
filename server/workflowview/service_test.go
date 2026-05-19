@@ -518,6 +518,53 @@ WHERE task_id = ?
 	}
 }
 
+func TestBoardNodeCardsAllowRestartAfterDoneTaskResetToBacklog(t *testing.T) {
+	ctx := context.Background()
+	store, workflowStore, binding := newWorkflowViewTestStore(t)
+	view, err := New(store)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
+	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, WorkflowID: workflowID, Title: "Restart", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := workflowStore.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	if _, err := workflowStore.CompleteRun(ctx, workflowstore.CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}}); err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	def, _, err := workflowStore.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	start := workflowViewNodeByKind(t, def, workflow.NodeKindStart)
+	if _, err := workflowStore.ManualMoveTask(ctx, workflowstore.ManualMoveRequest{TaskID: task.ID, TargetNodeID: start.ID}); err != nil {
+		t.Fatalf("ManualMoveTask reset: %v", err)
+	}
+	board, err := view.GetBoard(ctx, serverapi.WorkflowBoardRequest{ProjectID: binding.ProjectID}, workflow.StaticRoleResolver{"coder": true})
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	backlogColumn := workflowViewColumnByKind(t, board, workflow.NodeKindStart)
+	page, err := view.ListBoardNodeCards(ctx, serverapi.WorkflowBoardNodeCardsListRequest{ProjectID: binding.ProjectID, WorkflowID: string(workflowID), NodeID: backlogColumn.Node.NodeID}, workflow.StaticRoleResolver{"coder": true})
+	if err != nil {
+		t.Fatalf("ListBoardNodeCards backlog: %v", err)
+	}
+	if len(page.Cards) != 1 || page.Cards[0].TaskID != string(task.ID) {
+		t.Fatalf("backlog page = %+v, want reset task", page)
+	}
+	if !page.Cards[0].Actions.CanStart {
+		t.Fatalf("reset backlog card actions = %+v, want restart allowed", page.Cards[0].Actions)
+	}
+}
+
 func TestBoardNodeCardsDoNotArchiveCanceledTaskInAlternateTerminalNode(t *testing.T) {
 	ctx := context.Background()
 	store, workflowStore, binding := newWorkflowViewTestStore(t)

@@ -1538,6 +1538,20 @@ func TestManualMoveFromTerminalToStartResetsTaskToBacklog(t *testing.T) {
 	if len(runs) != 1 {
 		t.Fatalf("runs after reset = %+v, want no new automation", runs)
 	}
+	restarted, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask after reset: %v", err)
+	}
+	if restarted.RunID == "" || restarted.RunID == started.RunID {
+		t.Fatalf("restart result = %+v, want second run", restarted)
+	}
+	runs, err = store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns after restart: %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("runs after restart = %+v, want second automation run", runs)
+	}
 }
 
 func TestManualMoveBackwardReusesStoredOutputValues(t *testing.T) {

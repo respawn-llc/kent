@@ -1686,7 +1686,7 @@ func taskStatusAndActions(task sqlitegen.Task, summary serverapi.WorkflowTaskSum
 			runningRunIDs = append(runningRunIDs, run.ID)
 		}
 	}
-	actions.CanStart = task.CanceledAtUnixMs == 0 && backlog && len(runs) == 0
+	actions.CanStart = task.CanceledAtUnixMs == 0 && backlog && !waitingApproval && len(runningRunIDs) == 0 && len(waitingAskRunIDs) == 0
 	taskActive := task.CanceledAtUnixMs == 0
 	if taskActive {
 		actions.ManualMoveTargetNodeIDs = manualMoveTargetNodeIDs(def, placements, nodeKinds)
