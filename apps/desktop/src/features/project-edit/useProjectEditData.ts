@@ -1,6 +1,10 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import type { NativeBridge, NativeWorkspaceUnlinkTarget } from "@builder/desktop-native-bridge";
+import type {
+  NativeBridge,
+  NativeProjectWorkspaceChanged,
+  NativeWorkspaceUnlinkTarget,
+} from "@builder/desktop-native-bridge";
 
 import type { ProjectBinding } from "../../api";
 import { errorMessage } from "../../api/errors";
@@ -88,6 +92,38 @@ export function useProjectWorkspaceUnlinkRequests(
       unlisten?.();
     };
   }, [handler, logger, nativeBridge.projectWorkspace]);
+}
+
+export function useProjectWorkspaceChangedEvents(nativeBridge: NativeBridge, projectID: string) {
+  const { logger } = useAppServices();
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | null = null;
+    const handler = (event: NativeProjectWorkspaceChanged) => {
+      if (active && event.projectID === projectID) {
+        void invalidateProjectEditQueries(queryClient, projectID);
+      }
+    };
+    void nativeBridge.projectWorkspace
+      .onChanged(handler)
+      .then((nextUnlisten) => {
+        if (active) {
+          unlisten = nextUnlisten;
+          return;
+        }
+        nextUnlisten();
+      })
+      .catch((error: unknown) => {
+        void logger.append("warn", "Project workspace change listener failed.", {
+          error: errorMessage(error),
+        });
+      });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [logger, nativeBridge.projectWorkspace, projectID, queryClient]);
 }
 
 async function invalidateProjectEditQueries(

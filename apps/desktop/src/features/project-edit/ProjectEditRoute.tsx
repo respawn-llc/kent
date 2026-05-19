@@ -20,6 +20,7 @@ import {
 import { findWorkspaceByPath, projectNameErrors } from "./ProjectEditUtils";
 import {
   useProjectDefaultWorkspaceSave,
+  useProjectWorkspaceChangedEvents,
   useProjectEdit,
   useProjectNameSave,
   useProjectWorkspaceAttach,
@@ -86,7 +87,8 @@ function ProjectEditContent({
   const unlink = useProjectWorkspaceUnlink(project.projectID);
   const [nameDraft, setNameDraft] = useState(project.displayName);
   const disabled = connection.phase !== "connected";
-  const mutating = disabled || nameSave.isPending || defaultSave.isPending || attach.isPending || unlink.isPending;
+  const mutating =
+    disabled || nameSave.isPending || defaultSave.isPending || attach.isPending || unlink.isPending;
   const nameErrors = projectNameErrors(nameDraft, t);
   const nameChanged = nameDraft !== project.displayName;
   const pushToast = useCallback(
@@ -107,7 +109,8 @@ function ProjectEditContent({
         pushToast(
           "project-edit-workspace-unlink-blocked",
           "danger",
-          response.blockers.map((blocker) => blocker.message).join("\n") || t("projectEdit.workspaceUnlinkBlocked"),
+          response.blockers.map((blocker) => blocker.message).join("\n") ||
+            t("projectEdit.workspaceUnlinkBlocked"),
           t("projectEdit.workspaceUnlinkBlocked"),
         );
       } catch (error) {
@@ -120,7 +123,9 @@ function ProjectEditContent({
     errorNoticeID: "workspace-unlink-window-error",
     errorTitle: t("projectEdit.unlinkWindowError"),
     openNative: async (target) => {
-      await nativeBridge.dialogs.openWindow(workspaceUnlinkWindowOptions(target, t("projectEdit.unlinkTitle")));
+      await nativeBridge.dialogs.openWindow(
+        workspaceUnlinkWindowOptions(target, t("projectEdit.unlinkTitle")),
+      );
     },
     renderFallback: (target, close) => (
       <WorkspaceUnlinkFallbackDialog
@@ -141,6 +146,7 @@ function ProjectEditContent({
   );
 
   useProjectWorkspaceUnlinkRequests(nativeBridge, handleWorkspaceUnlinkRequest);
+  useProjectWorkspaceChangedEvents(nativeBridge, project.projectID);
 
   async function chooseWorkspace(): Promise<void> {
     try {

@@ -88,6 +88,8 @@ export type NativeBridge = Readonly<{
   projectWorkspace: Readonly<{
     requestUnlink(target: NativeWorkspaceUnlinkTarget): Promise<void>;
     onUnlinkRequested(handler: (target: NativeWorkspaceUnlinkTarget) => void): Promise<NativeUnlisten>;
+    notifyChanged(event: NativeProjectWorkspaceChanged): Promise<void>;
+    onChanged(handler: (event: NativeProjectWorkspaceChanged) => void): Promise<NativeUnlisten>;
   }>;
   taskDetail: Readonly<{
     openWindow(target: NativeTaskDetailTarget): Promise<void>;
@@ -147,6 +149,10 @@ export type NativeWorkspaceUnlinkTarget = Readonly<{
   rootPath: string;
 }>;
 
+export type NativeProjectWorkspaceChanged = Readonly<{
+  projectID: string;
+}>;
+
 export type NativeTaskDetailTarget = Readonly<{
   taskId: string;
   resumeRunId: string;
@@ -193,6 +199,7 @@ const taskDetailWindowLabel = "native-dialog-task-detail";
 const taskDetailOpenEvent = "builder://task-detail-open";
 const taskDetailChangedEvent = "builder://task-detail-changed";
 const workspaceUnlinkRequestEvent = "builder://workspace-unlink-request";
+const projectWorkspaceChangedEvent = "builder://project-workspace-changed";
 
 declare global {
   interface Window {
@@ -286,6 +293,12 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
         return Promise.resolve();
       },
       async onUnlinkRequested(): Promise<NativeUnlisten> {
+        return () => undefined;
+      },
+      async notifyChanged(): Promise<void> {
+        return Promise.resolve();
+      },
+      async onChanged(): Promise<NativeUnlisten> {
         return () => undefined;
       },
     },
@@ -400,6 +413,14 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
         handler: (target: NativeWorkspaceUnlinkTarget) => void,
       ): Promise<NativeUnlisten> {
         return listen<NativeWorkspaceUnlinkTarget>(workspaceUnlinkRequestEvent, (event) => {
+          handler(event.payload);
+        });
+      },
+      async notifyChanged(event: NativeProjectWorkspaceChanged): Promise<void> {
+        await emitTo("main", projectWorkspaceChangedEvent, event);
+      },
+      async onChanged(handler: (event: NativeProjectWorkspaceChanged) => void): Promise<NativeUnlisten> {
+        return listen<NativeProjectWorkspaceChanged>(projectWorkspaceChangedEvent, (event) => {
           handler(event.payload);
         });
       },
