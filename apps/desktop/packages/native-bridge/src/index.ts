@@ -201,6 +201,7 @@ const taskDetailWindowLabel = "native-dialog-task-detail";
 const taskDetailOpenEvent = "builder://task-detail-open";
 const taskDetailChangedEvent = "builder://task-detail-changed";
 const taskDetailContentMaxWidth = 1200;
+// 32px task-detail surface padding plus NativeDialogWindow's 8px inset on each side.
 const taskDetailWindowHorizontalChrome = 48;
 const workspaceUnlinkRequestEvent = "builder://workspace-unlink-request";
 const projectWorkspaceChangedEvent = "builder://project-workspace-changed";

@@ -734,7 +734,7 @@ func TestServiceWorkflowProjectSubscriptionEmitsRunCompletionEvent(t *testing.T)
 	if event.ProjectID != binding.ProjectID || event.WorkflowID != workflowID || event.Resource != "task" || event.Action != "completed" {
 		t.Fatalf("event = %+v, want task completed event", event)
 	}
-	if strings.Join(event.ChangedIDs, ",") != strings.Join([]string{task.Task.ID, string(completed.TransitionID), started.RunID}, ",") {
+	if !sameStringSet(event.ChangedIDs, []string{task.Task.ID, string(completed.TransitionID), started.RunID}) {
 		t.Fatalf("changed IDs = %+v", event.ChangedIDs)
 	}
 	boardAfter, err := service.GetWorkflowBoard(ctx, serverapi.WorkflowBoardRequest{ProjectID: binding.ProjectID, WorkflowID: workflowID})
@@ -868,4 +868,24 @@ func workflowServiceNodeIDByKind(t *testing.T, def serverapi.WorkflowDefinition,
 	}
 	t.Fatalf("missing node kind %q in %+v", kind, def.Nodes)
 	return ""
+}
+
+func sameStringSet(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	values := make(map[string]struct{}, len(left))
+	for _, value := range left {
+		values[value] = struct{}{}
+	}
+	if len(values) != len(left) {
+		return false
+	}
+	for _, value := range right {
+		if _, ok := values[value]; !ok {
+			return false
+		}
+		delete(values, value)
+	}
+	return len(values) == 0
 }

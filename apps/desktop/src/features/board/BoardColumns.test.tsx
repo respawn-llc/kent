@@ -33,7 +33,9 @@ describe("KanbanColumn", () => {
       </I18nextProvider>,
     );
 
-    expect(screen.getByRole("status", { name: "Loading more" })).toContainElement(screen.getByTestId("spinner"));
+    expect(screen.getByRole("status", { name: "Loading more" })).toContainElement(
+      screen.getByTestId("spinner"),
+    );
     expect(screen.getByText("Loading more")).toHaveClass("sr-only");
   });
 
@@ -128,7 +130,10 @@ describe("KanbanColumn", () => {
     fireEvent.click(screen.getByText("Task"));
     fireEvent.click(screen.getByText("Body"));
     fireEvent.click(screen.getByTestId("task-card-footer"));
-    fireEvent.keyDown(screen.getByRole("article", { name: "Task" }), { key: "Enter" });
+    const renderedCard = screen.getByRole("article", { name: "Task" });
+    renderedCard.focus();
+    expect(renderedCard).toHaveFocus();
+    fireEvent.keyDown(renderedCard, { key: "Enter" });
 
     expect(onCardClick).toHaveBeenCalledTimes(4);
     expect(onCardClick).toHaveBeenCalledWith("task-1");

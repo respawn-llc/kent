@@ -993,17 +993,22 @@ function installIntersectionObserverMock(): Readonly<{ reveal: (label: string) =
     readonly scrollMargin = "";
     readonly thresholds = [];
     readonly #callback: IntersectionObserverCallback;
+    readonly #labels = new Set<string>();
 
     constructor(callback: IntersectionObserverCallback) {
       this.#callback = callback;
     }
 
     disconnect(): void {
-      callbacks.clear();
+      for (const label of this.#labels) {
+        callbacks.delete(label);
+      }
+      this.#labels.clear();
     }
 
     observe(element: Element): void {
       const label = element.getAttribute("aria-label") ?? "";
+      this.#labels.add(label);
       callbacks.set(label, (isIntersecting: boolean) => {
         this.#callback([intersectionEntry(element, isIntersecting)], this);
       });
@@ -1014,7 +1019,9 @@ function installIntersectionObserverMock(): Readonly<{ reveal: (label: string) =
     }
 
     unobserve(element: Element): void {
-      callbacks.delete(element.getAttribute("aria-label") ?? "");
+      const label = element.getAttribute("aria-label") ?? "";
+      this.#labels.delete(label);
+      callbacks.delete(label);
     }
   }
   vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);

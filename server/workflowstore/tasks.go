@@ -720,7 +720,7 @@ func (s *Store) CancelTask(ctx context.Context, taskID workflow.TaskID, reason s
 		if placement.State != "active" && placement.State != "waiting_approval" {
 			continue
 		}
-		if placement.NodeID == string(terminal.ID) {
+		if placement.NodeID == string(terminal.ID) && placement.State == "active" {
 			hasActiveTerminal = true
 			continue
 		}

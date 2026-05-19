@@ -1,3 +1,3 @@
 -- +goose Down
 
-DROP INDEX tasks_project_workflow_updated_idx;
+DROP INDEX IF EXISTS tasks_project_workflow_updated_idx;
