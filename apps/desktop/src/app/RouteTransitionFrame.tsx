@@ -1,8 +1,7 @@
 import { Outlet, useLocation } from "@tanstack/react-router";
 
 import { cx } from "../ui/classes";
-
-const edgeToEdgeRoutePatterns = new Set(["/projects/$projectId"]);
+import { routeUsesEdgeToEdgeLayout } from "./routeLayout";
 
 export function RouteTransitionFrame() {
   const location = useLocation();
@@ -19,18 +18,6 @@ export function RouteTransitionFrame() {
       <Outlet />
     </div>
   );
-}
-
-function routeUsesEdgeToEdgeLayout(pathname: string): boolean {
-  return edgeToEdgeRoutePatterns.has(routePattern(pathname));
-}
-
-function routePattern(pathname: string): string {
-  const segments = pathname.split("/").filter((segment) => segment.length > 0);
-  if (segments.length === 2 && segments[0] === "projects") {
-    return "/projects/$projectId";
-  }
-  return pathname;
 }
 
 function routeTransitionKey(pathname: string, searchStr: string): string {

@@ -659,3 +659,8 @@
 - If suggestions exist, runtime appends them as `developer` message and runs one extra main-agent follow-up pass.
 - Follow-up noop token is exact `NO_OP`; if emitted, runtime keeps original assistant final answer.
 - Reviewer pass is single-shot (no recursive review of review).
+
+## GUI Workflow Editor
+
+- Workflow editor v1 is a read-only graph-definition viewer. Runtime/task state remains in Kanban and task detail surfaces. The board workflow menu entry is labeled "Edit workflow" for continuity with future editing, but v1 intentionally omits editing controls and read-only affordance.
+- Workflow editor v1 uses `@xyflow/react` for graph canvas interactions and accepts `elkjs` despite its EPL-2.0 license for deterministic compound/group graph layout quality.

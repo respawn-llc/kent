@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 
 import { useAppServices } from "../app/useAppServices";
 import { cx } from "./classes";
@@ -22,9 +22,48 @@ export function NativeDialogWindow({
   showHeader = true,
   surface = "island",
 }: NativeDialogWindowProps) {
-  const { logger, nativeBridge } = useAppServices();
   const shellRef = useRef<HTMLElement | null>(null);
+  useFitNativeDialogWindow(shellRef, fitToContent);
 
+  return (
+    <main
+      className={nativeDialogMainClassName(contentPadding, fitToContent)}
+      ref={shellRef}
+    >
+      <div
+        className="app-region-drag fixed inset-x-0 top-0 h-[var(--native-titlebar-height)]"
+        data-tauri-drag-region
+      />
+      <section
+        aria-label={title}
+        aria-modal="true"
+        className={nativeDialogSectionClassName({ fitToContent, showHeader, surface })}
+        role="dialog"
+      >
+        <div
+          className={nativeDialogContentClassName(showHeader)}
+          data-testid="native-dialog-content"
+          style={{ maxWidth: contentMaxWidth }}
+        >
+          {showHeader ? (
+            <header className="min-w-0">
+              <h1 className="m-0 text-[1.15rem] font-bold">{title}</h1>
+            </header>
+          ) : null}
+          <div
+            className={nativeDialogScrollportClassName(contentPadding)}
+            data-testid="native-dialog-scrollport"
+          >
+            {children}
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function useFitNativeDialogWindow(shellRef: RefObject<HTMLElement | null>, fitToContent: boolean): void {
+  const { logger, nativeBridge } = useAppServices();
   useLayoutEffect(() => {
     if (!fitToContent) {
       return undefined;
@@ -61,59 +100,43 @@ export function NativeDialogWindow({
       cancelAnimationFrame(frame);
       observer?.disconnect();
     };
-  }, [fitToContent, logger, nativeBridge.window]);
+  }, [fitToContent, logger, nativeBridge.window, shellRef]);
+}
 
-  return (
-    <main
-      className={cx(
-        "window-glass-fill grid",
-        contentPadding === "chrome"
-          ? "pt-[var(--native-titlebar-height)]"
-          : "p-[var(--native-titlebar-height)_var(--space-2)_var(--space-2)]",
-        fitToContent ? "w-max" : "h-screen w-screen",
-      )}
-      ref={shellRef}
-    >
-      <div
-        className="app-region-drag fixed inset-x-0 top-0 h-[var(--native-titlebar-height)]"
-        data-tauri-drag-region
-      />
-      <section
-        aria-label={title}
-        aria-modal="true"
-        className={cx(
-          "app-region-no-drag grid min-h-0 gap-[var(--space-3)]",
-          surface === "island" && "island-glass rounded-[var(--radius-xl)] p-[var(--space-4)]",
-          surface === "transparent" && "bg-transparent p-0 shadow-none",
-          showHeader ? "grid-rows-[auto_minmax(0,1fr)]" : "grid-rows-[minmax(0,1fr)]",
-          fitToContent ? "w-max" : "h-full",
-        )}
-        role="dialog"
-      >
-        <div
-          className={cx(
-            "mx-auto grid h-full min-h-0 w-full gap-[var(--space-3)]",
-            showHeader ? "grid-rows-[auto_minmax(0,1fr)]" : "grid-rows-[minmax(0,1fr)]",
-          )}
-          data-testid="native-dialog-content"
-          style={{ maxWidth: contentMaxWidth }}
-        >
-          {showHeader ? (
-            <header className="min-w-0">
-              <h1 className="m-0 text-[1.15rem] font-bold">{title}</h1>
-            </header>
-          ) : null}
-          <div
-            className={cx(
-              "min-h-0 overflow-auto hide-scrollbar",
-              contentPadding === "chrome" && "px-[var(--space-2)] pb-[var(--space-2)] pt-0",
-            )}
-            data-testid="native-dialog-scrollport"
-          >
-            {children}
-          </div>
-        </div>
-      </section>
-    </main>
+function nativeDialogMainClassName(contentPadding: NativeDialogWindowProps["contentPadding"], fitToContent: boolean): string {
+  return cx(
+    "window-glass-fill grid",
+    contentPadding === "chrome"
+      ? "pt-[var(--native-titlebar-height)]"
+      : "p-[var(--native-titlebar-height)_var(--space-2)_var(--space-2)]",
+    fitToContent ? "w-max" : "h-screen w-screen",
+  );
+}
+
+function nativeDialogSectionClassName({
+  fitToContent,
+  showHeader,
+  surface,
+}: Required<Pick<NativeDialogWindowProps, "fitToContent" | "showHeader" | "surface">>): string {
+  return cx(
+    "app-region-no-drag grid min-h-0 gap-[var(--space-3)]",
+    surface === "island" && "island-glass rounded-[var(--radius-xl)] p-[var(--space-4)]",
+    surface === "transparent" && "bg-transparent p-0 shadow-none",
+    showHeader ? "grid-rows-[auto_minmax(0,1fr)]" : "grid-rows-[minmax(0,1fr)]",
+    fitToContent ? "w-max" : "h-full",
+  );
+}
+
+function nativeDialogContentClassName(showHeader: boolean): string {
+  return cx(
+    "mx-auto grid h-full min-h-0 w-full gap-[var(--space-3)]",
+    showHeader ? "grid-rows-[auto_minmax(0,1fr)]" : "grid-rows-[minmax(0,1fr)]",
+  );
+}
+
+function nativeDialogScrollportClassName(contentPadding: NativeDialogWindowProps["contentPadding"]): string {
+  return cx(
+    "min-h-0 overflow-auto hide-scrollbar",
+    contentPadding === "chrome" && "px-[var(--space-2)] pb-[var(--space-2)] pt-0",
   );
 }

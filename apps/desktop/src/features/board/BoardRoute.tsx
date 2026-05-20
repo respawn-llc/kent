@@ -3,7 +3,7 @@ import type { DragEvent, SyntheticEvent } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { BoardColumn, WorkflowBoard, WorkflowPickerItem } from "../../api";
+import type { BoardColumn, WorkflowBoard } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useAppNavigation } from "../../app/navigation";
 import { useAppServices } from "../../app/useAppServices";
@@ -16,6 +16,7 @@ import { TaskDetailDialog } from "../task-detail/TaskDetailDialog";
 import { useOpenTaskDetail } from "../task-detail/useOpenTaskDetail";
 import { NewTaskFallbackDialog } from "../tasks/NewTaskDialog";
 import { newTaskWindowOptions } from "../tasks/newTaskWindowOptions";
+import { WorkflowValidationIssues } from "../workflow/WorkflowValidationIssues";
 import { BoardColumnController } from "./BoardColumnController";
 import { BoardHoverMenu } from "./BoardHoverMenu";
 import { KanbanGroup } from "./BoardColumns";
@@ -311,6 +312,10 @@ function BoardContent({
     void navigation.openProject(board.projectID, workflowID).catch(reportNavigationError);
   }
 
+  function editWorkflow(workflowID: string): void {
+    void navigation.openWorkflowEditor(board.projectID, workflowID).catch(reportNavigationError);
+  }
+
   function openNewTask(): void {
     void newTaskDialog.open(undefined).catch(reportCreateTaskError);
   }
@@ -412,13 +417,14 @@ function BoardContent({
           title={t("board.workflowIssues")}
           tone="danger"
         >
-          <WorkflowValidationIssues workflow={board.selectedWorkflow} />
+          <WorkflowValidationIssues errors={board.selectedWorkflow.validationErrors} />
         </FloatingNoticeIsland>
       ) : null}
       <BoardHoverMenu
         board={board}
         canCreateTask={connection.phase === "connected"}
         onNewTask={openNewTask}
+        onWorkflowEdit={editWorkflow}
         onWorkflowSelect={selectWorkflow}
       />
       {newTaskDialog.fallback}
@@ -428,21 +434,4 @@ function BoardContent({
 
 function dragPayloadFromDataTransfer(dataTransfer: DataTransfer): BoardCardDragPayload | null {
   return decodeBoardCardDragPayload(dataTransfer.getData(boardCardDragPayloadType));
-}
-
-function WorkflowValidationIssues({ workflow }: Readonly<{ workflow: WorkflowPickerItem }>) {
-  const { t } = useTranslation();
-  const messages =
-    workflow.validationErrors.length > 0
-      ? workflow.validationErrors.map((issue) => issue.message)
-      : [t("board.invalidWorkflowUnknown")];
-  return (
-    <ul className="workflow-issues-list m-0 grid max-w-[72ch] list-none gap-[var(--space-1)] p-0 text-sm leading-snug text-[var(--color-on-island)]">
-      {messages.map((message) => (
-        <li className="relative pl-[1.2rem]" key={message}>
-          <span>{message}</span>
-        </li>
-      ))}
-    </ul>
-  );
 }

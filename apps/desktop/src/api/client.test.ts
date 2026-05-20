@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- API client contract tests keep representative RPC fixtures close to assertions. */
 import { BuilderApiClient } from "./client";
 import { ContractError } from "./errors";
 import { FakeRpcTransport } from "./fakeTransport";
@@ -133,6 +134,62 @@ describe("BuilderApiClient", () => {
       params: { project_id: "project-1", workspace_id: "workspace-1" },
     });
   });
+
+  it("maps workflow definition, execution validation, and active project links for the editor", async () => {
+    const transport = new FakeRpcTransport([
+      { method: "workflow.get", result: workflowDefinitionResponse },
+      { method: "workflow.validate", result: workflowValidationResponse },
+      { method: "workflow.listProjectLinks", result: workflowLinksResponse },
+    ]);
+    const client = new BuilderApiClient(transport);
+
+    const definition = await client.getWorkflow("workflow-1");
+    expect(definition).toMatchObject({
+      workflow: { id: "workflow-1", name: "Delivery", graphRevision: 7 },
+      nodeGroups: [{ id: "group-1", key: "core", name: "Core", nodeIDs: [] }],
+      transitionGroups: [{ id: "tg-1", sourceNodeID: "node-1", transitionID: "done" }],
+      edges: [{ id: "edge-1", transitionGroupID: "tg-1", targetNodeID: "done" }],
+    });
+    expect(definition.nodes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "node-1", name: "Implement", subagentRole: "coder" })]),
+    );
+    await expect(client.validateWorkflow("workflow-1", "execution")).resolves.toMatchObject({
+      valid: false,
+      errors: [
+        {
+          code: "workflow.validation.invalid",
+          workflowID: "workflow-1",
+          nodeID: "node-1",
+          transitionGroupID: "tg-1",
+          edgeID: "edge-1",
+          relatedIDs: ["edge-2"],
+          blocksContext: true,
+        },
+      ],
+    });
+    await expect(client.listProjectWorkflowLinks("project-1")).resolves.toEqual([
+      {
+        id: "link-1",
+        projectID: "project-1",
+        workflowID: "workflow-1",
+        default: true,
+        unlinkedAt: 0,
+      },
+    ]);
+
+    expect(transport.calls).toContainEqual({
+      method: "workflow.get",
+      params: { workflow_id: "workflow-1" },
+    });
+    expect(transport.calls).toContainEqual({
+      method: "workflow.validate",
+      params: { workflow_id: "workflow-1", mode: "execution" },
+    });
+    expect(transport.calls).toContainEqual({
+      method: "workflow.listProjectLinks",
+      params: { project_id: "project-1" },
+    });
+  });
 });
 
 const emptyWorkflow = {
@@ -240,4 +297,94 @@ const emptyTaskDetailResponse = {
     transitions: null,
     comments: null,
   },
+};
+
+const workflowDefinitionResponse = {
+  definition: {
+    workflow: {
+      id: "workflow-1",
+      name: "Delivery",
+      description: "Delivery workflow",
+      graph_revision: 7,
+    },
+    node_groups: [
+      {
+        group_id: "group-1",
+        workflow_id: "workflow-1",
+        group_key: "core",
+        display_name: "Core",
+        sort_order: 1,
+      },
+    ],
+    nodes: [
+      {
+        id: "node-1",
+        workflow_id: "workflow-1",
+        key: "implement",
+        kind: "agent",
+        display_name: "Implement",
+        group_id: "group-1",
+        group_key: "core",
+        subagent_role: "coder",
+        output_fields: null,
+      },
+      {
+        id: "done",
+        workflow_id: "workflow-1",
+        key: "done",
+        kind: "terminal",
+        display_name: "Done",
+      },
+    ],
+    transition_groups: [
+      {
+        id: "tg-1",
+        workflow_id: "workflow-1",
+        source_node_id: "node-1",
+        transition_id: "done",
+        display_name: "Done",
+      },
+    ],
+    edges: [
+      {
+        id: "edge-1",
+        workflow_id: "workflow-1",
+        transition_group_id: "tg-1",
+        key: "done",
+        target_node_id: "done",
+        requires_approval: false,
+        context_mode: "new_session",
+        input_bindings: null,
+        output_requirements: null,
+      },
+    ],
+  },
+};
+
+const workflowValidationResponse = {
+  valid: false,
+  errors: [
+    {
+      code: "workflow.validation.invalid",
+      message: "Invalid edge",
+      workflow_id: "workflow-1",
+      node_id: "node-1",
+      transition_group_id: "tg-1",
+      edge_id: "edge-1",
+      related_ids: ["edge-2"],
+      blocks_context: true,
+    },
+  ],
+};
+
+const workflowLinksResponse = {
+  links: [
+    {
+      id: "link-1",
+      project_id: "project-1",
+      workflow_id: "workflow-1",
+      default: true,
+      unlinked_at_unix_ms: 0,
+    },
+  ],
 };

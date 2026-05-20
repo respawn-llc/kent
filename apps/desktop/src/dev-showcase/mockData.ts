@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Showcase fixtures keep representative board/workflow data in one place. */
 import type {
   BoardCard,
   BoardColumn,
@@ -358,6 +359,9 @@ function workflow(
             edgeID: "edge-1",
             message: "Missing target node.",
             nodeID: "node-x",
+            relatedIDs: [],
+            transitionGroupID: "",
+            workflowID: id,
           },
         ],
   };

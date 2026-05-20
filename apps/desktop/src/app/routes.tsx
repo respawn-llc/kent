@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- TanStack Router route config intentionally colocates route components with route definitions. */
 import { createRoute, createRouter, createRootRoute, Outlet, useLocation } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 
@@ -12,9 +12,15 @@ import { WorkspaceUnlinkWindowRoute } from "../features/project-edit/ProjectEdit
 import { StandaloneTaskRoute, TaskDetailWindowRoute } from "../features/task-detail/StandaloneTaskRoute";
 import { StartupGate } from "../features/startup/StartupGate";
 import { NewTaskWindowRoute } from "../features/tasks/NewTaskDialog";
+import { LoadingState } from "../ui";
 import { AppChrome } from "./AppChrome";
 import { RouteTransitionFrame } from "./RouteTransitionFrame";
 import { useWindowChromeTitle } from "./windowChromeTitle";
+
+const LazyWorkflowEditorRoute = lazy(async () => {
+  const module = await import("../features/workflow-editor/WorkflowEditorRoute");
+  return { default: module.WorkflowEditorRoute };
+});
 
 const optionalSearchString = z.preprocess(
   (value: unknown) => (typeof value === "string" ? value : ""),
@@ -81,6 +87,13 @@ const projectEditRoute = createRoute({
   component: ProjectEditShellRoute,
 });
 
+const workflowEditorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/projects/$projectId/workflows/$workflowId/editor",
+  validateSearch: (search: Record<string, unknown>) => projectSearchSchema.pick({ workflowId: true }).parse(search),
+  component: WorkflowEditorShellRoute,
+});
+
 const taskRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tasks/$taskId",
@@ -118,6 +131,7 @@ const workspaceUnlinkWindowRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   homeRoute,
   projectRoute,
+  workflowEditorRoute,
   projectEditRoute,
   taskRoute,
   projectCreateRoute,
@@ -271,6 +285,17 @@ function ProjectEditShellRoute() {
   const params = projectEditRoute.useParams();
   useWindowChromeTitle(null);
   return <ProjectEditRoute projectId={params.projectId} />;
+}
+
+function WorkflowEditorShellRoute() {
+  const { t } = useTranslation();
+  const params = workflowEditorRoute.useParams();
+  useWindowChromeTitle(null);
+  return (
+    <Suspense fallback={<LoadingState appearanceDelayMs={0} title={t("workflowEditor.loadingTitle")} />}>
+      <LazyWorkflowEditorRoute projectID={params.projectId} workflowID={params.workflowId} />
+    </Suspense>
+  );
 }
 
 function TaskRoute() {

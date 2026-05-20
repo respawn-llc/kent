@@ -1,4 +1,5 @@
 /* eslint-disable max-lines -- Task detail route tests keep representative detail/native bridge fixtures local. */
+/* eslint-disable testing-library/no-node-access -- Dialog tests verify native window dimensions and focus ownership. */
 import {
   createBrowserNativeBridge,
   type NativeBridge,

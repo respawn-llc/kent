@@ -239,8 +239,8 @@ class TestDataTransfer {
   }
 }
 
-function createCancelableDragEvent(type: string, dataTransfer: TestDataTransfer): DragEvent {
-  const event = new Event(type, { bubbles: true, cancelable: true }) as DragEvent;
+function createCancelableDragEvent(type: string, dataTransfer: TestDataTransfer): Event {
+  const event = new Event(type, { bubbles: true, cancelable: true });
   Object.defineProperty(event, "dataTransfer", { value: dataTransfer });
   return event;
 }

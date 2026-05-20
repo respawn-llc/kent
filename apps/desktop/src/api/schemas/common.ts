@@ -68,15 +68,21 @@ export const validationErrorSchema: z.ZodType<WorkflowValidationError> = z
   .object({
     code: z.string(),
     message: z.string(),
+    workflow_id: emptyString,
     node_id: emptyString,
+    transition_group_id: emptyString,
     edge_id: emptyString,
+    related_ids: stringList,
     blocks_context: z.boolean().default(false),
   })
   .transform((value) => ({
     code: value.code,
     message: value.message,
+    workflowID: value.workflow_id,
     nodeID: value.node_id,
+    transitionGroupID: value.transition_group_id,
     edgeID: value.edge_id,
+    relatedIDs: value.related_ids,
     blocksContext: value.blocks_context,
   }));
 

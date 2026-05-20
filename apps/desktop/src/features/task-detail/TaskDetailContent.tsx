@@ -1,4 +1,5 @@
-import { useEffect, useId, useMemo, useState } from "react";
+/* eslint-disable max-lines -- Task detail content keeps the editable header, properties, and feed panes colocated. */
+import { useId, useMemo, useState } from "react";
 import { Check, Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -22,6 +23,11 @@ type TaskDraft = Readonly<{
   body: string;
 }>;
 
+type TaskDraftState = Readonly<{
+  sourceKey: string;
+  draft: TaskDraft;
+}>;
+
 export function TaskDetailContent({
   activity,
   detail,
@@ -37,16 +43,20 @@ export function TaskDetailContent({
 }>) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<DetailTab>("comments");
-  const [draft, setDraft] = useState<TaskDraft>(() => ({ title: detail.title, body: detail.body }));
+  const draftSourceKey = taskDraftSourceKey(detail);
+  const [draftState, setDraftState] = useState<TaskDraftState>(() => ({
+    sourceKey: draftSourceKey,
+    draft: taskDraft(detail),
+  }));
+  const draft = draftState.sourceKey === draftSourceKey ? draftState.draft : taskDraft(detail);
+  const setDraft = (nextDraft: TaskDraft): void => {
+    setDraftState({ sourceKey: draftSourceKey, draft: nextDraft });
+  };
   const update = useUpdateTask(detail.id);
   const mutations = useTaskMutations(detail.id, onMutated);
   const connection = useConnectionSnapshot();
   const disabled = connection.phase !== "connected";
   const activityItems = activity.data?.pages.flatMap((page) => page.items) ?? [];
-
-  useEffect(() => {
-    setDraft({ title: detail.title, body: detail.body });
-  }, [detail.body, detail.id, detail.title, detail.updatedAt]);
 
   async function saveDraft(nextDraft: TaskDraft = draft): Promise<void> {
     await update.mutateAsync({
@@ -127,6 +137,14 @@ export function TaskDetailContent({
       </Island>
     </div>
   );
+}
+
+function taskDraft(detail: TaskDetail): TaskDraft {
+  return { title: detail.title, body: detail.body };
+}
+
+function taskDraftSourceKey(detail: TaskDetail): string {
+  return `${detail.id}:${detail.updatedAt.toString()}`;
 }
 
 function TaskHeaderIsland({

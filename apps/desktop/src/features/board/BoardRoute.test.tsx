@@ -283,6 +283,22 @@ describe("BoardRoute", () => {
           workflows: [],
         },
       }),
+      {
+        method: "workflow.listProjectLinks",
+        result: {
+          links: [
+            {
+              id: "link-1",
+              project_id: "project-1",
+              workflow_id: "workflow-1",
+              default: true,
+              unlinked_at_unix_ms: 0,
+            },
+          ],
+        },
+      },
+      { method: "workflow.get", result: workflowDefinitionResponse },
+      { method: "workflow.validate", result: { valid: true, errors: [] } },
     ]);
 
     render(<App services={services} />);
@@ -620,8 +636,9 @@ describe("BoardRoute", () => {
       ...boardHoverMenuWorkflowContentClassNames,
     );
     expect(screen.getByTestId("board-hover-menu-actions")).toHaveClass(...boardHoverMenuActionDockClassNames);
-    expect(screen.getAllByRole("button", { name: /Delivery/u })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Delivery" })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Delivery" })).toHaveAttribute("data-slot", "item");
+    expect(screen.getByRole("button", { name: "Edit workflow Delivery" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Pin menu" }));
     expect(screen.getByRole("button", { name: "Unpin menu" })).toHaveAttribute("aria-pressed", "true");
@@ -957,6 +974,36 @@ describe("BoardRoute", () => {
         page_token: "",
       },
     });
+  });
+
+  it("opens workflow editor from workflow menu without nesting interactive controls", async () => {
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const workflow2: BoardRouteWorkflow = { ...workflow, workflow_id: "workflow-2", display_name: "Ops" };
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes({
+        board: {
+          ...boardResponse.board,
+          workflows: [workflow, workflow2],
+        },
+      }),
+    ]);
+
+    render(<App services={services} />);
+
+    await screen.findByRole("heading", { name: "Core" });
+    fireEvent.mouseEnter(screen.getByRole("navigation"));
+    const menu = await screen.findByTestId("board-hover-menu-workflows");
+    const editWorkflow = within(menu).getByRole("button", { name: "Edit workflow Delivery" });
+
+    expect(within(menu).getByRole("button", { name: "Delivery" })).toBeVisible();
+    expect(menu).not.toHaveAttribute("inert");
+    expect(menu).toHaveAttribute("aria-hidden", "false");
+    fireEvent.click(editWorkflow);
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/projects/project-1/workflows/workflow-1/editor");
+    });
+    expect(window.location.search).toContain("workflowId=workflow-1");
   });
 
   it("refreshes node-card pages after task cancel so task moves from Backlog to Done", async () => {
@@ -1468,6 +1515,44 @@ const boardResponse = {
     next_page_token: "",
     generated_at_unix_ms: 1,
     latest_event_sequence: 1,
+  },
+};
+
+const workflowDefinitionResponse = {
+  definition: {
+    workflow: {
+      id: "workflow-1",
+      name: "Delivery",
+      description: "",
+      graph_revision: 1,
+    },
+    node_groups: [],
+    nodes: [
+      {
+        id: "backlog",
+        workflow_id: "workflow-1",
+        key: "backlog",
+        kind: "start",
+        display_name: "Backlog",
+      },
+      {
+        id: "node-1",
+        workflow_id: "workflow-1",
+        key: "implement",
+        kind: "agent",
+        display_name: "Implement",
+        subagent_role: "coder",
+      },
+      {
+        id: "done",
+        workflow_id: "workflow-1",
+        key: "done",
+        kind: "terminal",
+        display_name: "Done",
+      },
+    ],
+    transition_groups: [],
+    edges: [],
   },
 };
 

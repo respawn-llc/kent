@@ -9,6 +9,7 @@ import type {
   BindingPlan,
   BoardNodeCardsPage,
   PendingAsk,
+  ProjectWorkflowLink,
   ProjectBinding,
   ProjectEdit,
   ProjectMutationResponse,
@@ -18,6 +19,8 @@ import type {
   TaskDetail,
   TeleportTarget,
   WorkflowBoard,
+  WorkflowDefinition,
+  WorkflowValidation,
   WorkspaceList,
   WorkspaceUnlinkResponse,
 } from "./models";
@@ -37,11 +40,14 @@ import {
   boardNodeCardsPageSchema,
   commentAddResponseSchema,
   pendingAskListSchema,
+  projectWorkflowLinksSchema,
   taskCreateResponseSchema,
   taskDetailSchema,
   taskUpdateResponseSchema,
   teleportTargetSchema,
   workflowBoardSchema,
+  workflowDefinitionSchema,
+  workflowValidationSchema,
 } from "./schemas/workflow";
 import type { RpcEventHandler, RpcSubscription, RpcTransport } from "./transport";
 
@@ -168,6 +174,30 @@ export class BuilderApiClient {
           workflow_id: workflowID.length > 0 ? workflowID : undefined,
         }),
       ),
+    );
+  }
+
+  async getWorkflow(workflowID: string): Promise<WorkflowDefinition> {
+    return parse(
+      "workflow.get",
+      workflowDefinitionSchema,
+      await this.transport.call("workflow.get", { workflow_id: workflowID }),
+    );
+  }
+
+  async validateWorkflow(workflowID: string, mode: "draft" | "task_creation" | "execution"): Promise<WorkflowValidation> {
+    return parse(
+      "workflow.validate",
+      workflowValidationSchema,
+      await this.transport.call("workflow.validate", { workflow_id: workflowID, mode }),
+    );
+  }
+
+  async listProjectWorkflowLinks(projectID: string): Promise<readonly ProjectWorkflowLink[]> {
+    return parse(
+      "workflow.listProjectLinks",
+      projectWorkflowLinksSchema,
+      await this.transport.call("workflow.listProjectLinks", { project_id: projectID }),
     );
   }
 

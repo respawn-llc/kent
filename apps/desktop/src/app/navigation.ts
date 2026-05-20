@@ -11,6 +11,7 @@ export type AppNavigation = Readonly<{
   forward(): Promise<void>;
   openHome(): Promise<void>;
   openProject(projectID: string, workflowID?: string): Promise<void>;
+  openWorkflowEditor(projectID: string, workflowID: string): Promise<void>;
   openProjectEdit(projectID: string): Promise<void>;
   openTask(taskID: string): Promise<void>;
   openProjectTask(projectID: string, workflowID: string, taskID: string): Promise<void>;
@@ -56,6 +57,14 @@ export function useAppNavigation(): AppNavigation {
           to: "/projects/$projectId",
           params: { projectId: projectID },
           search: { workflowId: workflowID, taskId: "", resumeRunId: "" },
+        });
+      });
+    },
+    async openWorkflowEditor(projectID, workflowID) {
+      await runNavigation(async () => {
+        await navigate({
+          to: `/projects/${encodeURIComponent(projectID)}/workflows/${encodeURIComponent(workflowID)}/editor`,
+          search: { workflowId: workflowID },
         });
       });
     },

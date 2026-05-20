@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- GUI API model contracts stay centralized at the server transport boundary. */
 export type ServerCause = Readonly<{
   code: string;
   severity: string;
@@ -110,14 +111,97 @@ export type PendingAsk = Readonly<{
 export type WorkflowValidationError = Readonly<{
   code: string;
   message: string;
+  workflowID: string;
   nodeID: string;
+  transitionGroupID: string;
   edgeID: string;
+  relatedIDs: readonly string[];
   blocksContext: boolean;
 }>;
 
 export type WorkflowOutputField = Readonly<{
   name: string;
   description: string;
+}>;
+
+export type WorkflowRecord = Readonly<{
+  id: string;
+  name: string;
+  description: string;
+  graphRevision: number;
+}>;
+
+export type WorkflowNodeGroup = Readonly<{
+  id: string;
+  workflowID: string;
+  key: string;
+  name: string;
+  sortOrder: number;
+  nodeIDs: readonly string[];
+}>;
+
+export type WorkflowNode = Readonly<{
+  id: string;
+  workflowID: string;
+  key: string;
+  kind: string;
+  name: string;
+  groupID: string;
+  groupKey: string;
+  subagentRole: string;
+  promptTemplate: string;
+  outputFields: readonly WorkflowOutputField[];
+}>;
+
+export type WorkflowInputBinding = Readonly<{
+  name: string;
+  source: string;
+  field: string;
+}>;
+
+export type WorkflowOutputRequirement = Readonly<{
+  fieldName: string;
+}>;
+
+export type WorkflowTransitionGroup = Readonly<{
+  id: string;
+  workflowID: string;
+  sourceNodeID: string;
+  transitionID: string;
+  name: string;
+}>;
+
+export type WorkflowEdge = Readonly<{
+  id: string;
+  workflowID: string;
+  transitionGroupID: string;
+  key: string;
+  targetNodeID: string;
+  requiresApproval: boolean;
+  contextMode: string;
+  inputBindings: readonly WorkflowInputBinding[];
+  outputRequirements: readonly WorkflowOutputRequirement[];
+}>;
+
+export type WorkflowDefinition = Readonly<{
+  workflow: WorkflowRecord;
+  nodeGroups: readonly WorkflowNodeGroup[];
+  nodes: readonly WorkflowNode[];
+  transitionGroups: readonly WorkflowTransitionGroup[];
+  edges: readonly WorkflowEdge[];
+}>;
+
+export type WorkflowValidation = Readonly<{
+  valid: boolean;
+  errors: readonly WorkflowValidationError[];
+}>;
+
+export type ProjectWorkflowLink = Readonly<{
+  id: string;
+  projectID: string;
+  workflowID: string;
+  default: boolean;
+  unlinkedAt: number;
 }>;
 
 export type WorkflowPickerItem = Readonly<{

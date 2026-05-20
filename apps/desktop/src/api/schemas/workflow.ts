@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Workflow API schemas stay colocated with DTO-to-view-model mapping logic. */
 import { z } from "zod";
 
 import type {
@@ -8,6 +9,9 @@ import type {
   TaskDetail,
   TeleportTarget,
   WorkflowBoard,
+  WorkflowDefinition,
+  ProjectWorkflowLink,
+  WorkflowValidation,
 } from "../models";
 import {
   attentionItemSchema,
@@ -21,6 +25,8 @@ import {
   taskStatusSchema,
   transitionSchema,
   workflowPickerItemSchema,
+  validationErrorSchema,
+  workflowOutputFieldSchema,
   workspaceSummarySchema,
 } from "./common";
 
@@ -40,6 +46,203 @@ const workflowPickerSchema = z
   .array(workflowPickerItemSchema)
   .nullish()
   .transform((value) => value ?? []);
+
+const workflowNodeGroupsSchema = z
+  .array(
+    z
+      .object({
+        group_id: z.string(),
+        workflow_id: z.string(),
+        group_key: z.string(),
+        display_name: z.string(),
+        sort_order: z.number(),
+        node_ids: z.array(z.string()).nullish().transform(emptyArray),
+      })
+      .transform((value) => ({
+        id: value.group_id,
+        workflowID: value.workflow_id,
+        key: value.group_key,
+        name: value.display_name,
+        sortOrder: value.sort_order,
+        nodeIDs: value.node_ids,
+      })),
+  )
+  .nullish()
+  .transform(emptyArray);
+
+const workflowNodesSchema = z
+  .array(
+    z
+      .object({
+        id: z.string(),
+        workflow_id: z.string(),
+        key: z.string(),
+        kind: z.string(),
+        display_name: z.string(),
+        group_id: emptyString,
+        group_key: emptyString,
+        subagent_role: emptyString,
+        prompt_template: emptyString,
+        output_fields: z.array(workflowOutputFieldSchema).nullish().transform(emptyArray),
+      })
+      .transform((value) => ({
+        id: value.id,
+        workflowID: value.workflow_id,
+        key: value.key,
+        kind: value.kind,
+        name: value.display_name,
+        groupID: value.group_id,
+        groupKey: value.group_key,
+        subagentRole: value.subagent_role,
+        promptTemplate: value.prompt_template,
+        outputFields: value.output_fields,
+      })),
+  )
+  .nullish()
+  .transform(emptyArray);
+
+const workflowTransitionGroupsSchema = z
+  .array(
+    z
+      .object({
+        id: z.string(),
+        workflow_id: z.string(),
+        source_node_id: z.string(),
+        transition_id: z.string(),
+        display_name: z.string(),
+      })
+      .transform((value) => ({
+        id: value.id,
+        workflowID: value.workflow_id,
+        sourceNodeID: value.source_node_id,
+        transitionID: value.transition_id,
+        name: value.display_name,
+      })),
+  )
+  .nullish()
+  .transform(emptyArray);
+
+const workflowInputBindingsSchema = z
+  .array(
+    z
+      .object({
+        name: z.string(),
+        source: z.string(),
+        field: z.string(),
+      })
+      .transform((value) => ({
+        name: value.name,
+        source: value.source,
+        field: value.field,
+      })),
+  )
+  .nullish()
+  .transform(emptyArray);
+
+const workflowOutputRequirementsSchema = z
+  .array(
+    z
+      .object({
+        field_name: z.string(),
+      })
+      .transform((value) => ({
+        fieldName: value.field_name,
+      })),
+  )
+  .nullish()
+  .transform(emptyArray);
+
+const workflowEdgesSchema = z
+  .array(
+    z
+      .object({
+        id: z.string(),
+        workflow_id: z.string(),
+        transition_group_id: z.string(),
+        key: z.string(),
+        target_node_id: z.string(),
+        requires_approval: z.boolean(),
+        context_mode: z.string(),
+        input_bindings: workflowInputBindingsSchema,
+        output_requirements: workflowOutputRequirementsSchema,
+      })
+      .transform((value) => ({
+        id: value.id,
+        workflowID: value.workflow_id,
+        transitionGroupID: value.transition_group_id,
+        key: value.key,
+        targetNodeID: value.target_node_id,
+        requiresApproval: value.requires_approval,
+        contextMode: value.context_mode,
+        inputBindings: value.input_bindings,
+        outputRequirements: value.output_requirements,
+      })),
+  )
+  .nullish()
+  .transform(emptyArray);
+
+export const workflowDefinitionSchema: z.ZodType<WorkflowDefinition> = z
+  .object({
+    definition: z.object({
+      workflow: z.object({
+        id: z.string(),
+        name: z.string(),
+        description: emptyString,
+        graph_revision: z.number(),
+      }),
+      node_groups: workflowNodeGroupsSchema,
+      nodes: workflowNodesSchema,
+      transition_groups: workflowTransitionGroupsSchema,
+      edges: workflowEdgesSchema,
+    }),
+  })
+  .transform((value) => ({
+    workflow: {
+      id: value.definition.workflow.id,
+      name: value.definition.workflow.name,
+      description: value.definition.workflow.description,
+      graphRevision: value.definition.workflow.graph_revision,
+    },
+    nodeGroups: value.definition.node_groups,
+    nodes: value.definition.nodes,
+    transitionGroups: value.definition.transition_groups,
+    edges: value.definition.edges,
+  }));
+
+export const workflowValidationSchema: z.ZodType<WorkflowValidation> = z
+  .object({
+    valid: z.boolean(),
+    errors: z.array(validationErrorSchema).nullish().transform(emptyArray),
+  })
+  .transform((value) => ({
+    valid: value.valid,
+    errors: value.errors,
+  }));
+
+export const projectWorkflowLinksSchema: z.ZodType<readonly ProjectWorkflowLink[]> = z
+  .object({
+    links: z
+      .array(
+        z
+          .object({
+            id: z.string(),
+            project_id: z.string(),
+            workflow_id: z.string(),
+            default: z.boolean(),
+            unlinked_at_unix_ms: z.number(),
+          })
+          .transform((value) => ({
+            id: value.id,
+            projectID: value.project_id,
+            workflowID: value.workflow_id,
+            default: value.default,
+            unlinkedAt: value.unlinked_at_unix_ms,
+          })),
+      )
+      .nullish()
+      .transform(emptyArray),
+  })
+  .transform((value) => value.links);
 
 export const workflowBoardSchema: z.ZodType<WorkflowBoard> = z
   .object({
@@ -154,7 +357,7 @@ export const taskDetailSchema: z.ZodType<TaskDetail> = z
     comments: value.task.comments.filter((comment) => comment.deletedAt === 0),
     runs: value.task.runs,
     transitions: value.task.transitions,
-    worktreePath: value.task.managed_worktree?.canonical_root || value.task.managed_worktree?.root_path || "",
+    worktreePath: value.task.managed_worktree?.canonical_root ?? value.task.managed_worktree?.root_path ?? "",
     createdAt: value.task.summary.created_at_unix_ms,
     updatedAt: value.task.summary.updated_at_unix_ms,
     done: value.task.summary.done,

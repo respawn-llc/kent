@@ -231,6 +231,7 @@ export function HoverMenuBoard() {
         board={mockBoard}
         canCreateTask
         onNewTask={() => undefined}
+        onWorkflowEdit={() => undefined}
         onWorkflowSelect={() => undefined}
       />
     </div>

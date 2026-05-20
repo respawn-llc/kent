@@ -1,4 +1,4 @@
-import { Pin, PinOff, Plus } from "lucide-react";
+import { Pencil, Pin, PinOff, Plus } from "lucide-react";
 import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -12,10 +12,11 @@ export type BoardHoverMenuProps = Readonly<{
     board: WorkflowBoard;
     canCreateTask: boolean;
     onNewTask: () => void;
+    onWorkflowEdit: (workflowID: string) => void;
     onWorkflowSelect: (workflowID: string) => void;
 }>;
 
-export function BoardHoverMenu({ board, canCreateTask, onNewTask, onWorkflowSelect }: BoardHoverMenuProps) {
+export function BoardHoverMenu({ board, canCreateTask, onNewTask, onWorkflowEdit, onWorkflowSelect }: BoardHoverMenuProps) {
     const { t } = useTranslation();
     const menuRef = useRef<HTMLDivElement | null>(null);
     const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,7 +81,7 @@ export function BoardHoverMenu({ board, canCreateTask, onNewTask, onWorkflowSele
                         expanded ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
                     )}
                     data-testid="board-hover-menu-workflows"
-                    inert={expanded ? undefined : true}
+                    inert={!expanded}
                 >
                     <header
                         className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-[var(--space-2)] px-[var(--space-2)] pt-[var(--space-2)] leading-none"
@@ -112,6 +113,9 @@ export function BoardHoverMenu({ board, canCreateTask, onNewTask, onWorkflowSele
                         {board.workflows.map((workflow) => (
                             <WorkflowOption
                                 key={workflow.id}
+                                onEdit={() => {
+                                    onWorkflowEdit(workflow.id);
+                                }}
                                 onSelect={() => {
                                     onWorkflowSelect(workflow.id);
                                 }}
@@ -154,16 +158,35 @@ function IconMenuButton({
     );
 }
 
-function WorkflowOption({ workflow, onSelect }: Readonly<{ onSelect: () => void; workflow: WorkflowPickerItem }>) {
+function WorkflowOption({
+    workflow,
+    onEdit,
+    onSelect,
+}: Readonly<{ onEdit: () => void; onSelect: () => void; workflow: WorkflowPickerItem }>) {
+    const { t } = useTranslation();
     return (
-        <Item
-            className="gap-[var(--space-3)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--color-on-island)]"
-            onClick={onSelect}
+        <div
+            className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-[var(--space-1)] rounded-md"
+            data-testid={`board-workflow-row-${workflow.id}`}
         >
-            <ItemContent>
-                <ItemTitle>{workflow.name}</ItemTitle>
-            </ItemContent>
-        </Item>
+            <Item
+                className="gap-[var(--space-3)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--color-on-island)]"
+                onClick={onSelect}
+            >
+                <ItemContent>
+                    <ItemTitle>{workflow.name}</ItemTitle>
+                </ItemContent>
+            </Item>
+            <button
+                aria-label={t("board.editWorkflow", { name: workflow.name })}
+                className="grid size-[32px] place-items-center rounded-full border border-transparent bg-transparent text-[var(--color-muted)] transition-colors hover:text-[var(--color-on-island)] focus-visible:border-[var(--color-primary)] focus-visible:outline-none"
+                onClick={onEdit}
+                title={t("board.editWorkflow", { name: workflow.name })}
+                type="button"
+            >
+                <Pencil aria-hidden="true" size={15} strokeWidth={1.7} />
+            </button>
+        </div>
     );
 }
 

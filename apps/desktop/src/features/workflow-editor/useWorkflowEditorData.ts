@@ -1,0 +1,164 @@
+import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { queryKeys } from "../../app/queryKeys";
+import { useAppServices } from "../../app/useAppServices";
+import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
+import { useStatusController } from "../../app/useStatusController";
+
+export type WorkflowEditorData = ReturnType<typeof useWorkflowEditorData>;
+
+export function useWorkflowEditorData(projectID: string, workflowID: string) {
+  const { t } = useTranslation();
+  const { api } = useAppServices();
+  const connection = useConnectionSnapshot();
+  const queryClient = useQueryClient();
+  const { push } = useStatusController();
+  const linksQuery = useQuery({
+    queryKey: queryKeys.projectWorkflowLinks(projectID),
+    queryFn: async () => api.listProjectWorkflowLinks(projectID),
+    enabled: projectID.length > 0,
+  });
+  const boardQuery = useQuery({
+    queryKey: queryKeys.board(projectID, workflowID),
+    queryFn: async () => api.getBoard(projectID, workflowID),
+    enabled: projectID.length > 0 && workflowID.length > 0,
+  });
+  const activeLink = linksQuery.data?.find(
+    (link) => link.projectID === projectID && link.workflowID === workflowID && link.unlinkedAt === 0,
+  );
+  const linked = activeLink !== undefined;
+  const workflowQuery = useQuery({
+    queryKey: queryKeys.workflowDefinition(workflowID),
+    queryFn: async () => api.getWorkflow(workflowID),
+    enabled: linked,
+  });
+  const validationQuery = useQuery({
+    queryKey: queryKeys.workflowValidation(workflowID, "execution"),
+    queryFn: async () => api.validateWorkflow(workflowID, "execution"),
+    enabled: linked,
+  });
+
+  useEffect(() => {
+    const afterSequence = boardQuery.data?.latestEventSequence ?? 0;
+    if (projectID.length === 0 || workflowID.length === 0 || connection.phase !== "connected" || afterSequence <= 0) {
+      return;
+    }
+    async function refresh(): Promise<void> {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.projectWorkflowLinks(projectID) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.board(projectID, workflowID) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.workflowDefinition(workflowID) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.workflowValidation(workflowID, "execution") }),
+      ]);
+      push({ id: "workflow-editor-updated", tone: "neutral", title: t("workflowEditor.updated"), body: "" });
+    }
+    const subscription = api.subscribeProject(projectID, afterSequence, {
+      onEvent(_method, params) {
+        if (shouldRefreshWorkflowEditor(params, projectID, workflowID)) {
+          void refresh();
+        }
+      },
+      onComplete() {
+        return;
+      },
+      onError() {
+        void refresh();
+      },
+    });
+    return () => {
+      subscription.close();
+    };
+  }, [
+    api,
+    boardQuery.data?.latestEventSequence,
+    connection.generation,
+    connection.phase,
+    projectID,
+    push,
+    queryClient,
+    t,
+    workflowID,
+  ]);
+
+  return {
+    activeLink,
+    boardQuery,
+    linked,
+    linksQuery,
+    validationQuery,
+    workflowQuery,
+  };
+}
+
+export function shouldRefreshWorkflowEditor(params: unknown, projectID: string, workflowID: string): boolean {
+  const event = workflowProjectEvent(params);
+  if (event === null) {
+    return false;
+  }
+  if (event.resource === "workflow") {
+    return event.workflowID === workflowID && workflowDefinitionActions.has(event.action);
+  }
+  if (event.resource === "workflow_link") {
+    return (
+      event.projectID === projectID &&
+      workflowLinkActions.has(event.action) &&
+      (event.workflowID === workflowID || event.changedIDs.length > 0)
+    );
+  }
+  return false;
+}
+
+const workflowDefinitionActions = new Set([
+  "node_added",
+  "node_updated",
+  "node_group_added",
+  "node_group_updated",
+  "node_group_deleted",
+  "transition_group_added",
+  "transition_group_updated",
+  "edge_added",
+  "edge_updated",
+]);
+
+const workflowLinkActions = new Set(["linked", "default_changed", "unlinked"]);
+
+function workflowProjectEvent(params: unknown):
+  | Readonly<{
+      action: string;
+      changedIDs: readonly string[];
+      projectID: string;
+      resource: string;
+      workflowID: string;
+    }>
+  | null {
+  if (!isRecord(params) || !("event" in params)) {
+    return null;
+  }
+  const rawEvent = params.event;
+  if (!isRecord(rawEvent)) {
+    return null;
+  }
+  return {
+    action: stringField(rawEvent, "action"),
+    changedIDs: stringArrayField(rawEvent, "changed_ids"),
+    projectID: stringField(rawEvent, "project_id"),
+    resource: stringField(rawEvent, "resource"),
+    workflowID: stringField(rawEvent, "workflow_id"),
+  };
+}
+
+function stringField(value: Readonly<Record<string, unknown>>, key: string): string {
+  const raw = value[key];
+  return typeof raw === "string" ? raw : "";
+}
+
+function stringArrayField(value: Readonly<Record<string, unknown>>, key: string): readonly string[] {
+  const raw = value[key];
+  return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string") : [];
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null;
+}

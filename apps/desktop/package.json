@@ -29,6 +29,8 @@
     "@tanstack/react-router": "^1.169.2",
     "@tanstack/react-virtual": "^3.13.24",
     "@tauri-apps/api": "^2.11.0",
+    "@xyflow/react": "^12.10.2",
+    "elkjs": "^0.11.1",
     "i18next": "^26.0.10",
     "lucide-react": "^1.14.0",
     "react": "^19.2.6",

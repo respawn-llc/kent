@@ -15,7 +15,7 @@ MVP acceptance requires real Builder server integration for workflow/project/tas
 ## Non-Goals
 
 - No workflow graph authoring UI.
-- No visual workflow editor.
+- No visual workflow editor in the original Kanban/runtime MVP.
 - No built-in GUI chat.
 - No full CLI/TUI replacement.
 - No Windows/Linux release target.
@@ -27,6 +27,8 @@ MVP acceptance requires real Builder server integration for workflow/project/tas
 - No mutation replay after reconnect.
 
 Workflow authoring remains CLI/agent/API-driven for MVP. GUI operates existing valid workflows and shows blockers when workflow setup is missing or invalid.
+
+Post-MVP update: workflow editor v1 is planned as a read-only graph-definition viewer opened from the board workflow menu. It does not change the original MVP's authoring non-goal; visual graph editing remains deferred to workflow editor v2.
 
 ## Platform And Native Surface
 
