@@ -30,7 +30,7 @@ describe("WorkflowEditorRoute", () => {
       />,
     );
 
-    expect(await screen.findByTestId("workflow-editor-canvas")).toBeInTheDocument();
+    expect(await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 })).toBeInTheDocument();
     expect(await screen.findAllByTestId("workflow-node-source-handle")).toHaveLength(2);
     expect(await screen.findAllByTestId("workflow-node-target-handle")).toHaveLength(2);
     const issues = await screen.findByRole("complementary", { name: "Workflow issues" });

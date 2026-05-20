@@ -80,7 +80,7 @@ export function BoardColumnController({
       onInterruptTask={onInterruptTask}
       onLoadMoreCards={() => {
         if (cardsQuery.hasNextPage && !cardsQuery.isFetchingNextPage) {
-          void cardsQuery.fetchNextPage().catch(onCardsLoadError);
+          void cardsQuery.fetchNextPage();
         }
       }}
       onResumeTask={onResumeTask}

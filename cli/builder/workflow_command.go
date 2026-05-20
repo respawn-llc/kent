@@ -477,6 +477,15 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	defer cancel()
 	resp, err := remote.UpdateWorkflowEdge(ctx, serverapi.WorkflowEdgeUpdateRequest{WorkflowID: def.Workflow.ID, EdgeID: updatedEdge.ID, TransitionGroupID: updatedEdge.TransitionGroupID, Key: updatedEdge.Key, TargetNodeID: updatedEdge.TargetNodeID, ContextMode: updatedEdge.ContextMode, RequiresApproval: updatedEdge.RequiresApproval, InputBindings: updatedEdge.InputBindings, OutputRequirements: updatedEdge.OutputRequirements})
 	if err != nil {
+		if updatedGroup != group {
+			rollbackCtx, rollbackCancel := workflowRPCContext(context.Background())
+			_, rollbackErr := remote.UpdateWorkflowTransitionGroup(rollbackCtx, serverapi.WorkflowTransitionGroupUpdateRequest{WorkflowID: def.Workflow.ID, GroupID: group.ID, SourceNodeID: group.SourceNodeID, TransitionID: group.TransitionID, DisplayName: group.DisplayName})
+			rollbackCancel()
+			if rollbackErr != nil {
+				fmt.Fprintf(stderr, "%v; rollback transition group %s failed: %v\n", err, group.ID, rollbackErr)
+				return 1
+			}
+		}
 		fmt.Fprintln(stderr, err)
 		return 1
 	}

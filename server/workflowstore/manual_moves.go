@@ -195,6 +195,7 @@ func startResetManualMoveContract(sourceNode workflow.Node, targetNode workflow.
 }
 
 func missingEdgeManualMoveContract(def workflow.Definition, sourceNode workflow.Node, targetNode workflow.Node) (workflow.TransitionGroup, workflow.Edge, bool) {
+	inputBindings := targetTransitionInputBindings(def, targetNode.ID)
 	group := workflow.TransitionGroup{
 		ID:           "",
 		SourceNodeID: sourceNode.ID,
@@ -207,15 +208,15 @@ func missingEdgeManualMoveContract(def workflow.Definition, sourceNode workflow.
 		TargetNodeID:       targetNode.ID,
 		ContextMode:        workflow.ContextModeNewSession,
 		RequiresApproval:   false,
-		InputBindings:      nil,
-		OutputRequirements: targetTransitionOutputRequirements(def, targetNode.ID),
+		InputBindings:      inputBindings,
+		OutputRequirements: outputRequirementsFromTransitionInputBindings(inputBindings),
 	}
 	return group, edge, true
 }
 
-func targetTransitionOutputRequirements(def workflow.Definition, targetNodeID workflow.NodeID) []workflow.OutputRequirement {
+func targetTransitionInputBindings(def workflow.Definition, targetNodeID workflow.NodeID) []workflow.InputBinding {
 	seen := map[string]bool{}
-	requirements := []workflow.OutputRequirement{}
+	bindings := []workflow.InputBinding{}
 	for _, edge := range def.Edges {
 		if edge.TargetNodeID != targetNodeID {
 			continue
@@ -224,13 +225,28 @@ func targetTransitionOutputRequirements(def workflow.Definition, targetNodeID wo
 			if binding.Source != workflow.BindingSourceTransitionOutput {
 				continue
 			}
+			name := strings.TrimSpace(binding.Name)
 			field := strings.TrimSpace(binding.Field)
-			if field == "" || seen[field] {
+			if name == "" || field == "" || seen[name] {
 				continue
 			}
-			seen[field] = true
-			requirements = append(requirements, workflow.OutputRequirement{FieldName: field})
+			seen[name] = true
+			bindings = append(bindings, workflow.InputBinding{Name: name, Source: workflow.BindingSourceTransitionOutput, Field: field})
 		}
+	}
+	return bindings
+}
+
+func outputRequirementsFromTransitionInputBindings(bindings []workflow.InputBinding) []workflow.OutputRequirement {
+	seen := map[string]bool{}
+	requirements := []workflow.OutputRequirement{}
+	for _, binding := range bindings {
+		field := strings.TrimSpace(binding.Field)
+		if field == "" || seen[field] {
+			continue
+		}
+		seen[field] = true
+		requirements = append(requirements, workflow.OutputRequirement{FieldName: field})
 	}
 	return requirements
 }

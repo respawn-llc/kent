@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 
 import { queryKeys } from "../../app/queryKeys";
 import { useAppServices } from "../../app/useAppServices";
@@ -38,6 +38,9 @@ export function useProjectBoardSubscription(
   const queryClient = useQueryClient();
   const connection = useConnectionSnapshot();
   const { latestSequence, onBackgroundError, selectedWorkflowID } = input;
+  const consumeBackgroundError = useCallback((error: unknown): void => {
+    onBackgroundError?.(error);
+  }, [onBackgroundError]);
 
   useEffect(() => {
     if (projectID.length === 0 || connection.phase !== "connected") {
@@ -56,13 +59,13 @@ export function useProjectBoardSubscription(
     }
     const subscription = api.subscribeProject(projectID, latestSequence, {
       onEvent() {
-        void refresh().catch(onBackgroundError);
+        void refresh().catch(consumeBackgroundError);
       },
       onComplete() {
         return;
       },
       onError() {
-        void refresh().catch(onBackgroundError);
+        void refresh().catch(consumeBackgroundError);
       },
     });
     return () => {
@@ -74,6 +77,7 @@ export function useProjectBoardSubscription(
     connection.generation,
     connection.phase,
     latestSequence,
+    consumeBackgroundError,
     onBackgroundError,
     projectID,
     queryClient,
@@ -86,21 +90,22 @@ export function useProjectBoardSubscription(
     }
     void queryClient
       .invalidateQueries({ queryKey: queryKeys.board(projectID, boardQueryWorkflowID) })
-      .catch(onBackgroundError);
+      .catch(consumeBackgroundError);
     if (selectedWorkflowID !== boardQueryWorkflowID) {
       void queryClient
         .invalidateQueries({ queryKey: queryKeys.board(projectID, selectedWorkflowID) })
-        .catch(onBackgroundError);
+        .catch(consumeBackgroundError);
     }
     void queryClient
       .invalidateQueries({
         queryKey: queryKeys.boardNodeCardsRoot(projectID, selectedWorkflowID),
       })
-      .catch(onBackgroundError);
+      .catch(consumeBackgroundError);
   }, [
     boardQueryWorkflowID,
     connection.generation,
     connection.phase,
+    consumeBackgroundError,
     onBackgroundError,
     projectID,
     queryClient,

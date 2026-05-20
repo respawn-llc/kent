@@ -357,7 +357,11 @@ export const taskDetailSchema: z.ZodType<TaskDetail> = z
     comments: value.task.comments.filter((comment) => comment.deletedAt === 0),
     runs: value.task.runs,
     transitions: value.task.transitions,
-    worktreePath: value.task.managed_worktree?.canonical_root ?? value.task.managed_worktree?.root_path ?? "",
+    worktreePath: firstNonEmpty(
+      value.task.managed_worktree?.canonical_root,
+      value.task.managed_worktree?.root_path,
+      "",
+    ),
     createdAt: value.task.summary.created_at_unix_ms,
     updatedAt: value.task.summary.updated_at_unix_ms,
     done: value.task.summary.done,
@@ -366,6 +370,10 @@ export const taskDetailSchema: z.ZodType<TaskDetail> = z
 
 function emptyArray<T>(value: T[] | null | undefined): T[] {
   return value ?? [];
+}
+
+function firstNonEmpty(...values: readonly (string | undefined)[]): string {
+  return values.find((value) => value !== undefined && value.length > 0) ?? "";
 }
 
 export const activityPageSchema: z.ZodType<ActivityPage> = z

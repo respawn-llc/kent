@@ -63,7 +63,8 @@ export function useAppNavigation(): AppNavigation {
     async openWorkflowEditor(projectID, workflowID) {
       await runNavigation(async () => {
         await navigate({
-          to: `/projects/${encodeURIComponent(projectID)}/workflows/${encodeURIComponent(workflowID)}/editor`,
+          to: "/projects/$projectId/workflows/$workflowId/editor",
+          params: { projectId: projectID, workflowId: workflowID },
           search: { workflowId: workflowID },
         });
       });

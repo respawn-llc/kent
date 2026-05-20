@@ -149,7 +149,7 @@ describe("ProjectEditRoute", () => {
 
     const workspacePath = await screen.findByText("~/Developer/builder-cli");
     expect(workspacePath).toHaveAttribute("title", homeWorkspacePath);
-    expect(screen.getByRole("button", { name: "Make ~/Developer/builder-cli the default workspace" }));
+    expect(screen.getByRole("button", { name: "Make ~/Developer/builder-cli the default workspace" })).toBeInTheDocument();
   });
 
   it("attaches new workspace through native picker", async () => {

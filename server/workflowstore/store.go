@@ -571,6 +571,9 @@ func (s *Store) AddTransitionGroup(ctx context.Context, group TransitionGroupRec
 	if group.ID == "" {
 		group.ID = workflow.TransitionGroupID(prefixedID("group"))
 	}
+	if err := ensureWorkflowNodeID(ctx, q, string(group.WorkflowID), group.SourceNodeID); err != nil {
+		return 0, err
+	}
 	if err := q.InsertWorkflowTransitionGroup(ctx, sqlitegen.InsertWorkflowTransitionGroupParams{ID: string(group.ID), WorkflowID: string(group.WorkflowID), SourceNodeID: string(group.SourceNodeID), TransitionID: strings.TrimSpace(string(group.TransitionID)), DisplayName: strings.TrimSpace(group.DisplayName), SortOrder: 100, MetadataJson: "{}"}); err != nil {
 		return 0, fmt.Errorf("insert transition group: %w", err)
 	}
@@ -597,6 +600,9 @@ func (s *Store) UpdateTransitionGroup(ctx context.Context, group TransitionGroup
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
+	if err := ensureWorkflowNodeID(ctx, q, string(group.WorkflowID), group.SourceNodeID); err != nil {
+		return 0, err
+	}
 	updated, err := tx.ExecContext(ctx, `
 UPDATE workflow_transition_groups
 SET
@@ -649,6 +655,12 @@ func (s *Store) AddEdge(ctx context.Context, edge EdgeRecord) (int64, error) {
 	if edge.ID == "" {
 		edge.ID = workflow.EdgeID(prefixedID("edge"))
 	}
+	if err := ensureWorkflowTransitionGroupID(ctx, tx, string(edge.WorkflowID), edge.TransitionGroupID); err != nil {
+		return 0, err
+	}
+	if err := ensureWorkflowNodeID(ctx, q, string(edge.WorkflowID), edge.TargetNodeID); err != nil {
+		return 0, err
+	}
 	if err := q.InsertWorkflowEdge(ctx, sqlitegen.InsertWorkflowEdgeParams{ID: string(edge.ID), WorkflowID: string(edge.WorkflowID), TransitionGroupID: string(edge.TransitionGroupID), EdgeKey: string(edge.Key), TargetNodeID: string(edge.TargetNodeID), RequiresApproval: boolToInt64(edge.RequiresApproval), ContextMode: string(edge.ContextMode), InputBindingsJson: inputs, OutputRequirementsJson: requirements, SortOrder: 100, MetadataJson: "{}"}); err != nil {
 		return 0, fmt.Errorf("insert workflow edge: %w", err)
 	}
@@ -683,6 +695,12 @@ func (s *Store) UpdateEdge(ctx context.Context, edge EdgeRecord) (int64, error) 
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
+	if err := ensureWorkflowTransitionGroupID(ctx, tx, string(edge.WorkflowID), edge.TransitionGroupID); err != nil {
+		return 0, err
+	}
+	if err := ensureWorkflowNodeID(ctx, q, string(edge.WorkflowID), edge.TargetNodeID); err != nil {
+		return 0, err
+	}
 	updated, err := tx.ExecContext(ctx, `
 UPDATE workflow_edges
 SET
@@ -913,6 +931,37 @@ func resolveWorkflowNodeGroupID(ctx context.Context, q *sqlitegen.Queries, workf
 		return "", err
 	}
 	return row.ID, nil
+}
+
+func ensureWorkflowNodeID(ctx context.Context, q *sqlitegen.Queries, workflowID string, nodeID workflow.NodeID) error {
+	trimmedNodeID := strings.TrimSpace(string(nodeID))
+	if trimmedNodeID == "" {
+		return errors.New("workflow node id is required")
+	}
+	row, err := q.GetWorkflowNode(ctx, trimmedNodeID)
+	if err != nil {
+		return fmt.Errorf("resolve workflow node %q: %w", trimmedNodeID, err)
+	}
+	if row.WorkflowID != strings.TrimSpace(workflowID) {
+		return fmt.Errorf("workflow node %q belongs to workflow %q, not %q", trimmedNodeID, row.WorkflowID, strings.TrimSpace(workflowID))
+	}
+	return nil
+}
+
+func ensureWorkflowTransitionGroupID(ctx context.Context, tx *sql.Tx, workflowID string, groupID workflow.TransitionGroupID) error {
+	trimmedGroupID := strings.TrimSpace(string(groupID))
+	if trimmedGroupID == "" {
+		return errors.New("workflow transition group id is required")
+	}
+	var rowWorkflowID string
+	err := tx.QueryRowContext(ctx, `SELECT workflow_id FROM workflow_transition_groups WHERE id = ? LIMIT 1`, trimmedGroupID).Scan(&rowWorkflowID)
+	if err != nil {
+		return fmt.Errorf("resolve workflow transition group %q: %w", trimmedGroupID, err)
+	}
+	if rowWorkflowID != strings.TrimSpace(workflowID) {
+		return fmt.Errorf("workflow transition group %q belongs to workflow %q, not %q", trimmedGroupID, rowWorkflowID, strings.TrimSpace(workflowID))
+	}
+	return nil
 }
 
 func prefixedID(prefix string) string {

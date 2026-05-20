@@ -1659,6 +1659,29 @@ func TestManualMoveMissingEdgeOverrideWithInputsCreatesPendingAgentTransition(t 
 	if len(transitions) != 1 || transitions[0].OutputValues["summary"] != "replacement" {
 		t.Fatalf("missing-edge transition outputs = %+v, want replacement summary", transitions)
 	}
+	var inputBindingsJSON string
+	var outputRequirementsJSON string
+	if err := store.db.QueryRowContext(ctx, `
+SELECT input_bindings_json, output_requirements_json
+FROM task_transition_edges
+WHERE task_transition_id = ?
+LIMIT 1`, string(transitions[0].ID)).Scan(&inputBindingsJSON, &outputRequirementsJSON); err != nil {
+		t.Fatalf("select transition edge snapshot: %v", err)
+	}
+	inputBindings := []workflow.InputBinding{}
+	if err := unmarshalJSON(inputBindingsJSON, &inputBindings); err != nil {
+		t.Fatalf("unmarshal input bindings: %v", err)
+	}
+	outputRequirements := []workflow.OutputRequirement{}
+	if err := unmarshalJSON(outputRequirementsJSON, &outputRequirements); err != nil {
+		t.Fatalf("unmarshal output requirements: %v", err)
+	}
+	if len(inputBindings) != 1 || inputBindings[0].Name != "prior_summary" || inputBindings[0].Field != "summary" {
+		t.Fatalf("input bindings = %+v, want prior_summary from summary", inputBindings)
+	}
+	if len(outputRequirements) != 1 || outputRequirements[0].FieldName != "summary" {
+		t.Fatalf("output requirements = %+v, want summary", outputRequirements)
+	}
 }
 
 func TestManualMoveContinueSessionRequiresSourceSession(t *testing.T) {
@@ -2301,6 +2324,46 @@ func TestResumeTaskRunRejectsRoleDrift(t *testing.T) {
 	}
 }
 
+func TestResumeTaskRunAllowsDefaultAgentRoleWithoutResolver(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createValidWorkflow(t, ctx, store)
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	agent := nodeByKey(t, def, "agent")
+	if _, err := store.UpdateNode(ctx, NodeRecord{ID: agent.ID, WorkflowID: workflowID, Key: agent.Key, Kind: agent.Kind, DisplayName: agent.DisplayName, SubagentRole: workflow.DefaultAgentRole, PromptTemplate: agent.PromptTemplate, OutputFields: agent.OutputFields}); err != nil {
+		t.Fatalf("UpdateNode default role: %v", err)
+	}
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	if _, err := store.ClaimRun(ctx, started.RunID, 0); err != nil {
+		t.Fatalf("ClaimRun: %v", err)
+	}
+	if err := store.InterruptRun(ctx, started.RunID, "manual", "{}"); err != nil {
+		t.Fatalf("InterruptRun: %v", err)
+	}
+	store.roleResolver = workflow.StaticRoleResolver{}
+
+	resumed, err := store.ResumeTaskRun(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ResumeTaskRun default role: %v", err)
+	}
+	if resumed.ID != started.RunID || resumed.InterruptedAt != 0 || resumed.StartedAt != 0 {
+		t.Fatalf("resumed run = %+v, want default-role run requeued", resumed)
+	}
+}
+
 func TestResumeTaskRunCanResumeInterruptedWaitingAskRun(t *testing.T) {
 	ctx := context.Background()
 	store, binding, cfg := newTestStoreWithConfig(t)
@@ -2604,6 +2667,34 @@ func TestGuardedGraphDeletesRespectTaskHistory(t *testing.T) {
 	}
 	if _, err := store.queries.GetWorkflowEdge(ctx, "edge-unused"); err == nil {
 		t.Fatalf("unused edge still exists after guarded delete")
+	}
+}
+
+func TestWorkflowGraphUpdatesRejectCrossWorkflowReferences(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newTestStore(t)
+	firstWorkflowID := createValidWorkflow(t, ctx, store)
+	secondWorkflowID := createValidWorkflow(t, ctx, store)
+	firstDef, _, err := store.GetDefinition(ctx, firstWorkflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition first: %v", err)
+	}
+	secondDef, _, err := store.GetDefinition(ctx, secondWorkflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition second: %v", err)
+	}
+	firstAgent := nodeByKey(t, firstDef, "agent")
+	secondAgent := nodeByKey(t, secondDef, "agent")
+	secondDone := nodeByKind(t, secondDef, workflow.NodeKindTerminal)
+
+	if _, err := store.UpdateTransitionGroup(ctx, TransitionGroupRecord{ID: workflow.TransitionGroupID("group-done-" + string(firstWorkflowID)), WorkflowID: firstWorkflowID, SourceNodeID: secondAgent.ID, TransitionID: "done", DisplayName: "Done"}); err == nil || !strings.Contains(err.Error(), "belongs to workflow") {
+		t.Fatalf("UpdateTransitionGroup cross-workflow error = %v, want workflow mismatch", err)
+	}
+	if _, err := store.UpdateEdge(ctx, EdgeRecord{ID: workflow.EdgeID("edge-done-" + string(firstWorkflowID)), WorkflowID: firstWorkflowID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(secondWorkflowID)), Key: "done", TargetNodeID: firstAgent.ID, ContextMode: workflow.ContextModeNewSession}); err == nil || !strings.Contains(err.Error(), "belongs to workflow") {
+		t.Fatalf("UpdateEdge cross-workflow group error = %v, want workflow mismatch", err)
+	}
+	if _, err := store.UpdateEdge(ctx, EdgeRecord{ID: workflow.EdgeID("edge-done-" + string(firstWorkflowID)), WorkflowID: firstWorkflowID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(firstWorkflowID)), Key: "done", TargetNodeID: secondDone.ID, ContextMode: workflow.ContextModeNewSession}); err == nil || !strings.Contains(err.Error(), "belongs to workflow") {
+		t.Fatalf("UpdateEdge cross-workflow target error = %v, want workflow mismatch", err)
 	}
 }
 

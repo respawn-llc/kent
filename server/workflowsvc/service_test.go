@@ -794,10 +794,13 @@ func TestServiceWorkflowProjectSubscriptionEmitsRunCompletionEvent(t *testing.T)
 
 func TestServiceWorkflowGraphMutationsPublishInvalidations(t *testing.T) {
 	ctx := context.Background()
-	service, _ := newWorkflowServiceTestService(t)
+	service, binding := newWorkflowServiceTestService(t)
 	created, err := service.CreateWorkflow(ctx, serverapi.WorkflowCreateRequest{Name: "Workflow"})
 	if err != nil {
 		t.Fatalf("CreateWorkflow: %v", err)
+	}
+	if _, err := service.LinkWorkflowToProject(ctx, serverapi.WorkflowLinkProjectRequest{ProjectID: binding.ProjectID, WorkflowID: created.Workflow.ID, Default: true}); err != nil {
+		t.Fatalf("LinkWorkflowToProject: %v", err)
 	}
 	def, err := service.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: created.Workflow.ID})
 	if err != nil {
@@ -814,13 +817,13 @@ func TestServiceWorkflowGraphMutationsPublishInvalidations(t *testing.T) {
 	if _, err := service.AddWorkflowEdge(ctx, serverapi.WorkflowEdgeAddRequest{WorkflowID: created.Workflow.ID, EdgeID: "edge-start-events", TransitionGroupID: "group-start-events", Key: "start", TargetNodeID: doneID, ContextMode: "new_session"}); err != nil {
 		t.Fatalf("AddWorkflowEdge: %v", err)
 	}
-	events, err := service.store.ListWorkflowEventsAfter(ctx, "", 0, 100)
+	events, err := service.store.ListWorkflowEventsAfter(ctx, binding.ProjectID, 0, 100)
 	if err != nil {
 		t.Fatalf("ListWorkflowEventsAfter: %v", err)
 	}
 	actions := map[string]bool{}
 	for _, event := range events {
-		if event.WorkflowID == created.Workflow.ID {
+		if event.ProjectID == binding.ProjectID && event.WorkflowID == created.Workflow.ID {
 			actions[event.Action] = true
 		}
 	}

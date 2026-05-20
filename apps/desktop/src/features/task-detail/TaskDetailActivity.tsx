@@ -45,8 +45,12 @@ export function Comments({
         <div className="grid" data-testid="task-comment-input-frame">
           <textarea
             className={cx(fieldInputClassName, "col-start-1 row-start-1 block min-h-[88px] resize-y pb-0")}
+            disabled={disabled}
             id="task-comment-body"
             onChange={(event) => {
+              if (disabled) {
+                return;
+              }
               if (editing === null) {
                 setBody(event.target.value);
                 return;
@@ -130,6 +134,9 @@ export function ActivityFeed({
     }
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) {
+        if (lastLoadMoreItemsLengthRef.current === items.length) {
+          return;
+        }
         loadMore();
       }
     });

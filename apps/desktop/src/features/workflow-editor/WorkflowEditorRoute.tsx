@@ -82,7 +82,7 @@ function useWorkflowGraphLayoutQuery(workflowID: string, data: WorkflowEditorDat
       workflowID,
       data.workflowQuery.data?.workflow.graphRevision ?? 0,
       data.validationQuery.data?.valid ?? false,
-      data.validationQuery.data?.errors.length ?? 0,
+      data.validationQuery.data?.errors ?? [],
     ),
     queryFn: async () => {
       const definition = data.workflowQuery.data;

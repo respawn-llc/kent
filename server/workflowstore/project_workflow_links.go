@@ -45,6 +45,38 @@ func (s *Store) ListProjectWorkflowLinks(ctx context.Context, projectID string) 
 	return out, nil
 }
 
+func (s *Store) ListWorkflowProjectLinks(ctx context.Context, workflowID workflow.WorkflowID) ([]ProjectWorkflowLinkRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT
+    id,
+    project_id,
+    workflow_id,
+    is_default,
+    unlinked_at_unix_ms,
+    created_at_unix_ms,
+    updated_at_unix_ms
+FROM project_workflow_links
+WHERE workflow_id = ?
+  AND unlinked_at_unix_ms = 0
+ORDER BY project_id ASC, is_default DESC, created_at_unix_ms ASC`, string(workflowID))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := []ProjectWorkflowLinkRecord{}
+	for rows.Next() {
+		var row sqlitegen.ProjectWorkflowLink
+		if err := rows.Scan(&row.ID, &row.ProjectID, &row.WorkflowID, &row.IsDefault, &row.UnlinkedAtUnixMs, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs); err != nil {
+			return nil, err
+		}
+		out = append(out, linkRecordFromRow(row))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *Store) GetProjectWorkflowLink(ctx context.Context, linkID string) (ProjectWorkflowLinkRecord, error) {
 	row, err := s.queries.GetProjectWorkflowLink(ctx, strings.TrimSpace(linkID))
 	if err != nil {

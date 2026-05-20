@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -26,6 +27,18 @@ type workflowCommandLoopbackRemote struct {
 }
 
 func (r *workflowCommandLoopbackRemote) Close() error { return nil }
+
+type failingWorkflowEdgeUpdateRemote struct {
+	*workflowCommandLoopbackRemote
+	failUpdateEdge bool
+}
+
+func (r *failingWorkflowEdgeUpdateRemote) UpdateWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdgeUpdateRequest) (serverapi.WorkflowEdgeUpdateResponse, error) {
+	if r.failUpdateEdge {
+		return serverapi.WorkflowEdgeUpdateResponse{}, errors.New("edge update failed")
+	}
+	return r.workflowCommandLoopbackRemote.UpdateWorkflowEdge(ctx, req)
+}
 
 func (r *workflowCommandLoopbackRemote) ResolveProjectPath(ctx context.Context, req serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
 	if req.Path != r.cfg.WorkspaceRoot {
@@ -273,6 +286,52 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 		if !strings.Contains(inspectOut, want) {
 			t.Fatalf("inspect output = %q, want %q", inspectOut, want)
 		}
+	}
+}
+
+func TestWorkflowEdgeUpdateRollsBackTransitionGroupWhenEdgeUpdateFails(t *testing.T) {
+	cfg, _, loopback := newWorkflowCommandLoopback(t)
+	remote := &failingWorkflowEdgeUpdateRemote{workflowCommandLoopbackRemote: loopback}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	workflowOut, workflowErr, code := runWorkflowRootCommand("workflow", "create", "Rollback Workflow")
+	if code != 0 {
+		t.Fatalf("workflow create exit=%d stderr=%q", code, workflowErr)
+	}
+	workflowID := labeledOutputValue(t, workflowOut, "workflow_id")
+	if _, nodeErr, code := runWorkflowRootCommand("workflow", "node", "add", workflowID, "--key", "triaging", "--kind", "agent", "--display-name", "Triaging", "--agent", "workflow-test", "--prompt", "Triage."); code != 0 {
+		t.Fatalf("workflow node add exit=%d stderr=%q", code, nodeErr)
+	}
+	edgeOut, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "new_session")
+	if code != 0 {
+		t.Fatalf("workflow edge add exit=%d stderr=%q", code, edgeErr)
+	}
+	edgeID := labeledOutputValue(t, edgeOut, "edge_id")
+	remote.failUpdateEdge = true
+
+	_, updateErr, code := runWorkflowRootCommand("workflow", "edge", "update", workflowID, edgeID, "--transition", "changed")
+	if code == 0 || !strings.Contains(updateErr, "edge update failed") {
+		t.Fatalf("workflow edge update code=%d stderr=%q, want edge update failure", code, updateErr)
+	}
+	def, _, err := loopback.store.GetDefinition(context.Background(), workflow.WorkflowID(workflowID))
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	var group workflow.TransitionGroup
+	for _, edge := range def.Edges {
+		if string(edge.ID) != edgeID {
+			continue
+		}
+		for _, candidate := range def.TransitionGroups {
+			if candidate.ID == edge.TransitionGroupID {
+				group = candidate
+				break
+			}
+		}
+	}
+	if group.TransitionID != "start" {
+		t.Fatalf("transition group after failed update = %+v, want original start", group)
 	}
 }
 

@@ -39,6 +39,7 @@ export function decodeBoardCardDragPayload(serialized: string): BoardCardDragPay
   }
   if (
     parsed.taskID.length === 0 ||
+    parsed.statusKind.length === 0 ||
     parsed.activeNodeIDs.some((nodeID) => nodeID.length === 0) ||
     parsed.manualMoveTargetNodeIDs.some((nodeID) => nodeID.length === 0)
   ) {

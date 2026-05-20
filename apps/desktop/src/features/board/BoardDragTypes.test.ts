@@ -24,5 +24,10 @@ describe("board card drag payloads", () => {
     expect(
       decodeBoardCardDragPayload('{"taskID":"","canStart":true,"manualMoveTargetNodeIDs":[]}'),
     ).toBeNull();
+    expect(
+      decodeBoardCardDragPayload(
+        '{"taskID":"task-1","canStart":true,"activeNodeIDs":[],"statusKind":"","manualMoveTargetNodeIDs":[]}',
+      ),
+    ).toBeNull();
   });
 });
