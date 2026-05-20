@@ -90,10 +90,11 @@ type RecordProtocolViolationResult struct {
 }
 
 type CompleteRunResult struct {
-	TransitionID workflow.TransitionID
-	State        string
-	PlacementIDs []workflow.PlacementID
-	RunIDs       []workflow.RunID
+	TransitionID     workflow.TransitionID
+	State            string
+	PlacementIDs     []workflow.PlacementID
+	RunIDs           []workflow.RunID
+	RequiresApproval bool
 }
 
 type ManualMoveRequest struct {

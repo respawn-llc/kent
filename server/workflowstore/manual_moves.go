@@ -138,7 +138,7 @@ WHERE id = ? AND state = 'active'`, now, string(sourcePlacement))
 	if err := q.InsertTaskTransition(ctx, sqlitegen.InsertTaskTransitionParams{ID: transitionID, TaskID: string(req.TaskID), SourceRunID: sql.NullString{String: string(sourceRunID), Valid: sourceRunID != ""}, SourcePlacementID: sql.NullString{String: string(sourcePlacement), Valid: true}, SourceNodeID: sql.NullString{String: string(sourceNode.ID), Valid: true}, SourceNodeKey: string(sourceNode.Key), SourceNodeDisplayName: sourceNode.DisplayName, TransitionGroupID: sql.NullString{String: string(group.ID), Valid: group.ID != ""}, TransitionID: string(group.TransitionID), TransitionDisplayName: group.DisplayName, WorkflowRevisionSeen: task.WorkflowRevisionSeen, Actor: actor, State: transitionState, Commentary: strings.TrimSpace(req.Commentary), OutputValuesJson: outputValuesJSON, CreatedAtUnixMs: now, AppliedAtUnixMs: appliedAt}); err != nil {
 		return ManualMoveResult{}, err
 	}
-	result := ManualMoveResult{TransitionID: workflow.TransitionID(transitionID), State: transitionState}
+	result := ManualMoveResult{TransitionID: workflow.TransitionID(transitionID), State: transitionState, RequiresApproval: edge.RequiresApproval}
 	targetPlacementID := ""
 	if transitionState == "applied" {
 		targetPlacementID = prefixedID("placement")

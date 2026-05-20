@@ -487,7 +487,7 @@ func (s *Service) MoveWorkflowTask(ctx context.Context, req serverapi.WorkflowTa
 		return serverapi.WorkflowTaskMoveResponse{}, err
 	}
 	approvalError := ""
-	if req.AutoApprove && moved.State == "pending_approval" {
+	if req.AutoApprove && moved.State == "pending_approval" && !moved.RequiresApproval {
 		approved, approveErr := s.approve(ctx, moved.TransitionID)
 		if approveErr != nil {
 			approvalError = approveErr.Error()

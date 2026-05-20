@@ -475,6 +475,45 @@ func TestServiceMoveTaskAutoApproveSurfacesCommittedPendingMoveWhenApprovalFails
 	}
 }
 
+func TestServiceMoveTaskAutoApproveDoesNotBypassApprovalGatedEdge(t *testing.T) {
+	ctx := context.Background()
+	service, binding := newWorkflowServiceTestService(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	if _, err := service.LinkWorkflowToProject(ctx, serverapi.WorkflowLinkProjectRequest{ProjectID: binding.ProjectID, WorkflowID: workflowID, Default: true}); err != nil {
+		t.Fatalf("LinkWorkflowToProject: %v", err)
+	}
+	task, err := service.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateWorkflowTask: %v", err)
+	}
+	def, err := service.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: workflowID})
+	if err != nil {
+		t.Fatalf("GetWorkflow: %v", err)
+	}
+	agentID := workflowServiceNodeIDByKey(t, def.Definition, "agent")
+	var startEdge serverapi.WorkflowEdge
+	for _, edge := range def.Definition.Edges {
+		if edge.Key == "start" {
+			startEdge = edge
+			break
+		}
+	}
+	if startEdge.ID == "" {
+		t.Fatalf("missing start edge in %+v", def.Definition.Edges)
+	}
+	if _, err := service.store.UpdateEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID(startEdge.ID), WorkflowID: workflow.WorkflowID(workflowID), TransitionGroupID: workflow.TransitionGroupID(startEdge.TransitionGroupID), Key: workflow.ModelKey(startEdge.Key), TargetNodeID: workflow.NodeID(startEdge.TargetNodeID), RequiresApproval: true, ContextMode: workflow.ContextMode(startEdge.ContextMode), InputBindings: inputBindings(startEdge.InputBindings), OutputRequirements: outputRequirements(startEdge.OutputRequirements)}); err != nil {
+		t.Fatalf("enable start edge approval: %v", err)
+	}
+
+	moved, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{TaskID: task.Task.ID, TargetNodeID: agentID, AllowMissingEdge: true, AutoApprove: true})
+	if err != nil {
+		t.Fatalf("MoveWorkflowTask: %v", err)
+	}
+	if moved.State != "pending_approval" || len(moved.PlacementIDs) != 0 || len(moved.RunIDs) != 0 || moved.ApprovalError != "" {
+		t.Fatalf("approval-gated move = %+v, want pending approval without automation", moved)
+	}
+}
+
 func TestServiceInterruptTaskTargetsRunAndCancelsRuntime(t *testing.T) {
 	ctx := context.Background()
 	service, binding := newWorkflowServiceTestService(t)

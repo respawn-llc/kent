@@ -28,9 +28,6 @@ export function classifyDrop(
     return { kind: "start" };
   }
   if (dragPayload.manualMoveTargetNodeIDs.includes(column.id)) {
-    if (column.transitionOutputFields.length > 0) {
-      return { kind: "missingInput" };
-    }
     return { kind: "move" };
   }
   if (column.isBacklog) {
