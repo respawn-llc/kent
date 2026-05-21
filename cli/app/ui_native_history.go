@@ -246,8 +246,16 @@ func (m *uiModel) finalizeNativeStreamingCommit(projection tui.TranscriptProject
 	}
 	hadCommittedHistory := previousCommittedCount > 0
 	finalUpdate := m.nativeStreamingController.FinalizeSource(committedEntries[streamedAssistantIndex].Text)
-	flushTail := m.emitNativeRenderedText(renderStyledNativeProjectionLines(m.nativeStreamingFinalizeLines(finalUpdate.stable, hadCommittedHistory), m.theme, m.nativeReplayRenderWidth()))
-	postAssistant := m.emitNativeProjectionLinesForEntryRangeExcluding(projection, previousCommittedCount, committedCount, streamedAssistantIndex)
+	flushTailText := renderStyledNativeProjectionLines(m.nativeStreamingFinalizeLines(finalUpdate.stable, hadCommittedHistory), m.theme, m.nativeReplayRenderWidth())
+	postAssistantText := m.nativeProjectionTextForEntryRangeExcluding(projection, previousCommittedCount, committedCount, streamedAssistantIndex)
+	var flushTail tea.Cmd
+	var postAssistant tea.Cmd
+	if strings.TrimSpace(flushTailText) != "" {
+		flushTail = m.emitNativeRenderedTextClearingBelow(flushTailText)
+		postAssistant = m.emitNativeRenderedText(postAssistantText)
+	} else {
+		postAssistant = m.emitNativeRenderedTextClearingBelow(postAssistantText)
+	}
 	m.consumeNativeHistoryReplayPermit()
 	m.rebaseNativeProjection(projection, m.transcriptBaseOffset, committedCount)
 	m.acceptNativeProjectionWithoutReplay(projection)
@@ -294,8 +302,16 @@ func (m *uiModel) emitNativeProjectionLinesAfterEntry(projection tui.TranscriptP
 }
 
 func (m *uiModel) emitNativeProjectionLinesForEntryRangeExcluding(projection tui.TranscriptProjection, startIndex int, endIndex int, excludedIndex int) tea.Cmd {
-	if m == nil || startIndex >= endIndex {
+	styled := m.nativeProjectionTextForEntryRangeExcluding(projection, startIndex, endIndex, excludedIndex)
+	if strings.TrimSpace(styled) == "" {
 		return nil
+	}
+	return m.emitNativeRenderedText(styled)
+}
+
+func (m *uiModel) nativeProjectionTextForEntryRangeExcluding(projection tui.TranscriptProjection, startIndex int, endIndex int, excludedIndex int) string {
+	if m == nil || startIndex >= endIndex {
+		return ""
 	}
 	startAbsolute := m.transcriptBaseOffset + startIndex
 	endAbsolute := m.transcriptBaseOffset + endIndex
@@ -319,9 +335,9 @@ func (m *uiModel) emitNativeProjectionLinesForEntryRangeExcluding(projection tui
 	}
 	styled := renderStyledNativeProjectionLines(lines, m.theme, m.nativeReplayRenderWidth())
 	if strings.TrimSpace(styled) == "" {
-		return nil
+		return ""
 	}
-	return m.emitNativeRenderedText(styled)
+	return styled
 }
 
 func (m *uiModel) armNativeHistoryReplayPermit(permit nativeHistoryReplayPermit) {

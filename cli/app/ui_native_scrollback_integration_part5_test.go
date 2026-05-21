@@ -175,6 +175,10 @@ func TestNativeStreamedMultilineMarkdownFinalThenCommitAppearsOnceInScrollback(t
 	})
 	waitForTestCondition(t, 2*time.Second, "committed multiline final rendered", func() bool {
 		return strings.TrimSpace(model.view.OngoingStreamingText()) == "" &&
+			!model.nativeStreamingActive &&
+			model.nativeFlushedSequence >= model.nativeFlushSequence &&
+			model.waitRuntimeEventAfterFlushSequence == 0 &&
+			len(model.nativePendingFlushes) == 0 &&
 			strings.Contains(normalizedOutput(out.String()), "I opened it via the browser client")
 	})
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -291,7 +295,10 @@ func (t *replayTerminal) handleCSI(cmd xansi.Cmd, params xansi.Params) {
 		t.col = max(0, col-1)
 	case 'J':
 		mode, _, _ := params.Param(0, 0)
-		if mode == 2 {
+		switch mode {
+		case 0:
+			t.eraseScreenBelow()
+		case 2:
 			t.lines = nil
 			t.row = 0
 			t.col = 0
@@ -299,6 +306,16 @@ func (t *replayTerminal) handleCSI(cmd xansi.Cmd, params xansi.Params) {
 	case 'K':
 		mode, _, _ := params.Param(0, 0)
 		t.eraseLine(mode)
+	}
+}
+
+func (t *replayTerminal) eraseScreenBelow() {
+	t.ensureLine(t.row)
+	if t.col < len(t.lines[t.row]) {
+		t.lines[t.row] = t.lines[t.row][:t.col]
+	}
+	for idx := t.row + 1; idx < len(t.lines); idx++ {
+		t.lines[idx] = nil
 	}
 }
 

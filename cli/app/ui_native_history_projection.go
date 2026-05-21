@@ -127,16 +127,24 @@ func nativePendingEntries(entries []tui.TranscriptEntry) []tui.TranscriptEntry {
 }
 
 func (m *uiModel) emitNativeRenderedText(rendered string) tea.Cmd {
+	return m.emitNativeRenderedTextWithOptions(rendered, false)
+}
+
+func (m *uiModel) emitNativeRenderedTextClearingBelow(rendered string) tea.Cmd {
+	return m.emitNativeRenderedTextWithOptions(rendered, true)
+}
+
+func (m *uiModel) emitNativeRenderedTextWithOptions(rendered string, clearBelowBefore bool) tea.Cmd {
 	if len(rendered) <= 64*1024 {
-		return m.emitNativeHistoryFlush(rendered, false)
+		return m.emitNativeHistoryFlushWithOptions(rendered, false, clearBelowBefore)
 	}
 	chunks := splitNativeScrollbackChunks(rendered, 64*1024)
 	if len(chunks) == 0 {
 		return nil
 	}
 	cmds := make([]tea.Cmd, 0, len(chunks))
-	for _, chunk := range chunks {
-		if cmd := m.emitNativeHistoryFlush(chunk, false); cmd != nil {
+	for idx, chunk := range chunks {
+		if cmd := m.emitNativeHistoryFlushWithOptions(chunk, false, clearBelowBefore && idx == 0); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	}
@@ -150,6 +158,10 @@ func (m *uiModel) emitNativeRenderedText(rendered string) tea.Cmd {
 }
 
 func (m *uiModel) emitNativeHistoryFlush(text string, allowBlank bool) tea.Cmd {
+	return m.emitNativeHistoryFlushWithOptions(text, allowBlank, false)
+}
+
+func (m *uiModel) emitNativeHistoryFlushWithOptions(text string, allowBlank bool, clearBelowBefore bool) tea.Cmd {
 	if text == "" {
 		return nil
 	}
@@ -157,7 +169,7 @@ func (m *uiModel) emitNativeHistoryFlush(text string, allowBlank bool) tea.Cmd {
 		return nil
 	}
 	m.nativeFlushSequence++
-	msg := nativeHistoryFlushMsg{Text: text, AllowBlank: allowBlank, Sequence: m.nativeFlushSequence}
+	msg := nativeHistoryFlushMsg{Text: text, AllowBlank: allowBlank, ClearBelowBefore: clearBelowBefore, Sequence: m.nativeFlushSequence}
 	return func() tea.Msg {
 		return msg
 	}
@@ -207,7 +219,11 @@ func (m *uiModel) handleNativeHistoryFlush(msg nativeHistoryFlushMsg) tea.Cmd {
 	for {
 		m.nativeFlushedSequence = current.Sequence
 		if current.AllowBlank || strings.TrimSpace(current.Text) != "" {
-			cmds = append(cmds, tea.Printf("%s", current.Text))
+			text := current.Text
+			if current.ClearBelowBefore {
+				text = "\x1b[J" + text
+			}
+			cmds = append(cmds, tea.Printf("%s", text))
 		}
 		next, ok := m.nativePendingFlushes[m.nativeFlushedSequence+1]
 		if !ok {

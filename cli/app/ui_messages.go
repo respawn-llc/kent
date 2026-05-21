@@ -69,9 +69,10 @@ type nativeResizeReplayMsg struct {
 }
 
 type nativeHistoryFlushMsg struct {
-	Text       string
-	AllowBlank bool
-	Sequence   uint64
+	Text             string
+	AllowBlank       bool
+	ClearBelowBefore bool
+	Sequence         uint64
 }
 
 type nativeStreamingStableFlushAckMsg struct {

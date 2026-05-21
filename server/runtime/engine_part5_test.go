@@ -885,11 +885,12 @@ func TestReviewerAppliedFollowUpRemainsVisibleInTranscript(t *testing.T) {
 	foundAppliedStatus := false
 	suggestionsIdx := -1
 	followUpIdx := -1
+	wantSuggestionsOngoingText := "Supervisor suggested:\n1. Add final verification notes."
 	for idx, entry := range snapshot.Entries {
 		if entry.Role == "reviewer_suggestions" && strings.Contains(entry.Text, "Supervisor suggested:") {
 			suggestionsIdx = idx
-			if entry.OngoingText != "Supervisor made 1 suggestion." {
-				t.Fatalf("expected compact reviewer suggestions ongoing text, got %+v", entry)
+			if entry.OngoingText != wantSuggestionsOngoingText {
+				t.Fatalf("expected verbose reviewer suggestions ongoing text, got %+v", entry)
 			}
 		}
 		if entry.Role == "assistant" && strings.Contains(entry.Text, "updated final after review") {
@@ -973,8 +974,8 @@ func TestReviewerAppliedFollowUpRemainsVisibleInTranscript(t *testing.T) {
 			continue
 		}
 		foundRestoredSuggestions = true
-		if entry.OngoingText != "Supervisor made 1 suggestion." {
-			t.Fatalf("expected restored compact reviewer suggestions ongoing text, got %+v", entry)
+		if entry.OngoingText != wantSuggestionsOngoingText {
+			t.Fatalf("expected restored verbose reviewer suggestions ongoing text, got %+v", entry)
 		}
 	}
 	if !foundRestoredSuggestions {
