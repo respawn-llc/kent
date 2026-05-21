@@ -627,7 +627,7 @@ func TestNativeHistoryFlushWaitsForTargetSequenceBeforeRearmingRuntimeEvents(t *
 	}
 }
 
-func TestNativeStreamingStableTailClearsOnlyAfterFlushAck(t *testing.T) {
+func TestNativeStreamingStableTailIsRemovedBeforeNativeFlushAck(t *testing.T) {
 	m := newProjectedStaticUIModel(
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "prompt"}}),
 	)
@@ -643,8 +643,8 @@ func TestNativeStreamingStableTailClearsOnlyAfterFlushAck(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected streaming stable flush, got %T", streamCmd())
 	}
-	if got := joinedPlainProjectionLines(m.nativeStreamingUnflushedStable); !strings.Contains(got, "line1") {
-		t.Fatalf("expected stable line retained in live tail before flush ack, got %q", got)
+	if got := joinedPlainProjectionLines(m.nativeStreamingTail); strings.Contains(got, "line1") || !strings.Contains(got, "line2") {
+		t.Fatalf("expected scheduled stable line removed from live tail before flush ack, got %q", got)
 	}
 
 	laterCmd := m.emitNativeRenderedText("later")
@@ -655,30 +655,36 @@ func TestNativeStreamingStableTailClearsOnlyAfterFlushAck(t *testing.T) {
 	if cmd := m.handleNativeHistoryFlush(laterFlush); cmd != nil {
 		t.Fatalf("expected out-of-order later flush to buffer without commands, got %T", cmd())
 	}
-	if got := joinedPlainProjectionLines(m.nativeStreamingUnflushedStable); !strings.Contains(got, "line1") {
-		t.Fatalf("expected out-of-order flush not to clear stable live tail, got %q", got)
+	if got := joinedPlainProjectionLines(m.nativeStreamingTail); strings.Contains(got, "line1") || !strings.Contains(got, "line2") {
+		t.Fatalf("expected out-of-order flush not to restore scheduled stable line to live tail, got %q", got)
 	}
 
 	flushCmd := m.handleNativeHistoryFlush(streamFlush)
 	msgs := collectCmdMessages(t, flushCmd)
-	if got := joinedPlainProjectionLines(m.nativeStreamingUnflushedStable); !strings.Contains(got, "line1") {
-		t.Fatalf("expected stable live tail retained until explicit ack message, got %q", got)
-	}
 	var ack nativeStreamingStableFlushAckMsg
+	runtimeEventIndex := -1
+	ackIndex := -1
 	foundAck := false
-	for _, msg := range msgs {
+	for idx, msg := range msgs {
 		if typed, ok := msg.(nativeStreamingStableFlushAckMsg); ok {
 			ack = typed
 			foundAck = true
+			ackIndex = idx
+		}
+		if _, ok := msg.(runtimeEventBatchMsg); ok {
+			runtimeEventIndex = idx
 		}
 	}
 	if !foundAck {
 		t.Fatalf("expected stable flush ack message after ordered native flush, got %#v", msgs)
 	}
+	if runtimeEventIndex >= 0 && ackIndex > runtimeEventIndex {
+		t.Fatalf("expected stable flush ack before resumed runtime events, got msgs=%#v", msgs)
+	}
 
 	m.ackNativeStreamingStableFlush(ack.Sequence)
-	if got := joinedPlainProjectionLines(m.nativeStreamingUnflushedStable); got != "" {
-		t.Fatalf("expected ack to clear unflushed stable lines, got %q", got)
+	if m.nativeStreamingStableFlushSequence != 0 {
+		t.Fatalf("expected ack to clear stable flush sequence, got %d", m.nativeStreamingStableFlushSequence)
 	}
 	if got := joinedPlainProjectionLines(m.nativeStreamingTail); strings.Contains(got, "line1") || !strings.Contains(got, "line2") {
 		t.Fatalf("expected acked live tail to keep only mutable tail, got %q", got)

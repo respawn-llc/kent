@@ -62,6 +62,36 @@ func TestWaitRuntimeEventDoesNotDeferCommittedGoalFeedback(t *testing.T) {
 	}
 }
 
+func TestSplitRuntimeBatchAtAssistantDeltaKeepsMultipleDeltasOrdered(t *testing.T) {
+	events := []clientui.Event{
+		{Kind: clientui.EventAssistantDelta, AssistantDelta: "first"},
+		{Kind: clientui.EventAssistantDelta, AssistantDelta: "second"},
+		{Kind: clientui.EventAssistantMessage},
+	}
+
+	head, tail, split := splitRuntimeBatchAtAssistantDelta(events)
+	if !split {
+		t.Fatal("expected first assistant delta to split later events into pending tail")
+	}
+	if len(head) != 1 || head[0].AssistantDelta != "first" {
+		t.Fatalf("head = %+v, want only first assistant delta", head)
+	}
+	if len(tail) != 2 || tail[0].AssistantDelta != "second" || tail[1].Kind != clientui.EventAssistantMessage {
+		t.Fatalf("tail = %+v, want second assistant delta followed by final commit", tail)
+	}
+
+	nextHead, nextTail, nextSplit := splitRuntimeBatchAtAssistantDelta(tail)
+	if !nextSplit {
+		t.Fatal("expected second assistant delta to split final commit into pending tail")
+	}
+	if len(nextHead) != 1 || nextHead[0].AssistantDelta != "second" {
+		t.Fatalf("next head = %+v, want only second assistant delta", nextHead)
+	}
+	if len(nextTail) != 1 || nextTail[0].Kind != clientui.EventAssistantMessage {
+		t.Fatalf("next tail = %+v, want final commit", nextTail)
+	}
+}
+
 func TestRuntimeEventCoversDeferredCommittedConversationUpdate(t *testing.T) {
 	update := clientui.Event{
 		Kind:                       clientui.EventConversationUpdated,

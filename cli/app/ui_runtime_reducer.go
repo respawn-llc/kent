@@ -34,6 +34,10 @@ func (r uiRuntimeFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 			}))
 			m.pendingRuntimeEvents = append([]clientui.Event{*msg.carry}, m.pendingRuntimeEvents...)
 		}
+		if head, tail, split := splitRuntimeBatchAtAssistantDelta(msg.events); split {
+			m.pendingRuntimeEvents = append(append([]clientui.Event(nil), tail...), m.pendingRuntimeEvents...)
+			msg.events = head
+		}
 		next, cmd := m.handleRuntimeEventBatch(msg.events)
 		return handledUIFeatureUpdate(next, cmd)
 	case runtimeConnectionStateChangedMsg:
@@ -70,4 +74,27 @@ func (r uiRuntimeFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 		return handledUIFeatureUpdate(m, cmd)
 	}
 	return uiFeatureUpdateResult{}
+}
+
+func splitRuntimeBatchAtAssistantDelta(events []clientui.Event) ([]clientui.Event, []clientui.Event, bool) {
+	for idx, evt := range events {
+		if evt.Kind != clientui.EventAssistantDelta {
+			continue
+		}
+		// Assistant deltas can schedule native scrollback flushes. Anything after
+		// the first delta must wait for the normal-buffer flush fence so a final
+		// commit cannot render before the promoted streaming prefix is immutable.
+		if idx == len(events)-1 {
+			return events, nil, false
+		}
+		if idx == 0 {
+			head := append([]clientui.Event(nil), events[:1]...)
+			tail := append([]clientui.Event(nil), events[1:]...)
+			return head, tail, true
+		}
+		head := append([]clientui.Event(nil), events[:idx]...)
+		tail := append([]clientui.Event(nil), events[idx:]...)
+		return head, tail, true
+	}
+	return events, nil, false
 }

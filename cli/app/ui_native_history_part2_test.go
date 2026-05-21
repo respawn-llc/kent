@@ -525,3 +525,110 @@ func TestProjectedRuntimeAssistantFinalAfterPromotionDoesNotDuplicateEarlierStre
 		t.Fatalf("expected streaming promotion state reset after commit, got text=%q flushed=%d divider=%v", m.nativeStreamingText, m.nativeStreamingFlushedLineCount, m.nativeStreamingDividerFlushed)
 	}
 }
+
+func TestRuntimeBatchDefersFinalUntilStreamingPromotionFlushes(t *testing.T) {
+	m := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), nil,
+		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "capture board"}}),
+	)
+	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	m = next.(*uiModel)
+	_ = collectCmdMessages(t, startupCmd)
+	m.discardPendingNativeHistoryFlushes()
+
+	prefix := "Captured the Kent project board in the browser:\n\n"
+	path := "/Users/nek/.builder/worktrees/builder-cli-c2f75fc8-68f5-4deb-a23c-21cc5820436d/gui-fixes/.builder/proofs/gui-browser-kent-board/screenshot-1779219845652.png"
+	tail := "\n\nI opened it via the browser client against `ws://127.0.0.1:53082/rpc`."
+	finalText := prefix + path + tail
+
+	next, firstCmd := m.Update(runtimeEventBatchMsg{events: []clientui.Event{
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, StepID: "step-1", AssistantDelta: prefix + path + "\n"}),
+		projectRuntimeEvent(runtime.Event{Kind: runtime.EventAssistantDelta, StepID: "step-1", AssistantDelta: tail}),
+		projectRuntimeEvent(runtime.Event{
+			Kind:                       runtime.EventAssistantMessage,
+			StepID:                     "step-1",
+			CommittedTranscriptChanged: true,
+			CommittedEntryStart:        1,
+			CommittedEntryStartSet:     true,
+			CommittedEntryCount:        2,
+			Message:                    llm.Message{Role: llm.RoleAssistant, Content: finalText, Phase: llm.MessagePhaseFinal},
+		}),
+	}})
+	m = next.(*uiModel)
+	firstFlush := collectNativeHistoryFlushText(collectCmdMessages(t, firstCmd))
+	if !strings.Contains(firstFlush, "Captured the Kent project board") {
+		t.Fatalf("expected first batch to promote stable streaming prefix, got %q", firstFlush)
+	}
+	if strings.Contains(firstFlush, "I opened it via the browser client") {
+		t.Fatalf("expected final tail to wait behind streaming flush, got %q", firstFlush)
+	}
+	if got := len(m.pendingRuntimeEvents); got != 2 {
+		t.Fatalf("expected remaining delta and final to wait behind native flush, got %d pending events", got)
+	}
+	if m.waitRuntimeEventAfterFlushSequence == 0 {
+		t.Fatal("expected runtime events to be fenced behind native streaming flush")
+	}
+
+	resumeCmd := m.handleNativeHistoryFlush(firstNativeHistoryFlushMsg(t, firstCmd))
+	msgs := collectCmdMessages(t, resumeCmd)
+	var resumed runtimeEventBatchMsg
+	found := false
+	for _, msg := range msgs {
+		if typed, ok := msg.(runtimeEventBatchMsg); ok {
+			resumed = typed
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected runtime events to resume after native flush ack, got %+v", msgs)
+	}
+	next, secondCmd := m.Update(resumed)
+	m = next.(*uiModel)
+	secondFlush := collectNativeHistoryFlushText(collectCmdMessages(t, secondCmd))
+	if strings.Contains(secondFlush, "Captured the Kent project board") {
+		t.Fatalf("expected resumed streaming/final flush to avoid duplicate prefix, got %q", secondFlush)
+	}
+	if len(m.pendingRuntimeEvents) != 1 {
+		t.Fatalf("expected final event to remain pending until second streaming flush, got %d pending events", len(m.pendingRuntimeEvents))
+	}
+
+	resumeFinalCmd := m.handleNativeHistoryFlush(firstNativeHistoryFlushMsg(t, secondCmd))
+	finalMsgs := collectCmdMessages(t, resumeFinalCmd)
+	found = false
+	for _, msg := range finalMsgs {
+		if typed, ok := msg.(runtimeEventBatchMsg); ok {
+			resumed = typed
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected final event to resume after second native flush ack, got %+v", finalMsgs)
+	}
+	next, finalCmd := m.Update(resumed)
+	m = next.(*uiModel)
+	finalFlush := collectNativeHistoryFlushText(collectCmdMessages(t, finalCmd))
+	if strings.Contains(finalFlush, "Captured the Kent project board") {
+		t.Fatalf("expected final flush to avoid duplicate prefix, got %q", finalFlush)
+	}
+	if !strings.Contains(finalFlush, "I opened it via the browser client") {
+		t.Fatalf("expected final flush to include unpromoted tail, got %q", finalFlush)
+	}
+	combinedFlush := firstFlush + secondFlush + finalFlush
+	if got := strings.Count(combinedFlush, "Captured the Kent project board"); got != 1 {
+		t.Fatalf("expected promoted prefix once across native flushes, got %d in %q", got, combinedFlush)
+	}
+	if got := strings.Count(combinedFlush, "I opened it via the browser client"); got != 1 {
+		t.Fatalf("expected promoted tail once across native flushes, got %d in %q", got, combinedFlush)
+	}
+}
+
+func firstNativeHistoryFlushMsg(t *testing.T, cmd tea.Cmd) nativeHistoryFlushMsg {
+	t.Helper()
+	msgs := collectCmdMessages(t, cmd)
+	for _, msg := range msgs {
+		if flush, ok := msg.(nativeHistoryFlushMsg); ok {
+			return flush
+		}
+	}
+	t.Fatalf("expected nativeHistoryFlushMsg, got %+v", msgs)
+	return nativeHistoryFlushMsg{}
+}

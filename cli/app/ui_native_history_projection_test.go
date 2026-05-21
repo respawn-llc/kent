@@ -1,7 +1,9 @@
 package app
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"builder/cli/tui"
@@ -87,6 +89,23 @@ func TestNativeHistoryFlushBuffersPendingSequencesInOrder(t *testing.T) {
 	}
 	if len(m.nativePendingFlushes) != 0 {
 		t.Fatalf("pending flushes = %d, want drained", len(m.nativePendingFlushes))
+	}
+}
+
+func TestNativeHistoryFlushClearBelowPrefixesPrintedText(t *testing.T) {
+	m := newProjectedStaticUIModel()
+
+	msgs := collectCmdMessages(t, m.handleNativeHistoryFlush(nativeHistoryFlushMsg{
+		Text:             "committed tail",
+		ClearBelowBefore: true,
+		Sequence:         1,
+	}))
+	if len(msgs) != 1 {
+		t.Fatalf("flush messages = %d, want 1", len(msgs))
+	}
+	printed := fmt.Sprintf("%+v", msgs[0])
+	if !strings.Contains(printed, "\x1b[Jcommitted tail") {
+		t.Fatalf("expected clear-below CSI before printed text, got %#v", msgs[0])
 	}
 }
 

@@ -161,7 +161,6 @@ func (m *uiModel) resetNativeHistoryState() {
 func (m *uiModel) resetNativeStreamingState() {
 	m.nativeStreamingController = newNativeAssistantStreamController(m.theme, m.nativeReplayRenderWidth())
 	m.nativeStreamingTail = nil
-	m.nativeStreamingUnflushedStable = nil
 	m.nativeStreamingStableFlushSequence = 0
 	m.nativeStreamingText = ""
 	m.nativeStreamingStepID = ""
@@ -191,9 +190,9 @@ func (m *uiModel) syncNativeStreamingScrollback() tea.Cmd {
 	m.nativeStreamingText = m.nativeStreamingController.source
 	m.nativeStreamingWidth = width
 	m.nativeStreamingFlushedLineCount = m.nativeStreamingController.enqueuedStableLineCount
-	if len(update.stable) > 0 {
-		m.nativeStreamingUnflushedStable = append(m.nativeStreamingUnflushedStable, update.stable...)
-	}
+	// Stable lines are now owned by native scrollback once a flush is scheduled.
+	// Keeping them in the mutable live tail lets a final commit render the same
+	// prefix again if terminal output and runtime events interleave.
 	m.nativeStreamingTail = m.nativeStreamingLiveTail(update.tail)
 	if len(update.stable) == 0 {
 		return nil
@@ -247,8 +246,16 @@ func (m *uiModel) finalizeNativeStreamingCommit(projection tui.TranscriptProject
 	}
 	hadCommittedHistory := previousCommittedCount > 0
 	finalUpdate := m.nativeStreamingController.FinalizeSource(committedEntries[streamedAssistantIndex].Text)
-	flushTail := m.emitNativeRenderedText(renderStyledNativeProjectionLines(m.nativeStreamingFinalizeLines(finalUpdate.stable, hadCommittedHistory), m.theme, m.nativeReplayRenderWidth()))
-	postAssistant := m.emitNativeProjectionLinesForEntryRangeExcluding(projection, previousCommittedCount, committedCount, streamedAssistantIndex)
+	flushTailText := renderStyledNativeProjectionLines(m.nativeStreamingFinalizeLines(finalUpdate.stable, hadCommittedHistory), m.theme, m.nativeReplayRenderWidth())
+	postAssistantText := m.nativeProjectionTextForEntryRangeExcluding(projection, previousCommittedCount, committedCount, streamedAssistantIndex)
+	var flushTail tea.Cmd
+	var postAssistant tea.Cmd
+	if strings.TrimSpace(flushTailText) != "" {
+		flushTail = m.emitNativeRenderedTextClearingBelow(flushTailText)
+		postAssistant = m.emitNativeRenderedText(postAssistantText)
+	} else {
+		postAssistant = m.emitNativeRenderedTextClearingBelow(postAssistantText)
+	}
 	m.consumeNativeHistoryReplayPermit()
 	m.rebaseNativeProjection(projection, m.transcriptBaseOffset, committedCount)
 	m.acceptNativeProjectionWithoutReplay(projection)
@@ -269,13 +276,7 @@ func (m *uiModel) nativeStreamingFinalizeLines(stable []tui.TranscriptProjection
 }
 
 func (m *uiModel) nativeStreamingLiveTail(tail []tui.TranscriptProjectionLine) []tui.TranscriptProjectionLine {
-	if len(m.nativeStreamingUnflushedStable) == 0 {
-		return cloneNativeStreamProjectionLines(tail)
-	}
-	lines := make([]tui.TranscriptProjectionLine, 0, len(m.nativeStreamingUnflushedStable)+len(tail))
-	lines = append(lines, m.nativeStreamingUnflushedStable...)
-	lines = append(lines, tail...)
-	return lines
+	return cloneNativeStreamProjectionLines(tail)
 }
 
 func (m *uiModel) emitNativeProjectionLinesAfterEntry(projection tui.TranscriptProjection, entryIndex int) tea.Cmd {
@@ -301,8 +302,16 @@ func (m *uiModel) emitNativeProjectionLinesAfterEntry(projection tui.TranscriptP
 }
 
 func (m *uiModel) emitNativeProjectionLinesForEntryRangeExcluding(projection tui.TranscriptProjection, startIndex int, endIndex int, excludedIndex int) tea.Cmd {
-	if m == nil || startIndex >= endIndex {
+	styled := m.nativeProjectionTextForEntryRangeExcluding(projection, startIndex, endIndex, excludedIndex)
+	if strings.TrimSpace(styled) == "" {
 		return nil
+	}
+	return m.emitNativeRenderedText(styled)
+}
+
+func (m *uiModel) nativeProjectionTextForEntryRangeExcluding(projection tui.TranscriptProjection, startIndex int, endIndex int, excludedIndex int) string {
+	if m == nil || startIndex >= endIndex {
+		return ""
 	}
 	startAbsolute := m.transcriptBaseOffset + startIndex
 	endAbsolute := m.transcriptBaseOffset + endIndex
@@ -326,9 +335,9 @@ func (m *uiModel) emitNativeProjectionLinesForEntryRangeExcluding(projection tui
 	}
 	styled := renderStyledNativeProjectionLines(lines, m.theme, m.nativeReplayRenderWidth())
 	if strings.TrimSpace(styled) == "" {
-		return nil
+		return ""
 	}
-	return m.emitNativeRenderedText(styled)
+	return styled
 }
 
 func (m *uiModel) armNativeHistoryReplayPermit(permit nativeHistoryReplayPermit) {

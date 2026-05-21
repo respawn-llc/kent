@@ -203,7 +203,6 @@ type uiNativeHistoryFeatureState struct {
 	nativeStreamingActive              bool
 	nativeStreamingController          nativeAssistantStreamController
 	nativeStreamingTail                []tui.TranscriptProjectionLine
-	nativeStreamingUnflushedStable     []tui.TranscriptProjectionLine
 	nativeStreamingStableFlushSequence uint64
 	nativeStreamingText                string
 	nativeStreamingStepID              string

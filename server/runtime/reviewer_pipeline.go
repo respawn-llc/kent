@@ -46,11 +46,12 @@ func (r *defaultReviewerPipeline) RunFollowUp(ctx context.Context, stepID string
 		return reviewerFollowUpResult{Message: original, Completion: &status, AssistantCommittedStart: originalCommittedStart, AssistantCommittedStartSet: originalCommittedStartSet}, nil
 	}
 	if e.cfg.Reviewer.VerboseOutput {
+		suggestionsText := reviewerSuggestionsText(suggestions)
 		_ = e.appendPersistedLocalEntryWithOngoingText(
 			stepID,
 			"reviewer_suggestions",
-			reviewerSuggestionsText(suggestions),
-			reviewerSuggestionsCompactLabel(len(suggestions)),
+			suggestionsText,
+			suggestionsText,
 		)
 	}
 
