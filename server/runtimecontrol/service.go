@@ -537,7 +537,7 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 		if err != nil {
 			return serverapi.RuntimeGoalShowResponse{}, err
 		}
-		if strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) && engine.Goal() != nil {
+		if strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) && goalBlocksAgentSet(engine.Goal()) {
 			return serverapi.RuntimeGoalShowResponse{}, errors.New(strings.TrimSpace(prompts.GoalAgentCommandDeniedPrompt))
 		}
 		if err := engine.RequireGoalLoopStartAllowed(); err != nil {
@@ -552,6 +552,10 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 		}
 		return goalResponse(&goal, false), nil
 	})
+}
+
+func goalBlocksAgentSet(goal *session.GoalState) bool {
+	return goal != nil && goal.Status != session.GoalStatusComplete
 }
 
 func (s *Service) PauseGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {

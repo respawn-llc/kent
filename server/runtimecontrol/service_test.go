@@ -269,6 +269,71 @@ func TestServiceSetGoalRejectsAgentOverwrite(t *testing.T) {
 	}
 }
 
+func TestServiceSetGoalAllowsAgentAfterCompletedGoal(t *testing.T) {
+	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
+	if err != nil {
+		t.Fatalf("create session store: %v", err)
+	}
+	engine, err := runtime.New(store, &blockingRuntimeControlClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	if err != nil {
+		t.Fatalf("create runtime engine: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+	completed, err := engine.SetGoal("completed goal", session.GoalActorUser)
+	if err != nil {
+		t.Fatalf("SetGoal initial: %v", err)
+	}
+	if _, err := engine.SetGoalStatus(session.GoalStatusComplete, session.GoalActorAgent); err != nil {
+		t.Fatalf("SetGoalStatus complete: %v", err)
+	}
+	if goal := store.Meta().Goal; goal == nil || goal.ID != completed.ID || goal.Status != session.GoalStatusComplete {
+		t.Fatalf("goal before follow-up set = %+v, want completed goal %q", goal, completed.ID)
+	}
+
+	resp, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
+		ClientRequestID: "agent-goal-after-complete",
+		SessionID:       store.Meta().SessionID,
+		Objective:       "next goal",
+		Actor:           "agent",
+	})
+	if err != nil {
+		t.Fatalf("SetGoal after complete: %v", err)
+	}
+	if resp.Goal == nil || resp.Goal.Objective != "next goal" || resp.Goal.Status != "active" {
+		t.Fatalf("set goal response = %+v", resp.Goal)
+	}
+	if resp.Goal.ID == completed.ID {
+		t.Fatalf("next goal reused completed goal id %q", completed.ID)
+	}
+	if goal := store.Meta().Goal; goal == nil || goal.ID != resp.Goal.ID || goal.Objective != "next goal" || goal.Status != session.GoalStatusActive {
+		t.Fatalf("persisted replacement goal = %+v, want response goal %+v", goal, resp.Goal)
+	}
+	events, err := store.ReadEvents()
+	if err != nil {
+		t.Fatalf("ReadEvents: %v", err)
+	}
+	foundReplacement := false
+	for _, event := range events {
+		if event.Kind != "goal_set" {
+			continue
+		}
+		var payload session.GoalSetEvent
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatalf("decode goal_set event: %v", err)
+		}
+		if payload.Goal.ID == resp.Goal.ID {
+			foundReplacement = true
+			if payload.ReplacedGoalID != completed.ID {
+				t.Fatalf("replacement replaced_goal_id = %q, want completed goal %q", payload.ReplacedGoalID, completed.ID)
+			}
+		}
+	}
+	if !foundReplacement {
+		t.Fatalf("replacement goal_set event for goal %q not found in %+v", resp.Goal.ID, events)
+	}
+}
+
 func TestServiceSetGoalPropagatesGoalLoopStartError(t *testing.T) {
 	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
 	if err != nil {

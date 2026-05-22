@@ -140,7 +140,7 @@ Checked against `cli/builder/main.go` `rootCommand`, `runSubcommand`, `registerC
   - Use case: inspect active session goal.
   - Evidence: `cli/builder/goal_command.go`, `cli/builder/help.go`.
 - [x] `builder goal set [--session <id>] <objective>`
-  - Use case: set goal. Builder shell commands may set first goal but cannot overwrite existing goal.
+  - Use case: set goal. Builder shell commands may set a goal when no active or paused goal exists but cannot overwrite an active or paused goal.
   - Evidence: `cli/builder/goal_command.go`, `cli/builder/help.go`.
 - [x] `builder goal pause [--session <id>]`
   - Use case: pause goal. Agent-origin command is denied.
