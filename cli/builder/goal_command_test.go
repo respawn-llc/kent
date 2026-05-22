@@ -372,6 +372,24 @@ func TestGoalCommandSubprocessTargetsLiveSessionFromUnboundWorktree(t *testing.T
 	if !strings.Contains(completeOutput, "Status: complete") {
 		t.Fatalf("complete stdout = %q", completeOutput)
 	}
+
+	setOutput, setErr := runGoalCommandSubprocess(t, builderPath, unboundWorktree, store.Meta().SessionID, "set", "follow-up live goal CLI")
+	if setErr != "" {
+		t.Fatalf("goal set after complete stderr = %q", setErr)
+	}
+	if !strings.Contains(setOutput, "Goal: follow-up live goal CLI") || !strings.Contains(setOutput, "Status: active") {
+		t.Fatalf("goal set after complete stdout = %q", setOutput)
+	}
+	record, err = metadataStore.ResolvePersistedSession(context.Background(), store.Meta().SessionID)
+	if err != nil {
+		t.Fatalf("ResolvePersistedSession after follow-up set: %v", err)
+	}
+	if record.Meta == nil {
+		t.Fatal("persisted metadata missing after follow-up set")
+	}
+	if goal := record.Meta.Goal; goal == nil || goal.Objective != "follow-up live goal CLI" || goal.Status != session.GoalStatusActive {
+		t.Fatalf("persisted follow-up goal = %+v", goal)
+	}
 }
 
 func TestGoalCommandSubprocessSetPersistsWhilePrimaryRunActive(t *testing.T) {
