@@ -82,6 +82,17 @@ describe("BuilderApiClient", () => {
     });
   });
 
+  it("hides workflow join nodes from board columns and groups", async () => {
+    const client = new BuilderApiClient(
+      new FakeRpcTransport([{ method: "workflow.board.get", result: boardWithJoinResponse }]),
+    );
+
+    await expect(client.getBoard("project-1", "workflow-1")).resolves.toMatchObject({
+      groups: [{ id: "group-1", nodeIDs: ["node-agent"] }],
+      columns: [{ id: "node-agent", kind: "agent" }],
+    });
+  });
+
   it("normalizes empty task detail slices returned as null by Go JSON", async () => {
     const client = new BuilderApiClient(
       new FakeRpcTransport([{ method: "workflow.task.get", result: emptyTaskDetailResponse }]),
@@ -282,6 +293,48 @@ const emptyBoardResponse = {
     generated_at_unix_ms: 1,
   },
 };
+
+const boardWithJoinResponse = {
+  board: {
+    ...emptyBoardResponse.board,
+    groups: [
+      {
+        group_id: "group-1",
+        key: "review",
+        display_name: "Review",
+        sort_order: 1,
+        node_ids: ["node-agent", "node-join"],
+      },
+      {
+        group_id: "group-join-only",
+        key: "join_only",
+        display_name: "Join Only",
+        sort_order: 2,
+        node_ids: ["node-join"],
+      },
+    ],
+    columns: [boardColumnResponse("node-agent", "agent"), boardColumnResponse("node-join", "join")],
+  },
+};
+
+function boardColumnResponse(nodeID: string, kind: string) {
+  return {
+    node: {
+      node_id: nodeID,
+      key: nodeID,
+      kind,
+      display_name: nodeID,
+      assignee_role: "",
+      output_fields: [],
+      transition_output_fields: [],
+    },
+    group_id: "group-1",
+    sort_order: 1,
+    is_backlog: false,
+    is_done: false,
+    task_count: 0,
+  };
+}
 
 const emptyBoardNodeCardsResponse = {
   project_id: "project-1",

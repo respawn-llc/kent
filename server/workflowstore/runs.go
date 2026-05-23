@@ -310,7 +310,7 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 	if err != nil {
 		return RunStartContext{}, err
 	}
-	transitionContext, err := s.resolveRunTransitionContext(ctx, run.PlacementID)
+	transitionContext, err := s.resolveRunTransitionContext(ctx, run.PlacementID, run.MetadataJson)
 	if err != nil {
 		return RunStartContext{}, err
 	}
@@ -362,7 +362,7 @@ type runTransitionContext struct {
 	SourceNode      NodeRecord
 }
 
-func (s *Store) resolveRunTransitionContext(ctx context.Context, placementID string) (runTransitionContext, error) {
+func (s *Store) resolveRunTransitionContext(ctx context.Context, placementID string, runMetadataJSON string) (runTransitionContext, error) {
 	var contextMode string
 	var sourceRunID sql.NullString
 	err := s.db.QueryRowContext(ctx, `
@@ -384,6 +384,18 @@ LIMIT 1`, placementID).Scan(&contextMode, &sourceRunID)
 	resolved := runTransitionContext{ContextMode: workflow.ContextMode(strings.TrimSpace(contextMode))}
 	if resolved.ContextMode == "" {
 		resolved.ContextMode = workflow.ContextModeNewSession
+	}
+	runMetadata := workflowRunMetadata{}
+	if strings.TrimSpace(runMetadataJSON) != "" {
+		if err := unmarshalJSON(runMetadataJSON, &runMetadata); err != nil {
+			return runTransitionContext{}, fmt.Errorf("resolve workflow run metadata: %w", err)
+		}
+		if strings.TrimSpace(runMetadata.ContextMode) != "" {
+			resolved.ContextMode = workflow.ContextMode(strings.TrimSpace(runMetadata.ContextMode))
+		}
+		if strings.TrimSpace(runMetadata.SourceRunID) != "" {
+			sourceRunID = sql.NullString{String: strings.TrimSpace(runMetadata.SourceRunID), Valid: true}
+		}
 	}
 	if !sourceRunID.Valid || strings.TrimSpace(sourceRunID.String) == "" {
 		return resolved, nil

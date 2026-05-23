@@ -71,10 +71,11 @@ func (s *Store) ApproveTransition(ctx context.Context, transitionID workflow.Tra
 	var sourceRunID sql.NullString
 	var state string
 	var revision int64
+	var transitionCreatedAt int64
 	err := s.db.QueryRowContext(ctx, `
-SELECT task_id, source_run_id, state, workflow_revision_seen
+SELECT task_id, source_run_id, state, workflow_revision_seen, created_at_unix_ms
 FROM task_transitions
-WHERE id = ?`, id).Scan(&taskID, &sourceRunID, &state, &revision)
+WHERE id = ?`, id).Scan(&taskID, &sourceRunID, &state, &revision, &transitionCreatedAt)
 	if err != nil {
 		return CompleteRunResult{}, err
 	}
@@ -217,11 +218,21 @@ WHERE id = ? AND state = 'pending'`, targetPlacementID, edge.ID); err != nil {
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		targetMetadataJSON, err := marshalJSON(map[string]string{
-			"context_mode":      string(targetEdge.ContextMode),
-			"source_run_id":     sourceRun.ID,
-			"source_session_id": strings.TrimSpace(sourceRun.SessionID.String),
-		})
+		edgeMetadata, err := transitionEdgeMetadata(edge)
+		if err != nil {
+			return CompleteRunResult{}, err
+		}
+		source, ok, err := resolvedContextSourceRunFromMetadata(ctx, tx, edgeMetadata)
+		if err != nil {
+			return CompleteRunResult{}, err
+		}
+		if !ok {
+			source, err = s.resolveContextSourceRun(ctx, tx, taskID, transitionCreatedAt, &sourceRun, sourceSnapshot, targetEdge)
+			if err != nil {
+				return CompleteRunResult{}, err
+			}
+		}
+		targetMetadataJSON, err := targetRunMetadata(targetEdge, source)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
@@ -334,6 +345,10 @@ func edgeContractSnapshotFromTransitionEdge(edge sqlitegen.TaskTransitionEdgeRec
 	if err := unmarshalJSON(edge.OutputRequirementsJson, &requirements); err != nil {
 		return edgeContractSnapshot{}, err
 	}
+	metadata, err := transitionEdgeMetadata(edge)
+	if err != nil {
+		return edgeContractSnapshot{}, err
+	}
 	return edgeContractSnapshot{
 		ID:  workflow.EdgeID(edge.WorkflowEdgeID.String),
 		Key: workflow.ModelKey(edge.EdgeKey),
@@ -344,13 +359,32 @@ func edgeContractSnapshotFromTransitionEdge(edge sqlitegen.TaskTransitionEdgeRec
 			Kind:        workflow.NodeKind(edge.TargetNodeKind),
 		},
 		ContextMode:        workflow.ContextMode(edge.ContextMode),
+		ContextSource:      workflow.CanonicalContextSource(metadata.ContextSource),
 		RequiresApproval:   edge.RequiresApproval != 0,
 		InputBindings:      inputs,
 		OutputRequirements: requirements,
 	}, nil
 }
 
-func insertTransitionEdgeSnapshot(ctx context.Context, q *sqlitegen.Queries, transitionID string, edge edgeContractSnapshot, targetPlacementID string, state string) error {
+func transitionEdgeMetadata(edge sqlitegen.TaskTransitionEdgeRecord) (workflowRunMetadata, error) {
+	metadata := workflowRunMetadata{}
+	if strings.TrimSpace(edge.MetadataJson) != "" {
+		if err := unmarshalJSON(edge.MetadataJson, &metadata); err != nil {
+			return workflowRunMetadata{}, err
+		}
+	}
+	return metadata, nil
+}
+
+func insertTransitionEdgeSnapshot(ctx context.Context, q *sqlitegen.Queries, transitionID string, edge edgeContractSnapshot, targetPlacementID string, state string, source resolvedContextSourceRun) error {
+	metadataJSON, err := marshalJSON(workflowRunMetadata{
+		ContextSource:   workflow.CanonicalContextSource(edge.ContextSource),
+		SourceRunID:     source.runID,
+		SourceSessionID: source.sessionID,
+	})
+	if err != nil {
+		return err
+	}
 	if err := q.InsertTaskTransitionEdge(ctx, sqlitegen.InsertTaskTransitionEdgeParams{
 		ID:                     prefixedID("transition-edge"),
 		TaskTransitionID:       transitionID,
@@ -366,7 +400,7 @@ func insertTransitionEdgeSnapshot(ctx context.Context, q *sqlitegen.Queries, tra
 		RequiresApproval:       boolToInt64(edge.RequiresApproval),
 		InputBindingsJson:      mustInputBindingsJSON(edge.InputBindings),
 		OutputRequirementsJson: mustOutputRequirementsJSON(edge.OutputRequirements),
-		MetadataJson:           "{}",
+		MetadataJson:           metadataJSON,
 	}); err != nil {
 		return fmt.Errorf("insert transition edge snapshot: %w", err)
 	}

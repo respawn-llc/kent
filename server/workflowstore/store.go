@@ -122,6 +122,7 @@ type EdgeRecord struct {
 	TargetNodeID       workflow.NodeID
 	RequiresApproval   bool
 	ContextMode        workflow.ContextMode
+	ContextSource      workflow.ContextSource
 	InputBindings      []workflow.InputBinding
 	OutputRequirements []workflow.OutputRequirement
 }
@@ -644,6 +645,7 @@ WHERE id = ?
 }
 
 func (s *Store) AddEdge(ctx context.Context, edge EdgeRecord) (int64, error) {
+	contextSource := workflow.CanonicalContextSource(edge.ContextSource)
 	inputs, err := marshalJSON(edge.InputBindings)
 	if err != nil {
 		return 0, err
@@ -667,7 +669,7 @@ func (s *Store) AddEdge(ctx context.Context, edge EdgeRecord) (int64, error) {
 	if err := ensureWorkflowNodeID(ctx, q, string(edge.WorkflowID), edge.TargetNodeID); err != nil {
 		return 0, err
 	}
-	if err := q.InsertWorkflowEdge(ctx, sqlitegen.InsertWorkflowEdgeParams{ID: string(edge.ID), TransitionGroupID: string(edge.TransitionGroupID), EdgeKey: string(edge.Key), TargetNodeID: string(edge.TargetNodeID), RequiresApproval: boolToInt64(edge.RequiresApproval), ContextMode: string(edge.ContextMode), InputBindingsJson: inputs, OutputRequirementsJson: requirements, SortOrder: 100}); err != nil {
+	if err := q.InsertWorkflowEdge(ctx, sqlitegen.InsertWorkflowEdgeParams{ID: string(edge.ID), TransitionGroupID: string(edge.TransitionGroupID), EdgeKey: string(edge.Key), TargetNodeID: string(edge.TargetNodeID), RequiresApproval: boolToInt64(edge.RequiresApproval), ContextMode: string(edge.ContextMode), ContextSourceKind: string(contextSource.Kind), ContextSourceNodeKey: string(contextSource.NodeKey), InputBindingsJson: inputs, OutputRequirementsJson: requirements, SortOrder: 100}); err != nil {
 		return 0, fmt.Errorf("insert workflow edge: %w", err)
 	}
 	revision, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: string(edge.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
@@ -687,6 +689,7 @@ func (s *Store) UpdateEdge(ctx context.Context, edge EdgeRecord) (int64, error) 
 	if strings.TrimSpace(string(edge.WorkflowID)) == "" {
 		return 0, errors.New("workflow id is required")
 	}
+	contextSource := workflow.CanonicalContextSource(edge.ContextSource)
 	inputs, err := marshalJSON(edge.InputBindings)
 	if err != nil {
 		return 0, err
@@ -715,6 +718,8 @@ SET
     target_node_id = ?,
     requires_approval = ?,
     context_mode = ?,
+    context_source_kind = ?,
+    context_source_node_key = ?,
     input_bindings_json = ?,
     output_requirements_json = ?
 WHERE id = ?
@@ -730,6 +735,8 @@ WHERE id = ?
 		string(edge.TargetNodeID),
 		boolToInt64(edge.RequiresApproval),
 		string(edge.ContextMode),
+		string(contextSource.Kind),
+		string(contextSource.NodeKey),
 		inputs,
 		requirements,
 		string(edge.ID),
@@ -870,7 +877,7 @@ func (s *Store) GetDefinition(ctx context.Context, workflowID workflow.WorkflowI
 		if err := unmarshalJSON(edge.OutputRequirementsJson, &requirements); err != nil {
 			return workflow.Definition{}, WorkflowRecord{}, err
 		}
-		def.Edges = append(def.Edges, workflow.Edge{WorkflowID: workflow.WorkflowID(edge.WorkflowID), ID: workflow.EdgeID(edge.ID), Key: workflow.ModelKey(edge.EdgeKey), TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID), TargetNodeID: workflow.NodeID(edge.TargetNodeID), RequiresApproval: edge.RequiresApproval != 0, ContextMode: workflow.ContextMode(edge.ContextMode), InputBindings: inputs, OutputRequirements: requirements})
+		def.Edges = append(def.Edges, workflow.Edge{WorkflowID: workflow.WorkflowID(edge.WorkflowID), ID: workflow.EdgeID(edge.ID), Key: workflow.ModelKey(edge.EdgeKey), TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID), TargetNodeID: workflow.NodeID(edge.TargetNodeID), RequiresApproval: edge.RequiresApproval != 0, ContextMode: workflow.ContextMode(edge.ContextMode), ContextSource: workflow.CanonicalContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(edge.ContextSourceKind), NodeKey: workflow.ModelKey(edge.ContextSourceNodeKey)}), InputBindings: inputs, OutputRequirements: requirements})
 	}
 	return def, workflowRecordFromRow(row), nil
 }

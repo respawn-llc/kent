@@ -16,11 +16,33 @@ type SystemPromptTemplateArgs struct {
 	EditingToolName              string
 }
 
-type systemPromptTemplateData struct {
+type systemPromptRuntimeTemplateData struct {
 	BuilderRunCommand            string
 	EstimatedToolCallsForContext int
 	EditingToolName              string
-	DefaultSystemPrompt          string
+}
+
+type defaultSystemPromptTemplateData struct {
+	BuilderRunCommand                            string
+	EstimatedToolCallsForContext                 int
+	EditingToolName                              string
+	DefaultSystemPromptPersonality               string
+	DefaultSystemPromptHarnessWorkflowAutonomy   string
+	DefaultSystemPromptAmbiguityAndOutputQuality string
+	DefaultSystemPromptFinalAnswerAndFormatting  string
+	DefaultSystemPromptDelegation                string
+}
+
+type systemPromptTemplateData struct {
+	BuilderRunCommand                            string
+	EstimatedToolCallsForContext                 int
+	EditingToolName                              string
+	DefaultSystemPrompt                          string
+	DefaultSystemPromptPersonality               string
+	DefaultSystemPromptHarnessWorkflowAutonomy   string
+	DefaultSystemPromptAmbiguityAndOutputQuality string
+	DefaultSystemPromptFinalAnswerAndFormatting  string
+	DefaultSystemPromptDelegation                string
 }
 
 type WorkflowNodeContextArgs struct {
@@ -56,8 +78,23 @@ type WorkflowInputValue struct {
 	Value string
 }
 
-//go:embed system_prompt.md
+//go:embed system_prompt/system_prompt.md
 var SystemPrompt string
+
+//go:embed system_prompt/personality.md
+var SystemPromptPersonality string
+
+//go:embed system_prompt/harness_workflow_autonomy.md
+var SystemPromptHarness string
+
+//go:embed system_prompt/ambiguity_output_quality.md
+var SystemPromptAmbiguityAndQuality string
+
+//go:embed system_prompt/final_answer_formatting.md
+var SystemPromptFinalAnswerAndFormatting string
+
+//go:embed system_prompt/delegation.md
+var SystemPromptDelegation string
 
 //go:embed tool_preambles_prompt.md
 var ToolPreamblesPrompt string
@@ -145,7 +182,15 @@ func MainSystemPrompt(includeToolPreambles bool, args SystemPromptTemplateArgs) 
 }
 
 func RenderCustomSystemPrompt(text string, includeToolPreambles bool, args SystemPromptTemplateArgs) (string, error) {
-	rendered, err := renderSystemPromptTemplateErr(strings.TrimSpace(text), args, BaseSystemPrompt(args))
+	sections, err := renderSystemPromptSections(args)
+	if err != nil {
+		return "", err
+	}
+	defaultPrompt, err := renderDefaultSystemPromptTemplateWithSections(strings.TrimSpace(SystemPrompt), args, sections)
+	if err != nil {
+		return "", err
+	}
+	rendered, err := renderSystemPromptTemplateWithSections(strings.TrimSpace(text), args, defaultPrompt, sections)
 	if err != nil {
 		return "", err
 	}
@@ -168,7 +213,15 @@ func WithToolPreambles(base string, includeToolPreambles bool) string {
 }
 
 func BaseSystemPrompt(args SystemPromptTemplateArgs) string {
-	return renderSystemPromptTemplate(strings.TrimSpace(SystemPrompt), args, "")
+	sections, err := renderSystemPromptSections(args)
+	if err != nil {
+		panic(err)
+	}
+	rendered, err := renderDefaultSystemPromptTemplateWithSections(strings.TrimSpace(SystemPrompt), args, sections)
+	if err != nil {
+		panic(err)
+	}
+	return rendered
 }
 
 func BuilderRunCommand() string {
@@ -238,15 +291,94 @@ func renderSystemPromptTemplate(text string, args SystemPromptTemplateArgs, defa
 }
 
 func renderSystemPromptTemplateErr(text string, args SystemPromptTemplateArgs, defaultSystemPrompt string) (string, error) {
+	sections, err := renderSystemPromptSections(args)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(defaultSystemPrompt) == "" {
+		return renderDefaultSystemPromptTemplateWithSections(text, args, sections)
+	}
+	return renderSystemPromptTemplateWithSections(text, args, defaultSystemPrompt, sections)
+}
+
+type systemPromptSections struct {
+	personality              string
+	harness                  string
+	ambiguityAndQuality      string
+	finalAnswerAndFormatting string
+	delegation               string
+}
+
+func renderSystemPromptSections(args SystemPromptTemplateArgs) (systemPromptSections, error) {
+	personality, err := renderSystemPromptSection("system prompt personality", SystemPromptPersonality, args)
+	if err != nil {
+		return systemPromptSections{}, err
+	}
+	harness, err := renderSystemPromptSection("system prompt harness", SystemPromptHarness, args)
+	if err != nil {
+		return systemPromptSections{}, err
+	}
+	ambiguityAndQuality, err := renderSystemPromptSection("system prompt ambiguity and quality", SystemPromptAmbiguityAndQuality, args)
+	if err != nil {
+		return systemPromptSections{}, err
+	}
+	finalAnswerAndFormatting, err := renderSystemPromptSection("system prompt final answer and formatting", SystemPromptFinalAnswerAndFormatting, args)
+	if err != nil {
+		return systemPromptSections{}, err
+	}
+	delegation, err := renderSystemPromptSection("system prompt delegation", SystemPromptDelegation, args)
+	if err != nil {
+		return systemPromptSections{}, err
+	}
+	return systemPromptSections{
+		personality:              personality,
+		harness:                  harness,
+		ambiguityAndQuality:      ambiguityAndQuality,
+		finalAnswerAndFormatting: finalAnswerAndFormatting,
+		delegation:               delegation,
+	}, nil
+}
+
+func renderSystemPromptSection(name string, text string, args SystemPromptTemplateArgs) (string, error) {
+	return renderNamedTemplate(name, text, systemPromptRuntimeTemplateData{
+		BuilderRunCommand:            selfcmd.RunCommandPrefix(),
+		EstimatedToolCallsForContext: args.EstimatedToolCallsForContext,
+		EditingToolName:              strings.TrimSpace(args.EditingToolName),
+	})
+}
+
+func renderDefaultSystemPromptTemplateWithSections(text string, args SystemPromptTemplateArgs, sections systemPromptSections) (string, error) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return "", nil
+	}
+	return renderNamedTemplate("system prompt", trimmed, defaultSystemPromptTemplateData{
+		BuilderRunCommand:                            selfcmd.RunCommandPrefix(),
+		EstimatedToolCallsForContext:                 args.EstimatedToolCallsForContext,
+		EditingToolName:                              strings.TrimSpace(args.EditingToolName),
+		DefaultSystemPromptPersonality:               strings.TrimSpace(sections.personality),
+		DefaultSystemPromptHarnessWorkflowAutonomy:   strings.TrimSpace(sections.harness),
+		DefaultSystemPromptAmbiguityAndOutputQuality: strings.TrimSpace(sections.ambiguityAndQuality),
+		DefaultSystemPromptFinalAnswerAndFormatting:  strings.TrimSpace(sections.finalAnswerAndFormatting),
+		DefaultSystemPromptDelegation:                strings.TrimSpace(sections.delegation),
+	})
+}
+
+func renderSystemPromptTemplateWithSections(text string, args SystemPromptTemplateArgs, defaultSystemPrompt string, sections systemPromptSections) (string, error) {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
 		return "", nil
 	}
 	return renderNamedTemplate("system prompt", trimmed, systemPromptTemplateData{
-		BuilderRunCommand:            selfcmd.RunCommandPrefix(),
-		EstimatedToolCallsForContext: args.EstimatedToolCallsForContext,
-		EditingToolName:              strings.TrimSpace(args.EditingToolName),
-		DefaultSystemPrompt:          strings.TrimSpace(defaultSystemPrompt),
+		BuilderRunCommand:                            selfcmd.RunCommandPrefix(),
+		EstimatedToolCallsForContext:                 args.EstimatedToolCallsForContext,
+		EditingToolName:                              strings.TrimSpace(args.EditingToolName),
+		DefaultSystemPrompt:                          strings.TrimSpace(defaultSystemPrompt),
+		DefaultSystemPromptPersonality:               strings.TrimSpace(sections.personality),
+		DefaultSystemPromptHarnessWorkflowAutonomy:   strings.TrimSpace(sections.harness),
+		DefaultSystemPromptAmbiguityAndOutputQuality: strings.TrimSpace(sections.ambiguityAndQuality),
+		DefaultSystemPromptFinalAnswerAndFormatting:  strings.TrimSpace(sections.finalAnswerAndFormatting),
+		DefaultSystemPromptDelegation:                strings.TrimSpace(sections.delegation),
 	})
 }
 

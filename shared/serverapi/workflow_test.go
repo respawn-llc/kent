@@ -41,6 +41,22 @@ func TestWorkflowNodeAndEdgeRequestValidation(t *testing.T) {
 	if err := validEdge.Validate(); err != nil {
 		t.Fatalf("valid edge request rejected: %v", err)
 	}
+	selectedSourceEdge := validEdge
+	selectedSourceEdge.ContextMode = "continue_session"
+	selectedSourceEdge.ContextSource = WorkflowContextSource{Kind: "selected_node", NodeKey: "implement"}
+	if err := selectedSourceEdge.Validate(); err != nil {
+		t.Fatalf("valid selected context source rejected: %v", err)
+	}
+	invalidSourceEdge := selectedSourceEdge
+	invalidSourceEdge.ContextSource = WorkflowContextSource{Kind: "selected_node", NodeKey: "Bad-Key"}
+	if err := invalidSourceEdge.Validate(); err == nil || !strings.Contains(err.Error(), workflowkey.Description) {
+		t.Fatalf("invalid selected context source error = %v", err)
+	}
+	invalidSourceEdge = selectedSourceEdge
+	invalidSourceEdge.ContextSource = WorkflowContextSource{Kind: "other", NodeKey: "implement"}
+	if err := invalidSourceEdge.Validate(); err == nil || !strings.Contains(err.Error(), "context_source.kind") {
+		t.Fatalf("invalid context source kind error = %v", err)
+	}
 	invalidEdge := validEdge
 	invalidEdge.OutputRequirements = []WorkflowOutputRequirement{{FieldName: "Summary"}}
 	if err := invalidEdge.Validate(); err == nil || !strings.Contains(err.Error(), workflowkey.Description) {

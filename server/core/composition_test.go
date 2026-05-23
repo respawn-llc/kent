@@ -1,14 +1,23 @@
 package core
 
 import (
+	"context"
+	"encoding/json"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"builder/server/auth"
 	serverbootstrap "builder/server/bootstrap"
+	"builder/server/llm"
 	"builder/server/registry"
+	"builder/server/session"
 	askquestion "builder/server/tools/askquestion"
 	"builder/server/workflow"
+	"builder/server/workflowstore"
+	"builder/shared/config"
+	"builder/shared/serverapi"
+	"builder/shared/toolspec"
 )
 
 func TestNewWithContextComposesRequiredBundles(t *testing.T) {
@@ -111,10 +120,128 @@ func TestRuntimePendingAskResolverUsesPendingPromptSource(t *testing.T) {
 	}
 }
 
+func TestComposedWorkflowTaskDetailResolvesPendingQuestionFromSessionTranscript(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+
+	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
+	if err != nil {
+		t.Fatalf("ResolveConfig: %v", err)
+	}
+	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), nil, nil)
+	if err != nil {
+		t.Fatalf("BuildAuthSupport: %v", err)
+	}
+	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
+	if err != nil {
+		t.Fatalf("BuildRuntimeSupport: %v", err)
+	}
+	appCore, err := NewWithContext(ctx, resolved.Config, authSupport, runtimeSupport)
+	if err != nil {
+		t.Fatalf("NewWithContext: %v", err)
+	}
+	t.Cleanup(func() { _ = appCore.Close() })
+
+	metadataStore := appCore.bundles.Persistence.metadataStore
+	binding, err := metadataStore.RegisterWorkspaceBinding(ctx, resolved.Config.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("RegisterWorkspaceBinding: %v", err)
+	}
+	workflowStore, err := workflowstore.New(metadataStore, workflowstore.WithRoleResolver(workflow.StaticRoleResolver{"coder": true}))
+	if err != nil {
+		t.Fatalf("workflowstore.New: %v", err)
+	}
+	workflowID := createCoreValidWorkflow(t, ctx, workflowStore)
+	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Needs answer", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := workflowStore.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	claimed, err := workflowStore.ClaimRun(ctx, started.RunID, 0)
+	if err != nil {
+		t.Fatalf("ClaimRun: %v", err)
+	}
+	sessionsDir := config.ProjectSessionsRoot(resolved.Config, binding.ProjectID)
+	sessionStore, err := session.Create(sessionsDir, filepath.Base(sessionsDir), resolved.Config.WorkspaceRoot, metadataStore.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatalf("session.Create: %v", err)
+	}
+	askInput := json.RawMessage(`{"question":"Question from composed session transcript?"}`)
+	if _, err := sessionStore.AppendEvent("step-ask", "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "ask-core", Name: string(toolspec.ToolAskQuestion), Input: askInput}}}); err != nil {
+		t.Fatalf("AppendEvent: %v", err)
+	}
+	if err := workflowStore.AttachRunSession(ctx, started.RunID, claimed.Generation, sessionStore.Meta().SessionID); err != nil {
+		t.Fatalf("AttachRunSession: %v", err)
+	}
+	if err := workflowStore.SetRunWaitingAsk(ctx, started.RunID, claimed.Generation, "ask-core"); err != nil {
+		t.Fatalf("SetRunWaitingAsk: %v", err)
+	}
+
+	detail, err := appCore.WorkflowClient().GetWorkflowTask(ctx, serverapi.WorkflowTaskGetRequest{TaskID: string(task.ID)})
+	if err != nil {
+		t.Fatalf("GetWorkflowTask: %v", err)
+	}
+	if len(detail.Task.Attention) != 1 || detail.Task.Attention[0].Message != "Question from composed session transcript?" {
+		t.Fatalf("attention = %+v", detail.Task.Attention)
+	}
+}
+
 type fakePendingPromptSource struct {
 	items map[string][]registry.PendingPromptSnapshot
 }
 
 func (f fakePendingPromptSource) ListPendingPrompts(sessionID string) []registry.PendingPromptSnapshot {
 	return append([]registry.PendingPromptSnapshot(nil), f.items[sessionID]...)
+}
+
+func createCoreValidWorkflow(t *testing.T, ctx context.Context, store *workflowstore.Store) workflow.WorkflowID {
+	t.Helper()
+	created, err := store.CreateWorkflow(ctx, workflowstore.CreateWorkflowRequest{Name: "Workflow"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	start := coreWorkflowNodeByKind(t, def, workflow.NodeKindStart)
+	done := coreWorkflowNodeByKind(t, def, workflow.NodeKindTerminal)
+	agentID := workflow.NodeID("node-agent-" + string(created.ID))
+	if _, err := store.AddNode(ctx, workflowstore.NodeRecord{ID: agentID, WorkflowID: created.ID, Key: "agent", Kind: workflow.NodeKindAgent, DisplayName: "Agent", SubagentRole: "coder", PromptTemplate: "Do work.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}}); err != nil {
+		t.Fatalf("AddNode: %v", err)
+	}
+	startGroupID := workflow.TransitionGroupID("group-start-" + string(created.ID))
+	if _, err := store.AddTransitionGroup(ctx, workflowstore.TransitionGroupRecord{ID: startGroupID, WorkflowID: created.ID, SourceNodeID: start.ID, TransitionID: "start", DisplayName: "Start"}); err != nil {
+		t.Fatalf("AddTransitionGroup start: %v", err)
+	}
+	if _, err := store.AddEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID("edge-start-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: startGroupID, Key: "start", TargetNodeID: agentID, ContextMode: workflow.ContextModeNewSession}); err != nil {
+		t.Fatalf("AddEdge start: %v", err)
+	}
+	doneGroupID := workflow.TransitionGroupID("group-done-" + string(created.ID))
+	if _, err := store.AddTransitionGroup(ctx, workflowstore.TransitionGroupRecord{ID: doneGroupID, WorkflowID: created.ID, SourceNodeID: agentID, TransitionID: "done", DisplayName: "Done"}); err != nil {
+		t.Fatalf("AddTransitionGroup done: %v", err)
+	}
+	if _, err := store.AddEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID("edge-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: doneGroupID, Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}}); err != nil {
+		t.Fatalf("AddEdge done: %v", err)
+	}
+	return created.ID
+}
+
+func coreWorkflowNodeByKind(t *testing.T, def workflow.Definition, kind workflow.NodeKind) workflow.Node {
+	t.Helper()
+	for _, node := range def.Nodes {
+		if node.Kind == kind {
+			return node
+		}
+	}
+	t.Fatalf("missing workflow node kind %q in %+v", kind, def.Nodes)
+	return workflow.Node{}
 }

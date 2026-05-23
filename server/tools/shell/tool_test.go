@@ -298,6 +298,102 @@ func TestManagerSubscribeOutputStreamsTailAndEndsAtEOF(t *testing.T) {
 	}
 }
 
+func TestManagerSubscribeOutputReceivesSingleLineWhileProcessKeepsRunning(t *testing.T) {
+	manager := newBackgroundTestManager(t)
+	workspace := t.TempDir()
+
+	result, err := manager.Start(context.Background(), ExecRequest{
+		Command:        []string{"sh", "-c", "printf 'ready\\n'; sleep 1"},
+		DisplayCommand: "single-line-running",
+		Workdir:        workspace,
+		YieldTime:      250 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if !result.Backgrounded {
+		t.Fatalf("expected backgrounded process, got %+v", result)
+	}
+	defer func() { _ = manager.Kill(result.SessionID) }()
+
+	sub, err := manager.SubscribeOutput(context.Background(), result.SessionID, 0)
+	if err != nil {
+		t.Fatalf("SubscribeOutput: %v", err)
+	}
+	defer func() { _ = sub.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	chunk, err := sub.Next(ctx)
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	if !strings.Contains(chunk.Text, "ready") {
+		t.Fatalf("expected ready output, got %+v", chunk)
+	}
+	snapshot, err := manager.Snapshot(result.SessionID)
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if !snapshot.Running {
+		t.Fatalf("expected process to still be running, got %+v", snapshot)
+	}
+}
+
+func TestManagerInlineOutputUsesRecentOutputBeforeLogFlush(t *testing.T) {
+	manager := newBackgroundTestManager(t)
+	workspace := t.TempDir()
+
+	result, err := manager.Start(context.Background(), ExecRequest{
+		Command:        []string{"sh", "-c", "printf 'inline-ready\\n'; sleep 1"},
+		DisplayCommand: "inline-recent",
+		Workdir:        workspace,
+		YieldTime:      250 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if !result.Backgrounded {
+		t.Fatalf("expected backgrounded process, got %+v", result)
+	}
+	defer func() { _ = manager.Kill(result.SessionID) }()
+
+	preview, _, err := manager.InlineOutput(result.SessionID, 1024)
+	if err != nil {
+		t.Fatalf("InlineOutput: %v", err)
+	}
+	if !strings.Contains(preview, "inline-ready") {
+		t.Fatalf("expected recent output fallback, got %q", preview)
+	}
+}
+
+func TestManagerInlineOutputTruncatesRecentOutputFallback(t *testing.T) {
+	manager := newBackgroundTestManager(t)
+	workspace := t.TempDir()
+
+	result, err := manager.Start(context.Background(), ExecRequest{
+		Command:        []string{"sh", "-c", "printf '%0500d\\n' 1; sleep 1"},
+		DisplayCommand: "inline-recent-truncated",
+		Workdir:        workspace,
+		YieldTime:      250 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if !result.Backgrounded {
+		t.Fatalf("expected backgrounded process, got %+v", result)
+	}
+	defer func() { _ = manager.Kill(result.SessionID) }()
+
+	preview, _, err := manager.InlineOutput(result.SessionID, 80)
+	if err != nil {
+		t.Fatalf("InlineOutput: %v", err)
+	}
+	if len(preview) > 200 || !strings.Contains(preview, "Omitted") {
+		t.Fatalf("expected truncated recent output fallback, got len=%d preview=%q", len(preview), preview)
+	}
+}
+
 func TestManagerSubscribeOutputRejectsInvalidOffset(t *testing.T) {
 	manager := newBackgroundTestManager(t)
 	if _, err := manager.SubscribeOutput(context.Background(), "proc-1", -1); err == nil {

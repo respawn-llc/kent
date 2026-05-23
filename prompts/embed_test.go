@@ -42,6 +42,84 @@ func TestCustomSystemPromptResolvesDefaultSystemPromptPlaceholder(t *testing.T) 
 	}
 }
 
+func TestCustomSystemPromptResolvesDefaultSystemPromptSectionPlaceholders(t *testing.T) {
+	rendered, err := RenderCustomSystemPrompt(strings.Join([]string{
+		"{{.DefaultSystemPromptPersonality}}",
+		"{{.DefaultSystemPromptHarnessWorkflowAutonomy}}",
+		"{{.DefaultSystemPromptAmbiguityAndOutputQuality}}",
+		"{{.DefaultSystemPromptFinalAnswerAndFormatting}}",
+		"{{.DefaultSystemPromptDelegation}}",
+	}, "\n---\n"), false, SystemPromptTemplateArgs{
+		EstimatedToolCallsForContext: 123,
+		EditingToolName:              "patch",
+	})
+	if err != nil {
+		t.Fatalf("RenderCustomSystemPrompt: %v", err)
+	}
+	for _, want := range []string{
+		"autonomous coding agent named Builder",
+		"Your agentic environment",
+		"Product ambiguity and planning",
+		"Final answer instructions",
+		selfcmd.RunCommandPrefix(),
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expected section prompt to contain %q, got %q", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "{{") {
+		t.Fatalf("expected section placeholders rendered, got %q", rendered)
+	}
+}
+
+func TestBaseSystemPromptAssemblesDefaultSections(t *testing.T) {
+	rendered := BaseSystemPrompt(SystemPromptTemplateArgs{
+		EstimatedToolCallsForContext: 123,
+		EditingToolName:              "patch",
+	})
+	for _, want := range []string{
+		"autonomous coding agent named Builder",
+		"Your agentic environment",
+		"Product ambiguity and planning",
+		"Final answer instructions",
+		"Delegating work",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expected base prompt to contain %q, got %q", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "{{") {
+		t.Fatalf("expected base prompt placeholders rendered, got %q", rendered)
+	}
+}
+
+func TestWorkflowModePromptsOverrideNoopFinal(t *testing.T) {
+	for name, prompt := range map[string]string{
+		"tool":              WorkflowToolModePrompt,
+		"structured_output": WorkflowStructuredOutputModePrompt,
+	} {
+		if !strings.Contains(prompt, "Do not use `NO_OP` in workflow mode") {
+			t.Fatalf("%s workflow prompt missing NO_OP override: %q", name, prompt)
+		}
+		if !strings.Contains(prompt, "keep polling it with `write_stdin`") {
+			t.Fatalf("%s workflow prompt missing polling recovery path: %q", name, prompt)
+		}
+	}
+}
+
+func TestDefaultSystemPromptAssemblyCannotReferenceFullDefaultPrompt(t *testing.T) {
+	_, err := renderSystemPromptTemplateErr("{{.DefaultSystemPrompt}}", SystemPromptTemplateArgs{
+		EstimatedToolCallsForContext: 123,
+		EditingToolName:              "patch",
+	}, "")
+	if err == nil {
+		t.Fatal("expected default system prompt assembly to reject DefaultSystemPrompt recursion")
+	}
+	if !strings.Contains(err.Error(), "DefaultSystemPrompt") {
+		t.Fatalf("expected error to mention DefaultSystemPrompt, got %v", err)
+	}
+}
+
 func TestCustomSystemPromptRejectsRemovedManualEditInstructionPlaceholder(t *testing.T) {
 	_, err := RenderCustomSystemPrompt("{{.ManualEditInstruction}}", false, SystemPromptTemplateArgs{
 		EstimatedToolCallsForContext: 123,

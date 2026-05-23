@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"builder/server/metadata"
+	"builder/server/metadata/sqlitegen"
 	"builder/server/session"
 	"builder/server/workflow"
 	"builder/shared/config"
@@ -770,6 +771,301 @@ func TestCompleteRunCreatesTargetRunForContinueSessionContextMode(t *testing.T) 
 	}
 }
 
+func TestRunStartContextUsesSelectedPriorNodeSession(t *testing.T) {
+	ctx := context.Background()
+	store, binding, cfg := newTestStoreWithConfig(t)
+	workflowID := createSelectedContextSourceWorkflow(t, ctx, store, workflow.ContextModeContinueSession)
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	implementationNode := nodeByKey(t, def, "implementation")
+	acceptanceNode := nodeByKey(t, def, "acceptance")
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}}); err != nil {
+		t.Fatalf("CompleteRun plan: %v", err)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns after plan: %v", err)
+	}
+	var implementationRun RunRecord
+	for _, run := range runs {
+		if run.NodeID == implementationNode.ID {
+			implementationRun = run
+		}
+	}
+	if implementationRun.ID == "" {
+		t.Fatalf("implementation run not found: %+v", runs)
+	}
+	claimedImplementation, err := store.ClaimRun(ctx, implementationRun.ID, implementationRun.Generation)
+	if err != nil {
+		t.Fatalf("ClaimRun implementation: %v", err)
+	}
+	implementationSessionID := createTestSession(t, ctx, store, binding, cfg)
+	if err := store.AttachRunSession(ctx, implementationRun.ID, claimedImplementation.Generation, implementationSessionID); err != nil {
+		t.Fatalf("AttachRunSession implementation: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: implementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "implemented"}}); err != nil {
+		t.Fatalf("CompleteRun implementation: %v", err)
+	}
+	runs, err = store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns after implementation: %v", err)
+	}
+	var acceptanceRun RunRecord
+	for _, run := range runs {
+		if run.NodeID == acceptanceNode.ID {
+			acceptanceRun = run
+		}
+	}
+	if acceptanceRun.ID == "" {
+		t.Fatalf("acceptance run not found: %+v", runs)
+	}
+	claimedAcceptance, err := store.ClaimRun(ctx, acceptanceRun.ID, acceptanceRun.Generation)
+	if err != nil {
+		t.Fatalf("ClaimRun acceptance: %v", err)
+	}
+	acceptanceSessionID := createTestSession(t, ctx, store, binding, cfg)
+	if err := store.AttachRunSession(ctx, acceptanceRun.ID, claimedAcceptance.Generation, acceptanceSessionID); err != nil {
+		t.Fatalf("AttachRunSession acceptance: %v", err)
+	}
+	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: acceptanceRun.ID, TransitionID: "open_pr", OutputValues: map[string]string{"decision": "approved"}})
+	if err != nil {
+		t.Fatalf("CompleteRun acceptance: %v", err)
+	}
+	if len(completed.RunIDs) != 1 {
+		t.Fatalf("acceptance completion = %+v, want open_pr run", completed)
+	}
+	input, err := store.GetRunStartContext(ctx, completed.RunIDs[0])
+	if err != nil {
+		t.Fatalf("GetRunStartContext open_pr: %v", err)
+	}
+	if input.SourceRunID != implementationRun.ID || input.SourceSessionID != implementationSessionID || input.SourceNode.Key != "implementation" {
+		t.Fatalf("open_pr context source = run %q session %q node %q, want implementation run %q session %q", input.SourceRunID, input.SourceSessionID, input.SourceNode.Key, implementationRun.ID, implementationSessionID)
+	}
+	if input.InputValues["acceptance_decision"] != "approved" {
+		t.Fatalf("open_pr input values = %+v, want immediate acceptance output", input.InputValues)
+	}
+}
+
+func TestSelectedContextSourceUsesLatestCompletedPriorNodeRun(t *testing.T) {
+	ctx := context.Background()
+	store, binding, cfg := newTestStoreWithConfig(t)
+	workflowID := createSelectedContextSourceWorkflow(t, ctx, store, workflow.ContextModeContinueSession)
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	implementationNode := nodeByKey(t, def, "implementation")
+	acceptanceNode := nodeByKey(t, def, "acceptance")
+	reworkGroup := workflow.TransitionGroupID("group-rework-" + string(workflowID))
+	if _, err := store.AddTransitionGroup(ctx, TransitionGroupRecord{ID: reworkGroup, WorkflowID: workflowID, SourceNodeID: acceptanceNode.ID, TransitionID: "rework", DisplayName: "Rework"}); err != nil {
+		t.Fatalf("AddTransitionGroup rework: %v", err)
+	}
+	if _, err := store.AddEdge(ctx, EdgeRecord{ID: workflow.EdgeID("edge-rework-" + string(workflowID)), WorkflowID: workflowID, TransitionGroupID: reworkGroup, Key: "rework", TargetNodeID: implementationNode.ID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "decision"}}}); err != nil {
+		t.Fatalf("AddEdge rework: %v", err)
+	}
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}}); err != nil {
+		t.Fatalf("CompleteRun plan: %v", err)
+	}
+	firstImplementationRun := runForNode(t, ctx, store, task.ID, implementationNode.ID)
+	firstClaim, err := store.ClaimRun(ctx, firstImplementationRun.ID, firstImplementationRun.Generation)
+	if err != nil {
+		t.Fatalf("ClaimRun first implementation: %v", err)
+	}
+	firstSessionID := createTestSession(t, ctx, store, binding, cfg)
+	if err := store.AttachRunSession(ctx, firstImplementationRun.ID, firstClaim.Generation, firstSessionID); err != nil {
+		t.Fatalf("AttachRunSession first implementation: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: firstImplementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "first implementation"}}); err != nil {
+		t.Fatalf("CompleteRun first implementation: %v", err)
+	}
+	firstAcceptanceRun := runForNode(t, ctx, store, task.ID, acceptanceNode.ID)
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: firstAcceptanceRun.ID, TransitionID: "rework", OutputValues: map[string]string{"decision": "needs changes"}}); err != nil {
+		t.Fatalf("CompleteRun first acceptance: %v", err)
+	}
+	secondImplementationRun := latestRunForNode(t, ctx, store, task.ID, implementationNode.ID)
+	if secondImplementationRun.ID == firstImplementationRun.ID {
+		t.Fatalf("second implementation run = first run %q", secondImplementationRun.ID)
+	}
+	secondClaim, err := store.ClaimRun(ctx, secondImplementationRun.ID, secondImplementationRun.Generation)
+	if err != nil {
+		t.Fatalf("ClaimRun second implementation: %v", err)
+	}
+	secondSessionID := createTestSession(t, ctx, store, binding, cfg)
+	if err := store.AttachRunSession(ctx, secondImplementationRun.ID, secondClaim.Generation, secondSessionID); err != nil {
+		t.Fatalf("AttachRunSession second implementation: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: secondImplementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "second implementation"}}); err != nil {
+		t.Fatalf("CompleteRun second implementation: %v", err)
+	}
+	secondAcceptanceRun := latestRunForNode(t, ctx, store, task.ID, acceptanceNode.ID)
+	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: secondAcceptanceRun.ID, TransitionID: "open_pr", OutputValues: map[string]string{"decision": "approved"}})
+	if err != nil {
+		t.Fatalf("CompleteRun second acceptance: %v", err)
+	}
+	input, err := store.GetRunStartContext(ctx, completed.RunIDs[0])
+	if err != nil {
+		t.Fatalf("GetRunStartContext open_pr: %v", err)
+	}
+	if input.SourceRunID != secondImplementationRun.ID || input.SourceSessionID != secondSessionID {
+		t.Fatalf("open_pr source run/session = %q/%q, want latest implementation %q/%q; first session was %q", input.SourceRunID, input.SourceSessionID, secondImplementationRun.ID, secondSessionID, firstSessionID)
+	}
+}
+
+func TestPendingApprovalResolvesSelectedContextSourceOnApproval(t *testing.T) {
+	ctx := context.Background()
+	store, binding, cfg := newTestStoreWithConfig(t)
+	workflowID := createSelectedContextSourceWorkflow(t, ctx, store, workflow.ContextModeContinueSession)
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	openPREdge := edgeByKey(t, def, "open_pr")
+	if _, err := store.UpdateEdge(ctx, EdgeRecord{ID: openPREdge.ID, WorkflowID: workflowID, TransitionGroupID: openPREdge.TransitionGroupID, Key: openPREdge.Key, TargetNodeID: openPREdge.TargetNodeID, ContextMode: openPREdge.ContextMode, ContextSource: openPREdge.ContextSource, RequiresApproval: true, InputBindings: openPREdge.InputBindings, OutputRequirements: openPREdge.OutputRequirements}); err != nil {
+		t.Fatalf("UpdateEdge open_pr approval: %v", err)
+	}
+	def, _, err = store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition updated: %v", err)
+	}
+	implementationNode := nodeByKey(t, def, "implementation")
+	acceptanceNode := nodeByKey(t, def, "acceptance")
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}}); err != nil {
+		t.Fatalf("CompleteRun plan: %v", err)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns after plan: %v", err)
+	}
+	var implementationRun RunRecord
+	for _, run := range runs {
+		if run.NodeID == implementationNode.ID {
+			implementationRun = run
+		}
+	}
+	claimedImplementation, err := store.ClaimRun(ctx, implementationRun.ID, implementationRun.Generation)
+	if err != nil {
+		t.Fatalf("ClaimRun implementation: %v", err)
+	}
+	implementationSessionID := createTestSession(t, ctx, store, binding, cfg)
+	if err := store.AttachRunSession(ctx, implementationRun.ID, claimedImplementation.Generation, implementationSessionID); err != nil {
+		t.Fatalf("AttachRunSession implementation: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: implementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "implemented"}}); err != nil {
+		t.Fatalf("CompleteRun implementation: %v", err)
+	}
+	runs, err = store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns after implementation: %v", err)
+	}
+	var acceptanceRun RunRecord
+	for _, run := range runs {
+		if run.NodeID == acceptanceNode.ID {
+			acceptanceRun = run
+		}
+	}
+	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: acceptanceRun.ID, TransitionID: "open_pr", OutputValues: map[string]string{"decision": "approved"}})
+	if err != nil {
+		t.Fatalf("CompleteRun acceptance: %v", err)
+	}
+	if completed.State != "pending_approval" {
+		t.Fatalf("acceptance completion = %+v, want pending approval", completed)
+	}
+	competingSessionID := createTestSession(t, ctx, store, binding, cfg)
+	insertCompletedRunForNodeAfterTransition(t, ctx, store, task.ID, implementationNode.ID, implementationRun.ID, competingSessionID, completed.TransitionID)
+	approved, err := store.ApproveTransition(ctx, completed.TransitionID)
+	if err != nil {
+		t.Fatalf("ApproveTransition: %v", err)
+	}
+	if len(approved.RunIDs) != 1 {
+		t.Fatalf("approval result = %+v, want open_pr run", approved)
+	}
+	input, err := store.GetRunStartContext(ctx, approved.RunIDs[0])
+	if err != nil {
+		t.Fatalf("GetRunStartContext open_pr: %v", err)
+	}
+	if input.SourceRunID != implementationRun.ID || input.SourceSessionID != implementationSessionID || input.SourceNode.Key != "implementation" {
+		t.Fatalf("approved open_pr context source = run %q session %q node %q, want implementation run %q session %q", input.SourceRunID, input.SourceSessionID, input.SourceNode.Key, implementationRun.ID, implementationSessionID)
+	}
+	if input.SourceSessionID == competingSessionID {
+		t.Fatalf("approved open_pr used competing implementation session %q completed after approval wait started", competingSessionID)
+	}
+}
+
+func TestSelectedContextSourceMissingPriorRunFailsClearly(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createSelectedContextSourceWorkflow(t, ctx, store, workflow.ContextModeContinueSession)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	row, err := store.queries.GetTaskRun(ctx, string(started.RunID))
+	if err != nil {
+		t.Fatalf("GetTaskRun: %v", err)
+	}
+	snapshot := runStartSnapshot{}
+	if err := unmarshalJSON(row.RunStartSnapshotJson, &snapshot); err != nil {
+		t.Fatalf("unmarshal snapshot: %v", err)
+	}
+	mutateSnapshotTransition(t, &snapshot, "implement", func(group *transitionContractSnapshot) {
+		group.Edges[0].ContextMode = workflow.ContextModeContinueSession
+		group.Edges[0].ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "implementation"}
+	})
+	snapshotJSON, err := marshalJSON(snapshot)
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE task_runs SET run_start_snapshot_json = ? WHERE id = ?`, snapshotJSON, string(started.RunID)); err != nil {
+		t.Fatalf("update snapshot: %v", err)
+	}
+	_, err = store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}})
+	if err == nil || !strings.Contains(err.Error(), "selected context source node \"implementation\" has no completed run") {
+		t.Fatalf("CompleteRun selected source error = %v, want missing completed run", err)
+	}
+}
+
 func TestCompleteRunCreatesPendingApprovalTransition(t *testing.T) {
 	ctx := context.Background()
 	store, binding := newTestStore(t)
@@ -1349,6 +1645,84 @@ func TestJoinWaitsForAllBranchesAndAggregatesDeterministically(t *testing.T) {
 	}
 }
 
+func TestJoinDownstreamCanUseSelectedPriorContextSource(t *testing.T) {
+	ctx := context.Background()
+	store, binding, cfg := newTestStoreWithConfig(t)
+	workflowID := createFanoutJoinWorkflow(t, ctx, store)
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	planNode := nodeByKey(t, def, "plan")
+	synthNode := nodeByKey(t, def, "synth")
+	if _, err := store.UpdateEdge(ctx, EdgeRecord{
+		ID:                workflow.EdgeID("edge-join-synth-" + string(workflowID)),
+		WorkflowID:        workflowID,
+		TransitionGroupID: workflow.TransitionGroupID("group-join-synth-" + string(workflowID)),
+		Key:               "synth",
+		TargetNodeID:      synthNode.ID,
+		ContextMode:       workflow.ContextModeContinueSession,
+		ContextSource:     workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "plan"},
+		InputBindings:     []workflow.InputBinding{{Name: "joined", Source: workflow.BindingSourceJoin, Field: "aggregate"}},
+	}); err != nil {
+		t.Fatalf("UpdateEdge join synth: %v", err)
+	}
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	claimedPlan, err := store.ClaimRun(ctx, started.RunID, 0)
+	if err != nil {
+		t.Fatalf("ClaimRun plan: %v", err)
+	}
+	planSessionID := createTestSession(t, ctx, store, binding, cfg)
+	if err := store.AttachRunSession(ctx, started.RunID, claimedPlan.Generation, planSessionID); err != nil {
+		t.Fatalf("AttachRunSession plan: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "split", OutputValues: map[string]string{"summary": "plan"}}); err != nil {
+		t.Fatalf("CompleteRun split: %v", err)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns branches: %v", err)
+	}
+	branchRuns := map[workflow.NodeID]workflow.RunID{}
+	for _, run := range runs {
+		if run.NodeID != planNode.ID {
+			branchRuns[run.NodeID] = run.ID
+		}
+	}
+	implA := nodeByKey(t, def, "impl_a")
+	implB := nodeByKey(t, def, "impl_b")
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: branchRuns[implA.ID], TransitionID: "join", OutputValues: map[string]string{"summary": "a"}}); err != nil {
+		t.Fatalf("CompleteRun branch a: %v", err)
+	}
+	joined, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: branchRuns[implB.ID], TransitionID: "join", OutputValues: map[string]string{"summary": "b"}})
+	if err != nil {
+		t.Fatalf("CompleteRun branch b: %v", err)
+	}
+	if len(joined.RunIDs) != 1 {
+		t.Fatalf("joined result = %+v, want synth run", joined)
+	}
+	input, err := store.GetRunStartContext(ctx, joined.RunIDs[0])
+	if err != nil {
+		t.Fatalf("GetRunStartContext synth: %v", err)
+	}
+	if input.SourceRunID != started.RunID || input.SourceSessionID != planSessionID || input.SourceNode.Key != "plan" {
+		t.Fatalf("synth context source = run %q session %q node %q, want plan run %q session %q", input.SourceRunID, input.SourceSessionID, input.SourceNode.Key, started.RunID, planSessionID)
+	}
+	if !strings.Contains(input.InputValues["joined"], "impl_a") || !strings.Contains(input.InputValues["joined"], "impl_b") {
+		t.Fatalf("synth input values = %+v, want join aggregate", input.InputValues)
+	}
+}
+
 func TestDuplicateBranchArrivalIsRejectedAndDoesNotDuplicateJoin(t *testing.T) {
 	ctx := context.Background()
 	store, binding := newTestStore(t)
@@ -1788,6 +2162,88 @@ func TestManualMoveContinueSessionRequiresSourceSession(t *testing.T) {
 	_, err = store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: impl.ID, OutputValues: map[string]string{"summary": "done"}})
 	if err == nil || !strings.Contains(err.Error(), "continue_session requires source session") {
 		t.Fatalf("ManualMoveTask continue_session error = %v, want source session requirement", err)
+	}
+}
+
+func TestManualMoveRejectsSelectedContextSourceV1(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createSelectedContextSourceWorkflow(t, ctx, store, workflow.ContextModeContinueSession)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}}); err != nil {
+		t.Fatalf("CompleteRun plan: %v", err)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns after plan: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	implementationNode := nodeByKey(t, def, "implementation")
+	openPRNode := nodeByKey(t, def, "open_pr")
+	var implementationRun RunRecord
+	for _, run := range runs {
+		if run.NodeID == implementationNode.ID {
+			implementationRun = run
+		}
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: implementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "implemented"}}); err != nil {
+		t.Fatalf("CompleteRun implementation: %v", err)
+	}
+	_, err = store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: openPRNode.ID, OutputValues: map[string]string{"decision": "approved"}})
+	if err == nil || !strings.Contains(err.Error(), "selected context source") {
+		t.Fatalf("ManualMoveTask selected context source error = %v, want unsupported selected context source", err)
+	}
+}
+
+func TestBackwardManualMoveRejectsHistoricalSelectedContextSourceV1(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createSelectedContextSourceWorkflow(t, ctx, store, workflow.ContextModeContinueSession)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}}); err != nil {
+		t.Fatalf("CompleteRun plan: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	implementationNode := nodeByKey(t, def, "implementation")
+	acceptanceNode := nodeByKey(t, def, "acceptance")
+	implementationRun := runForNode(t, ctx, store, task.ID, implementationNode.ID)
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: implementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "implemented"}}); err != nil {
+		t.Fatalf("CompleteRun implementation: %v", err)
+	}
+	acceptanceRun := runForNode(t, ctx, store, task.ID, acceptanceNode.ID)
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: acceptanceRun.ID, TransitionID: "open_pr", OutputValues: map[string]string{"decision": "approved"}}); err != nil {
+		t.Fatalf("CompleteRun acceptance: %v", err)
+	}
+
+	_, err = store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: acceptanceNode.ID, OutputValues: map[string]string{"decision": "needs recheck"}})
+	if err == nil || !strings.Contains(err.Error(), "selected context source") {
+		t.Fatalf("backward ManualMoveTask selected context source error = %v, want unsupported selected context source", err)
 	}
 }
 
@@ -3388,6 +3844,62 @@ func createChainedContextModeWorkflow(t *testing.T, ctx context.Context, store *
 	return created.ID
 }
 
+func createSelectedContextSourceWorkflow(t *testing.T, ctx context.Context, store *Store, contextMode workflow.ContextMode) workflow.WorkflowID {
+	t.Helper()
+	created, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: "Selected Context Source Workflow"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	start := nodeByKind(t, def, workflow.NodeKindStart)
+	done := nodeByKind(t, def, workflow.NodeKindTerminal)
+	planID := workflow.NodeID("node-plan-" + string(created.ID))
+	implementationID := workflow.NodeID("node-implementation-" + string(created.ID))
+	acceptanceID := workflow.NodeID("node-acceptance-" + string(created.ID))
+	openPRID := workflow.NodeID("node-open-pr-" + string(created.ID))
+	for _, node := range []NodeRecord{
+		{ID: planID, WorkflowID: created.ID, Key: "plan", Kind: workflow.NodeKindAgent, DisplayName: "Plan", SubagentRole: "coder", PromptTemplate: "Plan.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
+		{ID: implementationID, WorkflowID: created.ID, Key: "implementation", Kind: workflow.NodeKindAgent, DisplayName: "Implementation", SubagentRole: "coder", PromptTemplate: "Implement.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
+		{ID: acceptanceID, WorkflowID: created.ID, Key: "acceptance", Kind: workflow.NodeKindAgent, DisplayName: "Acceptance", SubagentRole: "coder", PromptTemplate: "Accept.", OutputFields: []workflow.OutputField{{Name: "decision", Description: "Decision."}}},
+		{ID: openPRID, WorkflowID: created.ID, Key: "open_pr", Kind: workflow.NodeKindAgent, DisplayName: "Open PR", SubagentRole: "coder", PromptTemplate: "Open PR {{.Inputs.acceptance_decision}}.", OutputFields: []workflow.OutputField{{Name: "pr_url", Description: "PR URL."}}},
+	} {
+		if _, err := store.AddNode(ctx, node); err != nil {
+			t.Fatalf("AddNode %s: %v", node.Key, err)
+		}
+	}
+	startGroup := workflow.TransitionGroupID("group-start-" + string(created.ID))
+	implementGroup := workflow.TransitionGroupID("group-implement-" + string(created.ID))
+	acceptGroup := workflow.TransitionGroupID("group-accept-" + string(created.ID))
+	openPRGroup := workflow.TransitionGroupID("group-open-pr-" + string(created.ID))
+	doneGroup := workflow.TransitionGroupID("group-done-" + string(created.ID))
+	for _, group := range []TransitionGroupRecord{
+		{ID: startGroup, WorkflowID: created.ID, SourceNodeID: start.ID, TransitionID: "start", DisplayName: "Start"},
+		{ID: implementGroup, WorkflowID: created.ID, SourceNodeID: planID, TransitionID: "implement", DisplayName: "Implement"},
+		{ID: acceptGroup, WorkflowID: created.ID, SourceNodeID: implementationID, TransitionID: "accept", DisplayName: "Accept"},
+		{ID: openPRGroup, WorkflowID: created.ID, SourceNodeID: acceptanceID, TransitionID: "open_pr", DisplayName: "Open PR"},
+		{ID: doneGroup, WorkflowID: created.ID, SourceNodeID: openPRID, TransitionID: "done", DisplayName: "Done"},
+	} {
+		if _, err := store.AddTransitionGroup(ctx, group); err != nil {
+			t.Fatalf("AddTransitionGroup %s: %v", group.TransitionID, err)
+		}
+	}
+	for _, edge := range []EdgeRecord{
+		{ID: workflow.EdgeID("edge-start-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: startGroup, Key: "start", TargetNodeID: planID, ContextMode: workflow.ContextModeNewSession},
+		{ID: workflow.EdgeID("edge-implement-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: implementGroup, Key: "implement", TargetNodeID: implementationID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+		{ID: workflow.EdgeID("edge-accept-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: acceptGroup, Key: "accept", TargetNodeID: acceptanceID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+		{ID: workflow.EdgeID("edge-open-pr-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: openPRGroup, Key: "open_pr", TargetNodeID: openPRID, ContextMode: contextMode, ContextSource: workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "implementation"}, InputBindings: []workflow.InputBinding{{Name: "acceptance_decision", Source: workflow.BindingSourceTransitionOutput, Field: "decision"}}, OutputRequirements: []workflow.OutputRequirement{{FieldName: "decision"}}},
+		{ID: workflow.EdgeID("edge-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: doneGroup, Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "pr_url"}}},
+	} {
+		if _, err := store.AddEdge(ctx, edge); err != nil {
+			t.Fatalf("AddEdge %s: %v", edge.Key, err)
+		}
+	}
+	return created.ID
+}
+
 func createApprovalWorkflow(t *testing.T, ctx context.Context, store *Store) workflow.WorkflowID {
 	t.Helper()
 	created, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: "Approval Workflow"})
@@ -3577,6 +4089,87 @@ func nodeByKey(t *testing.T, def workflow.Definition, key string) workflow.Node 
 	}
 	t.Fatalf("missing node key %q in %+v", key, def.Nodes)
 	return workflow.Node{}
+}
+
+func edgeByKey(t *testing.T, def workflow.Definition, key string) workflow.Edge {
+	t.Helper()
+	for _, edge := range def.Edges {
+		if string(edge.Key) == key {
+			return edge
+		}
+	}
+	t.Fatalf("missing edge key %q in %+v", key, def.Edges)
+	return workflow.Edge{}
+}
+
+func runForNode(t *testing.T, ctx context.Context, store *Store, taskID workflow.TaskID, nodeID workflow.NodeID) RunRecord {
+	t.Helper()
+	runs, err := store.ListRuns(ctx, taskID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	for _, run := range runs {
+		if run.NodeID == nodeID {
+			return run
+		}
+	}
+	t.Fatalf("run for node %q not found in %+v", nodeID, runs)
+	return RunRecord{}
+}
+
+func latestRunForNode(t *testing.T, ctx context.Context, store *Store, taskID workflow.TaskID, nodeID workflow.NodeID) RunRecord {
+	t.Helper()
+	runs, err := store.ListRuns(ctx, taskID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	var latest RunRecord
+	for _, run := range runs {
+		if run.NodeID == nodeID {
+			latest = run
+		}
+	}
+	if latest.ID == "" {
+		t.Fatalf("run for node %q not found in %+v", nodeID, runs)
+	}
+	return latest
+}
+
+func insertCompletedRunForNodeAfterTransition(t *testing.T, ctx context.Context, store *Store, taskID workflow.TaskID, nodeID workflow.NodeID, snapshotSourceRunID workflow.RunID, sessionID string, transitionID workflow.TransitionID) workflow.RunID {
+	t.Helper()
+	var transitionCreatedAt int64
+	if err := store.db.QueryRowContext(ctx, `SELECT created_at_unix_ms FROM task_transitions WHERE id = ?`, string(transitionID)).Scan(&transitionCreatedAt); err != nil {
+		t.Fatalf("query transition created_at: %v", err)
+	}
+	var snapshotJSON string
+	if err := store.db.QueryRowContext(ctx, `SELECT run_start_snapshot_json FROM task_runs WHERE id = ?`, string(snapshotSourceRunID)).Scan(&snapshotJSON); err != nil {
+		t.Fatalf("query source run snapshot: %v", err)
+	}
+	placementID := prefixedID("placement")
+	runID := prefixedID("run")
+	completedAt := transitionCreatedAt + 1
+	if err := store.queries.InsertTaskNodePlacement(ctx, sqlitegen.InsertTaskNodePlacementParams{ID: placementID, TaskID: string(taskID), NodeID: string(nodeID), State: "completed", CreatedAtUnixMs: completedAt, UpdatedAtUnixMs: completedAt}); err != nil {
+		t.Fatalf("InsertTaskNodePlacement competing run: %v", err)
+	}
+	if err := store.queries.InsertTaskRun(ctx, sqlitegen.InsertTaskRunParams{
+		ID:                          runID,
+		PlacementID:                 placementID,
+		SessionID:                   sql.NullString{String: sessionID, Valid: sessionID != ""},
+		RunGeneration:               1,
+		WorkflowRevisionSeen:        1,
+		AutomationRequestedAtUnixMs: completedAt,
+		CreatedAtUnixMs:             completedAt,
+		UpdatedAtUnixMs:             completedAt,
+		StartedAtUnixMs:             completedAt,
+		CompletedAtUnixMs:           completedAt,
+		InterruptedAtUnixMs:         0,
+		InterruptionDetailJson:      "{}",
+		RunStartSnapshotJson:        snapshotJSON,
+		MetadataJson:                "{}",
+	}); err != nil {
+		t.Fatalf("InsertTaskRun competing run: %v", err)
+	}
+	return workflow.RunID(runID)
 }
 
 func nodeByKind(t *testing.T, def workflow.Definition, kind workflow.NodeKind) workflow.Node {

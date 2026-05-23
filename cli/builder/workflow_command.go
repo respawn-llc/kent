@@ -315,6 +315,7 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	edgeKey := fs.String("edge-key", "", "edge key")
 	toKey := fs.String("to", "", "target node key")
 	contextMode := fs.String("context", "", "context mode: new_session|continue_session|compact_and_continue_session")
+	contextSource := fs.String("context-source", "", "context source: immediate_source|node:<node-key>")
 	requiresApproval := fs.Bool("requires-approval", false, "require approval before target runs")
 	inputs := workflowInputBindingFlag{}
 	outputRequirements := workflowOutputRequirementFlag{}
@@ -334,6 +335,11 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	}
 	if strings.TrimSpace(*fromKey) == "" || strings.TrimSpace(*transitionID) == "" || strings.TrimSpace(*edgeKey) == "" || strings.TrimSpace(*toKey) == "" || strings.TrimSpace(*contextMode) == "" {
 		fmt.Fprintln(stderr, "workflow edge add requires --from, --transition, --edge-key, --to, and --context")
+		return 2
+	}
+	parsedContextSource, err := parseWorkflowContextSourceSelector(*contextSource)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	_, remote, err := workflowOpen(context.Background(), ".")
@@ -377,7 +383,7 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	}
 	edgeID := "edge-" + uuid.NewString()
 	ctx, cancel := workflowRPCContext(context.Background())
-	resp, err := remote.AddWorkflowEdge(ctx, serverapi.WorkflowEdgeAddRequest{WorkflowID: def.Workflow.ID, EdgeID: edgeID, TransitionGroupID: groupID, Key: *edgeKey, TargetNodeID: target.ID, ContextMode: *contextMode, RequiresApproval: *requiresApproval, InputBindings: inputs.values, OutputRequirements: outputRequirements.values})
+	resp, err := remote.AddWorkflowEdge(ctx, serverapi.WorkflowEdgeAddRequest{WorkflowID: def.Workflow.ID, EdgeID: edgeID, TransitionGroupID: groupID, Key: *edgeKey, TargetNodeID: target.ID, ContextMode: *contextMode, ContextSource: parsedContextSource, RequiresApproval: *requiresApproval, InputBindings: inputs.values, OutputRequirements: outputRequirements.values})
 	cancel()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -396,6 +402,7 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	edgeKey := fs.String("edge-key", "", "edge key")
 	toKey := fs.String("to", "", "target node key")
 	contextMode := fs.String("context", "", "context mode: new_session|continue_session|compact_and_continue_session")
+	contextSource := fs.String("context-source", "", "context source: immediate_source|node:<node-key>")
 	inputs := workflowInputBindingFlag{}
 	outputRequirements := workflowOutputRequirementFlag{}
 	fs.Var(&inputs, "input", "target input binding as name=source:field; repeatable")
@@ -467,6 +474,14 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	if strings.TrimSpace(*contextMode) != "" {
 		updatedEdge.ContextMode = strings.TrimSpace(*contextMode)
 	}
+	if strings.TrimSpace(*contextSource) != "" {
+		parsedContextSource, parseErr := parseWorkflowContextSourceSelector(*contextSource)
+		if parseErr != nil {
+			fmt.Fprintln(stderr, parseErr)
+			return 2
+		}
+		updatedEdge.ContextSource = parsedContextSource
+	}
 	if inputs.seen {
 		updatedEdge.InputBindings = inputs.values
 	}
@@ -475,7 +490,7 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	}
 	ctx, cancel := workflowRPCContext(context.Background())
 	defer cancel()
-	resp, err := remote.UpdateWorkflowEdge(ctx, serverapi.WorkflowEdgeUpdateRequest{WorkflowID: def.Workflow.ID, EdgeID: updatedEdge.ID, TransitionGroupID: updatedEdge.TransitionGroupID, Key: updatedEdge.Key, TargetNodeID: updatedEdge.TargetNodeID, ContextMode: updatedEdge.ContextMode, RequiresApproval: updatedEdge.RequiresApproval, InputBindings: updatedEdge.InputBindings, OutputRequirements: updatedEdge.OutputRequirements})
+	resp, err := remote.UpdateWorkflowEdge(ctx, serverapi.WorkflowEdgeUpdateRequest{WorkflowID: def.Workflow.ID, EdgeID: updatedEdge.ID, TransitionGroupID: updatedEdge.TransitionGroupID, Key: updatedEdge.Key, TargetNodeID: updatedEdge.TargetNodeID, ContextMode: updatedEdge.ContextMode, ContextSource: updatedEdge.ContextSource, RequiresApproval: updatedEdge.RequiresApproval, InputBindings: updatedEdge.InputBindings, OutputRequirements: updatedEdge.OutputRequirements})
 	if err != nil {
 		if updatedGroup != group {
 			rollbackCtx, rollbackCancel := workflowRPCContext(context.Background())
@@ -710,6 +725,8 @@ func workflowInspectSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	fmt.Fprintln(stdout, "edges")
 	for _, edge := range def.Edges {
 		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\t%t\n", edge.ID, edge.TransitionGroupID, edge.Key, edge.TargetNodeID, edge.ContextMode, edge.RequiresApproval)
+		source := canonicalAPIContextSource(edge.ContextSource)
+		fmt.Fprintf(stdout, "context_source\t%s\t%s\t%s\n", edge.Key, source.Kind, source.NodeKey)
 		for _, binding := range edge.InputBindings {
 			fmt.Fprintf(stdout, "input_binding\t%s\t%s\t%s\t%s\n", edge.Key, binding.Name, binding.Source, binding.Field)
 		}
@@ -790,6 +807,29 @@ func (f *workflowOutputRequirementFlag) Set(raw string) error {
 	}
 	f.values = append(f.values, serverapi.WorkflowOutputRequirement{FieldName: field})
 	return nil
+}
+
+func parseWorkflowContextSourceSelector(raw string) (serverapi.WorkflowContextSource, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "immediate_source" {
+		return serverapi.WorkflowContextSource{Kind: "immediate_source"}, nil
+	}
+	prefix := "node:"
+	if strings.HasPrefix(trimmed, prefix) {
+		nodeKey := strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+		if nodeKey == "" {
+			return serverapi.WorkflowContextSource{}, errors.New("context source selector node key is required")
+		}
+		return serverapi.WorkflowContextSource{Kind: "selected_node", NodeKey: nodeKey}, nil
+	}
+	return serverapi.WorkflowContextSource{}, fmt.Errorf("context source selector must be immediate_source or node:<node-key>")
+}
+
+func canonicalAPIContextSource(source serverapi.WorkflowContextSource) serverapi.WorkflowContextSource {
+	if strings.TrimSpace(source.Kind) == "" {
+		return serverapi.WorkflowContextSource{Kind: "immediate_source"}
+	}
+	return source
 }
 
 func openWorkflowCommandRemote(ctx context.Context, path string) (config.App, workflowCommandRemote, error) {

@@ -35,6 +35,8 @@ describe("TaskDetailDialog", () => {
     render(<App services={services} />);
 
     const recommendedOption = await screen.findByRole("radio", { name: /Use option A/u });
+    expect(screen.getByText("Choose path")).toBeInTheDocument();
+    expect(screen.queryByText("Pick answer")).not.toBeInTheDocument();
     expect(screen.getByTestId("route-transition-frame")).toHaveClass("p-[var(--space-2)]");
     expect(recommendedOption).toBeInTheDocument();
     fireEvent.click(recommendedOption);
@@ -579,7 +581,7 @@ const taskDetailResponse = {
         session_id: "session-1",
         ask_id: "ask-1",
         task_transition_id: "",
-        message: "Pick answer",
+        message: "",
       },
       {
         ...attentionBase,

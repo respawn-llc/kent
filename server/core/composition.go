@@ -133,7 +133,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: store: %w", err)
 	}
-	workflowViewService, err := workflowview.New(metadataStore)
+	workflowViewService, err := workflowview.New(metadataStore, workflowview.WithSessionTranscriptProvider(sessionViewService))
 	if err != nil {
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: view: %w", err)

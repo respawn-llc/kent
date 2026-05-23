@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -20,6 +19,8 @@ const (
 	defaultOutputTokenCap      = 10_000
 	maxPendingOutputBytes      = 1 << 20
 	maxRecentPreviewBytes      = 4096
+	shellOutputNotifyInterval  = 50 * time.Millisecond
+	maxFullLogPostprocessBytes = 2 << 20
 	backgroundLogDirPrefix     = "builder-bg-shells-"
 	initialProcessID           = 1000
 )
@@ -168,10 +169,11 @@ type processEntry struct {
 	logPath        string
 	cmd            *exec.Cmd
 	stdin          io.WriteCloser
-	logFile        *os.File
+	log            *asyncLogWriter
 	running        bool
 	stdinOpen      bool
 	lastUpdatedAt  time.Time
+	lastSignaledAt time.Time
 	recentOutput   []byte
 	pendingOutput  []byte
 	outputBytes    int64
@@ -217,14 +219,24 @@ func (p *processEntry) snapshotLocked() Snapshot {
 }
 
 func (p *processEntry) closeResourcesLocked() {
-	if p.stdin != nil {
-		_ = p.stdin.Close()
-		p.stdin = nil
+	stdin, log := p.detachResourcesLocked()
+	closeDetachedResources(stdin, log)
+}
+
+func (p *processEntry) detachResourcesLocked() (io.Closer, *asyncLogWriter) {
+	stdin := p.stdin
+	log := p.log
+	p.stdin = nil
+	p.log = nil
+	return stdin, log
+}
+
+func closeDetachedResources(stdin io.Closer, log *asyncLogWriter) {
+	if stdin != nil {
+		_ = stdin.Close()
 	}
-	if p.logFile != nil {
-		_ = p.logFile.Sync()
-		_ = p.logFile.Close()
-		p.logFile = nil
+	if log != nil {
+		_ = log.Close()
 	}
 }
 
@@ -234,8 +246,8 @@ func (p *processEntry) writeOutput(chunk []byte) error {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.logFile != nil {
-		if _, err := p.logFile.Write(chunk); err != nil {
+	if p.log != nil {
+		if err := p.log.Write(chunk); err != nil {
 			return err
 		}
 	}
@@ -249,19 +261,23 @@ func (p *processEntry) writeOutput(chunk []byte) error {
 		p.recentOutput = append([]byte(nil), p.recentOutput[len(p.recentOutput)-maxRecentPreviewBytes:]...)
 	}
 	p.lastUpdatedAt = time.Now().UTC()
-	p.signal()
+	if p.lastSignaledAt.IsZero() || p.lastUpdatedAt.Sub(p.lastSignaledAt) >= shellOutputNotifyInterval {
+		p.lastSignaledAt = p.lastUpdatedAt
+		p.signal()
+	}
 	return nil
 }
 
 func (p *processEntry) setExited(exitCode int, state string) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.running = false
 	p.finishedAt = time.Now().UTC()
 	p.lastUpdatedAt = p.finishedAt
 	p.exitCode = &exitCode
 	p.state = state
-	p.closeResourcesLocked()
+	stdin, log := p.detachResourcesLocked()
+	p.mu.Unlock()
+	closeDetachedResources(stdin, log)
 	p.signal()
 }
 
@@ -273,15 +289,19 @@ func (p *processEntry) isBackgrounded() bool {
 
 func (p *processEntry) closeOnExit(exitCode int, state string) Snapshot {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.running = false
 	p.finishedAt = time.Now().UTC()
 	p.lastUpdatedAt = p.finishedAt
 	p.exitCode = &exitCode
 	p.state = state
-	p.closeResourcesLocked()
+	stdin, log := p.detachResourcesLocked()
+	p.mu.Unlock()
+	closeDetachedResources(stdin, log)
+	p.mu.Lock()
+	snapshot := p.snapshotLocked()
+	p.mu.Unlock()
 	p.signal()
-	return p.snapshotLocked()
+	return snapshot
 }
 
 func (p *processEntry) finalizeClosedExit() {

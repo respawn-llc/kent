@@ -6,6 +6,8 @@ import { useTranslation } from "react-i18next";
 import { toggleInMemoryThemeOverride } from "../appEnvironment";
 import { appChromeTitleClassNames, appChromeTitlePlacementClassNames } from "./appChromeStyles";
 import { useAppNavigation, useNavigationStackState } from "./navigation";
+import { SidebarHost, SidebarRouteChangeCloser } from "./sidebar";
+import { SidebarProvider } from "./sidebarProvider";
 import { useAppServices } from "./useAppServices";
 import { useCurrentWindowChromeTitle } from "./windowChromeTitle";
 
@@ -69,12 +71,18 @@ export function AppChrome({ children }: AppChromeProps) {
           {title}
         </div>
       ) : null}
-      <div
-        className="app-region-no-drag min-h-0 min-w-0 w-full overflow-visible"
-        data-testid="app-shell-content"
-      >
-        {children}
-      </div>
+      <SidebarProvider>
+        <div
+          className="app-region-no-drag relative flex min-h-0 min-w-0 w-full overflow-hidden"
+          data-testid="app-shell-content"
+        >
+          <div className="min-h-0 min-w-0 flex-1 overflow-visible" data-testid="app-main-content">
+            {children}
+          </div>
+          <SidebarHost />
+        </div>
+        <SidebarRouteChangeCloser />
+      </SidebarProvider>
     </main>
   );
 }

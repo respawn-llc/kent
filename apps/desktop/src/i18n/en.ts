@@ -15,6 +15,7 @@ export const englishResources = {
       unavailable: "Unavailable",
       none: "None",
       close: "Close",
+      resizeSidebar: "Resize sidebar",
       cancel: "Cancel",
       confirm: "Confirm",
       retry: "Try again",

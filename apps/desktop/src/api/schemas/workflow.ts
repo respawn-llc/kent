@@ -4,6 +4,8 @@ import { z } from "zod";
 import type {
   ActivityPage,
   AttentionPage,
+  BoardColumn,
+  BoardGroup,
   BoardNodeCardsPage,
   PendingAsk,
   TaskDetail,
@@ -318,16 +320,36 @@ export const workflowBoardSchema: z.ZodType<WorkflowBoard> = z
       generated_at_unix_ms: z.number(),
     }),
   })
-  .transform((value) => ({
-    projectID: value.board.project_id,
-    projectKey: value.board.project.project_key,
-    projectName: value.board.project.display_name,
-    selectedWorkflow: value.board.selected_workflow,
-    workflows: value.board.workflows,
-    groups: value.board.groups,
-    columns: value.board.columns,
-    generatedAt: value.board.generated_at_unix_ms,
-  }));
+  .transform((value) => {
+    const columns = visibleBoardColumns(value.board.columns);
+    return {
+      projectID: value.board.project_id,
+      projectKey: value.board.project.project_key,
+      projectName: value.board.project.display_name,
+      selectedWorkflow: value.board.selected_workflow,
+      workflows: value.board.workflows,
+      groups: visibleBoardGroups(value.board.groups, columns),
+      columns,
+      generatedAt: value.board.generated_at_unix_ms,
+    };
+  });
+
+function visibleBoardColumns(columns: readonly BoardColumn[]): readonly BoardColumn[] {
+  return columns.filter((column) => column.kind !== "join");
+}
+
+function visibleBoardGroups(
+  groups: readonly BoardGroup[],
+  columns: readonly BoardColumn[],
+): readonly BoardGroup[] {
+  const visibleNodeIDs = new Set(columns.map((column) => column.id));
+  return groups
+    .map((group) => ({
+      ...group,
+      nodeIDs: group.nodeIDs.filter((nodeID) => visibleNodeIDs.has(nodeID)),
+    }))
+    .filter((group) => group.nodeIDs.length > 0);
+}
 
 export const boardNodeCardsPageSchema: z.ZodType<BoardNodeCardsPage> = z
   .object({

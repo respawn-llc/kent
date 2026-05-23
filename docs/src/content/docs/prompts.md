@@ -36,12 +36,21 @@ System prompt files use Go template syntax with these fields:
 - `{{.BuilderRunCommand}}` - command prefix for launching Builder subagents from shell, e.g. `path/to/builder.exe`
 - `{{.EstimatedToolCallsForContext}}` - estimated function/tool-call budget before compaction/handoff, exact number that varies with model context window, like `185`.
 - `{{.EditingToolName}}` - name of the tool the agent uses to modify files, like `edit` or `patch`. Varies per model.
-- `{{.DefaultSystemPrompt}}` - Full text of the original Builder system prompt, positioning the agent as an expert architect, product engineer, coding agent.
+- `{{.DefaultSystemPrompt}}` - full text of the built-in Builder system prompt.
+- `{{.DefaultSystemPromptPersonality}}` - Builder agent identity, communication style, and engineering posture.
+- `{{.DefaultSystemPromptHarnessWorkflowAutonomy}}` - harness behavior, environment constraints, workflow guidance, and autonomy rules.
+- `{{.DefaultSystemPromptAmbiguityAndOutputQuality}}` - product ambiguity handling and implementation quality rules.
+- `{{.DefaultSystemPromptFinalAnswerAndFormatting}}` - final response, Markdown, and formatting rules.
+- `{{.DefaultSystemPromptDelegation}}` - subagent delegation guidance and examples.
+
+`{{.DefaultSystemPrompt}}` is available to custom prompt files only. Builder's built-in prompt assembly uses section placeholders and rejects `{{.DefaultSystemPrompt}}` self-reference.
 
 Example:
 
 ```md
-{{.DefaultSystemPrompt}}
+{{.DefaultSystemPromptPersonality}}
+
+{{.DefaultSystemPromptHarnessWorkflowAutonomy}}
 
 # Team Rules
 

@@ -22,6 +22,7 @@ builder service install
 
 The background server uses about 50 MB of RAM while idle.
 That cost buys one shared orchestrator for all Builder frontends and makes long-running background shells less dependent on the lifetime of a single terminal frontend.
+When supported by the OS, shells that move to the background run at lower process priority so foreground agent work remains responsive under load.
 
 ## Commands
 

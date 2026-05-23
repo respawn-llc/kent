@@ -20,20 +20,40 @@ import (
 	"builder/server/workflowjson"
 	"builder/shared/clientui"
 	"builder/shared/serverapi"
+	"builder/shared/toolspec"
 )
 
 type Service struct {
-	metadata *metadata.Store
-	queries  *sqlitegen.Queries
+	metadata    *metadata.Store
+	queries     *sqlitegen.Queries
+	transcripts SessionTranscriptPageProvider
 }
 
 const attentionKindInterruptedRun = "interrupted_run"
 
-func New(metadataStore *metadata.Store) (*Service, error) {
+type Option func(*Service)
+
+type SessionTranscriptPageProvider interface {
+	GetSessionTranscriptPage(ctx context.Context, req serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error)
+}
+
+func WithSessionTranscriptProvider(provider SessionTranscriptPageProvider) Option {
+	return func(s *Service) {
+		s.transcripts = provider
+	}
+}
+
+func New(metadataStore *metadata.Store, opts ...Option) (*Service, error) {
 	if metadataStore == nil || metadataStore.Queries() == nil {
 		return nil, errors.New("metadata store is required")
 	}
-	return &Service{metadata: metadataStore, queries: metadataStore.Queries()}, nil
+	svc := &Service{metadata: metadataStore, queries: metadataStore.Queries()}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(svc)
+		}
+	}
+	return svc, nil
 }
 
 func (s *Service) GetDefinition(ctx context.Context, workflowID string) (serverapi.WorkflowDefinition, map[string]workflow.NodeKind, error) {
@@ -613,7 +633,7 @@ func (s *Service) definition(ctx context.Context, workflowID string) (serverapi.
 		if err := workflowjson.UnmarshalString(edge.OutputRequirementsJson, &requirements); err != nil {
 			return serverapi.WorkflowDefinition{}, nil, err
 		}
-		def.Edges = append(def.Edges, serverapi.WorkflowEdge{ID: edge.ID, WorkflowID: edge.WorkflowID, TransitionGroupID: edge.TransitionGroupID, Key: edge.EdgeKey, TargetNodeID: edge.TargetNodeID, RequiresApproval: edge.RequiresApproval != 0, ContextMode: edge.ContextMode, InputBindings: inputs, OutputRequirements: requirements})
+		def.Edges = append(def.Edges, serverapi.WorkflowEdge{ID: edge.ID, WorkflowID: edge.WorkflowID, TransitionGroupID: edge.TransitionGroupID, Key: edge.EdgeKey, TargetNodeID: edge.TargetNodeID, RequiresApproval: edge.RequiresApproval != 0, ContextMode: edge.ContextMode, ContextSource: apiContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(edge.ContextSourceKind), NodeKey: workflow.ModelKey(edge.ContextSourceNodeKey)}), InputBindings: inputs, OutputRequirements: requirements})
 	}
 	return def, nodeKinds, nil
 }
@@ -1349,17 +1369,114 @@ ORDER BY r.updated_at_unix_ms DESC, (
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	items := []serverapi.WorkflowAttentionItem{}
+	type questionAttentionRow struct {
+		runID, sessionID, askID, projectID, workflowID, taskID, shortID, title string
+		occurred                                                               int64
+	}
+	rawRows := []questionAttentionRow{}
 	for rows.Next() {
-		var runID, sessionID, askID, rowProjectID, workflowID, rowTaskID, shortID, title string
-		var occurred int64
-		if err := rows.Scan(&runID, &sessionID, &askID, &rowProjectID, &workflowID, &rowTaskID, &shortID, &title, &occurred); err != nil {
+		var row questionAttentionRow
+		if err := rows.Scan(&row.runID, &row.sessionID, &row.askID, &row.projectID, &row.workflowID, &row.taskID, &row.shortID, &row.title, &row.occurred); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
-		items = append(items, serverapi.WorkflowAttentionItem{ID: "question:" + runID + ":" + askID, Kind: "question", ProjectID: rowProjectID, WorkflowID: workflowID, TaskID: rowTaskID, TaskShortID: shortID, TaskTitle: title, RunID: runID, SessionID: sessionID, AskID: askID, Message: "Question waiting for answer", OccurredAtUnixMs: occurred})
+		rawRows = append(rawRows, row)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	items := []serverapi.WorkflowAttentionItem{}
+	questions := newPendingQuestionResolver(s.transcripts)
+	for _, row := range rawRows {
+		question, err := questions.Question(ctx, row.sessionID, row.askID)
+		if err != nil {
+			question = pendingQuestionFallbackMessage
+		}
+		items = append(items, serverapi.WorkflowAttentionItem{ID: "question:" + row.runID + ":" + row.askID, Kind: "question", ProjectID: row.projectID, WorkflowID: row.workflowID, TaskID: row.taskID, TaskShortID: row.shortID, TaskTitle: row.title, RunID: row.runID, SessionID: row.sessionID, AskID: row.askID, Message: question, OccurredAtUnixMs: row.occurred})
+	}
+	return items, nil
+}
+
+const pendingQuestionTranscriptPageSize = clientui.MaxCommittedTranscriptSuffixLimit
+const pendingQuestionFallbackMessage = "Question pending; open the task to answer."
+
+type pendingQuestionResolver struct {
+	transcripts SessionTranscriptPageProvider
+	bySession   map[string]map[string]string
+}
+
+func newPendingQuestionResolver(transcripts SessionTranscriptPageProvider) *pendingQuestionResolver {
+	return &pendingQuestionResolver{transcripts: transcripts, bySession: map[string]map[string]string{}}
+}
+
+func (r *pendingQuestionResolver) Question(ctx context.Context, sessionID string, askID string) (string, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	askID = strings.TrimSpace(askID)
+	if r == nil || r.transcripts == nil {
+		return "", errors.New("session transcript provider is required to resolve pending question")
+	}
+	if sessionID == "" || askID == "" {
+		return "", errors.New("session_id and ask_id are required to resolve pending question")
+	}
+	questions, ok := r.bySession[sessionID]
+	if ok {
+		if question := strings.TrimSpace(questions[askID]); question != "" {
+			return question, nil
+		}
+	} else {
+		r.bySession[sessionID] = map[string]string{}
+	}
+	question, err := r.findQuestion(ctx, sessionID, askID)
+	if err != nil {
+		return "", err
+	}
+	r.bySession[sessionID][askID] = question
+	return question, nil
+}
+
+func (r *pendingQuestionResolver) findQuestion(ctx context.Context, sessionID string, askID string) (string, error) {
+	resp, err := r.transcripts.GetSessionTranscriptPage(ctx, serverapi.SessionTranscriptPageRequest{SessionID: sessionID, Window: clientui.TranscriptWindowOngoingTail})
+	if err != nil {
+		return "", fmt.Errorf("load session %q transcript tail for pending question %q: %w", sessionID, askID, err)
+	}
+	if question := askQuestionFromTranscriptEntries(resp.Transcript.Entries, askID); question != "" {
+		return question, nil
+	}
+	for nextEnd := resp.Transcript.Offset; nextEnd > 0; {
+		start := nextEnd - pendingQuestionTranscriptPageSize
+		if start < 0 {
+			start = 0
+		}
+		page, err := r.transcripts.GetSessionTranscriptPage(ctx, serverapi.SessionTranscriptPageRequest{SessionID: sessionID, Offset: start, Limit: nextEnd - start})
+		if err != nil {
+			return "", fmt.Errorf("load session %q transcript page for pending question %q: %w", sessionID, askID, err)
+		}
+		if question := askQuestionFromTranscriptEntries(page.Transcript.Entries, askID); question != "" {
+			return question, nil
+		}
+		nextEnd = start
+	}
+	return "", fmt.Errorf("pending question %q was not found in session %q transcript", askID, sessionID)
+}
+
+func askQuestionFromTranscriptEntries(entries []clientui.ChatEntry, askID string) string {
+	for _, entry := range entries {
+		entryAskID := strings.TrimSpace(entry.ToolCallID)
+		if strings.TrimSpace(entry.Role) != "tool_call" || entryAskID != askID || entry.ToolCall == nil {
+			continue
+		}
+		if strings.TrimSpace(entry.ToolCall.ToolName) != string(toolspec.ToolAskQuestion) {
+			continue
+		}
+		if question := strings.TrimSpace(entry.ToolCall.Question); question != "" {
+			return question
+		}
+	}
+	return ""
 }
 
 func (s *Service) interruptedRunAttentionItems(ctx context.Context, projectID string, taskID string) ([]serverapi.WorkflowAttentionItem, error) {
@@ -1550,7 +1667,7 @@ func definitionForValidation(def serverapi.WorkflowDefinition) workflow.Definiti
 		for _, requirement := range edge.OutputRequirements {
 			requirements = append(requirements, workflow.OutputRequirement{FieldName: requirement.FieldName})
 		}
-		out.Edges = append(out.Edges, workflow.Edge{WorkflowID: workflow.WorkflowID(edge.WorkflowID), ID: workflow.EdgeID(edge.ID), Key: workflow.ModelKey(edge.Key), TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID), TargetNodeID: workflow.NodeID(edge.TargetNodeID), RequiresApproval: edge.RequiresApproval, ContextMode: workflow.ContextMode(edge.ContextMode), InputBindings: inputs, OutputRequirements: requirements})
+		out.Edges = append(out.Edges, workflow.Edge{WorkflowID: workflow.WorkflowID(edge.WorkflowID), ID: workflow.EdgeID(edge.ID), Key: workflow.ModelKey(edge.Key), TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID), TargetNodeID: workflow.NodeID(edge.TargetNodeID), RequiresApproval: edge.RequiresApproval, ContextMode: workflow.ContextMode(edge.ContextMode), ContextSource: workflow.CanonicalContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(edge.ContextSource.Kind), NodeKey: workflow.ModelKey(edge.ContextSource.NodeKey)}), InputBindings: inputs, OutputRequirements: requirements})
 	}
 	return out
 }
@@ -1588,9 +1705,12 @@ func boardGroups(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardGrou
 	for _, group := range def.NodeGroups {
 		dto := serverapi.WorkflowBoardGroup{GroupID: group.GroupID, Key: group.GroupKey, DisplayName: group.DisplayName, SortOrder: group.SortOrder}
 		for _, node := range def.Nodes {
-			if node.GroupID == group.GroupID {
+			if node.GroupID == group.GroupID && boardVisibleNodeKind(node.Kind) {
 				dto.NodeIDs = append(dto.NodeIDs, node.ID)
 			}
+		}
+		if len(dto.NodeIDs) == 0 {
+			continue
 		}
 		groups = append(groups, dto)
 	}
@@ -1600,6 +1720,9 @@ func boardGroups(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardGrou
 func boardColumns(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardColumn {
 	columns := make([]serverapi.WorkflowBoardColumn, 0, len(def.Nodes))
 	for index, node := range def.Nodes {
+		if !boardVisibleNodeKind(node.Kind) {
+			continue
+		}
 		columns = append(columns, serverapi.WorkflowBoardColumn{
 			Node: serverapi.WorkflowBoardNodeSummary{
 				NodeID:                 node.ID,
@@ -1618,6 +1741,10 @@ func boardColumns(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardCol
 		})
 	}
 	return columns
+}
+
+func boardVisibleNodeKind(kind string) bool {
+	return workflow.NodeKind(kind) != workflow.NodeKindJoin
 }
 
 func boardTransitionOutputFields(def serverapi.WorkflowDefinition, targetNodeID string) []serverapi.WorkflowOutputField {
@@ -1941,6 +2068,11 @@ func boardNodeCardsPageToken(projectID string, workflowID string, nodeID string,
 		return ""
 	}
 	return base64.RawURLEncoding.EncodeToString(encoded)
+}
+
+func apiContextSource(in workflow.ContextSource) serverapi.WorkflowContextSource {
+	source := workflow.CanonicalContextSource(in)
+	return serverapi.WorkflowContextSource{Kind: string(source.Kind), NodeKey: string(source.NodeKey)}
 }
 
 func boardNodeCardIsAfterCursor(task sqlitegen.TaskRecord, cursor boardNodeCardsPageCursor) bool {

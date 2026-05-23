@@ -273,6 +273,8 @@ type WorkflowEdge struct {
 	TargetNodeID           string
 	RequiresApproval       int64
 	ContextMode            string
+	ContextSourceKind      string
+	ContextSourceNodeKey   string
 	InputBindingsJson      string
 	OutputRequirementsJson string
 	SortOrder              int64

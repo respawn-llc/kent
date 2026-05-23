@@ -10,6 +10,8 @@ import (
 
 func prepareManagedExec(cmd *exec.Cmd) {}
 
+func deprioritizeManagedProcess(process *os.Process) error { return nil }
+
 func killManagedProcess(process *os.Process) error {
 	if process == nil {
 		return nil

@@ -40,6 +40,7 @@ type edgeContractSnapshot struct {
 	Key                workflow.ModelKey            `json:"key"`
 	TargetNode         nodeContractSnapshot         `json:"target_node"`
 	ContextMode        workflow.ContextMode         `json:"context_mode"`
+	ContextSource      workflow.ContextSource       `json:"context_source"`
 	RequiresApproval   bool                         `json:"requires_approval"`
 	InputBindings      []workflow.InputBinding      `json:"input_bindings,omitempty"`
 	OutputRequirements []workflow.OutputRequirement `json:"output_requirements,omitempty"`
@@ -132,6 +133,7 @@ func newRunStartSnapshot(def workflow.Definition, record WorkflowRecord, nodeID 
 				Key:                edge.Key,
 				TargetNode:         nodeSnapshot(target),
 				ContextMode:        edge.ContextMode,
+				ContextSource:      workflow.CanonicalContextSource(edge.ContextSource),
 				RequiresApproval:   edge.RequiresApproval,
 				InputBindings:      edge.InputBindings,
 				OutputRequirements: edge.OutputRequirements,
@@ -197,6 +199,15 @@ func (s runStartSnapshot) forNode(target nodeContractSnapshot) (runStartSnapshot
 func (s runStartSnapshot) nodeByID(nodeID workflow.NodeID) (nodeContractSnapshot, bool) {
 	for _, node := range s.Nodes {
 		if node.ID == nodeID {
+			return node, true
+		}
+	}
+	return nodeContractSnapshot{}, false
+}
+
+func (s runStartSnapshot) nodeByKey(nodeKey workflow.ModelKey) (nodeContractSnapshot, bool) {
+	for _, node := range s.Nodes {
+		if node.Key == nodeKey {
 			return node, true
 		}
 	}

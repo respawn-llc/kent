@@ -256,7 +256,7 @@ func (s *Service) AddWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdg
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowEdgeAddResponse{}, err
 	}
-	revision, err := s.store.AddEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID(req.EdgeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), TransitionGroupID: workflow.TransitionGroupID(req.TransitionGroupID), Key: workflow.ModelKey(req.Key), TargetNodeID: workflow.NodeID(req.TargetNodeID), RequiresApproval: req.RequiresApproval, ContextMode: workflow.ContextMode(req.ContextMode), InputBindings: inputBindings(req.InputBindings), OutputRequirements: outputRequirements(req.OutputRequirements)})
+	revision, err := s.store.AddEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID(req.EdgeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), TransitionGroupID: workflow.TransitionGroupID(req.TransitionGroupID), Key: workflow.ModelKey(req.Key), TargetNodeID: workflow.NodeID(req.TargetNodeID), RequiresApproval: req.RequiresApproval, ContextMode: workflow.ContextMode(req.ContextMode), ContextSource: domainContextSource(req.ContextSource), InputBindings: inputBindings(req.InputBindings), OutputRequirements: outputRequirements(req.OutputRequirements)})
 	if err != nil {
 		return serverapi.WorkflowEdgeAddResponse{}, err
 	}
@@ -268,7 +268,7 @@ func (s *Service) UpdateWorkflowEdge(ctx context.Context, req serverapi.Workflow
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowEdgeUpdateResponse{}, err
 	}
-	revision, err := s.store.UpdateEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID(req.EdgeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), TransitionGroupID: workflow.TransitionGroupID(req.TransitionGroupID), Key: workflow.ModelKey(req.Key), TargetNodeID: workflow.NodeID(req.TargetNodeID), RequiresApproval: req.RequiresApproval, ContextMode: workflow.ContextMode(req.ContextMode), InputBindings: inputBindings(req.InputBindings), OutputRequirements: outputRequirements(req.OutputRequirements)})
+	revision, err := s.store.UpdateEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID(req.EdgeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), TransitionGroupID: workflow.TransitionGroupID(req.TransitionGroupID), Key: workflow.ModelKey(req.Key), TargetNodeID: workflow.NodeID(req.TargetNodeID), RequiresApproval: req.RequiresApproval, ContextMode: workflow.ContextMode(req.ContextMode), ContextSource: domainContextSource(req.ContextSource), InputBindings: inputBindings(req.InputBindings), OutputRequirements: outputRequirements(req.OutputRequirements)})
 	if err != nil {
 		return serverapi.WorkflowEdgeUpdateResponse{}, err
 	}
@@ -790,6 +790,10 @@ func outputFields(in []serverapi.WorkflowOutputField) []workflow.OutputField {
 		out = append(out, workflow.OutputField{Name: field.Name, Description: field.Description})
 	}
 	return out
+}
+
+func domainContextSource(in serverapi.WorkflowContextSource) workflow.ContextSource {
+	return workflow.CanonicalContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(in.Kind), NodeKey: workflow.ModelKey(in.NodeKey)})
 }
 
 func inputBindings(in []serverapi.WorkflowInputBinding) []workflow.InputBinding {

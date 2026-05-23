@@ -21,6 +21,7 @@ export function QuestionBox({
   const { t } = useTranslation();
   const asks = usePendingAsks(attention.sessionID);
   const pendingAsk = asks.data?.find((ask) => ask.askID === attention.askID);
+  const question = attention.message.length > 0 ? attention.message : pendingAsk?.question;
   const [answer, setAnswer] = useState("");
   const [selectedOption, setSelectedOption] = useState(0);
   const groupName = useId();
@@ -48,7 +49,7 @@ export function QuestionBox({
       }}
     >
       <h3>{t("task.question")}</h3>
-      <p>{pendingAsk?.question ?? attention.message}</p>
+      {question !== undefined && question.length > 0 ? <p>{question}</p> : null}
       <fieldset className="m-0 grid gap-[var(--space-2)] border-0 p-0">
         <legend className="sr-only">{t("task.optionNumber")}</legend>
         {(pendingAsk?.suggestions ?? []).map((suggestion, optionIndex) => (

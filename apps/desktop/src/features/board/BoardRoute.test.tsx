@@ -4,6 +4,7 @@ import {
   createTauriNativeBridge,
   type NativeBridge,
   type NativeDialogWindowOptions,
+  type NativeTaskDetailTarget,
 } from "@builder/desktop-native-bridge";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
@@ -464,39 +465,139 @@ describe("BoardRoute", () => {
     expect(services.transport.calls.some((call) => call.method === "workflow.task.move")).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "New Task" }));
-    await waitFor(() => {
-      expect(opened).toHaveLength(1);
-    });
-    expect(screen.queryByRole("dialog", { name: "Create Backlog task" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("complementary", { name: "Create Backlog task" })).toHaveAttribute(
+      "data-mode",
+      "overlay",
+    );
+    expect(opened).toHaveLength(0);
   });
 
-  it("opens Create Task in a native dialog window when native dialogs are available", async () => {
+  it("opens Create Task in the global sidebar instead of a native dialog window", async () => {
     window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
     const opened: NativeDialogWindowOptions[] = [];
-    const services = createTestServices([...startupRoutes, ...boardRoutes()], nativeDialogBridge(opened));
+    const services = createTestServices(
+      [
+        ...startupRoutes,
+        ...boardRoutes(),
+        {
+          method: "project.workspace.list",
+          result: {
+            project_id: "project-1",
+            workspaces: [workspace],
+            default_workspace_id: "workspace-1",
+            next_page_token: "",
+          },
+        },
+        { method: "workflow.task.create", result: { task: { id: "task-new" } } },
+      ],
+      nativeDialogBridge(opened),
+    );
 
     render(<App services={services} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "New Task" }));
 
+    const sidebar = await screen.findByTestId("app-sidebar-host");
+    const panel = screen.getByRole("complementary", { name: "Create Backlog task" });
+    expect(panel).toHaveAttribute("data-mode", "overlay");
+    expect(panel).toHaveClass(
+      "absolute",
+      "top-0",
+      "right-[var(--space-2)]",
+      "bottom-[var(--space-2)]",
+    );
+    expect(panel).not.toHaveClass("relative");
+    expect(panel).not.toHaveClass("top-[var(--space-2)]");
+    expect(opened).toHaveLength(0);
+    expect(await within(sidebar).findByText("Main")).toBeInTheDocument();
+
+    fireEvent.change(within(sidebar).getByLabelText("Title"), { target: { value: "Sidebar task" } });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Create task" }));
+
     await waitFor(() => {
-      expect(opened).toHaveLength(1);
+      expect(services.transport.calls).toContainEqual({
+        method: "workflow.task.create",
+        params: {
+          project_id: "project-1",
+          workflow_id: "workflow-1",
+          title: "Sidebar task",
+          body: "",
+          source_workspace_id: "workspace-1",
+        },
+      });
     });
-    const openedDialog = onlyOpenedDialog(opened);
-    expect(openedDialog.initialHeight).toBe(560);
-    expect(openedDialog.initialWidth).toBe(608);
-    expect(openedDialog.resizable).toBe(true);
-    expect(openedDialog.label).toMatch(/^new-task-project-1-/u);
-    expect(openedDialog.params).toEqual({
-      projectID: "project-1",
-      workflowID: "workflow-1",
+    await waitFor(() => {
+      expect(screen.queryByTestId("app-sidebar-host")).not.toBeInTheDocument();
     });
-    expect(openedDialog.route).toBe("/native-dialog/new-task");
-    expect(openedDialog.title).toBe("Create Backlog task");
-    expect(screen.queryByRole("dialog", { name: "Create Backlog task" })).not.toBeInTheDocument();
   });
 
-  it("falls back to an inline Create Task dialog when native dialogs are unavailable", async () => {
+  it("keeps overlay sidebar mounted for close animation before unmounting", async () => {
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes(),
+      {
+        method: "project.workspace.list",
+        result: {
+          project_id: "project-1",
+          workspaces: [workspace],
+          default_workspace_id: "workspace-1",
+          next_page_token: "",
+        },
+      },
+    ]);
+
+    render(<App services={services} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "New Task" }));
+    const sidebar = await screen.findByRole("complementary", { name: "Create Backlog task" });
+    expect(sidebar).toHaveAttribute("data-state", "open");
+
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Close" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("app-sidebar-host")).toHaveAttribute("data-state", "closing");
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId("app-sidebar-host")).not.toBeInTheDocument();
+    });
+  });
+
+  it("closes the sidebar on main route navigation", async () => {
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes(),
+      {
+        method: "project.workspace.list",
+        result: {
+          project_id: "project-1",
+          workspaces: [workspace],
+          default_workspace_id: "workspace-1",
+          next_page_token: "",
+        },
+      },
+      {
+        method: "workflow.attention.list",
+        result: { items: [], next_page_token: "", generated_at_unix_ms: 1 },
+      },
+      { method: "project.list", result: { projects: [], next_page_token: "", generated_at_unix_ms: 1 } },
+    ]);
+
+    render(<App services={services} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "New Task" }));
+    expect(await screen.findByRole("complementary", { name: "Create Backlog task" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "Home" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("complementary", { name: "Create Backlog task" })).not.toBeInTheDocument();
+    });
+    expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+  });
+
+  it("uses the same Create Task sidebar when native dialogs are unavailable", async () => {
     window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
     const opened: NativeDialogWindowOptions[] = [];
     const services = createTestServices(
@@ -521,13 +622,14 @@ describe("BoardRoute", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "New Task" }));
 
-    await waitFor(() => {
-      expect(opened).toHaveLength(1);
-    });
-    expect(screen.getByText("Create task window failed")).toBeInTheDocument();
-    expect(screen.getByText("Native dialog windows are unavailable in this shell.")).toBeInTheDocument();
-    const dialog = await screen.findByRole("dialog", { name: "Create Backlog task" });
-    expect(within(dialog).getByText("Main")).toBeInTheDocument();
+    const sidebar = await screen.findByRole("complementary", { name: "Create Backlog task" });
+    expect(sidebar).toHaveAttribute("data-mode", "overlay");
+    expect(opened).toHaveLength(0);
+    expect(screen.queryByText("Create task window failed")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Native dialog windows are unavailable in this shell."),
+    ).not.toBeInTheDocument();
+    expect(await within(sidebar).findByText("Main")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create task" })).toHaveClass("mx-auto", "max-w-[400px]");
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Fallback task" } });
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
@@ -545,8 +647,90 @@ describe("BoardRoute", () => {
       });
     });
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Create Backlog task" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("complementary", { name: "Create Backlog task" })).not.toBeInTheDocument();
     });
+  });
+
+  it("opens board task detail in the global sidebar instead of a native task detail window", async () => {
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const opened: NativeTaskDetailTarget[] = [];
+    const services = createTestServices(
+      [
+        ...startupRoutes,
+        ...boardRoutes(),
+        { method: "workflow.task.get", result: taskDetailResponseForCancel() },
+        { method: "workflow.task.activity.list", result: emptyActivityResponse },
+      ],
+      taskDetailWindowBridge(opened),
+    );
+
+    render(<App services={services} />);
+
+    const card = await screen.findByRole("article", { name: "Write focused tests" });
+    fireEvent.click(card);
+
+    const sidebar = await screen.findByTestId("app-sidebar-host");
+    expect(screen.getByRole("complementary", { name: "Task" })).toHaveAttribute("data-mode", "overlay");
+    expect(await within(sidebar).findByDisplayValue("Task detail title")).toBeInTheDocument();
+    expect(methodCallCount(services.transport.calls, "workflow.task.get")).toBe(1);
+    expect(methodCallCount(services.transport.calls, "workflow.task.activity.list")).toBe(1);
+    expect(opened).toEqual([]);
+    expect(new URLSearchParams(window.location.search).get("taskId")).toBe("task-1");
+
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Close" }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("app-sidebar-host")).not.toBeInTheDocument();
+    });
+    expect(new URLSearchParams(window.location.search).get("taskId")).toBe("");
+
+    fireEvent.click(await screen.findByRole("article", { name: "Write focused tests" }));
+
+    const reopenedSidebar = await screen.findByTestId("app-sidebar-host");
+    expect(screen.getByRole("complementary", { name: "Task" })).toHaveAttribute("data-mode", "overlay");
+    expect(await within(reopenedSidebar).findByDisplayValue("Task detail title")).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get("taskId")).toBe("task-1");
+  });
+
+  it("keeps resized sidebar width across board sidebar destinations", async () => {
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes(),
+      {
+        method: "project.workspace.list",
+        result: {
+          project_id: "project-1",
+          workspaces: [workspace],
+          default_workspace_id: "workspace-1",
+          next_page_token: "",
+        },
+      },
+      { method: "workflow.task.get", result: taskDetailResponseForCancel() },
+      { method: "workflow.task.activity.list", result: emptyActivityResponse },
+    ]);
+
+    render(<App services={services} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "New Task" }));
+    const createTaskSidebar = await screen.findByRole("complementary", { name: "Create Backlog task" });
+    fireEvent.keyDown(within(createTaskSidebar).getByRole("separator", { name: "Resize sidebar" }), {
+      key: "End",
+    });
+    const resizedWidth = sidebarWidthStyle(createTaskSidebar);
+    expect(Number.parseInt(resizedWidth, 10)).toBeGreaterThan(360);
+
+    fireEvent.click(within(createTaskSidebar).getByRole("button", { name: "Close" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("complementary", { name: "Create Backlog task" })).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(await screen.findByRole("article", { name: "Write focused tests" }));
+
+    const taskDetailSidebar = await screen.findByRole("complementary", { name: "Task" });
+    expect(sidebarWidthStyle(taskDetailSidebar)).toBe(resizedWidth);
+    expect(await within(taskDetailSidebar).findByDisplayValue("Task detail title")).toBeInTheDocument();
   });
 
   it("renders Create Task in a native dialog route and closes the native window after submit", async () => {
@@ -1622,14 +1806,6 @@ function rejectingNativeDialogBridge(opened: NativeDialogWindowOptions[]): Nativ
   };
 }
 
-function onlyOpenedDialog(opened: readonly NativeDialogWindowOptions[]): NativeDialogWindowOptions {
-  const dialog = opened[0];
-  if (dialog === undefined) {
-    throw new Error("expected a native dialog to open");
-  }
-  return dialog;
-}
-
 function nativeWindowBridge(onClose: () => void): NativeBridge {
   const base = createBrowserNativeBridge();
   return {
@@ -1638,6 +1814,31 @@ function nativeWindowBridge(onClose: () => void): NativeBridge {
       ...base.window,
       async closeCurrent(): Promise<void> {
         onClose();
+      },
+    },
+  };
+}
+
+function methodCallCount(calls: readonly { method: string }[], method: string): number {
+  return calls.filter((call) => call.method === method).length;
+}
+
+function sidebarWidthStyle(sidebar: HTMLElement): string {
+  return sidebar.style.getPropertyValue("--app-sidebar-width");
+}
+
+function taskDetailWindowBridge(opened: NativeTaskDetailTarget[]): NativeBridge {
+  const base = createBrowserNativeBridge();
+  return {
+    ...base,
+    capabilities: {
+      ...base.capabilities,
+      taskDetailWindow: true,
+    },
+    taskDetail: {
+      ...base.taskDetail,
+      async openWindow(target): Promise<void> {
+        opened.push(target);
       },
     },
   };

@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -28,13 +29,29 @@ func (m *Manager) applyPostprocessing(ctx context.Context, entry *processEntry, 
 }
 
 func readOutputFile(path string) (string, error) {
+	return readOutputFileLimited(path, 0)
+}
+
+func readOutputFileLimited(path string, maxBytes int64) (string, error) {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
 		return "", fmt.Errorf("output log path is empty")
 	}
-	data, err := os.ReadFile(trimmed)
+	file, err := os.Open(trimmed)
 	if err != nil {
 		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	var reader io.Reader = file
+	if maxBytes > 0 {
+		reader = io.LimitReader(file, maxBytes+1)
+	}
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return "", err
+	}
+	if maxBytes > 0 && int64(len(data)) > maxBytes {
+		return "", fmt.Errorf("output log exceeds full-read limit %d", maxBytes)
 	}
 	return string(data), nil
 }

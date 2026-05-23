@@ -157,24 +157,28 @@ func (m *Manager) waitForExit(entry *processEntry) {
 	preview := ""
 	removed := 0
 	previewProcessed := false
-	fullOutput, readErr := readOutputFile(entry.logPath)
+	fullOutput, readErr := readOutputFileLimited(entry.logPath, maxFullLogPostprocessBytes)
 	if readErr == nil {
 		processed, err := m.applyPostprocessing(context.Background(), entry, fullOutput, snapshot.ExitCode, true, defaultLimit)
 		if err == nil && processed.Processed {
 			preview = processed.Output
 			previewProcessed = true
 		} else {
-			preview, removed, err = readPreviewFromFile(entry.logPath, defaultLimit, !snapshot.RawOutput)
+			var truncated bool
+			preview, _, truncated, err = readBackgroundSummaryFromFile(entry.logPath, defaultLimit, BackgroundOutputDefault, !snapshot.RawOutput)
 			if err != nil {
 				preview = fmt.Sprintf("failed to read output preview: %v", err)
-				removed = 0
+			} else if truncated {
+				removed = 1
 			}
 		}
 	} else {
-		preview, removed, readErr = readPreviewFromFile(entry.logPath, defaultLimit, !snapshot.RawOutput)
+		var truncated bool
+		preview, _, truncated, readErr = readBackgroundSummaryFromFile(entry.logPath, defaultLimit, BackgroundOutputDefault, !snapshot.RawOutput)
 		if readErr != nil {
 			preview = fmt.Sprintf("failed to read output preview: %v", readErr)
-			removed = 0
+		} else if truncated {
+			removed = 1
 		}
 	}
 	eventType := EventCompleted

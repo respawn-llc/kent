@@ -43,12 +43,15 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
     expect(screen.getByTestId("app-shell-content")).toHaveClass(
       "app-region-no-drag",
+      "flex",
       "min-h-0",
       "min-w-0",
+      "relative",
       "w-full",
-      "overflow-visible",
+      "overflow-hidden",
     );
     expect(screen.getByTestId("app-shell-content")).not.toHaveClass("island-glass");
+    expect(screen.getByTestId("app-main-content")).toHaveClass("min-h-0", "min-w-0", "flex-1");
     expect(screen.getByTestId("route-transition-frame")).toHaveClass(
       "route-transition-frame",
       "h-full",

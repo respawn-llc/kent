@@ -1146,6 +1146,8 @@ SELECT
     e.target_node_id,
     e.requires_approval,
     e.context_mode,
+    e.context_source_kind,
+    e.context_source_node_key,
     e.input_bindings_json,
     e.output_requirements_json,
     e.sort_order
@@ -1164,6 +1166,8 @@ type GetWorkflowEdgeRow struct {
 	TargetNodeID           string
 	RequiresApproval       int64
 	ContextMode            string
+	ContextSourceKind      string
+	ContextSourceNodeKey   string
 	InputBindingsJson      string
 	OutputRequirementsJson string
 	SortOrder              int64
@@ -1180,6 +1184,8 @@ func (q *Queries) GetWorkflowEdge(ctx context.Context, id string) (GetWorkflowEd
 		&i.TargetNodeID,
 		&i.RequiresApproval,
 		&i.ContextMode,
+		&i.ContextSourceKind,
+		&i.ContextSourceNodeKey,
 		&i.InputBindingsJson,
 		&i.OutputRequirementsJson,
 		&i.SortOrder,
@@ -2001,6 +2007,8 @@ INSERT INTO workflow_edges (
     target_node_id,
     requires_approval,
     context_mode,
+    context_source_kind,
+    context_source_node_key,
     input_bindings_json,
     output_requirements_json,
     sort_order
@@ -2013,7 +2021,9 @@ INSERT INTO workflow_edges (
     ?6,
     ?7,
     ?8,
-    ?9
+    ?9,
+    ?10,
+    ?11
 )
 `
 
@@ -2024,6 +2034,8 @@ type InsertWorkflowEdgeParams struct {
 	TargetNodeID           string
 	RequiresApproval       int64
 	ContextMode            string
+	ContextSourceKind      string
+	ContextSourceNodeKey   string
 	InputBindingsJson      string
 	OutputRequirementsJson string
 	SortOrder              int64
@@ -2037,6 +2049,8 @@ func (q *Queries) InsertWorkflowEdge(ctx context.Context, arg InsertWorkflowEdge
 		arg.TargetNodeID,
 		arg.RequiresApproval,
 		arg.ContextMode,
+		arg.ContextSourceKind,
+		arg.ContextSourceNodeKey,
 		arg.InputBindingsJson,
 		arg.OutputRequirementsJson,
 		arg.SortOrder,
@@ -3591,6 +3605,8 @@ SELECT
     e.target_node_id,
     e.requires_approval,
     e.context_mode,
+    e.context_source_kind,
+    e.context_source_node_key,
     e.input_bindings_json,
     e.output_requirements_json,
     e.sort_order
@@ -3609,6 +3625,8 @@ type ListWorkflowEdgesRow struct {
 	TargetNodeID           string
 	RequiresApproval       int64
 	ContextMode            string
+	ContextSourceKind      string
+	ContextSourceNodeKey   string
 	InputBindingsJson      string
 	OutputRequirementsJson string
 	SortOrder              int64
@@ -3631,6 +3649,8 @@ func (q *Queries) ListWorkflowEdges(ctx context.Context, workflowID string) ([]L
 			&i.TargetNodeID,
 			&i.RequiresApproval,
 			&i.ContextMode,
+			&i.ContextSourceKind,
+			&i.ContextSourceNodeKey,
 			&i.InputBindingsJson,
 			&i.OutputRequirementsJson,
 			&i.SortOrder,

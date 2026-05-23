@@ -369,21 +369,91 @@ func (s *validationState) validateRuntimeSupport() {
 	for _, edge := range s.def.Edges {
 		ref := ValidationError{WorkflowID: s.def.ID, EdgeID: edge.ID, TransitionGroupID: edge.TransitionGroupID}
 		targetKind := NodeKind("")
-		if target, exists := s.nodesByID[edge.TargetNodeID]; exists {
+		target := Node{}
+		targetExists := false
+		if resolvedTarget, exists := s.nodesByID[edge.TargetNodeID]; exists {
+			target = resolvedTarget
 			targetKind = target.Kind
+			targetExists = true
 		}
-		if edge.ContextMode == ContextModeContinueSession {
-			if group, groupExists := s.groupsByID[edge.TransitionGroupID]; groupExists {
-				source, sourceExists := s.nodesByID[group.SourceNodeID]
-				target, targetExists := s.nodesByID[edge.TargetNodeID]
-				if sourceExists && targetExists && source.Kind == NodeKindAgent && target.Kind == NodeKindAgent && strings.TrimSpace(source.SubagentRole) != strings.TrimSpace(target.SubagentRole) {
-					s.addSemantic(CodeInvalidContinueSessionRole, "continue_session requires source and target agent nodes to use the same subagent role", ref)
-				}
+		source := Node{}
+		sourceExists := false
+		if group, groupExists := s.groupsByID[edge.TransitionGroupID]; groupExists {
+			source, sourceExists = s.nodesByID[group.SourceNodeID]
+		}
+		contextSource, contextSourceValid := s.validateContextSource(edge, source, sourceExists, target, targetExists, ref)
+		if edge.ContextMode == ContextModeContinueSession && contextSourceValid {
+			selectedSource, ok := s.contextSourceNode(contextSource, source, sourceExists)
+			if ok && targetExists && selectedSource.Kind == NodeKindAgent && target.Kind == NodeKindAgent && strings.TrimSpace(selectedSource.SubagentRole) != strings.TrimSpace(target.SubagentRole) {
+				s.addSemantic(CodeInvalidContinueSessionRole, "continue_session requires source and target agent nodes to use the same subagent role", ref)
 			}
 		}
 		for _, issue := range UnsupportedRuntimeFeatures(RuntimeSupportEdge{ContextMode: edge.ContextMode, RequiresApproval: edge.RequiresApproval, TargetKind: targetKind, InputBindings: edge.InputBindings}) {
 			s.addSemantic(issue.Code, issue.Message, ref)
 		}
+	}
+}
+
+func (s *validationState) validateContextSource(edge Edge, source Node, sourceExists bool, target Node, targetExists bool, ref ValidationError) (ContextSource, bool) {
+	contextSource := CanonicalContextSource(edge.ContextSource)
+	switch contextSource.Kind {
+	case ContextSourceImmediateSource:
+		if edge.ContextMode != ContextModeNewSession && sourceExists && source.Kind != NodeKindAgent {
+			s.addSemantic(CodeInvalidContextSource, "immediate context source for continuation must be an agent node", ref)
+			return contextSource, false
+		}
+		return contextSource, true
+	case ContextSourceSelectedNode:
+		if edge.ContextMode == ContextModeNewSession {
+			s.addSemantic(CodeInvalidContextSource, "selected context source requires a continuation context mode", ref)
+			return contextSource, false
+		}
+		nodeKey := strings.TrimSpace(string(contextSource.NodeKey))
+		if nodeKey == "" || !validModelKey(nodeKey) {
+			s.addSemantic(CodeInvalidContextSource, "selected context source node key is invalid", ref)
+			return contextSource, false
+		}
+		selectedID, exists := s.nodeKeys[contextSource.NodeKey]
+		if !exists {
+			s.addSemantic(CodeInvalidContextSource, "selected context source node does not exist", ref)
+			return contextSource, false
+		}
+		selected := s.nodesByID[selectedID]
+		if selected.Kind != NodeKindAgent {
+			s.addSemantic(CodeInvalidContextSource, "selected context source must be an agent node", ref)
+			return contextSource, false
+		}
+		if targetExists && selected.ID == target.ID {
+			s.addSemantic(CodeInvalidContextSource, "selected context source cannot be the edge target node", ref)
+			return contextSource, false
+		}
+		if !sourceExists || len(s.startNodes) != 1 {
+			return contextSource, true
+		}
+		if selected.ID != source.ID && !s.nodeDominates(selected.ID, source.ID) {
+			s.addSemantic(CodeInvalidContextSource, "selected context source must be guaranteed before the edge source", ref)
+			return contextSource, false
+		}
+		return contextSource, true
+	default:
+		s.addSemantic(CodeInvalidContextSource, "context source kind is invalid", ref)
+		return contextSource, false
+	}
+}
+
+func (s *validationState) contextSourceNode(contextSource ContextSource, immediate Node, immediateExists bool) (Node, bool) {
+	switch contextSource.Kind {
+	case ContextSourceImmediateSource:
+		return immediate, immediateExists
+	case ContextSourceSelectedNode:
+		nodeID, exists := s.nodeKeys[contextSource.NodeKey]
+		if !exists {
+			return Node{}, false
+		}
+		node, exists := s.nodesByID[nodeID]
+		return node, exists
+	default:
+		return Node{}, false
 	}
 }
 
@@ -429,6 +499,39 @@ func (s *validationState) validatePromptPlaceholders() {
 			}
 		}
 	}
+}
+
+func (s *validationState) nodeDominates(candidate NodeID, target NodeID) bool {
+	if candidate == target {
+		return true
+	}
+	if len(s.startNodes) != 1 {
+		return false
+	}
+	reachableWithoutCandidate := s.reachableFromSkipping(s.startNodes[0].ID, candidate)
+	return !reachableWithoutCandidate[target]
+}
+
+func (s *validationState) reachableFromSkipping(start NodeID, skip NodeID) map[NodeID]bool {
+	visited := map[NodeID]bool{}
+	if start == skip {
+		return visited
+	}
+	stack := []NodeID{start}
+	for len(stack) > 0 {
+		nodeID := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if visited[nodeID] || nodeID == skip {
+			continue
+		}
+		visited[nodeID] = true
+		for _, edge := range s.outgoingByNode[nodeID] {
+			if !visited[edge.TargetNodeID] && edge.TargetNodeID != skip {
+				stack = append(stack, edge.TargetNodeID)
+			}
+		}
+	}
+	return visited
 }
 
 func (s *validationState) reachableFrom(start NodeID) map[NodeID]bool {

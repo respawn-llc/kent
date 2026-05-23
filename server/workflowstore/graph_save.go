@@ -181,8 +181,9 @@ func prepareWorkflowGraphSave(workflowID workflow.WorkflowID, displayName string
 	}
 	for i, edge := range prepared.edges {
 		edge.WorkflowID = defaultWorkflowID(edge.WorkflowID, workflowID)
+		edge.ContextSource = workflow.CanonicalContextSource(edge.ContextSource)
 		prepared.edges[i] = edge
-		def.Edges = append(def.Edges, workflow.Edge{WorkflowID: edge.WorkflowID, ID: edge.ID, Key: edge.Key, TransitionGroupID: edge.TransitionGroupID, TargetNodeID: edge.TargetNodeID, ContextMode: edge.ContextMode, RequiresApproval: edge.RequiresApproval, InputBindings: edge.InputBindings, OutputRequirements: edge.OutputRequirements})
+		def.Edges = append(def.Edges, workflow.Edge{WorkflowID: edge.WorkflowID, ID: edge.ID, Key: edge.Key, TransitionGroupID: edge.TransitionGroupID, TargetNodeID: edge.TargetNodeID, ContextMode: edge.ContextMode, ContextSource: edge.ContextSource, RequiresApproval: edge.RequiresApproval, InputBindings: edge.InputBindings, OutputRequirements: edge.OutputRequirements})
 	}
 	return prepared, def, nil
 }
@@ -403,6 +404,7 @@ WHERE EXISTS (
 }
 
 func upsertWorkflowEdge(ctx context.Context, tx *sql.Tx, edge EdgeRecord, sortOrder int64) error {
+	contextSource := workflow.CanonicalContextSource(edge.ContextSource)
 	inputs, err := marshalJSON(edge.InputBindings)
 	if err != nil {
 		return err
@@ -412,14 +414,16 @@ func upsertWorkflowEdge(ctx context.Context, tx *sql.Tx, edge EdgeRecord, sortOr
 		return err
 	}
 	result, err := tx.ExecContext(ctx, `
-INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, input_bindings_json, output_requirements_json, sort_order)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key, input_bindings_json, output_requirements_json, sort_order)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     transition_group_id = excluded.transition_group_id,
     edge_key = excluded.edge_key,
     target_node_id = excluded.target_node_id,
     requires_approval = excluded.requires_approval,
     context_mode = excluded.context_mode,
+    context_source_kind = excluded.context_source_kind,
+    context_source_node_key = excluded.context_source_node_key,
     input_bindings_json = excluded.input_bindings_json,
     output_requirements_json = excluded.output_requirements_json,
     sort_order = excluded.sort_order
@@ -436,6 +440,8 @@ WHERE EXISTS (
 		string(edge.TargetNodeID),
 		boolToInt64(edge.RequiresApproval),
 		string(edge.ContextMode),
+		string(contextSource.Kind),
+		string(contextSource.NodeKey),
 		inputs,
 		requirements,
 		sortOrder,

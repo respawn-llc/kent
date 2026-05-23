@@ -42,7 +42,7 @@ The subagent role associated with an executable node. UI surfaces may present th
 
 ### Node
 
-A visible workflow state and Kanban column/status. Node identity is execution identity: when a task is in a node, that node determines which run behavior applies.
+A workflow graph state. Agent, start, and terminal nodes can map to user-visible workflow states or Kanban columns/statuses, while join nodes are internal merge plumbing omitted from board columns and collapsed in workflow editor visuals. Node identity is execution identity: when a task is in a node, that node determines which run behavior applies.
 
 Executable nodes configure agent-run behavior:
 
@@ -75,6 +75,7 @@ An edge configures:
 - target node;
 - whether transition needs human approval or another manual interaction;
 - context-preservation mode for the next node;
+- context source for continuation modes;
 - input/output bindings between prior node output, task metadata, and next node prompt/context;
 - routing condition or decision mapping;
 - join/aggregation requirements when multiple inbound branches must complete.
@@ -102,6 +103,10 @@ Per-edge transition policy that decides how the next node receives execution con
 - `new_session`: start a blank Builder session and inject previous node output plus task metadata.
 - `continue_session`: continue the previous Builder session with a new prompt/goal and bound metadata.
 - `compact_and_continue_session`: compact the previous session first, then continue with a new prompt/goal and bound metadata.
+
+### Context Source
+
+Per-edge continuation policy that decides which earlier run supplies the source session for `continue_session` or `compact_and_continue_session`. The default is `immediate_source`, meaning the run that produced the selected transition. `node:<node_key>` selects the latest completed run for a guaranteed-prior agent node while keeping input bindings tied to the immediate transition output.
 
 ### Run
 

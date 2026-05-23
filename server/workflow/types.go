@@ -29,6 +29,27 @@ const (
 	ContextModeCompactAndContinueSession ContextMode = "compact_and_continue_session"
 )
 
+type ContextSourceKind string
+
+const (
+	ContextSourceImmediateSource ContextSourceKind = "immediate_source"
+	ContextSourceSelectedNode    ContextSourceKind = "selected_node"
+)
+
+type ContextSource struct {
+	Kind    ContextSourceKind `json:"kind"`
+	NodeKey ModelKey          `json:"node_key,omitempty"`
+}
+
+func CanonicalContextSource(source ContextSource) ContextSource {
+	kind := ContextSourceKind(strings.TrimSpace(string(source.Kind)))
+	nodeKey := ModelKey(strings.TrimSpace(string(source.NodeKey)))
+	if kind == "" || kind == ContextSourceImmediateSource {
+		return ContextSource{Kind: ContextSourceImmediateSource}
+	}
+	return ContextSource{Kind: kind, NodeKey: nodeKey}
+}
+
 type BindingSource string
 
 const (
@@ -81,6 +102,7 @@ type Edge struct {
 	TransitionGroupID  TransitionGroupID
 	TargetNodeID       NodeID
 	ContextMode        ContextMode
+	ContextSource      ContextSource
 	RequiresApproval   bool
 	InputBindings      []InputBinding
 	OutputRequirements []OutputRequirement
@@ -177,6 +199,7 @@ const (
 	CodeInvalidInputBinding            ValidationErrorCode = "workflow.validation.invalid_input_binding"
 	CodeInvalidTemplatePlaceholder     ValidationErrorCode = "workflow.validation.invalid_template_placeholder"
 	CodeInvalidContextMode             ValidationErrorCode = "workflow.validation.invalid_context_mode"
+	CodeInvalidContextSource           ValidationErrorCode = "workflow.validation.invalid_context_source"
 	CodeInvalidContinueSessionRole     ValidationErrorCode = "workflow.validation.invalid_continue_session_role"
 	CodeInvalidFanoutJoinTopology      ValidationErrorCode = "workflow.validation.invalid_fanout_join_topology"
 	CodeUnsupportedContextMode         ValidationErrorCode = "workflow.validation.unsupported_context_mode"

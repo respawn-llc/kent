@@ -90,7 +90,7 @@ LIMIT 1`, taskID, string(joinEdge.TargetNode.ID), batchID.String).Scan(&existing
 		return CompleteRunResult{}, err
 	}
 	result.PlacementIDs = append(result.PlacementIDs, workflow.PlacementID(targetPlacementID))
-	if err := insertTransitionEdgeSnapshot(ctx, q, joinTransitionID, outEdge, targetPlacementID, "applied"); err != nil {
+	if err := insertTransitionEdgeSnapshot(ctx, q, joinTransitionID, outEdge, targetPlacementID, "applied", resolvedContextSourceRun{}); err != nil {
 		return CompleteRunResult{}, err
 	}
 	if outEdge.TargetNode.Kind == workflow.NodeKindAgent {
@@ -106,7 +106,11 @@ LIMIT 1`, taskID, string(joinEdge.TargetNode.ID), batchID.String).Scan(&existing
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		targetMetadataJSON, err := marshalJSON(map[string]string{"context_mode": string(outEdge.ContextMode)})
+		source, err := s.resolveContextSourceRun(ctx, tx, taskID, now, nil, joinSnapshot, outEdge)
+		if err != nil {
+			return CompleteRunResult{}, err
+		}
+		targetMetadataJSON, err := targetRunMetadata(outEdge, source)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}

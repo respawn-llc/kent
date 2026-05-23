@@ -1,0 +1,343 @@
+import { useLocation } from "@tanstack/react-router";
+import { X } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
+  type ReactElement,
+} from "react";
+import { useTranslation } from "react-i18next";
+
+import { TaskDetailSurface } from "../features/task-detail/TaskDetailDialog";
+import { NewTaskForm } from "../features/tasks/NewTaskDialog";
+import { Button } from "../ui";
+import { cx } from "../ui/classes";
+import {
+  type SidebarController,
+  type SidebarDestination,
+  useSidebar,
+} from "./sidebarContext";
+import {
+  clampSidebarWidth,
+  sidebarMaxWidthRatio,
+  sidebarMinWidthPx,
+  sidebarResizeBoundsForShellWidth,
+  sidebarResizeStepPx,
+  type SidebarResizeBounds,
+} from "./sidebarSizing";
+
+export function SidebarRouteChangeCloser() {
+  const location = useLocation();
+  const { activeDestination, closeSidebar } = useSidebar();
+  const routeKey = `${location.pathname}?${location.searchStr}`;
+  const previousRouteKeyRef = useRef(routeKey);
+
+  useEffect(() => {
+    if (previousRouteKeyRef.current !== routeKey) {
+      previousRouteKeyRef.current = routeKey;
+      if (activeDestination !== null) {
+        closeSidebar("route_change");
+      }
+    }
+  }, [activeDestination, closeSidebar, routeKey]);
+
+  return null;
+}
+
+export function SidebarHost() {
+  const { t } = useTranslation();
+  const { activeDestination, closeSidebar, phase, resizeSidebar, resolveSidebar, sidebarWidthPx } =
+    useSidebar();
+  const titleId = useId();
+  const sidebarRef = useRef<HTMLElement | null>(null);
+  const resizeDragRef = useRef<SidebarResizeDrag | null>(null);
+  const [resizing, setResizing] = useState(false);
+  const [resizeBounds, setResizeBounds] = useState(() =>
+    sidebarResizeBoundsForShellWidth(fallbackSidebarShellWidth()),
+  );
+
+  const sidebarStyle = useMemo<SidebarStyle>(
+    () =>
+      ({
+        "--app-sidebar-width": `${sidebarWidthPx.toString()}px`,
+      }),
+    [sidebarWidthPx],
+  );
+
+  const resizeTo = useCallback(
+    (widthPx: number) => {
+      const nextBounds = sidebarResizeBounds(sidebarRef.current);
+      setResizeBounds(nextBounds);
+      resizeSidebar(clampSidebarWidth(widthPx, nextBounds.maxWidthPx));
+    },
+    [resizeSidebar],
+  );
+
+  const startResize = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
+      const nextBounds = sidebarResizeBounds(sidebarRef.current);
+      setResizeBounds(nextBounds);
+      resizeDragRef.current = {
+        bounds: nextBounds,
+        pointerID: event.pointerId,
+        startWidth: sidebarWidthPx,
+        startX: event.clientX,
+      };
+      setPointerCaptureIfAvailable(event.currentTarget, event.pointerId);
+      setResizing(true);
+    },
+    [sidebarWidthPx],
+  );
+
+  const resizeFromPointer = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const drag = resizeDragRef.current;
+      if (drag?.pointerID !== event.pointerId) {
+        return;
+      }
+      event.preventDefault();
+      resizeSidebar(
+        clampSidebarWidth(drag.startWidth + drag.startX - event.clientX, drag.bounds.maxWidthPx),
+      );
+    },
+    [resizeSidebar],
+  );
+
+  const stopResize = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    const drag = resizeDragRef.current;
+    if (drag?.pointerID !== event.pointerId) {
+      return;
+    }
+    resizeDragRef.current = null;
+    releasePointerCaptureIfAvailable(event.currentTarget, event.pointerId);
+    setResizing(false);
+  }, []);
+
+  const resizeWithKeyboard = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        resizeTo(sidebarWidthPx + sidebarResizeStepPx);
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        resizeTo(sidebarWidthPx - sidebarResizeStepPx);
+        return;
+      }
+      if (event.key === "Home") {
+        event.preventDefault();
+        resizeTo(sidebarMinWidthPx);
+        return;
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        resizeTo(resizeBounds.maxWidthPx);
+      }
+    },
+    [resizeBounds.maxWidthPx, resizeTo, sidebarWidthPx],
+  );
+
+  useEffect(() => {
+    if (!resizing) {
+      return;
+    }
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "ew-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+  }, [resizing]);
+
+  useEffect(() => {
+    if (activeDestination === null) {
+      return;
+    }
+    const clampToCurrentBounds = () => {
+      const nextBounds = sidebarResizeBounds(sidebarRef.current);
+      setResizeBounds(nextBounds);
+      resizeSidebar(clampSidebarWidth(sidebarWidthPx, nextBounds.maxWidthPx));
+    };
+    clampToCurrentBounds();
+    const shellElement = sidebarRef.current?.closest('[data-testid="app-shell-content"]') ?? null;
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" || shellElement === null
+        ? null
+        : new ResizeObserver(clampToCurrentBounds);
+    if (resizeObserver !== null && shellElement !== null) {
+      resizeObserver.observe(shellElement);
+    }
+    window.addEventListener("resize", clampToCurrentBounds);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", clampToCurrentBounds);
+    };
+  }, [activeDestination, resizeSidebar, sidebarWidthPx]);
+
+  if (activeDestination === null) {
+    return null;
+  }
+
+  const title = sidebarTitle(activeDestination, t);
+  const mode = activeDestination.mode ?? "shift";
+
+  return (
+    <aside
+      aria-labelledby={titleId}
+      className={cx(
+        "app-region-no-drag app-sidebar-panel island-glass z-10 grid grid-rows-[auto_1fr] overflow-hidden",
+        "w-[var(--app-sidebar-width)] min-w-[var(--app-sidebar-width)] rounded-l-[var(--radius-xl)] rounded-r-[var(--radius-l)]",
+        mode === "shift" &&
+          "app-sidebar-panel-shift relative mr-[var(--space-2)] h-[calc(100%-var(--space-2))] shrink-0 self-start",
+        mode === "overlay" &&
+          "app-sidebar-panel-overlay absolute top-0 right-[var(--space-2)] bottom-[var(--space-2)]",
+        phase === "closing" && "app-sidebar-panel-closing",
+      )}
+      data-testid="app-sidebar-host"
+      data-mode={mode}
+      data-state={phase}
+      ref={sidebarRef}
+      role="complementary"
+      style={sidebarStyle}
+    >
+      <div
+        aria-label={t("app.resizeSidebar")}
+        aria-orientation="vertical"
+        aria-valuemax={resizeBounds.maxWidthPx}
+        aria-valuemin={sidebarMinWidthPx}
+        aria-valuenow={sidebarWidthPx}
+        className={cx(
+          "absolute top-0 bottom-0 left-0 z-20 w-3 cursor-ew-resize touch-none",
+          "after:absolute after:top-[var(--space-4)] after:bottom-[var(--space-4)] after:left-1/2 after:w-px after:-translate-x-1/2 after:rounded-full after:bg-transparent after:transition-colors",
+          "hover:after:bg-[var(--color-primary)] focus-visible:outline-none focus-visible:after:bg-[var(--color-primary)]",
+          resizing && "after:bg-[var(--color-primary)]",
+        )}
+        data-testid="app-sidebar-resize-handle"
+        onKeyDown={resizeWithKeyboard}
+        onPointerCancel={stopResize}
+        onPointerDown={startResize}
+        onPointerMove={resizeFromPointer}
+        onPointerUp={stopResize}
+        role="separator"
+        tabIndex={0}
+      />
+      <header className="flex items-center justify-between gap-[var(--space-4)] border-b border-[var(--color-outline)] px-[var(--space-4)] py-[var(--space-3)]">
+        <Button
+          aria-label={t("app.close")}
+          className="order-1 grid h-9 w-9 place-items-center rounded-full p-0"
+          onClick={() => {
+            closeSidebar("closed");
+          }}
+          variant="ghost"
+        >
+          <X aria-hidden="true" size={18} strokeWidth={1.5} />
+        </Button>
+        <h2 className="order-2 m-0 min-w-0 flex-1 text-[1.05rem] font-bold" id={titleId}>
+          {title}
+        </h2>
+      </header>
+      <div className="min-h-0 overflow-y-auto px-[var(--space-4)] py-[var(--space-4)]">
+        <SidebarDestinationView destination={activeDestination} resolveSidebar={resolveSidebar} />
+      </div>
+    </aside>
+  );
+}
+
+type SidebarStyle = CSSProperties & Readonly<Record<"--app-sidebar-width", string>>;
+
+type PointerCaptureTarget = Partial<
+  Readonly<{
+    releasePointerCapture(pointerID: number): void;
+    setPointerCapture(pointerID: number): void;
+  }>
+>;
+
+type SidebarResizeDrag = Readonly<{
+  bounds: SidebarResizeBounds;
+  pointerID: number;
+  startWidth: number;
+  startX: number;
+}>;
+
+function sidebarResizeBounds(sidebarElement: HTMLElement | null): SidebarResizeBounds {
+  const shellWidth = sidebarElement
+    ?.closest('[data-testid="app-shell-content"]')
+    ?.getBoundingClientRect().width;
+  if (shellWidth === undefined || shellWidth === 0) {
+    return sidebarResizeBoundsForShellWidth(fallbackSidebarShellWidth());
+  }
+  return sidebarResizeBoundsForShellWidth(shellWidth);
+}
+
+function fallbackSidebarShellWidth(): number {
+  if (typeof window === "undefined") {
+    return Math.ceil(sidebarMinWidthPx / sidebarMaxWidthRatio);
+  }
+  return window.innerWidth;
+}
+
+function setPointerCaptureIfAvailable(element: PointerCaptureTarget, pointerID: number): void {
+  element.setPointerCapture?.(pointerID);
+}
+
+function releasePointerCaptureIfAvailable(element: PointerCaptureTarget, pointerID: number): void {
+  element.releasePointerCapture?.(pointerID);
+}
+
+function SidebarDestinationView({
+  destination,
+  resolveSidebar,
+}: Readonly<{
+  destination: SidebarDestination;
+  resolveSidebar: SidebarController["resolveSidebar"];
+}>): ReactElement {
+  if (destination.kind === "newTask") {
+    return (
+      <NewTaskForm
+        boardQueryWorkflowID={destination.boardQueryWorkflowID}
+        className="w-full"
+        onSubmitted={() => {
+          resolveSidebar({ destination: "newTask", status: "submitted" });
+        }}
+        projectID={destination.projectID}
+        workflowID={destination.workflowID}
+      />
+    );
+  }
+
+  if (destination.kind === "taskDetail") {
+    return (
+      <TaskDetailSurface
+        enabled
+        onMutated={destination.onMutated}
+        resumeRunId={destination.resumeRunID}
+        taskId={destination.taskID}
+      />
+    );
+  }
+
+  return <>{destination.content}</>;
+}
+
+function sidebarTitle(destination: SidebarDestination, t: ReturnType<typeof useTranslation>["t"]): string {
+  if (destination.kind === "newTask") {
+    return t("task.newTitle");
+  }
+  if (destination.kind === "taskDetail") {
+    return t("task.title");
+  }
+  return destination.title;
+}

@@ -72,6 +72,9 @@ func (s *Store) ManualMoveTask(ctx context.Context, req ManualMoveRequest) (Manu
 	if len(outputValues) == 0 && len(reusedOutputValues) > 0 {
 		outputValues = reusedOutputValues
 	}
+	if workflow.CanonicalContextSource(edge.ContextSource).Kind == workflow.ContextSourceSelectedNode {
+		return ManualMoveResult{}, errors.New("manual move with selected context source is not supported")
+	}
 	if edge.ContextMode == workflow.ContextModeContinueSession && strings.TrimSpace(sourceSessionID) == "" {
 		return ManualMoveResult{}, errors.New("continue_session requires source session for manual move")
 	}
@@ -85,6 +88,7 @@ func (s *Store) ManualMoveTask(ctx context.Context, req ManualMoveRequest) (Manu
 			Key:                edge.Key,
 			TargetNode:         nodeSnapshot(targetNode),
 			ContextMode:        edge.ContextMode,
+			ContextSource:      workflow.CanonicalContextSource(edge.ContextSource),
 			RequiresApproval:   edge.RequiresApproval,
 			InputBindings:      edge.InputBindings,
 			OutputRequirements: edge.OutputRequirements,
@@ -147,7 +151,7 @@ WHERE id = ? AND state = 'active'`, now, string(sourcePlacement))
 		}
 		result.PlacementIDs = append(result.PlacementIDs, workflow.PlacementID(targetPlacementID))
 	}
-	if err := insertTransitionEdgeSnapshot(ctx, q, transitionID, groupSnapshot.Edges[0], targetPlacementID, edgeState); err != nil {
+	if err := insertTransitionEdgeSnapshot(ctx, q, transitionID, groupSnapshot.Edges[0], targetPlacementID, edgeState, resolvedContextSourceRun{}); err != nil {
 		return ManualMoveResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -168,6 +172,7 @@ func terminalArchiveManualMoveContract(sourceNode workflow.Node, targetNode work
 		Key:                "manual_done",
 		TargetNodeID:       targetNode.ID,
 		ContextMode:        workflow.ContextModeNewSession,
+		ContextSource:      workflow.ContextSource{Kind: workflow.ContextSourceImmediateSource},
 		RequiresApproval:   false,
 		InputBindings:      nil,
 		OutputRequirements: nil,
@@ -187,6 +192,7 @@ func startResetManualMoveContract(sourceNode workflow.Node, targetNode workflow.
 		Key:                "manual_start",
 		TargetNodeID:       targetNode.ID,
 		ContextMode:        workflow.ContextModeNewSession,
+		ContextSource:      workflow.ContextSource{Kind: workflow.ContextSourceImmediateSource},
 		RequiresApproval:   false,
 		InputBindings:      nil,
 		OutputRequirements: nil,
@@ -207,6 +213,7 @@ func missingEdgeManualMoveContract(def workflow.Definition, sourceNode workflow.
 		Key:                "manual_override",
 		TargetNodeID:       targetNode.ID,
 		ContextMode:        workflow.ContextModeNewSession,
+		ContextSource:      workflow.ContextSource{Kind: workflow.ContextSourceImmediateSource},
 		RequiresApproval:   false,
 		InputBindings:      inputBindings,
 		OutputRequirements: outputRequirementsFromTransitionInputBindings(inputBindings),
@@ -282,6 +289,7 @@ func (s *Store) backwardManualMoveEdge(ctx context.Context, sourcePlacement work
 	var requiresApproval int64
 	var inputBindingsJSON string
 	var outputRequirementsJSON string
+	var metadataJSON string
 	err := s.db.QueryRowContext(ctx, `
 SELECT
     tr.transition_group_id,
@@ -294,7 +302,8 @@ SELECT
     te.context_mode,
     te.requires_approval,
     te.input_bindings_json,
-    te.output_requirements_json
+    te.output_requirements_json,
+    te.metadata_json
 FROM task_transition_records tr
 JOIN task_transitions storage ON storage.id = tr.id
 JOIN task_transition_edges te ON te.task_transition_id = tr.id
@@ -302,7 +311,7 @@ JOIN task_node_placements source_placement ON source_placement.id = tr.source_pl
 WHERE te.target_placement_id = ?
   AND source_placement.node_id = ?
 ORDER BY tr.created_at_unix_ms DESC, storage.rowid DESC
-LIMIT 1`, string(sourcePlacement), string(targetNode.ID)).Scan(&groupID, &transitionID, &transitionDisplayName, &outputValuesJSON, &sourceRunID, &workflowEdgeID, &edgeKey, &contextMode, &requiresApproval, &inputBindingsJSON, &outputRequirementsJSON)
+LIMIT 1`, string(sourcePlacement), string(targetNode.ID)).Scan(&groupID, &transitionID, &transitionDisplayName, &outputValuesJSON, &sourceRunID, &workflowEdgeID, &edgeKey, &contextMode, &requiresApproval, &inputBindingsJSON, &outputRequirementsJSON, &metadataJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return workflow.TransitionGroup{}, workflow.Edge{}, nil, "", "", false, nil
 	}
@@ -321,6 +330,12 @@ LIMIT 1`, string(sourcePlacement), string(targetNode.ID)).Scan(&groupID, &transi
 	if err := unmarshalJSON(outputRequirementsJSON, &requirements); err != nil {
 		return workflow.TransitionGroup{}, workflow.Edge{}, nil, "", "", false, err
 	}
+	metadata := workflowRunMetadata{}
+	if strings.TrimSpace(metadataJSON) != "" {
+		if err := unmarshalJSON(metadataJSON, &metadata); err != nil {
+			return workflow.TransitionGroup{}, workflow.Edge{}, nil, "", "", false, err
+		}
+	}
 	sessionID := ""
 	if sourceRunID.Valid && strings.TrimSpace(sourceRunID.String) != "" {
 		sourceRun, err := s.queries.GetTaskRun(ctx, sourceRunID.String)
@@ -330,7 +345,7 @@ LIMIT 1`, string(sourcePlacement), string(targetNode.ID)).Scan(&groupID, &transi
 		sessionID = strings.TrimSpace(sourceRun.SessionID.String)
 	}
 	group := workflow.TransitionGroup{ID: workflow.TransitionGroupID(groupID.String), TransitionID: workflow.TransitionID(transitionID), DisplayName: transitionDisplayName}
-	edge := workflow.Edge{ID: workflow.EdgeID(workflowEdgeID.String), Key: workflow.ModelKey(edgeKey), TargetNodeID: targetNode.ID, ContextMode: workflow.ContextMode(contextMode), RequiresApproval: requiresApproval != 0, InputBindings: inputs, OutputRequirements: requirements}
+	edge := workflow.Edge{ID: workflow.EdgeID(workflowEdgeID.String), Key: workflow.ModelKey(edgeKey), TargetNodeID: targetNode.ID, ContextMode: workflow.ContextMode(contextMode), ContextSource: workflow.CanonicalContextSource(metadata.ContextSource), RequiresApproval: requiresApproval != 0, InputBindings: inputs, OutputRequirements: requirements}
 	return group, edge, outputValues, workflow.RunID(sourceRunID.String), sessionID, true, nil
 }
 

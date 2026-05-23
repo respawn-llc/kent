@@ -256,7 +256,7 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 	if _, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "new_session"); code != 0 {
 		t.Fatalf("workflow start edge add exit=%d stderr=%q", code, edgeErr)
 	}
-	edgeOut, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "triaging", "--transition", "done", "--edge-key", "done", "--to", "done", "--context", "new_session")
+	edgeOut, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "triaging", "--transition", "done", "--edge-key", "done", "--to", "done", "--context", "continue_session", "--context-source", "node:triaging")
 	if code != 0 {
 		t.Fatalf("workflow done edge add exit=%d stderr=%q", code, edgeErr)
 	}
@@ -285,10 +285,29 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("workflow inspect exit=%d stderr=%q", code, inspectErr)
 	}
-	for _, want := range []string{"output_field\ttriaging\ttriage_result_text", "\tnot_actionable\tNot Actionable", "output_requirement\tnot_actionable\ttriage_result_text"} {
+	for _, want := range []string{"output_field\ttriaging\ttriage_result_text", "\tnot_actionable\tNot Actionable", "context_source\tnot_actionable\tselected_node\ttriaging", "output_requirement\tnot_actionable\ttriage_result_text"} {
 		if !strings.Contains(inspectOut, want) {
 			t.Fatalf("inspect output = %q, want %q", inspectOut, want)
 		}
+	}
+}
+
+func TestWorkflowEdgeAddRejectsMalformedContextSourceSelector(t *testing.T) {
+	cfg, _, remote := newWorkflowCommandLoopback(t)
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	workflowOut, workflowErr, code := runWorkflowRootCommand("workflow", "create", "Context Source Workflow")
+	if code != 0 {
+		t.Fatalf("workflow create exit=%d stderr=%q", code, workflowErr)
+	}
+	workflowID := labeledOutputValue(t, workflowOut, "workflow_id")
+	if _, nodeErr, code := runWorkflowRootCommand("workflow", "node", "add", workflowID, "--key", "triaging", "--kind", "agent", "--display-name", "Triaging", "--agent", "fast", "--prompt", "Triage."); code != 0 {
+		t.Fatalf("workflow node add exit=%d stderr=%q", code, nodeErr)
+	}
+	_, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "continue_session", "--context-source", "triaging")
+	if code == 0 || !strings.Contains(edgeErr, "context source selector") {
+		t.Fatalf("workflow edge add exit=%d stderr=%q, want selector error", code, edgeErr)
 	}
 }
 

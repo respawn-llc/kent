@@ -10,8 +10,10 @@ import (
 	"builder/server/metadata/sqlitegen"
 	"builder/server/workflow"
 	"builder/server/workflowstore"
+	"builder/shared/clientui"
 	"builder/shared/config"
 	"builder/shared/serverapi"
+	"builder/shared/toolspec"
 )
 
 func TestBoardAndTaskDetailUseDurableWorkflowMetadataOnly(t *testing.T) {
@@ -197,6 +199,11 @@ func TestBoardAndTaskDetailProjectParallelBranchPlacements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetBoard: %v", err)
 	}
+	for _, column := range board.Columns {
+		if column.Node.Kind == string(workflow.NodeKindJoin) || column.Node.Key == "join" {
+			t.Fatalf("board columns include hidden join node: %+v", board.Columns)
+		}
+	}
 	branchColumn := workflowViewColumnByKey(t, board, "impl_a")
 	branchPage, err := view.ListBoardNodeCards(ctx, serverapi.WorkflowBoardNodeCardsListRequest{ProjectID: binding.ProjectID, WorkflowID: string(workflowID), NodeID: branchColumn.Node.NodeID}, workflow.StaticRoleResolver{"coder": true})
 	if err != nil {
@@ -227,6 +234,28 @@ func TestBoardAndTaskDetailProjectParallelBranchPlacements(t *testing.T) {
 	}
 	if detailBranchPlacements != 2 {
 		t.Fatalf("detail placements = %+v, want two branch placements with batch/branch ids", detail.Placements)
+	}
+}
+
+func TestBoardGroupsHideJoinNodesAndJoinOnlyGroups(t *testing.T) {
+	def := serverapi.WorkflowDefinition{
+		NodeGroups: []serverapi.WorkflowNodeGroup{
+			{GroupID: "group-visible", GroupKey: "visible", DisplayName: "Visible", SortOrder: 1},
+			{GroupID: "group-join-only", GroupKey: "join_only", DisplayName: "Join Only", SortOrder: 2},
+		},
+		Nodes: []serverapi.WorkflowNode{
+			{ID: "node-agent", GroupID: "group-visible", Kind: string(workflow.NodeKindAgent)},
+			{ID: "node-join-visible-group", GroupID: "group-visible", Kind: string(workflow.NodeKindJoin)},
+			{ID: "node-join-only", GroupID: "group-join-only", Kind: string(workflow.NodeKindJoin)},
+		},
+	}
+
+	groups := boardGroups(def)
+	if len(groups) != 1 || groups[0].GroupID != "group-visible" {
+		t.Fatalf("groups = %+v, want only visible group", groups)
+	}
+	if len(groups[0].NodeIDs) != 1 || groups[0].NodeIDs[0] != "node-agent" {
+		t.Fatalf("visible group node ids = %+v, want agent only", groups[0].NodeIDs)
 	}
 }
 
@@ -736,7 +765,9 @@ func TestInterruptedTaskStatusUsesAttentionKind(t *testing.T) {
 func TestTaskDetailProjectsWaitingAskRun(t *testing.T) {
 	ctx := context.Background()
 	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
+	view, err := New(store, WithSessionTranscriptProvider(staticTranscriptProvider{pages: map[string]clientui.TranscriptPage{
+		"session-view-waiting-ask": transcriptPageWithAsk("ask-view-1", "Waiting ask?"),
+	}}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -776,10 +807,55 @@ func TestTaskDetailProjectsWaitingAskRun(t *testing.T) {
 	}
 }
 
-func TestTaskDetailProjectsGuiIdentityWorktreeStatusActionsAndAttention(t *testing.T) {
+func TestTaskDetailPendingQuestionFallsBackWhenTranscriptLookupFails(t *testing.T) {
 	ctx := context.Background()
 	store, workflowStore, binding := newWorkflowViewTestStore(t)
 	view, err := New(store)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
+	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := workflowStore.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	claimed, err := workflowStore.ClaimRun(ctx, started.RunID, 0)
+	if err != nil {
+		t.Fatalf("ClaimRun: %v", err)
+	}
+	sessionID := "session-missing-question-transcript"
+	if _, err := store.DB().ExecContext(ctx, `INSERT INTO sessions (id, project_id, workspace_id, artifact_relpath, name, first_prompt_preview, input_draft, parent_session_id, created_at_unix_ms, updated_at_unix_ms, last_sequence, model_request_count, in_flight_step, agents_injected, launch_visible, cwd_relpath, continuation_json, locked_json, usage_state_json, metadata_json) VALUES (?, ?, ?, ?, '', '', '', '', 1, 1, 0, 0, 0, 0, 1, '.', '{}', '{}', '{}', '{}')`, sessionID, binding.ProjectID, binding.WorkspaceID, "sessions/"+sessionID); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+	if err := workflowStore.AttachRunSession(ctx, started.RunID, claimed.Generation, sessionID); err != nil {
+		t.Fatalf("AttachRunSession: %v", err)
+	}
+	if err := workflowStore.SetRunWaitingAsk(ctx, started.RunID, claimed.Generation, "ask-missing-transcript"); err != nil {
+		t.Fatalf("SetRunWaitingAsk: %v", err)
+	}
+
+	detail, err := view.GetTask(ctx, string(task.ID))
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if len(detail.Attention) != 1 || detail.Attention[0].Kind != "question" || detail.Attention[0].AskID != "ask-missing-transcript" || detail.Attention[0].Message != pendingQuestionFallbackMessage {
+		t.Fatalf("attention = %+v", detail.Attention)
+	}
+}
+
+func TestTaskDetailProjectsGuiIdentityWorktreeStatusActionsAndAttention(t *testing.T) {
+	ctx := context.Background()
+	store, workflowStore, binding := newWorkflowViewTestStore(t)
+	view, err := New(store, WithSessionTranscriptProvider(staticTranscriptProvider{pages: map[string]clientui.TranscriptPage{
+		"session-detail": transcriptPageWithAsk("ask-detail", "Which path should this task take?"),
+	}}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -830,7 +906,7 @@ func TestTaskDetailProjectsGuiIdentityWorktreeStatusActionsAndAttention(t *testi
 	if detail.Status.Kind != "waiting_question" || !detail.Actions.CanInterrupt {
 		t.Fatalf("status/actions = %+v/%+v", detail.Status, detail.Actions)
 	}
-	if len(detail.Attention) != 1 || detail.Attention[0].Kind != "question" || detail.Attention[0].AskID != "ask-detail" {
+	if len(detail.Attention) != 1 || detail.Attention[0].Kind != "question" || detail.Attention[0].AskID != "ask-detail" || detail.Attention[0].Message != "Which path should this task take?" {
 		t.Fatalf("attention = %+v", detail.Attention)
 	}
 	if len(detail.Placements) < 2 || detail.Placements[1].NodeDisplayName == "" || detail.Placements[1].NodeKind == "" {
@@ -1051,7 +1127,9 @@ func TestTaskTeleportTargetReturnsIdentifiersOrUnavailableReason(t *testing.T) {
 func TestAttentionListProjectsApprovalQuestionAndInterruptedRun(t *testing.T) {
 	ctx := context.Background()
 	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
+	view, err := New(store, WithSessionTranscriptProvider(staticTranscriptProvider{pages: map[string]clientui.TranscriptPage{
+		"session-attention-question": transcriptPageWithAsk("ask-attention", "Attention ask?"),
+	}}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -1142,6 +1220,39 @@ WHERE edge_key = 'done'
 	}
 	if len(taskResp.Items) != 1 || taskResp.Items[0].Kind != "question" || taskResp.Items[0].TaskID != string(questionTask.ID) {
 		t.Fatalf("task attention items = %+v", taskResp.Items)
+	}
+}
+
+func TestPendingQuestionResolverSearchesBeforeOngoingTail(t *testing.T) {
+	entries := make([]clientui.ChatEntry, 0, 650)
+	for i := 0; i < 650; i++ {
+		entry := clientui.ChatEntry{Role: "assistant", Text: "entry"}
+		if i == 20 {
+			entry = askTranscriptEntry("ask-old", "Question before tail?")
+		}
+		entries = append(entries, entry)
+	}
+	resolver := newPendingQuestionResolver(staticTranscriptProvider{pages: map[string]clientui.TranscriptPage{
+		"session-long": {Entries: entries},
+	}})
+
+	question, err := resolver.Question(context.Background(), "session-long", "ask-old")
+	if err != nil {
+		t.Fatalf("Question: %v", err)
+	}
+	if question != "Question before tail?" {
+		t.Fatalf("question = %q", question)
+	}
+}
+
+func TestPendingQuestionResolverErrorsWhenQuestionMissingFromTranscript(t *testing.T) {
+	resolver := newPendingQuestionResolver(staticTranscriptProvider{pages: map[string]clientui.TranscriptPage{
+		"session-missing": transcriptPageWithAsk("other-ask", "Other?"),
+	}})
+
+	_, err := resolver.Question(context.Background(), "session-missing", "missing-ask")
+	if err == nil || !strings.Contains(err.Error(), `pending question "missing-ask" was not found`) {
+		t.Fatalf("missing question error = %v", err)
 	}
 }
 
@@ -1346,5 +1457,47 @@ func TestWorkflowViewRejectsMissingIDs(t *testing.T) {
 	}
 	if _, err := view.GetTask(context.Background(), " "); err == nil || !strings.Contains(err.Error(), "task_id") {
 		t.Fatalf("GetTask missing id error = %v", err)
+	}
+}
+
+type staticTranscriptProvider struct {
+	pages map[string]clientui.TranscriptPage
+}
+
+func (p staticTranscriptProvider) GetSessionTranscriptPage(_ context.Context, req serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error) {
+	entries := append([]clientui.ChatEntry(nil), p.pages[strings.TrimSpace(req.SessionID)].Entries...)
+	total := len(entries)
+	offset := req.Offset
+	limit := req.Limit
+	if req.Window == clientui.TranscriptWindowOngoingTail {
+		offset = total - 500
+		if offset < 0 {
+			offset = 0
+		}
+		limit = total - offset
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	if limit <= 0 || offset+limit > total {
+		limit = total - offset
+	}
+	page := clientui.TranscriptPage{TotalEntries: total, Offset: offset, NextOffset: offset + limit, Entries: entries[offset : offset+limit]}
+	page.HasMore = page.NextOffset < total
+	return serverapi.SessionTranscriptPageResponse{Transcript: page}, nil
+}
+
+func transcriptPageWithAsk(askID string, question string) clientui.TranscriptPage {
+	return clientui.TranscriptPage{Entries: []clientui.ChatEntry{askTranscriptEntry(askID, question)}}
+}
+
+func askTranscriptEntry(askID string, question string) clientui.ChatEntry {
+	return clientui.ChatEntry{
+		Role:       "tool_call",
+		ToolCallID: askID,
+		ToolCall:   &clientui.ToolCallMeta{ToolName: string(toolspec.ToolAskQuestion), Question: question},
 	}
 }

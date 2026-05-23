@@ -23,6 +23,18 @@ func TestValidateDefaultWorkflowPasses(t *testing.T) {
 	}
 }
 
+func TestCanonicalContextSourceNormalizesBoundaryValues(t *testing.T) {
+	selected := workflow.CanonicalContextSource(workflow.ContextSource{Kind: " selected_node ", NodeKey: " implementation "})
+	if selected.Kind != workflow.ContextSourceSelectedNode || selected.NodeKey != "implementation" {
+		t.Fatalf("selected context source = %+v, want trimmed selected node", selected)
+	}
+
+	immediate := workflow.CanonicalContextSource(workflow.ContextSource{Kind: " immediate_source ", NodeKey: " implementation "})
+	if immediate.Kind != workflow.ContextSourceImmediateSource || immediate.NodeKey != "" {
+		t.Fatalf("immediate context source = %+v, want normalized immediate source", immediate)
+	}
+}
+
 func TestValidateWorkflowAllowsDefaultAgentRole(t *testing.T) {
 	def := validWorkflow()
 	def.Nodes[1].SubagentRole = workflow.DefaultAgentRole
@@ -656,6 +668,206 @@ func TestFanoutJoinTopology(t *testing.T) {
 	}
 }
 
+func TestContextSourceValidation(t *testing.T) {
+	t.Run("default immediate source preserves existing workflows", func(t *testing.T) {
+		def := validWorkflow()
+
+		result := validateForTask(def)
+
+		assertNoCode(t, result, workflow.CodeInvalidContextSource)
+	})
+
+	t.Run("direct selected source node validates", func(t *testing.T) {
+		def := validWorkflow()
+		def.Nodes = append(def.Nodes, workflow.Node{WorkflowID: def.ID, ID: "node_review", Key: "review", DisplayName: "Review", Kind: workflow.NodeKindAgent, SubagentRole: "coder", PromptTemplate: "Review."})
+		def.TransitionGroups[1] = workflow.TransitionGroup{WorkflowID: def.ID, ID: "group_review", SourceNodeID: "node_agent", TransitionID: "review", DisplayName: "Review"}
+		def.Edges[1] = workflow.Edge{WorkflowID: def.ID, ID: "edge_review", Key: "review", TransitionGroupID: "group_review", TargetNodeID: "node_review", ContextMode: workflow.ContextModeContinueSession, ContextSource: workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "implement"}, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}}
+		def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{WorkflowID: def.ID, ID: "group_done", SourceNodeID: "node_review", TransitionID: "done", DisplayName: "Done"})
+		def.Edges = append(def.Edges, workflow.Edge{WorkflowID: def.ID, ID: "edge_done", Key: "done", TransitionGroupID: "group_done", TargetNodeID: "node_done", ContextMode: workflow.ContextModeNewSession})
+
+		result := validateForTask(def)
+
+		assertNoCode(t, result, workflow.CodeInvalidContextSource)
+	})
+
+	t.Run("post join selected dominator source validates", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow()
+		edge := edgeByIDForValidationTest(t, &def, "edge_accept_open_pr")
+		edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "implementation"}
+		edge.ContextMode = workflow.ContextModeContinueSession
+
+		result := validateForTask(def)
+
+		assertNoCode(t, result, workflow.CodeInvalidContextSource)
+	})
+
+	t.Run("future node is invalid", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow()
+		edge := edgeByIDForValidationTest(t, &def, "edge_implementation_review")
+		edge.ContextMode = workflow.ContextModeContinueSession
+		edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "open_pr"}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidContextSource)
+	})
+
+	t.Run("optional branch is invalid", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow()
+		def.Nodes = append(def.Nodes, workflow.Node{WorkflowID: def.ID, ID: "node_optional", Key: "optional", DisplayName: "Optional", Kind: workflow.NodeKindAgent, SubagentRole: "coder", PromptTemplate: "Optional."})
+		def.TransitionGroups = append(def.TransitionGroups,
+			workflow.TransitionGroup{WorkflowID: def.ID, ID: "group_implementation_optional", SourceNodeID: "node_implementation", TransitionID: "optional", DisplayName: "Optional"},
+			workflow.TransitionGroup{WorkflowID: def.ID, ID: "group_optional_review", SourceNodeID: "node_optional", TransitionID: "review", DisplayName: "Review"},
+		)
+		def.Edges = append(def.Edges,
+			workflow.Edge{WorkflowID: def.ID, ID: "edge_implementation_optional", Key: "optional", TransitionGroupID: "group_implementation_optional", TargetNodeID: "node_optional", ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+			workflow.Edge{WorkflowID: def.ID, ID: "edge_optional_review", Key: "review", TransitionGroupID: "group_optional_review", TargetNodeID: "node_code_review", ContextMode: workflow.ContextModeNewSession},
+		)
+		edge := edgeByIDForValidationTest(t, &def, "edge_accept_open_pr")
+		edge.ContextMode = workflow.ContextModeContinueSession
+		edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "optional"}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidContextSource)
+	})
+
+	t.Run("sibling fanout branch after join is invalid in v1", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow()
+		edge := edgeByIDForValidationTest(t, &def, "edge_accept_open_pr")
+		edge.ContextMode = workflow.ContextModeContinueSession
+		edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "code_review"}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidContextSource)
+	})
+
+	t.Run("selected source must be agent", func(t *testing.T) {
+		for _, key := range []workflow.ModelKey{"backlog", "review_join", "done"} {
+			t.Run(string(key), func(t *testing.T) {
+				def := reviewAcceptanceWorkflow()
+				edge := edgeByIDForValidationTest(t, &def, "edge_accept_open_pr")
+				edge.ContextMode = workflow.ContextModeContinueSession
+				edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: key}
+
+				result := validateForTask(def)
+
+				assertHasCodes(t, result, workflow.CodeInvalidContextSource)
+			})
+		}
+	})
+
+	t.Run("missing node key is invalid", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow()
+		edge := edgeByIDForValidationTest(t, &def, "edge_accept_open_pr")
+		edge.ContextMode = workflow.ContextModeContinueSession
+		edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "missing"}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidContextSource)
+	})
+
+	t.Run("selected target node is invalid", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow()
+		edge := edgeByIDForValidationTest(t, &def, "edge_accept_open_pr")
+		edge.ContextMode = workflow.ContextModeContinueSession
+		edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "open_pr"}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidContextSource)
+	})
+
+	t.Run("start edge explicit context source is invalid", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow()
+		edge := edgeByIDForValidationTest(t, &def, "edge_start")
+		edge.ContextMode = workflow.ContextModeContinueSession
+		edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "implementation"}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidContextSource)
+	})
+
+	t.Run("new session cannot select context source", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow()
+		edge := edgeByIDForValidationTest(t, &def, "edge_accept_open_pr")
+		edge.ContextMode = workflow.ContextModeNewSession
+		edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "implementation"}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidContextSource)
+	})
+
+	t.Run("continue session role mismatch is invalid but compact continue allows it", func(t *testing.T) {
+		for _, tc := range []struct {
+			name        string
+			contextMode workflow.ContextMode
+			wantCode    bool
+		}{
+			{name: "continue", contextMode: workflow.ContextModeContinueSession, wantCode: true},
+			{name: "compact", contextMode: workflow.ContextModeCompactAndContinueSession, wantCode: false},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				def := reviewAcceptanceWorkflow()
+				edge := edgeByIDForValidationTest(t, &def, "edge_accept_open_pr")
+				edge.ContextMode = tc.contextMode
+				edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "implementation"}
+				nodeByKeyForValidationTest(t, &def, "open_pr").SubagentRole = workflow.DefaultAgentRole
+
+				result := validateForTask(def)
+
+				if tc.wantCode {
+					assertHasCodes(t, result, workflow.CodeInvalidContinueSessionRole)
+				} else {
+					assertNoCode(t, result, workflow.CodeInvalidContinueSessionRole)
+					assertNoCode(t, result, workflow.CodeInvalidContextSource)
+				}
+			})
+		}
+	})
+
+	t.Run("immediate source continuation after join is invalid", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow()
+		edge := edgeByIDForValidationTest(t, &def, "edge_join_accept")
+		edge.ContextMode = workflow.ContextModeContinueSession
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidContextSource)
+	})
+
+	t.Run("rework loop remains statically valid", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow()
+		def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{WorkflowID: def.ID, ID: "group_accept_rework", SourceNodeID: "node_final_acceptance", TransitionID: "needs_changes", DisplayName: "Needs Changes"})
+		def.Edges = append(def.Edges, workflow.Edge{WorkflowID: def.ID, ID: "edge_accept_rework", Key: "rework", TransitionGroupID: "group_accept_rework", TargetNodeID: "node_implementation", ContextMode: workflow.ContextModeCompactAndContinueSession})
+		edge := edgeByIDForValidationTest(t, &def, "edge_accept_open_pr")
+		edge.ContextMode = workflow.ContextModeContinueSession
+		edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "implementation"}
+
+		result := validateForTask(def)
+
+		assertNoCode(t, result, workflow.CodeInvalidContextSource)
+	})
+
+	t.Run("draft reports nonblocking context source semantics", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow()
+		edge := edgeByIDForValidationTest(t, &def, "edge_accept_open_pr")
+		edge.ContextMode = workflow.ContextModeContinueSession
+		edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "code_review"}
+
+		result := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft, RoleResolver: workflow.StaticRoleResolver{"coder": true}})
+
+		assertHasCodes(t, result, workflow.CodeInvalidContextSource)
+		if result.HasBlockingErrors() {
+			t.Fatalf("draft context source semantics should not block saving: %+v", result.BlockingErrors())
+		}
+	})
+}
+
 func validWorkflow() workflow.Definition {
 	return workflow.Definition{
 		ID:          "workflow_default",
@@ -724,11 +936,69 @@ func fanoutWorkflow() workflow.Definition {
 	return def
 }
 
+func reviewAcceptanceWorkflow() workflow.Definition {
+	return workflow.Definition{
+		ID:          "workflow_review_acceptance",
+		DisplayName: "Review Acceptance Workflow",
+		Nodes: []workflow.Node{
+			{WorkflowID: "workflow_review_acceptance", ID: "node_start", Key: "backlog", DisplayName: "Backlog", Kind: workflow.NodeKindStart},
+			{WorkflowID: "workflow_review_acceptance", ID: "node_implementation", Key: "implementation", DisplayName: "Implementation", Kind: workflow.NodeKindAgent, SubagentRole: "coder", PromptTemplate: "Implement.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
+			{WorkflowID: "workflow_review_acceptance", ID: "node_code_review", Key: "code_review", DisplayName: "Code Review", Kind: workflow.NodeKindAgent, SubagentRole: "coder", PromptTemplate: "Review."},
+			{WorkflowID: "workflow_review_acceptance", ID: "node_qa_test", Key: "qa_test", DisplayName: "QA Test", Kind: workflow.NodeKindAgent, SubagentRole: "coder", PromptTemplate: "QA."},
+			{WorkflowID: "workflow_review_acceptance", ID: "node_review_join", Key: "review_join", DisplayName: "Review Join", Kind: workflow.NodeKindJoin},
+			{WorkflowID: "workflow_review_acceptance", ID: "node_final_acceptance", Key: "final_acceptance", DisplayName: "Final Acceptance", Kind: workflow.NodeKindAgent, SubagentRole: "coder", PromptTemplate: "Accept."},
+			{WorkflowID: "workflow_review_acceptance", ID: "node_open_pr", Key: "open_pr", DisplayName: "Open PR", Kind: workflow.NodeKindAgent, SubagentRole: "coder", PromptTemplate: "Open PR."},
+			{WorkflowID: "workflow_review_acceptance", ID: "node_done", Key: "done", DisplayName: "Done", Kind: workflow.NodeKindTerminal},
+		},
+		TransitionGroups: []workflow.TransitionGroup{
+			{WorkflowID: "workflow_review_acceptance", ID: "group_start", SourceNodeID: "node_start", TransitionID: "start", DisplayName: "Start"},
+			{WorkflowID: "workflow_review_acceptance", ID: "group_implementation_review", SourceNodeID: "node_implementation", TransitionID: "review", DisplayName: "Review"},
+			{WorkflowID: "workflow_review_acceptance", ID: "group_code_review_join", SourceNodeID: "node_code_review", TransitionID: "reviewed", DisplayName: "Reviewed"},
+			{WorkflowID: "workflow_review_acceptance", ID: "group_qa_test_join", SourceNodeID: "node_qa_test", TransitionID: "reviewed", DisplayName: "Reviewed"},
+			{WorkflowID: "workflow_review_acceptance", ID: "group_join_accept", SourceNodeID: "node_review_join", TransitionID: "accept", DisplayName: "Accept"},
+			{WorkflowID: "workflow_review_acceptance", ID: "group_accept_open_pr", SourceNodeID: "node_final_acceptance", TransitionID: "approved", DisplayName: "Approved"},
+			{WorkflowID: "workflow_review_acceptance", ID: "group_open_pr_done", SourceNodeID: "node_open_pr", TransitionID: "done", DisplayName: "Done"},
+		},
+		Edges: []workflow.Edge{
+			{WorkflowID: "workflow_review_acceptance", ID: "edge_start", Key: "start", TransitionGroupID: "group_start", TargetNodeID: "node_implementation", ContextMode: workflow.ContextModeNewSession},
+			{WorkflowID: "workflow_review_acceptance", ID: "edge_implementation_review", Key: "code_review", TransitionGroupID: "group_implementation_review", TargetNodeID: "node_code_review", ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+			{WorkflowID: "workflow_review_acceptance", ID: "edge_implementation_qa", Key: "qa_test", TransitionGroupID: "group_implementation_review", TargetNodeID: "node_qa_test", ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+			{WorkflowID: "workflow_review_acceptance", ID: "edge_code_review_join", Key: "code_review_done", TransitionGroupID: "group_code_review_join", TargetNodeID: "node_review_join", ContextMode: workflow.ContextModeNewSession},
+			{WorkflowID: "workflow_review_acceptance", ID: "edge_qa_test_join", Key: "qa_test_done", TransitionGroupID: "group_qa_test_join", TargetNodeID: "node_review_join", ContextMode: workflow.ContextModeNewSession},
+			{WorkflowID: "workflow_review_acceptance", ID: "edge_join_accept", Key: "final_acceptance", TransitionGroupID: "group_join_accept", TargetNodeID: "node_final_acceptance", ContextMode: workflow.ContextModeNewSession},
+			{WorkflowID: "workflow_review_acceptance", ID: "edge_accept_open_pr", Key: "open_pr", TransitionGroupID: "group_accept_open_pr", TargetNodeID: "node_open_pr", ContextMode: workflow.ContextModeNewSession},
+			{WorkflowID: "workflow_review_acceptance", ID: "edge_open_pr_done", Key: "done", TransitionGroupID: "group_open_pr_done", TargetNodeID: "node_done", ContextMode: workflow.ContextModeNewSession},
+		},
+	}
+}
+
 func validateForTask(def workflow.Definition) workflow.ValidationResult {
 	return workflow.ValidateDefinition(def, workflow.ValidationOptions{
 		Context:      workflow.ValidationContextTaskCreation,
 		RoleResolver: workflow.StaticRoleResolver{"coder": true},
 	})
+}
+
+func edgeByIDForValidationTest(t *testing.T, def *workflow.Definition, id workflow.EdgeID) *workflow.Edge {
+	t.Helper()
+	for i := range def.Edges {
+		if def.Edges[i].ID == id {
+			return &def.Edges[i]
+		}
+	}
+	t.Fatalf("edge %q not found", id)
+	return nil
+}
+
+func nodeByKeyForValidationTest(t *testing.T, def *workflow.Definition, key workflow.ModelKey) *workflow.Node {
+	t.Helper()
+	for i := range def.Nodes {
+		if def.Nodes[i].Key == key {
+			return &def.Nodes[i]
+		}
+	}
+	t.Fatalf("node %q not found", key)
+	return nil
 }
 
 func addAgentLoop(def *workflow.Definition, source workflow.NodeID, groupSuffix string, edgeID workflow.EdgeID, transitionID string) {

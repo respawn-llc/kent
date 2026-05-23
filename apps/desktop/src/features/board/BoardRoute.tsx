@@ -1,21 +1,16 @@
 /* eslint-disable max-lines -- Board route coordinates data, drag/drop, and board-level dialogs. */
 import type { DragEvent, SyntheticEvent } from "react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { BoardColumn, WorkflowBoard } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useAppNavigation } from "../../app/navigation";
-import { useAppServices } from "../../app/useAppServices";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
-import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
+import { useSidebar } from "../../app/sidebarContext";
 import { useStatusController } from "../../app/useStatusController";
 import { useWindowChromeTitle } from "../../app/windowChromeTitle";
 import { EmptyState, ErrorState, FloatingNoticeIsland } from "../../ui";
-import { TaskDetailDialog } from "../task-detail/TaskDetailDialog";
-import { useOpenTaskDetail } from "../task-detail/useOpenTaskDetail";
-import { NewTaskFallbackDialog } from "../tasks/NewTaskDialog";
-import { newTaskWindowOptions } from "../tasks/newTaskWindowOptions";
 import { WorkflowValidationIssues } from "../workflow/WorkflowValidationIssues";
 import { BoardColumnController } from "./BoardColumnController";
 import { BoardHoverMenu } from "./BoardHoverMenu";
@@ -116,8 +111,7 @@ function BoardContent({
   const { push } = useStatusController();
   const navigation = useAppNavigation();
   const scrollportRef = useRef<HTMLDivElement | null>(null);
-  const { nativeBridge } = useAppServices();
-  const openTaskDetail = useOpenTaskDetail();
+  const { openSidebar } = useSidebar();
   const connection = useConnectionSnapshot();
   const actions = useBoardTaskActions(board.projectID, boardQueryWorkflowID, board.selectedWorkflow.id);
   const actionsDisabled = connection.phase !== "connected";
@@ -129,28 +123,6 @@ function BoardContent({
   const sections = useMemo(() => boardSections(board), [board]);
   const firstActive = activeColumns[0];
   useWindowChromeTitle(board.selectedWorkflow.name || board.projectName);
-  const newTaskDialog = useNativeDialogFallback({
-    errorNoticeID: "new-task-window-error",
-    errorTitle: t("task.newWindowError"),
-    nativeAvailable: nativeBridge.capabilities.dialogWindows,
-    openNative: async () => {
-      await nativeBridge.dialogs.openWindow(
-        newTaskWindowOptions({
-          projectID: board.projectID,
-          title: t("task.newTitle"),
-          workflowID: board.selectedWorkflow.id,
-        }),
-      );
-    },
-    renderFallback: (_payload, close) => (
-      <NewTaskFallbackDialog
-        boardQueryWorkflowID={boardQueryWorkflowID}
-        onClose={close}
-        projectID={board.projectID}
-        workflowID={board.selectedWorkflow.id}
-      />
-    ),
-  });
   const reportActionError = useCallback(
     (id: string, title: string, error: unknown) => {
       const body = errorMessage(error);
@@ -164,6 +136,41 @@ function BoardContent({
     },
     [reportActionError, t],
   );
+  const reportNavigationError = useCallback(
+    (error: unknown) => {
+      reportActionError("board-navigation-error", t("board.navigationFailed"), error);
+    },
+    [reportActionError, t],
+  );
+
+  useEffect(() => {
+    if (selectedTaskId.length === 0) {
+      return;
+    }
+    let active = true;
+    void openSidebar({
+      kind: "taskDetail",
+      mode: "overlay",
+      onMutated: undefined,
+      resumeRunID: resumeRunId,
+      taskID: selectedTaskId,
+    }).then((result) => {
+      if (active && result.status === "canceled" && result.reason === "closed") {
+        void navigation.closeProjectTask(board.projectID, board.selectedWorkflow.id).catch(reportNavigationError);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [
+    board.projectID,
+    board.selectedWorkflow.id,
+    navigation,
+    openSidebar,
+    reportNavigationError,
+    resumeRunId,
+    selectedTaskId,
+  ]);
 
   function dropTask(event: DragEvent<HTMLElement>, column: BoardColumn): void {
     event.preventDefault();
@@ -285,28 +292,8 @@ function BoardContent({
       .catch(reportMoveError);
   }
 
-  function reportNavigationError(error: unknown): void {
-    reportActionError("board-navigation-error", t("board.navigationFailed"), error);
-  }
-
-  function reportCreateTaskError(error: unknown): void {
-    reportActionError("board-new-task-error", t("task.newWindowError"), error);
-  }
-
   function openTask(taskID: string): void {
-    try {
-      openTaskDetail(taskID, "", () => {
-        void navigation
-          .openProjectTask(board.projectID, board.selectedWorkflow.id, taskID)
-          .catch(reportNavigationError);
-      });
-    } catch (error) {
-      reportNavigationError(error);
-    }
-  }
-
-  function closeTask(): void {
-    void navigation.closeProjectTask(board.projectID, board.selectedWorkflow.id).catch(reportNavigationError);
+    void navigation.openProjectTask(board.projectID, board.selectedWorkflow.id, taskID).catch(reportNavigationError);
   }
 
   function selectWorkflow(workflowID: string): void {
@@ -318,7 +305,13 @@ function BoardContent({
   }
 
   function openNewTask(): void {
-    void newTaskDialog.open(undefined).catch(reportCreateTaskError);
+    void openSidebar({
+      boardQueryWorkflowID,
+      kind: "newTask",
+      mode: "overlay",
+      projectID: board.projectID,
+      workflowID: board.selectedWorkflow.id,
+    });
   }
 
   return (
@@ -383,12 +376,6 @@ function BoardContent({
           )}
         </div>
       </div>
-      <TaskDetailDialog
-        onClose={closeTask}
-        open={selectedTaskId.length > 0}
-        resumeRunId={resumeRunId}
-        taskId={selectedTaskId}
-      />
       <RollbackStartDialog
         onClose={() => {
           setRollbackDrop(null);
@@ -428,7 +415,6 @@ function BoardContent({
         onWorkflowEdit={editWorkflow}
         onWorkflowSelect={selectWorkflow}
       />
-      {newTaskDialog.fallback}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { errorMessage } from "../api/errors";
 import { useAppServices } from "./useAppServices";
@@ -28,76 +28,82 @@ export function useAppNavigation(): AppNavigation {
   const navigate = useNavigate();
   const router = useRouter();
   const { logger } = useAppServices();
-  async function runNavigation(action: () => Promise<void>): Promise<void> {
-    try {
-      await action();
-    } catch (error) {
-      await logger.append("warn", "Navigation failed", { error: errorMessage(error) });
-    }
-  }
-  return {
-    async back() {
-      await runNavigation(async () => {
-        router.history.back();
-      });
+  const runNavigation = useCallback(
+    async (action: () => Promise<void>): Promise<void> => {
+      try {
+        await action();
+      } catch (error) {
+        await logger.append("warn", "Navigation failed", { error: errorMessage(error) });
+      }
     },
-    async forward() {
-      await runNavigation(async () => {
-        router.history.forward();
-      });
-    },
-    async openHome() {
-      await runNavigation(async () => {
-        await navigate({ to: "/" });
-      });
-    },
-    async openProject(projectID, workflowID = "") {
-      await runNavigation(async () => {
-        await navigate({
-          to: "/projects/$projectId",
-          params: { projectId: projectID },
-          search: { workflowId: workflowID, taskId: "", resumeRunId: "" },
+    [logger],
+  );
+  return useMemo(
+    () => ({
+      async back() {
+        await runNavigation(async () => {
+          router.history.back();
         });
-      });
-    },
-    async openWorkflowEditor(projectID, workflowID) {
-      await runNavigation(async () => {
-        await navigate({
-          to: "/projects/$projectId/workflows/$workflowId/editor",
-          params: { projectId: projectID, workflowId: workflowID },
-          search: { workflowId: workflowID },
+      },
+      async forward() {
+        await runNavigation(async () => {
+          router.history.forward();
         });
-      });
-    },
-    async openProjectEdit(projectID) {
-      await runNavigation(async () => {
-        await navigate({ to: "/projects/$projectId/edit", params: { projectId: projectID } });
-      });
-    },
-    async openTask(taskID) {
-      await runNavigation(async () => {
-        await navigate({ to: "/tasks/$taskId", params: { taskId: taskID } });
-      });
-    },
-    async openProjectTask(projectID, workflowID, taskID) {
-      await runNavigation(async () => {
-        await navigate({
-          to: "/projects/$projectId",
-          params: { projectId: projectID },
-          search: { workflowId: workflowID, taskId: taskID, resumeRunId: "" },
+      },
+      async openHome() {
+        await runNavigation(async () => {
+          await navigate({ to: "/" });
         });
-      });
-    },
-    async closeProjectTask(projectID, workflowID) {
-      await runNavigation(async () => {
-        await navigate({
-          to: "/projects/$projectId",
-          params: { projectId: projectID },
-          search: { workflowId: workflowID, taskId: "", resumeRunId: "" },
+      },
+      async openProject(projectID, workflowID = "") {
+        await runNavigation(async () => {
+          await navigate({
+            to: "/projects/$projectId",
+            params: { projectId: projectID },
+            search: { workflowId: workflowID, taskId: "", resumeRunId: "" },
+          });
         });
-      });
-    },
-  };
+      },
+      async openWorkflowEditor(projectID, workflowID) {
+        await runNavigation(async () => {
+          await navigate({
+            to: "/projects/$projectId/workflows/$workflowId/editor",
+            params: { projectId: projectID, workflowId: workflowID },
+            search: { workflowId: workflowID },
+          });
+        });
+      },
+      async openProjectEdit(projectID) {
+        await runNavigation(async () => {
+          await navigate({ to: "/projects/$projectId/edit", params: { projectId: projectID } });
+        });
+      },
+      async openTask(taskID) {
+        await runNavigation(async () => {
+          await navigate({ to: "/tasks/$taskId", params: { taskId: taskID } });
+        });
+      },
+      async openProjectTask(projectID, workflowID, taskID) {
+        await runNavigation(async () => {
+          await navigate({
+            to: "/projects/$projectId",
+            params: { projectId: projectID },
+            search: { workflowId: workflowID, taskId: taskID, resumeRunId: "" },
+          });
+        });
+      },
+      async closeProjectTask(projectID, workflowID) {
+        await runNavigation(async () => {
+          await navigate({
+            to: "/projects/$projectId",
+            params: { projectId: projectID },
+            search: { workflowId: workflowID, taskId: "", resumeRunId: "" },
+          });
+        });
+      },
+    }),
+    [navigate, router.history, runNavigation],
+  );
 }
 
 export function useNavigationStackState(): NavigationStackState {
@@ -110,9 +116,7 @@ export function useNavigationStackState(): NavigationStackState {
   useEffect(() => {
     return router.history.subscribe(({ action, location }) => {
       const nextIndex = location.state.__TSR_index;
-      setMaxReachableIndex((currentMax) =>
-        nextReachableHistoryIndex(currentMax, action.type, nextIndex),
-      );
+      setMaxReachableIndex((currentMax) => nextReachableHistoryIndex(currentMax, action.type, nextIndex));
     });
   }, [currentIndex, router.history]);
 

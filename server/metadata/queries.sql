@@ -304,6 +304,8 @@ INSERT INTO workflow_edges (
     target_node_id,
     requires_approval,
     context_mode,
+    context_source_kind,
+    context_source_node_key,
     input_bindings_json,
     output_requirements_json,
     sort_order
@@ -314,6 +316,8 @@ INSERT INTO workflow_edges (
     sqlc.arg(target_node_id),
     sqlc.arg(requires_approval),
     sqlc.arg(context_mode),
+    sqlc.arg(context_source_kind),
+    sqlc.arg(context_source_node_key),
     sqlc.arg(input_bindings_json),
     sqlc.arg(output_requirements_json),
     sqlc.arg(sort_order)
@@ -328,6 +332,8 @@ SELECT
     e.target_node_id,
     e.requires_approval,
     e.context_mode,
+    e.context_source_kind,
+    e.context_source_node_key,
     e.input_bindings_json,
     e.output_requirements_json,
     e.sort_order
@@ -346,6 +352,8 @@ SELECT
     e.target_node_id,
     e.requires_approval,
     e.context_mode,
+    e.context_source_kind,
+    e.context_source_node_key,
     e.input_bindings_json,
     e.output_requirements_json,
     e.sort_order

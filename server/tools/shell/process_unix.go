@@ -14,6 +14,16 @@ func prepareManagedExec(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
+func deprioritizeManagedProcess(process *os.Process) error {
+	if process == nil || process.Pid <= 0 {
+		return nil
+	}
+	if err := syscall.Setpriority(syscall.PRIO_PGRP, process.Pid, 10); err != nil {
+		return fmt.Errorf("renice process group %d: %w", process.Pid, err)
+	}
+	return nil
+}
+
 func killManagedProcess(process *os.Process) error {
 	if process == nil {
 		return nil

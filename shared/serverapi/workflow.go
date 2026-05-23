@@ -9,10 +9,11 @@ import (
 )
 
 const (
-	WorkflowRequestErrorRequired    = "workflow.request.required"
-	WorkflowRequestErrorInvalidKey  = "workflow.request.invalid_key"
-	WorkflowRequestErrorInvalidMode = "workflow.request.invalid_mode"
-	WorkflowRequestErrorTooLong     = "workflow.request.too_long"
+	WorkflowRequestErrorRequired     = "workflow.request.required"
+	WorkflowRequestErrorInvalidKey   = "workflow.request.invalid_key"
+	WorkflowRequestErrorInvalidValue = "workflow.request.invalid_value"
+	WorkflowRequestErrorInvalidMode  = "workflow.request.invalid_mode"
+	WorkflowRequestErrorTooLong      = "workflow.request.too_long"
 )
 
 type WorkflowRequestValidationError struct {
@@ -80,8 +81,14 @@ type WorkflowEdge struct {
 	TargetNodeID       string                      `json:"target_node_id"`
 	RequiresApproval   bool                        `json:"requires_approval"`
 	ContextMode        string                      `json:"context_mode"`
+	ContextSource      WorkflowContextSource       `json:"context_source"`
 	InputBindings      []WorkflowInputBinding      `json:"input_bindings,omitempty"`
 	OutputRequirements []WorkflowOutputRequirement `json:"output_requirements,omitempty"`
+}
+
+type WorkflowContextSource struct {
+	Kind    string `json:"kind"`
+	NodeKey string `json:"node_key,omitempty"`
 }
 
 type WorkflowOutputField struct {
@@ -225,6 +232,7 @@ type WorkflowEdgeAddRequest struct {
 	Key                string                      `json:"key"`
 	TargetNodeID       string                      `json:"target_node_id"`
 	ContextMode        string                      `json:"context_mode"`
+	ContextSource      WorkflowContextSource       `json:"context_source"`
 	RequiresApproval   bool                        `json:"requires_approval"`
 	InputBindings      []WorkflowInputBinding      `json:"input_bindings,omitempty"`
 	OutputRequirements []WorkflowOutputRequirement `json:"output_requirements,omitempty"`
@@ -241,6 +249,7 @@ type WorkflowEdgeUpdateRequest struct {
 	Key                string                      `json:"key"`
 	TargetNodeID       string                      `json:"target_node_id"`
 	ContextMode        string                      `json:"context_mode"`
+	ContextSource      WorkflowContextSource       `json:"context_source"`
 	RequiresApproval   bool                        `json:"requires_approval"`
 	InputBindings      []WorkflowInputBinding      `json:"input_bindings,omitempty"`
 	OutputRequirements []WorkflowOutputRequirement `json:"output_requirements,omitempty"`
@@ -978,17 +987,17 @@ func validateWorkflowTransitionGroupFields(workflowID string, groupID string, so
 }
 
 func (r WorkflowEdgeAddRequest) Validate() error {
-	return validateWorkflowEdgeFields(r.WorkflowID, "", r.TransitionGroupID, r.Key, r.TargetNodeID, r.ContextMode, r.InputBindings, r.OutputRequirements)
+	return validateWorkflowEdgeFields(r.WorkflowID, "", r.TransitionGroupID, r.Key, r.TargetNodeID, r.ContextMode, r.ContextSource, r.InputBindings, r.OutputRequirements)
 }
 
 func (r WorkflowEdgeUpdateRequest) Validate() error {
 	if err := validateRequired("edge_id", r.EdgeID); err != nil {
 		return err
 	}
-	return validateWorkflowEdgeFields(r.WorkflowID, r.EdgeID, r.TransitionGroupID, r.Key, r.TargetNodeID, r.ContextMode, r.InputBindings, r.OutputRequirements)
+	return validateWorkflowEdgeFields(r.WorkflowID, r.EdgeID, r.TransitionGroupID, r.Key, r.TargetNodeID, r.ContextMode, r.ContextSource, r.InputBindings, r.OutputRequirements)
 }
 
-func validateWorkflowEdgeFields(workflowID string, edgeID string, transitionGroupID string, key string, targetNodeID string, contextMode string, inputBindings []WorkflowInputBinding, outputRequirements []WorkflowOutputRequirement) error {
+func validateWorkflowEdgeFields(workflowID string, edgeID string, transitionGroupID string, key string, targetNodeID string, contextMode string, contextSource WorkflowContextSource, inputBindings []WorkflowInputBinding, outputRequirements []WorkflowOutputRequirement) error {
 	_ = edgeID
 	for _, field := range []struct{ name, value string }{{"workflow_id", workflowID}, {"transition_group_id", transitionGroupID}, {"target_node_id", targetNodeID}, {"context_mode", contextMode}} {
 		if err := validateRequired(field.name, field.value); err != nil {
@@ -996,6 +1005,9 @@ func validateWorkflowEdgeFields(workflowID string, edgeID string, transitionGrou
 		}
 	}
 	if err := validateModelKey("key", key); err != nil {
+		return err
+	}
+	if err := validateWorkflowContextSource(contextSource); err != nil {
 		return err
 	}
 	for _, binding := range inputBindings {
@@ -1012,6 +1024,23 @@ func validateWorkflowEdgeFields(workflowID string, edgeID string, transitionGrou
 		}
 	}
 	return nil
+}
+
+func validateWorkflowContextSource(source WorkflowContextSource) error {
+	switch strings.TrimSpace(source.Kind) {
+	case "", "immediate_source":
+		if strings.TrimSpace(source.NodeKey) != "" {
+			return workflowRequestError(WorkflowRequestErrorInvalidValue, "context_source.node_key", "context_source.node_key must be empty for immediate_source")
+		}
+		return nil
+	case "selected_node":
+		if err := validateModelKey("context_source.node_key", source.NodeKey); err != nil {
+			return err
+		}
+		return nil
+	default:
+		return workflowRequestError(WorkflowRequestErrorInvalidValue, "context_source.kind", "context_source.kind is invalid")
+	}
 }
 
 func (r WorkflowLinkProjectRequest) Validate() error {
