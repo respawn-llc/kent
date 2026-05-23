@@ -145,12 +145,12 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 		logPath:        logPath,
 		cmd:            cmd,
 		stdin:          stdin,
-		log:            newAsyncLogWriter(logFile),
 		running:        true,
 		stdinOpen:      req.KeepStdinOpen,
 		notify:         make(chan struct{}, 1),
 		done:           make(chan struct{}),
 	}
+	entry.log = newAsyncLogWriter(logFile, entry.signal)
 	if entry.command == "" {
 		entry.command = strings.Join(req.Command, " ")
 	}

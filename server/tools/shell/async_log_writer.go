@@ -16,9 +16,10 @@ const (
 )
 
 type asyncLogWriter struct {
-	file *os.File
-	ch   chan []byte
-	done chan struct{}
+	file    *os.File
+	ch      chan []byte
+	done    chan struct{}
+	onFlush func()
 
 	mu     sync.Mutex
 	err    error
@@ -26,11 +27,12 @@ type asyncLogWriter struct {
 	once   sync.Once
 }
 
-func newAsyncLogWriter(file *os.File) *asyncLogWriter {
+func newAsyncLogWriter(file *os.File, onFlush func()) *asyncLogWriter {
 	w := &asyncLogWriter{
-		file: file,
-		ch:   make(chan []byte, logWriterQueueChunks),
-		done: make(chan struct{}),
+		file:    file,
+		ch:      make(chan []byte, logWriterQueueChunks),
+		done:    make(chan struct{}),
+		onFlush: onFlush,
 	}
 	go w.run()
 	return w
@@ -73,9 +75,12 @@ func (w *asyncLogWriter) run() {
 	var timer *time.Timer
 	var timerCh <-chan time.Time
 	flush := func(syncFile bool) {
+		flushed := false
 		if buf.Len() > 0 && w.file != nil {
 			if _, err := w.file.Write(buf.Bytes()); err != nil {
 				w.recordError(fmt.Errorf("write shell log: %w", err))
+			} else {
+				flushed = true
 			}
 			buf.Reset()
 		}
@@ -87,6 +92,9 @@ func (w *asyncLogWriter) run() {
 				w.recordError(fmt.Errorf("close shell log: %w", err))
 			}
 			w.file = nil
+		}
+		if flushed && w.onFlush != nil {
+			w.onFlush()
 		}
 		if timer != nil {
 			if !timer.Stop() {

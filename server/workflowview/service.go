@@ -1394,7 +1394,7 @@ ORDER BY r.updated_at_unix_ms DESC, (
 	for _, row := range rawRows {
 		question, err := questions.Question(ctx, row.sessionID, row.askID)
 		if err != nil {
-			return nil, err
+			question = pendingQuestionFallbackMessage
 		}
 		items = append(items, serverapi.WorkflowAttentionItem{ID: "question:" + row.runID + ":" + row.askID, Kind: "question", ProjectID: row.projectID, WorkflowID: row.workflowID, TaskID: row.taskID, TaskShortID: row.shortID, TaskTitle: row.title, RunID: row.runID, SessionID: row.sessionID, AskID: row.askID, Message: question, OccurredAtUnixMs: row.occurred})
 	}
@@ -1402,6 +1402,7 @@ ORDER BY r.updated_at_unix_ms DESC, (
 }
 
 const pendingQuestionTranscriptPageSize = clientui.MaxCommittedTranscriptSuffixLimit
+const pendingQuestionFallbackMessage = "Question pending; open the task to answer."
 
 type pendingQuestionResolver struct {
 	transcripts SessionTranscriptPageProvider

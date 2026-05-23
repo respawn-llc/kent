@@ -13,7 +13,7 @@ func TestAsyncLogWriterFlushesBufferedOutputOnClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenFile: %v", err)
 	}
-	writer := newAsyncLogWriter(file)
+	writer := newAsyncLogWriter(file, nil)
 	chunks := [][]byte{
 		[]byte("alpha\n"),
 		bytes.Repeat([]byte("b"), logWriterFlushBytes/2),
@@ -43,7 +43,7 @@ func TestAsyncLogWriterWriteAfterCloseReturnsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenFile: %v", err)
 	}
-	writer := newAsyncLogWriter(file)
+	writer := newAsyncLogWriter(file, nil)
 	if err := writer.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
