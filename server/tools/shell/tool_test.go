@@ -367,6 +367,33 @@ func TestManagerInlineOutputUsesRecentOutputBeforeLogFlush(t *testing.T) {
 	}
 }
 
+func TestManagerInlineOutputTruncatesRecentOutputFallback(t *testing.T) {
+	manager := newBackgroundTestManager(t)
+	workspace := t.TempDir()
+
+	result, err := manager.Start(context.Background(), ExecRequest{
+		Command:        []string{"sh", "-c", "printf '%0500d\\n' 1; sleep 1"},
+		DisplayCommand: "inline-recent-truncated",
+		Workdir:        workspace,
+		YieldTime:      250 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if !result.Backgrounded {
+		t.Fatalf("expected backgrounded process, got %+v", result)
+	}
+	defer func() { _ = manager.Kill(result.SessionID) }()
+
+	preview, _, err := manager.InlineOutput(result.SessionID, 80)
+	if err != nil {
+		t.Fatalf("InlineOutput: %v", err)
+	}
+	if len(preview) > 200 || !strings.Contains(preview, "Omitted") {
+		t.Fatalf("expected truncated recent output fallback, got len=%d preview=%q", len(preview), preview)
+	}
+}
+
 func TestManagerSubscribeOutputRejectsInvalidOffset(t *testing.T) {
 	manager := newBackgroundTestManager(t)
 	if _, err := manager.SubscribeOutput(context.Background(), "proc-1", -1); err == nil {

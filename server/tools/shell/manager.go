@@ -373,10 +373,11 @@ func (m *Manager) InlineOutput(id string, maxChars int) (string, string, error) 
 	if err != nil {
 		return "", "", err
 	}
+	maxOutputChars := normalizeOutputChars(maxChars)
 	deadline := time.Now().Add(2 * logWriterFlushDelay)
 	for {
 		snapshot := entry.snapshot()
-		preview, _, _, err := readBackgroundSummaryFromFile(snapshot.LogPath, normalizeOutputChars(maxChars), BackgroundOutputDefault, !snapshot.RawOutput)
+		preview, _, _, err := readBackgroundSummaryFromFile(snapshot.LogPath, maxOutputChars, BackgroundOutputDefault, !snapshot.RawOutput)
 		if err != nil {
 			return "", "", err
 		}
@@ -384,7 +385,8 @@ func (m *Manager) InlineOutput(id string, maxChars int) (string, string, error) 
 			return preview, snapshot.LogPath, nil
 		}
 		if strings.TrimSpace(snapshot.RecentOutput) != "" {
-			return snapshot.RecentOutput, snapshot.LogPath, nil
+			recent, _, _ := truncateBackgroundOutput(snapshot.RecentOutput, maxOutputChars)
+			return recent, snapshot.LogPath, nil
 		}
 		if !snapshot.Running || time.Now().After(deadline) {
 			return preview, snapshot.LogPath, nil
