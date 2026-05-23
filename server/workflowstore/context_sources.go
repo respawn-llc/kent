@@ -23,6 +23,22 @@ type resolvedContextSourceRun struct {
 	sessionID string
 }
 
+func resolvedContextSourceRunFromMetadata(ctx context.Context, tx *sql.Tx, metadata workflowRunMetadata) (resolvedContextSourceRun, bool, error) {
+	runID := strings.TrimSpace(metadata.SourceRunID)
+	if runID == "" {
+		return resolvedContextSourceRun{}, false, nil
+	}
+	sessionID := strings.TrimSpace(metadata.SourceSessionID)
+	if sessionID == "" {
+		run, err := sqlitegen.New(tx).GetTaskRun(ctx, runID)
+		if err != nil {
+			return resolvedContextSourceRun{}, true, err
+		}
+		sessionID = strings.TrimSpace(run.SessionID.String)
+	}
+	return resolvedContextSourceRun{runID: runID, sessionID: sessionID}, true, nil
+}
+
 func (s *Store) resolveContextSourceRun(ctx context.Context, tx *sql.Tx, taskID string, beforeUnixMs int64, immediate *sqlitegen.TaskRunRecord, snapshot runStartSnapshot, edge edgeContractSnapshot) (resolvedContextSourceRun, error) {
 	source := workflow.CanonicalContextSource(edge.ContextSource)
 	switch source.Kind {

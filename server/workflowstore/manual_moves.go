@@ -151,7 +151,7 @@ WHERE id = ? AND state = 'active'`, now, string(sourcePlacement))
 		}
 		result.PlacementIDs = append(result.PlacementIDs, workflow.PlacementID(targetPlacementID))
 	}
-	if err := insertTransitionEdgeSnapshot(ctx, q, transitionID, groupSnapshot.Edges[0], targetPlacementID, edgeState); err != nil {
+	if err := insertTransitionEdgeSnapshot(ctx, q, transitionID, groupSnapshot.Edges[0], targetPlacementID, edgeState, resolvedContextSourceRun{}); err != nil {
 		return ManualMoveResult{}, err
 	}
 	if err := tx.Commit(); err != nil {

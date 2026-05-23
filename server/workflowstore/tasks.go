@@ -587,13 +587,17 @@ WHERE id = ?
 	result := CompleteRunResult{TransitionID: workflow.TransitionID(transitionID), State: transitionState, RequiresApproval: requiresApproval}
 	for _, edge := range group.Edges {
 		if requiresApproval {
-			if err := insertTransitionEdgeSnapshot(ctx, q, transitionID, edge, "", "pending"); err != nil {
+			source, err := s.resolveContextSourceRun(ctx, tx, run.TaskID, now, &run, snapshot, edge)
+			if err != nil {
+				return CompleteRunResult{}, err
+			}
+			if err := insertTransitionEdgeSnapshot(ctx, q, transitionID, edge, "", "pending", source); err != nil {
 				return CompleteRunResult{}, err
 			}
 			continue
 		}
 		if edge.TargetNode.Kind == workflow.NodeKindJoin {
-			if err := insertTransitionEdgeSnapshot(ctx, q, transitionID, edge, "", "applied"); err != nil {
+			if err := insertTransitionEdgeSnapshot(ctx, q, transitionID, edge, "", "applied", resolvedContextSourceRun{}); err != nil {
 				return CompleteRunResult{}, err
 			}
 			joined, err := s.applyJoinIfReady(ctx, tx, q, now, run.TaskID, run.PlacementID, snapshot, edge)
@@ -610,7 +614,7 @@ WHERE id = ?
 			return CompleteRunResult{}, fmt.Errorf("insert target placement: %w", err)
 		}
 		result.PlacementIDs = append(result.PlacementIDs, workflow.PlacementID(targetPlacementID))
-		if err := insertTransitionEdgeSnapshot(ctx, q, transitionID, edge, targetPlacementID, "applied"); err != nil {
+		if err := insertTransitionEdgeSnapshot(ctx, q, transitionID, edge, targetPlacementID, "applied", resolvedContextSourceRun{}); err != nil {
 			return CompleteRunResult{}, err
 		}
 		if edge.TargetNode.Kind != workflow.NodeKindAgent {

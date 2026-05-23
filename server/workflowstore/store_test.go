@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"builder/server/metadata"
+	"builder/server/metadata/sqlitegen"
 	"builder/server/session"
 	"builder/server/workflow"
 	"builder/shared/config"
@@ -1004,6 +1005,8 @@ func TestPendingApprovalResolvesSelectedContextSourceOnApproval(t *testing.T) {
 	if completed.State != "pending_approval" {
 		t.Fatalf("acceptance completion = %+v, want pending approval", completed)
 	}
+	competingSessionID := createTestSession(t, ctx, store, binding, cfg)
+	insertCompletedRunForNodeAfterTransition(t, ctx, store, task.ID, implementationNode.ID, implementationRun.ID, competingSessionID, completed.TransitionID)
 	approved, err := store.ApproveTransition(ctx, completed.TransitionID)
 	if err != nil {
 		t.Fatalf("ApproveTransition: %v", err)
@@ -1017,6 +1020,9 @@ func TestPendingApprovalResolvesSelectedContextSourceOnApproval(t *testing.T) {
 	}
 	if input.SourceRunID != implementationRun.ID || input.SourceSessionID != implementationSessionID || input.SourceNode.Key != "implementation" {
 		t.Fatalf("approved open_pr context source = run %q session %q node %q, want implementation run %q session %q", input.SourceRunID, input.SourceSessionID, input.SourceNode.Key, implementationRun.ID, implementationSessionID)
+	}
+	if input.SourceSessionID == competingSessionID {
+		t.Fatalf("approved open_pr used competing implementation session %q completed after approval wait started", competingSessionID)
 	}
 }
 
@@ -4127,6 +4133,43 @@ func latestRunForNode(t *testing.T, ctx context.Context, store *Store, taskID wo
 		t.Fatalf("run for node %q not found in %+v", nodeID, runs)
 	}
 	return latest
+}
+
+func insertCompletedRunForNodeAfterTransition(t *testing.T, ctx context.Context, store *Store, taskID workflow.TaskID, nodeID workflow.NodeID, snapshotSourceRunID workflow.RunID, sessionID string, transitionID workflow.TransitionID) workflow.RunID {
+	t.Helper()
+	var transitionCreatedAt int64
+	if err := store.db.QueryRowContext(ctx, `SELECT created_at_unix_ms FROM task_transitions WHERE id = ?`, string(transitionID)).Scan(&transitionCreatedAt); err != nil {
+		t.Fatalf("query transition created_at: %v", err)
+	}
+	var snapshotJSON string
+	if err := store.db.QueryRowContext(ctx, `SELECT run_start_snapshot_json FROM task_runs WHERE id = ?`, string(snapshotSourceRunID)).Scan(&snapshotJSON); err != nil {
+		t.Fatalf("query source run snapshot: %v", err)
+	}
+	placementID := prefixedID("placement")
+	runID := prefixedID("run")
+	completedAt := transitionCreatedAt + 1
+	if err := store.queries.InsertTaskNodePlacement(ctx, sqlitegen.InsertTaskNodePlacementParams{ID: placementID, TaskID: string(taskID), NodeID: string(nodeID), State: "completed", CreatedAtUnixMs: completedAt, UpdatedAtUnixMs: completedAt}); err != nil {
+		t.Fatalf("InsertTaskNodePlacement competing run: %v", err)
+	}
+	if err := store.queries.InsertTaskRun(ctx, sqlitegen.InsertTaskRunParams{
+		ID:                          runID,
+		PlacementID:                 placementID,
+		SessionID:                   sql.NullString{String: sessionID, Valid: sessionID != ""},
+		RunGeneration:               1,
+		WorkflowRevisionSeen:        1,
+		AutomationRequestedAtUnixMs: completedAt,
+		CreatedAtUnixMs:             completedAt,
+		UpdatedAtUnixMs:             completedAt,
+		StartedAtUnixMs:             completedAt,
+		CompletedAtUnixMs:           completedAt,
+		InterruptedAtUnixMs:         0,
+		InterruptionDetailJson:      "{}",
+		RunStartSnapshotJson:        snapshotJSON,
+		MetadataJson:                "{}",
+	}); err != nil {
+		t.Fatalf("InsertTaskRun competing run: %v", err)
+	}
+	return workflow.RunID(runID)
 }
 
 func nodeByKind(t *testing.T, def workflow.Definition, kind workflow.NodeKind) workflow.Node {
