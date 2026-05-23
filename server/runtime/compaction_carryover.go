@@ -3,11 +3,17 @@ package runtime
 import (
 	"strings"
 
+	"builder/prompts"
 	"builder/server/llm"
 )
 
 type compactionCarryoverCoordinator struct {
 	engine *Engine
+}
+
+type postCompactionMessage struct {
+	message                  llm.Message
+	pendingHandoffFutureText string
 }
 
 func newCompactionCarryoverCoordinator(engine *Engine) compactionCarryoverCoordinator {
@@ -35,44 +41,52 @@ func handoffFutureAgentMessage(text string) llm.Message {
 	return llm.Message{
 		Role:        llm.RoleDeveloper,
 		MessageType: llm.MessageTypeHandoffFutureMessage,
-		Content:     trimmed,
+		Content:     handoffFutureAgentMessageContent(trimmed),
 	}
 }
 
-func (e *Engine) postCompactionMessages(mode compactionMode, manualCarryover string, wasHeadless bool) []llm.Message {
+func handoffFutureAgentMessageContent(text string) string {
+	return prompts.FormatHandoffFutureAgentMessage(text)
+}
+
+func (e *Engine) postCompactionMessages(mode compactionMode, manualCarryover string, wasHeadless bool) []postCompactionMessage {
 	return newCompactionCarryoverCoordinator(e).postCompactionMessages(mode, manualCarryover, wasHeadless)
 }
 
-func (c compactionCarryoverCoordinator) postCompactionMessages(mode compactionMode, manualCarryover string, wasHeadless bool) []llm.Message {
+func (c compactionCarryoverCoordinator) postCompactionMessages(mode compactionMode, manualCarryover string, wasHeadless bool) []postCompactionMessage {
 	e := c.engine
-	out := make([]llm.Message, 0, 3)
+	out := make([]postCompactionMessage, 0, 3)
 	if mode == compactionModeManual {
 		if carryover := manualCompactionCarryoverMessage(manualCarryover); strings.TrimSpace(carryover.Content) != "" {
-			out = append(out, carryover)
+			out = append(out, postCompactionMessage{message: carryover})
 		}
 	}
 	if mode == compactionModeHandoff {
 		if req := e.pendingHandoffRequestSnapshot(); req != nil {
 			if futureMessage := handoffFutureAgentMessage(req.futureAgentMessage); strings.TrimSpace(futureMessage.Content) != "" {
-				out = append(out, futureMessage)
+				out = append(out, postCompactionMessage{
+					message:                  futureMessage,
+					pendingHandoffFutureText: req.futureAgentMessage,
+				})
 			}
 		}
 	}
 	if wasHeadless {
 		if headless, ok := headlessModeMetaMessage(); ok {
-			out = append(out, headless)
+			out = append(out, postCompactionMessage{message: headless})
 		}
 	}
 	return out
 }
 
-func (e *Engine) appendPostCompactionMessages(stepID string, messages []llm.Message) error {
+func (e *Engine) appendPostCompactionMessages(stepID string, messages []postCompactionMessage) error {
 	return newCompactionCarryoverCoordinator(e).appendPostCompactionMessages(stepID, messages)
 }
 
-func (c compactionCarryoverCoordinator) appendPostCompactionMessages(stepID string, messages []llm.Message) error {
+func (c compactionCarryoverCoordinator) appendPostCompactionMessages(stepID string, messages []postCompactionMessage) error {
 	e := c.engine
-	for _, message := range messages {
+	for _, item := range messages {
+		message := item.message
 		switch message.MessageType {
 		case llm.MessageTypeManualCompactionCarryover:
 			if err := e.appendMessageWithoutConversationUpdate(stepID, message); err != nil {
@@ -81,7 +95,7 @@ func (c compactionCarryoverCoordinator) appendPostCompactionMessages(stepID stri
 		default:
 			if err := e.appendMessage(stepID, message); err != nil {
 				if message.MessageType == llm.MessageTypeHandoffFutureMessage {
-					e.queuePendingHandoffFutureMessage(message.Content)
+					e.queuePendingHandoffFutureMessage(item.pendingHandoffFutureText)
 				}
 				return err
 			}

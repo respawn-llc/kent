@@ -323,7 +323,7 @@ func TestTriggerHandoffSchedulesCompactionAndAppendsFutureMessageWithoutManualCa
 	foundFutureMessage := false
 	foundManualCarryover := false
 	for _, message := range messages {
-		if message.MessageType == llm.MessageTypeHandoffFutureMessage && message.Content == "resume with tests" {
+		if message.MessageType == llm.MessageTypeHandoffFutureMessage && message.Content == handoffFutureAgentMessageContent("resume with tests") {
 			foundFutureMessage = true
 		}
 		if message.MessageType == llm.MessageTypeManualCompactionCarryover {
@@ -340,7 +340,7 @@ func TestTriggerHandoffSchedulesCompactionAndAppendsFutureMessageWithoutManualCa
 	entries := eng.ChatSnapshot().Entries
 	foundDeveloperContext := false
 	for _, entry := range entries {
-		if entry.Role == string(transcript.EntryRoleDeveloperContext) && entry.Text == "resume with tests" {
+		if entry.Role == string(transcript.EntryRoleDeveloperContext) && entry.Text == handoffFutureAgentMessageContent("resume with tests") {
 			foundDeveloperContext = true
 		}
 		if entry.Role == string(transcript.EntryRoleManualCompactionCarryover) {
@@ -876,7 +876,7 @@ func TestPendingTriggerHandoffRetriesAfterCompactionFailure(t *testing.T) {
 	messages := eng.snapshotMessages()
 	foundFutureMessage := false
 	for _, message := range messages {
-		if message.MessageType == llm.MessageTypeHandoffFutureMessage && message.Content == "resume with tests" {
+		if message.MessageType == llm.MessageTypeHandoffFutureMessage && message.Content == handoffFutureAgentMessageContent("resume with tests") {
 			foundFutureMessage = true
 			break
 		}
@@ -909,8 +909,9 @@ func TestPendingTriggerHandoffRetriesFutureMessageAfterAppendFailureWithoutRecom
 		t.Fatalf("append seed message: %v", err)
 	}
 	eng.setCompactionSoonReminderIssued(true)
+	futureAgentMessage := "resume \"with tests\"\nthen inspect logs"
 
-	_, _, err = eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_append_retry", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "resume with tests")
+	_, _, err = eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_append_retry", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", futureAgentMessage)
 	if err != nil {
 		t.Fatalf("trigger handoff: %v", err)
 	}
@@ -932,7 +933,9 @@ func TestPendingTriggerHandoffRetriesFutureMessageAfterAppendFailureWithoutRecom
 	if eng.pendingHandoffRequestSnapshot() != nil {
 		t.Fatalf("expected compaction-success path to consume original handoff request, got %+v", eng.pendingHandoffRequestSnapshot())
 	}
-	if got, want := eng.pendingHandoffFutureMessageSnapshot(), "resume with tests"; got != want {
+	// The retry queue keeps the raw tool argument so retry emission cannot wrap
+	// already-formatted future-agent context a second time.
+	if got, want := eng.pendingHandoffFutureMessageSnapshot(), futureAgentMessage; got != want {
 		t.Fatalf("pending future-agent message after append failure = %q, want %q", got, want)
 	}
 
@@ -950,7 +953,7 @@ func TestPendingTriggerHandoffRetriesFutureMessageAfterAppendFailureWithoutRecom
 	messages := eng.snapshotMessages()
 	foundFutureMessage := false
 	for _, message := range messages {
-		if message.MessageType == llm.MessageTypeHandoffFutureMessage && message.Content == "resume with tests" {
+		if message.MessageType == llm.MessageTypeHandoffFutureMessage && message.Content == handoffFutureAgentMessageContent(futureAgentMessage) {
 			foundFutureMessage = true
 			break
 		}
@@ -1059,7 +1062,7 @@ func TestReopenedSessionAfterTriggerHandoffFutureMessageAppendFailureRetriesWith
 	}
 	foundFuture := false
 	for _, item := range resumedClient.calls[0].Items {
-		if item.Type == llm.ResponseItemTypeMessage && item.MessageType == llm.MessageTypeHandoffFutureMessage && item.Content == "resume after restart" {
+		if item.Type == llm.ResponseItemTypeMessage && item.MessageType == llm.MessageTypeHandoffFutureMessage && item.Content == handoffFutureAgentMessageContent("resume after restart") {
 			foundFuture = true
 			break
 		}
@@ -1143,7 +1146,7 @@ func TestRunStepLoopTriggerHandoffOmitsCallAndOutputFromFollowUpRequestAndKeepsF
 			foundCall = true
 		case item.Type == llm.ResponseItemTypeFunctionCallOutput && item.CallID == "call_handoff_1":
 			foundOutput = true
-		case item.Type == llm.ResponseItemTypeMessage && item.MessageType == llm.MessageTypeHandoffFutureMessage && item.Content == "resume with tests":
+		case item.Type == llm.ResponseItemTypeMessage && item.MessageType == llm.MessageTypeHandoffFutureMessage && item.Content == handoffFutureAgentMessageContent("resume with tests"):
 			futureIdx = idx
 		}
 	}
@@ -1241,7 +1244,7 @@ func TestRunStepLoopInjectsReminderBeforeTriggerHandoffAndOmitsCallOutputFromFol
 			foundCall = true
 		case item.Type == llm.ResponseItemTypeFunctionCallOutput && item.CallID == "call_handoff_2":
 			foundOutput = true
-		case item.Type == llm.ResponseItemTypeMessage && item.MessageType == llm.MessageTypeHandoffFutureMessage && item.Content == "resume with tests":
+		case item.Type == llm.ResponseItemTypeMessage && item.MessageType == llm.MessageTypeHandoffFutureMessage && item.Content == handoffFutureAgentMessageContent("resume with tests"):
 			futureIdx = idx
 		}
 	}

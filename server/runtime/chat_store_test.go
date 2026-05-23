@@ -803,13 +803,13 @@ func TestChatStoreSnapshotIncludesHeadlessModeVariantsAsDeveloperContext(t *test
 
 func TestChatStoreSnapshotIncludesHandoffFutureMessageAsDeveloperContext(t *testing.T) {
 	s := newChatStore()
-	s.appendMessage(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHandoffFutureMessage, Content: "resume with tests"})
+	s.appendMessage(handoffFutureAgentMessage("resume with tests"))
 
 	snap := s.snapshot()
 	if len(snap.Entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d (%+v)", len(snap.Entries), snap.Entries)
 	}
-	if snap.Entries[0].Role != string(transcript.EntryRoleDeveloperContext) || snap.Entries[0].Text != "resume with tests" {
+	if snap.Entries[0].Role != string(transcript.EntryRoleDeveloperContext) || snap.Entries[0].Text != handoffFutureAgentMessageContent("resume with tests") {
 		t.Fatalf("unexpected handoff future message entry: %+v", snap.Entries[0])
 	}
 }
