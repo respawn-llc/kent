@@ -15,6 +15,7 @@ import (
 	"builder/shared/toolspec"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -605,6 +606,69 @@ func TestCommittedSuffixResponsesAcceptOlderRangeAfterNewerRequestIssued(t *test
 	loaded := m.view.LoadedTranscriptEntries()
 	if len(loaded) != 2 || loaded[0].Text != "message1" || loaded[1].Text != "Fast mode enabled" {
 		t.Fatalf("loaded transcript = %+v, want message then toggle", loaded)
+	}
+}
+
+func TestCommittedSuffixStaleErrorDoesNotRequestFullTranscriptSync(t *testing.T) {
+	reads := &countingSessionViewClient{
+		view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: "session-1"}},
+		page: clientui.TranscriptPage{
+			SessionID:    "session-1",
+			Revision:     3,
+			Offset:       0,
+			TotalEntries: 2,
+			Entries: []clientui.ChatEntry{
+				{Role: "user", Text: "message1"},
+				{Role: "system", Text: "Fast mode enabled"},
+			},
+		},
+	}
+	client := newUIRuntimeClientWithReads("session-1", reads, sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(nil, nil)))
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.runtimeCommittedSuffixToken = 2
+
+	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
+		token: 1,
+		req:   clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1},
+		err:   errors.New("stale timeout"),
+	})
+	if cmd != nil {
+		t.Fatalf("stale suffix error produced command: %+v", collectCmdMessages(t, cmd))
+	}
+	if reads.pageCount.Load() != 0 {
+		t.Fatalf("stale suffix error requested full transcript sync")
+	}
+}
+
+func TestCommittedSuffixStaleHasMoreDoesNotRequestFollowUp(t *testing.T) {
+	reads := &countingSessionViewClient{
+		view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: "session-1"}},
+	}
+	client := newUIRuntimeClientWithReads("session-1", reads, sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(nil, nil)))
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	m.runtimeCommittedSuffixToken = 2
+	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(2, 3)
+
+	cmd := m.handleRuntimeCommittedTranscriptSuffixRefreshed(runtimeCommittedTranscriptSuffixRefreshedMsg{
+		token: 1,
+		req:   clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 0, Limit: 1},
+		suffix: clientui.CommittedTranscriptSuffix{
+			SessionID:           "session-1",
+			Revision:            2,
+			CommittedEntryCount: 3,
+			StartEntryCount:     0,
+			NextEntryCount:      1,
+			HasMore:             true,
+			Entries:             []clientui.ChatEntry{{Role: "user", Text: "stale message"}},
+		},
+	})
+	for _, msg := range collectCmdMessages(t, cmd) {
+		if _, ok := msg.(runtimeCommittedTranscriptSuffixRefreshedMsg); ok {
+			t.Fatalf("stale no-op suffix requested follow-up page: %+v", msg)
+		}
 	}
 }
 

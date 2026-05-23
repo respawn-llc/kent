@@ -150,7 +150,7 @@ func (t *Tool) Call(ctx context.Context, c tools.Call) (tools.Result, error) {
 	if err != nil {
 		return tools.ErrorResult(c, err.Error()), nil
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if isPDFPath(resolvedPath) && info.Size() > maxFileSizeBytes {
 		return tools.ErrorResult(c, maxAttachmentSizeError(resolvedPath, info.Size())), nil
 	}
@@ -292,15 +292,21 @@ func openResolvedRegularFile(path string) (*os.File, os.FileInfo, error) {
 	}
 	info, err := file.Stat()
 	if err != nil {
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			return nil, nil, fmt.Errorf("stat file at %q: %v; close file: %w", path, err, closeErr)
+		}
 		return nil, nil, fmt.Errorf("stat file at %q: %v", path, err)
 	}
 	if !info.Mode().IsRegular() {
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			return nil, nil, fmt.Errorf("path %q is not a regular file; close file: %w", path, closeErr)
+		}
 		return nil, nil, fmt.Errorf("path %q is not a regular file", path)
 	}
 	if !os.SameFile(pathInfo, info) {
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			return nil, nil, fmt.Errorf("path %q changed while opening; retry the tool call; close file: %w", path, closeErr)
+		}
 		return nil, nil, fmt.Errorf("path %q changed while opening; retry the tool call", path)
 	}
 	return file, info, nil
