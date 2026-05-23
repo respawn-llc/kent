@@ -119,6 +119,20 @@ func TestBaseSystemPromptMatchesLegacyMonolithGolden(t *testing.T) {
 	}
 }
 
+func TestWorkflowModePromptsOverrideNoopFinal(t *testing.T) {
+	for name, prompt := range map[string]string{
+		"tool":              WorkflowToolModePrompt,
+		"structured_output": WorkflowStructuredOutputModePrompt,
+	} {
+		if !strings.Contains(prompt, "Do not use `NO_OP` in workflow mode") {
+			t.Fatalf("%s workflow prompt missing NO_OP override: %q", name, prompt)
+		}
+		if !strings.Contains(prompt, "keep polling it with `write_stdin`") {
+			t.Fatalf("%s workflow prompt missing polling recovery path: %q", name, prompt)
+		}
+	}
+}
+
 func TestDefaultSystemPromptAssemblyCannotReferenceFullDefaultPrompt(t *testing.T) {
 	_, err := renderSystemPromptTemplateErr("{{.DefaultSystemPrompt}}", SystemPromptTemplateArgs{
 		EstimatedToolCallsForContext: 123,

@@ -10,6 +10,7 @@ Definitions:
 Rules:
 
 - Do not use normal prose final answer as completion.
+- Do not use `NO_OP` in workflow mode; it is not a valid workflow completion. If you need to wait on a running command, keep polling it with `write_stdin`.
 - When work is complete, return JSON matching workflow completion schema.
 - Do not invent transition IDs or output fields.
 - Use `ask_question` when required; workflow pauses and resumes this run through the normal question mechanism.

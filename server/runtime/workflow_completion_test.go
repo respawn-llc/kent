@@ -161,6 +161,9 @@ func TestWorkflowModePromptInjectedBeforeUserPrompt(t *testing.T) {
 	if workflowIdx < 0 || userIdx < 0 || workflowIdx > userIdx {
 		t.Fatalf("workflow prompt/user ordering invalid: workflow=%d user=%d messages=%+v", workflowIdx, userIdx, messages)
 	}
+	if !strings.Contains(messages[workflowIdx].Content, "Do not use `NO_OP` in workflow mode") {
+		t.Fatalf("workflow prompt missing NO_OP warning: %q", messages[workflowIdx].Content)
+	}
 }
 
 func TestWorkflowStructuredModeUsesStructuredOutput(t *testing.T) {
@@ -169,19 +172,39 @@ func TestWorkflowStructuredModeUsesStructuredOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	client := &fakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"transition_id":"done","commentary":"complete","summary":"done"}`, Phase: llm.MessagePhaseFinal},
+		Usage:     llm.Usage{WindowTokens: 200000},
+	}}}
+	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:       "gpt-5",
 		WorkflowRun: testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeStructuredOutput),
 	})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	req, err := eng.buildRequest(context.Background(), "step", true)
-	if err != nil {
-		t.Fatalf("buildRequest: %v", err)
+	if _, err := eng.SubmitUserMessage(context.Background(), "node prompt"); err != nil {
+		t.Fatalf("submit: %v", err)
 	}
+	if len(client.calls) != 1 {
+		t.Fatalf("model calls = %d, want 1", len(client.calls))
+	}
+	req := client.calls[0]
 	if req.StructuredOutput == nil {
 		t.Fatal("expected structured output")
+	}
+	messages := requestMessages(req)
+	workflowIdx := -1
+	for idx, msg := range messages {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeWorkflowMode {
+			workflowIdx = idx
+		}
+	}
+	if workflowIdx < 0 {
+		t.Fatalf("workflow prompt missing from structured-output request: %+v", messages)
+	}
+	if !strings.Contains(messages[workflowIdx].Content, "Do not use `NO_OP` in workflow mode") {
+		t.Fatalf("structured-output workflow prompt missing NO_OP warning: %q", messages[workflowIdx].Content)
 	}
 	for _, tool := range req.Tools {
 		if tool.Name == string(toolspec.ToolCompleteNode) {

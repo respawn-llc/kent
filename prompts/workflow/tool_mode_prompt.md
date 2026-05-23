@@ -10,6 +10,7 @@ Definitions:
 Rules:
 
 - Do not use normal final answer as completion.
+- Do not use `NO_OP` in workflow mode; it is not a valid workflow completion. If you need to wait on a running command, keep polling it with `write_stdin`.
 - When work is complete, call `complete_node` exactly once.
 - You may call other tools in same turn if their side effects must happen before node is considered complete.
 - Do not invent transition IDs or output fields.
