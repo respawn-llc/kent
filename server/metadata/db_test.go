@@ -674,11 +674,11 @@ func primaryWorkspaceIDsByProject(t *testing.T, db *sql.DB) map[string]string {
 	out := map[string]string{}
 	for rows.Next() {
 		var projectID string
-		var workspaceID string
+		var workspaceID sql.NullString
 		if err := rows.Scan(&projectID, &workspaceID); err != nil {
 			t.Fatalf("scan project primary workspace id: %v", err)
 		}
-		out[projectID] = workspaceID
+		out[projectID] = workspaceID.String
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate project primary workspace ids: %v", err)

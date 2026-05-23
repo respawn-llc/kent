@@ -6,4 +6,5 @@ DROP INDEX IF EXISTS tasks_project_short_id_idx;
 
 UPDATE workflow_nodes
 SET metadata_json = json_remove(metadata_json, '$.archived_at_unix_ms')
-WHERE json_type(metadata_json, '$.archived_at_unix_ms') IS NOT NULL;
+WHERE json_valid(metadata_json) = 1
+  AND json_type(metadata_json, '$.archived_at_unix_ms') IS NOT NULL;

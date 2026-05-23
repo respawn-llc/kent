@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"builder/server/metadata/sqlitegen"
 	"builder/server/workflow"
@@ -44,7 +45,7 @@ type WorkflowDeleteBlocker struct {
 }
 
 func (s *Store) PreviewWorkflowDelete(ctx context.Context, workflowID workflow.WorkflowID) (WorkflowDeleteImpact, error) {
-	if workflowID == "" {
+	if strings.TrimSpace(string(workflowID)) == "" {
 		return WorkflowDeleteImpact{}, errors.New("workflow id is required")
 	}
 	row, err := s.queries.GetWorkflowDeleteImpact(ctx, string(workflowID))
@@ -55,7 +56,7 @@ func (s *Store) PreviewWorkflowDelete(ctx context.Context, workflowID workflow.W
 }
 
 func (s *Store) DeleteWorkflow(ctx context.Context, req WorkflowDeleteRequest) (WorkflowDeleteResult, error) {
-	if req.WorkflowID == "" {
+	if strings.TrimSpace(string(req.WorkflowID)) == "" {
 		return WorkflowDeleteResult{}, errors.New("workflow id is required")
 	}
 	impact, err := s.PreviewWorkflowDelete(ctx, req.WorkflowID)

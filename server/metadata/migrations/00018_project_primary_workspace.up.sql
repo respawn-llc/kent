@@ -3,6 +3,8 @@
 
 PRAGMA foreign_keys = OFF;
 
+BEGIN IMMEDIATE;
+
 CREATE TEMP TABLE migration_workspace_check_zero(value INTEGER NOT NULL CHECK (value = 0));
 
 UPDATE sessions
@@ -375,5 +377,7 @@ WHERE EXISTS (
 );
 
 DROP TABLE migration_workspace_check_zero;
+
+COMMIT;
 
 PRAGMA foreign_keys = ON;

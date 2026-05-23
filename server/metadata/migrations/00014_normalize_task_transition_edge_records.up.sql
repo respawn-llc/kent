@@ -33,8 +33,8 @@ CREATE TABLE task_transition_edges_new (
     state TEXT NOT NULL CHECK (state IN ('pending', 'applied', 'completed', 'blocked')),
     context_mode TEXT NOT NULL DEFAULT '' CHECK (context_mode IN ('', 'new_session', 'continue_session', 'compact_and_continue_session')),
     requires_approval INTEGER NOT NULL DEFAULT 0 CHECK (requires_approval IN (0, 1)),
-    input_bindings_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_bindings_json)),
-    output_requirements_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(output_requirements_json)),
+    input_bindings_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(input_bindings_json) AND json_type(input_bindings_json) = 'array'),
+    output_requirements_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(output_requirements_json) AND json_type(output_requirements_json) = 'array'),
     metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json))
 );
 
@@ -68,8 +68,14 @@ SELECT
     state,
     context_mode,
     requires_approval,
-    input_bindings_json,
-    output_requirements_json,
+    CASE
+        WHEN json_valid(input_bindings_json) AND json_type(input_bindings_json) = 'array' THEN input_bindings_json
+        ELSE '[]'
+    END,
+    CASE
+        WHEN json_valid(output_requirements_json) AND json_type(output_requirements_json) = 'array' THEN output_requirements_json
+        ELSE '[]'
+    END,
     metadata_json
 FROM task_transition_edges;
 

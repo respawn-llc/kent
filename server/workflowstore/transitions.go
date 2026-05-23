@@ -364,8 +364,8 @@ func insertTransitionEdgeSnapshot(ctx context.Context, q *sqlitegen.Queries, tra
 		State:                  state,
 		ContextMode:            string(edge.ContextMode),
 		RequiresApproval:       boolToInt64(edge.RequiresApproval),
-		InputBindingsJson:      mustJSON(edge.InputBindings),
-		OutputRequirementsJson: mustJSON(edge.OutputRequirements),
+		InputBindingsJson:      mustInputBindingsJSON(edge.InputBindings),
+		OutputRequirementsJson: mustOutputRequirementsJSON(edge.OutputRequirements),
 		MetadataJson:           "{}",
 	}); err != nil {
 		return fmt.Errorf("insert transition edge snapshot: %w", err)

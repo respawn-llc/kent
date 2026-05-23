@@ -154,6 +154,9 @@ func TestWorkflowDeleteRequestValidation(t *testing.T) {
 	}).Validate(); err != nil {
 		t.Fatalf("valid delete request rejected: %v", err)
 	}
+	if err := (WorkflowDeleteRequest{}).Validate(); err == nil || !strings.Contains(err.Error(), "workflow_id") {
+		t.Fatalf("empty delete workflow id error = %v", err)
+	}
 	if err := (WorkflowDeleteRequest{WorkflowID: "workflow-1", ExpectedGraphRevision: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_graph_revision") {
 		t.Fatalf("negative graph revision error = %v", err)
 	}

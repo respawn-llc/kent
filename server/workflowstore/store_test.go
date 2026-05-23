@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"builder/server/metadata"
 	"builder/server/session"
@@ -107,6 +108,58 @@ func TestAddNodeRejectsNodeGroupFromDifferentWorkflow(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "belongs to workflow") {
 		t.Fatalf("AddNode cross-workflow group error = %v", err)
 	}
+}
+
+func TestWorkflowEventPublisherNormalizesAndDispatchesEvents(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newTestStore(t)
+	store.now = func() time.Time { return time.UnixMilli(1234).UTC() }
+	if err := store.PublishWorkflowEvent(ctx, WorkflowEventRecord{Action: "created"}); err == nil || !strings.Contains(err.Error(), "event resource") {
+		t.Fatalf("missing resource error = %v", err)
+	}
+	if err := store.PublishWorkflowEvent(ctx, WorkflowEventRecord{Resource: "task"}); err == nil || !strings.Contains(err.Error(), "event action") {
+		t.Fatalf("missing action error = %v", err)
+	}
+	if err := store.PublishWorkflowEvent(ctx, WorkflowEventRecord{Resource: "task", Action: "created"}); err != nil {
+		t.Fatalf("PublishWorkflowEvent with default no-op sink: %v", err)
+	}
+
+	sink := &recordingWorkflowEventPublisher{}
+	store.SetWorkflowEventPublisher(sink)
+	changedIDs := []string{"task-1"}
+	if err := store.PublishWorkflowEvent(ctx, WorkflowEventRecord{
+		ProjectID:  " project-1 ",
+		WorkflowID: " workflow-1 ",
+		Resource:   " task ",
+		Action:     " updated ",
+		ChangedIDs: changedIDs,
+	}); err != nil {
+		t.Fatalf("PublishWorkflowEvent: %v", err)
+	}
+	changedIDs[0] = "mutated"
+	if len(sink.records) != 1 {
+		t.Fatalf("published records = %+v, want one", sink.records)
+	}
+	record := sink.records[0]
+	if record.ProjectID != "project-1" || record.WorkflowID != "workflow-1" || record.Resource != "task" || record.Action != "updated" || record.OccurredAtUnixMs != 1234 {
+		t.Fatalf("published record = %+v, want normalized fields and default timestamp", record)
+	}
+	if len(record.ChangedIDs) != 1 || record.ChangedIDs[0] != "task-1" {
+		t.Fatalf("changed ids = %+v, want defensive copy", record.ChangedIDs)
+	}
+	store.SetWorkflowEventPublisher(nil)
+	if err := store.PublishWorkflowEvent(ctx, WorkflowEventRecord{Resource: "task", Action: "deleted"}); err != nil {
+		t.Fatalf("PublishWorkflowEvent after nil publisher reset: %v", err)
+	}
+}
+
+type recordingWorkflowEventPublisher struct {
+	records []WorkflowEventRecord
+}
+
+func (p *recordingWorkflowEventPublisher) PublishWorkflowEvent(_ context.Context, record WorkflowEventRecord) error {
+	p.records = append(p.records, record)
+	return nil
 }
 
 func TestTaskCreateStartCancelAndComments(t *testing.T) {
@@ -2071,7 +2124,7 @@ func TestCompleteRunRejectsStaleGeneration(t *testing.T) {
 	}
 }
 
-func TestRunStartContextHandlesMissingInputEdgeAndMalformedJSON(t *testing.T) {
+func TestRunStartContextHandlesMissingInputEdgeAndRejectsNonArrayInputJSON(t *testing.T) {
 	ctx := context.Background()
 	store, binding := newTestStore(t)
 	workflowID := createValidWorkflow(t, ctx, store)
@@ -2096,19 +2149,16 @@ func TestRunStartContextHandlesMissingInputEdgeAndMalformedJSON(t *testing.T) {
 	if len(input.InputValues) != 0 {
 		t.Fatalf("input values without input edge = %+v, want empty", input.InputValues)
 	}
-	taskWithMalformedInputs, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task 2", Body: "Body"})
+	taskWithInvalidInputs, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task 2", Body: "Body"})
 	if err != nil {
 		t.Fatalf("CreateTask malformed inputs: %v", err)
 	}
-	startedMalformedInputs, err := store.StartTask(ctx, taskWithMalformedInputs.ID)
+	startedInvalidInputs, err := store.StartTask(ctx, taskWithInvalidInputs.ID)
 	if err != nil {
 		t.Fatalf("StartTask malformed inputs: %v", err)
 	}
-	if _, err := store.db.ExecContext(ctx, `UPDATE task_transition_edges SET input_bindings_json = '{}' WHERE target_placement_id = ?`, string(startedMalformedInputs.PlacementID)); err != nil {
-		t.Fatalf("corrupt transition edge inputs: %v", err)
-	}
-	if _, err := store.GetRunStartContext(ctx, startedMalformedInputs.RunID); err == nil {
-		t.Fatalf("expected malformed transition edge input bindings error")
+	if _, err := store.db.ExecContext(ctx, `UPDATE task_transition_edges SET input_bindings_json = '{}' WHERE target_placement_id = ?`, string(startedInvalidInputs.PlacementID)); err == nil {
+		t.Fatalf("expected non-array transition edge input bindings to be rejected")
 	}
 	taskWithJoinInputs, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task 3", Body: "Body"})
 	if err != nil {
@@ -2562,6 +2612,9 @@ func TestProjectWorkflowUnlinkHardDeletesUnusedLinksAndBlocksTaskReferences(t *t
 	}
 	if _, err := store.UnlinkProjectWorkflow(ctx, link.ID, "missing-link"); err == nil || !strings.Contains(err.Error(), "replacement default") {
 		t.Fatalf("expected invalid replacement default guard, got %v", err)
+	}
+	if _, err := store.UnlinkProjectWorkflow(ctx, link.ID, link.ID); err == nil || !strings.Contains(err.Error(), "replacement default") {
+		t.Fatalf("expected self replacement default guard, got %v", err)
 	}
 	links, err := store.ListProjectWorkflowLinks(ctx, binding.ProjectID)
 	if err != nil {

@@ -425,7 +425,7 @@ VALUES ('transition-valid', 'task-1', 'placement-start', 'start', 1, 'system', '
 		t.Fatalf("derived transition source node = %q, want node-start", sourceNodeID)
 	}
 	execSeed(t, store.db, "valid transition edge", `INSERT INTO task_transition_edges (id, task_transition_id, workflow_edge_id, edge_key, target_node_id, state, input_bindings_json, output_requirements_json)
-VALUES ('transition-edge-valid', 'transition-valid', 'edge-start-1', 'start', 'node-agent', 'pending', '{}', '{}')`)
+VALUES ('transition-edge-valid', 'transition-valid', 'edge-start-1', 'start', 'node-agent', 'pending', '[]', '[]')`)
 	var transitionGroupID string
 	if err := store.db.QueryRow(`SELECT transition_group_id FROM task_transition_records WHERE id = 'transition-valid'`).Scan(&transitionGroupID); err != nil {
 		t.Fatalf("query derived transition group: %v", err)
@@ -441,11 +441,15 @@ VALUES ('transition-edge-valid', 'transition-valid', 'edge-start-1', 'start', 'n
 		t.Fatalf("derived transition edge revision = %d, want 1", edgeRevision)
 	}
 	assertSQLiteConstraint(t, store.db, `INSERT INTO task_transition_edges (id, task_transition_id, edge_key, target_node_id, target_placement_id, state, input_bindings_json, output_requirements_json)
-VALUES ('transition-edge-cross-task', 'transition-valid', 'bad', 'node-start', 'placement-start-2', 'applied', '{}', '{}')`)
+VALUES ('transition-edge-cross-task', 'transition-valid', 'bad', 'node-start', 'placement-start-2', 'applied', '[]', '[]')`)
 	assertSQLiteConstraint(t, store.db, `INSERT INTO task_transition_edges (id, task_transition_id, edge_key, target_node_id, state, input_bindings_json, output_requirements_json)
-VALUES ('transition-edge-cross-node', 'transition-valid', 'bad', 'node-agent-2', 'pending', '{}', '{}')`)
+VALUES ('transition-edge-cross-node', 'transition-valid', 'bad', 'node-agent-2', 'pending', '[]', '[]')`)
 	assertSQLiteConstraint(t, store.db, `INSERT INTO task_transition_edges (id, task_transition_id, workflow_edge_id, edge_key, target_node_id, state, input_bindings_json, output_requirements_json)
-VALUES ('transition-edge-cross-workflow-edge', 'transition-valid', 'edge-start-2', 'bad', 'node-agent', 'pending', '{}', '{}')`)
+VALUES ('transition-edge-cross-workflow-edge', 'transition-valid', 'edge-start-2', 'bad', 'node-agent', 'pending', '[]', '[]')`)
+	assertSQLiteConstraint(t, store.db, `INSERT INTO task_transition_edges (id, task_transition_id, workflow_edge_id, edge_key, target_node_id, state, input_bindings_json, output_requirements_json)
+VALUES ('transition-edge-object-inputs', 'transition-valid', 'edge-start-1', 'bad', 'node-agent', 'pending', '{}', '[]')`)
+	assertSQLiteConstraint(t, store.db, `INSERT INTO task_transition_edges (id, task_transition_id, workflow_edge_id, edge_key, target_node_id, state, input_bindings_json, output_requirements_json)
+VALUES ('transition-edge-object-outputs', 'transition-valid', 'edge-start-1', 'bad', 'node-agent', 'pending', '[]', '{}')`)
 }
 
 func TestTaskShortIDUniquenessIsProjectScoped(t *testing.T) {
@@ -529,7 +533,7 @@ VALUES ('placement-agent', 'task-1', 'node-agent', 'active', ?, ?)`, now, now); 
 		t.Fatalf("insert placement before transition edge: %v", err)
 	}
 	if _, err := store.db.Exec(`INSERT INTO task_transition_edges (id, task_transition_id, workflow_edge_id, edge_key, target_node_id, target_placement_id, state, input_bindings_json, output_requirements_json)
-VALUES ('transition-edge-1', 'transition-1', 'edge-start-1', 'start', 'node-agent', 'placement-agent', 'applied', '{}', '{}')`); err != nil {
+VALUES ('transition-edge-1', 'transition-1', 'edge-start-1', 'start', 'node-agent', 'placement-agent', 'applied', '[]', '[]')`); err != nil {
 		t.Fatalf("insert transition edge referencing placement: %v", err)
 	}
 	if _, err := store.db.Exec(`UPDATE task_transitions SET applied_at_unix_ms = ? WHERE id = 'transition-1'`, now); err != nil {

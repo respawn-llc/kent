@@ -47,10 +47,11 @@ func New(metadataStore *metadata.Store, opts ...Option) (*Store, error) {
 		return nil, errors.New("metadata store is required")
 	}
 	store := &Store{
-		metadata: metadataStore,
-		db:       metadataStore.DB(),
-		queries:  metadataStore.Queries(),
-		now:      func() time.Time { return time.Now().UTC() },
+		metadata:  metadataStore,
+		db:        metadataStore.DB(),
+		queries:   metadataStore.Queries(),
+		now:       func() time.Time { return time.Now().UTC() },
+		eventSink: noopWorkflowEventPublisher{},
 	}
 	for _, opt := range opts {
 		opt(store)
@@ -97,6 +98,12 @@ type WorkflowEventRecord struct {
 
 type WorkflowEventPublisher interface {
 	PublishWorkflowEvent(context.Context, WorkflowEventRecord) error
+}
+
+type noopWorkflowEventPublisher struct{}
+
+func (noopWorkflowEventPublisher) PublishWorkflowEvent(context.Context, WorkflowEventRecord) error {
+	return nil
 }
 
 type TransitionGroupRecord struct {
@@ -523,6 +530,9 @@ func (s *Store) SetWorkflowEventPublisher(publisher WorkflowEventPublisher) {
 		return
 	}
 	s.eventMu.Lock()
+	if publisher == nil {
+		publisher = noopWorkflowEventPublisher{}
+	}
 	s.eventSink = publisher
 	s.eventMu.Unlock()
 }
@@ -549,9 +559,6 @@ func (s *Store) PublishWorkflowEvent(ctx context.Context, event WorkflowEventRec
 	s.eventMu.RLock()
 	sink := s.eventSink
 	s.eventMu.RUnlock()
-	if sink == nil {
-		return nil
-	}
 	return sink.PublishWorkflowEvent(ctx, normalized)
 }
 
