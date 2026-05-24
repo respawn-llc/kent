@@ -129,6 +129,15 @@ describe("HomeRoute", () => {
     const sidebar = await screen.findByRole("complementary", { name: "Create workflow" });
     expect(within(sidebar).getByLabelText("Workflow name")).toBeInTheDocument();
   });
+
+  it("disables workflow creation from the Workflows tab while disconnected", async () => {
+    const services = createTestServices(startupRoutes);
+    services.transport.connection.set("disconnected", "offline");
+
+    render(<App services={services} />);
+
+    expect(await screen.findByRole("button", { name: "Create workflow" })).toBeDisabled();
+  });
 });
 
 function createHomeRevisitServices() {

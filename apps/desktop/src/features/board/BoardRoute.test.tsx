@@ -1345,6 +1345,17 @@ describe("BoardRoute", () => {
     expect(window.location.search).toContain("workflowId=workflow-2");
   });
 
+  it("disables workflow linking from the board hover menu while disconnected", async () => {
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const services = createTestServices([...startupRoutes, ...boardRoutes()]);
+    services.transport.connection.set("disconnected", "offline");
+
+    render(<App services={services} />);
+
+    await screen.findByRole("heading", { name: "Core" });
+    expect(screen.getByRole("button", { name: "Link workflow" })).toBeDisabled();
+  });
+
   it("creates reusable workflows from the board link sidebar and opens the project-context editor", async () => {
     window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
     const createdWorkflow = {

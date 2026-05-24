@@ -91,6 +91,7 @@ function HomePrimaryTabs({
       <HomePrimaryTabButton
         active={activeTab === "workflows"}
         createLabel={t("workflowLibrary.createWorkflow")}
+        disabled={disabled}
         label={t("workflowLibrary.homeIslandTitle")}
         onCreate={onCreateWorkflow}
         onSelect={() => {

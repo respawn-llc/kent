@@ -130,7 +130,7 @@ export function BoardHoverMenu({ board, canCreateTask, onNewTask, onWorkflowEdit
                 <IconMenuButton disabled={!canCreateTask} label={t("board.newTask")} onClick={onNewTask}>
                     <Plus aria-hidden="true" size={24} strokeWidth={1.6} />
                 </IconMenuButton>
-                <IconMenuButton label={t("workflowLibrary.linkWorkflow")} onClick={onWorkflowLink}>
+                <IconMenuButton disabled={!canCreateTask} label={t("workflowLibrary.linkWorkflow")} onClick={onWorkflowLink}>
                     <Link2 aria-hidden="true" size={22} strokeWidth={1.6} />
                 </IconMenuButton>
             </div>
