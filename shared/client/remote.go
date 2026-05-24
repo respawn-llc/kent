@@ -300,6 +300,21 @@ func (c *Remote) ValidateWorkflow(ctx context.Context, req serverapi.WorkflowVal
 	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowValidate, req, &resp)
 }
 
+func (c *Remote) ValidateWorkflowGraphDraft(ctx context.Context, req serverapi.WorkflowGraphValidateDraftRequest) (serverapi.WorkflowGraphValidateDraftResponse, error) {
+	var resp serverapi.WorkflowGraphValidateDraftResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowGraphValidateDraft, req, &resp)
+}
+
+func (c *Remote) PreviewWorkflowGraphSave(ctx context.Context, req serverapi.WorkflowGraphSavePreviewRequest) (serverapi.WorkflowGraphSavePreviewResponse, error) {
+	var resp serverapi.WorkflowGraphSavePreviewResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowGraphSavePreview, req, &resp)
+}
+
+func (c *Remote) SaveWorkflowGraph(ctx context.Context, req serverapi.WorkflowGraphSaveRequest) (serverapi.WorkflowGraphSaveResponse, error) {
+	var resp serverapi.WorkflowGraphSaveResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowGraphSave, req, &resp)
+}
+
 func (c *Remote) CreateWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCreateRequest) (serverapi.WorkflowTaskCreateResponse, error) {
 	var resp serverapi.WorkflowTaskCreateResponse
 	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskCreate, req, &resp)

@@ -273,6 +273,21 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return g.deps.WorkflowClient().ValidateWorkflow(ctx, params)
 		})
 	},
+	protocol.MethodWorkflowGraphValidateDraft: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowGraphValidateDraftRequest) (serverapi.WorkflowGraphValidateDraftResponse, error) {
+			return g.deps.WorkflowClient().ValidateWorkflowGraphDraft(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowGraphSavePreview: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowGraphSavePreviewRequest) (serverapi.WorkflowGraphSavePreviewResponse, error) {
+			return g.deps.WorkflowClient().PreviewWorkflowGraphSave(ctx, params)
+		})
+	},
+	protocol.MethodWorkflowGraphSave: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params serverapi.WorkflowGraphSaveRequest) (serverapi.WorkflowGraphSaveResponse, error) {
+			return g.deps.WorkflowClient().SaveWorkflowGraph(ctx, params)
+		})
+	},
 	protocol.MethodWorkflowTaskCreate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.WorkflowTaskCreateRequest) (serverapi.WorkflowTaskCreateResponse, error) {
 			return g.deps.WorkflowClient().CreateWorkflowTask(ctx, params)

@@ -206,6 +206,100 @@ export type WorkflowValidation = Readonly<{
   errors: readonly WorkflowValidationError[];
 }>;
 
+export type WorkflowValidationMode = "draft" | "task_creation" | "execution";
+
+export type WorkflowGraphDraftNodeGroup = Readonly<{
+  id: string;
+  key: string;
+  name: string;
+}>;
+
+export type WorkflowGraphDraftNode = Readonly<{
+  id: string;
+  key: string;
+  kind: string;
+  name: string;
+  groupID: string;
+  groupKey: string;
+  subagentRole: string;
+  promptTemplate: string;
+  outputFields: readonly WorkflowOutputField[];
+}>;
+
+export type WorkflowGraphDraftTransitionGroup = Readonly<{
+  id: string;
+  sourceNodeID: string;
+  transitionID: string;
+  name: string;
+}>;
+
+export type WorkflowGraphDraftEdge = Readonly<{
+  id: string;
+  transitionGroupID: string;
+  key: string;
+  targetNodeID: string;
+  requiresApproval: boolean;
+  contextMode: string;
+  contextSource: WorkflowContextSource;
+  inputBindings: readonly WorkflowInputBinding[];
+  outputRequirements: readonly WorkflowOutputRequirement[];
+}>;
+
+export type WorkflowGraphDraft = Readonly<{
+  nodeGroups: readonly WorkflowGraphDraftNodeGroup[];
+  nodes: readonly WorkflowGraphDraftNode[];
+  transitionGroups: readonly WorkflowGraphDraftTransitionGroup[];
+  edges: readonly WorkflowGraphDraftEdge[];
+}>;
+
+export type WorkflowGraphValidationResults = Readonly<
+  Partial<Record<WorkflowValidationMode, WorkflowValidation>>
+>;
+
+export type WorkflowGraphSaveImpact = Readonly<{
+  removedNodeCount: number;
+  removedTransitionGroupCount: number;
+  removedEdgeCount: number;
+  nodeTaskReferenceCount: number;
+  edgeTaskReferenceCount: number;
+  activeNodePlacementCount: number;
+  pendingApprovalCount: number;
+  activeRunCount: number;
+  runnableRunCount: number;
+  startNodeChangeCount: number;
+  lastTerminalChangeCount: number;
+  taskReferencedNodeKindChangeCount: number;
+}>;
+
+export type WorkflowGraphSaveBlocker = Readonly<{
+  code: string;
+  message: string;
+  count: number;
+}>;
+
+export type WorkflowGraphSavePreview = Readonly<{
+  currentGraphRevision: number;
+  validationResults: WorkflowGraphValidationResults;
+  impact: WorkflowGraphSaveImpact;
+  blockers: readonly WorkflowGraphSaveBlocker[];
+  canSave: boolean;
+  confirmationRequired: boolean;
+}>;
+
+export type WorkflowGraphSaveConfirmation = Readonly<{
+  expectedRemovedNodeCount: number;
+  expectedRemovedTransitionGroupCount: number;
+  expectedRemovedEdgeCount: number;
+  expectedNodeTaskReferenceCount: number;
+  expectedEdgeTaskReferenceCount: number;
+}>;
+
+export type WorkflowGraphSaveResult = WorkflowGraphSavePreview &
+  Readonly<{
+    saved: boolean;
+    definition: WorkflowDefinition | null;
+  }>;
+
 export type WorkflowDeleteImpact = Readonly<{
   workflowID: string;
   graphRevision: number;

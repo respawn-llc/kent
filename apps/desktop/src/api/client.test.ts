@@ -343,6 +343,129 @@ describe("BuilderApiClient", () => {
       },
     });
   });
+
+  it("maps workflow graph draft validation, preview, and save contracts", async () => {
+    const graphValidationResults = {
+      draft: { valid: true, errors: [] },
+      execution: workflowValidationResponse,
+    };
+    const transport = new FakeRpcTransport([
+      { method: "workflow.graph.validateDraft", result: { results: graphValidationResults } },
+      {
+        method: "workflow.graph.savePreview",
+        result: {
+          current_graph_revision: 7,
+          validation_results: graphValidationResults,
+          impact: workflowGraphSaveImpactResponse,
+          blockers: [{ code: "confirmation_required", message: "Confirm removal.", count: 1 }],
+          can_save: false,
+          confirmation_required: true,
+        },
+      },
+      {
+        method: "workflow.graph.save",
+        result: {
+          saved: true,
+          definition: workflowDefinitionResponse.definition,
+          current_graph_revision: 8,
+          validation_results: graphValidationResults,
+          impact: { ...workflowGraphSaveImpactResponse, removed_edge_count: 0 },
+          blockers: null,
+          can_save: true,
+          confirmation_required: false,
+        },
+      },
+    ]);
+    const client = new BuilderApiClient(transport);
+
+    await expect(
+      client.validateWorkflowGraphDraft({
+        workflowID: "workflow-1",
+        graph: workflowGraphDraft,
+        modes: ["draft", "execution"],
+      }),
+    ).resolves.toMatchObject({ draft: { valid: true }, execution: { valid: false } });
+    await expect(
+      client.previewWorkflowGraphSave({
+        workflowID: "workflow-1",
+        expectedGraphRevision: 7,
+        graph: workflowGraphDraft,
+      }),
+    ).resolves.toMatchObject({
+      currentGraphRevision: 7,
+      confirmationRequired: true,
+      impact: { removedEdgeCount: 1 },
+      blockers: [{ code: "confirmation_required" }],
+    });
+    await expect(
+      client.saveWorkflowGraph({
+        workflowID: "workflow-1",
+        expectedGraphRevision: 7,
+        graph: workflowGraphDraft,
+        confirmation: {
+          expectedRemovedNodeCount: 0,
+          expectedRemovedTransitionGroupCount: 0,
+          expectedRemovedEdgeCount: 1,
+          expectedNodeTaskReferenceCount: 0,
+          expectedEdgeTaskReferenceCount: 0,
+        },
+      }),
+    ).resolves.toMatchObject({
+      saved: true,
+      currentGraphRevision: 8,
+      definition: { workflow: { id: "workflow-1" } },
+      blockers: [],
+    });
+
+    expect(transport.calls[0]).toEqual({
+      method: "workflow.graph.validateDraft",
+      params: {
+        workflow_id: "workflow-1",
+        modes: ["draft", "execution"],
+        graph: {
+          node_groups: [],
+          nodes: [
+            {
+              id: "node-start",
+              key: "backlog",
+              kind: "start",
+              display_name: "Backlog",
+              output_fields: [],
+            },
+          ],
+          transition_groups: [
+            {
+              id: "group-start",
+              source_node_id: "node-start",
+              transition_id: "start",
+              display_name: "Start",
+            },
+          ],
+          edges: [
+            {
+              id: "edge-start",
+              transition_group_id: "group-start",
+              key: "start",
+              target_node_id: "node-agent",
+              requires_approval: false,
+              context_mode: "new_session",
+              context_source: { kind: "immediate_source", node_key: "" },
+              input_bindings: [],
+              output_requirements: [],
+            },
+          ],
+        },
+      },
+    });
+    expect(transport.calls[2]).toMatchObject({
+      method: "workflow.graph.save",
+      params: {
+        confirmation: {
+          expected_removed_edge_count: 1,
+        },
+      },
+    });
+  });
 });
 
 const emptyWorkflow = {
@@ -605,4 +728,57 @@ const workflowDeleteResponse = {
   deleted: false,
   impact: workflowDeleteImpactResponse,
   blockers: [{ code: "runnable_runs", message: "Workflow has runnable runs.", count: 1 }],
+};
+
+const workflowGraphSaveImpactResponse = {
+  removed_node_count: 0,
+  removed_transition_group_count: 0,
+  removed_edge_count: 1,
+  node_task_reference_count: 0,
+  edge_task_reference_count: 0,
+  active_node_placement_count: 0,
+  pending_approval_count: 0,
+  active_run_count: 0,
+  runnable_run_count: 0,
+  start_node_change_count: 0,
+  last_terminal_change_count: 0,
+  task_referenced_node_kind_change_count: 0,
+};
+
+const workflowGraphDraft = {
+  nodeGroups: [],
+  nodes: [
+    {
+      id: "node-start",
+      key: "backlog",
+      kind: "start",
+      name: "Backlog",
+      groupID: "",
+      groupKey: "",
+      subagentRole: "",
+      promptTemplate: "",
+      outputFields: [],
+    },
+  ],
+  transitionGroups: [
+    {
+      id: "group-start",
+      sourceNodeID: "node-start",
+      transitionID: "start",
+      name: "Start",
+    },
+  ],
+  edges: [
+    {
+      id: "edge-start",
+      transitionGroupID: "group-start",
+      key: "start",
+      targetNodeID: "node-agent",
+      requiresApproval: false,
+      contextMode: "new_session",
+      contextSource: { kind: "immediate_source", nodeKey: "" },
+      inputBindings: [],
+      outputRequirements: [],
+    },
+  ],
 };

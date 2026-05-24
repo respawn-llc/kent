@@ -448,6 +448,13 @@ func (s *Store) AddNode(ctx context.Context, node NodeRecord) (int64, error) {
 	if node.ID == "" {
 		node.ID = workflow.NodeID(prefixedID("node"))
 	}
+	currentGraph, err := currentWorkflowGraphSavePrepared(ctx, q, node.WorkflowID)
+	if err != nil {
+		return 0, err
+	}
+	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, node.WorkflowID, withWorkflowGraphNode(currentGraph, node)); err != nil {
+		return 0, err
+	}
 	groupID, err := resolveWorkflowNodeGroupID(ctx, q, string(node.WorkflowID), node.GroupID, node.GroupKey)
 	if err != nil {
 		return 0, err
@@ -493,6 +500,13 @@ func (s *Store) UpdateNode(ctx context.Context, node NodeRecord) (int64, error) 
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
+	currentGraph, err := currentWorkflowGraphSavePrepared(ctx, q, node.WorkflowID)
+	if err != nil {
+		return 0, err
+	}
+	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, node.WorkflowID, withWorkflowGraphNode(currentGraph, node)); err != nil {
+		return 0, err
+	}
 	groupID, err := resolveWorkflowNodeGroupID(ctx, q, string(node.WorkflowID), node.GroupID, node.GroupKey)
 	if err != nil {
 		return 0, err
@@ -558,6 +572,13 @@ func (s *Store) AddNodeGroup(ctx context.Context, group NodeGroupRecord) (NodeGr
 	if strings.TrimSpace(group.ID) == "" {
 		group.ID = prefixedID("workflow-node-group")
 	}
+	currentGraph, err := currentWorkflowGraphSavePrepared(ctx, q, group.WorkflowID)
+	if err != nil {
+		return NodeGroupRecord{}, 0, err
+	}
+	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, group.WorkflowID, withWorkflowGraphNodeGroup(currentGraph, group)); err != nil {
+		return NodeGroupRecord{}, 0, err
+	}
 	if err := q.InsertWorkflowNodeGroup(ctx, sqlitegen.InsertWorkflowNodeGroupParams{ID: group.ID, WorkflowID: string(group.WorkflowID), GroupKey: string(group.Key), DisplayName: strings.TrimSpace(group.DisplayName), SortOrder: group.SortOrder}); err != nil {
 		return NodeGroupRecord{}, 0, fmt.Errorf("insert workflow node group: %w", err)
 	}
@@ -590,6 +611,13 @@ func (s *Store) UpdateNodeGroup(ctx context.Context, group NodeGroupRecord) (Nod
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
+	currentGraph, err := currentWorkflowGraphSavePrepared(ctx, q, group.WorkflowID)
+	if err != nil {
+		return NodeGroupRecord{}, 0, err
+	}
+	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, group.WorkflowID, withWorkflowGraphNodeGroup(currentGraph, group)); err != nil {
+		return NodeGroupRecord{}, 0, err
+	}
 	updated, err := q.UpdateWorkflowNodeGroup(ctx, sqlitegen.UpdateWorkflowNodeGroupParams{ID: group.ID, WorkflowID: string(group.WorkflowID), GroupKey: string(group.Key), DisplayName: strings.TrimSpace(group.DisplayName), SortOrder: group.SortOrder})
 	if err != nil {
 		return NodeGroupRecord{}, 0, fmt.Errorf("update workflow node group: %w", err)
@@ -627,6 +655,13 @@ func (s *Store) DeleteNodeGroup(ctx context.Context, workflowID workflow.Workflo
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
+	currentGraph, err := currentWorkflowGraphSavePrepared(ctx, q, workflowID)
+	if err != nil {
+		return 0, err
+	}
+	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, workflowID, withoutWorkflowGraphNodeGroup(currentGraph, strings.TrimSpace(groupID))); err != nil {
+		return 0, err
+	}
 	deleted, err := q.DeleteWorkflowNodeGroup(ctx, sqlitegen.DeleteWorkflowNodeGroupParams{ID: strings.TrimSpace(groupID), WorkflowID: string(workflowID)})
 	if err != nil {
 		return 0, fmt.Errorf("delete workflow node group: %w", err)
@@ -688,6 +723,13 @@ func (s *Store) AddTransitionGroup(ctx context.Context, group TransitionGroupRec
 	if group.ID == "" {
 		group.ID = workflow.TransitionGroupID(prefixedID("group"))
 	}
+	currentGraph, err := currentWorkflowGraphSavePrepared(ctx, q, group.WorkflowID)
+	if err != nil {
+		return 0, err
+	}
+	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, group.WorkflowID, withWorkflowGraphTransitionGroup(currentGraph, group)); err != nil {
+		return 0, err
+	}
 	if err := ensureWorkflowNodeID(ctx, q, string(group.WorkflowID), group.SourceNodeID); err != nil {
 		return 0, err
 	}
@@ -717,6 +759,13 @@ func (s *Store) UpdateTransitionGroup(ctx context.Context, group TransitionGroup
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
+	currentGraph, err := currentWorkflowGraphSavePrepared(ctx, q, group.WorkflowID)
+	if err != nil {
+		return 0, err
+	}
+	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, group.WorkflowID, withWorkflowGraphTransitionGroup(currentGraph, group)); err != nil {
+		return 0, err
+	}
 	if err := ensureWorkflowNodeID(ctx, q, string(group.WorkflowID), group.SourceNodeID); err != nil {
 		return 0, err
 	}
@@ -778,6 +827,13 @@ func (s *Store) AddEdge(ctx context.Context, edge EdgeRecord) (int64, error) {
 	if edge.ID == "" {
 		edge.ID = workflow.EdgeID(prefixedID("edge"))
 	}
+	currentGraph, err := currentWorkflowGraphSavePrepared(ctx, q, edge.WorkflowID)
+	if err != nil {
+		return 0, err
+	}
+	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, edge.WorkflowID, withWorkflowGraphEdge(currentGraph, edge)); err != nil {
+		return 0, err
+	}
 	if err := ensureWorkflowTransitionGroupID(ctx, tx, string(edge.WorkflowID), edge.TransitionGroupID); err != nil {
 		return 0, err
 	}
@@ -819,6 +875,13 @@ func (s *Store) UpdateEdge(ctx context.Context, edge EdgeRecord) (int64, error) 
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
+	currentGraph, err := currentWorkflowGraphSavePrepared(ctx, q, edge.WorkflowID)
+	if err != nil {
+		return 0, err
+	}
+	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, edge.WorkflowID, withWorkflowGraphEdge(currentGraph, edge)); err != nil {
+		return 0, err
+	}
 	if err := ensureWorkflowTransitionGroupID(ctx, tx, string(edge.WorkflowID), edge.TransitionGroupID); err != nil {
 		return 0, err
 	}
@@ -881,30 +944,31 @@ func (s *Store) DeleteNode(ctx context.Context, nodeID workflow.NodeID) error {
 	if strings.TrimSpace(string(nodeID)) == "" {
 		return errors.New("node id is required")
 	}
-	node, err := s.queries.GetWorkflowNode(ctx, string(nodeID))
-	if err != nil {
-		return err
-	}
-	nonTerminalRefs, err := s.queries.CountNonTerminalTasksByWorkflow(ctx, node.WorkflowID)
-	if err != nil {
-		return err
-	}
-	if nonTerminalRefs > 0 {
-		return fmt.Errorf("workflow has non-terminal task references")
-	}
-	refs, err := s.queries.CountTaskNodeReferences(ctx, string(nodeID))
-	if err != nil {
-		return err
-	}
-	if refs > 0 {
-		return fmt.Errorf("workflow node has task history references")
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
+	node, err := q.GetWorkflowNode(ctx, string(nodeID))
+	if err != nil {
+		return err
+	}
+	workflowID := workflow.WorkflowID(node.WorkflowID)
+	currentGraph, err := currentWorkflowGraphSavePrepared(ctx, q, workflowID)
+	if err != nil {
+		return err
+	}
+	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, workflowID, withoutWorkflowGraphNode(currentGraph, nodeID)); err != nil {
+		return err
+	}
+	refs, err := q.CountTaskNodeReferences(ctx, string(nodeID))
+	if err != nil {
+		return err
+	}
+	if refs > 0 {
+		return fmt.Errorf("workflow node has task history references")
+	}
 	if deleted, err := q.DeleteWorkflowNode(ctx, string(nodeID)); err != nil {
 		return fmt.Errorf("delete workflow node: %w", err)
 	} else if deleted != 1 {
@@ -920,30 +984,31 @@ func (s *Store) DeleteEdge(ctx context.Context, edgeID workflow.EdgeID) error {
 	if strings.TrimSpace(string(edgeID)) == "" {
 		return errors.New("edge id is required")
 	}
-	edge, err := s.queries.GetWorkflowEdge(ctx, string(edgeID))
-	if err != nil {
-		return err
-	}
-	nonTerminalRefs, err := s.queries.CountNonTerminalTasksByWorkflow(ctx, edge.WorkflowID)
-	if err != nil {
-		return err
-	}
-	if nonTerminalRefs > 0 {
-		return fmt.Errorf("workflow has non-terminal task references")
-	}
-	refs, err := s.queries.CountTaskEdgeReferences(ctx, sql.NullString{String: string(edgeID), Valid: true})
-	if err != nil {
-		return err
-	}
-	if refs > 0 {
-		return fmt.Errorf("workflow edge has task history references")
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
+	edge, err := q.GetWorkflowEdge(ctx, string(edgeID))
+	if err != nil {
+		return err
+	}
+	workflowID := workflow.WorkflowID(edge.WorkflowID)
+	currentGraph, err := currentWorkflowGraphSavePrepared(ctx, q, workflowID)
+	if err != nil {
+		return err
+	}
+	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, workflowID, withoutWorkflowGraphEdge(currentGraph, edgeID)); err != nil {
+		return err
+	}
+	refs, err := q.CountTaskEdgeReferences(ctx, sql.NullString{String: string(edgeID), Valid: true})
+	if err != nil {
+		return err
+	}
+	if refs > 0 {
+		return fmt.Errorf("workflow edge has task history references")
+	}
 	if deleted, err := q.DeleteWorkflowEdge(ctx, string(edgeID)); err != nil {
 		return fmt.Errorf("delete workflow edge: %w", err)
 	} else if deleted != 1 {

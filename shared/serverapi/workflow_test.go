@@ -138,6 +138,41 @@ func TestWorkflowValidateRequestValidation(t *testing.T) {
 	}
 }
 
+func TestWorkflowGraphDraftRequestValidation(t *testing.T) {
+	graphWithInvalidShape := WorkflowGraphDraft{
+		Nodes: []WorkflowGraphDraftNode{{ID: "node-1", Key: "Bad-Key", Kind: "unknown"}},
+	}
+	if err := (WorkflowGraphValidateDraftRequest{WorkflowID: "workflow-1", Graph: graphWithInvalidShape, Modes: []WorkflowValidationMode{WorkflowValidationModeDraft, WorkflowValidationModeExecution}}).Validate(); err != nil {
+		t.Fatalf("graph shape should be validated by workflow validation, not request validation: %v", err)
+	}
+	if err := (WorkflowGraphValidateDraftRequest{WorkflowID: "workflow-1", Modes: []WorkflowValidationMode{WorkflowValidationModeDraft, WorkflowValidationModeExecution}}).Validate(); err != nil {
+		t.Fatalf("empty graph draft should be accepted for structured validation: %v", err)
+	}
+	if err := (WorkflowGraphValidateDraftRequest{WorkflowID: "", Modes: []WorkflowValidationMode{WorkflowValidationModeDraft}}).Validate(); err == nil || !strings.Contains(err.Error(), "workflow_id") {
+		t.Fatalf("missing workflow id error = %v", err)
+	}
+	if err := (WorkflowGraphValidateDraftRequest{WorkflowID: "workflow-1"}).Validate(); err == nil || !strings.Contains(err.Error(), "modes") {
+		t.Fatalf("missing modes error = %v", err)
+	}
+	if err := (WorkflowGraphValidateDraftRequest{WorkflowID: "workflow-1", Modes: []WorkflowValidationMode{"other"}}).Validate(); err == nil || !strings.Contains(err.Error(), "modes") {
+		t.Fatalf("invalid modes error = %v", err)
+	}
+	oversized := WorkflowGraphValidateDraftRequest{
+		WorkflowID: "workflow-1",
+		Modes:      []WorkflowValidationMode{WorkflowValidationModeDraft},
+		Graph:      WorkflowGraphDraft{Nodes: make([]WorkflowGraphDraftNode, WorkflowGraphDraftMaxNodes+1)},
+	}
+	if err := oversized.Validate(); err == nil || !strings.Contains(err.Error(), "nodes") {
+		t.Fatalf("oversized graph draft error = %v", err)
+	}
+	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: "workflow-1", ExpectedGraphRevision: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_graph_revision") {
+		t.Fatalf("negative preview revision error = %v", err)
+	}
+	if err := (WorkflowGraphSaveRequest{WorkflowID: "workflow-1", ExpectedGraphRevision: 1, Confirmation: &WorkflowGraphSaveConfirmation{ExpectedRemovedNodeCount: -1}}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_removed_node_count") {
+		t.Fatalf("negative graph save confirmation error = %v", err)
+	}
+}
+
 func TestWorkflowProjectLinkRequestValidation(t *testing.T) {
 	if err := (WorkflowLinkProjectRequest{ProjectID: "project-1", WorkflowID: "workflow-1"}).Validate(); err != nil {
 		t.Fatalf("valid link request rejected: %v", err)

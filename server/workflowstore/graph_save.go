@@ -12,13 +12,18 @@ import (
 )
 
 type WorkflowGraphSaveRequest struct {
-	WorkflowID            workflow.WorkflowID
-	ExpectedGraphRevision int64
-	Confirmed             bool
-	NodeGroups            []NodeGroupRecord
-	Nodes                 []NodeRecord
-	TransitionGroups      []TransitionGroupRecord
-	Edges                 []EdgeRecord
+	WorkflowID                          workflow.WorkflowID
+	ExpectedGraphRevision               int64
+	Confirmed                           bool
+	ExpectedRemovedNodeCount            int64
+	ExpectedRemovedTransitionGroupCount int64
+	ExpectedRemovedEdgeCount            int64
+	ExpectedNodeTaskReferenceCount      int64
+	ExpectedEdgeTaskReferenceCount      int64
+	NodeGroups                          []NodeGroupRecord
+	Nodes                               []NodeRecord
+	TransitionGroups                    []TransitionGroupRecord
+	Edges                               []EdgeRecord
 }
 
 type WorkflowGraphSaveImpact struct {
@@ -36,32 +41,84 @@ type WorkflowGraphSaveBlocker struct {
 }
 
 type WorkflowGraphSaveResult struct {
-	Saved            bool
+	Saved                bool
+	CanSave              bool
+	ConfirmationRequired bool
+	GraphRevision        int64
+	Impact               WorkflowGraphSaveImpact
+	EditPolicyImpact     WorkflowGraphEditPolicyImpact
+	Blockers             []WorkflowGraphSaveBlocker
+	ValidationErrors     []workflow.ValidationError
+}
+
+type WorkflowGraphSavePlan struct {
+	WorkflowID       workflow.WorkflowID
 	GraphRevision    int64
+	Prepared         preparedWorkflowGraphSave
+	Removed          removedWorkflowGraphRows
 	Impact           WorkflowGraphSaveImpact
+	EditPolicy       WorkflowGraphEditPolicyResult
 	Blockers         []WorkflowGraphSaveBlocker
 	ValidationErrors []workflow.ValidationError
 }
 
-func (s *Store) SaveWorkflowGraph(ctx context.Context, req WorkflowGraphSaveRequest) (WorkflowGraphSaveResult, error) {
-	workflowID := workflow.WorkflowID(strings.TrimSpace(string(req.WorkflowID)))
-	if workflowID == "" {
-		return WorkflowGraphSaveResult{}, errors.New("workflow id is required")
-	}
-	if req.ExpectedGraphRevision < 0 {
-		return WorkflowGraphSaveResult{}, errors.New("expected graph revision must be non-negative")
-	}
-	current, err := s.queries.GetWorkflow(ctx, string(workflowID))
+func (s *Store) PreviewWorkflowGraphSave(ctx context.Context, req WorkflowGraphSaveRequest) (WorkflowGraphSaveResult, error) {
+	plan, err := s.planWorkflowGraphSave(ctx, s.db, s.queries, req)
 	if err != nil {
 		return WorkflowGraphSaveResult{}, err
+	}
+	return plan.workflowGraphSaveResult(false), nil
+}
+
+func (s *Store) planWorkflowGraphSave(ctx context.Context, db workflowGraphEditPolicyQuerier, q *sqlitegen.Queries, req WorkflowGraphSaveRequest) (WorkflowGraphSavePlan, error) {
+	workflowID := workflow.WorkflowID(strings.TrimSpace(string(req.WorkflowID)))
+	if workflowID == "" {
+		return WorkflowGraphSavePlan{}, errors.New("workflow id is required")
+	}
+	if req.ExpectedGraphRevision < 0 {
+		return WorkflowGraphSavePlan{}, errors.New("expected graph revision must be non-negative")
+	}
+	current, err := q.GetWorkflow(ctx, string(workflowID))
+	if err != nil {
+		return WorkflowGraphSavePlan{}, err
 	}
 	prepared, def, err := prepareWorkflowGraphSave(workflowID, current.Name, req)
 	if err != nil {
-		return WorkflowGraphSaveResult{}, err
+		return WorkflowGraphSavePlan{}, err
 	}
 	validation := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft, RoleResolver: s.roleResolver})
 	validationErrors := validation.BlockingErrors()
+	plan := WorkflowGraphSavePlan{
+		WorkflowID:       workflowID,
+		GraphRevision:    current.GraphRevision,
+		Prepared:         prepared,
+		ValidationErrors: validationErrors,
+	}
+	if current.GraphRevision != req.ExpectedGraphRevision {
+		plan.Blockers = []WorkflowGraphSaveBlocker{{Code: "graph_revision_changed", Message: "Workflow graph changed. Refresh before saving.", Count: current.GraphRevision}}
+		return plan, nil
+	}
+	impact, removed, err := workflowGraphSaveImpact(ctx, q, workflowID, prepared)
+	if err != nil {
+		return WorkflowGraphSavePlan{}, err
+	}
+	editPolicy, err := workflowGraphEditPolicy(ctx, db, q, workflowID, prepared)
+	if err != nil {
+		return WorkflowGraphSavePlan{}, err
+	}
+	blockers := workflowGraphSaveBlockers(req, impact)
+	blockers = append(blockers, workflowGraphSaveBlockersFromEditPolicy(editPolicy.Blockers)...)
+	if len(validationErrors) > 0 {
+		blockers = append(blockers, WorkflowGraphSaveBlocker{Code: "validation_failed", Message: "Workflow graph has blocking validation errors.", Count: int64(len(validationErrors))})
+	}
+	plan.Removed = removed
+	plan.Impact = impact
+	plan.EditPolicy = editPolicy
+	plan.Blockers = blockers
+	return plan, nil
+}
 
+func (s *Store) SaveWorkflowGraph(ctx context.Context, req WorkflowGraphSaveRequest) (WorkflowGraphSaveResult, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return WorkflowGraphSaveResult{}, err
@@ -71,38 +128,39 @@ func (s *Store) SaveWorkflowGraph(ctx context.Context, req WorkflowGraphSaveRequ
 		return WorkflowGraphSaveResult{}, err
 	}
 	q := s.queries.WithTx(tx)
-	row, err := q.GetWorkflow(ctx, string(workflowID))
+	plan, err := s.planWorkflowGraphSave(ctx, tx, q, req)
 	if err != nil {
 		return WorkflowGraphSaveResult{}, err
 	}
-	if row.GraphRevision != req.ExpectedGraphRevision {
-		return WorkflowGraphSaveResult{
-			GraphRevision: row.GraphRevision,
-			Blockers:      []WorkflowGraphSaveBlocker{{Code: "graph_revision_changed", Message: "Workflow graph changed. Refresh before saving.", Count: row.GraphRevision}},
-		}, nil
+	if len(plan.Blockers) > 0 {
+		return plan.workflowGraphSaveResult(false), nil
 	}
-	impact, removed, err := workflowGraphSaveImpact(ctx, q, workflowID, prepared)
-	if err != nil {
+	if err := applyWorkflowGraphSave(ctx, tx, q, plan.WorkflowID, plan.Prepared, plan.Removed); err != nil {
 		return WorkflowGraphSaveResult{}, err
 	}
-	blockers := workflowGraphSaveBlockers(req, impact)
-	if len(validationErrors) > 0 {
-		blockers = append(blockers, WorkflowGraphSaveBlocker{Code: "validation_failed", Message: "Workflow graph has blocking validation errors.", Count: int64(len(validationErrors))})
-	}
-	if len(blockers) > 0 {
-		return WorkflowGraphSaveResult{GraphRevision: row.GraphRevision, Impact: impact, Blockers: blockers, ValidationErrors: validationErrors}, nil
-	}
-	if err := applyWorkflowGraphSave(ctx, tx, q, workflowID, prepared, removed); err != nil {
-		return WorkflowGraphSaveResult{}, err
-	}
-	revision, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: string(workflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
+	revision, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: string(plan.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
 	if err != nil {
 		return WorkflowGraphSaveResult{}, fmt.Errorf("increment graph revision: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return WorkflowGraphSaveResult{}, err
 	}
-	return WorkflowGraphSaveResult{Saved: true, GraphRevision: revision, Impact: impact}, nil
+	result := plan.workflowGraphSaveResult(true)
+	result.GraphRevision = revision
+	return result, nil
+}
+
+func (p WorkflowGraphSavePlan) workflowGraphSaveResult(saved bool) WorkflowGraphSaveResult {
+	return WorkflowGraphSaveResult{
+		Saved:                saved,
+		CanSave:              len(p.Blockers) == 0,
+		ConfirmationRequired: workflowGraphSaveHasBlocker(p.Blockers, "confirmation_required"),
+		GraphRevision:        p.GraphRevision,
+		Impact:               p.Impact,
+		EditPolicyImpact:     p.EditPolicy.Impact,
+		Blockers:             p.Blockers,
+		ValidationErrors:     p.ValidationErrors,
+	}
 }
 
 type preparedWorkflowGraphSave struct {
@@ -275,7 +333,39 @@ func workflowGraphSaveBlockers(req WorkflowGraphSaveRequest, impact WorkflowGrap
 	if removedCount > 0 && !req.Confirmed {
 		blockers = append(blockers, WorkflowGraphSaveBlocker{Code: "confirmation_required", Message: "Workflow graph save removes graph rows. Confirm with the current impact before saving.", Count: removedCount})
 	}
+	if removedCount > 0 && req.Confirmed && !workflowGraphSaveConfirmationMatches(req, impact) {
+		blockers = append(blockers, WorkflowGraphSaveBlocker{Code: "impact_changed", Message: "Workflow graph save impact changed. Refresh the preview before saving.", Count: 1})
+	}
 	return blockers
+}
+
+func workflowGraphSaveConfirmationMatches(req WorkflowGraphSaveRequest, impact WorkflowGraphSaveImpact) bool {
+	return req.Confirmed &&
+		req.ExpectedRemovedNodeCount == impact.RemovedNodeCount &&
+		req.ExpectedRemovedTransitionGroupCount == impact.RemovedTransitionGroupCount &&
+		req.ExpectedRemovedEdgeCount == impact.RemovedEdgeCount &&
+		req.ExpectedNodeTaskReferenceCount == impact.NodeTaskReferenceCount &&
+		req.ExpectedEdgeTaskReferenceCount == impact.EdgeTaskReferenceCount
+}
+
+func workflowGraphSaveHasBlocker(blockers []WorkflowGraphSaveBlocker, code string) bool {
+	for _, blocker := range blockers {
+		if blocker.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func workflowGraphSaveBlockersFromEditPolicy(blockers []WorkflowGraphEditPolicyBlocker) []WorkflowGraphSaveBlocker {
+	if len(blockers) == 0 {
+		return nil
+	}
+	out := make([]WorkflowGraphSaveBlocker, 0, len(blockers))
+	for _, blocker := range blockers {
+		out = append(out, WorkflowGraphSaveBlocker{Code: blocker.Code, Message: blocker.Message, Count: blocker.Count})
+	}
+	return out
 }
 
 func applyWorkflowGraphSave(ctx context.Context, tx *sql.Tx, q *sqlitegen.Queries, workflowID workflow.WorkflowID, prepared preparedWorkflowGraphSave, removed removedWorkflowGraphRows) error {

@@ -3,6 +3,7 @@ package workflowsvc
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1089,6 +1090,80 @@ func TestServiceWorkflowGraphMutationsPublishInvalidations(t *testing.T) {
 	}
 }
 
+func TestServiceWorkflowGraphValidatePreviewAndSave(t *testing.T) {
+	ctx := context.Background()
+	service, binding := newWorkflowServiceTestService(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	if _, err := service.LinkWorkflowToProject(ctx, serverapi.WorkflowLinkProjectRequest{ProjectID: binding.ProjectID, WorkflowID: workflowID, Default: true}); err != nil {
+		t.Fatalf("LinkWorkflowToProject: %v", err)
+	}
+	source, err := service.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: workflowID})
+	if err != nil {
+		t.Fatalf("GetWorkflow source: %v", err)
+	}
+	graph := workflowGraphDraftFromDefinition(source.Definition)
+	validated, err := service.ValidateWorkflowGraphDraft(ctx, serverapi.WorkflowGraphValidateDraftRequest{
+		WorkflowID: workflowID,
+		Graph:      graph,
+		Modes:      []serverapi.WorkflowValidationMode{serverapi.WorkflowValidationModeDraft, serverapi.WorkflowValidationModeExecution},
+	})
+	if err != nil {
+		t.Fatalf("ValidateWorkflowGraphDraft: %v", err)
+	}
+	if len(validated.Results) != 2 || !validated.Results[serverapi.WorkflowValidationModeDraft].Valid || !validated.Results[serverapi.WorkflowValidationModeExecution].Valid {
+		t.Fatalf("validated graph draft = %+v, want valid draft and execution results", validated)
+	}
+
+	renamedGraph := renameWorkflowGraphDraftNode(graph, "node-agent-"+workflowID, "Preview Agent")
+	preview, err := service.PreviewWorkflowGraphSave(ctx, serverapi.WorkflowGraphSavePreviewRequest{
+		WorkflowID:            workflowID,
+		ExpectedGraphRevision: source.Definition.Workflow.GraphRevision,
+		Graph:                 renamedGraph,
+	})
+	if err != nil {
+		t.Fatalf("PreviewWorkflowGraphSave: %v", err)
+	}
+	if !preview.CanSave || preview.ConfirmationRequired || len(preview.Blockers) != 0 {
+		t.Fatalf("preview graph save = %+v, want savable preview without blockers", preview)
+	}
+	afterPreview, err := service.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: workflowID})
+	if err != nil {
+		t.Fatalf("GetWorkflow after preview: %v", err)
+	}
+	if afterPreview.Definition.Workflow.GraphRevision != source.Definition.Workflow.GraphRevision || workflowServiceNodeByID(t, afterPreview.Definition, "node-agent-"+workflowID).DisplayName == "Preview Agent" {
+		t.Fatalf("preview mutated workflow definition = %+v", afterPreview.Definition)
+	}
+
+	sub, err := service.SubscribeWorkflowProject(ctx, serverapi.WorkflowProjectSubscribeRequest{ProjectID: binding.ProjectID})
+	if err != nil {
+		t.Fatalf("SubscribeWorkflowProject: %v", err)
+	}
+	defer func() { _ = sub.Close() }()
+	saved, err := service.SaveWorkflowGraph(ctx, serverapi.WorkflowGraphSaveRequest{
+		WorkflowID:            workflowID,
+		ExpectedGraphRevision: source.Definition.Workflow.GraphRevision,
+		Graph:                 renamedGraph,
+	})
+	if err != nil {
+		t.Fatalf("SaveWorkflowGraph: %v", err)
+	}
+	if !saved.Saved || saved.Definition == nil || saved.CurrentGraphRevision != source.Definition.Workflow.GraphRevision+1 {
+		t.Fatalf("saved graph = %+v, want saved canonical definition with incremented revision", saved)
+	}
+	for _, event := range waitWorkflowProjectActions(t, sub, "workflow", "graph_saved") {
+		if event.ProjectID != binding.ProjectID || event.WorkflowID != workflowID {
+			t.Fatalf("event = %+v, want linked workflow event", event)
+		}
+	}
+	canonical, err := service.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: workflowID})
+	if err != nil {
+		t.Fatalf("GetWorkflow canonical: %v", err)
+	}
+	if !reflect.DeepEqual(*saved.Definition, canonical.Definition) {
+		t.Fatalf("saved definition = %+v, want canonical %+v", *saved.Definition, canonical.Definition)
+	}
+}
+
 func newWorkflowServiceTestService(t *testing.T) (*Service, metadata.Binding) {
 	t.Helper()
 	service, binding, _ := newWorkflowServiceTestServiceWithMetadata(t)
@@ -1216,6 +1291,51 @@ func workflowServiceNodeIDByKind(t *testing.T, def serverapi.WorkflowDefinition,
 	}
 	t.Fatalf("missing node kind %q in %+v", kind, def.Nodes)
 	return ""
+}
+
+func workflowServiceNodeByID(t *testing.T, def serverapi.WorkflowDefinition, nodeID string) serverapi.WorkflowNode {
+	t.Helper()
+	for _, node := range def.Nodes {
+		if node.ID == nodeID {
+			return node
+		}
+	}
+	t.Fatalf("missing node %q in %+v", nodeID, def.Nodes)
+	return serverapi.WorkflowNode{}
+}
+
+func workflowGraphDraftFromDefinition(def serverapi.WorkflowDefinition) serverapi.WorkflowGraphDraft {
+	graph := serverapi.WorkflowGraphDraft{
+		NodeGroups:       make([]serverapi.WorkflowGraphDraftNodeGroup, 0, len(def.NodeGroups)),
+		Nodes:            make([]serverapi.WorkflowGraphDraftNode, 0, len(def.Nodes)),
+		TransitionGroups: make([]serverapi.WorkflowGraphDraftTransitionGroup, 0, len(def.TransitionGroups)),
+		Edges:            make([]serverapi.WorkflowGraphDraftEdge, 0, len(def.Edges)),
+	}
+	for _, group := range def.NodeGroups {
+		graph.NodeGroups = append(graph.NodeGroups, serverapi.WorkflowGraphDraftNodeGroup{ID: group.GroupID, Key: group.GroupKey, DisplayName: group.DisplayName})
+	}
+	for _, node := range def.Nodes {
+		graph.Nodes = append(graph.Nodes, serverapi.WorkflowGraphDraftNode{ID: node.ID, Key: node.Key, Kind: node.Kind, DisplayName: node.DisplayName, GroupID: node.GroupID, GroupKey: node.GroupKey, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, OutputFields: node.OutputFields})
+	}
+	for _, group := range def.TransitionGroups {
+		graph.TransitionGroups = append(graph.TransitionGroups, serverapi.WorkflowGraphDraftTransitionGroup{ID: group.ID, SourceNodeID: group.SourceNodeID, TransitionID: group.TransitionID, DisplayName: group.DisplayName})
+	}
+	for _, edge := range def.Edges {
+		graph.Edges = append(graph.Edges, serverapi.WorkflowGraphDraftEdge{ID: edge.ID, TransitionGroupID: edge.TransitionGroupID, Key: edge.Key, TargetNodeID: edge.TargetNodeID, RequiresApproval: edge.RequiresApproval, ContextMode: edge.ContextMode, ContextSource: edge.ContextSource, InputBindings: edge.InputBindings, OutputRequirements: edge.OutputRequirements})
+	}
+	return graph
+}
+
+func renameWorkflowGraphDraftNode(graph serverapi.WorkflowGraphDraft, nodeID string, displayName string) serverapi.WorkflowGraphDraft {
+	renamed := graph
+	renamed.Nodes = make([]serverapi.WorkflowGraphDraftNode, 0, len(graph.Nodes))
+	for _, node := range graph.Nodes {
+		if node.ID == nodeID {
+			node.DisplayName = displayName
+		}
+		renamed.Nodes = append(renamed.Nodes, node)
+	}
+	return renamed
 }
 
 func workflowServiceNodeIDByKey(t *testing.T, def serverapi.WorkflowDefinition, key string) string {

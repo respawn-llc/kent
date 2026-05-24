@@ -2,7 +2,7 @@
 import { type z } from "zod";
 
 import { ContractError } from "./errors";
-import { compactJsonObject, emptyJsonObject } from "./json";
+import { compactJsonObject, emptyJsonObject, type JsonObject } from "./json";
 import type {
   ActivityPage,
   AttentionPage,
@@ -22,9 +22,15 @@ import type {
   WorkflowDeleteImpact,
   WorkflowDeleteResponse,
   WorkflowDefinition,
+  WorkflowGraphDraft,
+  WorkflowGraphSaveConfirmation,
+  WorkflowGraphSavePreview,
+  WorkflowGraphSaveResult,
+  WorkflowGraphValidationResults,
   WorkflowPage,
   WorkflowRecord,
   WorkflowValidation,
+  WorkflowValidationMode,
   WorkspaceList,
   WorkspaceUnlinkResponse,
 } from "./models";
@@ -56,6 +62,9 @@ import {
   workflowDeletePreviewSchema,
   workflowDeleteResponseSchema,
   workflowDefinitionSchema,
+  workflowGraphSavePreviewSchema,
+  workflowGraphSaveSchema,
+  workflowGraphValidateDraftSchema,
   workflowLinkProjectSchema,
   workflowListSchema,
   workflowValidationSchema,
@@ -266,6 +275,48 @@ export class BuilderApiClient {
       "workflow.validate",
       workflowValidationSchema,
       await this.transport.call("workflow.validate", { workflow_id: workflowID, mode }),
+    );
+  }
+
+  async validateWorkflowGraphDraft(
+    input: WorkflowGraphValidateDraftInput,
+  ): Promise<WorkflowGraphValidationResults> {
+    return parse(
+      "workflow.graph.validateDraft",
+      workflowGraphValidateDraftSchema,
+      await this.transport.call("workflow.graph.validateDraft", {
+        workflow_id: input.workflowID,
+        graph: workflowGraphDraftPayload(input.graph),
+        modes: input.modes,
+      }),
+    );
+  }
+
+  async previewWorkflowGraphSave(input: WorkflowGraphSavePreviewInput): Promise<WorkflowGraphSavePreview> {
+    return parse(
+      "workflow.graph.savePreview",
+      workflowGraphSavePreviewSchema,
+      await this.transport.call("workflow.graph.savePreview", {
+        workflow_id: input.workflowID,
+        expected_graph_revision: input.expectedGraphRevision,
+        graph: workflowGraphDraftPayload(input.graph),
+      }),
+    );
+  }
+
+  async saveWorkflowGraph(input: WorkflowGraphSaveInput): Promise<WorkflowGraphSaveResult> {
+    return parse(
+      "workflow.graph.save",
+      workflowGraphSaveSchema,
+      await this.transport.call(
+        "workflow.graph.save",
+        compactJsonObject({
+          workflow_id: input.workflowID,
+          expected_graph_revision: input.expectedGraphRevision,
+          graph: workflowGraphDraftPayload(input.graph),
+          confirmation: workflowGraphSaveConfirmationPayload(input.confirmation),
+        }),
+      ),
     );
   }
 
@@ -532,6 +583,23 @@ export type WorkflowDeleteInput = Readonly<{
   cleanupArtifacts?: boolean;
 }>;
 
+export type WorkflowGraphValidateDraftInput = Readonly<{
+  workflowID: string;
+  graph: WorkflowGraphDraft;
+  modes: readonly WorkflowValidationMode[];
+}>;
+
+export type WorkflowGraphSavePreviewInput = Readonly<{
+  workflowID: string;
+  expectedGraphRevision: number;
+  graph: WorkflowGraphDraft;
+}>;
+
+export type WorkflowGraphSaveInput = WorkflowGraphSavePreviewInput &
+  Readonly<{
+    confirmation?: WorkflowGraphSaveConfirmation | undefined;
+  }>;
+
 export type TaskEditInput = Readonly<{
   taskID: string;
   title: string;
@@ -562,4 +630,71 @@ function parse<T>(method: string, schema: z.ZodType<T>, value: unknown): T {
     throw new ContractError(`${method} response did not match GUI contract.`);
   }
   return result.data;
+}
+
+function workflowGraphDraftPayload(graph: WorkflowGraphDraft): JsonObject {
+  return {
+    node_groups: graph.nodeGroups.map((group) => ({
+      id: group.id,
+      key: group.key,
+      display_name: group.name,
+    })),
+    nodes: graph.nodes.map((node) =>
+      compactJsonObject({
+        id: node.id,
+        key: node.key,
+        kind: node.kind,
+        display_name: node.name,
+        group_id: node.groupID.length > 0 ? node.groupID : undefined,
+        group_key: node.groupKey.length > 0 ? node.groupKey : undefined,
+        subagent_role: node.subagentRole.length > 0 ? node.subagentRole : undefined,
+        prompt_template: node.promptTemplate.length > 0 ? node.promptTemplate : undefined,
+        output_fields: node.outputFields.map((field) => ({
+          name: field.name,
+          description: field.description,
+        })),
+      }),
+    ),
+    transition_groups: graph.transitionGroups.map((group) => ({
+      id: group.id,
+      source_node_id: group.sourceNodeID,
+      transition_id: group.transitionID,
+      display_name: group.name,
+    })),
+    edges: graph.edges.map((edge) => ({
+      id: edge.id,
+      transition_group_id: edge.transitionGroupID,
+      key: edge.key,
+      target_node_id: edge.targetNodeID,
+      requires_approval: edge.requiresApproval,
+      context_mode: edge.contextMode,
+      context_source: {
+        kind: edge.contextSource.kind,
+        node_key: edge.contextSource.nodeKey,
+      },
+      input_bindings: edge.inputBindings.map((binding) => ({
+        name: binding.name,
+        source: binding.source,
+        field: binding.field,
+      })),
+      output_requirements: edge.outputRequirements.map((requirement) => ({
+        field_name: requirement.fieldName,
+      })),
+    })),
+  };
+}
+
+function workflowGraphSaveConfirmationPayload(
+  confirmation: WorkflowGraphSaveConfirmation | undefined,
+): JsonObject | undefined {
+  if (!confirmation) {
+    return undefined;
+  }
+  return {
+    expected_removed_node_count: confirmation.expectedRemovedNodeCount,
+    expected_removed_transition_group_count: confirmation.expectedRemovedTransitionGroupCount,
+    expected_removed_edge_count: confirmation.expectedRemovedEdgeCount,
+    expected_node_task_reference_count: confirmation.expectedNodeTaskReferenceCount,
+    expected_edge_task_reference_count: confirmation.expectedEdgeTaskReferenceCount,
+  };
 }
