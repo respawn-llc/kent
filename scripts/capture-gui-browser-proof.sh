@@ -32,6 +32,26 @@ run_agent_browser() {
 	agent-browser --config "$agent_browser_config" --session-name "$browser_session" "$@"
 }
 
+cleanup_previous_browser_processes() {
+	if command -v agent-browser >/dev/null 2>&1; then
+		agent-browser --config "$agent_browser_config" --session-name "$browser_session" close >/dev/null 2>&1 || true
+	fi
+	pkill -f "agent-browser .*--session-name $browser_session" >/dev/null 2>&1 || true
+	wait_for_port_to_close "$vite_port"
+}
+
+wait_for_port_to_close() {
+	local port="$1"
+	for _ in {1..40}; do
+		if ! nc -z 127.0.0.1 "$port" >/dev/null 2>&1; then
+			return 0
+		fi
+		sleep 0.25
+	done
+	printf 'port is still in use after cleanup: %s\n' "$port" >&2
+	return 1
+}
+
 wait_for_port() {
 	local port="$1"
 	for _ in {1..80}; do
@@ -71,12 +91,14 @@ try {
 }
 
 mkdir -p "$proof_dir"
-printf '{}\n' >"$agent_browser_config"
+printf '{"cdp":null}\n' >"$agent_browser_config"
 
 if ! command -v agent-browser >/dev/null 2>&1; then
 	printf 'agent-browser is required.\n' >&2
 	exit 1
 fi
+
+cleanup_previous_browser_processes
 
 if [[ -z "$skip_server_check" ]]; then
 	health_url="$(server_health_url "$rpc_endpoint")"

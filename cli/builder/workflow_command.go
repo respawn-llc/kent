@@ -18,7 +18,10 @@ import (
 	"github.com/google/uuid"
 )
 
-const workflowCommandTimeout = 5 * time.Second
+const (
+	workflowCommandTimeout              = 5 * time.Second
+	workflowCommandWorkflowListPageSize = 200
+)
 
 type workflowCommandRemote interface {
 	client.WorkflowClient
@@ -129,12 +132,12 @@ func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 	defer func() { _ = remote.Close() }()
 	ctx, cancel := workflowRPCContext(context.Background())
 	defer cancel()
-	resp, err := remote.ListWorkflows(ctx, serverapi.WorkflowListRequest{})
+	workflows, err := listAllWorkflows(ctx, remote)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	for _, workflow := range resp.Workflows {
+	for _, workflow := range workflows {
 		fmt.Fprintf(stdout, "%s\t%s\t%d\n", workflow.ID, workflow.Name, workflow.GraphRevision)
 	}
 	return 0
@@ -859,12 +862,12 @@ func resolveWorkflowDefinition(ctx context.Context, remote workflowCommandRemote
 	}
 	ctx, cancel := workflowRPCContext(ctx)
 	defer cancel()
-	list, err := remote.ListWorkflows(ctx, serverapi.WorkflowListRequest{})
+	workflows, err := listAllWorkflows(ctx, remote)
 	if err != nil {
 		return serverapi.WorkflowDefinition{}, err
 	}
 	matches := make([]serverapi.WorkflowRecord, 0, 1)
-	for _, workflow := range list.Workflows {
+	for _, workflow := range workflows {
 		if workflow.ID == trimmed || workflow.Name == trimmed {
 			matches = append(matches, workflow)
 		}
@@ -882,6 +885,23 @@ func resolveWorkflowDefinition(ctx context.Context, remote workflowCommandRemote
 		return serverapi.WorkflowDefinition{}, err
 	}
 	return resp.Definition, nil
+}
+
+func listAllWorkflows(ctx context.Context, remote workflowCommandRemote) ([]serverapi.WorkflowRecord, error) {
+	workflows := make([]serverapi.WorkflowRecord, 0)
+	pageToken := ""
+	for {
+		req := serverapi.WorkflowListRequest{PageSize: workflowCommandWorkflowListPageSize, PageToken: pageToken}
+		resp, err := remote.ListWorkflows(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		workflows = append(workflows, resp.Workflows...)
+		pageToken = strings.TrimSpace(resp.NextPageToken)
+		if pageToken == "" {
+			return workflows, nil
+		}
+	}
 }
 
 func workflowNodeByKey(def serverapi.WorkflowDefinition, key string) (serverapi.WorkflowNode, error) {

@@ -1,5 +1,5 @@
 import { shouldSkipNativeDialogStartupGate } from "./routes";
-import { routeUsesEdgeToEdgeLayout } from "./routeLayout";
+import { routeFramePaddingClassName, routeUsesEdgeToEdgeLayout } from "./routeLayout";
 
 describe("native dialog startup gate policy", () => {
   it("only skips startup readiness for event-only workspace unlink dialogs", () => {
@@ -12,6 +12,11 @@ describe("native dialog startup gate policy", () => {
 
 describe("route layout policy", () => {
   it("renders workflow editor as an edge-to-edge canvas route", () => {
-    expect(routeUsesEdgeToEdgeLayout("/projects/project-1/workflows/workflow-1/editor")).toBe(true);
+    expect(routeUsesEdgeToEdgeLayout("/workflows/workflow-1/editor")).toBe(true);
+  });
+
+  it("keeps workflow library side gutters without adding a top gutter below chrome", () => {
+    expect(routeUsesEdgeToEdgeLayout("/workflows")).toBe(false);
+    expect(routeFramePaddingClassName("/workflows")).toBe("px-[var(--space-2)] pb-[var(--space-2)]");
   });
 });

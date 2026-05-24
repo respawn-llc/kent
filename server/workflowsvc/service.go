@@ -112,6 +112,23 @@ func (s *Service) CreateWorkflow(ctx context.Context, req serverapi.WorkflowCrea
 	return serverapi.WorkflowCreateResponse{Workflow: workflowRecord(created)}, nil
 }
 
+func (s *Service) CreateAndLinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowCreateAndLinkProjectRequest) (serverapi.WorkflowCreateAndLinkProjectResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.WorkflowCreateAndLinkProjectResponse{}, err
+	}
+	created, link, err := s.store.CreateAndLinkWorkflow(ctx, workflowstore.CreateAndLinkWorkflowRequest{
+		Name:          req.Name,
+		Description:   req.Description,
+		ProjectID:     req.ProjectID,
+		DefaultPolicy: workflowStoreDefaultPolicy(req.DefaultPolicy, false),
+	})
+	if err != nil {
+		return serverapi.WorkflowCreateAndLinkProjectResponse{}, err
+	}
+	s.publishWorkflowEvent(ctx, req.ProjectID, string(created.ID), "workflow_link", "linked", link.ID)
+	return serverapi.WorkflowCreateAndLinkProjectResponse{Workflow: workflowRecord(created), Link: projectWorkflowLink(link)}, nil
+}
+
 func (s *Service) publishWorkflowEvent(ctx context.Context, projectID string, workflowID string, resource string, action string, changedIDs ...string) {
 	if err := s.store.PublishWorkflowEvent(ctx, workflowstore.WorkflowEventRecord{ProjectID: projectID, WorkflowID: workflowID, Resource: resource, Action: action, ChangedIDs: changedIDs}); err != nil {
 		slog.Warn("publish workflow event failed", "project_id", strings.TrimSpace(projectID), "workflow_id", strings.TrimSpace(workflowID), "resource", strings.TrimSpace(resource), "action", strings.TrimSpace(action), "changed_ids", changedIDs, "error", err)
@@ -146,16 +163,19 @@ func (s *Service) UpdateWorkflow(ctx context.Context, req serverapi.WorkflowUpda
 	return s.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: req.WorkflowID})
 }
 
-func (s *Service) ListWorkflows(ctx context.Context, _ serverapi.WorkflowListRequest) (serverapi.WorkflowListResponse, error) {
-	rows, err := s.store.ListWorkflows(ctx)
+func (s *Service) ListWorkflows(ctx context.Context, req serverapi.WorkflowListRequest) (serverapi.WorkflowListResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.WorkflowListResponse{}, err
+	}
+	rows, err := s.store.ListWorkflows(ctx, workflowstore.ListWorkflowsRequest{PageSize: req.PageSize, PageToken: req.PageToken, Query: req.Query})
 	if err != nil {
 		return serverapi.WorkflowListResponse{}, err
 	}
-	out := make([]serverapi.WorkflowRecord, 0, len(rows))
-	for _, row := range rows {
+	out := make([]serverapi.WorkflowRecord, 0, len(rows.Workflows))
+	for _, row := range rows.Workflows {
 		out = append(out, workflowRecord(row))
 	}
-	return serverapi.WorkflowListResponse{Workflows: out}, nil
+	return serverapi.WorkflowListResponse{Workflows: out, NextPageToken: rows.NextPageToken}, nil
 }
 
 func (s *Service) GetWorkflow(ctx context.Context, req serverapi.WorkflowGetRequest) (serverapi.WorkflowGetResponse, error) {
@@ -280,7 +300,7 @@ func (s *Service) LinkWorkflowToProject(ctx context.Context, req serverapi.Workf
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowLinkProjectResponse{}, err
 	}
-	link, err := s.store.LinkWorkflow(ctx, req.ProjectID, workflow.WorkflowID(req.WorkflowID), req.Default)
+	link, err := s.store.LinkWorkflowWithDefaultPolicy(ctx, req.ProjectID, workflow.WorkflowID(req.WorkflowID), workflowStoreDefaultPolicy(req.DefaultPolicy, req.Default))
 	if err != nil {
 		return serverapi.WorkflowLinkProjectResponse{}, err
 	}
@@ -740,6 +760,20 @@ func workflowNodeGroup(row workflowstore.NodeGroupRecord) serverapi.WorkflowNode
 
 func projectWorkflowLink(row workflowstore.ProjectWorkflowLinkRecord) serverapi.ProjectWorkflowLink {
 	return serverapi.ProjectWorkflowLink{ID: row.ID, ProjectID: row.ProjectID, WorkflowID: string(row.WorkflowID), Default: row.IsDefault}
+}
+
+func workflowStoreDefaultPolicy(policy serverapi.WorkflowProjectLinkDefaultMode, legacyDefault bool) workflowstore.WorkflowLinkDefaultPolicy {
+	if legacyDefault {
+		return workflowstore.WorkflowLinkDefaultAlways
+	}
+	switch policy {
+	case serverapi.WorkflowProjectLinkDefaultAlways:
+		return workflowstore.WorkflowLinkDefaultAlways
+	case serverapi.WorkflowProjectLinkDefaultIfProjectHasNone:
+		return workflowstore.WorkflowLinkDefaultIfProjectHasNone
+	default:
+		return workflowstore.WorkflowLinkDefaultNever
+	}
 }
 
 func workflowUnlinkProjectResponse(result workflowstore.ProjectWorkflowUnlinkResult) serverapi.WorkflowUnlinkProjectResponse {

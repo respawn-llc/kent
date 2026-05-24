@@ -220,6 +220,72 @@ describe("BuilderApiClient", () => {
     });
   });
 
+  it("maps workflow library list, create, link, and project create-link contracts", async () => {
+    const transport = new FakeRpcTransport([
+      {
+        method: "workflow.list",
+        result: {
+          workflows: [{ id: "workflow-1", name: "Delivery", description: "Ship", graph_revision: 3 }],
+          next_page_token: "cursor-2",
+        },
+      },
+      { method: "workflow.create", result: { workflow: { id: "workflow-2", name: "Ops", description: "", graph_revision: 1 } } },
+      {
+        method: "workflow.createAndLinkProject",
+        result: {
+          workflow: { id: "workflow-3", name: "Project workflow", description: "", graph_revision: 1 },
+          link: { id: "link-3", project_id: "project-1", workflow_id: "workflow-3", default: true },
+        },
+      },
+      {
+        method: "workflow.linkProject",
+        result: { link: { id: "link-1", project_id: "project-1", workflow_id: "workflow-1", default: false } },
+      },
+    ]);
+    const client = new BuilderApiClient(transport);
+
+    await expect(client.listWorkflows({ pageSize: 10, pageToken: "cursor-1", query: "ship" })).resolves.toMatchObject({
+      nextPageToken: "cursor-2",
+      workflows: [{ id: "workflow-1", name: "Delivery", graphRevision: 3 }],
+    });
+    await expect(client.createWorkflow({ name: "Ops", description: "" })).resolves.toMatchObject({
+      id: "workflow-2",
+      name: "Ops",
+    });
+    await expect(
+      client.createAndLinkWorkflowToProject({ projectID: "project-1", name: "Project workflow", description: "" }),
+    ).resolves.toMatchObject({
+      link: { isDefault: true, projectID: "project-1", workflowID: "workflow-3" },
+      workflow: { id: "workflow-3" },
+    });
+    await expect(client.linkWorkflowToProject({ projectID: "project-1", workflowID: "workflow-1" })).resolves.toMatchObject({
+      id: "link-1",
+      isDefault: false,
+    });
+
+    expect(transport.calls).toContainEqual({
+      method: "workflow.list",
+      params: { page_size: 10, page_token: "cursor-1", query: "ship" },
+    });
+    expect(transport.calls).toContainEqual({
+      method: "workflow.createAndLinkProject",
+      params: {
+        name: "Project workflow",
+        description: "",
+        project_id: "project-1",
+        default_policy: "if_project_has_none",
+      },
+    });
+    expect(transport.calls).toContainEqual({
+      method: "workflow.linkProject",
+      params: {
+        project_id: "project-1",
+        workflow_id: "workflow-1",
+        default_policy: "if_project_has_none",
+      },
+    });
+  });
+
   it("maps workflow delete preview and confirmed delete contracts", async () => {
     const transport = new FakeRpcTransport([
       { method: "workflow.deletePreview", result: workflowDeletePreviewResponse },

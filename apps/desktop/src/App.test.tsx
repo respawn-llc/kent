@@ -33,8 +33,41 @@ describe("App", () => {
   it("renders the startup-gated home shell", async () => {
     render(<App services={createTestServices(startupRoutes)} />);
 
-    expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: "Projects" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Workflows" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("button", { name: "New Project" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create workflow" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Inbox" })).toBeInTheDocument();
+  });
+
+  it("switches the Home left pane from projects to workflows", async () => {
+    render(
+      <App
+        services={createTestServices([
+          ...startupRoutes,
+          {
+            method: "workflow.list",
+            result: {
+              workflows: [
+                {
+                  id: "workflow-1",
+                  name: "Delivery",
+                  description: "Ship changes",
+                  graph_revision: 1,
+                },
+              ],
+              next_page_token: "",
+            },
+          },
+        ])}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Workflows" }));
+
+    expect(window.location.pathname).toBe("/");
+    expect(screen.getByRole("tab", { name: "Workflows" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByText("Delivery")).toBeInTheDocument();
   });
 
   it("keeps route content on shell chrome without an extra surface or route padding", async () => {

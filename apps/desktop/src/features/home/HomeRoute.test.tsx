@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import type { JsonValue } from "../../api/json";
 import { App } from "../../App";
@@ -84,6 +84,50 @@ describe("HomeRoute", () => {
     expect(projectCard).toBeInTheDocument();
     expect(projectCard).toHaveAttribute("title", "/Users/nek/Developer/builder-cli");
     expect(screen.queryByText("/Users/nek/Developer/builder-cli")).not.toBeInTheDocument();
+  });
+
+  it("keeps Inbox on the right while Workflows replaces Projects in the left tabbed pane", async () => {
+    const services = createTestServices([
+      ...startupRoutes,
+      {
+        method: "workflow.list",
+        result: {
+          workflows: [
+            {
+              id: "workflow-delivery",
+              name: "Delivery",
+              description: "Ship changes",
+              graph_revision: 3,
+            },
+          ],
+          next_page_token: "",
+        },
+      },
+    ]);
+
+    render(<App services={services} />);
+
+    expect(await screen.findByRole("tab", { name: "Projects" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("heading", { name: "Inbox" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Workflows" }));
+
+    expect(screen.getByRole("tab", { name: "Workflows" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByText("Delivery")).toBeInTheDocument();
+    expect(screen.getByText("Ship changes")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Inbox" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
+  });
+
+  it("opens workflow creation from the Workflows tab plus action", async () => {
+    const services = createTestServices(startupRoutes);
+
+    render(<App services={services} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create workflow" }));
+
+    const sidebar = await screen.findByRole("complementary", { name: "Create workflow" });
+    expect(within(sidebar).getByLabelText("Workflow name")).toBeInTheDocument();
   });
 });
 

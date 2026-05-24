@@ -33,6 +33,8 @@ describe("WorkflowEditorRoute", () => {
     expect(
       await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 }),
     ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/workflows/workflow-1/editor");
+    expect(window.location.search).toContain("projectId=project-1");
     expect(await screen.findAllByTestId("workflow-node-source-handle")).toHaveLength(2);
     expect(await screen.findAllByTestId("workflow-node-target-handle")).toHaveLength(2);
     const issues = await screen.findByRole("complementary", { name: "Workflow issues" });
@@ -41,7 +43,7 @@ describe("WorkflowEditorRoute", () => {
   });
 
   it("blocks direct access to workflows not linked to the project", async () => {
-    window.history.pushState(null, "", "/projects/project-1/workflows/workflow-2/editor");
+    window.history.pushState(null, "", "/workflows/workflow-2/editor?projectId=project-1");
     render(
       <App
         services={createTestServices([
@@ -54,6 +56,24 @@ describe("WorkflowEditorRoute", () => {
 
     expect(await screen.findByText("Workflow is not linked to this project")).toBeInTheDocument();
     expect(screen.queryByTestId("workflow-editor-canvas")).not.toBeInTheDocument();
+  });
+
+  it("opens an unlinked workflow in global editor mode", async () => {
+    window.history.pushState(null, "", "/workflows/workflow-1/editor");
+    render(
+      <App
+        services={createTestServices([
+          ...startupRoutes,
+          { method: "workflow.get", result: workflowDefinitionResponse },
+          { method: "workflow.validate", result: { valid: true, errors: [] } },
+        ])}
+      />,
+    );
+
+    expect(
+      await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("route-transition-frame")).not.toHaveClass("p-[var(--space-2)]");
   });
 });
 

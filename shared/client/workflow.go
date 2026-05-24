@@ -10,6 +10,7 @@ import (
 
 type WorkflowClient interface {
 	CreateWorkflow(ctx context.Context, req serverapi.WorkflowCreateRequest) (serverapi.WorkflowCreateResponse, error)
+	CreateAndLinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowCreateAndLinkProjectRequest) (serverapi.WorkflowCreateAndLinkProjectResponse, error)
 	UpdateWorkflow(ctx context.Context, req serverapi.WorkflowUpdateRequest) (serverapi.WorkflowGetResponse, error)
 	ListWorkflows(ctx context.Context, req serverapi.WorkflowListRequest) (serverapi.WorkflowListResponse, error)
 	GetWorkflow(ctx context.Context, req serverapi.WorkflowGetRequest) (serverapi.WorkflowGetResponse, error)
@@ -65,6 +66,13 @@ func (c *loopbackWorkflowClient) CreateWorkflow(ctx context.Context, req servera
 		return serverapi.WorkflowCreateResponse{}, errors.New("workflow service is required")
 	}
 	return c.service.CreateWorkflow(ctx, req)
+}
+
+func (c *loopbackWorkflowClient) CreateAndLinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowCreateAndLinkProjectRequest) (serverapi.WorkflowCreateAndLinkProjectResponse, error) {
+	if c == nil || c.service == nil {
+		return serverapi.WorkflowCreateAndLinkProjectResponse{}, errors.New("workflow service is required")
+	}
+	return c.service.CreateAndLinkWorkflowToProject(ctx, req)
 }
 
 func (c *loopbackWorkflowClient) UpdateWorkflow(ctx context.Context, req serverapi.WorkflowUpdateRequest) (serverapi.WorkflowGetResponse, error) {

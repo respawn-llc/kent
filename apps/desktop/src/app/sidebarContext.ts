@@ -20,7 +20,17 @@ export type SidebarTaskDetailResult = Readonly<{
   destination: "taskDetail";
 }>;
 
-export type SidebarResult = SidebarCanceledResult | SidebarNewTaskResult | SidebarTaskDetailResult;
+export type SidebarWorkflowResult = Readonly<{
+  status: "completed";
+  destination: "workflow";
+  workflowID: string;
+}>;
+
+export type SidebarResult =
+  | SidebarCanceledResult
+  | SidebarNewTaskResult
+  | SidebarTaskDetailResult
+  | SidebarWorkflowResult;
 
 export type SidebarDestination =
   | Readonly<{
@@ -36,6 +46,17 @@ export type SidebarDestination =
       taskID: string;
       resumeRunID: string;
       onMutated?: (() => void) | undefined;
+    }>
+  | Readonly<{
+      kind: "workflowCreate";
+      mode?: SidebarMode;
+      projectID?: string | undefined;
+    }>
+  | Readonly<{
+      kind: "linkWorkflow";
+      mode?: SidebarMode;
+      projectID: string;
+      selectedWorkflowID?: string | undefined;
     }>
   | Readonly<{
       kind: "custom";

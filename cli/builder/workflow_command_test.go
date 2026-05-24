@@ -634,6 +634,75 @@ func labeledOutputValue(t *testing.T, output string, label string) string {
 	return ""
 }
 
+func TestWorkflowListAndResolutionFetchAllWorkflowPages(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &pagedWorkflowListRemote{
+		pages: map[string]serverapi.WorkflowListResponse{
+			"": {
+				Workflows: []serverapi.WorkflowRecord{
+					{ID: "workflow-1", Name: "First", GraphRevision: 1},
+				},
+				NextPageToken: "next",
+			},
+			"next": {
+				Workflows: []serverapi.WorkflowRecord{
+					{ID: "workflow-2", Name: "Second", GraphRevision: 2},
+				},
+			},
+		},
+		definitions: map[string]serverapi.WorkflowDefinition{
+			"workflow-2": {Workflow: serverapi.WorkflowRecord{ID: "workflow-2", Name: "Second", GraphRevision: 2}},
+		},
+	}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	stdout, stderr, code := runWorkflowRootCommand("workflow", "list")
+	if code != 0 {
+		t.Fatalf("workflow list exit=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "workflow-1\tFirst\t1") || !strings.Contains(stdout, "workflow-2\tSecond\t2") {
+		t.Fatalf("workflow list output = %q, want records from both pages", stdout)
+	}
+	if len(remote.requests) != 2 || remote.requests[0].PageToken != "" || remote.requests[1].PageToken != "next" {
+		t.Fatalf("workflow list requests = %+v, want initial request plus next page", remote.requests)
+	}
+
+	remote.requests = nil
+	resolved, err := resolveWorkflowID(context.Background(), remote, "Second")
+	if err != nil {
+		t.Fatalf("resolveWorkflowID: %v", err)
+	}
+	if resolved != "workflow-2" {
+		t.Fatalf("resolveWorkflowID = %q, want workflow-2", resolved)
+	}
+	if len(remote.requests) != 2 || remote.requests[1].PageToken != "next" {
+		t.Fatalf("resolve requests = %+v, want all workflow pages", remote.requests)
+	}
+}
+
+type pagedWorkflowListRemote struct {
+	client.WorkflowClient
+	definitions map[string]serverapi.WorkflowDefinition
+	pages       map[string]serverapi.WorkflowListResponse
+	requests    []serverapi.WorkflowListRequest
+}
+
+func (r *pagedWorkflowListRemote) Close() error { return nil }
+
+func (r *pagedWorkflowListRemote) ResolveProjectPath(context.Context, serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
+	return serverapi.ProjectResolvePathResponse{}, nil
+}
+
+func (r *pagedWorkflowListRemote) ListWorkflows(_ context.Context, req serverapi.WorkflowListRequest) (serverapi.WorkflowListResponse, error) {
+	r.requests = append(r.requests, req)
+	return r.pages[req.PageToken], nil
+}
+
+func (r *pagedWorkflowListRemote) GetWorkflow(_ context.Context, req serverapi.WorkflowGetRequest) (serverapi.WorkflowGetResponse, error) {
+	return serverapi.WorkflowGetResponse{Definition: r.definitions[req.WorkflowID]}, nil
+}
+
 func TestWorkflowProjectPathResolutionRejectsUnboundPath(t *testing.T) {
 	cfg, _, remote := newWorkflowCommandLoopback(t)
 	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)

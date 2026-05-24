@@ -80,12 +80,118 @@ func TestWorkflowCreateUpdateReadAndGraphPersistence(t *testing.T) {
 	if len(updated.TransitionGroups) != 2 || len(updated.Edges) != 2 {
 		t.Fatalf("graph persistence mismatch: groups=%+v edges=%+v", updated.TransitionGroups, updated.Edges)
 	}
-	workflows, err := store.ListWorkflows(ctx)
+	workflows, err := store.ListWorkflows(ctx, ListWorkflowsRequest{})
 	if err != nil {
 		t.Fatalf("ListWorkflows: %v", err)
 	}
-	if len(workflows) != 1 || workflows[0].ID != created.ID {
+	if len(workflows.Workflows) != 1 || workflows.Workflows[0].ID != created.ID {
 		t.Fatalf("ListWorkflows = %+v", workflows)
+	}
+}
+
+func TestWorkflowListPaginatesWithStableNameOrderAndQuery(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newTestStore(t)
+	created := map[string]workflow.WorkflowID{}
+	for _, name := range []string{"Gamma", "Alpha", "Beta", "Beta Searchable"} {
+		record, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: name, Description: "desc " + name})
+		if err != nil {
+			t.Fatalf("CreateWorkflow %q: %v", name, err)
+		}
+		created[name] = record.ID
+	}
+
+	page1, err := store.ListWorkflows(ctx, ListWorkflowsRequest{PageSize: 2})
+	if err != nil {
+		t.Fatalf("ListWorkflows page1: %v", err)
+	}
+	if len(page1.Workflows) != 2 || page1.NextPageToken == "" {
+		t.Fatalf("page1 = %+v, want two workflows and next token", page1)
+	}
+	if page1.Workflows[0].ID != created["Alpha"] || page1.Workflows[1].ID != created["Beta"] {
+		t.Fatalf("page1 order = %+v", page1.Workflows)
+	}
+	page2, err := store.ListWorkflows(ctx, ListWorkflowsRequest{PageSize: 2, PageToken: page1.NextPageToken})
+	if err != nil {
+		t.Fatalf("ListWorkflows page2: %v", err)
+	}
+	if len(page2.Workflows) != 2 || page2.NextPageToken != "" {
+		t.Fatalf("page2 = %+v, want final two workflows", page2)
+	}
+	if page2.Workflows[0].ID != created["Beta Searchable"] || page2.Workflows[1].ID != created["Gamma"] {
+		t.Fatalf("page2 order = %+v", page2.Workflows)
+	}
+	filtered, err := store.ListWorkflows(ctx, ListWorkflowsRequest{PageSize: 10, Query: "search"})
+	if err != nil {
+		t.Fatalf("ListWorkflows filtered: %v", err)
+	}
+	if len(filtered.Workflows) != 1 || filtered.Workflows[0].ID != created["Beta Searchable"] {
+		t.Fatalf("filtered = %+v", filtered.Workflows)
+	}
+}
+
+func TestProjectWorkflowLinkFirstDefaultAndDuplicateIdempotency(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowA, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: "Workflow A"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow A: %v", err)
+	}
+	workflowB, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: "Workflow B"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow B: %v", err)
+	}
+
+	first, err := store.LinkWorkflowWithDefaultPolicy(ctx, binding.ProjectID, workflowA.ID, WorkflowLinkDefaultIfProjectHasNone)
+	if err != nil {
+		t.Fatalf("LinkWorkflowWithDefaultPolicy first: %v", err)
+	}
+	if !first.IsDefault {
+		t.Fatalf("first link = %+v, want default", first)
+	}
+	duplicate, err := store.LinkWorkflowWithDefaultPolicy(ctx, binding.ProjectID, workflowA.ID, WorkflowLinkDefaultIfProjectHasNone)
+	if err != nil {
+		t.Fatalf("duplicate LinkWorkflowWithDefaultPolicy: %v", err)
+	}
+	if duplicate.ID != first.ID || !duplicate.IsDefault {
+		t.Fatalf("duplicate link = %+v, want existing default link %+v", duplicate, first)
+	}
+	second, err := store.LinkWorkflowWithDefaultPolicy(ctx, binding.ProjectID, workflowB.ID, WorkflowLinkDefaultIfProjectHasNone)
+	if err != nil {
+		t.Fatalf("LinkWorkflowWithDefaultPolicy second: %v", err)
+	}
+	if second.IsDefault {
+		t.Fatalf("second link = %+v, want non-default", second)
+	}
+}
+
+func TestCreateAndLinkWorkflowIsAtomicAndAppliesFirstDefaultPolicy(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	created, link, err := store.CreateAndLinkWorkflow(ctx, CreateAndLinkWorkflowRequest{
+		Name:          "Created from Project",
+		ProjectID:     binding.ProjectID,
+		DefaultPolicy: WorkflowLinkDefaultIfProjectHasNone,
+	})
+	if err != nil {
+		t.Fatalf("CreateAndLinkWorkflow: %v", err)
+	}
+	if created.ID == "" || link.WorkflowID != created.ID || !link.IsDefault {
+		t.Fatalf("created=%+v link=%+v, want linked first default", created, link)
+	}
+	if _, _, err := store.CreateAndLinkWorkflow(ctx, CreateAndLinkWorkflowRequest{
+		Name:          "Broken",
+		ProjectID:     "missing-project",
+		DefaultPolicy: WorkflowLinkDefaultIfProjectHasNone,
+	}); err == nil {
+		t.Fatalf("expected invalid project create-and-link to fail")
+	}
+	listed, err := store.ListWorkflows(ctx, ListWorkflowsRequest{PageSize: 10, Query: "Broken"})
+	if err != nil {
+		t.Fatalf("ListWorkflows after failed create-and-link: %v", err)
+	}
+	if len(listed.Workflows) != 0 {
+		t.Fatalf("failed create-and-link left workflows: %+v", listed.Workflows)
 	}
 }
 

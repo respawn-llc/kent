@@ -6,6 +6,7 @@ import { formatHomeRelativePath } from "../../app/formatters";
 import { useAppNavigation } from "../../app/navigation";
 import { startProjectToBoardTransition } from "../../app/navigationTransitions";
 import { useAppServices } from "../../app/useAppServices";
+import { HomeListCard } from "../../ui";
 
 export function ProjectRow({ project }: Readonly<{ project: ProjectSummary }>) {
   const navigation = useAppNavigation();
@@ -18,36 +19,31 @@ export function ProjectRow({ project }: Readonly<{ project: ProjectSummary }>) {
   );
 
   return (
-    <article className="relative rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)]">
-      <button
-        className="grid w-full gap-[var(--space-1)] p-[var(--space-3)] pr-14 text-left text-[var(--color-on-island)]"
-        onClick={(event) => {
-          startProjectToBoardTransition(
-            event.currentTarget.parentElement ?? event.currentTarget,
-            async () => {
-              await navigation.openProject(project.id, project.defaultWorkflowID);
-            },
-          );
-        }}
-        aria-label={`${project.name} ${workspacePathLabel}`}
-        title={project.primaryWorkspace.rootPath}
-        type="button"
-      >
-        <span className="font-mono text-[0.78rem] text-[var(--color-muted)]">{project.key}</span>
-        <strong>{project.name}</strong>
-        <span className="truncate font-mono text-sm text-[var(--color-muted)]">{workspacePathLabel}</span>
-      </button>
-      <button
-        aria-label={editLabel}
-        className="absolute top-[var(--space-3)] right-[var(--space-3)] grid h-9 w-9 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-on-island)]"
-        onClick={() => {
-          void navigation.openProjectEdit(project.id);
-        }}
-        type="button"
-      >
-        <Pencil aria-hidden="true" size={16} strokeWidth={1.5} />
-      </button>
-    </article>
+    <HomeListCard
+      action={
+        <button
+          aria-label={editLabel}
+          className="absolute top-[var(--space-3)] right-[var(--space-3)] grid h-9 w-9 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-on-island)]"
+          onClick={() => {
+            void navigation.openProjectEdit(project.id);
+          }}
+          type="button"
+        >
+          <Pencil aria-hidden="true" size={16} strokeWidth={1.5} />
+        </button>
+      }
+      ariaLabel={`${project.name} ${workspacePathLabel}`}
+      onClick={(event) => {
+        startProjectToBoardTransition(event.currentTarget.parentElement ?? event.currentTarget, async () => {
+          await navigation.openProject(project.id, project.defaultWorkflowID);
+        });
+      }}
+      title={project.primaryWorkspace.rootPath}
+    >
+      <span className="font-mono text-[0.78rem] text-[var(--color-muted)]">{project.key}</span>
+      <strong>{project.name}</strong>
+      <span className="truncate font-mono text-sm text-[var(--color-muted)]">{workspacePathLabel}</span>
+    </HomeListCard>
   );
 }
 

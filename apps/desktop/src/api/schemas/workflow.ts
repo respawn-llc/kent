@@ -14,6 +14,8 @@ import type {
   WorkflowDeleteImpact,
   WorkflowDeleteResponse,
   WorkflowDefinition,
+  WorkflowPage,
+  WorkflowRecord,
   ProjectWorkflowLink,
   WorkflowValidation,
 } from "../models";
@@ -50,6 +52,68 @@ const workflowPickerSchema = z
   .array(workflowPickerItemSchema)
   .nullish()
   .transform((value) => value ?? []);
+
+const workflowRecordSchema: z.ZodType<WorkflowRecord> = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    description: emptyString,
+    graph_revision: z.number(),
+  })
+  .transform((value) => ({
+    id: value.id,
+    name: value.name,
+    description: value.description,
+    graphRevision: value.graph_revision,
+  }));
+
+export const workflowListSchema: z.ZodType<WorkflowPage> = z
+  .object({
+    workflows: z.array(workflowRecordSchema).nullish().transform(emptyArray),
+    next_page_token: emptyString,
+  })
+  .transform((value) => ({
+    workflows: value.workflows,
+    nextPageToken: value.next_page_token,
+  }));
+
+export const workflowCreateSchema: z.ZodType<WorkflowRecord> = z
+  .object({
+    workflow: workflowRecordSchema,
+  })
+  .transform((value) => value.workflow);
+
+const projectWorkflowLinkSchema: z.ZodType<ProjectWorkflowLink> = z
+  .object({
+    id: z.string(),
+    project_id: z.string(),
+    workflow_id: z.string(),
+    default: z.boolean(),
+  })
+  .transform((value) => ({
+    id: value.id,
+    projectID: value.project_id,
+    workflowID: value.workflow_id,
+    isDefault: value.default,
+  }));
+
+export const workflowLinkProjectSchema: z.ZodType<ProjectWorkflowLink> = z
+  .object({
+    link: projectWorkflowLinkSchema,
+  })
+  .transform((value) => value.link);
+
+export const workflowCreateAndLinkSchema: z.ZodType<
+  Readonly<{ workflow: WorkflowRecord; link: ProjectWorkflowLink }>
+> = z
+  .object({
+    workflow: workflowRecordSchema,
+    link: projectWorkflowLinkSchema,
+  })
+  .transform((value) => ({
+    workflow: value.workflow,
+    link: value.link,
+  }));
 
 const workflowNodeGroupsSchema = z
   .array(

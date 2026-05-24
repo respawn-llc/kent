@@ -37,6 +37,14 @@ const (
 	WorkflowValidationModeExecution    WorkflowValidationMode = "execution"
 )
 
+type WorkflowProjectLinkDefaultMode string
+
+const (
+	WorkflowProjectLinkDefaultNever            WorkflowProjectLinkDefaultMode = "never"
+	WorkflowProjectLinkDefaultAlways           WorkflowProjectLinkDefaultMode = "always"
+	WorkflowProjectLinkDefaultIfProjectHasNone WorkflowProjectLinkDefaultMode = "if_project_has_none"
+)
+
 type WorkflowRecord struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
@@ -123,16 +131,33 @@ type WorkflowCreateResponse struct {
 	Workflow WorkflowRecord `json:"workflow"`
 }
 
+type WorkflowCreateAndLinkProjectRequest struct {
+	Name          string                         `json:"name"`
+	Description   string                         `json:"description,omitempty"`
+	ProjectID     string                         `json:"project_id"`
+	DefaultPolicy WorkflowProjectLinkDefaultMode `json:"default_policy,omitempty"`
+}
+
+type WorkflowCreateAndLinkProjectResponse struct {
+	Workflow WorkflowRecord      `json:"workflow"`
+	Link     ProjectWorkflowLink `json:"link"`
+}
+
 type WorkflowUpdateRequest struct {
 	WorkflowID  string `json:"workflow_id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 }
 
-type WorkflowListRequest struct{}
+type WorkflowListRequest struct {
+	PageSize  int    `json:"page_size,omitempty"`
+	PageToken string `json:"page_token,omitempty"`
+	Query     string `json:"query,omitempty"`
+}
 
 type WorkflowListResponse struct {
-	Workflows []WorkflowRecord `json:"workflows"`
+	Workflows     []WorkflowRecord `json:"workflows"`
+	NextPageToken string           `json:"next_page_token,omitempty"`
 }
 
 type WorkflowGetRequest struct {
@@ -260,9 +285,10 @@ type WorkflowEdgeUpdateResponse struct {
 }
 
 type WorkflowLinkProjectRequest struct {
-	ProjectID  string `json:"project_id"`
-	WorkflowID string `json:"workflow_id"`
-	Default    bool   `json:"default"`
+	ProjectID     string                         `json:"project_id"`
+	WorkflowID    string                         `json:"workflow_id"`
+	Default       bool                           `json:"default"`
+	DefaultPolicy WorkflowProjectLinkDefaultMode `json:"default_policy,omitempty"`
 }
 
 type WorkflowLinkProjectResponse struct {
@@ -865,11 +891,31 @@ func (r WorkflowCreateRequest) Validate() error {
 	return validateWorkflowName(r.Name)
 }
 
+func (r WorkflowCreateAndLinkProjectRequest) Validate() error {
+	if err := validateWorkflowName(r.Name); err != nil {
+		return err
+	}
+	if err := validateRequired("project_id", r.ProjectID); err != nil {
+		return err
+	}
+	return validateWorkflowProjectLinkDefaultMode(r.DefaultPolicy)
+}
+
 func (r WorkflowUpdateRequest) Validate() error {
 	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
 		return err
 	}
 	return validateWorkflowName(r.Name)
+}
+
+func (r WorkflowListRequest) Validate() error {
+	if r.PageSize < 0 {
+		return WorkflowRequestValidationError{Code: WorkflowRequestErrorInvalidMode, Field: "page_size", Message: "page_size must be non-negative"}
+	}
+	if r.PageToken != strings.TrimSpace(r.PageToken) {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "page_token", "page_token must not have leading or trailing whitespace")
+	}
+	return nil
 }
 
 func (r WorkflowGetRequest) Validate() error {
@@ -1047,7 +1093,10 @@ func (r WorkflowLinkProjectRequest) Validate() error {
 	if err := validateRequired("project_id", r.ProjectID); err != nil {
 		return err
 	}
-	return validateRequired("workflow_id", r.WorkflowID)
+	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
+		return err
+	}
+	return validateWorkflowProjectLinkDefaultMode(r.DefaultPolicy)
 }
 
 func (r WorkflowListProjectLinksRequest) Validate() error {
@@ -1292,6 +1341,15 @@ func validateWorkflowName(name string) error {
 		return workflowRequestError(WorkflowRequestErrorTooLong, "name", "name must be <= 120 characters")
 	}
 	return nil
+}
+
+func validateWorkflowProjectLinkDefaultMode(mode WorkflowProjectLinkDefaultMode) error {
+	switch mode {
+	case "", WorkflowProjectLinkDefaultNever, WorkflowProjectLinkDefaultAlways, WorkflowProjectLinkDefaultIfProjectHasNone:
+		return nil
+	default:
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "default_policy", "default_policy must be never, always, or if_project_has_none")
+	}
 }
 
 func validateDisplayName(name string) error {

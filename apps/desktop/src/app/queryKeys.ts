@@ -9,6 +9,7 @@ export const queryKeys = {
   workspaces: (projectID: string) => ["workspaces", projectID],
   allAttention: ["attention"],
   allBoards: ["board"],
+  allWorkflows: ["workflow"],
   allWorkflowDefinitions: ["workflow-definition"],
   allWorkflowValidations: ["workflow-validation"],
   allWorkflowGraphLayouts: ["workflow-graph-layout"],
@@ -17,6 +18,7 @@ export const queryKeys = {
   allActivity: ["activity"],
   allPendingAsks: ["pending-asks"],
   board: (projectID: string, workflowID: string) => ["board", projectID, workflowID],
+  workflows: (query: string) => ["workflow", query],
   workflowDefinition: (workflowID: string) => ["workflow-definition", workflowID],
   workflowValidation: (workflowID: string, mode: string) => ["workflow-validation", workflowID, mode],
   workflowGraphLayout: (
