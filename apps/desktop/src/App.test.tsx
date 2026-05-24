@@ -54,6 +54,7 @@ describe("App", () => {
                   name: "Delivery",
                   description: "Ship changes",
                   graph_revision: 1,
+                  definition_revision: 1,
                 },
               ],
               next_page_token: "",

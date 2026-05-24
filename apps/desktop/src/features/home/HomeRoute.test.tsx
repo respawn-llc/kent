@@ -98,6 +98,7 @@ describe("HomeRoute", () => {
               name: "Delivery",
               description: "Ship changes",
               graph_revision: 3,
+              definition_revision: 1,
             },
           ],
           next_page_token: "",
