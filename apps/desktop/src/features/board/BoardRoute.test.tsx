@@ -314,6 +314,25 @@ describe("BoardRoute", () => {
     expect(screen.getByRole("button", { name: "Create workflow" })).toBeInTheDocument();
   });
 
+  it("disables no-workflow actions while disconnected", async () => {
+    window.history.pushState(null, "", "/projects/project-1");
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes({
+        board: {
+          ...boardResponse.board,
+          workflows: [],
+        },
+      }),
+    ]);
+    services.transport.connection.set("disconnected", "offline");
+
+    render(<App services={services} />);
+
+    expect(await screen.findByRole("button", { name: "Link workflow" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create workflow" })).toBeDisabled();
+  });
+
   it("creates and links the first project workflow from the no-workflow empty state", async () => {
     window.history.pushState(null, "", "/projects/project-1");
     const createdWorkflow = {

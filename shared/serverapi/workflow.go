@@ -16,6 +16,8 @@ const (
 	WorkflowRequestErrorTooLong      = "workflow.request.too_long"
 )
 
+const WorkflowListMaxPageSize = 100
+
 type WorkflowRequestValidationError struct {
 	Code    string
 	Field   string
@@ -911,6 +913,9 @@ func (r WorkflowUpdateRequest) Validate() error {
 func (r WorkflowListRequest) Validate() error {
 	if r.PageSize < 0 {
 		return WorkflowRequestValidationError{Code: WorkflowRequestErrorInvalidMode, Field: "page_size", Message: "page_size must be non-negative"}
+	}
+	if r.PageSize > WorkflowListMaxPageSize {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "page_size", fmt.Sprintf("page_size must be <= %d", WorkflowListMaxPageSize))
 	}
 	if r.PageToken != strings.TrimSpace(r.PageToken) {
 		return workflowRequestError(WorkflowRequestErrorInvalidMode, "page_token", "page_token must not have leading or trailing whitespace")

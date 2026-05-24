@@ -20,7 +20,7 @@ import (
 
 const (
 	workflowCommandTimeout              = 5 * time.Second
-	workflowCommandWorkflowListPageSize = 200
+	workflowCommandWorkflowListPageSize = serverapi.WorkflowListMaxPageSize
 )
 
 type workflowCommandRemote interface {
@@ -130,9 +130,7 @@ func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		return 1
 	}
 	defer func() { _ = remote.Close() }()
-	ctx, cancel := workflowRPCContext(context.Background())
-	defer cancel()
-	workflows, err := listAllWorkflows(ctx, remote)
+	workflows, err := listAllWorkflows(context.Background(), remote)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -860,8 +858,6 @@ func resolveWorkflowDefinition(ctx context.Context, remote workflowCommandRemote
 	if trimmed == "" {
 		return serverapi.WorkflowDefinition{}, errors.New("workflow is required")
 	}
-	ctx, cancel := workflowRPCContext(ctx)
-	defer cancel()
 	workflows, err := listAllWorkflows(ctx, remote)
 	if err != nil {
 		return serverapi.WorkflowDefinition{}, err
@@ -891,8 +887,10 @@ func listAllWorkflows(ctx context.Context, remote workflowCommandRemote) ([]serv
 	workflows := make([]serverapi.WorkflowRecord, 0)
 	pageToken := ""
 	for {
+		rpcCtx, cancel := workflowRPCContext(ctx)
 		req := serverapi.WorkflowListRequest{PageSize: workflowCommandWorkflowListPageSize, PageToken: pageToken}
-		resp, err := remote.ListWorkflows(ctx, req)
+		resp, err := remote.ListWorkflows(rpcCtx, req)
+		cancel()
 		if err != nil {
 			return nil, err
 		}

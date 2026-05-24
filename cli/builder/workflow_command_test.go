@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"builder/prompts"
 	"builder/server/metadata"
@@ -637,6 +638,7 @@ func labeledOutputValue(t *testing.T, output string, label string) string {
 func TestWorkflowListAndResolutionFetchAllWorkflowPages(t *testing.T) {
 	cfg := config.App{WorkspaceRoot: t.TempDir()}
 	remote := &pagedWorkflowListRemote{
+		delayAfterFirstPage: true,
 		pages: map[string]serverapi.WorkflowListResponse{
 			"": {
 				Workflows: []serverapi.WorkflowRecord{
@@ -667,8 +669,12 @@ func TestWorkflowListAndResolutionFetchAllWorkflowPages(t *testing.T) {
 	if len(remote.requests) != 2 || remote.requests[0].PageToken != "" || remote.requests[1].PageToken != "next" {
 		t.Fatalf("workflow list requests = %+v, want initial request plus next page", remote.requests)
 	}
+	if len(remote.deadlines) != 2 || !remote.deadlines[1].After(remote.deadlines[0]) {
+		t.Fatalf("workflow list deadlines = %+v, want fresh per-page RPC deadlines", remote.deadlines)
+	}
 
 	remote.requests = nil
+	remote.deadlines = nil
 	resolved, err := resolveWorkflowID(context.Background(), remote, "Second")
 	if err != nil {
 		t.Fatalf("resolveWorkflowID: %v", err)
@@ -679,13 +685,18 @@ func TestWorkflowListAndResolutionFetchAllWorkflowPages(t *testing.T) {
 	if len(remote.requests) != 2 || remote.requests[1].PageToken != "next" {
 		t.Fatalf("resolve requests = %+v, want all workflow pages", remote.requests)
 	}
+	if len(remote.deadlines) != 3 || !remote.deadlines[1].After(remote.deadlines[0]) {
+		t.Fatalf("resolve deadlines = %+v, want fresh per-page list deadlines and get deadline", remote.deadlines)
+	}
 }
 
 type pagedWorkflowListRemote struct {
 	client.WorkflowClient
-	definitions map[string]serverapi.WorkflowDefinition
-	pages       map[string]serverapi.WorkflowListResponse
-	requests    []serverapi.WorkflowListRequest
+	definitions         map[string]serverapi.WorkflowDefinition
+	pages               map[string]serverapi.WorkflowListResponse
+	requests            []serverapi.WorkflowListRequest
+	deadlines           []time.Time
+	delayAfterFirstPage bool
 }
 
 func (r *pagedWorkflowListRemote) Close() error { return nil }
@@ -694,12 +705,22 @@ func (r *pagedWorkflowListRemote) ResolveProjectPath(context.Context, serverapi.
 	return serverapi.ProjectResolvePathResponse{}, nil
 }
 
-func (r *pagedWorkflowListRemote) ListWorkflows(_ context.Context, req serverapi.WorkflowListRequest) (serverapi.WorkflowListResponse, error) {
+func (r *pagedWorkflowListRemote) ListWorkflows(ctx context.Context, req serverapi.WorkflowListRequest) (serverapi.WorkflowListResponse, error) {
+	callIndex := len(r.requests)
 	r.requests = append(r.requests, req)
+	if deadline, ok := ctx.Deadline(); ok {
+		r.deadlines = append(r.deadlines, deadline)
+	}
+	if r.delayAfterFirstPage && callIndex == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
 	return r.pages[req.PageToken], nil
 }
 
-func (r *pagedWorkflowListRemote) GetWorkflow(_ context.Context, req serverapi.WorkflowGetRequest) (serverapi.WorkflowGetResponse, error) {
+func (r *pagedWorkflowListRemote) GetWorkflow(ctx context.Context, req serverapi.WorkflowGetRequest) (serverapi.WorkflowGetResponse, error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		r.deadlines = append(r.deadlines, deadline)
+	}
 	return serverapi.WorkflowGetResponse{Definition: r.definitions[req.WorkflowID]}, nil
 }
 

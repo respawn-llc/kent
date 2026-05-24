@@ -160,6 +160,9 @@ func TestWorkflowProjectLinkRequestValidation(t *testing.T) {
 	if err := (WorkflowListRequest{PageSize: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "page_size") {
 		t.Fatalf("invalid page size error = %v", err)
 	}
+	if err := (WorkflowListRequest{PageSize: WorkflowListMaxPageSize + 1}).Validate(); err == nil || !strings.Contains(err.Error(), "page_size") {
+		t.Fatalf("oversized page size error = %v", err)
+	}
 	if err := (WorkflowListRequest{PageToken: " 10"}).Validate(); err == nil || !strings.Contains(err.Error(), "page_token") {
 		t.Fatalf("invalid page token error = %v", err)
 	}

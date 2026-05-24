@@ -70,6 +70,21 @@ describe("App", () => {
     expect(await screen.findByText("Delivery")).toBeInTheDocument();
   });
 
+  it("disables Workflow Library creation while disconnected", async () => {
+    window.history.pushState(null, "", "/workflows");
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.list", result: { workflows: [], next_page_token: "" } },
+    ]);
+    services.transport.connection.set("disconnected", "offline");
+
+    render(<App services={services} />);
+
+    const createButtons = await screen.findAllByRole("button", { name: "Create workflow" });
+    expect(createButtons).toHaveLength(2);
+    expect(createButtons.every((button) => button.hasAttribute("disabled"))).toBe(true);
+  });
+
   it("keeps route content on shell chrome without an extra surface or route padding", async () => {
     render(<App services={createTestServices(startupRoutes)} />);
 

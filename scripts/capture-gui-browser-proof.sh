@@ -36,7 +36,13 @@ cleanup_previous_browser_processes() {
 	if command -v agent-browser >/dev/null 2>&1; then
 		agent-browser --config "$agent_browser_config" --session-name "$browser_session" close >/dev/null 2>&1 || true
 	fi
-	pkill -f "agent-browser .*--session-name $browser_session" >/dev/null 2>&1 || true
+	while IFS= read -r pid; do
+		local command_line
+		command_line="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+		if printf '%s\n' "$command_line" | grep -F -- "--session-name $browser_session" >/dev/null 2>&1; then
+			kill "$pid" >/dev/null 2>&1 || true
+		fi
+	done < <(pgrep -f "agent-browser" 2>/dev/null || true)
 	wait_for_port_to_close "$vite_port"
 }
 

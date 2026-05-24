@@ -32,6 +32,7 @@ it("keeps project and workflow cards on the same Home list card shell", async ()
   expect(shells[1]).toHaveClass(...homeListCardShellClassName.split(" "));
   expect(buttons[0]).toHaveClass(...homeListCardButtonClassName.split(" "));
   expect(buttons[1]).toHaveClass(...homeListCardButtonClassName.split(" "));
+  expect(screen.getByText("Reusable workflow definition")).toBeInTheDocument();
 });
 
 function cardTestRouter() {
@@ -56,7 +57,7 @@ function CardRegressionFixture() {
       <div data-testid="home-card-regression">
         <WorkflowCard
           onOpen={vi.fn()}
-          workflow={{ description: "/tmp/project-alpha", graphRevision: 1, id: "workflow-1", name: "Alpha" }}
+          workflow={{ description: "", graphRevision: 1, id: "workflow-1", name: "Alpha" }}
         />
       </div>
     </div>

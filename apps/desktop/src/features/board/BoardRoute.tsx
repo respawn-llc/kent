@@ -432,11 +432,14 @@ function BoardContent({
 function BoardNoWorkflowState({ projectID }: Readonly<{ projectID: string }>) {
   const { t } = useTranslation();
   const { openSidebar } = useSidebar();
+  const connection = useConnectionSnapshot();
+  const actionsDisabled = connection.phase !== "connected";
   return (
     <EmptyState
       actions={
         <>
           <Button
+            disabled={actionsDisabled}
             onClick={() => {
               void openSidebar({ kind: "linkWorkflow", mode: "overlay", projectID });
             }}
@@ -444,6 +447,7 @@ function BoardNoWorkflowState({ projectID }: Readonly<{ projectID: string }>) {
             {t("workflowLibrary.linkWorkflow")}
           </Button>
           <Button
+            disabled={actionsDisabled}
             onClick={() => {
               void openSidebar({ kind: "workflowCreate", mode: "overlay", projectID });
             }}

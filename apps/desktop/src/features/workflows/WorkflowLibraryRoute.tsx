@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { errorMessage } from "../../api/errors";
 import { useAppNavigation } from "../../app/navigation";
 import { useSidebar } from "../../app/sidebarContext";
+import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { Button, EmptyState, ErrorState, LoadingState, VirtualizedInfiniteList } from "../../ui";
 import { WorkflowCard } from "./WorkflowCard";
 import { useWorkflowPages } from "./WorkflowData";
@@ -13,7 +14,9 @@ export function WorkflowLibraryRoute() {
   const { t } = useTranslation();
   const navigation = useAppNavigation();
   const { openSidebar } = useSidebar();
+  const connection = useConnectionSnapshot();
   const workflowsQuery = useWorkflowPages();
+  const createDisabled = connection.phase !== "connected";
   const workflows = useMemo(
     () => workflowsQuery.data?.pages.flatMap((page) => page.workflows) ?? [],
     [workflowsQuery.data],
@@ -43,6 +46,7 @@ export function WorkflowLibraryRoute() {
             <EmptyState
               action={
                 <Button
+                  disabled={createDisabled}
                   onClick={() => {
                     void openSidebar({ kind: "workflowCreate", mode: "overlay" });
                   }}
@@ -61,6 +65,7 @@ export function WorkflowLibraryRoute() {
           hasNextPage={workflowsQuery.hasNextPage}
           header={
             <WorkflowLibraryHeader
+              disabled={createDisabled}
               onCreate={() => {
                 void openSidebar({ kind: "workflowCreate", mode: "overlay" });
               }}
@@ -86,7 +91,7 @@ export function WorkflowLibraryRoute() {
   );
 }
 
-function WorkflowLibraryHeader({ onCreate }: Readonly<{ onCreate: () => void }>) {
+function WorkflowLibraryHeader({ disabled, onCreate }: Readonly<{ disabled: boolean; onCreate: () => void }>) {
   const { t } = useTranslation();
   return (
     <div className="flex items-center justify-between gap-[var(--space-3)] pb-[var(--space-2)]">
@@ -95,7 +100,8 @@ function WorkflowLibraryHeader({ onCreate }: Readonly<{ onCreate: () => void }>)
       </h1>
       <button
         aria-label={t("workflowLibrary.createWorkflow")}
-        className="grid h-9 w-9 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-on-island)]"
+        className="grid h-9 w-9 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-on-island)] disabled:cursor-not-allowed disabled:opacity-55"
+        disabled={disabled}
         onClick={onCreate}
         type="button"
       >
