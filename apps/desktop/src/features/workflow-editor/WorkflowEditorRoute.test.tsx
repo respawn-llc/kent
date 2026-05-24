@@ -1,13 +1,18 @@
-import { useEffect } from "react";
+/* eslint-disable max-lines -- Workflow editor route test fixtures are intentionally colocated with route scenarios. */
+import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 
 import { App } from "../../App";
 import { AppProviders } from "../../app/AppProviders";
 import { queryKeys } from "../../app/queryKeys";
+import { SidebarProvider } from "../../app/sidebarProvider";
 import { createTestServices, startupRoutes } from "../../testSupport/appServices";
+import { WorkflowEditorRoute } from "./WorkflowEditorRoute";
 import { WorkflowInspectorSidebar } from "./WorkflowInspectorSidebar";
+import { WorkflowEditorDraftBridgeProvider } from "./workflowEditorDraftBridge";
+import { useWorkflowEditorDraftController } from "./workflowEditorDraftBridgeCore";
 
 describe("WorkflowEditorRoute", () => {
   const originalResizeObserver = globalThis.ResizeObserver;
@@ -31,6 +36,7 @@ describe("WorkflowEditorRoute", () => {
           { method: "workflow.board.get", result: boardResponse },
           { method: "workflow.get", result: workflowDefinitionResponse },
           { method: "workflow.validate", result: invalidValidationResponse },
+          { method: "workflow.graph.validateDraft", result: graphValidationResponse },
         ])}
       />,
     );
@@ -43,7 +49,7 @@ describe("WorkflowEditorRoute", () => {
     expect(await screen.findAllByTestId("workflow-node-source-handle")).toHaveLength(3);
     expect(await screen.findAllByTestId("workflow-node-target-handle")).toHaveLength(3);
     const issues = await screen.findByRole("complementary", { name: "Workflow issues" });
-    expect(within(issues).getByText("Done transition is invalid.")).toBeInTheDocument();
+    expect(within(issues).getAllByText("Done transition is invalid.").length).toBeGreaterThan(0);
     expect(screen.getByTestId("route-transition-frame")).not.toHaveClass("p-[var(--space-2)]");
   });
 
@@ -55,6 +61,7 @@ describe("WorkflowEditorRoute", () => {
           ...startupRoutes,
           { method: "workflow.get", result: workflowDefinitionResponse },
           { method: "workflow.validate", result: invalidValidationResponse },
+          { method: "workflow.graph.validateDraft", result: graphValidationResponse },
         ])}
       />,
     );
@@ -67,7 +74,8 @@ describe("WorkflowEditorRoute", () => {
     );
 
     fireEvent.click(screen.getByText("Implement"));
-    expect(await screen.findByRole("complementary", { name: "Inspect node" })).toHaveTextContent("coder");
+    const nodeInspector = await screen.findByRole("complementary", { name: "Inspect node" });
+    expect(within(nodeInspector).getByDisplayValue("coder")).toBeInTheDocument();
 
     const coreLabels = screen.getAllByText("Core");
     expect(coreLabels.length).toBeGreaterThan(0);
@@ -80,7 +88,6 @@ describe("WorkflowEditorRoute", () => {
 
     fireEvent.click(screen.getByTestId("workflow-join-diamond"));
     expect(await screen.findByRole("complementary", { name: "Inspect node" })).toHaveTextContent("join");
-
   });
 
   it("renders read-only edge inspector details from cached workflow data", async () => {
@@ -119,6 +126,12 @@ describe("WorkflowEditorRoute", () => {
           ...startupRoutes,
           { method: "workflow.get", result: workflowDefinitionResponse },
           { method: "workflow.validate", result: { valid: true, errors: [] } },
+          {
+            method: "workflow.graph.validateDraft",
+            result: {
+              results: { draft: { valid: true, errors: [] }, execution: { valid: true, errors: [] } },
+            },
+          },
         ])}
       />,
     );
@@ -127,6 +140,119 @@ describe("WorkflowEditorRoute", () => {
       await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 }),
     ).toBeInTheDocument();
     expect(screen.getByTestId("route-transition-frame")).not.toHaveClass("p-[var(--space-2)]");
+  });
+
+  it("shows and acknowledges a dirty-draft conflict when the remote definition revision changes", async () => {
+    const services = createTestServices([
+      ...startupRoutes,
+      {
+        method: "workflow.get",
+        handler: (_params, callIndex) =>
+          workflowDefinitionResponseWithRevision(callIndex <= 0 ? 1 : callIndex + 1),
+      },
+      { method: "workflow.validate", result: { valid: true, errors: [] } },
+      {
+        method: "workflow.graph.validateDraft",
+        result: {
+          results: { draft: { valid: true, errors: [] }, execution: { valid: true, errors: [] } },
+        },
+      },
+    ]);
+    render(
+      <AppProviders services={services}>
+        <SidebarProvider>
+          <WorkflowEditorDraftBridgeProvider>
+            <WorkflowEditorRoute projectID="" workflowID="workflow-1" />
+            <WorkflowConflictDriver />
+          </WorkflowEditorDraftBridgeProvider>
+        </SidebarProvider>
+      </AppProviders>,
+    );
+
+    expect(
+      await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Workflow settings changed")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Simulate remote update" }));
+    expect(
+      await screen.findByText("This workflow changed remotely while you were editing."),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    await waitFor(() => {
+      expect(
+        screen.queryByText("This workflow changed remotely while you were editing."),
+      ).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Simulate remote update" }));
+    expect(
+      await screen.findByText("This workflow changed remotely while you were editing."),
+    ).toBeInTheDocument();
+  });
+
+  it("allows metadata-only save when draft graph validation is invalid", async () => {
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.get", result: workflowDefinitionResponse },
+      { method: "workflow.validate", result: invalidValidationResponse },
+      { method: "workflow.graph.validateDraft", result: graphValidationResponse },
+      {
+        method: "workflow.graph.savePreview",
+        result: {
+          current_graph_revision: 1,
+          current_definition_revision: 1,
+          validation_results: graphValidationResponse.results,
+          impact: graphSaveImpactResponse,
+          blockers: [],
+          can_save: true,
+          confirmation_required: false,
+        },
+      },
+      {
+        method: "workflow.graph.save",
+        result: {
+          saved: true,
+          definition: workflowDefinitionResponseWithRevision(2).definition,
+          current_graph_revision: 1,
+          current_definition_revision: 2,
+          validation_results: graphValidationResponse.results,
+          impact: graphSaveImpactResponse,
+          blockers: [],
+          can_save: true,
+          confirmation_required: false,
+        },
+      },
+    ]);
+    render(
+      <AppProviders services={services}>
+        <SidebarProvider>
+          <WorkflowEditorDraftBridgeProvider>
+            <WorkflowEditorRoute projectID="" workflowID="workflow-1" />
+            <WorkflowMetadataEditDriver />
+          </WorkflowEditorDraftBridgeProvider>
+        </SidebarProvider>
+      </AppProviders>,
+    );
+
+    expect(
+      await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Workflow settings changed")).toBeInTheDocument();
+
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    expect(saveButton).toBeEnabled();
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      const saveCall = services.transport.calls.find((call) => call.method === "workflow.graph.save");
+      expect(saveCall?.params).toMatchObject({
+        expected_definition_revision: 1,
+        metadata: { name: "Locally edited delivery", description: "" },
+        workflow_id: "workflow-1",
+      });
+    });
   });
 });
 
@@ -151,6 +277,42 @@ function CachedEdgeInspectorFixture() {
     queryClient.setQueryData(queryKeys.workflowValidation("workflow-1", "execution"), cachedValidation);
   }, [queryClient]);
   return <WorkflowInspectorSidebar selection={{ kind: "edge", edgeID: "edge-2" }} workflowID="workflow-1" />;
+}
+
+function WorkflowConflictDriver() {
+  const queryClient = useQueryClient();
+  useOneShotWorkflowMetadataEdit();
+  return (
+    <button
+      onClick={() => {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.workflowDefinition("workflow-1") });
+      }}
+      type="button"
+    >
+      Simulate remote update
+    </button>
+  );
+}
+
+function WorkflowMetadataEditDriver() {
+  useOneShotWorkflowMetadataEdit();
+  return null;
+}
+
+function useOneShotWorkflowMetadataEdit() {
+  const edited = useRef(false);
+  const controller = useWorkflowEditorDraftController("workflow-1");
+  useEffect(() => {
+    if (controller === null || edited.current || controller.state.source.workflow.name.length === 0) {
+      return;
+    }
+    edited.current = true;
+    controller.dispatch({
+      description: controller.draft.workflow.description,
+      name: "Locally edited delivery",
+      type: "editWorkflowMetadata",
+    });
+  }, [controller]);
 }
 
 const activeLinkResponse = {
@@ -193,6 +355,7 @@ const workflowDefinitionResponse = {
       name: "Delivery",
       description: "",
       graph_revision: 1,
+      definition_revision: 1,
     },
     node_groups: [
       {
@@ -273,6 +436,18 @@ const workflowDefinitionResponse = {
   },
 };
 
+function workflowDefinitionResponseWithRevision(definitionRevision: number) {
+  return {
+    definition: {
+      ...workflowDefinitionResponse.definition,
+      workflow: {
+        ...workflowDefinitionResponse.definition.workflow,
+        definition_revision: definitionRevision,
+      },
+    },
+  };
+}
+
 const invalidValidationResponse = {
   valid: false,
   errors: [
@@ -289,9 +464,33 @@ const invalidValidationResponse = {
   ],
 };
 
+const graphValidationResponse = {
+  results: {
+    draft: invalidValidationResponse,
+    execution: invalidValidationResponse,
+  },
+};
+
+const graphSaveImpactResponse = {
+  removed_node_count: 0,
+  removed_transition_group_count: 0,
+  removed_edge_count: 0,
+  node_task_reference_count: 0,
+  edge_task_reference_count: 0,
+  active_node_placement_count: 0,
+  pending_approval_count: 0,
+  active_run_count: 0,
+  runnable_run_count: 0,
+  start_node_change_count: 0,
+  last_terminal_change_count: 0,
+  task_referenced_node_kind_change_count: 0,
+};
+
 const cachedWorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1 },
-  nodeGroups: [{ id: "group-1", workflowID: "workflow-1", key: "core", name: "Core", sortOrder: 1, nodeIDs: ["node-1"] }],
+  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1, definitionRevision: 1 },
+  nodeGroups: [
+    { id: "group-1", workflowID: "workflow-1", key: "core", name: "Core", sortOrder: 1, nodeIDs: ["node-1"] },
+  ],
   nodes: [
     {
       id: "node-1",

@@ -294,6 +294,7 @@ var routeContracts = []Route{
 	subscription[serverapi.SessionActivitySubscribeRequest, protocol.SessionActivityEventParams](protocol.MethodSessionSubscribeActivity, AuthServer, ScopeAttachedSession, DependencySessionActivity, protocol.MethodSessionActivityEvent, protocol.MethodSessionActivityComplete),
 	subscription[serverapi.ProcessOutputSubscribeRequest, protocol.ProcessOutputEventParams](protocol.MethodProcessSubscribeOutput, AuthServer, ScopeProcessActiveProject, DependencyProcessOutput, protocol.MethodProcessOutputEvent, protocol.MethodProcessOutputComplete),
 	subscription[serverapi.PromptActivitySubscribeRequest, protocol.PromptActivityEventParams](protocol.MethodPromptSubscribeActivity, AuthServer, ScopeAttachedSession, DependencyPromptActivity, protocol.MethodPromptActivityEvent, protocol.MethodPromptActivityComplete),
+	subscription[serverapi.WorkflowSubscribeRequest, protocol.WorkflowProjectEventParams](protocol.MethodWorkflowSubscribe, AuthServer, ScopeNone, DependencyWorkflow, protocol.MethodWorkflowEvent, protocol.MethodWorkflowComplete),
 	subscription[serverapi.WorkflowProjectSubscribeRequest, protocol.WorkflowProjectEventParams](protocol.MethodWorkflowSubscribeProject, AuthServer, ScopeProjectView, DependencyWorkflow, protocol.MethodWorkflowProjectEvent, protocol.MethodWorkflowProjectComplete),
 	notification[serverapi.RunPromptProgress](protocol.MethodRunPromptProgress),
 	notification[protocol.SessionActivityEventParams](protocol.MethodSessionActivityEvent),
@@ -302,6 +303,8 @@ var routeContracts = []Route{
 	notification[protocol.StreamCompleteParams](protocol.MethodProcessOutputComplete),
 	notification[protocol.PromptActivityEventParams](protocol.MethodPromptActivityEvent),
 	notification[protocol.StreamCompleteParams](protocol.MethodPromptActivityComplete),
+	notification[protocol.WorkflowProjectEventParams](protocol.MethodWorkflowEvent),
+	notification[protocol.StreamCompleteParams](protocol.MethodWorkflowComplete),
 	notification[protocol.WorkflowProjectEventParams](protocol.MethodWorkflowProjectEvent),
 	notification[protocol.StreamCompleteParams](protocol.MethodWorkflowProjectComplete),
 }

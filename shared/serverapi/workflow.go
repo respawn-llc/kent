@@ -56,10 +56,11 @@ const (
 )
 
 type WorkflowRecord struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	GraphRevision int64  `json:"graph_revision"`
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	Description        string `json:"description"`
+	GraphRevision      int64  `json:"graph_revision"`
+	DefinitionRevision int64  `json:"definition_revision"`
 }
 
 type WorkflowNode struct {
@@ -178,6 +179,7 @@ type WorkflowGraphDraftEdge struct {
 
 type WorkflowGraphValidateDraftRequest struct {
 	WorkflowID string                   `json:"workflow_id"`
+	Metadata   *WorkflowGraphMetadata   `json:"metadata,omitempty"`
 	Graph      WorkflowGraphDraft       `json:"graph"`
 	Modes      []WorkflowValidationMode `json:"modes"`
 }
@@ -187,9 +189,16 @@ type WorkflowGraphValidateDraftResponse struct {
 }
 
 type WorkflowGraphSavePreviewRequest struct {
-	WorkflowID            string             `json:"workflow_id"`
-	ExpectedGraphRevision int64              `json:"expected_graph_revision"`
-	Graph                 WorkflowGraphDraft `json:"graph"`
+	WorkflowID                 string                 `json:"workflow_id"`
+	ExpectedGraphRevision      int64                  `json:"expected_graph_revision"`
+	ExpectedDefinitionRevision *int64                 `json:"expected_definition_revision,omitempty"`
+	Metadata                   *WorkflowGraphMetadata `json:"metadata,omitempty"`
+	Graph                      WorkflowGraphDraft     `json:"graph"`
+}
+
+type WorkflowGraphMetadata struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 type WorkflowGraphSaveConfirmation struct {
@@ -201,30 +210,34 @@ type WorkflowGraphSaveConfirmation struct {
 }
 
 type WorkflowGraphSaveRequest struct {
-	WorkflowID            string                         `json:"workflow_id"`
-	ExpectedGraphRevision int64                          `json:"expected_graph_revision"`
-	Graph                 WorkflowGraphDraft             `json:"graph"`
-	Confirmation          *WorkflowGraphSaveConfirmation `json:"confirmation,omitempty"`
+	WorkflowID                 string                         `json:"workflow_id"`
+	ExpectedGraphRevision      int64                          `json:"expected_graph_revision"`
+	ExpectedDefinitionRevision *int64                         `json:"expected_definition_revision,omitempty"`
+	Metadata                   *WorkflowGraphMetadata         `json:"metadata,omitempty"`
+	Graph                      WorkflowGraphDraft             `json:"graph"`
+	Confirmation               *WorkflowGraphSaveConfirmation `json:"confirmation,omitempty"`
 }
 
 type WorkflowGraphSavePreviewResponse struct {
-	CurrentGraphRevision int64                                               `json:"current_graph_revision"`
-	ValidationResults    map[WorkflowValidationMode]WorkflowValidateResponse `json:"validation_results"`
-	Impact               WorkflowGraphSaveImpact                             `json:"impact"`
-	Blockers             []WorkflowGraphSaveBlocker                          `json:"blockers,omitempty"`
-	CanSave              bool                                                `json:"can_save"`
-	ConfirmationRequired bool                                                `json:"confirmation_required"`
+	CurrentGraphRevision      int64                                               `json:"current_graph_revision"`
+	CurrentDefinitionRevision int64                                               `json:"current_definition_revision"`
+	ValidationResults         map[WorkflowValidationMode]WorkflowValidateResponse `json:"validation_results"`
+	Impact                    WorkflowGraphSaveImpact                             `json:"impact"`
+	Blockers                  []WorkflowGraphSaveBlocker                          `json:"blockers,omitempty"`
+	CanSave                   bool                                                `json:"can_save"`
+	ConfirmationRequired      bool                                                `json:"confirmation_required"`
 }
 
 type WorkflowGraphSaveResponse struct {
-	Saved                bool                                                `json:"saved"`
-	Definition           *WorkflowDefinition                                 `json:"definition,omitempty"`
-	CurrentGraphRevision int64                                               `json:"current_graph_revision"`
-	ValidationResults    map[WorkflowValidationMode]WorkflowValidateResponse `json:"validation_results"`
-	Impact               WorkflowGraphSaveImpact                             `json:"impact"`
-	Blockers             []WorkflowGraphSaveBlocker                          `json:"blockers,omitempty"`
-	CanSave              bool                                                `json:"can_save"`
-	ConfirmationRequired bool                                                `json:"confirmation_required"`
+	Saved                     bool                                                `json:"saved"`
+	Definition                *WorkflowDefinition                                 `json:"definition,omitempty"`
+	CurrentGraphRevision      int64                                               `json:"current_graph_revision"`
+	CurrentDefinitionRevision int64                                               `json:"current_definition_revision"`
+	ValidationResults         map[WorkflowValidationMode]WorkflowValidateResponse `json:"validation_results"`
+	Impact                    WorkflowGraphSaveImpact                             `json:"impact"`
+	Blockers                  []WorkflowGraphSaveBlocker                          `json:"blockers,omitempty"`
+	CanSave                   bool                                                `json:"can_save"`
+	ConfirmationRequired      bool                                                `json:"confirmation_required"`
 }
 
 type WorkflowGraphSaveImpact struct {
@@ -825,6 +838,10 @@ type WorkflowProjectSubscribeRequest struct {
 	ProjectID string `json:"project_id,omitempty"`
 }
 
+type WorkflowSubscribeRequest struct {
+	WorkflowID string `json:"workflow_id"`
+}
+
 type WorkflowProjectEvent struct {
 	ProjectID        string   `json:"project_id,omitempty"`
 	WorkflowID       string   `json:"workflow_id,omitempty"`
@@ -835,6 +852,11 @@ type WorkflowProjectEvent struct {
 }
 
 type WorkflowProjectSubscription interface {
+	Next(ctx context.Context) (WorkflowProjectEvent, error)
+	Close() error
+}
+
+type WorkflowSubscription interface {
 	Next(ctx context.Context) (WorkflowProjectEvent, error)
 	Close() error
 }
@@ -1285,6 +1307,9 @@ func (r WorkflowGraphValidateDraftRequest) Validate() error {
 	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
 		return err
 	}
+	if err := validateWorkflowGraphMetadata(r.Metadata); err != nil {
+		return err
+	}
 	if err := validateWorkflowGraphValidationModes(r.Modes); err != nil {
 		return err
 	}
@@ -1298,11 +1323,22 @@ func (r WorkflowGraphSavePreviewRequest) Validate() error {
 	if r.ExpectedGraphRevision < 0 {
 		return workflowRequestError(WorkflowRequestErrorInvalidValue, "expected_graph_revision", "expected_graph_revision must be non-negative")
 	}
+	if err := validateWorkflowGraphMetadata(r.Metadata); err != nil {
+		return err
+	}
+	if r.Metadata != nil {
+		if r.ExpectedDefinitionRevision == nil {
+			return workflowRequestError(WorkflowRequestErrorRequired, "expected_definition_revision", "expected_definition_revision is required when metadata is present")
+		}
+		if *r.ExpectedDefinitionRevision < 0 {
+			return workflowRequestError(WorkflowRequestErrorInvalidValue, "expected_definition_revision", "expected_definition_revision must be non-negative")
+		}
+	}
 	return validateWorkflowGraphDraftEnvelope(r.Graph)
 }
 
 func (r WorkflowGraphSaveRequest) Validate() error {
-	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: r.WorkflowID, ExpectedGraphRevision: r.ExpectedGraphRevision, Graph: r.Graph}).Validate(); err != nil {
+	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: r.WorkflowID, ExpectedGraphRevision: r.ExpectedGraphRevision, ExpectedDefinitionRevision: r.ExpectedDefinitionRevision, Metadata: r.Metadata, Graph: r.Graph}).Validate(); err != nil {
 		return err
 	}
 	if r.Confirmation == nil {
@@ -1321,6 +1357,26 @@ func (r WorkflowGraphSaveRequest) Validate() error {
 		if field.value < 0 {
 			return workflowRequestError(WorkflowRequestErrorInvalidValue, field.name, field.name+" must be non-negative")
 		}
+	}
+	return nil
+}
+
+func validateWorkflowGraphMetadata(metadata *WorkflowGraphMetadata) error {
+	if metadata == nil {
+		return nil
+	}
+	name := strings.TrimSpace(metadata.Name)
+	if name == "" {
+		return workflowRequestError(WorkflowRequestErrorRequired, "metadata.name", "metadata.name is required")
+	}
+	if name != metadata.Name {
+		return workflowRequestError(WorkflowRequestErrorInvalidValue, "metadata.name", "metadata.name must not have leading or trailing whitespace")
+	}
+	if len([]rune(name)) > 120 {
+		return workflowRequestError(WorkflowRequestErrorTooLong, "metadata.name", "metadata.name is too long")
+	}
+	if metadata.Description != strings.TrimSpace(metadata.Description) {
+		return workflowRequestError(WorkflowRequestErrorInvalidValue, "metadata.description", "metadata.description must not have leading or trailing whitespace")
 	}
 	return nil
 }
@@ -1520,6 +1576,10 @@ func (r WorkflowProjectSubscribeRequest) Validate() error {
 		return workflowRequestError(WorkflowRequestErrorInvalidMode, "project_id", "project_id must not have leading or trailing whitespace")
 	}
 	return nil
+}
+
+func (r WorkflowSubscribeRequest) Validate() error {
+	return validateRequired("workflow_id", r.WorkflowID)
 }
 
 func (r WorkflowTaskGetRequest) Validate() error {

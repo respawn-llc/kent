@@ -24,6 +24,7 @@ import type {
   WorkflowDefinition,
   WorkflowGraphDraft,
   WorkflowGraphSaveConfirmation,
+  WorkflowGraphMetadata,
   WorkflowGraphSavePreview,
   WorkflowGraphSaveResult,
   WorkflowGraphValidationResults,
@@ -284,11 +285,15 @@ export class BuilderApiClient {
     return parse(
       "workflow.graph.validateDraft",
       workflowGraphValidateDraftSchema,
-      await this.transport.call("workflow.graph.validateDraft", {
-        workflow_id: input.workflowID,
-        graph: workflowGraphDraftPayload(input.graph),
-        modes: input.modes,
-      }),
+      await this.transport.call(
+        "workflow.graph.validateDraft",
+        compactJsonObject({
+          workflow_id: input.workflowID,
+          metadata: workflowGraphMetadataPayload(input.metadata),
+          graph: workflowGraphDraftPayload(input.graph),
+          modes: input.modes,
+        }),
+      ),
     );
   }
 
@@ -296,11 +301,16 @@ export class BuilderApiClient {
     return parse(
       "workflow.graph.savePreview",
       workflowGraphSavePreviewSchema,
-      await this.transport.call("workflow.graph.savePreview", {
-        workflow_id: input.workflowID,
-        expected_graph_revision: input.expectedGraphRevision,
-        graph: workflowGraphDraftPayload(input.graph),
-      }),
+      await this.transport.call(
+        "workflow.graph.savePreview",
+        compactJsonObject({
+          workflow_id: input.workflowID,
+          expected_graph_revision: input.expectedGraphRevision,
+          expected_definition_revision: input.expectedDefinitionRevision,
+          metadata: workflowGraphMetadataPayload(input.metadata),
+          graph: workflowGraphDraftPayload(input.graph),
+        }),
+      ),
     );
   }
 
@@ -313,6 +323,8 @@ export class BuilderApiClient {
         compactJsonObject({
           workflow_id: input.workflowID,
           expected_graph_revision: input.expectedGraphRevision,
+          expected_definition_revision: input.expectedDefinitionRevision,
+          metadata: workflowGraphMetadataPayload(input.metadata),
           graph: workflowGraphDraftPayload(input.graph),
           confirmation: workflowGraphSaveConfirmationPayload(input.confirmation),
         }),
@@ -542,6 +554,10 @@ export class BuilderApiClient {
   subscribeProject(projectID: string, handler: RpcEventHandler): RpcSubscription {
     return this.transport.subscribe("workflow.subscribeProject", { project_id: projectID }, handler);
   }
+
+  subscribeWorkflow(workflowID: string, handler: RpcEventHandler): RpcSubscription {
+    return this.transport.subscribe("workflow.subscribe", { workflow_id: workflowID }, handler);
+  }
 }
 
 export type TaskMutationInput = Readonly<{
@@ -585,6 +601,7 @@ export type WorkflowDeleteInput = Readonly<{
 
 export type WorkflowGraphValidateDraftInput = Readonly<{
   workflowID: string;
+  metadata?: WorkflowGraphMetadata | undefined;
   graph: WorkflowGraphDraft;
   modes: readonly WorkflowValidationMode[];
 }>;
@@ -592,6 +609,8 @@ export type WorkflowGraphValidateDraftInput = Readonly<{
 export type WorkflowGraphSavePreviewInput = Readonly<{
   workflowID: string;
   expectedGraphRevision: number;
+  expectedDefinitionRevision?: number | undefined;
+  metadata?: WorkflowGraphMetadata | undefined;
   graph: WorkflowGraphDraft;
 }>;
 
@@ -681,6 +700,16 @@ function workflowGraphDraftPayload(graph: WorkflowGraphDraft): JsonObject {
         field_name: requirement.fieldName,
       })),
     })),
+  };
+}
+
+function workflowGraphMetadataPayload(metadata: WorkflowGraphMetadata | undefined): JsonObject | undefined {
+  if (!metadata) {
+    return undefined;
+  }
+  return {
+    name: metadata.name,
+    description: metadata.description,
   };
 }
 

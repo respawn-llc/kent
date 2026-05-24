@@ -1020,6 +1020,7 @@ SELECT
     name,
     description,
     graph_revision,
+    definition_revision,
     created_at_unix_ms,
     updated_at_unix_ms
 FROM workflows
@@ -1027,14 +1028,25 @@ WHERE id = ?1
 LIMIT 1
 `
 
-func (q *Queries) GetWorkflow(ctx context.Context, id string) (Workflow, error) {
+type GetWorkflowRow struct {
+	ID                 string
+	Name               string
+	Description        string
+	GraphRevision      int64
+	DefinitionRevision int64
+	CreatedAtUnixMs    int64
+	UpdatedAtUnixMs    int64
+}
+
+func (q *Queries) GetWorkflow(ctx context.Context, id string) (GetWorkflowRow, error) {
 	row := q.db.QueryRowContext(ctx, getWorkflow, id)
-	var i Workflow
+	var i GetWorkflowRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
 		&i.Description,
 		&i.GraphRevision,
+		&i.DefinitionRevision,
 		&i.CreatedAtUnixMs,
 		&i.UpdatedAtUnixMs,
 	)
@@ -1483,10 +1495,32 @@ func (q *Queries) GetWorktreeByID(ctx context.Context, id string) (GetWorktreeBy
 	return i, err
 }
 
+const incrementWorkflowDefinitionRevision = `-- name: IncrementWorkflowDefinitionRevision :one
+UPDATE workflows
+SET
+    definition_revision = definition_revision + 1,
+    updated_at_unix_ms = ?1
+WHERE id = ?2
+RETURNING definition_revision
+`
+
+type IncrementWorkflowDefinitionRevisionParams struct {
+	UpdatedAtUnixMs int64
+	ID              string
+}
+
+func (q *Queries) IncrementWorkflowDefinitionRevision(ctx context.Context, arg IncrementWorkflowDefinitionRevisionParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, incrementWorkflowDefinitionRevision, arg.UpdatedAtUnixMs, arg.ID)
+	var definition_revision int64
+	err := row.Scan(&definition_revision)
+	return definition_revision, err
+}
+
 const incrementWorkflowGraphRevision = `-- name: IncrementWorkflowGraphRevision :one
 UPDATE workflows
 SET
     graph_revision = graph_revision + 1,
+    definition_revision = definition_revision + 1,
     updated_at_unix_ms = ?1
 WHERE id = ?2
 RETURNING graph_revision
@@ -1966,6 +2000,7 @@ INSERT INTO workflows (
     name,
     description,
     graph_revision,
+    definition_revision,
     created_at_unix_ms,
     updated_at_unix_ms
 ) VALUES (
@@ -1974,17 +2009,19 @@ INSERT INTO workflows (
     ?3,
     ?4,
     ?5,
-    ?6
+    ?6,
+    ?7
 )
 `
 
 type InsertWorkflowParams struct {
-	ID              string
-	Name            string
-	Description     string
-	GraphRevision   int64
-	CreatedAtUnixMs int64
-	UpdatedAtUnixMs int64
+	ID                 string
+	Name               string
+	Description        string
+	GraphRevision      int64
+	DefinitionRevision int64
+	CreatedAtUnixMs    int64
+	UpdatedAtUnixMs    int64
 }
 
 func (q *Queries) InsertWorkflow(ctx context.Context, arg InsertWorkflowParams) error {
@@ -1993,6 +2030,7 @@ func (q *Queries) InsertWorkflow(ctx context.Context, arg InsertWorkflowParams) 
 		arg.Name,
 		arg.Description,
 		arg.GraphRevision,
+		arg.DefinitionRevision,
 		arg.CreatedAtUnixMs,
 		arg.UpdatedAtUnixMs,
 	)
@@ -3819,26 +3857,38 @@ SELECT
     name,
     description,
     graph_revision,
+    definition_revision,
     created_at_unix_ms,
     updated_at_unix_ms
 FROM workflows
 ORDER BY updated_at_unix_ms DESC, rowid DESC
 `
 
-func (q *Queries) ListWorkflows(ctx context.Context) ([]Workflow, error) {
+type ListWorkflowsRow struct {
+	ID                 string
+	Name               string
+	Description        string
+	GraphRevision      int64
+	DefinitionRevision int64
+	CreatedAtUnixMs    int64
+	UpdatedAtUnixMs    int64
+}
+
+func (q *Queries) ListWorkflows(ctx context.Context) ([]ListWorkflowsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listWorkflows)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Workflow
+	var items []ListWorkflowsRow
 	for rows.Next() {
-		var i Workflow
+		var i ListWorkflowsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
 			&i.Description,
 			&i.GraphRevision,
+			&i.DefinitionRevision,
 			&i.CreatedAtUnixMs,
 			&i.UpdatedAtUnixMs,
 		); err != nil {
@@ -4261,6 +4311,7 @@ UPDATE workflows
 SET
     name = ?1,
     description = ?2,
+    definition_revision = definition_revision + 1,
     updated_at_unix_ms = ?3
 WHERE id = ?4
 `

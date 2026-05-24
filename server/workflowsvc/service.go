@@ -136,6 +136,7 @@ func (s *Service) publishWorkflowEvent(ctx context.Context, projectID string, wo
 }
 
 func (s *Service) publishLinkedWorkflowEvent(ctx context.Context, workflowID string, resource string, action string, changedIDs ...string) {
+	s.publishWorkflowEvent(ctx, "", workflowID, resource, action, changedIDs...)
 	links, err := s.store.ListWorkflowProjectLinks(ctx, workflow.WorkflowID(workflowID))
 	if err != nil {
 		slog.Warn("list workflow project links for event failed", "workflow_id", strings.TrimSpace(workflowID), "resource", strings.TrimSpace(resource), "action", strings.TrimSpace(action), "changed_ids", changedIDs, "error", err)
@@ -417,7 +418,7 @@ func (s *Service) ValidateWorkflowGraphDraft(ctx context.Context, req serverapi.
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowGraphValidateDraftResponse{}, err
 	}
-	results, err := s.workflowGraphValidationResults(ctx, req.WorkflowID, req.Graph, req.Modes)
+	results, err := s.workflowGraphValidationResults(ctx, req.WorkflowID, req.Metadata, req.Graph, req.Modes)
 	if err != nil {
 		return serverapi.WorkflowGraphValidateDraftResponse{}, err
 	}
@@ -428,11 +429,11 @@ func (s *Service) PreviewWorkflowGraphSave(ctx context.Context, req serverapi.Wo
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowGraphSavePreviewResponse{}, err
 	}
-	validationResults, err := s.workflowGraphValidationResults(ctx, req.WorkflowID, req.Graph, workflowGraphSaveValidationModes())
+	validationResults, err := s.workflowGraphValidationResults(ctx, req.WorkflowID, req.Metadata, req.Graph, workflowGraphSaveValidationModes())
 	if err != nil {
 		return serverapi.WorkflowGraphSavePreviewResponse{}, err
 	}
-	result, err := s.store.PreviewWorkflowGraphSave(ctx, workflowGraphStoreSaveRequest(req.WorkflowID, req.ExpectedGraphRevision, req.Graph, nil))
+	result, err := s.store.PreviewWorkflowGraphSave(ctx, workflowGraphStoreSaveRequest(req.WorkflowID, req.ExpectedGraphRevision, req.ExpectedDefinitionRevision, req.Metadata, req.Graph, nil))
 	if err != nil {
 		return serverapi.WorkflowGraphSavePreviewResponse{}, err
 	}
@@ -443,11 +444,11 @@ func (s *Service) SaveWorkflowGraph(ctx context.Context, req serverapi.WorkflowG
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowGraphSaveResponse{}, err
 	}
-	validationResults, err := s.workflowGraphValidationResults(ctx, req.WorkflowID, req.Graph, workflowGraphSaveValidationModes())
+	validationResults, err := s.workflowGraphValidationResults(ctx, req.WorkflowID, req.Metadata, req.Graph, workflowGraphSaveValidationModes())
 	if err != nil {
 		return serverapi.WorkflowGraphSaveResponse{}, err
 	}
-	result, err := s.store.SaveWorkflowGraph(ctx, workflowGraphStoreSaveRequest(req.WorkflowID, req.ExpectedGraphRevision, req.Graph, req.Confirmation))
+	result, err := s.store.SaveWorkflowGraph(ctx, workflowGraphStoreSaveRequest(req.WorkflowID, req.ExpectedGraphRevision, req.ExpectedDefinitionRevision, req.Metadata, req.Graph, req.Confirmation))
 	if err != nil {
 		return serverapi.WorkflowGraphSaveResponse{}, err
 	}
@@ -461,7 +462,10 @@ func (s *Service) SaveWorkflowGraph(ctx context.Context, req serverapi.WorkflowG
 	}
 	resp.Definition = &saved.Definition
 	resp.CurrentGraphRevision = saved.Definition.Workflow.GraphRevision
-	s.publishLinkedWorkflowEvent(ctx, req.WorkflowID, "workflow", "graph_saved", req.WorkflowID)
+	resp.CurrentDefinitionRevision = saved.Definition.Workflow.DefinitionRevision
+	if result.Changed {
+		s.publishLinkedWorkflowEvent(ctx, req.WorkflowID, "workflow", "graph_saved", req.WorkflowID)
+	}
 	return resp, nil
 }
 
@@ -787,6 +791,13 @@ func (s *Service) SubscribeWorkflowProject(ctx context.Context, req serverapi.Wo
 	return s.events.Subscribe(strings.TrimSpace(req.ProjectID))
 }
 
+func (s *Service) SubscribeWorkflow(ctx context.Context, req serverapi.WorkflowSubscribeRequest) (serverapi.WorkflowSubscription, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	return s.events.SubscribeWorkflow(strings.TrimSpace(req.WorkflowID))
+}
+
 func (s *Service) GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowTaskGetResponse{}, err
@@ -799,7 +810,7 @@ func (s *Service) GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTas
 }
 
 func workflowRecord(row workflowstore.WorkflowRecord) serverapi.WorkflowRecord {
-	return serverapi.WorkflowRecord{ID: string(row.ID), Name: row.Name, Description: row.Description, GraphRevision: row.GraphRevision}
+	return serverapi.WorkflowRecord{ID: string(row.ID), Name: row.Name, Description: row.Description, GraphRevision: row.GraphRevision, DefinitionRevision: row.DefinitionRevision}
 }
 
 func workflowNodeGroup(row workflowstore.NodeGroupRecord) serverapi.WorkflowNodeGroup {
@@ -858,8 +869,8 @@ func workflowDeleteImpact(impact workflowstore.WorkflowDeleteImpact) serverapi.W
 	}
 }
 
-func (s *Service) workflowGraphValidationResults(ctx context.Context, workflowID string, graph serverapi.WorkflowGraphDraft, modes []serverapi.WorkflowValidationMode) (map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse, error) {
-	def, err := s.workflowGraphDraftDefinition(ctx, workflowID, graph)
+func (s *Service) workflowGraphValidationResults(ctx context.Context, workflowID string, metadata *serverapi.WorkflowGraphMetadata, graph serverapi.WorkflowGraphDraft, modes []serverapi.WorkflowValidationMode) (map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse, error) {
+	def, err := s.workflowGraphDraftDefinition(ctx, workflowID, metadata, graph)
 	if err != nil {
 		return nil, err
 	}
@@ -871,12 +882,16 @@ func (s *Service) workflowGraphValidationResults(ctx context.Context, workflowID
 	return out, nil
 }
 
-func (s *Service) workflowGraphDraftDefinition(ctx context.Context, workflowID string, graph serverapi.WorkflowGraphDraft) (workflow.Definition, error) {
+func (s *Service) workflowGraphDraftDefinition(ctx context.Context, workflowID string, metadata *serverapi.WorkflowGraphMetadata, graph serverapi.WorkflowGraphDraft) (workflow.Definition, error) {
 	current, _, err := s.store.GetDefinition(ctx, workflow.WorkflowID(workflowID))
 	if err != nil {
 		return workflow.Definition{}, err
 	}
-	def := workflow.Definition{ID: workflow.WorkflowID(workflowID), DisplayName: current.DisplayName}
+	displayName := current.DisplayName
+	if metadata != nil {
+		displayName = metadata.Name
+	}
+	def := workflow.Definition{ID: workflow.WorkflowID(workflowID), DisplayName: displayName}
 	for _, node := range graph.Nodes {
 		def.Nodes = append(def.Nodes, workflow.Node{
 			WorkflowID:     workflow.WorkflowID(workflowID),
@@ -927,8 +942,11 @@ func workflowGraphSaveValidationModes() []serverapi.WorkflowValidationMode {
 	return []serverapi.WorkflowValidationMode{serverapi.WorkflowValidationModeDraft, serverapi.WorkflowValidationModeExecution}
 }
 
-func workflowGraphStoreSaveRequest(workflowID string, expectedGraphRevision int64, graph serverapi.WorkflowGraphDraft, confirmation *serverapi.WorkflowGraphSaveConfirmation) workflowstore.WorkflowGraphSaveRequest {
-	req := workflowstore.WorkflowGraphSaveRequest{WorkflowID: workflow.WorkflowID(workflowID), ExpectedGraphRevision: expectedGraphRevision}
+func workflowGraphStoreSaveRequest(workflowID string, expectedGraphRevision int64, expectedDefinitionRevision *int64, metadata *serverapi.WorkflowGraphMetadata, graph serverapi.WorkflowGraphDraft, confirmation *serverapi.WorkflowGraphSaveConfirmation) workflowstore.WorkflowGraphSaveRequest {
+	req := workflowstore.WorkflowGraphSaveRequest{WorkflowID: workflow.WorkflowID(workflowID), ExpectedGraphRevision: expectedGraphRevision, ExpectedDefinitionRevision: expectedDefinitionRevision}
+	if metadata != nil {
+		req.Metadata = &workflowstore.WorkflowGraphSaveMetadata{Name: metadata.Name, Description: metadata.Description}
+	}
 	if confirmation != nil {
 		req.Confirmed = true
 		req.ExpectedRemovedNodeCount = confirmation.ExpectedRemovedNodeCount
@@ -954,24 +972,26 @@ func workflowGraphStoreSaveRequest(workflowID string, expectedGraphRevision int6
 
 func workflowGraphSavePreviewResponse(result workflowstore.WorkflowGraphSaveResult, validationResults map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse) serverapi.WorkflowGraphSavePreviewResponse {
 	return serverapi.WorkflowGraphSavePreviewResponse{
-		CurrentGraphRevision: result.GraphRevision,
-		ValidationResults:    validationResults,
-		Impact:               workflowGraphSaveImpact(result),
-		Blockers:             workflowGraphSaveBlockers(result.Blockers),
-		CanSave:              result.CanSave,
-		ConfirmationRequired: result.ConfirmationRequired,
+		CurrentGraphRevision:      result.GraphRevision,
+		CurrentDefinitionRevision: result.DefinitionRevision,
+		ValidationResults:         validationResults,
+		Impact:                    workflowGraphSaveImpact(result),
+		Blockers:                  workflowGraphSaveBlockers(result.Blockers),
+		CanSave:                   result.CanSave,
+		ConfirmationRequired:      result.ConfirmationRequired,
 	}
 }
 
 func workflowGraphSaveResponse(result workflowstore.WorkflowGraphSaveResult, validationResults map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse) serverapi.WorkflowGraphSaveResponse {
 	return serverapi.WorkflowGraphSaveResponse{
-		Saved:                result.Saved,
-		CurrentGraphRevision: result.GraphRevision,
-		ValidationResults:    validationResults,
-		Impact:               workflowGraphSaveImpact(result),
-		Blockers:             workflowGraphSaveBlockers(result.Blockers),
-		CanSave:              result.CanSave,
-		ConfirmationRequired: result.ConfirmationRequired,
+		Saved:                     result.Saved,
+		CurrentGraphRevision:      result.GraphRevision,
+		CurrentDefinitionRevision: result.DefinitionRevision,
+		ValidationResults:         validationResults,
+		Impact:                    workflowGraphSaveImpact(result),
+		Blockers:                  workflowGraphSaveBlockers(result.Blockers),
+		CanSave:                   result.CanSave,
+		ConfirmationRequired:      result.ConfirmationRequired,
 	}
 }
 

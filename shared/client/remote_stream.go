@@ -142,6 +142,20 @@ func (c *Remote) SubscribeWorkflowProject(ctx context.Context, req serverapi.Wor
 	return &remoteWorkflowProjectSubscription{conn: conn, route: route}, nil
 }
 
+func (c *Remote) SubscribeWorkflow(ctx context.Context, req serverapi.WorkflowSubscribeRequest) (serverapi.WorkflowSubscription, error) {
+	route := mustRemoteRoute(protocol.MethodWorkflowSubscribe)
+	conn, cleanup, err := c.openRPCConn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var ack protocol.SubscribeResponse
+	if err := callRPC(ctx, conn, "subscribe-workflow", protocol.MethodWorkflowSubscribe, req, &ack); err != nil {
+		cleanup()
+		return nil, err
+	}
+	return &remoteWorkflowProjectSubscription{conn: conn, route: route}, nil
+}
+
 func (c *Remote) openSessionRPCConn(ctx context.Context, sessionID string) (rpcwire.Conn, func(), error) {
 	conn, cleanup, err := c.openRPCConn(ctx)
 	if err != nil {

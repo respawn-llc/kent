@@ -25,6 +25,8 @@ export type {
   WorkflowContextSource,
   WorkflowDefinition,
   WorkflowEdge,
+  WorkflowGraphDraft,
+  WorkflowGraphMetadata,
   WorkflowInputBinding,
   WorkflowNode,
   WorkflowNodeGroup,

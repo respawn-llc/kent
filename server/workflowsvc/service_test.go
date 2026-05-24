@@ -1104,6 +1104,7 @@ func TestServiceWorkflowGraphValidatePreviewAndSave(t *testing.T) {
 	graph := workflowGraphDraftFromDefinition(source.Definition)
 	validated, err := service.ValidateWorkflowGraphDraft(ctx, serverapi.WorkflowGraphValidateDraftRequest{
 		WorkflowID: workflowID,
+		Metadata:   &serverapi.WorkflowGraphMetadata{Name: "Draft Workflow Name", Description: source.Definition.Workflow.Description},
 		Graph:      graph,
 		Modes:      []serverapi.WorkflowValidationMode{serverapi.WorkflowValidationModeDraft, serverapi.WorkflowValidationModeExecution},
 	})
@@ -1116,9 +1117,11 @@ func TestServiceWorkflowGraphValidatePreviewAndSave(t *testing.T) {
 
 	renamedGraph := renameWorkflowGraphDraftNode(graph, "node-agent-"+workflowID, "Preview Agent")
 	preview, err := service.PreviewWorkflowGraphSave(ctx, serverapi.WorkflowGraphSavePreviewRequest{
-		WorkflowID:            workflowID,
-		ExpectedGraphRevision: source.Definition.Workflow.GraphRevision,
-		Graph:                 renamedGraph,
+		WorkflowID:                 workflowID,
+		ExpectedGraphRevision:      source.Definition.Workflow.GraphRevision,
+		ExpectedDefinitionRevision: &source.Definition.Workflow.DefinitionRevision,
+		Metadata:                   &serverapi.WorkflowGraphMetadata{Name: "Preview Workflow", Description: "Preview only"},
+		Graph:                      renamedGraph,
 	})
 	if err != nil {
 		t.Fatalf("PreviewWorkflowGraphSave: %v", err)
@@ -1130,7 +1133,7 @@ func TestServiceWorkflowGraphValidatePreviewAndSave(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetWorkflow after preview: %v", err)
 	}
-	if afterPreview.Definition.Workflow.GraphRevision != source.Definition.Workflow.GraphRevision || workflowServiceNodeByID(t, afterPreview.Definition, "node-agent-"+workflowID).DisplayName == "Preview Agent" {
+	if afterPreview.Definition.Workflow.GraphRevision != source.Definition.Workflow.GraphRevision || afterPreview.Definition.Workflow.DefinitionRevision != source.Definition.Workflow.DefinitionRevision || afterPreview.Definition.Workflow.Name == "Preview Workflow" || workflowServiceNodeByID(t, afterPreview.Definition, "node-agent-"+workflowID).DisplayName == "Preview Agent" {
 		t.Fatalf("preview mutated workflow definition = %+v", afterPreview.Definition)
 	}
 
@@ -1139,21 +1142,38 @@ func TestServiceWorkflowGraphValidatePreviewAndSave(t *testing.T) {
 		t.Fatalf("SubscribeWorkflowProject: %v", err)
 	}
 	defer func() { _ = sub.Close() }()
+	workflowSub, err := service.SubscribeWorkflow(ctx, serverapi.WorkflowSubscribeRequest{WorkflowID: workflowID})
+	if err != nil {
+		t.Fatalf("SubscribeWorkflow: %v", err)
+	}
+	defer func() { _ = workflowSub.Close() }()
 	saved, err := service.SaveWorkflowGraph(ctx, serverapi.WorkflowGraphSaveRequest{
-		WorkflowID:            workflowID,
-		ExpectedGraphRevision: source.Definition.Workflow.GraphRevision,
-		Graph:                 renamedGraph,
+		WorkflowID:                 workflowID,
+		ExpectedGraphRevision:      source.Definition.Workflow.GraphRevision,
+		ExpectedDefinitionRevision: &source.Definition.Workflow.DefinitionRevision,
+		Metadata:                   &serverapi.WorkflowGraphMetadata{Name: "Saved Workflow", Description: "Saved metadata"},
+		Graph:                      renamedGraph,
 	})
 	if err != nil {
 		t.Fatalf("SaveWorkflowGraph: %v", err)
 	}
-	if !saved.Saved || saved.Definition == nil || saved.CurrentGraphRevision != source.Definition.Workflow.GraphRevision+1 {
+	if !saved.Saved || saved.Definition == nil || saved.CurrentGraphRevision != source.Definition.Workflow.GraphRevision+1 || saved.CurrentDefinitionRevision != source.Definition.Workflow.DefinitionRevision+1 {
 		t.Fatalf("saved graph = %+v, want saved canonical definition with incremented revision", saved)
+	}
+	if saved.Definition.Workflow.Name != "Saved Workflow" || saved.Definition.Workflow.Description != "Saved metadata" {
+		t.Fatalf("saved workflow metadata = %+v, want combined metadata persisted", saved.Definition.Workflow)
 	}
 	for _, event := range waitWorkflowProjectActions(t, sub, "workflow", "graph_saved") {
 		if event.ProjectID != binding.ProjectID || event.WorkflowID != workflowID {
 			t.Fatalf("event = %+v, want linked workflow event", event)
 		}
+	}
+	workflowEvent, err := workflowSub.Next(ctx)
+	if err != nil {
+		t.Fatalf("workflow subscription next: %v", err)
+	}
+	if workflowEvent.ProjectID != "" || workflowEvent.WorkflowID != workflowID || workflowEvent.Resource != "workflow" || workflowEvent.Action != "graph_saved" {
+		t.Fatalf("workflow-scoped event = %+v, want graph_saved workflow event without project scope", workflowEvent)
 	}
 	canonical, err := service.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: workflowID})
 	if err != nil {

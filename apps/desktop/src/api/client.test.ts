@@ -232,26 +232,55 @@ describe("BuilderApiClient", () => {
       {
         method: "workflow.list",
         result: {
-          workflows: [{ id: "workflow-1", name: "Delivery", description: "Ship", graph_revision: 3 }],
+          workflows: [
+            {
+              id: "workflow-1",
+              name: "Delivery",
+              description: "Ship",
+              graph_revision: 3,
+              definition_revision: 4,
+            },
+          ],
           next_page_token: "cursor-2",
         },
       },
-      { method: "workflow.create", result: { workflow: { id: "workflow-2", name: "Ops", description: "", graph_revision: 1 } } },
+      {
+        method: "workflow.create",
+        result: {
+          workflow: {
+            id: "workflow-2",
+            name: "Ops",
+            description: "",
+            graph_revision: 1,
+            definition_revision: 1,
+          },
+        },
+      },
       {
         method: "workflow.createAndLinkProject",
         result: {
-          workflow: { id: "workflow-3", name: "Project workflow", description: "", graph_revision: 1 },
+          workflow: {
+            id: "workflow-3",
+            name: "Project workflow",
+            description: "",
+            graph_revision: 1,
+            definition_revision: 1,
+          },
           link: { id: "link-3", project_id: "project-1", workflow_id: "workflow-3", default: true },
         },
       },
       {
         method: "workflow.linkProject",
-        result: { link: { id: "link-1", project_id: "project-1", workflow_id: "workflow-1", default: false } },
+        result: {
+          link: { id: "link-1", project_id: "project-1", workflow_id: "workflow-1", default: false },
+        },
       },
     ]);
     const client = new BuilderApiClient(transport);
 
-    await expect(client.listWorkflows({ pageSize: 10, pageToken: "cursor-1", query: "ship" })).resolves.toMatchObject({
+    await expect(
+      client.listWorkflows({ pageSize: 10, pageToken: "cursor-1", query: "ship" }),
+    ).resolves.toMatchObject({
       nextPageToken: "cursor-2",
       workflows: [{ id: "workflow-1", name: "Delivery", graphRevision: 3 }],
     });
@@ -260,12 +289,18 @@ describe("BuilderApiClient", () => {
       name: "Ops",
     });
     await expect(
-      client.createAndLinkWorkflowToProject({ projectID: "project-1", name: "Project workflow", description: "" }),
+      client.createAndLinkWorkflowToProject({
+        projectID: "project-1",
+        name: "Project workflow",
+        description: "",
+      }),
     ).resolves.toMatchObject({
       link: { isDefault: true, projectID: "project-1", workflowID: "workflow-3" },
       workflow: { id: "workflow-3" },
     });
-    await expect(client.linkWorkflowToProject({ projectID: "project-1", workflowID: "workflow-1" })).resolves.toMatchObject({
+    await expect(
+      client.linkWorkflowToProject({ projectID: "project-1", workflowID: "workflow-1" }),
+    ).resolves.toMatchObject({
       id: "link-1",
       isDefault: false,
     });
@@ -355,6 +390,7 @@ describe("BuilderApiClient", () => {
         method: "workflow.graph.savePreview",
         result: {
           current_graph_revision: 7,
+          current_definition_revision: 11,
           validation_results: graphValidationResults,
           impact: workflowGraphSaveImpactResponse,
           blockers: [{ code: "confirmation_required", message: "Confirm removal.", count: 1 }],
@@ -368,6 +404,7 @@ describe("BuilderApiClient", () => {
           saved: true,
           definition: workflowDefinitionResponse.definition,
           current_graph_revision: 8,
+          current_definition_revision: 12,
           validation_results: graphValidationResults,
           impact: { ...workflowGraphSaveImpactResponse, removed_edge_count: 0 },
           blockers: null,
@@ -381,6 +418,7 @@ describe("BuilderApiClient", () => {
     await expect(
       client.validateWorkflowGraphDraft({
         workflowID: "workflow-1",
+        metadata: { name: "Draft Workflow", description: "Draft description" },
         graph: workflowGraphDraft,
         modes: ["draft", "execution"],
       }),
@@ -389,10 +427,13 @@ describe("BuilderApiClient", () => {
       client.previewWorkflowGraphSave({
         workflowID: "workflow-1",
         expectedGraphRevision: 7,
+        expectedDefinitionRevision: 11,
+        metadata: { name: "Preview Workflow", description: "Preview description" },
         graph: workflowGraphDraft,
       }),
     ).resolves.toMatchObject({
       currentGraphRevision: 7,
+      currentDefinitionRevision: 11,
       confirmationRequired: true,
       impact: { removedEdgeCount: 1 },
       blockers: [{ code: "confirmation_required" }],
@@ -401,6 +442,8 @@ describe("BuilderApiClient", () => {
       client.saveWorkflowGraph({
         workflowID: "workflow-1",
         expectedGraphRevision: 7,
+        expectedDefinitionRevision: 11,
+        metadata: { name: "Saved Workflow", description: "Saved description" },
         graph: workflowGraphDraft,
         confirmation: {
           expectedRemovedNodeCount: 0,
@@ -413,6 +456,7 @@ describe("BuilderApiClient", () => {
     ).resolves.toMatchObject({
       saved: true,
       currentGraphRevision: 8,
+      currentDefinitionRevision: 12,
       definition: { workflow: { id: "workflow-1" } },
       blockers: [],
     });
@@ -421,6 +465,7 @@ describe("BuilderApiClient", () => {
       method: "workflow.graph.validateDraft",
       params: {
         workflow_id: "workflow-1",
+        metadata: { name: "Draft Workflow", description: "Draft description" },
         modes: ["draft", "execution"],
         graph: {
           node_groups: [],
@@ -460,6 +505,8 @@ describe("BuilderApiClient", () => {
     expect(transport.calls[2]).toMatchObject({
       method: "workflow.graph.save",
       params: {
+        expected_definition_revision: 11,
+        metadata: { name: "Saved Workflow", description: "Saved description" },
         confirmation: {
           expected_removed_edge_count: 1,
         },
@@ -622,6 +669,7 @@ const workflowDefinitionResponse = {
       name: "Delivery",
       description: "Delivery workflow",
       graph_revision: 7,
+      definition_revision: 9,
     },
     node_groups: [
       {

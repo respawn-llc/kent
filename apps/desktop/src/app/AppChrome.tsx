@@ -10,6 +10,7 @@ import { SidebarHost, SidebarRouteChangeCloser } from "./sidebar";
 import { SidebarProvider } from "./sidebarProvider";
 import { useAppServices } from "./useAppServices";
 import { useCurrentWindowChromeTitle } from "./windowChromeTitle";
+import { WorkflowEditorDraftBridgeProvider } from "../features/workflow-editor/workflowEditorDraftBridge";
 
 export type AppChromeProps = Readonly<{
   children: ReactNode;
@@ -72,16 +73,18 @@ export function AppChrome({ children }: AppChromeProps) {
         </div>
       ) : null}
       <SidebarProvider>
-        <div
-          className="app-region-no-drag relative flex min-h-0 min-w-0 w-full overflow-hidden"
-          data-testid="app-shell-content"
-        >
-          <div className="min-h-0 min-w-0 flex-1 overflow-visible" data-testid="app-main-content">
-            {children}
+        <WorkflowEditorDraftBridgeProvider>
+          <div
+            className="app-region-no-drag relative flex min-h-0 min-w-0 w-full overflow-hidden"
+            data-testid="app-shell-content"
+          >
+            <div className="min-h-0 min-w-0 flex-1 overflow-visible" data-testid="app-main-content">
+              {children}
+            </div>
+            <SidebarHost />
           </div>
-          <SidebarHost />
-        </div>
-        <SidebarRouteChangeCloser />
+          <SidebarRouteChangeCloser />
+        </WorkflowEditorDraftBridgeProvider>
       </SidebarProvider>
     </main>
   );

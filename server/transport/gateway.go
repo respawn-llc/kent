@@ -123,6 +123,7 @@ var gatewaySubscriptionHandlerEntries = map[string]gatewaySubscriptionHandler{
 	protocol.MethodSessionSubscribeActivity: (*Gateway).serveSessionActivitySubscription,
 	protocol.MethodProcessSubscribeOutput:   (*Gateway).serveProcessOutputSubscription,
 	protocol.MethodPromptSubscribeActivity:  (*Gateway).servePromptActivitySubscription,
+	protocol.MethodWorkflowSubscribe:        (*Gateway).serveWorkflowSubscription,
 	protocol.MethodWorkflowSubscribeProject: (*Gateway).serveWorkflowProjectSubscription,
 }
 

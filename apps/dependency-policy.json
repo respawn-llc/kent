@@ -9,6 +9,8 @@
     "@builder/desktop": {
       "dependencies": [
         "@builder/desktop-native-bridge",
+        "@dnd-kit/core",
+        "@dnd-kit/sortable",
         "@hookform/resolvers",
         "@tanstack/react-query",
         "@tanstack/react-router",

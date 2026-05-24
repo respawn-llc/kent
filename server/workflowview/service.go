@@ -588,7 +588,7 @@ func (s *Service) definition(ctx context.Context, workflowID string) (serverapi.
 	if err != nil {
 		return serverapi.WorkflowDefinition{}, nil, err
 	}
-	def := serverapi.WorkflowDefinition{Workflow: serverapi.WorkflowRecord{ID: row.ID, Name: row.Name, Description: row.Description, GraphRevision: row.GraphRevision}}
+	def := serverapi.WorkflowDefinition{Workflow: serverapi.WorkflowRecord{ID: row.ID, Name: row.Name, Description: row.Description, GraphRevision: row.GraphRevision, DefinitionRevision: row.DefinitionRevision}}
 	nodeGroups, err := s.queries.ListWorkflowNodeGroups(ctx, workflowID)
 	if err != nil {
 		return serverapi.WorkflowDefinition{}, nil, err

@@ -340,6 +340,7 @@ describe("BoardRoute", () => {
       name: "Created Workflow",
       description: "",
       graph_revision: 1,
+      definition_revision: 1,
     };
     const createdPickerWorkflow = {
       ...workflow,
@@ -1307,8 +1308,14 @@ describe("BoardRoute", () => {
         method: "workflow.list",
         result: {
           workflows: [
-            { id: "workflow-1", name: "Delivery", description: "", graph_revision: 1 },
-            { id: "workflow-2", name: "Ops", description: "", graph_revision: 1 },
+            {
+              id: "workflow-1",
+              name: "Delivery",
+              description: "",
+              graph_revision: 1,
+              definition_revision: 1,
+            },
+            { id: "workflow-2", name: "Ops", description: "", graph_revision: 1, definition_revision: 1 },
           ],
           next_page_token: "",
         },
@@ -1382,6 +1389,7 @@ describe("BoardRoute", () => {
       name: "Created Workflow",
       description: "",
       graph_revision: 1,
+      definition_revision: 1,
     };
     const services = createTestServices([
       ...startupRoutes,
@@ -1389,7 +1397,15 @@ describe("BoardRoute", () => {
       {
         method: "workflow.list",
         result: {
-          workflows: [{ id: "workflow-1", name: "Delivery", description: "", graph_revision: 1 }],
+          workflows: [
+            {
+              id: "workflow-1",
+              name: "Delivery",
+              description: "",
+              graph_revision: 1,
+              definition_revision: 1,
+            },
+          ],
           next_page_token: "",
         },
       },
@@ -1468,7 +1484,15 @@ describe("BoardRoute", () => {
       {
         method: "workflow.list",
         result: {
-          workflows: [{ id: "workflow-1", name: "Delivery", description: "", graph_revision: 1 }],
+          workflows: [
+            {
+              id: "workflow-1",
+              name: "Delivery",
+              description: "",
+              graph_revision: 1,
+              definition_revision: 1,
+            },
+          ],
           next_page_token: "",
         },
       },
@@ -2036,6 +2060,7 @@ const workflowDefinitionResponse = {
       name: "Delivery",
       description: "",
       graph_revision: 1,
+      definition_revision: 1,
     },
     node_groups: [],
     nodes: [

@@ -57,7 +57,13 @@ function CardRegressionFixture() {
       <div data-testid="home-card-regression">
         <WorkflowCard
           onOpen={vi.fn()}
-          workflow={{ description: "", graphRevision: 1, id: "workflow-1", name: "Alpha" }}
+          workflow={{
+            description: "",
+            graphRevision: 1,
+            definitionRevision: 1,
+            id: "workflow-1",
+            name: "Alpha",
+          }}
         />
       </div>
     </div>

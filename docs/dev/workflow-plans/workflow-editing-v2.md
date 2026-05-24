@@ -3,6 +3,8 @@
 - [x] Recon current workflow graph viewer, workflow APIs, validation, and mutation model.
 - [x] V1 read-only inspector milestone: existing workflow definitions can be inspected from the editor through the global right sidebar; joins are visible as clickable merge diamonds; semantic node/edge colors are implemented with validation-error red overrides.
 - [x] Server-owned graph validate/preview/save substrate: graph-only draft validation, save preview, transactional save, graph edit policy, server/client/API plumbing, and GUI API contracts are implemented while the visible editor remains read-only.
+- [x] Merged first-edit slice planned: route-local workflow draft state plus visible workflow metadata and agent-node editing, with one atomic Save/Discard flow.
+- [x] First visible editor implementation slice: route-local draft state, workflow metadata editing, agent-node editing, output-field add/delete/reorder, workflow-scoped subscriptions, and one atomic Save/Discard flow.
 - [ ] Workstream 1: reach shared ownership/hierarchy model from actual DB ERD.
 - [ ] Workstream 1: update product/navigation decisions for projects, workflows, tasks, and boards after hierarchy is agreed.
 - [ ] Workstream 1: decide whether `workflow_events` hard-cutover belongs before or after navigation redesign.
@@ -34,6 +36,16 @@
 - GUI remains a remote-control surface; server remains authoritative for workflow definitions, validation, persistence, project links, and events.
 - V1 editor graph semantics are locked: editor renders join nodes as small inspectable merge diamonds, board/Kanban read models still omit join columns, edge colors communicate context mode, node colors communicate node kind, and validation-error red overrides normal semantic colors only for invalid graph entities.
 - Completed workflow-editor substrate slice: GUI-local unsaved drafts remain the editing architecture, and the implemented server-owned graph substrate exposes graph-only `workflow.graph.validateDraft`, `workflow.graph.savePreview`, and `workflow.graph.save` contracts, adds a shared graph edit policy, and keeps the visible editor read-only.
+- Implemented merged first-edit slice: the editor combines the route-local draft system with visible workflow metadata editing and agent-node editing. The first editable node surface includes display name, key, assignee/subagent role, prompt template, and output fields with drag reorder; non-agent nodes, groups, and edges stay read-only in this slice.
+- The temporary read-only inspector is replaced by edit forms for supported workflow/agent-node targets. Unsupported targets may keep read-only inspection with clear unavailable-editing copy.
+- Route-level Save/Discard appears in one bottom-right workflow-editor status island that also owns validation, blockers, confirmation-required state, conflicts, and save errors.
+- Workflow editor drafts remain GUI route-local, but sidebar edit forms need a shell-level bridge because `SidebarHost` is a sibling of route content. The route owns the draft controller lifecycle and registers/unregisters it with the bridge while mounted.
+- `workflow.graph.validateDraft`, `workflow.graph.savePreview`, and `workflow.graph.save` may carry optional workflow metadata for the editor save flow. This intentionally revises the earlier graph-only DTO constraint for this merged slice.
+- Workflow definitions get a monotonic `definition_revision` separate from `graph_revision`. Metadata changes increment only `definition_revision`; graph changes increment both; no-op saves increment neither.
+- Metadata+graph Save is atomic. The store computes normalized `metadataChanged` and `graphChanged`; graph edit policy, active-work blockers, removal impact, confirmation, graph revision checks, and graph revision increments run only when `graphChanged`.
+- Metadata-only and no-op saves bypass graph edit policy and active-work blockers. Actual graph changes remain blocked by the graph edit policy.
+- Workflow-scoped subscriptions/events are required so global Workflow Library editor mode gets the same reactive conflict behavior as project-linked editor mode.
+- Draft and execution validation are shown separately. Graph-dirty saves are gated by draft blocking validity and save-preview blockers. Metadata-only saves may proceed even when the existing graph has draft validation errors, and execution validation errors remain visible but non-blocking.
 - First editing release should support full graph CRUD for nodes, node groups, transition groups, and edges, including guarded delete/archive behavior.
 - Editing uses a local draft session with Save/Discard. Server mutations apply only when the user saves.
 - Canvas opens with ELK-computed layout. User may drag nodes/groups during the edit session; coordinates are kept only in memory and reset to ELK on reopen.

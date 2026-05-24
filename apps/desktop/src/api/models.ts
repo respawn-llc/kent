@@ -128,6 +128,7 @@ export type WorkflowRecord = Readonly<{
   name: string;
   description: string;
   graphRevision: number;
+  definitionRevision: number;
 }>;
 
 export type WorkflowPage = Readonly<{
@@ -256,6 +257,11 @@ export type WorkflowGraphValidationResults = Readonly<
   Partial<Record<WorkflowValidationMode, WorkflowValidation>>
 >;
 
+export type WorkflowGraphMetadata = Readonly<{
+  name: string;
+  description: string;
+}>;
+
 export type WorkflowGraphSaveImpact = Readonly<{
   removedNodeCount: number;
   removedTransitionGroupCount: number;
@@ -279,6 +285,7 @@ export type WorkflowGraphSaveBlocker = Readonly<{
 
 export type WorkflowGraphSavePreview = Readonly<{
   currentGraphRevision: number;
+  currentDefinitionRevision: number;
   validationResults: WorkflowGraphValidationResults;
   impact: WorkflowGraphSaveImpact;
   blockers: readonly WorkflowGraphSaveBlocker[];

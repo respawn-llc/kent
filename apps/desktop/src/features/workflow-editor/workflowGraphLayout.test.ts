@@ -118,7 +118,7 @@ function edgeByID(edges: readonly WorkflowGraphEdge[], id: string): WorkflowGrap
 const emptyValidation: WorkflowValidation = { valid: true, errors: [] };
 
 const groupedWorkflow: WorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1, definitionRevision: 1 },
   nodeGroups: [
     {
       id: "group-1",
@@ -151,7 +151,7 @@ const groupedWorkflow: WorkflowDefinition = {
 };
 
 const fanoutWorkflow: WorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1, definitionRevision: 1 },
   nodeGroups: [],
   nodes: [
     workflowNode("node-1", "Plan", "agent", ""),
@@ -166,7 +166,7 @@ const fanoutWorkflow: WorkflowDefinition = {
 };
 
 const crossBoundaryWorkflow: WorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1, definitionRevision: 1 },
   nodeGroups: [
     {
       id: "group-source",
@@ -195,13 +195,18 @@ const crossBoundaryWorkflow: WorkflowDefinition = {
     workflowTransitionGroup("tg-exit", "node-target", "exit", "Exit"),
   ],
   edges: [
-    workflowEdge({ id: "edge-cross", key: "cross", targetNodeID: "node-target", transitionGroupID: "tg-cross" }),
+    workflowEdge({
+      id: "edge-cross",
+      key: "cross",
+      targetNodeID: "node-target",
+      transitionGroupID: "tg-cross",
+    }),
     workflowEdge({ id: "edge-exit", key: "exit", targetNodeID: "done", transitionGroupID: "tg-exit" }),
   ],
 };
 
 const joinWorkflow: WorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1, definitionRevision: 1 },
   nodeGroups: [],
   nodes: [
     workflowNode("node-a", "A", "agent", ""),
@@ -240,7 +245,7 @@ const joinWorkflow: WorkflowDefinition = {
 };
 
 const joinChainWorkflow: WorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1, definitionRevision: 1 },
   nodeGroups: [],
   nodes: [
     workflowNode("node-a", "A", "agent", ""),
@@ -254,7 +259,12 @@ const joinChainWorkflow: WorkflowDefinition = {
     workflowTransitionGroup("tg-join-b-synth", "join-b", "done", "Done"),
   ],
   edges: [
-    workflowEdge({ id: "edge-to-join-a", key: "join_a", targetNodeID: "join-a", transitionGroupID: "tg-to-join-a" }),
+    workflowEdge({
+      id: "edge-to-join-a",
+      key: "join_a",
+      targetNodeID: "join-a",
+      transitionGroupID: "tg-to-join-a",
+    }),
     workflowEdge({
       id: "edge-join-a-join-b",
       key: "join_b",

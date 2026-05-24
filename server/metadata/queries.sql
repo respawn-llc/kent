@@ -89,6 +89,7 @@ INSERT INTO workflows (
     name,
     description,
     graph_revision,
+    definition_revision,
     created_at_unix_ms,
     updated_at_unix_ms
 ) VALUES (
@@ -96,6 +97,7 @@ INSERT INTO workflows (
     sqlc.arg(name),
     sqlc.arg(description),
     sqlc.arg(graph_revision),
+    sqlc.arg(definition_revision),
     sqlc.arg(created_at_unix_ms),
     sqlc.arg(updated_at_unix_ms)
 );
@@ -105,6 +107,7 @@ UPDATE workflows
 SET
     name = sqlc.arg(name),
     description = sqlc.arg(description),
+    definition_revision = definition_revision + 1,
     updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
 WHERE id = sqlc.arg(id);
 
@@ -112,9 +115,18 @@ WHERE id = sqlc.arg(id);
 UPDATE workflows
 SET
     graph_revision = graph_revision + 1,
+    definition_revision = definition_revision + 1,
     updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
 WHERE id = sqlc.arg(id)
 RETURNING graph_revision;
+
+-- name: IncrementWorkflowDefinitionRevision :one
+UPDATE workflows
+SET
+    definition_revision = definition_revision + 1,
+    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
+WHERE id = sqlc.arg(id)
+RETURNING definition_revision;
 
 -- name: GetWorkflow :one
 SELECT
@@ -122,6 +134,7 @@ SELECT
     name,
     description,
     graph_revision,
+    definition_revision,
     created_at_unix_ms,
     updated_at_unix_ms
 FROM workflows
@@ -134,6 +147,7 @@ SELECT
     name,
     description,
     graph_revision,
+    definition_revision,
     created_at_unix_ms,
     updated_at_unix_ms
 FROM workflows

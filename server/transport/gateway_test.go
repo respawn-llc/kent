@@ -480,6 +480,8 @@ func TestGatewayStreamRoutesUseRouteContractMethods(t *testing.T) {
 		{method: protocol.MethodSessionSubscribeActivity, eventMethod: protocol.MethodSessionActivityEvent, completeName: protocol.MethodSessionActivityComplete},
 		{method: protocol.MethodProcessSubscribeOutput, eventMethod: protocol.MethodProcessOutputEvent, completeName: protocol.MethodProcessOutputComplete},
 		{method: protocol.MethodPromptSubscribeActivity, eventMethod: protocol.MethodPromptActivityEvent, completeName: protocol.MethodPromptActivityComplete},
+		{method: protocol.MethodWorkflowSubscribe, eventMethod: protocol.MethodWorkflowEvent, completeName: protocol.MethodWorkflowComplete},
+		{method: protocol.MethodWorkflowSubscribeProject, eventMethod: protocol.MethodWorkflowProjectEvent, completeName: protocol.MethodWorkflowProjectComplete},
 	} {
 		route, ok := rpccontract.RouteByMethod(tc.method)
 		if !ok {

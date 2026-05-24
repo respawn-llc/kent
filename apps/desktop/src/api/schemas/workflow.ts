@@ -63,12 +63,14 @@ const workflowRecordSchema: z.ZodType<WorkflowRecord> = z
     name: z.string(),
     description: emptyString,
     graph_revision: z.number(),
+    definition_revision: z.number(),
   })
   .transform((value) => ({
     id: value.id,
     name: value.name,
     description: value.description,
     graphRevision: value.graph_revision,
+    definitionRevision: value.definition_revision,
   }));
 
 export const workflowListSchema: z.ZodType<WorkflowPage> = z
@@ -226,7 +228,10 @@ const workflowOutputRequirementsSchema = z
 
 const workflowContextSourceSchema = z
   .object({
-    kind: z.string().nullish().transform((value) => value ?? "immediate_source"),
+    kind: z
+      .string()
+      .nullish()
+      .transform((value) => value ?? "immediate_source"),
     node_key: emptyString,
   })
   .nullish()
@@ -273,6 +278,7 @@ const workflowDefinitionValueSchema: z.ZodType<WorkflowDefinition> = z
       name: z.string(),
       description: emptyString,
       graph_revision: z.number(),
+      definition_revision: z.number(),
     }),
     node_groups: workflowNodeGroupsSchema,
     nodes: workflowNodesSchema,
@@ -285,6 +291,7 @@ const workflowDefinitionValueSchema: z.ZodType<WorkflowDefinition> = z
       name: value.workflow.name,
       description: value.workflow.description,
       graphRevision: value.workflow.graph_revision,
+      definitionRevision: value.workflow.definition_revision,
     },
     nodeGroups: value.node_groups,
     nodes: value.nodes,
@@ -363,6 +370,7 @@ const workflowGraphSaveBlockersSchema = z
 export const workflowGraphSavePreviewSchema: z.ZodType<WorkflowGraphSavePreview> = z
   .object({
     current_graph_revision: z.number(),
+    current_definition_revision: z.number(),
     validation_results: workflowGraphValidationResultsSchema,
     impact: workflowGraphSaveImpactSchema,
     blockers: workflowGraphSaveBlockersSchema,
@@ -371,6 +379,7 @@ export const workflowGraphSavePreviewSchema: z.ZodType<WorkflowGraphSavePreview>
   })
   .transform((value) => ({
     currentGraphRevision: value.current_graph_revision,
+    currentDefinitionRevision: value.current_definition_revision,
     validationResults: value.validation_results,
     impact: value.impact,
     blockers: value.blockers,
@@ -383,6 +392,7 @@ export const workflowGraphSaveSchema: z.ZodType<WorkflowGraphSaveResult> = z
     saved: z.boolean(),
     definition: workflowDefinitionValueSchema.nullish().transform((value) => value ?? null),
     current_graph_revision: z.number(),
+    current_definition_revision: z.number(),
     validation_results: workflowGraphValidationResultsSchema,
     impact: workflowGraphSaveImpactSchema,
     blockers: workflowGraphSaveBlockersSchema,
@@ -393,6 +403,7 @@ export const workflowGraphSaveSchema: z.ZodType<WorkflowGraphSaveResult> = z
     saved: value.saved,
     definition: value.definition,
     currentGraphRevision: value.current_graph_revision,
+    currentDefinitionRevision: value.current_definition_revision,
     validationResults: value.validation_results,
     impact: value.impact,
     blockers: value.blockers,

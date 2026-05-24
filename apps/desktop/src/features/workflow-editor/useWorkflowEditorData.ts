@@ -42,36 +42,67 @@ export function useWorkflowEditorData(projectID: string, workflowID: string) {
   });
 
   useEffect(() => {
-    if (projectID.length === 0 || workflowID.length === 0 || connection.phase !== "connected") {
+    if (workflowID.length === 0 || connection.phase !== "connected") {
       return;
     }
-    async function refresh(): Promise<void> {
+    async function refresh(notify: boolean): Promise<void> {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.projectWorkflowLinks(projectID) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.board(projectID, workflowID) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.workflowDefinition(workflowID) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.workflowValidation(workflowID, "execution") }),
       ]);
-      push({ id: "workflow-editor-updated", tone: "neutral", title: t("workflowEditor.updated"), body: "" });
+      if (notify) {
+        push({
+          id: "workflow-editor-updated",
+          tone: "neutral",
+          title: t("workflowEditor.updated"),
+          body: "",
+        });
+      }
     }
-    const subscription = api.subscribeProject(projectID, {
-      onOpen() {
-        void refresh();
-      },
-      onEvent(_method, params) {
-        if (shouldRefreshWorkflowEditor(params, projectID, workflowID)) {
-          void refresh();
-        }
-      },
-      onComplete() {
-        return;
-      },
-      onError() {
-        void refresh();
-      },
-    });
+    const subscriptions = [
+      api.subscribeWorkflow(workflowID, {
+        onOpen() {
+          return;
+        },
+        onEvent(_method, params) {
+          if (shouldRefreshWorkflowDefinition(params, workflowID)) {
+            void refresh(true);
+          }
+        },
+        onComplete() {
+          return;
+        },
+        onError() {
+          void refresh(false);
+        },
+      }),
+    ];
+    if (projectID.length > 0) {
+      subscriptions.push(
+        api.subscribeProject(projectID, {
+          onOpen() {
+            return;
+          },
+          onEvent(_method, params) {
+            if (shouldRefreshWorkflowLink(params, projectID, workflowID)) {
+              void refresh(true);
+            }
+          },
+          onComplete() {
+            return;
+          },
+          onError() {
+            void refresh(false);
+          },
+        }),
+      );
+    }
     return () => {
-      subscription.close();
+      for (const subscription of subscriptions) {
+        subscription.close();
+      }
     };
   }, [api, connection.generation, connection.phase, projectID, push, queryClient, t, workflowID]);
 
@@ -87,21 +118,35 @@ export function useWorkflowEditorData(projectID: string, workflowID: string) {
 }
 
 export function shouldRefreshWorkflowEditor(params: unknown, projectID: string, workflowID: string): boolean {
+  return (
+    shouldRefreshWorkflowDefinition(params, workflowID) ||
+    shouldRefreshWorkflowLink(params, projectID, workflowID)
+  );
+}
+
+export function shouldRefreshWorkflowDefinition(params: unknown, workflowID: string): boolean {
   const event = workflowProjectEvent(params);
   if (event === null) {
     return false;
   }
-  if (event.resource === "workflow") {
-    return event.workflowID === workflowID && workflowDefinitionActions.has(event.action);
+  return (
+    event.resource === "workflow" &&
+    event.workflowID === workflowID &&
+    workflowDefinitionActions.has(event.action)
+  );
+}
+
+export function shouldRefreshWorkflowLink(params: unknown, projectID: string, workflowID: string): boolean {
+  const event = workflowProjectEvent(params);
+  if (event === null) {
+    return false;
   }
-  if (event.resource === "workflow_link") {
-    return (
-      event.projectID === projectID &&
-      workflowLinkActions.has(event.action) &&
-      (event.workflowID === workflowID || event.changedIDs.length > 0)
-    );
-  }
-  return false;
+  return (
+    event.resource === "workflow_link" &&
+    event.projectID === projectID &&
+    workflowLinkActions.has(event.action) &&
+    (event.workflowID === workflowID || event.changedIDs.length > 0)
+  );
 }
 
 const workflowDefinitionActions = new Set([
@@ -115,6 +160,7 @@ const workflowDefinitionActions = new Set([
   "transition_group_updated",
   "edge_added",
   "edge_updated",
+  "graph_saved",
 ]);
 
 const workflowLinkActions = new Set(["linked", "default_changed", "unlinked"]);

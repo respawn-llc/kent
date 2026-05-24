@@ -61,10 +61,11 @@ func New(metadataStore *metadata.Store, opts ...Option) (*Store, error) {
 }
 
 type WorkflowRecord struct {
-	ID            workflow.WorkflowID
-	Name          string
-	Description   string
-	GraphRevision int64
+	ID                 workflow.WorkflowID
+	Name               string
+	Description        string
+	GraphRevision      int64
+	DefinitionRevision int64
 }
 
 type NodeRecord struct {
@@ -345,7 +346,7 @@ func insertWorkflow(ctx context.Context, q *sqlitegen.Queries, now int64, req Cr
 	workflowID := prefixedID("workflow")
 	startID := prefixedID("node")
 	doneID := prefixedID("node")
-	if err := q.InsertWorkflow(ctx, sqlitegen.InsertWorkflowParams{ID: workflowID, Name: name, Description: description, GraphRevision: 1, CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
+	if err := q.InsertWorkflow(ctx, sqlitegen.InsertWorkflowParams{ID: workflowID, Name: name, Description: description, GraphRevision: 1, DefinitionRevision: 1, CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
 		return WorkflowRecord{}, fmt.Errorf("insert workflow: %w", err)
 	}
 	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: startID, WorkflowID: workflowID, NodeKey: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog", OutputFieldsJson: "[]", SortOrder: 0}); err != nil {
@@ -354,7 +355,7 @@ func insertWorkflow(ctx context.Context, q *sqlitegen.Queries, now int64, req Cr
 	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: doneID, WorkflowID: workflowID, NodeKey: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done", OutputFieldsJson: "[]", SortOrder: 1000}); err != nil {
 		return WorkflowRecord{}, fmt.Errorf("insert done node: %w", err)
 	}
-	return WorkflowRecord{ID: workflow.WorkflowID(workflowID), Name: name, Description: description, GraphRevision: 1}, nil
+	return WorkflowRecord{ID: workflow.WorkflowID(workflowID), Name: name, Description: description, GraphRevision: 1, DefinitionRevision: 1}, nil
 }
 
 func (s *Store) UpdateWorkflowInfo(ctx context.Context, workflowID workflow.WorkflowID, name string, description string) error {
@@ -403,6 +404,7 @@ SELECT
     name,
     description,
     graph_revision,
+    definition_revision,
     created_at_unix_ms,
     updated_at_unix_ms
 FROM workflows
@@ -415,8 +417,8 @@ LIMIT ? OFFSET ?`, args...)
 	defer func() { _ = rows.Close() }()
 	out := make([]WorkflowRecord, 0, pageSize)
 	for rows.Next() {
-		var row sqlitegen.Workflow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.GraphRevision, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs); err != nil {
+		var row workflowRecordRow
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.GraphRevision, &row.DefinitionRevision, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs); err != nil {
 			return ListWorkflowsResult{}, err
 		}
 		out = append(out, workflowRecordFromRow(row))
@@ -1060,11 +1062,25 @@ func (s *Store) GetDefinition(ctx context.Context, workflowID workflow.WorkflowI
 		}
 		def.Edges = append(def.Edges, workflow.Edge{WorkflowID: workflow.WorkflowID(edge.WorkflowID), ID: workflow.EdgeID(edge.ID), Key: workflow.ModelKey(edge.EdgeKey), TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID), TargetNodeID: workflow.NodeID(edge.TargetNodeID), RequiresApproval: edge.RequiresApproval != 0, ContextMode: workflow.ContextMode(edge.ContextMode), ContextSource: workflow.CanonicalContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(edge.ContextSourceKind), NodeKey: workflow.ModelKey(edge.ContextSourceNodeKey)}), InputBindings: inputs, OutputRequirements: requirements})
 	}
-	return def, workflowRecordFromRow(row), nil
+	return def, workflowRecordFromGetWorkflowRow(row), nil
 }
 
-func workflowRecordFromRow(row sqlitegen.Workflow) WorkflowRecord {
-	return WorkflowRecord{ID: workflow.WorkflowID(row.ID), Name: row.Name, Description: row.Description, GraphRevision: row.GraphRevision}
+type workflowRecordRow struct {
+	ID                 string
+	Name               string
+	Description        string
+	GraphRevision      int64
+	DefinitionRevision int64
+	CreatedAtUnixMs    int64
+	UpdatedAtUnixMs    int64
+}
+
+func workflowRecordFromRow(row workflowRecordRow) WorkflowRecord {
+	return WorkflowRecord{ID: workflow.WorkflowID(row.ID), Name: row.Name, Description: row.Description, GraphRevision: row.GraphRevision, DefinitionRevision: row.DefinitionRevision}
+}
+
+func workflowRecordFromGetWorkflowRow(row sqlitegen.GetWorkflowRow) WorkflowRecord {
+	return workflowRecordFromRow(workflowRecordRow{ID: row.ID, Name: row.Name, Description: row.Description, GraphRevision: row.GraphRevision, DefinitionRevision: row.DefinitionRevision, CreatedAtUnixMs: row.CreatedAtUnixMs, UpdatedAtUnixMs: row.UpdatedAtUnixMs})
 }
 
 func nodeGroupRecordFromRow(row sqlitegen.WorkflowNodeGroup) NodeGroupRecord {
