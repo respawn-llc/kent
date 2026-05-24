@@ -158,7 +158,7 @@ function workflowEditorViewState(
 }
 
 function isLinkGateLoading(data: WorkflowEditorData): boolean {
-  return data.linksQuery.isPending || data.boardQuery.isPending;
+  return data.projectContext && (data.linksQuery.isPending || data.boardQuery.isPending);
 }
 
 function isGraphLoading(data: WorkflowEditorData, layoutQuery: UseQueryResult<WorkflowGraphLayout>): boolean {

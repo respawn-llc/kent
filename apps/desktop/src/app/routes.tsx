@@ -22,6 +22,11 @@ const LazyWorkflowEditorRoute = lazy(async () => {
   return { default: module.WorkflowEditorRoute };
 });
 
+const LazyWorkflowLibraryRoute = lazy(async () => {
+  const module = await import("../features/workflows/WorkflowLibraryRoute");
+  return { default: module.WorkflowLibraryRoute };
+});
+
 const optionalSearchString = z.preprocess(
   (value: unknown) => (typeof value === "string" ? value : ""),
   z.string(),
@@ -42,6 +47,10 @@ const projectCreateSearchSchema = z.object({
 const taskDetailSearchSchema = z.object({
   taskId: optionalSearchString,
   resumeRunId: optionalSearchString,
+});
+
+const workflowEditorSearchSchema = z.object({
+  projectId: optionalSearchString,
 });
 
 const newTaskSearchSchema = z.object({
@@ -87,11 +96,24 @@ const projectEditRoute = createRoute({
   component: ProjectEditShellRoute,
 });
 
+const workflowLibraryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/workflows",
+  component: WorkflowLibraryShellRoute,
+});
+
 const workflowEditorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/workflows/$workflowId/editor",
+  validateSearch: (search: Record<string, unknown>) => workflowEditorSearchSchema.parse(search),
+  component: WorkflowEditorShellRoute,
+});
+
+const legacyWorkflowEditorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/projects/$projectId/workflows/$workflowId/editor",
   validateSearch: (search: Record<string, unknown>) => projectSearchSchema.pick({ workflowId: true }).parse(search),
-  component: WorkflowEditorShellRoute,
+  component: LegacyWorkflowEditorRedirectRoute,
 });
 
 const taskRoute = createRoute({
@@ -131,7 +153,9 @@ const workspaceUnlinkWindowRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   homeRoute,
   projectRoute,
+  workflowLibraryRoute,
   workflowEditorRoute,
+  legacyWorkflowEditorRoute,
   projectEditRoute,
   taskRoute,
   projectCreateRoute,
@@ -290,12 +314,39 @@ function ProjectEditShellRoute() {
 function WorkflowEditorShellRoute() {
   const { t } = useTranslation();
   const params = workflowEditorRoute.useParams();
+  const search = workflowEditorRoute.useSearch();
   useWindowChromeTitle(null);
   return (
     <Suspense fallback={<LoadingState appearanceDelayMs={0} title={t("workflowEditor.loadingTitle")} />}>
-      <LazyWorkflowEditorRoute projectID={params.projectId} workflowID={params.workflowId} />
+      <LazyWorkflowEditorRoute projectID={search.projectId} workflowID={params.workflowId} />
     </Suspense>
   );
+}
+
+function WorkflowLibraryShellRoute() {
+  const { t } = useTranslation();
+  useWindowChromeTitle(t("workflowLibrary.title"));
+  return (
+    <Suspense fallback={<LoadingState appearanceDelayMs={0} title={t("workflowLibrary.title")} />}>
+      <LazyWorkflowLibraryRoute />
+    </Suspense>
+  );
+}
+
+function LegacyWorkflowEditorRedirectRoute() {
+  const navigate = rootRoute.useNavigate();
+  const params = legacyWorkflowEditorRoute.useParams();
+
+  useEffect(() => {
+    void navigate({
+      to: "/workflows/$workflowId/editor",
+      params: { workflowId: params.workflowId },
+      search: { projectId: params.projectId },
+      replace: true,
+    });
+  }, [navigate, params.projectId, params.workflowId]);
+
+  return null;
 }
 
 function TaskRoute() {

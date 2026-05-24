@@ -1,4 +1,4 @@
-import { Pencil, Pin, PinOff, Plus } from "lucide-react";
+import { Link2, Pencil, Pin, PinOff, Plus } from "lucide-react";
 import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -13,10 +13,11 @@ export type BoardHoverMenuProps = Readonly<{
     canCreateTask: boolean;
     onNewTask: () => void;
     onWorkflowEdit: (workflowID: string) => void;
+    onWorkflowLink: () => void;
     onWorkflowSelect: (workflowID: string) => void;
 }>;
 
-export function BoardHoverMenu({ board, canCreateTask, onNewTask, onWorkflowEdit, onWorkflowSelect }: BoardHoverMenuProps) {
+export function BoardHoverMenu({ board, canCreateTask, onNewTask, onWorkflowEdit, onWorkflowLink, onWorkflowSelect }: BoardHoverMenuProps) {
     const { t } = useTranslation();
     const menuRef = useRef<HTMLDivElement | null>(null);
     const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -128,6 +129,9 @@ export function BoardHoverMenu({ board, canCreateTask, onNewTask, onWorkflowEdit
             <div className="absolute bottom-[var(--board-menu-padding)] left-[var(--board-menu-padding)] flex h-10 shrink-0 items-center gap-[var(--board-menu-icon-gap)]" data-testid="board-hover-menu-actions">
                 <IconMenuButton disabled={!canCreateTask} label={t("board.newTask")} onClick={onNewTask}>
                     <Plus aria-hidden="true" size={24} strokeWidth={1.6} />
+                </IconMenuButton>
+                <IconMenuButton disabled={!canCreateTask} label={t("workflowLibrary.linkWorkflow")} onClick={onWorkflowLink}>
+                    <Link2 aria-hidden="true" size={22} strokeWidth={1.6} />
                 </IconMenuButton>
             </div>
         </div>

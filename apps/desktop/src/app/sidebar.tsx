@@ -10,19 +10,13 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type PointerEvent,
-  type ReactElement,
 } from "react";
 import { useTranslation } from "react-i18next";
 
-import { TaskDetailSurface } from "../features/task-detail/TaskDetailDialog";
-import { NewTaskForm } from "../features/tasks/NewTaskDialog";
 import { Button } from "../ui";
 import { cx } from "../ui/classes";
-import {
-  type SidebarController,
-  type SidebarDestination,
-  useSidebar,
-} from "./sidebarContext";
+import { SidebarDestinationView, sidebarTitle } from "./sidebarDestinations";
+import { useSidebar } from "./sidebarContext";
 import {
   clampSidebarWidth,
   sidebarMaxWidthRatio,
@@ -295,49 +289,4 @@ function setPointerCaptureIfAvailable(element: PointerCaptureTarget, pointerID: 
 
 function releasePointerCaptureIfAvailable(element: PointerCaptureTarget, pointerID: number): void {
   element.releasePointerCapture?.(pointerID);
-}
-
-function SidebarDestinationView({
-  destination,
-  resolveSidebar,
-}: Readonly<{
-  destination: SidebarDestination;
-  resolveSidebar: SidebarController["resolveSidebar"];
-}>): ReactElement {
-  if (destination.kind === "newTask") {
-    return (
-      <NewTaskForm
-        boardQueryWorkflowID={destination.boardQueryWorkflowID}
-        className="w-full"
-        onSubmitted={() => {
-          resolveSidebar({ destination: "newTask", status: "submitted" });
-        }}
-        projectID={destination.projectID}
-        workflowID={destination.workflowID}
-      />
-    );
-  }
-
-  if (destination.kind === "taskDetail") {
-    return (
-      <TaskDetailSurface
-        enabled
-        onMutated={destination.onMutated}
-        resumeRunId={destination.resumeRunID}
-        taskId={destination.taskID}
-      />
-    );
-  }
-
-  return <>{destination.content}</>;
-}
-
-function sidebarTitle(destination: SidebarDestination, t: ReturnType<typeof useTranslation>["t"]): string {
-  if (destination.kind === "newTask") {
-    return t("task.newTitle");
-  }
-  if (destination.kind === "taskDetail") {
-    return t("task.title");
-  }
-  return destination.title;
 }

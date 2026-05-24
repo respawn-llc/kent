@@ -28,7 +28,8 @@ export function useWorkflowEditorData(projectID: string, workflowID: string) {
   const activeLink = linksQuery.data?.find(
     (link) => link.projectID === projectID && link.workflowID === workflowID,
   );
-  const linked = activeLink !== undefined;
+  const projectContext = projectID.length > 0;
+  const linked = !projectContext || activeLink !== undefined;
   const workflowQuery = useQuery({
     queryKey: queryKeys.workflowDefinition(workflowID),
     queryFn: async () => api.getWorkflow(workflowID),
@@ -79,6 +80,7 @@ export function useWorkflowEditorData(projectID: string, workflowID: string) {
     boardQuery,
     linked,
     linksQuery,
+    projectContext,
     validationQuery,
     workflowQuery,
   };

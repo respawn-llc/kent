@@ -130,6 +130,11 @@ export type WorkflowRecord = Readonly<{
   graphRevision: number;
 }>;
 
+export type WorkflowPage = Readonly<{
+  workflows: readonly WorkflowRecord[];
+  nextPageToken: string;
+}>;
+
 export type WorkflowNodeGroup = Readonly<{
   id: string;
   workflowID: string;

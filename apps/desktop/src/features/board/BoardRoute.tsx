@@ -10,7 +10,7 @@ import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { useSidebar } from "../../app/sidebarContext";
 import { useStatusController } from "../../app/useStatusController";
 import { useWindowChromeTitle } from "../../app/windowChromeTitle";
-import { EmptyState, ErrorState, FloatingNoticeIsland } from "../../ui";
+import { Button, EmptyState, ErrorState, FloatingNoticeIsland } from "../../ui";
 import { WorkflowValidationIssues } from "../workflow/WorkflowValidationIssues";
 import { BoardColumnController } from "./BoardColumnController";
 import { BoardHoverMenu } from "./BoardHoverMenu";
@@ -78,7 +78,7 @@ export function BoardRoute({ projectId, workflowId, selectedTaskId, resumeRunId 
     );
   }
   if (board === undefined || board.workflows.length === 0) {
-    return <EmptyState body={t("board.noWorkflowBody")} chromePadding title={t("board.noWorkflowTitle")} />;
+    return <BoardNoWorkflowState projectID={projectId} />;
   }
 
   return (
@@ -301,7 +301,7 @@ function BoardContent({
   }
 
   function editWorkflow(workflowID: string): void {
-    void navigation.openWorkflowEditor(board.projectID, workflowID).catch(reportNavigationError);
+    void navigation.openWorkflowEditor({ projectID: board.projectID, workflowID }).catch(reportNavigationError);
   }
 
   function openNewTask(): void {
@@ -311,6 +311,15 @@ function BoardContent({
       mode: "overlay",
       projectID: board.projectID,
       workflowID: board.selectedWorkflow.id,
+    });
+  }
+
+  function openLinkWorkflow(): void {
+    void openSidebar({
+      kind: "linkWorkflow",
+      mode: "overlay",
+      projectID: board.projectID,
+      selectedWorkflowID: board.selectedWorkflow.id,
     });
   }
 
@@ -413,9 +422,45 @@ function BoardContent({
         canCreateTask={connection.phase === "connected"}
         onNewTask={openNewTask}
         onWorkflowEdit={editWorkflow}
+        onWorkflowLink={openLinkWorkflow}
         onWorkflowSelect={selectWorkflow}
       />
     </div>
+  );
+}
+
+function BoardNoWorkflowState({ projectID }: Readonly<{ projectID: string }>) {
+  const { t } = useTranslation();
+  const { openSidebar } = useSidebar();
+  const connection = useConnectionSnapshot();
+  const actionsDisabled = connection.phase !== "connected";
+  return (
+    <EmptyState
+      actions={
+        <>
+          <Button
+            disabled={actionsDisabled}
+            onClick={() => {
+              void openSidebar({ kind: "linkWorkflow", mode: "overlay", projectID });
+            }}
+          >
+            {t("workflowLibrary.linkWorkflow")}
+          </Button>
+          <Button
+            disabled={actionsDisabled}
+            onClick={() => {
+              void openSidebar({ kind: "workflowCreate", mode: "overlay", projectID });
+            }}
+            variant="primary"
+          >
+            {t("workflowLibrary.createWorkflow")}
+          </Button>
+        </>
+      }
+      body={t("board.noWorkflowBody")}
+      chromePadding
+      title={t("board.noWorkflowTitle")}
+    />
   );
 }
 

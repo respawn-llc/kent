@@ -310,6 +310,114 @@ describe("BoardRoute", () => {
     expect(screen.getByTestId("empty-state")).toHaveClass("h-full", "min-h-0", "place-items-center");
     expect(screen.getByTestId("empty-state-content")).toHaveClass("justify-items-center", "text-center");
     expect(screen.getByTestId("empty-state-icon")).not.toBeEmptyDOMElement();
+    expect(screen.getByRole("button", { name: "Link workflow" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create workflow" })).toBeInTheDocument();
+  });
+
+  it("disables no-workflow actions while disconnected", async () => {
+    window.history.pushState(null, "", "/projects/project-1");
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes({
+        board: {
+          ...boardResponse.board,
+          workflows: [],
+        },
+      }),
+    ]);
+    services.transport.connection.set("disconnected", "offline");
+
+    render(<App services={services} />);
+
+    expect(await screen.findByRole("button", { name: "Link workflow" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create workflow" })).toBeDisabled();
+  });
+
+  it("creates and links the first project workflow from the no-workflow empty state", async () => {
+    window.history.pushState(null, "", "/projects/project-1");
+    const createdWorkflow = {
+      id: "workflow-created",
+      name: "Created Workflow",
+      description: "",
+      graph_revision: 1,
+    };
+    const createdPickerWorkflow = {
+      ...workflow,
+      workflow_id: "workflow-created",
+      display_name: "Created Workflow",
+      is_project_default: true,
+    };
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes({
+        board: {
+          ...boardResponse.board,
+          selected_workflow: createdPickerWorkflow,
+          workflows: [],
+        },
+      }),
+      {
+        method: "workflow.createAndLinkProject",
+        result: {
+          workflow: createdWorkflow,
+          link: {
+            id: "link-created",
+            project_id: "project-1",
+            workflow_id: "workflow-created",
+            default: true,
+          },
+        },
+      },
+      {
+        method: "workflow.listProjectLinks",
+        result: {
+          links: [
+            {
+              id: "link-created",
+              project_id: "project-1",
+              workflow_id: "workflow-created",
+              default: true,
+            },
+          ],
+        },
+      },
+      {
+        method: "workflow.get",
+        result: {
+          definition: {
+            ...workflowDefinitionResponse.definition,
+            workflow: createdWorkflow,
+          },
+        },
+      },
+      { method: "workflow.validate", result: { valid: true, errors: [] } },
+    ]);
+
+    render(<App services={services} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create workflow" }));
+    fireEvent.change(await screen.findByLabelText("Workflow name"), {
+      target: { value: "Created Workflow" },
+    });
+    fireEvent.click(
+      within(screen.getByTestId("app-sidebar-host")).getByRole("button", { name: "Create workflow" }),
+    );
+
+    await waitFor(() => {
+      expect(services.transport.calls).toContainEqual({
+        method: "workflow.createAndLinkProject",
+        params: {
+          name: "Created Workflow",
+          description: "",
+          project_id: "project-1",
+          default_policy: "if_project_has_none",
+        },
+      });
+    });
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/workflows/workflow-created/editor");
+    });
+    expect(window.location.search).toContain("projectId=project-1");
   });
 
   it("falls back to the project name for the chrome title when workflow name is blank", async () => {
@@ -500,12 +608,7 @@ describe("BoardRoute", () => {
     const sidebar = await screen.findByTestId("app-sidebar-host");
     const panel = screen.getByRole("complementary", { name: "Create Backlog task" });
     expect(panel).toHaveAttribute("data-mode", "overlay");
-    expect(panel).toHaveClass(
-      "absolute",
-      "top-0",
-      "right-[var(--space-2)]",
-      "bottom-[var(--space-2)]",
-    );
+    expect(panel).toHaveClass("absolute", "top-0", "right-[var(--space-2)]", "bottom-[var(--space-2)]");
     expect(panel).not.toHaveClass("relative");
     expect(panel).not.toHaveClass("top-[var(--space-2)]");
     expect(opened).toHaveLength(0);
@@ -1184,7 +1287,234 @@ describe("BoardRoute", () => {
     expect(menu).toHaveAttribute("aria-hidden", "false");
     fireEvent.click(editWorkflow);
     await waitFor(() => {
-      expect(window.location.pathname).toBe("/projects/project-1/workflows/workflow-1/editor");
+      expect(window.location.pathname).toBe("/workflows/workflow-1/editor");
+    });
+    expect(window.location.search).toContain("projectId=project-1");
+  });
+
+  it("links reusable workflows from the board workflow menu through the sidebar", async () => {
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const workflow2: BoardRouteWorkflow = { ...workflow, workflow_id: "workflow-2", display_name: "Ops" };
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes({
+        board: {
+          ...boardResponse.board,
+          workflows: [workflow, workflow2],
+        },
+      }),
+      {
+        method: "workflow.list",
+        result: {
+          workflows: [
+            { id: "workflow-1", name: "Delivery", description: "", graph_revision: 1 },
+            { id: "workflow-2", name: "Ops", description: "", graph_revision: 1 },
+          ],
+          next_page_token: "",
+        },
+      },
+      {
+        method: "workflow.listProjectLinks",
+        result: {
+          links: [
+            {
+              id: "link-1",
+              project_id: "project-1",
+              workflow_id: "workflow-1",
+              default: true,
+            },
+          ],
+        },
+      },
+      {
+        method: "workflow.linkProject",
+        result: {
+          link: {
+            id: "link-2",
+            project_id: "project-1",
+            workflow_id: "workflow-2",
+            default: false,
+          },
+        },
+      },
+    ]);
+
+    render(<App services={services} />);
+
+    await screen.findByRole("heading", { name: "Core" });
+    fireEvent.click(screen.getByRole("button", { name: "Link workflow" }));
+    expect(await screen.findByRole("complementary", { name: "Link workflow" })).toBeInTheDocument();
+    const sidebar = within(screen.getByTestId("app-sidebar-host"));
+    expect(await sidebar.findByText("Ops")).toBeInTheDocument();
+    fireEvent.click(await sidebar.findByRole("button", { name: "Link" }));
+
+    await waitFor(() => {
+      expect(services.transport.calls).toContainEqual({
+        method: "workflow.linkProject",
+        params: {
+          project_id: "project-1",
+          workflow_id: "workflow-2",
+          default_policy: "if_project_has_none",
+        },
+      });
+    });
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/projects/project-1");
+    });
+    expect(window.location.search).toContain("workflowId=workflow-2");
+  });
+
+  it("disables workflow linking from the board hover menu while disconnected", async () => {
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const services = createTestServices([...startupRoutes, ...boardRoutes()]);
+    services.transport.connection.set("disconnected", "offline");
+
+    render(<App services={services} />);
+
+    await screen.findByRole("heading", { name: "Core" });
+    expect(screen.getByRole("button", { name: "Link workflow" })).toBeDisabled();
+  });
+
+  it("creates reusable workflows from the board link sidebar and opens the project-context editor", async () => {
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const createdWorkflow = {
+      id: "workflow-created",
+      name: "Created Workflow",
+      description: "",
+      graph_revision: 1,
+    };
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes(),
+      {
+        method: "workflow.list",
+        result: {
+          workflows: [{ id: "workflow-1", name: "Delivery", description: "", graph_revision: 1 }],
+          next_page_token: "",
+        },
+      },
+      {
+        method: "workflow.listProjectLinks",
+        result: {
+          links: [
+            {
+              id: "link-1",
+              project_id: "project-1",
+              workflow_id: "workflow-1",
+              default: true,
+            },
+          ],
+        },
+      },
+      {
+        method: "workflow.createAndLinkProject",
+        result: {
+          workflow: createdWorkflow,
+          link: {
+            id: "link-created",
+            project_id: "project-1",
+            workflow_id: "workflow-created",
+            default: false,
+          },
+        },
+      },
+      {
+        method: "workflow.get",
+        result: {
+          definition: {
+            ...workflowDefinitionResponse.definition,
+            workflow: createdWorkflow,
+          },
+        },
+      },
+      { method: "workflow.validate", result: { valid: true, errors: [] } },
+    ]);
+
+    render(<App services={services} />);
+
+    await screen.findByRole("heading", { name: "Core" });
+    fireEvent.click(screen.getByRole("button", { name: "Link workflow" }));
+    const sidebar = within(await screen.findByRole("complementary", { name: "Link workflow" }));
+    fireEvent.click(await sidebar.findByRole("button", { name: "New workflow" }));
+    fireEvent.change(await screen.findByLabelText("Workflow name"), {
+      target: { value: "Created Workflow" },
+    });
+    fireEvent.click(
+      within(screen.getByTestId("app-sidebar-host")).getByRole("button", { name: "Create workflow" }),
+    );
+
+    await waitFor(() => {
+      expect(services.transport.calls).toContainEqual({
+        method: "workflow.createAndLinkProject",
+        params: {
+          name: "Created Workflow",
+          description: "",
+          project_id: "project-1",
+          default_policy: "if_project_has_none",
+        },
+      });
+    });
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/workflows/workflow-created/editor");
+    });
+    expect(window.location.search).toContain("projectId=project-1");
+  });
+
+  it("treats duplicate workflow links as idempotent select success", async () => {
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes(),
+      {
+        method: "workflow.list",
+        result: {
+          workflows: [{ id: "workflow-1", name: "Delivery", description: "", graph_revision: 1 }],
+          next_page_token: "",
+        },
+      },
+      {
+        method: "workflow.listProjectLinks",
+        result: {
+          links: [
+            {
+              id: "link-1",
+              project_id: "project-1",
+              workflow_id: "workflow-1",
+              default: true,
+            },
+          ],
+        },
+      },
+      {
+        method: "workflow.linkProject",
+        result: {
+          link: {
+            id: "link-1",
+            project_id: "project-1",
+            workflow_id: "workflow-1",
+            default: true,
+          },
+        },
+      },
+    ]);
+
+    render(<App services={services} />);
+
+    await screen.findByRole("heading", { name: "Core" });
+    fireEvent.click(screen.getByRole("button", { name: "Link workflow" }));
+    fireEvent.click(
+      await within(screen.getByTestId("app-sidebar-host")).findByRole("button", { name: "Select" }),
+    );
+
+    await waitFor(() => {
+      expect(services.transport.calls).toContainEqual({
+        method: "workflow.linkProject",
+        params: {
+          project_id: "project-1",
+          workflow_id: "workflow-1",
+          default_policy: "if_project_has_none",
+        },
+      });
     });
     expect(window.location.search).toContain("workflowId=workflow-1");
   });

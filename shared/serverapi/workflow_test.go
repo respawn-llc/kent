@@ -142,8 +142,29 @@ func TestWorkflowProjectLinkRequestValidation(t *testing.T) {
 	if err := (WorkflowLinkProjectRequest{ProjectID: "project-1", WorkflowID: "workflow-1"}).Validate(); err != nil {
 		t.Fatalf("valid link request rejected: %v", err)
 	}
+	if err := (WorkflowLinkProjectRequest{ProjectID: "project-1", WorkflowID: "workflow-1", DefaultPolicy: WorkflowProjectLinkDefaultIfProjectHasNone}).Validate(); err != nil {
+		t.Fatalf("valid link default policy rejected: %v", err)
+	}
+	if err := (WorkflowLinkProjectRequest{ProjectID: "project-1", WorkflowID: "workflow-1", DefaultPolicy: "sometimes"}).Validate(); err == nil || !strings.Contains(err.Error(), "default_policy") {
+		t.Fatalf("invalid link default policy error = %v", err)
+	}
+	if err := (WorkflowCreateAndLinkProjectRequest{Name: "Workflow", ProjectID: "project-1", DefaultPolicy: WorkflowProjectLinkDefaultIfProjectHasNone}).Validate(); err != nil {
+		t.Fatalf("valid create and link request rejected: %v", err)
+	}
 	if err := (WorkflowListProjectLinksRequest{ProjectID: "project-1"}).Validate(); err != nil {
 		t.Fatalf("valid list links request rejected: %v", err)
+	}
+	if err := (WorkflowListRequest{PageSize: 20, PageToken: "10", Query: "agent"}).Validate(); err != nil {
+		t.Fatalf("valid workflow list request rejected: %v", err)
+	}
+	if err := (WorkflowListRequest{PageSize: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "page_size") {
+		t.Fatalf("invalid page size error = %v", err)
+	}
+	if err := (WorkflowListRequest{PageSize: WorkflowListMaxPageSize + 1}).Validate(); err == nil || !strings.Contains(err.Error(), "page_size") {
+		t.Fatalf("oversized page size error = %v", err)
+	}
+	if err := (WorkflowListRequest{PageToken: " 10"}).Validate(); err == nil || !strings.Contains(err.Error(), "page_token") {
+		t.Fatalf("invalid page token error = %v", err)
 	}
 	if err := (WorkflowSetDefaultProjectLinkRequest{ProjectID: "project-1", WorkflowID: "workflow-1"}).Validate(); err != nil {
 		t.Fatalf("valid set default request rejected: %v", err)

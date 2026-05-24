@@ -22,6 +22,8 @@ import type {
   WorkflowDeleteImpact,
   WorkflowDeleteResponse,
   WorkflowDefinition,
+  WorkflowPage,
+  WorkflowRecord,
   WorkflowValidation,
   WorkspaceList,
   WorkspaceUnlinkResponse,
@@ -48,10 +50,14 @@ import {
   taskDetailSchema,
   taskUpdateResponseSchema,
   teleportTargetSchema,
+  workflowCreateAndLinkSchema,
+  workflowCreateSchema,
   workflowBoardSchema,
   workflowDeletePreviewSchema,
   workflowDeleteResponseSchema,
   workflowDefinitionSchema,
+  workflowLinkProjectSchema,
+  workflowListSchema,
   workflowValidationSchema,
 } from "./schemas/workflow";
 import type { RpcEventHandler, RpcSubscription, RpcTransport } from "./transport";
@@ -187,6 +193,68 @@ export class BuilderApiClient {
       "workflow.get",
       workflowDefinitionSchema,
       await this.transport.call("workflow.get", { workflow_id: workflowID }),
+    );
+  }
+
+  async listWorkflows(input: WorkflowListInput = {}): Promise<WorkflowPage> {
+    return parse(
+      "workflow.list",
+      workflowListSchema,
+      await this.transport.call(
+        "workflow.list",
+        compactJsonObject({
+          page_size: input.pageSize ?? 40,
+          page_token: input.pageToken ?? "",
+          query: input.query ?? "",
+        }),
+      ),
+    );
+  }
+
+  async createWorkflow(input: WorkflowCreateInput): Promise<WorkflowRecord> {
+    return parse(
+      "workflow.create",
+      workflowCreateSchema,
+      await this.transport.call(
+        "workflow.create",
+        compactJsonObject({
+          name: input.name,
+          description: input.description,
+        }),
+      ),
+    );
+  }
+
+  async createAndLinkWorkflowToProject(
+    input: WorkflowCreateAndLinkInput,
+  ): Promise<Readonly<{ workflow: WorkflowRecord; link: ProjectWorkflowLink }>> {
+    return parse(
+      "workflow.createAndLinkProject",
+      workflowCreateAndLinkSchema,
+      await this.transport.call(
+        "workflow.createAndLinkProject",
+        compactJsonObject({
+          name: input.name,
+          description: input.description,
+          project_id: input.projectID,
+          default_policy: "if_project_has_none",
+        }),
+      ),
+    );
+  }
+
+  async linkWorkflowToProject(input: WorkflowProjectLinkInput): Promise<ProjectWorkflowLink> {
+    return parse(
+      "workflow.linkProject",
+      workflowLinkProjectSchema,
+      await this.transport.call(
+        "workflow.linkProject",
+        compactJsonObject({
+          project_id: input.projectID,
+          workflow_id: input.workflowID,
+          default_policy: "if_project_has_none",
+        }),
+      ),
     );
   }
 
@@ -431,6 +499,27 @@ export type TaskMutationInput = Readonly<{
   title: string;
   body: string;
   sourceWorkspaceID: string;
+}>;
+
+export type WorkflowListInput = Readonly<{
+  pageSize?: number | undefined;
+  pageToken?: string | undefined;
+  query?: string | undefined;
+}>;
+
+export type WorkflowCreateInput = Readonly<{
+  name: string;
+  description: string;
+}>;
+
+export type WorkflowCreateAndLinkInput = WorkflowCreateInput &
+  Readonly<{
+    projectID: string;
+  }>;
+
+export type WorkflowProjectLinkInput = Readonly<{
+  projectID: string;
+  workflowID: string;
 }>;
 
 export type WorkflowDeleteInput = Readonly<{

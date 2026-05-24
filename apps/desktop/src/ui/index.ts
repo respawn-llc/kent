@@ -12,6 +12,7 @@ export { FloatingNoticeIsland } from "./FloatingNoticeIsland";
 export type { FloatingNoticeIslandProps, FloatingNoticeTone } from "./FloatingNoticeIsland";
 export { Item, ItemContent, ItemGroup, ItemTitle } from "./Item";
 export { Island } from "./Island";
+export { HomeListCard, homeListCardButtonClassName, homeListCardShellClassName } from "./HomeListCard";
 export { MarkdownText } from "./MarkdownText";
 export { NativeDialogWindow } from "./NativeDialogWindow";
 export { Spinner } from "./Spinner";

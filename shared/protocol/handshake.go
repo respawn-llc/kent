@@ -30,6 +30,7 @@ const (
 	MethodProjectGetOverview                    = "project.getOverview"
 	MethodSessionListByProject                  = "session.listByProject"
 	MethodWorkflowCreate                        = "workflow.create"
+	MethodWorkflowCreateAndLinkProject          = "workflow.createAndLinkProject"
 	MethodWorkflowUpdate                        = "workflow.update"
 	MethodWorkflowList                          = "workflow.list"
 	MethodWorkflowGet                           = "workflow.get"

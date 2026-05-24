@@ -1,7 +1,7 @@
 import { Outlet, useLocation } from "@tanstack/react-router";
 
 import { cx } from "../ui/classes";
-import { routeUsesEdgeToEdgeLayout } from "./routeLayout";
+import { routeFramePaddingClassName } from "./routeLayout";
 
 export function RouteTransitionFrame() {
   const location = useLocation();
@@ -10,7 +10,7 @@ export function RouteTransitionFrame() {
     <div
       className={cx(
         "route-transition-frame h-full min-h-0 min-w-0 w-full",
-        routeUsesEdgeToEdgeLayout(location.pathname) ? undefined : "p-[var(--space-2)]",
+        routeFramePaddingClassName(location.pathname),
       )}
       data-testid="route-transition-frame"
       key={transitionKey}

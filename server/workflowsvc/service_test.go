@@ -695,6 +695,101 @@ func TestServiceDefaultWorkflowResolvesWithinProjectOnly(t *testing.T) {
 	}
 }
 
+func TestServiceWorkflowListPaginatesAndCreateLinkIsAtomic(t *testing.T) {
+	ctx := context.Background()
+	service, binding := newWorkflowServiceTestService(t)
+	for _, name := range []string{"Gamma", "Alpha", "Beta"} {
+		if _, err := service.CreateWorkflow(ctx, serverapi.WorkflowCreateRequest{Name: name}); err != nil {
+			t.Fatalf("CreateWorkflow %q: %v", name, err)
+		}
+	}
+	page1, err := service.ListWorkflows(ctx, serverapi.WorkflowListRequest{PageSize: 2})
+	if err != nil {
+		t.Fatalf("ListWorkflows page1: %v", err)
+	}
+	if len(page1.Workflows) != 2 || page1.Workflows[0].Name != "Alpha" || page1.Workflows[1].Name != "Beta" || page1.NextPageToken == "" {
+		t.Fatalf("page1 = %+v", page1)
+	}
+	page2, err := service.ListWorkflows(ctx, serverapi.WorkflowListRequest{PageSize: 2, PageToken: page1.NextPageToken})
+	if err != nil {
+		t.Fatalf("ListWorkflows page2: %v", err)
+	}
+	if len(page2.Workflows) != 1 || page2.Workflows[0].Name != "Gamma" || page2.NextPageToken != "" {
+		t.Fatalf("page2 = %+v", page2)
+	}
+	created, err := service.CreateAndLinkWorkflowToProject(ctx, serverapi.WorkflowCreateAndLinkProjectRequest{
+		Name:          "Project Created",
+		ProjectID:     binding.ProjectID,
+		DefaultPolicy: serverapi.WorkflowProjectLinkDefaultIfProjectHasNone,
+	})
+	if err != nil {
+		t.Fatalf("CreateAndLinkWorkflowToProject: %v", err)
+	}
+	if created.Workflow.ID == "" || created.Link.WorkflowID != created.Workflow.ID || !created.Link.Default {
+		t.Fatalf("created = %+v, want first default link", created)
+	}
+	if _, err := service.CreateAndLinkWorkflowToProject(ctx, serverapi.WorkflowCreateAndLinkProjectRequest{
+		Name:          "Broken",
+		ProjectID:     "missing-project",
+		DefaultPolicy: serverapi.WorkflowProjectLinkDefaultIfProjectHasNone,
+	}); err == nil {
+		t.Fatalf("expected invalid project create-and-link to fail")
+	}
+	filtered, err := service.ListWorkflows(ctx, serverapi.WorkflowListRequest{PageSize: 10, Query: "Broken"})
+	if err != nil {
+		t.Fatalf("ListWorkflows filtered: %v", err)
+	}
+	if len(filtered.Workflows) != 0 {
+		t.Fatalf("failed create-and-link left workflows: %+v", filtered.Workflows)
+	}
+}
+
+func TestServiceWorkflowLinkFirstDefaultAndDuplicateIdempotency(t *testing.T) {
+	ctx := context.Background()
+	service, binding := newWorkflowServiceTestService(t)
+	workflowA, err := service.CreateWorkflow(ctx, serverapi.WorkflowCreateRequest{Name: "Workflow A"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow A: %v", err)
+	}
+	workflowB, err := service.CreateWorkflow(ctx, serverapi.WorkflowCreateRequest{Name: "Workflow B"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow B: %v", err)
+	}
+	first, err := service.LinkWorkflowToProject(ctx, serverapi.WorkflowLinkProjectRequest{
+		ProjectID:     binding.ProjectID,
+		WorkflowID:    workflowA.Workflow.ID,
+		DefaultPolicy: serverapi.WorkflowProjectLinkDefaultIfProjectHasNone,
+	})
+	if err != nil {
+		t.Fatalf("LinkWorkflowToProject first: %v", err)
+	}
+	if !first.Link.Default {
+		t.Fatalf("first link = %+v, want default", first)
+	}
+	duplicate, err := service.LinkWorkflowToProject(ctx, serverapi.WorkflowLinkProjectRequest{
+		ProjectID:     binding.ProjectID,
+		WorkflowID:    workflowA.Workflow.ID,
+		DefaultPolicy: serverapi.WorkflowProjectLinkDefaultIfProjectHasNone,
+	})
+	if err != nil {
+		t.Fatalf("LinkWorkflowToProject duplicate: %v", err)
+	}
+	if duplicate.Link.ID != first.Link.ID || !duplicate.Link.Default {
+		t.Fatalf("duplicate = %+v, want existing default link %+v", duplicate, first)
+	}
+	second, err := service.LinkWorkflowToProject(ctx, serverapi.WorkflowLinkProjectRequest{
+		ProjectID:     binding.ProjectID,
+		WorkflowID:    workflowB.Workflow.ID,
+		DefaultPolicy: serverapi.WorkflowProjectLinkDefaultIfProjectHasNone,
+	})
+	if err != nil {
+		t.Fatalf("LinkWorkflowToProject second: %v", err)
+	}
+	if second.Link.Default {
+		t.Fatalf("second link = %+v, want non-default", second)
+	}
+}
+
 func TestServiceWorkflowUnlinkRejectsTaskReferencesAndHardDeletesUnusedLinks(t *testing.T) {
 	ctx := context.Background()
 	service, binding := newWorkflowServiceTestService(t)

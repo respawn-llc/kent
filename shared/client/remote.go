@@ -201,6 +201,11 @@ func (c *Remote) CreateWorkflow(ctx context.Context, req serverapi.WorkflowCreat
 	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowCreate, req, &resp)
 }
 
+func (c *Remote) CreateAndLinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowCreateAndLinkProjectRequest) (serverapi.WorkflowCreateAndLinkProjectResponse, error) {
+	var resp serverapi.WorkflowCreateAndLinkProjectResponse
+	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowCreateAndLinkProject, req, &resp)
+}
+
 func (c *Remote) UpdateWorkflow(ctx context.Context, req serverapi.WorkflowUpdateRequest) (serverapi.WorkflowGetResponse, error) {
 	var resp serverapi.WorkflowGetResponse
 	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowUpdate, req, &resp)

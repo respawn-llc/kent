@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -259,22 +260,91 @@ type CreateWorkflowRequest struct {
 	Description string
 }
 
+type CreateAndLinkWorkflowRequest struct {
+	Name          string
+	Description   string
+	ProjectID     string
+	DefaultPolicy WorkflowLinkDefaultPolicy
+}
+
+type WorkflowLinkDefaultPolicy string
+
+const (
+	WorkflowLinkDefaultNever            WorkflowLinkDefaultPolicy = "never"
+	WorkflowLinkDefaultAlways           WorkflowLinkDefaultPolicy = "always"
+	WorkflowLinkDefaultIfProjectHasNone WorkflowLinkDefaultPolicy = "if_project_has_none"
+)
+
+type ListWorkflowsRequest struct {
+	PageSize  int
+	PageToken string
+	Query     string
+}
+
+type ListWorkflowsResult struct {
+	Workflows     []WorkflowRecord
+	NextPageToken string
+}
+
+const (
+	defaultWorkflowListPageSize = 50
+	maxWorkflowListPageSize     = 100
+)
+
 func (s *Store) CreateWorkflow(ctx context.Context, req CreateWorkflowRequest) (WorkflowRecord, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return WorkflowRecord{}, errors.New("workflow name is required")
 	}
 	now := s.now().UnixMilli()
-	workflowID := prefixedID("workflow")
-	startID := prefixedID("node")
-	doneID := prefixedID("node")
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return WorkflowRecord{}, fmt.Errorf("begin workflow create tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
-	if err := q.InsertWorkflow(ctx, sqlitegen.InsertWorkflowParams{ID: workflowID, Name: name, Description: strings.TrimSpace(req.Description), GraphRevision: 1, CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
+	record, err := insertWorkflow(ctx, q, now, CreateWorkflowRequest{Name: name, Description: req.Description})
+	if err != nil {
+		return WorkflowRecord{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return WorkflowRecord{}, fmt.Errorf("commit workflow create tx: %w", err)
+	}
+	return record, nil
+}
+
+func (s *Store) CreateAndLinkWorkflow(ctx context.Context, req CreateAndLinkWorkflowRequest) (WorkflowRecord, ProjectWorkflowLinkRecord, error) {
+	now := s.now().UnixMilli()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return WorkflowRecord{}, ProjectWorkflowLinkRecord{}, fmt.Errorf("begin workflow create-and-link tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	q := s.queries.WithTx(tx)
+	record, err := insertWorkflow(ctx, q, now, CreateWorkflowRequest{Name: req.Name, Description: req.Description})
+	if err != nil {
+		return WorkflowRecord{}, ProjectWorkflowLinkRecord{}, err
+	}
+	link, err := s.linkWorkflowInTx(ctx, tx, q, now, strings.TrimSpace(req.ProjectID), record.ID, req.DefaultPolicy)
+	if err != nil {
+		return WorkflowRecord{}, ProjectWorkflowLinkRecord{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return WorkflowRecord{}, ProjectWorkflowLinkRecord{}, fmt.Errorf("commit workflow create-and-link tx: %w", err)
+	}
+	return record, link, nil
+}
+
+func insertWorkflow(ctx context.Context, q *sqlitegen.Queries, now int64, req CreateWorkflowRequest) (WorkflowRecord, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return WorkflowRecord{}, errors.New("workflow name is required")
+	}
+	description := strings.TrimSpace(req.Description)
+	workflowID := prefixedID("workflow")
+	startID := prefixedID("node")
+	doneID := prefixedID("node")
+	if err := q.InsertWorkflow(ctx, sqlitegen.InsertWorkflowParams{ID: workflowID, Name: name, Description: description, GraphRevision: 1, CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
 		return WorkflowRecord{}, fmt.Errorf("insert workflow: %w", err)
 	}
 	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: startID, WorkflowID: workflowID, NodeKey: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog", OutputFieldsJson: "[]", SortOrder: 0}); err != nil {
@@ -283,10 +353,7 @@ func (s *Store) CreateWorkflow(ctx context.Context, req CreateWorkflowRequest) (
 	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: doneID, WorkflowID: workflowID, NodeKey: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done", OutputFieldsJson: "[]", SortOrder: 1000}); err != nil {
 		return WorkflowRecord{}, fmt.Errorf("insert done node: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
-		return WorkflowRecord{}, fmt.Errorf("commit workflow create tx: %w", err)
-	}
-	return WorkflowRecord{ID: workflow.WorkflowID(workflowID), Name: name, Description: strings.TrimSpace(req.Description), GraphRevision: 1}, nil
+	return WorkflowRecord{ID: workflow.WorkflowID(workflowID), Name: name, Description: description, GraphRevision: 1}, nil
 }
 
 func (s *Store) UpdateWorkflowInfo(ctx context.Context, workflowID workflow.WorkflowID, name string, description string) error {
@@ -304,16 +371,64 @@ func (s *Store) UpdateWorkflowInfo(ctx context.Context, workflowID workflow.Work
 	return nil
 }
 
-func (s *Store) ListWorkflows(ctx context.Context) ([]WorkflowRecord, error) {
-	rows, err := s.queries.ListWorkflows(ctx)
-	if err != nil {
-		return nil, err
+func (s *Store) ListWorkflows(ctx context.Context, req ListWorkflowsRequest) (ListWorkflowsResult, error) {
+	pageSize := req.PageSize
+	if pageSize <= 0 {
+		pageSize = defaultWorkflowListPageSize
 	}
-	out := make([]WorkflowRecord, 0, len(rows))
-	for _, row := range rows {
+	if pageSize > maxWorkflowListPageSize {
+		pageSize = maxWorkflowListPageSize
+	}
+	offset := 0
+	if strings.TrimSpace(req.PageToken) != "" {
+		parsed, err := strconv.Atoi(req.PageToken)
+		if err != nil || parsed < 0 {
+			return ListWorkflowsResult{}, fmt.Errorf("invalid workflow list page token")
+		}
+		offset = parsed
+	}
+	query := strings.TrimSpace(req.Query)
+	args := []any{}
+	where := ""
+	if query != "" {
+		where = "WHERE lower(name) LIKE ? OR lower(description) LIKE ?"
+		like := "%" + strings.ToLower(query) + "%"
+		args = append(args, like, like)
+	}
+	args = append(args, pageSize+1, offset)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT
+    id,
+    name,
+    description,
+    graph_revision,
+    created_at_unix_ms,
+    updated_at_unix_ms
+FROM workflows
+`+where+`
+ORDER BY lower(name) ASC, id ASC
+LIMIT ? OFFSET ?`, args...)
+	if err != nil {
+		return ListWorkflowsResult{}, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := make([]WorkflowRecord, 0, pageSize)
+	for rows.Next() {
+		var row sqlitegen.Workflow
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.GraphRevision, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs); err != nil {
+			return ListWorkflowsResult{}, err
+		}
 		out = append(out, workflowRecordFromRow(row))
 	}
-	return out, nil
+	if err := rows.Err(); err != nil {
+		return ListWorkflowsResult{}, err
+	}
+	nextPageToken := ""
+	if len(out) > pageSize {
+		out = out[:pageSize]
+		nextPageToken = strconv.Itoa(offset + pageSize)
+	}
+	return ListWorkflowsResult{Workflows: out, NextPageToken: nextPageToken}, nil
 }
 
 func (s *Store) AddNode(ctx context.Context, node NodeRecord) (int64, error) {
