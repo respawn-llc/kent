@@ -22,27 +22,56 @@ func (e *Engine) persistToolCompletion(stepID string, r tools.Result) error {
 		e.ensureOrchestrationCollaborators()
 		e.backgroundFlow.ConsumePendingBackgroundNotice(sessionID)
 	}
-	payload := map[string]any{
-		"call_id":  r.CallID,
-		"name":     string(r.Name),
-		"is_error": r.IsError,
-		"output":   json.RawMessage(r.Output),
-	}
-	if r.Summary != "" {
-		payload["summary"] = r.Summary
-	}
-	if r.OngoingText != "" {
-		payload["ongoing_text"] = r.OngoingText
-	}
-	if r.Presentation != nil {
-		payload["presentation"] = r.Presentation
+	payload := storedToolCompletion{
+		CallID:        r.CallID,
+		Name:          string(r.Name),
+		IsError:       r.IsError,
+		Output:        append(json.RawMessage(nil), r.Output...),
+		Summary:       r.Summary,
+		OngoingText:   r.OngoingText,
+		Presentation:  r.Presentation,
+		ProviderItems: e.providerItemsForToolCompletion(r),
 	}
 	_, err := e.store.AppendEvent(stepID, "tool_completed", payload)
 	if err == nil {
 		e.markCurrentRequestShapeDirtyForSignificantMutation()
-		e.transcriptPersistence().RecordToolCompletion(r)
+		e.transcriptPersistence().RecordStoredToolCompletion(payload)
 	}
 	return err
+}
+
+func (e *Engine) providerItemsForToolCompletion(r tools.Result) []llm.ResponseItem {
+	callID := strings.TrimSpace(r.CallID)
+	if callID == "" {
+		return nil
+	}
+	var callItem *llm.ResponseItem
+	for _, item := range e.snapshotItems() {
+		if !isToolCallItem(item.Type) {
+			continue
+		}
+		itemCallID := strings.TrimSpace(item.CallID)
+		if itemCallID == "" {
+			itemCallID = strings.TrimSpace(item.ID)
+		}
+		if itemCallID != callID {
+			continue
+		}
+		copyItem := item
+		callItem = &copyItem
+	}
+	custom := false
+	name := strings.TrimSpace(string(r.Name))
+	if callItem != nil {
+		custom = callItem.Type == llm.ResponseItemTypeCustomToolCall
+		name = firstNonEmpty(name, strings.TrimSpace(callItem.Name))
+	}
+	return llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+		Type:   llm.ToolOutputItemType(custom),
+		CallID: callID,
+		Name:   name,
+		Output: append(json.RawMessage(nil), r.Output...),
+	}})
 }
 
 func (e *Engine) appendUserMessage(stepID, text string) error {

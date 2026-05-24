@@ -96,6 +96,60 @@ func buildReviewerRequestMessagesWithBuilder(messages []llm.Message, builder met
 	return out, nil
 }
 
+func buildReviewerRequestItemsWithBuilder(items []llm.ResponseItem, builder metaContextBuilder, headless bool) ([]llm.ResponseItem, error) {
+	metaMessages, transcriptSource := splitMetaContextItems(items)
+	metaMessages = filterReviewerMetaMessages(metaMessages)
+	metaResult, err := builder.Build(metaContextBuildOptions{
+		ExistingMessages:          metaMessages,
+		IncludeAgents:             true,
+		IncludeSkills:             true,
+		IncludeEnvironment:        true,
+		IncludeHeadless:           headless,
+		PermissiveAgentsReadError: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := reviewerItemsFromMessages(metaResult.OrderedMetaMessages())
+	out = append(out, reviewerItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, Content: reviewerMetaBoundaryMessage}})...)
+	out = append(out, buildReviewerTranscriptItems(transcriptSource)...)
+	return out, nil
+}
+
+func splitMetaContextItems(items []llm.ResponseItem) ([]llm.Message, []llm.ResponseItem) {
+	meta := make([]llm.Message, 0, 4)
+	transcriptItems := make([]llm.ResponseItem, 0, len(items))
+	for _, item := range items {
+		if msg, ok := messageFromResponseItem(item); ok {
+			if _, classified := classifyMetaContextMessage(msg); classified {
+				meta = append(meta, msg)
+				continue
+			}
+		}
+		transcriptItems = append(transcriptItems, item)
+	}
+	return meta, transcriptItems
+}
+
+func messageFromResponseItem(item llm.ResponseItem) (llm.Message, bool) {
+	if item.Type != llm.ResponseItemTypeMessage {
+		return llm.Message{}, false
+	}
+	role := item.Role
+	if role == "" {
+		role = llm.RoleUser
+	}
+	return llm.Message{
+		Role:           role,
+		MessageType:    item.MessageType,
+		SourcePath:     item.SourcePath,
+		Phase:          item.Phase,
+		Content:        item.Content,
+		CompactContent: item.CompactContent,
+		Name:           item.Name,
+	}, true
+}
+
 func buildReviewerTranscriptMessages(messages []llm.Message) []llm.Message {
 	out := make([]llm.Message, 0, len(messages)+1)
 	for _, message := range messages {
@@ -105,6 +159,18 @@ func buildReviewerTranscriptMessages(messages []llm.Message) []llm.Message {
 		out = append(out, llm.Message{Role: llm.RoleUser, Content: "No reviewable transcript entries were available for this turn."})
 	}
 	return out
+}
+
+func buildReviewerTranscriptItems(items []llm.ResponseItem) []llm.ResponseItem {
+	transcriptMessages := make([]llm.Message, 0, len(items))
+	walker := newResponseItemMessageWalker(func(msg llm.Message) {
+		transcriptMessages = append(transcriptMessages, msg)
+	})
+	for _, item := range items {
+		walker.Apply(item)
+	}
+	walker.Flush()
+	return reviewerItemsFromMessages(buildReviewerTranscriptMessages(transcriptMessages))
 }
 
 func reviewerTranscriptMessagesFromMessage(message llm.Message) []llm.Message {
@@ -132,6 +198,29 @@ func reviewerTranscriptMessagesFromMessage(message llm.Message) []llm.Message {
 		return nil
 	}
 	return reviewerMessagesFromChatEntries(VisibleChatEntriesFromMessage(message))
+}
+
+func reviewerItemsFromMessages(messages []llm.Message) []llm.ResponseItem {
+	if len(messages) == 0 {
+		return nil
+	}
+	items := make([]llm.ResponseItem, 0, len(messages))
+	for _, msg := range messages {
+		if strings.TrimSpace(msg.Content) == "" {
+			continue
+		}
+		items = append(items, llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+			Type:           llm.ResponseItemTypeMessage,
+			Role:           msg.Role,
+			MessageType:    msg.MessageType,
+			SourcePath:     msg.SourcePath,
+			Phase:          msg.Phase,
+			Content:        msg.Content,
+			CompactContent: msg.CompactContent,
+			Name:           msg.Name,
+		}})...)
+	}
+	return items
 }
 
 func reviewerMessagesFromChatEntries(entries []ChatEntry) []llm.Message {

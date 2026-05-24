@@ -112,6 +112,39 @@ func TestBuildReviewerRequestUsesReviewerModelCapabilities(t *testing.T) {
 	}
 }
 
+func TestBuildReviewerRequestPreservesTranscriptBytes(t *testing.T) {
+	seedContent := "review raw \x1b[31mansi\x1b[0m"
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	eng, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{
+		Model:    "gpt-5",
+		Reviewer: ReviewerConfig{Model: "gpt-5"},
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	if err := eng.appendUserMessage("seed-step", seedContent); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+
+	req, err := eng.buildReviewerRequest(context.Background(), &fakeClient{})
+	if err != nil {
+		t.Fatalf("build reviewer request: %v", err)
+	}
+	found := false
+	for _, msg := range requestMessages(req) {
+		if strings.Contains(msg.Content, seedContent) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected reviewer request to preserve exact ANSI transcript bytes %q, messages=%+v", seedContent, requestMessages(req))
+	}
+}
+
 func TestReviewerSuggestions_ReopenKeepsPromptCachePrefixStable(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)

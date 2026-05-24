@@ -284,7 +284,7 @@ func TestBuildPayload_DefaultsReasoningEffortForUnknownModelFamily(t *testing.T)
 }
 
 func TestBuildResponsesInput_AssistantReasoningItemsUseEncryptedContentOnly(t *testing.T) {
-	items := buildResponsesInput(ItemsFromMessages([]Message{
+	items := mustBuildResponsesInput(t, ItemsFromMessages([]Message{
 		{
 			Role:    RoleAssistant,
 			Content: "a1",
@@ -362,7 +362,7 @@ func TestBuildPayload_AddsAdditionalPropertiesFalseToToolSchemas(t *testing.T) {
 }
 
 func TestBuildResponsesInput_CanonicalCompactionItemRoundTrip(t *testing.T) {
-	items := buildResponsesInput([]ResponseItem{
+	items := mustBuildResponsesInput(t, []ResponseItem{
 		{Type: ResponseItemTypeMessage, Role: RoleUser, Content: "u1"},
 		{Type: ResponseItemTypeCompaction, ID: "cmp_1", EncryptedContent: "enc_1"},
 	})
@@ -577,7 +577,7 @@ func TestCompactRequestAcceptsJSONBodyWithNonJSONContentType(t *testing.T) {
 
 func TestInputTokenCountPayloadMatchesCompactPayloadInputShape(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
-	canonicalItems := []ResponseItem{
+	canonicalItems := PrepareOpenAIInputItems([]ResponseItem{
 		{Type: ResponseItemTypeMessage, Role: RoleUser, Content: "hello"},
 		{Type: ResponseItemTypeFunctionCall, ID: "call_1", CallID: "call_1", Name: "shell", Arguments: json.RawMessage(`{"command":"pwd"}`)},
 		{
@@ -588,7 +588,7 @@ func TestInputTokenCountPayloadMatchesCompactPayloadInputShape(t *testing.T) {
 		},
 		{Type: ResponseItemTypeReasoning, ID: "rs_1", EncryptedContent: "enc_reasoning"},
 		{Type: ResponseItemTypeCompaction, ID: "cmp_1", EncryptedContent: "enc_compaction"},
-	}
+	})
 
 	compactPayload, err := transport.buildCompactPayload(OpenAICompactionRequest{
 		Model:        "gpt-5",
@@ -614,6 +614,36 @@ func TestInputTokenCountPayloadMatchesCompactPayloadInputShape(t *testing.T) {
 	}
 	if compactJSON["instructions"] != countJSON["instructions"] {
 		t.Fatalf("expected instructions parity between compact and input-token-count payloads, compact=%#v count=%#v", compactJSON["instructions"], countJSON["instructions"])
+	}
+}
+
+func TestOpenAIRequestBuildersRejectUnmaterializedViewImageInputFileOutput(t *testing.T) {
+	transport := NewHTTPTransport(staticAuth{})
+	unpreparedItems := []ResponseItem{unmaterializedViewImageInputFileOutput()}
+	caps := requireProviderCapabilities(t, transport, openAIAuthMode{})
+	checkErr := func(name string, err error) {
+		t.Helper()
+		if err == nil || !strings.Contains(err.Error(), "must be materialized") {
+			t.Fatalf("%s error = %v, want materialization failure", name, err)
+		}
+	}
+
+	_, err := transport.buildPayload(OpenAIRequest{Model: "gpt-5", Items: unpreparedItems}, openAIAuthMode{}, caps)
+	checkErr("buildPayload", err)
+
+	_, err = transport.buildInputTokenCountParams(OpenAIRequest{Model: "gpt-5", Items: unpreparedItems}, caps)
+	checkErr("buildInputTokenCountParams", err)
+
+	_, err = transport.buildCompactPayload(OpenAICompactionRequest{Model: "gpt-5", InputItems: unpreparedItems})
+	checkErr("buildCompactPayload", err)
+}
+
+func unmaterializedViewImageInputFileOutput() ResponseItem {
+	return ResponseItem{
+		Type:   ResponseItemTypeFunctionCallOutput,
+		CallID: "call_1",
+		Name:   string(toolspec.ToolViewImage),
+		Output: json.RawMessage(`[{"type":"input_file","file_data":"data:application/pdf;base64,Zm9v","filename":"doc.pdf"}]`),
 	}
 }
 

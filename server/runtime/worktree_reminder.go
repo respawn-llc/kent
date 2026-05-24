@@ -45,26 +45,6 @@ func (e *Engine) materializePendingWorktreeReminderWithOptions(stepID string, op
 	return e.store.SetWorktreeReminderState(state)
 }
 
-func filterHistoricalWorktreeReminderItems(items []llm.ResponseItem) []llm.ResponseItem {
-	if len(items) == 0 {
-		return nil
-	}
-	latestReminder := -1
-	for idx, item := range items {
-		if isWorktreeReminderResponseItem(item) {
-			latestReminder = idx
-		}
-	}
-	filtered := make([]llm.ResponseItem, 0, len(items))
-	for idx, item := range items {
-		if isWorktreeReminderResponseItem(item) && idx != latestReminder {
-			continue
-		}
-		filtered = append(filtered, item)
-	}
-	return filtered
-}
-
 func isWorktreeReminderResponseItem(item llm.ResponseItem) bool {
 	if item.Type != llm.ResponseItemTypeMessage {
 		return false

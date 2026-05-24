@@ -167,7 +167,7 @@ func (e *Engine) compactionCacheObservationRequest(ctx context.Context, request 
 	if err != nil {
 		return llm.Request{}, false, err
 	}
-	req, err := llm.RequestFromLockedContract(locked, systemPrompt, sanitizeItemsForLLM(items), e.requestTools(ctx, workflowMode))
+	req, err := llm.RequestFromLockedContract(locked, systemPrompt, items, e.requestTools(ctx, workflowMode))
 	if err != nil {
 		return llm.Request{}, false, err
 	}
@@ -222,8 +222,6 @@ func (e *Engine) localCompactionSummary(ctx context.Context, input []llm.Respons
 		Role:    llm.RoleDeveloper,
 		Content: instructions,
 	})
-	items = sanitizeItemsForLLM(items)
-
 	systemPrompt, err := e.systemPrompt(locked)
 	if err != nil {
 		return "", err
@@ -295,7 +293,7 @@ func handoffCompactionToolCallRetryItems(resp llm.Response) ([]llm.ResponseItem,
 			Output: mustJSON(map[string]any{"error": handoffCompactionToolsDisabledMessage}),
 		})
 	}
-	return sanitizeItemsForLLM(items), nil
+	return items, nil
 }
 
 func localCompactionWindow(input []llm.ResponseItem) []llm.ResponseItem {

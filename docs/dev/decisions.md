@@ -190,6 +190,7 @@
 - Interrupt escalation is `SIGINT` then `SIGKILL` after 10s grace.
 - Command output semantic post-processing is built into Builder, not delegated to shell wrappers. It applies after command execution, not before execution.
 - Output sanitization (ANSI stripping, line-ending normalization, and control-character cleanup) is a command post-processing processor, not an unavoidable transport mutation.
+- Runtime model-request assembly must not re-sanitize persisted conversation/tool items. It preserves item content bytes; command-output cleanup belongs to shell post-processing before tool results are persisted.
 - `raw` is a first-class public parameter on `exec_command`; default is processed output, `raw=true` bypasses command post-processing while keeping result encoding and truncation.
 - `[shell].postprocessing_mode=none` bypasses command post-processing while keeping result encoding and truncation.
 - The generic sanitizer runs before built-ins and user hooks for every non-raw mode except `none`.
@@ -304,7 +305,9 @@
 - Resumed sessions keep locked setup immutable, except thinking level.
 - Lock covers model + core generation params, enabled tools, tool schema/description snapshot, and system prompt snapshot; thinking level is mutable mid-session.
 - Transcript message order is immutable for cache stability.
+- Model request assembly must preserve persisted conversation items in order. It must not drop, reorder, or replace historical messages to keep only the latest state-specific reminder/context item; such request-time history filtering ruins provider prompt-cache continuity. State changes that need model-visible context must be appended as new persisted items or handled at explicit cache-key rotation boundaries.
 - Canonical model context/history is stored as Responses API input items; message-only chat is UI projection.
+- Provider adapters serialize provider-ready history. OpenAI-specific item shaping, such as compaction-summary provider prefixes, `view_image` input-file promotion, tool-output stringification, and raw input-item payloads, belongs at transcript/persistence projection boundaries before model-request construction. The OpenAI request builder must not silently drop or reshape persisted history while assembling the HTTP payload; invalid unprepared items fail request construction.
 - Prompt-cache continuity warnings are computed at the request layer from actual cache-keyed model requests, not from compaction/fork/edit heuristics.
 - Exact warning condition: for the same `prompt_cache_key`, warn when the new request prompt shape is not a postfix extension of the previous request prompt shape for that key and provider usage reports a positive cached-input-token decrease. If cached-token metadata is absent or current reuse is equal/higher, do not emit a cache-miss warning.
 - Forks or any other operation that switches to a new cache key do not produce cache-continuity warnings; a new key is a new lineage, not an invalidation.

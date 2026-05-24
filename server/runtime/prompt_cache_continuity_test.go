@@ -217,7 +217,7 @@ func TestPromptCacheReplayPreservesMultiToolHTMLUnescapeShape(t *testing.T) {
 	if liveShape.terminalHash != replayedShape.terminalHash {
 		t.Fatalf("terminal hash differs\nlive=%s\nreplayed=%s", liveShape.terminalHash, replayedShape.terminalHash)
 	}
-	const wantTerminalHash = "0786519eb724a3dc36a94750a7a584caddd2da7184356e08e18bf3a6ad2ce0ea"
+	const wantTerminalHash = "0b5fe9f41969035b6d17b64c04fcc5aa521ca4ec0e446ec13cbf16f47d3768eb"
 	if liveShape.terminalHash != wantTerminalHash {
 		t.Fatalf("terminal hash = %s, want %s", liveShape.terminalHash, wantTerminalHash)
 	}

@@ -55,6 +55,12 @@ func (p transcriptPersistenceCoordinator) RecordToolCompletion(result tools.Resu
 	}
 }
 
+func (p transcriptPersistenceCoordinator) RecordStoredToolCompletion(completion storedToolCompletion) {
+	if chat := p.chatProjection(); chat != nil {
+		chat.recordStoredToolCompletion(completion)
+	}
+}
+
 func (p transcriptPersistenceCoordinator) RestoreToolCompletionPayload(payload []byte) error {
 	if chat := p.chatProjection(); chat != nil {
 		return chat.restoreToolCompletionPayload(payload)

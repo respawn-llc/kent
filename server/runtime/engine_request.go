@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,7 +13,6 @@ import (
 	"builder/shared/cachewarn"
 	compactionutil "builder/shared/compaction"
 	"builder/shared/toolspec"
-	xansi "github.com/charmbracelet/x/ansi"
 )
 
 type requestBuildPlan struct {
@@ -62,12 +60,10 @@ func (e *Engine) buildRequestPlanWithExtraItems(ctx context.Context, stepID stri
 		requestTools = []llm.Tool{}
 	}
 
-	items := filterHistoricalWorktreeReminderItems(e.snapshotItems())
+	items := e.snapshotItems()
 	if len(extra) > 0 {
 		items = append(items, llm.CloneResponseItems(extra)...)
 	}
-	items = sanitizeItemsForLLM(items)
-
 	systemPrompt, err := e.systemPrompt(locked)
 	if err != nil {
 		return requestBuildPlan{}, err
@@ -305,40 +301,4 @@ func (e *Engine) supportsCustomPatchTool(ctx context.Context) bool {
 		return false
 	}
 	return caps.SupportsResponsesAPI && caps.IsOpenAIFirstParty
-}
-
-func sanitizeItemsForLLM(items []llm.ResponseItem) []llm.ResponseItem {
-	if len(items) == 0 {
-		return items
-	}
-	cleaned := llm.CloneResponseItems(items)
-	for i := range cleaned {
-		if cleaned[i].Type == llm.ResponseItemTypeMessage {
-			cleaned[i].Content = xansi.Strip(cleaned[i].Content)
-		}
-		if (cleaned[i].Type == llm.ResponseItemTypeFunctionCallOutput || cleaned[i].Type == llm.ResponseItemTypeCustomToolOutput) && len(cleaned[i].Output) > 0 {
-			normalized := normalizeToolMessageForLLM(string(cleaned[i].Output))
-			if json.Valid([]byte(normalized)) {
-				cleaned[i].Output = json.RawMessage(normalized)
-			} else {
-				quoted, _ := json.Marshal(normalized)
-				cleaned[i].Output = quoted
-			}
-		}
-	}
-	return cleaned
-}
-
-func normalizeToolMessageForLLM(content string) string {
-	var payload any
-	if err := json.Unmarshal([]byte(content), &payload); err != nil {
-		return content
-	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(payload); err != nil {
-		return content
-	}
-	return strings.TrimSuffix(buf.String(), "\n")
 }

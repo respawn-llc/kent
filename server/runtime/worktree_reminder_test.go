@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -639,7 +640,7 @@ func TestSubmitUserMessageReinjectsWorktreeReminderAfterCompactionGenerationChan
 	}
 }
 
-func TestSubmitUserMessageReplacesHistoricalWorktreeReminderWithLatestState(t *testing.T) {
+func TestSubmitUserMessagePreservesHistoricalWorktreeRemindersInRequest(t *testing.T) {
 	prevEnterPrompt := prompts.WorktreeModePrompt
 	prevExitPrompt := prompts.WorktreeModeExitPrompt
 	prompts.WorktreeModePrompt = "enter {{branch}}"
@@ -654,9 +655,11 @@ func TestSubmitUserMessageReplacesHistoricalWorktreeReminderWithLatestState(t *t
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
+	firstOutput := llm.ResponseItem{Type: llm.ResponseItemTypeMessage, Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "ok-1"}
+	secondOutput := llm.ResponseItem{Type: llm.ResponseItemTypeMessage, Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "ok-2"}
 	client := &fakeClient{responses: []llm.Response{
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "ok-1"}, OutputItems: []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "ok-1"}}, Usage: llm.Usage{WindowTokens: 200000}},
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "ok-2"}, OutputItems: []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "ok-2"}}, Usage: llm.Usage{WindowTokens: 200000}},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "ok-1"}, OutputItems: []llm.ResponseItem{firstOutput}, Usage: llm.Usage{WindowTokens: 200000}},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "ok-2"}, OutputItems: []llm.ResponseItem{secondOutput}, Usage: llm.Usage{WindowTokens: 200000}},
 	}}
 	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 	if err != nil {
@@ -679,6 +682,25 @@ func TestSubmitUserMessageReplacesHistoricalWorktreeReminderWithLatestState(t *t
 	if len(client.calls) != 2 {
 		t.Fatalf("expected two model calls, got %d", len(client.calls))
 	}
+	exitMessage, ok := worktreeReminderMessage(session.WorktreeReminderState{
+		Mode:          session.WorktreeReminderModeExit,
+		Branch:        "feature/exit",
+		WorktreePath:  "/tmp/wt-exit",
+		WorkspaceRoot: "/tmp/workspace",
+		EffectiveCwd:  "/tmp/workspace",
+	})
+	if !ok {
+		t.Fatal("expected exit reminder message")
+	}
+	expectedSecondItems := llm.CloneResponseItems(client.calls[0].Items)
+	expectedSecondItems = append(expectedSecondItems, llm.PrepareOpenAIInputItems([]llm.ResponseItem{firstOutput})...)
+	expectedSecondItems = append(expectedSecondItems, llm.ItemsFromMessages([]llm.Message{
+		exitMessage,
+		{Role: llm.RoleUser, Content: "second"},
+	})...)
+	if !reflect.DeepEqual(client.calls[1].Items, expectedSecondItems) {
+		t.Fatalf("second request items changed historical order/content\nwant=%+v\n got=%+v", expectedSecondItems, client.calls[1].Items)
+	}
 	firstMessages := requestMessages(client.calls[0])
 	firstCount := 0
 	for _, msg := range firstMessages {
@@ -700,8 +722,8 @@ func TestSubmitUserMessageReplacesHistoricalWorktreeReminderWithLatestState(t *t
 			exitCount++
 		}
 	}
-	if enterCount != 0 || exitCount != 1 {
-		t.Fatalf("expected only latest exit reminder in second request, got enter=%d exit=%d messages=%+v", enterCount, exitCount, secondMessages)
+	if enterCount != 1 || exitCount != 1 {
+		t.Fatalf("expected historical enter and latest exit reminders in second request, got enter=%d exit=%d messages=%+v", enterCount, exitCount, secondMessages)
 	}
 	snapshot := eng.ChatSnapshot()
 	detailEntries := 0

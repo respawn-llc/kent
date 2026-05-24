@@ -233,7 +233,7 @@ func ItemsFromMessages(messages []Message) []ResponseItem {
 			})
 		}
 	}
-	return out
+	return PrepareOpenAIInputItems(out)
 }
 
 func MessagesFromItems(items []ResponseItem) []Message {

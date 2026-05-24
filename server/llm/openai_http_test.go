@@ -15,6 +15,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/openai/openai-go/v3/responses"
 )
 
 type staticAuth struct{}
@@ -46,6 +48,15 @@ func requireProviderCapabilities(t *testing.T, transport *HTTPTransport, mode op
 		t.Fatalf("resolve provider capabilities: %v", err)
 	}
 	return caps
+}
+
+func mustBuildResponsesInput(t *testing.T, items []ResponseItem) []responses.ResponseInputItemUnionParam {
+	t.Helper()
+	input, err := buildResponsesInput(items)
+	if err != nil {
+		t.Fatalf("build responses input: %v", err)
+	}
+	return input
 }
 
 func TestBuildPayload_SerializesAssistantToolCalls(t *testing.T) {
@@ -136,7 +147,7 @@ func TestItemsFromMessagesNormalizesEscapedHTMLToolArguments(t *testing.T) {
 }
 
 func TestBuildResponsesInput_AssistantUsesTypedMessageInput(t *testing.T) {
-	items := buildResponsesInput(ItemsFromMessages([]Message{
+	items := mustBuildResponsesInput(t, ItemsFromMessages([]Message{
 		{Role: RoleUser, Content: "u1"},
 		{Role: RoleAssistant, Content: "a1"},
 	}))
@@ -163,7 +174,7 @@ func TestBuildResponsesInput_AssistantUsesTypedMessageInput(t *testing.T) {
 }
 
 func TestBuildResponsesInput_AssistantPreservesPhase(t *testing.T) {
-	items := buildResponsesInput(ItemsFromMessages([]Message{{Role: RoleAssistant, Content: "a1", Phase: MessagePhaseCommentary}}))
+	items := mustBuildResponsesInput(t, ItemsFromMessages([]Message{{Role: RoleAssistant, Content: "a1", Phase: MessagePhaseCommentary}}))
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(items))
 	}
@@ -184,7 +195,7 @@ func TestBuildResponsesInput_AssistantPreservesPhase(t *testing.T) {
 }
 
 func TestBuildResponsesInput_CanonicalAssistantPreservesPhase(t *testing.T) {
-	items := buildResponsesInput([]ResponseItem{{
+	items := mustBuildResponsesInput(t, []ResponseItem{{
 		Type:    ResponseItemTypeMessage,
 		Role:    RoleAssistant,
 		Content: "done",
@@ -210,7 +221,7 @@ func TestBuildResponsesInput_CanonicalAssistantPreservesPhase(t *testing.T) {
 }
 
 func TestBuildResponsesInput_NonAssistantRolesUseInputText(t *testing.T) {
-	items := buildResponsesInput(ItemsFromMessages([]Message{
+	items := mustBuildResponsesInput(t, ItemsFromMessages([]Message{
 		{Role: RoleSystem, Content: "s1"},
 		{Role: RoleDeveloper, Content: "d1"},
 		{Role: RoleUser, Content: "u1"},
@@ -228,7 +239,7 @@ func TestBuildResponsesInput_NonAssistantRolesUseInputText(t *testing.T) {
 }
 
 func TestBuildResponsesInput_ToolOutputSupportsStructuredInputImageItems(t *testing.T) {
-	items := buildResponsesInput(ItemsFromMessages([]Message{
+	items := mustBuildResponsesInput(t, ItemsFromMessages([]Message{
 		{
 			Role:       RoleTool,
 			ToolCallID: "call_1",
@@ -407,7 +418,7 @@ func TestCompactErrorPath_ReturnsProviderAPIErrorWithDetectedProviderID(t *testi
 
 func TestBuildResponsesInput_CanonicalToolOutputPromotesStructuredInputFileItems(t *testing.T) {
 	const pdfDataURL = "data:application/pdf;base64,Zm9v"
-	items := buildResponsesInput([]ResponseItem{
+	prepared := PrepareOpenAIInputItems([]ResponseItem{
 		{
 			Type:   ResponseItemTypeFunctionCallOutput,
 			CallID: "call_1",
@@ -415,6 +426,10 @@ func TestBuildResponsesInput_CanonicalToolOutputPromotesStructuredInputFileItems
 			Output: json.RawMessage(`[{"type":"input_file","file_data":"data:application/pdf;base64,Zm9v","filename":"doc.pdf"}]`),
 		},
 	})
+	if len(prepared) != 2 {
+		t.Fatalf("expected provider lifecycle to materialize 2 items, got %d", len(prepared))
+	}
+	items := mustBuildResponsesInput(t, prepared)
 	if len(items) != 2 {
 		t.Fatalf("expected 2 items, got %d", len(items))
 	}
@@ -459,9 +474,23 @@ func TestBuildResponsesInput_CanonicalToolOutputPromotesStructuredInputFileItems
 	}
 }
 
+func TestBuildResponsesInputRejectsUnmaterializedViewImageInputFileOutput(t *testing.T) {
+	_, err := buildResponsesInput([]ResponseItem{
+		{
+			Type:   ResponseItemTypeFunctionCallOutput,
+			CallID: "call_1",
+			Name:   string(toolspec.ToolViewImage),
+			Output: json.RawMessage(`[{"type":"input_file","file_data":"data:application/pdf;base64,Zm9v","filename":"doc.pdf"}]`),
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "must be materialized") {
+		t.Fatalf("expected materialization error, got %v", err)
+	}
+}
+
 func TestBuildResponsesInput_MessageToolOutputPromotesPDFToInputMessage(t *testing.T) {
 	const pdfDataURL = "data:application/pdf;base64,Zm9v"
-	items := buildResponsesInput(ItemsFromMessages([]Message{
+	items := mustBuildResponsesInput(t, ItemsFromMessages([]Message{
 		{
 			Role:       RoleTool,
 			ToolCallID: "call_1",
@@ -503,7 +532,7 @@ func TestBuildResponsesInput_MessageToolOutputPromotesPDFToInputMessage(t *testi
 }
 
 func TestBuildResponsesInput_CanonicalNonViewImageToolOutputKeepsStructuredInputFileItems(t *testing.T) {
-	items := buildResponsesInput([]ResponseItem{
+	items := mustBuildResponsesInput(t, []ResponseItem{
 		{
 			Type:   ResponseItemTypeFunctionCallOutput,
 			CallID: "call_1",

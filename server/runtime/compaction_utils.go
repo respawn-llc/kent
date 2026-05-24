@@ -231,7 +231,7 @@ func buildTokenCountRequestForItems(model string, instructions string, items []l
 	req := llm.Request{
 		Model:        trimmedModel,
 		SystemPrompt: strings.TrimSpace(instructions),
-		Items:        sanitizeItemsForLLM(items),
+		Items:        llm.CloneResponseItems(items),
 		Tools:        []llm.Tool{},
 	}
 	if err := req.Validate(); err != nil {
@@ -264,7 +264,8 @@ func compactionTrimUnits(items []llm.ResponseItem) []compactionTrimUnit {
 	}
 	units := make([]compactionTrimUnit, 0, len(items))
 	callUnits := make(map[string]int, len(items))
-	for idx, item := range items {
+	for idx := 0; idx < len(items); idx++ {
+		item := items[idx]
 		switch item.Type {
 		case llm.ResponseItemTypeFunctionCall, llm.ResponseItemTypeCustomToolCall:
 			if !isCompactionTrimEligible(item) {
@@ -276,14 +277,18 @@ func compactionTrimUnits(items []llm.ResponseItem) []compactionTrimUnit {
 			}
 		case llm.ResponseItemTypeFunctionCallOutput, llm.ResponseItemTypeCustomToolOutput:
 			callID := compactionTrimCallID(item)
+			unitIdx := -1
 			if unitIdx, ok := callUnits[callID]; ok {
 				units[unitIdx].indexes = append(units[unitIdx].indexes, idx)
+				idx = appendCompactionTrimLinkedProviderItems(units, unitIdx, items, idx)
 				continue
 			}
 			if !isCompactionTrimEligible(item) {
 				continue
 			}
 			units = append(units, compactionTrimUnit{indexes: []int{idx}})
+			unitIdx = len(units) - 1
+			idx = appendCompactionTrimLinkedProviderItems(units, unitIdx, items, idx)
 		default:
 			if !isCompactionTrimEligible(item) {
 				continue
@@ -292,6 +297,22 @@ func compactionTrimUnits(items []llm.ResponseItem) []compactionTrimUnit {
 		}
 	}
 	return units
+}
+
+func appendCompactionTrimLinkedProviderItems(units []compactionTrimUnit, unitIdx int, items []llm.ResponseItem, outputIdx int) int {
+	if unitIdx < 0 || unitIdx >= len(units) || outputIdx < 0 || outputIdx >= len(items) {
+		return outputIdx
+	}
+	lastIdx := outputIdx
+	output := items[outputIdx]
+	for nextIdx := outputIdx + 1; nextIdx < len(items); nextIdx++ {
+		if !llm.IsOpenAIPromotedViewImageFileItem(output, items[nextIdx]) {
+			break
+		}
+		units[unitIdx].indexes = append(units[unitIdx].indexes, nextIdx)
+		lastIdx = nextIdx
+	}
+	return lastIdx
 }
 
 func compactionTrimCallID(item llm.ResponseItem) string {
@@ -530,7 +551,6 @@ func estimateItemsTokens(items []llm.ResponseItem) int {
 		} else {
 			totalTokens += estimateTextTokens(string(item.Output))
 		}
-		totalTokens += estimateTextTokens(string(item.Raw))
 		for _, summary := range item.ReasoningSummary {
 			totalTokens += estimateTextTokens(summary.Role)
 			totalTokens += estimateTextTokens(summary.Text)
