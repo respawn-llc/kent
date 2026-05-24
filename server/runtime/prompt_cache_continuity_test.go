@@ -217,7 +217,7 @@ func TestPromptCacheReplayPreservesMultiToolHTMLUnescapeShape(t *testing.T) {
 	if liveShape.terminalHash != replayedShape.terminalHash {
 		t.Fatalf("terminal hash differs\nlive=%s\nreplayed=%s", liveShape.terminalHash, replayedShape.terminalHash)
 	}
-	const wantTerminalHash = "0b5fe9f41969035b6d17b64c04fcc5aa521ca4ec0e446ec13cbf16f47d3768eb"
+	const wantTerminalHash = "c666799d9e7a7fbe0f3d8318de0fec51d286dbd93411bb10bfa1dc9203653700"
 	if liveShape.terminalHash != wantTerminalHash {
 		t.Fatalf("terminal hash = %s, want %s", liveShape.terminalHash, wantTerminalHash)
 	}
@@ -623,9 +623,9 @@ func seq21To28ShapeRequest(thirdCallInput json.RawMessage) llm.Request {
 				},
 				ReasoningItems: []llm.ReasoningItem{{ID: "rs-seq21", EncryptedContent: "encrypted-seq21"}},
 			},
-			{Role: llm.RoleTool, ToolCallID: "call-lines", Name: string(toolspec.ToolExecCommand), Content: `"42 docs/specs/README.md"`},
-			{Role: llm.RoleTool, ToolCallID: "call-search", Name: string(toolspec.ToolExecCommand), Content: `"docs/specs/README.md:1:# Specs"`},
-			{Role: llm.RoleTool, ToolCallID: "call-status", Name: string(toolspec.ToolExecCommand), Content: `"M\tdocs/specs/README.md"`},
+			{Role: llm.RoleTool, ToolCallID: "call-lines", Name: string(toolspec.ToolExecCommand), Content: `"42 docs/dev/specs/README.md"`},
+			{Role: llm.RoleTool, ToolCallID: "call-search", Name: string(toolspec.ToolExecCommand), Content: `"docs/dev/specs/README.md:1:# Product Specs"`},
+			{Role: llm.RoleTool, ToolCallID: "call-status", Name: string(toolspec.ToolExecCommand), Content: `"M\tdocs/dev/specs/README.md"`},
 		}),
 		Tools: []llm.Tool{{Name: string(toolspec.ToolExecCommand), Description: "execute command", Schema: json.RawMessage(`{"type":"object"}`)}},
 	}

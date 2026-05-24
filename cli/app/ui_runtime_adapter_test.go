@@ -825,7 +825,7 @@ func TestApplyProjectedTranscriptEntriesForwardsCompactMetadataToLiveView(t *tes
 		Role:              "warning",
 		Text:              "long warning body",
 		MessageType:       string(llm.MessageTypeCompactionSoonReminder),
-		SourcePath:        "  docs/dev/decisions.md  ",
+		SourcePath:        "  testdata/compact-source.md  ",
 		CompactLabel:      "Compaction reminder",
 		ToolResultSummary: "summary text",
 		ToolCallID:        " call-1 ",
@@ -848,7 +848,7 @@ func TestApplyProjectedTranscriptEntriesForwardsCompactMetadataToLiveView(t *tes
 		t.Fatalf("view transcript entry count = %d, want %d", got, want)
 	}
 	got := viewEntries[1]
-	if got.MessageType != llm.MessageTypeCompactionSoonReminder || got.SourcePath != "docs/dev/decisions.md" || got.CompactLabel != "Compaction reminder" || got.ToolResultSummary != "summary text" || got.ToolCallID != "call-1" {
+	if got.MessageType != llm.MessageTypeCompactionSoonReminder || got.SourcePath != "testdata/compact-source.md" || got.CompactLabel != "Compaction reminder" || got.ToolResultSummary != "summary text" || got.ToolCallID != "call-1" {
 		t.Fatalf("expected live view append to preserve compact metadata, got %+v", got)
 	}
 }
@@ -861,7 +861,7 @@ func TestAppendTranscriptMsgFromEntryPreservesTransientCompactMetadata(t *testin
 		OngoingText:       "transient warning",
 		Phase:             string(llm.MessagePhaseFinal),
 		MessageType:       string(llm.MessageTypeCompactionSoonReminder),
-		SourcePath:        "  docs/dev/decisions.md  ",
+		SourcePath:        "  testdata/compact-source.md  ",
 		CompactLabel:      "Compaction reminder",
 		ToolResultSummary: "summary text",
 		ToolCallID:        " call-1 ",
@@ -871,7 +871,7 @@ func TestAppendTranscriptMsgFromEntryPreservesTransientCompactMetadata(t *testin
 	if !got.Transient || got.Committed || got.Visibility != transcript.EntryVisibilityDetailOnly || got.Role != "warning" || got.OngoingText != "transient warning" || got.Phase != llm.MessagePhaseFinal {
 		t.Fatalf("expected transient append state preserved, got %+v", got)
 	}
-	if got.MessageType != llm.MessageTypeCompactionSoonReminder || got.SourcePath != "docs/dev/decisions.md" || got.CompactLabel != "Compaction reminder" || got.ToolResultSummary != "summary text" || got.ToolCallID != "call-1" {
+	if got.MessageType != llm.MessageTypeCompactionSoonReminder || got.SourcePath != "testdata/compact-source.md" || got.CompactLabel != "Compaction reminder" || got.ToolResultSummary != "summary text" || got.ToolCallID != "call-1" {
 		t.Fatalf("expected transient append to preserve compact metadata, got %+v", got)
 	}
 }
