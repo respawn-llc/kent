@@ -2,6 +2,7 @@
 
 - [x] Recon current workflow graph viewer, workflow APIs, validation, and mutation model.
 - [x] V1 read-only inspector milestone: existing workflow definitions can be inspected from the editor through the global right sidebar; joins are visible as clickable merge diamonds; semantic node/edge colors are implemented with validation-error red overrides.
+- [x] Server-owned graph validate/preview/save substrate: graph-only draft validation, save preview, transactional save, graph edit policy, server/client/API plumbing, and GUI API contracts are implemented while the visible editor remains read-only.
 - [ ] Workstream 1: reach shared ownership/hierarchy model from actual DB ERD.
 - [ ] Workstream 1: update product/navigation decisions for projects, workflows, tasks, and boards after hierarchy is agreed.
 - [ ] Workstream 1: decide whether `workflow_events` hard-cutover belongs before or after navigation redesign.
@@ -32,7 +33,7 @@
 - Editing functionality builds on workflow editor v1, which is currently a read-only workflow definition viewer with global-sidebar inspection for workflow metadata, groups, nodes, joins, and edges.
 - GUI remains a remote-control surface; server remains authoritative for workflow definitions, validation, persistence, project links, and events.
 - V1 editor graph semantics are locked: editor renders join nodes as small inspectable merge diamonds, board/Kanban read models still omit join columns, edge colors communicate context mode, node colors communicate node kind, and validation-error red overrides normal semantic colors only for invalid graph entities.
-- Next workflow-editor slice is the server-owned graph validate/preview/save substrate: GUI-local unsaved drafts remain the editing architecture, but the immediate implementation should expose graph-only `workflow.graph.validateDraft`, `workflow.graph.savePreview`, and `workflow.graph.save` contracts, add a shared graph edit policy, and keep the visible editor read-only.
+- Completed workflow-editor substrate slice: GUI-local unsaved drafts remain the editing architecture, and the implemented server-owned graph substrate exposes graph-only `workflow.graph.validateDraft`, `workflow.graph.savePreview`, and `workflow.graph.save` contracts, adds a shared graph edit policy, and keeps the visible editor read-only.
 - First editing release should support full graph CRUD for nodes, node groups, transition groups, and edges, including guarded delete/archive behavior.
 - Editing uses a local draft session with Save/Discard. Server mutations apply only when the user saves.
 - Canvas opens with ELK-computed layout. User may drag nodes/groups during the edit session; coordinates are kept only in memory and reset to ELK on reopen.
