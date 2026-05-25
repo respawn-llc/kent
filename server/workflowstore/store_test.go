@@ -1710,7 +1710,8 @@ func TestJoinWaitsForAllBranchesAndRoutesSelectedProvider(t *testing.T) {
 	if len(first.PlacementIDs) != 0 || len(first.RunIDs) != 0 {
 		t.Fatalf("first branch result = %+v, want join waiting for missing branch", first)
 	}
-	second, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: branchRunsByNode[implA.ID], TransitionID: "join", OutputValues: map[string]string{"joined": "branch a"}})
+	selectedProviderValue := "  branch a\n"
+	second, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: branchRunsByNode[implA.ID], TransitionID: "join", OutputValues: map[string]string{"joined": selectedProviderValue}})
 	if err != nil {
 		t.Fatalf("CompleteRun branch a: %v", err)
 	}
@@ -1722,14 +1723,14 @@ func TestJoinWaitsForAllBranchesAndRoutesSelectedProvider(t *testing.T) {
 		t.Fatalf("ListTransitions: %v", err)
 	}
 	joinTransition := transitions[len(transitions)-1]
-	if joinTransition.TransitionID != "done" || joinTransition.OutputValues["joined"] != "branch a" {
+	if joinTransition.TransitionID != "done" || joinTransition.OutputValues["joined"] != selectedProviderValue {
 		t.Fatalf("join transition = %+v, want selected provider output", joinTransition)
 	}
 	input, err := store.GetRunStartContext(ctx, second.RunIDs[0])
 	if err != nil {
 		t.Fatalf("GetRunStartContext joined run: %v", err)
 	}
-	if input.InputValues["joined"] != "branch a" {
+	if input.InputValues["joined"] != selectedProviderValue {
 		t.Fatalf("joined input = %+v, want selected provider value", input.InputValues)
 	}
 	if split.TransitionID == "" {

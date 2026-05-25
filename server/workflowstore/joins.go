@@ -227,8 +227,8 @@ func selectedJoinOutputValues(join nodeContractSnapshot, outEdge edgeContractSna
 		if !ok {
 			return nil, fmt.Errorf("join node %q provider edge %q did not arrive", join.ID, provider.ProviderEdgeID)
 		}
-		value := strings.TrimSpace(arrival.OutputValues[inputName])
-		if value == "" {
+		value := arrival.OutputValues[inputName]
+		if strings.TrimSpace(value) == "" {
 			return nil, fmt.Errorf("join node %q provider edge %q missing output %q", join.ID, provider.ProviderEdgeID, inputName)
 		}
 		out[inputName] = value

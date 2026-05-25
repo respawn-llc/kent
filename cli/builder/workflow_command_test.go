@@ -584,6 +584,42 @@ func TestTaskShowWarnsWhenShortIDBelongsToAnotherKnownProject(t *testing.T) {
 	}
 }
 
+func TestTaskShowSurfacesScopedShortIDLookupErrors(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &crossProjectTaskShowRemote{scopedErr: errors.New("backend unavailable")}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	_, stderr, code := runWorkflowRootCommand("task", "show", "--project", "project-current", "OTH-1")
+	if code == 0 {
+		t.Fatalf("task show exit=%d, want failure", code)
+	}
+	if !strings.Contains(stderr, "backend unavailable") {
+		t.Fatalf("task show stderr = %q, want scoped lookup error", stderr)
+	}
+	if remote.unscopedCalls != 0 {
+		t.Fatalf("unscoped calls = %d, want no fallback after scoped lookup error", remote.unscopedCalls)
+	}
+}
+
+func TestTaskShowSurfacesUnscopedShortIDLookupErrors(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &crossProjectTaskShowRemote{unscopedErr: errors.New("ambiguous short id")}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	_, stderr, code := runWorkflowRootCommand("task", "show", "--project", "project-current", "OTH-1")
+	if code == 0 {
+		t.Fatalf("task show exit=%d, want failure", code)
+	}
+	if !strings.Contains(stderr, "ambiguous short id") {
+		t.Fatalf("task show stderr = %q, want unscoped lookup error", stderr)
+	}
+	if strings.Contains(stderr, "not found") {
+		t.Fatalf("task show stderr = %q, want raw unscoped lookup error", stderr)
+	}
+}
+
 func createRunnableWorkflowForCommandTest(t *testing.T, name string) string {
 	t.Helper()
 	workflowOut, workflowErr, code := runWorkflowRootCommand("workflow", "create", name)
@@ -605,6 +641,9 @@ func createRunnableWorkflowForCommandTest(t *testing.T, name string) string {
 
 type crossProjectTaskShowRemote struct {
 	client.WorkflowClient
+	scopedErr     error
+	unscopedErr   error
+	unscopedCalls int
 }
 
 func (r *crossProjectTaskShowRemote) Close() error { return nil }
@@ -615,9 +654,16 @@ func (r *crossProjectTaskShowRemote) ResolveProjectPath(context.Context, servera
 
 func (r *crossProjectTaskShowRemote) GetWorkflowTask(_ context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
 	if req.ProjectID == "project-current" && req.ShortID == "OTH-1" {
+		if r.scopedErr != nil {
+			return serverapi.WorkflowTaskGetResponse{}, r.scopedErr
+		}
 		return serverapi.WorkflowTaskGetResponse{}, sql.ErrNoRows
 	}
 	if req.ProjectID == "" && req.ShortID == "OTH-1" {
+		r.unscopedCalls++
+		if r.unscopedErr != nil {
+			return serverapi.WorkflowTaskGetResponse{}, r.unscopedErr
+		}
 		return serverapi.WorkflowTaskGetResponse{Task: serverapi.WorkflowTaskDetail{
 			Summary: serverapi.WorkflowTaskSummary{ID: "task-other", ProjectID: "project-other", WorkflowID: "workflow-other", ShortID: "OTH-1", Title: "Other Task"},
 			Project: serverapi.ProjectBoardProject{ProjectID: "project-other", ProjectKey: "OTH", DisplayName: "Other"},

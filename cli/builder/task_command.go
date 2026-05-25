@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
@@ -679,17 +680,29 @@ func getWorkflowTaskForShow(ctx context.Context, cfg config.App, remote workflow
 		return requestedProjectID, detail, err
 	}
 	if requestedProjectID != "" {
-		if detail, err := getWorkflowTaskByProjectShortID(ctx, remote, requestedProjectID, trimmed); err == nil {
+		detail, err := getWorkflowTaskByProjectShortID(ctx, remote, requestedProjectID, trimmed)
+		if err == nil {
 			return requestedProjectID, detail, nil
 		}
+		if !isWorkflowTaskNotFound(err) {
+			return requestedProjectID, serverapi.WorkflowTaskDetail{}, err
+		}
 	}
-	if detail, err := getWorkflowTaskByShortID(ctx, remote, trimmed); err == nil {
+	detail, err := getWorkflowTaskByShortID(ctx, remote, trimmed)
+	if err == nil {
 		return requestedProjectID, detail, nil
+	}
+	if !isWorkflowTaskNotFound(err) {
+		return requestedProjectID, serverapi.WorkflowTaskDetail{}, err
 	}
 	if requestedProjectID != "" {
 		return requestedProjectID, serverapi.WorkflowTaskDetail{}, fmt.Errorf("task %q not found in project %s", trimmed, requestedProjectID)
 	}
 	return requestedProjectID, serverapi.WorkflowTaskDetail{}, fmt.Errorf("task %q not found", trimmed)
+}
+
+func isWorkflowTaskNotFound(err error) bool {
+	return errors.Is(err, sql.ErrNoRows)
 }
 
 func getWorkflowTaskByID(ctx context.Context, remote workflowCommandRemote, taskID string) (serverapi.WorkflowTaskDetail, error) {
