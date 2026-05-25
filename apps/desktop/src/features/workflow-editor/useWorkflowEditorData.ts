@@ -64,7 +64,7 @@ export function useWorkflowEditorData(projectID: string, workflowID: string) {
     const subscriptions = [
       api.subscribeWorkflow(workflowID, {
         onOpen() {
-          return;
+          void refresh(false);
         },
         onEvent(_method, params) {
           if (shouldRefreshWorkflowDefinition(params, workflowID)) {
@@ -83,7 +83,7 @@ export function useWorkflowEditorData(projectID: string, workflowID: string) {
       subscriptions.push(
         api.subscribeProject(projectID, {
           onOpen() {
-            return;
+            void refresh(false);
           },
           onEvent(_method, params) {
             if (shouldRefreshWorkflowLink(params, projectID, workflowID)) {
