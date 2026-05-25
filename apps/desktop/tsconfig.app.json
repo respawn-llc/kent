@@ -16,6 +16,7 @@
     "noImplicitOverride": true,
     "noUncheckedIndexedAccess": true,
     "paths": {
+      "@/*": ["./src/*"],
       "@builder/desktop-native-bridge": ["./packages/native-bridge/src/index.ts"],
       "@xyflow/react": ["./src/vendor/xyflow-react-types.ts"],
       "elkjs/lib/elk-api": ["./src/vendor/elkjs-types.ts"],

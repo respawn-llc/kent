@@ -2,20 +2,15 @@
   --xy-background-color: transparent;
 }
 
-.workflow-editor-node {
-  border-left-width: 4px;
+.workflow-editor-node,
+.workflow-editor-group,
+.workflow-editor-join-node {
+  --workflow-editor-node-outline-color: var(--color-outline);
 }
 
-.workflow-editor-node[data-kind="agent"] {
-  border-left-color: var(--color-outline);
-}
-
-.workflow-editor-node[data-kind="start"] {
-  border-left-color: var(--color-primary);
-}
-
-.workflow-editor-node[data-kind="terminal"] {
-  border-left-color: var(--color-success);
+.workflow-editor-node,
+.workflow-editor-group {
+  border-color: var(--workflow-editor-node-outline-color);
 }
 
 .workflow-editor-handle {
@@ -30,26 +25,21 @@
   width: 30px;
   height: 30px;
   transform: rotate(45deg);
-  border: 2px solid var(--color-secondary);
+  border: 2px solid var(--workflow-editor-node-outline-color);
   border-radius: var(--radius-s);
-  background: color-mix(in srgb, var(--color-secondary) 18%, var(--color-island-1));
+  background: color-mix(in srgb, var(--workflow-editor-node-outline-color) 18%, var(--color-island-1));
 }
 
 .workflow-editor-node-error .workflow-editor-handle {
-  border-color: var(--color-error);
+  border-color: var(--workflow-editor-node-outline-color);
 }
 
 .workflow-editor-node-error {
-  border-color: var(--color-error);
-}
-
-.workflow-editor-node.workflow-editor-node-error {
-  border-left-color: var(--color-error);
+  --workflow-editor-node-outline-color: var(--color-error);
 }
 
 .workflow-editor-node-error.workflow-editor-join-node .workflow-editor-join-diamond {
-  border-color: var(--color-error);
-  background: color-mix(in srgb, var(--color-error) 16%, var(--color-island-1));
+  background: color-mix(in srgb, var(--workflow-editor-node-outline-color) 16%, var(--color-island-1));
 }
 
 .workflow-editor-node-selected {
@@ -58,4 +48,19 @@
 
 .workflow-editor-edge-label {
   pointer-events: all;
+}
+
+.workflow-editor-output-field {
+  animation: workflow-editor-output-field-enter var(--motion-normal) ease-out;
+}
+
+@keyframes workflow-editor-output-field-enter {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--space-2)));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"builder/server/auth"
+	"builder/server/workflow"
 	"builder/shared/buildinfo"
 	"builder/shared/config"
 	"builder/shared/protocol"
@@ -13,21 +14,26 @@ import (
 type Service struct {
 	authManager *auth.Manager
 	endpoint    string
+	settings    config.Settings
 }
 
 func NewService(authManager *auth.Manager, cfg config.App) *Service {
-	return &Service{authManager: authManager, endpoint: config.ServerRPCURL(cfg)}
+	return &Service{authManager: authManager, endpoint: config.ServerRPCURL(cfg), settings: cfg.Settings}
 }
 
 func (s *Service) GetServerReadiness(ctx context.Context, _ serverapi.ServerReadinessRequest) (serverapi.ServerReadinessResponse, error) {
 	authReady := false
 	authRequired := true
+	settings := config.Settings{}
 	if s != nil && s.authManager != nil {
 		state, err := s.authManager.Load(ctx)
 		if err != nil {
 			return serverapi.ServerReadinessResponse{}, err
 		}
 		authReady = auth.EvaluateStartupGate(state).Ready
+	}
+	if s != nil {
+		settings = s.settings
 	}
 	ready := authReady
 	response := serverapi.ServerReadinessResponse{
@@ -38,6 +44,7 @@ func (s *Service) GetServerReadiness(ctx context.Context, _ serverapi.ServerRead
 		AuthReady:       authReady,
 		AuthRequired:    authRequired,
 		Endpoint:        "",
+		SubagentRoles:   subagentRoleSummaries(settings),
 	}
 	if s != nil {
 		response.Endpoint = s.endpoint
@@ -51,4 +58,13 @@ func (s *Service) GetServerReadiness(ctx context.Context, _ serverapi.ServerRead
 		}}
 	}
 	return response, nil
+}
+
+func subagentRoleSummaries(settings config.Settings) []serverapi.SubagentRoleSummary {
+	names := append([]string{workflow.DefaultAgentRole}, config.AvailableSubagentRoleNames(settings, false)...)
+	roles := make([]serverapi.SubagentRoleSummary, 0, len(names))
+	for _, name := range names {
+		roles = append(roles, serverapi.SubagentRoleSummary{Name: name})
+	}
+	return roles
 }

@@ -1,3 +1,5 @@
+import { chromeContentPaddingClassName } from "../ui/chromePadding";
+
 const edgeToEdgeRoutePatterns = new Set(["/projects/$projectId", "/workflows/$workflowId/editor"]);
 
 export function routeUsesEdgeToEdgeLayout(pathname: string): boolean {
@@ -8,10 +10,7 @@ export function routeFramePaddingClassName(pathname: string): string | undefined
   if (routeUsesEdgeToEdgeLayout(pathname)) {
     return undefined;
   }
-  if (routePattern(pathname) === "/workflows") {
-    return "px-[var(--space-2)] pb-[var(--space-2)]";
-  }
-  return "p-[var(--space-2)]";
+  return chromeContentPaddingClassName;
 }
 
 function routePattern(pathname: string): string {

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Graph canvas keeps React Flow node renderers and canvas interactions together. */
 import {
   Background,
   BackgroundVariant,
@@ -9,13 +10,15 @@ import {
   type EdgeProps,
   type Edge,
   type Node,
+  type NodeTypes,
   type NodeProps,
 } from "@xyflow/react";
 import { Info, Maximize2, Minus, Plus, RotateCcw } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { cx } from "../../ui/classes";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../ui";
 import { WorkflowGraphEdge as WorkflowGraphEdgeRenderer } from "./WorkflowGraphEdge";
 import type {
   WorkflowGraphEdge,
@@ -32,6 +35,7 @@ import "./workflow-editor.css";
 
 export type WorkflowGraphCanvasProps = Readonly<{
   graph: WorkflowGraphLayout;
+  onCopyText?: ((value: string) => Promise<void> | void) | undefined;
   onEdgeInspect: (edgeID: string) => void;
   onGroupInspect: (groupID: string) => void;
   onNodeInspect: (nodeID: string) => void;
@@ -40,6 +44,7 @@ export type WorkflowGraphCanvasProps = Readonly<{
 
 export function WorkflowGraphCanvas({
   graph,
+  onCopyText = copyTextWithNavigator,
   onEdgeInspect,
   onGroupInspect,
   onNodeInspect,
@@ -48,10 +53,14 @@ export function WorkflowGraphCanvas({
   const localNodeTypes = useMemo(
     () => ({
       workflowGroup: WorkflowGroupNode,
-      workflowJoin: WorkflowJoinNode,
-      workflowNode: WorkflowNode,
-    }),
-    [],
+      workflowJoin: (props: NodeProps<WorkflowGraphWorkflowNode>) => (
+        <WorkflowJoinNode {...props} onCopyText={onCopyText} />
+      ),
+      workflowNode: (props: NodeProps<WorkflowGraphWorkflowNode>) => (
+        <WorkflowNode {...props} onCopyText={onCopyText} />
+      ),
+    }) satisfies NodeTypes,
+    [onCopyText],
   );
   const localEdgeTypes = useMemo(
     () => ({
@@ -67,18 +76,20 @@ export function WorkflowGraphCanvas({
     [onEdgeInspect],
   );
   return (
-    <ReactFlowProvider>
-      <WorkflowGraphCanvasInner
-        edgeTypes={localEdgeTypes}
-        edges={graph.edges}
-        onEdgeInspect={onEdgeInspect}
-        onGroupInspect={onGroupInspect}
-        onNodeInspect={onNodeInspect}
-        onWorkflowInspect={onWorkflowInspect}
-        nodeTypes={localNodeTypes}
-        nodes={graph.nodes}
-      />
-    </ReactFlowProvider>
+    <TooltipProvider delayDuration={0}>
+      <ReactFlowProvider>
+        <WorkflowGraphCanvasInner
+          edgeTypes={localEdgeTypes}
+          edges={graph.edges}
+          onEdgeInspect={onEdgeInspect}
+          onGroupInspect={onGroupInspect}
+          onNodeInspect={onNodeInspect}
+          onWorkflowInspect={onWorkflowInspect}
+          nodeTypes={localNodeTypes}
+          nodes={graph.nodes}
+        />
+      </ReactFlowProvider>
+    </TooltipProvider>
   );
 }
 
@@ -98,7 +109,7 @@ function WorkflowGraphCanvasInner({
   onGroupInspect: (groupID: string) => void;
   onNodeInspect: (nodeID: string) => void;
   onWorkflowInspect: () => void;
-  nodeTypes: Readonly<Record<string, typeof WorkflowGroupNode | typeof WorkflowJoinNode | typeof WorkflowNode>>;
+  nodeTypes: NodeTypes;
   nodes: readonly WorkflowGraphNode[];
 }>) {
   const { t } = useTranslation();
@@ -217,15 +228,25 @@ function CanvasTool({
   );
 }
 
-const WorkflowNode = memo(function WorkflowNode({ data, selected }: NodeProps<WorkflowGraphWorkflowNode>) {
-  return (
+type CopyText = (value: string) => Promise<void> | void;
+const NODE_METADATA_TOOLTIP_CLASS =
+  "pointer-events-auto grid w-[420px] max-w-[calc(100vw-var(--space-4)*2)] items-stretch gap-1.5 p-1.5";
+
+const WorkflowNode = memo(function WorkflowNode({
+  data,
+  onCopyText,
+  selected,
+}: NodeProps<WorkflowGraphWorkflowNode> & Readonly<{ onCopyText: CopyText }>) {
+  const nodeCard = (
     <div
       className={cx(
         "workflow-editor-node grid h-full min-w-0 grid-rows-[minmax(0,1fr)_auto] rounded-[var(--radius-l)] border bg-[var(--color-island-1)] p-[var(--space-3)] shadow-[var(--shadow-island-1)]",
-        data.hasError ? "workflow-editor-node-error" : "border-[var(--color-outline)]",
+        data.hasError ? "workflow-editor-node-error" : undefined,
         selected ? "workflow-editor-node-selected" : undefined,
       )}
       data-kind={data.kind}
+      data-testid={`workflow-graph-node-${data.entityID}`}
+      style={workflowNodeOutlineStyle(data.kind, data.hasError)}
     >
       <Handle
         aria-label="Incoming transitions"
@@ -247,16 +268,87 @@ const WorkflowNode = memo(function WorkflowNode({ data, selected }: NodeProps<Wo
       <span className="min-w-0 truncate font-mono text-sm text-[var(--color-muted)]">{data.role}</span>
     </div>
   );
+  if (!usesCompactNodeTooltip(data.kind)) {
+    return nodeCard;
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{nodeCard}</TooltipTrigger>
+      <TooltipContent
+        className={NODE_METADATA_TOOLTIP_CLASS}
+        data-testid="workflow-node-metadata-tooltip"
+        onClick={stopPropagation}
+      >
+        <WorkflowNodeInfoTooltipContent
+          nodeID={data.entityID}
+          nodeKey={data.key}
+          onCopyText={onCopyText}
+        />
+      </TooltipContent>
+    </Tooltip>
+  );
 });
+
+export function WorkflowNodeInfoTooltipContent({
+  nodeID,
+  nodeKey,
+  onCopyText,
+}: Readonly<{ nodeID: string; nodeKey: string; onCopyText: CopyText }>) {
+  const { t } = useTranslation();
+  const keyLabel = t("workflowEditor.key");
+  const idLabel = t("workflowEditor.id");
+  return (
+    <>
+      <CopyableNodeValue
+        copyLabel={t("workflowEditor.copyNodeMetadata", { label: keyLabel, value: nodeKey })}
+        label={keyLabel}
+        onCopyText={onCopyText}
+        value={nodeKey}
+      />
+      <CopyableNodeValue
+        copyLabel={t("workflowEditor.copyNodeMetadata", { label: idLabel, value: nodeID })}
+        label={idLabel}
+        onCopyText={onCopyText}
+        value={nodeID}
+      />
+    </>
+  );
+}
+
+function CopyableNodeValue({
+  copyLabel,
+  label,
+  onCopyText,
+  value,
+}: Readonly<{ copyLabel: string; label: string; onCopyText: CopyText; value: string }>) {
+  return (
+    <button
+      aria-label={copyLabel}
+      className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-baseline gap-2 rounded-sm bg-transparent px-1.5 py-0.5 text-left outline-none hover:bg-[var(--color-island-2)] focus-visible:bg-[var(--color-island-2)] focus-visible:outline-none"
+      onClick={(event) => {
+        event.stopPropagation();
+        copyNodeText(value, onCopyText);
+      }}
+      type="button"
+    >
+      <span className="text-[0.68rem] font-bold uppercase tracking-[0.14em] opacity-70">
+        {label}
+      </span>
+      <span className="min-w-0 break-all font-mono text-sm">{value}</span>
+    </button>
+  );
+}
 
 const WorkflowGroupNode = memo(function WorkflowGroupNode({ data }: NodeProps<WorkflowGraphGroupNode>) {
   const { t } = useTranslation();
   return (
     <div
       className={cx(
-        "workflow-editor-group h-full rounded-[var(--radius-xl)] border border-[var(--color-outline)] bg-[color-mix(in_srgb,var(--color-island-1)_58%,transparent)] p-[var(--space-3)]",
+        "workflow-editor-group h-full rounded-[var(--radius-xl)] border bg-[color-mix(in_srgb,var(--color-island-1)_58%,transparent)] p-[var(--space-3)]",
         data.hasError ? "workflow-editor-node-error" : undefined,
       )}
+      data-testid={`workflow-graph-group-${data.entityID}`}
+      style={workflowNodeOutlineStyle(data.kind, data.hasError)}
     >
       <div className="font-mono text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-muted)]">
         {data.label}
@@ -270,8 +362,12 @@ const WorkflowGroupNode = memo(function WorkflowGroupNode({ data }: NodeProps<Wo
   );
 });
 
-const WorkflowJoinNode = memo(function WorkflowJoinNode({ data, selected }: NodeProps<WorkflowGraphWorkflowNode>) {
-  return (
+const WorkflowJoinNode = memo(function WorkflowJoinNode({
+  data,
+  onCopyText,
+  selected,
+}: NodeProps<WorkflowGraphWorkflowNode> & Readonly<{ onCopyText: CopyText }>) {
+  const nodeCard = (
     <div
       className={cx(
         "workflow-editor-join-node grid h-full w-full place-items-center",
@@ -279,6 +375,8 @@ const WorkflowJoinNode = memo(function WorkflowJoinNode({ data, selected }: Node
         selected ? "workflow-editor-node-selected" : undefined,
       )}
       data-kind={data.kind}
+      data-testid={`workflow-graph-node-${data.entityID}`}
+      style={workflowNodeOutlineStyle(data.kind, data.hasError)}
       title={data.label}
     >
       <Handle
@@ -300,7 +398,42 @@ const WorkflowJoinNode = memo(function WorkflowJoinNode({ data, selected }: Node
       </div>
     </div>
   );
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{nodeCard}</TooltipTrigger>
+      <TooltipContent
+        className={NODE_METADATA_TOOLTIP_CLASS}
+        data-testid="workflow-node-metadata-tooltip"
+        onClick={stopPropagation}
+      >
+        <WorkflowNodeInfoTooltipContent
+          nodeID={data.entityID}
+          nodeKey={data.key}
+          onCopyText={onCopyText}
+        />
+      </TooltipContent>
+    </Tooltip>
+  );
 });
+
+type WorkflowNodeOutlineStyle = CSSProperties &
+  Readonly<Record<"--workflow-editor-node-outline-color", string>>;
+
+function workflowNodeOutlineStyle(kind: string, hasError: boolean): WorkflowNodeOutlineStyle {
+  if (hasError) {
+    return { "--workflow-editor-node-outline-color": "var(--color-error)" };
+  }
+  if (kind === "start") {
+    return { "--workflow-editor-node-outline-color": "var(--color-primary)" };
+  }
+  if (kind === "terminal") {
+    return { "--workflow-editor-node-outline-color": "var(--color-success)" };
+  }
+  if (kind === "join") {
+    return { "--workflow-editor-node-outline-color": "var(--color-secondary)" };
+  }
+  return { "--workflow-editor-node-outline-color": "var(--color-outline)" };
+}
 
 function inspectNode(
   node: Node,
@@ -313,6 +446,9 @@ function inspectNode(
     return;
   }
   if (isWorkflowGraphNodeData(data)) {
+    if (!isEditableWorkflowNodeKind(data.kind)) {
+      return;
+    }
     onNodeInspect(data.entityID);
   }
 }
@@ -338,4 +474,28 @@ function isWorkflowGraphEdgeData(data: Edge["data"]): data is WorkflowGraphEdgeD
 
 function isFormTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+}
+
+function usesCompactNodeTooltip(kind: string): boolean {
+  return !isEditableWorkflowNodeKind(kind);
+}
+
+function isEditableWorkflowNodeKind(kind: string): boolean {
+  return kind === "agent";
+}
+
+function stopPropagation(event: MouseEvent): void {
+  event.stopPropagation();
+}
+
+function copyNodeText(value: string, onCopyText: CopyText): void {
+  try {
+    void Promise.resolve(onCopyText(value)).catch(() => undefined);
+  } catch {
+    return;
+  }
+}
+
+function copyTextWithNavigator(value: string): void {
+  void navigator.clipboard.writeText(value).catch(() => undefined);
 }

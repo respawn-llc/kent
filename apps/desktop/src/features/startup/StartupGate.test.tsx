@@ -93,6 +93,9 @@ describe("StartupGate", () => {
     render(<App services={services} />);
 
     expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    const readinessCallsBeforeReconnect = services.transport.calls.filter(
+      (call) => call.method === "server.readiness.get",
+    ).length;
 
     act(() => {
       services.transport.connection.set("disconnected", "closed");
@@ -108,6 +111,11 @@ describe("StartupGate", () => {
 
     await waitFor(() => {
       expect(screen.queryByText("Server disconnected. Cached data remains visible; mutations are disabled.")).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(services.transport.calls.filter((call) => call.method === "server.readiness.get").length).toBe(
+        readinessCallsBeforeReconnect + 1,
+      );
     });
   });
 

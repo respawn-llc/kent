@@ -785,6 +785,16 @@ WITH board_node_task_ids AS (
     UNION
     SELECT
         t.id
+    FROM task_transition_records tt
+    JOIN task_records t ON t.id = tt.task_id
+    WHERE tt.source_node_id = sqlc.arg(node_id)
+      AND tt.state = 'pending_approval'
+      AND t.project_id = sqlc.arg(project_id)
+      AND t.workflow_id = sqlc.arg(workflow_id)
+      AND t.canceled_at_unix_ms = 0
+    UNION
+    SELECT
+        t.id
     FROM task_records t
     WHERE t.project_id = sqlc.arg(project_id)
       AND t.workflow_id = sqlc.arg(workflow_id)
@@ -949,6 +959,23 @@ ORDER BY task_id ASC, created_at_unix_ms ASC, (
     FROM task_node_placements storage
     WHERE storage.id = task_node_placement_records.id
 ) ASC;
+
+-- name: ListPendingApprovalSourcePlacementsByTasks :many
+SELECT
+    CAST(COALESCE('pending-approval:' || id, '') AS TEXT) AS id,
+    task_id,
+    COALESCE(source_node_id, '') AS node_id,
+    'waiting_approval' AS state,
+    '' AS created_by_transition_id,
+    CAST(NULL AS TEXT) AS parallel_batch_transition_id,
+    CAST(NULL AS TEXT) AS parallel_branch_edge_id,
+    created_at_unix_ms,
+    created_at_unix_ms AS updated_at_unix_ms
+FROM task_transition_records
+WHERE task_id IN (sqlc.slice('task_ids'))
+  AND state = 'pending_approval'
+  AND trim(source_node_id) != ''
+ORDER BY task_id ASC, created_at_unix_ms ASC, id ASC;
 
 -- name: GetActiveStartPlacementForTask :one
 SELECT

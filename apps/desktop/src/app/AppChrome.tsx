@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Home, SunMoon } from "lucide-react";
-import type { PointerEvent, ReactNode } from "react";
+import type { MouseEvent, PointerEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { toggleInMemoryThemeOverride } from "../appEnvironment";
@@ -49,6 +49,12 @@ export function AppChrome({ children }: AppChromeProps) {
         <Link
           aria-label={t("app.home")}
           className="grid h-6 w-6 place-items-center rounded-full border border-transparent text-[var(--color-on-island)]"
+          onClick={(event) => {
+            if (isPlainPrimaryClick(event)) {
+              event.preventDefault();
+              void navigation.openHome();
+            }
+          }}
           to="/"
         >
           <Home aria-hidden="true" size={16} strokeWidth={1.125} />
@@ -88,6 +94,10 @@ export function AppChrome({ children }: AppChromeProps) {
       </SidebarProvider>
     </main>
   );
+}
+
+function isPlainPrimaryClick(event: MouseEvent): boolean {
+  return event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
 }
 
 function DebugThemeToggle({ label }: Readonly<{ label: string }>) {

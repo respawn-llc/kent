@@ -28,6 +28,8 @@ describe("workflowEditorDraft", () => {
       graphDirty: false,
       metadataDirty: true,
     });
+    expect(metadata.version).toBe(initial.version + 1);
+    expect(metadata.graphVersion).toBe(initial.graphVersion);
 
     const graph = workflowEditorDraftReducer(initial, {
       nodeID: "node-agent",
@@ -35,32 +37,49 @@ describe("workflowEditorDraft", () => {
       type: "editAgentNode",
     });
     expect(workflowEditorDirtyState(graph)).toEqual({ dirty: true, graphDirty: true, metadataDirty: false });
+    expect(graph.version).toBe(initial.version + 1);
+    expect(graph.graphVersion).toBe(initial.graphVersion + 1);
     expect(workflowDefinitionFromDraft(graph.draft).nodes[0]?.name).toBe("Edited agent");
   });
 
-  it("serializes output field row ids away and supports reorder", () => {
+  it("adds output fields at the top and serializes row ids away", () => {
     const added = workflowEditorDraftReducer(initializeWorkflowEditorDraft(workflowDefinition), {
       nodeID: "node-agent",
       type: "addOutputField",
     });
-    const rowID = added.draft.nodes[0]?.outputFields[1]?.rowID ?? "";
+    const rowID = added.draft.nodes[0]?.outputFields[0]?.rowID ?? "";
     const updated = workflowEditorDraftReducer(added, {
       nodeID: "node-agent",
       patch: { description: "Details", name: "details" },
       rowID,
       type: "updateOutputField",
     });
-    const moved = workflowEditorDraftReducer(updated, {
-      direction: -1,
-      nodeID: "node-agent",
-      rowID,
-      type: "moveOutputField",
-    });
 
-    const graph = workflowEditorDraftGraph(moved);
+    const graph = workflowEditorDraftGraph(updated);
     expect(graph.nodes[0]?.outputFields).toEqual([
       { description: "Details", name: "details" },
       { description: "Summary", name: "summary" },
+    ]);
+  });
+
+  it("reorders output fields by row id", () => {
+    const added = workflowEditorDraftReducer(initializeWorkflowEditorDraft(workflowDefinition), {
+      nodeID: "node-agent",
+      type: "addOutputField",
+    });
+    const activeRowID = added.draft.nodes[0]?.outputFields[1]?.rowID ?? "";
+    const overRowID = added.draft.nodes[0]?.outputFields[0]?.rowID ?? "";
+
+    const reordered = workflowEditorDraftReducer(added, {
+      activeRowID,
+      nodeID: "node-agent",
+      overRowID,
+      type: "reorderOutputField",
+    });
+
+    expect(reordered.draft.nodes[0]?.outputFields.map((field) => field.rowID)).toEqual([
+      activeRowID,
+      overRowID,
     ]);
   });
 

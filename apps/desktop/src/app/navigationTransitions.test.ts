@@ -1,6 +1,6 @@
 import { afterEach, vi } from "vitest";
 
-import { startProjectToBoardTransition } from "./navigationTransitions";
+import { runNavigationTransition } from "./navigationTransitions";
 
 describe("navigationTransitions", () => {
   const originalMatchMedia = globalThis.matchMedia;
@@ -17,41 +17,42 @@ describe("navigationTransitions", () => {
     restoreStartViewTransition(originalStartViewTransitionDescriptor);
   });
 
-  it("uses the View Transition API for project to board navigation without a shared element", () => {
+  it("uses the View Transition API for default navigation", async () => {
     installMatchMedia(false);
-    const source = document.createElement("article");
-    const startViewTransition = vi.fn((update: () => void): ViewTransitionTestHandle => {
-      expect(source.style.viewTransitionName).toBe("");
-      update();
-      return { finished: Promise.resolve() };
+    const startViewTransition = vi.fn((update: () => void | Promise<void>): ViewTransitionTestHandle => {
+      const updateCallbackDone = Promise.resolve(update());
+      return {
+        finished: updateCallbackDone,
+        ready: Promise.resolve(),
+        updateCallbackDone,
+      };
     });
     installStartViewTransition(startViewTransition);
 
     const update = vi.fn();
-    startProjectToBoardTransition(source, update);
+    await runNavigationTransition(update);
 
     expect(startViewTransition).toHaveBeenCalledOnce();
     expect(update).toHaveBeenCalledOnce();
-    expect(source.style.viewTransitionName).toBe("");
   });
 
-  it("falls back to immediate navigation when reduced motion is enabled", () => {
+  it("falls back to immediate navigation when reduced motion is enabled", async () => {
     installMatchMedia(true);
-    const source = document.createElement("article");
     const startViewTransition = vi.fn();
     installStartViewTransition(startViewTransition);
     const update = vi.fn();
 
-    startProjectToBoardTransition(source, update);
+    await runNavigationTransition(update);
 
     expect(startViewTransition).not.toHaveBeenCalled();
     expect(update).toHaveBeenCalledOnce();
-    expect(source.style.viewTransitionName).toBe("");
   });
 });
 
 type ViewTransitionTestHandle = Readonly<{
   finished: Promise<void>;
+  ready: Promise<void>;
+  updateCallbackDone: Promise<void>;
 }>;
 
 function installMatchMedia(matches: boolean): void {
@@ -70,7 +71,9 @@ function installMatchMedia(matches: boolean): void {
   });
 }
 
-function installStartViewTransition(startViewTransition: (update: () => void) => ViewTransitionTestHandle): void {
+function installStartViewTransition(
+  startViewTransition: (update: () => void | Promise<void>) => ViewTransitionTestHandle,
+): void {
   Object.defineProperty(document, "startViewTransition", {
     configurable: true,
     value: startViewTransition,

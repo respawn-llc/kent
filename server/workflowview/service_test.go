@@ -762,6 +762,74 @@ func TestInterruptedTaskStatusUsesAttentionKind(t *testing.T) {
 	}
 }
 
+func TestPendingApprovalTaskRemainsVisibleOnSourceBoardColumn(t *testing.T) {
+	ctx := context.Background()
+	store, workflowStore, binding := newWorkflowViewTestStore(t)
+	view, err := New(store)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
+	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `
+UPDATE workflow_edges
+SET requires_approval = 1
+WHERE edge_key = 'done'
+  AND EXISTS (
+      SELECT 1
+      FROM workflow_transition_groups tg
+      JOIN workflow_nodes source ON source.id = tg.source_node_id
+      WHERE tg.id = workflow_edges.transition_group_id
+        AND source.workflow_id = ?
+  )`, string(workflowID)); err != nil {
+		t.Fatalf("require approval: %v", err)
+	}
+	task, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "BUI-7", Body: "Waiting approval"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := workflowStore.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	pending, err := workflowStore.CompleteRun(ctx, workflowstore.CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	if pending.State != "pending_approval" {
+		t.Fatalf("completion state = %q, want pending_approval", pending.State)
+	}
+
+	board, err := view.GetBoard(ctx, serverapi.WorkflowBoardRequest{ProjectID: binding.ProjectID}, workflow.StaticRoleResolver{"coder": true})
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	sourceColumn := workflowViewColumnByKey(t, board, "agent")
+	if sourceColumn.TaskCount != 1 {
+		t.Fatalf("source column task count = %d, want pending approval task in source column: %+v", sourceColumn.TaskCount, board.Columns)
+	}
+	doneColumn := workflowViewColumnByKind(t, board, workflow.NodeKindTerminal)
+	if doneColumn.TaskCount != 0 {
+		t.Fatalf("done column task count = %d, want pending approval task not done yet", doneColumn.TaskCount)
+	}
+	sourcePage, err := view.ListBoardNodeCards(ctx, serverapi.WorkflowBoardNodeCardsListRequest{ProjectID: binding.ProjectID, WorkflowID: string(workflowID), NodeID: sourceColumn.Node.NodeID}, workflow.StaticRoleResolver{"coder": true})
+	if err != nil {
+		t.Fatalf("ListBoardNodeCards source: %v", err)
+	}
+	if len(sourcePage.Cards) != 1 {
+		t.Fatalf("source cards = %+v, want pending approval task", sourcePage.Cards)
+	}
+	card := sourcePage.Cards[0]
+	if card.ShortID != task.ShortID || card.Status.Kind != "waiting_approval" || len(card.Status.AttentionTypes) != 1 || card.Status.AttentionTypes[0] != "approval" {
+		t.Fatalf("pending approval card = %+v", card)
+	}
+	if len(card.ActiveNodeIDs) != 1 || card.ActiveNodeIDs[0] != sourceColumn.Node.NodeID {
+		t.Fatalf("pending approval active nodes = %+v, want source node %s", card.ActiveNodeIDs, sourceColumn.Node.NodeID)
+	}
+}
+
 func TestTaskDetailProjectsWaitingAskRun(t *testing.T) {
 	ctx := context.Background()
 	store, workflowStore, binding := newWorkflowViewTestStore(t)

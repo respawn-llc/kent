@@ -525,6 +525,16 @@ func TestConfiguredRemoteGetsServerReadinessWhenAuthMissing(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
+	writeServeSettings(t, home, `
+model = "base-model"
+
+[subagents.coder]
+model = "coder-model"
+
+[subagents.blocked]
+agent_callable = false
+model = "blocked-model"
+`)
 
 	request := startup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, AllowUnauthenticated: true}
 	authHandler := envAuthHandler{lookupEnv: func(string) string { return "" }}
@@ -592,9 +602,37 @@ func TestConfiguredRemoteGetsServerReadinessWhenAuthMissing(t *testing.T) {
 	if len(readiness.Causes) != 1 {
 		t.Fatalf("cause count = %d, want 1: %+v", len(readiness.Causes), readiness.Causes)
 	}
+	assertReadinessRoles(t, readiness.SubagentRoles, []string{"default", "fast", "blocked", "coder"})
 	cause := readiness.Causes[0]
 	if cause.Code != "server_not_ready" || cause.Severity != "error" || cause.Summary == "" || cause.NextAction == "" {
 		t.Fatalf("unexpected generic readiness cause: %+v", cause)
+	}
+}
+
+func writeServeSettings(t *testing.T, home string, contents string) {
+	t.Helper()
+	settingsDir := filepath.Join(home, ".builder")
+	if err := os.MkdirAll(settingsDir, 0o755); err != nil {
+		t.Fatalf("create settings dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(settingsDir, "config.toml"), []byte(contents), 0o644); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+}
+
+func assertReadinessRoles(t *testing.T, roles []serverapi.SubagentRoleSummary, want []string) {
+	t.Helper()
+	got := make([]string, 0, len(roles))
+	for _, role := range roles {
+		got = append(got, role.Name)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("subagent roles = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("subagent roles = %+v, want %+v", got, want)
+		}
 	}
 }
 

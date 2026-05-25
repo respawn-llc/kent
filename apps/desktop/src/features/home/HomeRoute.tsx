@@ -12,7 +12,7 @@ import { useAppServices } from "../../app/useAppServices";
 import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
 import { useStatusController } from "../../app/useStatusController";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
-import { Badge, ErrorState, VirtualizedInfiniteList } from "../../ui";
+import { Badge, ErrorState, LoadingState, VirtualizedInfiniteList } from "../../ui";
 import { useOpenTaskDetail } from "../task-detail/useOpenTaskDetail";
 import { HomePrimaryPane, type HomePrimaryTab } from "./HomePrimaryPane";
 import { ProjectCreateDialog, type ProjectDraft } from "./ProjectCreateForm";
@@ -192,7 +192,7 @@ function AttentionList({ items, query }: AttentionListProps) {
   const { t } = useTranslation();
   const openTaskDetail = useOpenTaskDetail();
   if (query.isPending) {
-    return <p>{t("states.loading")}</p>;
+    return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} title={t("states.loading")} />;
   }
   if (query.isError) {
     return <ErrorState body={errorMessage(query.error)} reveal={false} title={t("states.error")} />;

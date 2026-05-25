@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { CircleAlert, Inbox } from "lucide-react";
 
 import { Button } from "./Button";
+import { chromeContentPaddingClassName } from "./chromePadding";
 import { cx } from "./classes";
 import { Island } from "./Island";
 import { Spinner } from "./Spinner";
@@ -81,7 +82,7 @@ function LoadingPlaceholder({
       className={cx(
         "loading-state-placeholder",
         fullPage && "h-full min-h-0",
-        fullPage && chromePadding && "p-[var(--space-2)]",
+        fullPage && chromePadding && chromeContentPaddingClassName,
       )}
       data-testid="loading-state-placeholder"
     />
@@ -225,7 +226,7 @@ function StateIsland({
       <div
         className={cx(
           "grid h-full min-h-0 overflow-hidden place-items-center",
-          chromePadding && "p-[var(--space-2)]",
+          chromePadding && chromeContentPaddingClassName,
         )}
         data-testid={testID}
       >

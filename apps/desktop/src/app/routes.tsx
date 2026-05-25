@@ -206,6 +206,8 @@ function RoutePersistence() {
     if (claimRouteRestoreCheck()) {
       const restored = readLastProjectRoute();
       if (location.pathname === "/" && restored !== null) {
+        // Session restore is startup state hydration, not a user-initiated destination change, so it
+        // intentionally bypasses the animated app navigation API.
         void navigate({
           to: "/projects/$projectId",
           params: { projectId: restored.projectId },
@@ -338,6 +340,8 @@ function LegacyWorkflowEditorRedirectRoute() {
   const params = legacyWorkflowEditorRoute.useParams();
 
   useEffect(() => {
+    // Canonical route redirects are not user-initiated destination changes, so they intentionally
+    // bypass the animated app navigation API.
     void navigate({
       to: "/workflows/$workflowId/editor",
       params: { workflowId: params.workflowId },

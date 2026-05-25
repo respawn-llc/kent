@@ -117,12 +117,12 @@ describe("BoardRoute", () => {
     expect(screen.getByTestId("board-column-rail")).toHaveClass(
       "w-max",
       "min-w-full",
-      "px-[var(--space-2)]",
-      "pb-[var(--space-2)]",
+      "p-[var(--space-2)]",
     );
     expect(screen.getByTestId("board-column-rail")).not.toHaveClass(
+      "px-[var(--space-2)]",
+      "pb-[var(--space-2)]",
       "pt-[var(--space-2)]",
-      "p-[var(--space-2)]",
     );
     expect(screen.getByTestId("kanban-column-scroll-backlog")).toHaveClass(
       "overflow-y-auto",
@@ -272,6 +272,63 @@ describe("BoardRoute", () => {
     await waitFor(() => {
       expect(nodeCardCalls).toContain("done");
     });
+  });
+
+  it("renders pending-approval tasks in their source node column", async () => {
+    const visibility = installIntersectionObserverMock();
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const pendingApprovalCard = {
+      ...firstBoardCard(),
+      short_id: "BUI-7",
+      title: "Waiting on approval",
+      body_preview: "Approval should remain visible on the board.",
+      active_node_ids: ["node-1"],
+      status: {
+        ...firstBoardCard().status,
+        kind: "waiting_approval",
+        label: "Approval",
+        native_state: "waiting_approval",
+        node_ids: ["node-1"],
+        attention_types: ["approval"],
+      },
+      actions: {
+        ...taskActions,
+        can_start: false,
+        manual_move_target_node_ids: [],
+      },
+    };
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes(
+        {
+          board: {
+            ...boardResponse.board,
+            columns: boardResponse.board.columns.map((column) =>
+              column.node.node_id === "node-1"
+                ? { ...column, task_count: 1 }
+                : { ...column, task_count: 0 },
+            ),
+            cards: [],
+          },
+        },
+        {
+          backlog: { cards: [] },
+          "node-1": { cards: [pendingApprovalCard] },
+          done: { cards: [] },
+        },
+      ),
+    ]);
+
+    render(<App services={services} />);
+
+    const implementColumn = await screen.findByRole("listitem", { name: "Implement" });
+    expect(within(implementColumn).getByText("1 tasks")).toBeInTheDocument();
+    act(() => {
+      visibility.reveal("Implement");
+    });
+    expect(await within(implementColumn).findByRole("article", { name: "Waiting on approval" })).toBeInTheDocument();
+    expect(within(implementColumn).getByText("BUI-7")).toBeInTheDocument();
+    expect(screen.queryByRole("article", { name: "Write focused tests" })).not.toBeInTheDocument();
   });
 
   it("renders the shared full-page empty state when project has no workflows", async () => {
@@ -608,9 +665,15 @@ describe("BoardRoute", () => {
     const sidebar = await screen.findByTestId("app-sidebar-host");
     const panel = screen.getByRole("complementary", { name: "Create Backlog task" });
     expect(panel).toHaveAttribute("data-mode", "overlay");
-    expect(panel).toHaveClass("absolute", "top-0", "right-[var(--space-2)]", "bottom-[var(--space-2)]");
+    expect(panel).toHaveClass(
+      "absolute",
+      "top-[var(--app-sidebar-inset)]",
+      "right-[var(--app-sidebar-inset)]",
+      "bottom-[var(--app-sidebar-inset)]",
+    );
+    expect(panel.style.getPropertyValue("--app-sidebar-inset")).toBe("var(--space-2)");
     expect(panel).not.toHaveClass("relative");
-    expect(panel).not.toHaveClass("top-[var(--space-2)]");
+    expect(panel).not.toHaveClass("top-0");
     expect(opened).toHaveLength(0);
     expect(await within(sidebar).findByText("Main")).toBeInTheDocument();
 

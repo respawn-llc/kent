@@ -10,6 +10,7 @@ import { queryKeys } from "../../app/queryKeys";
 import { useAppServices } from "../../app/useAppServices";
 import { useWindowChromeTitle } from "../../app/windowChromeTitle";
 import { Button, ErrorState, FloatingNoticeIsland, LoadingState } from "../../ui";
+import { chromeContentPaddingClassName } from "../../ui/chromePadding";
 import { WorkflowValidationIssues } from "../workflow/WorkflowValidationIssues";
 import { WorkflowGraphCanvas } from "./WorkflowGraphCanvas";
 import { layoutWorkflowGraph, type WorkflowGraphLayout } from "./workflowGraphLayout";
@@ -35,7 +36,7 @@ export type WorkflowEditorRouteProps = Readonly<{
 
 export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRouteProps) {
   const { t } = useTranslation();
-  const { api } = useAppServices();
+  const { api, nativeBridge } = useAppServices();
   const { openSidebar } = useSidebar();
   const data = useWorkflowEditorData(projectID, workflowID);
   const workflow = data.workflowQuery.data?.workflow;
@@ -55,7 +56,7 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
   const layoutQuery = useWorkflowGraphLayoutQuery(
     workflowID,
     draftDefinition,
-    draftState?.version ?? 0,
+    draftState?.graphVersion ?? 0,
     draftValidation ?? executionValidation,
   );
   useWindowChromeTitle(workflow === undefined ? t("workflowEditor.title") : workflow.name);
@@ -121,12 +122,13 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
 
   const viewState = workflowEditorViewState(data, layoutQuery);
   if (viewState.kind === "loading") {
-    return <LoadingState appearanceDelayMs={0} title={t("workflowEditor.loadingTitle")} />;
+    return <LoadingState appearanceDelayMs={0} chromePadding title={t("workflowEditor.loadingTitle")} />;
   }
   if (viewState.kind === "linkError") {
     return (
       <ErrorState
         body={errorMessage(viewState.error)}
+        chromePadding
         onRetry={() => void data.linksQuery.refetch()}
         retryLabel={t("app.retry")}
         title={t("workflowEditor.linkLoadFailed")}
@@ -137,6 +139,7 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
     return (
       <ErrorState
         body={t("workflowEditor.unlinkedBody")}
+        chromePadding
         reveal={false}
         title={t("workflowEditor.unlinkedTitle")}
       />
@@ -146,6 +149,7 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
     return (
       <ErrorState
         body={errorMessage(viewState.error)}
+        chromePadding
         onRetry={() => {
           void data.boardQuery.refetch();
           void data.workflowQuery.refetch();
@@ -159,9 +163,13 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
   }
 
   return (
-    <section className="h-full min-h-0 w-full" data-testid="workflow-editor-route">
+    <section
+      className={`h-full min-h-0 w-full ${chromeContentPaddingClassName}`}
+      data-testid="workflow-editor-route"
+    >
       <WorkflowGraphCanvas
         graph={viewState.graph}
+        onCopyText={async (value) => copyWorkflowNodeText(value, nativeBridge)}
         onEdgeInspect={(edgeID) => {
           void openSidebar({
             kind: "workflowInspect",
@@ -252,6 +260,17 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
   }
 }
 
+async function copyWorkflowNodeText(
+  value: string,
+  nativeBridge: ReturnType<typeof useAppServices>["nativeBridge"],
+): Promise<void> {
+  if (nativeBridge.capabilities.clipboard.writeText) {
+    await nativeBridge.clipboard.writeText(value);
+    return;
+  }
+  await navigator.clipboard.writeText(value);
+}
+
 function workflowEditorDraftStateReducer(
   state: WorkflowEditorDraftState | null,
   action: Parameters<typeof workflowEditorDraftReducer>[1],
@@ -305,6 +324,7 @@ function useWorkflowGraphLayoutQuery(
       return layoutWorkflowGraph(definition, validation);
     },
     enabled: definition !== undefined && validation !== null,
+    placeholderData: (previous) => previous,
   });
 }
 

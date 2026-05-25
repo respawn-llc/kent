@@ -59,6 +59,7 @@ export function SidebarHost() {
   const sidebarStyle = useMemo<SidebarStyle>(
     () =>
       ({
+        "--app-sidebar-inset": "var(--space-2)",
         "--app-sidebar-width": `${sidebarWidthPx.toString()}px`,
       }),
     [sidebarWidthPx],
@@ -195,9 +196,9 @@ export function SidebarHost() {
         "app-region-no-drag app-sidebar-panel island-glass z-10 grid grid-rows-[auto_1fr] overflow-hidden",
         "w-[var(--app-sidebar-width)] min-w-[var(--app-sidebar-width)] rounded-l-[var(--radius-xl)] rounded-r-[var(--radius-l)]",
         mode === "shift" &&
-          "app-sidebar-panel-shift relative mr-[var(--space-2)] h-[calc(100%-var(--space-2))] shrink-0 self-start",
+          "app-sidebar-panel-shift relative mr-[var(--app-sidebar-inset)] mt-[var(--app-sidebar-inset)] h-[calc(100%-(var(--app-sidebar-inset)*2))] shrink-0 self-start",
         mode === "overlay" &&
-          "app-sidebar-panel-overlay absolute top-0 right-[var(--space-2)] bottom-[var(--space-2)]",
+          "app-sidebar-panel-overlay absolute top-[var(--app-sidebar-inset)] right-[var(--app-sidebar-inset)] bottom-[var(--app-sidebar-inset)]",
         phase === "closing" && "app-sidebar-panel-closing",
       )}
       data-testid="app-sidebar-host"
@@ -250,7 +251,8 @@ export function SidebarHost() {
   );
 }
 
-type SidebarStyle = CSSProperties & Readonly<Record<"--app-sidebar-width", string>>;
+type SidebarStyle = CSSProperties &
+  Readonly<Record<"--app-sidebar-inset" | "--app-sidebar-width", string>>;
 
 type PointerCaptureTarget = Partial<
   Readonly<{

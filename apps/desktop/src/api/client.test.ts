@@ -17,6 +17,7 @@ describe("BuilderApiClient", () => {
           auth_ready: true,
           auth_required: false,
           endpoint: "ws://127.0.0.1:53082/rpc",
+          subagent_roles: [{ name: "default" }, { name: "coder" }],
         },
       },
       { method: "workflow.task.start", result: {} },
@@ -28,6 +29,7 @@ describe("BuilderApiClient", () => {
       serverID: "server-1",
       serverVersion: "1.3.0",
       protocolVersion: protocolVersion,
+      subagentRoles: [{ name: "default" }, { name: "coder" }],
     });
     await client.startTask("task-1");
 

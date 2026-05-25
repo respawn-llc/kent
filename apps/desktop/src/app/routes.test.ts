@@ -15,8 +15,8 @@ describe("route layout policy", () => {
     expect(routeUsesEdgeToEdgeLayout("/workflows/workflow-1/editor")).toBe(true);
   });
 
-  it("keeps workflow library side gutters without adding a top gutter below chrome", () => {
+  it("uses the default four-sided route gutter for workflow library", () => {
     expect(routeUsesEdgeToEdgeLayout("/workflows")).toBe(false);
-    expect(routeFramePaddingClassName("/workflows")).toBe("px-[var(--space-2)] pb-[var(--space-2)]");
+    expect(routeFramePaddingClassName("/workflows")).toBe("p-[var(--space-2)]");
   });
 });

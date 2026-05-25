@@ -12,6 +12,14 @@ export const readinessSchema: z.ZodType<ServerReadiness> = z
     auth_ready: z.boolean(),
     auth_required: z.boolean(),
     endpoint: z.string(),
+    subagent_roles: z
+      .array(
+        z.object({
+          name: z.string(),
+        }),
+      )
+      .nullish()
+      .transform((value) => value ?? []),
     causes: z
       .array(
         z.object({
@@ -34,6 +42,9 @@ export const readinessSchema: z.ZodType<ServerReadiness> = z
     authReady: value.auth_ready,
     authRequired: value.auth_required,
     endpoint: value.endpoint,
+    subagentRoles: value.subagent_roles.map((role) => ({
+      name: role.name,
+    })),
     causes: value.causes.map((cause) => ({
       code: cause.code,
       severity: cause.severity,

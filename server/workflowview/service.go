@@ -300,7 +300,40 @@ func (s *Service) boardPlacementsByTask(ctx context.Context, tasks []sqlitegen.T
 	for _, placement := range placements {
 		byTaskID[placement.TaskID] = append(byTaskID[placement.TaskID], placement)
 	}
+	pendingApprovalPlacements, err := s.pendingApprovalSourcePlacementsByTask(ctx, taskIDs)
+	if err != nil {
+		return nil, err
+	}
+	for taskID, taskPlacements := range pendingApprovalPlacements {
+		byTaskID[taskID] = append(byTaskID[taskID], taskPlacements...)
+	}
 	return byTaskID, nil
+}
+
+func (s *Service) pendingApprovalSourcePlacementsByTask(ctx context.Context, taskIDs []string) (map[string][]sqlitegen.TaskNodePlacementRecord, error) {
+	rows, err := s.queries.ListPendingApprovalSourcePlacementsByTasks(ctx, taskIDs)
+	if err != nil {
+		return nil, err
+	}
+	byTaskID := make(map[string][]sqlitegen.TaskNodePlacementRecord)
+	for _, row := range rows {
+		byTaskID[row.TaskID] = append(byTaskID[row.TaskID], pendingApprovalSourcePlacement(row))
+	}
+	return byTaskID, nil
+}
+
+func pendingApprovalSourcePlacement(row sqlitegen.ListPendingApprovalSourcePlacementsByTasksRow) sqlitegen.TaskNodePlacementRecord {
+	return sqlitegen.TaskNodePlacementRecord{
+		ID:                        row.ID,
+		TaskID:                    row.TaskID,
+		NodeID:                    row.NodeID,
+		State:                     row.State,
+		CreatedByTransitionID:     row.CreatedByTransitionID,
+		ParallelBatchTransitionID: row.ParallelBatchTransitionID,
+		ParallelBranchEdgeID:      row.ParallelBranchEdgeID,
+		CreatedAtUnixMs:           row.CreatedAtUnixMs,
+		UpdatedAtUnixMs:           row.UpdatedAtUnixMs,
+	}
 }
 
 func (s *Service) GetTask(ctx context.Context, taskID string) (serverapi.WorkflowTaskDetail, error) {

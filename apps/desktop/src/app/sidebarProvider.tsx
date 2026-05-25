@@ -11,6 +11,9 @@ import {
 import { clampSidebarWidth, initialSidebarWidthForViewport } from "./sidebarSizing";
 
 const sidebarExitAnimationMs = 140;
+type SidebarWidthProfile = "standard" | "workflowEditor";
+type SidebarWidths = Partial<Readonly<Record<SidebarWidthProfile, number>>>;
+const defaultSidebarWidthProfile: SidebarWidthProfile = "standard";
 
 type PendingSidebar = Readonly<{
   resolve: (result: SidebarResult) => void;
@@ -18,8 +21,14 @@ type PendingSidebar = Readonly<{
 
 export function SidebarProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [activeDestination, setActiveDestination] = useState<SidebarDestination | null>(null);
+  const [activeWidthProfile, setActiveWidthProfile] = useState<SidebarWidthProfile>(
+    defaultSidebarWidthProfile,
+  );
   const [phase, setPhase] = useState<SidebarPhase>("open");
-  const [sidebarWidthPx, setSidebarWidthPx] = useState(defaultSidebarWidth);
+  const [sidebarWidths, setSidebarWidths] = useState<SidebarWidths>(() => ({
+    [defaultSidebarWidthProfile]: defaultSidebarWidth(),
+  }));
+  const sidebarWidthPx = sidebarWidths[activeWidthProfile] ?? defaultSidebarWidth();
   const pendingRef = useRef<PendingSidebar | null>(null);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -55,6 +64,17 @@ export function SidebarProvider({ children }: Readonly<{ children: ReactNode }>)
   const openSidebar = useCallback(
     async (destination: SidebarDestination): Promise<SidebarResult> => {
       clearCloseTimeout();
+      const nextProfile = sidebarWidthProfile(destination);
+      setActiveWidthProfile(nextProfile);
+      setSidebarWidths((current) => {
+        if (current[nextProfile] !== undefined) {
+          return current;
+        }
+        return {
+          ...current,
+          [nextProfile]: defaultSidebarWidth(),
+        };
+      });
       const pending = pendingRef.current;
       pendingRef.current = null;
       pending?.resolve({ status: "canceled", reason: "replaced" });
@@ -79,9 +99,15 @@ export function SidebarProvider({ children }: Readonly<{ children: ReactNode }>)
     [activeDestination, animateClosed],
   );
 
-  const resizeSidebar = useCallback((widthPx: number) => {
-    setSidebarWidthPx(clampSidebarWidth(widthPx));
-  }, []);
+  const resizeSidebar = useCallback(
+    (widthPx: number) => {
+      setSidebarWidths((current) => ({
+        ...current,
+        [activeWidthProfile]: clampSidebarWidth(widthPx),
+      }));
+    },
+    [activeWidthProfile],
+  );
 
   useEffect(() => {
     return clearCloseTimeout;
@@ -101,6 +127,13 @@ export function SidebarProvider({ children }: Readonly<{ children: ReactNode }>)
   );
 
   return <SidebarContext.Provider value={value}>{children}</SidebarContext.Provider>;
+}
+
+function sidebarWidthProfile(destination: SidebarDestination): SidebarWidthProfile {
+  if (destination.kind === "workflowInspect") {
+    return "workflowEditor";
+  }
+  return defaultSidebarWidthProfile;
 }
 
 function defaultSidebarWidth(): number {

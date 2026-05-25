@@ -11,7 +11,12 @@ type ServerReadinessResponse struct {
 	AuthReady       bool                   `json:"auth_ready"`
 	AuthRequired    bool                   `json:"auth_required"`
 	Endpoint        string                 `json:"endpoint"`
+	SubagentRoles   []SubagentRoleSummary  `json:"subagent_roles,omitempty"`
 	Causes          []ServerReadinessCause `json:"causes,omitempty"`
+}
+
+type SubagentRoleSummary struct {
+	Name string `json:"name"`
 }
 
 type ServerReadinessCause struct {

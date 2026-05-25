@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Sidebar keeps read-only and draft-backed workflow inspector paths together for now. */
-import { useSyncExternalStore } from "react";
+import { useId, useState, useSyncExternalStore } from "react";
 import {
   closestCenter,
   DndContext,
@@ -16,9 +16,11 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useQueryClient } from "@tanstack/react-query";
+import { GripVertical, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type {
+  ServerReadiness,
   WorkflowDefinition,
   WorkflowEdge,
   WorkflowNode,
@@ -27,7 +29,9 @@ import type {
 } from "../../api";
 import { queryKeys } from "../../app/queryKeys";
 import type { WorkflowInspectorSelection } from "../../app/sidebarContext";
-import { Button, MarkdownText, TextArea, TextInput } from "../../ui";
+import { Button, MarkdownText, SelectField, TextArea, TextInput, type SelectFieldOption } from "../../ui";
+import { cx } from "../../ui/classes";
+import { fieldInputClassName } from "../../ui/Field";
 import {
   DetailRow,
   DetailSection,
@@ -96,7 +100,7 @@ function WorkflowDraftInspectorContent({
         />
       );
     }
-    return <NodeDetails definition={definition} node={node} validation={validation} />;
+    return <NodeDetails node={node} validation={validation} />;
   }
   if (selection.kind === "group") {
     const group = definition.nodeGroups.find((item) => item.id === selection.groupID);
@@ -171,13 +175,13 @@ function AgentNodeDraftDetails({
   validation: WorkflowValidation;
 }>) {
   const { t } = useTranslation();
-  const group = definition.nodeGroups.find((item) => item.id === node.groupID);
+  const assigneeOptions = useWorkflowAssigneeOptions(definition);
   const errors = validation.errors.filter(
     (error) => error.nodeID === node.id || error.relatedIDs.includes(node.id),
   );
   return (
     <InspectorStack>
-      <DetailSection title={t("workflowEditor.inspectorIdentity")}>
+      <DetailSection>
         <TextInput
           label={t("workflowEditor.displayName")}
           onChange={(event) => {
@@ -200,23 +204,18 @@ function AgentNodeDraftDetails({
           }}
           value={node.key}
         />
-        <DetailRow label={t("workflowEditor.kind")} value={node.kind} />
         <DetailRow label={t("workflowEditor.id")} mono value={node.id} />
-        <DetailRow
-          label={t("workflowEditor.group")}
-          value={fallbackLabel(t("workflowEditor.none"), group?.name, group?.key)}
-        />
-      </DetailSection>
-      <DetailSection title={t("workflowEditor.behavior")}>
-        <TextInput
+        <SelectField
           label={t("workflowEditor.assignee")}
-          onChange={(event) => {
+          onValueChange={(value) => {
             controller.dispatch({
               nodeID: node.id,
-              patch: { subagentRole: event.target.value },
+              patch: { subagentRole: value },
               type: "editAgentNode",
             });
           }}
+          options={assigneeOptions}
+          placeholder={t("workflowEditor.selectAssignee")}
           value={node.subagentRole}
         />
         <TextArea
@@ -246,68 +245,64 @@ function EditableOutputFields({
 }>) {
   const { t } = useTranslation();
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   return (
-    <DetailSection title={t("workflowEditor.outputFields")}>
-      <div className="grid gap-[var(--space-3)]">
-        {node.outputFields.length === 0 ? (
-          <p className="m-0 text-sm text-[var(--color-muted)]">{t("workflowEditor.none")}</p>
-        ) : null}
-        <DndContext
-          collisionDetection={closestCenter}
-          onDragEnd={(event) => {
-            reorderOutputField(controller, node.id, event);
-          }}
-          sensors={sensors}
+    <>
+      <Button
+        onClick={() => {
+          controller.dispatch({ nodeID: node.id, type: "addOutputField" });
+        }}
+        variant="secondary"
+      >
+        {t("workflowEditor.addOutputField")}
+      </Button>
+      {node.outputFields.length === 0 ? (
+        <p className="m-0 text-sm text-[var(--color-muted)]">{t("workflowEditor.none")}</p>
+      ) : null}
+      <DndContext
+        collisionDetection={closestCenter}
+        onDragEnd={(event) => {
+          reorderOutputField(controller, node.id, event);
+        }}
+        sensors={sensors}
+      >
+        <SortableContext
+          items={node.outputFields.map((field) => field.rowID)}
+          strategy={verticalListSortingStrategy}
         >
-          <SortableContext
-            items={node.outputFields.map((field) => field.rowID)}
-            strategy={verticalListSortingStrategy}
-          >
-            <div className="grid gap-[var(--space-3)]">
-              {node.outputFields.map((field, index) => (
-                <SortableOutputField
-                  controller={controller}
-                  field={field}
-                  first={index === 0}
-                  key={field.rowID}
-                  last={index === node.outputFields.length - 1}
-                  nodeID={node.id}
-                />
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
-        <Button
-          onClick={() => {
-            controller.dispatch({ nodeID: node.id, type: "addOutputField" });
-          }}
-          variant="secondary"
-        >
-          {t("workflowEditor.addOutputField")}
-        </Button>
-      </div>
-    </DetailSection>
+          <div className="grid gap-[var(--space-3)]">
+            {node.outputFields.map((field) => (
+              <SortableOutputField
+                controller={controller}
+                field={field}
+                key={field.rowID}
+                nodeID={node.id}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
+    </>
   );
 }
 
 function SortableOutputField({
   controller,
   field,
-  first,
-  last,
   nodeID,
 }: Readonly<{
   controller: WorkflowEditorDraftController;
   field: DraftWorkflowNode["outputFields"][number];
-  first: boolean;
-  last: boolean;
   nodeID: string;
 }>) {
   const { t } = useTranslation();
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: field.rowID });
+  const [isEditingName, setIsEditingName] = useState(field.name.length === 0);
+  const descriptionID = useId();
+  const { attributes, listeners, setActivatorNodeRef, setNodeRef, transform, transition } = useSortable({
+    id: field.rowID,
+  });
   const style = {
     transform:
       transform === null
@@ -317,69 +312,93 @@ function SortableOutputField({
   };
   return (
     <div
-      className="grid gap-[var(--space-2)] rounded-[var(--radius-m)] border border-[var(--color-outline)] p-[var(--space-3)]"
+      className="workflow-editor-output-field relative grid gap-[var(--space-2)] rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]"
+      data-output-field-name={field.name}
+      data-testid="workflow-output-field"
       ref={setNodeRef}
       style={style}
     >
-      <button
-        className="cursor-grab rounded-[var(--radius-s)] border border-[var(--color-outline)] bg-transparent px-2 py-1 text-left text-xs text-[var(--color-muted)] active:cursor-grabbing"
-        type="button"
+      <div
+        aria-label={t("workflowEditor.reorderOutputField")}
+        className="absolute inset-0 cursor-grab rounded-[inherit] outline-none focus-visible:ring-[3px] focus-visible:ring-[color-mix(in_srgb,var(--color-primary)_35%,transparent)] active:cursor-grabbing"
+        ref={setActivatorNodeRef}
         {...attributes}
         {...listeners}
-      >
-        {t("workflowEditor.dragField")}
-      </button>
-      <TextInput
-        label={t("workflowEditor.outputFieldName")}
-        onChange={(event) => {
-          controller.dispatch({
-            nodeID,
-            patch: { name: event.target.value },
-            rowID: field.rowID,
-            type: "updateOutputField",
-          });
-        }}
-        value={field.name}
       />
-      <TextInput
-        label={t("workflowEditor.outputFieldDescription")}
-        onChange={(event) => {
-          controller.dispatch({
-            nodeID,
-            patch: { description: event.target.value },
-            rowID: field.rowID,
-            type: "updateOutputField",
-          });
-        }}
-        value={field.description}
-      />
-      <div className="flex flex-wrap gap-[var(--space-2)]">
-        <Button
-          disabled={first}
-          onClick={() => {
-            controller.dispatch({ direction: -1, nodeID, rowID: field.rowID, type: "moveOutputField" });
-          }}
-          variant="ghost"
-        >
-          {t("workflowEditor.moveFieldUp")}
-        </Button>
-        <Button
-          disabled={last}
-          onClick={() => {
-            controller.dispatch({ direction: 1, nodeID, rowID: field.rowID, type: "moveOutputField" });
-          }}
-          variant="ghost"
-        >
-          {t("workflowEditor.moveFieldDown")}
-        </Button>
-        <Button
-          onClick={() => {
-            controller.dispatch({ nodeID, rowID: field.rowID, type: "deleteOutputField" });
-          }}
-          variant="danger"
-        >
-          {t("workflowEditor.deleteField")}
-        </Button>
+      <div className="pointer-events-none relative grid gap-[var(--space-2)]">
+        <div className="flex min-w-0 items-center gap-[var(--space-2)]">
+          <GripVertical
+            aria-hidden="true"
+            className="shrink-0 text-[var(--color-muted)]"
+            size={18}
+            strokeWidth={1.8}
+          />
+          {isEditingName ? (
+            <input
+              aria-label={t("workflowEditor.outputFieldName")}
+              autoFocus
+              className="app-region-no-drag pointer-events-auto min-w-0 flex-1 rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] px-[var(--space-2)] py-[var(--space-1)] font-bold text-[var(--color-on-island)] outline-none focus:border-[var(--color-primary)]"
+              onBlur={() => {
+                setIsEditingName(false);
+              }}
+              onChange={(event) => {
+                controller.dispatch({
+                  nodeID,
+                  patch: { name: event.target.value.replaceAll("\n", " ") },
+                  rowID: field.rowID,
+                  type: "updateOutputField",
+                });
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === "Escape") {
+                  event.preventDefault();
+                  setIsEditingName(false);
+                }
+              }}
+              type="text"
+              value={field.name}
+            />
+          ) : (
+            <button
+              className="pointer-events-auto min-w-0 flex-1 truncate rounded-[var(--radius-m)] border border-transparent bg-transparent px-0 py-[var(--space-1)] text-left font-bold text-[var(--color-on-island)] outline-none focus:border-[var(--color-outline)] focus:bg-[var(--color-island-1)] focus:px-[var(--space-2)]"
+              onClick={() => {
+                setIsEditingName(true);
+              }}
+              type="button"
+            >
+              {field.name.length > 0 ? field.name : t("workflowEditor.outputFieldName")}
+            </button>
+          )}
+          <Button
+            aria-label={t("workflowEditor.deleteField")}
+            className="pointer-events-auto grid h-8 w-8 shrink-0 place-items-center rounded-full !border-transparent !bg-transparent !p-0"
+            onClick={() => {
+              controller.dispatch({ nodeID, rowID: field.rowID, type: "deleteOutputField" });
+            }}
+            variant="danger"
+          >
+            <Trash2 aria-hidden="true" size={17} strokeWidth={1.9} />
+          </Button>
+        </div>
+        <div className="pointer-events-auto">
+          <label className="sr-only" htmlFor={descriptionID}>
+            {t("workflowEditor.outputFieldDescription")}
+          </label>
+          <input
+            className={cx(fieldInputClassName, "px-[var(--space-2)] py-[var(--space-2)]")}
+            id={descriptionID}
+            onChange={(event) => {
+              controller.dispatch({
+                nodeID,
+                patch: { description: event.target.value },
+                rowID: field.rowID,
+                type: "updateOutputField",
+              });
+            }}
+            placeholder={t("workflowEditor.outputFieldDescription")}
+            value={field.description}
+          />
+        </div>
       </div>
     </div>
   );
@@ -419,7 +438,7 @@ function WorkflowInspectorContent({
     return node === undefined ? (
       <MissingEntity entityID={selection.nodeID} />
     ) : (
-      <NodeDetails definition={definition} node={node} validation={validation} />
+      <NodeDetails node={node} validation={validation} />
     );
   }
   if (selection.kind === "group") {
@@ -465,35 +484,28 @@ function WorkflowDetails({
 }
 
 function NodeDetails({
-  definition,
   node,
   validation,
-}: Readonly<{ definition: WorkflowDefinition; node: WorkflowNode; validation: WorkflowValidation }>) {
+}: Readonly<{ node: WorkflowNode; validation: WorkflowValidation }>) {
   const { t } = useTranslation();
-  const group = definition.nodeGroups.find((item) => item.id === node.groupID);
   const errors = validation.errors.filter(
     (error) => error.nodeID === node.id || error.relatedIDs.includes(node.id),
   );
   return (
     <InspectorStack>
-      <DetailSection title={t("workflowEditor.inspectorIdentity")}>
-        <DetailRow label={t("workflowEditor.kind")} value={node.kind} />
+      <DetailSection>
         <DetailRow label={t("workflowEditor.key")} mono value={node.key} />
         <DetailRow label={t("workflowEditor.id")} mono value={node.id} />
-        <DetailRow
-          label={t("workflowEditor.group")}
-          value={fallbackLabel(t("workflowEditor.none"), group?.name, group?.key)}
-        />
+        {node.kind === "agent" ? (
+          <>
+            <DetailRow
+              label={t("workflowEditor.assignee")}
+              value={fallbackLabel(t("workflowEditor.none"), node.subagentRole)}
+            />
+            <PromptPreview prompt={node.promptTemplate} />
+          </>
+        ) : null}
       </DetailSection>
-      {node.kind === "agent" ? (
-        <DetailSection title={t("workflowEditor.behavior")}>
-          <DetailRow
-            label={t("workflowEditor.assignee")}
-            value={fallbackLabel(t("workflowEditor.none"), node.subagentRole)}
-          />
-          <PromptPreview prompt={node.promptTemplate} />
-        </DetailSection>
-      ) : null}
       <OutputFields fields={node.outputFields} />
       <ValidationDetails errors={errors} />
     </InspectorStack>
@@ -705,4 +717,40 @@ function useCachedWorkflowValidation(workflowID: string): WorkflowValidation | u
     () => queryClient.getQueryData<WorkflowValidation>(queryKey),
     () => queryClient.getQueryData<WorkflowValidation>(queryKey),
   );
+}
+
+function useCachedServerReadiness(): ServerReadiness | undefined {
+  const queryClient = useQueryClient();
+  return useSyncExternalStore(
+    (onStoreChange) => queryClient.getQueryCache().subscribe(onStoreChange),
+    () => queryClient.getQueryData<ServerReadiness>(queryKeys.readiness),
+    () => queryClient.getQueryData<ServerReadiness>(queryKeys.readiness),
+  );
+}
+
+function useWorkflowAssigneeOptions(definition: WorkflowDefinition): readonly SelectFieldOption[] {
+  const readiness = useCachedServerReadiness();
+  return workflowAssigneeOptions(definition, readiness?.subagentRoles ?? []);
+}
+
+function workflowAssigneeOptions(
+  definition: WorkflowDefinition,
+  roles: ServerReadiness["subagentRoles"],
+): readonly SelectFieldOption[] {
+  const roleNames = new Set<string>();
+  roleNames.add("default");
+  for (const role of roles) {
+    if (role.name.trim().length > 0) {
+      roleNames.add(role.name);
+    }
+  }
+  const workflowRoleNames = definition.nodes
+    .filter((node) => node.kind === "agent")
+    .map((node) => node.subagentRole.trim())
+    .filter((role) => role.length > 0)
+    .sort((left, right) => left.localeCompare(right));
+  for (const role of workflowRoleNames) {
+    roleNames.add(role);
+  }
+  return [...roleNames].map((role) => ({ label: role, textValue: role, value: role }));
 }

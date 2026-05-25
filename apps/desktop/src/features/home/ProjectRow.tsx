@@ -4,7 +4,6 @@ import { Pencil } from "lucide-react";
 import type { ProjectSummary } from "../../api";
 import { formatHomeRelativePath } from "../../app/formatters";
 import { useAppNavigation } from "../../app/navigation";
-import { startProjectToBoardTransition } from "../../app/navigationTransitions";
 import { useAppServices } from "../../app/useAppServices";
 import { HomeListCard } from "../../ui";
 
@@ -33,10 +32,8 @@ export function ProjectRow({ project }: Readonly<{ project: ProjectSummary }>) {
         </button>
       }
       ariaLabel={`${project.name} ${workspacePathLabel}`}
-      onClick={(event) => {
-        startProjectToBoardTransition(event.currentTarget.parentElement ?? event.currentTarget, async () => {
-          await navigation.openProject(project.id, project.defaultWorkflowID);
-        });
+      onClick={() => {
+        void navigation.openProject(project.id, project.defaultWorkflowID);
       }}
       title={project.primaryWorkspace.rootPath}
     >

@@ -4,10 +4,10 @@ import { useTranslation } from "react-i18next";
 import type { WorkflowValidationError } from "../../api";
 import { Badge } from "../../ui";
 
-export function DetailSection({ children, title }: Readonly<{ children: ReactNode; title: string }>) {
+export function DetailSection({ children, title }: Readonly<{ children: ReactNode; title?: string }>) {
   return (
     <section className="grid gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]">
-      <h3 className="m-0 text-sm font-bold">{title}</h3>
+      {title === undefined ? null : <h3 className="m-0 text-sm font-bold">{title}</h3>}
       {children}
     </section>
   );

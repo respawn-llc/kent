@@ -10,6 +10,7 @@ export type WorkflowGraphNodeData = Readonly<{
   [key: string]: unknown;
   entityID: string;
   entityKind: "node";
+  key: string;
   kind: string;
   label: string;
   role: string;
@@ -286,6 +287,7 @@ function workflowNode(
     draggable: false,
     data: {
       kind: node.kind,
+      key: node.key,
       entityID: node.id,
       entityKind: "node",
       label: node.name,

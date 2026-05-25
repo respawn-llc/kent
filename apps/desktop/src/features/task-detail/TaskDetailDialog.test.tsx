@@ -379,9 +379,7 @@ describe("TaskDetailDialog", () => {
     expect(screen.queryByRole("heading", { name: "Task" })).not.toBeInTheDocument();
     expect(screen.getByTestId("native-dialog-content")).toHaveStyle({ maxWidth: "1200px" });
     expect(screen.getByTestId("native-dialog-scrollport")).toHaveClass(
-      "px-[var(--space-2)]",
-      "pb-[var(--space-2)]",
-      "pt-0",
+      "p-[var(--space-2)]",
     );
     expect(screen.getByTestId("native-dialog-scrollport").closest("main")).toHaveClass(
       "pt-[var(--native-titlebar-height)]",

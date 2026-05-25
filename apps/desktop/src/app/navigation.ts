@@ -2,6 +2,7 @@ import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { errorMessage } from "../api/errors";
+import { runNavigationTransition } from "./navigationTransitions";
 import { useAppServices } from "./useAppServices";
 
 type NavigationStackAction = "PUSH" | "REPLACE" | "FORWARD" | "BACK" | "GO";
@@ -32,7 +33,7 @@ export function useAppNavigation(): AppNavigation {
   const runNavigation = useCallback(
     async (action: () => Promise<void>): Promise<void> => {
       try {
-        await action();
+        await runNavigationTransition(action);
       } catch (error) {
         await logger.append("warn", "Navigation failed", { error: errorMessage(error) });
       }

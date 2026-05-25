@@ -2,6 +2,7 @@ import { useId, type CSSProperties, type ReactNode } from "react";
 import { X } from "lucide-react";
 
 import { cx } from "./classes";
+import { chromeContentPaddingClassName } from "./chromePadding";
 
 export type DialogProps = Readonly<{
   title: string;
@@ -79,7 +80,7 @@ export function Dialog({
           className={cx(
             "min-h-0 overflow-auto hide-scrollbar",
             contentPadding === "none" && "pr-[var(--space-1)]",
-            contentPadding === "chrome" && "px-[var(--space-2)] pb-[var(--space-2)] pt-0",
+            contentPadding === "chrome" && chromeContentPaddingClassName,
           )}
         >
           {children}

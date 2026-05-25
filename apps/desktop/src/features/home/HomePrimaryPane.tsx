@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import type { ProjectSummary } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useAppNavigation } from "../../app/navigation";
-import { EmptyState, ErrorState, VirtualizedInfiniteList } from "../../ui";
+import { EmptyState, ErrorState, LoadingState, VirtualizedInfiniteList } from "../../ui";
 import { WorkflowCard } from "../workflows/WorkflowCard";
 import { useWorkflowPages } from "../workflows/WorkflowData";
 import { ProjectRow } from "./ProjectRow";
@@ -148,7 +148,7 @@ function ProjectList({
 }: Readonly<{ items: readonly ProjectSummary[]; query: ReturnType<typeof useProjectPages> }>) {
   const { t } = useTranslation();
   if (query.isPending) {
-    return <p>{t("states.loading")}</p>;
+    return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} title={t("states.loading")} />;
   }
   if (query.isError) {
     return <ErrorState body={errorMessage(query.error)} reveal={false} title={t("states.error")} />;
@@ -180,7 +180,7 @@ function HomeWorkflowList() {
     [workflowsQuery.data],
   );
   if (workflowsQuery.isPending) {
-    return <p>{t("states.loading")}</p>;
+    return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} title={t("states.loading")} />;
   }
   if (workflowsQuery.isError) {
     return (

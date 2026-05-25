@@ -10,7 +10,8 @@ import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { useSidebar } from "../../app/sidebarContext";
 import { useStatusController } from "../../app/useStatusController";
 import { useWindowChromeTitle } from "../../app/windowChromeTitle";
-import { Button, EmptyState, ErrorState, FloatingNoticeIsland } from "../../ui";
+import { Button, EmptyState, ErrorState, FloatingNoticeIsland, LoadingState } from "../../ui";
+import { chromeContentPaddingClassName } from "../../ui/chromePadding";
 import { WorkflowValidationIssues } from "../workflow/WorkflowValidationIssues";
 import { BoardColumnController } from "./BoardColumnController";
 import { BoardHoverMenu } from "./BoardHoverMenu";
@@ -63,7 +64,7 @@ export function BoardRoute({ projectId, workflowId, selectedTaskId, resumeRunId 
   });
 
   if (boardQuery.isPending) {
-    return <p>{t("states.loading")}</p>;
+    return <LoadingState chromePadding reveal={false} title={t("states.loading")} />;
   }
   if (boardQuery.isError) {
     return (
@@ -327,7 +328,7 @@ function BoardContent({
     <div className="relative h-full min-h-0 min-w-0 w-full">
       <div className="h-full min-h-0 min-w-0 w-full overflow-x-auto" ref={scrollportRef} role="list">
         <div
-          className="flex h-full min-h-0 w-max min-w-full gap-[var(--space-2)] px-[var(--space-2)] pb-[var(--space-2)]"
+          className={`flex h-full min-h-0 w-max min-w-full gap-[var(--space-2)] ${chromeContentPaddingClassName}`}
           data-testid="board-column-rail"
         >
           {sections.map((section) =>

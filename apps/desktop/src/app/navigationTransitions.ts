@@ -1,4 +1,4 @@
-export function startProjectToBoardTransition(_source: HTMLElement, update: () => void | Promise<void>): void {
+export async function runNavigationTransition(update: () => void | Promise<void>): Promise<void> {
   const reducedMotion =
     typeof globalThis.matchMedia === "function" &&
     globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -6,9 +6,10 @@ export function startProjectToBoardTransition(_source: HTMLElement, update: () =
     typeof document.startViewTransition !== "function" ||
     reducedMotion
   ) {
-    void update();
+    await update();
     return;
   }
 
-  document.startViewTransition(update);
+  const transition = document.startViewTransition(update);
+  await transition.updateCallbackDone;
 }

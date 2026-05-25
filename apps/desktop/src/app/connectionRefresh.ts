@@ -24,6 +24,7 @@ export function useReconnectRefresh() {
 
 async function refreshVisibleQueries(queryClient: ReturnType<typeof useQueryClient>): Promise<void> {
   await Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.readiness }),
     queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
     queryClient.invalidateQueries({ queryKey: queryKeys.allAttention }),
     queryClient.invalidateQueries({ queryKey: queryKeys.allBoards }),

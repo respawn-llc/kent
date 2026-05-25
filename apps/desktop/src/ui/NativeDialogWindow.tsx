@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 
 import { useAppServices } from "../app/useAppServices";
+import { chromeContentPaddingClassName, nativeChromeContentPaddingClassName } from "./chromePadding";
 import { cx } from "./classes";
 
 export type NativeDialogWindowProps = Readonly<{
@@ -108,7 +109,7 @@ function nativeDialogMainClassName(contentPadding: NativeDialogWindowProps["cont
     "window-glass-fill grid",
     contentPadding === "chrome"
       ? "pt-[var(--native-titlebar-height)]"
-      : "p-[var(--native-titlebar-height)_var(--space-2)_var(--space-2)]",
+      : nativeChromeContentPaddingClassName,
     fitToContent ? "w-max" : "h-screen w-screen",
   );
 }
@@ -137,6 +138,6 @@ function nativeDialogContentClassName(showHeader: boolean): string {
 function nativeDialogScrollportClassName(contentPadding: NativeDialogWindowProps["contentPadding"]): string {
   return cx(
     "min-h-0 overflow-auto hide-scrollbar",
-    contentPadding === "chrome" && "px-[var(--space-2)] pb-[var(--space-2)] pt-0",
+    contentPadding === "chrome" && chromeContentPaddingClassName,
   );
 }

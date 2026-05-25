@@ -62,10 +62,12 @@ describe("SidebarHost", () => {
     expect(sidebar).toHaveAttribute("data-mode", "shift");
     expect(sidebar).toHaveClass(
       "app-sidebar-panel-shift",
-      "h-[calc(100%-var(--space-2))]",
-      "mr-[var(--space-2)]",
+      "h-[calc(100%-(var(--app-sidebar-inset)*2))]",
+      "mr-[var(--app-sidebar-inset)]",
+      "mt-[var(--app-sidebar-inset)]",
       "shrink-0",
     );
+    expect(sidebar.style.getPropertyValue("--app-sidebar-inset")).toBe("var(--space-2)");
     expect(sidebar).not.toHaveClass("absolute", "app-sidebar-panel-overlay");
     expect(screen.getByRole("button", { name: "Close" })).toHaveClass("order-1");
     expect(screen.getByRole("heading", { name: "Settings" })).toHaveClass("order-2");

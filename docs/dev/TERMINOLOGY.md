@@ -38,7 +38,7 @@ A project association with a reusable workflow definition. The link lets a proje
 
 ### Assignee
 
-The subagent role associated with an executable node. UI surfaces may present the role as the node's assignee.
+The subagent role associated with an executable node. UI surfaces may present the role as the node's assignee. The GUI workflow editor populates its Assignee dropdown from the server readiness `subagent_roles` payload and also keeps the node's current role visible if a legacy workflow references a role that is no longer configured.
 
 ### Node
 

@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "../../api/errors";
 import { useOpenExternalLink } from "../../app/nativeHooks";
-import { Dialog, ErrorState } from "../../ui";
+import { Dialog, ErrorState, LoadingState } from "../../ui";
 import { TaskDetailContent } from "./TaskDetailContent";
 import { taskDetailContentMaxWidth, taskDetailDialogOuterMaxWidth } from "./taskDetailLayout";
 import { useTaskActivity, useTaskDetail } from "./useTaskDetailData";
@@ -55,7 +55,7 @@ export function TaskDetailSurface({ taskId, enabled, resumeRunId, onMutated }: T
   const openLink = useOpenExternalLink();
 
   if (detail.isPending) {
-    return <p>{t("states.loading")}</p>;
+    return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} title={t("states.loading")} />;
   }
   if (detail.isError) {
     return <ErrorState body={errorMessage(detail.error)} reveal={false} title={t("states.error")} />;

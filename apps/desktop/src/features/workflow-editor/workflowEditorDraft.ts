@@ -32,6 +32,7 @@ export type WorkflowEditorDraftState = Readonly<{
   source: WorkflowDefinition;
   draft: DraftWorkflowDefinition;
   conflict: WorkflowDefinition | null;
+  graphVersion: number;
   version: number;
 }>;
 
@@ -54,7 +55,6 @@ export type WorkflowEditorDraftAction =
       patch: Partial<WorkflowOutputField>;
     }>
   | Readonly<{ type: "deleteOutputField"; nodeID: string; rowID: string }>
-  | Readonly<{ type: "moveOutputField"; nodeID: string; rowID: string; direction: -1 | 1 }>
   | Readonly<{ type: "reorderOutputField"; nodeID: string; activeRowID: string; overRowID: string }>;
 
 export type WorkflowEditorDirtyState = Readonly<{
@@ -68,6 +68,7 @@ export function initializeWorkflowEditorDraft(source: WorkflowDefinition): Workf
     acknowledgedConflictVersion: 0,
     conflict: null,
     draft: draftDefinitionFromSource(source),
+    graphVersion: 0,
     source,
     version: 0,
   };
@@ -91,10 +92,14 @@ export function workflowEditorDraftReducer(
     case "reloadConflict":
       return state.conflict === null ? state : initializeWorkflowEditorDraft(state.conflict);
     case "editWorkflowMetadata":
-      return nextDraftState(state, {
-        ...state.draft,
-        workflow: { ...state.draft.workflow, name: action.name, description: action.description },
-      });
+      return nextDraftState(
+        state,
+        {
+          ...state.draft,
+          workflow: { ...state.draft.workflow, name: action.name, description: action.description },
+        },
+        false,
+      );
     case "editAgentNode":
       return editDraftNode(state, action.nodeID, (node) => {
         if (node.kind !== "agent") {
@@ -106,7 +111,6 @@ export function workflowEditorDraftReducer(
       return editDraftNode(state, action.nodeID, (node) => ({
         ...node,
         outputFields: [
-          ...node.outputFields,
           {
             description: "",
             name: "",
@@ -114,6 +118,7 @@ export function workflowEditorDraftReducer(
               ":",
             ),
           },
+          ...node.outputFields,
         ],
       }));
     case "updateOutputField":
@@ -127,11 +132,6 @@ export function workflowEditorDraftReducer(
       return editDraftNode(state, action.nodeID, (node) => ({
         ...node,
         outputFields: node.outputFields.filter((field) => field.rowID !== action.rowID),
-      }));
-    case "moveOutputField":
-      return editDraftNode(state, action.nodeID, (node) => ({
-        ...node,
-        outputFields: moveRow(node.outputFields, action.rowID, action.direction),
       }));
     case "reorderOutputField":
       return editDraftNode(state, action.nodeID, (node) => ({
@@ -214,8 +214,14 @@ export function workflowEditorDraftMetadata(state: WorkflowEditorDraftState): Wo
 function nextDraftState(
   state: WorkflowEditorDraftState,
   draft: DraftWorkflowDefinition,
+  graphChanged = true,
 ): WorkflowEditorDraftState {
-  return { ...state, draft, version: state.version + 1 };
+  return {
+    ...state,
+    draft,
+    graphVersion: graphChanged ? state.graphVersion + 1 : state.graphVersion,
+    version: state.version + 1,
+  };
 }
 
 function editDraftNode(
@@ -262,25 +268,6 @@ function selectedNodeCascadeEdges(req: SelectedNodeCascadeRequest): readonly Wor
       ? { ...edge, contextSource: { ...edge.contextSource, nodeKey: newKey } }
       : edge,
   );
-}
-
-function moveRow<T extends Readonly<{ rowID: string }>>(
-  rows: readonly T[],
-  rowID: string,
-  direction: -1 | 1,
-): readonly T[] {
-  const index = rows.findIndex((row) => row.rowID === rowID);
-  const nextIndex = index + direction;
-  if (index < 0 || nextIndex < 0 || nextIndex >= rows.length) {
-    return rows;
-  }
-  const next = [...rows];
-  const [item] = next.splice(index, 1);
-  if (item === undefined) {
-    return rows;
-  }
-  next.splice(nextIndex, 0, item);
-  return next;
 }
 
 function reorderRow<T extends Readonly<{ rowID: string }>>(

@@ -2477,6 +2477,16 @@ WITH board_node_task_ids AS (
     UNION
     SELECT
         t.id
+    FROM task_transition_records tt
+    JOIN task_records t ON t.id = tt.task_id
+    WHERE tt.source_node_id = ?5
+      AND tt.state = 'pending_approval'
+      AND t.project_id = ?6
+      AND t.workflow_id = ?7
+      AND t.canceled_at_unix_ms = 0
+    UNION
+    SELECT
+        t.id
     FROM task_records t
     WHERE t.project_id = ?6
       AND t.workflow_id = ?7
@@ -2576,6 +2586,79 @@ func (q *Queries) ListBoardNodeTasks(ctx context.Context, arg ListBoardNodeTasks
 			&i.CreatedAtUnixMs,
 			&i.UpdatedAtUnixMs,
 			&i.MetadataJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingApprovalSourcePlacementsByTasks = `-- name: ListPendingApprovalSourcePlacementsByTasks :many
+SELECT
+    CAST(COALESCE('pending-approval:' || id, '') AS TEXT) AS id,
+    task_id,
+    COALESCE(source_node_id, '') AS node_id,
+    'waiting_approval' AS state,
+    '' AS created_by_transition_id,
+    CAST(NULL AS TEXT) AS parallel_batch_transition_id,
+    CAST(NULL AS TEXT) AS parallel_branch_edge_id,
+    created_at_unix_ms,
+    created_at_unix_ms AS updated_at_unix_ms
+FROM task_transition_records
+WHERE task_id IN (/*SLICE:task_ids*/?)
+  AND state = 'pending_approval'
+  AND trim(source_node_id) != ''
+ORDER BY task_id ASC, created_at_unix_ms ASC, id ASC
+`
+
+type ListPendingApprovalSourcePlacementsByTasksRow struct {
+	ID                        string
+	TaskID                    string
+	NodeID                    string
+	State                     string
+	CreatedByTransitionID     string
+	ParallelBatchTransitionID sql.NullString
+	ParallelBranchEdgeID      sql.NullString
+	CreatedAtUnixMs           int64
+	UpdatedAtUnixMs           int64
+}
+
+func (q *Queries) ListPendingApprovalSourcePlacementsByTasks(ctx context.Context, taskIds []string) ([]ListPendingApprovalSourcePlacementsByTasksRow, error) {
+	query := listPendingApprovalSourcePlacementsByTasks
+	var queryParams []interface{}
+	if len(taskIds) > 0 {
+		for _, v := range taskIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:task_ids*/?", strings.Repeat(",?", len(taskIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:task_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPendingApprovalSourcePlacementsByTasksRow
+	for rows.Next() {
+		var i ListPendingApprovalSourcePlacementsByTasksRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.NodeID,
+			&i.State,
+			&i.CreatedByTransitionID,
+			&i.ParallelBatchTransitionID,
+			&i.ParallelBranchEdgeID,
+			&i.CreatedAtUnixMs,
+			&i.UpdatedAtUnixMs,
 		); err != nil {
 			return nil, err
 		}

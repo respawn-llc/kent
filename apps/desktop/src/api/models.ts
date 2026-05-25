@@ -7,6 +7,10 @@ export type ServerCause = Readonly<{
   diagnosticID: string;
 }>;
 
+export type SubagentRoleSummary = Readonly<{
+  name: string;
+}>;
+
 export type ServerReadiness = Readonly<{
   ready: boolean;
   serverID: string;
@@ -16,6 +20,7 @@ export type ServerReadiness = Readonly<{
   authReady: boolean;
   authRequired: boolean;
   endpoint: string;
+  subagentRoles: readonly SubagentRoleSummary[];
   causes: readonly ServerCause[];
 }>;
 

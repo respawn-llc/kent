@@ -12,6 +12,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
       "@builder/desktop-native-bridge": fileURLToPath(
         new URL("./packages/native-bridge/src/index.ts", import.meta.url),
       ),
