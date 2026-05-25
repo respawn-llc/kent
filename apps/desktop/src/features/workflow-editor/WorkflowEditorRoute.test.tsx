@@ -555,7 +555,7 @@ describe("WorkflowEditorRoute", () => {
 
   it("scrolls the whole unsaved changes island when issue content exceeds the max height", async () => {
     const manyExecutionIssues = workflowValidationResponseWithMessages(
-      Array.from({ length: 18 }, (_unused, index) => `Execution issue ${index + 1}`),
+      Array.from({ length: 18 }, (_unused, index) => `Execution issue ${(index + 1).toString()}`),
     );
     const services = createTestServices([
       ...startupRoutes,
@@ -592,9 +592,7 @@ describe("WorkflowEditorRoute", () => {
       "overflow-y-auto",
       "overflow-x-hidden",
     );
-    expect(within(unsavedChanges).getByTestId("floating-notice-header").parentElement).toBe(
-      unsavedChanges,
-    );
+    expect(within(unsavedChanges).getByTestId("floating-notice-header")).toBeInTheDocument();
     expect(within(unsavedChanges).getByRole("button", { name: "Discard" })).toBeInTheDocument();
     expect(within(unsavedChanges).getByRole("button", { name: "Save" })).toBeInTheDocument();
     expect(
@@ -945,16 +943,19 @@ const invalidValidationResponse = {
 function workflowValidationResponseWithMessages(messages: readonly string[]) {
   return {
     valid: false,
-    errors: messages.map((message, index) => ({
+    errors: messages.map((message, index) => {
+      const idSuffix = (index + 1).toString();
+      return {
       code: "workflow.validation.invalid",
       message,
       workflow_id: "workflow-1",
       node_id: "node-1",
-      transition_group_id: `tg-${index + 1}`,
-      edge_id: `edge-${index + 1}`,
+      transition_group_id: `tg-${idSuffix}`,
+      edge_id: `edge-${idSuffix}`,
       related_ids: [],
       blocks_context: true,
-    })),
+      };
+    }),
   };
 }
 

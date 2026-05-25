@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
 
 import type { WorkflowValidationError } from "../../api";
+import { workflowValidationErrorDetails } from "./workflowValidationErrorDetails";
 
 export type WorkflowValidationIssuesProps = Readonly<{
   errors: readonly WorkflowValidationError[];
@@ -34,22 +34,6 @@ export function WorkflowValidationErrorDetailsLine({
 }: Readonly<{ error: WorkflowValidationError }>) {
   const { t } = useTranslation();
   return <WorkflowValidationErrorDetailsText details={workflowValidationErrorDetails(error, t)} as="p" />;
-}
-
-export function workflowValidationErrorDetails(
-  error: WorkflowValidationError,
-  t: TFunction,
-): readonly string[] {
-  return [
-    detail(t("workflowEditor.validationDetailInput"), error.details.inputName),
-    detail(t("workflowEditor.validationDetailField"), error.details.fieldName),
-    detail(t("workflowEditor.validationDetailPlaceholder"), error.details.placeholder),
-    detail(t("workflowEditor.validationDetailProviderEdge"), error.details.providerEdgeID),
-  ].filter((item): item is string => item !== null);
-}
-
-function detail(label: string, value: string): string | null {
-  return value.length === 0 ? null : `${label}: ${value}`;
 }
 
 function WorkflowValidationErrorDetailsText({

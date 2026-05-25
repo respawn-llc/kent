@@ -60,9 +60,13 @@ describe("workflowEditorDraft", () => {
   });
 
   it("assigns one join provider per input", () => {
+    const baseNode = workflowDefinition.nodes[0];
+    if (baseNode === undefined) {
+      throw new Error("Expected workflow fixture to include a node.");
+    }
     const withJoin = {
       ...workflowDefinition,
-      nodes: [...workflowDefinition.nodes, { ...workflowDefinition.nodes[0]!, id: "node-join", kind: "join" }],
+      nodes: [...workflowDefinition.nodes, { ...baseNode, id: "node-join", kind: "join" }],
     };
     const assigned = workflowEditorDraftReducer(initializeWorkflowEditorDraft(withJoin), {
       inputName: "plan",
@@ -83,11 +87,15 @@ describe("workflowEditorDraft", () => {
   });
 
   it("treats join provider assignments as stable mappings instead of order-sensitive rows", () => {
+    const baseNode = workflowDefinition.nodes[0];
+    if (baseNode === undefined) {
+      throw new Error("Expected workflow fixture to include a node.");
+    }
     const source = {
       ...workflowDefinition,
       nodes: [
         {
-          ...workflowDefinition.nodes[0]!,
+          ...baseNode,
           id: "node-join",
           joinInputProviders: [
             { inputName: "first", providerEdgeID: "edge-first" },
@@ -108,11 +116,15 @@ describe("workflowEditorDraft", () => {
       { inputName: "first", providerEdgeID: "edge-first-updated" },
       { inputName: "second", providerEdgeID: "edge-second" },
     ]);
+    const reorderedNode = source.nodes[0];
+    if (reorderedNode === undefined) {
+      throw new Error("Expected source fixture to include a node.");
+    }
     expect(
       workflowEditorDirtyState(
         initializeWorkflowEditorDraft({
           ...source,
-          nodes: [{ ...source.nodes[0]!, joinInputProviders: [...source.nodes[0]!.joinInputProviders].reverse() }],
+          nodes: [{ ...reorderedNode, joinInputProviders: [...reorderedNode.joinInputProviders].reverse() }],
         }),
       ),
     ).toEqual({ dirty: false, graphDirty: false, metadataDirty: false });
