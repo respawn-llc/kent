@@ -959,6 +959,61 @@ func (q *Queries) GetTask(ctx context.Context, id string) (TaskRecord, error) {
 	return i, err
 }
 
+const getTaskByProjectShortID = `-- name: GetTaskByProjectShortID :one
+SELECT
+    id,
+    project_id,
+    project_workflow_link_id,
+    workflow_id,
+    workflow_revision_seen,
+    task_seq,
+    short_id,
+    title,
+    body,
+    source_url,
+    source_workspace_id,
+    managed_worktree_id,
+    canceled_at_unix_ms,
+    cancellation_reason,
+    created_at_unix_ms,
+    updated_at_unix_ms,
+    metadata_json
+FROM task_records
+WHERE project_id = ?1
+  AND short_id = ?2
+LIMIT 1
+`
+
+type GetTaskByProjectShortIDParams struct {
+	ProjectID string
+	ShortID   string
+}
+
+func (q *Queries) GetTaskByProjectShortID(ctx context.Context, arg GetTaskByProjectShortIDParams) (TaskRecord, error) {
+	row := q.db.QueryRowContext(ctx, getTaskByProjectShortID, arg.ProjectID, arg.ShortID)
+	var i TaskRecord
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.ProjectWorkflowLinkID,
+		&i.WorkflowID,
+		&i.WorkflowRevisionSeen,
+		&i.TaskSeq,
+		&i.ShortID,
+		&i.Title,
+		&i.Body,
+		&i.SourceUrl,
+		&i.SourceWorkspaceID,
+		&i.ManagedWorktreeID,
+		&i.CanceledAtUnixMs,
+		&i.CancellationReason,
+		&i.CreatedAtUnixMs,
+		&i.UpdatedAtUnixMs,
+		&i.MetadataJson,
+	)
+	return i, err
+}
+
 const getTaskRun = `-- name: GetTaskRun :one
 SELECT
     id,
@@ -3550,6 +3605,71 @@ ORDER BY updated_at_unix_ms DESC, (
 
 func (q *Queries) ListTasksByProject(ctx context.Context, projectID string) ([]TaskRecord, error) {
 	rows, err := q.db.QueryContext(ctx, listTasksByProject, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TaskRecord
+	for rows.Next() {
+		var i TaskRecord
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.ProjectWorkflowLinkID,
+			&i.WorkflowID,
+			&i.WorkflowRevisionSeen,
+			&i.TaskSeq,
+			&i.ShortID,
+			&i.Title,
+			&i.Body,
+			&i.SourceUrl,
+			&i.SourceWorkspaceID,
+			&i.ManagedWorktreeID,
+			&i.CanceledAtUnixMs,
+			&i.CancellationReason,
+			&i.CreatedAtUnixMs,
+			&i.UpdatedAtUnixMs,
+			&i.MetadataJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTasksByShortID = `-- name: ListTasksByShortID :many
+SELECT
+    id,
+    project_id,
+    project_workflow_link_id,
+    workflow_id,
+    workflow_revision_seen,
+    task_seq,
+    short_id,
+    title,
+    body,
+    source_url,
+    source_workspace_id,
+    managed_worktree_id,
+    canceled_at_unix_ms,
+    cancellation_reason,
+    created_at_unix_ms,
+    updated_at_unix_ms,
+    metadata_json
+FROM task_records
+WHERE short_id = ?1
+ORDER BY created_at_unix_ms ASC, id ASC
+`
+
+func (q *Queries) ListTasksByShortID(ctx context.Context, shortID string) ([]TaskRecord, error) {
+	rows, err := q.db.QueryContext(ctx, listTasksByShortID, shortID)
 	if err != nil {
 		return nil, err
 	}

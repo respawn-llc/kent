@@ -682,6 +682,53 @@ FROM task_records
 WHERE id = sqlc.arg(id)
 LIMIT 1;
 
+-- name: GetTaskByProjectShortID :one
+SELECT
+    id,
+    project_id,
+    project_workflow_link_id,
+    workflow_id,
+    workflow_revision_seen,
+    task_seq,
+    short_id,
+    title,
+    body,
+    source_url,
+    source_workspace_id,
+    managed_worktree_id,
+    canceled_at_unix_ms,
+    cancellation_reason,
+    created_at_unix_ms,
+    updated_at_unix_ms,
+    metadata_json
+FROM task_records
+WHERE project_id = sqlc.arg(project_id)
+  AND short_id = sqlc.arg(short_id)
+LIMIT 1;
+
+-- name: ListTasksByShortID :many
+SELECT
+    id,
+    project_id,
+    project_workflow_link_id,
+    workflow_id,
+    workflow_revision_seen,
+    task_seq,
+    short_id,
+    title,
+    body,
+    source_url,
+    source_workspace_id,
+    managed_worktree_id,
+    canceled_at_unix_ms,
+    cancellation_reason,
+    created_at_unix_ms,
+    updated_at_unix_ms,
+    metadata_json
+FROM task_records
+WHERE short_id = sqlc.arg(short_id)
+ORDER BY created_at_unix_ms ASC, id ASC;
+
 -- name: UpdateTaskManagedWorktree :execrows
 UPDATE tasks
 SET

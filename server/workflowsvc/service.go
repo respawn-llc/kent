@@ -806,7 +806,17 @@ func (s *Service) GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTas
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowTaskGetResponse{}, err
 	}
-	detail, err := s.view.GetTask(ctx, req.TaskID)
+	var (
+		detail serverapi.WorkflowTaskDetail
+		err    error
+	)
+	if strings.TrimSpace(req.TaskID) != "" {
+		detail, err = s.view.GetTask(ctx, req.TaskID)
+	} else if strings.TrimSpace(req.ProjectID) != "" {
+		detail, err = s.view.GetTaskByProjectShortID(ctx, req.ProjectID, req.ShortID)
+	} else {
+		detail, err = s.view.GetTaskByShortID(ctx, req.ShortID)
+	}
 	if err != nil {
 		return serverapi.WorkflowTaskGetResponse{}, err
 	}

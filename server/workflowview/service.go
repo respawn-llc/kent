@@ -400,6 +400,46 @@ func (s *Service) GetTask(ctx context.Context, taskID string) (serverapi.Workflo
 	return detail, nil
 }
 
+func (s *Service) GetTaskByProjectShortID(ctx context.Context, projectID string, shortID string) (serverapi.WorkflowTaskDetail, error) {
+	if s == nil {
+		return serverapi.WorkflowTaskDetail{}, errors.New("workflow view service is required")
+	}
+	trimmedProjectID := strings.TrimSpace(projectID)
+	if trimmedProjectID == "" {
+		return serverapi.WorkflowTaskDetail{}, errors.New("project_id is required")
+	}
+	trimmedShortID := strings.TrimSpace(shortID)
+	if trimmedShortID == "" {
+		return serverapi.WorkflowTaskDetail{}, errors.New("short_id is required")
+	}
+	task, err := s.queries.GetTaskByProjectShortID(ctx, sqlitegen.GetTaskByProjectShortIDParams{ProjectID: trimmedProjectID, ShortID: trimmedShortID})
+	if err != nil {
+		return serverapi.WorkflowTaskDetail{}, err
+	}
+	return s.GetTask(ctx, task.ID)
+}
+
+func (s *Service) GetTaskByShortID(ctx context.Context, shortID string) (serverapi.WorkflowTaskDetail, error) {
+	if s == nil {
+		return serverapi.WorkflowTaskDetail{}, errors.New("workflow view service is required")
+	}
+	trimmedShortID := strings.TrimSpace(shortID)
+	if trimmedShortID == "" {
+		return serverapi.WorkflowTaskDetail{}, errors.New("short_id is required")
+	}
+	tasks, err := s.queries.ListTasksByShortID(ctx, trimmedShortID)
+	if err != nil {
+		return serverapi.WorkflowTaskDetail{}, err
+	}
+	if len(tasks) == 0 {
+		return serverapi.WorkflowTaskDetail{}, sql.ErrNoRows
+	}
+	if len(tasks) > 1 {
+		return serverapi.WorkflowTaskDetail{}, fmt.Errorf("task short_id %q is ambiguous; use task id", trimmedShortID)
+	}
+	return s.GetTask(ctx, tasks[0].ID)
+}
+
 func (s *Service) ListTaskActivity(ctx context.Context, req serverapi.WorkflowTaskActivityListRequest) (serverapi.WorkflowTaskActivityListResponse, error) {
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowTaskActivityListResponse{}, err

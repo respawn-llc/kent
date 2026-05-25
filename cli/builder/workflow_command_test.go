@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
@@ -500,6 +501,97 @@ func TestTaskListFetchesPaginatedBoardCardsWithoutDuplicates(t *testing.T) {
 	if len(remote.requests) != 2 || remote.requests[1].PageToken != "next" {
 		t.Fatalf("board requests = %+v, want initial fetch plus next page", remote.requests)
 	}
+}
+
+func TestTaskShowFindsSameProjectTaskOutsideSelectedWorkflow(t *testing.T) {
+	cfg, binding, remote := newWorkflowCommandLoopback(t)
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	defaultWorkflowID := createRunnableWorkflowForCommandTest(t, "Default Workflow")
+	if _, linkErr, code := runWorkflowRootCommand("workflow", "link", binding.ProjectID, defaultWorkflowID, "--default"); code != 0 {
+		t.Fatalf("default workflow link exit=%d stderr=%q", code, linkErr)
+	}
+	otherWorkflowID := createRunnableWorkflowForCommandTest(t, "Other Workflow")
+	if _, linkErr, code := runWorkflowRootCommand("workflow", "link", binding.ProjectID, otherWorkflowID); code != 0 {
+		t.Fatalf("other workflow link exit=%d stderr=%q", code, linkErr)
+	}
+	taskOut, taskErr, code := runWorkflowRootCommand("task", "create", "--title", "Other Task", "--body", "Body", "--workflow", otherWorkflowID, "--project", binding.ProjectID)
+	if code != 0 {
+		t.Fatalf("task create exit=%d stderr=%q", code, taskErr)
+	}
+	taskID := labeledOutputValue(t, taskOut, "task_id")
+	shortID := labeledOutputValue(t, taskOut, "short_id")
+	showOut, showErr, code := runWorkflowRootCommand("task", "show", "--project", binding.ProjectID, shortID)
+	if code != 0 {
+		t.Fatalf("task show exit=%d stderr=%q", code, showErr)
+	}
+	if !strings.Contains(showOut, "task_id\t"+taskID) {
+		t.Fatalf("task show output = %q, want task id %s", showOut, taskID)
+	}
+	if strings.Contains(showOut, "[Note:") {
+		t.Fatalf("task show output = %q, did not expect cross-project note", showOut)
+	}
+}
+
+func TestTaskShowWarnsWhenShortIDBelongsToAnotherKnownProject(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &crossProjectTaskShowRemote{}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	stdout, stderr, code := runWorkflowRootCommand("task", "show", "--project", "project-current", "OTH-1")
+	if code != 0 {
+		t.Fatalf("task show exit=%d stderr=%q", code, stderr)
+	}
+	if !strings.HasPrefix(stdout, "[Note: This task belongs to another project OTH]\n") {
+		t.Fatalf("task show output = %q, want cross-project note first", stdout)
+	}
+	if !strings.Contains(stdout, "task_id\ttask-other") {
+		t.Fatalf("task show output = %q, want other task", stdout)
+	}
+}
+
+func createRunnableWorkflowForCommandTest(t *testing.T, name string) string {
+	t.Helper()
+	workflowOut, workflowErr, code := runWorkflowRootCommand("workflow", "create", name)
+	if code != 0 {
+		t.Fatalf("workflow create exit=%d stderr=%q", code, workflowErr)
+	}
+	workflowID := labeledOutputValue(t, workflowOut, "workflow_id")
+	if _, nodeErr, code := runWorkflowRootCommand("workflow", "node", "add", workflowID, "--key", "implement", "--kind", "agent", "--agent", "workflow-test", "--prompt", "Do work"); code != 0 {
+		t.Fatalf("workflow node add exit=%d stderr=%q", code, nodeErr)
+	}
+	if _, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "implement", "--context", "new_session"); code != 0 {
+		t.Fatalf("workflow start edge add exit=%d stderr=%q", code, edgeErr)
+	}
+	if _, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "implement", "--transition", "done", "--edge-key", "done", "--to", "done", "--context", "new_session"); code != 0 {
+		t.Fatalf("workflow done edge add exit=%d stderr=%q", code, edgeErr)
+	}
+	return workflowID
+}
+
+type crossProjectTaskShowRemote struct {
+	client.WorkflowClient
+}
+
+func (r *crossProjectTaskShowRemote) Close() error { return nil }
+
+func (r *crossProjectTaskShowRemote) ResolveProjectPath(context.Context, serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
+	return serverapi.ProjectResolvePathResponse{}, nil
+}
+
+func (r *crossProjectTaskShowRemote) GetWorkflowTask(_ context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
+	if req.ProjectID == "project-current" && req.ShortID == "OTH-1" {
+		return serverapi.WorkflowTaskGetResponse{}, sql.ErrNoRows
+	}
+	if req.ProjectID == "" && req.ShortID == "OTH-1" {
+		return serverapi.WorkflowTaskGetResponse{Task: serverapi.WorkflowTaskDetail{
+			Summary: serverapi.WorkflowTaskSummary{ID: "task-other", ProjectID: "project-other", WorkflowID: "workflow-other", ShortID: "OTH-1", Title: "Other Task"},
+			Project: serverapi.ProjectBoardProject{ProjectID: "project-other", ProjectKey: "OTH", DisplayName: "Other"},
+		}}, nil
+	}
+	return serverapi.WorkflowTaskGetResponse{}, sql.ErrNoRows
 }
 
 func testTaskCard(taskID string, shortID string, title string) serverapi.WorkflowBoardTaskCard {

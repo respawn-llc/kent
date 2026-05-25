@@ -80,6 +80,15 @@ func TestWorkflowTaskAndCommentRequestValidation(t *testing.T) {
 	if err := (WorkflowTaskStartRequest{TaskID: "task-1"}).Validate(); err != nil {
 		t.Fatalf("valid task start rejected: %v", err)
 	}
+	if err := (WorkflowTaskGetRequest{ProjectID: "project-1", ShortID: "BLD-1"}).Validate(); err != nil {
+		t.Fatalf("valid task get by short id rejected: %v", err)
+	}
+	if err := (WorkflowTaskGetRequest{ShortID: "BLD-1"}).Validate(); err != nil {
+		t.Fatalf("valid task get by globally unique short id rejected: %v", err)
+	}
+	if err := (WorkflowTaskGetRequest{ProjectID: "project-1", ShortID: " "}).Validate(); err == nil || !strings.Contains(err.Error(), "short_id") {
+		t.Fatalf("empty get short id error = %v", err)
+	}
 	if err := (WorkflowTaskResumeRequest{TaskID: "task-1"}).Validate(); err != nil {
 		t.Fatalf("valid task resume rejected: %v", err)
 	}

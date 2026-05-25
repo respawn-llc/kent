@@ -869,7 +869,9 @@ type WorkflowBoardNode struct {
 }
 
 type WorkflowTaskGetRequest struct {
-	TaskID string `json:"task_id"`
+	TaskID    string `json:"task_id,omitempty"`
+	ProjectID string `json:"project_id,omitempty"`
+	ShortID   string `json:"short_id,omitempty"`
 }
 
 type WorkflowTaskGetResponse struct {
@@ -1570,7 +1572,28 @@ func (r WorkflowSubscribeRequest) Validate() error {
 }
 
 func (r WorkflowTaskGetRequest) Validate() error {
-	return validateRequired("task_id", r.TaskID)
+	taskID := strings.TrimSpace(r.TaskID)
+	projectID := strings.TrimSpace(r.ProjectID)
+	shortID := strings.TrimSpace(r.ShortID)
+	if taskID != "" {
+		if taskID != r.TaskID {
+			return workflowRequestError(WorkflowRequestErrorInvalidMode, "task_id", "task_id must not have leading or trailing whitespace")
+		}
+		return nil
+	}
+	if projectID == "" && shortID == "" {
+		return workflowRequestError(WorkflowRequestErrorRequired, "task_id", "task_id or short_id is required")
+	}
+	if projectID != "" && projectID != r.ProjectID {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "project_id", "project_id must not have leading or trailing whitespace")
+	}
+	if shortID == "" {
+		return validateRequired("short_id", r.ShortID)
+	}
+	if shortID != r.ShortID {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "short_id", "short_id must not have leading or trailing whitespace")
+	}
+	return nil
 }
 
 func (r WorkflowTaskActivityListRequest) Validate() error {
