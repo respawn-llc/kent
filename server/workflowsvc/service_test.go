@@ -125,6 +125,11 @@ func TestServiceCreatesAndUpdatesTaskSourceWorkspaceBeforeStart(t *testing.T) {
 		t.Fatalf("SubscribeWorkflowProject: %v", err)
 	}
 	defer func() { _ = sub.Close() }()
+	workflowSub, err := service.SubscribeWorkflow(ctx, serverapi.WorkflowSubscribeRequest{WorkflowID: workflowID})
+	if err != nil {
+		t.Fatalf("SubscribeWorkflow: %v", err)
+	}
+	defer func() { _ = workflowSub.Close() }()
 
 	created, err := service.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Details", SourceWorkspaceID: source.WorkspaceID})
 	if err != nil {
@@ -876,6 +881,11 @@ func TestServiceWorkflowDeletePreviewsBlocksAndPublishesDeletion(t *testing.T) {
 		t.Fatalf("SubscribeWorkflowProject: %v", err)
 	}
 	defer func() { _ = sub.Close() }()
+	workflowSub, err := service.SubscribeWorkflow(ctx, serverapi.WorkflowSubscribeRequest{WorkflowID: workflowID})
+	if err != nil {
+		t.Fatalf("SubscribeWorkflow: %v", err)
+	}
+	defer func() { _ = workflowSub.Close() }()
 
 	blocked, err := service.DeleteWorkflow(ctx, serverapi.WorkflowDeleteRequest{WorkflowID: workflowID})
 	if err != nil {
@@ -902,6 +912,15 @@ func TestServiceWorkflowDeletePreviewsBlocksAndPublishesDeletion(t *testing.T) {
 	event := nextWorkflowProjectEvent(t, sub)
 	if event.ProjectID != binding.ProjectID || event.WorkflowID != workflowID || event.Resource != "workflow" || event.Action != "deleted" || !sameStringSet(event.ChangedIDs, []string{workflowID}) {
 		t.Fatalf("event = %+v, want workflow deleted event", event)
+	}
+	eventCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	workflowEvent, err := workflowSub.Next(eventCtx)
+	if err != nil {
+		t.Fatalf("workflow subscription delete next: %v", err)
+	}
+	if workflowEvent.ProjectID != "" || workflowEvent.WorkflowID != workflowID || workflowEvent.Resource != "workflow" || workflowEvent.Action != "deleted" || !sameStringSet(workflowEvent.ChangedIDs, []string{workflowID}) {
+		t.Fatalf("workflow-scoped delete event = %+v, want projectless workflow delete event", workflowEvent)
 	}
 	if _, err := service.GetWorkflowTask(ctx, serverapi.WorkflowTaskGetRequest{TaskID: task.Task.ID}); err == nil {
 		t.Fatalf("deleted workflow task should not remain readable")

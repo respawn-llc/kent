@@ -386,6 +386,7 @@ func (s *Service) DeleteWorkflow(ctx context.Context, req serverapi.WorkflowDele
 	if !resp.Deleted {
 		return resp, nil
 	}
+	s.publishWorkflowEvent(ctx, "", req.WorkflowID, "workflow", "deleted", req.WorkflowID)
 	seen := map[string]bool{}
 	for _, link := range links {
 		projectID := strings.TrimSpace(link.ProjectID)

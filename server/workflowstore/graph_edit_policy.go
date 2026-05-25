@@ -2,7 +2,6 @@ package workflowstore
 
 import (
 	"context"
-	"database/sql"
 	"strings"
 
 	"builder/server/metadata/sqlitegen"
@@ -46,12 +45,8 @@ func (e WorkflowGraphEditPolicyError) Error() string {
 	return strings.Join(messages, "; ")
 }
 
-type workflowGraphEditPolicyQuerier interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}
-
-func enforceWorkflowGraphEditPolicy(ctx context.Context, db workflowGraphEditPolicyQuerier, q *sqlitegen.Queries, workflowID workflow.WorkflowID, prepared preparedWorkflowGraphSave) error {
-	result, err := workflowGraphEditPolicy(ctx, db, q, workflowID, prepared)
+func enforceWorkflowGraphEditPolicy(ctx context.Context, q *sqlitegen.Queries, workflowID workflow.WorkflowID, prepared preparedWorkflowGraphSave) error {
+	result, err := workflowGraphEditPolicy(ctx, q, workflowID, prepared)
 	if err != nil {
 		return err
 	}
@@ -61,8 +56,8 @@ func enforceWorkflowGraphEditPolicy(ctx context.Context, db workflowGraphEditPol
 	return nil
 }
 
-func workflowGraphEditPolicy(ctx context.Context, db workflowGraphEditPolicyQuerier, q *sqlitegen.Queries, workflowID workflow.WorkflowID, prepared preparedWorkflowGraphSave) (WorkflowGraphEditPolicyResult, error) {
-	activeImpact, err := workflowGraphActiveWorkPolicyImpact(ctx, db, workflowID)
+func workflowGraphEditPolicy(ctx context.Context, q *sqlitegen.Queries, workflowID workflow.WorkflowID, prepared preparedWorkflowGraphSave) (WorkflowGraphEditPolicyResult, error) {
+	activeImpact, err := workflowGraphActiveWorkPolicyImpact(ctx, q, workflowID)
 	if err != nil {
 		return WorkflowGraphEditPolicyResult{}, err
 	}
@@ -83,67 +78,16 @@ func workflowGraphEditPolicy(ctx context.Context, db workflowGraphEditPolicyQuer
 	return WorkflowGraphEditPolicyResult{Impact: impact, Blockers: workflowGraphEditPolicyBlockers(impact)}, nil
 }
 
-func workflowGraphActiveWorkPolicyImpact(ctx context.Context, db workflowGraphEditPolicyQuerier, workflowID workflow.WorkflowID) (WorkflowGraphEditPolicyImpact, error) {
-	activePlacements, err := workflowGraphEditPolicyCount(ctx, db, `
-SELECT CAST(COUNT(DISTINCT p.id) AS INTEGER)
-FROM task_records t
-JOIN task_node_placements p ON p.task_id = t.id AND p.state IN ('active', 'waiting_approval')
-JOIN workflow_nodes n ON n.id = p.node_id
-WHERE t.workflow_id = ?
-  AND t.canceled_at_unix_ms = 0
-  AND n.kind NOT IN ('start', 'terminal')`, string(workflowID))
-	if err != nil {
-		return WorkflowGraphEditPolicyImpact{}, err
-	}
-	pendingApprovals, err := workflowGraphEditPolicyCount(ctx, db, `
-SELECT CAST(COUNT(DISTINCT tt.id) AS INTEGER)
-FROM task_transition_records tt
-JOIN task_records t ON t.id = tt.task_id
-WHERE t.workflow_id = ?
-  AND t.canceled_at_unix_ms = 0
-  AND tt.state = 'pending_approval'`, string(workflowID))
-	if err != nil {
-		return WorkflowGraphEditPolicyImpact{}, err
-	}
-	activeRuns, err := workflowGraphEditPolicyCount(ctx, db, `
-SELECT CAST(COUNT(DISTINCT r.id) AS INTEGER)
-FROM task_run_records r
-JOIN task_records t ON t.id = r.task_id
-JOIN task_node_placements p ON p.id = r.placement_id
-JOIN workflow_nodes n ON n.id = r.node_id
-WHERE t.workflow_id = ?
-  AND t.canceled_at_unix_ms = 0
-  AND r.started_at_unix_ms > 0
-  AND r.completed_at_unix_ms = 0
-  AND r.interrupted_at_unix_ms = 0
-  AND p.state = 'active'
-  AND n.kind = 'agent'`, string(workflowID))
-	if err != nil {
-		return WorkflowGraphEditPolicyImpact{}, err
-	}
-	runnableRuns, err := workflowGraphEditPolicyCount(ctx, db, `
-SELECT CAST(COUNT(DISTINCT r.id) AS INTEGER)
-FROM task_run_records r
-JOIN task_records t ON t.id = r.task_id
-JOIN task_node_placements p ON p.id = r.placement_id
-JOIN workflow_nodes n ON n.id = r.node_id
-WHERE t.workflow_id = ?
-  AND t.canceled_at_unix_ms = 0
-  AND r.automation_requested_at_unix_ms > 0
-  AND r.started_at_unix_ms = 0
-  AND r.completed_at_unix_ms = 0
-  AND r.interrupted_at_unix_ms = 0
-  AND r.waiting_ask_id = ''
-  AND p.state = 'active'
-  AND n.kind = 'agent'`, string(workflowID))
+func workflowGraphActiveWorkPolicyImpact(ctx context.Context, q *sqlitegen.Queries, workflowID workflow.WorkflowID) (WorkflowGraphEditPolicyImpact, error) {
+	impact, err := q.GetWorkflowGraphActiveWorkPolicyImpact(ctx, string(workflowID))
 	if err != nil {
 		return WorkflowGraphEditPolicyImpact{}, err
 	}
 	return WorkflowGraphEditPolicyImpact{
-		ActiveNodePlacementCount: activePlacements,
-		PendingApprovalCount:     pendingApprovals,
-		ActiveRunCount:           activeRuns,
-		RunnableRunCount:         runnableRuns,
+		ActiveNodePlacementCount: impact.ActiveNodePlacementCount,
+		PendingApprovalCount:     impact.PendingApprovalCount,
+		ActiveRunCount:           impact.ActiveRunCount,
+		RunnableRunCount:         impact.RunnableRunCount,
 	}, nil
 }
 
@@ -187,14 +131,6 @@ func workflowGraphStructuralPolicyImpact(ctx context.Context, q *sqlitegen.Queri
 		impact.LastTerminalChangeCount = 1
 	}
 	return impact, nil
-}
-
-func workflowGraphEditPolicyCount(ctx context.Context, db workflowGraphEditPolicyQuerier, query string, args ...any) (int64, error) {
-	var count int64
-	if err := db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
-		return 0, err
-	}
-	return count, nil
 }
 
 func workflowGraphEditPolicyBlockers(impact WorkflowGraphEditPolicyImpact) []WorkflowGraphEditPolicyBlocker {

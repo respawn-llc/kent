@@ -160,6 +160,7 @@ const workflowDefinitionActions = new Set([
   "transition_group_updated",
   "edge_added",
   "edge_updated",
+  "deleted",
   "graph_saved",
 ]);
 

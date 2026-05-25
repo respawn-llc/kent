@@ -304,9 +304,13 @@ func appendCompactionTrimLinkedProviderItems(units []compactionTrimUnit, unitIdx
 		return outputIdx
 	}
 	lastIdx := outputIdx
-	output := items[outputIdx]
+	callID := compactionTrimCallID(items[outputIdx])
+	if callID == "" {
+		return lastIdx
+	}
 	for nextIdx := outputIdx + 1; nextIdx < len(items); nextIdx++ {
-		if !llm.IsOpenAIPromotedViewImageFileItem(output, items[nextIdx]) {
+		next := items[nextIdx]
+		if next.LinkedCallID != callID || next.LinkKind != llm.ResponseItemLinkToolOutputAttachment {
 			break
 		}
 		units[unitIdx].indexes = append(units[unitIdx].indexes, nextIdx)

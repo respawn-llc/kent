@@ -20,9 +20,9 @@ const WorkflowListMaxPageSize = 100
 
 const (
 	WorkflowGraphDraftMaxNodeGroups       = 200
-	WorkflowGraphDraftMaxNodes            = 500
+	WorkflowGraphDraftMaxNodes            = 200
 	WorkflowGraphDraftMaxTransitionGroups = 1000
-	WorkflowGraphDraftMaxEdges            = 2000
+	WorkflowGraphDraftMaxEdges            = 1000
 	WorkflowGraphDraftMaxFieldsPerEntity  = 200
 )
 

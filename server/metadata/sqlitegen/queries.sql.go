@@ -1193,6 +1193,76 @@ func (q *Queries) GetWorkflowEdge(ctx context.Context, id string) (GetWorkflowEd
 	return i, err
 }
 
+const getWorkflowGraphActiveWorkPolicyImpact = `-- name: GetWorkflowGraphActiveWorkPolicyImpact :one
+SELECT
+    (
+        SELECT CAST(COUNT(DISTINCT p.id) AS INTEGER)
+        FROM task_records t
+        JOIN task_node_placements p ON p.task_id = t.id AND p.state IN ('active', 'waiting_approval')
+        JOIN workflow_nodes n ON n.id = p.node_id
+        WHERE t.workflow_id = ?1
+          AND t.canceled_at_unix_ms = 0
+          AND n.kind NOT IN ('start', 'terminal')
+    ) AS active_node_placement_count,
+    (
+        SELECT CAST(COUNT(DISTINCT tt.id) AS INTEGER)
+        FROM task_transition_records tt
+        JOIN task_records t ON t.id = tt.task_id
+        WHERE t.workflow_id = ?1
+          AND t.canceled_at_unix_ms = 0
+          AND tt.state = 'pending_approval'
+    ) AS pending_approval_count,
+    (
+        SELECT CAST(COUNT(DISTINCT r.id) AS INTEGER)
+        FROM task_run_records r
+        JOIN task_records t ON t.id = r.task_id
+        JOIN task_node_placements p ON p.id = r.placement_id
+        JOIN workflow_nodes n ON n.id = r.node_id
+        WHERE t.workflow_id = ?1
+          AND t.canceled_at_unix_ms = 0
+          AND r.started_at_unix_ms > 0
+          AND r.completed_at_unix_ms = 0
+          AND r.interrupted_at_unix_ms = 0
+          AND p.state = 'active'
+          AND n.kind = 'agent'
+    ) AS active_run_count,
+    (
+        SELECT CAST(COUNT(DISTINCT r.id) AS INTEGER)
+        FROM task_run_records r
+        JOIN task_records t ON t.id = r.task_id
+        JOIN task_node_placements p ON p.id = r.placement_id
+        JOIN workflow_nodes n ON n.id = r.node_id
+        WHERE t.workflow_id = ?1
+          AND t.canceled_at_unix_ms = 0
+          AND r.automation_requested_at_unix_ms > 0
+          AND r.started_at_unix_ms = 0
+          AND r.completed_at_unix_ms = 0
+          AND r.interrupted_at_unix_ms = 0
+          AND r.waiting_ask_id = ''
+          AND p.state = 'active'
+          AND n.kind = 'agent'
+    ) AS runnable_run_count
+`
+
+type GetWorkflowGraphActiveWorkPolicyImpactRow struct {
+	ActiveNodePlacementCount int64
+	PendingApprovalCount     int64
+	ActiveRunCount           int64
+	RunnableRunCount         int64
+}
+
+func (q *Queries) GetWorkflowGraphActiveWorkPolicyImpact(ctx context.Context, workflowID string) (GetWorkflowGraphActiveWorkPolicyImpactRow, error) {
+	row := q.db.QueryRowContext(ctx, getWorkflowGraphActiveWorkPolicyImpact, workflowID)
+	var i GetWorkflowGraphActiveWorkPolicyImpactRow
+	err := row.Scan(
+		&i.ActiveNodePlacementCount,
+		&i.PendingApprovalCount,
+		&i.ActiveRunCount,
+		&i.RunnableRunCount,
+	)
+	return i, err
+}
+
 const getWorkflowNode = `-- name: GetWorkflowNode :one
 SELECT
     id,
@@ -4275,6 +4345,35 @@ type UpdateWorkflowInfoParams struct {
 
 func (q *Queries) UpdateWorkflowInfo(ctx context.Context, arg UpdateWorkflowInfoParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateWorkflowInfo,
+		arg.Name,
+		arg.Description,
+		arg.UpdatedAtUnixMs,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateWorkflowInfoWithoutVersion = `-- name: UpdateWorkflowInfoWithoutVersion :execrows
+UPDATE workflows
+SET
+    name = ?1,
+    description = ?2,
+    updated_at_unix_ms = ?3
+WHERE id = ?4
+`
+
+type UpdateWorkflowInfoWithoutVersionParams struct {
+	Name            string
+	Description     string
+	UpdatedAtUnixMs int64
+	ID              string
+}
+
+func (q *Queries) UpdateWorkflowInfoWithoutVersion(ctx context.Context, arg UpdateWorkflowInfoWithoutVersionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateWorkflowInfoWithoutVersion,
 		arg.Name,
 		arg.Description,
 		arg.UpdatedAtUnixMs,

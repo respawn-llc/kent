@@ -414,56 +414,14 @@ func promotedOpenAIViewImageFileItems(item ResponseItem) ([]ResponseItem, bool) 
 	return []ResponseItem{
 		output,
 		{
-			Type:   ResponseItemTypeOther,
-			Name:   string(toolspec.ToolViewImage),
-			CallID: callID,
-			Raw:    promotedRaw,
+			Type:         ResponseItemTypeOther,
+			Name:         string(toolspec.ToolViewImage),
+			CallID:       callID,
+			Raw:          promotedRaw,
+			LinkedCallID: callID,
+			LinkKind:     ResponseItemLinkToolOutputAttachment,
 		},
 	}, true
-}
-
-// IsOpenAIPromotedViewImageFileItem reports whether candidate is the provider
-// input-message item materialized from a view_image function_call_output that
-// contains input_file content. It supports older prepared items that predate
-// CallID metadata by falling back to adjacency-based pairing at the caller.
-func IsOpenAIPromotedViewImageFileItem(output ResponseItem, candidate ResponseItem) bool {
-	if output.Type != ResponseItemTypeFunctionCallOutput || strings.TrimSpace(output.Name) != string(toolspec.ToolViewImage) {
-		return false
-	}
-	if candidate.Type != ResponseItemTypeOther {
-		return false
-	}
-	if candidate.Name != "" && strings.TrimSpace(candidate.Name) != string(toolspec.ToolViewImage) {
-		return false
-	}
-	if candidate.CallID != "" && strings.TrimSpace(candidate.CallID) != strings.TrimSpace(output.CallID) {
-		return false
-	}
-	return openAIInputMessageRawHasInputFile(candidate.Raw)
-}
-
-func openAIInputMessageRawHasInputFile(raw json.RawMessage) bool {
-	if len(bytes.TrimSpace(raw)) == 0 || !json.Valid(raw) {
-		return false
-	}
-	var decoded struct {
-		Type    string            `json:"type"`
-		Role    string            `json:"role"`
-		Content []json.RawMessage `json:"content"`
-	}
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return false
-	}
-	if strings.TrimSpace(decoded.Type) != "message" || strings.TrimSpace(decoded.Role) != string(RoleUser) {
-		return false
-	}
-	for _, rawContent := range decoded.Content {
-		content, ok := openAIInputContentItemFromRaw(rawContent)
-		if ok && content.Type == "input_file" {
-			return true
-		}
-	}
-	return false
 }
 
 func promotedOpenAIInputMessageRaw(content []openAIInputContentRaw) (json.RawMessage, bool) {

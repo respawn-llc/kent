@@ -453,7 +453,7 @@ func (s *Store) AddNode(ctx context.Context, node NodeRecord) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, node.WorkflowID, withWorkflowGraphNode(currentGraph, node)); err != nil {
+	if err := enforceWorkflowGraphEditPolicy(ctx, q, node.WorkflowID, withWorkflowGraphNode(currentGraph, node)); err != nil {
 		return 0, err
 	}
 	groupID, err := resolveWorkflowNodeGroupID(ctx, q, string(node.WorkflowID), node.GroupID, node.GroupKey)
@@ -505,7 +505,7 @@ func (s *Store) UpdateNode(ctx context.Context, node NodeRecord) (int64, error) 
 	if err != nil {
 		return 0, err
 	}
-	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, node.WorkflowID, withWorkflowGraphNode(currentGraph, node)); err != nil {
+	if err := enforceWorkflowGraphEditPolicy(ctx, q, node.WorkflowID, withWorkflowGraphNode(currentGraph, node)); err != nil {
 		return 0, err
 	}
 	groupID, err := resolveWorkflowNodeGroupID(ctx, q, string(node.WorkflowID), node.GroupID, node.GroupKey)
@@ -577,7 +577,7 @@ func (s *Store) AddNodeGroup(ctx context.Context, group NodeGroupRecord) (NodeGr
 	if err != nil {
 		return NodeGroupRecord{}, 0, err
 	}
-	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, group.WorkflowID, withWorkflowGraphNodeGroup(currentGraph, group)); err != nil {
+	if err := enforceWorkflowGraphEditPolicy(ctx, q, group.WorkflowID, withWorkflowGraphNodeGroup(currentGraph, group)); err != nil {
 		return NodeGroupRecord{}, 0, err
 	}
 	if err := q.InsertWorkflowNodeGroup(ctx, sqlitegen.InsertWorkflowNodeGroupParams{ID: group.ID, WorkflowID: string(group.WorkflowID), GroupKey: string(group.Key), DisplayName: strings.TrimSpace(group.DisplayName), SortOrder: group.SortOrder}); err != nil {
@@ -616,7 +616,7 @@ func (s *Store) UpdateNodeGroup(ctx context.Context, group NodeGroupRecord) (Nod
 	if err != nil {
 		return NodeGroupRecord{}, 0, err
 	}
-	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, group.WorkflowID, withWorkflowGraphNodeGroup(currentGraph, group)); err != nil {
+	if err := enforceWorkflowGraphEditPolicy(ctx, q, group.WorkflowID, withWorkflowGraphNodeGroup(currentGraph, group)); err != nil {
 		return NodeGroupRecord{}, 0, err
 	}
 	updated, err := q.UpdateWorkflowNodeGroup(ctx, sqlitegen.UpdateWorkflowNodeGroupParams{ID: group.ID, WorkflowID: string(group.WorkflowID), GroupKey: string(group.Key), DisplayName: strings.TrimSpace(group.DisplayName), SortOrder: group.SortOrder})
@@ -660,7 +660,7 @@ func (s *Store) DeleteNodeGroup(ctx context.Context, workflowID workflow.Workflo
 	if err != nil {
 		return 0, err
 	}
-	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, workflowID, withoutWorkflowGraphNodeGroup(currentGraph, strings.TrimSpace(groupID))); err != nil {
+	if err := enforceWorkflowGraphEditPolicy(ctx, q, workflowID, withoutWorkflowGraphNodeGroup(currentGraph, strings.TrimSpace(groupID))); err != nil {
 		return 0, err
 	}
 	deleted, err := q.DeleteWorkflowNodeGroup(ctx, sqlitegen.DeleteWorkflowNodeGroupParams{ID: strings.TrimSpace(groupID), WorkflowID: string(workflowID)})
@@ -728,7 +728,7 @@ func (s *Store) AddTransitionGroup(ctx context.Context, group TransitionGroupRec
 	if err != nil {
 		return 0, err
 	}
-	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, group.WorkflowID, withWorkflowGraphTransitionGroup(currentGraph, group)); err != nil {
+	if err := enforceWorkflowGraphEditPolicy(ctx, q, group.WorkflowID, withWorkflowGraphTransitionGroup(currentGraph, group)); err != nil {
 		return 0, err
 	}
 	if err := ensureWorkflowNodeID(ctx, q, string(group.WorkflowID), group.SourceNodeID); err != nil {
@@ -764,7 +764,7 @@ func (s *Store) UpdateTransitionGroup(ctx context.Context, group TransitionGroup
 	if err != nil {
 		return 0, err
 	}
-	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, group.WorkflowID, withWorkflowGraphTransitionGroup(currentGraph, group)); err != nil {
+	if err := enforceWorkflowGraphEditPolicy(ctx, q, group.WorkflowID, withWorkflowGraphTransitionGroup(currentGraph, group)); err != nil {
 		return 0, err
 	}
 	if err := ensureWorkflowNodeID(ctx, q, string(group.WorkflowID), group.SourceNodeID); err != nil {
@@ -832,7 +832,7 @@ func (s *Store) AddEdge(ctx context.Context, edge EdgeRecord) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, edge.WorkflowID, withWorkflowGraphEdge(currentGraph, edge)); err != nil {
+	if err := enforceWorkflowGraphEditPolicy(ctx, q, edge.WorkflowID, withWorkflowGraphEdge(currentGraph, edge)); err != nil {
 		return 0, err
 	}
 	if err := ensureWorkflowTransitionGroupID(ctx, tx, string(edge.WorkflowID), edge.TransitionGroupID); err != nil {
@@ -880,7 +880,7 @@ func (s *Store) UpdateEdge(ctx context.Context, edge EdgeRecord) (int64, error) 
 	if err != nil {
 		return 0, err
 	}
-	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, edge.WorkflowID, withWorkflowGraphEdge(currentGraph, edge)); err != nil {
+	if err := enforceWorkflowGraphEditPolicy(ctx, q, edge.WorkflowID, withWorkflowGraphEdge(currentGraph, edge)); err != nil {
 		return 0, err
 	}
 	if err := ensureWorkflowTransitionGroupID(ctx, tx, string(edge.WorkflowID), edge.TransitionGroupID); err != nil {
@@ -960,7 +960,7 @@ func (s *Store) DeleteNode(ctx context.Context, nodeID workflow.NodeID) error {
 	if err != nil {
 		return err
 	}
-	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, workflowID, withoutWorkflowGraphNode(currentGraph, nodeID)); err != nil {
+	if err := enforceWorkflowGraphEditPolicy(ctx, q, workflowID, withoutWorkflowGraphNode(currentGraph, nodeID)); err != nil {
 		return err
 	}
 	refs, err := q.CountTaskNodeReferences(ctx, string(nodeID))
@@ -1000,7 +1000,7 @@ func (s *Store) DeleteEdge(ctx context.Context, edgeID workflow.EdgeID) error {
 	if err != nil {
 		return err
 	}
-	if err := enforceWorkflowGraphEditPolicy(ctx, tx, q, workflowID, withoutWorkflowGraphEdge(currentGraph, edgeID)); err != nil {
+	if err := enforceWorkflowGraphEditPolicy(ctx, q, workflowID, withoutWorkflowGraphEdge(currentGraph, edgeID)); err != nil {
 		return err
 	}
 	refs, err := q.CountTaskEdgeReferences(ctx, sql.NullString{String: string(edgeID), Valid: true})

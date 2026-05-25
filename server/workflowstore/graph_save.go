@@ -73,14 +73,14 @@ type WorkflowGraphSavePlan struct {
 }
 
 func (s *Store) PreviewWorkflowGraphSave(ctx context.Context, req WorkflowGraphSaveRequest) (WorkflowGraphSaveResult, error) {
-	plan, err := s.planWorkflowGraphSave(ctx, s.db, s.queries, req)
+	plan, err := s.planWorkflowGraphSave(ctx, s.queries, req)
 	if err != nil {
 		return WorkflowGraphSaveResult{}, err
 	}
 	return plan.workflowGraphSaveResult(false), nil
 }
 
-func (s *Store) planWorkflowGraphSave(ctx context.Context, db workflowGraphEditPolicyQuerier, q *sqlitegen.Queries, req WorkflowGraphSaveRequest) (WorkflowGraphSavePlan, error) {
+func (s *Store) planWorkflowGraphSave(ctx context.Context, q *sqlitegen.Queries, req WorkflowGraphSaveRequest) (WorkflowGraphSavePlan, error) {
 	workflowID := workflow.WorkflowID(strings.TrimSpace(string(req.WorkflowID)))
 	if workflowID == "" {
 		return WorkflowGraphSavePlan{}, errors.New("workflow id is required")
@@ -134,7 +134,7 @@ func (s *Store) planWorkflowGraphSave(ctx context.Context, db workflowGraphEditP
 	if err != nil {
 		return WorkflowGraphSavePlan{}, err
 	}
-	editPolicy, err := workflowGraphEditPolicy(ctx, db, q, workflowID, prepared)
+	editPolicy, err := workflowGraphEditPolicy(ctx, q, workflowID, prepared)
 	if err != nil {
 		return WorkflowGraphSavePlan{}, err
 	}
@@ -160,7 +160,7 @@ func (s *Store) SaveWorkflowGraph(ctx context.Context, req WorkflowGraphSaveRequ
 		return WorkflowGraphSaveResult{}, err
 	}
 	q := s.queries.WithTx(tx)
-	plan, err := s.planWorkflowGraphSave(ctx, tx, q, req)
+	plan, err := s.planWorkflowGraphSave(ctx, q, req)
 	if err != nil {
 		return WorkflowGraphSaveResult{}, err
 	}
@@ -180,24 +180,14 @@ func (s *Store) SaveWorkflowGraph(ctx context.Context, req WorkflowGraphSaveRequ
 	}
 	if plan.MetadataChanged && plan.Metadata != nil {
 		if plan.GraphChanged {
-			result, err := tx.ExecContext(ctx, `
-UPDATE workflows
-SET
-    name = ?,
-    description = ?,
-    updated_at_unix_ms = ?
-WHERE id = ?`,
-				plan.Metadata.Name,
-				plan.Metadata.Description,
-				s.now().UnixMilli(),
-				string(plan.WorkflowID),
-			)
+			updated, err := q.UpdateWorkflowInfoWithoutVersion(ctx, sqlitegen.UpdateWorkflowInfoWithoutVersionParams{
+				ID:              string(plan.WorkflowID),
+				Name:            plan.Metadata.Name,
+				Description:     plan.Metadata.Description,
+				UpdatedAtUnixMs: s.now().UnixMilli(),
+			})
 			if err != nil {
 				return WorkflowGraphSaveResult{}, fmt.Errorf("update workflow metadata: %w", err)
-			}
-			updated, err := result.RowsAffected()
-			if err != nil {
-				return WorkflowGraphSaveResult{}, err
 			}
 			if updated != 1 {
 				return WorkflowGraphSaveResult{}, sql.ErrNoRows
