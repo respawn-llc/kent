@@ -33,7 +33,7 @@ Builder reads and renders the selected system prompt file once when the session 
 
 System prompt files use Go template syntax with these fields:
 
-- `{{.BuilderRunCommand}}` - command prefix for launching Builder subagents from shell, e.g. `path/to/builder.exe`
+- `{{.BuilderCommand}}` - Builder executable command, e.g. `path/to/builder.exe`. Add the subcommand you need, such as `{{.BuilderCommand}} run "<prompt>"` for subagents.
 - `{{.EstimatedToolCallsForContext}}` - estimated function/tool-call budget before compaction/handoff, exact number that varies with model context window, like `185`.
 - `{{.EditingToolName}}` - name of the tool the agent uses to modify files, like `edit` or `patch`. Varies per model.
 - `{{.DefaultSystemPrompt}}` - full text of the built-in Builder system prompt.
