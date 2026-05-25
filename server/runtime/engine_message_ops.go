@@ -22,27 +22,56 @@ func (e *Engine) persistToolCompletion(stepID string, r tools.Result) error {
 		e.ensureOrchestrationCollaborators()
 		e.backgroundFlow.ConsumePendingBackgroundNotice(sessionID)
 	}
-	payload := map[string]any{
-		"call_id":  r.CallID,
-		"name":     string(r.Name),
-		"is_error": r.IsError,
-		"output":   json.RawMessage(r.Output),
-	}
-	if r.Summary != "" {
-		payload["summary"] = r.Summary
-	}
-	if r.OngoingText != "" {
-		payload["ongoing_text"] = r.OngoingText
-	}
-	if r.Presentation != nil {
-		payload["presentation"] = r.Presentation
+	payload := storedToolCompletion{
+		CallID:        r.CallID,
+		Name:          string(r.Name),
+		IsError:       r.IsError,
+		Output:        append(json.RawMessage(nil), r.Output...),
+		Summary:       r.Summary,
+		OngoingText:   r.OngoingText,
+		Presentation:  r.Presentation,
+		ProviderItems: e.providerItemsForToolCompletion(r),
 	}
 	_, err := e.store.AppendEvent(stepID, "tool_completed", payload)
 	if err == nil {
 		e.markCurrentRequestShapeDirtyForSignificantMutation()
-		e.transcriptPersistence().RecordToolCompletion(r)
+		e.transcriptPersistence().RecordStoredToolCompletion(payload)
 	}
 	return err
+}
+
+func (e *Engine) providerItemsForToolCompletion(r tools.Result) []llm.ResponseItem {
+	callID := strings.TrimSpace(r.CallID)
+	if callID == "" {
+		return nil
+	}
+	var callItem *llm.ResponseItem
+	for _, item := range e.snapshotItems() {
+		if !isToolCallItem(item.Type) {
+			continue
+		}
+		itemCallID := strings.TrimSpace(item.CallID)
+		if itemCallID == "" {
+			itemCallID = strings.TrimSpace(item.ID)
+		}
+		if itemCallID != callID {
+			continue
+		}
+		copyItem := item
+		callItem = &copyItem
+	}
+	custom := false
+	name := strings.TrimSpace(string(r.Name))
+	if callItem != nil {
+		custom = callItem.Type == llm.ResponseItemTypeCustomToolCall
+		name = firstNonEmpty(name, strings.TrimSpace(callItem.Name))
+	}
+	return llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+		Type:   llm.ToolOutputItemType(custom),
+		CallID: callID,
+		Name:   name,
+		Output: append(json.RawMessage(nil), r.Output...),
+	}})
 }
 
 func (e *Engine) appendUserMessage(stepID, text string) error {
@@ -56,6 +85,9 @@ func (e *Engine) appendUserMessageWithoutConversationUpdate(stepID, text string)
 }
 
 func (e *Engine) injectHeadlessModeTransitionPromptIfNeeded(stepID string) error {
+	if e.workflowRunActive() {
+		return nil
+	}
 	builder := newMetaContextBuilder(e.store.Meta().WorkspaceRoot, e.cfg.Model, e.ThinkingLevel(), e.cfg.DisabledSkills, time.Now())
 	headlessActive := e.transcriptRuntimeState().HeadlessActive()
 	if e.cfg.HeadlessMode {
@@ -88,8 +120,9 @@ func (e *Engine) injectWorkflowModePromptIfNeeded(ctx context.Context, stepID st
 	if !e.workflowRunActive() {
 		return nil
 	}
+	runID := strings.TrimSpace(string(e.cfg.WorkflowRun.Contract.RunID))
 	for _, msg := range e.snapshotMessages() {
-		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeWorkflowMode {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeWorkflowMode && strings.TrimSpace(msg.SourcePath) == runID {
 			return nil
 		}
 	}
@@ -97,10 +130,14 @@ func (e *Engine) injectWorkflowModePromptIfNeeded(ctx context.Context, stepID st
 	if err != nil {
 		return err
 	}
-	message, ok := workflowModeMetaMessage(mode)
+	message, ok, renderErr := workflowModeMetaMessage(mode, e.cfg.WorkflowRun)
+	if renderErr != nil {
+		return renderErr
+	}
 	if !ok {
 		return nil
 	}
+	message.SourcePath = runID
 	return e.appendMessage(stepID, message)
 }
 

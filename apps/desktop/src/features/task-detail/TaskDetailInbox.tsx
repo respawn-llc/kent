@@ -6,12 +6,12 @@ import { ApprovalBox, QuestionBox } from "./TaskDetailAttention";
 import type { useTaskMutations } from "./useTaskDetailData";
 
 export function TaskInbox({
-  currentGraphRevision,
+  currentVersion,
   detail,
   disabled,
   mutations,
 }: Readonly<{
-  currentGraphRevision: number;
+  currentVersion: number;
   detail: TaskDetail;
   disabled: boolean;
   mutations: ReturnType<typeof useTaskMutations>;
@@ -26,7 +26,7 @@ export function TaskInbox({
       {detail.attention.map((item) => (
         <InboxItem
           attention={item}
-          currentGraphRevision={currentGraphRevision}
+          currentVersion={currentVersion}
           disabled={disabled}
           key={item.id}
           mutations={mutations}
@@ -40,14 +40,14 @@ export function TaskInbox({
 
 function InboxItem({
   attention,
-  currentGraphRevision,
+  currentVersion,
   disabled,
   mutations,
   taskId,
   transitions,
 }: Readonly<{
   attention: AttentionItem;
-  currentGraphRevision: number;
+  currentVersion: number;
   disabled: boolean;
   mutations: ReturnType<typeof useTaskMutations>;
   taskId: string;
@@ -61,7 +61,7 @@ function InboxItem({
     return (
       <ApprovalBox
         attention={attention}
-        currentGraphRevision={currentGraphRevision}
+        currentVersion={currentVersion}
         disabled={disabled}
         mutations={mutations}
         transitions={transitions}

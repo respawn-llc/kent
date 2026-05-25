@@ -849,7 +849,7 @@ func TestSystemPromptSnapshotUsesLocalFileAndSurvivesMidSessionFileChanges(t *te
 	}
 	writeTestFile(t, filepath.Join(home, agentsGlobalDirName, systemPromptFileName), "global system")
 	localPath := filepath.Join(workspace, agentsGlobalDirName, systemPromptFileName)
-	writeTestFile(t, localPath, "local {{.EstimatedToolCallsForContext}} {{.BuilderRunCommand}}")
+	writeTestFile(t, localPath, "local {{.EstimatedToolCallsForContext}} {{.BuilderCommand}} run")
 
 	store, err := session.Create(t.TempDir(), "ws", workspace)
 	if err != nil {

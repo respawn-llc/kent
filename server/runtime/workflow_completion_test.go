@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -61,6 +62,20 @@ func testWorkflowConfig(controller workflowruntime.Controller, mode config.Workf
 		MaxFinalAnswerViolations:     3,
 		MaxInvalidCompletionAttempts: 2,
 		Controller:                   controller,
+		Instructions: workflowruntime.TaskInstructions{
+			TaskID:          "task-1",
+			TaskShortID:     "BUI-1",
+			TaskTitle:       "Workflow task",
+			TaskBody:        "Task body.",
+			WorkflowID:      "workflow-1",
+			WorkflowShortID: "workflow-1",
+			NodeID:          "node-1",
+			NodeKey:         "agent",
+			NodeDisplayName: "Agent",
+			ContextMode:     "new_session",
+			Transitions:     []workflowruntime.TransitionInstruction{{ID: "done", DisplayName: "Done"}},
+			NodePrompt:      "Do node work.",
+		},
 	}
 }
 
@@ -70,10 +85,12 @@ func TestWorkflowToolModeExposesCompleteNodeDespiteEnabledTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
+	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
+	workflowCfg.Contract.OutputFields = append(workflowCfg.Contract.OutputFields, workflow.OutputField{Name: "details", Description: "Detailed evidence."})
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:        "gpt-5",
 		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
-		WorkflowRun:  testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool),
+		WorkflowRun:  workflowCfg,
 	})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
@@ -89,6 +106,10 @@ func TestWorkflowToolModeExposesCompleteNodeDespiteEnabledTools(t *testing.T) {
 	if _, ok := toolsByName[string(toolspec.ToolCompleteNode)]; !ok {
 		t.Fatalf("complete_node not advertised, tools=%+v", req.Tools)
 	}
+	assertCompletionSchema(t, toolsByName[string(toolspec.ToolCompleteNode)].Schema, map[string]string{
+		"summary": "Summary of work.",
+		"details": "Detailed evidence.",
+	}, "done")
 	if _, ok := toolsByName[string(toolspec.ToolExecCommand)]; ok {
 		t.Fatalf("exec_command should not be re-added from role tools, tools=%+v", req.Tools)
 	}
@@ -118,11 +139,67 @@ func TestCompleteNodeNotAdvertisedOutsideWorkflow(t *testing.T) {
 	}
 }
 
-func TestWorkflowModePromptInjectedBeforeUserPrompt(t *testing.T) {
+func TestWorkflowModePromptInjectedWithoutHeadlessOrUserPrompt(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
 	if err != nil {
 		t.Fatalf("create store: %v", err)
+	}
+	controller := &fakeWorkflowController{}
+	client := &fakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "complete", Phase: llm.MessagePhaseCommentary},
+		ToolCalls: []llm.ToolCall{{
+			ID:    "call_complete",
+			Name:  string(toolspec.ToolCompleteNode),
+			Input: json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`),
+		}},
+		Usage: llm.Usage{WindowTokens: 200000},
+	}}}
+	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+		Model:        "gpt-5",
+		HeadlessMode: true,
+		WorkflowRun:  testWorkflowConfig(controller, config.WorkflowCompletionModeTool),
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("model calls = %d, want 1", len(client.calls))
+	}
+	messages := requestMessages(client.calls[0])
+	workflowIdx := -1
+	for idx, msg := range messages {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeWorkflowMode {
+			workflowIdx = idx
+		}
+	}
+	if workflowIdx < 0 {
+		t.Fatalf("workflow prompt missing: messages=%+v", messages)
+	}
+	if workflowContent := messages[workflowIdx].Content; !strings.Contains(workflowContent, "ticket `BUI-1`") || !strings.Contains(workflowContent, "Do node work.") || !strings.Contains(workflowContent, "complete_node") {
+		t.Fatalf("workflow instructions missing expected content:\n%s", workflowContent)
+	}
+	for _, msg := range messages {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeHeadlessMode {
+			t.Fatalf("headless prompt should not be injected during workflow runs: %+v", messages)
+		}
+		if msg.Role == llm.RoleUser {
+			t.Fatalf("workflow run should not inject user prompt: %+v", messages)
+		}
+	}
+}
+
+func TestWorkflowModePromptReinjectedForNewRunAfterExistingWorkflowPrompt(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if _, err := store.AppendEvent("seed", "message", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorkflowMode, SourcePath: "run-old", Content: "old workflow instructions"}); err != nil {
+		t.Fatalf("seed workflow message: %v", err)
 	}
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{{
@@ -141,28 +218,24 @@ func TestWorkflowModePromptInjectedBeforeUserPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	if _, err := eng.SubmitUserMessage(context.Background(), "node prompt"); err != nil {
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if len(client.calls) != 1 {
-		t.Fatalf("model calls = %d, want 1", len(client.calls))
-	}
 	messages := requestMessages(client.calls[0])
-	workflowIdx := -1
-	userIdx := -1
-	for idx, msg := range messages {
+	workflowMessages := []llm.Message{}
+	for _, msg := range messages {
 		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeWorkflowMode {
-			workflowIdx = idx
-		}
-		if msg.Role == llm.RoleUser && msg.Content == "node prompt" {
-			userIdx = idx
+			workflowMessages = append(workflowMessages, msg)
 		}
 	}
-	if workflowIdx < 0 || userIdx < 0 || workflowIdx > userIdx {
-		t.Fatalf("workflow prompt/user ordering invalid: workflow=%d user=%d messages=%+v", workflowIdx, userIdx, messages)
+	if len(workflowMessages) != 2 {
+		t.Fatalf("workflow message count = %d, want old and new messages: %+v", len(workflowMessages), workflowMessages)
 	}
-	if !strings.Contains(messages[workflowIdx].Content, "Do not use `NO_OP` in workflow mode") {
-		t.Fatalf("workflow prompt missing NO_OP warning: %q", messages[workflowIdx].Content)
+	if workflowMessages[0].SourcePath != "run-old" || !strings.Contains(workflowMessages[0].Content, "old workflow instructions") {
+		t.Fatalf("old workflow message missing/preserved incorrectly: %+v", workflowMessages)
+	}
+	if workflowMessages[1].SourcePath != "run-1" || !strings.Contains(workflowMessages[1].Content, "ticket `BUI-1`") {
+		t.Fatalf("new workflow message missing run-scoped source path: %+v", workflowMessages)
 	}
 }
 
@@ -172,13 +245,15 @@ func TestWorkflowStructuredModeUsesStructuredOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
+	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeStructuredOutput)
+	workflowCfg.Contract.OutputFields = append(workflowCfg.Contract.OutputFields, workflow.OutputField{Name: "details", Description: "Detailed evidence."})
 	client := &fakeClient{responses: []llm.Response{{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"transition_id":"done","commentary":"complete","summary":"done"}`, Phase: llm.MessagePhaseFinal},
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"transition_id":"done","commentary":"complete","summary":"done","details":"evidence"}`, Phase: llm.MessagePhaseFinal},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:       "gpt-5",
-		WorkflowRun: testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeStructuredOutput),
+		WorkflowRun: workflowCfg,
 	})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
@@ -193,6 +268,10 @@ func TestWorkflowStructuredModeUsesStructuredOutput(t *testing.T) {
 	if req.StructuredOutput == nil {
 		t.Fatal("expected structured output")
 	}
+	assertCompletionSchema(t, req.StructuredOutput.Schema, map[string]string{
+		"summary": "Summary of work.",
+		"details": "Detailed evidence.",
+	}, "done")
 	messages := requestMessages(req)
 	workflowIdx := -1
 	for idx, msg := range messages {
@@ -202,9 +281,6 @@ func TestWorkflowStructuredModeUsesStructuredOutput(t *testing.T) {
 	}
 	if workflowIdx < 0 {
 		t.Fatalf("workflow prompt missing from structured-output request: %+v", messages)
-	}
-	if !strings.Contains(messages[workflowIdx].Content, "Do not use `NO_OP` in workflow mode") {
-		t.Fatalf("structured-output workflow prompt missing NO_OP warning: %q", messages[workflowIdx].Content)
 	}
 	for _, tool := range req.Tools {
 		if tool.Name == string(toolspec.ToolCompleteNode) {
@@ -539,4 +615,112 @@ func TestWorkflowStructuredEmptyFinalInterruptsAtInvalidCompletionCap(t *testing
 	if got := controller.maxHits.Load(); got != 1 {
 		t.Fatalf("max hits = %d, want 1", got)
 	}
+}
+
+func assertCompletionSchema(t *testing.T, schema json.RawMessage, outputDescriptions map[string]string, transitionID string) {
+	t.Helper()
+	root := schemaRoot(t, schema)
+	if got := root["additionalProperties"]; got != false {
+		t.Fatalf("schema additionalProperties = %v, want false in %s", got, string(schema))
+	}
+	assertSchemaProperty(t, schema, "transition_id", "string", "Transition ID to take. Required when multiple outgoing transitions are available.")
+	assertToolSchemaEnum(t, schema, "transition_id", transitionID)
+	assertSchemaProperty(t, schema, "commentary", "string", "Brief explanation of what was completed and why this transition was selected.")
+	for name, description := range outputDescriptions {
+		assertSchemaProperty(t, schema, name, "string", description)
+	}
+	required := schemaRequired(t, schema)
+	for _, name := range append([]string{"transition_id", "commentary"}, sortedSchemaNames(outputDescriptions)...) {
+		if !schemaRequiredContains(required, name) {
+			t.Fatalf("schema required missing %s, required=%+v schema=%s", name, required, string(schema))
+		}
+	}
+}
+
+func assertSchemaProperty(t *testing.T, schema json.RawMessage, name string, propertyType string, description string) {
+	t.Helper()
+	property := schemaProperty(t, schema, name)
+	if got := property["type"]; got != propertyType {
+		t.Fatalf("schema property %s type = %v, want %s in %s", name, got, propertyType, string(schema))
+	}
+	if got := property["description"]; got != description {
+		t.Fatalf("schema property %s description = %v, want %q in %s", name, got, description, string(schema))
+	}
+}
+
+func assertToolSchemaEnum(t *testing.T, schema json.RawMessage, name string, value string) {
+	t.Helper()
+	property := schemaProperty(t, schema, name)
+	rawEnum, ok := property["enum"].([]any)
+	if !ok {
+		t.Fatalf("schema property %s enum missing in %s", name, string(schema))
+	}
+	for _, item := range rawEnum {
+		if item == value {
+			return
+		}
+	}
+	t.Fatalf("schema property %s enum missing %q: %+v", name, value, rawEnum)
+}
+
+func schemaProperty(t *testing.T, schema json.RawMessage, name string) map[string]any {
+	t.Helper()
+	root := schemaRoot(t, schema)
+	properties, ok := root["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema properties missing: %s", string(schema))
+	}
+	property, ok := properties[name].(map[string]any)
+	if !ok {
+		t.Fatalf("schema property %s missing: %s", name, string(schema))
+	}
+	return property
+}
+
+func schemaRequired(t *testing.T, schema json.RawMessage) []string {
+	t.Helper()
+	root := schemaRoot(t, schema)
+	raw, ok := root["required"].([]any)
+	if !ok {
+		t.Fatalf("schema required missing: %s", string(schema))
+	}
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		text, ok := item.(string)
+		if !ok {
+			t.Fatalf("schema required item is %T: %v", item, item)
+		}
+		out = append(out, text)
+	}
+	if len(out) == 0 {
+		t.Fatalf("schema required empty: %s", string(schema))
+	}
+	return out
+}
+
+func schemaRoot(t *testing.T, schema json.RawMessage) map[string]any {
+	t.Helper()
+	root := map[string]any{}
+	if err := json.Unmarshal(schema, &root); err != nil {
+		t.Fatalf("unmarshal schema: %v", err)
+	}
+	return root
+}
+
+func schemaRequiredContains(required []string, name string) bool {
+	for _, field := range required {
+		if field == name {
+			return true
+		}
+	}
+	return false
+}
+
+func sortedSchemaNames(values map[string]string) []string {
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

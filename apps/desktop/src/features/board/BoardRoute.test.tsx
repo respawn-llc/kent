@@ -339,7 +339,7 @@ describe("BoardRoute", () => {
       id: "workflow-created",
       name: "Created Workflow",
       description: "",
-      graph_revision: 1,
+      version: 1,
     };
     const createdPickerWorkflow = {
       ...workflow,
@@ -1307,8 +1307,13 @@ describe("BoardRoute", () => {
         method: "workflow.list",
         result: {
           workflows: [
-            { id: "workflow-1", name: "Delivery", description: "", graph_revision: 1 },
-            { id: "workflow-2", name: "Ops", description: "", graph_revision: 1 },
+            {
+              id: "workflow-1",
+              name: "Delivery",
+              description: "",
+              version: 1,
+            },
+            { id: "workflow-2", name: "Ops", description: "", version: 1 },
           ],
           next_page_token: "",
         },
@@ -1381,7 +1386,7 @@ describe("BoardRoute", () => {
       id: "workflow-created",
       name: "Created Workflow",
       description: "",
-      graph_revision: 1,
+      version: 1,
     };
     const services = createTestServices([
       ...startupRoutes,
@@ -1389,7 +1394,14 @@ describe("BoardRoute", () => {
       {
         method: "workflow.list",
         result: {
-          workflows: [{ id: "workflow-1", name: "Delivery", description: "", graph_revision: 1 }],
+          workflows: [
+            {
+              id: "workflow-1",
+              name: "Delivery",
+              description: "",
+              version: 1,
+            },
+          ],
           next_page_token: "",
         },
       },
@@ -1468,7 +1480,14 @@ describe("BoardRoute", () => {
       {
         method: "workflow.list",
         result: {
-          workflows: [{ id: "workflow-1", name: "Delivery", description: "", graph_revision: 1 }],
+          workflows: [
+            {
+              id: "workflow-1",
+              name: "Delivery",
+              description: "",
+              version: 1,
+            },
+          ],
           next_page_token: "",
         },
       },
@@ -1790,7 +1809,7 @@ const workflow: BoardRouteWorkflow = {
   workflow_id: "workflow-1",
   display_name: "Delivery",
   description: "",
-  graph_revision: 1,
+  version: 1,
   is_project_default: true,
   valid_for_task_creation: true,
   validation_errors: [],
@@ -1800,7 +1819,7 @@ type BoardRouteWorkflow = Readonly<{
   workflow_id: string;
   display_name: string;
   description: string;
-  graph_revision: number;
+  version: number;
   is_project_default: boolean;
   valid_for_task_creation: boolean;
   validation_errors: readonly BoardRouteValidationError[];
@@ -2035,7 +2054,7 @@ const workflowDefinitionResponse = {
       id: "workflow-1",
       name: "Delivery",
       description: "",
-      graph_revision: 1,
+      version: 1,
     },
     node_groups: [],
     nodes: [

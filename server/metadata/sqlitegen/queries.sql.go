@@ -1019,7 +1019,7 @@ SELECT
     id,
     name,
     description,
-    graph_revision,
+    version,
     created_at_unix_ms,
     updated_at_unix_ms
 FROM workflows
@@ -1034,7 +1034,7 @@ func (q *Queries) GetWorkflow(ctx context.Context, id string) (Workflow, error) 
 		&i.ID,
 		&i.Name,
 		&i.Description,
-		&i.GraphRevision,
+		&i.Version,
 		&i.CreatedAtUnixMs,
 		&i.UpdatedAtUnixMs,
 	)
@@ -1044,7 +1044,7 @@ func (q *Queries) GetWorkflow(ctx context.Context, id string) (Workflow, error) 
 const getWorkflowDeleteImpact = `-- name: GetWorkflowDeleteImpact :one
 SELECT
     w.id AS workflow_id,
-    w.graph_revision,
+    w.version,
     CAST(COUNT(DISTINCT pwl.project_id) AS INTEGER) AS project_count,
     CAST(COUNT(DISTINCT pwl.id) AS INTEGER) AS link_count,
     CAST(COUNT(DISTINCT CASE
@@ -1105,12 +1105,12 @@ LEFT JOIN task_run_records r ON r.task_id = t.id
 LEFT JOIN task_node_placements placement ON placement.id = r.placement_id
 LEFT JOIN workflow_nodes n ON n.id = r.node_id
 WHERE w.id = ?1
-GROUP BY w.id, w.graph_revision
+GROUP BY w.id, w.version
 `
 
 type GetWorkflowDeleteImpactRow struct {
 	WorkflowID                     string
-	GraphRevision                  int64
+	Version                        int64
 	ProjectCount                   int64
 	LinkCount                      int64
 	DefaultReplacementProjectCount int64
@@ -1125,7 +1125,7 @@ func (q *Queries) GetWorkflowDeleteImpact(ctx context.Context, workflowID string
 	var i GetWorkflowDeleteImpactRow
 	err := row.Scan(
 		&i.WorkflowID,
-		&i.GraphRevision,
+		&i.Version,
 		&i.ProjectCount,
 		&i.LinkCount,
 		&i.DefaultReplacementProjectCount,
@@ -1189,6 +1189,76 @@ func (q *Queries) GetWorkflowEdge(ctx context.Context, id string) (GetWorkflowEd
 		&i.InputBindingsJson,
 		&i.OutputRequirementsJson,
 		&i.SortOrder,
+	)
+	return i, err
+}
+
+const getWorkflowGraphActiveWorkPolicyImpact = `-- name: GetWorkflowGraphActiveWorkPolicyImpact :one
+SELECT
+    (
+        SELECT CAST(COUNT(DISTINCT p.id) AS INTEGER)
+        FROM task_records t
+        JOIN task_node_placements p ON p.task_id = t.id AND p.state IN ('active', 'waiting_approval')
+        JOIN workflow_nodes n ON n.id = p.node_id
+        WHERE t.workflow_id = ?1
+          AND t.canceled_at_unix_ms = 0
+          AND n.kind NOT IN ('start', 'terminal')
+    ) AS active_node_placement_count,
+    (
+        SELECT CAST(COUNT(DISTINCT tt.id) AS INTEGER)
+        FROM task_transition_records tt
+        JOIN task_records t ON t.id = tt.task_id
+        WHERE t.workflow_id = ?1
+          AND t.canceled_at_unix_ms = 0
+          AND tt.state = 'pending_approval'
+    ) AS pending_approval_count,
+    (
+        SELECT CAST(COUNT(DISTINCT r.id) AS INTEGER)
+        FROM task_run_records r
+        JOIN task_records t ON t.id = r.task_id
+        JOIN task_node_placements p ON p.id = r.placement_id
+        JOIN workflow_nodes n ON n.id = r.node_id
+        WHERE t.workflow_id = ?1
+          AND t.canceled_at_unix_ms = 0
+          AND r.started_at_unix_ms > 0
+          AND r.completed_at_unix_ms = 0
+          AND r.interrupted_at_unix_ms = 0
+          AND p.state = 'active'
+          AND n.kind = 'agent'
+    ) AS active_run_count,
+    (
+        SELECT CAST(COUNT(DISTINCT r.id) AS INTEGER)
+        FROM task_run_records r
+        JOIN task_records t ON t.id = r.task_id
+        JOIN task_node_placements p ON p.id = r.placement_id
+        JOIN workflow_nodes n ON n.id = r.node_id
+        WHERE t.workflow_id = ?1
+          AND t.canceled_at_unix_ms = 0
+          AND r.automation_requested_at_unix_ms > 0
+          AND r.started_at_unix_ms = 0
+          AND r.completed_at_unix_ms = 0
+          AND r.interrupted_at_unix_ms = 0
+          AND r.waiting_ask_id = ''
+          AND p.state = 'active'
+          AND n.kind = 'agent'
+    ) AS runnable_run_count
+`
+
+type GetWorkflowGraphActiveWorkPolicyImpactRow struct {
+	ActiveNodePlacementCount int64
+	PendingApprovalCount     int64
+	ActiveRunCount           int64
+	RunnableRunCount         int64
+}
+
+func (q *Queries) GetWorkflowGraphActiveWorkPolicyImpact(ctx context.Context, workflowID string) (GetWorkflowGraphActiveWorkPolicyImpactRow, error) {
+	row := q.db.QueryRowContext(ctx, getWorkflowGraphActiveWorkPolicyImpact, workflowID)
+	var i GetWorkflowGraphActiveWorkPolicyImpactRow
+	err := row.Scan(
+		&i.ActiveNodePlacementCount,
+		&i.PendingApprovalCount,
+		&i.ActiveRunCount,
+		&i.RunnableRunCount,
 	)
 	return i, err
 }
@@ -1483,25 +1553,25 @@ func (q *Queries) GetWorktreeByID(ctx context.Context, id string) (GetWorktreeBy
 	return i, err
 }
 
-const incrementWorkflowGraphRevision = `-- name: IncrementWorkflowGraphRevision :one
+const incrementWorkflowVersion = `-- name: IncrementWorkflowVersion :one
 UPDATE workflows
 SET
-    graph_revision = graph_revision + 1,
+    version = version + 1,
     updated_at_unix_ms = ?1
 WHERE id = ?2
-RETURNING graph_revision
+RETURNING version
 `
 
-type IncrementWorkflowGraphRevisionParams struct {
+type IncrementWorkflowVersionParams struct {
 	UpdatedAtUnixMs int64
 	ID              string
 }
 
-func (q *Queries) IncrementWorkflowGraphRevision(ctx context.Context, arg IncrementWorkflowGraphRevisionParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, incrementWorkflowGraphRevision, arg.UpdatedAtUnixMs, arg.ID)
-	var graph_revision int64
-	err := row.Scan(&graph_revision)
-	return graph_revision, err
+func (q *Queries) IncrementWorkflowVersion(ctx context.Context, arg IncrementWorkflowVersionParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, incrementWorkflowVersion, arg.UpdatedAtUnixMs, arg.ID)
+	var version int64
+	err := row.Scan(&version)
+	return version, err
 }
 
 const insertProjectWorkflowLink = `-- name: InsertProjectWorkflowLink :exec
@@ -1965,7 +2035,7 @@ INSERT INTO workflows (
     id,
     name,
     description,
-    graph_revision,
+    version,
     created_at_unix_ms,
     updated_at_unix_ms
 ) VALUES (
@@ -1982,7 +2052,7 @@ type InsertWorkflowParams struct {
 	ID              string
 	Name            string
 	Description     string
-	GraphRevision   int64
+	Version         int64
 	CreatedAtUnixMs int64
 	UpdatedAtUnixMs int64
 }
@@ -1992,7 +2062,7 @@ func (q *Queries) InsertWorkflow(ctx context.Context, arg InsertWorkflowParams) 
 		arg.ID,
 		arg.Name,
 		arg.Description,
-		arg.GraphRevision,
+		arg.Version,
 		arg.CreatedAtUnixMs,
 		arg.UpdatedAtUnixMs,
 	)
@@ -3818,7 +3888,7 @@ SELECT
     id,
     name,
     description,
-    graph_revision,
+    version,
     created_at_unix_ms,
     updated_at_unix_ms
 FROM workflows
@@ -3838,7 +3908,7 @@ func (q *Queries) ListWorkflows(ctx context.Context) ([]Workflow, error) {
 			&i.ID,
 			&i.Name,
 			&i.Description,
-			&i.GraphRevision,
+			&i.Version,
 			&i.CreatedAtUnixMs,
 			&i.UpdatedAtUnixMs,
 		); err != nil {
@@ -4261,6 +4331,7 @@ UPDATE workflows
 SET
     name = ?1,
     description = ?2,
+    version = version + 1,
     updated_at_unix_ms = ?3
 WHERE id = ?4
 `
@@ -4274,6 +4345,35 @@ type UpdateWorkflowInfoParams struct {
 
 func (q *Queries) UpdateWorkflowInfo(ctx context.Context, arg UpdateWorkflowInfoParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateWorkflowInfo,
+		arg.Name,
+		arg.Description,
+		arg.UpdatedAtUnixMs,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateWorkflowInfoWithoutVersion = `-- name: UpdateWorkflowInfoWithoutVersion :execrows
+UPDATE workflows
+SET
+    name = ?1,
+    description = ?2,
+    updated_at_unix_ms = ?3
+WHERE id = ?4
+`
+
+type UpdateWorkflowInfoWithoutVersionParams struct {
+	Name            string
+	Description     string
+	UpdatedAtUnixMs int64
+	ID              string
+}
+
+func (q *Queries) UpdateWorkflowInfoWithoutVersion(ctx context.Context, arg UpdateWorkflowInfoWithoutVersionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateWorkflowInfoWithoutVersion,
 		arg.Name,
 		arg.Description,
 		arg.UpdatedAtUnixMs,

@@ -62,6 +62,8 @@ export declare const ReactFlow: ComponentType<
     nodesConnectable?: boolean;
     nodesDraggable?: boolean;
     nodeTypes?: NodeTypes;
+    onEdgeClick?: (event: unknown, edge: Edge) => void;
+    onNodeClick?: (event: unknown, node: Node) => void;
     panOnScroll?: boolean;
     proOptions?: Readonly<{ hideAttribution?: boolean }>;
     selectionOnDrag?: boolean;

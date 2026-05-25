@@ -36,7 +36,40 @@ func TestTrimOldestEligibleItemsRemovesFunctionCallWithOutputsAtomically(t *test
 	}
 }
 
+func TestTrimOldestEligibleItemsRemovesPromotedViewImageFilePayloadAtomically(t *testing.T) {
+	preparedToolItems := llm.PrepareOpenAIInputItems([]llm.ResponseItem{
+		{Type: llm.ResponseItemTypeFunctionCall, ID: "call-1", CallID: "call-1", Name: string(toolspec.ToolViewImage), Arguments: json.RawMessage(`{"path":"doc.pdf"}`)},
+		{
+			Type:   llm.ResponseItemTypeFunctionCallOutput,
+			CallID: "call-1",
+			Name:   string(toolspec.ToolViewImage),
+			Output: json.RawMessage(`[{"type":"input_file","file_data":"data:application/pdf;base64,Zm9v","filename":"doc.pdf"}]`),
+		},
+	})
+	if len(preparedToolItems) != 3 {
+		t.Fatalf("prepared tool items = %d, want 3 (%+v)", len(preparedToolItems), preparedToolItems)
+	}
+	promotedRaw := string(preparedToolItems[2].Raw)
+	if promotedRaw == "" {
+		t.Fatalf("expected promoted provider raw item, got %+v", preparedToolItems[2])
+	}
+
+	items := append([]llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "seed"}}, preparedToolItems...)
+	items = append(items, llm.ResponseItem{Type: llm.ResponseItemTypeMessage, Role: llm.RoleAssistant, Content: "later"})
+
+	trimmed, removed := trimOldestEligibleItems(items, 1)
+	if removed != 3 {
+		t.Fatalf("removed=%d, want 3", removed)
+	}
+	for _, item := range trimmed {
+		if item.Type == llm.ResponseItemTypeFunctionCall || item.Type == llm.ResponseItemTypeFunctionCallOutput || string(item.Raw) == promotedRaw {
+			t.Fatalf("expected promoted view_image tool unit to be removed atomically, got %+v", trimmed)
+		}
+	}
+}
+
 func TestCompactionCacheObservationRequestAppendsPromptToConversationReplica(t *testing.T) {
+	seedContent := "seed \x1b[31mansi\x1b[0m"
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
 	if err != nil {
@@ -55,7 +88,7 @@ func TestCompactionCacheObservationRequestAppendsPromptToConversationReplica(t *
 		t.Fatalf("inject agents: %v", err)
 	}
 
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: seedContent}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}}}); err != nil {
@@ -83,8 +116,6 @@ func TestCompactionCacheObservationRequestAppendsPromptToConversationReplica(t *
 		Role:    llm.RoleDeveloper,
 		Content: compactionInstructions(args),
 	})
-	wantItems = sanitizeItemsForLLM(wantItems)
-
 	gotJSON, err := json.Marshal(request.Items)
 	if err != nil {
 		t.Fatalf("marshal observed items: %v", err)
@@ -95,6 +126,15 @@ func TestCompactionCacheObservationRequestAppendsPromptToConversationReplica(t *
 	}
 	if string(gotJSON) != string(wantJSON) {
 		t.Fatalf("observed compaction cache request mismatch\nwant=%s\n got=%s", wantJSON, gotJSON)
+	}
+	foundSeed := false
+	for _, msg := range requestMessages(request) {
+		if msg.Role == llm.RoleUser && msg.Content == seedContent {
+			foundSeed = true
+		}
+	}
+	if !foundSeed {
+		t.Fatalf("expected compaction cache request to preserve exact ANSI message %q, messages=%+v", seedContent, requestMessages(request))
 	}
 	if got, want := request.PromptCacheKey, eng.conversationPromptCacheKey(); got != want {
 		t.Fatalf("PromptCacheKey = %q, want %q", got, want)
@@ -232,6 +272,128 @@ func TestRemoteCompactionOnlyTrimsAfterOverflowAndWarnsOnCacheBreak(t *testing.T
 	if got, want := warnings[0].CacheKey, conversationPromptCacheKey(store.Meta().SessionID, 0); got != want {
 		t.Fatalf("warning cache key = %q, want %q", got, want)
 	}
+}
+
+func TestRemoteCompactionRetryTrimsPromotedViewImagePayloadAtomically(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	client := &fakeCompactionClient{
+		inputTokenCountFn: func(req llm.Request) int {
+			total := 0
+			for _, item := range req.Items {
+				switch item.Type {
+				case llm.ResponseItemTypeMessage:
+					total += 1000
+				case llm.ResponseItemTypeFunctionCall:
+					total += 3000
+				case llm.ResponseItemTypeFunctionCallOutput:
+					total += 1000
+				default:
+					total += 1000
+				}
+			}
+			return total
+		},
+		compactionErrors: []error{
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			nil,
+		},
+		compactionResponses: []llm.CompactionResponse{{
+			OutputItems: []llm.ResponseItem{
+				{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "seed"},
+				{Type: llm.ResponseItemTypeCompaction, ID: "cmp_view_image", EncryptedContent: "enc_view_image"},
+			},
+			Usage: llm.Usage{InputTokens: 1000, OutputTokens: 10, WindowTokens: 2500},
+		}},
+	}
+
+	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolViewImage}), Config{
+		Model:               "gpt-5",
+		ContextWindowTokens: 2500,
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
+		t.Fatalf("inject agents: %v", err)
+	}
+
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+		ID:    "call-view-image-1",
+		Name:  string(toolspec.ToolViewImage),
+		Input: json.RawMessage(`{"path":"doc.pdf"}`),
+	}}}); err != nil {
+		t.Fatalf("append assistant tool call: %v", err)
+	}
+	if err := eng.appendMessage("", llm.Message{
+		Role:       llm.RoleTool,
+		ToolCallID: "call-view-image-1",
+		Name:       string(toolspec.ToolViewImage),
+		Content:    `[{"type":"input_file","file_data":"data:application/pdf;base64,Zm9v","filename":"doc.pdf"}]`,
+	}); err != nil {
+		t.Fatalf("append tool output message: %v", err)
+	}
+
+	initialSnapshot := eng.snapshotItems()
+	initialCall, initialOutput, initialPromoted := viewImageProviderUnitPresence(initialSnapshot, "call-view-image-1")
+	if !initialCall || !initialOutput || !initialPromoted {
+		t.Fatalf("expected initial snapshot to include complete promoted view_image unit, got call=%v output=%v promoted=%v items=%+v", initialCall, initialOutput, initialPromoted, initialSnapshot)
+	}
+	initialJSON, err := json.Marshal(initialSnapshot)
+	if err != nil {
+		t.Fatalf("marshal initial snapshot: %v", err)
+	}
+
+	if err := eng.CompactContext(context.Background(), ""); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if len(client.compactionCalls) != 2 {
+		t.Fatalf("expected overflow retry to issue two compact calls, got %d", len(client.compactionCalls))
+	}
+
+	firstJSON, err := json.Marshal(client.compactionCalls[0].InputItems)
+	if err != nil {
+		t.Fatalf("marshal first compact call input: %v", err)
+	}
+	if string(firstJSON) != string(initialJSON) {
+		t.Fatalf("expected first compaction attempt to use an exact conversation replica\nwant=%s\n got=%s", initialJSON, firstJSON)
+	}
+
+	secondInput := client.compactionCalls[1].InputItems
+	hasCall, hasOutput, hasPromoted := viewImageProviderUnitPresence(secondInput, "call-view-image-1")
+	if hasCall || hasOutput || hasPromoted {
+		t.Fatalf("expected retry trim to remove promoted view_image unit atomically, got call=%v output=%v promoted=%v items=%+v", hasCall, hasOutput, hasPromoted, secondInput)
+	}
+}
+
+func viewImageProviderUnitPresence(items []llm.ResponseItem, callID string) (bool, bool, bool) {
+	hasCall := false
+	hasOutput := false
+	hasPromoted := false
+	for _, item := range items {
+		switch item.Type {
+		case llm.ResponseItemTypeFunctionCall:
+			if item.CallID == callID || item.ID == callID {
+				hasCall = true
+			}
+		case llm.ResponseItemTypeFunctionCallOutput:
+			if item.CallID == callID {
+				hasOutput = true
+			}
+		case llm.ResponseItemTypeOther:
+			if item.CallID == callID && item.Name == string(toolspec.ToolViewImage) {
+				hasPromoted = true
+			}
+		}
+	}
+	return hasCall, hasOutput, hasPromoted
 }
 
 func TestCompactionTransientRetryObservesCacheLineageOnce(t *testing.T) {

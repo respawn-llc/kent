@@ -545,6 +545,15 @@ func TestForkAtUserMessageCopiesPrefixBeforeSelectedMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
 	}
+	if err := parent.MarkModelDispatchLocked(LockedContract{
+		Model:             "locked-parent",
+		SystemPrompt:      "parent prompt snapshot",
+		HasSystemPrompt:   true,
+		ReviewerPrompt:    "parent reviewer prompt snapshot",
+		HasReviewerPrompt: true,
+	}); err != nil {
+		t.Fatalf("MarkModelDispatchLocked parent: %v", err)
+	}
 	if _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 		t.Fatalf("append u1: %v", err)
 	}
@@ -588,6 +597,12 @@ func TestForkAtUserMessageCopiesPrefixBeforeSelectedMessage(t *testing.T) {
 	}
 	if meta.FirstPromptPreview != "u1" {
 		t.Fatalf("expected fork preview to persist first user message, got %q", meta.FirstPromptPreview)
+	}
+	if meta.Locked == nil || meta.Locked.SystemPrompt != "parent prompt snapshot" || !meta.Locked.HasSystemPrompt {
+		t.Fatalf("fork locked system prompt = %+v, want replay fork to preserve parent prompt snapshot", meta.Locked)
+	}
+	if meta.Locked.ReviewerPrompt != "parent reviewer prompt snapshot" || !meta.Locked.HasReviewerPrompt {
+		t.Fatalf("fork locked reviewer prompt = %+v, want replay fork to preserve parent reviewer prompt snapshot", meta.Locked)
 	}
 }
 
@@ -738,7 +753,15 @@ func TestInitializeChildFromParentCopiesContextWithoutConversationState(t *testi
 		t.Fatalf("create parent: %v", err)
 	}
 	toolPreambles := true
-	if err := parent.MarkModelDispatchLocked(LockedContract{Model: "locked-parent", EnabledTools: []string{"shell", "patch"}, ToolPreambles: &toolPreambles}); err != nil {
+	if err := parent.MarkModelDispatchLocked(LockedContract{
+		Model:             "locked-parent",
+		EnabledTools:      []string{"shell", "patch"},
+		ToolPreambles:     &toolPreambles,
+		SystemPrompt:      "parent system prompt snapshot",
+		HasSystemPrompt:   true,
+		ReviewerPrompt:    "parent reviewer prompt snapshot",
+		HasReviewerPrompt: true,
+	}); err != nil {
 		t.Fatalf("MarkModelDispatchLocked parent: %v", err)
 	}
 	if err := parent.MarkAgentsInjected(); err != nil {
@@ -781,6 +804,12 @@ func TestInitializeChildFromParentCopiesContextWithoutConversationState(t *testi
 	}
 	if meta.Locked == nil || meta.Locked.Model != "locked-parent" || len(meta.Locked.EnabledTools) != 2 {
 		t.Fatalf("locked contract = %+v, want parent lock", meta.Locked)
+	}
+	if meta.Locked.SystemPrompt != "parent system prompt snapshot" || !meta.Locked.HasSystemPrompt {
+		t.Fatalf("locked system prompt = %+v, want parent prompt snapshot", meta.Locked)
+	}
+	if meta.Locked.ReviewerPrompt != "parent reviewer prompt snapshot" || !meta.Locked.HasReviewerPrompt {
+		t.Fatalf("locked reviewer prompt = %+v, want parent reviewer prompt snapshot", meta.Locked)
 	}
 	if meta.Locked.ToolPreambles == nil || !*meta.Locked.ToolPreambles {
 		t.Fatalf("locked tool preambles = %+v, want copied true", meta.Locked.ToolPreambles)

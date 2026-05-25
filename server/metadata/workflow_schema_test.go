@@ -221,7 +221,7 @@ func TestWorkflowSchemaConstraints(t *testing.T) {
 	seedWorkflowTask(t, store, binding.ProjectID, "BLD-1")
 
 	if _, err := store.db.Exec(`
-INSERT INTO workflows (id, name, graph_revision, created_at_unix_ms, updated_at_unix_ms)
+INSERT INTO workflows (id, name, version, created_at_unix_ms, updated_at_unix_ms)
 VALUES ('workflow-other', 'Other', 1, ?, ?);
 INSERT INTO workflow_node_groups (id, workflow_id, group_key, display_name)
 VALUES ('group-workflow-1', 'workflow-1', 'impl', 'Implementation'),
@@ -237,8 +237,8 @@ VALUES ('group-workflow-1', 'workflow-1', 'impl', 'Implementation'),
 	assertSQLiteConstraint(t, store.db, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, input_bindings_json, output_requirements_json) VALUES ('edge-invalid-bool', 'group-start', 'bad_bool', 'node-agent', 2, 'new_session', '{}', '{}')`)
 	assertSQLiteConstraint(t, store.db, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key, input_bindings_json, output_requirements_json) VALUES ('edge-invalid-context-source-empty-key', 'group-start', 'bad_context_empty', 'node-agent', 0, 'continue_session', 'selected_node', '', '{}', '{}')`)
 	assertSQLiteConstraint(t, store.db, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key, input_bindings_json, output_requirements_json) VALUES ('edge-invalid-context-source-immediate-key', 'group-start', 'bad_context_key', 'node-agent', 0, 'continue_session', 'immediate_source', 'agent', '{}', '{}')`)
-	assertSQLiteConstraint(t, store.db, `INSERT INTO workflows (id, name, graph_revision, created_at_unix_ms, updated_at_unix_ms) VALUES ('workflow-bad-time', 'Bad', 1, -1, 1)`)
-	assertSQLiteConstraint(t, store.db, `INSERT INTO workflows (id, name, graph_revision, created_at_unix_ms, updated_at_unix_ms) VALUES ('workflow-bad-rev', 'Bad', 0, 1, 1)`)
+	assertSQLiteConstraint(t, store.db, `INSERT INTO workflows (id, name, version, created_at_unix_ms, updated_at_unix_ms) VALUES ('workflow-bad-time', 'Bad', 1, -1, 1)`)
+	assertSQLiteConstraint(t, store.db, `INSERT INTO workflows (id, name, version, created_at_unix_ms, updated_at_unix_ms) VALUES ('workflow-bad-rev', 'Bad', 0, 1, 1)`)
 	assertSQLiteConstraint(t, store.db, `INSERT INTO task_runs (id, placement_id, workflow_revision_seen, final_answer_violation_count, invalid_completion_count, created_at_unix_ms, updated_at_unix_ms) VALUES ('run-bad-counter', 'placement-start', 1, -1, 0, 1, 1)`)
 	assertSQLiteConstraint(t, store.db, `INSERT INTO task_comments (id, task_id, body, author_kind, created_at_unix_ms, updated_at_unix_ms) VALUES ('comment-too-large', 'task-1', ?, 'agent', 1, 1)`, strings.Repeat("a", 262145))
 }
@@ -662,7 +662,7 @@ func seedWorkflowGraphForProject(t *testing.T, db *sql.DB, projectID string, now
 		startGroupID = "group-start"
 		doneGroupID = "group-done"
 	}
-	execSeed(t, db, "workflow", `INSERT INTO workflows (id, name, description, graph_revision, created_at_unix_ms, updated_at_unix_ms)
+	execSeed(t, db, "workflow", `INSERT INTO workflows (id, name, description, version, created_at_unix_ms, updated_at_unix_ms)
 VALUES (?, 'Workflow', '', 1, ?, ?)`, workflowID, now, now)
 	execSeed(t, db, "nodes", `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, output_fields_json)
 VALUES (?, ?, 'backlog', 'start', 'Backlog', '[]'),

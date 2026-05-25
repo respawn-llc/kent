@@ -642,18 +642,18 @@ func TestWorkflowListAndResolutionFetchAllWorkflowPages(t *testing.T) {
 		pages: map[string]serverapi.WorkflowListResponse{
 			"": {
 				Workflows: []serverapi.WorkflowRecord{
-					{ID: "workflow-1", Name: "First", GraphRevision: 1},
+					{ID: "workflow-1", Name: "First", Version: 1},
 				},
 				NextPageToken: "next",
 			},
 			"next": {
 				Workflows: []serverapi.WorkflowRecord{
-					{ID: "workflow-2", Name: "Second", GraphRevision: 2},
+					{ID: "workflow-2", Name: "Second", Version: 2},
 				},
 			},
 		},
 		definitions: map[string]serverapi.WorkflowDefinition{
-			"workflow-2": {Workflow: serverapi.WorkflowRecord{ID: "workflow-2", Name: "Second", GraphRevision: 2}},
+			"workflow-2": {Workflow: serverapi.WorkflowRecord{ID: "workflow-2", Name: "Second", Version: 2}},
 		},
 	}
 	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)

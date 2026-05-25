@@ -104,20 +104,20 @@ export function QuestionBox({
 
 export function ApprovalBox({
   attention,
-  currentGraphRevision,
+  currentVersion,
   disabled,
   mutations,
   transitions,
 }: Readonly<{
   attention: AttentionItem;
-  currentGraphRevision: number;
+  currentVersion: number;
   disabled: boolean;
   mutations: ReturnType<typeof useTaskMutations>;
   transitions: readonly TaskTransition[];
 }>) {
   const { t } = useTranslation();
   const transition = transitions.find((item) => item.id === attention.taskTransitionID);
-  const stale = transition !== undefined && transition.graphRevision !== currentGraphRevision;
+  const stale = transition !== undefined && transition.version !== currentVersion;
   return (
     <section className="grid gap-[var(--space-3)] rounded-[var(--radius-l)] border border-[var(--color-warning)] bg-[color-mix(in_srgb,var(--color-warning)_12%,transparent)] p-[var(--space-3)]">
       <h3>{t("task.approval")}</h3>
@@ -147,7 +147,7 @@ export function ApprovalBox({
               .join("\n") || t("app.none")}
           </dd>
           <dt>{t("app.version")}</dt>
-          <dd>{transition.graphRevision}</dd>
+          <dd>{transition.version}</dd>
           {stale ? (
             <>
               <dt>{t("task.staleApproval")}</dt>

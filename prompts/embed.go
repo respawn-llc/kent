@@ -17,13 +17,13 @@ type SystemPromptTemplateArgs struct {
 }
 
 type systemPromptRuntimeTemplateData struct {
-	BuilderRunCommand            string
+	BuilderCommand               string
 	EstimatedToolCallsForContext int
 	EditingToolName              string
 }
 
 type defaultSystemPromptTemplateData struct {
-	BuilderRunCommand                            string
+	BuilderCommand                               string
 	EstimatedToolCallsForContext                 int
 	EditingToolName                              string
 	DefaultSystemPromptPersonality               string
@@ -34,7 +34,7 @@ type defaultSystemPromptTemplateData struct {
 }
 
 type systemPromptTemplateData struct {
-	BuilderRunCommand                            string
+	BuilderCommand                               string
 	EstimatedToolCallsForContext                 int
 	EditingToolName                              string
 	DefaultSystemPrompt                          string
@@ -50,15 +50,15 @@ type WorkflowNodeContextArgs struct {
 	TaskShortId     string
 	TaskTitle       string
 	TaskBody        string
+	WorkflowId      string
+	WorkflowShortId string
 	NodeId          string
 	NodeKey         string
 	NodeDisplayName string
 	ContextMode     string
 	SourceSessionID string
 	CompletionMode  string
-	OutputFields    []WorkflowOutputField
 	Transitions     []WorkflowTransition
-	InputValues     []WorkflowInputValue
 	NodePrompt      string
 }
 
@@ -159,14 +159,14 @@ var HeadlessModePrompt string
 //go:embed headless_mode_exit_prompt.md
 var HeadlessModeExitPrompt string
 
-//go:embed workflow/tool_mode_prompt.md
-var WorkflowToolModePrompt string
+//go:embed workflow/workflow_task_instructions.md
+var WorkflowTaskInstructionsPrompt string
 
-//go:embed workflow/structured_output_mode_prompt.md
-var WorkflowStructuredOutputModePrompt string
+//go:embed workflow/tool_completion_instructions.md
+var WorkflowToolCompletionInstructionsPrompt string
 
-//go:embed workflow/node_context.md
-var WorkflowNodeContextPrompt string
+//go:embed workflow/structured_completion_instructions.md
+var WorkflowStructuredCompletionInstructionsPrompt string
 
 //go:embed workflow/human_only_task_action_denied.md
 var WorkflowHumanOnlyTaskActionDeniedPrompt string
@@ -224,8 +224,8 @@ func BaseSystemPrompt(args SystemPromptTemplateArgs) string {
 	return rendered
 }
 
-func BuilderRunCommand() string {
-	return selfcmd.RunCommandPrefix()
+func BuilderCommand() string {
+	return selfcmd.BuilderCommand()
 }
 
 func RenderCompactionSoonReminderPrompt(triggerHandoffEnabled bool) string {
@@ -278,8 +278,35 @@ func RenderWorktreeModeExitPrompt(branch, cwd, worktreePath, workspaceRoot strin
 	})
 }
 
-func RenderWorkflowNodeContextPrompt(args WorkflowNodeContextArgs) (string, error) {
-	return renderNamedTemplate("workflow node context", WorkflowNodeContextPrompt, args)
+func RenderWorkflowTaskInstructions(args WorkflowNodeContextArgs, nodeCompletionInstructions string) (string, error) {
+	type workflowTaskInstructionsTemplateData struct {
+		WorkflowNodeContextArgs
+		BuilderCommand             string
+		NodeCompletionInstructions string
+	}
+	return renderNamedTemplate("workflow task instructions", WorkflowTaskInstructionsPrompt, workflowTaskInstructionsTemplateData{
+		WorkflowNodeContextArgs:    args,
+		BuilderCommand:             selfcmd.BuilderCommand(),
+		NodeCompletionInstructions: strings.TrimSpace(nodeCompletionInstructions),
+	})
+}
+
+func RenderWorkflowToolCompletionInstructions(workflowShortId string) (string, error) {
+	return renderWorkflowCompletionInstructions("workflow tool completion instructions", WorkflowToolCompletionInstructionsPrompt, workflowShortId)
+}
+
+func RenderWorkflowStructuredCompletionInstructions(workflowShortId string) (string, error) {
+	return renderWorkflowCompletionInstructions("workflow structured completion instructions", WorkflowStructuredCompletionInstructionsPrompt, workflowShortId)
+}
+
+func renderWorkflowCompletionInstructions(name string, text string, workflowShortId string) (string, error) {
+	return renderNamedTemplate(name, text, struct {
+		BuilderCommand  string
+		WorkflowShortId string
+	}{
+		BuilderCommand:  selfcmd.BuilderCommand(),
+		WorkflowShortId: strings.TrimSpace(workflowShortId),
+	})
 }
 
 func renderSystemPromptTemplate(text string, args SystemPromptTemplateArgs, defaultSystemPrompt string) string {
@@ -341,7 +368,7 @@ func renderSystemPromptSections(args SystemPromptTemplateArgs) (systemPromptSect
 
 func renderSystemPromptSection(name string, text string, args SystemPromptTemplateArgs) (string, error) {
 	return renderNamedTemplate(name, text, systemPromptRuntimeTemplateData{
-		BuilderRunCommand:            selfcmd.RunCommandPrefix(),
+		BuilderCommand:               selfcmd.BuilderCommand(),
 		EstimatedToolCallsForContext: args.EstimatedToolCallsForContext,
 		EditingToolName:              strings.TrimSpace(args.EditingToolName),
 	})
@@ -353,7 +380,7 @@ func renderDefaultSystemPromptTemplateWithSections(text string, args SystemPromp
 		return "", nil
 	}
 	return renderNamedTemplate("system prompt", trimmed, defaultSystemPromptTemplateData{
-		BuilderRunCommand:                            selfcmd.RunCommandPrefix(),
+		BuilderCommand:                               selfcmd.BuilderCommand(),
 		EstimatedToolCallsForContext:                 args.EstimatedToolCallsForContext,
 		EditingToolName:                              strings.TrimSpace(args.EditingToolName),
 		DefaultSystemPromptPersonality:               strings.TrimSpace(sections.personality),
@@ -370,7 +397,7 @@ func renderSystemPromptTemplateWithSections(text string, args SystemPromptTempla
 		return "", nil
 	}
 	return renderNamedTemplate("system prompt", trimmed, systemPromptTemplateData{
-		BuilderRunCommand:                            selfcmd.RunCommandPrefix(),
+		BuilderCommand:                               selfcmd.BuilderCommand(),
 		EstimatedToolCallsForContext:                 args.EstimatedToolCallsForContext,
 		EditingToolName:                              strings.TrimSpace(args.EditingToolName),
 		DefaultSystemPrompt:                          strings.TrimSpace(defaultSystemPrompt),

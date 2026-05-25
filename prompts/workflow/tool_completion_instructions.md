@@ -1,0 +1,1 @@
+- Do not use normal final answer as completion. When work is complete, call `complete_node` tool exactly once.

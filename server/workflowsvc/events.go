@@ -20,9 +20,10 @@ type workflowProjectEventBroker struct {
 }
 
 type workflowProjectSubscription struct {
-	projectID string
-	ch        chan serverapi.WorkflowProjectEvent
-	onClose   func()
+	projectID  string
+	workflowID string
+	ch         chan serverapi.WorkflowProjectEvent
+	onClose    func()
 
 	mu   sync.Mutex
 	err  error
@@ -34,9 +35,18 @@ func newWorkflowProjectEventBroker() *workflowProjectEventBroker {
 }
 
 func (b *workflowProjectEventBroker) Subscribe(projectID string) (*workflowProjectSubscription, error) {
+	return b.subscribe(projectID, "")
+}
+
+func (b *workflowProjectEventBroker) SubscribeWorkflow(workflowID string) (*workflowProjectSubscription, error) {
+	return b.subscribe("", workflowID)
+}
+
+func (b *workflowProjectEventBroker) subscribe(projectID string, workflowID string) (*workflowProjectSubscription, error) {
 	sub := &workflowProjectSubscription{
-		projectID: projectID,
-		ch:        make(chan serverapi.WorkflowProjectEvent, workflowProjectEventBufferSize),
+		projectID:  projectID,
+		workflowID: workflowID,
+		ch:         make(chan serverapi.WorkflowProjectEvent, workflowProjectEventBufferSize),
 	}
 	b.mu.Lock()
 	if b.closed {
@@ -83,7 +93,7 @@ func (b *workflowProjectEventBroker) publish(event serverapi.WorkflowProjectEven
 	}
 	subs := make([]*workflowProjectSubscription, 0, len(b.subscribers))
 	for _, sub := range b.subscribers {
-		if workflowProjectEventMatches(sub.projectID, event.ProjectID) {
+		if workflowSubscriptionMatches(sub, event) {
 			subs = append(subs, sub)
 		}
 	}
@@ -96,7 +106,14 @@ func (b *workflowProjectEventBroker) publish(event serverapi.WorkflowProjectEven
 }
 
 func workflowProjectEventMatches(subscribedProjectID string, eventProjectID string) bool {
-	return subscribedProjectID == "" || eventProjectID == "" || subscribedProjectID == eventProjectID
+	return subscribedProjectID == "" || subscribedProjectID == eventProjectID
+}
+
+func workflowSubscriptionMatches(sub *workflowProjectSubscription, event serverapi.WorkflowProjectEvent) bool {
+	if sub.workflowID != "" {
+		return event.ProjectID == "" && sub.workflowID == event.WorkflowID
+	}
+	return workflowProjectEventMatches(sub.projectID, event.ProjectID)
 }
 
 func (b *workflowProjectEventBroker) Close(err error) {

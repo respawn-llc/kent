@@ -173,10 +173,17 @@ describe("BuilderApiClient", () => {
 
     const definition = await client.getWorkflow("workflow-1");
     expect(definition).toMatchObject({
-      workflow: { id: "workflow-1", name: "Delivery", graphRevision: 7 },
+      workflow: { id: "workflow-1", name: "Delivery", version: 9 },
       nodeGroups: [{ id: "group-1", key: "core", name: "Core", nodeIDs: [] }],
       transitionGroups: [{ id: "tg-1", sourceNodeID: "node-1", transitionID: "done" }],
-      edges: [{ id: "edge-1", transitionGroupID: "tg-1", targetNodeID: "done" }],
+      edges: [
+        {
+          contextSource: { kind: "selected_node", nodeKey: "implement" },
+          id: "edge-1",
+          targetNodeID: "done",
+          transitionGroupID: "tg-1",
+        },
+      ],
     });
     expect(definition.nodes).toEqual(
       expect.arrayContaining([
@@ -225,40 +232,72 @@ describe("BuilderApiClient", () => {
       {
         method: "workflow.list",
         result: {
-          workflows: [{ id: "workflow-1", name: "Delivery", description: "Ship", graph_revision: 3 }],
+          workflows: [
+            {
+              id: "workflow-1",
+              name: "Delivery",
+              description: "Ship",
+              version: 4,
+            },
+          ],
           next_page_token: "cursor-2",
         },
       },
-      { method: "workflow.create", result: { workflow: { id: "workflow-2", name: "Ops", description: "", graph_revision: 1 } } },
+      {
+        method: "workflow.create",
+        result: {
+          workflow: {
+            id: "workflow-2",
+            name: "Ops",
+            description: "",
+            version: 1,
+          },
+        },
+      },
       {
         method: "workflow.createAndLinkProject",
         result: {
-          workflow: { id: "workflow-3", name: "Project workflow", description: "", graph_revision: 1 },
+          workflow: {
+            id: "workflow-3",
+            name: "Project workflow",
+            description: "",
+            version: 1,
+          },
           link: { id: "link-3", project_id: "project-1", workflow_id: "workflow-3", default: true },
         },
       },
       {
         method: "workflow.linkProject",
-        result: { link: { id: "link-1", project_id: "project-1", workflow_id: "workflow-1", default: false } },
+        result: {
+          link: { id: "link-1", project_id: "project-1", workflow_id: "workflow-1", default: false },
+        },
       },
     ]);
     const client = new BuilderApiClient(transport);
 
-    await expect(client.listWorkflows({ pageSize: 10, pageToken: "cursor-1", query: "ship" })).resolves.toMatchObject({
+    await expect(
+      client.listWorkflows({ pageSize: 10, pageToken: "cursor-1", query: "ship" }),
+    ).resolves.toMatchObject({
       nextPageToken: "cursor-2",
-      workflows: [{ id: "workflow-1", name: "Delivery", graphRevision: 3 }],
+      workflows: [{ id: "workflow-1", name: "Delivery", version: 4 }],
     });
     await expect(client.createWorkflow({ name: "Ops", description: "" })).resolves.toMatchObject({
       id: "workflow-2",
       name: "Ops",
     });
     await expect(
-      client.createAndLinkWorkflowToProject({ projectID: "project-1", name: "Project workflow", description: "" }),
+      client.createAndLinkWorkflowToProject({
+        projectID: "project-1",
+        name: "Project workflow",
+        description: "",
+      }),
     ).resolves.toMatchObject({
       link: { isDefault: true, projectID: "project-1", workflowID: "workflow-3" },
       workflow: { id: "workflow-3" },
     });
-    await expect(client.linkWorkflowToProject({ projectID: "project-1", workflowID: "workflow-1" })).resolves.toMatchObject({
+    await expect(
+      client.linkWorkflowToProject({ projectID: "project-1", workflowID: "workflow-1" }),
+    ).resolves.toMatchObject({
       id: "link-1",
       isDefault: false,
     });
@@ -295,7 +334,7 @@ describe("BuilderApiClient", () => {
 
     await expect(client.previewWorkflowDelete("workflow-1")).resolves.toMatchObject({
       workflowID: "workflow-1",
-      graphRevision: 7,
+      version: 7,
       projectCount: 1,
       linkCount: 1,
       defaultReplacementProjectCount: 0,
@@ -308,7 +347,7 @@ describe("BuilderApiClient", () => {
       client.deleteWorkflow({
         workflowID: "workflow-1",
         confirmed: true,
-        expectedGraphRevision: 7,
+        expectedVersion: 7,
         expectedProjectCount: 1,
         expectedLinkCount: 1,
         expectedTaskCount: 2,
@@ -328,11 +367,140 @@ describe("BuilderApiClient", () => {
       params: {
         workflow_id: "workflow-1",
         confirmed: true,
-        expected_graph_revision: 7,
+        expected_version: 7,
         expected_project_count: 1,
         expected_link_count: 1,
         expected_task_count: 2,
         cleanup_artifacts: false,
+      },
+    });
+  });
+
+  it("maps workflow graph draft validation, preview, and save contracts", async () => {
+    const graphValidationResults = {
+      draft: { valid: true, errors: [] },
+      execution: workflowValidationResponse,
+    };
+    const transport = new FakeRpcTransport([
+      { method: "workflow.graph.validateDraft", result: { results: graphValidationResults } },
+      {
+        method: "workflow.graph.savePreview",
+        result: {
+          current_version: 11,
+          validation_results: graphValidationResults,
+          impact: workflowGraphSaveImpactResponse,
+          blockers: [{ code: "confirmation_required", message: "Confirm removal.", count: 1 }],
+          can_save: false,
+          confirmation_required: true,
+        },
+      },
+      {
+        method: "workflow.graph.save",
+        result: {
+          saved: true,
+          definition: workflowDefinitionResponse.definition,
+          current_version: 12,
+          validation_results: graphValidationResults,
+          impact: { ...workflowGraphSaveImpactResponse, removed_edge_count: 0 },
+          blockers: null,
+          can_save: true,
+          confirmation_required: false,
+        },
+      },
+    ]);
+    const client = new BuilderApiClient(transport);
+
+    await expect(
+      client.validateWorkflowGraphDraft({
+        workflowID: "workflow-1",
+        metadata: { name: "Draft Workflow", description: "Draft description" },
+        graph: workflowGraphDraft,
+        modes: ["draft", "execution"],
+      }),
+    ).resolves.toMatchObject({ draft: { valid: true }, execution: { valid: false } });
+    await expect(
+      client.previewWorkflowGraphSave({
+        workflowID: "workflow-1",
+        expectedVersion: 11,
+        metadata: { name: "Preview Workflow", description: "Preview description" },
+        graph: workflowGraphDraft,
+      }),
+    ).resolves.toMatchObject({
+      currentVersion: 11,
+      confirmationRequired: true,
+      impact: { removedEdgeCount: 1 },
+      blockers: [{ code: "confirmation_required" }],
+    });
+    await expect(
+      client.saveWorkflowGraph({
+        workflowID: "workflow-1",
+        expectedVersion: 11,
+        metadata: { name: "Saved Workflow", description: "Saved description" },
+        graph: workflowGraphDraft,
+        confirmation: {
+          expectedRemovedNodeCount: 0,
+          expectedRemovedTransitionGroupCount: 0,
+          expectedRemovedEdgeCount: 1,
+          expectedNodeTaskReferenceCount: 0,
+          expectedEdgeTaskReferenceCount: 0,
+        },
+      }),
+    ).resolves.toMatchObject({
+      saved: true,
+      currentVersion: 12,
+      definition: { workflow: { id: "workflow-1" } },
+      blockers: [],
+    });
+
+    expect(transport.calls[0]).toEqual({
+      method: "workflow.graph.validateDraft",
+      params: {
+        workflow_id: "workflow-1",
+        metadata: { name: "Draft Workflow", description: "Draft description" },
+        modes: ["draft", "execution"],
+        graph: {
+          node_groups: [],
+          nodes: [
+            {
+              id: "node-start",
+              key: "backlog",
+              kind: "start",
+              display_name: "Backlog",
+              output_fields: [],
+            },
+          ],
+          transition_groups: [
+            {
+              id: "group-start",
+              source_node_id: "node-start",
+              transition_id: "start",
+              display_name: "Start",
+            },
+          ],
+          edges: [
+            {
+              id: "edge-start",
+              transition_group_id: "group-start",
+              key: "start",
+              target_node_id: "node-agent",
+              requires_approval: false,
+              context_mode: "new_session",
+              context_source: { kind: "immediate_source", node_key: "" },
+              input_bindings: [],
+              output_requirements: [],
+            },
+          ],
+        },
+      },
+    });
+    expect(transport.calls[2]).toMatchObject({
+      method: "workflow.graph.save",
+      params: {
+        expected_version: 11,
+        metadata: { name: "Saved Workflow", description: "Saved description" },
+        confirmation: {
+          expected_removed_edge_count: 1,
+        },
       },
     });
   });
@@ -342,7 +510,7 @@ const emptyWorkflow = {
   workflow_id: "",
   display_name: "",
   description: "",
-  graph_revision: 0,
+  version: 0,
   is_project_default: false,
   valid_for_task_creation: false,
   validation_errors: null,
@@ -454,7 +622,7 @@ const emptyTaskDetailResponse = {
       workflow_id: "workflow-1",
       display_name: "Delivery",
       description: "",
-      graph_revision: 1,
+      version: 1,
       is_project_default: true,
       valid_for_task_creation: true,
       validation_errors: null,
@@ -491,7 +659,7 @@ const workflowDefinitionResponse = {
       id: "workflow-1",
       name: "Delivery",
       description: "Delivery workflow",
-      graph_revision: 7,
+      version: 9,
     },
     node_groups: [
       {
@@ -540,6 +708,10 @@ const workflowDefinitionResponse = {
         target_node_id: "done",
         requires_approval: false,
         context_mode: "new_session",
+        context_source: {
+          kind: "selected_node",
+          node_key: "implement",
+        },
         input_bindings: null,
         output_requirements: null,
       },
@@ -576,7 +748,7 @@ const workflowLinksResponse = {
 
 const workflowDeleteImpactResponse = {
   workflow_id: "workflow-1",
-  graph_revision: 7,
+  version: 7,
   project_count: 1,
   link_count: 1,
   default_replacement_project_count: 0,
@@ -594,4 +766,57 @@ const workflowDeleteResponse = {
   deleted: false,
   impact: workflowDeleteImpactResponse,
   blockers: [{ code: "runnable_runs", message: "Workflow has runnable runs.", count: 1 }],
+};
+
+const workflowGraphSaveImpactResponse = {
+  removed_node_count: 0,
+  removed_transition_group_count: 0,
+  removed_edge_count: 1,
+  node_task_reference_count: 0,
+  edge_task_reference_count: 0,
+  active_node_placement_count: 0,
+  pending_approval_count: 0,
+  active_run_count: 0,
+  runnable_run_count: 0,
+  start_node_change_count: 0,
+  last_terminal_change_count: 0,
+  task_referenced_node_kind_change_count: 0,
+};
+
+const workflowGraphDraft = {
+  nodeGroups: [],
+  nodes: [
+    {
+      id: "node-start",
+      key: "backlog",
+      kind: "start",
+      name: "Backlog",
+      groupID: "",
+      groupKey: "",
+      subagentRole: "",
+      promptTemplate: "",
+      outputFields: [],
+    },
+  ],
+  transitionGroups: [
+    {
+      id: "group-start",
+      sourceNodeID: "node-start",
+      transitionID: "start",
+      name: "Start",
+    },
+  ],
+  edges: [
+    {
+      id: "edge-start",
+      transitionGroupID: "group-start",
+      key: "start",
+      targetNodeID: "node-agent",
+      requiresApproval: false,
+      contextMode: "new_session",
+      contextSource: { kind: "immediate_source", nodeKey: "" },
+      inputBindings: [],
+      outputRequirements: [],
+    },
+  ],
 };

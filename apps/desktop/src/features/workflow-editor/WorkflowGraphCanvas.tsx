@@ -1,55 +1,80 @@
 import {
   Background,
   BackgroundVariant,
-  BaseEdge,
-  EdgeLabelRenderer,
   Handle,
   ReactFlow,
   ReactFlowProvider,
   Position,
   useReactFlow,
   type EdgeProps,
+  type Edge,
+  type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { Maximize2, Minus, Plus, RotateCcw } from "lucide-react";
+import { Info, Maximize2, Minus, Plus, RotateCcw } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { cx } from "../../ui/classes";
+import { WorkflowGraphEdge as WorkflowGraphEdgeRenderer } from "./WorkflowGraphEdge";
 import type {
   WorkflowGraphEdge,
+  WorkflowGraphEdgeData,
   WorkflowGraphGroupNode,
+  WorkflowGraphNodeData,
+  WorkflowGraphGroupData,
   WorkflowGraphLayout,
   WorkflowGraphNode,
   WorkflowGraphWorkflowNode,
 } from "./workflowGraphLayout";
-import { workflowEdgePath } from "./workflowEdgePath";
 import "@xyflow/react/dist/style.css";
 import "./workflow-editor.css";
 
 export type WorkflowGraphCanvasProps = Readonly<{
   graph: WorkflowGraphLayout;
+  onEdgeInspect: (edgeID: string) => void;
+  onGroupInspect: (groupID: string) => void;
+  onNodeInspect: (nodeID: string) => void;
+  onWorkflowInspect: () => void;
 }>;
 
-export function WorkflowGraphCanvas({ graph }: WorkflowGraphCanvasProps) {
+export function WorkflowGraphCanvas({
+  graph,
+  onEdgeInspect,
+  onGroupInspect,
+  onNodeInspect,
+  onWorkflowInspect,
+}: WorkflowGraphCanvasProps) {
   const localNodeTypes = useMemo(
     () => ({
       workflowGroup: WorkflowGroupNode,
+      workflowJoin: WorkflowJoinNode,
       workflowNode: WorkflowNode,
     }),
     [],
   );
   const localEdgeTypes = useMemo(
     () => ({
-      workflow: WorkflowEdge,
+      workflow: (props: EdgeProps<WorkflowGraphEdge>) => (
+        <WorkflowGraphEdgeRenderer
+          {...props}
+          onInspect={(edgeID) => {
+            onEdgeInspect(edgeID);
+          }}
+        />
+      ),
     }),
-    [],
+    [onEdgeInspect],
   );
   return (
     <ReactFlowProvider>
       <WorkflowGraphCanvasInner
         edgeTypes={localEdgeTypes}
         edges={graph.edges}
+        onEdgeInspect={onEdgeInspect}
+        onGroupInspect={onGroupInspect}
+        onNodeInspect={onNodeInspect}
+        onWorkflowInspect={onWorkflowInspect}
         nodeTypes={localNodeTypes}
         nodes={graph.nodes}
       />
@@ -60,12 +85,20 @@ export function WorkflowGraphCanvas({ graph }: WorkflowGraphCanvasProps) {
 function WorkflowGraphCanvasInner({
   edgeTypes,
   edges,
+  onEdgeInspect,
+  onGroupInspect,
+  onNodeInspect,
+  onWorkflowInspect,
   nodeTypes,
   nodes,
 }: Readonly<{
-  edgeTypes: Readonly<Record<string, typeof WorkflowEdge>>;
+  edgeTypes: Readonly<Record<string, (props: EdgeProps<WorkflowGraphEdge>) => ReactNode>>;
   edges: readonly WorkflowGraphEdge[];
-  nodeTypes: Readonly<Record<string, typeof WorkflowGroupNode | typeof WorkflowNode>>;
+  onEdgeInspect: (edgeID: string) => void;
+  onGroupInspect: (groupID: string) => void;
+  onNodeInspect: (nodeID: string) => void;
+  onWorkflowInspect: () => void;
+  nodeTypes: Readonly<Record<string, typeof WorkflowGroupNode | typeof WorkflowJoinNode | typeof WorkflowNode>>;
   nodes: readonly WorkflowGraphNode[];
 }>) {
   const { t } = useTranslation();
@@ -120,6 +153,12 @@ function WorkflowGraphCanvasInner({
         nodesConnectable={false}
         nodesDraggable={false}
         nodeTypes={nodeTypes}
+        onEdgeClick={(_event, edge) => {
+          inspectEdge(edge, onEdgeInspect);
+        }}
+        onNodeClick={(_event, node) => {
+          inspectNode(node, onGroupInspect, onNodeInspect);
+        }}
         panOnScroll
         proOptions={{ hideAttribution: true }}
         selectionOnDrag={false}
@@ -133,6 +172,9 @@ function WorkflowGraphCanvasInner({
           variant={BackgroundVariant.Dots}
         />
         <div className="workflow-editor-tools island-glass app-region-no-drag absolute left-[var(--space-4)] top-[var(--space-4)] z-10 grid gap-[var(--space-1)] rounded-[var(--radius-l)] border p-[var(--space-1)] shadow-[var(--shadow-island-1)]">
+          <CanvasTool label={t("workflowEditor.inspectWorkflow")} onClick={onWorkflowInspect}>
+            <Info aria-hidden="true" size={18} strokeWidth={1.7} />
+          </CanvasTool>
           <CanvasTool label={t("workflowEditor.zoomIn")} onClick={() => void instance.zoomIn()}>
             <Plus aria-hidden="true" size={18} strokeWidth={1.7} />
           </CanvasTool>
@@ -228,40 +270,70 @@ const WorkflowGroupNode = memo(function WorkflowGroupNode({ data }: NodeProps<Wo
   );
 });
 
-function WorkflowEdge(props: EdgeProps<WorkflowGraphEdge>) {
-  const edgePath = workflowEdgePath(props);
-  const label = props.data?.label ?? "";
+const WorkflowJoinNode = memo(function WorkflowJoinNode({ data, selected }: NodeProps<WorkflowGraphWorkflowNode>) {
   return (
-    <>
-      <BaseEdge
-        {...(props.markerEnd === undefined ? {} : { markerEnd: props.markerEnd })}
-        data-testid="workflow-edge-path"
-        path={edgePath.path}
-        style={{
-          stroke: props.data?.hasError === true ? "var(--color-error)" : "var(--color-outline)",
-          strokeLinecap: "round",
-          strokeLinejoin: "round",
-          strokeWidth: props.selected ? 2.5 : 1.5,
-        }}
+    <div
+      className={cx(
+        "workflow-editor-join-node grid h-full w-full place-items-center",
+        data.hasError ? "workflow-editor-node-error" : undefined,
+        selected ? "workflow-editor-node-selected" : undefined,
+      )}
+      data-kind={data.kind}
+      title={data.label}
+    >
+      <Handle
+        aria-label="Incoming transitions"
+        className="workflow-editor-handle"
+        data-testid="workflow-node-target-handle"
+        position={Position.Left}
+        type="target"
       />
-      {label.length > 0 ? (
-        <EdgeLabelRenderer>
-          <div
-            className={cx(
-              "workflow-editor-edge-label absolute max-w-[180px] truncate rounded-full border bg-[var(--color-island-1)] px-[var(--space-2)] py-[2px] text-xs font-semibold text-[var(--color-on-island)] shadow-[var(--shadow-island-1)]",
-              props.data?.hasError === true ? "border-[var(--color-error)]" : "border-[var(--color-outline)]",
-            )}
-            style={{
-              transform: `translate(-50%, -50%) translate(${edgePath.labelPoint.x.toString()}px, ${edgePath.labelPoint.y.toString()}px)`,
-            }}
-            title={label}
-          >
-            {label}
-          </div>
-        </EdgeLabelRenderer>
-      ) : null}
-    </>
+      <Handle
+        aria-label="Outgoing transitions"
+        className="workflow-editor-handle"
+        data-testid="workflow-node-source-handle"
+        position={Position.Right}
+        type="source"
+      />
+      <div className="workflow-editor-join-diamond" data-testid="workflow-join-diamond">
+        <span className="sr-only">{data.label}</span>
+      </div>
+    </div>
   );
+});
+
+function inspectNode(
+  node: Node,
+  onGroupInspect: (groupID: string) => void,
+  onNodeInspect: (nodeID: string) => void,
+): void {
+  const { data } = node;
+  if (isWorkflowGraphGroupData(data)) {
+    onGroupInspect(data.entityID);
+    return;
+  }
+  if (isWorkflowGraphNodeData(data)) {
+    onNodeInspect(data.entityID);
+  }
+}
+
+function inspectEdge(edge: Edge, onEdgeInspect: (edgeID: string) => void): void {
+  const { data } = edge;
+  if (isWorkflowGraphEdgeData(data)) {
+    onEdgeInspect(data.entityID);
+  }
+}
+
+function isWorkflowGraphNodeData(data: Node["data"]): data is WorkflowGraphNodeData {
+  return data.entityKind === "node" && typeof data.entityID === "string";
+}
+
+function isWorkflowGraphGroupData(data: Node["data"]): data is WorkflowGraphGroupData {
+  return data.entityKind === "group" && typeof data.entityID === "string";
+}
+
+function isWorkflowGraphEdgeData(data: Edge["data"]): data is WorkflowGraphEdgeData {
+  return data?.entityKind === "edge" && typeof data.entityID === "string";
 }
 
 function isFormTarget(target: EventTarget | null): boolean {

@@ -136,7 +136,7 @@ func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		return 1
 	}
 	for _, workflow := range workflows {
-		fmt.Fprintf(stdout, "%s\t%s\t%d\n", workflow.ID, workflow.Name, workflow.GraphRevision)
+		fmt.Fprintf(stdout, "%s\t%s\t%d\n", workflow.ID, workflow.Name, workflow.Version)
 	}
 	return 0
 }
@@ -212,7 +212,7 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "node_id\t%s\nkey\t%s\ngraph_revision\t%d\n", nodeID, *key, resp.GraphRevision)
+	fmt.Fprintf(stdout, "node_id\t%s\nkey\t%s\nversion\t%d\n", nodeID, *key, resp.Version)
 	return 0
 }
 
@@ -281,7 +281,7 @@ func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "node_id\t%s\nkey\t%s\ngraph_revision\t%d\n", updated.ID, updated.Key, resp.GraphRevision)
+	fmt.Fprintf(stdout, "node_id\t%s\nkey\t%s\nversion\t%d\n", updated.ID, updated.Key, resp.Version)
 	return 0
 }
 
@@ -390,7 +390,7 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "edge_id\t%s\ngroup_id\t%s\ngraph_revision\t%d\n", edgeID, groupID, resp.GraphRevision)
+	fmt.Fprintf(stdout, "edge_id\t%s\ngroup_id\t%s\nversion\t%d\n", edgeID, groupID, resp.Version)
 	return 0
 }
 
@@ -505,7 +505,7 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "edge_id\t%s\ngroup_id\t%s\ngraph_revision\t%d\n", updatedEdge.ID, updatedEdge.TransitionGroupID, resp.GraphRevision)
+	fmt.Fprintf(stdout, "edge_id\t%s\ngroup_id\t%s\nversion\t%d\n", updatedEdge.ID, updatedEdge.TransitionGroupID, resp.Version)
 	return 0
 }
 
@@ -711,7 +711,7 @@ func workflowInspectSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "workflow_id\t%s\nname\t%s\ngraph_revision\t%d\n", def.Workflow.ID, def.Workflow.Name, def.Workflow.GraphRevision)
+	fmt.Fprintf(stdout, "workflow_id\t%s\nname\t%s\nversion\t%d\n", def.Workflow.ID, def.Workflow.Name, def.Workflow.Version)
 	fmt.Fprintln(stdout, "nodes")
 	for _, node := range def.Nodes {
 		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\n", node.ID, node.Key, node.Kind, node.DisplayName, node.SubagentRole)

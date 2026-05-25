@@ -26,6 +26,12 @@ export type SidebarWorkflowResult = Readonly<{
   workflowID: string;
 }>;
 
+export type WorkflowInspectorSelection =
+  | Readonly<{ kind: "workflow" }>
+  | Readonly<{ kind: "node"; nodeID: string }>
+  | Readonly<{ kind: "group"; groupID: string }>
+  | Readonly<{ kind: "edge"; edgeID: string }>;
+
 export type SidebarResult =
   | SidebarCanceledResult
   | SidebarNewTaskResult
@@ -57,6 +63,12 @@ export type SidebarDestination =
       mode?: SidebarMode;
       projectID: string;
       selectedWorkflowID?: string | undefined;
+    }>
+  | Readonly<{
+      kind: "workflowInspect";
+      mode?: SidebarMode;
+      workflowID: string;
+      selection: WorkflowInspectorSelection;
     }>
   | Readonly<{
       kind: "custom";

@@ -8,14 +8,14 @@ import (
 )
 
 func TestRenderSystemPromptTemplateUsesTypedFields(t *testing.T) {
-	rendered := renderSystemPromptTemplate("calls={{.EstimatedToolCallsForContext}} cmd={{.BuilderRunCommand}} edit={{.EditingToolName}}", SystemPromptTemplateArgs{
+	rendered := renderSystemPromptTemplate("calls={{.EstimatedToolCallsForContext}} cmd={{.BuilderCommand}} run edit={{.EditingToolName}}", SystemPromptTemplateArgs{
 		EstimatedToolCallsForContext: 123,
 		EditingToolName:              "edit",
 	}, "")
 	if !strings.Contains(rendered, "calls=123") {
 		t.Fatalf("expected estimated tool calls rendered, got %q", rendered)
 	}
-	expectedCmd := "cmd=" + selfcmd.RunCommandPrefix()
+	expectedCmd := "cmd=" + selfcmd.BuilderCommand() + " run"
 	if !strings.Contains(rendered, expectedCmd) || strings.Contains(rendered, "{{") {
 		t.Fatalf("expected %q in rendered output, got %q", expectedCmd, rendered)
 	}
@@ -61,7 +61,7 @@ func TestCustomSystemPromptResolvesDefaultSystemPromptSectionPlaceholders(t *tes
 		"Your agentic environment",
 		"Product ambiguity and planning",
 		"Final answer instructions",
-		selfcmd.RunCommandPrefix(),
+		selfcmd.BuilderCommand(),
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expected section prompt to contain %q, got %q", want, rendered)
@@ -93,20 +93,6 @@ func TestBaseSystemPromptAssemblesDefaultSections(t *testing.T) {
 	}
 }
 
-func TestWorkflowModePromptsOverrideNoopFinal(t *testing.T) {
-	for name, prompt := range map[string]string{
-		"tool":              WorkflowToolModePrompt,
-		"structured_output": WorkflowStructuredOutputModePrompt,
-	} {
-		if !strings.Contains(prompt, "Do not use `NO_OP` in workflow mode") {
-			t.Fatalf("%s workflow prompt missing NO_OP override: %q", name, prompt)
-		}
-		if !strings.Contains(prompt, "keep polling it with `write_stdin`") {
-			t.Fatalf("%s workflow prompt missing polling recovery path: %q", name, prompt)
-		}
-	}
-}
-
 func TestDefaultSystemPromptAssemblyCannotReferenceFullDefaultPrompt(t *testing.T) {
 	_, err := renderSystemPromptTemplateErr("{{.DefaultSystemPrompt}}", SystemPromptTemplateArgs{
 		EstimatedToolCallsForContext: 123,
@@ -130,6 +116,50 @@ func TestCustomSystemPromptRejectsRemovedManualEditInstructionPlaceholder(t *tes
 	}
 	if !strings.Contains(err.Error(), "ManualEditInstruction") {
 		t.Fatalf("expected error to mention ManualEditInstruction, got %v", err)
+	}
+}
+
+func TestRenderWorkflowTaskInstructionsUsesCompletionModeFragment(t *testing.T) {
+	toolInstructions, err := RenderWorkflowToolCompletionInstructions("workflow-1")
+	if err != nil {
+		t.Fatalf("RenderWorkflowToolCompletionInstructions: %v", err)
+	}
+	rendered, err := RenderWorkflowTaskInstructions(WorkflowNodeContextArgs{
+		TaskId:          "task-1",
+		TaskShortId:     "BUI-1",
+		TaskTitle:       "Smoke test",
+		TaskBody:        "Ask three questions.",
+		WorkflowId:      "workflow-1",
+		WorkflowShortId: "workflow-1",
+		NodeId:          "node-1",
+		NodeKey:         "triaging",
+		NodeDisplayName: "Triaging",
+		ContextMode:     "new_session",
+		Transitions: []WorkflowTransition{
+			{ID: "actionable", DisplayName: "Actionable"},
+			{ID: "not_actionable", DisplayName: "Not Actionable"},
+		},
+		NodePrompt: "Triage the ticket.",
+	}, toolInstructions)
+	if err != nil {
+		t.Fatalf("RenderWorkflowTaskInstructions: %v", err)
+	}
+	for _, want := range []string{
+		"ticket `BUI-1`",
+		"workflow `workflow-1`",
+		selfcmd.BuilderCommand() + " task show BUI-1",
+		"complete_node",
+		"actionable (Actionable)",
+		"Triage the ticket.",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expected workflow instructions to contain %q, got %q", want, rendered)
+		}
+	}
+	for _, unexpected := range []string{"Required node output fields", "Output fields:"} {
+		if strings.Contains(rendered, unexpected) {
+			t.Fatalf("workflow instructions should not contain %q, got %q", unexpected, rendered)
+		}
 	}
 }
 

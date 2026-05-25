@@ -204,7 +204,11 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 		}
 	}
 	if opts.IncludeWorkflow {
-		if message, ok := workflowModeMetaMessage(opts.WorkflowCompletionMode); ok {
+		message, ok, err := workflowModeMetaMessage(opts.WorkflowCompletionMode, nil)
+		if err != nil {
+			return metaContextBuildResult{}, err
+		}
+		if ok {
 			collector.addMessages([]llm.Message{message})
 		}
 	}
@@ -277,7 +281,7 @@ func (b metaContextBuilder) subagentsMetaMessage() (llm.Message, bool) {
 		lines = append(lines, "- `"+role.Name+"`: "+role.Description)
 	}
 	lines = append(lines, "---")
-	lines = append(lines, "Invoke with `"+prompts.BuilderRunCommand()+" --agent=<role> \"<prompt>\"`.")
+	lines = append(lines, "Invoke with `"+prompts.BuilderCommand()+" run --agent=<role> \"<prompt>\"`.")
 	return llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeSubagents, Content: strings.Join(lines, "\n")}, true
 }
 
@@ -387,20 +391,78 @@ func headlessModeExitMetaMessage() (llm.Message, bool) {
 	return llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessModeExit, Content: content}, true
 }
 
-func workflowModeMetaMessage(mode workflowruntime.CompletionMode) (llm.Message, bool) {
+func workflowModeMetaMessage(mode workflowruntime.CompletionMode, cfg *workflowruntime.Config) (llm.Message, bool, error) {
+	if cfg != nil {
+		content, err := workflowTaskInstructionsContent(mode, cfg.Instructions)
+		if err != nil {
+			return llm.Message{}, false, err
+		}
+		if strings.TrimSpace(content) == "" {
+			return llm.Message{}, false, nil
+		}
+		return llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorkflowMode, Content: content}, true, nil
+	}
 	content := ""
+	var err error
 	switch mode {
 	case workflowruntime.CompletionModeTool:
-		content = strings.TrimSpace(prompts.WorkflowToolModePrompt)
+		content, err = prompts.RenderWorkflowToolCompletionInstructions("")
 	case workflowruntime.CompletionModeStructuredOutput:
-		content = strings.TrimSpace(prompts.WorkflowStructuredOutputModePrompt)
+		content, err = prompts.RenderWorkflowStructuredCompletionInstructions("")
 	default:
-		return llm.Message{}, false
+		return llm.Message{}, false, nil
+	}
+	if err != nil {
+		return llm.Message{}, false, err
 	}
 	if content == "" {
-		return llm.Message{}, false
+		return llm.Message{}, false, nil
 	}
-	return llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorkflowMode, Content: content}, true
+	return llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorkflowMode, Content: content}, true, nil
+}
+
+func workflowTaskInstructionsContent(mode workflowruntime.CompletionMode, instructions workflowruntime.TaskInstructions) (string, error) {
+	completionInstructions := ""
+	var err error
+	switch mode {
+	case workflowruntime.CompletionModeTool:
+		completionInstructions, err = prompts.RenderWorkflowToolCompletionInstructions(instructions.WorkflowShortID)
+	case workflowruntime.CompletionModeStructuredOutput:
+		completionInstructions, err = prompts.RenderWorkflowStructuredCompletionInstructions(instructions.WorkflowShortID)
+	default:
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return prompts.RenderWorkflowTaskInstructions(prompts.WorkflowNodeContextArgs{
+		TaskId:          instructions.TaskID,
+		TaskShortId:     instructions.TaskShortID,
+		TaskTitle:       instructions.TaskTitle,
+		TaskBody:        instructions.TaskBody,
+		WorkflowId:      instructions.WorkflowID,
+		WorkflowShortId: instructions.WorkflowShortID,
+		NodeId:          instructions.NodeID,
+		NodeKey:         instructions.NodeKey,
+		NodeDisplayName: instructions.NodeDisplayName,
+		ContextMode:     instructions.ContextMode,
+		SourceSessionID: instructions.SourceSessionID,
+		CompletionMode:  string(mode),
+		Transitions:     workflowInstructionTransitions(instructions.Transitions),
+		NodePrompt:      instructions.NodePrompt,
+	}, completionInstructions)
+}
+
+func workflowInstructionTransitions(in []workflowruntime.TransitionInstruction) []prompts.WorkflowTransition {
+	out := make([]prompts.WorkflowTransition, 0, len(in))
+	for _, transition := range in {
+		id := strings.TrimSpace(transition.ID)
+		if id == "" {
+			continue
+		}
+		out = append(out, prompts.WorkflowTransition{ID: id, DisplayName: strings.TrimSpace(transition.DisplayName), Description: strings.TrimSpace(transition.Description)})
+	}
+	return out
 }
 
 func worktreeModeMetaMessage(state session.WorktreeReminderState) (llm.Message, bool) {

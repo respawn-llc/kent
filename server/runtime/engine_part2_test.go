@@ -293,6 +293,72 @@ func TestLegacyLockedSessionBackfillsSystemPromptSnapshotOnce(t *testing.T) {
 	}
 }
 
+func TestChildSessionSnapshotsRoleSystemPromptOnFirstRequest(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	rolePrompt := filepath.Join(workspace, "code-review-system.md")
+	writeTestFile(t, rolePrompt, "code review system prompt")
+	toolPreambles := false
+	root := t.TempDir()
+	parent, err := session.Create(root, "parent", workspace)
+	if err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+	if err := parent.MarkModelDispatchLocked(session.LockedContract{
+		Model:             "locked-parent",
+		EnabledTools:      []string{"shell"},
+		ToolPreambles:     &toolPreambles,
+		SystemPrompt:      "parent generic system prompt",
+		HasSystemPrompt:   true,
+		ReviewerPrompt:    "parent reviewer prompt",
+		HasReviewerPrompt: true,
+	}); err != nil {
+		t.Fatalf("MarkModelDispatchLocked parent: %v", err)
+	}
+	child, err := session.NewLazy(root, "child", workspace)
+	if err != nil {
+		t.Fatalf("new child: %v", err)
+	}
+	if err := session.InitializeChildFromParentWithOptions(child, parent, session.ChildContextOptions{}); err != nil {
+		t.Fatalf("InitializeChildFromParentWithOptions: %v", err)
+	}
+	client := &fakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok"},
+		Usage:     llm.Usage{WindowTokens: 200000},
+	}}}
+	eng, err := New(child, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+		Model:         "role-model",
+		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
+		ToolPreambles: false,
+		SystemPromptFiles: []config.SystemPromptFile{
+			{Path: rolePrompt, Scope: config.SystemPromptFileScopeSubagent},
+		},
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	if _, err := eng.SubmitUserMessage(context.Background(), "review this"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+
+	if len(client.calls) != 1 {
+		t.Fatalf("client calls = %d, want 1", len(client.calls))
+	}
+	if got := client.calls[0].SystemPrompt; got != "code review system prompt" {
+		t.Fatalf("request system prompt = %q, want role system prompt", got)
+	}
+	if got := client.calls[0].Model; got != "role-model" {
+		t.Fatalf("request model = %q, want role model", got)
+	}
+	if locked := child.Meta().Locked; locked == nil || locked.Model != "role-model" || !locked.HasSystemPrompt || locked.SystemPrompt != "code review system prompt" {
+		t.Fatalf("child locked contract = %+v, want role model and prompt", locked)
+	} else if locked.HasReviewerPrompt || locked.ReviewerPrompt != "" {
+		t.Fatalf("child reviewer prompt lock = %+v, want no parent reviewer prompt inherited", locked)
+	}
+}
+
 func TestEmptySystemPromptFileIsSkippedAndFallbackSnapshotIsReused(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()

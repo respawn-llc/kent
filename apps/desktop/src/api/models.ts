@@ -127,7 +127,7 @@ export type WorkflowRecord = Readonly<{
   id: string;
   name: string;
   description: string;
-  graphRevision: number;
+  version: number;
 }>;
 
 export type WorkflowPage = Readonly<{
@@ -167,6 +167,11 @@ export type WorkflowOutputRequirement = Readonly<{
   fieldName: string;
 }>;
 
+export type WorkflowContextSource = Readonly<{
+  kind: string;
+  nodeKey: string;
+}>;
+
 export type WorkflowTransitionGroup = Readonly<{
   id: string;
   workflowID: string;
@@ -183,6 +188,7 @@ export type WorkflowEdge = Readonly<{
   targetNodeID: string;
   requiresApproval: boolean;
   contextMode: string;
+  contextSource: WorkflowContextSource;
   inputBindings: readonly WorkflowInputBinding[];
   outputRequirements: readonly WorkflowOutputRequirement[];
 }>;
@@ -200,9 +206,108 @@ export type WorkflowValidation = Readonly<{
   errors: readonly WorkflowValidationError[];
 }>;
 
+export type WorkflowValidationMode = "draft" | "task_creation" | "execution";
+
+export type WorkflowGraphDraftNodeGroup = Readonly<{
+  id: string;
+  key: string;
+  name: string;
+}>;
+
+export type WorkflowGraphDraftNode = Readonly<{
+  id: string;
+  key: string;
+  kind: string;
+  name: string;
+  groupID: string;
+  groupKey: string;
+  subagentRole: string;
+  promptTemplate: string;
+  outputFields: readonly WorkflowOutputField[];
+}>;
+
+export type WorkflowGraphDraftTransitionGroup = Readonly<{
+  id: string;
+  sourceNodeID: string;
+  transitionID: string;
+  name: string;
+}>;
+
+export type WorkflowGraphDraftEdge = Readonly<{
+  id: string;
+  transitionGroupID: string;
+  key: string;
+  targetNodeID: string;
+  requiresApproval: boolean;
+  contextMode: string;
+  contextSource: WorkflowContextSource;
+  inputBindings: readonly WorkflowInputBinding[];
+  outputRequirements: readonly WorkflowOutputRequirement[];
+}>;
+
+export type WorkflowGraphDraft = Readonly<{
+  nodeGroups: readonly WorkflowGraphDraftNodeGroup[];
+  nodes: readonly WorkflowGraphDraftNode[];
+  transitionGroups: readonly WorkflowGraphDraftTransitionGroup[];
+  edges: readonly WorkflowGraphDraftEdge[];
+}>;
+
+export type WorkflowGraphValidationResults = Readonly<
+  Partial<Record<WorkflowValidationMode, WorkflowValidation>>
+>;
+
+export type WorkflowGraphMetadata = Readonly<{
+  name: string;
+  description: string;
+}>;
+
+export type WorkflowGraphSaveImpact = Readonly<{
+  removedNodeCount: number;
+  removedTransitionGroupCount: number;
+  removedEdgeCount: number;
+  nodeTaskReferenceCount: number;
+  edgeTaskReferenceCount: number;
+  activeNodePlacementCount: number;
+  pendingApprovalCount: number;
+  activeRunCount: number;
+  runnableRunCount: number;
+  startNodeChangeCount: number;
+  lastTerminalChangeCount: number;
+  taskReferencedNodeKindChangeCount: number;
+}>;
+
+export type WorkflowGraphSaveBlocker = Readonly<{
+  code: string;
+  message: string;
+  count: number;
+}>;
+
+export type WorkflowGraphSavePreview = Readonly<{
+  currentVersion: number;
+  validationResults: WorkflowGraphValidationResults;
+  impact: WorkflowGraphSaveImpact;
+  blockers: readonly WorkflowGraphSaveBlocker[];
+  canSave: boolean;
+  confirmationRequired: boolean;
+}>;
+
+export type WorkflowGraphSaveConfirmation = Readonly<{
+  expectedRemovedNodeCount: number;
+  expectedRemovedTransitionGroupCount: number;
+  expectedRemovedEdgeCount: number;
+  expectedNodeTaskReferenceCount: number;
+  expectedEdgeTaskReferenceCount: number;
+}>;
+
+export type WorkflowGraphSaveResult = WorkflowGraphSavePreview &
+  Readonly<{
+    saved: boolean;
+    definition: WorkflowDefinition | null;
+  }>;
+
 export type WorkflowDeleteImpact = Readonly<{
   workflowID: string;
-  graphRevision: number;
+  version: number;
   projectCount: number;
   linkCount: number;
   defaultReplacementProjectCount: number;
@@ -235,7 +340,7 @@ export type WorkflowPickerItem = Readonly<{
   id: string;
   name: string;
   description: string;
-  graphRevision: number;
+  version: number;
   isProjectDefault: boolean;
   validForTaskCreation: boolean;
   validationErrors: readonly WorkflowValidationError[];
@@ -374,7 +479,7 @@ export type TaskTransition = Readonly<{
   commentary: string;
   outputValues: Readonly<Record<string, string>>;
   edges: readonly TransitionEdge[];
-  graphRevision: number;
+  version: number;
   createdAt: number;
   appliedAt: number;
 }>;
@@ -395,7 +500,7 @@ export type TaskDetail = Readonly<{
   projectName: string;
   workflowID: string;
   workflowName: string;
-  workflowGraphRevision: number;
+  workflowVersion: number;
   title: string;
   body: string;
   sourceWorkspace: WorkspaceSummary;

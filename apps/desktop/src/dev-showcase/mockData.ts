@@ -344,7 +344,7 @@ function workflow(
 ): WorkflowPickerItem {
   return {
     description: `${name} preview`,
-    graphRevision: 7,
+    version: 7,
     id,
     isProjectDefault,
     name,

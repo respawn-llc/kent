@@ -261,7 +261,7 @@ type Workflow struct {
 	ID              string
 	Name            string
 	Description     string
-	GraphRevision   int64
+	Version         int64
 	CreatedAtUnixMs int64
 	UpdatedAtUnixMs int64
 }

@@ -40,6 +40,29 @@ type Config struct {
 	MaxFinalAnswerViolations     int
 	MaxInvalidCompletionAttempts int
 	Controller                   Controller
+	Instructions                 TaskInstructions
+}
+
+type TaskInstructions struct {
+	TaskID          string
+	TaskShortID     string
+	TaskTitle       string
+	TaskBody        string
+	WorkflowID      string
+	WorkflowShortID string
+	NodeID          string
+	NodeKey         string
+	NodeDisplayName string
+	ContextMode     string
+	SourceSessionID string
+	Transitions     []TransitionInstruction
+	NodePrompt      string
+}
+
+type TransitionInstruction struct {
+	ID          string
+	DisplayName string
+	Description string
 }
 
 type CompletionRequest struct {

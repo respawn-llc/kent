@@ -65,7 +65,8 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithStructuredOutput(t *testing.T) {
 	if first.StructuredOutput == nil {
 		t.Fatalf("structured output schema missing in request: %+v", first)
 	}
-	assertPromptContains(t, first, []string{"Task title: Run workflow", "Task body:\nBody for workflow", "Node key: agent", "Completion mode: structured_output", "summary: Summary.", "done (Done)"})
+	assertPromptContains(t, first, []string{"ticket `RUN-1`", "Run workflow", "Implement the task.", "done (Done)", "workflow completion schema"})
+	assertNoUserPrompt(t, first)
 	fixture.assertRunSessionUsesTaskWorktree(t, runs[0].SessionID)
 	if scheduler.ActiveCount() != 0 {
 		t.Fatalf("scheduler active count = %d, want 0 after runtime finish", scheduler.ActiveCount())
@@ -211,10 +212,7 @@ func TestSchedulerRunsNextAgentWithBoundInputsAndTaskWorktreeContext(t *testing.
 		t.Fatalf("fake model request count = %d, want 2", len(reqs))
 	}
 	assertPromptContains(t, reqs[1], []string{
-		"Bound input values:",
-		"prior_summary: first summary",
-		"task_title: Run workflow",
-		"Node prompt:\nUse Run workflow and first summary.",
+		"Use Run workflow and first summary.",
 	})
 	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
 	if err != nil {
@@ -256,7 +254,7 @@ func TestWorkflowRuntimeContinueSessionReusesSourceRunSession(t *testing.T) {
 	if len(reqs) < 2 {
 		t.Fatalf("fake model request count = %d, want 2", len(reqs))
 	}
-	assertPromptContains(t, reqs[1], []string{"Node key: implement", "prior_summary: first summary"})
+	assertPromptContains(t, reqs[1], []string{"Use Run workflow and first summary."})
 }
 
 func TestWorkflowRuntimeContinueSessionKeepsLockedSetupAfterRoleConfigDrift(t *testing.T) {
@@ -356,7 +354,7 @@ func TestWorkflowRuntimeCompactAndContinueCreatesFreshCrossRoleChildSession(t *t
 	if reqs[1].Model != "gpt-5.4-reviewer" {
 		t.Fatalf("second request model = %q, want reviewer role model", reqs[1].Model)
 	}
-	assertPromptContains(t, reqs[1], []string{"Context mode: compact_and_continue_session", "Source session:", "prior_summary: first summary"})
+	assertPromptContains(t, reqs[1], []string{"Source session:", "prior_summary: first summary", "Use Run workflow and first summary."})
 }
 
 func TestWorkflowRuntimeStartFailsWhenRoleDisappearedAfterTaskStart(t *testing.T) {
@@ -845,6 +843,20 @@ func assertPromptContains(t *testing.T, req llm.Request, needles []string) {
 			t.Fatalf("request prompt missing %q in:\n%s", needle, text)
 		}
 	}
+}
+
+func assertNoUserPrompt(t *testing.T, req llm.Request) {
+	t.Helper()
+	userPrompts := []string{}
+	for _, item := range req.Items {
+		if item.Role == llm.RoleUser {
+			userPrompts = append(userPrompts, item.Content)
+		}
+	}
+	if len(userPrompts) == 0 {
+		return
+	}
+	t.Fatalf("request should not include user prompts, got %+v", userPrompts)
 }
 
 func requestHasTool(req llm.Request, name string) bool {

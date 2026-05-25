@@ -14,19 +14,27 @@ func RunCommandPrefix() string {
 	return formatRunCommandPrefix(currentExecutablePath())
 }
 
+func BuilderCommand() string {
+	return formatBuilderCommand(currentExecutablePath())
+}
+
 func ContinueRunCommand(sessionID string) string {
 	return formatContinueRunCommand(currentExecutablePath(), sessionID)
 }
 
-func formatRunCommandPrefix(executablePath string) string {
+func formatBuilderCommand(executablePath string) string {
 	executablePath = strings.TrimSpace(executablePath)
 	if executablePath == "" {
-		return fallbackBinaryName + " run"
+		return fallbackBinaryName
 	}
 	if executablePath == fallbackBinaryName {
-		return fallbackBinaryName + " run"
+		return fallbackBinaryName
 	}
-	return strconv.Quote(executablePath) + " run"
+	return strconv.Quote(executablePath)
+}
+
+func formatRunCommandPrefix(executablePath string) string {
+	return formatBuilderCommand(executablePath) + " run"
 }
 
 func formatContinueRunCommand(executablePath, sessionID string) string {

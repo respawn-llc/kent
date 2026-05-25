@@ -1,0 +1,1 @@
+- Do not use normal prose final answer as completion, instead, when work is complete, return JSON matching workflow completion schema you have been provided.

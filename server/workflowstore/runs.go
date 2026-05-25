@@ -302,6 +302,11 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 	if err != nil {
 		return RunStartContext{}, err
 	}
+	workflowRow, err := s.queries.GetWorkflow(ctx, task.WorkflowID)
+	if err != nil {
+		return RunStartContext{}, err
+	}
+	workflowRecord := WorkflowRecord{ID: workflow.WorkflowID(workflowRow.ID), Name: workflowRow.Name, Description: workflowRow.Description, Version: workflowRow.Version}
 	snapshot := runStartSnapshot{}
 	if err := unmarshalJSON(run.RunStartSnapshotJson, &snapshot); err != nil {
 		return RunStartContext{}, err
@@ -319,6 +324,7 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 		return RunStartContext{
 			Run:               runRecordFromTaskRun(run),
 			Task:              taskRecordFromTask(task),
+			Workflow:          workflowRecord,
 			Node:              nodeRecordFromSnapshot(snapshot.Node, snapshot.WorkflowID),
 			ContextMode:       transitionContext.ContextMode,
 			SourceRunID:       transitionContext.SourceRunID,
@@ -340,6 +346,7 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 	return RunStartContext{
 		Run:               runRecordFromTaskRun(run),
 		Task:              taskRecordFromTask(task),
+		Workflow:          workflowRecord,
 		Node:              nodeRecordFromSnapshot(snapshot.Node, snapshot.WorkflowID),
 		ContextMode:       transitionContext.ContextMode,
 		SourceRunID:       transitionContext.SourceRunID,

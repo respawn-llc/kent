@@ -14,6 +14,10 @@ import type {
   WorkflowDeleteImpact,
   WorkflowDeleteResponse,
   WorkflowDefinition,
+  WorkflowGraphSaveImpact,
+  WorkflowGraphSavePreview,
+  WorkflowGraphSaveResult,
+  WorkflowGraphValidationResults,
   WorkflowPage,
   WorkflowRecord,
   ProjectWorkflowLink,
@@ -58,13 +62,13 @@ const workflowRecordSchema: z.ZodType<WorkflowRecord> = z
     id: z.string(),
     name: z.string(),
     description: emptyString,
-    graph_revision: z.number(),
+    version: z.number(),
   })
   .transform((value) => ({
     id: value.id,
     name: value.name,
     description: value.description,
-    graphRevision: value.graph_revision,
+    version: value.version,
   }));
 
 export const workflowListSchema: z.ZodType<WorkflowPage> = z
@@ -220,6 +224,20 @@ const workflowOutputRequirementsSchema = z
   .nullish()
   .transform(emptyArray);
 
+const workflowContextSourceSchema = z
+  .object({
+    kind: z
+      .string()
+      .nullish()
+      .transform((value) => value ?? "immediate_source"),
+    node_key: emptyString,
+  })
+  .nullish()
+  .transform((value) => ({
+    kind: value?.kind ?? "immediate_source",
+    nodeKey: value?.node_key ?? "",
+  }));
+
 const workflowEdgesSchema = z
   .array(
     z
@@ -231,6 +249,7 @@ const workflowEdgesSchema = z
         target_node_id: z.string(),
         requires_approval: z.boolean(),
         context_mode: z.string(),
+        context_source: workflowContextSourceSchema,
         input_bindings: workflowInputBindingsSchema,
         output_requirements: workflowOutputRequirementsSchema,
       })
@@ -242,6 +261,7 @@ const workflowEdgesSchema = z
         targetNodeID: value.target_node_id,
         requiresApproval: value.requires_approval,
         contextMode: value.context_mode,
+        contextSource: value.context_source,
         inputBindings: value.input_bindings,
         outputRequirements: value.output_requirements,
       })),
@@ -249,33 +269,37 @@ const workflowEdgesSchema = z
   .nullish()
   .transform(emptyArray);
 
-export const workflowDefinitionSchema: z.ZodType<WorkflowDefinition> = z
+const workflowDefinitionValueSchema: z.ZodType<WorkflowDefinition> = z
   .object({
-    definition: z.object({
-      workflow: z.object({
-        id: z.string(),
-        name: z.string(),
-        description: emptyString,
-        graph_revision: z.number(),
-      }),
-      node_groups: workflowNodeGroupsSchema,
-      nodes: workflowNodesSchema,
-      transition_groups: workflowTransitionGroupsSchema,
-      edges: workflowEdgesSchema,
+    workflow: z.object({
+      id: z.string(),
+      name: z.string(),
+      description: emptyString,
+      version: z.number(),
     }),
+    node_groups: workflowNodeGroupsSchema,
+    nodes: workflowNodesSchema,
+    transition_groups: workflowTransitionGroupsSchema,
+    edges: workflowEdgesSchema,
   })
   .transform((value) => ({
     workflow: {
-      id: value.definition.workflow.id,
-      name: value.definition.workflow.name,
-      description: value.definition.workflow.description,
-      graphRevision: value.definition.workflow.graph_revision,
+      id: value.workflow.id,
+      name: value.workflow.name,
+      description: value.workflow.description,
+      version: value.workflow.version,
     },
-    nodeGroups: value.definition.node_groups,
-    nodes: value.definition.nodes,
-    transitionGroups: value.definition.transition_groups,
-    edges: value.definition.edges,
+    nodeGroups: value.node_groups,
+    nodes: value.nodes,
+    transitionGroups: value.transition_groups,
+    edges: value.edges,
   }));
+
+export const workflowDefinitionSchema: z.ZodType<WorkflowDefinition> = z
+  .object({
+    definition: workflowDefinitionValueSchema,
+  })
+  .transform((value) => value.definition);
 
 export const workflowValidationSchema: z.ZodType<WorkflowValidation> = z
   .object({
@@ -287,10 +311,102 @@ export const workflowValidationSchema: z.ZodType<WorkflowValidation> = z
     errors: value.errors,
   }));
 
+const workflowGraphValidationResultsSchema: z.ZodType<WorkflowGraphValidationResults> = z.record(
+  z.string(),
+  workflowValidationSchema,
+);
+
+export const workflowGraphValidateDraftSchema: z.ZodType<WorkflowGraphValidationResults> = z
+  .object({
+    results: workflowGraphValidationResultsSchema,
+  })
+  .transform((value) => value.results);
+
+const workflowGraphSaveImpactSchema: z.ZodType<WorkflowGraphSaveImpact> = z
+  .object({
+    removed_node_count: z.number(),
+    removed_transition_group_count: z.number(),
+    removed_edge_count: z.number(),
+    node_task_reference_count: z.number(),
+    edge_task_reference_count: z.number(),
+    active_node_placement_count: z.number(),
+    pending_approval_count: z.number(),
+    active_run_count: z.number(),
+    runnable_run_count: z.number(),
+    start_node_change_count: z.number(),
+    last_terminal_change_count: z.number(),
+    task_referenced_node_kind_change_count: z.number(),
+  })
+  .transform((value) => ({
+    removedNodeCount: value.removed_node_count,
+    removedTransitionGroupCount: value.removed_transition_group_count,
+    removedEdgeCount: value.removed_edge_count,
+    nodeTaskReferenceCount: value.node_task_reference_count,
+    edgeTaskReferenceCount: value.edge_task_reference_count,
+    activeNodePlacementCount: value.active_node_placement_count,
+    pendingApprovalCount: value.pending_approval_count,
+    activeRunCount: value.active_run_count,
+    runnableRunCount: value.runnable_run_count,
+    startNodeChangeCount: value.start_node_change_count,
+    lastTerminalChangeCount: value.last_terminal_change_count,
+    taskReferencedNodeKindChangeCount: value.task_referenced_node_kind_change_count,
+  }));
+
+const workflowGraphSaveBlockersSchema = z
+  .array(
+    z.object({
+      code: z.string(),
+      message: z.string(),
+      count: z.number(),
+    }),
+  )
+  .nullish()
+  .transform(emptyArray);
+
+export const workflowGraphSavePreviewSchema: z.ZodType<WorkflowGraphSavePreview> = z
+  .object({
+    current_version: z.number(),
+    validation_results: workflowGraphValidationResultsSchema,
+    impact: workflowGraphSaveImpactSchema,
+    blockers: workflowGraphSaveBlockersSchema,
+    can_save: z.boolean(),
+    confirmation_required: z.boolean(),
+  })
+  .transform((value) => ({
+    currentVersion: value.current_version,
+    validationResults: value.validation_results,
+    impact: value.impact,
+    blockers: value.blockers,
+    canSave: value.can_save,
+    confirmationRequired: value.confirmation_required,
+  }));
+
+export const workflowGraphSaveSchema: z.ZodType<WorkflowGraphSaveResult> = z
+  .object({
+    saved: z.boolean(),
+    definition: workflowDefinitionValueSchema.nullish().transform((value) => value ?? null),
+    current_version: z.number(),
+    validation_results: workflowGraphValidationResultsSchema,
+    impact: workflowGraphSaveImpactSchema,
+    blockers: workflowGraphSaveBlockersSchema,
+    can_save: z.boolean(),
+    confirmation_required: z.boolean(),
+  })
+  .transform((value) => ({
+    saved: value.saved,
+    definition: value.definition,
+    currentVersion: value.current_version,
+    validationResults: value.validation_results,
+    impact: value.impact,
+    blockers: value.blockers,
+    canSave: value.can_save,
+    confirmationRequired: value.confirmation_required,
+  }));
+
 const workflowDeleteImpactSchema: z.ZodType<WorkflowDeleteImpact> = z
   .object({
     workflow_id: z.string(),
-    graph_revision: z.number(),
+    version: z.number(),
     project_count: z.number(),
     link_count: z.number(),
     default_replacement_project_count: z.number(),
@@ -301,7 +417,7 @@ const workflowDeleteImpactSchema: z.ZodType<WorkflowDeleteImpact> = z
   })
   .transform((value) => ({
     workflowID: value.workflow_id,
-    graphRevision: value.graph_revision,
+    version: value.version,
     projectCount: value.project_count,
     linkCount: value.link_count,
     defaultReplacementProjectCount: value.default_replacement_project_count,
@@ -486,7 +602,7 @@ export const taskDetailSchema: z.ZodType<TaskDetail> = z
     projectName: value.task.project.display_name,
     workflowID: value.task.summary.workflow_id,
     workflowName: value.task.workflow.name,
-    workflowGraphRevision: value.task.workflow.graphRevision,
+    workflowVersion: value.task.workflow.version,
     title: value.task.summary.title,
     body: value.task.body,
     sourceWorkspace: value.task.source_workspace,

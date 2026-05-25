@@ -3,10 +3,13 @@ import ELK from "elkjs/lib/elk.bundled.js";
 import type { ElkExtendedEdge, ElkNode } from "elkjs/lib/elk-api";
 
 import type { WorkflowDefinition, WorkflowValidation } from "../../api";
+import { workflowEdgeColor } from "./workflowGraphColors";
 import { visibleWorkflowGraphEdgeModels } from "./workflowGraphEdges";
 
 export type WorkflowGraphNodeData = Readonly<{
   [key: string]: unknown;
+  entityID: string;
+  entityKind: "node";
   kind: string;
   label: string;
   role: string;
@@ -15,6 +18,8 @@ export type WorkflowGraphNodeData = Readonly<{
 
 export type WorkflowGraphGroupData = Readonly<{
   [key: string]: unknown;
+  entityID: string;
+  entityKind: "group";
   kind: "group";
   label: string;
   empty: boolean;
@@ -23,9 +28,13 @@ export type WorkflowGraphGroupData = Readonly<{
 
 export type WorkflowGraphEdgeData = Readonly<{
   [key: string]: unknown;
+  contextMode: string;
+  entityID: string;
+  entityKind: "edge";
   label: string;
   hasError: boolean;
   routePoints: readonly WorkflowGraphPoint[];
+  transitionGroupID: string;
 }>;
 
 export type WorkflowGraphPoint = Readonly<{ x: number; y: number }>;
@@ -46,6 +55,7 @@ type NodeLayoutOffset = Readonly<{ x: number; y: number }>;
 const elk = new ELK();
 const workflowNodeWidth = 220;
 const workflowNodeHeight = 92;
+const workflowJoinNodeSize = 56;
 const emptyGroupWidth = 260;
 const emptyGroupHeight = 140;
 
@@ -55,14 +65,14 @@ export async function layoutWorkflowGraph(
 ): Promise<WorkflowGraphLayout> {
   const errorMarkers = validationMarkers(validation);
   const transitionGroupsByID = new Map(definition.transitionGroups.map((group) => [group.id, group]));
-  const visibleNodes = definition.nodes.filter(isVisibleWorkflowGraphNode);
+  const visibleNodes = definition.nodes;
   const edgeModels = visibleWorkflowGraphEdgeModels(definition, transitionGroupsByID, errorMarkers);
   const groupedNodeIDs = new Set(
     visibleNodes.map((node) => node.groupID).filter((groupID) => groupID.length > 0),
   );
   const emptyGroups = definition.nodeGroups.filter((group) => !groupedNodeIDs.has(group.id));
   const children: ElkNode[] = [
-    ...visibleNodes.map((node) => elkWorkflowNode(node.id)),
+    ...visibleNodes.map((node) => elkWorkflowNode(node)),
     ...emptyGroups.map((group) => ({
       id: groupNodeID(group.id),
       width: emptyGroupWidth,
@@ -94,11 +104,15 @@ export async function layoutWorkflowGraph(
       source: model.sourceNodeID,
       target: model.targetNodeID,
       type: "workflow",
-      markerEnd: { type: MarkerType.ArrowClosed },
+      markerEnd: { color: workflowEdgeColor(model.contextMode, model.hasError), type: MarkerType.ArrowClosed },
       data: {
         label: model.label,
+        contextMode: model.contextMode,
+        entityID: model.edgeID,
+        entityKind: "edge",
         hasError: model.hasError,
         routePoints: edgeRoutePoints(edgeLayoutByID.get(model.id)),
+        transitionGroupID: model.transitionGroupID,
       },
     }),
   );
@@ -113,8 +127,12 @@ function edgeRoutePoints(edge: ElkExtendedEdge | undefined): readonly WorkflowGr
   return [section.startPoint, ...(section.bendPoints ?? []), section.endPoint];
 }
 
-function elkWorkflowNode(id: string): ElkNode {
-  return { id, width: workflowNodeWidth, height: workflowNodeHeight };
+function elkWorkflowNode(node: WorkflowDefinition["nodes"][number]): ElkNode {
+  return {
+    id: node.id,
+    width: node.kind === "join" ? workflowJoinNodeSize : workflowNodeWidth,
+    height: node.kind === "join" ? workflowJoinNodeSize : workflowNodeHeight,
+  };
 }
 
 function flattenNodes(
@@ -123,7 +141,7 @@ function flattenNodes(
   errorMarkers: ValidationMarkers,
 ): WorkflowGraphNode[] {
   const workflowNodesByID = new Map(
-    definition.nodes.filter(isVisibleWorkflowGraphNode).map((node) => [node.id, node]),
+    definition.nodes.map((node) => [node.id, node]),
   );
   const layoutByID = new Map((result.children ?? []).map((node) => [node.id, node]));
   const groupLayout = workflowGroupNodes(definition, layoutByID, errorMarkers);
@@ -179,7 +197,7 @@ function groupMembers(
   groupID: string,
 ): readonly ElkNode[] {
   return definition.nodes
-    .filter((node) => node.groupID === groupID && isVisibleWorkflowGraphNode(node))
+    .filter((node) => node.groupID === groupID)
     .map((node) => layoutByID.get(node.id))
     .filter((node): node is ElkNode => node !== undefined);
 }
@@ -195,10 +213,12 @@ function emptyGroupNode(
       id: groupNodeID(group.id),
       type: "workflowGroup",
       position: { x: layout?.x ?? 0, y: layout?.y ?? 0 },
-      selectable: false,
+      selectable: true,
       draggable: false,
       data: {
         kind: "group",
+        entityID: group.id,
+        entityKind: "group",
         label: group.name || group.key,
         empty: true,
         hasError: errorMarkers.relatedIDs.has(group.id),
@@ -221,10 +241,12 @@ function populatedGroupNode(
       id: groupNodeID(group.id),
       type: "workflowGroup",
       position: { x: bounds.minX, y: bounds.minY },
-      selectable: false,
+      selectable: true,
       draggable: false,
       data: {
         kind: "group",
+        entityID: group.id,
+        entityKind: "group",
         label: group.name || group.key,
         empty: false,
         hasError: errorMarkers.relatedIDs.has(group.id),
@@ -256,7 +278,7 @@ function workflowNode(
   const offset = options.offset ?? { x: 0, y: 0 };
   return {
     id: node.id,
-    type: "workflowNode",
+    type: node.kind === "join" ? "workflowJoin" : "workflowNode",
     ...(options.parentID === undefined ? {} : parentNodeOptions(options.parentID)),
     position: { x: (layoutNode.x ?? 0) - offset.x, y: (layoutNode.y ?? 0) - offset.y },
     sourcePosition: Position.Right,
@@ -264,6 +286,8 @@ function workflowNode(
     draggable: false,
     data: {
       kind: node.kind,
+      entityID: node.id,
+      entityKind: "node",
       label: node.name,
       role: node.subagentRole,
       hasError: options.errorMarkers.nodeIDs.has(node.id) || options.errorMarkers.relatedIDs.has(node.id),
@@ -278,10 +302,6 @@ function parentNodeOptions(parentId: string): Pick<WorkflowGraphNode, "extent" |
 
 function groupNodeID(id: string): string {
   return `workflow-group-${id}`;
-}
-
-function isVisibleWorkflowGraphNode(node: WorkflowDefinition["nodes"][number]): boolean {
-  return node.kind !== "join";
 }
 
 function validationMarkers(validation: WorkflowValidation) {

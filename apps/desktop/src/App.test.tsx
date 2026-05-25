@@ -53,7 +53,7 @@ describe("App", () => {
                   id: "workflow-1",
                   name: "Delivery",
                   description: "Ship changes",
-                  graph_revision: 1,
+                  version: 1,
                 },
               ],
               next_page_token: "",

@@ -4,6 +4,7 @@ import type { useTranslation } from "react-i18next";
 
 import { TaskDetailSurface } from "../features/task-detail/TaskDetailDialog";
 import { NewTaskForm } from "../features/tasks/NewTaskDialog";
+import { WorkflowInspectorSidebar } from "../features/workflow-editor/WorkflowInspectorSidebar";
 import { LinkWorkflowSidebar } from "../features/workflows/LinkWorkflowSidebar";
 import { WorkflowCreateForm } from "../features/workflows/WorkflowCreateForm";
 import { useAppNavigation } from "./navigation";
@@ -47,6 +48,10 @@ export function SidebarDestinationView({
 
   if (destination.kind === "linkWorkflow") {
     return <LinkWorkflowDestinationView destination={destination} resolveSidebar={resolveSidebar} />;
+  }
+
+  if (destination.kind === "workflowInspect") {
+    return <WorkflowInspectorSidebar selection={destination.selection} workflowID={destination.workflowID} />;
   }
 
   return <>{destination.content}</>;
@@ -118,6 +123,18 @@ export function sidebarTitle(
   }
   if (destination.kind === "linkWorkflow") {
     return t("workflowLibrary.linkWorkflow");
+  }
+  if (destination.kind === "workflowInspect") {
+    if (destination.selection.kind === "workflow") {
+      return t("workflowEditor.inspectWorkflow");
+    }
+    if (destination.selection.kind === "node") {
+      return t("workflowEditor.inspectNode");
+    }
+    if (destination.selection.kind === "group") {
+      return t("workflowEditor.inspectGroup");
+    }
+    return t("workflowEditor.inspectEdge");
   }
   return destination.title;
 }

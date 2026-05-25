@@ -8,18 +8,15 @@ export type WorkflowGraphEdgeErrorMarkers = Readonly<{
 }>;
 
 export type WorkflowGraphEdgeModel = Readonly<{
+  contextMode: string;
+  edgeID: string;
+  hasError: boolean;
   id: string;
+  label: string;
   sourceNodeID: string;
   targetNodeID: string;
-  label: string;
-  hasError: boolean;
+  transitionGroupID: string;
   elk: ElkExtendedEdge;
-}>;
-
-type CollapsedJoinTarget = Readonly<{
-  edgeIDs: readonly string[];
-  hasError: boolean;
-  targetNodeID: string;
 }>;
 
 export function visibleWorkflowGraphEdgeModels(
@@ -27,136 +24,47 @@ export function visibleWorkflowGraphEdgeModels(
   transitionGroupsByID: ReadonlyMap<string, WorkflowDefinition["transitionGroups"][number]>,
   errorMarkers: WorkflowGraphEdgeErrorMarkers,
 ): readonly WorkflowGraphEdgeModel[] {
-  const nodesByID = new Map(definition.nodes.map((node) => [node.id, node]));
-  const outgoingEdgesBySourceNodeID = outgoingEdgesBySourceNodeIDMap(definition, transitionGroupsByID);
   const models: WorkflowGraphEdgeModel[] = [];
   for (const edge of definition.edges) {
     const group = transitionGroupsByID.get(edge.transitionGroupID);
     if (group === undefined) {
       continue;
     }
-    const sourceNode = nodesByID.get(group.sourceNodeID);
-    const targetNode = nodesByID.get(edge.targetNodeID);
-    if (sourceNode?.kind === "join") {
-      continue;
-    }
-    if (targetNode?.kind === "join") {
-      const collapsedTargets = collapsedJoinTargets({
-        currentNodeID: targetNode.id,
-        errorMarkers,
-        nodesByID,
-        outgoingEdgesBySourceNodeID,
-        transitionGroupsByID,
-        visitedJoinNodeIDs: new Set([targetNode.id]),
-      });
-      for (const collapsedTarget of collapsedTargets) {
-        models.push(
-          workflowGraphEdgeModel({
-            edgeID: [edge.id, ...collapsedTarget.edgeIDs].join(":"),
-            sourceNodeID: group.sourceNodeID,
-            targetNodeID: collapsedTarget.targetNodeID,
-            label: edgeLabel(edge.key, group, definition.edges),
-            hasError: edgeHasError(edge, group, errorMarkers) || collapsedTarget.hasError,
-          }),
-        );
-      }
-      continue;
-    }
     models.push(
       workflowGraphEdgeModel({
+        contextMode: edge.contextMode,
         edgeID: edge.id,
+        hasError: edgeHasError(edge, group, errorMarkers),
+        label: edgeLabel(edge.key, group, definition.edges),
         sourceNodeID: group.sourceNodeID,
         targetNodeID: edge.targetNodeID,
-        label: edgeLabel(edge.key, group, definition.edges),
-        hasError: edgeHasError(edge, group, errorMarkers),
+        transitionGroupID: group.id,
       }),
     );
   }
   return models;
 }
 
-function collapsedJoinTargets({
-  currentNodeID,
-  errorMarkers,
-  nodesByID,
-  outgoingEdgesBySourceNodeID,
-  transitionGroupsByID,
-  visitedJoinNodeIDs,
-}: Readonly<{
-  currentNodeID: string;
-  errorMarkers: WorkflowGraphEdgeErrorMarkers;
-  nodesByID: ReadonlyMap<string, WorkflowDefinition["nodes"][number]>;
-  outgoingEdgesBySourceNodeID: ReadonlyMap<string, readonly WorkflowDefinition["edges"][number][]>;
-  transitionGroupsByID: ReadonlyMap<string, WorkflowDefinition["transitionGroups"][number]>;
-  visitedJoinNodeIDs: ReadonlySet<string>;
-}>): readonly CollapsedJoinTarget[] {
-  const targets: CollapsedJoinTarget[] = [];
-  for (const edge of outgoingEdgesBySourceNodeID.get(currentNodeID) ?? []) {
-    const group = transitionGroupsByID.get(edge.transitionGroupID);
-    if (group === undefined) {
-      continue;
-    }
-    const edgeError = edgeHasError(edge, group, errorMarkers);
-    const targetNode = nodesByID.get(edge.targetNodeID);
-    if (targetNode?.kind !== "join") {
-      targets.push({ edgeIDs: [edge.id], hasError: edgeError, targetNodeID: edge.targetNodeID });
-      continue;
-    }
-    if (visitedJoinNodeIDs.has(targetNode.id)) {
-      continue;
-    }
-    const nextVisitedJoinNodeIDs = new Set(visitedJoinNodeIDs);
-    nextVisitedJoinNodeIDs.add(targetNode.id);
-    for (const target of collapsedJoinTargets({
-      currentNodeID: targetNode.id,
-      errorMarkers,
-      nodesByID,
-      outgoingEdgesBySourceNodeID,
-      transitionGroupsByID,
-      visitedJoinNodeIDs: nextVisitedJoinNodeIDs,
-    })) {
-      targets.push({
-        edgeIDs: [edge.id, ...target.edgeIDs],
-        hasError: edgeError || target.hasError,
-        targetNodeID: target.targetNodeID,
-      });
-    }
-  }
-  return targets;
-}
-
-function outgoingEdgesBySourceNodeIDMap(
-  definition: WorkflowDefinition,
-  transitionGroupsByID: ReadonlyMap<string, WorkflowDefinition["transitionGroups"][number]>,
-): ReadonlyMap<string, readonly WorkflowDefinition["edges"][number][]> {
-  const out = new Map<string, WorkflowDefinition["edges"][number][]>();
-  for (const edge of definition.edges) {
-    const group = transitionGroupsByID.get(edge.transitionGroupID);
-    if (group === undefined) {
-      continue;
-    }
-    const edges = out.get(group.sourceNodeID) ?? [];
-    edges.push(edge);
-    out.set(group.sourceNodeID, edges);
-  }
-  return out;
-}
-
 function workflowGraphEdgeModel(
   input: Readonly<{
+    contextMode: string;
     edgeID: string;
+    hasError: boolean;
+    label: string;
     sourceNodeID: string;
     targetNodeID: string;
-    label: string;
-    hasError: boolean;
+    transitionGroupID: string;
   }>,
 ): WorkflowGraphEdgeModel {
   return {
+    contextMode: input.contextMode,
+    edgeID: input.edgeID,
+    hasError: input.hasError,
     id: input.edgeID,
+    label: input.label,
     sourceNodeID: input.sourceNodeID,
     targetNodeID: input.targetNodeID,
-    label: input.label,
-    hasError: input.hasError,
+    transitionGroupID: input.transitionGroupID,
     elk: {
       id: input.edgeID,
       sources: [input.sourceNodeID],

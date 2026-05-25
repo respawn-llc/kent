@@ -144,7 +144,7 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 			WorkflowID:           workflowID,
 			DisplayName:          def.Workflow.Name,
 			Description:          def.Workflow.Description,
-			GraphRevision:        def.Workflow.GraphRevision,
+			Version:              def.Workflow.Version,
 			IsProjectDefault:     link.ID != "" && link.IsDefault != 0,
 			ValidForTaskCreation: validation.Valid() && link.ID != "",
 			ValidationErrors:     validationErrors(def.Workflow.ID, validation.Errors),
@@ -588,7 +588,7 @@ func (s *Service) definition(ctx context.Context, workflowID string) (serverapi.
 	if err != nil {
 		return serverapi.WorkflowDefinition{}, nil, err
 	}
-	def := serverapi.WorkflowDefinition{Workflow: serverapi.WorkflowRecord{ID: row.ID, Name: row.Name, Description: row.Description, GraphRevision: row.GraphRevision}}
+	def := serverapi.WorkflowDefinition{Workflow: serverapi.WorkflowRecord{ID: row.ID, Name: row.Name, Description: row.Description, Version: row.Version}}
 	nodeGroups, err := s.queries.ListWorkflowNodeGroups(ctx, workflowID)
 	if err != nil {
 		return serverapi.WorkflowDefinition{}, nil, err
@@ -687,7 +687,7 @@ func workflowTransitionGroupByID(def serverapi.WorkflowDefinition) map[string]se
 }
 
 func workflowPickerItem(def serverapi.WorkflowDefinition, link sqlitegen.ProjectWorkflowLinkRecord, validation *workflow.ValidationResult) serverapi.WorkflowPickerItem {
-	item := serverapi.WorkflowPickerItem{WorkflowID: def.Workflow.ID, DisplayName: def.Workflow.Name, Description: def.Workflow.Description, GraphRevision: def.Workflow.GraphRevision, IsProjectDefault: link.ID != "" && link.IsDefault != 0, ValidForTaskCreation: link.ID != ""}
+	item := serverapi.WorkflowPickerItem{WorkflowID: def.Workflow.ID, DisplayName: def.Workflow.Name, Description: def.Workflow.Description, Version: def.Workflow.Version, IsProjectDefault: link.ID != "" && link.IsDefault != 0, ValidForTaskCreation: link.ID != ""}
 	if validation != nil {
 		item.ValidForTaskCreation = link.ID != "" && validation.Valid()
 		item.ValidationErrors = validationErrors(def.Workflow.ID, validation.Errors)

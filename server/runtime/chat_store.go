@@ -41,13 +41,14 @@ type TranscriptWindowSnapshot struct {
 }
 
 type storedToolCompletion struct {
-	CallID       string                   `json:"call_id"`
-	Name         string                   `json:"name"`
-	IsError      bool                     `json:"is_error"`
-	Output       json.RawMessage          `json:"output"`
-	Summary      string                   `json:"summary,omitempty"`
-	OngoingText  string                   `json:"ongoing_text,omitempty"`
-	Presentation *transcript.ToolCallMeta `json:"presentation,omitempty"`
+	CallID        string                   `json:"call_id"`
+	Name          string                   `json:"name"`
+	IsError       bool                     `json:"is_error"`
+	Output        json.RawMessage          `json:"output"`
+	Summary       string                   `json:"summary,omitempty"`
+	OngoingText   string                   `json:"ongoing_text,omitempty"`
+	Presentation  *transcript.ToolCallMeta `json:"presentation,omitempty"`
+	ProviderItems []llm.ResponseItem       `json:"provider_items,omitempty"`
 }
 
 type chatStore struct {
@@ -58,6 +59,7 @@ type chatStore struct {
 	local   []localChatEntry
 
 	toolCompletions                   map[string]tools.Result
+	toolCompletionProviderItems       map[string][]llm.ResponseItem
 	assistantToolCalls                map[string]struct{}
 	materializedToolResults           map[string]struct{}
 	synthesizedToolResults            map[string]struct{}
@@ -93,12 +95,13 @@ func newChatStore() *chatStore {
 
 func newChatStoreWithCWD(cwd string) *chatStore {
 	return &chatStore{
-		toolCompletions:            make(map[string]tools.Result, 16),
-		assistantToolCalls:         make(map[string]struct{}, 16),
-		materializedToolResults:    make(map[string]struct{}, 16),
-		synthesizedToolResults:     make(map[string]struct{}, 16),
-		cwd:                        strings.TrimSpace(cwd),
-		providerTokenEstimateDirty: true,
+		toolCompletions:             make(map[string]tools.Result, 16),
+		toolCompletionProviderItems: make(map[string][]llm.ResponseItem, 16),
+		assistantToolCalls:          make(map[string]struct{}, 16),
+		materializedToolResults:     make(map[string]struct{}, 16),
+		synthesizedToolResults:      make(map[string]struct{}, 16),
+		cwd:                         strings.TrimSpace(cwd),
+		providerTokenEstimateDirty:  true,
 	}
 }
 
@@ -117,17 +120,18 @@ func (s *chatStore) appendMessage(msg llm.Message) {
 func (s *chatStore) replaceHistory(items []llm.ResponseItem) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	preparedItems := llm.PrepareOpenAIInputItems(items)
 	// Non-reviewer compaction keeps user-visible transcript history append-only by
 	// materializing replacement items as synthetic local entries at the compaction
 	// boundary while provider/model history switches to the compacted checkpoint.
-	s.appendProjectedHistoryReplacementEntriesLocked(transcriptEntriesFromHistoryReplacement(items))
+	s.appendProjectedHistoryReplacementEntriesLocked(transcriptEntriesFromHistoryReplacement(preparedItems))
 	s.compact = &compactionCheckpoint{
 		CutoffItemCount:    len(s.items),
 		CutoffMessageCount: s.messageCount,
 		CutoffLocalCount:   len(s.local),
-		Items:              llm.CloneResponseItems(items),
+		Items:              llm.CloneResponseItems(preparedItems),
 	}
-	s.headlessModeActive = headlessModeActive(llm.MessagesFromItems(items))
+	s.headlessModeActive = headlessModeActive(llm.MessagesFromItems(preparedItems))
 	s.providerTokenEstimateDirty = true
 }
 
@@ -157,7 +161,12 @@ func (s *chatStore) restoreToolCompletionPayload(payload []byte) error {
 	if err := json.Unmarshal(payload, &completion); err != nil {
 		return fmt.Errorf("decode tool_completed event: %w", err)
 	}
-	s.recordToolCompletion(tools.Result{
+	s.recordStoredToolCompletion(completion)
+	return nil
+}
+
+func (s *chatStore) recordStoredToolCompletion(completion storedToolCompletion) {
+	s.recordToolCompletionWithProviderItems(tools.Result{
 		CallID:       completion.CallID,
 		Name:         toolspec.ID(completion.Name),
 		IsError:      completion.IsError,
@@ -165,11 +174,14 @@ func (s *chatStore) restoreToolCompletionPayload(payload []byte) error {
 		Summary:      completion.Summary,
 		OngoingText:  completion.OngoingText,
 		Presentation: completion.Presentation,
-	})
-	return nil
+	}, completion.ProviderItems)
 }
 
 func (s *chatStore) recordToolCompletion(res tools.Result) {
+	s.recordToolCompletionWithProviderItems(res, nil)
+}
+
+func (s *chatStore) recordToolCompletionWithProviderItems(res tools.Result, providerItems []llm.ResponseItem) {
 	callID := strings.TrimSpace(res.CallID)
 	if callID == "" {
 		return
@@ -177,6 +189,11 @@ func (s *chatStore) recordToolCompletion(res tools.Result) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.toolCompletions[callID] = res
+	if len(providerItems) > 0 {
+		s.toolCompletionProviderItems[callID] = llm.CloneResponseItems(providerItems)
+	} else {
+		delete(s.toolCompletionProviderItems, callID)
+	}
 	s.providerTokenEstimateDirty = true
 	if _, ok := s.assistantToolCalls[callID]; ok {
 		if _, materialized := s.materializedToolResults[callID]; !materialized {
@@ -358,12 +375,17 @@ func (s *chatStore) snapshotProviderItemsLocked() []llm.ResponseItem {
 		if !ok {
 			continue
 		}
-		pendingOutputs = append(pendingOutputs, llm.ResponseItem{
+		providerItems := s.toolCompletionProviderItems[callID]
+		if len(providerItems) > 0 {
+			pendingOutputs = append(pendingOutputs, llm.CloneResponseItems(providerItems)...)
+			continue
+		}
+		pendingOutputs = append(pendingOutputs, llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
 			Type:   llm.ToolOutputItemType(item.Type == llm.ResponseItemTypeCustomToolCall),
 			CallID: callID,
 			Name:   firstNonEmpty(strings.TrimSpace(string(completion.Name)), strings.TrimSpace(item.Name)),
 			Output: append(json.RawMessage(nil), completion.Output...),
-		})
+		}})...)
 	}
 	flushPendingOutputs()
 	return out

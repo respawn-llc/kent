@@ -18,6 +18,14 @@ const (
 
 const WorkflowListMaxPageSize = 100
 
+const (
+	WorkflowGraphDraftMaxNodeGroups       = 200
+	WorkflowGraphDraftMaxNodes            = 200
+	WorkflowGraphDraftMaxTransitionGroups = 1000
+	WorkflowGraphDraftMaxEdges            = 1000
+	WorkflowGraphDraftMaxFieldsPerEntity  = 200
+)
+
 type WorkflowRequestValidationError struct {
 	Code    string
 	Field   string
@@ -48,10 +56,10 @@ const (
 )
 
 type WorkflowRecord struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	GraphRevision int64  `json:"graph_revision"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Version     int64  `json:"version"`
 }
 
 type WorkflowNode struct {
@@ -124,6 +132,130 @@ type WorkflowDefinition struct {
 	Edges            []WorkflowEdge            `json:"edges"`
 }
 
+type WorkflowGraphDraft struct {
+	NodeGroups       []WorkflowGraphDraftNodeGroup       `json:"node_groups,omitempty"`
+	Nodes            []WorkflowGraphDraftNode            `json:"nodes"`
+	TransitionGroups []WorkflowGraphDraftTransitionGroup `json:"transition_groups"`
+	Edges            []WorkflowGraphDraftEdge            `json:"edges"`
+}
+
+type WorkflowGraphDraftNodeGroup struct {
+	ID          string `json:"id"`
+	Key         string `json:"key"`
+	DisplayName string `json:"display_name"`
+}
+
+type WorkflowGraphDraftNode struct {
+	ID             string                `json:"id"`
+	Key            string                `json:"key"`
+	Kind           string                `json:"kind"`
+	DisplayName    string                `json:"display_name"`
+	GroupID        string                `json:"group_id,omitempty"`
+	GroupKey       string                `json:"group_key,omitempty"`
+	SubagentRole   string                `json:"subagent_role,omitempty"`
+	PromptTemplate string                `json:"prompt_template,omitempty"`
+	OutputFields   []WorkflowOutputField `json:"output_fields,omitempty"`
+}
+
+type WorkflowGraphDraftTransitionGroup struct {
+	ID           string `json:"id"`
+	SourceNodeID string `json:"source_node_id"`
+	TransitionID string `json:"transition_id"`
+	DisplayName  string `json:"display_name"`
+}
+
+type WorkflowGraphDraftEdge struct {
+	ID                 string                      `json:"id"`
+	TransitionGroupID  string                      `json:"transition_group_id"`
+	Key                string                      `json:"key"`
+	TargetNodeID       string                      `json:"target_node_id"`
+	RequiresApproval   bool                        `json:"requires_approval"`
+	ContextMode        string                      `json:"context_mode"`
+	ContextSource      WorkflowContextSource       `json:"context_source"`
+	InputBindings      []WorkflowInputBinding      `json:"input_bindings,omitempty"`
+	OutputRequirements []WorkflowOutputRequirement `json:"output_requirements,omitempty"`
+}
+
+type WorkflowGraphValidateDraftRequest struct {
+	WorkflowID string                   `json:"workflow_id"`
+	Metadata   *WorkflowGraphMetadata   `json:"metadata,omitempty"`
+	Graph      WorkflowGraphDraft       `json:"graph"`
+	Modes      []WorkflowValidationMode `json:"modes"`
+}
+
+type WorkflowGraphValidateDraftResponse struct {
+	Results map[WorkflowValidationMode]WorkflowValidateResponse `json:"results"`
+}
+
+type WorkflowGraphSavePreviewRequest struct {
+	WorkflowID      string                 `json:"workflow_id"`
+	ExpectedVersion int64                  `json:"expected_version"`
+	Metadata        *WorkflowGraphMetadata `json:"metadata,omitempty"`
+	Graph           WorkflowGraphDraft     `json:"graph"`
+}
+
+type WorkflowGraphMetadata struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type WorkflowGraphSaveConfirmation struct {
+	ExpectedRemovedNodeCount            int64 `json:"expected_removed_node_count"`
+	ExpectedRemovedTransitionGroupCount int64 `json:"expected_removed_transition_group_count"`
+	ExpectedRemovedEdgeCount            int64 `json:"expected_removed_edge_count"`
+	ExpectedNodeTaskReferenceCount      int64 `json:"expected_node_task_reference_count"`
+	ExpectedEdgeTaskReferenceCount      int64 `json:"expected_edge_task_reference_count"`
+}
+
+type WorkflowGraphSaveRequest struct {
+	WorkflowID      string                         `json:"workflow_id"`
+	ExpectedVersion int64                          `json:"expected_version"`
+	Metadata        *WorkflowGraphMetadata         `json:"metadata,omitempty"`
+	Graph           WorkflowGraphDraft             `json:"graph"`
+	Confirmation    *WorkflowGraphSaveConfirmation `json:"confirmation,omitempty"`
+}
+
+type WorkflowGraphSavePreviewResponse struct {
+	CurrentVersion       int64                                               `json:"current_version"`
+	ValidationResults    map[WorkflowValidationMode]WorkflowValidateResponse `json:"validation_results"`
+	Impact               WorkflowGraphSaveImpact                             `json:"impact"`
+	Blockers             []WorkflowGraphSaveBlocker                          `json:"blockers,omitempty"`
+	CanSave              bool                                                `json:"can_save"`
+	ConfirmationRequired bool                                                `json:"confirmation_required"`
+}
+
+type WorkflowGraphSaveResponse struct {
+	Saved                bool                                                `json:"saved"`
+	Definition           *WorkflowDefinition                                 `json:"definition,omitempty"`
+	CurrentVersion       int64                                               `json:"current_version"`
+	ValidationResults    map[WorkflowValidationMode]WorkflowValidateResponse `json:"validation_results"`
+	Impact               WorkflowGraphSaveImpact                             `json:"impact"`
+	Blockers             []WorkflowGraphSaveBlocker                          `json:"blockers,omitempty"`
+	CanSave              bool                                                `json:"can_save"`
+	ConfirmationRequired bool                                                `json:"confirmation_required"`
+}
+
+type WorkflowGraphSaveImpact struct {
+	RemovedNodeCount                  int64 `json:"removed_node_count"`
+	RemovedTransitionGroupCount       int64 `json:"removed_transition_group_count"`
+	RemovedEdgeCount                  int64 `json:"removed_edge_count"`
+	NodeTaskReferenceCount            int64 `json:"node_task_reference_count"`
+	EdgeTaskReferenceCount            int64 `json:"edge_task_reference_count"`
+	ActiveNodePlacementCount          int64 `json:"active_node_placement_count"`
+	PendingApprovalCount              int64 `json:"pending_approval_count"`
+	ActiveRunCount                    int64 `json:"active_run_count"`
+	RunnableRunCount                  int64 `json:"runnable_run_count"`
+	StartNodeChangeCount              int64 `json:"start_node_change_count"`
+	LastTerminalChangeCount           int64 `json:"last_terminal_change_count"`
+	TaskReferencedNodeKindChangeCount int64 `json:"task_referenced_node_kind_change_count"`
+}
+
+type WorkflowGraphSaveBlocker struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Count   int64  `json:"count"`
+}
+
 type WorkflowCreateRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
@@ -183,7 +315,7 @@ type WorkflowNodeAddRequest struct {
 }
 
 type WorkflowNodeAddResponse struct {
-	GraphRevision int64 `json:"graph_revision"`
+	Version int64 `json:"version"`
 }
 
 type WorkflowNodeUpdateRequest struct {
@@ -199,7 +331,7 @@ type WorkflowNodeUpdateRequest struct {
 }
 
 type WorkflowNodeUpdateResponse struct {
-	GraphRevision int64 `json:"graph_revision"`
+	Version int64 `json:"version"`
 }
 
 type WorkflowNodeGroupAddRequest struct {
@@ -224,8 +356,8 @@ type WorkflowNodeGroupDeleteRequest struct {
 }
 
 type WorkflowNodeGroupResponse struct {
-	Group         WorkflowNodeGroup `json:"group"`
-	GraphRevision int64             `json:"graph_revision"`
+	Group   WorkflowNodeGroup `json:"group"`
+	Version int64             `json:"version"`
 }
 
 type WorkflowTransitionGroupAddRequest struct {
@@ -237,7 +369,7 @@ type WorkflowTransitionGroupAddRequest struct {
 }
 
 type WorkflowTransitionGroupAddResponse struct {
-	GraphRevision int64 `json:"graph_revision"`
+	Version int64 `json:"version"`
 }
 
 type WorkflowTransitionGroupUpdateRequest struct {
@@ -249,7 +381,7 @@ type WorkflowTransitionGroupUpdateRequest struct {
 }
 
 type WorkflowTransitionGroupUpdateResponse struct {
-	GraphRevision int64 `json:"graph_revision"`
+	Version int64 `json:"version"`
 }
 
 type WorkflowEdgeAddRequest struct {
@@ -266,7 +398,7 @@ type WorkflowEdgeAddRequest struct {
 }
 
 type WorkflowEdgeAddResponse struct {
-	GraphRevision int64 `json:"graph_revision"`
+	Version int64 `json:"version"`
 }
 
 type WorkflowEdgeUpdateRequest struct {
@@ -283,7 +415,7 @@ type WorkflowEdgeUpdateRequest struct {
 }
 
 type WorkflowEdgeUpdateResponse struct {
-	GraphRevision int64 `json:"graph_revision"`
+	Version int64 `json:"version"`
 }
 
 type WorkflowLinkProjectRequest struct {
@@ -354,13 +486,13 @@ type WorkflowDeletePreviewResponse struct {
 }
 
 type WorkflowDeleteRequest struct {
-	WorkflowID            string `json:"workflow_id"`
-	Confirmed             bool   `json:"confirmed"`
-	ExpectedGraphRevision int64  `json:"expected_graph_revision"`
-	ExpectedProjectCount  int64  `json:"expected_project_count"`
-	ExpectedLinkCount     int64  `json:"expected_link_count"`
-	ExpectedTaskCount     int64  `json:"expected_task_count"`
-	CleanupArtifacts      bool   `json:"cleanup_artifacts,omitempty"`
+	WorkflowID           string `json:"workflow_id"`
+	Confirmed            bool   `json:"confirmed"`
+	ExpectedVersion      int64  `json:"expected_version"`
+	ExpectedProjectCount int64  `json:"expected_project_count"`
+	ExpectedLinkCount    int64  `json:"expected_link_count"`
+	ExpectedTaskCount    int64  `json:"expected_task_count"`
+	CleanupArtifacts     bool   `json:"cleanup_artifacts,omitempty"`
 }
 
 type WorkflowDeleteResponse struct {
@@ -371,7 +503,7 @@ type WorkflowDeleteResponse struct {
 
 type WorkflowDeleteImpact struct {
 	WorkflowID                     string `json:"workflow_id"`
-	GraphRevision                  int64  `json:"graph_revision"`
+	Version                        int64  `json:"version"`
 	ProjectCount                   int64  `json:"project_count"`
 	LinkCount                      int64  `json:"link_count"`
 	DefaultReplacementProjectCount int64  `json:"default_replacement_project_count"`
@@ -629,7 +761,7 @@ type WorkflowPickerItem struct {
 	WorkflowID           string                    `json:"workflow_id"`
 	DisplayName          string                    `json:"display_name"`
 	Description          string                    `json:"description"`
-	GraphRevision        int64                     `json:"graph_revision"`
+	Version              int64                     `json:"version"`
 	IsProjectDefault     bool                      `json:"is_project_default"`
 	ValidForTaskCreation bool                      `json:"valid_for_task_creation"`
 	ValidationErrors     []WorkflowValidationError `json:"validation_errors,omitempty"`
@@ -701,6 +833,10 @@ type WorkflowProjectSubscribeRequest struct {
 	ProjectID string `json:"project_id,omitempty"`
 }
 
+type WorkflowSubscribeRequest struct {
+	WorkflowID string `json:"workflow_id"`
+}
+
 type WorkflowProjectEvent struct {
 	ProjectID        string   `json:"project_id,omitempty"`
 	WorkflowID       string   `json:"workflow_id,omitempty"`
@@ -711,6 +847,11 @@ type WorkflowProjectEvent struct {
 }
 
 type WorkflowProjectSubscription interface {
+	Next(ctx context.Context) (WorkflowProjectEvent, error)
+	Close() error
+}
+
+type WorkflowSubscription interface {
 	Next(ctx context.Context) (WorkflowProjectEvent, error)
 	Close() error
 }
@@ -1127,8 +1268,8 @@ func (r WorkflowDeleteRequest) Validate() error {
 	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
 		return err
 	}
-	if r.ExpectedGraphRevision < 0 {
-		return WorkflowRequestValidationError{Code: WorkflowRequestErrorInvalidMode, Field: "expected_graph_revision", Message: "expected graph revision must be non-negative"}
+	if r.ExpectedVersion < 0 {
+		return WorkflowRequestValidationError{Code: WorkflowRequestErrorInvalidMode, Field: "expected_version", Message: "expected version must be non-negative"}
 	}
 	for _, field := range []struct {
 		name  string
@@ -1155,6 +1296,121 @@ func (r WorkflowValidateRequest) Validate() error {
 	default:
 		return workflowRequestError(WorkflowRequestErrorInvalidMode, "mode", "mode must be draft, task_creation, or execution")
 	}
+}
+
+func (r WorkflowGraphValidateDraftRequest) Validate() error {
+	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
+		return err
+	}
+	if err := validateWorkflowGraphMetadata(r.Metadata); err != nil {
+		return err
+	}
+	if err := validateWorkflowGraphValidationModes(r.Modes); err != nil {
+		return err
+	}
+	return validateWorkflowGraphDraftEnvelope(r.Graph)
+}
+
+func (r WorkflowGraphSavePreviewRequest) Validate() error {
+	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
+		return err
+	}
+	if err := validateWorkflowGraphMetadata(r.Metadata); err != nil {
+		return err
+	}
+	if r.ExpectedVersion < 0 {
+		return workflowRequestError(WorkflowRequestErrorInvalidValue, "expected_version", "expected_version must be non-negative")
+	}
+	return validateWorkflowGraphDraftEnvelope(r.Graph)
+}
+
+func (r WorkflowGraphSaveRequest) Validate() error {
+	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: r.WorkflowID, ExpectedVersion: r.ExpectedVersion, Metadata: r.Metadata, Graph: r.Graph}).Validate(); err != nil {
+		return err
+	}
+	if r.Confirmation == nil {
+		return nil
+	}
+	for _, field := range []struct {
+		name  string
+		value int64
+	}{
+		{"expected_removed_node_count", r.Confirmation.ExpectedRemovedNodeCount},
+		{"expected_removed_transition_group_count", r.Confirmation.ExpectedRemovedTransitionGroupCount},
+		{"expected_removed_edge_count", r.Confirmation.ExpectedRemovedEdgeCount},
+		{"expected_node_task_reference_count", r.Confirmation.ExpectedNodeTaskReferenceCount},
+		{"expected_edge_task_reference_count", r.Confirmation.ExpectedEdgeTaskReferenceCount},
+	} {
+		if field.value < 0 {
+			return workflowRequestError(WorkflowRequestErrorInvalidValue, field.name, field.name+" must be non-negative")
+		}
+	}
+	return nil
+}
+
+func validateWorkflowGraphMetadata(metadata *WorkflowGraphMetadata) error {
+	if metadata == nil {
+		return nil
+	}
+	name := strings.TrimSpace(metadata.Name)
+	if name == "" {
+		return workflowRequestError(WorkflowRequestErrorRequired, "metadata.name", "metadata.name is required")
+	}
+	if name != metadata.Name {
+		return workflowRequestError(WorkflowRequestErrorInvalidValue, "metadata.name", "metadata.name must not have leading or trailing whitespace")
+	}
+	if len([]rune(name)) > 120 {
+		return workflowRequestError(WorkflowRequestErrorTooLong, "metadata.name", "metadata.name is too long")
+	}
+	if metadata.Description != strings.TrimSpace(metadata.Description) {
+		return workflowRequestError(WorkflowRequestErrorInvalidValue, "metadata.description", "metadata.description must not have leading or trailing whitespace")
+	}
+	return nil
+}
+
+func validateWorkflowGraphValidationModes(modes []WorkflowValidationMode) error {
+	if len(modes) == 0 {
+		return workflowRequestError(WorkflowRequestErrorRequired, "modes", "modes is required")
+	}
+	for _, mode := range modes {
+		switch mode {
+		case WorkflowValidationModeDraft, WorkflowValidationModeTaskCreation, WorkflowValidationModeExecution:
+		default:
+			return workflowRequestError(WorkflowRequestErrorInvalidMode, "modes", "modes must contain only draft, task_creation, or execution")
+		}
+	}
+	return nil
+}
+
+func validateWorkflowGraphDraftEnvelope(graph WorkflowGraphDraft) error {
+	for _, field := range []struct {
+		name  string
+		count int
+		limit int
+	}{
+		{"node_groups", len(graph.NodeGroups), WorkflowGraphDraftMaxNodeGroups},
+		{"nodes", len(graph.Nodes), WorkflowGraphDraftMaxNodes},
+		{"transition_groups", len(graph.TransitionGroups), WorkflowGraphDraftMaxTransitionGroups},
+		{"edges", len(graph.Edges), WorkflowGraphDraftMaxEdges},
+	} {
+		if field.count > field.limit {
+			return workflowRequestError(WorkflowRequestErrorTooLong, "graph."+field.name, fmt.Sprintf("%s must be <= %d", field.name, field.limit))
+		}
+	}
+	for _, node := range graph.Nodes {
+		if len(node.OutputFields) > WorkflowGraphDraftMaxFieldsPerEntity {
+			return workflowRequestError(WorkflowRequestErrorTooLong, "graph.nodes.output_fields", fmt.Sprintf("output_fields must be <= %d", WorkflowGraphDraftMaxFieldsPerEntity))
+		}
+	}
+	for _, edge := range graph.Edges {
+		if len(edge.InputBindings) > WorkflowGraphDraftMaxFieldsPerEntity {
+			return workflowRequestError(WorkflowRequestErrorTooLong, "graph.edges.input_bindings", fmt.Sprintf("input_bindings must be <= %d", WorkflowGraphDraftMaxFieldsPerEntity))
+		}
+		if len(edge.OutputRequirements) > WorkflowGraphDraftMaxFieldsPerEntity {
+			return workflowRequestError(WorkflowRequestErrorTooLong, "graph.edges.output_requirements", fmt.Sprintf("output_requirements must be <= %d", WorkflowGraphDraftMaxFieldsPerEntity))
+		}
+	}
+	return nil
 }
 
 func (r WorkflowTaskCreateRequest) Validate() error {
@@ -1307,6 +1563,10 @@ func (r WorkflowProjectSubscribeRequest) Validate() error {
 		return workflowRequestError(WorkflowRequestErrorInvalidMode, "project_id", "project_id must not have leading or trailing whitespace")
 	}
 	return nil
+}
+
+func (r WorkflowSubscribeRequest) Validate() error {
+	return validateRequired("workflow_id", r.WorkflowID)
 }
 
 func (r WorkflowTaskGetRequest) Validate() error {

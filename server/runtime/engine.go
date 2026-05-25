@@ -416,6 +416,29 @@ func (e *Engine) SubmitUserMessage(ctx context.Context, text string) (assistant 
 	return assistant, err
 }
 
+func (e *Engine) SubmitWorkflowTurn(ctx context.Context) (assistant llm.Message, err error) {
+	if !e.workflowRunActive() {
+		return llm.Message{}, errors.New("workflow turn requires an active workflow run")
+	}
+
+	e.ensureOrchestrationCollaborators()
+	err = e.stepLifecycle.Run(ctx, exclusiveStepOptions{EmitRunState: true, PersistRunLifecycle: true}, func(stepCtx context.Context, stepID string) error {
+		if err := e.injectAgentsIfNeeded(stepID); err != nil {
+			return err
+		}
+		if err := e.injectWorkflowModePromptIfNeeded(stepCtx, stepID); err != nil {
+			return err
+		}
+		if err := e.materializePendingWorktreeReminder(stepID); err != nil {
+			return err
+		}
+		msg, runErr := e.runStepLoop(stepCtx, stepID)
+		assistant = msg
+		return runErr
+	})
+	return assistant, err
+}
+
 func (e *Engine) SubmitUserShellCommand(ctx context.Context, command string) (result tools.Result, err error) {
 	command = strings.TrimSpace(command)
 	if command == "" {

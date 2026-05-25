@@ -371,6 +371,11 @@ func (s *Starter) run(ctx context.Context, req workflowscheduler.StartRunRequest
 	if s.clientFactory != nil {
 		client = s.clientFactory(req)
 	}
+	instructions, instructionsErr := BuildWorkflowTaskInstructions(input)
+	if instructionsErr != nil {
+		s.interrupt(context.Background(), req.RunID, req.Generation, ReasonRuntimeFailed, instructionsErr)
+		return
+	}
 	wiring, err := runtimewire.NewRuntimeWiringWithBackground(plan.Store, plan.ActiveSettings, workflowRuntimeEnabledTools(plan.EnabledTools), input.WorktreeRoot, s.authManager, logger, s.background, runtimewire.RuntimeWiringOptions{
 		Headless: true,
 		FastMode: nil,
@@ -388,6 +393,7 @@ func (s *Starter) run(ctx context.Context, req workflowscheduler.StartRunRequest
 			MaxFinalAnswerViolations:     s.cfg.Settings.Workflow.MaxFinalAnswerViolations,
 			MaxInvalidCompletionAttempts: s.cfg.Settings.Workflow.MaxInvalidCompletionAttempts,
 			Controller:                   workflowruntime.StoreController{Store: s.store},
+			Instructions:                 instructions,
 		},
 		OnEvent: func(evt runtime.Event) {
 			logger.Logf("%s", runprompt.FormatRuntimeEvent(evt))
@@ -429,12 +435,7 @@ func (s *Starter) run(ctx context.Context, req workflowscheduler.StartRunRequest
 	}
 	registration := runtimewire.RegisterSessionRuntime(plan.Store.Meta().SessionID, wiring.Engine, runtimeRegistry, s.backgroundRouter)
 	defer registration.Close()
-	prompt, promptErr := BuildNodePrompt(input, s.cfg.Settings.Workflow.CompletionMode)
-	if promptErr != nil {
-		s.interrupt(context.Background(), req.RunID, req.Generation, ReasonRuntimeFailed, promptErr)
-		return
-	}
-	if _, err := wiring.Engine.SubmitUserMessage(ctx, prompt); err != nil {
+	if _, err := wiring.Engine.SubmitWorkflowTurn(ctx); err != nil {
 		reason := ReasonRuntimeFailed
 		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 			reason = ReasonRuntimeCanceled
@@ -474,39 +475,34 @@ func (s *Starter) interrupt(ctx context.Context, runID workflow.RunID, generatio
 	}
 }
 
-func BuildNodePrompt(input workflowstore.RunStartContext, mode config.WorkflowCompletionMode) (string, error) {
+func BuildWorkflowTaskInstructions(input workflowstore.RunStartContext) (workflowruntime.TaskInstructions, error) {
 	nodePrompt, err := renderInputPlaceholders(input.Node.PromptTemplate, input)
 	if err != nil {
-		return "", err
+		return workflowruntime.TaskInstructions{}, err
 	}
-	return prompts.RenderWorkflowNodeContextPrompt(prompts.WorkflowNodeContextArgs{
-		TaskId:          string(input.Task.ID),
-		TaskShortId:     strings.TrimSpace(input.Task.ShortID),
+	taskShortID := strings.TrimSpace(input.Task.ShortID)
+	if taskShortID == "" {
+		taskShortID = string(input.Task.ID)
+	}
+	workflowShortID := strings.TrimSpace(string(input.Workflow.ID))
+	if workflowShortID == "" {
+		workflowShortID = string(input.Task.WorkflowID)
+	}
+	return workflowruntime.TaskInstructions{
+		TaskID:          string(input.Task.ID),
+		TaskShortID:     taskShortID,
 		TaskTitle:       strings.TrimSpace(input.Task.Title),
 		TaskBody:        strings.TrimSpace(input.Task.Body),
-		NodeId:          string(input.Node.ID),
+		WorkflowID:      string(input.Task.WorkflowID),
+		WorkflowShortID: workflowShortID,
+		NodeID:          string(input.Node.ID),
 		NodeKey:         string(input.Node.Key),
 		NodeDisplayName: strings.TrimSpace(input.Node.DisplayName),
 		ContextMode:     string(input.ContextMode),
 		SourceSessionID: strings.TrimSpace(input.SourceSessionID),
-		CompletionMode:  string(mode),
-		OutputFields:    workflowOutputFields(input.Node.OutputFields),
-		Transitions:     workflowTransitions(input.TransitionOptions, input.TransitionIDs),
-		InputValues:     workflowInputValues(input.InputValues),
+		Transitions:     workflowInstructionTransitions(input.TransitionOptions, input.TransitionIDs),
 		NodePrompt:      nodePrompt,
-	})
-}
-
-func workflowOutputFields(fields []workflow.OutputField) []prompts.WorkflowOutputField {
-	out := make([]prompts.WorkflowOutputField, 0, len(fields))
-	for _, field := range fields {
-		name := strings.TrimSpace(field.Name)
-		if name == "" {
-			continue
-		}
-		out = append(out, prompts.WorkflowOutputField{Name: name, Description: strings.TrimSpace(field.Description)})
-	}
-	return out
+	}, nil
 }
 
 func workflowTransitions(options []workflowstore.TransitionOption, transitionIDs []string) []prompts.WorkflowTransition {
@@ -530,6 +526,15 @@ func workflowTransitions(options []workflowstore.TransitionOption, transitionIDs
 		if trimmed != "" {
 			out = append(out, prompts.WorkflowTransition{ID: trimmed})
 		}
+	}
+	return out
+}
+
+func workflowInstructionTransitions(options []workflowstore.TransitionOption, transitionIDs []string) []workflowruntime.TransitionInstruction {
+	transitions := workflowTransitions(options, transitionIDs)
+	out := make([]workflowruntime.TransitionInstruction, 0, len(transitions))
+	for _, transition := range transitions {
+		out = append(out, workflowruntime.TransitionInstruction{ID: transition.ID, DisplayName: transition.DisplayName, Description: transition.Description})
 	}
 	return out
 }

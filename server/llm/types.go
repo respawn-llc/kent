@@ -76,6 +76,7 @@ type Message struct {
 }
 
 type ResponseItemType string
+type ResponseItemLinkKind string
 
 const (
 	ResponseItemTypeMessage            ResponseItemType = "message"
@@ -86,6 +87,10 @@ const (
 	ResponseItemTypeReasoning          ResponseItemType = "reasoning"
 	ResponseItemTypeCompaction         ResponseItemType = "compaction"
 	ResponseItemTypeOther              ResponseItemType = "other"
+)
+
+const (
+	ResponseItemLinkToolOutputAttachment ResponseItemLinkKind = "tool_output_attachment"
 )
 
 func ResponseItemTypeIsCustomToolCall(itemType ResponseItemType) bool {
@@ -107,24 +112,26 @@ func ToolOutputMessageType(custom bool) MessageType {
 }
 
 type ResponseItem struct {
-	Type             ResponseItemType `json:"type"`
-	OutputIndex      int64            `json:"output_index,omitempty"`
-	Role             Role             `json:"role,omitempty"`
-	MessageType      MessageType      `json:"message_type,omitempty"`
-	SourcePath       string           `json:"source_path,omitempty"`
-	Phase            MessagePhase     `json:"phase,omitempty"`
-	ID               string           `json:"id,omitempty"`
-	Name             string           `json:"name,omitempty"`
-	CallID           string           `json:"call_id,omitempty"`
-	Content          string           `json:"content,omitempty"`
-	CompactContent   string           `json:"compact_content,omitempty"`
-	ToolPresentation json.RawMessage  `json:"tool_presentation,omitempty"`
-	Arguments        json.RawMessage  `json:"arguments,omitempty"`
-	CustomInput      string           `json:"custom_input,omitempty"`
-	Output           json.RawMessage  `json:"output,omitempty"`
-	ReasoningSummary []ReasoningEntry `json:"reasoning_summary,omitempty"`
-	EncryptedContent string           `json:"encrypted_content,omitempty"`
-	Raw              json.RawMessage  `json:"raw,omitempty"`
+	Type             ResponseItemType     `json:"type"`
+	OutputIndex      int64                `json:"output_index,omitempty"`
+	Role             Role                 `json:"role,omitempty"`
+	MessageType      MessageType          `json:"message_type,omitempty"`
+	SourcePath       string               `json:"source_path,omitempty"`
+	Phase            MessagePhase         `json:"phase,omitempty"`
+	ID               string               `json:"id,omitempty"`
+	Name             string               `json:"name,omitempty"`
+	CallID           string               `json:"call_id,omitempty"`
+	Content          string               `json:"content,omitempty"`
+	CompactContent   string               `json:"compact_content,omitempty"`
+	ToolPresentation json.RawMessage      `json:"tool_presentation,omitempty"`
+	Arguments        json.RawMessage      `json:"arguments,omitempty"`
+	CustomInput      string               `json:"custom_input,omitempty"`
+	Output           json.RawMessage      `json:"output,omitempty"`
+	ReasoningSummary []ReasoningEntry     `json:"reasoning_summary,omitempty"`
+	EncryptedContent string               `json:"encrypted_content,omitempty"`
+	Raw              json.RawMessage      `json:"raw,omitempty"`
+	LinkedCallID     string               `json:"linked_call_id,omitempty"`
+	LinkKind         ResponseItemLinkKind `json:"link_kind,omitempty"`
 }
 
 func CloneResponseItems(items []ResponseItem) []ResponseItem {
@@ -233,7 +240,7 @@ func ItemsFromMessages(messages []Message) []ResponseItem {
 			})
 		}
 	}
-	return out
+	return PrepareOpenAIInputItems(out)
 }
 
 func MessagesFromItems(items []ResponseItem) []Message {

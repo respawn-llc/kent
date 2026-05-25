@@ -6,6 +6,18 @@
   border-left-width: 4px;
 }
 
+.workflow-editor-node[data-kind="agent"] {
+  border-left-color: var(--color-outline);
+}
+
+.workflow-editor-node[data-kind="start"] {
+  border-left-color: var(--color-primary);
+}
+
+.workflow-editor-node[data-kind="terminal"] {
+  border-left-color: var(--color-success);
+}
+
 .workflow-editor-handle {
   background: var(--color-island-1);
   border: 2px solid var(--color-outline);
@@ -14,28 +26,30 @@
   width: 10px;
 }
 
+.workflow-editor-join-diamond {
+  width: 30px;
+  height: 30px;
+  transform: rotate(45deg);
+  border: 2px solid var(--color-secondary);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--color-secondary) 18%, var(--color-island-1));
+}
+
 .workflow-editor-node-error .workflow-editor-handle {
   border-color: var(--color-error);
 }
 
-.workflow-editor-node[data-kind="start"] {
-  border-left-color: var(--color-primary);
-}
-
-.workflow-editor-node[data-kind="agent"] {
-  border-left-color: var(--color-secondary);
-}
-
-.workflow-editor-node[data-kind="join"] {
-  border-left-color: var(--color-warning);
-}
-
-.workflow-editor-node[data-kind="terminal"] {
-  border-left-color: var(--color-success);
-}
-
 .workflow-editor-node-error {
   border-color: var(--color-error);
+}
+
+.workflow-editor-node.workflow-editor-node-error {
+  border-left-color: var(--color-error);
+}
+
+.workflow-editor-node-error.workflow-editor-join-node .workflow-editor-join-diamond {
+  border-color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 16%, var(--color-island-1));
 }
 
 .workflow-editor-node-selected {

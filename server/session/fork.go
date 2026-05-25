@@ -94,10 +94,32 @@ func cloneContinuationContext(in *ContinuationContext) *ContinuationContext {
 	return &copyContext
 }
 
+type ChildContextOptions struct {
+	// InheritLockedContract preserves the parent's model/tool/prompt lock for
+	// interactive child sessions. Headless subagent launches leave this false
+	// so their first dispatch locks against role/config-provided settings.
+	InheritLockedContract bool
+	// InheritContinuation preserves parent continuation settings for
+	// interactive children. Headless subagent launches leave this false so
+	// parent role/base URL state cannot override the selected subagent config.
+	InheritContinuation bool
+}
+
 // InitializeChildFromParent initializes a fresh child session with parent-owned
 // execution context while leaving conversational state empty. The caller owns
 // durability so launch planning can finish cross-store setup atomically.
 func InitializeChildFromParent(child *Store, parent *Store) error {
+	return InitializeChildFromParentWithOptions(child, parent, ChildContextOptions{
+		InheritLockedContract: true,
+		InheritContinuation:   true,
+	})
+}
+
+// InitializeChildFromParentWithOptions initializes a fresh child session with
+// selected parent-owned context while leaving conversational state empty. Use
+// this for child sessions that need parent workspace/worktree targeting without
+// inheriting the parent's model/tool/prompt lock.
+func InitializeChildFromParentWithOptions(child *Store, parent *Store, opts ChildContextOptions) error {
 	if child == nil {
 		return fmt.Errorf("child store is required")
 	}
@@ -106,14 +128,22 @@ func InitializeChildFromParent(child *Store, parent *Store) error {
 	}
 	parentMeta := parent.Meta()
 	child.mu.Lock()
-	child.meta.Locked = cloneLockedContract(parentMeta.Locked)
+	if opts.InheritLockedContract {
+		child.meta.Locked = cloneLockedContract(parentMeta.Locked)
+	} else {
+		child.meta.Locked = nil
+	}
 	child.meta.AgentsInjected = false
 	child.meta.WorkspaceRoot = parentMeta.WorkspaceRoot
 	child.meta.WorkspaceContainer = parentMeta.WorkspaceContainer
 	child.meta.WorktreeReminder = forkedWorktreeReminderState(parentMeta.WorktreeReminder)
 	child.meta.UsageState = nil
 	child.meta.ParentSessionID = parentMeta.SessionID
-	child.meta.Continuation = cloneContinuationContext(parentMeta.Continuation)
+	if opts.InheritContinuation {
+		child.meta.Continuation = cloneContinuationContext(parentMeta.Continuation)
+	} else {
+		child.meta.Continuation = nil
+	}
 	child.meta.UpdatedAt = time.Now().UTC()
 	child.mu.Unlock()
 	return nil

@@ -22,10 +22,11 @@ func (e *Engine) replaceHistory(stepID, engine string, mode compactionMode, item
 
 func (p compactionPersistence) replaceHistory(stepID, engine string, mode compactionMode, items []llm.ResponseItem) error {
 	e := p.engine
+	preparedItems := llm.PrepareOpenAIInputItems(items)
 	payload := historyReplacementPayload{
 		Engine: normalizeHistoryReplacementEngine(engine),
 		Mode:   string(mode),
-		Items:  llm.CloneResponseItems(items),
+		Items:  llm.CloneResponseItems(preparedItems),
 	}
 	reminderIssued := false
 	projectedStart := e.CommittedTranscriptEntryCount()

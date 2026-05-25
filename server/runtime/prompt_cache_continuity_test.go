@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"builder/prompts"
 	"builder/server/llm"
 	"builder/server/session"
 	"builder/server/tools"
@@ -53,6 +54,173 @@ func TestBuildReviewerRequest_ReopenPreservesOpenAIRequestPayload(t *testing.T) 
 		t.Fatalf("build reloaded reviewer request: %v", err)
 	}
 	assertOpenAIResponsesPayloadEqual(t, fixture.payloadOptions(t), originalReq, reloadedReq)
+}
+
+func TestHeadlessToInteractiveReopenPreservesPromptCachePrefix(t *testing.T) {
+	prevHeadlessPrompt := prompts.HeadlessModePrompt
+	prevExitPrompt := prompts.HeadlessModeExitPrompt
+	prompts.HeadlessModePrompt = "headless mode instructions"
+	prompts.HeadlessModeExitPrompt = "interactive mode instructions"
+	defer func() {
+		prompts.HeadlessModePrompt = prevHeadlessPrompt
+		prompts.HeadlessModeExitPrompt = prevExitPrompt
+	}()
+
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	registry := tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand})
+	headlessClient := &fakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "headless-ok"},
+		OutputItems: []llm.ResponseItem{{
+			Type:    llm.ResponseItemTypeMessage,
+			Role:    llm.RoleAssistant,
+			Phase:   llm.MessagePhaseFinal,
+			Content: "headless-ok",
+		}},
+		Usage: llm.Usage{WindowTokens: 200000, HasCachedInputTokens: true, CachedInputTokens: 4096},
+	}}}
+	headlessEngine, err := New(store, headlessClient, registry, Config{
+		Model:         "gpt-5",
+		HeadlessMode:  true,
+		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
+		ToolPreambles: false,
+	})
+	if err != nil {
+		t.Fatalf("new headless engine: %v", err)
+	}
+	if _, err := headlessEngine.SubmitUserMessage(context.Background(), "run headless"); err != nil {
+		t.Fatalf("headless submit: %v", err)
+	}
+	if len(headlessClient.calls) != 1 {
+		t.Fatalf("headless calls = %d, want 1", len(headlessClient.calls))
+	}
+	lastHeadlessRequest := headlessClient.calls[0]
+	if err := headlessEngine.Close(); err != nil {
+		t.Fatalf("close headless engine: %v", err)
+	}
+	reopenedStore, err := session.Open(store.Dir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	interactiveClient := &fakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "interactive-ok"},
+		OutputItems: []llm.ResponseItem{{
+			Type:    llm.ResponseItemTypeMessage,
+			Role:    llm.RoleAssistant,
+			Phase:   llm.MessagePhaseFinal,
+			Content: "interactive-ok",
+		}},
+		Usage: llm.Usage{WindowTokens: 200000, HasCachedInputTokens: true, CachedInputTokens: 4096},
+	}}}
+	interactiveEngine, err := New(reopenedStore, interactiveClient, registry, Config{
+		Model:         "gpt-5",
+		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
+		ToolPreambles: false,
+	})
+	if err != nil {
+		t.Fatalf("new interactive engine: %v", err)
+	}
+	if err := interactiveEngine.RecordPromptHistory("continue interactively"); err != nil {
+		t.Fatalf("record prompt history: %v", err)
+	}
+	if _, err := interactiveEngine.SubmitUserMessage(context.Background(), "continue interactively"); err != nil {
+		t.Fatalf("interactive submit: %v", err)
+	}
+	if len(interactiveClient.calls) != 1 {
+		t.Fatalf("interactive calls = %d, want 1", len(interactiveClient.calls))
+	}
+
+	assertPromptCacheChunkPrefix(t, lastHeadlessRequest, interactiveClient.calls[0])
+}
+
+func TestBuildRequest_ReopenPreservesShellStringToolOutputPayload(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	client := &fakeClient{responses: []llm.Response{
+		{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{
+				{ID: "call-a", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"a"}`)},
+				{ID: "call-b", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"b"}`)},
+				{ID: "call-c", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"c && d"}`)},
+			}},
+			ReasoningItems: []llm.ReasoningItem{{ID: "rs-1", EncryptedContent: "encrypted"}},
+			Usage:          llm.Usage{WindowTokens: 200000},
+		},
+		{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "done"},
+			OutputItems: []llm.ResponseItem{{
+				Type:    llm.ResponseItemTypeMessage,
+				Role:    llm.RoleAssistant,
+				Phase:   llm.MessagePhaseFinal,
+				Content: "done",
+			}},
+			Usage: llm.Usage{WindowTokens: 200000},
+		},
+	}}
+	registry := tools.NewRegistry(stringOutputTool{name: toolspec.ToolExecCommand})
+	engine, err := New(store, client, registry, Config{
+		Model:         "gpt-5",
+		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
+		ToolPreambles: false,
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	if _, err := engine.SubmitUserMessage(context.Background(), "run tools"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if len(client.calls) != 2 {
+		t.Fatalf("client calls = %d, want 2", len(client.calls))
+	}
+	liveFollowup := client.calls[1]
+	if err := engine.Close(); err != nil {
+		t.Fatalf("close engine: %v", err)
+	}
+	reopenedStore, err := session.Open(store.Dir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	reopened, err := New(reopenedStore, client, registry, Config{
+		Model:         "gpt-5",
+		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
+		ToolPreambles: false,
+	})
+	if err != nil {
+		t.Fatalf("new reopened engine: %v", err)
+	}
+	reopenedFollowup, err := reopened.buildRequest(context.Background(), "", true)
+	if err != nil {
+		t.Fatalf("build reopened request: %v", err)
+	}
+
+	assertPromptCacheChunkPrefix(t, liveFollowup, reopenedFollowup)
+}
+
+func TestPromptCacheReplayPreservesMultiToolHTMLUnescapeShape(t *testing.T) {
+	liveReq := seq21To28ShapeRequest(json.RawMessage(`{"cmd":"git diff --cached && git diff","workdir":"/workspace","max_output_tokens":20000}`))
+	replayedReq := seq21To28ShapeRequest(json.RawMessage(`{"cmd":"git diff --cached \u0026\u0026 git diff","workdir":"/workspace","max_output_tokens":20000}`))
+
+	liveShape, err := summarizePromptCacheRequest(liveReq)
+	if err != nil {
+		t.Fatalf("live prompt cache summary: %v", err)
+	}
+	replayedShape, err := summarizePromptCacheRequest(replayedReq)
+	if err != nil {
+		t.Fatalf("replayed prompt cache summary: %v", err)
+	}
+	if liveShape.terminalHash != replayedShape.terminalHash {
+		t.Fatalf("terminal hash differs\nlive=%s\nreplayed=%s", liveShape.terminalHash, replayedShape.terminalHash)
+	}
+	const wantTerminalHash = "0b5fe9f41969035b6d17b64c04fcc5aa521ca4ec0e446ec13cbf16f47d3768eb"
+	if liveShape.terminalHash != wantTerminalHash {
+		t.Fatalf("terminal hash = %s, want %s", liveShape.terminalHash, wantTerminalHash)
+	}
 }
 
 // The fixture intentionally includes the transcript parts that are most likely
@@ -224,6 +392,27 @@ func assertOpenAIResponsesPayloadEqual(t *testing.T, options llm.OpenAIResponses
 	reloadedJSON := mustMarshalOpenAIResponsesPayload(t, reloaded, options)
 	if !bytes.Equal(originalJSON, reloadedJSON) {
 		t.Fatalf("openai responses payload mismatch after reopen\noriginal=%s\nreloaded=%s", originalJSON, reloadedJSON)
+	}
+}
+
+func assertPromptCacheChunkPrefix(t *testing.T, previous llm.Request, next llm.Request) {
+	t.Helper()
+	previousChunks, err := promptCacheChunks(previous)
+	if err != nil {
+		t.Fatalf("previous prompt cache chunks: %v", err)
+	}
+	nextChunks, err := promptCacheChunks(next)
+	if err != nil {
+		t.Fatalf("next prompt cache chunks: %v", err)
+	}
+	if len(previousChunks) > len(nextChunks) {
+		t.Fatalf("previous request has %d cache chunks, next request has %d", len(previousChunks), len(nextChunks))
+	}
+	for idx, previousChunk := range previousChunks {
+		if bytes.Equal(previousChunk, nextChunks[idx]) {
+			continue
+		}
+		t.Fatalf("prompt cache chunk %d differs after reopen\nprevious=%s\nnext=%s", idx, previousChunk, nextChunks[idx])
 	}
 }
 
@@ -417,4 +606,38 @@ func writeTestFile(t *testing.T, path, contents string) {
 
 func skillFixtureMarkdown(name, description string) string {
 	return "---\nname: " + name + "\ndescription: " + description + "\n---\n\n# " + name + "\n"
+}
+
+func seq21To28ShapeRequest(thirdCallInput json.RawMessage) llm.Request {
+	return llm.Request{
+		Model:        "gpt-5",
+		SystemPrompt: "system",
+		Items: llm.ItemsFromMessages([]llm.Message{
+			{Role: llm.RoleUser, Content: "review docs migration"},
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-lines", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"wc -l docs/*.md","workdir":"/workspace","max_output_tokens":20000}`)},
+					{ID: "call-search", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"rg -n \"decisions\\.md|TERMINOLOGY\\.md\" .","workdir":"/workspace","max_output_tokens":40000}`)},
+					{ID: "call-status", Name: string(toolspec.ToolExecCommand), Input: thirdCallInput},
+				},
+				ReasoningItems: []llm.ReasoningItem{{ID: "rs-seq21", EncryptedContent: "encrypted-seq21"}},
+			},
+			{Role: llm.RoleTool, ToolCallID: "call-lines", Name: string(toolspec.ToolExecCommand), Content: `"42 docs/specs/README.md"`},
+			{Role: llm.RoleTool, ToolCallID: "call-search", Name: string(toolspec.ToolExecCommand), Content: `"docs/specs/README.md:1:# Specs"`},
+			{Role: llm.RoleTool, ToolCallID: "call-status", Name: string(toolspec.ToolExecCommand), Content: `"M\tdocs/specs/README.md"`},
+		}),
+		Tools: []llm.Tool{{Name: string(toolspec.ToolExecCommand), Description: "execute command", Schema: json.RawMessage(`{"type":"object"}`)}},
+	}
+}
+
+type stringOutputTool struct {
+	name toolspec.ID
+}
+
+func (t stringOutputTool) Name() toolspec.ID { return t.name }
+
+func (t stringOutputTool) Call(_ context.Context, c tools.Call) (tools.Result, error) {
+	output, _ := json.Marshal("output for " + c.ID)
+	return tools.Result{CallID: c.ID, Name: c.Name, Output: output}, nil
 }

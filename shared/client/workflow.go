@@ -30,6 +30,9 @@ type WorkflowClient interface {
 	PreviewWorkflowDelete(ctx context.Context, req serverapi.WorkflowDeletePreviewRequest) (serverapi.WorkflowDeletePreviewResponse, error)
 	DeleteWorkflow(ctx context.Context, req serverapi.WorkflowDeleteRequest) (serverapi.WorkflowDeleteResponse, error)
 	ValidateWorkflow(ctx context.Context, req serverapi.WorkflowValidateRequest) (serverapi.WorkflowValidateResponse, error)
+	ValidateWorkflowGraphDraft(ctx context.Context, req serverapi.WorkflowGraphValidateDraftRequest) (serverapi.WorkflowGraphValidateDraftResponse, error)
+	PreviewWorkflowGraphSave(ctx context.Context, req serverapi.WorkflowGraphSavePreviewRequest) (serverapi.WorkflowGraphSavePreviewResponse, error)
+	SaveWorkflowGraph(ctx context.Context, req serverapi.WorkflowGraphSaveRequest) (serverapi.WorkflowGraphSaveResponse, error)
 	CreateWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCreateRequest) (serverapi.WorkflowTaskCreateResponse, error)
 	UpdateWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskUpdateRequest) (serverapi.WorkflowTaskUpdateResponse, error)
 	StartWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskStartRequest) (serverapi.WorkflowTaskStartResponse, error)
@@ -47,6 +50,7 @@ type WorkflowClient interface {
 	DeleteWorkflowTaskComment(ctx context.Context, req serverapi.WorkflowTaskCommentDeleteRequest) error
 	ListWorkflowTaskActivity(ctx context.Context, req serverapi.WorkflowTaskActivityListRequest) (serverapi.WorkflowTaskActivityListResponse, error)
 	GetWorkflowTaskTeleportTarget(ctx context.Context, req serverapi.WorkflowTaskTeleportTargetRequest) (serverapi.WorkflowTaskTeleportTargetResponse, error)
+	SubscribeWorkflow(ctx context.Context, req serverapi.WorkflowSubscribeRequest) (serverapi.WorkflowSubscription, error)
 	SubscribeWorkflowProject(ctx context.Context, req serverapi.WorkflowProjectSubscribeRequest) (serverapi.WorkflowProjectSubscription, error)
 	GetWorkflowBoard(ctx context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error)
 	ListWorkflowBoardNodeCards(ctx context.Context, req serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error)
@@ -208,6 +212,27 @@ func (c *loopbackWorkflowClient) ValidateWorkflow(ctx context.Context, req serve
 	return c.service.ValidateWorkflow(ctx, req)
 }
 
+func (c *loopbackWorkflowClient) ValidateWorkflowGraphDraft(ctx context.Context, req serverapi.WorkflowGraphValidateDraftRequest) (serverapi.WorkflowGraphValidateDraftResponse, error) {
+	if c == nil || c.service == nil {
+		return serverapi.WorkflowGraphValidateDraftResponse{}, errors.New("workflow service is required")
+	}
+	return c.service.ValidateWorkflowGraphDraft(ctx, req)
+}
+
+func (c *loopbackWorkflowClient) PreviewWorkflowGraphSave(ctx context.Context, req serverapi.WorkflowGraphSavePreviewRequest) (serverapi.WorkflowGraphSavePreviewResponse, error) {
+	if c == nil || c.service == nil {
+		return serverapi.WorkflowGraphSavePreviewResponse{}, errors.New("workflow service is required")
+	}
+	return c.service.PreviewWorkflowGraphSave(ctx, req)
+}
+
+func (c *loopbackWorkflowClient) SaveWorkflowGraph(ctx context.Context, req serverapi.WorkflowGraphSaveRequest) (serverapi.WorkflowGraphSaveResponse, error) {
+	if c == nil || c.service == nil {
+		return serverapi.WorkflowGraphSaveResponse{}, errors.New("workflow service is required")
+	}
+	return c.service.SaveWorkflowGraph(ctx, req)
+}
+
 func (c *loopbackWorkflowClient) CreateWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCreateRequest) (serverapi.WorkflowTaskCreateResponse, error) {
 	if c == nil || c.service == nil {
 		return serverapi.WorkflowTaskCreateResponse{}, errors.New("workflow service is required")
@@ -332,6 +357,13 @@ func (c *loopbackWorkflowClient) SubscribeWorkflowProject(ctx context.Context, r
 		return nil, errors.New("workflow service is required")
 	}
 	return c.service.SubscribeWorkflowProject(ctx, req)
+}
+
+func (c *loopbackWorkflowClient) SubscribeWorkflow(ctx context.Context, req serverapi.WorkflowSubscribeRequest) (serverapi.WorkflowSubscription, error) {
+	if c == nil || c.service == nil {
+		return nil, errors.New("workflow service is required")
+	}
+	return c.service.SubscribeWorkflow(ctx, req)
 }
 
 func (c *loopbackWorkflowClient) GetWorkflowBoard(ctx context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {

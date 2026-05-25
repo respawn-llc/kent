@@ -706,8 +706,12 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 		t.Fatalf("MarkAgentsInjected parent: %v", err)
 	}
 	if err := parent.MarkModelDispatchLocked(session.LockedContract{
-		Model:        "locked-parent-model",
-		EnabledTools: []string{"shell"},
+		Model:             "locked-parent-model",
+		EnabledTools:      []string{"shell"},
+		SystemPrompt:      "parent interactive system prompt",
+		HasSystemPrompt:   true,
+		ReviewerPrompt:    "parent interactive reviewer prompt",
+		HasReviewerPrompt: true,
 	}); err != nil {
 		t.Fatalf("MarkModelDispatchLocked parent: %v", err)
 	}
@@ -767,6 +771,12 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	if childMeta.Locked == nil || childMeta.Locked.Model != "locked-parent-model" {
 		t.Fatalf("child locked contract = %+v, want parent model lock", childMeta.Locked)
 	}
+	if childMeta.Locked.SystemPrompt != "parent interactive system prompt" || !childMeta.Locked.HasSystemPrompt {
+		t.Fatalf("child system prompt lock = %+v, want parent interactive prompt", childMeta.Locked)
+	}
+	if childMeta.Locked.ReviewerPrompt != "parent interactive reviewer prompt" || !childMeta.Locked.HasReviewerPrompt {
+		t.Fatalf("child reviewer prompt lock = %+v, want parent interactive reviewer prompt", childMeta.Locked)
+	}
 	if childMeta.Continuation == nil || childMeta.Continuation.OpenAIBaseURL != "http://parent.local/v1" {
 		t.Fatalf("child continuation = %+v, want parent continuation", childMeta.Continuation)
 	}
@@ -797,6 +807,96 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	}
 	if target.EffectiveWorkdir != filepath.Join(canonicalWorktreeRoot, "pkg") {
 		t.Fatalf("child effective workdir = %q, want %q", target.EffectiveWorkdir, filepath.Join(canonicalWorktreeRoot, "pkg"))
+	}
+}
+
+func TestPlannerHeadlessChildWithRoleUsesFreshSystemPromptSnapshot(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	rolePrompt := filepath.Join(workspace, "code-review-system.md")
+	if err := os.WriteFile(rolePrompt, []byte("code review system prompt"), 0o644); err != nil {
+		t.Fatalf("write role prompt: %v", err)
+	}
+	cfg.Settings.Subagents = map[string]config.SubagentRole{
+		"code_review": {
+			Settings: config.Settings{
+				Model:             "gpt-5.4-mini",
+				SystemPromptFile:  rolePrompt,
+				SystemPromptFiles: []config.SystemPromptFile{{Path: rolePrompt, Scope: config.SystemPromptFileScopeSubagent}},
+				EnabledTools: map[toolspec.ID]bool{
+					toolspec.ToolExecCommand: true,
+					toolspec.ToolPatch:       false,
+					toolspec.ToolEdit:        true,
+				},
+			},
+			Sources: map[string]string{
+				"model":              "file",
+				"system_prompt_file": "file",
+				"tools.patch":        "file",
+				"tools.edit":         "file",
+			},
+		},
+	}
+	containerDir := filepath.Join(cfg.PersistenceRoot, "projects", "project-a", "sessions")
+	parent, err := session.Create(containerDir, "workspace-a", workspace)
+	if err != nil {
+		t.Fatalf("create parent session: %v", err)
+	}
+	if err := parent.MarkModelDispatchLocked(session.LockedContract{
+		Model:           "locked-parent-model",
+		EnabledTools:    []string{"shell"},
+		SystemPrompt:    "parent generic system prompt",
+		HasSystemPrompt: true,
+	}); err != nil {
+		t.Fatalf("MarkModelDispatchLocked parent: %v", err)
+	}
+	if err := parent.SetContinuationContext(session.ContinuationContext{
+		OpenAIBaseURL: "https://parent.example/v1",
+		AgentRole:     "old_parent_role",
+	}); err != nil {
+		t.Fatalf("SetContinuationContext parent: %v", err)
+	}
+	planner := Planner{
+		Config:       cfg,
+		ContainerDir: containerDir,
+	}
+	plan, err := planner.PlanSession(context.Background(), SessionRequest{
+		Mode:            ModeHeadless,
+		ParentSessionID: parent.Meta().SessionID,
+	})
+	if err != nil {
+		t.Fatalf("PlanSession child: %v", err)
+	}
+
+	updated, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: "code_review"}, auth.EmptyState())
+	if err != nil {
+		t.Fatalf("ApplyRunPromptOverrides: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %+v", warnings)
+	}
+	if childLocked := updated.Store.Meta().Locked; childLocked != nil {
+		t.Fatalf("child lock = %+v, want headless child to use its own role contract", childLocked)
+	}
+	if updated.ActiveSettings.Model != "gpt-5.4-mini" {
+		t.Fatalf("active model = %q, want role model", updated.ActiveSettings.Model)
+	}
+	if updated.ActiveSettings.OpenAIBaseURL == "https://parent.example/v1" {
+		t.Fatalf("active base url inherited parent continuation, want headless child role/base config")
+	}
+	if containsTool(updated.EnabledTools, toolspec.ToolPatch) || !containsTool(updated.EnabledTools, toolspec.ToolEdit) {
+		t.Fatalf("enabled tools = %+v, want role tools", updated.EnabledTools)
+	}
+	if len(updated.ActiveSettings.SystemPromptFiles) != 1 || updated.ActiveSettings.SystemPromptFiles[0].Path != rolePrompt {
+		t.Fatalf("active system prompt files = %+v, want role prompt %q", updated.ActiveSettings.SystemPromptFiles, rolePrompt)
+	}
+	if got := updated.Store.Meta().Continuation; got == nil || got.AgentRole != "code_review" {
+		t.Fatalf("child continuation = %+v, want only selected role persisted", got)
 	}
 }
 

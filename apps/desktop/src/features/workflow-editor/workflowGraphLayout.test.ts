@@ -18,7 +18,7 @@ describe("layoutWorkflowGraph", () => {
       source: "node-1",
       target: "done",
       data: { label: "Done", hasError: false },
-      markerEnd: { type: "arrowclosed" },
+      markerEnd: { color: "var(--color-primary)", type: "arrowclosed" },
     });
   });
 
@@ -68,32 +68,40 @@ describe("layoutWorkflowGraph", () => {
     expect(edgeByID(graph.edges, "edge-b")?.data).toMatchObject({ label: "Split / b", hasError: true });
   });
 
-  it("collapses join nodes into direct visual merge edges", async () => {
+  it("renders join nodes as inspectable merge diamonds with raw join edges", async () => {
     const graph = await layoutWorkflowGraph(joinWorkflow, emptyValidation);
 
-    expect(nodeByID(graph.nodes, "join")).toBeUndefined();
-    expect(edgeByID(graph.edges, "edge-join-synth")).toBeUndefined();
-    expect(edgeByID(graph.edges, "edge-join-a:edge-join-synth")).toMatchObject({
+    expect(nodeByID(graph.nodes, "join")).toMatchObject({
+      type: "workflowJoin",
+      data: { entityID: "join", entityKind: "node", kind: "join" },
+      style: { width: 56, height: 56 },
+    });
+    expect(edgeByID(graph.edges, "edge-join-a")).toMatchObject({
+      markerEnd: { color: "var(--color-outline)", type: "arrowclosed" },
       source: "node-a",
-      target: "synth",
+      target: "join",
       type: "workflow",
     });
-    expect(edgeByID(graph.edges, "edge-join-b:edge-join-synth")).toMatchObject({
-      source: "node-b",
+    expect(edgeByID(graph.edges, "edge-join-b")).toMatchObject({
+      markerEnd: { color: "var(--color-secondary)", type: "arrowclosed" },
+    });
+    expect(edgeByID(graph.edges, "edge-join-synth")).toMatchObject({
+      markerEnd: { color: "var(--color-primary)", type: "arrowclosed" },
+      source: "join",
       target: "synth",
       type: "workflow",
     });
   });
 
-  it("collapses chained hidden join hops without targeting missing nodes", async () => {
+  it("keeps chained join hops inspectable instead of synthesizing edge chains", async () => {
     const graph = await layoutWorkflowGraph(joinChainWorkflow, emptyValidation);
 
-    expect(nodeByID(graph.nodes, "join-a")).toBeUndefined();
-    expect(nodeByID(graph.nodes, "join-b")).toBeUndefined();
-    expect(graph.edges.map((edge) => edge.target)).toEqual(["synth"]);
-    expect(edgeByID(graph.edges, "edge-to-join-a:edge-join-a-join-b:edge-join-b-synth")).toMatchObject({
+    expect(nodeByID(graph.nodes, "join-a")).toMatchObject({ type: "workflowJoin" });
+    expect(nodeByID(graph.nodes, "join-b")).toMatchObject({ type: "workflowJoin" });
+    expect(graph.edges.map((edge) => edge.target)).toEqual(["join-a", "join-b", "synth"]);
+    expect(edgeByID(graph.edges, "edge-to-join-a")).toMatchObject({
       source: "node-a",
-      target: "synth",
+      target: "join-a",
       type: "workflow",
     });
   });
@@ -110,7 +118,7 @@ function edgeByID(edges: readonly WorkflowGraphEdge[], id: string): WorkflowGrap
 const emptyValidation: WorkflowValidation = { valid: true, errors: [] };
 
 const groupedWorkflow: WorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
   nodeGroups: [
     {
       id: "group-1",
@@ -125,15 +133,7 @@ const groupedWorkflow: WorkflowDefinition = {
     workflowNode("node-1", "Implement", "agent", "group-1"),
     workflowNode("done", "Done", "terminal", ""),
   ],
-  transitionGroups: [
-    {
-      id: "tg-1",
-      workflowID: "workflow-1",
-      sourceNodeID: "node-1",
-      transitionID: "done",
-      name: "Done",
-    },
-  ],
+  transitionGroups: [workflowTransitionGroup("tg-1", "node-1", "done", "Done")],
   edges: [
     {
       id: "edge-1",
@@ -143,6 +143,7 @@ const groupedWorkflow: WorkflowDefinition = {
       targetNodeID: "done",
       requiresApproval: false,
       contextMode: "new_session",
+      contextSource: { kind: "immediate_source", nodeKey: "" },
       inputBindings: [],
       outputRequirements: [],
     },
@@ -150,30 +151,22 @@ const groupedWorkflow: WorkflowDefinition = {
 };
 
 const fanoutWorkflow: WorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
   nodeGroups: [],
   nodes: [
     workflowNode("node-1", "Plan", "agent", ""),
     workflowNode("node-a", "A", "agent", ""),
     workflowNode("node-b", "B", "agent", ""),
   ],
-  transitionGroups: [
-    {
-      id: "tg-split",
-      workflowID: "workflow-1",
-      sourceNodeID: "node-1",
-      transitionID: "split",
-      name: "Split",
-    },
-  ],
+  transitionGroups: [workflowTransitionGroup("tg-split", "node-1", "split", "Split")],
   edges: [
-    workflowEdge("edge-a", "tg-split", "a", "node-a"),
-    workflowEdge("edge-b", "tg-split", "b", "node-b"),
+    workflowEdge({ id: "edge-a", key: "a", targetNodeID: "node-a", transitionGroupID: "tg-split" }),
+    workflowEdge({ id: "edge-b", key: "b", targetNodeID: "node-b", transitionGroupID: "tg-split" }),
   ],
 };
 
 const crossBoundaryWorkflow: WorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
   nodeGroups: [
     {
       id: "group-source",
@@ -198,29 +191,22 @@ const crossBoundaryWorkflow: WorkflowDefinition = {
     workflowNode("done", "Done", "terminal", ""),
   ],
   transitionGroups: [
-    {
-      id: "tg-cross",
-      workflowID: "workflow-1",
-      sourceNodeID: "node-source",
-      transitionID: "cross",
-      name: "Cross",
-    },
-    {
-      id: "tg-exit",
-      workflowID: "workflow-1",
-      sourceNodeID: "node-target",
-      transitionID: "exit",
-      name: "Exit",
-    },
+    workflowTransitionGroup("tg-cross", "node-source", "cross", "Cross"),
+    workflowTransitionGroup("tg-exit", "node-target", "exit", "Exit"),
   ],
   edges: [
-    workflowEdge("edge-cross", "tg-cross", "cross", "node-target"),
-    workflowEdge("edge-exit", "tg-exit", "exit", "done"),
+    workflowEdge({
+      id: "edge-cross",
+      key: "cross",
+      targetNodeID: "node-target",
+      transitionGroupID: "tg-cross",
+    }),
+    workflowEdge({ id: "edge-exit", key: "exit", targetNodeID: "done", transitionGroupID: "tg-exit" }),
   ],
 };
 
 const joinWorkflow: WorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
   nodeGroups: [],
   nodes: [
     workflowNode("node-a", "A", "agent", ""),
@@ -229,37 +215,37 @@ const joinWorkflow: WorkflowDefinition = {
     workflowNode("synth", "Synthesize", "agent", ""),
   ],
   transitionGroups: [
-    {
-      id: "tg-join-a",
-      workflowID: "workflow-1",
-      sourceNodeID: "node-a",
-      transitionID: "join",
-      name: "Join",
-    },
-    {
-      id: "tg-join-b",
-      workflowID: "workflow-1",
-      sourceNodeID: "node-b",
-      transitionID: "join",
-      name: "Join",
-    },
-    {
-      id: "tg-join-synth",
-      workflowID: "workflow-1",
-      sourceNodeID: "join",
-      transitionID: "done",
-      name: "Done",
-    },
+    workflowTransitionGroup("tg-join-a", "node-a", "join", "Join"),
+    workflowTransitionGroup("tg-join-b", "node-b", "join", "Join"),
+    workflowTransitionGroup("tg-join-synth", "join", "done", "Done"),
   ],
   edges: [
-    workflowEdge("edge-join-a", "tg-join-a", "join_a", "join"),
-    workflowEdge("edge-join-b", "tg-join-b", "join_b", "join"),
-    workflowEdge("edge-join-synth", "tg-join-synth", "synth", "synth"),
+    workflowEdge({
+      contextMode: "continue_session",
+      id: "edge-join-a",
+      key: "join_a",
+      targetNodeID: "join",
+      transitionGroupID: "tg-join-a",
+    }),
+    workflowEdge({
+      contextMode: "compact_and_continue_session",
+      id: "edge-join-b",
+      key: "join_b",
+      targetNodeID: "join",
+      transitionGroupID: "tg-join-b",
+    }),
+    workflowEdge({
+      contextMode: "new_session",
+      id: "edge-join-synth",
+      key: "synth",
+      targetNodeID: "synth",
+      transitionGroupID: "tg-join-synth",
+    }),
   ],
 };
 
 const joinChainWorkflow: WorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
   nodeGroups: [],
   nodes: [
     workflowNode("node-a", "A", "agent", ""),
@@ -268,32 +254,29 @@ const joinChainWorkflow: WorkflowDefinition = {
     workflowNode("synth", "Synthesize", "agent", ""),
   ],
   transitionGroups: [
-    {
-      id: "tg-to-join-a",
-      workflowID: "workflow-1",
-      sourceNodeID: "node-a",
-      transitionID: "join",
-      name: "Join",
-    },
-    {
-      id: "tg-join-a-join-b",
-      workflowID: "workflow-1",
-      sourceNodeID: "join-a",
-      transitionID: "join",
-      name: "Join",
-    },
-    {
-      id: "tg-join-b-synth",
-      workflowID: "workflow-1",
-      sourceNodeID: "join-b",
-      transitionID: "done",
-      name: "Done",
-    },
+    workflowTransitionGroup("tg-to-join-a", "node-a", "join", "Join"),
+    workflowTransitionGroup("tg-join-a-join-b", "join-a", "join", "Join"),
+    workflowTransitionGroup("tg-join-b-synth", "join-b", "done", "Done"),
   ],
   edges: [
-    workflowEdge("edge-to-join-a", "tg-to-join-a", "join_a", "join-a"),
-    workflowEdge("edge-join-a-join-b", "tg-join-a-join-b", "join_b", "join-b"),
-    workflowEdge("edge-join-b-synth", "tg-join-b-synth", "synth", "synth"),
+    workflowEdge({
+      id: "edge-to-join-a",
+      key: "join_a",
+      targetNodeID: "join-a",
+      transitionGroupID: "tg-to-join-a",
+    }),
+    workflowEdge({
+      id: "edge-join-a-join-b",
+      key: "join_b",
+      targetNodeID: "join-b",
+      transitionGroupID: "tg-join-a-join-b",
+    }),
+    workflowEdge({
+      id: "edge-join-b-synth",
+      key: "synth",
+      targetNodeID: "synth",
+      transitionGroupID: "tg-join-b-synth",
+    }),
   ],
 };
 
@@ -312,7 +295,23 @@ function workflowNode(id: string, name: string, kind: string, groupID: string) {
   };
 }
 
-function workflowEdge(id: string, transitionGroupID: string, key: string, targetNodeID: string) {
+function workflowTransitionGroup(id: string, sourceNodeID: string, transitionID: string, name: string) {
+  return { id, workflowID: "workflow-1", sourceNodeID, transitionID, name };
+}
+
+function workflowEdge({
+  contextMode = "new_session",
+  id,
+  key,
+  targetNodeID,
+  transitionGroupID,
+}: Readonly<{
+  contextMode?: string;
+  id: string;
+  key: string;
+  targetNodeID: string;
+  transitionGroupID: string;
+}>) {
   return {
     id,
     workflowID: "workflow-1",
@@ -320,7 +319,8 @@ function workflowEdge(id: string, transitionGroupID: string, key: string, target
     key,
     targetNodeID,
     requiresApproval: false,
-    contextMode: "new_session",
+    contextMode,
+    contextSource: { kind: "immediate_source", nodeKey: "" },
     inputBindings: [],
     outputRequirements: [],
   };

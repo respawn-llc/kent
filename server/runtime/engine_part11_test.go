@@ -270,7 +270,8 @@ func TestQueuedUserMessagesCoalesceIntoSingleFlush(t *testing.T) {
 	}
 }
 
-func TestRequestMessagesNeverContainANSIEscapes(t *testing.T) {
+func TestRequestMessagesPreserveANSIEscapes(t *testing.T) {
+	seedContent := "raw \x1b[31mansi\x1b[0m"
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
 	if err != nil {
@@ -287,7 +288,7 @@ func TestRequestMessagesNeverContainANSIEscapes(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "raw \x1b[31mansi\x1b[0m"}); err != nil {
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: seedContent}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 
@@ -300,29 +301,15 @@ func TestRequestMessagesNeverContainANSIEscapes(t *testing.T) {
 	}
 
 	for _, req := range client.calls {
+		foundSeed := false
 		for _, msg := range requestMessages(req) {
-			if strings.Contains(msg.Content, "\x1b[") {
-				t.Fatalf("request message contains ANSI escape sequence: role=%s content=%q", msg.Role, msg.Content)
+			if msg.Role == llm.RoleUser && msg.Content == seedContent {
+				foundSeed = true
 			}
 		}
-	}
-}
-
-func TestSanitizeMessagesForLLMNormalizesToolJSONEscapes(t *testing.T) {
-	input := []llm.ResponseItem{
-		{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "call_1", Output: json.RawMessage(`{"exit_code":0,"output":"a =\u003e b \u003c c \u0026 d","truncated":false}`)},
-	}
-
-	got := sanitizeItemsForLLM(input)
-	if len(got) != 1 {
-		t.Fatalf("unexpected item count: %d", len(got))
-	}
-	normalized := string(got[0].Output)
-	if strings.Contains(normalized, `\u003e`) || strings.Contains(normalized, `\u003c`) || strings.Contains(normalized, `\u0026`) {
-		t.Fatalf("expected HTML escapes to be normalized, got %q", normalized)
-	}
-	if !strings.Contains(normalized, "=>") || !strings.Contains(normalized, "<") || !strings.Contains(normalized, "&") {
-		t.Fatalf("expected decoded operators in normalized tool content, got %q", normalized)
+		if !foundSeed {
+			t.Fatalf("expected request messages to preserve exact seeded ANSI message %q, messages=%+v", seedContent, requestMessages(req))
+		}
 	}
 }
 

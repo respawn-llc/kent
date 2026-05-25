@@ -379,7 +379,7 @@ func (p Planner) openStore(ctx context.Context, req SessionRequest) (*session.St
 		return p.openScopedSession(req.SelectedSessionID)
 	}
 	if req.ForceNewSession || req.Mode == ModeHeadless {
-		return p.createSession(ctx, req.ParentSessionID)
+		return p.createSession(ctx, req.ParentSessionID, req.Mode)
 	}
 	return nil, errors.New("selected_session_id or force_new_session is required")
 }
@@ -392,7 +392,7 @@ func (p Planner) openScopedSession(sessionID string) (*session.Store, error) {
 	return session.Open(realSessionDir, p.StoreOptions...)
 }
 
-func (p Planner) createSession(ctx context.Context, parentSessionID string) (*session.Store, error) {
+func (p Planner) createSession(ctx context.Context, parentSessionID string, mode Mode) (*session.Store, error) {
 	containerName := filepath.Base(p.ContainerDir)
 	created, err := session.NewLazy(p.ContainerDir, containerName, p.Config.WorkspaceRoot, p.StoreOptions...)
 	if err != nil {
@@ -400,7 +400,7 @@ func (p Planner) createSession(ctx context.Context, parentSessionID string) (*se
 	}
 	parentID := strings.TrimSpace(parentSessionID)
 	if parentID != "" {
-		if err := p.initializeChildSessionContext(ctx, created, parentID); err != nil {
+		if err := p.initializeChildSessionContext(ctx, created, parentID, mode); err != nil {
 			return nil, err
 		}
 	} else {
@@ -414,7 +414,7 @@ func (p Planner) createSession(ctx context.Context, parentSessionID string) (*se
 	return created, nil
 }
 
-func (p Planner) initializeChildSessionContext(ctx context.Context, child *session.Store, parentSessionID string) error {
+func (p Planner) initializeChildSessionContext(ctx context.Context, child *session.Store, parentSessionID string, mode Mode) error {
 	if child == nil {
 		return errors.New("child session store is required")
 	}
@@ -430,7 +430,7 @@ func (p Planner) initializeChildSessionContext(ctx context.Context, child *sessi
 		return err
 	}
 	if parent != nil {
-		if err := session.InitializeChildFromParent(child, parent); err != nil {
+		if err := session.InitializeChildFromParentWithOptions(child, parent, childContextOptionsForMode(mode)); err != nil {
 			return err
 		}
 	}
@@ -451,6 +451,21 @@ func (p Planner) initializeChildSessionContext(ctx context.Context, child *sessi
 		return errors.Join(err, p.rollbackChildSession(child))
 	}
 	return nil
+}
+
+func childContextOptionsForMode(mode Mode) session.ChildContextOptions {
+	if mode == ModeHeadless {
+		// Headless children are subagent launches: they keep parent workspace and
+		// worktree targeting, but their model/tools/prompts/base URL come from
+		// the selected role and current config rather than the parent session.
+		return session.ChildContextOptions{}
+	}
+	// Interactive children are user-facing continuations/forks and preserve the
+	// parent's execution context so resumed conversation prefixes stay coherent.
+	return session.ChildContextOptions{
+		InheritLockedContract: true,
+		InheritContinuation:   true,
+	}
 }
 
 func (p Planner) openParentSession(parentSessionID string) (*session.Store, error) {
