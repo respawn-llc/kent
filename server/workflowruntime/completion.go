@@ -207,9 +207,8 @@ func CompletionJSONSchema(contract CompletionContract) (json.RawMessage, error) 
 		if name == "" {
 			continue
 		}
-		required = append(required, name)
 		properties[name] = map[string]any{
-			"type":        "string",
+			"type":        []string{"string", "null"},
 			"description": strings.TrimSpace(field.Description),
 		}
 	}
@@ -283,19 +282,32 @@ func DecodeCompletion(raw json.RawMessage, contract CompletionContract) (ParsedC
 			continue
 		}
 		seen[field] = true
-		var text string
-		if err := json.Unmarshal(value, &text); err != nil {
-			issues = append(issues, ValidationIssue{Code: "non_string_value", Field: field, Message: "value must be a string"})
-			continue
-		}
 		switch field {
 		case "transition_id":
+			var text string
+			if err := json.Unmarshal(value, &text); err != nil {
+				issues = append(issues, ValidationIssue{Code: "non_string_value", Field: field, Message: "value must be a string"})
+				continue
+			}
 			parsed.TransitionID = strings.TrimSpace(text)
 		case "commentary":
+			var text string
+			if err := json.Unmarshal(value, &text); err != nil {
+				issues = append(issues, ValidationIssue{Code: "non_string_value", Field: field, Message: "value must be a string"})
+				continue
+			}
 			parsed.Commentary = text
 		default:
 			if !knownOutputs[field] {
 				issues = append(issues, ValidationIssue{Code: "unknown_output_field", Field: field, Message: "field is not declared by this workflow node"})
+				continue
+			}
+			if string(value) == "null" {
+				continue
+			}
+			var text string
+			if err := json.Unmarshal(value, &text); err != nil {
+				issues = append(issues, ValidationIssue{Code: "non_string_value", Field: field, Message: "value must be a string"})
 				continue
 			}
 			parsed.OutputValues[field] = text
@@ -308,12 +320,6 @@ func DecodeCompletion(raw json.RawMessage, contract CompletionContract) (ParsedC
 	}
 	if !seen["commentary"] {
 		issues = append(issues, ValidationIssue{Code: "required_field_missing", Field: "commentary", Message: "commentary is required"})
-	}
-	for _, field := range sortedOutputFields(contract.OutputFields) {
-		name := strings.TrimSpace(field.Name)
-		if name != "" && !seen[name] {
-			issues = append(issues, ValidationIssue{Code: "required_field_missing", Field: name, Message: "declared output field is required"})
-		}
 	}
 	if len(issues) > 0 {
 		return ParsedCompletion{}, ValidationError{Issues: issues}

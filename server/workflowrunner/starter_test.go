@@ -26,7 +26,7 @@ import (
 )
 
 func TestSchedulerRunsNewSessionWorkflowNodeWithStructuredOutput(t *testing.T) {
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"finished structured","summary":"structured ok"}`))
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"finished structured"}`))
 
 	task := fixture.createStartedTask(t)
 	scheduler := fixture.scheduler(t)
@@ -54,7 +54,7 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithStructuredOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTransitions: %v", err)
 	}
-	if len(transitions) != 2 || transitions[1].TransitionID != "done" || transitions[1].Commentary != "finished structured" || transitions[1].OutputValues["summary"] != "structured ok" {
+	if len(transitions) != 2 || transitions[1].TransitionID != "done" || transitions[1].Commentary != "finished structured" || len(transitions[1].OutputValues) != 0 {
 		t.Fatalf("completion transition = %+v", transitions)
 	}
 	reqs := fixture.client.Requests()
@@ -74,7 +74,7 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithStructuredOutput(t *testing.T) {
 }
 
 func TestSchedulerRunsNewSessionWorkflowNodeWithCompleteNodeTool(t *testing.T) {
-	input := json.RawMessage(`{"transition_id":"done","commentary":"finished tool","summary":"tool ok"}`)
+	input := json.RawMessage(`{"transition_id":"done","commentary":"finished tool"}`)
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool, workflowtest.ToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: input}))
 
 	task := fixture.createStartedTask(t)
@@ -89,7 +89,7 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithCompleteNodeTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTransitions: %v", err)
 	}
-	if len(transitions) != 2 || transitions[1].Commentary != "finished tool" || transitions[1].OutputValues["summary"] != "tool ok" {
+	if len(transitions) != 2 || transitions[1].Commentary != "finished tool" || len(transitions[1].OutputValues) != 0 {
 		t.Fatalf("completion transition = %+v", transitions)
 	}
 	reqs := fixture.client.Requests()
@@ -99,7 +99,7 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithCompleteNodeTool(t *testing.T) {
 }
 
 func TestWorkflowRuntimeAskQuestionWaitsAndResumesSameRunSession(t *testing.T) {
-	completeInput := json.RawMessage(`{"transition_id":"done","commentary":"answered and finished","summary":"question ok"}`)
+	completeInput := json.RawMessage(`{"transition_id":"done","commentary":"answered and finished"}`)
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool,
 		workflowtest.AskQuestion("call-ask", []byte(`{"question":"Need direction?","suggestions":["ship","stop"],"recommended_option_index":1}`)),
 		workflowtest.ToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: completeInput}),
@@ -135,7 +135,7 @@ func TestWorkflowRuntimeAskQuestionWaitsAndResumesSameRunSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTransitions: %v", err)
 	}
-	if len(transitions) != 2 || transitions[1].Commentary != "answered and finished" || transitions[1].OutputValues["summary"] != "question ok" {
+	if len(transitions) != 2 || transitions[1].Commentary != "answered and finished" || len(transitions[1].OutputValues) != 0 {
 		t.Fatalf("completion transition = %+v", transitions)
 	}
 	reqs := fixture.client.Requests()
@@ -191,8 +191,8 @@ func TestWorkflowRuntimeStarterCancelTaskRunsStopsLiveRuntimeAfterTaskCancel(t *
 
 func TestSchedulerRunsNextAgentWithBoundInputsAndTaskWorktreeContext(t *testing.T) {
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
-		workflowtest.FinalAnswer(`{"transition_id":"next","commentary":"first comments","summary":"first summary"}`),
-		workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"second done","summary":"second summary"}`),
+		workflowtest.FinalAnswer(`{"transition_id":"next","commentary":"first comments","prior_summary":"first summary"}`),
+		workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"second done"}`),
 	)
 	workflowID := createChainedStarterWorkflow(t, fixture.store)
 	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
@@ -227,8 +227,8 @@ func TestSchedulerRunsNextAgentWithBoundInputsAndTaskWorktreeContext(t *testing.
 
 func TestWorkflowRuntimeContinueSessionReusesSourceRunSession(t *testing.T) {
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
-		workflowtest.FinalAnswer(`{"transition_id":"next","commentary":"first comments","summary":"first summary"}`),
-		workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"second done","summary":"second summary"}`),
+		workflowtest.FinalAnswer(`{"transition_id":"next","commentary":"first comments","prior_summary":"first summary"}`),
+		workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"second done"}`),
 	)
 	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeContinueSession, "coder")
 	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
@@ -259,8 +259,8 @@ func TestWorkflowRuntimeContinueSessionReusesSourceRunSession(t *testing.T) {
 
 func TestWorkflowRuntimeContinueSessionKeepsLockedSetupAfterRoleConfigDrift(t *testing.T) {
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
-		workflowtest.FinalAnswer(`{"transition_id":"next","commentary":"first comments","summary":"first summary"}`),
-		workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"second done","summary":"second summary"}`),
+		workflowtest.FinalAnswer(`{"transition_id":"next","commentary":"first comments","prior_summary":"first summary"}`),
+		workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"second done"}`),
 	)
 	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeContinueSession, "coder")
 	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
@@ -302,8 +302,8 @@ func TestWorkflowRuntimeContinueSessionKeepsLockedSetupAfterRoleConfigDrift(t *t
 
 func TestWorkflowRuntimeCompactAndContinueCreatesFreshCrossRoleChildSession(t *testing.T) {
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
-		workflowtest.FinalAnswer(`{"transition_id":"next","commentary":"first comments","summary":"first summary"}`),
-		workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"second done","summary":"second summary"}`),
+		workflowtest.FinalAnswer(`{"transition_id":"next","commentary":"first comments","prior_summary":"first summary"}`),
+		workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"second done"}`),
 	)
 	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeCompactAndContinueSession, "reviewer")
 	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
@@ -789,7 +789,7 @@ func createChainedStarterWorkflowWithContextMode(t *testing.T, store *workflowst
 	implID := workflow.NodeID("node-impl-" + string(created.ID))
 	for _, node := range []workflowstore.NodeRecord{
 		{ID: planID, WorkflowID: created.ID, Key: "plan", Kind: workflow.NodeKindAgent, DisplayName: "Plan", SubagentRole: "coder", PromptTemplate: "Plan the task.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
-		{ID: implID, WorkflowID: created.ID, Key: "implement", Kind: workflow.NodeKindAgent, DisplayName: "Implement", SubagentRole: targetRole, PromptTemplate: "Use {{.Inputs.task_title}} and {{.Inputs.prior_summary}}.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
+		{ID: implID, WorkflowID: created.ID, Key: "implement", Kind: workflow.NodeKindAgent, DisplayName: "Implement", SubagentRole: targetRole, PromptTemplate: "Use {{.TaskTitle}} and {{.Inputs.prior_summary}}.", InputFields: []workflow.InputField{{Name: "prior_summary", Description: "Prior summary."}}, OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}},
 	} {
 		if _, err := store.AddNode(ctx, node); err != nil {
 			t.Fatalf("AddNode %s: %v", node.Key, err)
@@ -809,7 +809,7 @@ func createChainedStarterWorkflowWithContextMode(t *testing.T, store *workflowst
 	}
 	for _, edge := range []workflowstore.EdgeRecord{
 		{ID: workflow.EdgeID("edge-start-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: startGroup, Key: "start", TargetNodeID: planID, ContextMode: workflow.ContextModeNewSession},
-		{ID: workflow.EdgeID("edge-next-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: nextGroup, Key: "next", TargetNodeID: implID, ContextMode: contextMode, InputBindings: []workflow.InputBinding{{Name: "task_title", Source: workflow.BindingSourceTask, Field: "title"}, {Name: "prior_summary", Source: workflow.BindingSourceTransitionOutput, Field: "summary"}}, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+		{ID: workflow.EdgeID("edge-next-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: nextGroup, Key: "next", TargetNodeID: implID, ContextMode: contextMode, InputBindings: []workflow.InputBinding{{Name: "prior_summary", Source: workflow.BindingSourceTransitionOutput, Field: "prior_summary"}}, OutputRequirements: []workflow.OutputRequirement{{FieldName: "prior_summary"}}},
 		{ID: workflow.EdgeID("edge-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: doneGroup, Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
 	} {
 		if _, err := store.AddEdge(ctx, edge); err != nil {

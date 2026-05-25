@@ -54,6 +54,9 @@ describe("WorkflowEditorRoute", () => {
     expect(await screen.findAllByTestId("workflow-node-target-handle")).toHaveLength(3);
     const issues = await screen.findByRole("complementary", { name: "Workflow issues" });
     expect(within(issues).getAllByText("Done transition is invalid.").length).toBeGreaterThan(0);
+    expect(within(issues).getAllByText("Input: summary · Provider edge: edge-provider").length).toBeGreaterThan(
+      0,
+    );
     expect(screen.getByTestId("route-transition-frame")).not.toHaveClass("p-[var(--space-2)]");
     expect(screen.getByTestId("workflow-editor-route")).toHaveClass("p-[var(--space-2)]");
   });
@@ -102,8 +105,9 @@ describe("WorkflowEditorRoute", () => {
     expect(await screen.findByRole("complementary", { name: "Inspect group" })).toHaveTextContent("Members");
 
     fireEvent.click(screen.getByTestId("workflow-join-diamond"));
-    expect(screen.queryByRole("complementary", { name: "Inspect node" })).not.toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "Inspect group" })).toBeInTheDocument();
+    expect(await screen.findByRole("complementary", { name: "Inspect node" })).toHaveTextContent(
+      "Join providers",
+    );
   });
 
   it("keeps a legacy assignee selected when it is missing from configured readiness roles", async () => {
@@ -130,9 +134,9 @@ describe("WorkflowEditorRoute", () => {
     expect(await within(nodeInspector).findByRole("option", { name: "legacy_coder" })).toBeInTheDocument();
   });
 
-  it("edits output fields as draggable sidebar islands with top insertion", async () => {
+  it("edits required inputs as draggable sidebar islands with top insertion", async () => {
     const user = userEvent.setup();
-    mockOutputFieldLayout();
+    mockInputFieldLayout();
     window.history.pushState(null, "", "/workflows/workflow-1/editor");
     render(
       <App
@@ -148,57 +152,57 @@ describe("WorkflowEditorRoute", () => {
     const canvas = await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
     fireEvent.click(within(canvas).getByText("Implement"));
     const nodeInspector = await screen.findByRole("complementary", { name: "Inspect node" });
-    const addButton = within(nodeInspector).getByRole("button", { name: "Add output field" });
+    const addButton = within(nodeInspector).getByRole("button", { name: "Add required input" });
     const initialFieldTitle = within(nodeInspector).getByRole("button", { name: "summary" });
 
     expect(addButton.compareDocumentPosition(initialFieldTitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(within(nodeInspector).queryByText("Output fields")).not.toBeInTheDocument();
-    expect(within(nodeInspector).queryByRole("textbox", { name: "Field name" })).not.toBeInTheDocument();
+    expect(within(nodeInspector).getByText("Required inputs")).toBeInTheDocument();
+    expect(within(nodeInspector).queryByRole("textbox", { name: "Input name" })).not.toBeInTheDocument();
     expect(within(nodeInspector).queryByText("Field description")).not.toBeInTheDocument();
     expect(
-      within(nodeInspector).getByPlaceholderText("Model-facing description"),
-    ).toHaveAccessibleName("Model-facing description");
+      within(nodeInspector).getByPlaceholderText("Input description"),
+    ).toHaveAccessibleName("Input description");
     expect(within(nodeInspector).queryByText("Drag to reorder")).not.toBeInTheDocument();
     expect(within(nodeInspector).queryByText("Move up")).not.toBeInTheDocument();
     expect(within(nodeInspector).queryByText("Move down")).not.toBeInTheDocument();
-    expect(within(nodeInspector).getByRole("button", { name: "Reorder output field" })).toBeInTheDocument();
+    expect(within(nodeInspector).getByRole("button", { name: "Reorder input field" })).toBeInTheDocument();
     expect(within(nodeInspector).getByRole("button", { name: "Delete field" })).toHaveTextContent("");
-    expect(within(nodeInspector).getByTestId("workflow-output-field")).toHaveClass(
-      "workflow-editor-output-field",
+    expect(within(nodeInspector).getByTestId("workflow-input-field")).toHaveClass(
+      "workflow-editor-input-field",
     );
 
     fireEvent.click(initialFieldTitle);
-    expect(within(nodeInspector).getByRole("textbox", { name: "Field name" })).toHaveValue("summary");
-    fireEvent.keyDown(within(nodeInspector).getByRole("textbox", { name: "Field name" }), {
+    expect(within(nodeInspector).getByRole("textbox", { name: "Input name" })).toHaveValue("summary");
+    fireEvent.keyDown(within(nodeInspector).getByRole("textbox", { name: "Input name" }), {
       key: "Escape",
     });
     expect(within(nodeInspector).getByRole("button", { name: "summary" })).toBeInTheDocument();
 
     fireEvent.click(addButton);
 
-    const newFieldName = within(nodeInspector).getByRole("textbox", { name: "Field name" });
-    expect(outputFieldNames(nodeInspector)).toEqual(["", "summary"]);
+    const newFieldName = within(nodeInspector).getByRole("textbox", { name: "Input name" });
+    expect(inputFieldNames(nodeInspector)).toEqual(["", "summary"]);
     expect(newFieldName).toHaveValue("");
-    expect(within(nodeInspector).getAllByRole("button", { name: "Reorder output field" })).toHaveLength(2);
-    expect(within(nodeInspector).getAllByTestId("workflow-output-field")[0]).toHaveClass(
-      "workflow-editor-output-field",
+    expect(within(nodeInspector).getAllByRole("button", { name: "Reorder input field" })).toHaveLength(2);
+    expect(within(nodeInspector).getAllByTestId("workflow-input-field")[0]).toHaveClass(
+      "workflow-editor-input-field",
     );
 
     fireEvent.change(newFieldName, { target: { value: "details" } });
-    expect(within(nodeInspector).getByRole("textbox", { name: "Field name" })).toHaveValue("details");
-    expect(outputFieldNames(nodeInspector)).toEqual(["details", "summary"]);
+    expect(within(nodeInspector).getByRole("textbox", { name: "Input name" })).toHaveValue("details");
+    expect(inputFieldNames(nodeInspector)).toEqual(["details", "summary"]);
     fireEvent.keyDown(newFieldName, { key: "Enter" });
 
-    const dragSurfaces = within(nodeInspector).getAllByRole("button", { name: "Reorder output field" });
+    const dragSurfaces = within(nodeInspector).getAllByRole("button", { name: "Reorder input field" });
     const summaryDragSurface = dragSurfaces[1] ?? dragSurfaces[0];
     summaryDragSurface?.focus();
     expect(summaryDragSurface).toHaveFocus();
     await user.keyboard("[Enter][ArrowUp][Enter]");
 
     await waitFor(() => {
-      expect(outputFieldNames(nodeInspector)).toEqual(["summary", "details"]);
+      expect(inputFieldNames(nodeInspector)).toEqual(["summary", "details"]);
     });
 
     const detailsDeleteButton = within(nodeInspector).getAllByRole("button", { name: "Delete field" })[1];
@@ -207,9 +211,39 @@ describe("WorkflowEditorRoute", () => {
     }
     fireEvent.click(detailsDeleteButton);
     await waitFor(() => {
-      expect(within(nodeInspector).getAllByTestId("workflow-output-field")).toHaveLength(1);
+      expect(within(nodeInspector).getAllByTestId("workflow-input-field")).toHaveLength(1);
     });
-    expect(outputFieldNames(nodeInspector)).toEqual(["summary"]);
+    expect(inputFieldNames(nodeInspector)).toEqual(["summary"]);
+  });
+
+  it("edits join provider selections from server-derived required inputs", async () => {
+    window.history.pushState(null, "", "/workflows/workflow-1/editor");
+    render(
+      <App
+        services={createTestServices([
+          ...startupRoutes,
+          { method: "workflow.get", result: workflowDefinitionResponse },
+          { method: "workflow.validate", result: invalidValidationResponse },
+          { method: "workflow.graph.validateDraft", result: graphValidationResponse },
+        ])}
+      />,
+    );
+
+    const canvas = await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
+    fireEvent.click(within(canvas).getByTestId("workflow-join-diamond"));
+    const nodeInspector = await screen.findByRole("complementary", { name: "Inspect node" });
+    const providerSelect = within(nodeInspector).getByRole("combobox", { name: "summary" });
+
+    expect(within(nodeInspector).getByText("Join providers")).toBeInTheDocument();
+    expect(providerSelect).toHaveTextContent("Select provider");
+    fireEvent.click(providerSelect);
+    fireEvent.click(await within(nodeInspector).findByRole("option", { name: "Implement / done" }));
+
+    await waitFor(() => {
+      expect(within(nodeInspector).getByRole("combobox", { name: "summary" })).toHaveTextContent(
+        "Implement / done",
+      );
+    });
   });
 
   it("keeps the graph canvas mounted while workflow metadata fields update", async () => {
@@ -626,10 +660,10 @@ function mockWindowWidth(width: number): () => void {
   };
 }
 
-function outputFieldNames(container: HTMLElement): readonly string[] {
+function inputFieldNames(container: HTMLElement): readonly string[] {
   return within(container)
-    .getAllByTestId("workflow-output-field")
-    .map((field) => field.dataset.outputFieldName ?? "");
+    .getAllByTestId("workflow-input-field")
+    .map((field) => field.dataset.inputFieldName ?? "");
 }
 
 function mockSidebarLayout(shellWidth: () => number): void {
@@ -643,12 +677,12 @@ function mockSidebarLayout(shellWidth: () => number): void {
   });
 }
 
-function mockOutputFieldLayout(): void {
+function mockInputFieldLayout(): void {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function getBoundingClientRect(
     this: HTMLElement,
   ) {
-    if (this.dataset.testid === "workflow-output-field") {
-      return domRect({ height: 96, top: this.dataset.outputFieldName === "summary" ? 140 : 20, width: 320 });
+    if (this.dataset.testid === "workflow-input-field") {
+      return domRect({ height: 96, top: this.dataset.inputFieldName === "summary" ? 140 : 20, width: 320 });
     }
     return domRect({ height: 96, top: 20, width: 320 });
   });
@@ -817,6 +851,7 @@ const workflowDefinitionResponse = {
         group_key: "core",
         subagent_role: "coder",
         prompt_template: "Implement the task.",
+        input_fields: [{ name: "summary", description: "Summary" }],
         output_fields: [{ name: "summary", description: "Summary" }],
       },
       {
@@ -897,6 +932,10 @@ const invalidValidationResponse = {
       node_id: "node-1",
       transition_group_id: "tg-1",
       edge_id: "edge-1",
+      details: {
+        input_name: "summary",
+        provider_edge_id: "edge-provider",
+      },
       related_ids: [],
       blocks_context: true,
     },
@@ -920,6 +959,20 @@ function workflowValidationResponseWithMessages(messages: readonly string[]) {
 }
 
 const graphValidationResponse = {
+  derived_wiring: {
+    nodes: [
+      {
+        node_id: "join",
+        join_output_fields: [{ name: "summary", description: "Summary" }],
+      },
+    ],
+    edges: [
+      {
+        edge_id: "edge-1",
+        required_provider_fields: [{ name: "summary", description: "Summary" }],
+      },
+    ],
+  },
   results: {
     draft: invalidValidationResponse,
     execution: invalidValidationResponse,
@@ -943,6 +996,7 @@ const graphSaveImpactResponse = {
 
 const cachedWorkflowDefinition = {
   workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
+  derivedWiring: { diagnostics: [], edges: [], nodes: [], transitionGroups: [] },
   nodeGroups: [
     { id: "group-1", workflowID: "workflow-1", key: "core", name: "Core", sortOrder: 1, nodeIDs: ["node-1"] },
   ],
@@ -957,6 +1011,8 @@ const cachedWorkflowDefinition = {
       groupKey: "core",
       subagentRole: "coder",
       promptTemplate: "Implement the task.",
+      inputFields: [{ name: "summary", description: "Summary" }],
+      joinInputProviders: [],
       outputFields: [{ name: "summary", description: "Summary" }],
     },
     {
@@ -969,6 +1025,8 @@ const cachedWorkflowDefinition = {
       groupKey: "",
       subagentRole: "",
       promptTemplate: "",
+      inputFields: [],
+      joinInputProviders: [],
       outputFields: [],
     },
     {
@@ -981,6 +1039,8 @@ const cachedWorkflowDefinition = {
       groupKey: "",
       subagentRole: "",
       promptTemplate: "",
+      inputFields: [],
+      joinInputProviders: [],
       outputFields: [],
     },
   ],
@@ -1026,6 +1086,7 @@ const cachedValidation = {
       nodeID: "node-1",
       transitionGroupID: "tg-1",
       edgeID: "edge-1",
+      details: { fieldName: "", inputName: "summary", placeholder: "", providerEdgeID: "edge-provider" },
       relatedIDs: [],
       blocksContext: true,
     },

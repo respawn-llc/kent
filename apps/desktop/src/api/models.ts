@@ -119,13 +119,31 @@ export type WorkflowValidationError = Readonly<{
   nodeID: string;
   transitionGroupID: string;
   edgeID: string;
+  details: WorkflowValidationErrorDetails;
   relatedIDs: readonly string[];
   blocksContext: boolean;
+}>;
+
+export type WorkflowValidationErrorDetails = Readonly<{
+  fieldName: string;
+  inputName: string;
+  placeholder: string;
+  providerEdgeID: string;
 }>;
 
 export type WorkflowOutputField = Readonly<{
   name: string;
   description: string;
+}>;
+
+export type WorkflowInputField = Readonly<{
+  name: string;
+  description: string;
+}>;
+
+export type WorkflowJoinInputProvider = Readonly<{
+  inputName: string;
+  providerEdgeID: string;
 }>;
 
 export type WorkflowRecord = Readonly<{
@@ -159,6 +177,8 @@ export type WorkflowNode = Readonly<{
   groupKey: string;
   subagentRole: string;
   promptTemplate: string;
+  inputFields: readonly WorkflowInputField[];
+  joinInputProviders: readonly WorkflowJoinInputProvider[];
   outputFields: readonly WorkflowOutputField[];
 }>;
 
@@ -171,6 +191,38 @@ export type WorkflowInputBinding = Readonly<{
 export type WorkflowOutputRequirement = Readonly<{
   fieldName: string;
 }>;
+
+export type WorkflowDerivedWiring = Readonly<{
+  nodes: readonly WorkflowDerivedNodeWiring[];
+  transitionGroups: readonly WorkflowDerivedTransitionGroupWiring[];
+  edges: readonly WorkflowDerivedEdgeWiring[];
+  diagnostics: readonly WorkflowValidationError[];
+}>;
+
+export type WorkflowDerivedNodeWiring = Readonly<{
+  nodeID: string;
+  possibleProvisionFields: readonly WorkflowOutputField[];
+  joinOutputFields: readonly WorkflowOutputField[];
+}>;
+
+export type WorkflowDerivedTransitionGroupWiring = Readonly<{
+  transitionGroupID: string;
+  requiredProvisionFields: readonly WorkflowOutputField[];
+}>;
+
+export type WorkflowDerivedEdgeWiring = Readonly<{
+  edgeID: string;
+  inputBindings: readonly WorkflowInputBinding[];
+  requiredProvisionFields: readonly WorkflowOutputField[];
+  requiredProviderFields: readonly WorkflowOutputField[];
+}>;
+
+export const emptyWorkflowDerivedWiring: WorkflowDerivedWiring = {
+  diagnostics: [],
+  edges: [],
+  nodes: [],
+  transitionGroups: [],
+};
 
 export type WorkflowContextSource = Readonly<{
   kind: string;
@@ -204,6 +256,7 @@ export type WorkflowDefinition = Readonly<{
   nodes: readonly WorkflowNode[];
   transitionGroups: readonly WorkflowTransitionGroup[];
   edges: readonly WorkflowEdge[];
+  derivedWiring: WorkflowDerivedWiring;
 }>;
 
 export type WorkflowValidation = Readonly<{
@@ -228,7 +281,8 @@ export type WorkflowGraphDraftNode = Readonly<{
   groupKey: string;
   subagentRole: string;
   promptTemplate: string;
-  outputFields: readonly WorkflowOutputField[];
+  inputFields: readonly WorkflowInputField[];
+  joinInputProviders: readonly WorkflowJoinInputProvider[];
 }>;
 
 export type WorkflowGraphDraftTransitionGroup = Readonly<{
@@ -246,8 +300,6 @@ export type WorkflowGraphDraftEdge = Readonly<{
   requiresApproval: boolean;
   contextMode: string;
   contextSource: WorkflowContextSource;
-  inputBindings: readonly WorkflowInputBinding[];
-  outputRequirements: readonly WorkflowOutputRequirement[];
 }>;
 
 export type WorkflowGraphDraft = Readonly<{
@@ -260,6 +312,11 @@ export type WorkflowGraphDraft = Readonly<{
 export type WorkflowGraphValidationResults = Readonly<
   Partial<Record<WorkflowValidationMode, WorkflowValidation>>
 >;
+
+export type WorkflowGraphValidateDraftResult = WorkflowGraphValidationResults &
+  Readonly<{
+    derivedWiring: WorkflowDerivedWiring;
+  }>;
 
 export type WorkflowGraphMetadata = Readonly<{
   name: string;

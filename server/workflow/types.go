@@ -63,6 +63,8 @@ const (
 	MaxDisplayNameChars            = 120
 	MaxOutputFieldNameChars        = 64
 	MaxOutputFieldDescriptionChars = 1000
+	MaxInputFieldNameChars         = MaxOutputFieldNameChars
+	MaxInputFieldDescriptionChars  = MaxOutputFieldDescriptionChars
 	MaxOutputValueBytes            = 64 * 1024
 	MaxCommentaryBytes             = 64 * 1024
 	MaxTaskCommentBytes            = 256 * 1024
@@ -77,14 +79,16 @@ type Definition struct {
 }
 
 type Node struct {
-	WorkflowID     WorkflowID
-	ID             NodeID
-	Key            ModelKey
-	DisplayName    string
-	Kind           NodeKind
-	SubagentRole   string
-	PromptTemplate string
-	OutputFields   []OutputField
+	WorkflowID         WorkflowID
+	ID                 NodeID
+	Key                ModelKey
+	DisplayName        string
+	Kind               NodeKind
+	SubagentRole       string
+	PromptTemplate     string
+	InputFields        []InputField
+	JoinInputProviders []JoinInputProvider
+	OutputFields       []OutputField
 }
 
 type TransitionGroup struct {
@@ -111,6 +115,16 @@ type Edge struct {
 type OutputField struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+}
+
+type InputField struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type JoinInputProvider struct {
+	InputName      string `json:"input_name"`
+	ProviderEdgeID EdgeID `json:"provider_edge_id"`
 }
 
 type OutputRequirement struct {
@@ -195,9 +209,18 @@ const (
 	CodeDuplicateOutputField           ValidationErrorCode = "workflow.validation.duplicate_output_field"
 	CodeOutputFieldDescriptionRequired ValidationErrorCode = "workflow.validation.output_field_description_required"
 	CodeOutputSchemaTooLarge           ValidationErrorCode = "workflow.validation.output_schema_too_large"
+	CodeInvalidInputField              ValidationErrorCode = "workflow.validation.invalid_input_field"
+	CodeDuplicateInputField            ValidationErrorCode = "workflow.validation.duplicate_input_field"
+	CodeInputFieldDescriptionRequired  ValidationErrorCode = "workflow.validation.input_field_description_required"
+	CodeInputSchemaTooLarge            ValidationErrorCode = "workflow.validation.input_schema_too_large"
 	CodeUnknownOutputRequirement       ValidationErrorCode = "workflow.validation.unknown_output_requirement"
 	CodeInvalidInputBinding            ValidationErrorCode = "workflow.validation.invalid_input_binding"
 	CodeInvalidTemplatePlaceholder     ValidationErrorCode = "workflow.validation.invalid_template_placeholder"
+	CodeProvisionFieldOverlap          ValidationErrorCode = "workflow.validation.provision_field_overlap"
+	CodeMissingJoinInputProvider       ValidationErrorCode = "workflow.validation.missing_join_input_provider"
+	CodeDuplicateJoinInputProvider     ValidationErrorCode = "workflow.validation.duplicate_join_input_provider"
+	CodeInvalidJoinInputProvider       ValidationErrorCode = "workflow.validation.invalid_join_input_provider"
+	CodeInvalidFirstNodeInput          ValidationErrorCode = "workflow.validation.invalid_first_node_input"
 	CodeInvalidContextMode             ValidationErrorCode = "workflow.validation.invalid_context_mode"
 	CodeInvalidContextSource           ValidationErrorCode = "workflow.validation.invalid_context_source"
 	CodeInvalidContinueSessionRole     ValidationErrorCode = "workflow.validation.invalid_continue_session_role"
@@ -219,6 +242,10 @@ type ValidationError struct {
 	NodeID            NodeID
 	TransitionGroupID TransitionGroupID
 	EdgeID            EdgeID
+	FieldName         string
+	InputName         string
+	Placeholder       string
+	ProviderEdgeID    EdgeID
 	RelatedIDs        []string
 	BlocksContext     bool
 }

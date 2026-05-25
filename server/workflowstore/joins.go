@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sort"
 	"strings"
 
 	"builder/server/metadata/sqlitegen"
@@ -14,6 +13,7 @@ import (
 type joinArrival struct {
 	PlacementID   string
 	BranchEdgeID  string
+	JoinEdgeID    workflow.EdgeID
 	SourceNodeKey string
 	OutputValues  map[string]string
 }
@@ -69,8 +69,12 @@ LIMIT 1`, taskID, string(joinEdge.TargetNode.ID), batchID.String).Scan(&existing
 	if len(groups) != 1 || len(groups[0].Edges) != 1 {
 		return CompleteRunResult{}, fmt.Errorf("join node %q must have exactly one outgoing edge", joinEdge.TargetNode.ID)
 	}
-	aggregate := deterministicJoinAggregate(arrivals)
-	aggregateJSON, err := marshalJSON(map[string]string{"aggregate": aggregate})
+	group := groups[0]
+	joinOutputValues, err := selectedJoinOutputValues(joinSnapshot.Node, group.Edges[0], arrivals)
+	if err != nil {
+		return CompleteRunResult{}, err
+	}
+	joinOutputValuesJSON, err := marshalJSON(joinOutputValues)
 	if err != nil {
 		return CompleteRunResult{}, err
 	}
@@ -79,8 +83,7 @@ LIMIT 1`, taskID, string(joinEdge.TargetNode.ID), batchID.String).Scan(&existing
 		return CompleteRunResult{}, err
 	}
 	joinTransitionID := prefixedID("transition")
-	group := groups[0]
-	if err := q.InsertTaskTransition(ctx, sqlitegen.InsertTaskTransitionParams{ID: joinTransitionID, TaskID: taskID, SourcePlacementID: sql.NullString{String: joinPlacementID, Valid: true}, SourceNodeKey: string(joinEdge.TargetNode.Key), SourceNodeDisplayName: joinEdge.TargetNode.DisplayName, TransitionID: group.TransitionID, TransitionDisplayName: group.DisplayName, WorkflowRevisionSeen: joinSnapshot.WorkflowRevisionSeen, Actor: "system", State: "applied", OutputValuesJson: aggregateJSON, CreatedAtUnixMs: now, AppliedAtUnixMs: now}); err != nil {
+	if err := q.InsertTaskTransition(ctx, sqlitegen.InsertTaskTransitionParams{ID: joinTransitionID, TaskID: taskID, SourcePlacementID: sql.NullString{String: joinPlacementID, Valid: true}, SourceNodeKey: string(joinEdge.TargetNode.Key), SourceNodeDisplayName: joinEdge.TargetNode.DisplayName, TransitionID: group.TransitionID, TransitionDisplayName: group.DisplayName, WorkflowRevisionSeen: joinSnapshot.WorkflowRevisionSeen, Actor: "system", State: "applied", OutputValuesJson: joinOutputValuesJSON, CreatedAtUnixMs: now, AppliedAtUnixMs: now}); err != nil {
 		return CompleteRunResult{}, err
 	}
 	result := CompleteRunResult{TransitionID: workflow.TransitionID(joinTransitionID), State: "applied"}
@@ -150,6 +153,7 @@ func joinArrivals(ctx context.Context, tx *sql.Tx, batchID string, joinNodeID wo
 SELECT
     p.id,
     p.parallel_branch_edge_id,
+    te.workflow_edge_id,
     tr.source_node_key,
     tr.output_values_json
 FROM task_node_placements p
@@ -169,9 +173,10 @@ ORDER BY p.parallel_branch_edge_id ASC, tr.created_at_unix_ms ASC`, batchID, str
 	for rows.Next() {
 		var placementID string
 		var branchEdgeID sql.NullString
+		var joinEdgeID sql.NullString
 		var sourceNodeKey string
 		var outputValuesJSON string
-		if err := rows.Scan(&placementID, &branchEdgeID, &sourceNodeKey, &outputValuesJSON); err != nil {
+		if err := rows.Scan(&placementID, &branchEdgeID, &joinEdgeID, &sourceNodeKey, &outputValuesJSON); err != nil {
 			return nil, err
 		}
 		if strings.TrimSpace(placementID) == "" || seenPlacements[placementID] {
@@ -182,25 +187,51 @@ ORDER BY p.parallel_branch_edge_id ASC, tr.created_at_unix_ms ASC`, batchID, str
 		if key == "" {
 			continue
 		}
+		incomingJoinEdgeID := workflow.EdgeID(strings.TrimSpace(joinEdgeID.String))
+		if incomingJoinEdgeID == "" {
+			continue
+		}
 		outputs := map[string]string{}
 		if err := unmarshalJSON(outputValuesJSON, &outputs); err != nil {
 			return nil, err
 		}
-		arrivals = append(arrivals, joinArrival{PlacementID: placementID, BranchEdgeID: key, SourceNodeKey: sourceNodeKey, OutputValues: outputs})
+		arrivals = append(arrivals, joinArrival{PlacementID: placementID, BranchEdgeID: key, JoinEdgeID: incomingJoinEdgeID, SourceNodeKey: sourceNodeKey, OutputValues: outputs})
 	}
 	return arrivals, rows.Err()
 }
 
-func deterministicJoinAggregate(arrivals []joinArrival) string {
-	sort.SliceStable(arrivals, func(i, j int) bool {
-		if arrivals[i].SourceNodeKey == arrivals[j].SourceNodeKey {
-			return arrivals[i].BranchEdgeID < arrivals[j].BranchEdgeID
-		}
-		return arrivals[i].SourceNodeKey < arrivals[j].SourceNodeKey
-	})
-	lines := make([]string, 0, len(arrivals))
+func selectedJoinOutputValues(join nodeContractSnapshot, outEdge edgeContractSnapshot, arrivals []joinArrival) (map[string]string, error) {
+	arrivalByJoinEdgeID := make(map[workflow.EdgeID]joinArrival, len(arrivals))
 	for _, arrival := range arrivals {
-		lines = append(lines, fmt.Sprintf("%s (%s): %s", arrival.SourceNodeKey, arrival.BranchEdgeID, mustJSON(arrival.OutputValues)))
+		arrivalByJoinEdgeID[arrival.JoinEdgeID] = arrival
 	}
-	return strings.Join(lines, "\n")
+	providerByInput := make(map[string]workflow.JoinInputProvider, len(join.JoinInputProviders))
+	for _, provider := range join.JoinInputProviders {
+		inputName := strings.TrimSpace(provider.InputName)
+		if inputName == "" {
+			continue
+		}
+		providerByInput[inputName] = provider
+	}
+	out := map[string]string{}
+	for _, requirement := range outEdge.OutputRequirements {
+		inputName := strings.TrimSpace(requirement.FieldName)
+		if inputName == "" {
+			continue
+		}
+		provider, ok := providerByInput[inputName]
+		if !ok {
+			return nil, fmt.Errorf("join node %q missing provider for input %q", join.ID, inputName)
+		}
+		arrival, ok := arrivalByJoinEdgeID[provider.ProviderEdgeID]
+		if !ok {
+			return nil, fmt.Errorf("join node %q provider edge %q did not arrive", join.ID, provider.ProviderEdgeID)
+		}
+		value := strings.TrimSpace(arrival.OutputValues[inputName])
+		if value == "" {
+			return nil, fmt.Errorf("join node %q provider edge %q missing output %q", join.ID, provider.ProviderEdgeID, inputName)
+		}
+		out[inputName] = value
+	}
+	return out, nil
 }

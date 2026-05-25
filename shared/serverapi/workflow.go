@@ -63,16 +63,18 @@ type WorkflowRecord struct {
 }
 
 type WorkflowNode struct {
-	ID             string                `json:"id"`
-	WorkflowID     string                `json:"workflow_id"`
-	Key            string                `json:"key"`
-	Kind           string                `json:"kind"`
-	DisplayName    string                `json:"display_name"`
-	GroupID        string                `json:"group_id,omitempty"`
-	GroupKey       string                `json:"group_key,omitempty"`
-	SubagentRole   string                `json:"subagent_role,omitempty"`
-	PromptTemplate string                `json:"prompt_template,omitempty"`
-	OutputFields   []WorkflowOutputField `json:"output_fields,omitempty"`
+	ID                 string                      `json:"id"`
+	WorkflowID         string                      `json:"workflow_id"`
+	Key                string                      `json:"key"`
+	Kind               string                      `json:"kind"`
+	DisplayName        string                      `json:"display_name"`
+	GroupID            string                      `json:"group_id,omitempty"`
+	GroupKey           string                      `json:"group_key,omitempty"`
+	SubagentRole       string                      `json:"subagent_role,omitempty"`
+	PromptTemplate     string                      `json:"prompt_template,omitempty"`
+	InputFields        []WorkflowInputField        `json:"input_fields,omitempty"`
+	JoinInputProviders []WorkflowJoinInputProvider `json:"join_input_providers,omitempty"`
+	OutputFields       []WorkflowOutputField       `json:"output_fields,omitempty"`
 }
 
 type WorkflowNodeGroup struct {
@@ -109,19 +111,61 @@ type WorkflowContextSource struct {
 	NodeKey string `json:"node_key,omitempty"`
 }
 
+// WorkflowOutputField is read-only/derived in workflow editor contracts. It is used for runtime
+// output snapshots, board summaries, and derived provision fields; writable graph contracts use
+// WorkflowInputField on consuming nodes instead of user-authored source output fields.
 type WorkflowOutputField struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
 
+type WorkflowInputField struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type WorkflowJoinInputProvider struct {
+	InputName      string `json:"input_name"`
+	ProviderEdgeID string `json:"provider_edge_id"`
+}
+
+// WorkflowOutputRequirement describes derived runtime/read-model requirements. It is not accepted
+// by node/edge add, update, or graph draft requests as canonical user-authored wiring.
 type WorkflowOutputRequirement struct {
 	FieldName string `json:"field_name"`
 }
 
+// WorkflowInputBinding describes derived runtime/read-model bindings. It is not accepted by
+// node/edge add, update, or graph draft requests as canonical user-authored wiring.
 type WorkflowInputBinding struct {
 	Name   string `json:"name"`
 	Source string `json:"source"`
 	Field  string `json:"field"`
+}
+
+type WorkflowDerivedWiring struct {
+	Nodes            []WorkflowDerivedNodeWiring            `json:"nodes,omitempty"`
+	TransitionGroups []WorkflowDerivedTransitionGroupWiring `json:"transition_groups,omitempty"`
+	Edges            []WorkflowDerivedEdgeWiring            `json:"edges,omitempty"`
+	Diagnostics      []WorkflowValidationError              `json:"diagnostics,omitempty"`
+}
+
+type WorkflowDerivedNodeWiring struct {
+	NodeID                  string                `json:"node_id"`
+	PossibleProvisionFields []WorkflowOutputField `json:"possible_provision_fields,omitempty"`
+	JoinOutputFields        []WorkflowOutputField `json:"join_output_fields,omitempty"`
+}
+
+type WorkflowDerivedTransitionGroupWiring struct {
+	TransitionGroupID       string                `json:"transition_group_id"`
+	RequiredProvisionFields []WorkflowOutputField `json:"required_provision_fields,omitempty"`
+}
+
+type WorkflowDerivedEdgeWiring struct {
+	EdgeID                  string                 `json:"edge_id"`
+	InputBindings           []WorkflowInputBinding `json:"input_bindings,omitempty"`
+	RequiredProvisionFields []WorkflowOutputField  `json:"required_provision_fields,omitempty"`
+	RequiredProviderFields  []WorkflowOutputField  `json:"required_provider_fields,omitempty"`
 }
 
 type WorkflowDefinition struct {
@@ -130,6 +174,7 @@ type WorkflowDefinition struct {
 	Nodes            []WorkflowNode            `json:"nodes"`
 	TransitionGroups []WorkflowTransitionGroup `json:"transition_groups"`
 	Edges            []WorkflowEdge            `json:"edges"`
+	DerivedWiring    WorkflowDerivedWiring     `json:"derived_wiring"`
 }
 
 type WorkflowGraphDraft struct {
@@ -146,15 +191,16 @@ type WorkflowGraphDraftNodeGroup struct {
 }
 
 type WorkflowGraphDraftNode struct {
-	ID             string                `json:"id"`
-	Key            string                `json:"key"`
-	Kind           string                `json:"kind"`
-	DisplayName    string                `json:"display_name"`
-	GroupID        string                `json:"group_id,omitempty"`
-	GroupKey       string                `json:"group_key,omitempty"`
-	SubagentRole   string                `json:"subagent_role,omitempty"`
-	PromptTemplate string                `json:"prompt_template,omitempty"`
-	OutputFields   []WorkflowOutputField `json:"output_fields,omitempty"`
+	ID                 string                      `json:"id"`
+	Key                string                      `json:"key"`
+	Kind               string                      `json:"kind"`
+	DisplayName        string                      `json:"display_name"`
+	GroupID            string                      `json:"group_id,omitempty"`
+	GroupKey           string                      `json:"group_key,omitempty"`
+	SubagentRole       string                      `json:"subagent_role,omitempty"`
+	PromptTemplate     string                      `json:"prompt_template,omitempty"`
+	InputFields        []WorkflowInputField        `json:"input_fields,omitempty"`
+	JoinInputProviders []WorkflowJoinInputProvider `json:"join_input_providers,omitempty"`
 }
 
 type WorkflowGraphDraftTransitionGroup struct {
@@ -165,15 +211,13 @@ type WorkflowGraphDraftTransitionGroup struct {
 }
 
 type WorkflowGraphDraftEdge struct {
-	ID                 string                      `json:"id"`
-	TransitionGroupID  string                      `json:"transition_group_id"`
-	Key                string                      `json:"key"`
-	TargetNodeID       string                      `json:"target_node_id"`
-	RequiresApproval   bool                        `json:"requires_approval"`
-	ContextMode        string                      `json:"context_mode"`
-	ContextSource      WorkflowContextSource       `json:"context_source"`
-	InputBindings      []WorkflowInputBinding      `json:"input_bindings,omitempty"`
-	OutputRequirements []WorkflowOutputRequirement `json:"output_requirements,omitempty"`
+	ID                string                `json:"id"`
+	TransitionGroupID string                `json:"transition_group_id"`
+	Key               string                `json:"key"`
+	TargetNodeID      string                `json:"target_node_id"`
+	RequiresApproval  bool                  `json:"requires_approval"`
+	ContextMode       string                `json:"context_mode"`
+	ContextSource     WorkflowContextSource `json:"context_source"`
 }
 
 type WorkflowGraphValidateDraftRequest struct {
@@ -184,7 +228,8 @@ type WorkflowGraphValidateDraftRequest struct {
 }
 
 type WorkflowGraphValidateDraftResponse struct {
-	Results map[WorkflowValidationMode]WorkflowValidateResponse `json:"results"`
+	Results       map[WorkflowValidationMode]WorkflowValidateResponse `json:"results"`
+	DerivedWiring WorkflowDerivedWiring                               `json:"derived_wiring"`
 }
 
 type WorkflowGraphSavePreviewRequest struct {
@@ -303,15 +348,16 @@ type WorkflowGetResponse struct {
 }
 
 type WorkflowNodeAddRequest struct {
-	WorkflowID     string                `json:"workflow_id"`
-	NodeID         string                `json:"node_id,omitempty"`
-	Key            string                `json:"key"`
-	Kind           string                `json:"kind"`
-	DisplayName    string                `json:"display_name"`
-	GroupKey       string                `json:"group_key,omitempty"`
-	SubagentRole   string                `json:"subagent_role,omitempty"`
-	PromptTemplate string                `json:"prompt_template,omitempty"`
-	OutputFields   []WorkflowOutputField `json:"output_fields,omitempty"`
+	WorkflowID         string                      `json:"workflow_id"`
+	NodeID             string                      `json:"node_id,omitempty"`
+	Key                string                      `json:"key"`
+	Kind               string                      `json:"kind"`
+	DisplayName        string                      `json:"display_name"`
+	GroupKey           string                      `json:"group_key,omitempty"`
+	SubagentRole       string                      `json:"subagent_role,omitempty"`
+	PromptTemplate     string                      `json:"prompt_template,omitempty"`
+	InputFields        []WorkflowInputField        `json:"input_fields,omitempty"`
+	JoinInputProviders []WorkflowJoinInputProvider `json:"join_input_providers,omitempty"`
 }
 
 type WorkflowNodeAddResponse struct {
@@ -319,15 +365,16 @@ type WorkflowNodeAddResponse struct {
 }
 
 type WorkflowNodeUpdateRequest struct {
-	WorkflowID     string                `json:"workflow_id"`
-	NodeID         string                `json:"node_id"`
-	Key            string                `json:"key"`
-	Kind           string                `json:"kind"`
-	DisplayName    string                `json:"display_name"`
-	GroupKey       string                `json:"group_key,omitempty"`
-	SubagentRole   string                `json:"subagent_role,omitempty"`
-	PromptTemplate string                `json:"prompt_template,omitempty"`
-	OutputFields   []WorkflowOutputField `json:"output_fields,omitempty"`
+	WorkflowID         string                      `json:"workflow_id"`
+	NodeID             string                      `json:"node_id"`
+	Key                string                      `json:"key"`
+	Kind               string                      `json:"kind"`
+	DisplayName        string                      `json:"display_name"`
+	GroupKey           string                      `json:"group_key,omitempty"`
+	SubagentRole       string                      `json:"subagent_role,omitempty"`
+	PromptTemplate     string                      `json:"prompt_template,omitempty"`
+	InputFields        []WorkflowInputField        `json:"input_fields,omitempty"`
+	JoinInputProviders []WorkflowJoinInputProvider `json:"join_input_providers,omitempty"`
 }
 
 type WorkflowNodeUpdateResponse struct {
@@ -385,16 +432,14 @@ type WorkflowTransitionGroupUpdateResponse struct {
 }
 
 type WorkflowEdgeAddRequest struct {
-	WorkflowID         string                      `json:"workflow_id"`
-	EdgeID             string                      `json:"edge_id,omitempty"`
-	TransitionGroupID  string                      `json:"transition_group_id"`
-	Key                string                      `json:"key"`
-	TargetNodeID       string                      `json:"target_node_id"`
-	ContextMode        string                      `json:"context_mode"`
-	ContextSource      WorkflowContextSource       `json:"context_source"`
-	RequiresApproval   bool                        `json:"requires_approval"`
-	InputBindings      []WorkflowInputBinding      `json:"input_bindings,omitempty"`
-	OutputRequirements []WorkflowOutputRequirement `json:"output_requirements,omitempty"`
+	WorkflowID        string                `json:"workflow_id"`
+	EdgeID            string                `json:"edge_id,omitempty"`
+	TransitionGroupID string                `json:"transition_group_id"`
+	Key               string                `json:"key"`
+	TargetNodeID      string                `json:"target_node_id"`
+	ContextMode       string                `json:"context_mode"`
+	ContextSource     WorkflowContextSource `json:"context_source"`
+	RequiresApproval  bool                  `json:"requires_approval"`
 }
 
 type WorkflowEdgeAddResponse struct {
@@ -402,16 +447,14 @@ type WorkflowEdgeAddResponse struct {
 }
 
 type WorkflowEdgeUpdateRequest struct {
-	WorkflowID         string                      `json:"workflow_id"`
-	EdgeID             string                      `json:"edge_id"`
-	TransitionGroupID  string                      `json:"transition_group_id"`
-	Key                string                      `json:"key"`
-	TargetNodeID       string                      `json:"target_node_id"`
-	ContextMode        string                      `json:"context_mode"`
-	ContextSource      WorkflowContextSource       `json:"context_source"`
-	RequiresApproval   bool                        `json:"requires_approval"`
-	InputBindings      []WorkflowInputBinding      `json:"input_bindings,omitempty"`
-	OutputRequirements []WorkflowOutputRequirement `json:"output_requirements,omitempty"`
+	WorkflowID        string                `json:"workflow_id"`
+	EdgeID            string                `json:"edge_id"`
+	TransitionGroupID string                `json:"transition_group_id"`
+	Key               string                `json:"key"`
+	TargetNodeID      string                `json:"target_node_id"`
+	ContextMode       string                `json:"context_mode"`
+	ContextSource     WorkflowContextSource `json:"context_source"`
+	RequiresApproval  bool                  `json:"requires_approval"`
 }
 
 type WorkflowEdgeUpdateResponse struct {
@@ -530,14 +573,22 @@ type WorkflowValidateResponse struct {
 }
 
 type WorkflowValidationError struct {
-	Code              string   `json:"code"`
-	Message           string   `json:"message"`
-	WorkflowID        string   `json:"workflow_id,omitempty"`
-	NodeID            string   `json:"node_id,omitempty"`
-	TransitionGroupID string   `json:"transition_group_id,omitempty"`
-	EdgeID            string   `json:"edge_id,omitempty"`
-	RelatedIDs        []string `json:"related_ids,omitempty"`
-	BlocksContext     bool     `json:"blocks_context"`
+	Code              string                          `json:"code"`
+	Message           string                          `json:"message"`
+	WorkflowID        string                          `json:"workflow_id,omitempty"`
+	NodeID            string                          `json:"node_id,omitempty"`
+	TransitionGroupID string                          `json:"transition_group_id,omitempty"`
+	EdgeID            string                          `json:"edge_id,omitempty"`
+	Details           *WorkflowValidationErrorDetails `json:"details,omitempty"`
+	RelatedIDs        []string                        `json:"related_ids,omitempty"`
+	BlocksContext     bool                            `json:"blocks_context"`
+}
+
+type WorkflowValidationErrorDetails struct {
+	FieldName      string `json:"field_name,omitempty"`
+	InputName      string `json:"input_name,omitempty"`
+	Placeholder    string `json:"placeholder,omitempty"`
+	ProviderEdgeID string `json:"provider_edge_id,omitempty"`
 }
 
 type WorkflowTaskCreateRequest struct {
@@ -1071,17 +1122,17 @@ func (r WorkflowGetRequest) Validate() error {
 }
 
 func (r WorkflowNodeAddRequest) Validate() error {
-	return validateWorkflowNodeFields(r.WorkflowID, "", r.Key, r.Kind, r.DisplayName, r.GroupKey, r.OutputFields)
+	return validateWorkflowNodeFields(r.WorkflowID, "", r.Key, r.Kind, r.DisplayName, r.GroupKey, r.InputFields, r.JoinInputProviders)
 }
 
 func (r WorkflowNodeUpdateRequest) Validate() error {
 	if err := validateRequired("node_id", r.NodeID); err != nil {
 		return err
 	}
-	return validateWorkflowNodeFields(r.WorkflowID, r.NodeID, r.Key, r.Kind, r.DisplayName, r.GroupKey, r.OutputFields)
+	return validateWorkflowNodeFields(r.WorkflowID, r.NodeID, r.Key, r.Kind, r.DisplayName, r.GroupKey, r.InputFields, r.JoinInputProviders)
 }
 
-func validateWorkflowNodeFields(workflowID string, nodeID string, key string, kind string, displayName string, groupKey string, outputFields []WorkflowOutputField) error {
+func validateWorkflowNodeFields(workflowID string, nodeID string, key string, kind string, displayName string, groupKey string, inputFields []WorkflowInputField, joinInputProviders []WorkflowJoinInputProvider) error {
 	if err := validateRequired("workflow_id", workflowID); err != nil {
 		return err
 	}
@@ -1099,12 +1150,20 @@ func validateWorkflowNodeFields(workflowID string, nodeID string, key string, ki
 			return err
 		}
 	}
-	for _, field := range outputFields {
-		if err := validateModelKey("output_field.name", field.Name); err != nil {
+	for _, field := range inputFields {
+		if err := validateModelKey("input_field.name", field.Name); err != nil {
 			return err
 		}
 		if strings.TrimSpace(field.Description) == "" {
-			return workflowRequestError(WorkflowRequestErrorRequired, "output_field.description", "output_field.description is required")
+			return workflowRequestError(WorkflowRequestErrorRequired, "input_field.description", "input_field.description is required")
+		}
+	}
+	for _, provider := range joinInputProviders {
+		if err := validateModelKey("join_input_provider.input_name", provider.InputName); err != nil {
+			return err
+		}
+		if err := validateRequired("join_input_provider.provider_edge_id", provider.ProviderEdgeID); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1181,17 +1240,17 @@ func validateWorkflowTransitionGroupFields(workflowID string, groupID string, so
 }
 
 func (r WorkflowEdgeAddRequest) Validate() error {
-	return validateWorkflowEdgeFields(r.WorkflowID, "", r.TransitionGroupID, r.Key, r.TargetNodeID, r.ContextMode, r.ContextSource, r.InputBindings, r.OutputRequirements)
+	return validateWorkflowEdgeFields(r.WorkflowID, "", r.TransitionGroupID, r.Key, r.TargetNodeID, r.ContextMode, r.ContextSource)
 }
 
 func (r WorkflowEdgeUpdateRequest) Validate() error {
 	if err := validateRequired("edge_id", r.EdgeID); err != nil {
 		return err
 	}
-	return validateWorkflowEdgeFields(r.WorkflowID, r.EdgeID, r.TransitionGroupID, r.Key, r.TargetNodeID, r.ContextMode, r.ContextSource, r.InputBindings, r.OutputRequirements)
+	return validateWorkflowEdgeFields(r.WorkflowID, r.EdgeID, r.TransitionGroupID, r.Key, r.TargetNodeID, r.ContextMode, r.ContextSource)
 }
 
-func validateWorkflowEdgeFields(workflowID string, edgeID string, transitionGroupID string, key string, targetNodeID string, contextMode string, contextSource WorkflowContextSource, inputBindings []WorkflowInputBinding, outputRequirements []WorkflowOutputRequirement) error {
+func validateWorkflowEdgeFields(workflowID string, edgeID string, transitionGroupID string, key string, targetNodeID string, contextMode string, contextSource WorkflowContextSource) error {
 	_ = edgeID
 	for _, field := range []struct{ name, value string }{{"workflow_id", workflowID}, {"transition_group_id", transitionGroupID}, {"target_node_id", targetNodeID}, {"context_mode", contextMode}} {
 		if err := validateRequired(field.name, field.value); err != nil {
@@ -1203,19 +1262,6 @@ func validateWorkflowEdgeFields(workflowID string, edgeID string, transitionGrou
 	}
 	if err := validateWorkflowContextSource(contextSource); err != nil {
 		return err
-	}
-	for _, binding := range inputBindings {
-		if err := validateModelKey("input_binding.name", binding.Name); err != nil {
-			return err
-		}
-		if err := validateRequired("input_binding.source", binding.Source); err != nil {
-			return err
-		}
-	}
-	for _, requirement := range outputRequirements {
-		if err := validateModelKey("output_requirement.field_name", requirement.FieldName); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -1400,16 +1446,11 @@ func validateWorkflowGraphDraftEnvelope(graph WorkflowGraphDraft) error {
 		}
 	}
 	for _, node := range graph.Nodes {
-		if len(node.OutputFields) > WorkflowGraphDraftMaxFieldsPerEntity {
-			return workflowRequestError(WorkflowRequestErrorTooLong, "graph.nodes.output_fields", fmt.Sprintf("output_fields must be <= %d", WorkflowGraphDraftMaxFieldsPerEntity))
+		if len(node.InputFields) > WorkflowGraphDraftMaxFieldsPerEntity {
+			return workflowRequestError(WorkflowRequestErrorTooLong, "graph.nodes.input_fields", fmt.Sprintf("input_fields must be <= %d", WorkflowGraphDraftMaxFieldsPerEntity))
 		}
-	}
-	for _, edge := range graph.Edges {
-		if len(edge.InputBindings) > WorkflowGraphDraftMaxFieldsPerEntity {
-			return workflowRequestError(WorkflowRequestErrorTooLong, "graph.edges.input_bindings", fmt.Sprintf("input_bindings must be <= %d", WorkflowGraphDraftMaxFieldsPerEntity))
-		}
-		if len(edge.OutputRequirements) > WorkflowGraphDraftMaxFieldsPerEntity {
-			return workflowRequestError(WorkflowRequestErrorTooLong, "graph.edges.output_requirements", fmt.Sprintf("output_requirements must be <= %d", WorkflowGraphDraftMaxFieldsPerEntity))
+		if len(node.JoinInputProviders) > WorkflowGraphDraftMaxFieldsPerEntity {
+			return workflowRequestError(WorkflowRequestErrorTooLong, "graph.nodes.join_input_providers", fmt.Sprintf("join_input_providers must be <= %d", WorkflowGraphDraftMaxFieldsPerEntity))
 		}
 	}
 	return nil

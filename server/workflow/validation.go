@@ -23,6 +23,7 @@ func ValidateDefinition(def Definition, opts ValidationOptions) ValidationResult
 	state.validateShape()
 	state.validateGraph()
 	state.validateFanouts()
+	state.validateDerivedWiring()
 	return ValidationResult{Context: context, Errors: state.errors}
 }
 
@@ -179,6 +180,7 @@ func (s *validationState) validateNodes() {
 			s.addHard(CodeInvalidNodeKind, "node kind is invalid", ref)
 		}
 		s.validateOutputFields(node)
+		s.validateInputFields(node)
 	}
 	if len(s.startNodes) == 0 {
 		s.addHard(CodeMissingStartNode, "workflow must contain exactly one start node", ValidationError{WorkflowID: s.def.ID})
@@ -215,8 +217,7 @@ func (s *validationState) validateTransitionGroups() {
 func (s *validationState) validateEdges() {
 	for _, edge := range s.def.Edges {
 		ref := ValidationError{WorkflowID: s.def.ID, EdgeID: edge.ID, TransitionGroupID: edge.TransitionGroupID}
-		group, groupExists := s.groupsByID[edge.TransitionGroupID]
-		if !groupExists {
+		if _, groupExists := s.groupsByID[edge.TransitionGroupID]; !groupExists {
 			s.addHard(CodeEdgeTransitionGroupMissing, "edge transition group must exist", ref)
 		}
 		if strings.TrimSpace(string(edge.Key)) == "" {
@@ -232,19 +233,14 @@ func (s *validationState) validateEdges() {
 		if !validContextMode(edge.ContextMode) {
 			s.addHard(CodeInvalidContextMode, "edge context mode is invalid", ref)
 		}
-		if groupExists {
-			source := s.nodesByID[group.SourceNodeID]
-			s.validateOutputRequirements(source, edge)
-			s.validateInputBindings(source, edge)
-		}
 	}
 }
 
 func (s *validationState) validateOutputFields(node Node) {
 	seen := map[string]bool{}
 	for _, field := range node.OutputFields {
-		ref := ValidationError{WorkflowID: s.def.ID, NodeID: node.ID}
 		name := strings.TrimSpace(field.Name)
+		ref := ValidationError{WorkflowID: s.def.ID, NodeID: node.ID, FieldName: name}
 		if name == "" || !validModelKey(name) || len(name) > MaxOutputFieldNameChars || reservedOutputFieldNames[name] {
 			s.addHard(CodeInvalidOutputField, "output field name is invalid", ref)
 		}
@@ -257,6 +253,27 @@ func (s *validationState) validateOutputFields(node Node) {
 			s.addHard(CodeOutputFieldDescriptionRequired, "output field description is required", ref)
 		} else if len(description) > MaxOutputFieldDescriptionChars {
 			s.addHard(CodeOutputSchemaTooLarge, "output field description is too large", ref)
+		}
+	}
+}
+
+func (s *validationState) validateInputFields(node Node) {
+	seen := map[string]bool{}
+	for _, field := range node.InputFields {
+		name := strings.TrimSpace(field.Name)
+		ref := ValidationError{WorkflowID: s.def.ID, NodeID: node.ID, InputName: name}
+		if name == "" || !validModelKey(name) || len(name) > MaxInputFieldNameChars || reservedOutputFieldNames[name] {
+			s.addHard(CodeInvalidInputField, "input field name is invalid", ref)
+		}
+		if seen[name] {
+			s.addHard(CodeDuplicateInputField, "input field name must be unique per node", ref)
+		}
+		seen[name] = true
+		description := strings.TrimSpace(field.Description)
+		if description == "" {
+			s.addHard(CodeInputFieldDescriptionRequired, "input field description is required", ref)
+		} else if len(description) > MaxInputFieldDescriptionChars {
+			s.addHard(CodeInputSchemaTooLarge, "input field description is too large", ref)
 		}
 	}
 }
@@ -479,23 +496,22 @@ func (s *validationState) validateStartOutgoingShape() {
 }
 
 func (s *validationState) validatePromptPlaceholders() {
-	for _, edge := range s.def.Edges {
-		target, exists := s.nodesByID[edge.TargetNodeID]
-		if !exists {
+	for _, node := range s.def.Nodes {
+		if node.Kind != NodeKindAgent {
 			continue
 		}
-		bindings := map[string]bool{}
-		for _, binding := range edge.InputBindings {
-			bindings[strings.TrimSpace(binding.Name)] = true
+		inputs := map[string]bool{}
+		for _, field := range node.InputFields {
+			inputs[strings.TrimSpace(field.Name)] = true
 		}
-		placeholders, err := templatePlaceholders(target.PromptTemplate)
+		placeholders, err := templatePlaceholders(node.PromptTemplate)
 		if err != nil {
-			s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template syntax is invalid", ValidationError{WorkflowID: s.def.ID, NodeID: target.ID, EdgeID: edge.ID})
+			s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template syntax is invalid", ValidationError{WorkflowID: s.def.ID, NodeID: node.ID})
 			continue
 		}
 		for _, placeholder := range placeholders {
-			if !validModelKey(placeholder) || !bindings[placeholder] {
-				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references an unknown input binding", ValidationError{WorkflowID: s.def.ID, NodeID: target.ID, EdgeID: edge.ID})
+			if !validModelKey(placeholder) || !inputs[placeholder] {
+				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references an unknown node input", ValidationError{WorkflowID: s.def.ID, NodeID: node.ID, InputName: placeholder, Placeholder: ".Inputs." + placeholder})
 			}
 		}
 	}
@@ -584,6 +600,16 @@ func (s *validationState) validateFanouts() {
 		if !s.fanoutHasValidJoin(group, edges) {
 			s.addSemantic(CodeInvalidFanoutJoinTopology, "fan-out transition group must have one unambiguous nearest common join without terminal, nested fan-out, or cycle before it", ValidationError{WorkflowID: s.def.ID, TransitionGroupID: group.ID, NodeID: group.SourceNodeID})
 		}
+	}
+}
+
+func (s *validationState) validateDerivedWiring() {
+	derived := DeriveWiring(s.def)
+	for _, diagnostic := range derived.Diagnostics {
+		if diagnostic.WorkflowID == "" {
+			diagnostic.WorkflowID = s.def.ID
+		}
+		s.errors = append(s.errors, diagnostic)
 	}
 }
 

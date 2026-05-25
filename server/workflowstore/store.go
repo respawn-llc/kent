@@ -68,16 +68,18 @@ type WorkflowRecord struct {
 }
 
 type NodeRecord struct {
-	ID             workflow.NodeID
-	WorkflowID     workflow.WorkflowID
-	Key            workflow.ModelKey
-	Kind           workflow.NodeKind
-	DisplayName    string
-	GroupID        string
-	GroupKey       string
-	SubagentRole   string
-	PromptTemplate string
-	OutputFields   []workflow.OutputField
+	ID                 workflow.NodeID
+	WorkflowID         workflow.WorkflowID
+	Key                workflow.ModelKey
+	Kind               workflow.NodeKind
+	DisplayName        string
+	GroupID            string
+	GroupKey           string
+	SubagentRole       string
+	PromptTemplate     string
+	InputFields        []workflow.InputField
+	JoinInputProviders []workflow.JoinInputProvider
+	OutputFields       []workflow.OutputField
 }
 
 type NodeGroupRecord struct {
@@ -348,10 +350,10 @@ func insertWorkflow(ctx context.Context, q *sqlitegen.Queries, now int64, req Cr
 	if err := q.InsertWorkflow(ctx, sqlitegen.InsertWorkflowParams{ID: workflowID, Name: name, Description: description, Version: 1, CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
 		return WorkflowRecord{}, fmt.Errorf("insert workflow: %w", err)
 	}
-	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: startID, WorkflowID: workflowID, NodeKey: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog", OutputFieldsJson: "[]", SortOrder: 0}); err != nil {
+	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: startID, WorkflowID: workflowID, NodeKey: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog", InputFieldsJson: "[]", JoinInputProvidersJson: "[]", OutputFieldsJson: "[]", SortOrder: 0}); err != nil {
 		return WorkflowRecord{}, fmt.Errorf("insert backlog node: %w", err)
 	}
-	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: doneID, WorkflowID: workflowID, NodeKey: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done", OutputFieldsJson: "[]", SortOrder: 1000}); err != nil {
+	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: doneID, WorkflowID: workflowID, NodeKey: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done", InputFieldsJson: "[]", JoinInputProvidersJson: "[]", OutputFieldsJson: "[]", SortOrder: 1000}); err != nil {
 		return WorkflowRecord{}, fmt.Errorf("insert done node: %w", err)
 	}
 	return WorkflowRecord{ID: workflow.WorkflowID(workflowID), Name: name, Description: description, Version: 1}, nil
@@ -436,6 +438,14 @@ func (s *Store) AddNode(ctx context.Context, node NodeRecord) (int64, error) {
 	if strings.TrimSpace(string(node.WorkflowID)) == "" {
 		return 0, errors.New("workflow id is required")
 	}
+	inputFields, err := marshalJSON(node.InputFields)
+	if err != nil {
+		return 0, err
+	}
+	joinProviders, err := marshalJSON(node.JoinInputProviders)
+	if err != nil {
+		return 0, err
+	}
 	outputFields, err := marshalJSON(node.OutputFields)
 	if err != nil {
 		return 0, err
@@ -461,16 +471,18 @@ func (s *Store) AddNode(ctx context.Context, node NodeRecord) (int64, error) {
 		return 0, err
 	}
 	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{
-		ID:               string(node.ID),
-		WorkflowID:       string(node.WorkflowID),
-		NodeKey:          string(node.Key),
-		Kind:             string(node.Kind),
-		DisplayName:      strings.TrimSpace(node.DisplayName),
-		SubagentRole:     strings.TrimSpace(node.SubagentRole),
-		PromptTemplate:   strings.TrimSpace(node.PromptTemplate),
-		OutputFieldsJson: outputFields,
-		GroupID:          nullableString(groupID),
-		SortOrder:        100,
+		ID:                     string(node.ID),
+		WorkflowID:             string(node.WorkflowID),
+		NodeKey:                string(node.Key),
+		Kind:                   string(node.Kind),
+		DisplayName:            strings.TrimSpace(node.DisplayName),
+		SubagentRole:           strings.TrimSpace(node.SubagentRole),
+		PromptTemplate:         strings.TrimSpace(node.PromptTemplate),
+		InputFieldsJson:        inputFields,
+		JoinInputProvidersJson: joinProviders,
+		OutputFieldsJson:       outputFields,
+		GroupID:                nullableString(groupID),
+		SortOrder:              100,
 	}); err != nil {
 		return 0, fmt.Errorf("insert workflow node: %w", err)
 	}
@@ -490,6 +502,14 @@ func (s *Store) UpdateNode(ctx context.Context, node NodeRecord) (int64, error) 
 	}
 	if strings.TrimSpace(string(node.WorkflowID)) == "" {
 		return 0, errors.New("workflow id is required")
+	}
+	inputFields, err := marshalJSON(node.InputFields)
+	if err != nil {
+		return 0, err
+	}
+	joinProviders, err := marshalJSON(node.JoinInputProviders)
+	if err != nil {
+		return 0, err
 	}
 	outputFields, err := marshalJSON(node.OutputFields)
 	if err != nil {
@@ -520,6 +540,8 @@ SET
     display_name = ?,
     subagent_role = ?,
     prompt_template = ?,
+    input_fields_json = ?,
+    join_input_providers_json = ?,
     output_fields_json = ?,
     group_id = ?
 WHERE id = ?
@@ -529,6 +551,8 @@ WHERE id = ?
 		strings.TrimSpace(node.DisplayName),
 		strings.TrimSpace(node.SubagentRole),
 		strings.TrimSpace(node.PromptTemplate),
+		inputFields,
+		joinProviders,
 		outputFields,
 		nullableString(groupID),
 		string(node.ID),
@@ -1040,11 +1064,19 @@ func (s *Store) GetDefinition(ctx context.Context, workflowID workflow.WorkflowI
 	}
 	def := workflow.Definition{ID: workflow.WorkflowID(row.ID), DisplayName: row.Name}
 	for _, node := range nodes {
+		inputFields := []workflow.InputField{}
+		joinProviders := []workflow.JoinInputProvider{}
 		outputFields := []workflow.OutputField{}
+		if err := unmarshalJSON(node.InputFieldsJson, &inputFields); err != nil {
+			return workflow.Definition{}, WorkflowRecord{}, err
+		}
+		if err := unmarshalJSON(node.JoinInputProvidersJson, &joinProviders); err != nil {
+			return workflow.Definition{}, WorkflowRecord{}, err
+		}
 		if err := unmarshalJSON(node.OutputFieldsJson, &outputFields); err != nil {
 			return workflow.Definition{}, WorkflowRecord{}, err
 		}
-		def.Nodes = append(def.Nodes, workflow.Node{WorkflowID: workflow.WorkflowID(node.WorkflowID), ID: workflow.NodeID(node.ID), Key: workflow.ModelKey(node.NodeKey), DisplayName: node.DisplayName, Kind: workflow.NodeKind(node.Kind), SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, OutputFields: outputFields})
+		def.Nodes = append(def.Nodes, workflow.Node{WorkflowID: workflow.WorkflowID(node.WorkflowID), ID: workflow.NodeID(node.ID), Key: workflow.ModelKey(node.NodeKey), DisplayName: node.DisplayName, Kind: workflow.NodeKind(node.Kind), SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: inputFields, JoinInputProviders: joinProviders, OutputFields: outputFields})
 	}
 	for _, group := range groups {
 		def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{WorkflowID: workflow.WorkflowID(group.WorkflowID), ID: workflow.TransitionGroupID(group.ID), SourceNodeID: workflow.NodeID(group.SourceNodeID), TransitionID: workflow.TransitionID(group.TransitionID), DisplayName: group.DisplayName})

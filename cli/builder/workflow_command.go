@@ -172,8 +172,6 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	displayName := fs.String("display-name", "", "node display name")
 	prompt := fs.String("prompt", "", "agent prompt template")
 	agent := fs.String("agent", "", "subagent role for agent nodes")
-	outputs := workflowOutputFieldFlag{}
-	fs.Var(&outputs, "output", "node output field as name=description; repeatable")
 	workflowRef, flagArgs := takeLeadingPositionals(args, 1)
 	if err := fs.Parse(flagArgs); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -207,7 +205,7 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	}
 	ctx, cancel := workflowRPCContext(context.Background())
 	defer cancel()
-	resp, err := remote.AddWorkflowNode(ctx, serverapi.WorkflowNodeAddRequest{WorkflowID: workflowID, NodeID: nodeID, Key: *key, Kind: *kind, DisplayName: *displayName, SubagentRole: *agent, PromptTemplate: *prompt, OutputFields: outputs.values})
+	resp, err := remote.AddWorkflowNode(ctx, serverapi.WorkflowNodeAddRequest{WorkflowID: workflowID, NodeID: nodeID, Key: *key, Kind: *kind, DisplayName: *displayName, SubagentRole: *agent, PromptTemplate: *prompt})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -225,8 +223,6 @@ func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	displayName := fs.String("display-name", "", "node display name")
 	prompt := fs.String("prompt", "", "agent prompt template")
 	agent := fs.String("agent", "", "subagent role for agent nodes")
-	outputs := workflowOutputFieldFlag{}
-	fs.Var(&outputs, "output", "node output field as name=description; repeatable")
 	positionals, flagArgs := takeLeadingPositionals(args, 2)
 	if err := fs.Parse(flagArgs); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -271,12 +267,9 @@ func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	if fs.Lookup("agent") != nil && flagWasProvided(fs, "agent") {
 		updated.SubagentRole = *agent
 	}
-	if outputs.seen {
-		updated.OutputFields = outputs.values
-	}
 	ctx, cancel := workflowRPCContext(context.Background())
 	defer cancel()
-	resp, err := remote.UpdateWorkflowNode(ctx, serverapi.WorkflowNodeUpdateRequest{WorkflowID: def.Workflow.ID, NodeID: updated.ID, Key: updated.Key, Kind: updated.Kind, DisplayName: updated.DisplayName, GroupKey: updated.GroupKey, SubagentRole: updated.SubagentRole, PromptTemplate: updated.PromptTemplate, OutputFields: updated.OutputFields})
+	resp, err := remote.UpdateWorkflowNode(ctx, serverapi.WorkflowNodeUpdateRequest{WorkflowID: def.Workflow.ID, NodeID: updated.ID, Key: updated.Key, Kind: updated.Kind, DisplayName: updated.DisplayName, GroupKey: updated.GroupKey, SubagentRole: updated.SubagentRole, PromptTemplate: updated.PromptTemplate})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -318,10 +311,6 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	contextMode := fs.String("context", "", "context mode: new_session|continue_session|compact_and_continue_session")
 	contextSource := fs.String("context-source", "", "context source: immediate_source|node:<node-key>")
 	requiresApproval := fs.Bool("requires-approval", false, "require approval before target runs")
-	inputs := workflowInputBindingFlag{}
-	outputRequirements := workflowOutputRequirementFlag{}
-	fs.Var(&inputs, "input", "target input binding as name=source:field; repeatable")
-	fs.Var(&outputRequirements, "require-output", "source output field required before taking this edge; repeatable")
 	workflowRef, flagArgs := takeLeadingPositionals(args, 1)
 	if err := fs.Parse(flagArgs); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -384,7 +373,7 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	}
 	edgeID := "edge-" + uuid.NewString()
 	ctx, cancel := workflowRPCContext(context.Background())
-	resp, err := remote.AddWorkflowEdge(ctx, serverapi.WorkflowEdgeAddRequest{WorkflowID: def.Workflow.ID, EdgeID: edgeID, TransitionGroupID: groupID, Key: *edgeKey, TargetNodeID: target.ID, ContextMode: *contextMode, ContextSource: parsedContextSource, RequiresApproval: *requiresApproval, InputBindings: inputs.values, OutputRequirements: outputRequirements.values})
+	resp, err := remote.AddWorkflowEdge(ctx, serverapi.WorkflowEdgeAddRequest{WorkflowID: def.Workflow.ID, EdgeID: edgeID, TransitionGroupID: groupID, Key: *edgeKey, TargetNodeID: target.ID, ContextMode: *contextMode, ContextSource: parsedContextSource, RequiresApproval: *requiresApproval})
 	cancel()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -404,10 +393,6 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	toKey := fs.String("to", "", "target node key")
 	contextMode := fs.String("context", "", "context mode: new_session|continue_session|compact_and_continue_session")
 	contextSource := fs.String("context-source", "", "context source: immediate_source|node:<node-key>")
-	inputs := workflowInputBindingFlag{}
-	outputRequirements := workflowOutputRequirementFlag{}
-	fs.Var(&inputs, "input", "target input binding as name=source:field; repeatable")
-	fs.Var(&outputRequirements, "require-output", "source output field required before taking this edge; repeatable")
 	positionals, flagArgs := takeLeadingPositionals(args, 2)
 	if err := fs.Parse(flagArgs); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -483,15 +468,9 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		}
 		updatedEdge.ContextSource = parsedContextSource
 	}
-	if inputs.seen {
-		updatedEdge.InputBindings = inputs.values
-	}
-	if outputRequirements.seen {
-		updatedEdge.OutputRequirements = outputRequirements.values
-	}
 	ctx, cancel := workflowRPCContext(context.Background())
 	defer cancel()
-	resp, err := remote.UpdateWorkflowEdge(ctx, serverapi.WorkflowEdgeUpdateRequest{WorkflowID: def.Workflow.ID, EdgeID: updatedEdge.ID, TransitionGroupID: updatedEdge.TransitionGroupID, Key: updatedEdge.Key, TargetNodeID: updatedEdge.TargetNodeID, ContextMode: updatedEdge.ContextMode, ContextSource: updatedEdge.ContextSource, RequiresApproval: updatedEdge.RequiresApproval, InputBindings: updatedEdge.InputBindings, OutputRequirements: updatedEdge.OutputRequirements})
+	resp, err := remote.UpdateWorkflowEdge(ctx, serverapi.WorkflowEdgeUpdateRequest{WorkflowID: def.Workflow.ID, EdgeID: updatedEdge.ID, TransitionGroupID: updatedEdge.TransitionGroupID, Key: updatedEdge.Key, TargetNodeID: updatedEdge.TargetNodeID, ContextMode: updatedEdge.ContextMode, ContextSource: updatedEdge.ContextSource, RequiresApproval: updatedEdge.RequiresApproval})
 	if err != nil {
 		if updatedGroup != group {
 			rollbackCtx, rollbackCancel := workflowRPCContext(context.Background())
@@ -736,78 +715,6 @@ func workflowInspectSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		}
 	}
 	return 0
-}
-
-type workflowOutputFieldFlag struct {
-	seen   bool
-	values []serverapi.WorkflowOutputField
-}
-
-func (f *workflowOutputFieldFlag) String() string {
-	if f == nil {
-		return ""
-	}
-	return fmt.Sprintf("%v", f.values)
-}
-
-func (f *workflowOutputFieldFlag) Set(raw string) error {
-	f.seen = true
-	name, description, ok := strings.Cut(raw, "=")
-	name = strings.TrimSpace(name)
-	description = strings.TrimSpace(description)
-	if !ok || name == "" || description == "" {
-		return fmt.Errorf("output must be name=description")
-	}
-	f.values = append(f.values, serverapi.WorkflowOutputField{Name: name, Description: description})
-	return nil
-}
-
-type workflowInputBindingFlag struct {
-	seen   bool
-	values []serverapi.WorkflowInputBinding
-}
-
-func (f *workflowInputBindingFlag) String() string {
-	if f == nil {
-		return ""
-	}
-	return fmt.Sprintf("%v", f.values)
-}
-
-func (f *workflowInputBindingFlag) Set(raw string) error {
-	f.seen = true
-	name, rest, ok := strings.Cut(raw, "=")
-	source, field, sourceOK := strings.Cut(rest, ":")
-	name = strings.TrimSpace(name)
-	source = strings.TrimSpace(source)
-	field = strings.TrimSpace(field)
-	if !ok || !sourceOK || name == "" || source == "" || field == "" {
-		return fmt.Errorf("input must be name=source:field")
-	}
-	f.values = append(f.values, serverapi.WorkflowInputBinding{Name: name, Source: source, Field: field})
-	return nil
-}
-
-type workflowOutputRequirementFlag struct {
-	seen   bool
-	values []serverapi.WorkflowOutputRequirement
-}
-
-func (f *workflowOutputRequirementFlag) String() string {
-	if f == nil {
-		return ""
-	}
-	return fmt.Sprintf("%v", f.values)
-}
-
-func (f *workflowOutputRequirementFlag) Set(raw string) error {
-	f.seen = true
-	field := strings.TrimSpace(raw)
-	if field == "" {
-		return fmt.Errorf("require-output must be a field name")
-	}
-	f.values = append(f.values, serverapi.WorkflowOutputRequirement{FieldName: field})
-	return nil
 }
 
 func parseWorkflowContextSourceSelector(raw string) (serverapi.WorkflowContextSource, error) {

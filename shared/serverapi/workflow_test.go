@@ -20,7 +20,7 @@ func TestWorkflowCreateUpdateRequestValidation(t *testing.T) {
 }
 
 func TestWorkflowNodeAndEdgeRequestValidation(t *testing.T) {
-	validNode := WorkflowNodeAddRequest{WorkflowID: "workflow-1", Key: "implement", Kind: "agent", DisplayName: "Implement", OutputFields: []WorkflowOutputField{{Name: "summary", Description: "Summary"}}}
+	validNode := WorkflowNodeAddRequest{WorkflowID: "workflow-1", Key: "implement", Kind: "agent", DisplayName: "Implement", InputFields: []WorkflowInputField{{Name: "summary", Description: "Summary"}}}
 	if err := validNode.Validate(); err != nil {
 		t.Fatalf("valid node request rejected: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestWorkflowNodeAndEdgeRequestValidation(t *testing.T) {
 		t.Fatalf("invalid display name error = %v", err)
 	}
 
-	validEdge := WorkflowEdgeAddRequest{WorkflowID: "workflow-1", TransitionGroupID: "group-1", Key: "done", TargetNodeID: "node-2", ContextMode: "new_session", InputBindings: []WorkflowInputBinding{{Name: "task", Source: "task", Field: "body"}}, OutputRequirements: []WorkflowOutputRequirement{{FieldName: "summary"}}}
+	validEdge := WorkflowEdgeAddRequest{WorkflowID: "workflow-1", TransitionGroupID: "group-1", Key: "done", TargetNodeID: "node-2", ContextMode: "new_session"}
 	if err := validEdge.Validate(); err != nil {
 		t.Fatalf("valid edge request rejected: %v", err)
 	}
@@ -56,11 +56,6 @@ func TestWorkflowNodeAndEdgeRequestValidation(t *testing.T) {
 	invalidSourceEdge.ContextSource = WorkflowContextSource{Kind: "other", NodeKey: "implement"}
 	if err := invalidSourceEdge.Validate(); err == nil || !strings.Contains(err.Error(), "context_source.kind") {
 		t.Fatalf("invalid context source kind error = %v", err)
-	}
-	invalidEdge := validEdge
-	invalidEdge.OutputRequirements = []WorkflowOutputRequirement{{FieldName: "Summary"}}
-	if err := invalidEdge.Validate(); err == nil || !strings.Contains(err.Error(), workflowkey.Description) {
-		t.Fatalf("invalid output requirement error = %v", err)
 	}
 }
 

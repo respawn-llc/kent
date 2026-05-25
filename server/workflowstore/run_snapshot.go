@@ -18,13 +18,15 @@ type runStartSnapshot struct {
 }
 
 type nodeContractSnapshot struct {
-	ID             workflow.NodeID        `json:"id"`
-	Key            workflow.ModelKey      `json:"key"`
-	DisplayName    string                 `json:"display_name"`
-	Kind           workflow.NodeKind      `json:"kind"`
-	SubagentRole   string                 `json:"subagent_role,omitempty"`
-	PromptTemplate string                 `json:"prompt_template,omitempty"`
-	OutputFields   []workflow.OutputField `json:"output_fields,omitempty"`
+	ID                 workflow.NodeID              `json:"id"`
+	Key                workflow.ModelKey            `json:"key"`
+	DisplayName        string                       `json:"display_name"`
+	Kind               workflow.NodeKind            `json:"kind"`
+	SubagentRole       string                       `json:"subagent_role,omitempty"`
+	PromptTemplate     string                       `json:"prompt_template,omitempty"`
+	InputFields        []workflow.InputField        `json:"input_fields,omitempty"`
+	JoinInputProviders []workflow.JoinInputProvider `json:"join_input_providers,omitempty"`
+	OutputFields       []workflow.OutputField       `json:"output_fields,omitempty"`
 }
 
 type transitionContractSnapshot struct {
@@ -48,14 +50,16 @@ type edgeContractSnapshot struct {
 
 func nodeRecordFromSnapshot(node nodeContractSnapshot, workflowID workflow.WorkflowID) NodeRecord {
 	return NodeRecord{
-		ID:             node.ID,
-		WorkflowID:     workflowID,
-		Key:            node.Key,
-		Kind:           node.Kind,
-		DisplayName:    node.DisplayName,
-		SubagentRole:   node.SubagentRole,
-		PromptTemplate: node.PromptTemplate,
-		OutputFields:   append([]workflow.OutputField(nil), node.OutputFields...),
+		ID:                 node.ID,
+		WorkflowID:         workflowID,
+		Key:                node.Key,
+		Kind:               node.Kind,
+		DisplayName:        node.DisplayName,
+		SubagentRole:       node.SubagentRole,
+		PromptTemplate:     node.PromptTemplate,
+		InputFields:        append([]workflow.InputField(nil), node.InputFields...),
+		JoinInputProviders: append([]workflow.JoinInputProvider(nil), node.JoinInputProviders...),
+		OutputFields:       append([]workflow.OutputField(nil), node.OutputFields...),
 	}
 }
 
@@ -101,6 +105,7 @@ func mustOutputRequirementsJSON(value []workflow.OutputRequirement) string {
 }
 
 func newRunStartSnapshot(def workflow.Definition, record WorkflowRecord, nodeID workflow.NodeID) (runStartSnapshot, error) {
+	derived := workflow.DeriveWiring(def)
 	nodes := make(map[workflow.NodeID]workflow.Node, len(def.Nodes))
 	for _, node := range def.Nodes {
 		nodes[node.ID] = node
@@ -116,10 +121,10 @@ func newRunStartSnapshot(def workflow.Definition, record WorkflowRecord, nodeID 
 	snapshot := runStartSnapshot{
 		WorkflowID:           record.ID,
 		WorkflowRevisionSeen: record.Version,
-		Node:                 nodeSnapshot(node),
+		Node:                 nodeSnapshotWithDerivedWiring(node, derived),
 	}
 	for _, defNode := range def.Nodes {
-		snapshot.Nodes = append(snapshot.Nodes, nodeSnapshot(defNode))
+		snapshot.Nodes = append(snapshot.Nodes, nodeSnapshotWithDerivedWiring(defNode, derived))
 	}
 	for _, group := range def.TransitionGroups {
 		groupSnapshot := transitionContractSnapshot{ID: group.ID, SourceNodeID: group.SourceNodeID, TransitionID: string(group.TransitionID), DisplayName: group.DisplayName}
@@ -131,12 +136,12 @@ func newRunStartSnapshot(def workflow.Definition, record WorkflowRecord, nodeID 
 			groupSnapshot.Edges = append(groupSnapshot.Edges, edgeContractSnapshot{
 				ID:                 edge.ID,
 				Key:                edge.Key,
-				TargetNode:         nodeSnapshot(target),
+				TargetNode:         nodeSnapshotWithDerivedWiring(target, derived),
 				ContextMode:        edge.ContextMode,
 				ContextSource:      workflow.CanonicalContextSource(edge.ContextSource),
 				RequiresApproval:   edge.RequiresApproval,
-				InputBindings:      edge.InputBindings,
-				OutputRequirements: edge.OutputRequirements,
+				InputBindings:      edgeInputBindingsSnapshot(edge, derived),
+				OutputRequirements: edgeOutputRequirementsSnapshot(edge, derived),
 			})
 		}
 		snapshot.TransitionGroups = append(snapshot.TransitionGroups, groupSnapshot)
@@ -144,16 +149,39 @@ func newRunStartSnapshot(def workflow.Definition, record WorkflowRecord, nodeID 
 	return snapshot, nil
 }
 
+func nodeSnapshotWithDerivedWiring(node workflow.Node, derived workflow.DerivedWiring) nodeContractSnapshot {
+	snapshot := nodeSnapshot(node)
+	snapshot.OutputFields = derived.PossibleProvisionFieldsForNode(node.ID)
+	return snapshot
+}
+
 func nodeSnapshot(node workflow.Node) nodeContractSnapshot {
 	return nodeContractSnapshot{
-		ID:             node.ID,
-		Key:            node.Key,
-		DisplayName:    node.DisplayName,
-		Kind:           node.Kind,
-		SubagentRole:   node.SubagentRole,
-		PromptTemplate: node.PromptTemplate,
-		OutputFields:   node.OutputFields,
+		ID:                 node.ID,
+		Key:                node.Key,
+		DisplayName:        node.DisplayName,
+		Kind:               node.Kind,
+		SubagentRole:       node.SubagentRole,
+		PromptTemplate:     node.PromptTemplate,
+		InputFields:        node.InputFields,
+		JoinInputProviders: node.JoinInputProviders,
+		OutputFields:       node.OutputFields,
 	}
+}
+
+func edgeInputBindingsSnapshot(edge workflow.Edge, derived workflow.DerivedWiring) []workflow.InputBinding {
+	return derived.InputBindingsForEdge(edge.ID)
+}
+
+func edgeOutputRequirementsSnapshot(edge workflow.Edge, derived workflow.DerivedWiring) []workflow.OutputRequirement {
+	fields := derived.RequiredProvisionFieldsForEdge(edge.ID)
+	requirements := make([]workflow.OutputRequirement, 0, len(fields))
+	for _, field := range fields {
+		if strings.TrimSpace(field.Name) != "" {
+			requirements = append(requirements, workflow.OutputRequirement{FieldName: strings.TrimSpace(field.Name)})
+		}
+	}
+	return requirements
 }
 
 func (s runStartSnapshot) transitionByID(transitionID string) (transitionContractSnapshot, bool) {
@@ -221,15 +249,6 @@ func cloneTransitionContractSnapshots(groups []transitionContractSnapshot) []tra
 		out = append(out, group)
 	}
 	return out
-}
-
-func transitionGroupHasAgentTarget(group transitionContractSnapshot) bool {
-	for _, edge := range group.Edges {
-		if edge.TargetNode.Kind == workflow.NodeKindAgent {
-			return true
-		}
-	}
-	return false
 }
 
 func (g transitionContractSnapshot) unsupportedRuntimeIssues() []workflow.RuntimeSupportIssue {

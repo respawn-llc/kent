@@ -12,10 +12,11 @@ import (
 )
 
 type workflowRunMetadata struct {
-	ContextMode     string                 `json:"context_mode"`
-	ContextSource   workflow.ContextSource `json:"context_source,omitempty"`
-	SourceRunID     string                 `json:"source_run_id,omitempty"`
-	SourceSessionID string                 `json:"source_session_id,omitempty"`
+	ContextMode            string                 `json:"context_mode"`
+	ContextSource          workflow.ContextSource `json:"context_source,omitempty"`
+	SourceRunID            string                 `json:"source_run_id,omitempty"`
+	SourceSessionID        string                 `json:"source_session_id,omitempty"`
+	TargetRunStartSnapshot *runStartSnapshot      `json:"target_run_start_snapshot,omitempty"`
 }
 
 type resolvedContextSourceRun struct {

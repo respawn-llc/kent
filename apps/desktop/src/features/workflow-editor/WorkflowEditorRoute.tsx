@@ -3,7 +3,7 @@ import { useEffect, useMemo, useReducer, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
-import type { WorkflowDefinition, WorkflowValidation } from "../../api";
+import { emptyWorkflowDerivedWiring, type WorkflowDefinition, type WorkflowValidation } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useSidebar } from "../../app/sidebarContext";
 import { queryKeys } from "../../app/queryKeys";
@@ -52,6 +52,8 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
     draftState === null ? data.workflowQuery.data : workflowDefinitionFromDraft(draftState.draft);
   const draftValidationQuery = useWorkflowDraftValidationQuery(workflowID, draftState);
   const draftValidation = draftValidationQuery.data?.draft ?? null;
+  const draftDerivedWiring =
+    draftValidationQuery.data?.derivedWiring ?? draftDefinition?.derivedWiring ?? emptyWorkflowDerivedWiring;
   const executionValidation = draftValidationQuery.data?.execution ?? data.validationQuery.data ?? null;
   const layoutQuery = useWorkflowGraphLayoutQuery(
     workflowID,
@@ -91,6 +93,7 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
       dispatch,
       dirty,
       draft: fallbackDraftState.draft,
+      derivedWiring: draftDerivedWiring,
       draftValidation,
       executionValidation,
       save() {
@@ -109,6 +112,7 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
     [
       dirty,
       draftState,
+      draftDerivedWiring,
       draftValidation,
       executionValidation,
       fallbackDraftState,
@@ -431,6 +435,7 @@ function emptyWorkflowDefinition(workflowID: string): WorkflowDefinition {
     nodes: [],
     transitionGroups: [],
     workflow: { description: "", version: 1, id: workflowID, name: "" },
+    derivedWiring: emptyWorkflowDerivedWiring,
   };
 }
 

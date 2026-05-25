@@ -5,21 +5,21 @@ import type {
   WorkflowEdge,
   WorkflowGraphDraft,
   WorkflowGraphMetadata,
+  WorkflowInputField,
   WorkflowNode,
   WorkflowNodeGroup,
-  WorkflowOutputField,
   WorkflowTransitionGroup,
 } from "../../api";
 
-export type DraftOutputField = Readonly<{
+export type DraftInputField = Readonly<{
   rowID: string;
   name: string;
   description: string;
 }>;
 
-export type DraftWorkflowNode = Omit<WorkflowNode, "outputFields"> &
+export type DraftWorkflowNode = Omit<WorkflowNode, "inputFields" | "outputFields"> &
   Readonly<{
-    outputFields: readonly DraftOutputField[];
+    inputFields: readonly DraftInputField[];
   }>;
 
 export type DraftWorkflowDefinition = Omit<WorkflowDefinition, "nodes"> &
@@ -47,15 +47,16 @@ export type WorkflowEditorDraftAction =
       nodeID: string;
       patch: Partial<Pick<WorkflowNode, "key" | "name" | "subagentRole" | "promptTemplate">>;
     }>
-  | Readonly<{ type: "addOutputField"; nodeID: string }>
+  | Readonly<{ type: "addInputField"; nodeID: string }>
   | Readonly<{
-      type: "updateOutputField";
+      type: "updateInputField";
       nodeID: string;
       rowID: string;
-      patch: Partial<WorkflowOutputField>;
+      patch: Partial<WorkflowInputField>;
     }>
-  | Readonly<{ type: "deleteOutputField"; nodeID: string; rowID: string }>
-  | Readonly<{ type: "reorderOutputField"; nodeID: string; activeRowID: string; overRowID: string }>;
+  | Readonly<{ type: "deleteInputField"; nodeID: string; rowID: string }>
+  | Readonly<{ type: "reorderInputField"; nodeID: string; activeRowID: string; overRowID: string }>
+  | Readonly<{ type: "assignJoinInputProvider"; nodeID: string; inputName: string; providerEdgeID: string }>;
 
 export type WorkflowEditorDirtyState = Readonly<{
   dirty: boolean;
@@ -107,36 +108,41 @@ export function workflowEditorDraftReducer(
         }
         return { ...node, ...action.patch };
       });
-    case "addOutputField":
+    case "addInputField":
       return editDraftNode(state, action.nodeID, (node) => ({
         ...node,
-        outputFields: [
+        inputFields: [
           {
             description: "",
             name: "",
-            rowID: [node.id, "field", state.version.toString(), node.outputFields.length.toString()].join(
+            rowID: [node.id, "input", state.version.toString(), node.inputFields.length.toString()].join(
               ":",
             ),
           },
-          ...node.outputFields,
+          ...node.inputFields,
         ],
       }));
-    case "updateOutputField":
+    case "updateInputField":
       return editDraftNode(state, action.nodeID, (node) => ({
         ...node,
-        outputFields: node.outputFields.map((field) =>
+        inputFields: node.inputFields.map((field) =>
           field.rowID === action.rowID ? { ...field, ...action.patch } : field,
         ),
       }));
-    case "deleteOutputField":
+    case "deleteInputField":
       return editDraftNode(state, action.nodeID, (node) => ({
         ...node,
-        outputFields: node.outputFields.filter((field) => field.rowID !== action.rowID),
+        inputFields: node.inputFields.filter((field) => field.rowID !== action.rowID),
       }));
-    case "reorderOutputField":
+    case "reorderInputField":
       return editDraftNode(state, action.nodeID, (node) => ({
         ...node,
-        outputFields: reorderRow(node.outputFields, action.activeRowID, action.overRowID),
+        inputFields: reorderRow(node.inputFields, action.activeRowID, action.overRowID),
+      }));
+    case "assignJoinInputProvider":
+      return editDraftNode(state, action.nodeID, (node) => ({
+        ...node,
+        joinInputProviders: assignJoinInputProvider(node.joinInputProviders, action.inputName, action.providerEdgeID),
       }));
   }
 }
@@ -146,9 +152,9 @@ export function draftDefinitionFromSource(source: WorkflowDefinition): DraftWork
     ...source,
     nodes: source.nodes.map((node) => ({
       ...node,
-      outputFields: node.outputFields.map((field, index) => ({
+      inputFields: node.inputFields.map((field, index) => ({
         ...field,
-        rowID: [node.id, "field", index.toString()].join(":"),
+        rowID: [node.id, "input", index.toString()].join(":"),
       })),
     })),
   };
@@ -159,7 +165,8 @@ export function workflowDefinitionFromDraft(draft: DraftWorkflowDefinition): Wor
     ...draft,
     nodes: draft.nodes.map((node) => ({
       ...node,
-      outputFields: node.outputFields.map(({ name, description }) => ({ name, description })),
+      inputFields: node.inputFields.map(({ name, description }) => ({ name, description })),
+      outputFields: [],
     })),
   };
 }
@@ -179,9 +186,7 @@ export function workflowEditorDraftGraph(state: WorkflowEditorDraftState): Workf
       contextMode: edge.contextMode,
       contextSource: edge.contextSource,
       id: edge.id,
-      inputBindings: edge.inputBindings,
       key: edge.key,
-      outputRequirements: edge.outputRequirements,
       requiresApproval: edge.requiresApproval,
       targetNodeID: edge.targetNodeID,
       transitionGroupID: edge.transitionGroupID,
@@ -194,7 +199,8 @@ export function workflowEditorDraftGraph(state: WorkflowEditorDraftState): Workf
       key: node.key,
       kind: node.kind,
       name: node.name,
-      outputFields: node.outputFields,
+      inputFields: node.inputFields,
+      joinInputProviders: node.joinInputProviders,
       promptTemplate: node.promptTemplate,
       subagentRole: node.subagentRole,
     })),
@@ -315,7 +321,8 @@ function nodesEqual(left: readonly WorkflowNode[], right: readonly WorkflowNode[
       a.groupKey === b.groupKey &&
       a.subagentRole === b.subagentRole &&
       a.promptTemplate === b.promptTemplate &&
-      outputFieldsEqual(a.outputFields, b.outputFields),
+      inputFieldsEqual(a.inputFields, b.inputFields) &&
+      joinInputProvidersEqual(a.joinInputProviders, b.joinInputProviders),
   );
 }
 
@@ -345,35 +352,39 @@ function edgesEqual(left: readonly WorkflowEdge[], right: readonly WorkflowEdge[
       a.targetNodeID === b.targetNodeID &&
       a.requiresApproval === b.requiresApproval &&
       a.contextMode === b.contextMode &&
-      contextSourceEqual(a.contextSource, b.contextSource) &&
-      inputBindingsEqual(a.inputBindings, b.inputBindings) &&
-      outputRequirementsEqual(a.outputRequirements, b.outputRequirements),
+      contextSourceEqual(a.contextSource, b.contextSource),
   );
 }
 
-function outputFieldsEqual(
-  left: readonly WorkflowOutputField[],
-  right: readonly WorkflowOutputField[],
+function inputFieldsEqual(
+  left: readonly WorkflowDefinition["nodes"][number]["inputFields"][number][],
+  right: readonly WorkflowDefinition["nodes"][number]["inputFields"][number][],
 ): boolean {
   return sameLengthAndEvery(left, right, (a, b) => a.name === b.name && a.description === b.description);
 }
 
-function inputBindingsEqual(
-  left: readonly WorkflowDefinition["edges"][number]["inputBindings"][number][],
-  right: readonly WorkflowDefinition["edges"][number]["inputBindings"][number][],
-): boolean {
-  return sameLengthAndEvery(
-    left,
-    right,
-    (a, b) => a.name === b.name && a.source === b.source && a.field === b.field,
-  );
+function assignJoinInputProvider(
+  providers: WorkflowDefinition["nodes"][number]["joinInputProviders"],
+  inputName: string,
+  providerEdgeID: string,
+): WorkflowDefinition["nodes"][number]["joinInputProviders"] {
+  const updated = { inputName, providerEdgeID };
+  const providerIndex = providers.findIndex((provider) => provider.inputName === inputName);
+  if (providerIndex === -1) {
+    return [...providers, updated];
+  }
+  return providers.map((provider, index) => (index === providerIndex ? updated : provider));
 }
 
-function outputRequirementsEqual(
-  left: readonly WorkflowDefinition["edges"][number]["outputRequirements"][number][],
-  right: readonly WorkflowDefinition["edges"][number]["outputRequirements"][number][],
+function joinInputProvidersEqual(
+  left: readonly WorkflowDefinition["nodes"][number]["joinInputProviders"][number][],
+  right: readonly WorkflowDefinition["nodes"][number]["joinInputProviders"][number][],
 ): boolean {
-  return sameLengthAndEvery(left, right, (a, b) => a.fieldName === b.fieldName);
+  if (left.length !== right.length) {
+    return false;
+  }
+  const rightByInputName = new Map(right.map((provider) => [provider.inputName, provider.providerEdgeID]));
+  return left.every((provider) => rightByInputName.get(provider.inputName) === provider.providerEdgeID);
 }
 
 function contextSourceEqual(left: WorkflowContextSource, right: WorkflowContextSource): boolean {

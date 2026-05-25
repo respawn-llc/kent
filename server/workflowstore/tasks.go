@@ -533,14 +533,6 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 		transitionState = "pending_approval"
 		appliedAt = 0
 	}
-	var fallbackDef workflow.Definition
-	var fallbackWorkflow WorkflowRecord
-	if !snapshot.hasFullGraphContract() && transitionGroupHasAgentTarget(group) {
-		fallbackDef, fallbackWorkflow, err = s.GetDefinition(ctx, snapshot.WorkflowID)
-		if err != nil {
-			return CompleteRunResult{}, err
-		}
-	}
 	transitionID := prefixedID("transition")
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -626,10 +618,7 @@ WHERE id = ?
 			return CompleteRunResult{}, err
 		}
 		if !foundSnapshot {
-			targetSnapshot, err = newRunStartSnapshot(fallbackDef, fallbackWorkflow, edge.TargetNode.ID)
-			if err != nil {
-				return CompleteRunResult{}, err
-			}
+			return CompleteRunResult{}, fmt.Errorf("target node %q missing from run-start snapshot", edge.TargetNode.ID)
 		}
 		targetSnapshotJSON, err := marshalJSON(targetSnapshot)
 		if err != nil {

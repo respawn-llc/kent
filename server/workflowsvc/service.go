@@ -9,6 +9,7 @@ import (
 	"builder/server/requestmemo"
 	askquestion "builder/server/tools/askquestion"
 	"builder/server/workflow"
+	"builder/server/workflowapi"
 	"builder/server/workflowstore"
 	"builder/server/workflowview"
 	"builder/shared/serverapi"
@@ -194,7 +195,7 @@ func (s *Service) AddWorkflowNode(ctx context.Context, req serverapi.WorkflowNod
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowNodeAddResponse{}, err
 	}
-	revision, err := s.store.AddNode(ctx, workflowstore.NodeRecord{ID: workflow.NodeID(req.NodeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), Key: workflow.ModelKey(req.Key), Kind: workflow.NodeKind(req.Kind), DisplayName: req.DisplayName, GroupKey: req.GroupKey, SubagentRole: req.SubagentRole, PromptTemplate: req.PromptTemplate, OutputFields: outputFields(req.OutputFields)})
+	revision, err := s.store.AddNode(ctx, workflowstore.NodeRecord{ID: workflow.NodeID(req.NodeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), Key: workflow.ModelKey(req.Key), Kind: workflow.NodeKind(req.Kind), DisplayName: req.DisplayName, GroupKey: req.GroupKey, SubagentRole: req.SubagentRole, PromptTemplate: req.PromptTemplate, InputFields: inputFields(req.InputFields), JoinInputProviders: joinInputProviders(req.JoinInputProviders)})
 	if err != nil {
 		return serverapi.WorkflowNodeAddResponse{}, err
 	}
@@ -206,7 +207,7 @@ func (s *Service) UpdateWorkflowNode(ctx context.Context, req serverapi.Workflow
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowNodeUpdateResponse{}, err
 	}
-	revision, err := s.store.UpdateNode(ctx, workflowstore.NodeRecord{ID: workflow.NodeID(req.NodeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), Key: workflow.ModelKey(req.Key), Kind: workflow.NodeKind(req.Kind), DisplayName: req.DisplayName, GroupKey: req.GroupKey, SubagentRole: req.SubagentRole, PromptTemplate: req.PromptTemplate, OutputFields: outputFields(req.OutputFields)})
+	revision, err := s.store.UpdateNode(ctx, workflowstore.NodeRecord{ID: workflow.NodeID(req.NodeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), Key: workflow.ModelKey(req.Key), Kind: workflow.NodeKind(req.Kind), DisplayName: req.DisplayName, GroupKey: req.GroupKey, SubagentRole: req.SubagentRole, PromptTemplate: req.PromptTemplate, InputFields: inputFields(req.InputFields), JoinInputProviders: joinInputProviders(req.JoinInputProviders)})
 	if err != nil {
 		return serverapi.WorkflowNodeUpdateResponse{}, err
 	}
@@ -277,7 +278,7 @@ func (s *Service) AddWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdg
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowEdgeAddResponse{}, err
 	}
-	revision, err := s.store.AddEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID(req.EdgeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), TransitionGroupID: workflow.TransitionGroupID(req.TransitionGroupID), Key: workflow.ModelKey(req.Key), TargetNodeID: workflow.NodeID(req.TargetNodeID), RequiresApproval: req.RequiresApproval, ContextMode: workflow.ContextMode(req.ContextMode), ContextSource: domainContextSource(req.ContextSource), InputBindings: inputBindings(req.InputBindings), OutputRequirements: outputRequirements(req.OutputRequirements)})
+	revision, err := s.store.AddEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID(req.EdgeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), TransitionGroupID: workflow.TransitionGroupID(req.TransitionGroupID), Key: workflow.ModelKey(req.Key), TargetNodeID: workflow.NodeID(req.TargetNodeID), RequiresApproval: req.RequiresApproval, ContextMode: workflow.ContextMode(req.ContextMode), ContextSource: domainContextSource(req.ContextSource)})
 	if err != nil {
 		return serverapi.WorkflowEdgeAddResponse{}, err
 	}
@@ -289,7 +290,7 @@ func (s *Service) UpdateWorkflowEdge(ctx context.Context, req serverapi.Workflow
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowEdgeUpdateResponse{}, err
 	}
-	revision, err := s.store.UpdateEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID(req.EdgeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), TransitionGroupID: workflow.TransitionGroupID(req.TransitionGroupID), Key: workflow.ModelKey(req.Key), TargetNodeID: workflow.NodeID(req.TargetNodeID), RequiresApproval: req.RequiresApproval, ContextMode: workflow.ContextMode(req.ContextMode), ContextSource: domainContextSource(req.ContextSource), InputBindings: inputBindings(req.InputBindings), OutputRequirements: outputRequirements(req.OutputRequirements)})
+	revision, err := s.store.UpdateEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID(req.EdgeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), TransitionGroupID: workflow.TransitionGroupID(req.TransitionGroupID), Key: workflow.ModelKey(req.Key), TargetNodeID: workflow.NodeID(req.TargetNodeID), RequiresApproval: req.RequiresApproval, ContextMode: workflow.ContextMode(req.ContextMode), ContextSource: domainContextSource(req.ContextSource)})
 	if err != nil {
 		return serverapi.WorkflowEdgeUpdateResponse{}, err
 	}
@@ -419,11 +420,14 @@ func (s *Service) ValidateWorkflowGraphDraft(ctx context.Context, req serverapi.
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowGraphValidateDraftResponse{}, err
 	}
-	results, err := s.workflowGraphValidationResults(ctx, req.WorkflowID, req.Metadata, req.Graph, req.Modes)
+	def, err := s.workflowGraphDraftDefinition(ctx, req.WorkflowID, req.Metadata, req.Graph)
 	if err != nil {
 		return serverapi.WorkflowGraphValidateDraftResponse{}, err
 	}
-	return serverapi.WorkflowGraphValidateDraftResponse{Results: results}, nil
+	return serverapi.WorkflowGraphValidateDraftResponse{
+		Results:       s.workflowGraphValidationResultsForDefinition(def, req.Modes),
+		DerivedWiring: workflowapi.DerivedWiring(def),
+	}, nil
 }
 
 func (s *Service) PreviewWorkflowGraphSave(ctx context.Context, req serverapi.WorkflowGraphSavePreviewRequest) (serverapi.WorkflowGraphSavePreviewResponse, error) {
@@ -888,12 +892,16 @@ func (s *Service) workflowGraphValidationResults(ctx context.Context, workflowID
 	if err != nil {
 		return nil, err
 	}
+	return s.workflowGraphValidationResultsForDefinition(def, modes), nil
+}
+
+func (s *Service) workflowGraphValidationResultsForDefinition(def workflow.Definition, modes []serverapi.WorkflowValidationMode) map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse {
 	out := make(map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse, len(modes))
 	for _, mode := range modes {
 		result := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContext(mode), RoleResolver: s.roleResolver})
 		out[mode] = workflowValidationResponse(result)
 	}
-	return out, nil
+	return out
 }
 
 func (s *Service) workflowGraphDraftDefinition(ctx context.Context, workflowID string, metadata *serverapi.WorkflowGraphMetadata, graph serverapi.WorkflowGraphDraft) (workflow.Definition, error) {
@@ -908,14 +916,15 @@ func (s *Service) workflowGraphDraftDefinition(ctx context.Context, workflowID s
 	def := workflow.Definition{ID: workflow.WorkflowID(workflowID), DisplayName: displayName}
 	for _, node := range graph.Nodes {
 		def.Nodes = append(def.Nodes, workflow.Node{
-			WorkflowID:     workflow.WorkflowID(workflowID),
-			ID:             workflow.NodeID(node.ID),
-			Key:            workflow.ModelKey(node.Key),
-			Kind:           workflow.NodeKind(node.Kind),
-			DisplayName:    node.DisplayName,
-			SubagentRole:   node.SubagentRole,
-			PromptTemplate: node.PromptTemplate,
-			OutputFields:   outputFields(node.OutputFields),
+			WorkflowID:         workflow.WorkflowID(workflowID),
+			ID:                 workflow.NodeID(node.ID),
+			Key:                workflow.ModelKey(node.Key),
+			Kind:               workflow.NodeKind(node.Kind),
+			DisplayName:        node.DisplayName,
+			SubagentRole:       node.SubagentRole,
+			PromptTemplate:     node.PromptTemplate,
+			InputFields:        inputFields(node.InputFields),
+			JoinInputProviders: joinInputProviders(node.JoinInputProviders),
 		})
 	}
 	for _, group := range graph.TransitionGroups {
@@ -929,16 +938,14 @@ func (s *Service) workflowGraphDraftDefinition(ctx context.Context, workflowID s
 	}
 	for _, edge := range graph.Edges {
 		def.Edges = append(def.Edges, workflow.Edge{
-			WorkflowID:         workflow.WorkflowID(workflowID),
-			ID:                 workflow.EdgeID(edge.ID),
-			Key:                workflow.ModelKey(edge.Key),
-			TransitionGroupID:  workflow.TransitionGroupID(edge.TransitionGroupID),
-			TargetNodeID:       workflow.NodeID(edge.TargetNodeID),
-			ContextMode:        workflow.ContextMode(edge.ContextMode),
-			ContextSource:      domainContextSource(edge.ContextSource),
-			RequiresApproval:   edge.RequiresApproval,
-			InputBindings:      inputBindings(edge.InputBindings),
-			OutputRequirements: outputRequirements(edge.OutputRequirements),
+			WorkflowID:        workflow.WorkflowID(workflowID),
+			ID:                workflow.EdgeID(edge.ID),
+			Key:               workflow.ModelKey(edge.Key),
+			TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID),
+			TargetNodeID:      workflow.NodeID(edge.TargetNodeID),
+			ContextMode:       workflow.ContextMode(edge.ContextMode),
+			ContextSource:     domainContextSource(edge.ContextSource),
+			RequiresApproval:  edge.RequiresApproval,
 		})
 	}
 	return def, nil
@@ -946,9 +953,7 @@ func (s *Service) workflowGraphDraftDefinition(ctx context.Context, workflowID s
 
 func workflowValidationResponse(result workflow.ValidationResult) serverapi.WorkflowValidateResponse {
 	resp := serverapi.WorkflowValidateResponse{Valid: result.Valid()}
-	for _, validationErr := range result.Errors {
-		resp.Errors = append(resp.Errors, serverapi.WorkflowValidationError{Code: string(validationErr.Code), Message: validationErr.Message, WorkflowID: string(validationErr.WorkflowID), NodeID: string(validationErr.NodeID), TransitionGroupID: string(validationErr.TransitionGroupID), EdgeID: string(validationErr.EdgeID), RelatedIDs: validationErr.RelatedIDs, BlocksContext: validationErr.BlocksContext})
-	}
+	resp.Errors = workflowapi.ValidationErrors("", result.Errors)
 	return resp
 }
 
@@ -973,13 +978,13 @@ func workflowGraphStoreSaveRequest(workflowID string, expectedVersion int64, met
 		req.NodeGroups = append(req.NodeGroups, workflowstore.NodeGroupRecord{ID: group.ID, WorkflowID: workflow.WorkflowID(workflowID), Key: workflow.ModelKey(group.Key), DisplayName: group.DisplayName})
 	}
 	for _, node := range graph.Nodes {
-		req.Nodes = append(req.Nodes, workflowstore.NodeRecord{ID: workflow.NodeID(node.ID), WorkflowID: workflow.WorkflowID(workflowID), Key: workflow.ModelKey(node.Key), Kind: workflow.NodeKind(node.Kind), DisplayName: node.DisplayName, GroupID: node.GroupID, GroupKey: node.GroupKey, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, OutputFields: outputFields(node.OutputFields)})
+		req.Nodes = append(req.Nodes, workflowstore.NodeRecord{ID: workflow.NodeID(node.ID), WorkflowID: workflow.WorkflowID(workflowID), Key: workflow.ModelKey(node.Key), Kind: workflow.NodeKind(node.Kind), DisplayName: node.DisplayName, GroupID: node.GroupID, GroupKey: node.GroupKey, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: inputFields(node.InputFields), JoinInputProviders: joinInputProviders(node.JoinInputProviders)})
 	}
 	for _, group := range graph.TransitionGroups {
 		req.TransitionGroups = append(req.TransitionGroups, workflowstore.TransitionGroupRecord{ID: workflow.TransitionGroupID(group.ID), WorkflowID: workflow.WorkflowID(workflowID), SourceNodeID: workflow.NodeID(group.SourceNodeID), TransitionID: workflow.TransitionID(group.TransitionID), DisplayName: group.DisplayName})
 	}
 	for _, edge := range graph.Edges {
-		req.Edges = append(req.Edges, workflowstore.EdgeRecord{ID: workflow.EdgeID(edge.ID), WorkflowID: workflow.WorkflowID(workflowID), TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID), Key: workflow.ModelKey(edge.Key), TargetNodeID: workflow.NodeID(edge.TargetNodeID), RequiresApproval: edge.RequiresApproval, ContextMode: workflow.ContextMode(edge.ContextMode), ContextSource: domainContextSource(edge.ContextSource), InputBindings: inputBindings(edge.InputBindings), OutputRequirements: outputRequirements(edge.OutputRequirements)})
+		req.Edges = append(req.Edges, workflowstore.EdgeRecord{ID: workflow.EdgeID(edge.ID), WorkflowID: workflow.WorkflowID(workflowID), TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID), Key: workflow.ModelKey(edge.Key), TargetNodeID: workflow.NodeID(edge.TargetNodeID), RequiresApproval: edge.RequiresApproval, ContextMode: workflow.ContextMode(edge.ContextMode), ContextSource: domainContextSource(edge.ContextSource)})
 	}
 	return req
 }
@@ -1040,32 +1045,24 @@ func (s *Service) taskIdentityForComment(ctx context.Context, commentID string) 
 	return s.store.TaskIdentityForComment(ctx, strings.TrimSpace(commentID))
 }
 
-func outputFields(in []serverapi.WorkflowOutputField) []workflow.OutputField {
-	out := make([]workflow.OutputField, 0, len(in))
+func inputFields(in []serverapi.WorkflowInputField) []workflow.InputField {
+	out := make([]workflow.InputField, 0, len(in))
 	for _, field := range in {
-		out = append(out, workflow.OutputField{Name: field.Name, Description: field.Description})
+		out = append(out, workflow.InputField{Name: field.Name, Description: field.Description})
+	}
+	return out
+}
+
+func joinInputProviders(in []serverapi.WorkflowJoinInputProvider) []workflow.JoinInputProvider {
+	out := make([]workflow.JoinInputProvider, 0, len(in))
+	for _, provider := range in {
+		out = append(out, workflow.JoinInputProvider{InputName: provider.InputName, ProviderEdgeID: workflow.EdgeID(provider.ProviderEdgeID)})
 	}
 	return out
 }
 
 func domainContextSource(in serverapi.WorkflowContextSource) workflow.ContextSource {
 	return workflow.CanonicalContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(in.Kind), NodeKey: workflow.ModelKey(in.NodeKey)})
-}
-
-func inputBindings(in []serverapi.WorkflowInputBinding) []workflow.InputBinding {
-	out := make([]workflow.InputBinding, 0, len(in))
-	for _, binding := range in {
-		out = append(out, workflow.InputBinding{Name: binding.Name, Source: workflow.BindingSource(binding.Source), Field: binding.Field})
-	}
-	return out
-}
-
-func outputRequirements(in []serverapi.WorkflowOutputRequirement) []workflow.OutputRequirement {
-	out := make([]workflow.OutputRequirement, 0, len(in))
-	for _, requirement := range in {
-		out = append(out, workflow.OutputRequirement{FieldName: requirement.FieldName})
-	}
-	return out
 }
 
 func placementIDs(in []workflow.PlacementID) []string {

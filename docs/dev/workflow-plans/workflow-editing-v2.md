@@ -4,7 +4,7 @@
 - [x] V1 read-only inspector milestone: existing workflow definitions can be inspected from the editor through the global right sidebar; joins are visible as clickable merge diamonds; semantic node/edge colors are implemented with validation-error red overrides.
 - [x] Server-owned graph validate/preview/save substrate: graph-only draft validation, save preview, transactional save, graph edit policy, server/client/API plumbing, and GUI API contracts are implemented while the visible editor remains read-only.
 - [x] Merged first-edit slice planned: route-local workflow draft state plus visible workflow metadata and agent-node editing, with one atomic Save/Discard flow.
-- [x] First visible editor implementation slice: route-local draft state, workflow metadata editing, agent-node editing, output-field add/delete/reorder, workflow-scoped subscriptions, and one atomic Save/Discard flow.
+- [x] First visible editor implementation slice: route-local draft state, workflow metadata editing, agent-node editing, required-input add/delete/reorder, join provider selection, workflow-scoped subscriptions, and one atomic Save/Discard flow.
 - [ ] Workstream 1: reach shared ownership/hierarchy model from actual DB ERD.
 - [ ] Workstream 1: update product/navigation decisions for projects, workflows, tasks, and boards after hierarchy is agreed.
 - [ ] Workstream 1: decide whether `workflow_events` hard-cutover belongs before or after navigation redesign.
@@ -36,8 +36,8 @@
 - GUI remains a remote-control surface; server remains authoritative for workflow definitions, validation, persistence, project links, and events.
 - V1 editor graph semantics are locked: editor renders join nodes as small inspectable merge diamonds, board/Kanban read models still omit join columns, edge colors communicate context mode, node colors communicate node kind, and validation-error red overrides normal semantic colors only for invalid graph entities.
 - Completed workflow-editor substrate slice: GUI-local unsaved drafts remain the editing architecture, and the implemented server-owned graph substrate exposes graph-only `workflow.graph.validateDraft`, `workflow.graph.savePreview`, and `workflow.graph.save` contracts, adds a shared graph edit policy, and keeps the visible editor read-only.
-- Implemented merged first-edit slice: the editor combines the route-local draft system with visible workflow metadata editing and agent-node editing. The first editable node surface includes display name, key, an Assignee dropdown sourced from configured server readiness `subagent_roles`, prompt template, and compact output fields as direct draggable sidebar islands. Field names render as bold ellipsized inline titles that become compact inputs when clicked, descriptions use the placeholder-only `Model-facing description` input, delete is a red title-row trash icon, and new output fields insert at the top of the list. Non-agent nodes, groups, and edges stay read-only in this slice.
-- Non-editable workflow nodes use compact shadcn/Radix tooltips instead of the inspector sidebar. Backlog, Done, Join, and future non-agent node kinds show copyable key and ID metadata in the graph-local popup; editable agent nodes continue to open the sidebar inspector.
+- Implemented input-first editing slice: the editor combines the route-local draft system with visible workflow metadata editing and agent-node editing. Editable agent nodes expose display name, key, an Assignee dropdown sourced from configured server readiness `subagent_roles`, prompt template, and compact required-input fields as direct draggable sidebar islands. Field names render as bold ellipsized inline titles that become compact inputs when clicked, descriptions use the placeholder-only `Model-facing description` input, delete is a red title-row trash icon, and new required inputs insert at the top of the list.
+- Join nodes are inspectable merge plumbing. The join inspector shows downstream required inputs and stores one provider selection per input, where the provider is an actual incoming edge into that join. Backlog, Done, and future unsupported non-agent node kinds may keep graph-local copyable metadata popups or read-only sidebar inspection.
 - The temporary read-only inspector is replaced by edit forms for supported workflow/agent-node targets. Unsupported targets may keep read-only inspection with clear unavailable-editing copy.
 - Route-level Save/Discard appears in one bottom-right workflow-editor status island that also owns validation, blockers, confirmation-required state, conflicts, and save errors.
 - Workflow editor drafts remain GUI route-local, but sidebar edit forms need a shell-level bridge because `SidebarHost` is a sibling of route content. The route owns the draft controller lifecycle and registers/unregisters it with the bridge while mounted.
@@ -57,7 +57,10 @@
 - A plus button in the top-left canvas tool island creates a new node via the node edit surface. After add, the new node appears at the current viewport center.
 - Group creation should use the easiest acceptable UX among: separate group-plus button, drag node over node, or context menu grouping. Prefer the simplest robust implementation during architecture planning.
 - Edge editing should support both simple drag creation and explicit transition-group/fan-out editing.
-- V2 exposes advanced edge configuration: context mode, approval requirement, output requirements, and input bindings.
+- V2 edge editing exposes route configuration such as context mode, approval requirement, transition routing, and read-only server-derived wiring summaries. Output requirements and input bindings are derived/runtime concepts, not user-authored edge fields.
+- Agent node editing is input-first: consuming nodes own required inputs, prompt placeholders validate against those inputs, and upstream provision requirements propagate automatically through normal edges.
+- Source node inspectors do not edit output fields. They may show read-only derived `Provides` summaries grouped by outgoing transition/target so operators can understand what the server will ask the agent to produce.
+- Join editing keeps distribution logic: downstream target inputs propagate to the join, and the join inspector assigns each required input to exactly one incoming join edge/provider. Joins do not expose aggregate semantics.
 - Save should allow any graph that satisfies hard storage invariants, even if draft/execution validation reports issues.
 - `workflows.version` remains minimal by design for now: a monotonic traceability/stale-warning scalar over mutable workflow rows, not immutable workflow history. Full workflow version history is deferred and should not block the workflow GUI redesign.
 - Backlog/start deletion is out of scope for v2. Current storage and validation enforce exactly one `start` node, and replacement start-entry semantics would require a larger API/data-model change.
@@ -87,10 +90,10 @@
 - GUI API client only exposes read methods for workflow definitions/validation/project links. Server transport already has mutation routes for workflow create/update, node add/update, node group add/update/delete, transition group add/update, and edge add/update.
 - Server service publishes linked-project workflow events for add/update mutations, so editor subscription/refetch already fits the editing model. Delete/archive node and delete edge exist in `workflowstore` but are not exposed through `workflowsvc`, `serverapi`, protocol routes, or GUI client.
 - Store mutations increment workflow version per persisted workflow definition edit. Existing add/update requests are whole-entity replacement requests, not patch requests, so GUI must submit complete entity payloads or add dedicated patch/batch APIs.
-- Validation supports draft/task creation/execution contexts. Draft mode intentionally relaxes the start-node outgoing shape but still validates hard invariants like identifiers, references, kinds, bindings, output fields, and graph topology errors.
+- Validation supports draft/task creation/execution contexts. Draft mode intentionally relaxes the start-node outgoing shape but still validates hard invariants like identifiers, references, kinds, required inputs, join provider selections, server-derived wiring diagnostics, and graph topology errors.
 - Runtime/task behavior snapshots the observed workflow version into tasks/runs/transitions. Destructive graph deletion has safeguards: deleting nodes/edges is blocked when non-terminal task references exist or task history references the entity. Archiving node exists for terminal-history cases but is not exposed.
 - Node groups are persisted separately and currently used for visual grouping. Layout is not persisted; ELK recomputes deterministic topology layout on every definition/revision.
-- Workflow terminology to preserve in UI/API docs: Workflow, Workflow Draft, Workflow Version, Node, Edge, Transition Group, Transition ID, Output Requirements, Input Bindings, Join, Project Workflow Link.
+- Workflow terminology to preserve in UI/API docs: Workflow, Workflow Draft, Workflow Version, Node, Edge, Transition Group, Transition ID, Required Input, Derived Provision Field, Runtime Output Contract, Output Requirements, Input Bindings, Join Provider, Join, Project Workflow Link.
 - Current V1 inspector is intentionally identity-based rather than snapshot-based: sidebar destinations carry workflow ID plus selected entity identity and resolve current `workflow.get`/`workflow.validate` React Query cache data on render. V2 edit forms should preserve this typed destination approach while swapping read-only sections for draft-backed forms.
 
 ## Schema Audit Caveats
@@ -207,7 +210,7 @@
 - Entity edit surfaces:
   - Move away from native blocking windows for workflow UX. Prefer the global right-side sidebar island for intermediary, picker, settings, and entity-edit flows where practical.
   - Avoid nested blocking surfaces. Destructive confirmation on Save should be a single terminal sidebar/route-level confirmation state.
-  - Form sections should be islands: identity, behavior, outputs, bindings/requirements, validation preview.
+  - Form sections should be islands: identity, behavior, required inputs, join providers, derived provision summaries, route settings, validation preview.
 - Dirty state:
   - Route-level Save and Discard controls should be visible when local draft differs from the source workflow version.
   - Validation issues update from local draft on every change using the same shared `WorkflowValidationIssues` component.
@@ -291,7 +294,7 @@
   - GUI API: models/schemas/client methods for draft validation/save/editability and typed error/confirmation responses, tests.
   - GUI draft state: pure draft model/reducers, diff/dirty detection, validation query integration, conflict handling, tests.
   - Canvas editing: draggable nodes/groups, local coordinate overrides, add buttons, connector drag behavior, node/edge click selection, tests.
-  - Sidebar editing surfaces: workflow/node/group/edge forms with advanced edge fields and task-detail-style island layout, tests.
+  - Sidebar editing surfaces: workflow/node/group/edge forms with agent required-input fields, join provider selections, route fields, read-only derived wiring summaries, and task-detail-style island layout, tests.
   - Save/Discard UX: dirty toolbar, save preview, destructive confirmation, stale revision handling, disabled/edit blocker states, tests.
   - Workflow Library/linking guardrail: library surfaces remain definition management only; task creation stays project-originated and must not be added to the library route.
   - QA/docs: browser proof for add/edit/save, invalid draft validation, edge drag, conflict banner where feasible, docs/release notes if public docs mention workflow editor read-only status.

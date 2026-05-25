@@ -26,10 +26,11 @@ func (s *Store) ManualMoveTask(ctx context.Context, req ManualMoveRequest) (Manu
 	if err != nil {
 		return ManualMoveResult{}, err
 	}
-	def, _, err := s.GetDefinition(ctx, workflow.WorkflowID(task.WorkflowID))
+	def, workflowRecord, err := s.GetDefinition(ctx, workflow.WorkflowID(task.WorkflowID))
 	if err != nil {
 		return ManualMoveResult{}, err
 	}
+	derived := workflow.DeriveWiring(def)
 	sourcePlacement, sourceNodeID, err := s.activeManualMoveSource(ctx, req.TaskID)
 	if err != nil {
 		return ManualMoveResult{}, err
@@ -59,7 +60,7 @@ func (s *Store) ManualMoveTask(ctx context.Context, req ManualMoveRequest) (Manu
 			group, edge, ok = startResetManualMoveContract(sourceNode, targetNode)
 		}
 		if !ok && req.AllowMissingEdge {
-			group, edge, ok = missingEdgeManualMoveContract(def, sourceNode, targetNode)
+			group, edge, ok = missingEdgeManualMoveContract(sourceNode, targetNode)
 		}
 		if !ok {
 			return ManualMoveResult{}, fmt.Errorf("no workflow edge from %s to %s", sourceNode.Key, targetNode.Key)
@@ -83,16 +84,7 @@ func (s *Store) ManualMoveTask(ctx context.Context, req ManualMoveRequest) (Manu
 		SourceNodeID: sourceNode.ID,
 		TransitionID: string(group.TransitionID),
 		DisplayName:  group.DisplayName,
-		Edges: []edgeContractSnapshot{{
-			ID:                 edge.ID,
-			Key:                edge.Key,
-			TargetNode:         nodeSnapshot(targetNode),
-			ContextMode:        edge.ContextMode,
-			ContextSource:      workflow.CanonicalContextSource(edge.ContextSource),
-			RequiresApproval:   edge.RequiresApproval,
-			InputBindings:      edge.InputBindings,
-			OutputRequirements: edge.OutputRequirements,
-		}},
+		Edges:        []edgeContractSnapshot{manualMoveEdgeSnapshot(edge, targetNode, derived)},
 	}
 	if issues := requiredOutputIssues(groupSnapshot, outputValues); len(issues) > 0 {
 		return ManualMoveResult{}, CompletionValidationError{Issues: issues}
@@ -151,7 +143,15 @@ WHERE id = ? AND state = 'active'`, now, string(sourcePlacement))
 		}
 		result.PlacementIDs = append(result.PlacementIDs, workflow.PlacementID(targetPlacementID))
 	}
-	if err := insertTransitionEdgeSnapshot(ctx, q, transitionID, groupSnapshot.Edges[0], targetPlacementID, edgeState, resolvedContextSourceRun{}); err != nil {
+	edgeMetadata := workflowRunMetadata{ContextSource: workflow.CanonicalContextSource(groupSnapshot.Edges[0].ContextSource)}
+	if transitionState == "pending_approval" && targetNode.Kind == workflow.NodeKindAgent {
+		targetSnapshot, err := newRunStartSnapshot(def, workflowRecord, targetNode.ID)
+		if err != nil {
+			return ManualMoveResult{}, err
+		}
+		edgeMetadata.TargetRunStartSnapshot = &targetSnapshot
+	}
+	if err := insertTransitionEdgeSnapshotWithMetadata(ctx, q, transitionID, groupSnapshot.Edges[0], targetPlacementID, edgeState, edgeMetadata); err != nil {
 		return ManualMoveResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -200,8 +200,8 @@ func startResetManualMoveContract(sourceNode workflow.Node, targetNode workflow.
 	return group, edge, true
 }
 
-func missingEdgeManualMoveContract(def workflow.Definition, sourceNode workflow.Node, targetNode workflow.Node) (workflow.TransitionGroup, workflow.Edge, bool) {
-	inputBindings := targetTransitionInputBindings(def, targetNode.ID)
+func missingEdgeManualMoveContract(sourceNode workflow.Node, targetNode workflow.Node) (workflow.TransitionGroup, workflow.Edge, bool) {
+	inputBindings := targetInputBindings(targetNode)
 	group := workflow.TransitionGroup{
 		ID:           "",
 		SourceNodeID: sourceNode.ID,
@@ -221,28 +221,37 @@ func missingEdgeManualMoveContract(def workflow.Definition, sourceNode workflow.
 	return group, edge, true
 }
 
-func targetTransitionInputBindings(def workflow.Definition, targetNodeID workflow.NodeID) []workflow.InputBinding {
+func targetInputBindings(targetNode workflow.Node) []workflow.InputBinding {
 	seen := map[string]bool{}
 	bindings := []workflow.InputBinding{}
-	for _, edge := range def.Edges {
-		if edge.TargetNodeID != targetNodeID {
+	for _, input := range targetNode.InputFields {
+		name := strings.TrimSpace(input.Name)
+		if name == "" || seen[name] {
 			continue
 		}
-		for _, binding := range edge.InputBindings {
-			if binding.Source != workflow.BindingSourceTransitionOutput {
-				continue
-			}
-			name := strings.TrimSpace(binding.Name)
-			field := strings.TrimSpace(binding.Field)
-			key := name + "\x00" + field
-			if name == "" || field == "" || seen[key] {
-				continue
-			}
-			seen[key] = true
-			bindings = append(bindings, workflow.InputBinding{Name: name, Source: workflow.BindingSourceTransitionOutput, Field: field})
-		}
+		seen[name] = true
+		bindings = append(bindings, workflow.InputBinding{Name: name, Source: workflow.BindingSourceTransitionOutput, Field: name})
 	}
 	return bindings
+}
+
+func manualMoveEdgeSnapshot(edge workflow.Edge, targetNode workflow.Node, derived workflow.DerivedWiring) edgeContractSnapshot {
+	inputBindings := edge.InputBindings
+	outputRequirements := edge.OutputRequirements
+	if strings.TrimSpace(string(edge.ID)) != "" {
+		inputBindings = edgeInputBindingsSnapshot(edge, derived)
+		outputRequirements = edgeOutputRequirementsSnapshot(edge, derived)
+	}
+	return edgeContractSnapshot{
+		ID:                 edge.ID,
+		Key:                edge.Key,
+		TargetNode:         nodeSnapshotWithDerivedWiring(targetNode, derived),
+		ContextMode:        edge.ContextMode,
+		ContextSource:      workflow.CanonicalContextSource(edge.ContextSource),
+		RequiresApproval:   edge.RequiresApproval,
+		InputBindings:      inputBindings,
+		OutputRequirements: outputRequirements,
+	}
 }
 
 func outputRequirementsFromTransitionInputBindings(bindings []workflow.InputBinding) []workflow.OutputRequirement {

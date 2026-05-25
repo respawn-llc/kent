@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useSyncExternalStore } from "react";
 
-import type { WorkflowValidation } from "../../api";
+import type { WorkflowDerivedWiring, WorkflowValidation } from "../../api";
 import type {
   DraftWorkflowDefinition,
   WorkflowEditorDirtyState,
@@ -12,6 +12,7 @@ export type WorkflowEditorDraftController = Readonly<{
   dispatch: (action: WorkflowEditorDraftAction) => void;
   dirty: WorkflowEditorDirtyState;
   draft: DraftWorkflowDefinition;
+  derivedWiring: WorkflowDerivedWiring;
   draftValidation: WorkflowValidation | null;
   executionValidation: WorkflowValidation | null;
   saving: boolean;

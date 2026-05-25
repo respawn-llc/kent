@@ -304,7 +304,7 @@ func prepareWorkflowGraphSave(workflowID workflow.WorkflowID, displayName string
 			return preparedWorkflowGraphSave{}, workflow.Definition{}, fmt.Errorf("workflow node group %q is not in the saved graph", node.GroupID)
 		}
 		prepared.nodes[i] = node
-		def.Nodes = append(def.Nodes, workflow.Node{WorkflowID: node.WorkflowID, ID: node.ID, Key: node.Key, Kind: node.Kind, DisplayName: node.DisplayName, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, OutputFields: node.OutputFields})
+		def.Nodes = append(def.Nodes, workflow.Node{WorkflowID: node.WorkflowID, ID: node.ID, Key: node.Key, Kind: node.Kind, DisplayName: node.DisplayName, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: node.InputFields, JoinInputProviders: node.JoinInputProviders, OutputFields: node.OutputFields})
 	}
 	for i, group := range prepared.transitionGroups {
 		group.WorkflowID = defaultWorkflowID(group.WorkflowID, workflowID)
@@ -467,16 +467,18 @@ type comparableWorkflowGraphSaveNodeGroup struct {
 }
 
 type comparableWorkflowGraphSaveNode struct {
-	ID             workflow.NodeID
-	WorkflowID     workflow.WorkflowID
-	Key            workflow.ModelKey
-	Kind           workflow.NodeKind
-	DisplayName    string
-	GroupID        string
-	SubagentRole   string
-	PromptTemplate string
-	OutputFields   []workflow.OutputField
-	SortOrder      int64
+	ID                 workflow.NodeID
+	WorkflowID         workflow.WorkflowID
+	Key                workflow.ModelKey
+	Kind               workflow.NodeKind
+	DisplayName        string
+	GroupID            string
+	SubagentRole       string
+	PromptTemplate     string
+	InputFields        []workflow.InputField
+	JoinInputProviders []workflow.JoinInputProvider
+	OutputFields       []workflow.OutputField
+	SortOrder          int64
 }
 
 type comparableWorkflowGraphSaveTransitionGroup struct {
@@ -520,7 +522,7 @@ func comparableNodesEqual(left []comparableWorkflowGraphSaveNode, right []compar
 	}
 	for index, item := range left {
 		other := right[index]
-		if item.ID != other.ID || item.WorkflowID != other.WorkflowID || item.Key != other.Key || item.Kind != other.Kind || item.DisplayName != other.DisplayName || item.GroupID != other.GroupID || item.SubagentRole != other.SubagentRole || item.PromptTemplate != other.PromptTemplate || item.SortOrder != other.SortOrder || !workflowOutputFieldsEqual(item.OutputFields, other.OutputFields) {
+		if item.ID != other.ID || item.WorkflowID != other.WorkflowID || item.Key != other.Key || item.Kind != other.Kind || item.DisplayName != other.DisplayName || item.GroupID != other.GroupID || item.SubagentRole != other.SubagentRole || item.PromptTemplate != other.PromptTemplate || item.SortOrder != other.SortOrder || !workflowInputFieldsEqual(item.InputFields, other.InputFields) || !workflowJoinInputProvidersEqual(item.JoinInputProviders, other.JoinInputProviders) || !workflowOutputFieldsEqual(item.OutputFields, other.OutputFields) {
 			return false
 		}
 	}
@@ -553,6 +555,30 @@ func comparableEdgesEqual(left []comparableWorkflowGraphSaveEdge, right []compar
 }
 
 func workflowOutputFieldsEqual(left []workflow.OutputField, right []workflow.OutputField) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index, item := range left {
+		if item != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func workflowInputFieldsEqual(left []workflow.InputField, right []workflow.InputField) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index, item := range left {
+		if item != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func workflowJoinInputProvidersEqual(left []workflow.JoinInputProvider, right []workflow.JoinInputProvider) bool {
 	if len(left) != len(right) {
 		return false
 	}
@@ -603,7 +629,7 @@ func workflowGraphSaveComparable(prepared preparedWorkflowGraphSave) comparableW
 		out.NodeGroups = append(out.NodeGroups, comparableWorkflowGraphSaveNodeGroup{ID: group.ID, WorkflowID: group.WorkflowID, Key: group.Key, DisplayName: strings.TrimSpace(group.DisplayName), SortOrder: sortOrder})
 	}
 	for index, node := range prepared.nodes {
-		out.Nodes = append(out.Nodes, comparableWorkflowGraphSaveNode{ID: node.ID, WorkflowID: node.WorkflowID, Key: node.Key, Kind: node.Kind, DisplayName: strings.TrimSpace(node.DisplayName), GroupID: strings.TrimSpace(node.GroupID), SubagentRole: strings.TrimSpace(node.SubagentRole), PromptTemplate: strings.TrimSpace(node.PromptTemplate), OutputFields: node.OutputFields, SortOrder: int64(index * 100)})
+		out.Nodes = append(out.Nodes, comparableWorkflowGraphSaveNode{ID: node.ID, WorkflowID: node.WorkflowID, Key: node.Key, Kind: node.Kind, DisplayName: strings.TrimSpace(node.DisplayName), GroupID: strings.TrimSpace(node.GroupID), SubagentRole: strings.TrimSpace(node.SubagentRole), PromptTemplate: strings.TrimSpace(node.PromptTemplate), InputFields: node.InputFields, JoinInputProviders: node.JoinInputProviders, OutputFields: node.OutputFields, SortOrder: int64(index * 100)})
 	}
 	for index, group := range prepared.transitionGroups {
 		out.TransitionGroups = append(out.TransitionGroups, comparableWorkflowGraphSaveTransitionGroup{ID: group.ID, WorkflowID: group.WorkflowID, SourceNodeID: group.SourceNodeID, TransitionID: workflow.TransitionID(strings.TrimSpace(string(group.TransitionID))), DisplayName: strings.TrimSpace(group.DisplayName), SortOrder: int64(index * 100)})
@@ -684,19 +710,29 @@ WHERE workflow_node_groups.workflow_id = excluded.workflow_id`,
 }
 
 func upsertWorkflowNode(ctx context.Context, tx *sql.Tx, node NodeRecord, sortOrder int64) error {
+	inputFields, err := marshalJSON(node.InputFields)
+	if err != nil {
+		return err
+	}
+	joinProviders, err := marshalJSON(node.JoinInputProviders)
+	if err != nil {
+		return err
+	}
 	outputFields, err := marshalJSON(node.OutputFields)
 	if err != nil {
 		return err
 	}
 	result, err := tx.ExecContext(ctx, `
-INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, subagent_role, prompt_template, output_fields_json, group_id, sort_order)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, subagent_role, prompt_template, input_fields_json, join_input_providers_json, output_fields_json, group_id, sort_order)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     node_key = excluded.node_key,
     kind = excluded.kind,
     display_name = excluded.display_name,
     subagent_role = excluded.subagent_role,
     prompt_template = excluded.prompt_template,
+    input_fields_json = excluded.input_fields_json,
+    join_input_providers_json = excluded.join_input_providers_json,
     output_fields_json = excluded.output_fields_json,
     group_id = excluded.group_id,
     sort_order = excluded.sort_order
@@ -708,6 +744,8 @@ WHERE workflow_nodes.workflow_id = excluded.workflow_id`,
 		strings.TrimSpace(node.DisplayName),
 		strings.TrimSpace(node.SubagentRole),
 		strings.TrimSpace(node.PromptTemplate),
+		inputFields,
+		joinProviders,
 		outputFields,
 		nullableString(node.GroupID),
 		sortOrder,

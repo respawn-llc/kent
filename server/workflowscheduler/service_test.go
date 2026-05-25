@@ -209,7 +209,7 @@ func TestSchedulerRestartKeepsPendingApprovalUnscheduled(t *testing.T) {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
 	started := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
-	if _, err := store.CompleteRun(ctx, workflowstore.CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"summary": "done"}}); err != nil {
+	if _, err := store.CompleteRun(ctx, workflowstore.CompleteRunRequest{RunID: started.RunID, TransitionID: "done"}); err != nil {
 		t.Fatalf("CompleteRun pending approval: %v", err)
 	}
 	starter := &recordingStarter{}
@@ -501,7 +501,7 @@ func createSchedulerValidWorkflow(t *testing.T, ctx context.Context, store *work
 	start := schedulerNodeByKind(t, def, workflow.NodeKindStart)
 	done := schedulerNodeByKind(t, def, workflow.NodeKindTerminal)
 	agentID := workflow.NodeID("node-agent-" + string(created.ID))
-	if _, err := store.AddNode(ctx, workflowstore.NodeRecord{ID: agentID, WorkflowID: created.ID, Key: "agent", Kind: workflow.NodeKindAgent, DisplayName: "Agent", SubagentRole: "coder", PromptTemplate: "Do work.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Summary."}}}); err != nil {
+	if _, err := store.AddNode(ctx, workflowstore.NodeRecord{ID: agentID, WorkflowID: created.ID, Key: "agent", Kind: workflow.NodeKindAgent, DisplayName: "Agent", SubagentRole: "coder", PromptTemplate: "Do work."}); err != nil {
 		t.Fatalf("AddNode: %v", err)
 	}
 	if _, err := store.AddTransitionGroup(ctx, workflowstore.TransitionGroupRecord{ID: workflow.TransitionGroupID("group-start-" + string(created.ID)), WorkflowID: created.ID, SourceNodeID: start.ID, TransitionID: "start", DisplayName: "Start"}); err != nil {
@@ -513,7 +513,7 @@ func createSchedulerValidWorkflow(t *testing.T, ctx context.Context, store *work
 	if _, err := store.AddTransitionGroup(ctx, workflowstore.TransitionGroupRecord{ID: workflow.TransitionGroupID("group-done-" + string(created.ID)), WorkflowID: created.ID, SourceNodeID: agentID, TransitionID: "done", DisplayName: "Done"}); err != nil {
 		t.Fatalf("AddTransitionGroup done: %v", err)
 	}
-	if _, err := store.AddEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID("edge-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(created.ID)), Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}}); err != nil {
+	if _, err := store.AddEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID("edge-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(created.ID)), Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession}); err != nil {
 		t.Fatalf("AddEdge done: %v", err)
 	}
 	return created.ID
@@ -539,7 +539,7 @@ func createSchedulerApprovalWorkflow(t *testing.T, ctx context.Context, store *w
 	if err := store.DeleteEdge(ctx, doneEdge); err != nil {
 		t.Fatalf("DeleteEdge done: %v", err)
 	}
-	if _, err := store.AddEdge(ctx, workflowstore.EdgeRecord{ID: doneEdge, WorkflowID: workflowID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(workflowID)), Key: "done", TargetNodeID: schedulerNodeByKind(t, def, workflow.NodeKindTerminal).ID, ContextMode: workflow.ContextModeNewSession, RequiresApproval: true, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}}); err != nil {
+	if _, err := store.AddEdge(ctx, workflowstore.EdgeRecord{ID: doneEdge, WorkflowID: workflowID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(workflowID)), Key: "done", TargetNodeID: schedulerNodeByKind(t, def, workflow.NodeKindTerminal).ID, ContextMode: workflow.ContextModeNewSession, RequiresApproval: true}); err != nil {
 		t.Fatalf("Update approval edge: %v", err)
 	}
 	return workflowID

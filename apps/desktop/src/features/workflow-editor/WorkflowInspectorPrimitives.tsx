@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import type { WorkflowValidationError } from "../../api";
 import { Badge } from "../../ui";
+import { WorkflowValidationErrorDetailsLine } from "../workflow/WorkflowValidationIssues";
 
 export function DetailSection({ children, title }: Readonly<{ children: ReactNode; title?: string }>) {
   return (
@@ -50,6 +51,7 @@ export function ValidationDetails({
               <Badge tone={error.blocksContext ? "danger" : "warning"}>{error.code}</Badge>
             </div>
             <p className="m-0 text-sm">{error.message}</p>
+            <WorkflowValidationErrorDetailsLine error={error} />
           </li>
         ))}
       </ul>

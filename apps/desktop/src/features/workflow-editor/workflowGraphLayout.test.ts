@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { WorkflowDefinition, WorkflowValidation } from "../../api";
+import { emptyWorkflowDerivedWiring, type WorkflowDefinition, type WorkflowValidation } from "../../api";
 import type { WorkflowGraphEdge, WorkflowGraphNode } from "./workflowGraphLayout";
 import { layoutWorkflowGraph } from "./workflowGraphLayout";
 
@@ -51,6 +51,7 @@ describe("layoutWorkflowGraph", () => {
       errors: [
         {
           code: "workflow.validation.invalid",
+          details: { fieldName: "", inputName: "", placeholder: "", providerEdgeID: "" },
           message: "Invalid",
           workflowID: "workflow-1",
           nodeID: "node-1",
@@ -66,6 +67,28 @@ describe("layoutWorkflowGraph", () => {
     expect(graph.nodes.find((node) => node.id === "node-a")?.data.hasError).toBe(true);
     expect(edgeByID(graph.edges, "edge-a")?.data).toMatchObject({ label: "Split / a", hasError: true });
     expect(edgeByID(graph.edges, "edge-b")?.data).toMatchObject({ label: "Split / b", hasError: true });
+  });
+
+  it("marks provider edges from structured validation details", async () => {
+    const graph = await layoutWorkflowGraph(joinWorkflow, {
+      valid: false,
+      errors: [
+        {
+          blocksContext: true,
+          code: "workflow.validation.invalid_join_input_provider",
+          details: { fieldName: "", inputName: "summary", placeholder: "", providerEdgeID: "edge-join-b" },
+          edgeID: "",
+          message: "join input provider must reference an incoming edge into the join",
+          nodeID: "join",
+          relatedIDs: [],
+          transitionGroupID: "",
+          workflowID: "workflow-1",
+        },
+      ],
+    });
+
+    expect(edgeByID(graph.edges, "edge-join-b")?.data).toMatchObject({ hasError: true });
+    expect(edgeByID(graph.edges, "edge-join-a")?.data).toMatchObject({ hasError: false });
   });
 
   it("renders join nodes as inspectable merge diamonds with raw join edges", async () => {
@@ -119,6 +142,7 @@ const emptyValidation: WorkflowValidation = { valid: true, errors: [] };
 
 const groupedWorkflow: WorkflowDefinition = {
   workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
+  derivedWiring: emptyWorkflowDerivedWiring,
   nodeGroups: [
     {
       id: "group-1",
@@ -152,6 +176,7 @@ const groupedWorkflow: WorkflowDefinition = {
 
 const fanoutWorkflow: WorkflowDefinition = {
   workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
+  derivedWiring: emptyWorkflowDerivedWiring,
   nodeGroups: [],
   nodes: [
     workflowNode("node-1", "Plan", "agent", ""),
@@ -167,6 +192,7 @@ const fanoutWorkflow: WorkflowDefinition = {
 
 const crossBoundaryWorkflow: WorkflowDefinition = {
   workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
+  derivedWiring: emptyWorkflowDerivedWiring,
   nodeGroups: [
     {
       id: "group-source",
@@ -207,6 +233,7 @@ const crossBoundaryWorkflow: WorkflowDefinition = {
 
 const joinWorkflow: WorkflowDefinition = {
   workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
+  derivedWiring: emptyWorkflowDerivedWiring,
   nodeGroups: [],
   nodes: [
     workflowNode("node-a", "A", "agent", ""),
@@ -246,6 +273,7 @@ const joinWorkflow: WorkflowDefinition = {
 
 const joinChainWorkflow: WorkflowDefinition = {
   workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
+  derivedWiring: emptyWorkflowDerivedWiring,
   nodeGroups: [],
   nodes: [
     workflowNode("node-a", "A", "agent", ""),
@@ -291,6 +319,8 @@ function workflowNode(id: string, name: string, kind: string, groupID: string) {
     groupKey: groupID.length > 0 ? "core" : "",
     subagentRole: kind === "agent" ? "coder" : "",
     promptTemplate: "",
+    inputFields: [],
+    joinInputProviders: [],
     outputFields: [],
   };
 }

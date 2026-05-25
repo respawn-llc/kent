@@ -627,12 +627,17 @@ func assertCompletionSchema(t *testing.T, schema json.RawMessage, outputDescript
 	assertToolSchemaEnum(t, schema, "transition_id", transitionID)
 	assertSchemaProperty(t, schema, "commentary", "string", "Brief explanation of what was completed and why this transition was selected.")
 	for name, description := range outputDescriptions {
-		assertSchemaProperty(t, schema, name, "string", description)
+		assertNullableStringSchemaProperty(t, schema, name, description)
 	}
 	required := schemaRequired(t, schema)
-	for _, name := range append([]string{"transition_id", "commentary"}, sortedSchemaNames(outputDescriptions)...) {
+	for _, name := range []string{"transition_id", "commentary"} {
 		if !schemaRequiredContains(required, name) {
 			t.Fatalf("schema required missing %s, required=%+v schema=%s", name, required, string(schema))
+		}
+	}
+	for _, name := range sortedSchemaNames(outputDescriptions) {
+		if schemaRequiredContains(required, name) {
+			t.Fatalf("schema required includes optional output %s, required=%+v schema=%s", name, required, string(schema))
 		}
 	}
 }
@@ -642,6 +647,18 @@ func assertSchemaProperty(t *testing.T, schema json.RawMessage, name string, pro
 	property := schemaProperty(t, schema, name)
 	if got := property["type"]; got != propertyType {
 		t.Fatalf("schema property %s type = %v, want %s in %s", name, got, propertyType, string(schema))
+	}
+	if got := property["description"]; got != description {
+		t.Fatalf("schema property %s description = %v, want %q in %s", name, got, description, string(schema))
+	}
+}
+
+func assertNullableStringSchemaProperty(t *testing.T, schema json.RawMessage, name string, description string) {
+	t.Helper()
+	property := schemaProperty(t, schema, name)
+	rawTypes, ok := property["type"].([]any)
+	if !ok || len(rawTypes) != 2 || rawTypes[0] != "string" || rawTypes[1] != "null" {
+		t.Fatalf("schema property %s type = %v, want [string null] in %s", name, property["type"], string(schema))
 	}
 	if got := property["description"]; got != description {
 		t.Fatalf("schema property %s description = %v, want %q in %s", name, got, description, string(schema))

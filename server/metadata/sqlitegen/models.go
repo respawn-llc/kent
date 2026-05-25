@@ -281,16 +281,18 @@ type WorkflowEdge struct {
 }
 
 type WorkflowNode struct {
-	ID               string
-	WorkflowID       string
-	NodeKey          string
-	Kind             string
-	DisplayName      string
-	SubagentRole     string
-	PromptTemplate   string
-	OutputFieldsJson string
-	GroupID          sql.NullString
-	SortOrder        int64
+	ID                     string
+	WorkflowID             string
+	NodeKey                string
+	Kind                   string
+	DisplayName            string
+	SubagentRole           string
+	PromptTemplate         string
+	OutputFieldsJson       string
+	GroupID                sql.NullString
+	SortOrder              int64
+	InputFieldsJson        string
+	JoinInputProvidersJson string
 }
 
 type WorkflowNodeGroup struct {

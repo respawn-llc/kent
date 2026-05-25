@@ -481,7 +481,7 @@ function usesCompactNodeTooltip(kind: string): boolean {
 }
 
 function isEditableWorkflowNodeKind(kind: string): boolean {
-  return kind === "agent";
+  return kind === "agent" || kind === "join";
 }
 
 function stopPropagation(event: MouseEvent): void {

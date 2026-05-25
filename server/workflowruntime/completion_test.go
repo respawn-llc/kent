@@ -59,7 +59,7 @@ func TestCompletionJSONSchemaIncludesTopLevelOutputFields(t *testing.T) {
 		AdditionalProperties bool     `json:"additionalProperties"`
 		Required             []string `json:"required"`
 		Properties           map[string]struct {
-			Type        string   `json:"type"`
+			Type        any      `json:"type"`
 			Description string   `json:"description"`
 			Enum        []string `json:"enum,omitempty"`
 		} `json:"properties"`
@@ -79,7 +79,7 @@ func TestCompletionJSONSchemaIncludesTopLevelOutputFields(t *testing.T) {
 	if got := strings.Join(schema.Properties["transition_id"].Enum, ","); got != "blocked,done" {
 		t.Fatalf("transition_id enum = %q, want blocked,done", got)
 	}
-	wantRequired := []string{"transition_id", "commentary", "risk", "summary"}
+	wantRequired := []string{"transition_id", "commentary"}
 	if strings.Join(schema.Required, ",") != strings.Join(wantRequired, ",") {
 		t.Fatalf("required = %+v, want %+v", schema.Required, wantRequired)
 	}
@@ -106,7 +106,7 @@ func TestDecodeCompletionRejectsUnknownFields(t *testing.T) {
 	}
 }
 
-func TestDecodeCompletionRequiresProtocolAndOutputFields(t *testing.T) {
+func TestDecodeCompletionRequiresProtocolFieldsOnly(t *testing.T) {
 	_, err := DecodeCompletion(json.RawMessage(`{"transition_id":"done"}`), CompletionContract{
 		OutputFields: []workflow.OutputField{
 			{Name: "summary", Description: "Summary."},
@@ -126,13 +126,16 @@ func TestDecodeCompletionRequiresProtocolAndOutputFields(t *testing.T) {
 			missing[issue.Field] = true
 		}
 	}
-	for _, field := range []string{"commentary", "risk", "summary"} {
-		if !missing[field] {
-			t.Fatalf("missing required field %q in issues %+v", field, validation.Issues)
+	if !missing["commentary"] {
+		t.Fatalf("missing required commentary in issues %+v", validation.Issues)
+	}
+	for _, field := range []string{"risk", "summary"} {
+		if missing[field] {
+			t.Fatalf("output field %q should be optional in issues %+v", field, validation.Issues)
 		}
 	}
 
-	parsed, err := DecodeCompletion(json.RawMessage(`{"transition_id":"done","commentary":"","summary":"","risk":""}`), CompletionContract{
+	parsed, err := DecodeCompletion(json.RawMessage(`{"transition_id":"done","commentary":""}`), CompletionContract{
 		OutputFields: []workflow.OutputField{
 			{Name: "summary", Description: "Summary."},
 			{Name: "risk", Description: "Risk."},

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { WorkflowDefinition } from "../../api";
+import { emptyWorkflowDerivedWiring, type WorkflowDefinition } from "../../api";
 import {
   initializeWorkflowEditorDraft,
   workflowDefinitionFromDraft,
@@ -42,45 +42,80 @@ describe("workflowEditorDraft", () => {
     expect(workflowDefinitionFromDraft(graph.draft).nodes[0]?.name).toBe("Edited agent");
   });
 
-  it("adds output fields at the top and serializes row ids away", () => {
+  it("adds input fields at the top and serializes row ids away", () => {
     const added = workflowEditorDraftReducer(initializeWorkflowEditorDraft(workflowDefinition), {
       nodeID: "node-agent",
-      type: "addOutputField",
+      type: "addInputField",
     });
-    const rowID = added.draft.nodes[0]?.outputFields[0]?.rowID ?? "";
+    const rowID = added.draft.nodes[0]?.inputFields[0]?.rowID ?? "";
     const updated = workflowEditorDraftReducer(added, {
       nodeID: "node-agent",
-      patch: { description: "Details", name: "details" },
+      patch: { description: "Plan", name: "plan" },
       rowID,
-      type: "updateOutputField",
+      type: "updateInputField",
     });
 
     const graph = workflowEditorDraftGraph(updated);
-    expect(graph.nodes[0]?.outputFields).toEqual([
-      { description: "Details", name: "details" },
-      { description: "Summary", name: "summary" },
+    expect(graph.nodes[0]?.inputFields).toEqual([{ description: "Plan", name: "plan" }]);
+  });
+
+  it("assigns one join provider per input", () => {
+    const withJoin = {
+      ...workflowDefinition,
+      nodes: [...workflowDefinition.nodes, { ...workflowDefinition.nodes[0]!, id: "node-join", kind: "join" }],
+    };
+    const assigned = workflowEditorDraftReducer(initializeWorkflowEditorDraft(withJoin), {
+      inputName: "plan",
+      nodeID: "node-join",
+      providerEdgeID: "edge-provider",
+      type: "assignJoinInputProvider",
+    });
+    const reassigned = workflowEditorDraftReducer(assigned, {
+      inputName: "plan",
+      nodeID: "node-join",
+      providerEdgeID: "edge-provider-2",
+      type: "assignJoinInputProvider",
+    });
+
+    expect(workflowDefinitionFromDraft(reassigned.draft).nodes[1]?.joinInputProviders).toEqual([
+      { inputName: "plan", providerEdgeID: "edge-provider-2" },
     ]);
   });
 
-  it("reorders output fields by row id", () => {
-    const added = workflowEditorDraftReducer(initializeWorkflowEditorDraft(workflowDefinition), {
-      nodeID: "node-agent",
-      type: "addOutputField",
+  it("treats join provider assignments as stable mappings instead of order-sensitive rows", () => {
+    const source = {
+      ...workflowDefinition,
+      nodes: [
+        {
+          ...workflowDefinition.nodes[0]!,
+          id: "node-join",
+          joinInputProviders: [
+            { inputName: "first", providerEdgeID: "edge-first" },
+            { inputName: "second", providerEdgeID: "edge-second" },
+          ],
+          kind: "join",
+        },
+      ],
+    };
+    const reassigned = workflowEditorDraftReducer(initializeWorkflowEditorDraft(source), {
+      inputName: "first",
+      nodeID: "node-join",
+      providerEdgeID: "edge-first-updated",
+      type: "assignJoinInputProvider",
     });
-    const activeRowID = added.draft.nodes[0]?.outputFields[1]?.rowID ?? "";
-    const overRowID = added.draft.nodes[0]?.outputFields[0]?.rowID ?? "";
 
-    const reordered = workflowEditorDraftReducer(added, {
-      activeRowID,
-      nodeID: "node-agent",
-      overRowID,
-      type: "reorderOutputField",
-    });
-
-    expect(reordered.draft.nodes[0]?.outputFields.map((field) => field.rowID)).toEqual([
-      activeRowID,
-      overRowID,
+    expect(workflowDefinitionFromDraft(reassigned.draft).nodes[0]?.joinInputProviders).toEqual([
+      { inputName: "first", providerEdgeID: "edge-first-updated" },
+      { inputName: "second", providerEdgeID: "edge-second" },
     ]);
+    expect(
+      workflowEditorDirtyState(
+        initializeWorkflowEditorDraft({
+          ...source,
+          nodes: [{ ...source.nodes[0]!, joinInputProviders: [...source.nodes[0]!.joinInputProviders].reverse() }],
+        }),
+      ),
+    ).toEqual({ dirty: false, graphDirty: false, metadataDirty: false });
   });
 
   it("cascades selected-node context source references only when the old key is unique", () => {
@@ -146,6 +181,8 @@ const workflowDefinition: WorkflowDefinition = {
       key: "implement",
       kind: "agent",
       name: "Implement",
+      inputFields: [],
+      joinInputProviders: [],
       outputFields: [{ description: "Summary", name: "summary" }],
       promptTemplate: "Do work.",
       subagentRole: "coder",
@@ -175,4 +212,5 @@ const workflowDefinition: WorkflowDefinition = {
       workflowID: "workflow-1",
     },
   ],
+  derivedWiring: emptyWorkflowDerivedWiring,
 };

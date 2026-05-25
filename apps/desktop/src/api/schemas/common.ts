@@ -72,6 +72,14 @@ export const validationErrorSchema: z.ZodType<WorkflowValidationError> = z
     node_id: emptyString,
     transition_group_id: emptyString,
     edge_id: emptyString,
+    details: z
+      .object({
+        field_name: emptyString,
+        input_name: emptyString,
+        placeholder: emptyString,
+        provider_edge_id: emptyString,
+      })
+      .nullish(),
     related_ids: stringList,
     blocks_context: z.boolean().default(false),
   })
@@ -82,6 +90,12 @@ export const validationErrorSchema: z.ZodType<WorkflowValidationError> = z
     nodeID: value.node_id,
     transitionGroupID: value.transition_group_id,
     edgeID: value.edge_id,
+    details: {
+      fieldName: value.details?.field_name ?? "",
+      inputName: value.details?.input_name ?? "",
+      placeholder: value.details?.placeholder ?? "",
+      providerEdgeID: value.details?.provider_edge_id ?? "",
+    },
     relatedIDs: value.related_ids,
     blocksContext: value.blocks_context,
   }));

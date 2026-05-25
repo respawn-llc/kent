@@ -79,7 +79,10 @@ function WorkflowDraftInspectorContent({
   controller: WorkflowEditorDraftController;
   selection: WorkflowInspectorSelection;
 }>) {
-  const definition = workflowDefinitionFromDraft(controller.draft);
+  const definition = {
+    ...workflowDefinitionFromDraft(controller.draft),
+    derivedWiring: controller.derivedWiring,
+  };
   const validation = controller.draftValidation ??
     controller.executionValidation ?? { errors: [], valid: true };
   if (selection.kind === "workflow") {
@@ -100,7 +103,17 @@ function WorkflowDraftInspectorContent({
         />
       );
     }
-    return <NodeDetails node={node} validation={validation} />;
+    if (node.kind === "join") {
+      return (
+        <JoinNodeDraftDetails
+          controller={controller}
+          definition={definition}
+          node={node}
+          validation={validation}
+        />
+      );
+    }
+    return <NodeDetails definition={definition} node={{ ...node, outputFields: [] }} validation={validation} />;
   }
   if (selection.kind === "group") {
     const group = definition.nodeGroups.find((item) => item.id === selection.groupID);
@@ -230,13 +243,44 @@ function AgentNodeDraftDetails({
           value={node.promptTemplate}
         />
       </DetailSection>
-      <EditableOutputFields controller={controller} node={node} />
+      <EditableInputFields controller={controller} node={node} />
+      <FieldSummary
+        fields={derivedNodeWiring(definition, node.id).possibleProvisionFields}
+        title={t("workflowEditor.provides")}
+      />
       <ValidationDetails errors={errors} />
     </InspectorStack>
   );
 }
 
-function EditableOutputFields({
+function JoinNodeDraftDetails({
+  controller,
+  definition,
+  node,
+  validation,
+}: Readonly<{
+  controller: WorkflowEditorDraftController;
+  definition: WorkflowDefinition;
+  node: DraftWorkflowNode;
+  validation: WorkflowValidation;
+}>) {
+  const { t } = useTranslation();
+  const errors = validation.errors.filter(
+    (error) => error.nodeID === node.id || error.relatedIDs.includes(node.id),
+  );
+  return (
+    <InspectorStack>
+      <DetailSection title={t("workflowEditor.inspectorIdentity")}>
+        <DetailRow label={t("workflowEditor.key")} mono value={node.key} />
+        <DetailRow label={t("workflowEditor.id")} mono value={node.id} />
+      </DetailSection>
+      <EditableJoinProviders controller={controller} definition={definition} node={node} />
+      <ValidationDetails errors={errors} />
+    </InspectorStack>
+  );
+}
+
+function EditableInputFields({
   controller,
   node,
 }: Readonly<{
@@ -249,32 +293,32 @@ function EditableOutputFields({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   return (
-    <>
+    <DetailSection title={t("workflowEditor.requiredInputs")}>
       <Button
         onClick={() => {
-          controller.dispatch({ nodeID: node.id, type: "addOutputField" });
+          controller.dispatch({ nodeID: node.id, type: "addInputField" });
         }}
         variant="secondary"
       >
-        {t("workflowEditor.addOutputField")}
+        {t("workflowEditor.addRequiredInput")}
       </Button>
-      {node.outputFields.length === 0 ? (
+      {node.inputFields.length === 0 ? (
         <p className="m-0 text-sm text-[var(--color-muted)]">{t("workflowEditor.none")}</p>
       ) : null}
       <DndContext
         collisionDetection={closestCenter}
         onDragEnd={(event) => {
-          reorderOutputField(controller, node.id, event);
+          reorderInputField(controller, node.id, event);
         }}
         sensors={sensors}
       >
         <SortableContext
-          items={node.outputFields.map((field) => field.rowID)}
+          items={node.inputFields.map((field) => field.rowID)}
           strategy={verticalListSortingStrategy}
         >
           <div className="grid gap-[var(--space-3)]">
-            {node.outputFields.map((field) => (
-              <SortableOutputField
+            {node.inputFields.map((field) => (
+              <SortableInputField
                 controller={controller}
                 field={field}
                 key={field.rowID}
@@ -284,17 +328,17 @@ function EditableOutputFields({
           </div>
         </SortableContext>
       </DndContext>
-    </>
+    </DetailSection>
   );
 }
 
-function SortableOutputField({
+function SortableInputField({
   controller,
   field,
   nodeID,
 }: Readonly<{
   controller: WorkflowEditorDraftController;
-  field: DraftWorkflowNode["outputFields"][number];
+  field: DraftWorkflowNode["inputFields"][number];
   nodeID: string;
 }>) {
   const { t } = useTranslation();
@@ -312,14 +356,14 @@ function SortableOutputField({
   };
   return (
     <div
-      className="workflow-editor-output-field relative grid gap-[var(--space-2)] rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]"
-      data-output-field-name={field.name}
-      data-testid="workflow-output-field"
+      className="workflow-editor-input-field relative grid gap-[var(--space-2)] rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]"
+      data-input-field-name={field.name}
+      data-testid="workflow-input-field"
       ref={setNodeRef}
       style={style}
     >
       <div
-        aria-label={t("workflowEditor.reorderOutputField")}
+        aria-label={t("workflowEditor.reorderInputField")}
         className="absolute inset-0 cursor-grab rounded-[inherit] outline-none focus-visible:ring-[3px] focus-visible:ring-[color-mix(in_srgb,var(--color-primary)_35%,transparent)] active:cursor-grabbing"
         ref={setActivatorNodeRef}
         {...attributes}
@@ -335,7 +379,7 @@ function SortableOutputField({
           />
           {isEditingName ? (
             <input
-              aria-label={t("workflowEditor.outputFieldName")}
+              aria-label={t("workflowEditor.inputFieldName")}
               autoFocus
               className="app-region-no-drag pointer-events-auto min-w-0 flex-1 rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] px-[var(--space-2)] py-[var(--space-1)] font-bold text-[var(--color-on-island)] outline-none focus:border-[var(--color-primary)]"
               onBlur={() => {
@@ -346,7 +390,7 @@ function SortableOutputField({
                   nodeID,
                   patch: { name: event.target.value.replaceAll("\n", " ") },
                   rowID: field.rowID,
-                  type: "updateOutputField",
+                  type: "updateInputField",
                 });
               }}
               onKeyDown={(event) => {
@@ -366,14 +410,14 @@ function SortableOutputField({
               }}
               type="button"
             >
-              {field.name.length > 0 ? field.name : t("workflowEditor.outputFieldName")}
+              {field.name.length > 0 ? field.name : t("workflowEditor.inputFieldName")}
             </button>
           )}
           <Button
             aria-label={t("workflowEditor.deleteField")}
             className="pointer-events-auto grid h-8 w-8 shrink-0 place-items-center rounded-full !border-transparent !bg-transparent !p-0"
             onClick={() => {
-              controller.dispatch({ nodeID, rowID: field.rowID, type: "deleteOutputField" });
+              controller.dispatch({ nodeID, rowID: field.rowID, type: "deleteInputField" });
             }}
             variant="danger"
           >
@@ -382,7 +426,7 @@ function SortableOutputField({
         </div>
         <div className="pointer-events-auto">
           <label className="sr-only" htmlFor={descriptionID}>
-            {t("workflowEditor.outputFieldDescription")}
+            {t("workflowEditor.inputFieldDescription")}
           </label>
           <input
             className={cx(fieldInputClassName, "px-[var(--space-2)] py-[var(--space-2)]")}
@@ -392,10 +436,10 @@ function SortableOutputField({
                 nodeID,
                 patch: { description: event.target.value },
                 rowID: field.rowID,
-                type: "updateOutputField",
+                type: "updateInputField",
               });
             }}
-            placeholder={t("workflowEditor.outputFieldDescription")}
+            placeholder={t("workflowEditor.inputFieldDescription")}
             value={field.description}
           />
         </div>
@@ -404,7 +448,7 @@ function SortableOutputField({
   );
 }
 
-function reorderOutputField(
+function reorderInputField(
   controller: WorkflowEditorDraftController,
   nodeID: string,
   event: DragEndEvent,
@@ -417,8 +461,53 @@ function reorderOutputField(
     activeRowID: event.active.id.toString(),
     nodeID,
     overRowID: overID.toString(),
-    type: "reorderOutputField",
+    type: "reorderInputField",
   });
+}
+
+function EditableJoinProviders({
+  controller,
+  definition,
+  node,
+}: Readonly<{
+  controller: WorkflowEditorDraftController;
+  definition: WorkflowDefinition;
+  node: DraftWorkflowNode;
+}>) {
+  const { t } = useTranslation();
+  const requiredFields = derivedNodeWiring(definition, node.id).joinOutputFields;
+  const providerByInput = new Map(node.joinInputProviders.map((provider) => [provider.inputName, provider]));
+  return (
+    <DetailSection title={t("workflowEditor.joinProviders")}>
+      {requiredFields.length === 0 ? (
+        <p className="m-0 text-sm text-[var(--color-muted)]">{t("workflowEditor.none")}</p>
+      ) : (
+        <div className="grid gap-[var(--space-3)]">
+          {requiredFields.map((field) => {
+            const selectedEdgeID = providerByInput.get(field.name)?.providerEdgeID ?? "";
+            return (
+              <SelectField
+                hint={field.description}
+                key={field.name}
+                label={field.name}
+                onValueChange={(value) => {
+                  controller.dispatch({
+                    inputName: field.name,
+                    nodeID: node.id,
+                    providerEdgeID: value,
+                    type: "assignJoinInputProvider",
+                  });
+                }}
+                options={joinProviderOptions(definition, node.id, selectedEdgeID)}
+                placeholder={t("workflowEditor.selectProvider")}
+                value={selectedEdgeID}
+              />
+            );
+          })}
+        </div>
+      )}
+    </DetailSection>
+  );
 }
 
 function WorkflowInspectorContent({
@@ -438,7 +527,7 @@ function WorkflowInspectorContent({
     return node === undefined ? (
       <MissingEntity entityID={selection.nodeID} />
     ) : (
-      <NodeDetails node={node} validation={validation} />
+      <NodeDetails definition={definition} node={node} validation={validation} />
     );
   }
   if (selection.kind === "group") {
@@ -484,13 +573,15 @@ function WorkflowDetails({
 }
 
 function NodeDetails({
+  definition,
   node,
   validation,
-}: Readonly<{ node: WorkflowNode; validation: WorkflowValidation }>) {
+}: Readonly<{ definition: WorkflowDefinition; node: WorkflowNode; validation: WorkflowValidation }>) {
   const { t } = useTranslation();
   const errors = validation.errors.filter(
     (error) => error.nodeID === node.id || error.relatedIDs.includes(node.id),
   );
+  const derivedNode = derivedNodeWiring(definition, node.id);
   return (
     <InspectorStack>
       <DetailSection>
@@ -506,7 +597,18 @@ function NodeDetails({
           </>
         ) : null}
       </DetailSection>
-      <OutputFields fields={node.outputFields} />
+      {node.kind === "agent" ? (
+        <>
+          <FieldSummary fields={node.inputFields} title={t("workflowEditor.requiredInputs")} />
+          <FieldSummary fields={derivedNode.possibleProvisionFields} title={t("workflowEditor.provides")} />
+        </>
+      ) : null}
+      {node.kind === "join" ? (
+        <>
+          <FieldSummary fields={derivedNode.joinOutputFields} title={t("workflowEditor.joinRequiredInputs")} />
+          <JoinProviders definition={definition} node={node} />
+        </>
+      ) : null}
       <ValidationDetails errors={errors} />
     </InspectorStack>
   );
@@ -553,6 +655,7 @@ function EdgeDetails({
 }: Readonly<{ definition: WorkflowDefinition; edge: WorkflowEdge; validation: WorkflowValidation }>) {
   const { t } = useTranslation();
   const details = edgeDetails(definition, edge, validation);
+  const derivedEdge = derivedEdgeWiring(definition, edge.id);
   return (
     <InspectorStack>
       <DetailSection title={t("workflowEditor.inspectorIdentity")}>
@@ -574,18 +677,30 @@ function EdgeDetails({
           value={edge.requiresApproval ? t("workflowEditor.required") : t("workflowEditor.none")}
         />
       </DetailSection>
-      <Bindings bindings={edge.inputBindings} />
-      <Requirements requirements={edge.outputRequirements} />
+      <Bindings bindings={derivedEdge.inputBindings} />
+      <FieldSummary
+        fields={derivedEdge.requiredProvisionFields}
+        title={t("workflowEditor.derivedProvisionRequirements")}
+      />
+      {derivedEdge.requiredProviderFields.length === 0 ? null : (
+        <FieldSummary
+          fields={derivedEdge.requiredProviderFields}
+          title={t("workflowEditor.providerRequirements")}
+        />
+      )}
       <ValidationDetails errors={details.directErrors} title={t("workflowEditor.edgeErrors")} />
       <ValidationDetails errors={details.groupErrors} title={t("workflowEditor.transitionGroupErrors")} />
     </InspectorStack>
   );
 }
 
-function OutputFields({ fields }: Readonly<{ fields: WorkflowNode["outputFields"] }>) {
+function FieldSummary({
+  fields,
+  title,
+}: Readonly<{ fields: readonly { name: string; description: string }[]; title: string }>) {
   const { t } = useTranslation();
   return (
-    <DetailSection title={t("workflowEditor.outputFields")}>
+    <DetailSection title={title}>
       {fields.length === 0 ? (
         <p className="m-0 text-sm text-[var(--color-muted)]">{t("workflowEditor.none")}</p>
       ) : (
@@ -604,10 +719,38 @@ function OutputFields({ fields }: Readonly<{ fields: WorkflowNode["outputFields"
   );
 }
 
+function JoinProviders({
+  definition,
+  node,
+}: Readonly<{ definition: WorkflowDefinition; node: WorkflowNode }>) {
+  const { t } = useTranslation();
+  const fields = derivedNodeWiring(definition, node.id).joinOutputFields;
+  const providerByInput = new Map(node.joinInputProviders.map((provider) => [provider.inputName, provider]));
+  if (fields.length === 0) {
+    return null;
+  }
+  return (
+    <DetailSection title={t("workflowEditor.joinProviders")}>
+      <ul className="m-0 grid gap-[var(--space-2)] p-0">
+        {fields.map((field) => {
+          const providerEdgeID = providerByInput.get(field.name)?.providerEdgeID ?? "";
+          const provider = providerEdgeLabel(definition, providerEdgeID);
+          return (
+            <li className="list-none text-sm" key={field.name}>
+              <span className="font-mono">{field.name}</span>
+              <span className="text-[var(--color-muted)]"> = {provider || t("workflowEditor.none")}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </DetailSection>
+  );
+}
+
 function Bindings({ bindings }: Readonly<{ bindings: WorkflowEdge["inputBindings"] }>) {
   const { t } = useTranslation();
   return (
-    <DetailSection title={t("workflowEditor.inputBindings")}>
+    <DetailSection title={t("workflowEditor.derivedInputBindings")}>
       {bindings.length === 0 ? (
         <p className="m-0 text-sm text-[var(--color-muted)]">{t("workflowEditor.none")}</p>
       ) : (
@@ -615,25 +758,6 @@ function Bindings({ bindings }: Readonly<{ bindings: WorkflowEdge["inputBindings
           {bindings.map((binding) => (
             <li className="list-none text-sm" key={`${binding.name}:${binding.source}:${binding.field}`}>
               <span className="font-mono">{binding.name}</span> = {binding.source}.{binding.field}
-            </li>
-          ))}
-        </ul>
-      )}
-    </DetailSection>
-  );
-}
-
-function Requirements({ requirements }: Readonly<{ requirements: WorkflowEdge["outputRequirements"] }>) {
-  const { t } = useTranslation();
-  return (
-    <DetailSection title={t("workflowEditor.outputRequirements")}>
-      {requirements.length === 0 ? (
-        <p className="m-0 text-sm text-[var(--color-muted)]">{t("workflowEditor.none")}</p>
-      ) : (
-        <ul className="m-0 grid gap-[var(--space-1)] p-0">
-          {requirements.map((requirement) => (
-            <li className="list-none font-mono text-sm" key={requirement.fieldName}>
-              {requirement.fieldName}
             </li>
           ))}
         </ul>
@@ -673,6 +797,64 @@ function edgeDetails(definition: WorkflowDefinition, edge: WorkflowEdge, validat
     transitionGroupLabel: fallbackLabel("", group?.name, group?.id),
     transitionID: group?.transitionID ?? "",
   };
+}
+
+function derivedNodeWiring(definition: WorkflowDefinition, nodeID: string) {
+  return (
+    definition.derivedWiring.nodes.find((wiring) => wiring.nodeID === nodeID) ?? {
+      joinOutputFields: [],
+      nodeID,
+      possibleProvisionFields: [],
+    }
+  );
+}
+
+function derivedEdgeWiring(definition: WorkflowDefinition, edgeID: string) {
+  return (
+    definition.derivedWiring.edges.find((wiring) => wiring.edgeID === edgeID) ?? {
+      edgeID,
+      inputBindings: [],
+      requiredProviderFields: [],
+      requiredProvisionFields: [],
+    }
+  );
+}
+
+function joinProviderOptions(
+  definition: WorkflowDefinition,
+  joinNodeID: string,
+  selectedEdgeID: string,
+): readonly SelectFieldOption[] {
+  const options = definition.edges
+    .filter((edge) => edge.targetNodeID === joinNodeID)
+    .map((edge) => ({
+      label: providerEdgeLabel(definition, edge.id),
+      textValue: providerEdgeLabel(definition, edge.id),
+      value: edge.id,
+    }));
+  if (selectedEdgeID.length === 0 || options.some((option) => option.value === selectedEdgeID)) {
+    return options;
+  }
+  return [
+    ...options,
+    {
+      disabled: true,
+      label: selectedEdgeID,
+      textValue: selectedEdgeID,
+      value: selectedEdgeID,
+    },
+  ];
+}
+
+function providerEdgeLabel(definition: WorkflowDefinition, edgeID: string): string {
+  const edge = definition.edges.find((item) => item.id === edgeID);
+  if (edge === undefined) {
+    return edgeID;
+  }
+  const group = transitionGroupByID(definition, edge.transitionGroupID);
+  const source = group === undefined ? undefined : nodeByID(definition, group.sourceNodeID);
+  const sourceLabel = fallbackLabel(edge.key, source?.name, source?.key);
+  return `${sourceLabel} / ${edge.key}`;
 }
 
 function formatContextModeLabel(mode: string, translate: Translate): string {

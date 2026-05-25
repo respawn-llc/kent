@@ -11,18 +11,21 @@ import type {
   TaskDetail,
   TeleportTarget,
   WorkflowBoard,
+  WorkflowDerivedWiring,
   WorkflowDeleteImpact,
   WorkflowDeleteResponse,
   WorkflowDefinition,
   WorkflowGraphSaveImpact,
   WorkflowGraphSavePreview,
   WorkflowGraphSaveResult,
+  WorkflowGraphValidateDraftResult,
   WorkflowGraphValidationResults,
   WorkflowPage,
   WorkflowRecord,
   ProjectWorkflowLink,
   WorkflowValidation,
 } from "../models";
+import { emptyWorkflowDerivedWiring } from "../models";
 import {
   attentionItemSchema,
   boardCardSchema,
@@ -155,6 +158,21 @@ const workflowNodesSchema = z
         group_key: emptyString,
         subagent_role: emptyString,
         prompt_template: emptyString,
+        input_fields: z.array(workflowOutputFieldSchema).nullish().transform(emptyArray),
+        join_input_providers: z
+          .array(
+            z
+              .object({
+                input_name: z.string(),
+                provider_edge_id: z.string(),
+              })
+              .transform((provider) => ({
+                inputName: provider.input_name,
+                providerEdgeID: provider.provider_edge_id,
+              })),
+          )
+          .nullish()
+          .transform(emptyArray),
         output_fields: z.array(workflowOutputFieldSchema).nullish().transform(emptyArray),
       })
       .transform((value) => ({
@@ -167,6 +185,8 @@ const workflowNodesSchema = z
         groupKey: value.group_key,
         subagentRole: value.subagent_role,
         promptTemplate: value.prompt_template,
+        inputFields: value.input_fields,
+        joinInputProviders: value.join_input_providers,
         outputFields: value.output_fields,
       })),
   )
@@ -223,6 +243,65 @@ const workflowOutputRequirementsSchema = z
   )
   .nullish()
   .transform(emptyArray);
+
+const workflowDerivedWiringSchema: z.ZodType<WorkflowDerivedWiring> = z
+  .object({
+    nodes: z
+      .array(
+        z
+          .object({
+            node_id: z.string(),
+            possible_provision_fields: z.array(workflowOutputFieldSchema).nullish().transform(emptyArray),
+            join_output_fields: z.array(workflowOutputFieldSchema).nullish().transform(emptyArray),
+          })
+          .transform((value) => ({
+            nodeID: value.node_id,
+            possibleProvisionFields: value.possible_provision_fields,
+            joinOutputFields: value.join_output_fields,
+          })),
+      )
+      .nullish()
+      .transform(emptyArray),
+    transition_groups: z
+      .array(
+        z
+          .object({
+            transition_group_id: z.string(),
+            required_provision_fields: z.array(workflowOutputFieldSchema).nullish().transform(emptyArray),
+          })
+          .transform((value) => ({
+            transitionGroupID: value.transition_group_id,
+            requiredProvisionFields: value.required_provision_fields,
+          })),
+      )
+      .nullish()
+      .transform(emptyArray),
+    edges: z
+      .array(
+        z
+          .object({
+            edge_id: z.string(),
+            input_bindings: workflowInputBindingsSchema,
+            required_provision_fields: z.array(workflowOutputFieldSchema).nullish().transform(emptyArray),
+            required_provider_fields: z.array(workflowOutputFieldSchema).nullish().transform(emptyArray),
+          })
+          .transform((value) => ({
+            edgeID: value.edge_id,
+            inputBindings: value.input_bindings,
+            requiredProvisionFields: value.required_provision_fields,
+            requiredProviderFields: value.required_provider_fields,
+          })),
+      )
+      .nullish()
+      .transform(emptyArray),
+    diagnostics: z.array(validationErrorSchema).nullish().transform(emptyArray),
+  })
+  .transform((value) => ({
+    nodes: value.nodes,
+    transitionGroups: value.transition_groups,
+    edges: value.edges,
+    diagnostics: value.diagnostics,
+  }));
 
 const workflowContextSourceSchema = z
   .object({
@@ -281,6 +360,9 @@ const workflowDefinitionValueSchema: z.ZodType<WorkflowDefinition> = z
     nodes: workflowNodesSchema,
     transition_groups: workflowTransitionGroupsSchema,
     edges: workflowEdgesSchema,
+    derived_wiring: workflowDerivedWiringSchema
+      .nullish()
+      .transform((value) => value ?? emptyWorkflowDerivedWiring),
   })
   .transform((value) => ({
     workflow: {
@@ -293,6 +375,7 @@ const workflowDefinitionValueSchema: z.ZodType<WorkflowDefinition> = z
     nodes: value.nodes,
     transitionGroups: value.transition_groups,
     edges: value.edges,
+    derivedWiring: value.derived_wiring,
   }));
 
 export const workflowDefinitionSchema: z.ZodType<WorkflowDefinition> = z
@@ -316,11 +399,14 @@ const workflowGraphValidationResultsSchema: z.ZodType<WorkflowGraphValidationRes
   workflowValidationSchema,
 );
 
-export const workflowGraphValidateDraftSchema: z.ZodType<WorkflowGraphValidationResults> = z
+export const workflowGraphValidateDraftSchema: z.ZodType<WorkflowGraphValidateDraftResult> = z
   .object({
     results: workflowGraphValidationResultsSchema,
+    derived_wiring: workflowDerivedWiringSchema
+      .nullish()
+      .transform((value) => value ?? emptyWorkflowDerivedWiring),
   })
-  .transform((value) => value.results);
+  .transform((value) => ({ ...value.results, derivedWiring: value.derived_wiring }));
 
 const workflowGraphSaveImpactSchema: z.ZodType<WorkflowGraphSaveImpact> = z
   .object({

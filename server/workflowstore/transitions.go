@@ -104,28 +104,6 @@ WHERE id = ?`, id).Scan(&taskID, &sourceRunID, &state, &revision, &transitionCre
 			return CompleteRunResult{}, err
 		}
 	}
-	var fallbackDef workflow.Definition
-	var fallbackWorkflow WorkflowRecord
-	if !hasSourceRun || !sourceSnapshot.hasFullGraphContract() {
-		for _, edge := range edges {
-			if workflow.NodeKind(edge.TargetNodeKind) != workflow.NodeKindAgent {
-				continue
-			}
-			workflowID := sourceSnapshot.WorkflowID
-			if !hasSourceRun {
-				task, taskErr := s.queries.GetTask(ctx, taskID)
-				if taskErr != nil {
-					return CompleteRunResult{}, taskErr
-				}
-				workflowID = workflow.WorkflowID(task.WorkflowID)
-			}
-			fallbackDef, fallbackWorkflow, err = s.GetDefinition(ctx, workflowID)
-			if err != nil {
-				return CompleteRunResult{}, err
-			}
-			break
-		}
-	}
 	now := s.now().UnixMilli()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -200,6 +178,10 @@ WHERE id = ? AND state = 'pending'`, targetPlacementID, edge.ID); err != nil {
 			continue
 		}
 		targetRunID := prefixedID("run")
+		edgeMetadata, err := transitionEdgeMetadata(edge)
+		if err != nil {
+			return CompleteRunResult{}, err
+		}
 		targetSnapshot := runStartSnapshot{}
 		foundSnapshot := false
 		if hasSourceRun {
@@ -209,16 +191,12 @@ WHERE id = ? AND state = 'pending'`, targetPlacementID, edge.ID); err != nil {
 			}
 		}
 		if !foundSnapshot {
-			targetSnapshot, err = newRunStartSnapshot(fallbackDef, fallbackWorkflow, targetEdge.TargetNode.ID)
-			if err != nil {
-				return CompleteRunResult{}, err
+			if edgeMetadata.TargetRunStartSnapshot == nil {
+				return CompleteRunResult{}, fmt.Errorf("pending approval edge %q has no frozen run-start snapshot for target node %q", edge.ID, targetEdge.TargetNode.ID)
 			}
+			targetSnapshot = *edgeMetadata.TargetRunStartSnapshot
 		}
 		targetSnapshotJSON, err := marshalJSON(targetSnapshot)
-		if err != nil {
-			return CompleteRunResult{}, err
-		}
-		edgeMetadata, err := transitionEdgeMetadata(edge)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
@@ -377,11 +355,16 @@ func transitionEdgeMetadata(edge sqlitegen.TaskTransitionEdgeRecord) (workflowRu
 }
 
 func insertTransitionEdgeSnapshot(ctx context.Context, q *sqlitegen.Queries, transitionID string, edge edgeContractSnapshot, targetPlacementID string, state string, source resolvedContextSourceRun) error {
-	metadataJSON, err := marshalJSON(workflowRunMetadata{
+	return insertTransitionEdgeSnapshotWithMetadata(ctx, q, transitionID, edge, targetPlacementID, state, workflowRunMetadata{
 		ContextSource:   workflow.CanonicalContextSource(edge.ContextSource),
 		SourceRunID:     source.runID,
 		SourceSessionID: source.sessionID,
 	})
+}
+
+func insertTransitionEdgeSnapshotWithMetadata(ctx context.Context, q *sqlitegen.Queries, transitionID string, edge edgeContractSnapshot, targetPlacementID string, state string, metadata workflowRunMetadata) error {
+	metadata.ContextSource = workflow.CanonicalContextSource(edge.ContextSource)
+	metadataJSON, err := marshalJSON(metadata)
 	if err != nil {
 		return err
 	}

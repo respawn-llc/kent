@@ -252,7 +252,7 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 	if workflowID == "" {
 		t.Fatalf("workflow create output = %q, want workflow id", workflowOut)
 	}
-	if _, nodeErr, code := runWorkflowRootCommand("workflow", "node", "add", workflowID, "--key", "triaging", "--kind", "agent", "--display-name", "Triaging", "--agent", "fast", "--prompt", "Triage.", "--output", "summary=Summary."); code != 0 {
+	if _, nodeErr, code := runWorkflowRootCommand("workflow", "node", "add", workflowID, "--key", "triaging", "--kind", "agent", "--display-name", "Triaging", "--agent", "fast", "--prompt", "Triage."); code != 0 {
 		t.Fatalf("workflow node add exit=%d stderr=%q", code, nodeErr)
 	}
 	if _, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "new_session"); code != 0 {
@@ -267,7 +267,7 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 		t.Fatalf("edge output = %q, want edge id", edgeOut)
 	}
 
-	updateNodeOut, updateNodeErr, code := runWorkflowRootCommand("workflow", "node", "update", workflowID, "triaging", "--prompt", "Decide whether the ticket is actionable.", "--output", "triage_result_text=Triage result and rationale.")
+	updateNodeOut, updateNodeErr, code := runWorkflowRootCommand("workflow", "node", "update", workflowID, "triaging", "--prompt", "Decide whether the ticket is actionable.")
 	if code != 0 {
 		t.Fatalf("workflow node update exit=%d stderr=%q", code, updateNodeErr)
 	}
@@ -275,7 +275,7 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 		t.Fatalf("node update output = %q, want node key", updateNodeOut)
 	}
 
-	updateEdgeOut, updateEdgeErr, code := runWorkflowRootCommand("workflow", "edge", "update", workflowID, edgeID, "--transition", "not_actionable", "--edge-key", "not_actionable", "--require-output", "triage_result_text")
+	updateEdgeOut, updateEdgeErr, code := runWorkflowRootCommand("workflow", "edge", "update", workflowID, edgeID, "--transition", "not_actionable", "--edge-key", "not_actionable")
 	if code != 0 {
 		t.Fatalf("workflow edge update exit=%d stderr=%q", code, updateEdgeErr)
 	}
@@ -287,10 +287,42 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("workflow inspect exit=%d stderr=%q", code, inspectErr)
 	}
-	for _, want := range []string{"output_field\ttriaging\ttriage_result_text", "\tnot_actionable\tNot Actionable", "context_source\tnot_actionable\tselected_node\ttriaging", "output_requirement\tnot_actionable\ttriage_result_text"} {
+	for _, want := range []string{"\tnot_actionable\tNot Actionable", "context_source\tnot_actionable\tselected_node\ttriaging"} {
 		if !strings.Contains(inspectOut, want) {
 			t.Fatalf("inspect output = %q, want %q", inspectOut, want)
 		}
+	}
+}
+
+func TestWorkflowEditCommandsRejectLegacyWiringFlags(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "node add output",
+			args: []string{"workflow", "node", "add", "workflow-1", "--key", "agent", "--kind", "agent", "--output", "summary=Summary"},
+		},
+		{
+			name: "node update output",
+			args: []string{"workflow", "node", "update", "workflow-1", "agent", "--output", "summary=Summary"},
+		},
+		{
+			name: "edge add input",
+			args: []string{"workflow", "edge", "add", "workflow-1", "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "agent", "--context", "new_session", "--input", "summary=transition_output:summary"},
+		},
+		{
+			name: "edge update output requirement",
+			args: []string{"workflow", "edge", "update", "workflow-1", "edge-1", "--require-output", "summary"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, stderr, code := runWorkflowRootCommand(tt.args...)
+			if code != 2 || !strings.Contains(stderr, "flag provided but not defined") {
+				t.Fatalf("exit=%d stderr=%q, want undefined flag parse failure", code, stderr)
+			}
+		})
 	}
 }
 

@@ -1,5 +1,6 @@
 export { BuilderApiClient } from "./client";
 export type { QuestionAnswerInput, TaskEditInput, TaskMutationInput } from "./client";
+export { emptyWorkflowDerivedWiring } from "./models";
 export { createJsonRpcTransport } from "./jsonRpc";
 export type {
   ActivityItem,
@@ -24,10 +25,18 @@ export type {
   WorkflowBoard,
   WorkflowContextSource,
   WorkflowDefinition,
+  WorkflowDerivedEdgeWiring,
+  WorkflowDerivedNodeWiring,
+  WorkflowDerivedTransitionGroupWiring,
+  WorkflowDerivedWiring,
   WorkflowEdge,
   WorkflowGraphDraft,
   WorkflowGraphMetadata,
+  WorkflowGraphValidateDraftResult,
+  WorkflowGraphValidationResults,
+  WorkflowInputField,
   WorkflowInputBinding,
+  WorkflowJoinInputProvider,
   WorkflowNode,
   WorkflowNodeGroup,
   WorkflowOutputField,

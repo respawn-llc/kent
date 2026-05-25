@@ -308,7 +308,9 @@ function groupNodeID(id: string): string {
 
 function validationMarkers(validation: WorkflowValidation) {
   return {
-    edgeIDs: new Set(validation.errors.map((error) => error.edgeID).filter(nonEmpty)),
+    edgeIDs: new Set(
+      validation.errors.flatMap((error) => [error.edgeID, error.details.providerEdgeID]).filter(nonEmpty),
+    ),
     nodeIDs: new Set(validation.errors.map((error) => error.nodeID).filter(nonEmpty)),
     relatedIDs: new Set(validation.errors.flatMap((error) => error.relatedIDs).filter(nonEmpty)),
     transitionGroupIDs: new Set(validation.errors.map((error) => error.transitionGroupID).filter(nonEmpty)),

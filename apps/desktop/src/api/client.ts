@@ -27,7 +27,7 @@ import type {
   WorkflowGraphMetadata,
   WorkflowGraphSavePreview,
   WorkflowGraphSaveResult,
-  WorkflowGraphValidationResults,
+  WorkflowGraphValidateDraftResult,
   WorkflowPage,
   WorkflowRecord,
   WorkflowValidation,
@@ -281,7 +281,7 @@ export class BuilderApiClient {
 
   async validateWorkflowGraphDraft(
     input: WorkflowGraphValidateDraftInput,
-  ): Promise<WorkflowGraphValidationResults> {
+  ): Promise<WorkflowGraphValidateDraftResult> {
     return parse(
       "workflow.graph.validateDraft",
       workflowGraphValidateDraftSchema,
@@ -665,9 +665,13 @@ function workflowGraphDraftPayload(graph: WorkflowGraphDraft): JsonObject {
         group_key: node.groupKey.length > 0 ? node.groupKey : undefined,
         subagent_role: node.subagentRole.length > 0 ? node.subagentRole : undefined,
         prompt_template: node.promptTemplate.length > 0 ? node.promptTemplate : undefined,
-        output_fields: node.outputFields.map((field) => ({
+        input_fields: node.inputFields.map((field) => ({
           name: field.name,
           description: field.description,
+        })),
+        join_input_providers: node.joinInputProviders.map((provider) => ({
+          input_name: provider.inputName,
+          provider_edge_id: provider.providerEdgeID,
         })),
       }),
     ),
@@ -688,14 +692,6 @@ function workflowGraphDraftPayload(graph: WorkflowGraphDraft): JsonObject {
         kind: edge.contextSource.kind,
         node_key: edge.contextSource.nodeKey,
       },
-      input_bindings: edge.inputBindings.map((binding) => ({
-        name: binding.name,
-        source: binding.source,
-        field: binding.field,
-      })),
-      output_requirements: edge.outputRequirements.map((requirement) => ({
-        field_name: requirement.fieldName,
-      })),
     })),
   };
 }

@@ -157,6 +157,8 @@ INSERT INTO workflow_nodes (
     display_name,
     subagent_role,
     prompt_template,
+    input_fields_json,
+    join_input_providers_json,
     output_fields_json,
     group_id,
     sort_order
@@ -168,6 +170,8 @@ INSERT INTO workflow_nodes (
     sqlc.arg(display_name),
     sqlc.arg(subagent_role),
     sqlc.arg(prompt_template),
+    sqlc.arg(input_fields_json),
+    sqlc.arg(join_input_providers_json),
     sqlc.arg(output_fields_json),
     sqlc.narg(group_id),
     sqlc.arg(sort_order)
@@ -245,6 +249,8 @@ SELECT
     display_name,
     subagent_role,
     prompt_template,
+    input_fields_json,
+    join_input_providers_json,
     output_fields_json,
     group_id,
     sort_order
@@ -261,6 +267,8 @@ SELECT
     display_name,
     subagent_role,
     prompt_template,
+    input_fields_json,
+    join_input_providers_json,
     output_fields_json,
     group_id,
     sort_order

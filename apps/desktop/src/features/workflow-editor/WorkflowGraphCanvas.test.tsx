@@ -19,7 +19,7 @@ describe("WorkflowGraphCanvas", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders graph nodes with kind-colored full outlines and metadata tooltips for non-editable nodes", async () => {
+  it("renders graph nodes with kind-colored full outlines and opens inspectors for editable nodes", async () => {
     const copied: string[] = [];
     const onNodeInspect = vi.fn();
     const { unmount } = render(
@@ -91,8 +91,9 @@ describe("WorkflowGraphCanvas", () => {
     });
     fireEvent.click(screen.getByTestId("workflow-graph-node-start"));
     fireEvent.click(screen.getByTestId("workflow-graph-node-terminal"));
-    fireEvent.click(screen.getByTestId("workflow-graph-node-join"));
     expect(onNodeInspect).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("workflow-graph-node-join"));
+    expect(onNodeInspect).toHaveBeenCalledWith("join");
     fireEvent.click(screen.getByTestId("workflow-graph-node-agent"));
     expect(onNodeInspect).toHaveBeenCalledWith("agent");
     for (const element of [

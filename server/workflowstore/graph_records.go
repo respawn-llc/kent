@@ -34,6 +34,14 @@ func currentWorkflowGraphSavePrepared(ctx context.Context, q *sqlitegen.Queries,
 		prepared.nodeGroups = append(prepared.nodeGroups, NodeGroupRecord{ID: group.ID, WorkflowID: workflow.WorkflowID(group.WorkflowID), Key: workflow.ModelKey(group.GroupKey), DisplayName: group.DisplayName, SortOrder: group.SortOrder})
 	}
 	for _, node := range nodes {
+		inputFields := []workflow.InputField{}
+		if err := unmarshalJSON(node.InputFieldsJson, &inputFields); err != nil {
+			return preparedWorkflowGraphSave{}, err
+		}
+		joinProviders := []workflow.JoinInputProvider{}
+		if err := unmarshalJSON(node.JoinInputProvidersJson, &joinProviders); err != nil {
+			return preparedWorkflowGraphSave{}, err
+		}
 		outputFields := []workflow.OutputField{}
 		if err := unmarshalJSON(node.OutputFieldsJson, &outputFields); err != nil {
 			return preparedWorkflowGraphSave{}, err
@@ -42,7 +50,7 @@ func currentWorkflowGraphSavePrepared(ctx context.Context, q *sqlitegen.Queries,
 		if node.GroupID.Valid {
 			groupID = node.GroupID.String
 		}
-		prepared.nodes = append(prepared.nodes, NodeRecord{ID: workflow.NodeID(node.ID), WorkflowID: workflow.WorkflowID(node.WorkflowID), Key: workflow.ModelKey(node.NodeKey), Kind: workflow.NodeKind(node.Kind), DisplayName: node.DisplayName, GroupID: groupID, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, OutputFields: outputFields})
+		prepared.nodes = append(prepared.nodes, NodeRecord{ID: workflow.NodeID(node.ID), WorkflowID: workflow.WorkflowID(node.WorkflowID), Key: workflow.ModelKey(node.NodeKey), Kind: workflow.NodeKind(node.Kind), DisplayName: node.DisplayName, GroupID: groupID, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: inputFields, JoinInputProviders: joinProviders, OutputFields: outputFields})
 	}
 	for _, group := range transitionGroups {
 		prepared.transitionGroups = append(prepared.transitionGroups, TransitionGroupRecord{ID: workflow.TransitionGroupID(group.ID), WorkflowID: workflow.WorkflowID(group.WorkflowID), SourceNodeID: workflow.NodeID(group.SourceNodeID), TransitionID: workflow.TransitionID(group.TransitionID), DisplayName: group.DisplayName})

@@ -1327,6 +1327,8 @@ SELECT
     display_name,
     subagent_role,
     prompt_template,
+    input_fields_json,
+    join_input_providers_json,
     output_fields_json,
     group_id,
     sort_order
@@ -1335,9 +1337,24 @@ WHERE id = ?1
 LIMIT 1
 `
 
-func (q *Queries) GetWorkflowNode(ctx context.Context, id string) (WorkflowNode, error) {
+type GetWorkflowNodeRow struct {
+	ID                     string
+	WorkflowID             string
+	NodeKey                string
+	Kind                   string
+	DisplayName            string
+	SubagentRole           string
+	PromptTemplate         string
+	InputFieldsJson        string
+	JoinInputProvidersJson string
+	OutputFieldsJson       string
+	GroupID                sql.NullString
+	SortOrder              int64
+}
+
+func (q *Queries) GetWorkflowNode(ctx context.Context, id string) (GetWorkflowNodeRow, error) {
 	row := q.db.QueryRowContext(ctx, getWorkflowNode, id)
-	var i WorkflowNode
+	var i GetWorkflowNodeRow
 	err := row.Scan(
 		&i.ID,
 		&i.WorkflowID,
@@ -1346,6 +1363,8 @@ func (q *Queries) GetWorkflowNode(ctx context.Context, id string) (WorkflowNode,
 		&i.DisplayName,
 		&i.SubagentRole,
 		&i.PromptTemplate,
+		&i.InputFieldsJson,
+		&i.JoinInputProvidersJson,
 		&i.OutputFieldsJson,
 		&i.GroupID,
 		&i.SortOrder,
@@ -2192,6 +2211,8 @@ INSERT INTO workflow_nodes (
     display_name,
     subagent_role,
     prompt_template,
+    input_fields_json,
+    join_input_providers_json,
     output_fields_json,
     group_id,
     sort_order
@@ -2205,21 +2226,25 @@ INSERT INTO workflow_nodes (
     ?7,
     ?8,
     ?9,
-    ?10
+    ?10,
+    ?11,
+    ?12
 )
 `
 
 type InsertWorkflowNodeParams struct {
-	ID               string
-	WorkflowID       string
-	NodeKey          string
-	Kind             string
-	DisplayName      string
-	SubagentRole     string
-	PromptTemplate   string
-	OutputFieldsJson string
-	GroupID          sql.NullString
-	SortOrder        int64
+	ID                     string
+	WorkflowID             string
+	NodeKey                string
+	Kind                   string
+	DisplayName            string
+	SubagentRole           string
+	PromptTemplate         string
+	InputFieldsJson        string
+	JoinInputProvidersJson string
+	OutputFieldsJson       string
+	GroupID                sql.NullString
+	SortOrder              int64
 }
 
 func (q *Queries) InsertWorkflowNode(ctx context.Context, arg InsertWorkflowNodeParams) error {
@@ -2231,6 +2256,8 @@ func (q *Queries) InsertWorkflowNode(ctx context.Context, arg InsertWorkflowNode
 		arg.DisplayName,
 		arg.SubagentRole,
 		arg.PromptTemplate,
+		arg.InputFieldsJson,
+		arg.JoinInputProvidersJson,
 		arg.OutputFieldsJson,
 		arg.GroupID,
 		arg.SortOrder,
@@ -3991,6 +4018,8 @@ SELECT
     display_name,
     subagent_role,
     prompt_template,
+    input_fields_json,
+    join_input_providers_json,
     output_fields_json,
     group_id,
     sort_order
@@ -3999,15 +4028,30 @@ WHERE workflow_id = ?1
 ORDER BY sort_order ASC, rowid ASC
 `
 
-func (q *Queries) ListWorkflowNodes(ctx context.Context, workflowID string) ([]WorkflowNode, error) {
+type ListWorkflowNodesRow struct {
+	ID                     string
+	WorkflowID             string
+	NodeKey                string
+	Kind                   string
+	DisplayName            string
+	SubagentRole           string
+	PromptTemplate         string
+	InputFieldsJson        string
+	JoinInputProvidersJson string
+	OutputFieldsJson       string
+	GroupID                sql.NullString
+	SortOrder              int64
+}
+
+func (q *Queries) ListWorkflowNodes(ctx context.Context, workflowID string) ([]ListWorkflowNodesRow, error) {
 	rows, err := q.db.QueryContext(ctx, listWorkflowNodes, workflowID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []WorkflowNode
+	var items []ListWorkflowNodesRow
 	for rows.Next() {
-		var i WorkflowNode
+		var i ListWorkflowNodesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkflowID,
@@ -4016,6 +4060,8 @@ func (q *Queries) ListWorkflowNodes(ctx context.Context, workflowID string) ([]W
 			&i.DisplayName,
 			&i.SubagentRole,
 			&i.PromptTemplate,
+			&i.InputFieldsJson,
+			&i.JoinInputProvidersJson,
 			&i.OutputFieldsJson,
 			&i.GroupID,
 			&i.SortOrder,

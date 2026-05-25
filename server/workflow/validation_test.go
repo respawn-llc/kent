@@ -437,18 +437,6 @@ func TestOutputBindingsTemplatesContextAndRoles(t *testing.T) {
 		{name: "output description too large", edit: func(def *workflow.Definition) {
 			def.Nodes[1].OutputFields[0].Description = stringOf("a", workflow.MaxOutputFieldDescriptionChars+1)
 		}, code: workflow.CodeOutputSchemaTooLarge},
-		{name: "unknown output requirement", edit: func(def *workflow.Definition) {
-			def.Edges[1].OutputRequirements = []workflow.OutputRequirement{{FieldName: "missing"}}
-		}, code: workflow.CodeUnknownOutputRequirement},
-		{name: "invalid input binding", edit: func(def *workflow.Definition) {
-			def.Edges[1].InputBindings = []workflow.InputBinding{{Name: "Review", Source: workflow.BindingSourceTransitionOutput, Field: "summary"}}
-		}, code: workflow.CodeInvalidInputBinding},
-		{name: "unknown transition output binding", edit: func(def *workflow.Definition) {
-			def.Edges[1].InputBindings = []workflow.InputBinding{{Name: "review", Source: workflow.BindingSourceTransitionOutput, Field: "missing"}}
-		}, code: workflow.CodeInvalidInputBinding},
-		{name: "unknown task binding", edit: func(def *workflow.Definition) {
-			def.Edges[1].InputBindings = []workflow.InputBinding{{Name: "task_ref", Source: workflow.BindingSourceTask, Field: "unknown"}}
-		}, code: workflow.CodeInvalidInputBinding},
 		{name: "invalid template placeholder", edit: func(def *workflow.Definition) {
 			def.Nodes[1].PromptTemplate = "Use {{.Inputs.missing}}."
 			def.Edges[0].InputBindings = []workflow.InputBinding{{Name: "task_title", Source: workflow.BindingSourceTask, Field: "title"}}
@@ -476,6 +464,10 @@ func TestOutputBindingsTemplatesContextAndRoles(t *testing.T) {
 	t.Run("valid input bindings and template placeholders pass", func(t *testing.T) {
 		def := validWorkflow()
 		def.Nodes[1].PromptTemplate = "Implement {{.Inputs.task_title}} with {{.Inputs.prior_summary}}."
+		def.Nodes[1].InputFields = []workflow.InputField{
+			{Name: "task_title", Description: "Task title."},
+			{Name: "prior_summary", Description: "Prior summary."},
+		}
 		def.Edges[0].InputBindings = []workflow.InputBinding{
 			{Name: "task_title", Source: workflow.BindingSourceTask, Field: "title"},
 			{Name: "prior_summary", Source: workflow.BindingSourceTransitionOutput, Field: "commentary"},
@@ -490,6 +482,10 @@ func TestOutputBindingsTemplatesContextAndRoles(t *testing.T) {
 	t.Run("template functions do not count as input placeholders", func(t *testing.T) {
 		def := validWorkflow()
 		def.Nodes[1].PromptTemplate = `{{if eq .Inputs.task_title "Task"}}{{printf "%s" .Inputs.prior_summary}}{{end}}`
+		def.Nodes[1].InputFields = []workflow.InputField{
+			{Name: "task_title", Description: "Task title."},
+			{Name: "prior_summary", Description: "Prior summary."},
+		}
 		def.Edges[0].InputBindings = []workflow.InputBinding{
 			{Name: "task_title", Source: workflow.BindingSourceTask, Field: "title"},
 			{Name: "prior_summary", Source: workflow.BindingSourceTransitionOutput, Field: "commentary"},
@@ -498,6 +494,23 @@ func TestOutputBindingsTemplatesContextAndRoles(t *testing.T) {
 		result := validateForTask(def)
 
 		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("unknown input placeholder exposes structured details", func(t *testing.T) {
+		def := validWorkflow()
+		def.Nodes[1].PromptTemplate = "Use {{.Inputs.missing}}."
+
+		result := validateForTask(def)
+
+		for _, err := range result.Errors {
+			if err.Code == workflow.CodeInvalidTemplatePlaceholder {
+				if err.InputName != "missing" || err.Placeholder != ".Inputs.missing" {
+					t.Fatalf("placeholder details = %+v", err)
+				}
+				return
+			}
+		}
+		t.Fatalf("missing %s in %+v", workflow.CodeInvalidTemplatePlaceholder, result.Errors)
 	})
 }
 
