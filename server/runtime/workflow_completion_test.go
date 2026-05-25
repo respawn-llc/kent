@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"encoding/json"
-	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -629,17 +628,7 @@ func assertCompletionSchema(t *testing.T, schema json.RawMessage, outputDescript
 	for name, description := range outputDescriptions {
 		assertNullableStringSchemaProperty(t, schema, name, description)
 	}
-	required := schemaRequired(t, schema)
-	for _, name := range []string{"transition_id", "commentary"} {
-		if !schemaRequiredContains(required, name) {
-			t.Fatalf("schema required missing %s, required=%+v schema=%s", name, required, string(schema))
-		}
-	}
-	for _, name := range sortedSchemaNames(outputDescriptions) {
-		if schemaRequiredContains(required, name) {
-			t.Fatalf("schema required includes optional output %s, required=%+v schema=%s", name, required, string(schema))
-		}
-	}
+	assertSchemaRequiredFields(t, schema, []string{"transition_id", "commentary"})
 }
 
 func assertSchemaProperty(t *testing.T, schema json.RawMessage, name string, propertyType string, description string) {
@@ -657,7 +646,18 @@ func assertNullableStringSchemaProperty(t *testing.T, schema json.RawMessage, na
 	t.Helper()
 	property := schemaProperty(t, schema, name)
 	rawTypes, ok := property["type"].([]any)
-	if !ok || len(rawTypes) != 2 || rawTypes[0] != "string" || rawTypes[1] != "null" {
+	if !ok || len(rawTypes) != 2 {
+		t.Fatalf("schema property %s type = %v, want [string null] in %s", name, property["type"], string(schema))
+	}
+	types := map[string]bool{}
+	for _, item := range rawTypes {
+		text, ok := item.(string)
+		if !ok {
+			t.Fatalf("schema property %s type item = %T, want string in %s", name, item, string(schema))
+		}
+		types[text] = true
+	}
+	if !types["string"] || !types["null"] || len(types) != 2 {
 		t.Fatalf("schema property %s type = %v, want [string null] in %s", name, property["type"], string(schema))
 	}
 	if got := property["description"]; got != description {
@@ -715,6 +715,26 @@ func schemaRequired(t *testing.T, schema json.RawMessage) []string {
 	return out
 }
 
+func assertSchemaRequiredFields(t *testing.T, schema json.RawMessage, expected []string) {
+	t.Helper()
+	required := schemaRequired(t, schema)
+	seen := map[string]bool{}
+	for _, name := range required {
+		if seen[name] {
+			t.Fatalf("schema required contains duplicate %s, required=%+v schema=%s", name, required, string(schema))
+		}
+		seen[name] = true
+	}
+	if len(seen) != len(expected) {
+		t.Fatalf("schema required = %+v, want exactly %+v in %s", required, expected, string(schema))
+	}
+	for _, name := range expected {
+		if !seen[name] {
+			t.Fatalf("schema required missing %s, required=%+v schema=%s", name, required, string(schema))
+		}
+	}
+}
+
 func schemaRoot(t *testing.T, schema json.RawMessage) map[string]any {
 	t.Helper()
 	root := map[string]any{}
@@ -722,22 +742,4 @@ func schemaRoot(t *testing.T, schema json.RawMessage) map[string]any {
 		t.Fatalf("unmarshal schema: %v", err)
 	}
 	return root
-}
-
-func schemaRequiredContains(required []string, name string) bool {
-	for _, field := range required {
-		if field == name {
-			return true
-		}
-	}
-	return false
-}
-
-func sortedSchemaNames(values map[string]string) []string {
-	names := make([]string, 0, len(values))
-	for name := range values {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }

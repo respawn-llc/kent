@@ -84,6 +84,12 @@ func TestWorkflowTaskAndCommentRequestValidation(t *testing.T) {
 	if err := (WorkflowTaskGetRequest{ProjectID: "project-1", ShortID: " "}).Validate(); err == nil || !strings.Contains(err.Error(), "short_id") {
 		t.Fatalf("empty get short id error = %v", err)
 	}
+	if err := (WorkflowTaskGetRequest{TaskID: " ", ShortID: "BLD-1"}).Validate(); err == nil || !strings.Contains(err.Error(), "task_id") {
+		t.Fatalf("whitespace task id error = %v", err)
+	}
+	if err := (WorkflowTaskGetRequest{ProjectID: " ", ShortID: "BLD-1"}).Validate(); err == nil || !strings.Contains(err.Error(), "project_id") {
+		t.Fatalf("whitespace project id error = %v", err)
+	}
 	if err := (WorkflowTaskResumeRequest{TaskID: "task-1"}).Validate(); err != nil {
 		t.Fatalf("valid task resume rejected: %v", err)
 	}

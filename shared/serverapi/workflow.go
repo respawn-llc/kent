@@ -1616,23 +1616,23 @@ func (r WorkflowTaskGetRequest) Validate() error {
 	taskID := strings.TrimSpace(r.TaskID)
 	projectID := strings.TrimSpace(r.ProjectID)
 	shortID := strings.TrimSpace(r.ShortID)
+	if r.TaskID != "" && taskID != r.TaskID {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "task_id", "task_id must not have leading or trailing whitespace")
+	}
+	if r.ProjectID != "" && projectID != r.ProjectID {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "project_id", "project_id must not have leading or trailing whitespace")
+	}
+	if r.ShortID != "" && shortID != r.ShortID {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "short_id", "short_id must not have leading or trailing whitespace")
+	}
 	if taskID != "" {
-		if taskID != r.TaskID {
-			return workflowRequestError(WorkflowRequestErrorInvalidMode, "task_id", "task_id must not have leading or trailing whitespace")
-		}
 		return nil
 	}
 	if projectID == "" && shortID == "" {
 		return workflowRequestError(WorkflowRequestErrorRequired, "task_id", "task_id or short_id is required")
 	}
-	if projectID != "" && projectID != r.ProjectID {
-		return workflowRequestError(WorkflowRequestErrorInvalidMode, "project_id", "project_id must not have leading or trailing whitespace")
-	}
 	if shortID == "" {
 		return validateRequired("short_id", r.ShortID)
-	}
-	if shortID != r.ShortID {
-		return workflowRequestError(WorkflowRequestErrorInvalidMode, "short_id", "short_id must not have leading or trailing whitespace")
 	}
 	return nil
 }

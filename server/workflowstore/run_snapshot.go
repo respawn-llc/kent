@@ -141,7 +141,7 @@ func newRunStartSnapshot(def workflow.Definition, record WorkflowRecord, nodeID 
 				ContextSource:      workflow.CanonicalContextSource(edge.ContextSource),
 				RequiresApproval:   edge.RequiresApproval,
 				InputBindings:      edgeInputBindingsSnapshot(edge, derived),
-				OutputRequirements: edgeOutputRequirementsSnapshot(edge, derived),
+				OutputRequirements: edgeOutputRequirementsSnapshot(edge, target, derived),
 			})
 		}
 		snapshot.TransitionGroups = append(snapshot.TransitionGroups, groupSnapshot)
@@ -173,8 +173,11 @@ func edgeInputBindingsSnapshot(edge workflow.Edge, derived workflow.DerivedWirin
 	return derived.InputBindingsForEdge(edge.ID)
 }
 
-func edgeOutputRequirementsSnapshot(edge workflow.Edge, derived workflow.DerivedWiring) []workflow.OutputRequirement {
+func edgeOutputRequirementsSnapshot(edge workflow.Edge, target workflow.Node, derived workflow.DerivedWiring) []workflow.OutputRequirement {
 	fields := derived.RequiredProvisionFieldsForEdge(edge.ID)
+	if target.Kind == workflow.NodeKindJoin {
+		fields = derived.RequiredProviderFieldsForJoinEdge(edge.ID)
+	}
 	requirements := make([]workflow.OutputRequirement, 0, len(fields))
 	for _, field := range fields {
 		if strings.TrimSpace(field.Name) != "" {

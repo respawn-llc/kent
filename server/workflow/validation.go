@@ -258,6 +258,10 @@ func (s *validationState) validateOutputFields(node Node) {
 }
 
 func (s *validationState) validateInputFields(node Node) {
+	if len(node.InputFields) > 0 && node.Kind != NodeKindAgent {
+		s.addHard(CodeInvalidInputField, "only agent nodes can declare input fields", ValidationError{WorkflowID: s.def.ID, NodeID: node.ID})
+		return
+	}
 	seen := map[string]bool{}
 	for _, field := range node.InputFields {
 		name := strings.TrimSpace(field.Name)

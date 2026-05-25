@@ -356,6 +356,11 @@ func (s *Service) GetTask(ctx context.Context, taskID string) (serverapi.Workflo
 	if err != nil {
 		return serverapi.WorkflowTaskDetail{}, err
 	}
+	pendingApprovalPlacements, err := s.pendingApprovalSourcePlacementsByTask(ctx, []string{task.ID})
+	if err != nil {
+		return serverapi.WorkflowTaskDetail{}, err
+	}
+	placements = append(placements, pendingApprovalPlacements[task.ID]...)
 	runs, err := s.queries.ListTaskRuns(ctx, task.ID)
 	if err != nil {
 		return serverapi.WorkflowTaskDetail{}, err

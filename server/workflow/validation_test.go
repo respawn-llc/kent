@@ -300,6 +300,30 @@ func TestNodeKindRules(t *testing.T) {
 			},
 			code: workflow.CodeInvalidNodeKind,
 		},
+		{
+			name: "start input fields",
+			edit: func(def *workflow.Definition) {
+				def.Nodes[0].InputFields = []workflow.InputField{{Name: "summary", Description: "Summary."}}
+			},
+			code: workflow.CodeInvalidInputField,
+		},
+		{
+			name: "join input fields",
+			edit: func(def *workflow.Definition) {
+				def.Nodes[1].Kind = workflow.NodeKindJoin
+				def.Nodes[1].SubagentRole = ""
+				def.Nodes[1].PromptTemplate = ""
+				def.Nodes[1].InputFields = []workflow.InputField{{Name: "summary", Description: "Summary."}}
+			},
+			code: workflow.CodeInvalidInputField,
+		},
+		{
+			name: "terminal input fields",
+			edit: func(def *workflow.Definition) {
+				def.Nodes[2].InputFields = []workflow.InputField{{Name: "summary", Description: "Summary."}}
+			},
+			code: workflow.CodeInvalidInputField,
+		},
 	}
 
 	for _, tt := range tests {

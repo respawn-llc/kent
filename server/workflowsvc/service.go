@@ -413,7 +413,7 @@ func (s *Service) ValidateWorkflow(ctx context.Context, req serverapi.WorkflowVa
 		mode = workflow.ValidationContextDraft
 	}
 	result := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: mode, RoleResolver: s.roleResolver})
-	return workflowValidationResponse(result), nil
+	return workflowValidationResponse(def.ID, result), nil
 }
 
 func (s *Service) ValidateWorkflowGraphDraft(ctx context.Context, req serverapi.WorkflowGraphValidateDraftRequest) (serverapi.WorkflowGraphValidateDraftResponse, error) {
@@ -899,7 +899,7 @@ func (s *Service) workflowGraphValidationResultsForDefinition(def workflow.Defin
 	out := make(map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse, len(modes))
 	for _, mode := range modes {
 		result := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContext(mode), RoleResolver: s.roleResolver})
-		out[mode] = workflowValidationResponse(result)
+		out[mode] = workflowValidationResponse(def.ID, result)
 	}
 	return out
 }
@@ -951,9 +951,9 @@ func (s *Service) workflowGraphDraftDefinition(ctx context.Context, workflowID s
 	return def, nil
 }
 
-func workflowValidationResponse(result workflow.ValidationResult) serverapi.WorkflowValidateResponse {
+func workflowValidationResponse(workflowID workflow.WorkflowID, result workflow.ValidationResult) serverapi.WorkflowValidateResponse {
 	resp := serverapi.WorkflowValidateResponse{Valid: result.Valid()}
-	resp.Errors = workflowapi.ValidationErrors("", result.Errors)
+	resp.Errors = workflowapi.ValidationErrors(string(workflowID), result.Errors)
 	return resp
 }
 

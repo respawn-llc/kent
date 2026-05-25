@@ -240,7 +240,7 @@ func manualMoveEdgeSnapshot(edge workflow.Edge, targetNode workflow.Node, derive
 	outputRequirements := edge.OutputRequirements
 	if strings.TrimSpace(string(edge.ID)) != "" {
 		inputBindings = edgeInputBindingsSnapshot(edge, derived)
-		outputRequirements = edgeOutputRequirementsSnapshot(edge, derived)
+		outputRequirements = edgeOutputRequirementsSnapshot(edge, targetNode, derived)
 	}
 	return edgeContractSnapshot{
 		ID:                 edge.ID,

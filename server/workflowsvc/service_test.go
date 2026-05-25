@@ -1209,6 +1209,17 @@ func TestServiceWorkflowGraphValidatePreviewAndSave(t *testing.T) {
 	}
 }
 
+func TestWorkflowValidationResponsePreservesWorkflowIDFallback(t *testing.T) {
+	resp := workflowValidationResponse("workflow-1", workflow.ValidationResult{Errors: []workflow.ValidationError{{
+		Code:    workflow.CodeInvalidNodeKey,
+		Message: "node key is invalid",
+	}}})
+
+	if len(resp.Errors) != 1 || resp.Errors[0].WorkflowID != "workflow-1" {
+		t.Fatalf("validation response errors = %+v, want workflow id fallback", resp.Errors)
+	}
+}
+
 func newWorkflowServiceTestService(t *testing.T) (*Service, metadata.Binding) {
 	t.Helper()
 	service, binding, _ := newWorkflowServiceTestServiceWithMetadata(t)
