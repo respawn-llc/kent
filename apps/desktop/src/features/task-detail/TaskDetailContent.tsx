@@ -100,7 +100,7 @@ export function TaskDetailContent({
       </div>
       {detail.attention.length > 0 ? (
         <TaskInbox
-          currentGraphRevision={detail.workflowGraphRevision}
+          currentVersion={detail.workflowVersion}
           detail={detail}
           disabled={disabled}
           mutations={mutations}

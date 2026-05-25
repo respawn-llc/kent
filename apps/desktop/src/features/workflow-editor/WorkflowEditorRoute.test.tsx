@@ -142,7 +142,7 @@ describe("WorkflowEditorRoute", () => {
     expect(screen.getByTestId("route-transition-frame")).not.toHaveClass("p-[var(--space-2)]");
   });
 
-  it("shows and acknowledges a dirty-draft conflict when the remote definition revision changes", async () => {
+  it("shows and acknowledges a dirty-draft conflict when the remote workflow version changes", async () => {
     const services = createTestServices([
       ...startupRoutes,
       {
@@ -201,8 +201,7 @@ describe("WorkflowEditorRoute", () => {
       {
         method: "workflow.graph.savePreview",
         result: {
-          current_graph_revision: 1,
-          current_definition_revision: 1,
+          current_version: 1,
           validation_results: graphValidationResponse.results,
           impact: graphSaveImpactResponse,
           blockers: [],
@@ -215,8 +214,7 @@ describe("WorkflowEditorRoute", () => {
         result: {
           saved: true,
           definition: workflowDefinitionResponseWithRevision(2).definition,
-          current_graph_revision: 1,
-          current_definition_revision: 2,
+          current_version: 2,
           validation_results: graphValidationResponse.results,
           impact: graphSaveImpactResponse,
           blockers: [],
@@ -248,7 +246,7 @@ describe("WorkflowEditorRoute", () => {
     await waitFor(() => {
       const saveCall = services.transport.calls.find((call) => call.method === "workflow.graph.save");
       expect(saveCall?.params).toMatchObject({
-        expected_definition_revision: 1,
+        expected_version: 1,
         metadata: { name: "Locally edited delivery", description: "" },
         workflow_id: "workflow-1",
       });
@@ -330,7 +328,7 @@ const workflow = {
   workflow_id: "workflow-1",
   display_name: "Delivery",
   description: "",
-  graph_revision: 1,
+  version: 1,
   is_project_default: true,
   valid_for_task_creation: true,
   validation_errors: [],
@@ -354,8 +352,7 @@ const workflowDefinitionResponse = {
       id: "workflow-1",
       name: "Delivery",
       description: "",
-      graph_revision: 1,
-      definition_revision: 1,
+      version: 1,
     },
     node_groups: [
       {
@@ -436,13 +433,13 @@ const workflowDefinitionResponse = {
   },
 };
 
-function workflowDefinitionResponseWithRevision(definitionRevision: number) {
+function workflowDefinitionResponseWithRevision(version: number) {
   return {
     definition: {
       ...workflowDefinitionResponse.definition,
       workflow: {
         ...workflowDefinitionResponse.definition.workflow,
-        definition_revision: definitionRevision,
+        version: version,
       },
     },
   };
@@ -487,7 +484,7 @@ const graphSaveImpactResponse = {
 };
 
 const cachedWorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1, definitionRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
   nodeGroups: [
     { id: "group-1", workflowID: "workflow-1", key: "core", name: "Core", sortOrder: 1, nodeIDs: ["node-1"] },
   ],

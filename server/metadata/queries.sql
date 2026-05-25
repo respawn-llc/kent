@@ -88,16 +88,14 @@ INSERT INTO workflows (
     id,
     name,
     description,
-    graph_revision,
-    definition_revision,
+    version,
     created_at_unix_ms,
     updated_at_unix_ms
 ) VALUES (
     sqlc.arg(id),
     sqlc.arg(name),
     sqlc.arg(description),
-    sqlc.arg(graph_revision),
-    sqlc.arg(definition_revision),
+    sqlc.arg(version),
     sqlc.arg(created_at_unix_ms),
     sqlc.arg(updated_at_unix_ms)
 );
@@ -107,34 +105,24 @@ UPDATE workflows
 SET
     name = sqlc.arg(name),
     description = sqlc.arg(description),
-    definition_revision = definition_revision + 1,
+    version = version + 1,
     updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
 WHERE id = sqlc.arg(id);
 
--- name: IncrementWorkflowGraphRevision :one
+-- name: IncrementWorkflowVersion :one
 UPDATE workflows
 SET
-    graph_revision = graph_revision + 1,
-    definition_revision = definition_revision + 1,
+    version = version + 1,
     updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
 WHERE id = sqlc.arg(id)
-RETURNING graph_revision;
-
--- name: IncrementWorkflowDefinitionRevision :one
-UPDATE workflows
-SET
-    definition_revision = definition_revision + 1,
-    updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)
-WHERE id = sqlc.arg(id)
-RETURNING definition_revision;
+RETURNING version;
 
 -- name: GetWorkflow :one
 SELECT
     id,
     name,
     description,
-    graph_revision,
-    definition_revision,
+    version,
     created_at_unix_ms,
     updated_at_unix_ms
 FROM workflows
@@ -146,8 +134,7 @@ SELECT
     id,
     name,
     description,
-    graph_revision,
-    definition_revision,
+    version,
     created_at_unix_ms,
     updated_at_unix_ms
 FROM workflows
@@ -516,7 +503,7 @@ FROM (
 -- name: GetWorkflowDeleteImpact :one
 SELECT
     w.id AS workflow_id,
-    w.graph_revision,
+    w.version,
     CAST(COUNT(DISTINCT pwl.project_id) AS INTEGER) AS project_count,
     CAST(COUNT(DISTINCT pwl.id) AS INTEGER) AS link_count,
     CAST(COUNT(DISTINCT CASE
@@ -577,7 +564,7 @@ LEFT JOIN task_run_records r ON r.task_id = t.id
 LEFT JOIN task_node_placements placement ON placement.id = r.placement_id
 LEFT JOIN workflow_nodes n ON n.id = r.node_id
 WHERE w.id = sqlc.arg(workflow_id)
-GROUP BY w.id, w.graph_revision;
+GROUP BY w.id, w.version;
 
 -- name: InsertTask :exec
 INSERT INTO tasks (

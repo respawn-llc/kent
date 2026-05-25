@@ -69,13 +69,13 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
       dispatch({ source, type: "reset" });
       return;
     }
-    if (source.workflow.definitionRevision === draftState.source.workflow.definitionRevision) {
+    if (source.workflow.version === draftState.source.workflow.version) {
       return;
     }
     if (dirty.dirty) {
       if (
-        draftState.conflict?.workflow.definitionRevision !== source.workflow.definitionRevision &&
-        draftState.acknowledgedConflictDefinitionRevision !== source.workflow.definitionRevision
+        draftState.conflict?.workflow.version !== source.workflow.version &&
+        draftState.acknowledgedConflictVersion !== source.workflow.version
       ) {
         dispatch({ source, type: "conflict" });
       }
@@ -219,9 +219,7 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
     try {
       const metadata = latestDirty.metadataDirty ? workflowEditorDraftMetadata(draftState) : undefined;
       const preview = await api.previewWorkflowGraphSave({
-        expectedDefinitionRevision:
-          metadata === undefined ? undefined : draftState.source.workflow.definitionRevision,
-        expectedGraphRevision: draftState.source.workflow.graphRevision,
+        expectedVersion: draftState.source.workflow.version,
         graph: workflowEditorDraftGraph(draftState),
         metadata,
         workflowID,
@@ -231,9 +229,7 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
         return;
       }
       const saved = await api.saveWorkflowGraph({
-        expectedDefinitionRevision:
-          metadata === undefined ? undefined : draftState.source.workflow.definitionRevision,
-        expectedGraphRevision: draftState.source.workflow.graphRevision,
+        expectedVersion: draftState.source.workflow.version,
         graph: workflowEditorDraftGraph(draftState),
         metadata,
         workflowID,
@@ -271,7 +267,7 @@ function useWorkflowDraftValidationQuery(workflowID: string, draftState: Workflo
   return useQuery({
     queryKey: queryKeys.workflowDraftValidation(
       workflowID,
-      draftState?.source.workflow.definitionRevision ?? 0,
+      draftState?.source.workflow.version ?? 0,
       draftState?.version ?? 0,
     ),
     queryFn: async () => {
@@ -298,7 +294,7 @@ function useWorkflowGraphLayoutQuery(
   return useQuery({
     queryKey: queryKeys.workflowGraphLayout(
       workflowID,
-      (definition?.workflow.definitionRevision ?? 0) * 100_000 + draftVersion,
+      (definition?.workflow.version ?? 0) * 100_000 + draftVersion,
       validation?.valid ?? false,
       validation?.errors ?? [],
     ),
@@ -424,7 +420,7 @@ function emptyWorkflowDefinition(workflowID: string): WorkflowDefinition {
     nodeGroups: [],
     nodes: [],
     transitionGroups: [],
-    workflow: { definitionRevision: 1, description: "", graphRevision: 1, id: workflowID, name: "" },
+    workflow: { description: "", version: 1, id: workflowID, name: "" },
   };
 }
 

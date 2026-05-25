@@ -98,7 +98,7 @@ export const workflowPickerItemSchema: z.ZodType<WorkflowPickerItem> = z
     workflow_id: z.string(),
     display_name: z.string(),
     description: emptyString,
-    graph_revision: z.number(),
+    version: z.number(),
     is_project_default: z.boolean(),
     valid_for_task_creation: z.boolean(),
     validation_errors: z
@@ -110,7 +110,7 @@ export const workflowPickerItemSchema: z.ZodType<WorkflowPickerItem> = z
     id: value.workflow_id,
     name: value.display_name,
     description: value.description,
-    graphRevision: value.graph_revision,
+    version: value.version,
     isProjectDefault: value.is_project_default,
     validForTaskCreation: value.valid_for_task_creation,
     validationErrors: value.validation_errors,
@@ -370,7 +370,7 @@ export const transitionSchema: z.ZodType<TaskTransition> = z
     commentary: value.commentary,
     outputValues: value.output_values,
     edges: value.edges,
-    graphRevision: value.workflow_revision_seen,
+    version: value.workflow_revision_seen,
     createdAt: value.created_at_unix_ms,
     appliedAt: value.applied_at_unix_ms,
   }));

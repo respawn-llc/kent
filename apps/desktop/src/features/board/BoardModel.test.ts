@@ -61,7 +61,7 @@ const board: WorkflowBoard = {
   projectName: "Project",
   selectedWorkflow: {
     description: "",
-    graphRevision: 1,
+    version: 1,
     id: "workflow-1",
     isProjectDefault: true,
     name: "Workflow",

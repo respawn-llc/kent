@@ -59,8 +59,7 @@ function CardRegressionFixture() {
           onOpen={vi.fn()}
           workflow={{
             description: "",
-            graphRevision: 1,
-            definitionRevision: 1,
+            version: 1,
             id: "workflow-1",
             name: "Alpha",
           }}

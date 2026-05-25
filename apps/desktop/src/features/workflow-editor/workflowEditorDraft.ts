@@ -28,7 +28,7 @@ export type DraftWorkflowDefinition = Omit<WorkflowDefinition, "nodes"> &
   }>;
 
 export type WorkflowEditorDraftState = Readonly<{
-  acknowledgedConflictDefinitionRevision: number;
+  acknowledgedConflictVersion: number;
   source: WorkflowDefinition;
   draft: DraftWorkflowDefinition;
   conflict: WorkflowDefinition | null;
@@ -65,7 +65,7 @@ export type WorkflowEditorDirtyState = Readonly<{
 
 export function initializeWorkflowEditorDraft(source: WorkflowDefinition): WorkflowEditorDraftState {
   return {
-    acknowledgedConflictDefinitionRevision: 0,
+    acknowledgedConflictVersion: 0,
     conflict: null,
     draft: draftDefinitionFromSource(source),
     source,
@@ -85,7 +85,7 @@ export function workflowEditorDraftReducer(
     case "keepEditing":
       return {
         ...state,
-        acknowledgedConflictDefinitionRevision: state.conflict?.workflow.definitionRevision ?? 0,
+        acknowledgedConflictVersion: state.conflict?.workflow.version ?? 0,
         conflict: null,
       };
     case "reloadConflict":

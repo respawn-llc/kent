@@ -144,12 +144,12 @@ function WorkflowDraftDetails({ controller }: Readonly<{ controller: WorkflowEdi
       </DetailSection>
       <DetailSection title={t("workflowEditor.inspectorOverview")}>
         <DetailRow
-          label={t("workflowEditor.graphRevision")}
-          value={controller.draft.workflow.graphRevision.toString()}
+          label={t("workflowEditor.version")}
+          value={controller.draft.workflow.version.toString()}
         />
         <DetailRow
-          label={t("workflowEditor.definitionRevision")}
-          value={controller.draft.workflow.definitionRevision.toString()}
+          label={t("workflowEditor.version")}
+          value={controller.draft.workflow.version.toString()}
         />
         <DetailRow label={t("workflowEditor.nodeCount")} value={controller.draft.nodes.length.toString()} />
         <DetailRow label={t("workflowEditor.edgeCount")} value={controller.draft.edges.length.toString()} />
@@ -451,8 +451,8 @@ function WorkflowDetails({
     <InspectorStack>
       <DetailSection title={t("workflowEditor.inspectorOverview")}>
         <DetailRow
-          label={t("workflowEditor.graphRevision")}
-          value={definition.workflow.graphRevision.toString()}
+          label={t("workflowEditor.version")}
+          value={definition.workflow.version.toString()}
         />
         <DetailRow label={t("workflowEditor.nodeCount")} value={definition.nodes.length.toString()} />
         <DetailRow label={t("workflowEditor.edgeCount")} value={definition.edges.length.toString()} />
@@ -583,7 +583,7 @@ function OutputFields({ fields }: Readonly<{ fields: WorkflowNode["outputFields"
       ) : (
         <ul className="m-0 grid gap-[var(--space-2)] p-0">
           {fields.map((field, index) => (
-            <li className="list-none" key={`${field.name}:${index}`}>
+            <li className="list-none" key={`${field.name}:${index.toString()}`}>
               <span className="font-mono text-sm">{field.name}</span>
               {field.description.length > 0 ? (
                 <p className="m-0 text-sm text-[var(--color-muted)]">{field.description}</p>

@@ -199,7 +199,7 @@ func (s *Service) AddWorkflowNode(ctx context.Context, req serverapi.WorkflowNod
 		return serverapi.WorkflowNodeAddResponse{}, err
 	}
 	s.publishLinkedWorkflowEvent(ctx, req.WorkflowID, "workflow", "node_added", req.NodeID)
-	return serverapi.WorkflowNodeAddResponse{GraphRevision: revision}, nil
+	return serverapi.WorkflowNodeAddResponse{Version: revision}, nil
 }
 
 func (s *Service) UpdateWorkflowNode(ctx context.Context, req serverapi.WorkflowNodeUpdateRequest) (serverapi.WorkflowNodeUpdateResponse, error) {
@@ -211,7 +211,7 @@ func (s *Service) UpdateWorkflowNode(ctx context.Context, req serverapi.Workflow
 		return serverapi.WorkflowNodeUpdateResponse{}, err
 	}
 	s.publishLinkedWorkflowEvent(ctx, req.WorkflowID, "workflow", "node_updated", req.NodeID)
-	return serverapi.WorkflowNodeUpdateResponse{GraphRevision: revision}, nil
+	return serverapi.WorkflowNodeUpdateResponse{Version: revision}, nil
 }
 
 func (s *Service) AddWorkflowNodeGroup(ctx context.Context, req serverapi.WorkflowNodeGroupAddRequest) (serverapi.WorkflowNodeGroupResponse, error) {
@@ -223,7 +223,7 @@ func (s *Service) AddWorkflowNodeGroup(ctx context.Context, req serverapi.Workfl
 		return serverapi.WorkflowNodeGroupResponse{}, err
 	}
 	s.publishLinkedWorkflowEvent(ctx, req.WorkflowID, "workflow", "node_group_added", group.ID)
-	return serverapi.WorkflowNodeGroupResponse{Group: workflowNodeGroup(group), GraphRevision: revision}, nil
+	return serverapi.WorkflowNodeGroupResponse{Group: workflowNodeGroup(group), Version: revision}, nil
 }
 
 func (s *Service) UpdateWorkflowNodeGroup(ctx context.Context, req serverapi.WorkflowNodeGroupUpdateRequest) (serverapi.WorkflowNodeGroupResponse, error) {
@@ -235,7 +235,7 @@ func (s *Service) UpdateWorkflowNodeGroup(ctx context.Context, req serverapi.Wor
 		return serverapi.WorkflowNodeGroupResponse{}, err
 	}
 	s.publishLinkedWorkflowEvent(ctx, req.WorkflowID, "workflow", "node_group_updated", group.ID)
-	return serverapi.WorkflowNodeGroupResponse{Group: workflowNodeGroup(group), GraphRevision: revision}, nil
+	return serverapi.WorkflowNodeGroupResponse{Group: workflowNodeGroup(group), Version: revision}, nil
 }
 
 func (s *Service) DeleteWorkflowNodeGroup(ctx context.Context, req serverapi.WorkflowNodeGroupDeleteRequest) error {
@@ -258,7 +258,7 @@ func (s *Service) AddWorkflowTransitionGroup(ctx context.Context, req serverapi.
 		return serverapi.WorkflowTransitionGroupAddResponse{}, err
 	}
 	s.publishLinkedWorkflowEvent(ctx, req.WorkflowID, "workflow", "transition_group_added", req.GroupID)
-	return serverapi.WorkflowTransitionGroupAddResponse{GraphRevision: revision}, nil
+	return serverapi.WorkflowTransitionGroupAddResponse{Version: revision}, nil
 }
 
 func (s *Service) UpdateWorkflowTransitionGroup(ctx context.Context, req serverapi.WorkflowTransitionGroupUpdateRequest) (serverapi.WorkflowTransitionGroupUpdateResponse, error) {
@@ -270,7 +270,7 @@ func (s *Service) UpdateWorkflowTransitionGroup(ctx context.Context, req servera
 		return serverapi.WorkflowTransitionGroupUpdateResponse{}, err
 	}
 	s.publishLinkedWorkflowEvent(ctx, req.WorkflowID, "workflow", "transition_group_updated", req.GroupID)
-	return serverapi.WorkflowTransitionGroupUpdateResponse{GraphRevision: revision}, nil
+	return serverapi.WorkflowTransitionGroupUpdateResponse{Version: revision}, nil
 }
 
 func (s *Service) AddWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdgeAddRequest) (serverapi.WorkflowEdgeAddResponse, error) {
@@ -282,7 +282,7 @@ func (s *Service) AddWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdg
 		return serverapi.WorkflowEdgeAddResponse{}, err
 	}
 	s.publishLinkedWorkflowEvent(ctx, req.WorkflowID, "workflow", "edge_added", req.EdgeID)
-	return serverapi.WorkflowEdgeAddResponse{GraphRevision: revision}, nil
+	return serverapi.WorkflowEdgeAddResponse{Version: revision}, nil
 }
 
 func (s *Service) UpdateWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdgeUpdateRequest) (serverapi.WorkflowEdgeUpdateResponse, error) {
@@ -294,7 +294,7 @@ func (s *Service) UpdateWorkflowEdge(ctx context.Context, req serverapi.Workflow
 		return serverapi.WorkflowEdgeUpdateResponse{}, err
 	}
 	s.publishLinkedWorkflowEvent(ctx, req.WorkflowID, "workflow", "edge_updated", req.EdgeID)
-	return serverapi.WorkflowEdgeUpdateResponse{GraphRevision: revision}, nil
+	return serverapi.WorkflowEdgeUpdateResponse{Version: revision}, nil
 }
 
 func (s *Service) LinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowLinkProjectRequest) (serverapi.WorkflowLinkProjectResponse, error) {
@@ -371,13 +371,13 @@ func (s *Service) DeleteWorkflow(ctx context.Context, req serverapi.WorkflowDele
 		return serverapi.WorkflowDeleteResponse{}, err
 	}
 	result, err := s.store.DeleteWorkflow(ctx, workflowstore.WorkflowDeleteRequest{
-		WorkflowID:            workflow.WorkflowID(req.WorkflowID),
-		Confirmed:             req.Confirmed,
-		ExpectedGraphRevision: req.ExpectedGraphRevision,
-		ExpectedProjectCount:  req.ExpectedProjectCount,
-		ExpectedLinkCount:     req.ExpectedLinkCount,
-		ExpectedTaskCount:     req.ExpectedTaskCount,
-		CleanupArtifacts:      req.CleanupArtifacts,
+		WorkflowID:           workflow.WorkflowID(req.WorkflowID),
+		Confirmed:            req.Confirmed,
+		ExpectedVersion:      req.ExpectedVersion,
+		ExpectedProjectCount: req.ExpectedProjectCount,
+		ExpectedLinkCount:    req.ExpectedLinkCount,
+		ExpectedTaskCount:    req.ExpectedTaskCount,
+		CleanupArtifacts:     req.CleanupArtifacts,
 	})
 	if err != nil {
 		return serverapi.WorkflowDeleteResponse{}, err
@@ -433,7 +433,7 @@ func (s *Service) PreviewWorkflowGraphSave(ctx context.Context, req serverapi.Wo
 	if err != nil {
 		return serverapi.WorkflowGraphSavePreviewResponse{}, err
 	}
-	result, err := s.store.PreviewWorkflowGraphSave(ctx, workflowGraphStoreSaveRequest(req.WorkflowID, req.ExpectedGraphRevision, req.ExpectedDefinitionRevision, req.Metadata, req.Graph, nil))
+	result, err := s.store.PreviewWorkflowGraphSave(ctx, workflowGraphStoreSaveRequest(req.WorkflowID, req.ExpectedVersion, req.Metadata, req.Graph, nil))
 	if err != nil {
 		return serverapi.WorkflowGraphSavePreviewResponse{}, err
 	}
@@ -448,7 +448,7 @@ func (s *Service) SaveWorkflowGraph(ctx context.Context, req serverapi.WorkflowG
 	if err != nil {
 		return serverapi.WorkflowGraphSaveResponse{}, err
 	}
-	result, err := s.store.SaveWorkflowGraph(ctx, workflowGraphStoreSaveRequest(req.WorkflowID, req.ExpectedGraphRevision, req.ExpectedDefinitionRevision, req.Metadata, req.Graph, req.Confirmation))
+	result, err := s.store.SaveWorkflowGraph(ctx, workflowGraphStoreSaveRequest(req.WorkflowID, req.ExpectedVersion, req.Metadata, req.Graph, req.Confirmation))
 	if err != nil {
 		return serverapi.WorkflowGraphSaveResponse{}, err
 	}
@@ -461,8 +461,7 @@ func (s *Service) SaveWorkflowGraph(ctx context.Context, req serverapi.WorkflowG
 		return serverapi.WorkflowGraphSaveResponse{}, err
 	}
 	resp.Definition = &saved.Definition
-	resp.CurrentGraphRevision = saved.Definition.Workflow.GraphRevision
-	resp.CurrentDefinitionRevision = saved.Definition.Workflow.DefinitionRevision
+	resp.CurrentVersion = saved.Definition.Workflow.Version
 	if result.Changed {
 		s.publishLinkedWorkflowEvent(ctx, req.WorkflowID, "workflow", "graph_saved", req.WorkflowID)
 	}
@@ -814,7 +813,7 @@ func (s *Service) GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTas
 }
 
 func workflowRecord(row workflowstore.WorkflowRecord) serverapi.WorkflowRecord {
-	return serverapi.WorkflowRecord{ID: string(row.ID), Name: row.Name, Description: row.Description, GraphRevision: row.GraphRevision, DefinitionRevision: row.DefinitionRevision}
+	return serverapi.WorkflowRecord{ID: string(row.ID), Name: row.Name, Description: row.Description, Version: row.Version}
 }
 
 func workflowNodeGroup(row workflowstore.NodeGroupRecord) serverapi.WorkflowNodeGroup {
@@ -862,7 +861,7 @@ func workflowDeleteResponse(result workflowstore.WorkflowDeleteResult) serverapi
 func workflowDeleteImpact(impact workflowstore.WorkflowDeleteImpact) serverapi.WorkflowDeleteImpact {
 	return serverapi.WorkflowDeleteImpact{
 		WorkflowID:                     string(impact.WorkflowID),
-		GraphRevision:                  impact.GraphRevision,
+		Version:                        impact.Version,
 		ProjectCount:                   impact.ProjectCount,
 		LinkCount:                      impact.LinkCount,
 		DefaultReplacementProjectCount: impact.DefaultReplacementProjectCount,
@@ -946,8 +945,8 @@ func workflowGraphSaveValidationModes() []serverapi.WorkflowValidationMode {
 	return []serverapi.WorkflowValidationMode{serverapi.WorkflowValidationModeDraft, serverapi.WorkflowValidationModeExecution}
 }
 
-func workflowGraphStoreSaveRequest(workflowID string, expectedGraphRevision int64, expectedDefinitionRevision *int64, metadata *serverapi.WorkflowGraphMetadata, graph serverapi.WorkflowGraphDraft, confirmation *serverapi.WorkflowGraphSaveConfirmation) workflowstore.WorkflowGraphSaveRequest {
-	req := workflowstore.WorkflowGraphSaveRequest{WorkflowID: workflow.WorkflowID(workflowID), ExpectedGraphRevision: expectedGraphRevision, ExpectedDefinitionRevision: expectedDefinitionRevision}
+func workflowGraphStoreSaveRequest(workflowID string, expectedVersion int64, metadata *serverapi.WorkflowGraphMetadata, graph serverapi.WorkflowGraphDraft, confirmation *serverapi.WorkflowGraphSaveConfirmation) workflowstore.WorkflowGraphSaveRequest {
+	req := workflowstore.WorkflowGraphSaveRequest{WorkflowID: workflow.WorkflowID(workflowID), ExpectedVersion: expectedVersion}
 	if metadata != nil {
 		req.Metadata = &workflowstore.WorkflowGraphSaveMetadata{Name: metadata.Name, Description: metadata.Description}
 	}
@@ -976,26 +975,24 @@ func workflowGraphStoreSaveRequest(workflowID string, expectedGraphRevision int6
 
 func workflowGraphSavePreviewResponse(result workflowstore.WorkflowGraphSaveResult, validationResults map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse) serverapi.WorkflowGraphSavePreviewResponse {
 	return serverapi.WorkflowGraphSavePreviewResponse{
-		CurrentGraphRevision:      result.GraphRevision,
-		CurrentDefinitionRevision: result.DefinitionRevision,
-		ValidationResults:         validationResults,
-		Impact:                    workflowGraphSaveImpact(result),
-		Blockers:                  workflowGraphSaveBlockers(result.Blockers),
-		CanSave:                   result.CanSave,
-		ConfirmationRequired:      result.ConfirmationRequired,
+		CurrentVersion:       result.Version,
+		ValidationResults:    validationResults,
+		Impact:               workflowGraphSaveImpact(result),
+		Blockers:             workflowGraphSaveBlockers(result.Blockers),
+		CanSave:              result.CanSave,
+		ConfirmationRequired: result.ConfirmationRequired,
 	}
 }
 
 func workflowGraphSaveResponse(result workflowstore.WorkflowGraphSaveResult, validationResults map[serverapi.WorkflowValidationMode]serverapi.WorkflowValidateResponse) serverapi.WorkflowGraphSaveResponse {
 	return serverapi.WorkflowGraphSaveResponse{
-		Saved:                     result.Saved,
-		CurrentGraphRevision:      result.GraphRevision,
-		CurrentDefinitionRevision: result.DefinitionRevision,
-		ValidationResults:         validationResults,
-		Impact:                    workflowGraphSaveImpact(result),
-		Blockers:                  workflowGraphSaveBlockers(result.Blockers),
-		CanSave:                   result.CanSave,
-		ConfirmationRequired:      result.ConfirmationRequired,
+		Saved:                result.Saved,
+		CurrentVersion:       result.Version,
+		ValidationResults:    validationResults,
+		Impact:               workflowGraphSaveImpact(result),
+		Blockers:             workflowGraphSaveBlockers(result.Blockers),
+		CanSave:              result.CanSave,
+		ConfirmationRequired: result.ConfirmationRequired,
 	}
 }
 

@@ -41,8 +41,8 @@
 - Route-level Save/Discard appears in one bottom-right workflow-editor status island that also owns validation, blockers, confirmation-required state, conflicts, and save errors.
 - Workflow editor drafts remain GUI route-local, but sidebar edit forms need a shell-level bridge because `SidebarHost` is a sibling of route content. The route owns the draft controller lifecycle and registers/unregisters it with the bridge while mounted.
 - `workflow.graph.validateDraft`, `workflow.graph.savePreview`, and `workflow.graph.save` may carry optional workflow metadata for the editor save flow. This intentionally revises the earlier graph-only DTO constraint for this merged slice.
-- Workflow definitions get a monotonic `definition_revision` separate from `graph_revision`. Metadata changes increment only `definition_revision`; graph changes increment both; no-op saves increment neither.
-- Metadata+graph Save is atomic. The store computes normalized `metadataChanged` and `graphChanged`; graph edit policy, active-work blockers, removal impact, confirmation, graph revision checks, and graph revision increments run only when `graphChanged`.
+- Workflow definitions use a single monotonic `version` over persisted definition changes. Metadata-only changes and graph changes each increment it once; combined metadata+graph saves also increment it once; no-op saves increment neither.
+- Metadata+graph Save is atomic. The store computes normalized `metadataChanged` and `graphChanged`; optimistic version checks run for any actual metadata or graph change; graph edit policy, active-work blockers, removal impact, and confirmation run only when `graphChanged`.
 - Metadata-only and no-op saves bypass graph edit policy and active-work blockers. Actual graph changes remain blocked by the graph edit policy.
 - Workflow-scoped subscriptions/events are required so global Workflow Library editor mode gets the same reactive conflict behavior as project-linked editor mode.
 - Draft and execution validation are shown separately. Graph-dirty saves are gated by draft blocking validity and save-preview blockers. Metadata-only saves may proceed even when the existing graph has draft validation errors, and execution validation errors remain visible but non-blocking.
@@ -58,13 +58,13 @@
 - Edge editing should support both simple drag creation and explicit transition-group/fan-out editing.
 - V2 exposes advanced edge configuration: context mode, approval requirement, output requirements, and input bindings.
 - Save should allow any graph that satisfies hard storage invariants, even if draft/execution validation reports issues.
-- `workflows.graph_revision` remains minimal by design for now: a monotonic traceability/stale-warning scalar over mutable graph rows, not immutable graph versioning. Full graph revision/version history is deferred and should not block the workflow GUI redesign.
+- `workflows.version` remains minimal by design for now: a monotonic traceability/stale-warning scalar over mutable workflow rows, not immutable workflow history. Full workflow version history is deferred and should not block the workflow GUI redesign.
 - Backlog/start deletion is out of scope for v2. Current storage and validation enforce exactly one `start` node, and replacement start-entry semantics would require a larger API/data-model change.
 - Hide `start` from add/kind-change controls. Existing Backlog can be renamed where safe, but its kind stays fixed.
 - Done/terminal deletion is allowed when at least one other terminal node remains. Otherwise block with a toast.
 - Destructive delete impact is evaluated on Save, not at draft-edit time. This is required because v2 uses local Save/Discard and task state can change while the draft is open.
 - Save should run a server-side impact check for the pending graph diff. If active tasks would be affected, Save is blocked. If only backlog/done tasks would be orphaned/deleted by removed nodes or edges, show a confirmation listing affected nodes/tasks before applying. Requested wording pattern: "XXX tasks will be **gone forever** along with the node. Proceed?"
-- Dirty local draft conflicts with remote graph updates should keep the draft, show a conflict banner, and require Reload remote or Save against expected graph revision, where stale save rejects.
+- Dirty local draft conflicts with remote workflow updates should keep the draft, show a conflict banner, and require Reload remote or Save against the expected workflow version, where stale save rejects.
 - Workflow creation/copy/link management should be part of the editing feature set:
   - Board/project workflow management gets a "Link workflow" action that opens the global right-side sidebar picker listing all reusable workflows and a "New workflow" action.
   - "New workflow" from this project-originated flow opens the editor and auto-links the new workflow to the current project.
@@ -85,11 +85,11 @@
 - `WorkflowGraphCanvas` is deliberately read-only today: controlled `nodes`/`edges`, node drag/connect disabled, selection/click inspection only, fit/zoom/inspect toolbar, no draft or authoring state.
 - GUI API client only exposes read methods for workflow definitions/validation/project links. Server transport already has mutation routes for workflow create/update, node add/update, node group add/update/delete, transition group add/update, and edge add/update.
 - Server service publishes linked-project workflow events for add/update mutations, so editor subscription/refetch already fits the editing model. Delete/archive node and delete edge exist in `workflowstore` but are not exposed through `workflowsvc`, `serverapi`, protocol routes, or GUI client.
-- Store mutations increment graph revision per graph-affecting edit. Existing add/update requests are whole-entity replacement requests, not patch requests, so GUI must submit complete entity payloads or add dedicated patch/batch APIs.
+- Store mutations increment workflow version per persisted workflow definition edit. Existing add/update requests are whole-entity replacement requests, not patch requests, so GUI must submit complete entity payloads or add dedicated patch/batch APIs.
 - Validation supports draft/task creation/execution contexts. Draft mode intentionally relaxes the start-node outgoing shape but still validates hard invariants like identifiers, references, kinds, bindings, output fields, and graph topology errors.
-- Runtime/task behavior snapshots workflow graph revision into tasks/runs/transitions. Destructive graph deletion has safeguards: deleting nodes/edges is blocked when non-terminal task references exist or task history references the entity. Archiving node exists for terminal-history cases but is not exposed.
+- Runtime/task behavior snapshots the observed workflow version into tasks/runs/transitions. Destructive graph deletion has safeguards: deleting nodes/edges is blocked when non-terminal task references exist or task history references the entity. Archiving node exists for terminal-history cases but is not exposed.
 - Node groups are persisted separately and currently used for visual grouping. Layout is not persisted; ELK recomputes deterministic topology layout on every definition/revision.
-- Workflow terminology to preserve in UI/API docs: Workflow, Workflow Draft, Graph Revision, Node, Edge, Transition Group, Transition ID, Output Requirements, Input Bindings, Join, Project Workflow Link.
+- Workflow terminology to preserve in UI/API docs: Workflow, Workflow Draft, Workflow Version, Node, Edge, Transition Group, Transition ID, Output Requirements, Input Bindings, Join, Project Workflow Link.
 - Current V1 inspector is intentionally identity-based rather than snapshot-based: sidebar destinations carry workflow ID plus selected entity identity and resolve current `workflow.get`/`workflow.validate` React Query cache data on render. V2 edit forms should preserve this typed destination approach while swapping read-only sections for draft-backed forms.
 
 ## Schema Audit Caveats
@@ -208,12 +208,12 @@
   - Avoid nested blocking surfaces. Destructive confirmation on Save should be a single terminal sidebar/route-level confirmation state.
   - Form sections should be islands: identity, behavior, outputs, bindings/requirements, validation preview.
 - Dirty state:
-  - Route-level Save and Discard controls should be visible when local draft differs from source graph revision.
+  - Route-level Save and Discard controls should be visible when local draft differs from the source workflow version.
   - Validation issues update from local draft on every change using the same shared `WorkflowValidationIssues` component.
   - Local draft invalid for execution can still be saved if draft validation has no blocking hard errors.
 - Conflict state:
   - If a subscription event changes the same workflow while local draft is dirty, keep the local draft and show a conflict banner.
-  - Banner actions: Reload remote, keep editing. Save should use expected graph revision and reject stale definitions with a clear error if remote graph changed.
+  - Banner actions: Reload remote, keep editing. Save should use the expected workflow version and reject stale definitions with a clear error if the remote workflow changed.
 - Deletion:
   - Deleting Backlog/start is blocked in v2 with a toast.
   - Deleting Done/terminal is allowed only when another terminal node remains; otherwise block with a toast.
@@ -228,9 +228,9 @@
 
 ## Architecture
 
-- Keep GUI as a remote-control surface. The server remains authoritative for persisted workflow graph, draft hard validation, task-impact analysis, conflict detection, graph revision increments, destructive task deletion, and event publishing.
+- Keep GUI as a remote-control surface. The server remains authoritative for persisted workflow graph, draft hard validation, task-impact analysis, conflict detection, workflow version increments, destructive task deletion, and event publishing.
 - Add a GUI-local `WorkflowDraft` model:
-  - Source: current `WorkflowDefinition` plus `graphRevision`.
+  - Source: current `WorkflowDefinition` plus `version`.
   - Draft contains normalized maps/arrays for workflow record, node groups, nodes, transition groups, and edges.
   - Draft tracks in-memory layout positions separately from graph definition data.
   - Draft IDs for new entities can be generated client-side with stable prefixed IDs for the draft session; server validates uniqueness on Save.
@@ -240,8 +240,8 @@
   - UI should show draft validation immediately after edits. If round-trip validation is too slow, debounce and show previous validation while pending.
 - Add batch save APIs rather than issuing sequential existing add/update calls:
   - Existing per-entity mutation APIs are useful for CLI but do not fit local Save/Discard, conflict detection, or destructive-impact confirmation.
-  - Proposed endpoint: `workflow.graph.savePreview` with `workflow_id`, `expected_graph_revision`, and full draft definition. It returns draft validation, execution validation, active-task blockers, destructive impact, and whether confirmation is required.
-  - Proposed endpoint: `workflow.graph.save` with the same payload plus destructive confirmation. It recomputes validation/impact in one transaction, rejects stale graph revisions, rejects active-task blockers, rejects unconfirmed or changed destructive impact, applies the diff, increments graph revision, records linked-project events, and returns the saved definition plus validations.
+  - Proposed endpoint: `workflow.graph.savePreview` with `workflow_id`, `expected_version`, and full draft definition. It returns draft validation, execution validation, active-task blockers, destructive impact, and whether confirmation is required.
+  - Proposed endpoint: `workflow.graph.save` with the same payload plus destructive confirmation. It recomputes validation/impact in one transaction, rejects stale workflow versions, rejects active-task blockers, rejects unconfirmed or changed destructive impact, applies the diff, increments workflow version, records linked-project events, and returns the saved definition plus validations.
   - If implementation wants fewer endpoints, `workflow.graph.save` can return a typed `confirmation_required` response before applying, and the GUI retries with confirmation.
 - Server save semantics:
   - Validate supplied draft in `draft` context. Reject if `HasBlockingErrors`.
@@ -249,10 +249,10 @@
   - Disallow editing while workflow has active tasks. Active means any task whose active/waiting placement is not start/backlog or terminal/done, any pending approval, any non-completed/non-interrupted run needing runtime ownership, or any other non-terminal automation state. Backlog and terminal-only tasks are allowed.
   - Compute destructive impact from deleted/changed graph entity references before applying. If deletion would orphan persisted backlog/done tasks, return impact for confirmation. If active tasks are impacted, block.
   - Apply graph diff transactionally. Delete impacted tasks only after confirmation and only if they still match the preview's safe backlog/done criteria.
-  - Preserve graph revision as the conflict boundary. Save requires expected current graph revision.
+  - Preserve workflow version as the conflict boundary. Save requires the expected current workflow version.
 - Add process-local workflow edit locks:
   - Implement in `workflowsvc`, not persisted in metadata DB.
-  - API shape: begin/acquire edit session, heartbeat, release. Responses include token, expiry, current graph revision, and blockers.
+  - API shape: begin/acquire edit session, heartbeat, release. Responses include token, expiry, current workflow version, and blockers.
   - Lock registry is protected by a mutex and keyed by workflow ID. Locks expire by TTL when heartbeat stops.
   - Begin lock first checks no active workflow tasks. If another live lock exists, return a typed blocker.
   - Task-starting / automation-changing service methods check the lock registry and reject when another editor owns a lock for the workflow. At minimum: start task, manual move out of backlog/done, approve transition, resume run, and scheduler enqueue paths that can create new active work.

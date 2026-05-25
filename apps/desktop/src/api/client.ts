@@ -305,8 +305,7 @@ export class BuilderApiClient {
         "workflow.graph.savePreview",
         compactJsonObject({
           workflow_id: input.workflowID,
-          expected_graph_revision: input.expectedGraphRevision,
-          expected_definition_revision: input.expectedDefinitionRevision,
+          expected_version: input.expectedVersion,
           metadata: workflowGraphMetadataPayload(input.metadata),
           graph: workflowGraphDraftPayload(input.graph),
         }),
@@ -322,8 +321,7 @@ export class BuilderApiClient {
         "workflow.graph.save",
         compactJsonObject({
           workflow_id: input.workflowID,
-          expected_graph_revision: input.expectedGraphRevision,
-          expected_definition_revision: input.expectedDefinitionRevision,
+          expected_version: input.expectedVersion,
           metadata: workflowGraphMetadataPayload(input.metadata),
           graph: workflowGraphDraftPayload(input.graph),
           confirmation: workflowGraphSaveConfirmationPayload(input.confirmation),
@@ -349,7 +347,7 @@ export class BuilderApiClient {
         compactJsonObject({
           workflow_id: input.workflowID,
           confirmed: input.confirmed,
-          expected_graph_revision: input.expectedGraphRevision,
+          expected_version: input.expectedVersion,
           expected_project_count: input.expectedProjectCount,
           expected_link_count: input.expectedLinkCount,
           expected_task_count: input.expectedTaskCount,
@@ -592,7 +590,7 @@ export type WorkflowProjectLinkInput = Readonly<{
 export type WorkflowDeleteInput = Readonly<{
   workflowID: string;
   confirmed: boolean;
-  expectedGraphRevision: number;
+  expectedVersion: number;
   expectedProjectCount: number;
   expectedLinkCount: number;
   expectedTaskCount: number;
@@ -608,8 +606,7 @@ export type WorkflowGraphValidateDraftInput = Readonly<{
 
 export type WorkflowGraphSavePreviewInput = Readonly<{
   workflowID: string;
-  expectedGraphRevision: number;
-  expectedDefinitionRevision?: number | undefined;
+  expectedVersion: number;
   metadata?: WorkflowGraphMetadata | undefined;
   graph: WorkflowGraphDraft;
 }>;

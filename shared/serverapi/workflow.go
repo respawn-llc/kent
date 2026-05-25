@@ -56,11 +56,10 @@ const (
 )
 
 type WorkflowRecord struct {
-	ID                 string `json:"id"`
-	Name               string `json:"name"`
-	Description        string `json:"description"`
-	GraphRevision      int64  `json:"graph_revision"`
-	DefinitionRevision int64  `json:"definition_revision"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Version     int64  `json:"version"`
 }
 
 type WorkflowNode struct {
@@ -189,11 +188,10 @@ type WorkflowGraphValidateDraftResponse struct {
 }
 
 type WorkflowGraphSavePreviewRequest struct {
-	WorkflowID                 string                 `json:"workflow_id"`
-	ExpectedGraphRevision      int64                  `json:"expected_graph_revision"`
-	ExpectedDefinitionRevision *int64                 `json:"expected_definition_revision,omitempty"`
-	Metadata                   *WorkflowGraphMetadata `json:"metadata,omitempty"`
-	Graph                      WorkflowGraphDraft     `json:"graph"`
+	WorkflowID      string                 `json:"workflow_id"`
+	ExpectedVersion int64                  `json:"expected_version"`
+	Metadata        *WorkflowGraphMetadata `json:"metadata,omitempty"`
+	Graph           WorkflowGraphDraft     `json:"graph"`
 }
 
 type WorkflowGraphMetadata struct {
@@ -210,34 +208,31 @@ type WorkflowGraphSaveConfirmation struct {
 }
 
 type WorkflowGraphSaveRequest struct {
-	WorkflowID                 string                         `json:"workflow_id"`
-	ExpectedGraphRevision      int64                          `json:"expected_graph_revision"`
-	ExpectedDefinitionRevision *int64                         `json:"expected_definition_revision,omitempty"`
-	Metadata                   *WorkflowGraphMetadata         `json:"metadata,omitempty"`
-	Graph                      WorkflowGraphDraft             `json:"graph"`
-	Confirmation               *WorkflowGraphSaveConfirmation `json:"confirmation,omitempty"`
+	WorkflowID      string                         `json:"workflow_id"`
+	ExpectedVersion int64                          `json:"expected_version"`
+	Metadata        *WorkflowGraphMetadata         `json:"metadata,omitempty"`
+	Graph           WorkflowGraphDraft             `json:"graph"`
+	Confirmation    *WorkflowGraphSaveConfirmation `json:"confirmation,omitempty"`
 }
 
 type WorkflowGraphSavePreviewResponse struct {
-	CurrentGraphRevision      int64                                               `json:"current_graph_revision"`
-	CurrentDefinitionRevision int64                                               `json:"current_definition_revision"`
-	ValidationResults         map[WorkflowValidationMode]WorkflowValidateResponse `json:"validation_results"`
-	Impact                    WorkflowGraphSaveImpact                             `json:"impact"`
-	Blockers                  []WorkflowGraphSaveBlocker                          `json:"blockers,omitempty"`
-	CanSave                   bool                                                `json:"can_save"`
-	ConfirmationRequired      bool                                                `json:"confirmation_required"`
+	CurrentVersion       int64                                               `json:"current_version"`
+	ValidationResults    map[WorkflowValidationMode]WorkflowValidateResponse `json:"validation_results"`
+	Impact               WorkflowGraphSaveImpact                             `json:"impact"`
+	Blockers             []WorkflowGraphSaveBlocker                          `json:"blockers,omitempty"`
+	CanSave              bool                                                `json:"can_save"`
+	ConfirmationRequired bool                                                `json:"confirmation_required"`
 }
 
 type WorkflowGraphSaveResponse struct {
-	Saved                     bool                                                `json:"saved"`
-	Definition                *WorkflowDefinition                                 `json:"definition,omitempty"`
-	CurrentGraphRevision      int64                                               `json:"current_graph_revision"`
-	CurrentDefinitionRevision int64                                               `json:"current_definition_revision"`
-	ValidationResults         map[WorkflowValidationMode]WorkflowValidateResponse `json:"validation_results"`
-	Impact                    WorkflowGraphSaveImpact                             `json:"impact"`
-	Blockers                  []WorkflowGraphSaveBlocker                          `json:"blockers,omitempty"`
-	CanSave                   bool                                                `json:"can_save"`
-	ConfirmationRequired      bool                                                `json:"confirmation_required"`
+	Saved                bool                                                `json:"saved"`
+	Definition           *WorkflowDefinition                                 `json:"definition,omitempty"`
+	CurrentVersion       int64                                               `json:"current_version"`
+	ValidationResults    map[WorkflowValidationMode]WorkflowValidateResponse `json:"validation_results"`
+	Impact               WorkflowGraphSaveImpact                             `json:"impact"`
+	Blockers             []WorkflowGraphSaveBlocker                          `json:"blockers,omitempty"`
+	CanSave              bool                                                `json:"can_save"`
+	ConfirmationRequired bool                                                `json:"confirmation_required"`
 }
 
 type WorkflowGraphSaveImpact struct {
@@ -320,7 +315,7 @@ type WorkflowNodeAddRequest struct {
 }
 
 type WorkflowNodeAddResponse struct {
-	GraphRevision int64 `json:"graph_revision"`
+	Version int64 `json:"version"`
 }
 
 type WorkflowNodeUpdateRequest struct {
@@ -336,7 +331,7 @@ type WorkflowNodeUpdateRequest struct {
 }
 
 type WorkflowNodeUpdateResponse struct {
-	GraphRevision int64 `json:"graph_revision"`
+	Version int64 `json:"version"`
 }
 
 type WorkflowNodeGroupAddRequest struct {
@@ -361,8 +356,8 @@ type WorkflowNodeGroupDeleteRequest struct {
 }
 
 type WorkflowNodeGroupResponse struct {
-	Group         WorkflowNodeGroup `json:"group"`
-	GraphRevision int64             `json:"graph_revision"`
+	Group   WorkflowNodeGroup `json:"group"`
+	Version int64             `json:"version"`
 }
 
 type WorkflowTransitionGroupAddRequest struct {
@@ -374,7 +369,7 @@ type WorkflowTransitionGroupAddRequest struct {
 }
 
 type WorkflowTransitionGroupAddResponse struct {
-	GraphRevision int64 `json:"graph_revision"`
+	Version int64 `json:"version"`
 }
 
 type WorkflowTransitionGroupUpdateRequest struct {
@@ -386,7 +381,7 @@ type WorkflowTransitionGroupUpdateRequest struct {
 }
 
 type WorkflowTransitionGroupUpdateResponse struct {
-	GraphRevision int64 `json:"graph_revision"`
+	Version int64 `json:"version"`
 }
 
 type WorkflowEdgeAddRequest struct {
@@ -403,7 +398,7 @@ type WorkflowEdgeAddRequest struct {
 }
 
 type WorkflowEdgeAddResponse struct {
-	GraphRevision int64 `json:"graph_revision"`
+	Version int64 `json:"version"`
 }
 
 type WorkflowEdgeUpdateRequest struct {
@@ -420,7 +415,7 @@ type WorkflowEdgeUpdateRequest struct {
 }
 
 type WorkflowEdgeUpdateResponse struct {
-	GraphRevision int64 `json:"graph_revision"`
+	Version int64 `json:"version"`
 }
 
 type WorkflowLinkProjectRequest struct {
@@ -491,13 +486,13 @@ type WorkflowDeletePreviewResponse struct {
 }
 
 type WorkflowDeleteRequest struct {
-	WorkflowID            string `json:"workflow_id"`
-	Confirmed             bool   `json:"confirmed"`
-	ExpectedGraphRevision int64  `json:"expected_graph_revision"`
-	ExpectedProjectCount  int64  `json:"expected_project_count"`
-	ExpectedLinkCount     int64  `json:"expected_link_count"`
-	ExpectedTaskCount     int64  `json:"expected_task_count"`
-	CleanupArtifacts      bool   `json:"cleanup_artifacts,omitempty"`
+	WorkflowID           string `json:"workflow_id"`
+	Confirmed            bool   `json:"confirmed"`
+	ExpectedVersion      int64  `json:"expected_version"`
+	ExpectedProjectCount int64  `json:"expected_project_count"`
+	ExpectedLinkCount    int64  `json:"expected_link_count"`
+	ExpectedTaskCount    int64  `json:"expected_task_count"`
+	CleanupArtifacts     bool   `json:"cleanup_artifacts,omitempty"`
 }
 
 type WorkflowDeleteResponse struct {
@@ -508,7 +503,7 @@ type WorkflowDeleteResponse struct {
 
 type WorkflowDeleteImpact struct {
 	WorkflowID                     string `json:"workflow_id"`
-	GraphRevision                  int64  `json:"graph_revision"`
+	Version                        int64  `json:"version"`
 	ProjectCount                   int64  `json:"project_count"`
 	LinkCount                      int64  `json:"link_count"`
 	DefaultReplacementProjectCount int64  `json:"default_replacement_project_count"`
@@ -766,7 +761,7 @@ type WorkflowPickerItem struct {
 	WorkflowID           string                    `json:"workflow_id"`
 	DisplayName          string                    `json:"display_name"`
 	Description          string                    `json:"description"`
-	GraphRevision        int64                     `json:"graph_revision"`
+	Version              int64                     `json:"version"`
 	IsProjectDefault     bool                      `json:"is_project_default"`
 	ValidForTaskCreation bool                      `json:"valid_for_task_creation"`
 	ValidationErrors     []WorkflowValidationError `json:"validation_errors,omitempty"`
@@ -1273,8 +1268,8 @@ func (r WorkflowDeleteRequest) Validate() error {
 	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
 		return err
 	}
-	if r.ExpectedGraphRevision < 0 {
-		return WorkflowRequestValidationError{Code: WorkflowRequestErrorInvalidMode, Field: "expected_graph_revision", Message: "expected graph revision must be non-negative"}
+	if r.ExpectedVersion < 0 {
+		return WorkflowRequestValidationError{Code: WorkflowRequestErrorInvalidMode, Field: "expected_version", Message: "expected version must be non-negative"}
 	}
 	for _, field := range []struct {
 		name  string
@@ -1320,25 +1315,17 @@ func (r WorkflowGraphSavePreviewRequest) Validate() error {
 	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
 		return err
 	}
-	if r.ExpectedGraphRevision < 0 {
-		return workflowRequestError(WorkflowRequestErrorInvalidValue, "expected_graph_revision", "expected_graph_revision must be non-negative")
-	}
 	if err := validateWorkflowGraphMetadata(r.Metadata); err != nil {
 		return err
 	}
-	if r.Metadata != nil {
-		if r.ExpectedDefinitionRevision == nil {
-			return workflowRequestError(WorkflowRequestErrorRequired, "expected_definition_revision", "expected_definition_revision is required when metadata is present")
-		}
-		if *r.ExpectedDefinitionRevision < 0 {
-			return workflowRequestError(WorkflowRequestErrorInvalidValue, "expected_definition_revision", "expected_definition_revision must be non-negative")
-		}
+	if r.ExpectedVersion < 0 {
+		return workflowRequestError(WorkflowRequestErrorInvalidValue, "expected_version", "expected_version must be non-negative")
 	}
 	return validateWorkflowGraphDraftEnvelope(r.Graph)
 }
 
 func (r WorkflowGraphSaveRequest) Validate() error {
-	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: r.WorkflowID, ExpectedGraphRevision: r.ExpectedGraphRevision, ExpectedDefinitionRevision: r.ExpectedDefinitionRevision, Metadata: r.Metadata, Graph: r.Graph}).Validate(); err != nil {
+	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: r.WorkflowID, ExpectedVersion: r.ExpectedVersion, Metadata: r.Metadata, Graph: r.Graph}).Validate(); err != nil {
 		return err
 	}
 	if r.Confirmation == nil {

@@ -115,7 +115,7 @@ func newRunStartSnapshot(def workflow.Definition, record WorkflowRecord, nodeID 
 	}
 	snapshot := runStartSnapshot{
 		WorkflowID:           record.ID,
-		WorkflowRevisionSeen: record.GraphRevision,
+		WorkflowRevisionSeen: record.Version,
 		Node:                 nodeSnapshot(node),
 	}
 	for _, defNode := range def.Nodes {

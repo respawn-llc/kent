@@ -306,7 +306,7 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 	if err != nil {
 		return RunStartContext{}, err
 	}
-	workflowRecord := WorkflowRecord{ID: workflow.WorkflowID(workflowRow.ID), Name: workflowRow.Name, Description: workflowRow.Description, GraphRevision: workflowRow.GraphRevision, DefinitionRevision: workflowRow.DefinitionRevision}
+	workflowRecord := WorkflowRecord{ID: workflow.WorkflowID(workflowRow.ID), Name: workflowRow.Name, Description: workflowRow.Description, Version: workflowRow.Version}
 	snapshot := runStartSnapshot{}
 	if err := unmarshalJSON(run.RunStartSnapshotJson, &snapshot); err != nil {
 		return RunStartContext{}, err

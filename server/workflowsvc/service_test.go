@@ -886,12 +886,12 @@ func TestServiceWorkflowDeletePreviewsBlocksAndPublishesDeletion(t *testing.T) {
 	}
 
 	deleted, err := service.DeleteWorkflow(ctx, serverapi.WorkflowDeleteRequest{
-		WorkflowID:            workflowID,
-		Confirmed:             true,
-		ExpectedGraphRevision: preview.Impact.GraphRevision,
-		ExpectedProjectCount:  preview.Impact.ProjectCount,
-		ExpectedLinkCount:     preview.Impact.LinkCount,
-		ExpectedTaskCount:     preview.Impact.TaskCount,
+		WorkflowID:           workflowID,
+		Confirmed:            true,
+		ExpectedVersion:      preview.Impact.Version,
+		ExpectedProjectCount: preview.Impact.ProjectCount,
+		ExpectedLinkCount:    preview.Impact.LinkCount,
+		ExpectedTaskCount:    preview.Impact.TaskCount,
 	})
 	if err != nil {
 		t.Fatalf("DeleteWorkflow confirmed: %v", err)
@@ -1117,11 +1117,10 @@ func TestServiceWorkflowGraphValidatePreviewAndSave(t *testing.T) {
 
 	renamedGraph := renameWorkflowGraphDraftNode(graph, "node-agent-"+workflowID, "Preview Agent")
 	preview, err := service.PreviewWorkflowGraphSave(ctx, serverapi.WorkflowGraphSavePreviewRequest{
-		WorkflowID:                 workflowID,
-		ExpectedGraphRevision:      source.Definition.Workflow.GraphRevision,
-		ExpectedDefinitionRevision: &source.Definition.Workflow.DefinitionRevision,
-		Metadata:                   &serverapi.WorkflowGraphMetadata{Name: "Preview Workflow", Description: "Preview only"},
-		Graph:                      renamedGraph,
+		WorkflowID:      workflowID,
+		ExpectedVersion: source.Definition.Workflow.Version,
+		Metadata:        &serverapi.WorkflowGraphMetadata{Name: "Preview Workflow", Description: "Preview only"},
+		Graph:           renamedGraph,
 	})
 	if err != nil {
 		t.Fatalf("PreviewWorkflowGraphSave: %v", err)
@@ -1133,7 +1132,7 @@ func TestServiceWorkflowGraphValidatePreviewAndSave(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetWorkflow after preview: %v", err)
 	}
-	if afterPreview.Definition.Workflow.GraphRevision != source.Definition.Workflow.GraphRevision || afterPreview.Definition.Workflow.DefinitionRevision != source.Definition.Workflow.DefinitionRevision || afterPreview.Definition.Workflow.Name == "Preview Workflow" || workflowServiceNodeByID(t, afterPreview.Definition, "node-agent-"+workflowID).DisplayName == "Preview Agent" {
+	if afterPreview.Definition.Workflow.Version != source.Definition.Workflow.Version || afterPreview.Definition.Workflow.Name == "Preview Workflow" || workflowServiceNodeByID(t, afterPreview.Definition, "node-agent-"+workflowID).DisplayName == "Preview Agent" {
 		t.Fatalf("preview mutated workflow definition = %+v", afterPreview.Definition)
 	}
 
@@ -1151,17 +1150,16 @@ func TestServiceWorkflowGraphValidatePreviewAndSave(t *testing.T) {
 		t.Fatal("SubscribeWorkflow accepted missing workflow")
 	}
 	saved, err := service.SaveWorkflowGraph(ctx, serverapi.WorkflowGraphSaveRequest{
-		WorkflowID:                 workflowID,
-		ExpectedGraphRevision:      source.Definition.Workflow.GraphRevision,
-		ExpectedDefinitionRevision: &source.Definition.Workflow.DefinitionRevision,
-		Metadata:                   &serverapi.WorkflowGraphMetadata{Name: "Saved Workflow", Description: "Saved metadata"},
-		Graph:                      renamedGraph,
+		WorkflowID:      workflowID,
+		ExpectedVersion: source.Definition.Workflow.Version,
+		Metadata:        &serverapi.WorkflowGraphMetadata{Name: "Saved Workflow", Description: "Saved metadata"},
+		Graph:           renamedGraph,
 	})
 	if err != nil {
 		t.Fatalf("SaveWorkflowGraph: %v", err)
 	}
-	if !saved.Saved || saved.Definition == nil || saved.CurrentGraphRevision != source.Definition.Workflow.GraphRevision+1 || saved.CurrentDefinitionRevision != source.Definition.Workflow.DefinitionRevision+1 {
-		t.Fatalf("saved graph = %+v, want saved canonical definition with incremented revision", saved)
+	if !saved.Saved || saved.Definition == nil || saved.CurrentVersion != source.Definition.Workflow.Version+1 {
+		t.Fatalf("saved graph = %+v, want saved canonical definition with incremented version", saved)
 	}
 	if saved.Definition.Workflow.Name != "Saved Workflow" || saved.Definition.Workflow.Description != "Saved metadata" {
 		t.Fatalf("saved workflow metadata = %+v, want combined metadata persisted", saved.Definition.Workflow)

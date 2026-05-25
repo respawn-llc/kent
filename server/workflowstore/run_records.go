@@ -59,6 +59,6 @@ func taskRecordFromTask(row sqlitegen.TaskRecord) TaskRecord {
 		ManagedWorktreeID: strings.TrimSpace(row.ManagedWorktreeID.String),
 		CanceledAt:        row.CanceledAtUnixMs,
 		CancelReason:      row.CancellationReason,
-		GraphRevision:     row.WorkflowRevisionSeen,
+		Version:           row.WorkflowRevisionSeen,
 	}
 }

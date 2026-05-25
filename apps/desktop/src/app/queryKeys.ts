@@ -20,19 +20,19 @@ export const queryKeys = {
   board: (projectID: string, workflowID: string) => ["board", projectID, workflowID],
   workflows: (query: string) => ["workflow", query],
   workflowDefinition: (workflowID: string) => ["workflow-definition", workflowID],
-  workflowDraftValidation: (workflowID: string, sourceDefinitionRevision: number, version: number) => [
+  workflowDraftValidation: (workflowID: string, sourceVersion: number, version: number) => [
     "workflow-draft-validation",
     workflowID,
-    sourceDefinitionRevision,
+    sourceVersion,
     version,
   ],
   workflowValidation: (workflowID: string, mode: string) => ["workflow-validation", workflowID, mode],
   workflowGraphLayout: (
     workflowID: string,
-    graphRevision: number,
+    version: number,
     valid: boolean,
     errors: readonly unknown[],
-  ) => ["workflow-graph-layout", workflowID, graphRevision, valid, errors],
+  ) => ["workflow-graph-layout", workflowID, version, valid, errors],
   projectWorkflowLinks: (projectID: string) => ["project-workflow-links", projectID],
   boardNodeCardsRoot: (projectID: string, workflowID: string) => ["board-node-cards", projectID, workflowID],
   boardNodeCards: (projectID: string, workflowID: string, nodeID: string) => [

@@ -97,25 +97,24 @@ describe("workflowEditorDraft", () => {
       type: "editWorkflowMetadata",
     });
     const conflict = workflowEditorDraftReducer(dirty, {
-      source: withDefinitionRevision(workflowDefinition, 2),
+      source: withVersion(workflowDefinition, 2),
       type: "conflict",
     });
     const kept = workflowEditorDraftReducer(conflict, { type: "keepEditing" });
 
     expect(kept.conflict).toBeNull();
-    expect(kept.acknowledgedConflictDefinitionRevision).toBe(2);
+    expect(kept.acknowledgedConflictVersion).toBe(2);
   });
 });
 
-function withDefinitionRevision(source: WorkflowDefinition, definitionRevision: number): WorkflowDefinition {
-  return { ...source, workflow: { ...source.workflow, definitionRevision } };
+function withVersion(source: WorkflowDefinition, version: number): WorkflowDefinition {
+  return { ...source, workflow: { ...source.workflow, version } };
 }
 
 const workflowDefinition: WorkflowDefinition = {
   workflow: {
-    definitionRevision: 1,
     description: "",
-    graphRevision: 1,
+    version: 1,
     id: "workflow-1",
     name: "Workflow",
   },

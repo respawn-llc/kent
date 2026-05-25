@@ -62,15 +62,13 @@ const workflowRecordSchema: z.ZodType<WorkflowRecord> = z
     id: z.string(),
     name: z.string(),
     description: emptyString,
-    graph_revision: z.number(),
-    definition_revision: z.number(),
+    version: z.number(),
   })
   .transform((value) => ({
     id: value.id,
     name: value.name,
     description: value.description,
-    graphRevision: value.graph_revision,
-    definitionRevision: value.definition_revision,
+    version: value.version,
   }));
 
 export const workflowListSchema: z.ZodType<WorkflowPage> = z
@@ -277,8 +275,7 @@ const workflowDefinitionValueSchema: z.ZodType<WorkflowDefinition> = z
       id: z.string(),
       name: z.string(),
       description: emptyString,
-      graph_revision: z.number(),
-      definition_revision: z.number(),
+      version: z.number(),
     }),
     node_groups: workflowNodeGroupsSchema,
     nodes: workflowNodesSchema,
@@ -290,8 +287,7 @@ const workflowDefinitionValueSchema: z.ZodType<WorkflowDefinition> = z
       id: value.workflow.id,
       name: value.workflow.name,
       description: value.workflow.description,
-      graphRevision: value.workflow.graph_revision,
-      definitionRevision: value.workflow.definition_revision,
+      version: value.workflow.version,
     },
     nodeGroups: value.node_groups,
     nodes: value.nodes,
@@ -369,8 +365,7 @@ const workflowGraphSaveBlockersSchema = z
 
 export const workflowGraphSavePreviewSchema: z.ZodType<WorkflowGraphSavePreview> = z
   .object({
-    current_graph_revision: z.number(),
-    current_definition_revision: z.number(),
+    current_version: z.number(),
     validation_results: workflowGraphValidationResultsSchema,
     impact: workflowGraphSaveImpactSchema,
     blockers: workflowGraphSaveBlockersSchema,
@@ -378,8 +373,7 @@ export const workflowGraphSavePreviewSchema: z.ZodType<WorkflowGraphSavePreview>
     confirmation_required: z.boolean(),
   })
   .transform((value) => ({
-    currentGraphRevision: value.current_graph_revision,
-    currentDefinitionRevision: value.current_definition_revision,
+    currentVersion: value.current_version,
     validationResults: value.validation_results,
     impact: value.impact,
     blockers: value.blockers,
@@ -391,8 +385,7 @@ export const workflowGraphSaveSchema: z.ZodType<WorkflowGraphSaveResult> = z
   .object({
     saved: z.boolean(),
     definition: workflowDefinitionValueSchema.nullish().transform((value) => value ?? null),
-    current_graph_revision: z.number(),
-    current_definition_revision: z.number(),
+    current_version: z.number(),
     validation_results: workflowGraphValidationResultsSchema,
     impact: workflowGraphSaveImpactSchema,
     blockers: workflowGraphSaveBlockersSchema,
@@ -402,8 +395,7 @@ export const workflowGraphSaveSchema: z.ZodType<WorkflowGraphSaveResult> = z
   .transform((value) => ({
     saved: value.saved,
     definition: value.definition,
-    currentGraphRevision: value.current_graph_revision,
-    currentDefinitionRevision: value.current_definition_revision,
+    currentVersion: value.current_version,
     validationResults: value.validation_results,
     impact: value.impact,
     blockers: value.blockers,
@@ -414,7 +406,7 @@ export const workflowGraphSaveSchema: z.ZodType<WorkflowGraphSaveResult> = z
 const workflowDeleteImpactSchema: z.ZodType<WorkflowDeleteImpact> = z
   .object({
     workflow_id: z.string(),
-    graph_revision: z.number(),
+    version: z.number(),
     project_count: z.number(),
     link_count: z.number(),
     default_replacement_project_count: z.number(),
@@ -425,7 +417,7 @@ const workflowDeleteImpactSchema: z.ZodType<WorkflowDeleteImpact> = z
   })
   .transform((value) => ({
     workflowID: value.workflow_id,
-    graphRevision: value.graph_revision,
+    version: value.version,
     projectCount: value.project_count,
     linkCount: value.link_count,
     defaultReplacementProjectCount: value.default_replacement_project_count,
@@ -610,7 +602,7 @@ export const taskDetailSchema: z.ZodType<TaskDetail> = z
     projectName: value.task.project.display_name,
     workflowID: value.task.summary.workflow_id,
     workflowName: value.task.workflow.name,
-    workflowGraphRevision: value.task.workflow.graphRevision,
+    workflowVersion: value.task.workflow.version,
     title: value.task.summary.title,
     body: value.task.body,
     sourceWorkspace: value.task.source_workspace,

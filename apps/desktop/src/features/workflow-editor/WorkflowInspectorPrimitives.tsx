@@ -62,7 +62,7 @@ function validationErrorKey(error: WorkflowValidationError, index: number): stri
   if (entityID.length > 0) {
     return `${error.code}:${entityID}:${error.message}`;
   }
-  return `${error.code}:${error.message}:${index}`;
+  return `${error.code}:${error.message}:${index.toString()}`;
 }
 
 export function MissingEntity({ entityID }: Readonly<{ entityID: string }>) {

@@ -61,11 +61,10 @@ func New(metadataStore *metadata.Store, opts ...Option) (*Store, error) {
 }
 
 type WorkflowRecord struct {
-	ID                 workflow.WorkflowID
-	Name               string
-	Description        string
-	GraphRevision      int64
-	DefinitionRevision int64
+	ID          workflow.WorkflowID
+	Name        string
+	Description string
+	Version     int64
 }
 
 type NodeRecord struct {
@@ -170,7 +169,7 @@ type TaskRecord struct {
 	ManagedWorktreeID string
 	CanceledAt        int64
 	CancelReason      string
-	GraphRevision     int64
+	Version           int64
 }
 
 type PlacementRecord struct {
@@ -346,7 +345,7 @@ func insertWorkflow(ctx context.Context, q *sqlitegen.Queries, now int64, req Cr
 	workflowID := prefixedID("workflow")
 	startID := prefixedID("node")
 	doneID := prefixedID("node")
-	if err := q.InsertWorkflow(ctx, sqlitegen.InsertWorkflowParams{ID: workflowID, Name: name, Description: description, GraphRevision: 1, DefinitionRevision: 1, CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
+	if err := q.InsertWorkflow(ctx, sqlitegen.InsertWorkflowParams{ID: workflowID, Name: name, Description: description, Version: 1, CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
 		return WorkflowRecord{}, fmt.Errorf("insert workflow: %w", err)
 	}
 	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: startID, WorkflowID: workflowID, NodeKey: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog", OutputFieldsJson: "[]", SortOrder: 0}); err != nil {
@@ -355,7 +354,7 @@ func insertWorkflow(ctx context.Context, q *sqlitegen.Queries, now int64, req Cr
 	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: doneID, WorkflowID: workflowID, NodeKey: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done", OutputFieldsJson: "[]", SortOrder: 1000}); err != nil {
 		return WorkflowRecord{}, fmt.Errorf("insert done node: %w", err)
 	}
-	return WorkflowRecord{ID: workflow.WorkflowID(workflowID), Name: name, Description: description, GraphRevision: 1, DefinitionRevision: 1}, nil
+	return WorkflowRecord{ID: workflow.WorkflowID(workflowID), Name: name, Description: description, Version: 1}, nil
 }
 
 func (s *Store) UpdateWorkflowInfo(ctx context.Context, workflowID workflow.WorkflowID, name string, description string) error {
@@ -403,8 +402,7 @@ SELECT
     id,
     name,
     description,
-    graph_revision,
-    definition_revision,
+    version,
     created_at_unix_ms,
     updated_at_unix_ms
 FROM workflows
@@ -418,7 +416,7 @@ LIMIT ? OFFSET ?`, args...)
 	out := make([]WorkflowRecord, 0, pageSize)
 	for rows.Next() {
 		var row workflowRecordRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.GraphRevision, &row.DefinitionRevision, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Version, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs); err != nil {
 			return ListWorkflowsResult{}, err
 		}
 		out = append(out, workflowRecordFromRow(row))
@@ -476,9 +474,9 @@ func (s *Store) AddNode(ctx context.Context, node NodeRecord) (int64, error) {
 	}); err != nil {
 		return 0, fmt.Errorf("insert workflow node: %w", err)
 	}
-	revision, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: string(node.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
+	revision, err := q.IncrementWorkflowVersion(ctx, sqlitegen.IncrementWorkflowVersionParams{ID: string(node.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
 	if err != nil {
-		return 0, fmt.Errorf("increment graph revision: %w", err)
+		return 0, fmt.Errorf("increment workflow version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
@@ -546,9 +544,9 @@ WHERE id = ?
 	if count != 1 {
 		return 0, sql.ErrNoRows
 	}
-	revision, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: string(node.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
+	revision, err := q.IncrementWorkflowVersion(ctx, sqlitegen.IncrementWorkflowVersionParams{ID: string(node.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
 	if err != nil {
-		return 0, fmt.Errorf("increment graph revision: %w", err)
+		return 0, fmt.Errorf("increment workflow version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
@@ -585,9 +583,9 @@ func (s *Store) AddNodeGroup(ctx context.Context, group NodeGroupRecord) (NodeGr
 	if err := q.InsertWorkflowNodeGroup(ctx, sqlitegen.InsertWorkflowNodeGroupParams{ID: group.ID, WorkflowID: string(group.WorkflowID), GroupKey: string(group.Key), DisplayName: strings.TrimSpace(group.DisplayName), SortOrder: group.SortOrder}); err != nil {
 		return NodeGroupRecord{}, 0, fmt.Errorf("insert workflow node group: %w", err)
 	}
-	revision, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: string(group.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
+	revision, err := q.IncrementWorkflowVersion(ctx, sqlitegen.IncrementWorkflowVersionParams{ID: string(group.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
 	if err != nil {
-		return NodeGroupRecord{}, 0, fmt.Errorf("increment graph revision: %w", err)
+		return NodeGroupRecord{}, 0, fmt.Errorf("increment workflow version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return NodeGroupRecord{}, 0, err
@@ -628,9 +626,9 @@ func (s *Store) UpdateNodeGroup(ctx context.Context, group NodeGroupRecord) (Nod
 	if updated != 1 {
 		return NodeGroupRecord{}, 0, sql.ErrNoRows
 	}
-	revision, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: string(group.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
+	revision, err := q.IncrementWorkflowVersion(ctx, sqlitegen.IncrementWorkflowVersionParams{ID: string(group.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
 	if err != nil {
-		return NodeGroupRecord{}, 0, fmt.Errorf("increment graph revision: %w", err)
+		return NodeGroupRecord{}, 0, fmt.Errorf("increment workflow version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return NodeGroupRecord{}, 0, err
@@ -672,9 +670,9 @@ func (s *Store) DeleteNodeGroup(ctx context.Context, workflowID workflow.Workflo
 	if deleted != 1 {
 		return 0, sql.ErrNoRows
 	}
-	revision, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: string(workflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
+	revision, err := q.IncrementWorkflowVersion(ctx, sqlitegen.IncrementWorkflowVersionParams{ID: string(workflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
 	if err != nil {
-		return 0, fmt.Errorf("increment graph revision: %w", err)
+		return 0, fmt.Errorf("increment workflow version: %w", err)
 	}
 	return revision, tx.Commit()
 }
@@ -739,9 +737,9 @@ func (s *Store) AddTransitionGroup(ctx context.Context, group TransitionGroupRec
 	if err := q.InsertWorkflowTransitionGroup(ctx, sqlitegen.InsertWorkflowTransitionGroupParams{ID: string(group.ID), SourceNodeID: string(group.SourceNodeID), TransitionID: strings.TrimSpace(string(group.TransitionID)), DisplayName: strings.TrimSpace(group.DisplayName), SortOrder: 100}); err != nil {
 		return 0, fmt.Errorf("insert transition group: %w", err)
 	}
-	revision, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: string(group.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
+	revision, err := q.IncrementWorkflowVersion(ctx, sqlitegen.IncrementWorkflowVersionParams{ID: string(group.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
 	if err != nil {
-		return 0, fmt.Errorf("increment graph revision: %w", err)
+		return 0, fmt.Errorf("increment workflow version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
@@ -801,9 +799,9 @@ WHERE id = ?
 	if count != 1 {
 		return 0, sql.ErrNoRows
 	}
-	revision, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: string(group.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
+	revision, err := q.IncrementWorkflowVersion(ctx, sqlitegen.IncrementWorkflowVersionParams{ID: string(group.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
 	if err != nil {
-		return 0, fmt.Errorf("increment graph revision: %w", err)
+		return 0, fmt.Errorf("increment workflow version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
@@ -846,9 +844,9 @@ func (s *Store) AddEdge(ctx context.Context, edge EdgeRecord) (int64, error) {
 	if err := q.InsertWorkflowEdge(ctx, sqlitegen.InsertWorkflowEdgeParams{ID: string(edge.ID), TransitionGroupID: string(edge.TransitionGroupID), EdgeKey: string(edge.Key), TargetNodeID: string(edge.TargetNodeID), RequiresApproval: boolToInt64(edge.RequiresApproval), ContextMode: string(edge.ContextMode), ContextSourceKind: string(contextSource.Kind), ContextSourceNodeKey: string(contextSource.NodeKey), InputBindingsJson: inputs, OutputRequirementsJson: requirements, SortOrder: 100}); err != nil {
 		return 0, fmt.Errorf("insert workflow edge: %w", err)
 	}
-	revision, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: string(edge.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
+	revision, err := q.IncrementWorkflowVersion(ctx, sqlitegen.IncrementWorkflowVersionParams{ID: string(edge.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
 	if err != nil {
-		return 0, fmt.Errorf("increment graph revision: %w", err)
+		return 0, fmt.Errorf("increment workflow version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
@@ -933,9 +931,9 @@ WHERE id = ?
 	if count != 1 {
 		return 0, sql.ErrNoRows
 	}
-	revision, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: string(edge.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
+	revision, err := q.IncrementWorkflowVersion(ctx, sqlitegen.IncrementWorkflowVersionParams{ID: string(edge.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
 	if err != nil {
-		return 0, fmt.Errorf("increment graph revision: %w", err)
+		return 0, fmt.Errorf("increment workflow version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
@@ -977,8 +975,8 @@ func (s *Store) DeleteNode(ctx context.Context, nodeID workflow.NodeID) error {
 	} else if deleted != 1 {
 		return sql.ErrNoRows
 	}
-	if _, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: node.WorkflowID, UpdatedAtUnixMs: s.now().UnixMilli()}); err != nil {
-		return fmt.Errorf("increment graph revision: %w", err)
+	if _, err := q.IncrementWorkflowVersion(ctx, sqlitegen.IncrementWorkflowVersionParams{ID: node.WorkflowID, UpdatedAtUnixMs: s.now().UnixMilli()}); err != nil {
+		return fmt.Errorf("increment workflow version: %w", err)
 	}
 	return tx.Commit()
 }
@@ -1017,8 +1015,8 @@ func (s *Store) DeleteEdge(ctx context.Context, edgeID workflow.EdgeID) error {
 	} else if deleted != 1 {
 		return sql.ErrNoRows
 	}
-	if _, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: edge.WorkflowID, UpdatedAtUnixMs: s.now().UnixMilli()}); err != nil {
-		return fmt.Errorf("increment graph revision: %w", err)
+	if _, err := q.IncrementWorkflowVersion(ctx, sqlitegen.IncrementWorkflowVersionParams{ID: edge.WorkflowID, UpdatedAtUnixMs: s.now().UnixMilli()}); err != nil {
+		return fmt.Errorf("increment workflow version: %w", err)
 	}
 	return tx.Commit()
 }
@@ -1066,21 +1064,20 @@ func (s *Store) GetDefinition(ctx context.Context, workflowID workflow.WorkflowI
 }
 
 type workflowRecordRow struct {
-	ID                 string
-	Name               string
-	Description        string
-	GraphRevision      int64
-	DefinitionRevision int64
-	CreatedAtUnixMs    int64
-	UpdatedAtUnixMs    int64
+	ID              string
+	Name            string
+	Description     string
+	Version         int64
+	CreatedAtUnixMs int64
+	UpdatedAtUnixMs int64
 }
 
 func workflowRecordFromRow(row workflowRecordRow) WorkflowRecord {
-	return WorkflowRecord{ID: workflow.WorkflowID(row.ID), Name: row.Name, Description: row.Description, GraphRevision: row.GraphRevision, DefinitionRevision: row.DefinitionRevision}
+	return WorkflowRecord{ID: workflow.WorkflowID(row.ID), Name: row.Name, Description: row.Description, Version: row.Version}
 }
 
-func workflowRecordFromGetWorkflowRow(row sqlitegen.GetWorkflowRow) WorkflowRecord {
-	return workflowRecordFromRow(workflowRecordRow{ID: row.ID, Name: row.Name, Description: row.Description, GraphRevision: row.GraphRevision, DefinitionRevision: row.DefinitionRevision, CreatedAtUnixMs: row.CreatedAtUnixMs, UpdatedAtUnixMs: row.UpdatedAtUnixMs})
+func workflowRecordFromGetWorkflowRow(row sqlitegen.Workflow) WorkflowRecord {
+	return workflowRecordFromRow(workflowRecordRow{ID: row.ID, Name: row.Name, Description: row.Description, Version: row.Version, CreatedAtUnixMs: row.CreatedAtUnixMs, UpdatedAtUnixMs: row.UpdatedAtUnixMs})
 }
 
 func nodeGroupRecordFromRow(row sqlitegen.WorkflowNodeGroup) NodeGroupRecord {

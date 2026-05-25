@@ -118,7 +118,7 @@ function edgeByID(edges: readonly WorkflowGraphEdge[], id: string): WorkflowGrap
 const emptyValidation: WorkflowValidation = { valid: true, errors: [] };
 
 const groupedWorkflow: WorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1, definitionRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
   nodeGroups: [
     {
       id: "group-1",
@@ -151,7 +151,7 @@ const groupedWorkflow: WorkflowDefinition = {
 };
 
 const fanoutWorkflow: WorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1, definitionRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
   nodeGroups: [],
   nodes: [
     workflowNode("node-1", "Plan", "agent", ""),
@@ -166,7 +166,7 @@ const fanoutWorkflow: WorkflowDefinition = {
 };
 
 const crossBoundaryWorkflow: WorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1, definitionRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
   nodeGroups: [
     {
       id: "group-source",
@@ -206,7 +206,7 @@ const crossBoundaryWorkflow: WorkflowDefinition = {
 };
 
 const joinWorkflow: WorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1, definitionRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
   nodeGroups: [],
   nodes: [
     workflowNode("node-a", "A", "agent", ""),
@@ -245,7 +245,7 @@ const joinWorkflow: WorkflowDefinition = {
 };
 
 const joinChainWorkflow: WorkflowDefinition = {
-  workflow: { id: "workflow-1", name: "Delivery", description: "", graphRevision: 1, definitionRevision: 1 },
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
   nodeGroups: [],
   nodes: [
     workflowNode("node-a", "A", "agent", ""),

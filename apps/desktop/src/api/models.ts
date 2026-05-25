@@ -127,8 +127,7 @@ export type WorkflowRecord = Readonly<{
   id: string;
   name: string;
   description: string;
-  graphRevision: number;
-  definitionRevision: number;
+  version: number;
 }>;
 
 export type WorkflowPage = Readonly<{
@@ -284,8 +283,7 @@ export type WorkflowGraphSaveBlocker = Readonly<{
 }>;
 
 export type WorkflowGraphSavePreview = Readonly<{
-  currentGraphRevision: number;
-  currentDefinitionRevision: number;
+  currentVersion: number;
   validationResults: WorkflowGraphValidationResults;
   impact: WorkflowGraphSaveImpact;
   blockers: readonly WorkflowGraphSaveBlocker[];
@@ -309,7 +307,7 @@ export type WorkflowGraphSaveResult = WorkflowGraphSavePreview &
 
 export type WorkflowDeleteImpact = Readonly<{
   workflowID: string;
-  graphRevision: number;
+  version: number;
   projectCount: number;
   linkCount: number;
   defaultReplacementProjectCount: number;
@@ -342,7 +340,7 @@ export type WorkflowPickerItem = Readonly<{
   id: string;
   name: string;
   description: string;
-  graphRevision: number;
+  version: number;
   isProjectDefault: boolean;
   validForTaskCreation: boolean;
   validationErrors: readonly WorkflowValidationError[];
@@ -481,7 +479,7 @@ export type TaskTransition = Readonly<{
   commentary: string;
   outputValues: Readonly<Record<string, string>>;
   edges: readonly TransitionEdge[];
-  graphRevision: number;
+  version: number;
   createdAt: number;
   appliedAt: number;
 }>;
@@ -502,7 +500,7 @@ export type TaskDetail = Readonly<{
   projectName: string;
   workflowID: string;
   workflowName: string;
-  workflowGraphRevision: number;
+  workflowVersion: number;
   title: string;
   body: string;
   sourceWorkspace: WorkspaceSummary;

@@ -13,8 +13,7 @@ import (
 
 type WorkflowGraphSaveRequest struct {
 	WorkflowID                          workflow.WorkflowID
-	ExpectedGraphRevision               int64
-	ExpectedDefinitionRevision          *int64
+	ExpectedVersion                     int64
 	Metadata                            *WorkflowGraphSaveMetadata
 	Confirmed                           bool
 	ExpectedRemovedNodeCount            int64
@@ -52,8 +51,7 @@ type WorkflowGraphSaveResult struct {
 	Changed              bool
 	CanSave              bool
 	ConfirmationRequired bool
-	GraphRevision        int64
-	DefinitionRevision   int64
+	Version              int64
 	Impact               WorkflowGraphSaveImpact
 	EditPolicyImpact     WorkflowGraphEditPolicyImpact
 	Blockers             []WorkflowGraphSaveBlocker
@@ -61,18 +59,17 @@ type WorkflowGraphSaveResult struct {
 }
 
 type WorkflowGraphSavePlan struct {
-	WorkflowID         workflow.WorkflowID
-	GraphRevision      int64
-	DefinitionRevision int64
-	Prepared           preparedWorkflowGraphSave
-	Metadata           *WorkflowGraphSaveMetadata
-	GraphChanged       bool
-	MetadataChanged    bool
-	Removed            removedWorkflowGraphRows
-	Impact             WorkflowGraphSaveImpact
-	EditPolicy         WorkflowGraphEditPolicyResult
-	Blockers           []WorkflowGraphSaveBlocker
-	ValidationErrors   []workflow.ValidationError
+	WorkflowID       workflow.WorkflowID
+	Version          int64
+	Prepared         preparedWorkflowGraphSave
+	Metadata         *WorkflowGraphSaveMetadata
+	GraphChanged     bool
+	MetadataChanged  bool
+	Removed          removedWorkflowGraphRows
+	Impact           WorkflowGraphSaveImpact
+	EditPolicy       WorkflowGraphEditPolicyResult
+	Blockers         []WorkflowGraphSaveBlocker
+	ValidationErrors []workflow.ValidationError
 }
 
 func (s *Store) PreviewWorkflowGraphSave(ctx context.Context, req WorkflowGraphSaveRequest) (WorkflowGraphSaveResult, error) {
@@ -88,8 +85,8 @@ func (s *Store) planWorkflowGraphSave(ctx context.Context, db workflowGraphEditP
 	if workflowID == "" {
 		return WorkflowGraphSavePlan{}, errors.New("workflow id is required")
 	}
-	if req.ExpectedGraphRevision < 0 {
-		return WorkflowGraphSavePlan{}, errors.New("expected graph revision must be non-negative")
+	if req.ExpectedVersion < 0 {
+		return WorkflowGraphSavePlan{}, errors.New("expected version must be non-negative")
 	}
 	current, err := q.GetWorkflow(ctx, string(workflowID))
 	if err != nil {
@@ -102,12 +99,6 @@ func (s *Store) planWorkflowGraphSave(ctx context.Context, db workflowGraphEditP
 	displayName := current.Name
 	if metadata != nil {
 		displayName = metadata.Name
-		if req.ExpectedDefinitionRevision == nil {
-			return WorkflowGraphSavePlan{}, errors.New("expected definition revision is required when workflow metadata is present")
-		}
-		if *req.ExpectedDefinitionRevision < 0 {
-			return WorkflowGraphSavePlan{}, errors.New("expected definition revision must be non-negative")
-		}
 	}
 	prepared, def, err := prepareWorkflowGraphSave(workflowID, displayName, req)
 	if err != nil {
@@ -119,16 +110,18 @@ func (s *Store) planWorkflowGraphSave(ctx context.Context, db workflowGraphEditP
 	}
 	graphChanged := !workflowGraphSavePreparedEqual(currentGraph, prepared)
 	plan := WorkflowGraphSavePlan{
-		WorkflowID:         workflowID,
-		GraphRevision:      current.GraphRevision,
-		DefinitionRevision: current.DefinitionRevision,
-		Prepared:           prepared,
-		Metadata:           metadata,
-		GraphChanged:       graphChanged,
-		MetadataChanged:    metadataChanged,
+		WorkflowID:      workflowID,
+		Version:         current.Version,
+		Prepared:        prepared,
+		Metadata:        metadata,
+		GraphChanged:    graphChanged,
+		MetadataChanged: metadataChanged,
 	}
-	if metadata != nil && current.DefinitionRevision != *req.ExpectedDefinitionRevision {
-		plan.Blockers = []WorkflowGraphSaveBlocker{{Code: "definition_revision_changed", Message: "Workflow definition changed. Refresh before saving.", Count: current.DefinitionRevision}}
+	if !graphChanged && !metadataChanged {
+		return plan, nil
+	}
+	if current.Version != req.ExpectedVersion {
+		plan.Blockers = []WorkflowGraphSaveBlocker{{Code: "version_changed", Message: "Workflow changed. Refresh before saving.", Count: current.Version}}
 		return plan, nil
 	}
 	if !graphChanged {
@@ -137,10 +130,6 @@ func (s *Store) planWorkflowGraphSave(ctx context.Context, db workflowGraphEditP
 	validation := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft, RoleResolver: s.roleResolver})
 	validationErrors := validation.BlockingErrors()
 	plan.ValidationErrors = validationErrors
-	if current.GraphRevision != req.ExpectedGraphRevision {
-		plan.Blockers = []WorkflowGraphSaveBlocker{{Code: "graph_revision_changed", Message: "Workflow graph changed. Refresh before saving.", Count: current.GraphRevision}}
-		return plan, nil
-	}
 	impact, removed, err := workflowGraphSaveImpact(ctx, q, workflowID, prepared)
 	if err != nil {
 		return WorkflowGraphSavePlan{}, err
@@ -178,18 +167,16 @@ func (s *Store) SaveWorkflowGraph(ctx context.Context, req WorkflowGraphSaveRequ
 	if len(plan.Blockers) > 0 {
 		return plan.workflowGraphSaveResult(false), nil
 	}
-	graphRevision := plan.GraphRevision
-	definitionRevision := plan.DefinitionRevision
+	version := plan.Version
 	if plan.GraphChanged {
 		if err := applyWorkflowGraphSave(ctx, tx, q, plan.WorkflowID, plan.Prepared, plan.Removed); err != nil {
 			return WorkflowGraphSaveResult{}, err
 		}
-		revision, err := q.IncrementWorkflowGraphRevision(ctx, sqlitegen.IncrementWorkflowGraphRevisionParams{ID: string(plan.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
+		revision, err := q.IncrementWorkflowVersion(ctx, sqlitegen.IncrementWorkflowVersionParams{ID: string(plan.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
 		if err != nil {
-			return WorkflowGraphSaveResult{}, fmt.Errorf("increment graph revision: %w", err)
+			return WorkflowGraphSaveResult{}, fmt.Errorf("increment workflow version: %w", err)
 		}
-		graphRevision = revision
-		definitionRevision++
+		version = revision
 	}
 	if plan.MetadataChanged && plan.Metadata != nil {
 		if plan.GraphChanged {
@@ -223,15 +210,14 @@ WHERE id = ?`,
 			if updated != 1 {
 				return WorkflowGraphSaveResult{}, sql.ErrNoRows
 			}
-			definitionRevision++
+			version++
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		return WorkflowGraphSaveResult{}, err
 	}
 	result := plan.workflowGraphSaveResult(true)
-	result.GraphRevision = graphRevision
-	result.DefinitionRevision = definitionRevision
+	result.Version = version
 	return result, nil
 }
 
@@ -241,8 +227,7 @@ func (p WorkflowGraphSavePlan) workflowGraphSaveResult(saved bool) WorkflowGraph
 		Changed:              p.GraphChanged || p.MetadataChanged,
 		CanSave:              len(p.Blockers) == 0,
 		ConfirmationRequired: workflowGraphSaveHasBlocker(p.Blockers, "confirmation_required"),
-		GraphRevision:        p.GraphRevision,
-		DefinitionRevision:   p.DefinitionRevision,
+		Version:              p.Version,
 		Impact:               p.Impact,
 		EditPolicyImpact:     p.EditPolicy.Impact,
 		Blockers:             p.Blockers,

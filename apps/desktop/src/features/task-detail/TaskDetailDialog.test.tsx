@@ -499,7 +499,7 @@ const workflow = {
   workflow_id: "workflow-1",
   display_name: "Delivery",
   description: "",
-  graph_revision: 1,
+  version: 1,
   is_project_default: true,
   valid_for_task_creation: true,
   validation_errors: [],

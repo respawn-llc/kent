@@ -258,13 +258,12 @@ type TaskTransitionRecord struct {
 }
 
 type Workflow struct {
-	ID                 string
-	Name               string
-	Description        string
-	GraphRevision      int64
-	CreatedAtUnixMs    int64
-	UpdatedAtUnixMs    int64
-	DefinitionRevision int64
+	ID              string
+	Name            string
+	Description     string
+	Version         int64
+	CreatedAtUnixMs int64
+	UpdatedAtUnixMs int64
 }
 
 type WorkflowEdge struct {

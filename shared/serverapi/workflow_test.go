@@ -168,20 +168,16 @@ func TestWorkflowGraphDraftRequestValidation(t *testing.T) {
 	if err := oversized.Validate(); err == nil || !strings.Contains(err.Error(), "nodes") {
 		t.Fatalf("oversized graph draft error = %v", err)
 	}
-	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: "workflow-1", ExpectedGraphRevision: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_graph_revision") {
+	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: "workflow-1", ExpectedVersion: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_version") {
 		t.Fatalf("negative preview revision error = %v", err)
 	}
-	definitionRevision := int64(2)
-	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: "workflow-1", ExpectedGraphRevision: 1, ExpectedDefinitionRevision: &definitionRevision, Metadata: &WorkflowGraphMetadata{Name: "Draft Name"}}).Validate(); err != nil {
-		t.Fatalf("metadata preview with definition revision rejected: %v", err)
+	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: "workflow-1", ExpectedVersion: 1, Metadata: &WorkflowGraphMetadata{Name: "Draft Name"}}).Validate(); err != nil {
+		t.Fatalf("metadata preview with expected version rejected: %v", err)
 	}
-	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: "workflow-1", ExpectedGraphRevision: 1, Metadata: &WorkflowGraphMetadata{Name: "Draft Name"}}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_definition_revision") {
-		t.Fatalf("missing definition revision error = %v", err)
-	}
-	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: "workflow-1", ExpectedGraphRevision: 1, ExpectedDefinitionRevision: &definitionRevision, Metadata: &WorkflowGraphMetadata{Name: " Draft Name "}}).Validate(); err == nil || !strings.Contains(err.Error(), "metadata.name") {
+	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: "workflow-1", ExpectedVersion: 1, Metadata: &WorkflowGraphMetadata{Name: " Draft Name "}}).Validate(); err == nil || !strings.Contains(err.Error(), "metadata.name") {
 		t.Fatalf("invalid metadata name error = %v", err)
 	}
-	if err := (WorkflowGraphSaveRequest{WorkflowID: "workflow-1", ExpectedGraphRevision: 1, Confirmation: &WorkflowGraphSaveConfirmation{ExpectedRemovedNodeCount: -1}}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_removed_node_count") {
+	if err := (WorkflowGraphSaveRequest{WorkflowID: "workflow-1", ExpectedVersion: 1, Confirmation: &WorkflowGraphSaveConfirmation{ExpectedRemovedNodeCount: -1}}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_removed_node_count") {
 		t.Fatalf("negative graph save confirmation error = %v", err)
 	}
 }
@@ -230,19 +226,19 @@ func TestWorkflowDeleteRequestValidation(t *testing.T) {
 		t.Fatalf("empty delete preview workflow id error = %v", err)
 	}
 	if err := (WorkflowDeleteRequest{
-		WorkflowID:            "workflow-1",
-		Confirmed:             true,
-		ExpectedGraphRevision: 1,
-		ExpectedProjectCount:  1,
-		ExpectedLinkCount:     1,
-		ExpectedTaskCount:     1,
+		WorkflowID:           "workflow-1",
+		Confirmed:            true,
+		ExpectedVersion:      1,
+		ExpectedProjectCount: 1,
+		ExpectedLinkCount:    1,
+		ExpectedTaskCount:    1,
 	}).Validate(); err != nil {
 		t.Fatalf("valid delete request rejected: %v", err)
 	}
 	if err := (WorkflowDeleteRequest{}).Validate(); err == nil || !strings.Contains(err.Error(), "workflow_id") {
 		t.Fatalf("empty delete workflow id error = %v", err)
 	}
-	if err := (WorkflowDeleteRequest{WorkflowID: "workflow-1", ExpectedGraphRevision: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_graph_revision") {
+	if err := (WorkflowDeleteRequest{WorkflowID: "workflow-1", ExpectedVersion: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_version") {
 		t.Fatalf("negative graph revision error = %v", err)
 	}
 	if err := (WorkflowDeleteRequest{WorkflowID: "workflow-1", ExpectedProjectCount: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_project_count") {

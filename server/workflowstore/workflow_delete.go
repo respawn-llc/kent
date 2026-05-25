@@ -12,7 +12,7 @@ import (
 
 type WorkflowDeleteImpact struct {
 	WorkflowID                     workflow.WorkflowID
-	GraphRevision                  int64
+	Version                        int64
 	ProjectCount                   int64
 	LinkCount                      int64
 	DefaultReplacementProjectCount int64
@@ -23,13 +23,13 @@ type WorkflowDeleteImpact struct {
 }
 
 type WorkflowDeleteRequest struct {
-	WorkflowID            workflow.WorkflowID
-	Confirmed             bool
-	ExpectedGraphRevision int64
-	ExpectedProjectCount  int64
-	ExpectedLinkCount     int64
-	ExpectedTaskCount     int64
-	CleanupArtifacts      bool
+	WorkflowID           workflow.WorkflowID
+	Confirmed            bool
+	ExpectedVersion      int64
+	ExpectedProjectCount int64
+	ExpectedLinkCount    int64
+	ExpectedTaskCount    int64
+	CleanupArtifacts     bool
 }
 
 type WorkflowDeleteResult struct {
@@ -127,7 +127,7 @@ WHERE default_project_workflow_link_id IN (
 func workflowDeleteImpactFromRow(row sqlitegen.GetWorkflowDeleteImpactRow) WorkflowDeleteImpact {
 	return WorkflowDeleteImpact{
 		WorkflowID:                     workflow.WorkflowID(row.WorkflowID),
-		GraphRevision:                  row.GraphRevision,
+		Version:                        row.Version,
 		ProjectCount:                   row.ProjectCount,
 		LinkCount:                      row.LinkCount,
 		DefaultReplacementProjectCount: row.DefaultReplacementProjectCount,
@@ -155,7 +155,7 @@ func workflowDeleteBlockers(req WorkflowDeleteRequest, impact WorkflowDeleteImpa
 	if !req.Confirmed {
 		blockers = append(blockers, WorkflowDeleteBlocker{Code: "confirmation_required", Message: "Workflow deletion will delete the workflow and any affected task database rows. Confirm with the current impact counts before deleting.", Count: workflowDeleteConfirmationCount(impact)})
 	}
-	if req.Confirmed && (req.ExpectedGraphRevision != impact.GraphRevision || req.ExpectedProjectCount != impact.ProjectCount || req.ExpectedLinkCount != impact.LinkCount || req.ExpectedTaskCount != impact.TaskCount) {
+	if req.Confirmed && (req.ExpectedVersion != impact.Version || req.ExpectedProjectCount != impact.ProjectCount || req.ExpectedLinkCount != impact.LinkCount || req.ExpectedTaskCount != impact.TaskCount) {
 		blockers = append(blockers, WorkflowDeleteBlocker{Code: "impact_changed", Message: "Workflow deletion impact changed. Refresh the preview before deleting.", Count: 1})
 	}
 	return blockers

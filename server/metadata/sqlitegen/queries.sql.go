@@ -1019,8 +1019,7 @@ SELECT
     id,
     name,
     description,
-    graph_revision,
-    definition_revision,
+    version,
     created_at_unix_ms,
     updated_at_unix_ms
 FROM workflows
@@ -1028,25 +1027,14 @@ WHERE id = ?1
 LIMIT 1
 `
 
-type GetWorkflowRow struct {
-	ID                 string
-	Name               string
-	Description        string
-	GraphRevision      int64
-	DefinitionRevision int64
-	CreatedAtUnixMs    int64
-	UpdatedAtUnixMs    int64
-}
-
-func (q *Queries) GetWorkflow(ctx context.Context, id string) (GetWorkflowRow, error) {
+func (q *Queries) GetWorkflow(ctx context.Context, id string) (Workflow, error) {
 	row := q.db.QueryRowContext(ctx, getWorkflow, id)
-	var i GetWorkflowRow
+	var i Workflow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
 		&i.Description,
-		&i.GraphRevision,
-		&i.DefinitionRevision,
+		&i.Version,
 		&i.CreatedAtUnixMs,
 		&i.UpdatedAtUnixMs,
 	)
@@ -1056,7 +1044,7 @@ func (q *Queries) GetWorkflow(ctx context.Context, id string) (GetWorkflowRow, e
 const getWorkflowDeleteImpact = `-- name: GetWorkflowDeleteImpact :one
 SELECT
     w.id AS workflow_id,
-    w.graph_revision,
+    w.version,
     CAST(COUNT(DISTINCT pwl.project_id) AS INTEGER) AS project_count,
     CAST(COUNT(DISTINCT pwl.id) AS INTEGER) AS link_count,
     CAST(COUNT(DISTINCT CASE
@@ -1117,12 +1105,12 @@ LEFT JOIN task_run_records r ON r.task_id = t.id
 LEFT JOIN task_node_placements placement ON placement.id = r.placement_id
 LEFT JOIN workflow_nodes n ON n.id = r.node_id
 WHERE w.id = ?1
-GROUP BY w.id, w.graph_revision
+GROUP BY w.id, w.version
 `
 
 type GetWorkflowDeleteImpactRow struct {
 	WorkflowID                     string
-	GraphRevision                  int64
+	Version                        int64
 	ProjectCount                   int64
 	LinkCount                      int64
 	DefaultReplacementProjectCount int64
@@ -1137,7 +1125,7 @@ func (q *Queries) GetWorkflowDeleteImpact(ctx context.Context, workflowID string
 	var i GetWorkflowDeleteImpactRow
 	err := row.Scan(
 		&i.WorkflowID,
-		&i.GraphRevision,
+		&i.Version,
 		&i.ProjectCount,
 		&i.LinkCount,
 		&i.DefaultReplacementProjectCount,
@@ -1495,47 +1483,25 @@ func (q *Queries) GetWorktreeByID(ctx context.Context, id string) (GetWorktreeBy
 	return i, err
 }
 
-const incrementWorkflowDefinitionRevision = `-- name: IncrementWorkflowDefinitionRevision :one
+const incrementWorkflowVersion = `-- name: IncrementWorkflowVersion :one
 UPDATE workflows
 SET
-    definition_revision = definition_revision + 1,
+    version = version + 1,
     updated_at_unix_ms = ?1
 WHERE id = ?2
-RETURNING definition_revision
+RETURNING version
 `
 
-type IncrementWorkflowDefinitionRevisionParams struct {
+type IncrementWorkflowVersionParams struct {
 	UpdatedAtUnixMs int64
 	ID              string
 }
 
-func (q *Queries) IncrementWorkflowDefinitionRevision(ctx context.Context, arg IncrementWorkflowDefinitionRevisionParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, incrementWorkflowDefinitionRevision, arg.UpdatedAtUnixMs, arg.ID)
-	var definition_revision int64
-	err := row.Scan(&definition_revision)
-	return definition_revision, err
-}
-
-const incrementWorkflowGraphRevision = `-- name: IncrementWorkflowGraphRevision :one
-UPDATE workflows
-SET
-    graph_revision = graph_revision + 1,
-    definition_revision = definition_revision + 1,
-    updated_at_unix_ms = ?1
-WHERE id = ?2
-RETURNING graph_revision
-`
-
-type IncrementWorkflowGraphRevisionParams struct {
-	UpdatedAtUnixMs int64
-	ID              string
-}
-
-func (q *Queries) IncrementWorkflowGraphRevision(ctx context.Context, arg IncrementWorkflowGraphRevisionParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, incrementWorkflowGraphRevision, arg.UpdatedAtUnixMs, arg.ID)
-	var graph_revision int64
-	err := row.Scan(&graph_revision)
-	return graph_revision, err
+func (q *Queries) IncrementWorkflowVersion(ctx context.Context, arg IncrementWorkflowVersionParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, incrementWorkflowVersion, arg.UpdatedAtUnixMs, arg.ID)
+	var version int64
+	err := row.Scan(&version)
+	return version, err
 }
 
 const insertProjectWorkflowLink = `-- name: InsertProjectWorkflowLink :exec
@@ -1999,8 +1965,7 @@ INSERT INTO workflows (
     id,
     name,
     description,
-    graph_revision,
-    definition_revision,
+    version,
     created_at_unix_ms,
     updated_at_unix_ms
 ) VALUES (
@@ -2009,19 +1974,17 @@ INSERT INTO workflows (
     ?3,
     ?4,
     ?5,
-    ?6,
-    ?7
+    ?6
 )
 `
 
 type InsertWorkflowParams struct {
-	ID                 string
-	Name               string
-	Description        string
-	GraphRevision      int64
-	DefinitionRevision int64
-	CreatedAtUnixMs    int64
-	UpdatedAtUnixMs    int64
+	ID              string
+	Name            string
+	Description     string
+	Version         int64
+	CreatedAtUnixMs int64
+	UpdatedAtUnixMs int64
 }
 
 func (q *Queries) InsertWorkflow(ctx context.Context, arg InsertWorkflowParams) error {
@@ -2029,8 +1992,7 @@ func (q *Queries) InsertWorkflow(ctx context.Context, arg InsertWorkflowParams) 
 		arg.ID,
 		arg.Name,
 		arg.Description,
-		arg.GraphRevision,
-		arg.DefinitionRevision,
+		arg.Version,
 		arg.CreatedAtUnixMs,
 		arg.UpdatedAtUnixMs,
 	)
@@ -3856,39 +3818,27 @@ SELECT
     id,
     name,
     description,
-    graph_revision,
-    definition_revision,
+    version,
     created_at_unix_ms,
     updated_at_unix_ms
 FROM workflows
 ORDER BY updated_at_unix_ms DESC, rowid DESC
 `
 
-type ListWorkflowsRow struct {
-	ID                 string
-	Name               string
-	Description        string
-	GraphRevision      int64
-	DefinitionRevision int64
-	CreatedAtUnixMs    int64
-	UpdatedAtUnixMs    int64
-}
-
-func (q *Queries) ListWorkflows(ctx context.Context) ([]ListWorkflowsRow, error) {
+func (q *Queries) ListWorkflows(ctx context.Context) ([]Workflow, error) {
 	rows, err := q.db.QueryContext(ctx, listWorkflows)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListWorkflowsRow
+	var items []Workflow
 	for rows.Next() {
-		var i ListWorkflowsRow
+		var i Workflow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
 			&i.Description,
-			&i.GraphRevision,
-			&i.DefinitionRevision,
+			&i.Version,
 			&i.CreatedAtUnixMs,
 			&i.UpdatedAtUnixMs,
 		); err != nil {
@@ -4311,7 +4261,7 @@ UPDATE workflows
 SET
     name = ?1,
     description = ?2,
-    definition_revision = definition_revision + 1,
+    version = version + 1,
     updated_at_unix_ms = ?3
 WHERE id = ?4
 `
