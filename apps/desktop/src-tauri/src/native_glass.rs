@@ -2,7 +2,6 @@
 mod platform {
     use objc2::{
         runtime::{AnyClass, NSObjectProtocol},
-        ClassType,
     };
     use objc2_app_kit::{
         NSAutoresizingMaskOptions, NSColor, NSGlassEffectView, NSGlassEffectViewStyle,
@@ -116,10 +115,12 @@ mod platform {
         if ns_window.is_null() {
             return Err("Native window pointer is null.".to_string());
         }
+        let glass_effect_class = AnyClass::get(c"NSGlassEffectView");
+        let visual_effect_class = AnyClass::get(c"NSVisualEffectView");
         let Some(effect) = select_native_effect(
             NSProcessInfo::processInfo().operatingSystemVersion(),
-            AnyClass::get(c"NSGlassEffectView").is_some(),
-            AnyClass::get(c"NSVisualEffectView").is_some(),
+            glass_effect_class.is_some(),
+            visual_effect_class.is_some(),
         ) else {
             return Ok(NativeGlassStatus::Unsupported {
                 reason: "Native macOS window blur is unavailable.",
@@ -130,15 +131,19 @@ mod platform {
         let content_view = window
             .contentView()
             .ok_or_else(|| "Native window does not have a content view.".to_string())?;
-        if content_view.isKindOfClass(NSGlassEffectView::class()) {
-            return Ok(NativeGlassStatus::Applied {
-                effect: LIQUID_GLASS_EFFECT_NAME,
-            });
+        if let Some(glass_class) = glass_effect_class {
+            if content_view.isKindOfClass(glass_class) {
+                return Ok(NativeGlassStatus::Applied {
+                    effect: LIQUID_GLASS_EFFECT_NAME,
+                });
+            }
         }
-        if content_view.isKindOfClass(NSVisualEffectView::class()) {
-            return Ok(NativeGlassStatus::Applied {
-                effect: VISUAL_EFFECT_NAME,
-            });
+        if let Some(visual_effect_class) = visual_effect_class {
+            if content_view.isKindOfClass(visual_effect_class) {
+                return Ok(NativeGlassStatus::Applied {
+                    effect: VISUAL_EFFECT_NAME,
+                });
+            }
         }
 
         let main_thread = objc2::MainThreadMarker::new()
@@ -160,6 +165,11 @@ mod platform {
         let content_view = window
             .contentView()
             .ok_or_else(|| "Native window does not have a content view.".to_string())?;
+        if AnyClass::get(c"NSGlassEffectView").is_none() {
+            return Ok(NativeGlassStatus::Unsupported {
+                reason: "Native glass tint only applies to NSGlassEffectView.",
+            });
+        }
         let Some(glass_view) = content_view.downcast_ref::<NSGlassEffectView>() else {
             return Ok(NativeGlassStatus::Unsupported {
                 reason: "Native glass tint only applies to NSGlassEffectView.",
