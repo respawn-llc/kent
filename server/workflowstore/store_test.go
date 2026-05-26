@@ -1738,6 +1738,78 @@ func TestJoinWaitsForAllBranchesAndRoutesSelectedProvider(t *testing.T) {
 	}
 }
 
+func TestJoinArrivalsKeepMultipleJoinEdgesForOneBranchPlacement(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createFanoutJoinWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, branchRunsByNode := startFanoutTask(t, ctx, store, binding.ProjectID, workflowID)
+	def, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	join := nodeByKey(t, def, "join")
+	implA := nodeByKey(t, def, "impl_a")
+	alternateProviderEdgeID := workflow.EdgeID("edge-join-a-alt-" + string(workflowID))
+	// Bypass graph-edit policy here to model a historical transition snapshot
+	// containing more than one applied join edge for the same branch placement.
+	if err := store.queries.InsertWorkflowEdge(ctx, sqlitegen.InsertWorkflowEdgeParams{
+		ID:                     string(alternateProviderEdgeID),
+		TransitionGroupID:      "group-join-a-" + string(workflowID),
+		EdgeKey:                "join_a_alt",
+		TargetNodeID:           string(join.ID),
+		ContextMode:            string(workflow.ContextModeNewSession),
+		ContextSourceKind:      string(workflow.ContextSourceImmediateSource),
+		InputBindingsJson:      "[]",
+		OutputRequirementsJson: "[]",
+		SortOrder:              999,
+	}); err != nil {
+		t.Fatalf("insert alternate workflow edge: %v", err)
+	}
+	first, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: branchRunsByNode[implA.ID], TransitionID: "join", OutputValues: map[string]string{"joined": "from alternate edge"}})
+	if err != nil {
+		t.Fatalf("CompleteRun branch a: %v", err)
+	}
+	if len(first.PlacementIDs) != 0 || len(first.RunIDs) != 0 {
+		t.Fatalf("first branch result = %+v, want join waiting for missing branch", first)
+	}
+	if err := insertTransitionEdgeSnapshot(ctx, store.queries, string(first.TransitionID), edgeContractSnapshot{
+		ID:         alternateProviderEdgeID,
+		Key:        "join_a_alt",
+		TargetNode: nodeSnapshot(join),
+	}, "", "applied", resolvedContextSourceRun{}); err != nil {
+		t.Fatalf("insert alternate transition edge snapshot: %v", err)
+	}
+	var batchID string
+	if err := store.db.QueryRowContext(ctx, `
+SELECT p.parallel_batch_transition_id
+FROM task_runs r
+JOIN task_node_placements p ON p.id = r.placement_id
+WHERE r.id = ?`, string(branchRunsByNode[implA.ID])).Scan(&batchID); err != nil {
+		t.Fatalf("query branch batch id: %v", err)
+	}
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	arrivals, err := joinArrivals(ctx, tx, batchID, join.ID)
+	if err != nil {
+		t.Fatalf("joinArrivals: %v", err)
+	}
+	joinSnapshot := nodeSnapshot(join)
+	joinSnapshot.JoinInputProviders = []workflow.JoinInputProvider{{InputName: "joined", ProviderEdgeID: alternateProviderEdgeID}}
+	values, ready, err := selectedJoinOutputValues(joinSnapshot, edgeContractSnapshot{OutputRequirements: []workflow.OutputRequirement{{FieldName: "joined"}}}, arrivals)
+	if err != nil {
+		t.Fatalf("selectedJoinOutputValues: %v", err)
+	}
+	if !ready || values["joined"] != "from alternate edge" {
+		t.Fatalf("selected join values ready=%t values=%+v arrivals=%+v task=%s", ready, values, arrivals, task.ID)
+	}
+}
+
 func TestJoinDownstreamCanUseSelectedPriorContextSource(t *testing.T) {
 	ctx := context.Background()
 	store, binding, cfg := newTestStoreWithConfig(t)

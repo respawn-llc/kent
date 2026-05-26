@@ -70,9 +70,12 @@ LIMIT 1`, taskID, string(joinEdge.TargetNode.ID), batchID.String).Scan(&existing
 		return CompleteRunResult{}, fmt.Errorf("join node %q must have exactly one outgoing edge", joinEdge.TargetNode.ID)
 	}
 	group := groups[0]
-	joinOutputValues, err := selectedJoinOutputValues(joinSnapshot.Node, group.Edges[0], arrivals)
+	joinOutputValues, ready, err := selectedJoinOutputValues(joinSnapshot.Node, group.Edges[0], arrivals)
 	if err != nil {
 		return CompleteRunResult{}, err
+	}
+	if !ready {
+		return CompleteRunResult{}, nil
 	}
 	joinOutputValuesJSON, err := marshalJSON(joinOutputValues)
 	if err != nil {
@@ -163,13 +166,12 @@ WHERE p.parallel_batch_transition_id = ?
   AND p.state = 'completed'
   AND te.target_node_id = ?
   AND te.state = 'applied'
-ORDER BY p.parallel_branch_edge_id ASC, tr.created_at_unix_ms ASC`, batchID, string(joinNodeID))
+ORDER BY p.parallel_branch_edge_id ASC, tr.created_at_unix_ms ASC, te.rowid ASC`, batchID, string(joinNodeID))
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 	arrivals := []joinArrival{}
-	seenPlacements := map[string]bool{}
 	for rows.Next() {
 		var placementID string
 		var branchEdgeID sql.NullString
@@ -179,10 +181,9 @@ ORDER BY p.parallel_branch_edge_id ASC, tr.created_at_unix_ms ASC`, batchID, str
 		if err := rows.Scan(&placementID, &branchEdgeID, &joinEdgeID, &sourceNodeKey, &outputValuesJSON); err != nil {
 			return nil, err
 		}
-		if strings.TrimSpace(placementID) == "" || seenPlacements[placementID] {
+		if strings.TrimSpace(placementID) == "" {
 			continue
 		}
-		seenPlacements[placementID] = true
 		key := strings.TrimSpace(branchEdgeID.String)
 		if key == "" {
 			continue
@@ -200,7 +201,7 @@ ORDER BY p.parallel_branch_edge_id ASC, tr.created_at_unix_ms ASC`, batchID, str
 	return arrivals, rows.Err()
 }
 
-func selectedJoinOutputValues(join nodeContractSnapshot, outEdge edgeContractSnapshot, arrivals []joinArrival) (map[string]string, error) {
+func selectedJoinOutputValues(join nodeContractSnapshot, outEdge edgeContractSnapshot, arrivals []joinArrival) (map[string]string, bool, error) {
 	arrivalByJoinEdgeID := make(map[workflow.EdgeID]joinArrival, len(arrivals))
 	for _, arrival := range arrivals {
 		arrivalByJoinEdgeID[arrival.JoinEdgeID] = arrival
@@ -221,17 +222,17 @@ func selectedJoinOutputValues(join nodeContractSnapshot, outEdge edgeContractSna
 		}
 		provider, ok := providerByInput[inputName]
 		if !ok {
-			return nil, fmt.Errorf("join node %q missing provider for input %q", join.ID, inputName)
+			return nil, false, fmt.Errorf("join node %q missing provider for input %q", join.ID, inputName)
 		}
 		arrival, ok := arrivalByJoinEdgeID[provider.ProviderEdgeID]
 		if !ok {
-			return nil, fmt.Errorf("join node %q provider edge %q did not arrive", join.ID, provider.ProviderEdgeID)
+			return nil, false, nil
 		}
 		value := arrival.OutputValues[inputName]
 		if strings.TrimSpace(value) == "" {
-			return nil, fmt.Errorf("join node %q provider edge %q missing output %q", join.ID, provider.ProviderEdgeID, inputName)
+			return nil, false, fmt.Errorf("join node %q provider edge %q missing output %q", join.ID, provider.ProviderEdgeID, inputName)
 		}
 		out[inputName] = value
 	}
-	return out, nil
+	return out, true, nil
 }
