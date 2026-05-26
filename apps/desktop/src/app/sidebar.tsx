@@ -15,7 +15,6 @@ import { useTranslation } from "react-i18next";
 
 import { Button, showStatusToast } from "../ui";
 import { cx } from "../ui/classes";
-import { islandSurfaceClassName } from "../ui/islandSurfaceStyles";
 import { useAppServices } from "./useAppServices";
 import { SidebarDestinationView, sidebarTitle } from "./sidebarDestinations";
 import { useSidebar, type SidebarDestination } from "./sidebarContext";
@@ -195,8 +194,7 @@ export function SidebarHost() {
     <aside
       aria-labelledby={titleId}
       className={cx(
-        "app-region-no-drag app-sidebar-panel z-10 grid grid-rows-[auto_1fr] overflow-hidden",
-        islandSurfaceClassName(mode === "overlay" ? 1 : 0),
+        "app-region-no-drag app-sidebar-panel island-glass z-10 grid grid-rows-[auto_1fr] overflow-hidden",
         "w-[var(--app-sidebar-width)] min-w-[var(--app-sidebar-width)] rounded-l-[var(--radius-xl)] rounded-r-[var(--radius-l)]",
         mode === "shift" &&
           "app-sidebar-panel-shift relative mr-[var(--app-sidebar-inset)] mt-[var(--app-sidebar-inset)] h-[calc(100%-(var(--app-sidebar-inset)*2))] shrink-0 self-start",
