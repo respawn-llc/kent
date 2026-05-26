@@ -199,7 +199,7 @@ export function SidebarHost() {
         mode === "shift" &&
           "app-sidebar-panel-shift relative mr-[var(--app-sidebar-inset)] mt-[var(--app-sidebar-inset)] h-[calc(100%-(var(--app-sidebar-inset)*2))] shrink-0 self-start",
         mode === "overlay" &&
-          "app-sidebar-panel-overlay absolute top-[var(--app-sidebar-inset)] right-[var(--app-sidebar-inset)] bottom-[var(--app-sidebar-inset)]",
+          "app-sidebar-panel-overlay fixed top-[calc(var(--native-titlebar-height)+var(--app-sidebar-inset))] right-[var(--app-sidebar-inset)] bottom-[var(--app-sidebar-inset)]",
         phase === "closing" && "app-sidebar-panel-closing",
       )}
       data-testid="app-sidebar-host"

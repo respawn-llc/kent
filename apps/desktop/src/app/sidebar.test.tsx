@@ -74,6 +74,35 @@ describe("SidebarHost", () => {
     expect(screen.getByTestId("default-shift-content")).toBeInTheDocument();
   });
 
+  it("keeps overlay destinations out of the flex layout", async () => {
+    render(
+      <I18nextProvider i18n={appI18n}>
+        <SidebarProvider>
+          <div className="relative flex min-h-0" data-testid="app-shell-content">
+            <div className="min-w-0 flex-1">
+              <OpenOverlaySidebar />
+            </div>
+            <SidebarHost />
+          </div>
+        </SidebarProvider>
+      </I18nextProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open overlay sidebar" }));
+
+    const sidebar = await screen.findByRole("complementary", { name: "Create workflow" });
+    expect(sidebar).toHaveAttribute("data-mode", "overlay");
+    expect(sidebar).toHaveClass(
+      "app-sidebar-panel-overlay",
+      "fixed",
+      "top-[calc(var(--native-titlebar-height)+var(--app-sidebar-inset))]",
+      "right-[var(--app-sidebar-inset)]",
+      "bottom-[var(--app-sidebar-inset)]",
+    );
+    expect(sidebar).not.toHaveClass("relative", "app-sidebar-panel-shift", "shrink-0");
+    expect(screen.getByTestId("overlay-source-content")).toBeInTheDocument();
+  });
+
   it("resizes from the leading edge without requiring pointer-capture APIs", async () => {
     mockSidebarLayout();
     render(
@@ -158,6 +187,29 @@ function OpenCustomSidebar() {
     >
       Open sidebar
     </button>
+  );
+}
+
+function OpenOverlaySidebar() {
+  const { openSidebar } = useSidebar();
+
+  return (
+    <>
+      <div data-testid="overlay-source-content" />
+      <button
+        onClick={() => {
+          void openSidebar({
+            content: <p>Overlay content</p>,
+            kind: "custom",
+            mode: "overlay",
+            title: "Create workflow",
+          });
+        }}
+        type="button"
+      >
+        Open overlay sidebar
+      </button>
+    </>
   );
 }
 
