@@ -24,6 +24,7 @@ import {
 } from "./useHomeData";
 
 const LOCAL_UNBOUND_PLAN_KIND = "local_unbound";
+const attentionPaneItemMaxWidthClassName = "[&>*]:max-w-[600px]";
 
 export function HomeRoute() {
   const { t } = useTranslation();
@@ -199,7 +200,7 @@ function AttentionList({ items, query }: AttentionListProps) {
   }
   return (
     <VirtualizedInfiniteList
-      className="h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[var(--content-max-width-home-pane)]"
+      className={`h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full ${attentionPaneItemMaxWidthClassName}`}
       empty={<HomeInlineEmptyState body={t("home.noAttentionBody")} />}
       estimateSize={() => 144}
       getItemKey={(item) => item.id}

@@ -11,6 +11,8 @@ import { useWorkflowPages } from "../workflows/WorkflowData";
 import { ProjectRow } from "./ProjectRow";
 import type { useProjectPages } from "./useHomeData";
 
+const homePaneItemMaxWidthClassName = "[&>*]:max-w-[600px]";
+
 export type HomePrimaryTab = "projects" | "workflows";
 
 export type HomePrimaryPaneProps = Readonly<{
@@ -155,7 +157,7 @@ function ProjectList({
   }
   return (
     <VirtualizedInfiniteList
-      className="h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[var(--content-max-width-home-pane)]"
+      className={`h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full ${homePaneItemMaxWidthClassName}`}
       empty={<HomeInlineEmptyState body={t("home.emptyBody")} />}
       estimateSize={() => 96}
       getItemKey={(project) => project.id}
@@ -193,7 +195,7 @@ function HomeWorkflowList() {
   }
   return (
     <VirtualizedInfiniteList
-      className="h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[var(--content-max-width-home-pane)]"
+      className={`h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full ${homePaneItemMaxWidthClassName}`}
       empty={
         <EmptyState
           body={t("workflowLibrary.emptyBody")}

@@ -28,6 +28,8 @@ import {
   useProjectWorkspaceUnlink,
 } from "./useProjectEditData";
 
+const projectEditContentMaxWidthClassName = "max-w-[1200px]";
+
 export function ProjectEditRoute({ projectId }: Readonly<{ projectId: string }>) {
   const { t } = useTranslation();
   const query = useProjectEdit(projectId);
@@ -252,7 +254,7 @@ function ProjectEditListHeader({
 }>) {
   const { t } = useTranslation();
   return (
-    <div className="mx-auto grid w-full max-w-[var(--content-max-width-project-edit)] gap-[var(--space-3)]">
+    <div className={`mx-auto grid w-full ${projectEditContentMaxWidthClassName} gap-[var(--space-3)]`}>
       <div className="grid min-w-0 gap-[var(--space-3)]">
         <ProjectNameField
           disabled={disabled}
@@ -319,7 +321,7 @@ function ProjectWorkspaceList({
       paddingEnd={16}
       paddingStart={16}
       renderItem={(workspace) => (
-        <div className="mx-auto w-full max-w-[var(--content-max-width-project-edit)]">
+        <div className={`mx-auto w-full ${projectEditContentMaxWidthClassName}`}>
           <WorkspaceRow
             defaultWorkspaceID={defaultWorkspaceID}
             disabled={disabled}

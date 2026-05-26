@@ -10,6 +10,8 @@ import { Button, EmptyState, ErrorState, LoadingState, VirtualizedInfiniteList }
 import { WorkflowCard } from "./WorkflowCard";
 import { useWorkflowPages } from "./WorkflowData";
 
+const workflowLibraryItemMaxWidthClassName = "[&>*]:max-w-[1280px]";
+
 export function WorkflowLibraryRoute() {
   const { t } = useTranslation();
   const navigation = useAppNavigation();
@@ -41,7 +43,7 @@ export function WorkflowLibraryRoute() {
     <section className="h-full min-h-0" data-testid="workflow-library-route">
       <div className="island-glass grid h-full min-h-0 overflow-hidden rounded-[var(--radius-xl)]">
         <VirtualizedInfiniteList
-          className="h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[var(--content-max-width-workflow-library)]"
+          className={`h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full ${workflowLibraryItemMaxWidthClassName}`}
           empty={
             <EmptyState
               action={
