@@ -368,11 +368,6 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return g.deps.WorkflowClient().ListWorkflowTaskActivity(ctx, params)
 		})
 	},
-	protocol.MethodWorkflowTaskTeleportTargetGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskTeleportTargetRequest) (serverapi.WorkflowTaskTeleportTargetResponse, error) {
-			return g.deps.WorkflowClient().GetWorkflowTaskTeleportTarget(ctx, params)
-		})
-	},
 	protocol.MethodWorkflowBoardGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
 			return g.deps.WorkflowClient().GetWorkflowBoard(ctx, params)

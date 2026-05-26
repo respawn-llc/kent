@@ -3,7 +3,6 @@
 import {
   createBrowserNativeBridge,
   type NativeBridge,
-  type NativeBuilderSessionLaunch,
   type NativeTaskDetailChanged,
   type NativeTaskDetailTarget,
 } from "@builder/desktop-native-bridge";
@@ -16,7 +15,7 @@ import { createTestServices, startupRoutes } from "../../testSupport/appServices
 describe("TaskDetailDialog", () => {
   it("renders direct task route inline with inbox, comments, approvals, questions, and CLI actions", async () => {
     window.history.pushState(null, "", "/tasks/task-1");
-    const launched: NativeBuilderSessionLaunch[] = [];
+    const copied: string[] = [];
     const services = createTestServices(
       [
         ...startupRoutes,
@@ -27,9 +26,8 @@ describe("TaskDetailDialog", () => {
         { method: "workflow.task.approve", result: {} },
         { method: "workflow.task.comment.add", result: commentAddResponse },
         { method: "workflow.task.comment.replace", result: {} },
-        { method: "workflow.task.teleportTarget.get", result: teleportResponse },
       ],
-      nativeBridge(launched),
+      nativeBridgeWithClipboard(copied),
     );
 
     render(<App services={services} />);
@@ -104,7 +102,35 @@ describe("TaskDetailDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open in CLI" }));
     await waitFor(() => {
-      expect(launched).toEqual([{ sessionId: "session-teleport", cwd: "/tmp/worktree/subdir" }]);
+      expect(copied).toEqual(["builder --session=session-1"]);
+    });
+  });
+
+  it("confirms task cancellation in a popover without inline helper copy", async () => {
+    window.history.pushState(null, "", "/tasks/task-1");
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.task.get", result: taskDetailResponse },
+      { method: "workflow.task.activity.list", result: activityResponse },
+      { method: "ask.listPendingBySession", result: pendingAskResponse },
+      { method: "workflow.task.cancel", result: {} },
+    ]);
+
+    render(<App services={services} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel task" }));
+
+    expect(screen.getByText("Cancel task?")).toBeInTheDocument();
+    expect(screen.queryByText("This stops the task without a reason field.")).not.toBeInTheDocument();
+    expect(screen.getByText("Cancel task?").closest("[data-slot='popover-content']")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => {
+      expect(services.transport.calls).toContainEqual({
+        method: "workflow.task.cancel",
+        params: { task_id: "task-1" },
+      });
     });
   });
 
@@ -147,10 +173,17 @@ describe("TaskDetailDialog", () => {
     expect(screen.getByText("Workspace:", { exact: false })).toBeInTheDocument();
     expect(screen.getByText("Workflow:", { exact: false })).toBeInTheDocument();
     expect(screen.getByText("Sessions:", { exact: false })).toBeInTheDocument();
-    expect(screen.getByTestId("task-detail-island-stack")).toHaveClass("gap-[var(--space-2)]");
-    expect(screen.getByTestId("task-detail-body-split")).toHaveClass("gap-[var(--space-2)]");
-    expect(screen.getByTestId("task-detail-body-split")).not.toHaveClass("items-start");
+    expect(screen.getByTestId("task-detail-island-stack")).toHaveClass(
+      "task-detail-island-stack",
+      "gap-[var(--space-2)]",
+    );
     expect(screen.getByTestId("task-detail-body-split")).toHaveClass(
+      "task-detail-body-split",
+      "gap-[var(--space-2)]",
+      "items-stretch",
+    );
+    expect(screen.getByTestId("task-detail-body-split")).not.toHaveClass("items-start");
+    expect(screen.getByTestId("task-detail-body-split")).not.toHaveClass(
       "min-[512px]:grid-cols-[minmax(0,7fr)_minmax(260px,3fr)]",
     );
     expect(screen.getByTestId("task-detail-title-island")).toHaveClass(
@@ -177,6 +210,13 @@ describe("TaskDetailDialog", () => {
       marginRight: "var(--space-2)",
     });
     expect(screen.getByTestId("task-description-save")).toBeDisabled();
+    expect(screen.getByTestId("task-detail-description-island")).toHaveClass(
+      "h-full",
+      "min-w-0",
+      "grid-rows-[auto_minmax(0,1fr)_auto]",
+    );
+    expect(screen.getByTestId("task-description-input-frame")).toHaveClass("h-full", "min-h-0");
+    expect(screen.getByRole("textbox", { name: "Description" })).toHaveClass("h-full", "min-h-[220px]");
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Renamed task" } });
@@ -248,7 +288,15 @@ describe("TaskDetailDialog", () => {
     expect(
       await screen.findByRole("button", { name: new RegExp(`Interrupt ${longRunID}`, "u") }),
     ).toBeInTheDocument();
+    expect(screen.getByTestId("task-detail-body-split")).toHaveClass("items-stretch");
     expect(screen.getByTestId("task-detail-body-split")).not.toHaveClass("items-start");
+    expect(screen.getByTestId("task-detail-description-island")).toHaveClass(
+      "h-full",
+      "min-w-0",
+      "grid-rows-[auto_minmax(0,1fr)_auto]",
+    );
+    expect(screen.getByTestId("task-description-input-frame")).toHaveClass("h-full", "min-h-0");
+    expect(screen.getByRole("textbox", { name: "Description" })).toHaveClass("h-full", "min-h-[220px]");
     expect(screen.getByTestId("task-description-save")).not.toHaveClass("absolute");
     expect(screen.getByTestId("task-description-save").parentElement).toBe(
       screen.getByTestId("task-description-input-frame"),
@@ -256,42 +304,6 @@ describe("TaskDetailDialog", () => {
     expect(screen.getByTestId("task-description-save")).toHaveStyle({
       marginBottom: "var(--space-2)",
       marginRight: "var(--space-2)",
-    });
-  });
-
-  it("teleports source-workspace tasks from the source workspace root", async () => {
-    window.history.pushState(null, "", "/tasks/task-1");
-    const launched: NativeBuilderSessionLaunch[] = [];
-    const services = createTestServices(
-      [
-        ...startupRoutes,
-        {
-          method: "workflow.task.get",
-          result: {
-            task: {
-              ...taskDetailResponse.task,
-              managed_worktree: null,
-            },
-          },
-        },
-        { method: "workflow.task.activity.list", result: activityResponse },
-        {
-          method: "workflow.task.teleportTarget.get",
-          result: {
-            ...teleportResponse,
-            worktree_id: "",
-            cwd_relpath: "pkg/gui",
-          },
-        },
-      ],
-      nativeBridge(launched),
-    );
-
-    render(<App services={services} />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Open in CLI" }));
-    await waitFor(() => {
-      expect(launched).toEqual([{ sessionId: "session-teleport", cwd: "/tmp/project/pkg/gui" }]);
     });
   });
 
@@ -389,56 +401,20 @@ describe("TaskDetailDialog", () => {
     );
   });
 
-  it("shows plain backend and native teleport failures", async () => {
-    window.history.pushState(null, "", "/tasks/task-1");
-    const services = createTestServices(
-      [
-        ...startupRoutes,
-        { method: "workflow.task.get", result: taskDetailNoInboxResponse },
-        { method: "workflow.task.activity.list", result: activityResponse },
-        {
-          method: "workflow.task.teleportTarget.get",
-          result: { ...teleportResponse, available: false, failure_reason: "No active session." },
-        },
-      ],
-      nativeBridge([]),
-    );
-
-    const view = render(<App services={services} />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Open in CLI" }));
-    expect(await screen.findByText("No active session.")).toBeInTheDocument();
-    view.unmount();
-
-    window.history.pushState(null, "", "/tasks/task-1");
-    const failingServices = createTestServices(
-      [
-        ...startupRoutes,
-        { method: "workflow.task.get", result: taskDetailNoInboxResponse },
-        { method: "workflow.task.activity.list", result: activityResponse },
-        { method: "workflow.task.teleportTarget.get", result: teleportResponse },
-      ],
-      failingTerminalBridge("Local Builder executable is unavailable."),
-    );
-
-    render(<App services={failingServices} />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Open in CLI" }));
-    expect(await screen.findByText("Local Builder executable is unavailable.")).toBeInTheDocument();
-  });
 });
 
-function nativeBridge(launched: NativeBuilderSessionLaunch[]): NativeBridge {
+function nativeBridgeWithClipboard(copied: string[]): NativeBridge {
   const base = createBrowserNativeBridge();
   return {
     ...base,
     capabilities: {
       ...base.capabilities,
-      terminal: { launchBuilderSession: true },
+      clipboard: { ...base.capabilities.clipboard, writeText: true },
     },
-    terminal: {
-      async launchBuilderSession(target): Promise<void> {
-        launched.push(target);
+    clipboard: {
+      ...base.clipboard,
+      async writeText(value): Promise<void> {
+        copied.push(value);
       },
     },
   };
@@ -456,22 +432,6 @@ function nativeBridgeWithTaskDetailWindow(opened: NativeTaskDetailTarget[]): Nat
       ...base.taskDetail,
       async openWindow(target): Promise<void> {
         opened.push(target);
-      },
-    },
-  };
-}
-
-function failingTerminalBridge(message: string): NativeBridge {
-  const base = createBrowserNativeBridge();
-  return {
-    ...base,
-    capabilities: {
-      ...base.capabilities,
-      terminal: { launchBuilderSession: true },
-    },
-    terminal: {
-      async launchBuilderSession(): Promise<void> {
-        throw new Error(message);
       },
     },
   };
@@ -693,18 +653,6 @@ const taskUpdateResponse = {
   task: {
     id: "task-1",
   },
-};
-
-const teleportResponse = {
-  available: true,
-  task_id: "task-1",
-  run_id: "run-1",
-  session_id: "session-teleport",
-  project_id: "project-1",
-  workspace_id: "workspace-1",
-  worktree_id: "worktree-1",
-  cwd_relpath: "subdir",
-  failure_reason: "",
 };
 
 function callParams(

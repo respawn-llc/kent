@@ -2,7 +2,6 @@ use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use tauri_plugin_dialog::DialogExt;
 
 const BUILDER_CONFIG_NAME: &str = "config.toml";
@@ -63,20 +62,6 @@ fn open_external_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn launch_builder_session(session_id: String, cwd: String) -> Result<(), String> {
-    if session_id.trim().is_empty() {
-        return Err("Session ID is required.".to_string());
-    }
-    let cwd_path = Path::new(&cwd);
-    if !cwd_path.is_dir() {
-        return Err("Teleport working directory does not exist.".to_string());
-    }
-    ensure_builder_executable_available()?;
-
-    launch_builder_session_impl(&session_id, &cwd)
-}
-
-#[tauri::command]
 fn append_gui_log(entry: String) -> Result<(), String> {
     let entry_bytes = entry.as_bytes();
     if entry_bytes.len() > GUI_LOG_MAX_ENTRY_BYTES {
@@ -109,42 +94,10 @@ pub fn run() {
             resolve_native_platform,
             select_directory,
             open_external_url,
-            launch_builder_session,
             append_gui_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Builder desktop application");
-}
-
-#[cfg(target_os = "macos")]
-fn launch_builder_session_impl(session_id: &str, cwd: &str) -> Result<(), String> {
-    let command = builder_continue_command(session_id, cwd);
-    let script = format!(
-        "tell application \"Terminal\"\ndo script \"{}\"\nactivate\nend tell",
-        escape_applescript_string(&command),
-    );
-    run_command(
-        Command::new("osascript").arg("-e").arg(script),
-        "launch Builder terminal session",
-    )
-}
-
-fn builder_continue_command(session_id: &str, cwd: &str) -> String {
-    format!(
-        "cd {}; builder --continue {}",
-        shell_quote(cwd),
-        shell_quote(session_id)
-    )
-}
-
-fn ensure_builder_executable_available() -> Result<(), String> {
-    match Command::new("builder").arg("--help").output() {
-        Ok(_) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            Err("Local Builder executable is unavailable.".to_string())
-        }
-        Err(error) => Err(format!("Check local Builder executable failed: {error}")),
-    }
 }
 
 fn builder_native_context() -> Result<BuilderNativeContext, String> {
@@ -309,11 +262,6 @@ fn server_rpc_url(host: &str, port: u16) -> String {
     format!("ws://{authority_host}:{port}/rpc")
 }
 
-#[cfg(not(target_os = "macos"))]
-fn launch_builder_session_impl(_session_id: &str, _cwd: &str) -> Result<(), String> {
-    Err("Terminal teleport is not implemented for this platform.".to_string())
-}
-
 fn validate_external_url(url: &str) -> Result<(), String> {
     let (scheme, _) = url
         .split_once(':')
@@ -322,52 +270,6 @@ fn validate_external_url(url: &str) -> Result<(), String> {
         "http" | "https" | "mailto" => Ok(()),
         _ => Err("External link protocol is not allowed.".to_string()),
     }
-}
-
-fn run_command(command: &mut Command, action: &str) -> Result<(), String> {
-    let output = command
-        .output()
-        .map_err(|error| format!("{action} failed: {error}"))?;
-    if output.status.success() {
-        return Ok(());
-    }
-    Err(command_error(action, &output.stderr))
-}
-
-fn command_error(action: &str, stderr: &[u8]) -> String {
-    let message = String::from_utf8_lossy(stderr).trim().to_string();
-    if message.is_empty() {
-        return format!("{action} failed.");
-    }
-    format!("{action} failed: {message}")
-}
-
-fn escape_applescript_string(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for character in value.chars() {
-        match character {
-            '\\' => escaped.push_str("\\\\"),
-            '"' => escaped.push_str("\\\""),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            _ => escaped.push(character),
-        }
-    }
-    escaped
-}
-
-fn shell_quote(value: &str) -> String {
-    let mut quoted = String::with_capacity(value.len() + 2);
-    quoted.push('\'');
-    for character in value.chars() {
-        if character == '\'' {
-            quoted.push_str("'\\''");
-        } else {
-            quoted.push(character);
-        }
-    }
-    quoted.push('\'');
-    quoted
 }
 
 fn gui_log_path() -> Result<PathBuf, String> {
@@ -398,23 +300,7 @@ fn trim_log_if_needed(path: &Path, append_bytes: u64) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{builder_continue_command, parse_theme, server_rpc_url, shell_quote};
-
-    #[test]
-    fn builder_terminal_command_uses_interactive_continue() {
-        let command = builder_continue_command("session-1", "/tmp/worktree");
-
-        assert!(command.contains("builder --continue 'session-1'"));
-        assert!(!command.contains("builder run --continue"));
-    }
-
-    #[test]
-    fn shell_quote_handles_single_quotes() {
-        assert_eq!(
-            shell_quote("/tmp/nek's worktree"),
-            "'/tmp/nek'\\''s worktree'"
-        );
-    }
+    use super::{parse_theme, server_rpc_url};
 
     #[test]
     fn server_rpc_url_brackets_ipv6_hosts() {

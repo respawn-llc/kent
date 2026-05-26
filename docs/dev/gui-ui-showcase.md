@@ -30,4 +30,4 @@ Default output:
 .builder/proofs/gui-ui-showcase/
 ```
 
-The page covers UI primitives, home and project edit panes, kanban columns and cards, board hover menu states, Sonner toast trigger buttons, floating notices, dialogs, task detail, questions, approvals, comments, activity, runs, teleport states, and expandable controls.
+The page covers UI primitives, home and project edit panes, kanban columns and cards, board hover menu states, Sonner toast trigger buttons, floating notices, dialogs, task detail, questions, approvals, comments, activity, runs, clipboard-copy states, and expandable controls.

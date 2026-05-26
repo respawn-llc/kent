@@ -44,6 +44,10 @@ The subagent role associated with an executable node. UI surfaces may present th
 
 A workflow graph state. Agent, start, and terminal nodes can map to user-visible workflow states or Kanban columns/statuses. Join nodes are internal merge plumbing omitted from board columns and shown in workflow editor visuals as inspectable merge nodes. Node identity is execution identity.
 
+### Node Group
+
+A workflow editor grouping around related graph nodes. GUI-authored node groups are execution-shaped parallel groups: they contain branch nodes and one join, and the fan-out itself is represented by one transition group with multiple outgoing edges. A one-node group may exist only as an unsaved draft editing state.
+
 ### Start Node
 
 The node where new tasks enter a workflow. A start node is non-executable and has no input requirements.

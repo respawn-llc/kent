@@ -69,7 +69,6 @@ const (
 	MethodWorkflowTaskCommentReplace            = "workflow.task.comment.replace"
 	MethodWorkflowTaskCommentDelete             = "workflow.task.comment.delete"
 	MethodWorkflowTaskActivityList              = "workflow.task.activity.list"
-	MethodWorkflowTaskTeleportTargetGet         = "workflow.task.teleportTarget.get"
 	MethodWorkflowBoardGet                      = "workflow.board.get"
 	MethodWorkflowBoardNodeCardsList            = "workflow.board.nodeCards.list"
 	MethodWorkflowSubscribe                     = "workflow.subscribe"

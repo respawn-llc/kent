@@ -391,11 +391,6 @@ func (c *Remote) ListWorkflowTaskActivity(ctx context.Context, req serverapi.Wor
 	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskActivityList, req, &resp)
 }
 
-func (c *Remote) GetWorkflowTaskTeleportTarget(ctx context.Context, req serverapi.WorkflowTaskTeleportTargetRequest) (serverapi.WorkflowTaskTeleportTargetResponse, error) {
-	var resp serverapi.WorkflowTaskTeleportTargetResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskTeleportTargetGet, req, &resp)
-}
-
 func (c *Remote) GetWorkflowBoard(ctx context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
 	var resp serverapi.WorkflowBoardResponse
 	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowBoardGet, req, &resp)

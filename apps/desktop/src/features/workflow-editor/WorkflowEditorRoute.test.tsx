@@ -59,6 +59,20 @@ describe("WorkflowEditorRoute", () => {
     );
     expect(screen.getByTestId("route-transition-frame")).not.toHaveClass("p-[var(--space-2)]");
     expect(screen.getByTestId("workflow-editor-route")).toHaveClass("p-[var(--space-2)]");
+    const legend = screen.getByRole("complementary", { name: "Legend" });
+    expect(legend).toHaveClass(
+      "floating-notice-expanded",
+      "left-[var(--space-4)]",
+      "bottom-[var(--space-4)]",
+      "border-[var(--color-outline)]",
+    );
+    expect(within(legend).getByText("Compact session and proceed")).toBeInTheDocument();
+    expect(within(legend).getByText("Fresh session")).toBeInTheDocument();
+    expect(within(legend).getByText("Continue session")).toBeInTheDocument();
+    expect(within(legend).getByText("Terminal state")).toBeInTheDocument();
+    expect(within(legend).getByText("Starting state")).toBeInTheDocument();
+    expect(within(legend).getByText("Multi-agent join")).toBeInTheDocument();
+    expect(within(legend).getByText("Agent node")).toBeInTheDocument();
   });
 
   it("opens inspectors for workflow metadata and graph entities", async () => {
@@ -268,6 +282,23 @@ describe("WorkflowEditorRoute", () => {
 
     expect(screen.getByTestId("workflow-editor-canvas")).toBe(canvas);
     expect(screen.queryByTestId("loading-state")).not.toBeInTheDocument();
+  });
+
+  it("stretches workflow editor loading state content across the full island", async () => {
+    window.history.pushState(null, "", "/workflows/workflow-1/editor");
+    render(
+      <App
+        services={createTestServices([
+          ...startupRoutes,
+          { method: "workflow.get", handler: async () => new Promise(() => undefined) },
+          { method: "workflow.validate", result: invalidValidationResponse },
+        ])}
+      />,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Workflow editor" })).toBeInTheDocument();
+    expect(await screen.findByTestId("loading-state-content")).toHaveClass("w-full", "max-w-none");
+    expect(screen.getByTestId("loading-state-content")).not.toHaveClass("max-w-[560px]");
   });
 
   it("updates graph-backed node edits in the mounted canvas", async () => {

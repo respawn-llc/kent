@@ -118,6 +118,7 @@
 
 - Transition groups model fan-out. Multiple edges in one group create parallel branch placements/runs.
 - Branches are ordinary workflow nodes, not subtasks.
+- GUI-authored node groups are saved only as execution-shaped parallel groups. A node group contains branch nodes and one join; the fan-out remains canonical workflow graph structure through one transition group with multiple edges.
 - A task may have multiple active placements/runs only when the graph explicitly fans out.
 - Parallel joins always wait for all required inputs in v1. Racing/first-success semantics are out of scope.
 - Fan-out topology must have exactly one unambiguous nearest common join reachable from every branch.

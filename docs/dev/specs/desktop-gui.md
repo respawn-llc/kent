@@ -47,8 +47,8 @@
 - Native bridge capabilities are explicit and capability-checked.
 - Browser implementations use real browser APIs where available.
 - Browser may no-op cosmetic shell features only.
-- Browser disables terminal teleport, updater, and window controls with explicit explanations.
-- Native/client capabilities are separate from server protocol readiness. Use them only for terminal launch, directory picker, native windows, window controls, notifications, and similar local affordances.
+- Browser disables updater and window controls with explicit explanations.
+- Native/client capabilities are separate from server protocol readiness. Use them only for clipboard, directory picker, native windows, window controls, notifications, and similar local affordances.
 
 ## Visual System
 
@@ -203,7 +203,7 @@
 - Tabs are `Comments`, `Activity`, and `Runs`; default tab is `Comments`.
 - Comments tab has composer, list, edit/delete, and count badge.
 - Activity tab is compact timeline with no mutation controls and no count badge.
-- Runs tab contains runs, worktree/session info, teleport, and telemetry when too dense for header; it has a run count badge.
+- Runs tab contains runs, worktree/session info, and telemetry when too dense for header; it has a run count badge.
 - Required identity/status fields: task ID, title, body rendered as Markdown, project, workflow, source workspace, current node/status, completion/done/cancel state, and server action flags.
 - Conditional fields: worktree path, agent role/run status, session ID/name, assignee/column ownership when server provides it.
 - Missing-field policy: hide expected-not-yet-created fields, show continuity fields empty/unassigned where useful, and render unexpected meaningful missing fields as unavailable/error states.
@@ -224,17 +224,6 @@
 - Cancel requires confirmation and no reason.
 - Interrupt acts immediately with no confirmation.
 - Standalone task detail opened from Home attention stays open after resolution; feed/status update and Home row is removed or resorted in background.
-
-## Teleport
-
-- Teleport is temporary until built-in GUI chat.
-- Backend returns identifiers only: task, run, session, project, workspace, worktree, and cwd relpath.
-- GUI/native bridge launches local interactive TUI command `builder --continue <session-id>`.
-- Do not use `builder run --continue`; that is headless prompt execution.
-- Open user's default terminal on the client machine.
-- If local Builder executable is unavailable, show plain-text failure.
-- If backend target is unavailable, show backend failure reason.
-- No backend-generated launch artifacts, signed tokens, or opaque launch files in MVP.
 
 ## Connection Loss
 
@@ -287,7 +276,7 @@
 - Q: How does desktop find server endpoint? A: Builder config/default host and port only.
 - Q: How should workflow groups render? A: Implementation-led first pass, initial preference group islands.
 - Q: What happens to drafts during disconnect? A: Keep local drafts, disable submit, refresh on reconnect, user manually saves and overwrites.
-- Q: What teleport command is canonical? A: `builder --continue <session-id>`.
+- Q: What should the task detail CLI action do? A: Copy `builder --session=<session-id>` to clipboard and show a success toast. Do not launch terminals from the GUI.
 - Q: How does project creation map directory picker result to Builder project/workspace binding? A: Bound workspace opens existing project; unbound workspace opens project creation with editable project name and key.
 - Q: Should MVP add project-key create/edit API support? A: Yes. Project creation includes editable project key and backend validates collisions/immutability.
 - Q: Should board search become current scope? A: No; keep it deferred.

@@ -12,6 +12,7 @@
         "@dnd-kit/core",
         "@dnd-kit/sortable",
         "@hookform/resolvers",
+        "@radix-ui/react-popover",
         "@radix-ui/react-switch",
         "@radix-ui/react-tooltip",
         "@tanstack/react-query",

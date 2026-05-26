@@ -35,6 +35,21 @@ describe("EmptyState", () => {
     expect(screen.getByTestId("empty-state-island")).toHaveClass("p-[var(--space-4)]");
   });
 
+  it("can stretch content across full-screen islands", () => {
+    render(
+      <EmptyState
+        body="Nothing to do yet."
+        chromePadding
+        contentWidth="full"
+        title="No items yet"
+      />,
+    );
+
+    expect(screen.getByTestId("empty-state-island")).toHaveClass("h-full", "w-full");
+    expect(screen.getByTestId("empty-state-content")).toHaveClass("w-full", "max-w-none");
+    expect(screen.getByTestId("empty-state-content")).not.toHaveClass("max-w-[560px]");
+  });
+
   it("renders custom icon and action flow row", () => {
     render(
       <EmptyState
@@ -111,6 +126,13 @@ describe("LoadingState", () => {
 
     expect(screen.queryByRole("heading")).not.toBeInTheDocument();
     expect(screen.getByTestId("loading-state-spinner")).toBeInTheDocument();
+  });
+
+  it("can stretch loading content across full-screen islands", () => {
+    render(<LoadingState appearanceDelayMs={0} contentWidth="full" title="Loading" />);
+
+    expect(screen.getByTestId("loading-state-content")).toHaveClass("w-full", "max-w-none");
+    expect(screen.getByTestId("loading-state-content")).not.toHaveClass("max-w-[560px]");
   });
 
   it("can render compact loading states for embedded panels", () => {

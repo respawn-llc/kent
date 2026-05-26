@@ -17,7 +17,6 @@ import type {
   ServerReadiness,
   TaskComment,
   TaskDetail,
-  TeleportTarget,
   WorkflowBoard,
   WorkflowDeleteImpact,
   WorkflowDeleteResponse,
@@ -56,7 +55,6 @@ import {
   taskMoveResponseSchema,
   taskDetailSchema,
   taskUpdateResponseSchema,
-  teleportTargetSchema,
   workflowCreateAndLinkSchema,
   workflowCreateSchema,
   workflowBoardSchema,
@@ -535,17 +533,6 @@ export class BuilderApiClient {
       "ask.listPendingBySession",
       pendingAskListSchema,
       await this.transport.call("ask.listPendingBySession", { SessionID: sessionID }),
-    );
-  }
-
-  async getTeleportTarget(taskID: string, runID: string): Promise<TeleportTarget> {
-    return parse(
-      "workflow.task.teleportTarget.get",
-      teleportTargetSchema,
-      await this.transport.call(
-        "workflow.task.teleportTarget.get",
-        compactJsonObject({ task_id: taskID, run_id: runID }),
-      ),
     );
   }
 

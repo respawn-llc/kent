@@ -543,53 +543,6 @@ func (s *Service) ListTaskActivity(ctx context.Context, req serverapi.WorkflowTa
 	return serverapi.WorkflowTaskActivityListResponse{Items: items, NextPageToken: nextPageToken, GeneratedAtUnixMs: time.Now().UTC().UnixMilli()}, nil
 }
 
-func (s *Service) GetTaskTeleportTarget(ctx context.Context, req serverapi.WorkflowTaskTeleportTargetRequest) (serverapi.WorkflowTaskTeleportTargetResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskTeleportTargetResponse{}, err
-	}
-	task, err := s.queries.GetTask(ctx, strings.TrimSpace(req.TaskID))
-	if err != nil {
-		return serverapi.WorkflowTaskTeleportTargetResponse{}, err
-	}
-	runs, err := s.queries.ListTaskRuns(ctx, task.ID)
-	if err != nil {
-		return serverapi.WorkflowTaskTeleportTargetResponse{}, err
-	}
-	var selected sqlitegen.TaskRunRecord
-	found := false
-	requestedRunID := strings.TrimSpace(req.RunID)
-	for i := len(runs) - 1; i >= 0; i-- {
-		run := runs[i]
-		if requestedRunID != "" && run.ID != requestedRunID {
-			continue
-		}
-		if requestedRunID == "" && strings.TrimSpace(run.SessionID.String) == "" {
-			continue
-		}
-		selected = run
-		found = true
-		break
-	}
-	if !found {
-		if requestedRunID != "" {
-			return serverapi.WorkflowTaskTeleportTargetResponse{Available: false, TaskID: task.ID, RunID: requestedRunID, ProjectID: task.ProjectID, FailureReason: "run not found for task"}, nil
-		}
-		return serverapi.WorkflowTaskTeleportTargetResponse{Available: false, TaskID: task.ID, RunID: requestedRunID, ProjectID: task.ProjectID, FailureReason: "no task run session yet"}, nil
-	}
-	if strings.TrimSpace(selected.SessionID.String) == "" {
-		return serverapi.WorkflowTaskTeleportTargetResponse{Available: false, TaskID: task.ID, RunID: selected.ID, ProjectID: task.ProjectID, FailureReason: "no task run session yet"}, nil
-	}
-	target, err := s.queries.GetSessionExecutionTargetByID(ctx, selected.SessionID.String)
-	if err != nil {
-		return serverapi.WorkflowTaskTeleportTargetResponse{}, err
-	}
-	worktreeID := strings.TrimSpace(target.WorktreeID.String)
-	if worktreeID == "" {
-		worktreeID = strings.TrimSpace(task.ManagedWorktreeID.String)
-	}
-	return serverapi.WorkflowTaskTeleportTargetResponse{Available: true, TaskID: task.ID, RunID: selected.ID, SessionID: selected.SessionID.String, ProjectID: task.ProjectID, WorkspaceID: target.WorkspaceID, WorktreeID: worktreeID, CwdRelpath: target.CwdRelpath}, nil
-}
-
 func (s *Service) ListAttention(ctx context.Context, req serverapi.WorkflowAttentionListRequest, roleResolver workflow.RoleResolver) (serverapi.WorkflowAttentionListResponse, error) {
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowAttentionListResponse{}, err

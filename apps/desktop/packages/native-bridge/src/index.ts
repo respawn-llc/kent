@@ -29,9 +29,6 @@ export type NativeCapabilityState = Readonly<{
   links: Readonly<{
     openExternal: boolean;
   }>;
-  terminal: Readonly<{
-    launchBuilderSession: boolean;
-  }>;
   logging: Readonly<{
     localFile: boolean;
   }>;
@@ -62,9 +59,6 @@ export type NativeBridge = Readonly<{
   }>;
   links: Readonly<{
     openExternal(url: string): Promise<void>;
-  }>;
-  terminal: Readonly<{
-    launchBuilderSession(target: NativeBuilderSessionLaunch): Promise<void>;
   }>;
   logging: Readonly<{
     append(entry: NativeLogEntry): Promise<void>;
@@ -112,11 +106,6 @@ export type NativeDirectoryPickerOptions = Readonly<{
 export type NativeDirectorySelection = Readonly<{
   path: string;
 }> | null;
-
-export type NativeBuilderSessionLaunch = Readonly<{
-  sessionId: string;
-  cwd: string;
-}>;
 
 export type NativeLogEntry = Readonly<{
   level: "debug" | "info" | "warn" | "error";
@@ -180,9 +169,6 @@ const unavailableCapabilities: NativeCapabilityState = {
   },
   links: {
     openExternal: false,
-  },
-  terminal: {
-    launchBuilderSession: false,
   },
   logging: {
     localFile: false,
@@ -263,11 +249,6 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
     links: {
       async openExternal(url: string): Promise<void> {
         window.open(validateExternalUrl(url), "_blank", "noopener,noreferrer");
-      },
-    },
-    terminal: {
-      async launchBuilderSession(): Promise<void> {
-        throw new Error("Terminal teleport is unavailable in this shell.");
       },
     },
     logging: {
@@ -373,11 +354,6 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
     links: {
       async openExternal(url: string): Promise<void> {
         await invoke("open_external_url", { url: validateExternalUrl(url) });
-      },
-    },
-    terminal: {
-      async launchBuilderSession(target: NativeBuilderSessionLaunch): Promise<void> {
-        await invoke("launch_builder_session", { sessionId: target.sessionId, cwd: target.cwd });
       },
     },
     logging: {
@@ -536,9 +512,6 @@ function createTauriCapabilities(platform: NativePlatform): NativeCapabilityStat
     },
     links: {
       openExternal: true,
-    },
-    terminal: {
-      launchBuilderSession: platform === "macos",
     },
     logging: {
       localFile: true,

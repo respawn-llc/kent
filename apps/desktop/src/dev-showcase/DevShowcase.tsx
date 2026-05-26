@@ -95,14 +95,14 @@ function DevShowcaseBoard() {
           <KanbanBoard />
         </ShowcaseSection>
         <ShowcaseSection
-          description="Real board hover menu. Hover/focus expands; pin button keeps workflow picker open."
+          description="Real board hover menu. Hover/focus expands with workflow linking in the header."
           eyebrow="04"
           title="Hover Menu States"
         >
           <HoverMenuBoard />
         </ShowcaseSection>
         <ShowcaseSection
-          description="Description editor, inbox question/approval/cancel flows, comments, activity, runs, teleport states."
+          description="Description editor, inbox question/approval/cancel flows, comments, activity, and runs."
           eyebrow="05"
           title="Task Detail"
         >

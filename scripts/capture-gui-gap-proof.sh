@@ -13,8 +13,6 @@ valid_workflow_id=""
 invalid_workflow_id=""
 task_id=""
 run_id=""
-session_id=""
-worktree_id=""
 service_pid=""
 vite_pid=""
 
@@ -96,47 +94,6 @@ seed_fixture() {
 	run_builder task comment add --project "$project_id" --body 'Proof comment: comments remain available before automation.' "$task_id" >/dev/null
 	run_id="$(run_builder task start --project "$project_id" "$task_id" | labeled_value run_id)"
 	sleep 2
-	read -r session_id worktree_id < <(teleport_ids)
-}
-
-rpc_request() {
-	node - "$proof_port" "$1" "$2" <<'NODE'
-const [port, method, paramsJSON] = process.argv.slice(2);
-const ws = new WebSocket(`ws://127.0.0.1:${port}/rpc`);
-let seq = 0;
-function req(name, params) {
-  const id = String(++seq);
-  return new Promise((resolve, reject) => {
-    const onMessage = (event) => {
-      const message = JSON.parse(event.data);
-      if (message.id !== id) return;
-      ws.removeEventListener("message", onMessage);
-      if (message.error) reject(new Error(message.error.message));
-      else resolve(message.result);
-    };
-    ws.addEventListener("message", onMessage);
-    ws.send(JSON.stringify({ jsonrpc: "2.0", id, method: name, params }));
-  });
-}
-ws.addEventListener("open", async () => {
-  try {
-    await req("protocol.handshake", { protocol_version: "2" });
-    const result = await req(method, JSON.parse(paramsJSON));
-    console.log(JSON.stringify(result));
-  } catch (error) {
-    console.error(error.message);
-    process.exitCode = 1;
-  } finally {
-    ws.close();
-  }
-});
-NODE
-}
-
-teleport_ids() {
-	local result
-	result="$(rpc_request workflow.task.teleportTarget.get "{\"task_id\":\"$task_id\",\"run_id\":\"$run_id\"}")"
-	jq -r '[.session_id, .worktree_id] | @tsv' <<<"$result"
 }
 
 capture_window() {
@@ -199,7 +156,6 @@ Captured: 2026-05-18.
 - Invalid workflow: \`$invalid_workflow_id\` (\`Broken Intake\`).
 - Task detail task: \`$task_id\`.
 - Runtime run: \`$run_id\`.
-- Teleport RPC proof returned available target with session \`$session_id\`, worktree \`$worktree_id\`, \`cwd_relpath="."\`.
 
 ## Screenshots
 
@@ -222,8 +178,7 @@ Captured: 2026-05-18.
 - Task detail layout: \`screenshots/task-detail.png\`.
 - Inbox blocker/runtime controls: \`screenshots/task-detail-inbox-run.png\`.
 - Forced theme override: \`screenshots/home-dark.png\`, \`screenshots/home-light.png\`.
-- Teleport available state: manifest RPC proof above; UI rendering and native failure paths are covered by \`apps/desktop/src/features/task-detail/TaskDetailDialog.test.tsx\`.
-- Teleport unavailable/native failure: \`apps/desktop/src/features/task-detail/TaskDetailDialog.test.tsx\` covers server unavailable reason and local executable failure rendering.
+- CLI command copy: \`apps/desktop/src/features/task-detail/TaskDetailDialog.test.tsx\` covers copying \`builder --session=<id>\` from task detail.
 - Question and approval Inbox controls: \`apps/desktop/src/features/task-detail/TaskDetailDialog.test.tsx\` covers question option/freeform behavior and approval snapshot rendering.
 - Reconnect/draft behavior: \`apps/desktop/src/features/startup/StartupGate.test.tsx\` and \`apps/desktop/src/features/board/BoardRoute.test.tsx\` cover non-dismissible disconnect, route restoration, reconnect refresh, and draft preservation.
 

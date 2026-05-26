@@ -368,6 +368,16 @@
   animation: sidebar-slide-out var(--motion-fast) both;
 }
 
+.task-detail-island-stack {
+  container-type: inline-size;
+}
+
+@container (min-width: 720px) {
+  .task-detail-body-split {
+    grid-template-columns: minmax(0, 65fr) minmax(0, 35fr);
+  }
+}
+
 .floating-notice-collapsed-danger {
   background: var(--color-error);
 }

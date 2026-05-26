@@ -19,6 +19,7 @@ export { Spinner } from "./Spinner";
 export type { SpinnerProps } from "./Spinner";
 export { Switch } from "../components/ui/switch";
 export { Toaster } from "./Sonner";
+export { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
 export { dismissStatusToast, showStatusToast } from "./statusToast";
 export { VirtualizedInfiniteList } from "./VirtualizedInfiniteList";

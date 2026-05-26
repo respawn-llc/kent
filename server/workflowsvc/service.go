@@ -764,13 +764,6 @@ func (s *Service) ListWorkflowTaskActivity(ctx context.Context, req serverapi.Wo
 	return s.view.ListTaskActivity(ctx, req)
 }
 
-func (s *Service) GetWorkflowTaskTeleportTarget(ctx context.Context, req serverapi.WorkflowTaskTeleportTargetRequest) (serverapi.WorkflowTaskTeleportTargetResponse, error) {
-	if err := req.Validate(); err != nil {
-		return serverapi.WorkflowTaskTeleportTargetResponse{}, err
-	}
-	return s.view.GetTaskTeleportTarget(ctx, req)
-}
-
 func (s *Service) GetWorkflowBoard(ctx context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowBoardResponse{}, err

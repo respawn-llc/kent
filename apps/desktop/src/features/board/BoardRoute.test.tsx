@@ -50,6 +50,12 @@ const boardHoverMenuWorkflowContentClassNames = [
   "overflow-y-auto",
 ] as const;
 
+async function expandBoardHoverMenu(): Promise<HTMLElement> {
+  const menu = await screen.findByRole("navigation");
+  fireEvent.mouseEnter(menu);
+  return menu;
+}
+
 describe("BoardRoute", () => {
   const originalUserAgent = window.navigator.userAgent;
 
@@ -818,6 +824,7 @@ describe("BoardRoute", () => {
   });
 
   it("opens board task detail in the global sidebar instead of a native task detail window", async () => {
+    const restoreWindowWidth = mockWindowWidth(1600);
     window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
     const opened: NativeTaskDetailTarget[] = [];
     const services = createTestServices(
@@ -830,32 +837,39 @@ describe("BoardRoute", () => {
       taskDetailWindowBridge(opened),
     );
 
-    render(<App services={services} />);
+    const { unmount } = render(<App services={services} />);
 
-    const card = await screen.findByRole("article", { name: "Write focused tests" });
-    fireEvent.click(card);
+    try {
+      const card = await screen.findByRole("article", { name: "Write focused tests" });
+      fireEvent.click(card);
 
-    const sidebar = await screen.findByTestId("app-sidebar-host");
-    expect(screen.getByRole("complementary", { name: "Task" })).toHaveAttribute("data-mode", "overlay");
-    expect(await within(sidebar).findByDisplayValue("Task detail title")).toBeInTheDocument();
-    expect(methodCallCount(services.transport.calls, "workflow.task.get")).toBe(1);
-    expect(methodCallCount(services.transport.calls, "workflow.task.activity.list")).toBe(1);
-    expect(opened).toEqual([]);
-    expect(new URLSearchParams(window.location.search).get("taskId")).toBe("task-1");
+      const sidebar = await screen.findByTestId("app-sidebar-host");
+      expect(screen.getByRole("complementary", { name: "Task" })).toHaveAttribute("data-mode", "overlay");
+      expect(sidebarWidthStyle(sidebar)).toBe("560px");
+      expect(await within(sidebar).findByDisplayValue("Task detail title")).toBeInTheDocument();
+      expect(methodCallCount(services.transport.calls, "workflow.task.get")).toBe(1);
+      expect(methodCallCount(services.transport.calls, "workflow.task.activity.list")).toBe(1);
+      expect(opened).toEqual([]);
+      expect(new URLSearchParams(window.location.search).get("taskId")).toBe("task-1");
 
-    fireEvent.click(within(sidebar).getByRole("button", { name: "Close" }));
+      fireEvent.click(within(sidebar).getByRole("button", { name: "Close" }));
 
-    await waitFor(() => {
-      expect(screen.queryByTestId("app-sidebar-host")).not.toBeInTheDocument();
-    });
-    expect(new URLSearchParams(window.location.search).get("taskId")).toBe("");
+      await waitFor(() => {
+        expect(screen.queryByTestId("app-sidebar-host")).not.toBeInTheDocument();
+      });
+      expect(new URLSearchParams(window.location.search).get("taskId")).toBe("");
 
-    fireEvent.click(await screen.findByRole("article", { name: "Write focused tests" }));
+      fireEvent.click(await screen.findByRole("article", { name: "Write focused tests" }));
 
-    const reopenedSidebar = await screen.findByTestId("app-sidebar-host");
-    expect(screen.getByRole("complementary", { name: "Task" })).toHaveAttribute("data-mode", "overlay");
-    expect(await within(reopenedSidebar).findByDisplayValue("Task detail title")).toBeInTheDocument();
-    expect(new URLSearchParams(window.location.search).get("taskId")).toBe("task-1");
+      const reopenedSidebar = await screen.findByTestId("app-sidebar-host");
+      expect(screen.getByRole("complementary", { name: "Task" })).toHaveAttribute("data-mode", "overlay");
+      expect(sidebarWidthStyle(reopenedSidebar)).toBe("560px");
+      expect(await within(reopenedSidebar).findByDisplayValue("Task detail title")).toBeInTheDocument();
+      expect(new URLSearchParams(window.location.search).get("taskId")).toBe("task-1");
+    } finally {
+      unmount();
+      restoreWindowWidth();
+    }
   });
 
   it("keeps resized sidebar width across board sidebar destinations", async () => {
@@ -977,10 +991,17 @@ describe("BoardRoute", () => {
       "leading-none",
     );
     expect(screen.queryByText("Default")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Pin menu" })).toHaveClass(
-      "size-[24px]",
-      "text-[var(--color-muted)]",
+    const linkWorkflowButton = within(screen.getByTestId("board-hover-menu-header")).getByRole("button", {
+      name: "Link workflow",
+    });
+    expect(linkWorkflowButton).toHaveClass(
+      "size-[20px]",
+      "border-[var(--color-outline)]",
+      "bg-[var(--color-island-1)]",
+      "text-[var(--color-on-island)]",
     );
+    expect(screen.getByTestId("board-hover-menu-link-icon")).toHaveAttribute("width", "14");
+    expect(screen.getByTestId("board-hover-menu-link-icon")).toHaveAttribute("height", "14");
     expect(screen.getByTestId("board-hover-menu-workflows")).toHaveClass(
       ...boardHoverMenuWorkflowContentClassNames,
     );
@@ -989,27 +1010,12 @@ describe("BoardRoute", () => {
     expect(screen.getByRole("button", { name: "Delivery" })).toHaveAttribute("data-slot", "item");
     expect(screen.getByRole("button", { name: "Edit workflow Delivery" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Pin menu" }));
-    expect(screen.getByRole("button", { name: "Unpin menu" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Unpin menu" })).toHaveClass("text-[var(--color-primary)]");
-    expect(screen.getByTestId("board-hover-menu-pin-off-icon")).toBeInTheDocument();
-
     fireEvent.mouseLeave(menu);
     act(() => {
       vi.advanceTimersByTime(500);
     });
 
-    expect(menu).toHaveClass(...boardHoverMenuExpandedClassNames);
-
-    const unpinButton = screen.getByRole("button", { name: "Unpin menu" });
-    fireEvent.click(unpinButton);
-    fireEvent.blur(unpinButton, { relatedTarget: null });
-    fireEvent.mouseLeave(menu);
-
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-
+    expect(menu).toHaveClass(...boardHoverMenuCollapsedClassNames);
     expect(screen.getByTestId("board-hover-menu-workflows")).toHaveClass("opacity-0");
 
     fireEvent.mouseEnter(menu);
@@ -1410,7 +1416,7 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     await screen.findByRole("heading", { name: "Core" });
-    fireEvent.click(screen.getByRole("button", { name: "Link workflow" }));
+    fireEvent.click(within(await expandBoardHoverMenu()).getByRole("button", { name: "Link workflow" }));
     expect(await screen.findByRole("complementary", { name: "Link workflow" })).toBeInTheDocument();
     const sidebar = within(screen.getByTestId("app-sidebar-host"));
     expect(await sidebar.findByText("Ops")).toBeInTheDocument();
@@ -1440,7 +1446,7 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     await screen.findByRole("heading", { name: "Core" });
-    expect(screen.getByRole("button", { name: "Link workflow" })).toBeDisabled();
+    expect(within(await expandBoardHoverMenu()).getByRole("button", { name: "Link workflow" })).toBeDisabled();
   });
 
   it("creates reusable workflows from the board link sidebar and opens the project-context editor", async () => {
@@ -1508,7 +1514,7 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     await screen.findByRole("heading", { name: "Core" });
-    fireEvent.click(screen.getByRole("button", { name: "Link workflow" }));
+    fireEvent.click(within(await expandBoardHoverMenu()).getByRole("button", { name: "Link workflow" }));
     const sidebar = within(await screen.findByRole("complementary", { name: "Link workflow" }));
     fireEvent.click(await sidebar.findByRole("button", { name: "New workflow" }));
     fireEvent.change(await screen.findByLabelText("Workflow name"), {
@@ -1583,7 +1589,7 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     await screen.findByRole("heading", { name: "Core" });
-    fireEvent.click(screen.getByRole("button", { name: "Link workflow" }));
+    fireEvent.click(within(await expandBoardHoverMenu()).getByRole("button", { name: "Link workflow" }));
     fireEvent.click(
       await within(screen.getByTestId("app-sidebar-host")).findByRole("button", { name: "Select" }),
     );
@@ -2237,6 +2243,18 @@ function methodCallCount(calls: readonly { method: string }[], method: string): 
 
 function sidebarWidthStyle(sidebar: HTMLElement): string {
   return sidebar.style.getPropertyValue("--app-sidebar-width");
+}
+
+function mockWindowWidth(width: number): () => void {
+  const descriptor = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  return () => {
+    if (descriptor === undefined) {
+      Reflect.deleteProperty(window, "innerWidth");
+      return;
+    }
+    Object.defineProperty(window, "innerWidth", descriptor);
+  };
 }
 
 function taskDetailWindowBridge(opened: NativeTaskDetailTarget[]): NativeBridge {

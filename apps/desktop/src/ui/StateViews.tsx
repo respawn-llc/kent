@@ -12,6 +12,7 @@ export type LoadingStateProps = Readonly<{
   body?: ReactNode;
   fullPage?: boolean;
   chromePadding?: boolean;
+  contentWidth?: StateContentWidth;
   reveal?: boolean;
   appearanceDelayMs?: number;
   appearanceDelayKey?: string;
@@ -26,6 +27,7 @@ export function LoadingState({
   body = null,
   fullPage = true,
   chromePadding = false,
+  contentWidth,
   reveal = true,
   appearanceDelayMs = defaultLoadingAppearanceDelayMs,
   appearanceDelayKey = defaultLoadingAppearanceDelayKey,
@@ -38,6 +40,7 @@ export function LoadingState({
     <StateIsland
       chromePadding={chromePadding}
       contentTestID="loading-state-content"
+      contentWidth={contentWidth}
       fullPage={fullPage}
       icon={<Spinner testID="loading-state-spinner" />}
       iconClassName="text-[var(--color-primary)]"
@@ -97,14 +100,25 @@ export type EmptyStateProps = Readonly<{
   action?: ReactNode;
   fullPage?: boolean;
   chromePadding?: boolean;
+  contentWidth?: StateContentWidth;
 }>;
 
-export function EmptyState({ title, body, icon, actions, action, fullPage = true, chromePadding = false }: EmptyStateProps) {
+export function EmptyState({
+  title,
+  body,
+  icon,
+  actions,
+  action,
+  fullPage = true,
+  chromePadding = false,
+  contentWidth,
+}: EmptyStateProps) {
   const renderedActions = actions ?? action;
   return (
     <StateIsland
       chromePadding={chromePadding}
       contentTestID="empty-state-content"
+      contentWidth={contentWidth}
       fullPage={fullPage}
       icon={icon ?? <Inbox size={28} strokeWidth={1.5} />}
       reveal={!fullPage}
@@ -128,6 +142,7 @@ export type ErrorStateProps = Readonly<{
   children?: ReactNode;
   fullPage?: boolean;
   chromePadding?: boolean;
+  contentWidth?: StateContentWidth;
   reveal?: boolean;
 }>;
 
@@ -140,12 +155,14 @@ export function ErrorState({
   children,
   fullPage = true,
   chromePadding = false,
+  contentWidth,
   reveal = true,
 }: ErrorStateProps) {
   return (
     <StateIsland
       chromePadding={chromePadding}
       contentTestID="error-state-content"
+      contentWidth={contentWidth}
       fullPage={fullPage}
       icon={<CircleAlert size={28} strokeWidth={1.5} />}
       iconClassName="border-[color-mix(in_srgb,var(--color-error)_35%,transparent)] text-[var(--color-error)]"
@@ -179,6 +196,7 @@ type StateIslandProps = Readonly<{
   children: ReactNode;
   chromePadding: boolean;
   contentTestID: string;
+  contentWidth: StateContentWidth | undefined;
   fullPage: boolean;
   icon: ReactNode;
   iconClassName?: string;
@@ -189,10 +207,13 @@ type StateIslandProps = Readonly<{
   tone?: "primary" | "secondary" | "floating";
 }>;
 
+type StateContentWidth = "default" | "full";
+
 function StateIsland({
   children,
   chromePadding,
   contentTestID,
+  contentWidth,
   fullPage,
   icon,
   iconClassName,
@@ -204,7 +225,10 @@ function StateIsland({
 }: StateIslandProps) {
   const content = (
     <div
-      className="mx-auto grid max-w-[560px] justify-items-center gap-[var(--space-3)] text-center"
+      className={cx(
+        "mx-auto grid justify-items-center gap-[var(--space-3)] text-center",
+        contentWidth === "full" ? "w-full max-w-none" : "max-w-[560px]",
+      )}
       data-testid={contentTestID}
     >
       <div

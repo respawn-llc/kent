@@ -941,23 +941,6 @@ type WorkflowTaskActivityListResponse struct {
 	GeneratedAtUnixMs int64                      `json:"generated_at_unix_ms"`
 }
 
-type WorkflowTaskTeleportTargetRequest struct {
-	TaskID string `json:"task_id"`
-	RunID  string `json:"run_id,omitempty"`
-}
-
-type WorkflowTaskTeleportTargetResponse struct {
-	Available     bool   `json:"available"`
-	TaskID        string `json:"task_id,omitempty"`
-	RunID         string `json:"run_id,omitempty"`
-	SessionID     string `json:"session_id,omitempty"`
-	ProjectID     string `json:"project_id,omitempty"`
-	WorkspaceID   string `json:"workspace_id,omitempty"`
-	WorktreeID    string `json:"worktree_id,omitempty"`
-	CwdRelpath    string `json:"cwd_relpath,omitempty"`
-	FailureReason string `json:"failure_reason,omitempty"`
-}
-
 type WorkflowTaskSummary struct {
 	ID                string   `json:"id"`
 	ProjectID         string   `json:"project_id"`
@@ -1648,10 +1631,6 @@ func (r WorkflowTaskActivityListRequest) Validate() error {
 		return workflowRequestError(WorkflowRequestErrorInvalidMode, "page_token", "page_token must not have leading or trailing whitespace")
 	}
 	return nil
-}
-
-func (r WorkflowTaskTeleportTargetRequest) Validate() error {
-	return validateRequired("task_id", r.TaskID)
 }
 
 func validateRequired(name string, value string) error {

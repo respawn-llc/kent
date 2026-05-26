@@ -1,4 +1,4 @@
-import { Link2, Pencil, Pin, PinOff, Plus } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -23,8 +23,7 @@ export function BoardHoverMenu({ board, canCreateTask, onNewTask, onWorkflowEdit
     const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [hovered, setHovered] = useState(false);
     const [focused, setFocused] = useState(false);
-    const [pinned, setPinned] = useState(false);
-    const expanded = hovered || focused || pinned;
+    const expanded = hovered || focused;
 
     useEffect(
         () => () => {
@@ -40,10 +39,6 @@ export function BoardHoverMenu({ board, canCreateTask, onNewTask, onWorkflowEdit
 
     function collapseSoon(): void {
         clearCollapseTimer(collapseTimer);
-        if (pinned) {
-            setHovered(false);
-            return;
-        }
         collapseTimer.current = setTimeout(() => {
             setHovered(false);
         }, collapseDelayMs);
@@ -92,22 +87,13 @@ export function BoardHoverMenu({ board, canCreateTask, onNewTask, onWorkflowEdit
                             {t("board.workflowPicker")}
                         </h2>
                         <button
-                            aria-pressed={pinned}
-                            aria-label={pinned ? t("board.unpinMenu") : t("board.pinMenu")}
-                            className={cx(
-                                "grid size-[24px] place-items-center rounded-full border border-transparent bg-transparent transition-colors hover:text-[var(--color-on-island)] focus-visible:border-[var(--color-primary)] focus-visible:outline-none",
-                                pinned ? "text-[var(--color-primary)]" : "text-[var(--color-muted)]",
-                            )}
-                            onClick={() => {
-                                setPinned((value) => !value);
-                            }}
+                            aria-label={t("workflowLibrary.linkWorkflow")}
+                            className="grid size-[20px] place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-on-island)] transition-colors hover:bg-[var(--color-island-2)] focus-visible:border-[var(--color-primary)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-55"
+                            disabled={!canCreateTask}
+                            onClick={onWorkflowLink}
                             type="button"
                         >
-                            {pinned ? (
-                                <PinOff aria-hidden="true" data-testid="board-hover-menu-pin-off-icon" size={14} strokeWidth={1.8} />
-                            ) : (
-                                <Pin aria-hidden="true" data-testid="board-hover-menu-pin-icon" size={14} strokeWidth={1.8} />
-                            )}
+                            <Plus aria-hidden="true" data-testid="board-hover-menu-link-icon" size={14} strokeWidth={1.5} />
                         </button>
                     </header>
                     <ItemGroup className="gap-[var(--space-1)]">
@@ -129,9 +115,6 @@ export function BoardHoverMenu({ board, canCreateTask, onNewTask, onWorkflowEdit
             <div className="absolute bottom-[var(--board-menu-padding)] left-[var(--board-menu-padding)] flex h-10 shrink-0 items-center gap-[var(--board-menu-icon-gap)]" data-testid="board-hover-menu-actions">
                 <IconMenuButton disabled={!canCreateTask} label={t("board.newTask")} onClick={onNewTask}>
                     <Plus aria-hidden="true" size={24} strokeWidth={1.6} />
-                </IconMenuButton>
-                <IconMenuButton disabled={!canCreateTask} label={t("workflowLibrary.linkWorkflow")} onClick={onWorkflowLink}>
-                    <Link2 aria-hidden="true" size={22} strokeWidth={1.6} />
                 </IconMenuButton>
             </div>
         </div>
