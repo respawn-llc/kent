@@ -283,7 +283,7 @@ function WorkflowEditorTopChromeBlur() {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none fixed inset-x-0 top-0 z-10 h-[var(--native-titlebar-height)] backdrop-blur-md [mask-image:linear-gradient(to_bottom,black_0%,transparent_100%)]"
+      className="pointer-events-none fixed inset-x-0 top-0 z-10 h-[calc(var(--native-titlebar-height)*2)] backdrop-blur-[18px] [mask-image:linear-gradient(to_bottom,black_0%,transparent_100%)]"
       data-testid="workflow-editor-top-chrome-blur"
     />
   );

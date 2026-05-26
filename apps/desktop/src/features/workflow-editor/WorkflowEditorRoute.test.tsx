@@ -69,9 +69,9 @@ describe("WorkflowEditorRoute", () => {
     expect(screen.getByTestId("workflow-editor-top-chrome-blur")).toHaveClass(
       "fixed",
       "top-0",
-      "h-[var(--native-titlebar-height)]",
+      "h-[calc(var(--native-titlebar-height)*2)]",
       "pointer-events-none",
-      "backdrop-blur-md",
+      "backdrop-blur-[18px]",
       "[mask-image:linear-gradient(to_bottom,black_0%,transparent_100%)]",
     );
     const legend = screen.getByRole("complementary", { name: "Legend" });
