@@ -5,12 +5,22 @@ mod platform {
         ClassType,
     };
     use objc2_app_kit::{
-        NSAutoresizingMaskOptions, NSColor, NSGlassEffectView, NSGlassEffectViewStyle, NSWindow,
+        NSAutoresizingMaskOptions, NSColor, NSGlassEffectView, NSGlassEffectViewStyle,
+        NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState,
+        NSVisualEffectView, NSWindow,
     };
     use objc2_foundation::{NSOperatingSystemVersion, NSProcessInfo};
     use tauri::{Manager, Runtime, WebviewWindow};
 
     const LIQUID_GLASS_MAJOR_VERSION: isize = 26;
+    const LIQUID_GLASS_EFFECT_NAME: &str = "NSGlassEffectView.clear";
+    const VISUAL_EFFECT_NAME: &str = "NSVisualEffectView.underWindowBackground";
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum NativeWindowEffect {
+        LiquidGlass,
+        VisualEffect,
+    }
 
     #[derive(serde::Serialize)]
     #[serde(rename_all = "camelCase", tag = "status")]
@@ -58,11 +68,15 @@ mod platform {
         if ns_window.is_null() {
             return Err("Native window pointer is null.".to_string());
         }
-        if !supports_liquid_glass(NSProcessInfo::processInfo().operatingSystemVersion()) {
+        let Some(effect) = select_native_effect(
+            NSProcessInfo::processInfo().operatingSystemVersion(),
+            AnyClass::get(c"NSGlassEffectView").is_some(),
+            AnyClass::get(c"NSVisualEffectView").is_some(),
+        ) else {
             return Ok(NativeGlassStatus::Unsupported {
-                reason: "macOS 26 or newer is required for NSGlassEffectView.",
+                reason: "Native macOS window blur is unavailable.",
             });
-        }
+        };
 
         let window = unsafe { &*ns_window };
         let content_view = window
@@ -70,18 +84,33 @@ mod platform {
             .ok_or_else(|| "Native window does not have a content view.".to_string())?;
         if content_view.isKindOfClass(NSGlassEffectView::class()) {
             return Ok(NativeGlassStatus::Applied {
-                effect: "NSGlassEffectView.clear",
+                effect: LIQUID_GLASS_EFFECT_NAME,
             });
         }
-        let glass_view = NSGlassEffectView::new(
-            objc2::MainThreadMarker::new()
-                .ok_or_else(|| "Native glass setup must run on the main thread.".to_string())?,
-        );
+        if content_view.isKindOfClass(NSVisualEffectView::class()) {
+            return Ok(NativeGlassStatus::Applied {
+                effect: VISUAL_EFFECT_NAME,
+            });
+        }
+
+        let main_thread = objc2::MainThreadMarker::new()
+            .ok_or_else(|| "Native glass setup must run on the main thread.".to_string())?;
+        if effect == NativeWindowEffect::LiquidGlass {
+            return Ok(apply_liquid_glass(window, &content_view, main_thread));
+        }
+        Ok(apply_visual_effect(window, &content_view, main_thread))
+    }
+
+    fn apply_liquid_glass(
+        window: &NSWindow,
+        content_view: &objc2_app_kit::NSView,
+        main_thread: objc2::MainThreadMarker,
+    ) -> NativeGlassStatus {
+        let glass_view = NSGlassEffectView::new(main_thread);
         let autoresizing_mask = NSAutoresizingMaskOptions::ViewWidthSizable
             | NSAutoresizingMaskOptions::ViewHeightSizable;
 
-        window.setOpaque(false);
-        window.setBackgroundColor(Some(&NSColor::clearColor()));
+        prepare_window_for_native_blur(window);
         glass_view.setFrame(content_view.frame());
         glass_view.setAutoresizingMask(autoresizing_mask);
         glass_view.setStyle(NSGlassEffectViewStyle::Clear);
@@ -90,15 +119,56 @@ mod platform {
         window.setContentView(Some(&glass_view));
         content_view.setFrame(glass_view.bounds());
         content_view.setAutoresizingMask(autoresizing_mask);
-        glass_view.setContentView(Some(&content_view));
+        glass_view.setContentView(Some(content_view));
 
-        Ok(NativeGlassStatus::Applied {
-            effect: "NSGlassEffectView.clear",
-        })
+        NativeGlassStatus::Applied {
+            effect: LIQUID_GLASS_EFFECT_NAME,
+        }
     }
 
-    fn supports_liquid_glass(version: NSOperatingSystemVersion) -> bool {
-        is_macos_26_or_newer(version) && AnyClass::get(c"NSGlassEffectView").is_some()
+    fn apply_visual_effect(
+        window: &NSWindow,
+        content_view: &objc2_app_kit::NSView,
+        main_thread: objc2::MainThreadMarker,
+    ) -> NativeGlassStatus {
+        let effect_view = NSVisualEffectView::new(main_thread);
+        let autoresizing_mask = NSAutoresizingMaskOptions::ViewWidthSizable
+            | NSAutoresizingMaskOptions::ViewHeightSizable;
+
+        prepare_window_for_native_blur(window);
+        effect_view.setFrame(content_view.frame());
+        effect_view.setAutoresizingMask(autoresizing_mask);
+        effect_view.setMaterial(NSVisualEffectMaterial::UnderWindowBackground);
+        effect_view.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+        effect_view.setState(NSVisualEffectState::Active);
+        effect_view.setEmphasized(false);
+        window.setContentView(Some(&effect_view));
+        content_view.setFrame(effect_view.bounds());
+        content_view.setAutoresizingMask(autoresizing_mask);
+        effect_view.addSubview(content_view);
+
+        NativeGlassStatus::Applied {
+            effect: VISUAL_EFFECT_NAME,
+        }
+    }
+
+    fn prepare_window_for_native_blur(window: &NSWindow) {
+        window.setOpaque(false);
+        window.setBackgroundColor(Some(&NSColor::clearColor()));
+    }
+
+    fn select_native_effect(
+        version: NSOperatingSystemVersion,
+        liquid_glass_available: bool,
+        visual_effect_available: bool,
+    ) -> Option<NativeWindowEffect> {
+        if is_macos_26_or_newer(version) && liquid_glass_available {
+            return Some(NativeWindowEffect::LiquidGlass);
+        }
+        if visual_effect_available {
+            return Some(NativeWindowEffect::VisualEffect);
+        }
+        None
     }
 
     fn is_macos_26_or_newer(version: NSOperatingSystemVersion) -> bool {
@@ -121,6 +191,38 @@ mod platform {
                 minorVersion: 0,
                 patchVersion: 0,
             }));
+        }
+
+        #[test]
+        fn older_macos_uses_visual_effect_fallback() {
+            assert_eq!(
+                select_native_effect(
+                    NSOperatingSystemVersion {
+                        majorVersion: 25,
+                        minorVersion: 9,
+                        patchVersion: 9,
+                    },
+                    true,
+                    true,
+                ),
+                Some(NativeWindowEffect::VisualEffect),
+            );
+        }
+
+        #[test]
+        fn macos_26_prefers_liquid_glass() {
+            assert_eq!(
+                select_native_effect(
+                    NSOperatingSystemVersion {
+                        majorVersion: 26,
+                        minorVersion: 0,
+                        patchVersion: 0,
+                    },
+                    true,
+                    true,
+                ),
+                Some(NativeWindowEffect::LiquidGlass),
+            );
         }
     }
 }
