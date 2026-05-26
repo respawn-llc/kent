@@ -2,6 +2,7 @@ package workflowsvc
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 	"strings"
@@ -822,6 +823,9 @@ func (s *Service) GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTas
 		detail, err = s.view.GetTaskByShortID(ctx, req.ShortID)
 	}
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return serverapi.WorkflowTaskGetResponse{}, errors.Join(serverapi.ErrWorkflowTaskNotFound, err)
+		}
 		return serverapi.WorkflowTaskGetResponse{}, err
 	}
 	return serverapi.WorkflowTaskGetResponse{Task: detail}, nil

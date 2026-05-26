@@ -341,6 +341,9 @@ func protocolError(err error) (int, string) {
 	if errors.Is(err, serverapi.ErrPromptUnsupported) {
 		return protocol.ErrCodePromptUnsupported, message
 	}
+	if errors.Is(err, serverapi.ErrWorkflowTaskNotFound) {
+		return protocol.ErrCodeWorkflowTaskNotFound, message
+	}
 	if errors.Is(err, serverapi.ErrServerAuthRequired) || errors.Is(err, auth.ErrAuthNotConfigured) {
 		return protocol.ErrCodeAuthRequired, message
 	}

@@ -70,6 +70,13 @@ func TestProtocolErrorMapsRuntimeUnavailable(t *testing.T) {
 	}
 }
 
+func TestProtocolErrorMapsWorkflowTaskNotFound(t *testing.T) {
+	code, _ := protocolError(serverapi.ErrWorkflowTaskNotFound)
+	if code != protocol.ErrCodeWorkflowTaskNotFound {
+		t.Fatalf("protocol error code = %d, want %d", code, protocol.ErrCodeWorkflowTaskNotFound)
+	}
+}
+
 func TestProtocolErrorMapsContextCanceled(t *testing.T) {
 	code, message := protocolError(context.Canceled)
 	if code != protocol.ErrCodeRequestCanceled {

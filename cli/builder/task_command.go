@@ -702,7 +702,7 @@ func getWorkflowTaskForShow(ctx context.Context, cfg config.App, remote workflow
 }
 
 func isWorkflowTaskNotFound(err error) bool {
-	return errors.Is(err, sql.ErrNoRows)
+	return errors.Is(err, sql.ErrNoRows) || errors.Is(err, serverapi.ErrWorkflowTaskNotFound)
 }
 
 func getWorkflowTaskByID(ctx context.Context, remote workflowCommandRemote, taskID string) (serverapi.WorkflowTaskDetail, error) {

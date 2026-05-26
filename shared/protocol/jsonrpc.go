@@ -33,6 +33,7 @@ const (
 	ErrCodePromptResolved           = -32021
 	ErrCodePromptUnsupported        = -32022
 	ErrCodeRequestCanceled          = -32023
+	ErrCodeWorkflowTaskNotFound     = -32024
 )
 
 type Request struct {

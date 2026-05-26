@@ -646,6 +646,24 @@ func TestTaskShowWarnsWhenShortIDBelongsToAnotherKnownProject(t *testing.T) {
 	}
 }
 
+func TestTaskShowFallsBackAfterRemoteScopedShortIDNotFound(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &crossProjectTaskShowRemote{scopedErr: serverapi.ErrWorkflowTaskNotFound}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	stdout, stderr, code := runWorkflowRootCommand("task", "show", "--project", "project-current", "OTH-1")
+	if code != 0 {
+		t.Fatalf("task show exit=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "task_id\ttask-other") {
+		t.Fatalf("task show output = %q, want global fallback task", stdout)
+	}
+	if remote.unscopedCalls != 1 {
+		t.Fatalf("unscoped calls = %d, want one fallback lookup", remote.unscopedCalls)
+	}
+}
+
 func TestTaskShowSurfacesScopedShortIDLookupErrors(t *testing.T) {
 	cfg := config.App{WorkspaceRoot: t.TempDir()}
 	remote := &crossProjectTaskShowRemote{scopedErr: errors.New("backend unavailable")}

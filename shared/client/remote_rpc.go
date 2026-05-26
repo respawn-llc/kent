@@ -450,6 +450,8 @@ func protocolError(resp *protocol.ResponseError) error {
 		return errors.Join(serverapi.ErrPromptAlreadyResolved, errors.New(message))
 	case protocol.ErrCodePromptUnsupported:
 		return errors.Join(serverapi.ErrPromptUnsupported, errors.New(message))
+	case protocol.ErrCodeWorkflowTaskNotFound:
+		return errors.Join(serverapi.ErrWorkflowTaskNotFound, errors.New(message))
 	default:
 		return errors.New(message)
 	}

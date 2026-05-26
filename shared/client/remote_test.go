@@ -626,6 +626,12 @@ func TestProtocolErrorMapsPromptTerminalCodes(t *testing.T) {
 	}
 }
 
+func TestProtocolErrorMapsWorkflowTaskNotFoundCode(t *testing.T) {
+	if err := protocolError(&protocol.ResponseError{Code: protocol.ErrCodeWorkflowTaskNotFound, Message: "missing task"}); !errors.Is(err, serverapi.ErrWorkflowTaskNotFound) {
+		t.Fatalf("expected workflow task not found, got %v", err)
+	}
+}
+
 func TestProtocolErrorMapsAuthRequiredCode(t *testing.T) {
 	if err := protocolError(&protocol.ResponseError{Code: protocol.ErrCodeAuthRequired, Message: "auth required"}); !errors.Is(err, serverapi.ErrServerAuthRequired) {
 		t.Fatalf("expected server auth required, got %v", err)
