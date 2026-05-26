@@ -59,7 +59,7 @@ export function WorkflowGraphEdge(
               props.data?.hasError === true ? "border-[var(--color-error)]" : "border-[var(--color-outline)]",
             )}
             data-testid={`workflow-edge-label-${props.id}`}
-            level={3}
+            level={1}
             onClick={inspect}
             style={{
               transform: `translate(-50%, -50%) translate(${edgePath.labelPoint.x.toString()}px, ${edgePath.labelPoint.y.toString()}px)`,

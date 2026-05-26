@@ -25,7 +25,7 @@ export function WorkflowGraphToolbar({
       as="div"
       className="workflow-editor-tools app-region-no-drag fixed left-[var(--space-2)] top-[calc(var(--native-titlebar-height)+var(--space-2))] z-30 grid gap-[var(--space-1)] rounded-[var(--radius-l)] p-[var(--space-1)]"
       data-testid="workflow-editor-tools"
-      level={1}
+      level={3}
     >
       <CanvasTool label={t("workflowEditor.inspectWorkflow")} onClick={onWorkflowInspect}>
         <Info aria-hidden="true" size={18} strokeWidth={1.7} />
@@ -76,6 +76,7 @@ function AddNodeTool({
       <PopoverContent
         align="start"
         className="w-[220px] gap-[var(--space-1)] p-[var(--space-2)]"
+        level={3}
         side="right"
       >
         <CanvasMenuButton

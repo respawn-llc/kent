@@ -81,7 +81,7 @@ describe("WorkflowGraphEdge", () => {
     );
 
     expect(screen.getByTestId("workflow-edge-label-edge-1")).toHaveClass(
-      "island-surface-3",
+      "island-surface-1",
       "text-[var(--color-on-background)]",
     );
     expect(screen.getByTestId("workflow-edge-label-edge-1")).not.toHaveClass(

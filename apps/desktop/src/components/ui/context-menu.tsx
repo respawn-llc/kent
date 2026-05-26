@@ -5,6 +5,7 @@ import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 
 import { cn } from "@/lib/utils";
 import { radixIslandSurfaceContentClassName } from "./radix-island-surface";
+import type { IslandLevel } from "../../ui/islandSurfaceStyles";
 
 function ContextMenu({ ...props }: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
   return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />;
@@ -18,13 +19,15 @@ function ContextMenuTrigger({
 
 function ContextMenuContent({
   className,
+  level,
   ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.Content>) {
+}: React.ComponentProps<typeof ContextMenuPrimitive.Content> & Readonly<{ level?: IslandLevel | undefined }>) {
   return (
     <ContextMenuPrimitive.Portal>
       <ContextMenuPrimitive.Content
         className={cn(
           radixIslandSurfaceContentClassName({
+            level,
             originClassName: "origin-(--radix-context-menu-content-transform-origin)",
           }),
           "grid min-w-56 gap-[var(--space-1)] overflow-hidden rounded-[var(--radius-l)] p-[var(--space-2)] text-[var(--color-on-island)]",

@@ -3,6 +3,7 @@ import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 
 import { cn } from "@/lib/utils";
 import { radixIslandSurfaceContentClassName } from "./radix-island-surface";
+import type { IslandLevel } from "../../ui/islandSurfaceStyles";
 
 function TooltipProvider({
   delayDuration = 0,
@@ -31,10 +32,11 @@ function TooltipTrigger({
 
 function TooltipContent({
   className,
+  level = 0,
   sideOffset = 0,
   children,
   ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+}: React.ComponentProps<typeof TooltipPrimitive.Content> & Readonly<{ level?: IslandLevel | undefined }>) {
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content
@@ -42,7 +44,7 @@ function TooltipContent({
         sideOffset={sideOffset}
         className={cn(
           radixIslandSurfaceContentClassName({
-            level: 0,
+            level,
             noDrag: false,
             originClassName: "origin-(--radix-tooltip-content-transform-origin)",
           }),

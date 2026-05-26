@@ -550,6 +550,7 @@ function WorkflowDeleteConfirmationIsland({
       collapseLabel={t("app.collapse")}
       expandedClassName="floating-notice-expanded grid w-[min(360px,calc(100vw-32px))] gap-[var(--space-3)] overflow-hidden rounded-[var(--radius-xl)] p-[var(--space-3)]"
       expandLabel={t("app.expand")}
+      level={3}
       onCollapsedChange={setCollapsed}
       positionClassName="right-[var(--space-4)] top-[calc(var(--space-4)+48px)]"
       title={t("workflowEditor.deleteCascadeTitle")}
@@ -595,6 +596,7 @@ function WorkflowDeleteBlockedIsland({
       collapseLabel={t("app.collapse")}
       expandedClassName="floating-notice-expanded grid w-[min(340px,calc(100vw-32px))] gap-[var(--space-3)] overflow-hidden rounded-[var(--radius-xl)] p-[var(--space-3)]"
       expandLabel={t("app.expand")}
+      level={3}
       onCollapsedChange={setCollapsed}
       positionClassName="right-[var(--space-4)] top-[calc(var(--space-4)+48px)]"
       title={t("workflowEditor.deleteBlockedTitle")}
@@ -619,6 +621,7 @@ function WorkflowEditorLegendIsland() {
       collapseLabel={t("app.collapse")}
       expandedClassName="floating-notice-expanded grid h-[204px] w-[min(300px,calc(100vw-var(--space-2)*2))] gap-[6px] overflow-hidden rounded-[var(--radius-xl)] p-[var(--space-2)]"
       expandLabel={t("app.expand")}
+      level={3}
       onCollapsedChange={setCollapsed}
       positionClassName="left-[var(--space-2)] bottom-[var(--space-2)]"
       title={t("workflowEditor.legend")}
@@ -828,6 +831,7 @@ function WorkflowEditorStatusIsland({
       collapseLabel={t("app.collapse")}
       expandedClassName="floating-notice-expanded grid max-h-[min(400px,calc(100vh-32px))] w-[min(400px,calc(100vw-32px))] gap-[6px] overflow-y-auto overflow-x-hidden rounded-[var(--radius-xl)] p-[var(--space-3)]"
       expandLabel={t("app.expand")}
+      level={3}
       onCollapsedChange={setCollapsed}
       positionClassName="right-[var(--space-4)] bottom-[var(--space-4)]"
       title={controller.dirty.dirty ? t("workflowEditor.unsavedChanges") : t("board.workflowIssues")}

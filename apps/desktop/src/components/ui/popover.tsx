@@ -5,6 +5,7 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 
 import { cn } from "@/lib/utils";
 import { radixIslandSurfaceContentClassName } from "./radix-island-surface";
+import type { IslandLevel } from "../../ui/islandSurfaceStyles";
 
 function Popover({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
   return <PopoverPrimitive.Root data-slot="popover" {...props} />;
@@ -17,15 +18,17 @@ function PopoverTrigger({ ...props }: React.ComponentProps<typeof PopoverPrimiti
 function PopoverContent({
   align = "center",
   className,
+  level,
   sideOffset = 8,
   ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+}: React.ComponentProps<typeof PopoverPrimitive.Content> & Readonly<{ level?: IslandLevel | undefined }>) {
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Content
         align={align}
         className={cn(
           radixIslandSurfaceContentClassName({
+            level,
             originClassName: "origin-(--radix-popover-content-transform-origin)",
           }),
           "grid w-64 gap-[var(--space-3)] rounded-[var(--radius-l)] p-[var(--space-3)] text-[var(--color-on-island)]",

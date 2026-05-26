@@ -69,12 +69,13 @@ describe("WorkflowGraphCanvas", () => {
     expect(screen.getByTestId("workflow-graph-group-group")).toHaveStyle({
       "--workflow-editor-node-outline-color": "var(--color-outline)",
     });
+    expect(screen.getByTestId("workflow-graph-group-group")).toHaveClass("island-surface-1");
     expect(screen.getByTestId("workflow-graph-node-start")).toHaveAttribute("data-kind", "start");
     expect(screen.getByTestId("workflow-graph-node-start")).toHaveStyle({
       "--workflow-editor-node-outline-color": "var(--color-primary)",
     });
     expect(screen.getByTestId("workflow-graph-node-agent")).toHaveAttribute("data-kind", "agent");
-    expect(screen.getByTestId("workflow-graph-node-agent")).toHaveClass("island-surface-3");
+    expect(screen.getByTestId("workflow-graph-node-agent")).toHaveClass("island-surface-1");
     expect(screen.getByTestId("workflow-graph-node-agent")).toHaveStyle({
       "--workflow-editor-node-outline-color": "var(--color-outline)",
     });
@@ -83,7 +84,7 @@ describe("WorkflowGraphCanvas", () => {
       "--workflow-editor-node-outline-color": "var(--color-success)",
     });
     expect(screen.getByTestId("workflow-graph-node-join")).toHaveAttribute("data-kind", "join");
-    expect(screen.getByTestId("workflow-graph-node-join")).toHaveClass("island-surface-3");
+    expect(screen.getByTestId("workflow-graph-node-join")).toHaveClass("island-surface-1");
     expect(screen.getByTestId("workflow-graph-node-join")).toHaveStyle({
       "--workflow-editor-node-outline-color": "var(--color-secondary)",
     });
@@ -117,6 +118,7 @@ describe("WorkflowGraphCanvas", () => {
       "max-w-[calc(100vw-var(--space-4)*2)]",
     );
     expect(screen.getByTestId("workflow-editor-tools")).toHaveClass(
+      "island-surface-3",
       "fixed",
       "left-[var(--space-2)]",
       "top-[calc(var(--native-titlebar-height)+var(--space-2))]",

@@ -42,7 +42,7 @@ export function WorkflowGroupDragPreview({
     <IslandSurface
       as="div"
       className="pointer-events-none fixed z-50 rounded-[var(--radius-m)] px-[var(--space-3)] py-[var(--space-2)] text-sm font-semibold text-[var(--color-on-island)]"
-      level={2}
+      level={3}
       style={{
         borderColor: "var(--color-primary)",
         left: drag.x + 10,
@@ -90,13 +90,14 @@ function WorkflowNodeContextMenuShell({
           <TooltipContent
             className={NODE_METADATA_TOOLTIP_CLASS}
             data-testid="workflow-node-metadata-tooltip"
+            level={3}
             onClick={stopPropagation}
           >
             {tooltip}
           </TooltipContent>
         </Tooltip>
       )}
-      <ContextMenuContent>
+      <ContextMenuContent level={3}>
         {data.kind === "agent" && data.groupID.length === 0 ? (
           <ContextMenuItem
             onSelect={() => {
@@ -157,7 +158,7 @@ export const WorkflowNode = memo(function WorkflowNode({
       )}
       data-kind={data.kind}
       data-testid={`workflow-graph-node-${data.entityID}`}
-      level={3}
+      level={1}
       style={workflowNodeOutlineStyle(data.kind, data.hasError)}
     >
       <Handle
@@ -286,7 +287,7 @@ export const WorkflowJoinNode = memo(function WorkflowJoinNode({
         )}
         data-kind={data.kind}
         data-testid={`workflow-graph-node-${data.entityID}`}
-        level={3}
+        level={1}
         style={workflowNodeOutlineStyle(data.kind, data.hasError)}
       >
         <span aria-hidden="true" className="absolute inset-0" data-testid="workflow-join-diamond" />

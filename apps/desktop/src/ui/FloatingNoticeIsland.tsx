@@ -2,7 +2,7 @@ import { useId, type ReactNode } from "react";
 import { Maximize2, Minus } from "lucide-react";
 
 import { cx } from "./classes";
-import { islandSurfaceClassName } from "./islandSurfaceStyles";
+import { islandSurfaceClassName, type IslandLevel } from "./islandSurfaceStyles";
 
 export type FloatingNoticeTone = "danger" | "neutral";
 
@@ -16,6 +16,7 @@ export type FloatingNoticeIslandProps = Readonly<{
     icon?: ReactNode;
     onCollapsedChange: (collapsed: boolean) => void;
     positionClassName?: string | undefined;
+    level?: IslandLevel | undefined;
     title: string;
     tone?: FloatingNoticeTone;
 }>;
@@ -28,6 +29,7 @@ export function FloatingNoticeIsland({
     expandedClassName,
     expandLabel,
     icon,
+    level = 1,
     onCollapsedChange,
     positionClassName = "right-[var(--space-4)] bottom-[var(--space-4)]",
     title,
@@ -45,7 +47,7 @@ export function FloatingNoticeIsland({
             aria-labelledby={collapsed ? undefined : titleID}
             className={cx(
                 "floating-notice-morph app-region-no-drag fixed z-50",
-                islandSurfaceClassName(1),
+                islandSurfaceClassName(level),
                 collapsed
                     ? cx(
                           "floating-notice-collapsed grid h-12 w-12 place-items-center overflow-hidden rounded-[var(--radius-m)] p-0",
