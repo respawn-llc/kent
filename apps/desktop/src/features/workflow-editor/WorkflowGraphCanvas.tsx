@@ -31,6 +31,7 @@ import { WorkflowGraphToolbar } from "./WorkflowGraphToolbar";
 import type { WorkflowGraphSelection } from "./workflowGraphSelection";
 import type {
   WorkflowGraphEdge,
+  WorkflowGraphGroupNode,
   WorkflowGraphLayout,
   WorkflowGraphNode,
   WorkflowGraphWorkflowNode,
@@ -139,7 +140,9 @@ function WorkflowGraphCanvasInner({
   );
   const nodeTypes = useMemo(
     () => ({
-      workflowGroup: WorkflowGroupNode,
+      workflowGroup: (props: NodeProps<WorkflowGraphGroupNode>) => (
+        <WorkflowGroupNode {...props} onAddNodeToGroup={onAddNodeToGroup} />
+      ),
       workflowJoin: (props: NodeProps<WorkflowGraphWorkflowNode>) => (
         <WorkflowJoinNode
           {...props}

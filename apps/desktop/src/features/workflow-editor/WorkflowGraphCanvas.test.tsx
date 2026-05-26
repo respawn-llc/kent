@@ -199,6 +199,7 @@ describe("WorkflowGraphCanvas", () => {
   it("creates node groups from context menu and drag-drops nodes onto groups", () => {
     const onAddNodeToGroup = vi.fn();
     const onCreateNodeGroup = vi.fn();
+    const onNodeInspect = vi.fn();
     render(
       <WorkflowGraphCanvas
         graph={{
@@ -212,7 +213,7 @@ describe("WorkflowGraphCanvas", () => {
         onCreateNodeGroup={onCreateNodeGroup}
         onEdgeInspect={() => undefined}
         onGroupInspect={() => undefined}
-        onNodeInspect={() => undefined}
+        onNodeInspect={onNodeInspect}
         onWorkflowInspect={() => undefined}
       />,
     );
@@ -231,12 +232,17 @@ describe("WorkflowGraphCanvas", () => {
     const dataTransfer = new TestDataTransfer();
     const card = screen.getByTestId("workflow-graph-node-agent");
     fireEvent.dragStart(card, { dataTransfer });
-    dispatchDragEnd(card, { clientX: 20, clientY: 24 });
+    fireEvent.dragOver(screen.getByTestId("workflow-graph-group-group"), { dataTransfer });
+    fireEvent.drop(screen.getByTestId("workflow-graph-group-group"), { dataTransfer });
 
     expect(dataTransfer.getData("text/workflow-node-id")).toBe("agent");
     expect(dataTransfer.effectAllowed).toBe("move");
-    expect(elementFromPoint).toHaveBeenCalledWith(20, 24);
+    expect(dataTransfer.dropEffect).toBe("move");
+    expect(elementFromPoint).not.toHaveBeenCalled();
     expect(onAddNodeToGroup).toHaveBeenCalledWith("agent", "group");
+
+    fireEvent.click(card);
+    expect(onNodeInspect).toHaveBeenCalledWith("agent");
   });
 });
 
@@ -257,6 +263,7 @@ class MockResizeObserver implements ResizeObserver {
 class TestDataTransfer {
   readonly #values = new Map<string, string>();
   effectAllowed = "all";
+  dropEffect = "none";
 
   setData(type: string, value: string): void {
     this.#values.set(type, value);
@@ -265,15 +272,6 @@ class TestDataTransfer {
   getData(type: string): string {
     return this.#values.get(type) ?? "";
   }
-}
-
-function dispatchDragEnd(target: Element, point: Readonly<{ clientX: number; clientY: number }>): void {
-  const event = new Event("dragend", { bubbles: true, cancelable: true });
-  Object.defineProperties(event, {
-    clientX: { value: point.clientX },
-    clientY: { value: point.clientY },
-  });
-  target.dispatchEvent(event);
 }
 
 function workflowGraphNode({

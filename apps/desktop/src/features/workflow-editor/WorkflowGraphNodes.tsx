@@ -17,7 +17,6 @@ import {
   WorkflowNodeInfoTooltipContent,
   type CopyText,
 } from "./WorkflowGraphNodeMetadata";
-import { groupIDFromPoint } from "./workflowGraphCanvasInteractions";
 import type { WorkflowGraphSelection } from "./workflowGraphSelection";
 import type {
   WorkflowGraphGroupNode,
@@ -26,6 +25,8 @@ import type {
 } from "./workflowGraphLayout";
 
 export type { CopyText } from "./WorkflowGraphNodeMetadata";
+
+const workflowNodeDragPayloadType = "text/workflow-node-id";
 
 type WorkflowNodeContextMenuCallbacks = Readonly<{
   onAddNodeToGroup: ((nodeID: string, groupID: string) => void) | undefined;
@@ -140,21 +141,12 @@ export const WorkflowNode = memo(function WorkflowNode({
       data-testid={`workflow-graph-node-${data.entityID}`}
       draggable={canDragToGroup}
       level={1}
-      onDragEnd={(event) => {
-        if (!canDragToGroup) {
-          return;
-        }
-        const groupID = groupIDFromPoint(event.clientX, event.clientY);
-        if (groupID !== null) {
-          onAddNodeToGroup?.(data.entityID, groupID);
-        }
-      }}
       onDragStart={(event) => {
         if (!canDragToGroup) {
           event.preventDefault();
           return;
         }
-        event.dataTransfer.setData("text/workflow-node-id", data.entityID);
+        event.dataTransfer.setData(workflowNodeDragPayloadType, data.entityID);
         event.dataTransfer.setData("text/plain", data.entityID);
         event.dataTransfer.effectAllowed = "move";
       }}
@@ -204,7 +196,11 @@ export const WorkflowNode = memo(function WorkflowNode({
   );
 });
 
-export const WorkflowGroupNode = memo(function WorkflowGroupNode({ data }: NodeProps<WorkflowGraphGroupNode>) {
+export const WorkflowGroupNode = memo(function WorkflowGroupNode({
+  data,
+  onAddNodeToGroup,
+}: NodeProps<WorkflowGraphGroupNode> &
+  Readonly<{ onAddNodeToGroup: ((nodeID: string, groupID: string) => void) | undefined }>) {
   const { t } = useTranslation();
   return (
     <IslandSurface
@@ -216,6 +212,20 @@ export const WorkflowGroupNode = memo(function WorkflowGroupNode({ data }: NodeP
       data-testid={`workflow-graph-group-${data.entityID}`}
       data-workflow-group-id={data.entityID}
       level={1}
+      onDragOver={(event) => {
+        if (onAddNodeToGroup === undefined) {
+          return;
+        }
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        const nodeID = event.dataTransfer.getData(workflowNodeDragPayloadType);
+        if (nodeID.length > 0) {
+          onAddNodeToGroup?.(nodeID, data.entityID);
+        }
+      }}
       style={workflowNodeOutlineStyle(data.kind, data.hasError)}
     >
       <div className="font-mono text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-muted)]">
