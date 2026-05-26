@@ -319,7 +319,16 @@ function WorkflowEditorShellRoute() {
   const search = workflowEditorRoute.useSearch();
   useWindowChromeTitle(null);
   return (
-    <Suspense fallback={<LoadingState appearanceDelayMs={0} title={t("workflowEditor.loadingTitle")} />}>
+    <Suspense
+      fallback={
+        <LoadingState
+          appearanceDelayMs={0}
+          chromePadding
+          contentWidth="full"
+          title={t("workflowEditor.loadingTitle")}
+        />
+      }
+    >
       <LazyWorkflowEditorRoute projectID={search.projectId} workflowID={params.workflowId} />
     </Suspense>
   );

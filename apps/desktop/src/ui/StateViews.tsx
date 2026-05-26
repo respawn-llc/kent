@@ -260,6 +260,7 @@ function StateIsland({
             reveal && "animate-[surface-reveal_var(--motion-normal)]",
           )}
           data-testid={`${testID}-island`}
+          floatingWidth={contentWidth === "full" ? "full" : "default"}
           tone={tone}
         >
           {content}

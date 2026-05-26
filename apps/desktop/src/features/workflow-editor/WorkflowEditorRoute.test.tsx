@@ -297,6 +297,10 @@ describe("WorkflowEditorRoute", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "Workflow editor" })).toBeInTheDocument();
+    expect(screen.getByTestId("route-transition-frame")).not.toHaveClass("p-[var(--space-2)]");
+    expect(screen.getByTestId("loading-state")).toHaveClass("h-full", "min-h-0", "p-[var(--space-2)]");
+    expect(screen.getByTestId("loading-state-island")).toHaveClass("h-full", "w-full");
+    expect(screen.getByTestId("loading-state-island")).not.toHaveClass("max-w-[760px]", "m-auto");
     expect(await screen.findByTestId("loading-state-content")).toHaveClass("w-full", "max-w-none");
     expect(screen.getByTestId("loading-state-content")).not.toHaveClass("max-w-[560px]");
   });

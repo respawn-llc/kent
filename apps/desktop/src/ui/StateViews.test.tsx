@@ -131,6 +131,8 @@ describe("LoadingState", () => {
   it("can stretch loading content across full-screen islands", () => {
     render(<LoadingState appearanceDelayMs={0} contentWidth="full" title="Loading" />);
 
+    expect(screen.getByTestId("loading-state-island")).toHaveClass("h-full", "w-full");
+    expect(screen.getByTestId("loading-state-island")).not.toHaveClass("max-w-[760px]", "m-auto");
     expect(screen.getByTestId("loading-state-content")).toHaveClass("w-full", "max-w-none");
     expect(screen.getByTestId("loading-state-content")).not.toHaveClass("max-w-[560px]");
   });
