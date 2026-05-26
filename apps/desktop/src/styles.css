@@ -311,18 +311,21 @@
 }
 
 @utility island-glass {
+  backdrop-filter: blur(8px);
   border: 1px solid var(--color-outline);
   background: var(--color-island-0);
   box-shadow: var(--shadow-island-0);
 }
 
 @utility island-surface {
+  backdrop-filter: blur(8px);
   border: 1px solid var(--color-outline);
   background: var(--island-surface-background, var(--color-island-0));
   box-shadow: var(--island-surface-shadow, var(--shadow-island-0));
 }
 
 @utility island-surface-0 {
+  backdrop-filter: blur(8px);
   --island-surface-background: var(--color-island-0);
   --island-surface-shadow: var(--shadow-island-0);
 }
@@ -330,29 +333,25 @@
 @utility island-surface-1 {
   --island-surface-background: var(--color-island-1);
   --island-surface-shadow: var(--shadow-island-1);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(8px);
 }
 
 @utility island-surface-2 {
   --island-surface-background: var(--color-island-2);
   --island-surface-shadow: var(--shadow-island-2);
-  -webkit-backdrop-filter: blur(18px);
-  backdrop-filter: blur(18px);
+  backdrop-filter: blur(8px);
 }
 
 @utility island-surface-3 {
   --island-surface-background: var(--color-island-3);
   --island-surface-shadow: var(--shadow-island-3);
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(8px);
 }
 
 @utility island-surface-4 {
   --island-surface-background: var(--color-island-4);
   --island-surface-shadow: var(--shadow-island-4);
-  -webkit-backdrop-filter: blur(22px);
-  backdrop-filter: blur(22px);
+  backdrop-filter: blur(8px);
 }
 
 @utility window-glass-fill {

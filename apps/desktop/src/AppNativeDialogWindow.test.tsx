@@ -27,7 +27,7 @@ describe("App native dialog window sizing", () => {
 
     render(<App services={createTestServices(startupRoutes, fitRecorderBridge(fittedSizes))} />);
 
-    expect(await screen.findByRole("heading", { name: "Create project" })).toBeInTheDocument();
+    expect(await screen.findByTestId("native-dialog-content")).toBeInTheDocument();
     await waitFor(() => {
       expect(fittedSizes).toContainEqual({ height: 320, width: 584 });
     });
@@ -52,7 +52,7 @@ describe("App native dialog window sizing", () => {
 
     render(<App services={createTestServices(startupRoutes, fitRecorderBridge(fittedSizes))} />);
 
-    expect(await screen.findByRole("heading", { name: "Create project" })).toBeInTheDocument();
+    expect(await screen.findByTestId("native-dialog-content")).toBeInTheDocument();
     await waitFor(() => {
       expect(fittedSizes).toContainEqual({ height: 320, width: 584 });
     });

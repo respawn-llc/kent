@@ -13,7 +13,7 @@ describe("AppChrome debug theme toggle", () => {
   it("hides the in-memory theme toggle outside debug desktop builds", async () => {
     render(<App services={createTestServices(startupRoutes)} />);
 
-    expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    expect(await screen.findByTestId("home-route-root")).toBeInTheDocument();
     expect(screen.queryByLabelText("Toggle theme")).not.toBeInTheDocument();
   });
 

@@ -69,9 +69,9 @@ describe("SidebarHost", () => {
     );
     expect(sidebar.style.getPropertyValue("--app-sidebar-inset")).toBe("var(--space-2)");
     expect(sidebar).not.toHaveClass("absolute", "app-sidebar-panel-overlay");
-    expect(screen.getByRole("button", { name: "Close" })).toHaveClass("order-1");
-    expect(screen.getByRole("heading", { name: "Settings" })).toHaveClass("order-2");
-    expect(screen.getByText("Default shift content")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close" })).toHaveClass("h-9", "w-9");
+    expect(screen.getByRole("heading", { name: "Settings" })).toHaveClass("whitespace-nowrap");
+    expect(screen.getByTestId("default-shift-content")).toBeInTheDocument();
   });
 
   it("resizes from the leading edge without requiring pointer-capture APIs", async () => {
@@ -149,7 +149,7 @@ function OpenCustomSidebar() {
     <button
       onClick={() => {
         void openSidebar({
-          content: <p>Default shift content</p>,
+          content: <p data-testid="default-shift-content">Default shift content</p>,
           kind: "custom",
           title: "Settings",
         });

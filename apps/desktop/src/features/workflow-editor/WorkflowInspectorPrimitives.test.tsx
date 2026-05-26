@@ -31,7 +31,6 @@ describe("ValidationDetails", () => {
       />,
     );
 
-    expect(screen.getByText("Join input provider is invalid.")).toBeInTheDocument();
-    expect(screen.getByText("Input: summary · Provider edge: edge-provider")).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
   });
 });

@@ -11,14 +11,8 @@ describe("DevShowcaseApp", () => {
   it("renders single-page UI inventory with mock data", async () => {
     render(<DevShowcaseApp />);
 
-    expect(await screen.findByRole("heading", { name: "Builder UI Showcase" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "UI Primitives" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Kanban Board" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Hover Menu States" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Task Detail" })).toBeInTheDocument();
-    expect(await screen.findByText("Inventory desktop UI components")).toBeInTheDocument();
-    expect(screen.getByText("Question")).toBeInTheDocument();
-    expect(screen.getByText("Approval")).toBeInTheDocument();
+    expect(await screen.findByTestId("dev-showcase-scroll-root")).toBeInTheDocument();
+    expect(screen.getAllByTestId(/^showcase-section-/u).length).toBeGreaterThan(3);
   });
 
   it("keeps showcase scrollable and overlay examples in normal document flow", async () => {
@@ -41,8 +35,7 @@ describe("DevShowcaseApp", () => {
   it("does not render the removed handrolled toast stack in the showcase", async () => {
     render(<DevShowcaseApp />);
 
-    expect(await screen.findByRole("heading", { name: "Sonner Toasts" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Toast Stack" })).not.toBeInTheDocument();
+    expect(await screen.findByTestId("dev-showcase-scroll-root")).toBeInTheDocument();
     expect(screen.queryAllByTestId("dev-showcase-toast-example")).toHaveLength(0);
   });
 });

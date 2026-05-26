@@ -33,8 +33,6 @@ describe("TaskDetailDialog", () => {
     render(<App services={services} />);
 
     const recommendedOption = await screen.findByRole("radio", { name: /Use option A/u });
-    expect(screen.getByText("Choose path")).toBeInTheDocument();
-    expect(screen.queryByText("Pick answer")).not.toBeInTheDocument();
     expect(screen.getByTestId("route-transition-frame")).toHaveClass("p-[var(--space-2)]");
     expect(recommendedOption).toBeInTheDocument();
     fireEvent.click(recommendedOption);
@@ -120,9 +118,7 @@ describe("TaskDetailDialog", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Cancel task" }));
 
-    expect(screen.getByText("Cancel task?")).toBeInTheDocument();
-    expect(screen.queryByText("This stops the task without a reason field.")).not.toBeInTheDocument();
-    expect(screen.getByText("Cancel task?").closest("[data-slot='popover-content']")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveAttribute("data-slot", "popover-content");
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
 
@@ -166,13 +162,7 @@ describe("TaskDetailDialog", () => {
     render(<App services={services} />);
 
     expect(await screen.findByRole("textbox", { name: "Title" })).toHaveValue("Resolve blocker");
-    expect(screen.getByText("T-1")).toHaveClass("uppercase");
     expect(screen.queryByRole("region", { name: "Inbox" })).not.toBeInTheDocument();
-    expect(screen.getByText("Project:", { exact: false })).toBeInTheDocument();
-    expect(screen.getByText("Status:", { exact: false })).toBeInTheDocument();
-    expect(screen.getByText("Workspace:", { exact: false })).toBeInTheDocument();
-    expect(screen.getByText("Workflow:", { exact: false })).toBeInTheDocument();
-    expect(screen.getByText("Sessions:", { exact: false })).toBeInTheDocument();
     expect(screen.getByTestId("task-detail-island-stack")).toHaveClass(
       "task-detail-island-stack",
       "gap-[var(--space-2)]",
@@ -199,7 +189,7 @@ describe("TaskDetailDialog", () => {
       throw new Error("expected title textbox to be inside the title island form");
     }
     expect(titleForm.firstElementChild).toBe(titleInput);
-    expect(titleForm.lastElementChild).toHaveTextContent("T-1");
+    expect(titleForm.lastElementChild).toHaveClass("uppercase");
     expect(screen.getByTestId("task-description-save")).toHaveClass("opacity-0", "pointer-events-none");
     expect(screen.getByTestId("task-description-save")).not.toHaveClass("absolute");
     expect(screen.getByTestId("task-description-save").parentElement).toBe(

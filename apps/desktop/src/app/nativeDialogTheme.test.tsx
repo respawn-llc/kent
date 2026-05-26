@@ -39,7 +39,7 @@ describe("native dialog theme inheritance", () => {
     );
 
     expect(document.documentElement).toHaveAttribute("data-builder-theme", "light");
-    expect(await screen.findByRole("dialog", { name: "Create Backlog task" })).toBeInTheDocument();
+    expect(await screen.findByTestId("native-dialog-content")).toBeInTheDocument();
     expect(document.documentElement).toHaveAttribute("data-builder-theme", "light");
   });
 

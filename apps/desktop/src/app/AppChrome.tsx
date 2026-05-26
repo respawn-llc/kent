@@ -4,7 +4,11 @@ import type { MouseEvent, PointerEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { toggleInMemoryThemeOverride } from "../appEnvironment";
-import { appChromeTitleClassNames, appChromeTitlePlacementClassNames } from "./appChromeStyles";
+import {
+  appChromeInlineTitleClassNames,
+  appChromeTitleClassNames,
+  appChromeTitlePlacementClassNames,
+} from "./appChromeStyles";
 import { useAppNavigation, useNavigationStackState } from "./navigation";
 import { SidebarHost, SidebarRouteChangeCloser } from "./sidebar";
 import { SidebarProvider } from "./sidebarProvider";
@@ -69,8 +73,13 @@ export function AppChrome({ children }: AppChromeProps) {
           />
         ) : null}
         {debugThemeOverrideEnabled ? <DebugThemeToggle label={t("app.toggleTheme")} /> : null}
+        {title !== null && macOS ? (
+          <div className={appChromeInlineTitleClassNames.join(" ")} data-testid="app-chrome-title">
+            {title}
+          </div>
+        ) : null}
       </div>
-      {title !== null ? (
+      {title !== null && !macOS ? (
         <div
           className={[...appChromeTitleClassNames, ...appChromeTitlePlacementClassNames(macOS)].join(" ")}
           data-testid="app-chrome-title"

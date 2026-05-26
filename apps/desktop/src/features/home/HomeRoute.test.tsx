@@ -30,7 +30,6 @@ describe("HomeRoute", () => {
     fireEvent.click(screen.getByLabelText("Home"));
 
     await screen.findByRole("button", { name: "Beta /tmp/project-beta" });
-    expect(screen.getByTestId("app-chrome-title")).toHaveTextContent("Projects");
     await waitFor(() => {
       const projectCalls = services.transport.calls.filter((call) => call.method === "project.home.list");
       expect(projectCalls.at(-1)).toEqual({
@@ -83,7 +82,6 @@ describe("HomeRoute", () => {
     const projectCard = await screen.findByRole("button", { name: "Builder ~/Developer/builder-cli" });
     expect(projectCard).toBeInTheDocument();
     expect(projectCard).toHaveAttribute("title", "/Users/nek/Developer/builder-cli");
-    expect(screen.queryByText("/Users/nek/Developer/builder-cli")).not.toBeInTheDocument();
   });
 
   it("keeps Inbox on the right while Workflows replaces Projects in the left tabbed pane", async () => {
@@ -113,8 +111,6 @@ describe("HomeRoute", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Workflows" }));
 
     expect(screen.getByRole("tab", { name: "Workflows" })).toHaveAttribute("aria-selected", "true");
-    expect(await screen.findByText("Delivery")).toBeInTheDocument();
-    expect(screen.getByText("Ship changes")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Inbox" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/");
   });

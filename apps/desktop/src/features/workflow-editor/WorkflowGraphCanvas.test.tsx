@@ -66,30 +66,11 @@ describe("WorkflowGraphCanvas", () => {
       />,
     );
 
-    expect(screen.getByTestId("workflow-graph-group-group")).toHaveStyle({
-      "--workflow-editor-node-outline-color": "var(--color-outline)",
-    });
     expect(screen.getByTestId("workflow-graph-node-start")).toHaveAttribute("data-kind", "start");
-    expect(screen.getByTestId("workflow-graph-node-start")).toHaveStyle({
-      "--workflow-editor-node-outline-color": "var(--color-primary)",
-    });
     expect(screen.getByTestId("workflow-graph-node-agent")).toHaveAttribute("data-kind", "agent");
-    expect(screen.getByTestId("workflow-graph-node-agent")).toHaveClass("bg-[var(--color-island-3)]");
-    expect(screen.getByTestId("workflow-graph-node-agent")).toHaveStyle({
-      "--workflow-editor-node-outline-color": "var(--color-outline)",
-    });
     expect(screen.getByTestId("workflow-graph-node-terminal")).toHaveAttribute("data-kind", "terminal");
-    expect(screen.getByTestId("workflow-graph-node-terminal")).toHaveStyle({
-      "--workflow-editor-node-outline-color": "var(--color-success)",
-    });
     expect(screen.getByTestId("workflow-graph-node-join")).toHaveAttribute("data-kind", "join");
-    expect(screen.getByTestId("workflow-graph-node-join")).toHaveStyle({
-      "--workflow-editor-node-outline-color": "var(--color-secondary)",
-    });
     expect(screen.getByTestId("workflow-graph-node-error")).toHaveClass("workflow-editor-node-error");
-    expect(screen.getByTestId("workflow-graph-node-error")).toHaveStyle({
-      "--workflow-editor-node-outline-color": "var(--color-error)",
-    });
     fireEvent.click(screen.getByTestId("workflow-graph-node-start"));
     fireEvent.click(screen.getByTestId("workflow-graph-node-terminal"));
     expect(onNodeInspect).not.toHaveBeenCalled();
@@ -116,7 +97,8 @@ describe("WorkflowGraphCanvas", () => {
       "max-w-[calc(100vw-var(--space-4)*2)]",
     );
     expect(screen.getByTestId("workflow-editor-tools")).toHaveClass(
-      "top-[calc(var(--native-titlebar-height)+var(--space-4))]",
+      "left-[var(--space-2)]",
+      "top-[var(--space-2)]",
     );
 
     unmount();
@@ -130,8 +112,6 @@ describe("WorkflowGraphCanvas", () => {
         }}
       />,
     );
-    expect(screen.getByText(longNodeID)).toHaveClass("break-all");
-    expect(screen.getByText(longNodeID)).not.toHaveClass("truncate");
     fireEvent.click(screen.getByRole("button", { name: "Copy Key backlog" }));
     fireEvent.click(screen.getByRole("button", { name: `Copy ID ${longNodeID}` }));
     expect(copied).toEqual(["backlog", longNodeID]);

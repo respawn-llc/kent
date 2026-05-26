@@ -230,10 +230,10 @@ export function SidebarHost() {
         role="separator"
         tabIndex={0}
       />
-      <header className="flex items-center justify-between gap-[var(--space-4)] border-b border-[var(--color-outline)] px-[var(--space-4)] py-[var(--space-3)]">
+      <header className="grid grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-[var(--space-3)] border-b border-[var(--color-outline)] px-[var(--space-4)] py-[var(--space-3)]">
         <Button
           aria-label={t("app.close")}
-          className="order-1 grid h-9 w-9 place-items-center rounded-full p-0"
+          className="grid h-9 w-9 place-items-center rounded-full p-0"
           onClick={() => {
             closeSidebar("closed");
           }}
@@ -241,7 +241,7 @@ export function SidebarHost() {
         >
           <X aria-hidden="true" size={18} strokeWidth={1.5} />
         </Button>
-        <h2 className="order-2 m-0 min-w-0 flex-1 truncate text-[1.05rem] font-bold" id={titleId}>
+        <h2 className="m-0 whitespace-nowrap text-[1.05rem] font-bold" id={titleId}>
           {title}
         </h2>
         <SidebarHeaderAccessory destination={activeDestination} />
@@ -268,7 +268,7 @@ function WorkflowNodeIDHeader({ nodeID }: Readonly<{ nodeID: string }>) {
   return (
     <button
       aria-label={t("workflowEditor.copyNodeId", { id: nodeID })}
-      className="order-3 min-w-0 max-w-[45%] truncate rounded-[var(--radius-s)] border border-transparent bg-transparent px-[var(--space-1)] py-[2px] text-right font-mono text-xs text-[var(--color-muted)] outline-none hover:border-[var(--color-outline)] hover:bg-[var(--color-island-1)] focus-visible:border-[var(--color-primary)]"
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)] justify-items-end rounded-[var(--radius-s)] border border-transparent bg-transparent px-[var(--space-1)] py-[2px] font-mono text-xs text-[var(--color-muted)] outline-none hover:border-[var(--color-outline)] hover:bg-[var(--color-island-1)] focus-visible:border-[var(--color-primary)]"
       onClick={() => {
         void copyNodeID(nodeID, nativeBridge).then(() => {
           showStatusToast({
@@ -282,7 +282,7 @@ function WorkflowNodeIDHeader({ nodeID }: Readonly<{ nodeID: string }>) {
       title={nodeID}
       type="button"
     >
-      {nodeID}
+      <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-right">{nodeID}</span>
     </button>
   );
 }

@@ -16,7 +16,7 @@ describe("window chrome title", () => {
       </WindowChromeTitleProvider>,
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent("Static title");
+    expect(screen.getByRole("status")).toHaveAttribute("data-title", "Static title");
   });
 
   it("updates the title asynchronously when destination content loads", () => {
@@ -27,9 +27,9 @@ describe("window chrome title", () => {
       </WindowChromeTitleProvider>,
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent("no title");
+    expect(screen.getByRole("status")).not.toHaveAttribute("data-title");
     fireEvent.click(screen.getByRole("button", { name: "Load title" }));
-    expect(screen.getByRole("status")).toHaveTextContent("Loaded title");
+    expect(screen.getByRole("status")).toHaveAttribute("data-title", "Loaded title");
   });
 
   it("clears an existing title when a destination explicitly sets null", () => {
@@ -40,7 +40,7 @@ describe("window chrome title", () => {
       </WindowChromeTitleProvider>,
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent("Previous title");
+    expect(screen.getByRole("status")).toHaveAttribute("data-title", "Previous title");
 
     rerender(
       <WindowChromeTitleProvider>
@@ -49,7 +49,7 @@ describe("window chrome title", () => {
       </WindowChromeTitleProvider>,
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent("no title");
+    expect(screen.getByRole("status")).not.toHaveAttribute("data-title");
   });
 });
 
@@ -76,5 +76,5 @@ function AsyncTitleSetter() {
 
 function TitleReader() {
   const title = useCurrentWindowChromeTitle();
-  return <p role="status">{title ?? "no title"}</p>;
+  return <p data-title={title ?? undefined} role="status" />;
 }
