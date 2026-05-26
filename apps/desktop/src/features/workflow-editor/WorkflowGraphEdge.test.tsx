@@ -81,7 +81,7 @@ describe("WorkflowGraphEdge", () => {
     );
 
     expect(screen.getByTestId("workflow-edge-label-edge-1")).toHaveClass(
-      "bg-[var(--color-island-1)]",
+      "bg-[var(--color-island-3)]",
       "text-[var(--color-on-background)]",
       "backdrop-blur-[18px]",
       "shadow-[var(--shadow-island-1)]",
@@ -89,7 +89,7 @@ describe("WorkflowGraphEdge", () => {
     expect(screen.getByTestId("workflow-edge-label-edge-1")).not.toHaveClass(
       "text-[var(--color-on-island)]",
       "bg-[color-mix(in_srgb,var(--color-island-0)_94%,transparent)]",
-      "bg-[var(--color-island-3)]",
+      "bg-[var(--color-island-1)]",
     );
   });
 });

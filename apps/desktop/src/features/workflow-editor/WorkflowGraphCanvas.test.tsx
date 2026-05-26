@@ -74,6 +74,7 @@ describe("WorkflowGraphCanvas", () => {
       "--workflow-editor-node-outline-color": "var(--color-primary)",
     });
     expect(screen.getByTestId("workflow-graph-node-agent")).toHaveAttribute("data-kind", "agent");
+    expect(screen.getByTestId("workflow-graph-node-agent")).toHaveClass("bg-[var(--color-island-3)]");
     expect(screen.getByTestId("workflow-graph-node-agent")).toHaveStyle({
       "--workflow-editor-node-outline-color": "var(--color-outline)",
     });

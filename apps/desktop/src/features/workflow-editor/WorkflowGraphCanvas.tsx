@@ -240,7 +240,7 @@ const WorkflowNode = memo(function WorkflowNode({
   const nodeCard = (
     <div
       className={cx(
-        "workflow-editor-node grid h-full min-w-0 grid-rows-[minmax(0,1fr)_auto] rounded-[var(--radius-l)] border bg-[var(--color-island-1)] p-[var(--space-3)] shadow-[var(--shadow-island-1)]",
+        "workflow-editor-node grid h-full min-w-0 grid-rows-[minmax(0,1fr)_auto] rounded-[var(--radius-l)] border bg-[var(--color-island-3)] p-[var(--space-3)] shadow-[var(--shadow-island-1)]",
         data.hasError ? "workflow-editor-node-error" : undefined,
         selected ? "workflow-editor-node-selected" : undefined,
       )}

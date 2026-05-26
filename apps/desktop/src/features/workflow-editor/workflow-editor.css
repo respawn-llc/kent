@@ -27,7 +27,7 @@
   transform: rotate(45deg);
   border: 2px solid var(--workflow-editor-node-outline-color);
   border-radius: var(--radius-s);
-  background: color-mix(in srgb, var(--workflow-editor-node-outline-color) 18%, var(--color-island-1));
+  background: color-mix(in srgb, var(--workflow-editor-node-outline-color) 18%, var(--color-island-3));
 }
 
 .workflow-editor-node-error .workflow-editor-handle {
@@ -39,7 +39,7 @@
 }
 
 .workflow-editor-node-error.workflow-editor-join-node .workflow-editor-join-diamond {
-  background: color-mix(in srgb, var(--workflow-editor-node-outline-color) 16%, var(--color-island-1));
+  background: color-mix(in srgb, var(--workflow-editor-node-outline-color) 16%, var(--color-island-3));
 }
 
 .workflow-editor-node-selected {
