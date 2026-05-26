@@ -291,9 +291,10 @@ function WorkflowEditorTopChromeBlur() {
 }
 
 const workflowEditorTopChromeBlurStyle = {
-  WebkitBackdropFilter: "blur(16px)",
+  WebkitBackdropFilter: "blur(16px) saturate(0.8) brightness(0.78)",
   WebkitMaskImage: "linear-gradient(to bottom, black 0%, black 30%, transparent 100%)",
-  backdropFilter: "blur(16px)",
+  background: "color-mix(in srgb, var(--window-glass-tint) 65%, transparent)",
+  backdropFilter: "blur(16px) saturate(0.8) brightness(0.78)",
   maskImage: "linear-gradient(to bottom, black 0%, black 30%, transparent 100%)",
 } satisfies CSSProperties;
 
