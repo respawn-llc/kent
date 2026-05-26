@@ -61,6 +61,8 @@ describe("SidebarHost", () => {
     const sidebar = await screen.findByRole("complementary", { name: "Settings" });
     expect(sidebar).toHaveAttribute("data-mode", "shift");
     expect(sidebar).toHaveClass(
+      "island-surface",
+      "island-surface-0",
       "app-sidebar-panel-shift",
       "h-[calc(100%-(var(--app-sidebar-inset)*2))]",
       "mr-[var(--app-sidebar-inset)]",
@@ -68,10 +70,37 @@ describe("SidebarHost", () => {
       "shrink-0",
     );
     expect(sidebar.style.getPropertyValue("--app-sidebar-inset")).toBe("var(--space-2)");
-    expect(sidebar).not.toHaveClass("absolute", "app-sidebar-panel-overlay");
+    expect(sidebar).not.toHaveClass("absolute", "app-sidebar-panel-overlay", "island-surface-1");
     expect(screen.getByRole("button", { name: "Close" })).toHaveClass("order-1");
     expect(screen.getByRole("heading", { name: "Settings" })).toHaveClass("order-2");
     expect(screen.getByText("Default shift content")).toBeInTheDocument();
+  });
+
+  it("uses elevated blurred island surface for overlay mode", async () => {
+    render(
+      <I18nextProvider i18n={appI18n}>
+        <SidebarProvider>
+          <div className="relative flex min-h-0" data-testid="app-shell-content">
+            <div className="min-w-0 flex-1">
+              <OpenCustomSidebar mode="overlay" />
+            </div>
+            <SidebarHost />
+          </div>
+        </SidebarProvider>
+      </I18nextProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open sidebar" }));
+
+    const sidebar = await screen.findByRole("complementary", { name: "Settings" });
+    expect(sidebar).toHaveAttribute("data-mode", "overlay");
+    expect(sidebar).toHaveClass(
+      "island-surface",
+      "island-surface-1",
+      "app-sidebar-panel-overlay",
+      "absolute",
+    );
+    expect(sidebar).not.toHaveClass("island-surface-0", "app-sidebar-panel-shift");
   });
 
   it("resizes from the leading edge without requiring pointer-capture APIs", async () => {
@@ -142,17 +171,19 @@ describe("SidebarHost", () => {
   });
 });
 
-function OpenCustomSidebar() {
+function OpenCustomSidebar({ mode }: Readonly<{ mode?: "overlay" | "shift" }> = {}) {
   const { openSidebar } = useSidebar();
+  const destination = {
+    content: <p>Default shift content</p>,
+    kind: "custom" as const,
+    title: "Settings",
+    ...(mode === undefined ? {} : { mode }),
+  };
 
   return (
     <button
       onClick={() => {
-        void openSidebar({
-          content: <p>Default shift content</p>,
-          kind: "custom",
-          title: "Settings",
-        });
+        void openSidebar(destination);
       }}
       type="button"
     >
