@@ -81,8 +81,8 @@ describe("WorkflowEditorRoute", () => {
     );
     const nodeSwatches = within(legend).getAllByTestId("workflow-legend-node-swatch");
     expect(nodeSwatches[0]).toHaveClass("h-[9px]", "w-[14px]", "rounded-[2px]", "border");
-    expect(nodeSwatches[2]).toHaveClass("h-[10px]", "w-[10px]", "rounded-[2px]", "rotate-45");
-    expect(nodeSwatches[2]).not.toHaveClass("h-[9px]", "w-[14px]");
+    expect(nodeSwatches.at(-1)).toHaveClass("h-[10px]", "w-[10px]", "rounded-[2px]", "rotate-45");
+    expect(nodeSwatches.at(-1)).not.toHaveClass("h-[9px]", "w-[14px]");
   });
 
   it("opens inspectors for workflow metadata and graph entities", async () => {

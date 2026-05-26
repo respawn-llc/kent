@@ -647,8 +647,8 @@ describe("BoardRoute", () => {
     const panel = screen.getByRole("complementary", { name: "Create Backlog task" });
     expect(panel).toHaveAttribute("data-mode", "overlay");
     expect(panel).toHaveClass(
-      "absolute",
-      "top-[var(--app-sidebar-inset)]",
+      "fixed",
+      "top-[calc(var(--native-titlebar-height)+var(--app-sidebar-inset))]",
       "right-[var(--app-sidebar-inset)]",
       "bottom-[var(--app-sidebar-inset)]",
     );

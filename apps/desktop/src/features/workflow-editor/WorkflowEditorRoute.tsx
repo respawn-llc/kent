@@ -301,14 +301,17 @@ function WorkflowEditorLegendIsland() {
       tone="neutral"
     >
       <div className="grid gap-[6px] pt-[4px] text-sm leading-none text-[var(--color-on-island)]">
-        <LegendRow label={t("workflowEditor.legendCompactSession")}>
-          <EdgeLegendSwatch tone="secondary" />
+        <LegendRow label={t("workflowEditor.legendContinueSession")}>
+          <EdgeLegendSwatch tone="neutral" />
         </LegendRow>
         <LegendRow label={t("workflowEditor.legendFreshSession")}>
           <EdgeLegendSwatch tone="primary" />
         </LegendRow>
-        <LegendRow label={t("workflowEditor.legendContinueSession")}>
-          <EdgeLegendSwatch tone="neutral" />
+        <LegendRow label={t("workflowEditor.legendCompactSession")}>
+          <EdgeLegendSwatch tone="secondary" />
+        </LegendRow>
+        <LegendRow label={t("workflowEditor.legendAgentNode")}>
+          <NodeLegendSwatch tone="neutral" />
         </LegendRow>
         <LegendRow label={t("workflowEditor.legendTerminalState")}>
           <NodeLegendSwatch tone="success" />
@@ -318,9 +321,6 @@ function WorkflowEditorLegendIsland() {
         </LegendRow>
         <LegendRow label={t("workflowEditor.legendMultiAgentJoin")}>
           <NodeLegendSwatch shape="diamond" tone="secondary" />
-        </LegendRow>
-        <LegendRow label={t("workflowEditor.legendAgentNode")}>
-          <NodeLegendSwatch tone="neutral" />
         </LegendRow>
       </div>
     </FloatingNoticeIsland>
@@ -371,17 +371,11 @@ function NodeLegendSwatch({
   tone,
 }: Readonly<{ shape?: "box" | "diamond"; tone: "neutral" | "primary" | "secondary" | "success" }>) {
   const shapeClassName =
-    shape === "diamond"
-      ? "h-[10px] w-[10px] rotate-45 rounded-[2px]"
-      : "h-[9px] w-[14px] rounded-[2px]";
+    shape === "diamond" ? "h-[10px] w-[10px] rotate-45 rounded-[2px]" : "h-[9px] w-[14px] rounded-[2px]";
   return (
     <span
       aria-hidden="true"
-      className={cx(
-        "block border bg-[var(--color-island-1)]",
-        shapeClassName,
-        nodeLegendToneClassName(tone),
-      )}
+      className={cx("block border bg-[var(--color-island-1)]", shapeClassName, nodeLegendToneClassName(tone))}
       data-testid="workflow-legend-node-swatch"
     />
   );
