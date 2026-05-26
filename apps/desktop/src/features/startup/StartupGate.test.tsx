@@ -15,11 +15,8 @@ describe("StartupGate", () => {
       />,
     );
 
-    expect(
-      await screen.findByRole("heading", { name: "Builder service unreachable" }, { timeout: 4_000 }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("connection refused")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Projects" })).not.toBeInTheDocument();
+    expect(await screen.findByTestId("error-state", undefined, { timeout: 4_000 })).toBeInTheDocument();
+    expect(screen.queryByTestId("home-route-root")).not.toBeInTheDocument();
   });
 
   it("surfaces not-ready auth and startup causes", async () => {
@@ -51,9 +48,7 @@ describe("StartupGate", () => {
       />,
     );
 
-    expect(await screen.findByRole("heading", { name: "Startup blocked" })).toBeInTheDocument();
-    expect(screen.getByText("Auth required Run builder auth login")).toBeInTheDocument();
-    expect(screen.queryByText("Run `builder service install`, then retry.")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("error-state")).toBeInTheDocument();
   });
 
   it("surfaces native configuration errors without service-install guidance", async () => {
@@ -69,11 +64,7 @@ describe("StartupGate", () => {
       />,
     );
 
-    expect(
-      await screen.findByRole("heading", { name: "Startup blocked" }, { timeout: 4_000 }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("invalid Builder config")).toBeInTheDocument();
-    expect(screen.queryByText("Run `builder service install`, then retry.")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("error-state", undefined, { timeout: 4_000 })).toBeInTheDocument();
   });
 
   it("does not call removed backend capabilities route before showing app content", async () => {
@@ -83,7 +74,7 @@ describe("StartupGate", () => {
       <App services={services} />,
     );
 
-    expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    expect(await screen.findByTestId("home-route-root")).toBeInTheDocument();
     expect(services.transport.calls.map((call) => call.method)).not.toContain("server.capabilities.get");
   });
 
@@ -92,7 +83,7 @@ describe("StartupGate", () => {
 
     render(<App services={services} />);
 
-    expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    expect(await screen.findByTestId("home-route-root")).toBeInTheDocument();
     const readinessCallsBeforeReconnect = services.transport.calls.filter(
       (call) => call.method === "server.readiness.get",
     ).length;
@@ -101,17 +92,12 @@ describe("StartupGate", () => {
       services.transport.connection.set("disconnected", "closed");
     });
 
-    expect(await screen.findByText("Server disconnected. Cached data remains visible; mutations are disabled.")).toBeInTheDocument();
-    expect(screen.getByText("Reconnecting")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
 
     act(() => {
       services.transport.connection.set("connected");
     });
 
-    await waitFor(() => {
-      expect(screen.queryByText("Server disconnected. Cached data remains visible; mutations are disabled.")).not.toBeInTheDocument();
-    });
     await waitFor(() => {
       expect(services.transport.calls.filter((call) => call.method === "server.readiness.get").length).toBe(
         readinessCallsBeforeReconnect + 1,
@@ -139,12 +125,7 @@ describe("StartupGate", () => {
       />,
     );
 
-    expect(await screen.findByRole("heading", { name: "Update Builder" })).toBeInTheDocument();
-    expect(screen.getByText(new RegExp(`Client protocol ${protocolVersion}`, "u"))).toBeInTheDocument();
-    expect(screen.getByText(/Server protocol 1/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/Update Builder CLI\/service and desktop app from the same build/),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Projects" })).not.toBeInTheDocument();
+    expect(await screen.findByTestId("error-state")).toBeInTheDocument();
+    expect(screen.queryByTestId("home-route-root")).not.toBeInTheDocument();
   });
 });

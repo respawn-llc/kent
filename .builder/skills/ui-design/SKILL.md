@@ -8,12 +8,14 @@ description: Builder GUI design constraints for desktop/web UI work. Use when de
 - 3 Big Principles: **Clean, elegant, effective.** . Everything reachable, everything dynamic.
 - GUI is a remote-control surface. Server owns workflow/runtime truth; UI presents read models and sends explicit actions. Never try to circumvent server communication in GUI clients. Assume server api expansion as needed is part of feature work.
 - Every visible state must explain what the operator can do next or why they cannot continue. Example: errors include "Try again" or "Go back" CTAs. Terminal states include "Return" or "Close" (for modals). Empty states include "Create project"/"Create task" etc.
+- NEVER hardcode fonts or color HEX values. Always use theme tokens instead. If new color/typography style is added, introduce runtime-overridable theme token, not a compilation constant and not hardcoded string.
 
 ## Visual Model
 
 - Use island-style UI: every major surface is a floating rounded island over a native blurred/glass window background.
 - Avoid flat full-bleed panels except for the underlying glass/material background.
 - Use generous radius, soft borders, translucent fills, and subtle shadows to separate islands.
+- Follow design system constants, do not hardcode colors, paddings, spacing, font settings, styles, shadows, animations.
 - Keep density high enough for professional workflow tracking; island style must not waste board space.
 - Floating islands should express hierarchy:
   - Main work island: Kanban board or current full-screen destination.
@@ -24,7 +26,7 @@ description: Builder GUI design constraints for desktop/web UI work. Use when de
 
 - Native window shape, border, and platform controls are part of the app surface.
 - Traffic-light/window controls must feel integrated with app chrome, not like a detached ugly title bar.
-- macOS uses blurred glass/vibrancy. Windows should map the same principle to acrylic if/when shipped.
+- macOS uses blurred glass/vibrancy. Windows should map the same principle to acrylic surfaces.
 - Window background adapts to light/dark theme.
 - Feature components must not import Tauri/native APIs directly. Native window/material commands stay behind bridge/shell boundaries.
 
@@ -32,7 +34,6 @@ description: Builder GUI design constraints for desktop/web UI work. Use when de
 
 - Main UI font: Montserrat.
 - Monospace font: Monaspace Neon.
-- NEVER hardcode fonts or color HEX values. Always use theme tokens instead. If new color/typography style is added, introduce runtime-overridable theme token, not a compilation constant and not hardcoded string.
 - Use mono for IDs, paths, command snippets, status codes, session IDs, branch names, and log-like values.
 - Use main font for headings, navigation, controls, and normal body text.
 
@@ -73,4 +74,4 @@ description: Builder GUI design constraints for desktop/web UI work. Use when de
 
 ## Components
 
-- Never invent single-use widgets. First check the list of existing components before any layout work. If needed component is missing, define it not inside the feature, but directly in the UI Kit code. Built a card? make it customizable and place it in the ui kit. When the user asks for a new feature, assume expanding and reusing ui-kit is part of the feature work, plan for it, account for it.
+- Never invent single-use widgets. First check the list of existing components before any layout work. If needed component is missing, define it not inside the feature, but directly in the UI Kit code. Built a card? Make it customizable and place it in the ui kit. When the user asks for a new feature, assume expanding and reusing ui-kit is part of the feature work, plan for it, account for it.

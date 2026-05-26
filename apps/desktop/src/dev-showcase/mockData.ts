@@ -16,7 +16,7 @@ const now = Date.now();
 export const inventoryCards = [
   { title: "Primitives", body: "Buttons, badges, fields, state cards, dialogs, Markdown." },
   { title: "Layouts", body: "Home panes, project edit, kanban groups, task detail tabs." },
-  { title: "Hard states", body: "Hover menu, approval, question, cancel confirm, teleport unavailable." },
+  { title: "Hard states", body: "Hover menu, approval, question, cancel confirm, clipboard copy." },
   { title: "Mock data", body: "No service, no model, no persistent mutations." },
 ] as const;
 

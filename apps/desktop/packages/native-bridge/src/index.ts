@@ -29,9 +29,6 @@ export type NativeCapabilityState = Readonly<{
   links: Readonly<{
     openExternal: boolean;
   }>;
-  terminal: Readonly<{
-    launchBuilderSession: boolean;
-  }>;
   logging: Readonly<{
     localFile: boolean;
   }>;
@@ -63,9 +60,6 @@ export type NativeBridge = Readonly<{
   links: Readonly<{
     openExternal(url: string): Promise<void>;
   }>;
-  terminal: Readonly<{
-    launchBuilderSession(target: NativeBuilderSessionLaunch): Promise<void>;
-  }>;
   logging: Readonly<{
     append(entry: NativeLogEntry): Promise<void>;
   }>;
@@ -77,6 +71,7 @@ export type NativeBridge = Readonly<{
     startDragging(): Promise<void>;
     closeCurrent(): Promise<void>;
     fitCurrentToContent(size: NativeDialogContentSize): Promise<void>;
+    setCurrentGlassTint(tint: NativeWindowGlassTint | null): Promise<void>;
   }>;
   dialogs: Readonly<{
     openWindow(options: NativeDialogWindowOptions): Promise<void>;
@@ -100,6 +95,15 @@ export type NativeBridge = Readonly<{
   }>;
 }>;
 
+export type NativeWindowGlassTint = Readonly<{
+  red: number;
+  green: number;
+  blue: number;
+  alpha: number;
+}>;
+
+const nativeWindowGlassTintChannels = ["red", "green", "blue", "alpha"] as const;
+
 export type NativeNotification = Readonly<{
   title: string;
   body: string;
@@ -112,11 +116,6 @@ export type NativeDirectoryPickerOptions = Readonly<{
 export type NativeDirectorySelection = Readonly<{
   path: string;
 }> | null;
-
-export type NativeBuilderSessionLaunch = Readonly<{
-  sessionId: string;
-  cwd: string;
-}>;
 
 export type NativeLogEntry = Readonly<{
   level: "debug" | "info" | "warn" | "error";
@@ -180,9 +179,6 @@ const unavailableCapabilities: NativeCapabilityState = {
   },
   links: {
     openExternal: false,
-  },
-  terminal: {
-    launchBuilderSession: false,
   },
   logging: {
     localFile: false,
@@ -265,11 +261,6 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
         window.open(validateExternalUrl(url), "_blank", "noopener,noreferrer");
       },
     },
-    terminal: {
-      async launchBuilderSession(): Promise<void> {
-        throw new Error("Terminal teleport is unavailable in this shell.");
-      },
-    },
     logging: {
       async append(): Promise<void> {
         return Promise.resolve();
@@ -297,6 +288,9 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
         return Promise.resolve();
       },
       async fitCurrentToContent(): Promise<void> {
+        return Promise.resolve();
+      },
+      async setCurrentGlassTint(): Promise<void> {
         return Promise.resolve();
       },
     },
@@ -375,11 +369,6 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
         await invoke("open_external_url", { url: validateExternalUrl(url) });
       },
     },
-    terminal: {
-      async launchBuilderSession(target: NativeBuilderSessionLaunch): Promise<void> {
-        await invoke("launch_builder_session", { sessionId: target.sessionId, cwd: target.cwd });
-      },
-    },
     logging: {
       async append(entry: NativeLogEntry): Promise<void> {
         await invoke("append_gui_log", { entry: JSON.stringify(entry) });
@@ -402,6 +391,13 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
       },
       async fitCurrentToContent(size: NativeDialogContentSize): Promise<void> {
         await fitCurrentWindowToContent(size);
+      },
+      async setCurrentGlassTint(tint: NativeWindowGlassTint | null): Promise<void> {
+        validateNativeWindowGlassTint(tint);
+        await invoke("set_native_window_glass_tint", {
+          label: getCurrentWindow().label,
+          tint,
+        });
       },
     },
     dialogs: {
@@ -513,6 +509,18 @@ function validateExternalUrl(url: string): string {
   return parsed.toString();
 }
 
+function validateNativeWindowGlassTint(tint: NativeWindowGlassTint | null): void {
+  if (tint === null) {
+    return;
+  }
+  for (const channel of nativeWindowGlassTintChannels) {
+    const value = tint[channel];
+    if (!Number.isFinite(value) || value < 0 || value > 1) {
+      throw new Error(`Native glass tint ${channel} channel must be a finite number from 0 to 1.`);
+    }
+  }
+}
+
 async function retargetTaskDetailWindow(
   window: WebviewWindow,
   target: NativeTaskDetailTarget,
@@ -536,9 +544,6 @@ function createTauriCapabilities(platform: NativePlatform): NativeCapabilityStat
     },
     links: {
       openExternal: true,
-    },
-    terminal: {
-      launchBuilderSession: platform === "macos",
     },
     logging: {
       localFile: true,

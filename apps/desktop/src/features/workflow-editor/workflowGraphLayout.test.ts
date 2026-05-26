@@ -18,7 +18,7 @@ describe("layoutWorkflowGraph", () => {
       source: "node-1",
       target: "done",
       data: { label: "Done", hasError: false },
-      markerEnd: { color: "var(--color-primary)", type: "arrowclosed" },
+      markerEnd: { type: "arrowclosed" },
     });
   });
 
@@ -100,16 +100,16 @@ describe("layoutWorkflowGraph", () => {
       style: { width: 56, height: 56 },
     });
     expect(edgeByID(graph.edges, "edge-join-a")).toMatchObject({
-      markerEnd: { color: "var(--color-outline)", type: "arrowclosed" },
+      markerEnd: { type: "arrowclosed" },
       source: "node-a",
       target: "join",
       type: "workflow",
     });
     expect(edgeByID(graph.edges, "edge-join-b")).toMatchObject({
-      markerEnd: { color: "var(--color-secondary)", type: "arrowclosed" },
+      markerEnd: { type: "arrowclosed" },
     });
     expect(edgeByID(graph.edges, "edge-join-synth")).toMatchObject({
-      markerEnd: { color: "var(--color-primary)", type: "arrowclosed" },
+      markerEnd: { type: "arrowclosed" },
       source: "join",
       target: "synth",
       type: "workflow",

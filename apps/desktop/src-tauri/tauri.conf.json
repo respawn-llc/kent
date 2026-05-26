@@ -24,11 +24,6 @@
         "trafficLightPosition": {
           "x": 12,
           "y": 22
-        },
-        "windowEffects": {
-          "effects": ["underWindowBackground", "acrylic"],
-          "state": "active",
-          "radius": 12
         }
       }
     ],

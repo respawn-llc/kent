@@ -53,7 +53,7 @@ export function WorkflowGraphEdge(
         <EdgeLabelRenderer>
           <div
             className={cx(
-              "workflow-editor-edge-label absolute max-w-[180px] truncate rounded-full border bg-[var(--color-island-1)] px-[var(--space-2)] py-[2px] text-xs font-semibold text-[var(--color-on-island)] shadow-[var(--shadow-island-1)]",
+              "workflow-editor-edge-label absolute max-w-[180px] truncate rounded-full border bg-[var(--color-island-3)] px-[var(--space-2)] py-[2px] text-xs font-semibold text-[var(--color-on-background)] shadow-[var(--shadow-island-1)] backdrop-blur-[18px]",
               props.data?.hasError === true ? "border-[var(--color-error)]" : "border-[var(--color-outline)]",
             )}
             data-testid={`workflow-edge-label-${props.id}`}

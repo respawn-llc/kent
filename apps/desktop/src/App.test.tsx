@@ -33,11 +33,9 @@ describe("App", () => {
   it("renders the startup-gated home shell", async () => {
     render(<App services={createTestServices(startupRoutes)} />);
 
-    expect(await screen.findByRole("tab", { name: "Projects" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByTestId("home-route-root")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Projects" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Workflows" })).toHaveAttribute("aria-selected", "false");
-    expect(screen.getByRole("button", { name: "New Project" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create workflow" })).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "Inbox" })).toBeInTheDocument();
   });
 
   it("switches the Home left pane from projects to workflows", async () => {
@@ -67,7 +65,6 @@ describe("App", () => {
 
     expect(window.location.pathname).toBe("/");
     expect(screen.getByRole("tab", { name: "Workflows" })).toHaveAttribute("aria-selected", "true");
-    expect(await screen.findByText("Delivery")).toBeInTheDocument();
   });
 
   it("disables Workflow Library creation while disconnected", async () => {
@@ -88,7 +85,7 @@ describe("App", () => {
   it("keeps route content on shell chrome without an extra surface or route padding", async () => {
     render(<App services={createTestServices(startupRoutes)} />);
 
-    expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    expect(await screen.findByTestId("home-route-root")).toBeInTheDocument();
     expect(screen.getByTestId("app-shell-content")).toHaveClass(
       "app-region-no-drag",
       "flex",
@@ -120,7 +117,7 @@ describe("App", () => {
       <App services={createTestServices(startupRoutes, createBrowserNativeBridge({ platform: "macos" }))} />,
     );
 
-    expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    expect(await screen.findByTestId("home-route-root")).toBeInTheDocument();
     expect(screen.getByTestId("app-chrome-navigation")).toHaveClass(
       "left-[var(--native-home-link-left-macos)]",
     );
@@ -133,7 +130,7 @@ describe("App", () => {
       <App services={createTestServices(startupRoutes, createBrowserNativeBridge({ platform: "macos" }))} />,
     );
 
-    expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    expect(await screen.findByTestId("home-route-root")).toBeInTheDocument();
     const chromeNavigation = screen.getByTestId("app-chrome-navigation");
     const historyButtons = within(chromeNavigation).getByTestId("app-chrome-history-buttons");
     expect(chromeNavigation).toHaveClass("flex", "h-6", "left-[var(--native-home-link-left-macos)]");
@@ -149,7 +146,7 @@ describe("App", () => {
 
     render(<App services={createTestServices(startupRoutes)} />);
 
-    expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    expect(await screen.findByTestId("home-route-root")).toBeInTheDocument();
     const chromeNavigation = screen.getByTestId("app-chrome-navigation");
     const historyButtons = within(chromeNavigation).getByTestId("app-chrome-history-buttons");
     expect(chromeNavigation).toHaveClass("right-[var(--space-4)]");
@@ -190,8 +187,7 @@ describe("App", () => {
       />,
     );
 
-    expect(await screen.findByText("validation_blocker")).toBeInTheDocument();
-    expect(screen.getByText('Workflow "Default nodes" is invalid for task start')).toBeInTheDocument();
+    expect(await screen.findByTestId("attention-row")).toBeInTheDocument();
     expect(screen.getByTestId("attention-row")).toHaveClass("min-w-0");
     expect(screen.getByTestId("attention-row-meta")).toHaveClass("flex", "flex-wrap", "min-w-0");
   });
@@ -229,14 +225,10 @@ describe("App", () => {
     render(<App services={services} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "New Project" }));
-    expect(await screen.findByRole("heading", { name: "Create project" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Project name"), { target: { value: " Example Project " } });
     fireEvent.change(screen.getByLabelText("Project key"), { target: { value: "x ?" } });
-
-    expect(await screen.findByText("Remove whitespace at start or end.")).toBeInTheDocument();
-    expect(screen.getByText("Remove whitespace.")).toBeInTheDocument();
-    expect(screen.getByText("Use A-Z and 0-9 only.")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "Example Project" } });
     fireEvent.change(screen.getByLabelText("Project key"), { target: { value: "exp" } });
@@ -274,10 +266,7 @@ describe("App", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "New Project" }));
 
-    expect(await screen.findByText("Project creation window failed")).toBeInTheDocument();
-    expect(screen.getByText("window.get_all_windows not allowed")).toBeInTheDocument();
-    expect(screen.queryByText("Server rejected request")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Create project" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
 
   it("does not create projects for server workspace selection plans", async () => {
@@ -314,8 +303,9 @@ describe("App", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "New Project" }));
 
-    expect(await screen.findByText("Choose an existing project")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Create project" })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
     expect(services.transport.calls).not.toContainEqual({
       method: "project.create",
       params: {

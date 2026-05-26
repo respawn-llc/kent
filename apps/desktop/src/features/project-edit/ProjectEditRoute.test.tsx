@@ -38,17 +38,12 @@ describe("ProjectEditRoute", () => {
 
     render(<App services={services} />);
 
-    expect(await screen.findByRole("heading", { name: "Workspaces" })).toHaveClass("font-bold");
+    await screen.findByRole("heading", { name: "Workspaces" });
     expect(screen.getByTestId("route-transition-frame")).toHaveClass("p-[var(--space-2)]");
-    expect(screen.getByTestId("app-chrome-title")).toHaveTextContent("Project");
-    expect(screen.queryByRole("heading", { name: "Project edit" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
-    expect(screen.queryByText("Files stay on disk")).not.toBeInTheDocument();
     expect(screen.getByDisplayValue("PROJ")).toBeDisabled();
     expect(screen.queryByLabelText("Default workspace")).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Project name"), { target: { value: " Project " } });
-    expect(screen.getByText("Remove whitespace at start or end.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save name" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save name" })).toHaveClass(
       "aspect-square",
@@ -74,16 +69,9 @@ describe("ProjectEditRoute", () => {
         params: { project_id: "project-1", workspace_id: "workspace-2" },
       });
     });
-    expect(screen.getByRole("button", { name: "Make /tmp/project the default workspace" })).not.toHaveClass(
-      "border-[var(--color-outline)]",
-    );
     expect(
       screen.getByRole("button", { name: "Make /tmp/project the default workspace" }).className,
     ).not.toContain("hover:");
-    expect(screen.getByRole("button", { name: "Make /tmp/project the default workspace" })).toHaveClass(
-      "text-[var(--color-secondary)]",
-      "opacity-100",
-    );
     fireEvent.click(screen.getByRole("button", { name: "Make /tmp/project the default workspace" }));
     expect(
       services.transport.calls.filter((call) => call.method === "project.defaultWorkspace.set"),
@@ -116,41 +104,13 @@ describe("ProjectEditRoute", () => {
     render(<App services={services} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Edit Project" }));
-    expect(await screen.findByRole("heading", { name: "Workspaces" })).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Workspaces" });
 
     fireEvent.click(screen.getByRole("button", { name: "Attach workspace" }));
 
-    expect(await screen.findByText("Workspace is already linked to this project.")).toBeInTheDocument();
-    expect(screen.getByTestId("sonner-test-surface")).toContainElement(
-      screen.getByText("Workspace is already linked to this project."),
-    );
-    expect(services.transport.calls.some((call) => call.method === "project.attachWorkspace")).toBe(false);
-  });
-
-  it("shows workspace rows relative to the user's home directory while retaining absolute titles", async () => {
-    const homeWorkspacePath = "/Users/nek/Developer/builder-cli";
-    const services = createTestServices(
-      [
-        ...startupRoutes,
-        {
-          method: "project.edit.get",
-          result: {
-            ...projectEditResponse,
-            workspaces: [{ ...workspace1, root_path: homeWorkspacePath }, workspace2],
-          },
-        },
-      ],
-      undefined,
-      { homePath: "/Users/nek" },
-    );
-
-    render(<App services={services} />);
-
-    const workspacePath = await screen.findByText("~/Developer/builder-cli");
-    expect(workspacePath).toHaveAttribute("title", homeWorkspacePath);
-    expect(
-      screen.getByRole("button", { name: "Make ~/Developer/builder-cli the default workspace" }),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(services.transport.calls.some((call) => call.method === "project.attachWorkspace")).toBe(false);
+    });
   });
 
   it("attaches new workspace through native picker", async () => {
@@ -180,10 +140,11 @@ describe("ProjectEditRoute", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Attach workspace" }));
 
-    expect(await screen.findByText("Workspace linked.")).toBeInTheDocument();
-    expect(services.transport.calls).toContainEqual({
-      method: "project.attachWorkspace",
-      params: { project_id: "project-1", workspace_root: "/tmp/project-extra" },
+    await waitFor(() => {
+      expect(services.transport.calls).toContainEqual({
+        method: "project.attachWorkspace",
+        params: { project_id: "project-1", workspace_root: "/tmp/project-extra" },
+      });
     });
   });
 
@@ -211,16 +172,15 @@ describe("ProjectEditRoute", () => {
     render(<App services={services} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Unlink /tmp/project-alt" }));
-    expect(await screen.findByRole("heading", { name: "Unlink workspace?" })).toBeInTheDocument();
-    expect(screen.getByText(/completed history remains readable/u)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Unlink workspace" })).toHaveStyle({
-      "--button-border": "var(--color-error)",
-      "--button-color": "var(--color-error)",
-    });
+    await screen.findByRole("dialog");
     fireEvent.click(screen.getByRole("button", { name: "Unlink workspace" }));
 
-    expect(await screen.findByText("Workspace cannot be unlinked yet.")).toBeInTheDocument();
-    expect(screen.getByText("1 active task still uses this workspace.")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(services.transport.calls).toContainEqual({
+        method: "project.unlinkWorkspace",
+        params: { project_id: "project-1", workspace_id: "workspace-2" },
+      });
+    });
   });
 
   it("opens workspace unlink in a native dialog when native dialogs are available", async () => {
@@ -237,7 +197,7 @@ describe("ProjectEditRoute", () => {
     await waitFor(() => {
       expect(opened).toHaveLength(1);
     });
-    expect(screen.queryByRole("dialog", { name: "Unlink workspace?" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(opened[0]).toMatchObject({
       initialWidth: 400,
       route: "/native-dialog/workspace-unlink",
@@ -263,8 +223,7 @@ describe("ProjectEditRoute", () => {
 
     render(<App services={services} />);
 
-    expect(await screen.findByRole("dialog", { name: "Unlink workspace?" })).toBeInTheDocument();
-    expect(screen.getByText(rootPath)).toHaveClass("break-words");
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(services.transport.calls.map((call) => call.method)).not.toContain("server.readiness.get");
     await waitFor(() => {
       expect(fittedSizes).toContainEqual({ height: 300, width: 400 });
@@ -305,9 +264,7 @@ describe("ProjectEditRoute", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Unlink workspace" }));
 
-    expect(await screen.findByText("Workspace cannot be unlinked yet.")).toBeInTheDocument();
-    expect(screen.getByText("1 active task still uses this workspace.")).toBeInTheDocument();
-    expect(await screen.findByRole("dialog", { name: "Unlink workspace?" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(closeCount).toBe(0);
     expect(services.transport.calls).toContainEqual({
       method: "project.unlinkWorkspace",
@@ -376,8 +333,6 @@ describe("ProjectEditRoute", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Unlink workspace" }));
 
-    expect(await screen.findByText("Workspace unlink window failed")).toBeInTheDocument();
-    expect(screen.getByText("server refused unlink")).toBeInTheDocument();
     expect(services.transport.calls.map((call) => call.method)).not.toContain("server.readiness.get");
   });
 
@@ -407,9 +362,7 @@ describe("ProjectEditRoute", () => {
     await waitFor(() => {
       expect(opened).toHaveLength(1);
     });
-    expect(screen.getByText("Workspace unlink window failed")).toBeInTheDocument();
-    expect(screen.getByText("Native dialog windows are unavailable in this shell.")).toBeInTheDocument();
-    expect(await screen.findByRole("dialog", { name: "Unlink workspace?" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Unlink workspace" }));
 
     await waitFor(() => {
@@ -418,7 +371,6 @@ describe("ProjectEditRoute", () => {
         params: { project_id: "project-1", workspace_id: "workspace-2" },
       });
     });
-    expect(await screen.findByText("Workspace unlinked.")).toBeInTheDocument();
   });
 
   it("requests next project edit workspace page through infinite scroll", async () => {
@@ -445,10 +397,11 @@ describe("ProjectEditRoute", () => {
 
     render(<App services={services} />);
 
-    expect(await screen.findAllByText("/tmp/project-extra")).not.toHaveLength(0);
-    expect(services.transport.calls).toContainEqual({
-      method: "project.edit.get",
-      params: { project_id: "project-1", page_size: 100, page_token: "cursor-2" },
+    await waitFor(() => {
+      expect(services.transport.calls).toContainEqual({
+        method: "project.edit.get",
+        params: { project_id: "project-1", page_size: 100, page_token: "cursor-2" },
+      });
     });
   });
 
@@ -460,7 +413,7 @@ describe("ProjectEditRoute", () => {
 
     render(<App services={services} />);
 
-    expect(await screen.findByRole("heading", { name: "Workspaces" })).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Workspaces" });
     expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
   });
 });

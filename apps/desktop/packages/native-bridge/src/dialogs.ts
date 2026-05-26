@@ -1,6 +1,7 @@
+import { invoke } from "@tauri-apps/api/core";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { Effect, EffectState, getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export type NativeDialogWindowOptions = Readonly<{
   label: string;
@@ -50,17 +51,12 @@ export async function openNativeDialogWindow(options: NativeDialogWindowOptions)
       url,
       visible: false,
       width: placement.width,
-      windowEffects: {
-        effects: [Effect.UnderWindowBackground, Effect.Acrylic],
-        radius: 18,
-        state: EffectState.Active,
-      },
       x: placement.x,
       y: placement.y,
     });
     window
       .once("tauri://created", () => {
-        bringDialogToFront(window).then(resolve, reject);
+        prepareNativeDialogWindow(label, window).then(resolve, reject);
       })
       .catch(reject);
     window
@@ -95,6 +91,39 @@ async function centeredOnCurrentWindow(options: NativeDialogWindowOptions): Prom
     x: Math.round(parentX + (parentWidth - width) / 2),
     y: Math.round(parentY + (parentHeight - height) / 2),
   };
+}
+
+async function prepareNativeDialogWindow(label: string, window: WebviewWindow): Promise<void> {
+  try {
+    await applyNativeWindowGlass(label);
+  } catch (error) {
+    void appendDialogGlassWarning(label, error);
+  } finally {
+    await bringDialogToFront(window);
+  }
+}
+
+async function applyNativeWindowGlass(label: string): Promise<void> {
+  await invoke("apply_native_window_glass", { label });
+}
+
+async function appendDialogGlassWarning(label: string, error: unknown): Promise<void> {
+  try {
+    await invoke("append_gui_log", {
+      entry: JSON.stringify({
+        context: { error: nativeErrorMessage(error), label },
+        level: "warn",
+        message: "Native dialog glass application failed.",
+        occurredAt: new Date().toISOString(),
+      }),
+    });
+  } catch {
+    return;
+  }
+}
+
+function nativeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function bringDialogToFront(window: WebviewWindow): Promise<void> {

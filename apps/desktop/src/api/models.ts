@@ -598,15 +598,3 @@ export type ActivityPage = Readonly<{
   nextPageToken: string;
   generatedAt: number;
 }>;
-
-export type TeleportTarget = Readonly<{
-  available: boolean;
-  taskID: string;
-  runID: string;
-  sessionID: string;
-  projectID: string;
-  workspaceID: string;
-  worktreeID: string;
-  cwdRelpath: string;
-  failureReason: string;
-}>;

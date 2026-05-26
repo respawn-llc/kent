@@ -9,7 +9,6 @@ import type {
   BoardNodeCardsPage,
   PendingAsk,
   TaskDetail,
-  TeleportTarget,
   WorkflowBoard,
   WorkflowDerivedWiring,
   WorkflowDeleteImpact,
@@ -755,30 +754,6 @@ export const activityPageSchema: z.ZodType<ActivityPage> = z
     items: value.items,
     nextPageToken: value.next_page_token,
     generatedAt: value.generated_at_unix_ms,
-  }));
-
-export const teleportTargetSchema: z.ZodType<TeleportTarget> = z
-  .object({
-    available: z.boolean(),
-    task_id: emptyString,
-    run_id: emptyString,
-    session_id: emptyString,
-    project_id: emptyString,
-    workspace_id: emptyString,
-    worktree_id: emptyString,
-    cwd_relpath: emptyString,
-    failure_reason: emptyString,
-  })
-  .transform((value) => ({
-    available: value.available,
-    taskID: value.task_id,
-    runID: value.run_id,
-    sessionID: value.session_id,
-    projectID: value.project_id,
-    workspaceID: value.workspace_id,
-    worktreeID: value.worktree_id,
-    cwdRelpath: value.cwd_relpath,
-    failureReason: value.failure_reason,
   }));
 
 export const pendingAskListSchema = z

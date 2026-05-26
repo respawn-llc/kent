@@ -1218,66 +1218,6 @@ WHERE edge_key = 'done'
 	}
 }
 
-func TestTaskTeleportTargetReturnsIdentifiersOrUnavailableReason(t *testing.T) {
-	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
-	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow: %v", err)
-	}
-	task, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
-	if err != nil {
-		t.Fatalf("CreateTask: %v", err)
-	}
-	unavailable, err := view.GetTaskTeleportTarget(ctx, serverapi.WorkflowTaskTeleportTargetRequest{TaskID: string(task.ID)})
-	if err != nil {
-		t.Fatalf("GetTaskTeleportTarget unavailable: %v", err)
-	}
-	if unavailable.Available || unavailable.FailureReason == "" {
-		t.Fatalf("unavailable target = %+v", unavailable)
-	}
-	missingRun, err := view.GetTaskTeleportTarget(ctx, serverapi.WorkflowTaskTeleportTargetRequest{TaskID: string(task.ID), RunID: "missing-run"})
-	if err != nil {
-		t.Fatalf("GetTaskTeleportTarget missing run: %v", err)
-	}
-	if missingRun.Available || missingRun.FailureReason != "run not found for task" {
-		t.Fatalf("missing run target = %+v", missingRun)
-	}
-	worktreeID := "worktree-teleport"
-	if err := store.Queries().UpsertWorktree(ctx, sqlitegen.UpsertWorktreeParams{ID: worktreeID, WorkspaceID: binding.WorkspaceID, CanonicalRootPath: t.TempDir(), BuilderManaged: 1, GitMetadataJson: "{}", CreatedAtUnixMs: 1, UpdatedAtUnixMs: 1}); err != nil {
-		t.Fatalf("UpsertWorktree: %v", err)
-	}
-	if _, err := store.Queries().UpdateTaskManagedWorktree(ctx, sqlitegen.UpdateTaskManagedWorktreeParams{ID: string(task.ID), ManagedWorktreeID: sql.NullString{String: worktreeID, Valid: true}, UpdatedAtUnixMs: 2}); err != nil {
-		t.Fatalf("UpdateTaskManagedWorktree: %v", err)
-	}
-	started, err := workflowStore.StartTask(ctx, task.ID)
-	if err != nil {
-		t.Fatalf("StartTask: %v", err)
-	}
-	claimed, err := workflowStore.ClaimRun(ctx, started.RunID, 0)
-	if err != nil {
-		t.Fatalf("ClaimRun: %v", err)
-	}
-	sessionID := "session-teleport"
-	if _, err := store.DB().ExecContext(ctx, `INSERT INTO sessions (id, project_id, workspace_id, worktree_id, artifact_relpath, name, first_prompt_preview, input_draft, parent_session_id, created_at_unix_ms, updated_at_unix_ms, last_sequence, model_request_count, in_flight_step, agents_injected, launch_visible, cwd_relpath, continuation_json, locked_json, usage_state_json, metadata_json) VALUES (?, ?, ?, ?, ?, '', '', '', '', 1, 1, 0, 0, 0, 0, 1, 'subdir', '{}', '{}', '{}', '{}')`, sessionID, binding.ProjectID, binding.WorkspaceID, worktreeID, "sessions/"+sessionID); err != nil {
-		t.Fatalf("insert session: %v", err)
-	}
-	if err := workflowStore.AttachRunSession(ctx, started.RunID, claimed.Generation, sessionID); err != nil {
-		t.Fatalf("AttachRunSession: %v", err)
-	}
-	target, err := view.GetTaskTeleportTarget(ctx, serverapi.WorkflowTaskTeleportTargetRequest{TaskID: string(task.ID), RunID: string(started.RunID)})
-	if err != nil {
-		t.Fatalf("GetTaskTeleportTarget: %v", err)
-	}
-	if !target.Available || target.SessionID != sessionID || target.ProjectID != binding.ProjectID || target.WorkspaceID != binding.WorkspaceID || target.WorktreeID != worktreeID || target.CwdRelpath != "subdir" {
-		t.Fatalf("target = %+v", target)
-	}
-}
-
 func TestAttentionListProjectsApprovalQuestionAndInterruptedRun(t *testing.T) {
 	ctx := context.Background()
 	store, workflowStore, binding := newWorkflowViewTestStore(t)

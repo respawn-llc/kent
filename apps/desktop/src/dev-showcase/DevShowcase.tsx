@@ -95,14 +95,14 @@ function DevShowcaseBoard() {
           <KanbanBoard />
         </ShowcaseSection>
         <ShowcaseSection
-          description="Real board hover menu. Hover/focus expands; pin button keeps workflow picker open."
+          description="Real board hover menu. Hover/focus expands with workflow linking in the header."
           eyebrow="04"
           title="Hover Menu States"
         >
           <HoverMenuBoard />
         </ShowcaseSection>
         <ShowcaseSection
-          description="Description editor, inbox question/approval/cancel flows, comments, activity, runs, teleport states."
+          description="Description editor, inbox question/approval/cancel flows, comments, activity, and runs."
           eyebrow="05"
           title="Task Detail"
         >
@@ -209,7 +209,7 @@ function NoticeSurfaceExamples() {
             </header>
             <p className="m-0 text-sm">Expanded floating notice, rendered in-flow for review.</p>
           </article>
-          <div className="grid h-12 w-12 place-items-center rounded-[var(--radius-m)] bg-[var(--color-error)] text-[var(--color-notice-collapsed-icon)]">
+          <div className="grid h-12 w-12 place-items-center rounded-[var(--radius-m)] bg-[var(--color-error)] text-[var(--color-on-error)]">
             <AlertTriangle aria-hidden="true" size={24} strokeWidth={1.7} />
           </div>
           <div className="grid h-12 w-12 place-items-center rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-2)]">

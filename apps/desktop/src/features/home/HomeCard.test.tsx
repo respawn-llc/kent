@@ -32,7 +32,6 @@ it("keeps project and workflow cards on the same Home list card shell", async ()
   expect(shells[1]).toHaveClass(...homeListCardShellClassName.split(" "));
   expect(buttons[0]).toHaveClass(...homeListCardButtonClassName.split(" "));
   expect(buttons[1]).toHaveClass(...homeListCardButtonClassName.split(" "));
-  expect(screen.getByText("Reusable workflow definition")).toBeInTheDocument();
 });
 
 function cardTestRouter() {

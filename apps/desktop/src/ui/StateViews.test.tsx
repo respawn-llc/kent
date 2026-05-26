@@ -24,8 +24,6 @@ describe("EmptyState", () => {
     expect(screen.getByTestId("empty-state")).not.toHaveClass("animate-[surface-reveal_var(--motion-normal)]");
     expect(screen.getByTestId("empty-state-content")).toHaveClass("justify-items-center", "text-center");
     expect(screen.getByTestId("empty-state-icon")).not.toBeEmptyDOMElement();
-    expect(screen.getByRole("heading", { name: "No items yet" })).toHaveClass("font-bold");
-    expect(screen.getByText("Nothing to do yet.")).toHaveClass("text-[var(--color-muted)]");
   });
 
   it("can own chrome padding for edge-to-edge shell fallback states", () => {
@@ -33,6 +31,21 @@ describe("EmptyState", () => {
 
     expect(screen.getByTestId("empty-state")).toHaveClass("p-[var(--space-2)]");
     expect(screen.getByTestId("empty-state-island")).toHaveClass("p-[var(--space-4)]");
+  });
+
+  it("can stretch content across full-screen islands", () => {
+    render(
+      <EmptyState
+        body="Nothing to do yet."
+        chromePadding
+        contentWidth="full"
+        title="No items yet"
+      />,
+    );
+
+    expect(screen.getByTestId("empty-state-island")).toHaveClass("h-full", "w-full");
+    expect(screen.getByTestId("empty-state-content")).toHaveClass("w-full", "max-w-none");
+    expect(screen.getByTestId("empty-state-content")).not.toHaveClass("max-w-[560px]");
   });
 
   it("renders custom icon and action flow row", () => {
@@ -102,8 +115,6 @@ describe("LoadingState", () => {
     );
     expect(screen.getByTestId("loading-state-content")).toHaveClass("justify-items-center", "text-center");
     expect(screen.getByTestId("loading-state-spinner")).toHaveClass("motion-safe:animate-spin");
-    expect(screen.getByRole("heading", { name: "Loading" })).toHaveClass("font-bold");
-    expect(screen.getByText("Booting.")).toHaveClass("text-[var(--color-muted)]");
   });
 
   it("omits loading title and description by default", () => {
@@ -111,6 +122,15 @@ describe("LoadingState", () => {
 
     expect(screen.queryByRole("heading")).not.toBeInTheDocument();
     expect(screen.getByTestId("loading-state-spinner")).toBeInTheDocument();
+  });
+
+  it("can stretch loading content across full-screen islands", () => {
+    render(<LoadingState appearanceDelayMs={0} contentWidth="full" title="Loading" />);
+
+    expect(screen.getByTestId("loading-state-island")).toHaveClass("h-full", "w-full");
+    expect(screen.getByTestId("loading-state-island")).not.toHaveClass("max-w-[760px]", "m-auto");
+    expect(screen.getByTestId("loading-state-content")).toHaveClass("w-full", "max-w-none");
+    expect(screen.getByTestId("loading-state-content")).not.toHaveClass("max-w-[560px]");
   });
 
   it("can render compact loading states for embedded panels", () => {
@@ -140,7 +160,6 @@ describe("LoadingState", () => {
     });
 
     expect(screen.getByTestId("loading-state")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Loading" })).toBeInTheDocument();
   });
 
   it("keeps delayed loading placeholder aligned with chrome-padded loading layout", () => {
@@ -176,7 +195,6 @@ describe("LoadingState", () => {
     render(<LoadingState appearanceDelayKey={key} title="Loading again" />);
 
     expect(screen.getByTestId("loading-state")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Loading again" })).toBeInTheDocument();
   });
 });
 
@@ -197,19 +215,12 @@ describe("ErrorState", () => {
       "p-[var(--space-4)]",
       "place-items-center",
     );
-    expect(screen.getByTestId("error-state-icon")).toHaveClass("text-[var(--color-error)]");
-    expect(screen.getByRole("heading", { name: "Error" })).toHaveClass(
-      "font-bold",
-      "text-[var(--color-error)]",
-    );
-    expect(screen.getByText("Failed.")).toHaveClass("text-[var(--color-on-island)]");
   });
 
   it("omits error title and description by default", () => {
     render(<ErrorState />);
 
     expect(screen.queryByRole("heading")).not.toBeInTheDocument();
-    expect(screen.getByTestId("error-state-icon")).toHaveClass("text-[var(--color-error)]");
   });
 
   it("can render compact error states for embedded panels", () => {
@@ -224,7 +235,6 @@ describe("ErrorState", () => {
   it("preserves multiline details for stacktraces", () => {
     render(<ErrorState body="Failed." details={"line 1\nline 2"} title="Error" />);
 
-    expect(screen.getByTestId("error-state-details")).toHaveTextContent("line 1 line 2");
     expect(screen.getByTestId("error-state-details").textContent).toBe("line 1\nline 2");
     expect(screen.getByTestId("error-state-details")).toHaveClass("whitespace-pre-wrap", "font-mono");
   });

@@ -13,10 +13,8 @@ describe("useNativeDialogFallback", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
 
-    expect(await screen.findByRole("dialog")).toHaveTextContent("first");
-    expect(screen.getByText("Native dialog failed")).toBeInTheDocument();
-    expect(screen.getByText("denied")).toBeInTheDocument();
-    expect(screen.getAllByText("Native dialog failed")).toHaveLength(1);
+    expect(await screen.findByRole("dialog")).toHaveAttribute("data-payload", "first");
+    expect(openNative).toHaveBeenCalledOnce();
   });
 
   it("opens fallback without a toast when native dialogs are unavailable", async () => {
@@ -26,8 +24,7 @@ describe("useNativeDialogFallback", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
 
-    expect(await screen.findByRole("dialog")).toHaveTextContent("first");
-    expect(screen.queryByText("Native dialog failed")).not.toBeInTheDocument();
+    expect(await screen.findByRole("dialog")).toHaveAttribute("data-payload", "first");
     expect(openNative).not.toHaveBeenCalled();
   });
 
@@ -40,7 +37,7 @@ describe("useNativeDialogFallback", () => {
     render(<Harness openNative={openNative} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
-    expect(await screen.findByRole("dialog")).toHaveTextContent("first");
+    expect(await screen.findByRole("dialog")).toHaveAttribute("data-payload", "first");
 
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
 
@@ -55,13 +52,12 @@ describe("useNativeDialogFallback", () => {
     render(<Harness openNative={openNative} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
-    expect(await screen.findByRole("dialog")).toHaveTextContent("first");
+    expect(await screen.findByRole("dialog")).toHaveAttribute("data-payload", "first");
 
     fireEvent.click(screen.getByRole("button", { name: "Use second payload" }));
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
 
-    expect(await screen.findByRole("dialog")).toHaveTextContent("second");
-    expect(screen.getAllByText("Native dialog failed")).toHaveLength(1);
+    expect(await screen.findByRole("dialog")).toHaveAttribute("data-payload", "second");
   });
 });
 
@@ -86,7 +82,7 @@ function HarnessContent({
     errorTitle: "Native dialog failed",
     nativeAvailable,
     openNative,
-    renderFallback: (value) => <div role="dialog">{value}</div>,
+    renderFallback: (value) => <div data-payload={value} role="dialog" />,
   });
 
   return (

@@ -1,5 +1,6 @@
-/* eslint-disable complexity, max-lines -- The route coordinates data loading, draft lifecycle, save, and the status island. */
-import { useEffect, useMemo, useReducer, useState } from "react";
+/* eslint-disable complexity, max-lines -- The route coordinates data loading, draft lifecycle, save, and floating islands. */
+import { useEffect, useMemo, useReducer, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
@@ -10,7 +11,7 @@ import { queryKeys } from "../../app/queryKeys";
 import { useAppServices } from "../../app/useAppServices";
 import { useWindowChromeTitle } from "../../app/windowChromeTitle";
 import { Button, ErrorState, FloatingNoticeIsland, LoadingState } from "../../ui";
-import { chromeContentPaddingClassName } from "../../ui/chromePadding";
+import { cx } from "../../ui/classes";
 import { WorkflowValidationIssues } from "../workflow/WorkflowValidationIssues";
 import { WorkflowGraphCanvas } from "./WorkflowGraphCanvas";
 import { layoutWorkflowGraph, type WorkflowGraphLayout } from "./workflowGraphLayout";
@@ -126,13 +127,21 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
 
   const viewState = workflowEditorViewState(data, layoutQuery);
   if (viewState.kind === "loading") {
-    return <LoadingState appearanceDelayMs={0} chromePadding title={t("workflowEditor.loadingTitle")} />;
+    return (
+      <LoadingState
+        appearanceDelayMs={0}
+        chromePadding
+        contentWidth="full"
+        title={t("workflowEditor.loadingTitle")}
+      />
+    );
   }
   if (viewState.kind === "linkError") {
     return (
       <ErrorState
         body={errorMessage(viewState.error)}
         chromePadding
+        contentWidth="full"
         onRetry={() => void data.linksQuery.refetch()}
         retryLabel={t("app.retry")}
         title={t("workflowEditor.linkLoadFailed")}
@@ -144,6 +153,7 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
       <ErrorState
         body={t("workflowEditor.unlinkedBody")}
         chromePadding
+        contentWidth="full"
         reveal={false}
         title={t("workflowEditor.unlinkedTitle")}
       />
@@ -154,6 +164,7 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
       <ErrorState
         body={errorMessage(viewState.error)}
         chromePadding
+        contentWidth="full"
         onRetry={() => {
           void data.boardQuery.refetch();
           void data.workflowQuery.refetch();
@@ -166,11 +177,12 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
     );
   }
 
-  return (
+  const editorRoute = (
     <section
-      className={`h-full min-h-0 w-full ${chromeContentPaddingClassName}`}
+      className="app-region-no-drag fixed inset-0 z-0 h-screen min-h-0 w-screen overflow-hidden"
       data-testid="workflow-editor-route"
     >
+      <WorkflowEditorTopChromeBlur />
       <WorkflowGraphCanvas
         graph={viewState.graph}
         onCopyText={async (value) => copyWorkflowNodeText(value, nativeBridge)}
@@ -213,8 +225,11 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
           dispatch({ source: controller.state.source, type: "reset" });
         }}
       />
+      <WorkflowEditorLegendIsland />
     </section>
   );
+
+  return createPortal(editorRoute, document.body);
 
   async function saveWorkflowDraft(): Promise<void> {
     if (draftState === null) {
@@ -264,6 +279,25 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
   }
 }
 
+function WorkflowEditorTopChromeBlur() {
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none fixed inset-x-0 top-0 z-10 h-[calc(var(--native-titlebar-height)*2)]"
+      data-testid="workflow-editor-top-chrome-blur"
+      style={workflowEditorTopChromeBlurStyle}
+    />
+  );
+}
+
+const workflowEditorTopChromeBlurStyle = {
+  WebkitBackdropFilter: "blur(16px) saturate(0.8) brightness(0.78)",
+  WebkitMaskImage: "linear-gradient(to bottom, black 0%, black 30%, transparent 100%)",
+  background: "color-mix(in srgb, var(--window-glass-tint) 65%, transparent)",
+  backdropFilter: "blur(16px) saturate(0.8) brightness(0.78)",
+  maskImage: "linear-gradient(to bottom, black 0%, black 30%, transparent 100%)",
+} satisfies CSSProperties;
+
 async function copyWorkflowNodeText(
   value: string,
   nativeBridge: ReturnType<typeof useAppServices>["nativeBridge"],
@@ -273,6 +307,124 @@ async function copyWorkflowNodeText(
     return;
   }
   await navigator.clipboard.writeText(value);
+}
+
+function WorkflowEditorLegendIsland() {
+  const { t } = useTranslation();
+  const [collapsed, setCollapsed] = useState(false);
+  return (
+    <FloatingNoticeIsland
+      collapsed={collapsed}
+      collapseLabel={t("app.collapse")}
+      expandedClassName="floating-notice-expanded grid h-[204px] w-[min(300px,calc(100vw-var(--space-2)*2))] gap-[6px] overflow-hidden rounded-[var(--radius-xl)] p-[var(--space-2)]"
+      expandLabel={t("app.expand")}
+      onCollapsedChange={setCollapsed}
+      positionClassName="left-[var(--space-2)] bottom-[var(--space-2)]"
+      title={t("workflowEditor.legend")}
+      tone="neutral"
+    >
+      <div className="grid gap-[6px] pt-[4px] text-sm leading-none text-[var(--color-on-island)]">
+        <LegendRow label={t("workflowEditor.legendContinueSession")}>
+          <EdgeLegendSwatch tone="neutral" />
+        </LegendRow>
+        <LegendRow label={t("workflowEditor.legendFreshSession")}>
+          <EdgeLegendSwatch tone="primary" />
+        </LegendRow>
+        <LegendRow label={t("workflowEditor.legendCompactSession")}>
+          <EdgeLegendSwatch tone="secondary" />
+        </LegendRow>
+        <LegendRow label={t("workflowEditor.legendAgentNode")}>
+          <NodeLegendSwatch tone="neutral" />
+        </LegendRow>
+        <LegendRow label={t("workflowEditor.legendTerminalState")}>
+          <NodeLegendSwatch tone="success" />
+        </LegendRow>
+        <LegendRow label={t("workflowEditor.legendStartingState")}>
+          <NodeLegendSwatch tone="primary" />
+        </LegendRow>
+        <LegendRow label={t("workflowEditor.legendMultiAgentJoin")}>
+          <NodeLegendSwatch shape="diamond" tone="secondary" />
+        </LegendRow>
+      </div>
+    </FloatingNoticeIsland>
+  );
+}
+
+function LegendRow({ children, label }: Readonly<{ children: ReactNode; label: string }>) {
+  return (
+    <div className="grid grid-cols-[26px_minmax(0,1fr)] items-center gap-[var(--space-2)]">
+      <span className="grid h-3 place-items-center">{children}</span>
+      <span className="min-w-0">{label}</span>
+    </div>
+  );
+}
+
+function EdgeLegendSwatch({ tone }: Readonly<{ tone: "neutral" | "primary" | "secondary" }>) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={edgeLegendToneClassName(tone)}
+      data-testid="workflow-legend-edge-swatch"
+      fill="none"
+      height="6"
+      viewBox="0 0 22 6"
+      width="22"
+    >
+      <path
+        d="M1 3H19"
+        data-testid="workflow-legend-edge-line"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.25"
+      />
+      <path
+        d="M17 1L20 3L17 5"
+        data-testid="workflow-legend-edge-head"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.25"
+      />
+    </svg>
+  );
+}
+
+function NodeLegendSwatch({
+  shape = "box",
+  tone,
+}: Readonly<{ shape?: "box" | "diamond"; tone: "neutral" | "primary" | "secondary" | "success" }>) {
+  const shapeClassName =
+    shape === "diamond" ? "h-[10px] w-[10px] rotate-45 rounded-[2px]" : "h-[9px] w-[14px] rounded-[2px]";
+  return (
+    <span
+      aria-hidden="true"
+      className={cx("block border bg-[var(--color-island-1)]", shapeClassName, nodeLegendToneClassName(tone))}
+      data-testid="workflow-legend-node-swatch"
+    />
+  );
+}
+
+function edgeLegendToneClassName(tone: "neutral" | "primary" | "secondary"): string {
+  if (tone === "primary") {
+    return "text-[var(--color-primary)]";
+  }
+  if (tone === "secondary") {
+    return "text-[var(--color-secondary)]";
+  }
+  return "text-[var(--color-muted)]";
+}
+
+function nodeLegendToneClassName(tone: "neutral" | "primary" | "secondary" | "success"): string {
+  if (tone === "primary") {
+    return "border-[var(--color-primary)]";
+  }
+  if (tone === "secondary") {
+    return "border-[var(--color-secondary)]";
+  }
+  if (tone === "success") {
+    return "border-[var(--color-success)]";
+  }
+  return "border-[var(--color-outline)]";
 }
 
 function workflowEditorDraftStateReducer(

@@ -45,7 +45,10 @@ export function FloatingNoticeIsland({
             className={cx(
                 "floating-notice-morph island-glass app-region-no-drag fixed z-50 border shadow-[var(--shadow-island-1)]",
                 collapsed
-                    ? "floating-notice-collapsed grid h-12 w-12 place-items-center overflow-hidden rounded-[var(--radius-m)] p-0 text-[var(--color-notice-collapsed-icon)]"
+                    ? cx(
+                          "floating-notice-collapsed grid h-12 w-12 place-items-center overflow-hidden rounded-[var(--radius-m)] p-0",
+                          styles.collapsedTextClassName,
+                      )
                     : expandedClasses,
                 positionClassName,
                 styles.borderClassName,
@@ -56,7 +59,10 @@ export function FloatingNoticeIsland({
             {collapsed ? (
                 <button
                     aria-label={expandLabel}
-                    className="grid h-full w-full place-items-center rounded-[var(--radius-m)] border border-transparent bg-transparent text-[var(--color-notice-collapsed-icon)]"
+                    className={cx(
+                        "grid h-full w-full place-items-center rounded-[var(--radius-m)] border border-transparent bg-transparent",
+                        styles.collapsedTextClassName,
+                    )}
                     onClick={() => {
                         onCollapsedChange(false);
                     }}
@@ -96,17 +102,20 @@ const noticeToneStyles: Record<
     Readonly<{
         borderClassName: string;
         collapsedClassName: string;
+        collapsedTextClassName: string;
         titleClassName: string;
     }>
 > = {
     danger: {
         borderClassName: "border-[var(--color-error)]",
         collapsedClassName: "floating-notice-collapsed-danger",
+        collapsedTextClassName: "text-[var(--color-on-error)]",
         titleClassName: "text-[var(--color-error)]",
     },
     neutral: {
         borderClassName: "border-[var(--color-outline)]",
         collapsedClassName: "floating-notice-collapsed-neutral",
+        collapsedTextClassName: "text-[var(--color-on-island)]",
         titleClassName: "text-[var(--color-on-island)]",
     },
 };

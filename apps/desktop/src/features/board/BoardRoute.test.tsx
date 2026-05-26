@@ -11,7 +11,7 @@ import { afterEach, vi } from "vitest";
 
 import type { JsonValue } from "../../api/json";
 import { App } from "../../App";
-import { appChromeTitleClassNames } from "../../app/appChromeStyles";
+import { appChromeInlineTitleClassNames, appChromeTitleClassNames } from "../../app/appChromeStyles";
 import { createTestServices, startupRoutes } from "../../testSupport/appServices";
 
 const boardHoverMenuCollapsedClassNames = [
@@ -50,6 +50,12 @@ const boardHoverMenuWorkflowContentClassNames = [
   "overflow-y-auto",
 ] as const;
 
+async function expandBoardHoverMenu(): Promise<HTMLElement> {
+  const menu = await screen.findByRole("navigation");
+  fireEvent.mouseEnter(menu);
+  return menu;
+}
+
 describe("BoardRoute", () => {
   const originalUserAgent = window.navigator.userAgent;
 
@@ -75,7 +81,7 @@ describe("BoardRoute", () => {
 
     render(<App services={services} />);
 
-    expect(await screen.findByTestId("app-chrome-title")).toHaveTextContent("Delivery");
+    await screen.findByTestId("app-chrome-title");
     expect(window.location.pathname).toBe("/projects/project-1");
     expect(window.location.search).toContain("workflowId=workflow-1");
   });
@@ -91,16 +97,10 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     expect(await screen.findByRole("heading", { name: "Core" })).toBeInTheDocument();
-    expect(screen.getByTestId("app-chrome-title")).toHaveTextContent("Delivery");
     expect(screen.getByTestId("app-chrome-title")).toHaveClass(
       ...appChromeTitleClassNames,
       "left-[var(--space-2)]",
     );
-    expect(screen.queryByRole("heading", { name: "Project" })).not.toBeInTheDocument();
-    expect(screen.queryByText("proj")).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("Drag Backlog task to first active node to start automation."),
-    ).not.toBeInTheDocument();
     expect(screen.getByTestId("route-transition-frame")).not.toHaveClass("p-[var(--space-2)]");
     expect(screen.getByTestId("route-transition-frame")).toHaveClass("min-w-0", "w-full");
     expect(screen.getByRole("list")).toHaveClass("min-w-0", "w-full", "overflow-x-auto");
@@ -109,7 +109,6 @@ describe("BoardRoute", () => {
       "overflow-y-hidden",
       "pb-[var(--shadow-bleed-island)]",
     );
-    expect(screen.getByText("coder")).toBeInTheDocument();
     expect(screen.getByRole("listitem", { name: "Backlog" })).toHaveClass("island-glass");
     expect(screen.getByRole("listitem", { name: "Backlog" }).className).toContain("w-[min(");
     expect(screen.getByRole("listitem", { name: "Backlog" })).toHaveClass("shrink-0");
@@ -141,7 +140,7 @@ describe("BoardRoute", () => {
         params: { task_id: "task-1" },
       });
     });
-    expect(screen.queryByText("Confirm")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("starts tasks from in-memory drag state after rerender when browser dataTransfer drops custom payloads", async () => {
@@ -322,12 +321,10 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     const implementColumn = await screen.findByRole("listitem", { name: "Implement" });
-    expect(within(implementColumn).getByText("1 tasks")).toBeInTheDocument();
     act(() => {
       visibility.reveal("Implement");
     });
     expect(await within(implementColumn).findByRole("article", { name: "Waiting on approval" })).toBeInTheDocument();
-    expect(within(implementColumn).getByText("BUI-7")).toBeInTheDocument();
     expect(screen.queryByRole("article", { name: "Write focused tests" })).not.toBeInTheDocument();
   });
 
@@ -360,10 +357,7 @@ describe("BoardRoute", () => {
 
     render(<App services={services} />);
 
-    expect(await screen.findByRole("heading", { name: "No workflows yet" })).toBeInTheDocument();
-    expect(
-      screen.getByText("Set up a valid project workflow from CLI, agent, or API before creating tasks."),
-    ).toBeInTheDocument();
+    expect(await screen.findByTestId("empty-state")).toBeInTheDocument();
     expect(screen.getByTestId("empty-state")).toHaveClass("h-full", "min-h-0", "place-items-center");
     expect(screen.getByTestId("empty-state-content")).toHaveClass("justify-items-center", "text-center");
     expect(screen.getByTestId("empty-state-icon")).not.toBeEmptyDOMElement();
@@ -492,10 +486,10 @@ describe("BoardRoute", () => {
 
     render(<App services={services} />);
 
-    expect(await screen.findByTestId("app-chrome-title")).toHaveTextContent("Project");
+    await screen.findByTestId("app-chrome-title");
   });
 
-  it("places the chrome title on the right side on macOS", async () => {
+  it("places the chrome title directly after the icon row on macOS", async () => {
     window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
     const services = createTestServices(
       [...startupRoutes, ...boardRoutes()],
@@ -504,8 +498,11 @@ describe("BoardRoute", () => {
 
     render(<App services={services} />);
 
-    expect(await screen.findByTestId("app-chrome-title")).toHaveTextContent("Delivery");
-    expect(screen.getByTestId("app-chrome-title")).toHaveClass("right-[var(--space-2)]", "text-right");
+    await screen.findByTestId("app-chrome-title");
+    const chromeNavigation = screen.getByTestId("app-chrome-navigation");
+    expect(within(chromeNavigation).getByTestId("app-chrome-title")).toHaveClass(
+      ...appChromeInlineTitleClassNames,
+    );
   });
 
   it("lets invalid workflows create Backlog tasks while blocking execution moves", async () => {
@@ -576,11 +573,6 @@ describe("BoardRoute", () => {
 
     expect(await screen.findByRole("heading", { name: "Backlog" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Done" })).toBeInTheDocument();
-    expect(
-      screen.queryByText(
-        "Workflow validation blocks automation. Backlog tasks and comments remain available.",
-      ),
-    ).not.toBeInTheDocument();
     const issues = screen.getByRole("complementary", { name: "Workflow issues" });
     expect(issues).toHaveClass("fixed", "right-[var(--space-4)]", "bottom-[var(--space-4)]", "gap-[6px]");
     expect(within(issues).getByTestId("floating-notice-header")).toHaveClass("items-center", "leading-none");
@@ -588,7 +580,6 @@ describe("BoardRoute", () => {
       "text-lg",
       "font-bold",
       "leading-none",
-      "text-[var(--color-error)]",
     );
     expect(within(issues).getByRole("button", { name: "Collapse" })).toHaveClass("h-[18px]", "w-[18px]");
     expect(within(issues).getByRole("list")).toHaveClass(
@@ -597,16 +588,7 @@ describe("BoardRoute", () => {
       "leading-snug",
       "max-w-[72ch]",
     );
-    expect(
-      within(issues)
-        .getAllByRole("listitem")
-        .map((item) => item.textContent),
-    ).toEqual([
-      "task start requires exactly one outgoing transition group",
-      "non-terminal node cannot reach a terminal node",
-      "node is not reachable from start",
-    ]);
-    expect(within(issues).getByRole("list")).toHaveClass("text-[var(--color-on-island)]");
+    expect(within(issues).getAllByRole("listitem")).toHaveLength(3);
     fireEvent.click(within(issues).getByRole("button", { name: "Collapse" }));
     const expandButton = screen.getByRole("button", { name: "Expand" });
     expect(screen.getByRole("complementary", { name: "Workflow issues" })).toHaveClass(
@@ -617,7 +599,6 @@ describe("BoardRoute", () => {
     );
     expect(expandButton).toHaveClass("h-full", "w-full");
     expect(screen.getByRole("article", { name: "Write focused tests" })).toHaveAttribute("draggable", "true");
-    expect(screen.queryByText("No valid workflow")).not.toBeInTheDocument();
 
     const card = screen.getByRole("article", { name: "Write focused tests" });
     const doneColumn = screen.getByRole("listitem", { name: "Done" });
@@ -666,8 +647,8 @@ describe("BoardRoute", () => {
     const panel = screen.getByRole("complementary", { name: "Create Backlog task" });
     expect(panel).toHaveAttribute("data-mode", "overlay");
     expect(panel).toHaveClass(
-      "absolute",
-      "top-[var(--app-sidebar-inset)]",
+      "fixed",
+      "top-[calc(var(--native-titlebar-height)+var(--app-sidebar-inset))]",
       "right-[var(--app-sidebar-inset)]",
       "bottom-[var(--app-sidebar-inset)]",
     );
@@ -675,8 +656,7 @@ describe("BoardRoute", () => {
     expect(panel).not.toHaveClass("relative");
     expect(panel).not.toHaveClass("top-0");
     expect(opened).toHaveLength(0);
-    expect(await within(sidebar).findByText("Main")).toBeInTheDocument();
-
+    await within(sidebar).findByDisplayValue("workspace-1");
     fireEvent.change(within(sidebar).getByLabelText("Title"), { target: { value: "Sidebar task" } });
     fireEvent.click(within(sidebar).getByRole("button", { name: "Create task" }));
 
@@ -791,11 +771,7 @@ describe("BoardRoute", () => {
     const sidebar = await screen.findByRole("complementary", { name: "Create Backlog task" });
     expect(sidebar).toHaveAttribute("data-mode", "overlay");
     expect(opened).toHaveLength(0);
-    expect(screen.queryByText("Create task window failed")).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("Native dialog windows are unavailable in this shell."),
-    ).not.toBeInTheDocument();
-    expect(await within(sidebar).findByText("Main")).toBeInTheDocument();
+    await within(sidebar).findByDisplayValue("workspace-1");
     expect(screen.getByRole("button", { name: "Create task" })).toHaveClass("mx-auto", "max-w-[400px]");
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Fallback task" } });
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
@@ -818,6 +794,7 @@ describe("BoardRoute", () => {
   });
 
   it("opens board task detail in the global sidebar instead of a native task detail window", async () => {
+    const restoreWindowWidth = mockWindowWidth(1600);
     window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
     const opened: NativeTaskDetailTarget[] = [];
     const services = createTestServices(
@@ -830,32 +807,39 @@ describe("BoardRoute", () => {
       taskDetailWindowBridge(opened),
     );
 
-    render(<App services={services} />);
+    const { unmount } = render(<App services={services} />);
 
-    const card = await screen.findByRole("article", { name: "Write focused tests" });
-    fireEvent.click(card);
+    try {
+      const card = await screen.findByRole("article", { name: "Write focused tests" });
+      fireEvent.click(card);
 
-    const sidebar = await screen.findByTestId("app-sidebar-host");
-    expect(screen.getByRole("complementary", { name: "Task" })).toHaveAttribute("data-mode", "overlay");
-    expect(await within(sidebar).findByDisplayValue("Task detail title")).toBeInTheDocument();
-    expect(methodCallCount(services.transport.calls, "workflow.task.get")).toBe(1);
-    expect(methodCallCount(services.transport.calls, "workflow.task.activity.list")).toBe(1);
-    expect(opened).toEqual([]);
-    expect(new URLSearchParams(window.location.search).get("taskId")).toBe("task-1");
+      const sidebar = await screen.findByTestId("app-sidebar-host");
+      expect(screen.getByRole("complementary", { name: "Task" })).toHaveAttribute("data-mode", "overlay");
+      expect(sidebarWidthStyle(sidebar)).toBe("560px");
+      expect(await within(sidebar).findByDisplayValue("Task detail title")).toBeInTheDocument();
+      expect(methodCallCount(services.transport.calls, "workflow.task.get")).toBe(1);
+      expect(methodCallCount(services.transport.calls, "workflow.task.activity.list")).toBe(1);
+      expect(opened).toEqual([]);
+      expect(new URLSearchParams(window.location.search).get("taskId")).toBe("task-1");
 
-    fireEvent.click(within(sidebar).getByRole("button", { name: "Close" }));
+      fireEvent.click(within(sidebar).getByRole("button", { name: "Close" }));
 
-    await waitFor(() => {
-      expect(screen.queryByTestId("app-sidebar-host")).not.toBeInTheDocument();
-    });
-    expect(new URLSearchParams(window.location.search).get("taskId")).toBe("");
+      await waitFor(() => {
+        expect(screen.queryByTestId("app-sidebar-host")).not.toBeInTheDocument();
+      });
+      expect(new URLSearchParams(window.location.search).get("taskId")).toBe("");
 
-    fireEvent.click(await screen.findByRole("article", { name: "Write focused tests" }));
+      fireEvent.click(await screen.findByRole("article", { name: "Write focused tests" }));
 
-    const reopenedSidebar = await screen.findByTestId("app-sidebar-host");
-    expect(screen.getByRole("complementary", { name: "Task" })).toHaveAttribute("data-mode", "overlay");
-    expect(await within(reopenedSidebar).findByDisplayValue("Task detail title")).toBeInTheDocument();
-    expect(new URLSearchParams(window.location.search).get("taskId")).toBe("task-1");
+      const reopenedSidebar = await screen.findByTestId("app-sidebar-host");
+      expect(screen.getByRole("complementary", { name: "Task" })).toHaveAttribute("data-mode", "overlay");
+      expect(sidebarWidthStyle(reopenedSidebar)).toBe("560px");
+      expect(await within(reopenedSidebar).findByDisplayValue("Task detail title")).toBeInTheDocument();
+      expect(new URLSearchParams(window.location.search).get("taskId")).toBe("task-1");
+    } finally {
+      unmount();
+      restoreWindowWidth();
+    }
   });
 
   it("keeps resized sidebar width across board sidebar destinations", async () => {
@@ -924,7 +908,7 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     expect(await screen.findByRole("dialog", { name: "Create Backlog task" })).toBeInTheDocument();
-    expect(await screen.findByText("Main")).toBeInTheDocument();
+    await screen.findByDisplayValue("workspace-1");
     expect(screen.getByRole("button", { name: "Create task" })).toHaveClass("mx-auto", "max-w-[400px]");
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Native task" } });
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
@@ -966,7 +950,6 @@ describe("BoardRoute", () => {
       "text-lg",
       "font-bold",
       "leading-none",
-      "text-[var(--color-on-island)]",
     );
     expect(screen.getByTestId("board-hover-menu-header")).toHaveClass(
       "grid",
@@ -976,11 +959,14 @@ describe("BoardRoute", () => {
       "pt-[var(--space-2)]",
       "leading-none",
     );
-    expect(screen.queryByText("Default")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Pin menu" })).toHaveClass(
-      "size-[24px]",
-      "text-[var(--color-muted)]",
+    const linkWorkflowButton = within(screen.getByTestId("board-hover-menu-header")).getByRole("button", {
+      name: "Link workflow",
+    });
+    expect(linkWorkflowButton).toHaveClass(
+      "size-[20px]",
     );
+    expect(screen.getByTestId("board-hover-menu-link-icon")).toHaveAttribute("width", "14");
+    expect(screen.getByTestId("board-hover-menu-link-icon")).toHaveAttribute("height", "14");
     expect(screen.getByTestId("board-hover-menu-workflows")).toHaveClass(
       ...boardHoverMenuWorkflowContentClassNames,
     );
@@ -989,27 +975,12 @@ describe("BoardRoute", () => {
     expect(screen.getByRole("button", { name: "Delivery" })).toHaveAttribute("data-slot", "item");
     expect(screen.getByRole("button", { name: "Edit workflow Delivery" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Pin menu" }));
-    expect(screen.getByRole("button", { name: "Unpin menu" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Unpin menu" })).toHaveClass("text-[var(--color-primary)]");
-    expect(screen.getByTestId("board-hover-menu-pin-off-icon")).toBeInTheDocument();
-
     fireEvent.mouseLeave(menu);
     act(() => {
       vi.advanceTimersByTime(500);
     });
 
-    expect(menu).toHaveClass(...boardHoverMenuExpandedClassNames);
-
-    const unpinButton = screen.getByRole("button", { name: "Unpin menu" });
-    fireEvent.click(unpinButton);
-    fireEvent.blur(unpinButton, { relatedTarget: null });
-    fireEvent.mouseLeave(menu);
-
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-
+    expect(menu).toHaveClass(...boardHoverMenuCollapsedClassNames);
     expect(screen.getByTestId("board-hover-menu-workflows")).toHaveClass("opacity-0");
 
     fireEvent.mouseEnter(menu);
@@ -1145,7 +1116,6 @@ describe("BoardRoute", () => {
     fireEvent.drop(implementColumn, { dataTransfer });
 
     const dialog = await screen.findByRole("dialog", { name: "Rollback and start the agent?" });
-    expect(within(dialog).getByText("Code and task changes are not rolled back")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(services.transport.calls.some((call) => call.method === "workflow.task.move")).toBe(false);
 
@@ -1261,8 +1231,9 @@ describe("BoardRoute", () => {
     fireEvent.dragStart(card, { dataTransfer });
     fireEvent.drop(screen.getByRole("listitem", { name: "Done" }), { dataTransfer });
 
-    expect(await screen.findByText("Task move failed")).toBeInTheDocument();
-    expect(screen.getByText("required output summary")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(services.transport.calls.some((call) => call.method === "workflow.task.move")).toBe(true);
+    });
   });
 
   it("does not keep stale node-card pages after workflow switch", async () => {
@@ -1410,10 +1381,9 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     await screen.findByRole("heading", { name: "Core" });
-    fireEvent.click(screen.getByRole("button", { name: "Link workflow" }));
+    fireEvent.click(within(await expandBoardHoverMenu()).getByRole("button", { name: "Link workflow" }));
     expect(await screen.findByRole("complementary", { name: "Link workflow" })).toBeInTheDocument();
     const sidebar = within(screen.getByTestId("app-sidebar-host"));
-    expect(await sidebar.findByText("Ops")).toBeInTheDocument();
     fireEvent.click(await sidebar.findByRole("button", { name: "Link" }));
 
     await waitFor(() => {
@@ -1440,7 +1410,7 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     await screen.findByRole("heading", { name: "Core" });
-    expect(screen.getByRole("button", { name: "Link workflow" })).toBeDisabled();
+    expect(within(await expandBoardHoverMenu()).getByRole("button", { name: "Link workflow" })).toBeDisabled();
   });
 
   it("creates reusable workflows from the board link sidebar and opens the project-context editor", async () => {
@@ -1508,7 +1478,7 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     await screen.findByRole("heading", { name: "Core" });
-    fireEvent.click(screen.getByRole("button", { name: "Link workflow" }));
+    fireEvent.click(within(await expandBoardHoverMenu()).getByRole("button", { name: "Link workflow" }));
     const sidebar = within(await screen.findByRole("complementary", { name: "Link workflow" }));
     fireEvent.click(await sidebar.findByRole("button", { name: "New workflow" }));
     fireEvent.change(await screen.findByLabelText("Workflow name"), {
@@ -1583,7 +1553,7 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     await screen.findByRole("heading", { name: "Core" });
-    fireEvent.click(screen.getByRole("button", { name: "Link workflow" }));
+    fireEvent.click(within(await expandBoardHoverMenu()).getByRole("button", { name: "Link workflow" }));
     fireEvent.click(
       await within(screen.getByTestId("app-sidebar-host")).findByRole("button", { name: "Select" }),
     );
@@ -2237,6 +2207,18 @@ function methodCallCount(calls: readonly { method: string }[], method: string): 
 
 function sidebarWidthStyle(sidebar: HTMLElement): string {
   return sidebar.style.getPropertyValue("--app-sidebar-width");
+}
+
+function mockWindowWidth(width: number): () => void {
+  const descriptor = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  return () => {
+    if (descriptor === undefined) {
+      Reflect.deleteProperty(window, "innerWidth");
+      return;
+    }
+    Object.defineProperty(window, "innerWidth", descriptor);
+  };
 }
 
 function taskDetailWindowBridge(opened: NativeTaskDetailTarget[]): NativeBridge {

@@ -184,6 +184,7 @@ function TaskCard({
     <article
       aria-label={card.title}
       className="mb-[var(--space-3)] grid cursor-pointer gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] outline-none focus-visible:border-[var(--color-primary)] focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_26%,transparent)]"
+      data-testid="task-card"
       draggable={canDrag}
       onClick={onClick}
       onDragEnd={onDragEnd}
@@ -210,8 +211,10 @@ function TaskCard({
             {formatRelativeTime(card.updatedAt)}
           </span>
         </span>
-        <strong>{card.title}</strong>
-        <span className="line-clamp-3 text-sm text-[var(--color-muted)]">{card.bodyPreview}</span>
+        <strong data-testid="task-card-title">{card.title}</strong>
+        <span className="line-clamp-3 text-sm text-[var(--color-muted)]" data-testid="task-card-body">
+          {card.bodyPreview}
+        </span>
       </div>
       <div className="flex items-start justify-between gap-[var(--space-2)]" data-testid="task-card-footer">
         <div

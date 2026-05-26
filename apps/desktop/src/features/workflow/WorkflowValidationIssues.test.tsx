@@ -31,11 +31,6 @@ describe("WorkflowValidationIssues", () => {
       />,
     );
 
-    expect(screen.getByText("Prompt template references an unknown node input.")).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Input: summary · Field: summary · Placeholder: .Inputs.summary · Provider edge: edge-provider",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
   });
 });

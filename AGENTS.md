@@ -8,8 +8,6 @@ The product philosophy is:
 The scope is intentionally narrow and quality-oriented.
 
 ## Repository Layout
-- `VERSION`
-  - Source of truth for release version/tag used by the release workflow and versioned builds.
 - `cli/app`
   - Startup orchestration, auth gating, session selection, and top-level UI composition.
 - `server/runtime`
@@ -45,12 +43,12 @@ The scope is intentionally narrow and quality-oriented.
 - `cli/actions`
   - Typed action registry scaffold for `ask_question` post-answer hooks.
 - `docs`
-  - Public Astro/Starlight documentation site. Internal product/engineering docs stay under `docs/dev`, and scratch/internal working notes stay under `docs/tmp`. Keep docs up-to-date on your own and proactively.
+  - Public Astro/Starlight documentation site. Authoritative internal product specs live under `docs/dev/specs`, process/engineering docs live under `docs/dev`, and scratch/internal working notes stay under `docs/tmp`. Keep docs up-to-date on your own and proactively.
 - `apps`
   - GUI workspace for desktop/web client surfaces. `apps/desktop` contains the Tauri desktop app, `apps/desktop/packages/*` contains desktop-only shared packages, and `apps/shared/*` is reserved for packages shared by multiple GUI apps.
 - `server/tools/definitions.go`
   - Centralized compile-time tool interface declarations (name, descriptions, JSON schemas).
-- `docs/dev/TERMINOLOGY.md` - DDD's ubiquitous language, must read during design phases to communicate with user.
+- `docs/dev/specs/terminology.md` - DDD's ubiquitous language, must read during design phases to communicate with user.
 
 ## Engineering Principles
 - Keep the model unburdened.
@@ -88,7 +86,7 @@ If user asks you to fix a github issue and you commit the fix, use 'closes #xx' 
 - Before handing off to the user after Go code changes, rebuild via `./scripts/build.sh --output ./bin/builder`. Don't ask for confirmation to run/write tests and run checks.
 - Run tests via `./scripts/test.sh` passing normal go test arguments. With no package args this also runs GUI frontend tests.
 - Releases are driven by `VERSION`; keep Homebrew release plumbing in sync with `scripts/update-brew-tap.sh` and the tap formula. Tap formula lives in a separate repo.
-- `docs/dev/decisions.md` is the source of truth for locked product and architecture decisions, keep it up to date if user makes a new decision.
+- `docs/dev/specs/` is the source of truth for locked product and architecture decisions. Keep the relevant area spec up to date when the user makes a new decision.
 - Ongoing mode must not use `?1007`.
 - Ongoing normal-buffer transcript history is append-only after startup. Once a line is emitted into scrollback, it is immutable: never retroactively restyle it, rewrite it, clear-and-replay it, or re-emit the full buffer to reflect later tool state.
 - Proactively keep documentation up-to-date on your own when you make UX or other user-facing changes. Example areas that warrant a docs check include setup, startup, config, env variables, slash commands, model providers, worktrees, server arch, etc.

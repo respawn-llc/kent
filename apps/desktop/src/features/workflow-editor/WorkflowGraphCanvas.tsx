@@ -15,6 +15,7 @@ import {
 } from "@xyflow/react";
 import { Info, Maximize2, Minus, Plus, RotateCcw } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import { cx } from "../../ui/classes";
@@ -149,6 +150,32 @@ function WorkflowGraphCanvasInner({
     };
   }, [instance]);
 
+  const tools = (
+    <div
+      className="workflow-editor-tools island-glass app-region-no-drag fixed left-[var(--space-2)] top-[calc(var(--native-titlebar-height)+var(--space-2))] z-30 grid gap-[var(--space-1)] rounded-[var(--radius-l)] border p-[var(--space-1)] shadow-[var(--shadow-island-1)]"
+      data-testid="workflow-editor-tools"
+    >
+      <CanvasTool label={t("workflowEditor.inspectWorkflow")} onClick={onWorkflowInspect}>
+        <Info aria-hidden="true" size={18} strokeWidth={1.7} />
+      </CanvasTool>
+      <CanvasTool label={t("workflowEditor.zoomIn")} onClick={() => void instance.zoomIn()}>
+        <Plus aria-hidden="true" size={18} strokeWidth={1.7} />
+      </CanvasTool>
+      <CanvasTool label={t("workflowEditor.zoomOut")} onClick={() => void instance.zoomOut()}>
+        <Minus aria-hidden="true" size={18} strokeWidth={1.7} />
+      </CanvasTool>
+      <CanvasTool label={t("workflowEditor.fitView")} onClick={() => void instance.fitView({ padding: 0.18 })}>
+        <Maximize2 aria-hidden="true" size={18} strokeWidth={1.7} />
+      </CanvasTool>
+      <CanvasTool
+        label={t("workflowEditor.resetZoom")}
+        onClick={() => void instance.setViewport({ x: 0, y: 0, zoom: 1 })}
+      >
+        <RotateCcw aria-hidden="true" size={18} strokeWidth={1.7} />
+      </CanvasTool>
+    </div>
+  );
+
   return (
     <div className="workflow-editor-canvas h-full min-h-0 w-full" data-testid="workflow-editor-canvas">
       <ReactFlow
@@ -182,29 +209,7 @@ function WorkflowGraphCanvasInner({
           size={1}
           variant={BackgroundVariant.Dots}
         />
-        <div className="workflow-editor-tools island-glass app-region-no-drag absolute left-[var(--space-4)] top-[var(--space-4)] z-10 grid gap-[var(--space-1)] rounded-[var(--radius-l)] border p-[var(--space-1)] shadow-[var(--shadow-island-1)]">
-          <CanvasTool label={t("workflowEditor.inspectWorkflow")} onClick={onWorkflowInspect}>
-            <Info aria-hidden="true" size={18} strokeWidth={1.7} />
-          </CanvasTool>
-          <CanvasTool label={t("workflowEditor.zoomIn")} onClick={() => void instance.zoomIn()}>
-            <Plus aria-hidden="true" size={18} strokeWidth={1.7} />
-          </CanvasTool>
-          <CanvasTool label={t("workflowEditor.zoomOut")} onClick={() => void instance.zoomOut()}>
-            <Minus aria-hidden="true" size={18} strokeWidth={1.7} />
-          </CanvasTool>
-          <CanvasTool
-            label={t("workflowEditor.fitView")}
-            onClick={() => void instance.fitView({ padding: 0.18 })}
-          >
-            <Maximize2 aria-hidden="true" size={18} strokeWidth={1.7} />
-          </CanvasTool>
-          <CanvasTool
-            label={t("workflowEditor.resetZoom")}
-            onClick={() => void instance.setViewport({ x: 0, y: 0, zoom: 1 })}
-          >
-            <RotateCcw aria-hidden="true" size={18} strokeWidth={1.7} />
-          </CanvasTool>
-        </div>
+        {createPortal(tools, document.body)}
       </ReactFlow>
     </div>
   );
@@ -240,7 +245,7 @@ const WorkflowNode = memo(function WorkflowNode({
   const nodeCard = (
     <div
       className={cx(
-        "workflow-editor-node grid h-full min-w-0 grid-rows-[minmax(0,1fr)_auto] rounded-[var(--radius-l)] border bg-[var(--color-island-1)] p-[var(--space-3)] shadow-[var(--shadow-island-1)]",
+        "workflow-editor-node grid h-full min-w-0 grid-rows-[minmax(0,1fr)_auto] rounded-[var(--radius-l)] border bg-[var(--color-island-3)] p-[var(--space-3)] shadow-[var(--shadow-island-1)]",
         data.hasError ? "workflow-editor-node-error" : undefined,
         selected ? "workflow-editor-node-selected" : undefined,
       )}

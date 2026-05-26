@@ -13,10 +13,11 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "../ui";
+import { Button, showStatusToast } from "../ui";
 import { cx } from "../ui/classes";
+import { useAppServices } from "./useAppServices";
 import { SidebarDestinationView, sidebarTitle } from "./sidebarDestinations";
-import { useSidebar } from "./sidebarContext";
+import { useSidebar, type SidebarDestination } from "./sidebarContext";
 import {
   clampSidebarWidth,
   sidebarMaxWidthRatio,
@@ -198,7 +199,7 @@ export function SidebarHost() {
         mode === "shift" &&
           "app-sidebar-panel-shift relative mr-[var(--app-sidebar-inset)] mt-[var(--app-sidebar-inset)] h-[calc(100%-(var(--app-sidebar-inset)*2))] shrink-0 self-start",
         mode === "overlay" &&
-          "app-sidebar-panel-overlay absolute top-[var(--app-sidebar-inset)] right-[var(--app-sidebar-inset)] bottom-[var(--app-sidebar-inset)]",
+          "app-sidebar-panel-overlay fixed top-[calc(var(--native-titlebar-height)+var(--app-sidebar-inset))] right-[var(--app-sidebar-inset)] bottom-[var(--app-sidebar-inset)]",
         phase === "closing" && "app-sidebar-panel-closing",
       )}
       data-testid="app-sidebar-host"
@@ -229,10 +230,10 @@ export function SidebarHost() {
         role="separator"
         tabIndex={0}
       />
-      <header className="flex items-center justify-between gap-[var(--space-4)] border-b border-[var(--color-outline)] px-[var(--space-4)] py-[var(--space-3)]">
+      <header className="grid grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-[var(--space-3)] border-b border-[var(--color-outline)] px-[var(--space-4)] py-[var(--space-3)]">
         <Button
           aria-label={t("app.close")}
-          className="order-1 grid h-9 w-9 place-items-center rounded-full p-0"
+          className="grid h-9 w-9 place-items-center rounded-full p-0"
           onClick={() => {
             closeSidebar("closed");
           }}
@@ -240,15 +241,70 @@ export function SidebarHost() {
         >
           <X aria-hidden="true" size={18} strokeWidth={1.5} />
         </Button>
-        <h2 className="order-2 m-0 min-w-0 flex-1 text-[1.05rem] font-bold" id={titleId}>
+        <h2 className="m-0 whitespace-nowrap text-[1.05rem] font-bold" id={titleId}>
           {title}
         </h2>
+        <SidebarHeaderAccessory destination={activeDestination} />
       </header>
       <div className="min-h-0 overflow-y-auto px-[var(--space-4)] py-[var(--space-4)]">
         <SidebarDestinationView destination={activeDestination} resolveSidebar={resolveSidebar} />
       </div>
     </aside>
   );
+}
+
+function SidebarHeaderAccessory({
+  destination,
+}: Readonly<{ destination: SidebarDestination }>) {
+  if (destination.kind !== "workflowInspect" || destination.selection.kind !== "node") {
+    return null;
+  }
+  return <WorkflowNodeIDHeader nodeID={destination.selection.nodeID} />;
+}
+
+function WorkflowNodeIDHeader({ nodeID }: Readonly<{ nodeID: string }>) {
+  const { t } = useTranslation();
+  const { nativeBridge } = useAppServices();
+  return (
+    <button
+      aria-label={t("workflowEditor.copyNodeId", { id: nodeID })}
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)] justify-items-end rounded-[var(--radius-s)] border border-transparent bg-transparent px-[var(--space-1)] py-[2px] font-mono text-xs text-[var(--color-muted)] outline-none hover:border-[var(--color-outline)] hover:bg-[var(--color-island-1)] focus-visible:border-[var(--color-primary)]"
+      onClick={() => {
+        void copyNodeID(nodeID, nativeBridge)
+          .then(() => {
+            showStatusToast({
+              body: "",
+              id: `workflow-node-id-copied-${nodeID}`,
+              title: t("workflowEditor.nodeIdCopied"),
+              tone: "success",
+            });
+          })
+          .catch(() => {
+            showStatusToast({
+              body: "",
+              id: `workflow-node-id-copy-failed-${nodeID}`,
+              title: t("workflowEditor.nodeIdCopyFailed"),
+              tone: "danger",
+            });
+          });
+      }}
+      title={nodeID}
+      type="button"
+    >
+      <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-right">{nodeID}</span>
+    </button>
+  );
+}
+
+async function copyNodeID(
+  value: string,
+  nativeBridge: ReturnType<typeof useAppServices>["nativeBridge"],
+): Promise<void> {
+  if (nativeBridge.capabilities.clipboard.writeText) {
+    await nativeBridge.clipboard.writeText(value);
+    return;
+  }
+  await navigator.clipboard.writeText(value);
 }
 
 type SidebarStyle = CSSProperties &

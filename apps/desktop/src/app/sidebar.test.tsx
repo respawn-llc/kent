@@ -69,9 +69,38 @@ describe("SidebarHost", () => {
     );
     expect(sidebar.style.getPropertyValue("--app-sidebar-inset")).toBe("var(--space-2)");
     expect(sidebar).not.toHaveClass("absolute", "app-sidebar-panel-overlay");
-    expect(screen.getByRole("button", { name: "Close" })).toHaveClass("order-1");
-    expect(screen.getByRole("heading", { name: "Settings" })).toHaveClass("order-2");
-    expect(screen.getByText("Default shift content")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close" })).toHaveClass("h-9", "w-9");
+    expect(screen.getByRole("heading", { name: "Settings" })).toHaveClass("whitespace-nowrap");
+    expect(screen.getByTestId("default-shift-content")).toBeInTheDocument();
+  });
+
+  it("keeps overlay destinations out of the flex layout", async () => {
+    render(
+      <I18nextProvider i18n={appI18n}>
+        <SidebarProvider>
+          <div className="relative flex min-h-0" data-testid="app-shell-content">
+            <div className="min-w-0 flex-1">
+              <OpenOverlaySidebar />
+            </div>
+            <SidebarHost />
+          </div>
+        </SidebarProvider>
+      </I18nextProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open overlay sidebar" }));
+
+    const sidebar = await screen.findByRole("complementary", { name: "Create workflow" });
+    expect(sidebar).toHaveAttribute("data-mode", "overlay");
+    expect(sidebar).toHaveClass(
+      "app-sidebar-panel-overlay",
+      "fixed",
+      "top-[calc(var(--native-titlebar-height)+var(--app-sidebar-inset))]",
+      "right-[var(--app-sidebar-inset)]",
+      "bottom-[var(--app-sidebar-inset)]",
+    );
+    expect(sidebar).not.toHaveClass("relative", "app-sidebar-panel-shift", "shrink-0");
+    expect(screen.getByTestId("overlay-source-content")).toBeInTheDocument();
   });
 
   it("resizes from the leading edge without requiring pointer-capture APIs", async () => {
@@ -149,7 +178,7 @@ function OpenCustomSidebar() {
     <button
       onClick={() => {
         void openSidebar({
-          content: <p>Default shift content</p>,
+          content: <p data-testid="default-shift-content">Default shift content</p>,
           kind: "custom",
           title: "Settings",
         });
@@ -158,6 +187,29 @@ function OpenCustomSidebar() {
     >
       Open sidebar
     </button>
+  );
+}
+
+function OpenOverlaySidebar() {
+  const { openSidebar } = useSidebar();
+
+  return (
+    <>
+      <div data-testid="overlay-source-content" />
+      <button
+        onClick={() => {
+          void openSidebar({
+            content: <p>Overlay content</p>,
+            kind: "custom",
+            mode: "overlay",
+            title: "Create workflow",
+          });
+        }}
+        type="button"
+      >
+        Open overlay sidebar
+      </button>
+    </>
   );
 }
 

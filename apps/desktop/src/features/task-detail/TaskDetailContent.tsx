@@ -1,13 +1,13 @@
 /* eslint-disable max-lines -- Task detail content keeps the editable header, properties, and feed panes colocated. */
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { Check, Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { TaskDetail, TeleportTarget } from "../../api";
+import type { TaskDetail, TaskRun } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { useAppServices } from "../../app/useAppServices";
-import { Button, Island } from "../../ui";
+import { Badge, Button, Island, Popover, PopoverContent, PopoverTrigger, showStatusToast } from "../../ui";
 import { fieldInputClassName } from "../../ui/Field";
 import { cx } from "../../ui/classes";
 import { fieldLabelClassName } from "../../ui/fieldStyles";
@@ -15,6 +15,7 @@ import { useUpdateTask } from "../tasks/useTaskMutations";
 import { ActivityFeed, Comments } from "./TaskDetailActivity";
 import { TaskInbox } from "./TaskDetailInbox";
 import { TaskTabs, type DetailTab } from "./TaskDetailTabs";
+import { taskStatusTone } from "./taskStatusTone";
 import { useTaskMutations } from "./useTaskDetailData";
 import type { useTaskActivity } from "./useTaskDetailData";
 
@@ -69,7 +70,7 @@ export function TaskDetailContent({
 
   return (
     <div
-      className="grid min-h-full content-start gap-[var(--space-2)] pb-[var(--space-2)]"
+      className="task-detail-island-stack grid min-h-full content-start gap-[var(--space-2)] pb-[var(--space-2)]"
       data-testid="task-detail-island-stack"
     >
       <TaskHeaderIsland
@@ -80,7 +81,7 @@ export function TaskDetailContent({
         onSave={saveDraft}
       />
       <div
-        className="grid gap-[var(--space-2)] min-[512px]:grid-cols-[minmax(0,7fr)_minmax(260px,3fr)]"
+        className="task-detail-body-split grid items-stretch gap-[var(--space-2)]"
         data-testid="task-detail-body-split"
       >
         <DescriptionIsland
@@ -239,17 +240,17 @@ function DescriptionIsland({
   return (
     <Island
       aria-label={t("task.description")}
-      className="grid gap-[var(--space-3)]"
+      className="grid h-full min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-[var(--space-3)]"
       data-testid="task-detail-description-island"
     >
       <label className={fieldLabelClassName} htmlFor={descriptionId}>
         {t("task.description")}
       </label>
-      <div className="grid" data-testid="task-description-input-frame">
+      <div className="grid h-full min-h-0" data-testid="task-description-input-frame">
         <textarea
           aria-describedby={descriptionError.length > 0 ? descriptionErrorId : undefined}
           aria-invalid={descriptionError.length > 0 ? true : undefined}
-          className={cx(fieldInputClassName, "col-start-1 row-start-1 block min-h-[220px] resize-y pb-0")}
+          className={cx(fieldInputClassName, "col-start-1 row-start-1 block h-full min-h-[220px] resize-y pb-0")}
           disabled={disabled}
           id={descriptionId}
           onChange={(event) => {
@@ -298,43 +299,47 @@ function PropertiesIsland({
   resumeRunId: string;
 }>) {
   const { t } = useTranslation();
-  const { api, nativeBridge } = useAppServices();
-  const [confirmCancel, setConfirmCancel] = useState(false);
+  const { nativeBridge } = useAppServices();
   const [openCliError, setOpenCliError] = useState("");
   const cliSessionExists = useMemo(
     () => detail.runs.some((run) => run.sessionID.trim().length > 0),
     [detail.runs],
   );
+  const cliCommand = useMemo(() => builderSessionCommand(detail.runs), [detail.runs]);
   const activeRuns = useMemo(
     () => detail.runs.filter((run) => run.completedAt === 0 && run.interruptedAt === 0),
     [detail.runs],
   );
   const resumeID = resumeRunId.length > 0 ? resumeRunId : detail.actions.resumeRunID;
-  const terminalAvailable = nativeBridge.capabilities.terminal.launchBuilderSession;
 
   async function openInCli(): Promise<void> {
-    const target = await api.getTeleportTarget(detail.id, "");
-    if (!target.available) {
-      setOpenCliError(target.failureReason || t("task.teleportUnavailable"));
+    if (cliCommand.length === 0) {
+      setOpenCliError(t("task.cliCommandUnavailable"));
       return;
     }
-    await nativeBridge.terminal.launchBuilderSession({
-      sessionId: target.sessionID,
-      cwd: teleportCwd(teleportRoot(detail, target), target.cwdRelpath),
+    await copyText(cliCommand, nativeBridge);
+    showStatusToast({
+      body: "",
+      id: "task-cli-command-copied",
+      title: t("task.cliCommandCopied"),
+      tone: "success",
     });
   }
 
   return (
-    <Island aria-label={t("task.properties")} className="grid content-start gap-[var(--space-3)]">
+    <Island aria-label={t("task.properties")} className="grid min-w-0 content-start gap-[var(--space-3)]">
       <PropertyLine label={t("task.project")} value={detail.projectName} />
-      <PropertyLine label={t("task.status")} value={detail.status.label} />
+      <PropertyLine
+        label={t("task.status")}
+        value={<Badge tone={taskStatusTone(detail.status)}>{detail.status.label}</Badge>}
+      />
       <PropertyLine label={t("task.workspace")} value={detail.sourceWorkspace.name} />
       <PropertyLine label={t("task.workflow")} value={detail.workflowName} />
       <PropertyLine label={t("task.sessions")} value={detail.runs.length.toString()} />
       <div className="grid gap-[var(--space-2)] pt-[var(--space-1)]">
         {cliSessionExists ? (
           <Button
-            disabled={disabled || !terminalAvailable}
+            disabled={disabled || cliCommand.length === 0}
             onClick={() => {
               setOpenCliError("");
               void openInCli().catch((cause: unknown) => {
@@ -370,60 +375,63 @@ function PropertiesIsland({
           </Button>
         ))}
         {detail.actions.canCancel ? (
-          <Button
-            disabled={disabled}
-            onClick={() => {
-              setConfirmCancel(true);
-            }}
-            variant="danger"
-          >
-            {t("task.cancel")}
-          </Button>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button disabled={disabled} variant="danger">
+                {t("task.cancel")}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-56" side="top">
+              <strong>{t("task.cancelConfirmTitle")}</strong>
+              <Button
+                disabled={disabled}
+                onClick={() => {
+                  void mutations.cancel.mutateAsync();
+                }}
+                variant="danger"
+              >
+                {t("app.confirm")}
+              </Button>
+            </PopoverContent>
+          </Popover>
         ) : null}
       </div>
-      {!terminalAvailable && cliSessionExists ? (
-        <p className="m-0 text-sm text-[var(--color-muted)]">{t("task.teleportUnavailable")}</p>
-      ) : null}
       {openCliError.length > 0 ? (
         <p className="m-0 text-sm text-[var(--color-error)]">{openCliError}</p>
-      ) : null}
-      {confirmCancel ? (
-        <div className="grid gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]">
-          <strong>{t("task.cancelConfirmTitle")}</strong>
-          <p className="m-0">{t("task.cancelConfirmBody")}</p>
-          <Button
-            disabled={disabled}
-            onClick={() => {
-              void mutations.cancel.mutateAsync();
-            }}
-            variant="danger"
-          >
-            {t("app.confirm")}
-          </Button>
-        </div>
       ) : null}
     </Island>
   );
 }
 
-function PropertyLine({ label, value }: Readonly<{ label: string; value: string }>) {
+function PropertyLine({ label, value }: Readonly<{ label: string; value: ReactNode }>) {
   return (
-    <p className="m-0 min-w-0 text-sm">
+    <p className="m-0 flex min-w-0 flex-wrap items-center gap-[var(--space-1)] text-sm">
       {label}: <span className="text-[var(--color-muted)]">{value}</span>
     </p>
   );
 }
 
-function teleportCwd(worktreePath: string, cwdRelpath: string): string {
-  if (worktreePath.length === 0) {
-    return "";
+async function copyText(
+  value: string,
+  nativeBridge: ReturnType<typeof useAppServices>["nativeBridge"],
+): Promise<void> {
+  if (nativeBridge.capabilities.clipboard.writeText) {
+    await nativeBridge.clipboard.writeText(value);
+    return;
   }
-  if (cwdRelpath.length === 0) {
-    return worktreePath;
-  }
-  return `${worktreePath}/${cwdRelpath}`;
+  await navigator.clipboard.writeText(value);
 }
 
-function teleportRoot(detail: TaskDetail, target: TeleportTarget): string {
-  return target.worktreeID.length > 0 ? detail.worktreePath : detail.sourceWorkspace.rootPath;
+function builderSessionCommand(runs: readonly TaskRun[]): string {
+  const run = preferredSessionRun(runs);
+  return run === null ? "" : `builder --session=${run.sessionID}`;
+}
+
+function preferredSessionRun(runs: readonly TaskRun[]): TaskRun | null {
+  const sessionRuns = runs.filter((run) => run.sessionID.trim().length > 0);
+  return (
+    [...sessionRuns].reverse().find((run) => run.completedAt === 0 && run.interruptedAt === 0) ??
+    sessionRuns.at(-1) ??
+    null
+  );
 }

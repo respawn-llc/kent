@@ -18,11 +18,6 @@
   --space-5: 24px;
   --space-6: 32px;
   --space-7: 48px;
-  --content-max-width-project-edit: 1200px;
-  --content-max-width-home-pane: 600px;
-  --content-max-width-workflow-library: 1280px;
-  --content-max-width-dialog: 560px;
-  --content-max-width-task-create: 560px;
   --radius-s: 8px;
   --radius-m: 12px;
   --radius-l: 16px;
@@ -34,11 +29,12 @@
   --motion-morph: 350ms ease-in-out;
   --motion-morph-stage-delay: 200ms;
   --motion-morph-stage: 200ms ease-in-out;
-  --color-island-0: light-dark(rgba(255, 255, 255, 0.78), rgba(18, 16, 14, 0.78));
-  --color-island-1: light-dark(rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.04));
-  --color-island-2: light-dark(rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.08));
-  --color-island-3: light-dark(rgba(255, 255, 255, 0.92), rgba(25, 32, 44, 0.9));
-  --color-outline: light-dark(rgba(21, 30, 46, 0.12), rgba(255, 255, 255, 0.12));
+  --color-island-0: light-dark(rgba(255, 255, 255, 0.64), rgba(24, 22, 20, 0.82));
+  --color-island-1: light-dark(rgba(255, 255, 255, 0.58), rgba(30, 28, 26, 0.74));
+  --color-island-2: light-dark(rgba(255, 255, 255, 0.52), rgba(36, 34, 32, 0.66));
+  --color-island-3: light-dark(rgba(255, 255, 255, 0.46), rgba(42, 40, 38, 0.58));
+  --color-island-4: light-dark(rgba(255, 255, 255, 0.40), rgba(48, 46, 44, 0.50));
+  --color-outline: light-dark(rgba(21, 30, 46, 0.12), rgba(255, 255, 255, 0.15));
   --color-on-island: light-dark(#12100e, #ffffff);
   --color-on-background: light-dark(#12100e, #ffffff);
   --color-muted: color-mix(in srgb, var(--color-on-background) 56%, transparent);
@@ -52,13 +48,13 @@
   --color-on-success: var(--color-on-background);
   --color-error: #dc2e3c;
   --color-on-error: var(--color-on-background);
-  --color-notice-collapsed-icon: #ffffff;
-  --shadow-island-0: 0 4px 4px rgba(0, 0, 0, 0.20);
+  --shadow-island-0: 0 4px 4px rgba(0, 0, 0, 0.10);
   --shadow-island-1: 0 4px 4px rgba(0, 0, 0, 0.24);
   --shadow-island-2: 0 8px 8px rgba(0, 0, 0, 0.32);
   --shadow-island-3: 0 16px 16px rgba(0, 0, 0, 0.38);
+  --shadow-island-4: 0 24px 24px rgba(0, 0, 0, 0.42);
   --shadow-bleed-island: 96px;
-  --window-glass-tint: light-dark(rgba(255, 255, 255, 0.28), rgba(0, 0, 0, 0.11));
+  --window-glass-tint: light-dark(rgba(255, 255, 255, 0.22), rgba(0, 0, 0, 0.11));
   --window-noise-opacity: 0.12;
   --window-noise-size: 512px;
   --native-titlebar-height: 30px;
@@ -315,11 +311,47 @@
 }
 
 @utility island-glass {
+  backdrop-filter: blur(8px);
   border: 1px solid var(--color-outline);
   background: var(--color-island-0);
   box-shadow: var(--shadow-island-0);
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
+}
+
+@utility island-surface {
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--color-outline);
+  background: var(--island-surface-background, var(--color-island-0));
+  box-shadow: var(--island-surface-shadow, var(--shadow-island-0));
+}
+
+@utility island-surface-0 {
+  backdrop-filter: blur(8px);
+  --island-surface-background: var(--color-island-0);
+  --island-surface-shadow: var(--shadow-island-0);
+}
+
+@utility island-surface-1 {
+  --island-surface-background: var(--color-island-1);
+  --island-surface-shadow: var(--shadow-island-1);
+  backdrop-filter: blur(8px);
+}
+
+@utility island-surface-2 {
+  --island-surface-background: var(--color-island-2);
+  --island-surface-shadow: var(--shadow-island-2);
+  backdrop-filter: blur(8px);
+}
+
+@utility island-surface-3 {
+  --island-surface-background: var(--color-island-3);
+  --island-surface-shadow: var(--shadow-island-3);
+  backdrop-filter: blur(8px);
+}
+
+@utility island-surface-4 {
+  --island-surface-background: var(--color-island-4);
+  --island-surface-shadow: var(--shadow-island-4);
+  backdrop-filter: blur(8px);
 }
 
 @utility window-glass-fill {
@@ -366,6 +398,16 @@
 
 .app-sidebar-panel-closing {
   animation: sidebar-slide-out var(--motion-fast) both;
+}
+
+.task-detail-island-stack {
+  container-type: inline-size;
+}
+
+@container (min-width: 720px) {
+  .task-detail-body-split {
+    grid-template-columns: minmax(0, 65fr) minmax(0, 35fr);
+  }
 }
 
 .floating-notice-collapsed-danger {

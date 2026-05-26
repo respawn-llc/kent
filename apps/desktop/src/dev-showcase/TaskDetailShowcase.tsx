@@ -1,4 +1,14 @@
-import { Badge, Button, MarkdownText, SelectField, TextArea, TextInput } from "../ui";
+import {
+  Badge,
+  Button,
+  MarkdownText,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  SelectField,
+  TextArea,
+  TextInput,
+} from "../ui";
 
 export function TaskDetailBoard({
   cancelExpanded,
@@ -74,22 +84,23 @@ function TaskInboxPreview({
       <div className="flex flex-wrap gap-[var(--space-2)]">
         <Button variant="primary">Resume</Button>
         <Button>Interrupt run-a7f2</Button>
-        <Button
-          onClick={() => {
-            onCancelExpandedChange(!cancelExpanded);
-          }}
-          variant="danger"
-        >
-          Cancel task
-        </Button>
+        <Popover open={cancelExpanded} onOpenChange={onCancelExpandedChange}>
+          <PopoverTrigger asChild>
+            <Button variant="danger">Cancel task</Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-56" side="top">
+            <strong>Cancel task?</strong>
+            <Button
+              onClick={() => {
+                onCancelExpandedChange(false);
+              }}
+              variant="danger"
+            >
+              Confirm
+            </Button>
+          </PopoverContent>
+        </Popover>
       </div>
-      {cancelExpanded ? (
-        <article className="grid gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-2)] p-[var(--space-3)]">
-          <strong>Cancel task?</strong>
-          <p className="m-0">This stops the task without a reason field.</p>
-          <Button variant="danger">Confirm</Button>
-        </article>
-      ) : null}
       <QuestionPreview />
       <ApprovalPreview />
     </section>
@@ -179,8 +190,6 @@ function RunsPreview() {
         <span className="font-mono text-sm text-[var(--color-muted)]">session-ui-showcase</span>
         <span className="text-sm text-[var(--color-muted)]">builder</span>
       </article>
-      <Button disabled>Teleport unavailable</Button>
-      <Button>Teleport available</Button>
     </section>
   );
 }

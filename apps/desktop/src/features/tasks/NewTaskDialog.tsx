@@ -11,6 +11,8 @@ import { Badge, Button, Dialog, NativeDialogWindow, SelectField, TextArea, TextI
 import { cx } from "../../ui/classes";
 import { useCreateTask, useWorkspaces } from "./useTaskMutations";
 
+const newTaskContentMaxWidth = "560px";
+
 const newTaskSchema = z.object({
   title: z.string().trim().min(1),
   body: z.string(),
@@ -36,7 +38,7 @@ export function NewTaskFallbackDialog({
 
   return (
     <Dialog
-      className="w-[min(calc(var(--content-max-width-task-create)+var(--space-4)*2),calc(100vw-32px))]"
+      className="w-[min(calc(560px+var(--space-4)*2),calc(100vw-32px))]"
       closeLabel={t("app.close")}
       onClose={onClose}
       open
@@ -44,7 +46,7 @@ export function NewTaskFallbackDialog({
     >
       <NewTaskForm
         boardQueryWorkflowID={boardQueryWorkflowID}
-        className="mx-auto w-full max-w-[var(--content-max-width-task-create)]"
+        className="mx-auto w-full max-w-[560px]"
         onSubmitted={onClose}
         projectID={projectID}
         workflowID={workflowID}
@@ -65,7 +67,7 @@ export function NewTaskWindowRoute({
 
   return (
     <NativeDialogWindow
-      contentMaxWidth="var(--content-max-width-task-create)"
+      contentMaxWidth={newTaskContentMaxWidth}
       fitToContent={false}
       title={t("task.newTitle")}
     >

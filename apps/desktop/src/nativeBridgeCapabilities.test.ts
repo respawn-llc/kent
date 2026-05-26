@@ -17,7 +17,6 @@ describe("native bridge capabilities", () => {
     expect(bridge.capabilities.clipboard).toEqual({ readText: false, writeText: false });
     expect(bridge.capabilities.directories.select).toBe(false);
     expect(bridge.capabilities.links.openExternal).toBe(false);
-    expect(bridge.capabilities.terminal.launchBuilderSession).toBe(false);
     expect(bridge.capabilities.dialogWindows).toBe(false);
     expect(bridge.capabilities.projectCreationWindow).toBe(false);
     expect(bridge.capabilities.taskDetailWindow).toBe(false);
@@ -45,8 +44,6 @@ describe("native bridge capabilities", () => {
     expect(bridge.capabilities.appMenu).toBe(false);
     expect(bridge.capabilities.updater).toBe(false);
     expect(bridge.capabilities.macosVibrancy).toBe(false);
-    expect(bridge.capabilities.terminal.launchBuilderSession).toBe(true);
-    expect(createTauriNativeBridge("windows").capabilities.terminal.launchBuilderSession).toBe(false);
   });
 
   it("keeps Tauri permissions aligned with bridge event and window APIs", () => {

@@ -18,7 +18,7 @@ export function NativeDialogWindow({
   title,
   children,
   fitToContent = true,
-  contentMaxWidth = "var(--content-max-width-dialog)",
+  contentMaxWidth = "560px",
   contentPadding = "none",
   showHeader = true,
   surface = "island",

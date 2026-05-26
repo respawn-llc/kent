@@ -5,6 +5,7 @@ import { I18nextProvider } from "react-i18next";
 
 import { appI18n, initializeI18n } from "../i18n/setup";
 import { useReconnectRefresh } from "./connectionRefresh";
+import { useNativeWindowGlassTintSync } from "./nativeWindowGlassTint";
 import { createAppQueryClient } from "./queryClient";
 import type { AppServices } from "./services";
 import { AppServicesProvider } from "./servicesContext";
@@ -29,6 +30,7 @@ export function AppProviders({ services, children }: AppProvidersProps) {
           <WindowChromeTitleProvider>
             <StatusProvider>
               <ReconnectRefresh />
+              <NativeWindowGlassTintSync nativeBridge={services.nativeBridge} />
               <TaskDetailMutationInvalidator />
               {children}
             </StatusProvider>
@@ -37,6 +39,11 @@ export function AppProviders({ services, children }: AppProvidersProps) {
       </QueryClientProvider>
     </I18nextProvider>
   );
+}
+
+function NativeWindowGlassTintSync({ nativeBridge }: Readonly<{ nativeBridge: AppServices["nativeBridge"] }>) {
+  useNativeWindowGlassTintSync(nativeBridge);
+  return null;
 }
 
 function TaskDetailMutationInvalidator() {

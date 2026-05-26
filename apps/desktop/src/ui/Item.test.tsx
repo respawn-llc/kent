@@ -12,7 +12,7 @@ describe("Item", () => {
       <ItemGroup data-testid="item-group">
         <Item onClick={onClick}>
           <ItemContent>
-            <ItemTitle>Delivery</ItemTitle>
+            <ItemTitle data-testid="item-title">Delivery</ItemTitle>
           </ItemContent>
         </Item>
       </ItemGroup>,
@@ -20,7 +20,7 @@ describe("Item", () => {
 
     expect(screen.getByTestId("item-group")).toHaveAttribute("data-slot", "item-group");
     expect(screen.getByRole("button", { name: "Delivery" })).toHaveAttribute("data-slot", "item");
-    expect(screen.getByText("Delivery")).toHaveAttribute("data-slot", "item-title");
+    expect(screen.getByTestId("item-title")).toHaveAttribute("data-slot", "item-title");
 
     fireEvent.click(screen.getByRole("button", { name: "Delivery" }));
 
@@ -40,7 +40,6 @@ describe("Item", () => {
 
     expect(item).toHaveFocus();
     expect(item).toHaveAttribute("type", "button");
-    expect(item).toHaveClass("focus-visible:border-[var(--color-primary)]");
     expect(onClick).toHaveBeenCalledTimes(2);
   });
 

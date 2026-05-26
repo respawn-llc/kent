@@ -149,7 +149,6 @@ function LinkWorkflowPicker({
         estimateSize={() => 92}
         getItemKey={(workflow) => workflow.id}
         hasNextPage={workflowsQuery.hasNextPage}
-        header={<h3 className="m-0 pb-[var(--space-2)] text-sm text-[var(--color-muted)]">{title}</h3>}
         isFetchingNextPage={workflowsQuery.isFetchingNextPage}
         items={workflows}
         loadingLabel={t("app.loadingMore")}
