@@ -146,6 +146,8 @@ export const englishResources = {
       resetZoom: "Reset zoom",
       inspectWorkflow: "Inspect workflow",
       inspectNode: "Inspect node",
+      copyNodeId: "Copy node ID {{id}}",
+      nodeIdCopied: "Copied node ID to clipboard",
       inspectGroup: "Inspect group",
       inspectEdge: "Inspect edge",
       legend: "Legend",

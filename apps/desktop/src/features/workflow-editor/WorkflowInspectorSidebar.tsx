@@ -217,7 +217,6 @@ function AgentNodeDraftDetails({
           }}
           value={node.key}
         />
-        <DetailRow label={t("workflowEditor.id")} mono value={node.id} />
         <SelectField
           label={t("workflowEditor.assignee")}
           onValueChange={(value) => {
@@ -272,7 +271,6 @@ function JoinNodeDraftDetails({
     <InspectorStack>
       <DetailSection title={t("workflowEditor.inspectorIdentity")}>
         <DetailRow label={t("workflowEditor.key")} mono value={node.key} />
-        <DetailRow label={t("workflowEditor.id")} mono value={node.id} />
       </DetailSection>
       <EditableJoinProviders controller={controller} definition={definition} node={node} />
       <ValidationDetails errors={errors} />
@@ -586,7 +584,6 @@ function NodeDetails({
     <InspectorStack>
       <DetailSection>
         <DetailRow label={t("workflowEditor.key")} mono value={node.key} />
-        <DetailRow label={t("workflowEditor.id")} mono value={node.id} />
         {node.kind === "agent" ? (
           <>
             <DetailRow

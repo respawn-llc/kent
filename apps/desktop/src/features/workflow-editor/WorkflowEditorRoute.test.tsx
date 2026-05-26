@@ -1,4 +1,5 @@
 /* eslint-disable max-lines -- Workflow editor route test fixtures are intentionally colocated with route scenarios. */
+import { createBrowserNativeBridge, type NativeBridge } from "@builder/desktop-native-bridge";
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -90,14 +91,18 @@ describe("WorkflowEditorRoute", () => {
 
   it("opens inspectors for workflow metadata and graph entities", async () => {
     window.history.pushState(null, "", "/workflows/workflow-1/editor");
+    const copied: string[] = [];
     render(
       <App
-        services={createTestServices([
-          ...startupRoutes,
-          { method: "workflow.get", result: workflowDefinitionResponse },
-          { method: "workflow.validate", result: invalidValidationResponse },
-          { method: "workflow.graph.validateDraft", result: graphValidationResponse },
-        ])}
+        services={createTestServices(
+          [
+            ...startupRoutes,
+            { method: "workflow.get", result: workflowDefinitionResponse },
+            { method: "workflow.validate", result: invalidValidationResponse },
+            { method: "workflow.graph.validateDraft", result: graphValidationResponse },
+          ],
+          nativeBridgeWithClipboard(copied),
+        )}
       />,
     );
 
@@ -110,6 +115,18 @@ describe("WorkflowEditorRoute", () => {
 
     fireEvent.click(screen.getByText("Implement"));
     const nodeInspector = await screen.findByRole("complementary", { name: "Inspect node" });
+    expect(within(nodeInspector).getByRole("heading", { name: "Inspect node" })).toHaveClass(
+      "truncate",
+      "flex-1",
+    );
+    const nodeIDButton = within(nodeInspector).getByRole("button", { name: "Copy node ID node-1" });
+    expect(nodeIDButton).toHaveTextContent("node-1");
+    expect(nodeIDButton).toHaveClass("text-xs", "text-right", "max-w-[45%]");
+    expect(within(nodeInspector).queryByText("ID")).not.toBeInTheDocument();
+    fireEvent.click(nodeIDButton);
+    await waitFor(() => {
+      expect(copied).toEqual(["node-1"]);
+    });
     expect(within(nodeInspector).queryByText("Identity")).not.toBeInTheDocument();
     expect(within(nodeInspector).queryByText("Behavior")).not.toBeInTheDocument();
     expect(within(nodeInspector).queryByText("Kind")).not.toBeInTheDocument();
@@ -797,6 +814,23 @@ function OpenStandardSidebar() {
 
 function sidebarWidthStyle(sidebar: HTMLElement): string {
   return sidebar.style.getPropertyValue("--app-sidebar-width");
+}
+
+function nativeBridgeWithClipboard(copied: string[]): NativeBridge {
+  const base = createBrowserNativeBridge();
+  return {
+    ...base,
+    capabilities: {
+      ...base.capabilities,
+      clipboard: { ...base.capabilities.clipboard, writeText: true },
+    },
+    clipboard: {
+      ...base.clipboard,
+      async writeText(value): Promise<void> {
+        copied.push(value);
+      },
+    },
+  };
 }
 
 function WorkflowConflictDriver() {
