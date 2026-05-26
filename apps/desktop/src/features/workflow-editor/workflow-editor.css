@@ -38,7 +38,7 @@
   --workflow-editor-node-outline-color: var(--color-error);
 }
 
-.workflow-editor-node-error.workflow-editor-join-node .workflow-editor-join-diamond {
+.workflow-editor-node-error .workflow-editor-join-diamond {
   background: color-mix(in srgb, var(--workflow-editor-node-outline-color) 16%, var(--color-island-3));
 }
 

@@ -260,10 +260,7 @@ export const WorkflowJoinNode = memo(function WorkflowJoinNode({
       className={cx(
         "workflow-editor-join-node grid h-full w-full place-items-center",
         data.hasError ? "workflow-editor-node-error" : undefined,
-        selected ? "workflow-editor-node-selected" : undefined,
       )}
-      data-kind={data.kind}
-      data-testid={`workflow-graph-node-${data.entityID}`}
       style={workflowNodeOutlineStyle(data.kind, data.hasError)}
       title={data.label}
     >
@@ -281,9 +278,16 @@ export const WorkflowJoinNode = memo(function WorkflowJoinNode({
         position={Position.Right}
         type="source"
       />
-      <div className="workflow-editor-join-diamond" data-testid="workflow-join-diamond">
+      <IslandSurface
+        as="div"
+        className={cx("workflow-editor-join-diamond", selected ? "workflow-editor-node-selected" : undefined)}
+        data-kind={data.kind}
+        data-testid={`workflow-graph-node-${data.entityID}`}
+        level={3}
+        style={workflowNodeOutlineStyle(data.kind, data.hasError)}
+      >
         <span className="sr-only">{data.label}</span>
-      </div>
+      </IslandSurface>
     </div>
   );
   const tooltip = (

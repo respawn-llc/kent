@@ -83,6 +83,7 @@ describe("WorkflowGraphCanvas", () => {
       "--workflow-editor-node-outline-color": "var(--color-success)",
     });
     expect(screen.getByTestId("workflow-graph-node-join")).toHaveAttribute("data-kind", "join");
+    expect(screen.getByTestId("workflow-graph-node-join")).toHaveClass("island-surface-3");
     expect(screen.getByTestId("workflow-graph-node-join")).toHaveStyle({
       "--workflow-editor-node-outline-color": "var(--color-secondary)",
     });
