@@ -294,6 +294,68 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 	}
 }
 
+func TestWorkflowNodeUpdatePreservesCanonicalWiringFields(t *testing.T) {
+	cfg := config.App{WorkspaceRoot: t.TempDir()}
+	remote := &preservingNodeUpdateRemote{}
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	_, stderr, code := runWorkflowRootCommand("workflow", "node", "update", "workflow-1", "join", "--display-name", "Updated Join")
+	if code != 0 {
+		t.Fatalf("workflow node update exit=%d stderr=%q", code, stderr)
+	}
+	if remote.updateReq.DisplayName != "Updated Join" {
+		t.Fatalf("update request display name = %q, want Updated Join", remote.updateReq.DisplayName)
+	}
+	if len(remote.updateReq.InputFields) != 1 || remote.updateReq.InputFields[0].Name != "handoff" || remote.updateReq.InputFields[0].Description != "Branch handoff." {
+		t.Fatalf("update request input fields = %+v, want existing fields preserved", remote.updateReq.InputFields)
+	}
+	if len(remote.updateReq.JoinInputProviders) != 1 || remote.updateReq.JoinInputProviders[0].InputName != "handoff" || remote.updateReq.JoinInputProviders[0].ProviderEdgeID != "edge-branch-join" {
+		t.Fatalf("update request join providers = %+v, want existing providers preserved", remote.updateReq.JoinInputProviders)
+	}
+}
+
+type preservingNodeUpdateRemote struct {
+	client.WorkflowClient
+	updateReq serverapi.WorkflowNodeUpdateRequest
+}
+
+func (r *preservingNodeUpdateRemote) Close() error { return nil }
+
+func (r *preservingNodeUpdateRemote) ResolveProjectPath(context.Context, serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
+	return serverapi.ProjectResolvePathResponse{}, nil
+}
+
+func (r *preservingNodeUpdateRemote) ListWorkflows(context.Context, serverapi.WorkflowListRequest) (serverapi.WorkflowListResponse, error) {
+	return serverapi.WorkflowListResponse{Workflows: []serverapi.WorkflowRecord{{ID: "workflow-1", Name: "Workflow"}}}, nil
+}
+
+func (r *preservingNodeUpdateRemote) GetWorkflow(context.Context, serverapi.WorkflowGetRequest) (serverapi.WorkflowGetResponse, error) {
+	return serverapi.WorkflowGetResponse{Definition: serverapi.WorkflowDefinition{
+		Workflow: serverapi.WorkflowRecord{ID: "workflow-1", Name: "Workflow"},
+		Nodes: []serverapi.WorkflowNode{{
+			ID:          "node-join",
+			WorkflowID:  "workflow-1",
+			Key:         "join",
+			Kind:        "join",
+			DisplayName: "Join",
+			InputFields: []serverapi.WorkflowInputField{{
+				Name:        "handoff",
+				Description: "Branch handoff.",
+			}},
+			JoinInputProviders: []serverapi.WorkflowJoinInputProvider{{
+				InputName:      "handoff",
+				ProviderEdgeID: "edge-branch-join",
+			}},
+		}},
+	}}, nil
+}
+
+func (r *preservingNodeUpdateRemote) UpdateWorkflowNode(_ context.Context, req serverapi.WorkflowNodeUpdateRequest) (serverapi.WorkflowNodeUpdateResponse, error) {
+	r.updateReq = req
+	return serverapi.WorkflowNodeUpdateResponse{Version: 2}, nil
+}
+
 func TestWorkflowEditCommandsRejectLegacyWiringFlags(t *testing.T) {
 	tests := []struct {
 		name string

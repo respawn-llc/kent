@@ -269,7 +269,18 @@ func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	}
 	ctx, cancel := workflowRPCContext(context.Background())
 	defer cancel()
-	resp, err := remote.UpdateWorkflowNode(ctx, serverapi.WorkflowNodeUpdateRequest{WorkflowID: def.Workflow.ID, NodeID: updated.ID, Key: updated.Key, Kind: updated.Kind, DisplayName: updated.DisplayName, GroupKey: updated.GroupKey, SubagentRole: updated.SubagentRole, PromptTemplate: updated.PromptTemplate})
+	resp, err := remote.UpdateWorkflowNode(ctx, serverapi.WorkflowNodeUpdateRequest{
+		WorkflowID:         def.Workflow.ID,
+		NodeID:             updated.ID,
+		Key:                updated.Key,
+		Kind:               updated.Kind,
+		DisplayName:        updated.DisplayName,
+		GroupKey:           updated.GroupKey,
+		SubagentRole:       updated.SubagentRole,
+		PromptTemplate:     updated.PromptTemplate,
+		InputFields:        updated.InputFields,
+		JoinInputProviders: updated.JoinInputProviders,
+	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
