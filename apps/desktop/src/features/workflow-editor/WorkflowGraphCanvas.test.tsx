@@ -99,7 +99,7 @@ describe("WorkflowGraphCanvas", () => {
     expect(screen.getByTestId("workflow-editor-tools")).toHaveClass(
       "fixed",
       "left-[var(--space-2)]",
-      "top-[var(--space-2)]",
+      "top-[calc(var(--native-titlebar-height)+var(--space-2))]",
       "z-30",
     );
 

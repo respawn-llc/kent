@@ -1,5 +1,6 @@
 /* eslint-disable complexity, max-lines -- The route coordinates data loading, draft lifecycle, save, and floating islands. */
 import { useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
@@ -176,7 +177,7 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
     );
   }
 
-  return (
+  const editorRoute = (
     <section
       className="app-region-no-drag fixed inset-0 z-0 h-screen min-h-0 w-screen overflow-hidden"
       data-testid="workflow-editor-route"
@@ -226,6 +227,8 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
       <WorkflowEditorLegendIsland />
     </section>
   );
+
+  return createPortal(editorRoute, document.body);
 
   async function saveWorkflowDraft(): Promise<void> {
     if (draftState === null) {

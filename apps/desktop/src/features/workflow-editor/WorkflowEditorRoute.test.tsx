@@ -62,6 +62,9 @@ describe("WorkflowEditorRoute", () => {
       "h-screen",
       "w-screen",
     );
+    expect(screen.getByTestId("route-transition-frame")).not.toContainElement(
+      screen.getByTestId("workflow-editor-route"),
+    );
     expect(screen.getByTestId("workflow-editor-route")).not.toHaveClass("p-[var(--space-2)]");
     const legend = screen.getByRole("complementary", { name: "Legend" });
     expect(legend).toHaveClass(

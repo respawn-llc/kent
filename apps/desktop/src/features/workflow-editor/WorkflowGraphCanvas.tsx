@@ -152,7 +152,7 @@ function WorkflowGraphCanvasInner({
 
   const tools = (
     <div
-      className="workflow-editor-tools island-glass app-region-no-drag fixed left-[var(--space-2)] top-[var(--space-2)] z-30 grid gap-[var(--space-1)] rounded-[var(--radius-l)] border p-[var(--space-1)] shadow-[var(--shadow-island-1)]"
+      className="workflow-editor-tools island-glass app-region-no-drag fixed left-[var(--space-2)] top-[calc(var(--native-titlebar-height)+var(--space-2))] z-30 grid gap-[var(--space-1)] rounded-[var(--radius-l)] border p-[var(--space-1)] shadow-[var(--shadow-island-1)]"
       data-testid="workflow-editor-tools"
     >
       <CanvasTool label={t("workflowEditor.inspectWorkflow")} onClick={onWorkflowInspect}>
