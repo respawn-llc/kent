@@ -23,7 +23,7 @@ export function WorkflowGraphToolbar({
   return createPortal(
     <IslandSurface
       as="div"
-      className="workflow-editor-tools app-region-no-drag fixed left-[var(--space-2)] top-[var(--space-2)] z-30 grid gap-[var(--space-1)] rounded-[var(--radius-l)] p-[var(--space-1)]"
+      className="workflow-editor-tools app-region-no-drag fixed left-[var(--space-2)] top-[calc(var(--native-titlebar-height)+var(--space-2))] z-30 grid gap-[var(--space-1)] rounded-[var(--radius-l)] p-[var(--space-1)]"
       data-testid="workflow-editor-tools"
       level={1}
     >
