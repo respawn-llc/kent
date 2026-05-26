@@ -73,8 +73,8 @@ describe("WorkflowEditorRoute", () => {
       "pointer-events-none",
     );
     expect(screen.getByTestId("workflow-editor-top-chrome-blur")).toHaveStyle({
-      backdropFilter: "blur(28px)",
-      maskImage: "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
+      backdropFilter: "blur(16px)",
+      maskImage: "linear-gradient(to bottom, black 0%, black 30%, transparent 100%)",
     });
     const legend = screen.getByRole("complementary", { name: "Legend" });
     expect(legend).toHaveClass(

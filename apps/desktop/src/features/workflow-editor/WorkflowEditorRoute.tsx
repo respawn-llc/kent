@@ -291,10 +291,10 @@ function WorkflowEditorTopChromeBlur() {
 }
 
 const workflowEditorTopChromeBlurStyle = {
-  WebkitBackdropFilter: "blur(28px)",
-  WebkitMaskImage: "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
-  backdropFilter: "blur(28px)",
-  maskImage: "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
+  WebkitBackdropFilter: "blur(16px)",
+  WebkitMaskImage: "linear-gradient(to bottom, black 0%, black 30%, transparent 100%)",
+  backdropFilter: "blur(16px)",
+  maskImage: "linear-gradient(to bottom, black 0%, black 30%, transparent 100%)",
 } satisfies CSSProperties;
 
 async function copyWorkflowNodeText(
