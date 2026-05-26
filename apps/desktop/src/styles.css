@@ -34,10 +34,10 @@
   --motion-morph: 350ms ease-in-out;
   --motion-morph-stage-delay: 200ms;
   --motion-morph-stage: 200ms ease-in-out;
-  --color-island-0: light-dark(rgba(255, 255, 255, 0.78), rgba(18, 16, 14, 0.78));
-  --color-island-1: light-dark(rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.04));
-  --color-island-2: light-dark(rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.08));
-  --color-island-3: light-dark(rgba(255, 255, 255, 0.92), rgba(25, 32, 44, 0.9));
+  --color-island-0: light-dark(rgba(255, 255, 255, 0.76), rgba(18, 16, 14, 0.78));
+  --color-island-1: light-dark(rgba(255, 255, 255, 0.82), rgba(26, 24, 22, 0.82));
+  --color-island-2: light-dark(rgba(255, 255, 255, 0.88), rgba(34, 32, 30, 0.86));
+  --color-island-3: light-dark(rgba(255, 255, 255, 0.94), rgba(42, 40, 38, 0.9));
   --color-outline: light-dark(rgba(21, 30, 46, 0.12), rgba(255, 255, 255, 0.12));
   --color-on-island: light-dark(#12100e, #ffffff);
   --color-on-background: light-dark(#12100e, #ffffff);

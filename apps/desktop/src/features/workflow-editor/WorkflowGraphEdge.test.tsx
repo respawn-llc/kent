@@ -51,7 +51,7 @@ describe("WorkflowGraphEdge", () => {
     expect(onWrapperClick).not.toHaveBeenCalled();
   });
 
-  it("renders edge labels with a translucent neutral blurred island background for legibility", () => {
+  it("renders edge labels with the card island background and on-background text", () => {
     render(
       <svg>
         <WorkflowGraphEdge
@@ -81,12 +81,14 @@ describe("WorkflowGraphEdge", () => {
     );
 
     expect(screen.getByTestId("workflow-edge-label-edge-1")).toHaveClass(
-      "bg-[color-mix(in_srgb,var(--color-island-0)_94%,transparent)]",
+      "bg-[var(--color-island-1)]",
+      "text-[var(--color-on-background)]",
       "backdrop-blur-[18px]",
       "shadow-[var(--shadow-island-1)]",
     );
     expect(screen.getByTestId("workflow-edge-label-edge-1")).not.toHaveClass(
-      "bg-[var(--color-island-1)]",
+      "text-[var(--color-on-island)]",
+      "bg-[color-mix(in_srgb,var(--color-island-0)_94%,transparent)]",
       "bg-[var(--color-island-3)]",
     );
   });
