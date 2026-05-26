@@ -1,5 +1,5 @@
 /* eslint-disable complexity, max-lines -- The route coordinates data loading, draft lifecycle, save, and floating islands. */
-import { useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useReducer, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
@@ -283,11 +283,19 @@ function WorkflowEditorTopChromeBlur() {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none fixed inset-x-0 top-0 z-10 h-[calc(var(--native-titlebar-height)*2)] backdrop-blur-[18px] [mask-image:linear-gradient(to_bottom,black_0%,transparent_100%)]"
+      className="pointer-events-none fixed inset-x-0 top-0 z-10 h-[calc(var(--native-titlebar-height)*2)]"
       data-testid="workflow-editor-top-chrome-blur"
+      style={workflowEditorTopChromeBlurStyle}
     />
   );
 }
+
+const workflowEditorTopChromeBlurStyle = {
+  WebkitBackdropFilter: "blur(28px)",
+  WebkitMaskImage: "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
+  backdropFilter: "blur(28px)",
+  maskImage: "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
+} satisfies CSSProperties;
 
 async function copyWorkflowNodeText(
   value: string,
