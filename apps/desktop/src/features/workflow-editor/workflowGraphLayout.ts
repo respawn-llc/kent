@@ -69,12 +69,16 @@ export async function layoutWorkflowGraph(
   const transitionGroupsByID = new Map(definition.transitionGroups.map((group) => [group.id, group]));
   const visibleNodes = definition.nodes;
   const edgeModels = visibleWorkflowGraphEdgeModels(definition, transitionGroupsByID, errorMarkers);
-  const groupedNodeIDs = new Set(
+  const groupedNodeIDs = new Set(visibleNodes.filter((node) => node.groupID.length > 0).map((node) => node.id));
+  const populatedGroupIDs = new Set(
     visibleNodes.map((node) => node.groupID).filter((groupID) => groupID.length > 0),
   );
-  const emptyGroups = definition.nodeGroups.filter((group) => !groupedNodeIDs.has(group.id));
+  const emptyGroups = definition.nodeGroups.filter((group) => !populatedGroupIDs.has(group.id));
   const children: ElkNode[] = [
-    ...visibleNodes.map((node) => elkWorkflowNode(node)),
+    ...visibleNodes.filter((node) => !groupedNodeIDs.has(node.id)).map((node) => elkWorkflowNode(node)),
+    ...definition.nodeGroups
+      .filter((group) => populatedGroupIDs.has(group.id))
+      .map((group) => elkWorkflowGroupNode(group, visibleNodes)),
     ...emptyGroups.map((group) => ({
       id: groupNodeID(group.id),
       width: emptyGroupWidth,
@@ -95,6 +99,7 @@ export async function layoutWorkflowGraph(
       "elk.layered.spacing.edgeEdgeBetweenLayers": "28",
       "elk.layered.spacing.edgeNodeBetweenLayers": "56",
       "elk.layered.spacing.nodeNodeBetweenLayers": "120",
+      "elk.hierarchyHandling": "INCLUDE_CHILDREN",
     },
   };
   const result = await elk.layout(graph);
@@ -137,6 +142,24 @@ function elkWorkflowNode(node: WorkflowDefinition["nodes"][number]): ElkNode {
   };
 }
 
+function elkWorkflowGroupNode(
+  group: WorkflowDefinition["nodeGroups"][number],
+  nodes: readonly WorkflowDefinition["nodes"][number][],
+): ElkNode {
+  return {
+    id: groupNodeID(group.id),
+    children: nodes.filter((node) => node.groupID === group.id).map((node) => elkWorkflowNode(node)),
+    layoutOptions: {
+      "elk.algorithm": "layered",
+      "elk.direction": "RIGHT",
+      "elk.padding": "[top=56,left=24,bottom=24,right=24]",
+      "elk.spacing.edgeNode": "44",
+      "elk.spacing.nodeNode": "80",
+      "elk.layered.spacing.nodeNodeBetweenLayers": "120",
+    },
+  };
+}
+
 function flattenNodes(
   result: ElkNode,
   definition: WorkflowDefinition,
@@ -145,24 +168,34 @@ function flattenNodes(
   const workflowNodesByID = new Map(
     definition.nodes.map((node) => [node.id, node]),
   );
-  const layoutByID = new Map((result.children ?? []).map((node) => [node.id, node]));
+  const layoutByID = layoutNodeByID(result);
   const groupLayout = workflowGroupNodes(definition, layoutByID, errorMarkers);
   const out: WorkflowGraphNode[] = [...groupLayout.nodes];
-  for (const child of result.children ?? []) {
-    if (child.id.startsWith("workflow-group-")) {
+  for (const node of definition.nodes) {
+    const layout = layoutByID.get(node.id);
+    if (layout === undefined || !workflowNodesByID.has(node.id)) {
       continue;
     }
-    const node = workflowNodesByID.get(child.id);
-    if (node !== undefined) {
-      out.push(
-        workflowNode(child, node, {
-          errorMarkers,
-          offset: groupLayout.memberOffsetByNodeID.get(node.id),
-          parentID: groupLayout.memberParentIDByNodeID.get(node.id),
-        }),
-      );
+    out.push(
+      workflowNode(layout, node, {
+        errorMarkers,
+        offset: groupLayout.memberOffsetByNodeID.get(node.id),
+        parentID: groupLayout.memberParentIDByNodeID.get(node.id),
+      }),
+    );
+  }
+  return out;
+}
+
+function layoutNodeByID(root: ElkNode): ReadonlyMap<string, ElkNode> {
+  const out = new Map<string, ElkNode>();
+  function visit(node: ElkNode): void {
+    out.set(node.id, node);
+    for (const child of node.children ?? []) {
+      visit(child);
     }
   }
+  visit(root);
   return out;
 }
 
@@ -180,10 +213,11 @@ function workflowGroupNodes(
   const memberOffsetByNodeID = new Map<string, NodeLayoutOffset>();
   for (const group of definition.nodeGroups) {
     const members = groupMembers(definition, layoutByID, group.id);
+    const layout = layoutByID.get(groupNodeID(group.id));
     const groupNode =
       members.length === 0
-        ? emptyGroupNode(group, layoutByID.get(groupNodeID(group.id)), errorMarkers)
-        : populatedGroupNode(group, members, errorMarkers);
+        ? emptyGroupNode(group, layout, errorMarkers)
+        : populatedGroupNode(group, members, layout, errorMarkers);
     nodes.push(groupNode.node);
     for (const nodeID of groupNode.memberNodeIDs) {
       memberParentIDByNodeID.set(nodeID, groupNode.node.id);
@@ -234,9 +268,11 @@ function emptyGroupNode(
 function populatedGroupNode(
   group: WorkflowDefinition["nodeGroups"][number],
   members: readonly ElkNode[],
+  layout: ElkNode | undefined,
   errorMarkers: ValidationMarkers,
 ): Readonly<{ memberNodeIDs: readonly string[]; node: WorkflowGraphNode; offset: NodeLayoutOffset }> {
-  const bounds = groupBounds(members);
+  const bounds = groupBounds(members, layout);
+  const offset = layout === undefined ? { x: bounds.minX, y: bounds.minY } : { x: 0, y: 0 };
   return {
     memberNodeIDs: members.map((member) => member.id),
     node: {
@@ -255,11 +291,19 @@ function populatedGroupNode(
       },
       style: { width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY },
     },
-    offset: { x: bounds.minX, y: bounds.minY },
+    offset,
   };
 }
 
-function groupBounds(members: readonly ElkNode[]) {
+function groupBounds(members: readonly ElkNode[], layout: ElkNode | undefined) {
+  if (layout?.width !== undefined && layout.height !== undefined) {
+    return {
+      minX: layout.x ?? 0,
+      minY: layout.y ?? 0,
+      maxX: (layout.x ?? 0) + layout.width,
+      maxY: (layout.y ?? 0) + layout.height,
+    };
+  }
   return {
     minX: Math.min(...members.map((member) => member.x ?? 0)) - 24,
     minY: Math.min(...members.map((member) => member.y ?? 0)) - 56,
