@@ -346,6 +346,25 @@ describe("WorkflowEditorRoute", () => {
     expect(screen.getByTestId("stale-native-delete-driver-edges")).toHaveTextContent("edge-stale");
   });
 
+  it("shows local feedback when native delete confirmation listener registration fails", async () => {
+    const nativeBridge = nativeWorkflowDeleteListenerFailureBridge();
+    const services = createTestServices(
+      [
+        ...startupRoutes,
+        { method: "workflow.get", result: workflowDefinitionResponse },
+        { method: "workflow.validate", result: invalidValidationResponse },
+        { method: "workflow.graph.validateDraft", result: graphValidationResponse },
+      ],
+      nativeBridge,
+    );
+    window.history.pushState(null, "", "/workflows/workflow-1/editor");
+    render(<App services={services} />);
+
+    await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
+
+    expect(await screen.findByText("Delete confirmation listener failed: listener unavailable")).toBeInTheDocument();
+  });
+
   it("shows local feedback when Start Node deletion is blocked", async () => {
     window.history.pushState(null, "", "/workflows/workflow-1/editor");
     render(
@@ -1722,6 +1741,19 @@ function nativeWorkflowDeleteDialogBridge(opened: NativeDialogWindowOptions[]): 
         return () => {
           handlers.delete(handler);
         };
+      },
+    },
+  };
+}
+
+function nativeWorkflowDeleteListenerFailureBridge(): NativeBridge {
+  const base = createBrowserNativeBridge();
+  return {
+    ...base,
+    workflowEditor: {
+      ...base.workflowEditor,
+      async onGraphDeleteConfirmed(): Promise<() => void> {
+        throw new Error("listener unavailable");
       },
     },
   };
