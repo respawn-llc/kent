@@ -89,6 +89,9 @@ func (e *Engine) compactWithContextRepairRetry(
 		targetSavedTokens := compactionOverflowRepairTargetTokens(contextWindowTokens, attempt+1)
 		nextInput, repaired := collapseCompactionOverflowToolPayloadsAfterSavings(currentInput, targetSavedTokens, repairStats.EstimatedSavedTokens)
 		if !repaired.Collapsed() {
+			// Only known tool payloads are safe to collapse here. Ordinary
+			// conversation history must not be trimmed or request-shaped at
+			// compaction time, so fail instead of retrying the same payload.
 			return llm.CompactionResponse{}, nil, repairStats, err
 		}
 		currentInput = nextInput
@@ -244,6 +247,9 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []l
 		targetSavedTokens := compactionOverflowRepairTargetTokens(contextWindowTokens, repairAttempt+1)
 		nextWindow, repaired := collapseCompactionOverflowToolPayloadsAfterSavings(window, targetSavedTokens, repairStats.EstimatedSavedTokens)
 		if !repaired.Collapsed() {
+			// Only known tool payloads are safe to collapse here. Ordinary
+			// conversation history must not be trimmed or request-shaped at
+			// compaction time, so fail instead of retrying the same payload.
 			return "", repairStats, err
 		}
 		window = nextWindow

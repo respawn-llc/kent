@@ -234,6 +234,45 @@ func TestLocalCompactionCollapsesToolPayloadAfterOverflow(t *testing.T) {
 	}
 }
 
+func TestLocalCompactionFailsFastWhenOverflowHasNoCollapsibleToolPayload(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	client := &fakeCompactionClient{
+		errors: []error{
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			nil,
+		},
+		responses: []llm.Response{{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "unexpected retry"},
+		}},
+	}
+	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", CompactionMode: "local"})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("chat-heavy-history", 12_000)}); err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, ReasoningItems: []llm.ReasoningItem{{
+		ID:               "rs-heavy",
+		EncryptedContent: strings.Repeat("reasoning-heavy-history", 12_000),
+	}}}); err != nil {
+		t.Fatalf("append reasoning message: %v", err)
+	}
+
+	if err := eng.CompactContext(context.Background(), ""); err == nil {
+		t.Fatal("expected ordinary-history overflow to fail without retry")
+	} else if !llm.IsContextLengthOverflowError(err) {
+		t.Fatalf("expected context overflow error, got %v", err)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("expected no retry without collapsible tool payloads, got %d local compaction model calls", len(client.calls))
+	}
+}
+
 func TestLocalCompactionUsesTenTwentyFortyPercentRepairScheduleFromConfiguredContextWindow(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
