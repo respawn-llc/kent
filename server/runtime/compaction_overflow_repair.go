@@ -68,7 +68,7 @@ func collapseCompactionOverflowToolPayloadsAfterSavings(items []llm.ResponseItem
 			if saved <= 0 {
 				continue
 			}
-			out[idx].Output = replacement
+			applyCompactionOverflowShellOutputCollapse(&out[idx], replacement)
 			stats.ShellOutputsCollapsed++
 			stats.EstimatedSavedTokens += saved
 			currentSavedTokens += saved
@@ -80,13 +80,29 @@ func collapseCompactionOverflowToolPayloadsAfterSavings(items []llm.ResponseItem
 			if saved <= 0 {
 				continue
 			}
-			out[idx].CustomInput = replacement
+			applyCompactionOverflowPatchInputCollapse(&out[idx], replacement)
 			stats.PatchInputsCollapsed++
 			stats.EstimatedSavedTokens += saved
 			currentSavedTokens += saved
 		}
 	}
 	return out, stats
+}
+
+func applyCompactionOverflowShellOutputCollapse(item *llm.ResponseItem, replacement json.RawMessage) {
+	if item == nil {
+		return
+	}
+	item.Output = replacement
+	item.Raw = nil
+}
+
+func applyCompactionOverflowPatchInputCollapse(item *llm.ResponseItem, replacement string) {
+	if item == nil {
+		return
+	}
+	item.CustomInput = replacement
+	item.Raw = nil
 }
 
 func compactionOverflowRepairTargetTokens(contextWindowTokens int, repairAttempt int) int {

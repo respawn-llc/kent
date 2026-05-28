@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,9 +16,11 @@ import (
 )
 
 func TestCompactionOverflowRepairCollapsesShellOutputAndPreservesInput(t *testing.T) {
+	const staleRawMarker = "raw-stale-shell-output"
+	originalRaw := json.RawMessage(`{"type":"function_call_output","call_id":"call-shell","output":"` + staleRawMarker + strings.Repeat("raw", 40_000) + `"}`)
 	items := []llm.ResponseItem{
 		{Type: llm.ResponseItemTypeFunctionCall, ID: "call-shell", CallID: "call-shell", Name: string(toolspec.ToolExecCommand), Arguments: json.RawMessage(`{"cmd":"go test ./..."}`)},
-		{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "call-shell", Name: string(toolspec.ToolExecCommand), Output: json.RawMessage(`{"output":"` + strings.Repeat("x", 120_000) + `"}`)},
+		{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "call-shell", Name: string(toolspec.ToolExecCommand), Output: json.RawMessage(`{"output":"` + strings.Repeat("x", 120_000) + `"}`), Raw: originalRaw},
 	}
 
 	repaired, stats := collapseCompactionOverflowToolPayloadsForDefaultWindowRepairAttempt(items, 1)
@@ -43,6 +46,13 @@ func TestCompactionOverflowRepairCollapsesShellOutputAndPreservesInput(t *testin
 	if collapsed != "<collapsed>" {
 		t.Fatalf("collapsed shell output = %q, want <collapsed>", collapsed)
 	}
+	if len(repaired[1].Raw) != 0 {
+		t.Fatalf("expected stale provider raw payload to be cleared, got %s", repaired[1].Raw)
+	}
+	prepared := llm.PrepareOpenAIInputItems(repaired)
+	if bytes.Contains(mustMarshalItemsForRepairTestBytes(t, prepared), []byte(staleRawMarker)) {
+		t.Fatalf("prepared repaired request still contains stale raw marker")
+	}
 }
 
 func TestCompactionOverflowRepairCollapsesWriteStdinOutput(t *testing.T) {
@@ -64,9 +74,11 @@ func TestCompactionOverflowRepairCollapsesWriteStdinOutput(t *testing.T) {
 }
 
 func TestCompactionOverflowRepairCollapsesPatchInputAndPreservesPair(t *testing.T) {
+	const staleRawMarker = "raw-stale-patch-input"
 	patchInput := "*** Begin Patch\n*** Add File: big.txt\n+" + strings.Repeat("x", 120_000) + "\n*** End Patch\n"
+	originalRaw := json.RawMessage(`{"type":"custom_tool_call","call_id":"call-patch","name":"patch","input":` + strconv.Quote(staleRawMarker+patchInput) + `}`)
 	items := []llm.ResponseItem{
-		{Type: llm.ResponseItemTypeCustomToolCall, ID: "call-patch", CallID: "call-patch", Name: string(toolspec.ToolPatch), CustomInput: patchInput},
+		{Type: llm.ResponseItemTypeCustomToolCall, ID: "call-patch", CallID: "call-patch", Name: string(toolspec.ToolPatch), CustomInput: patchInput, Raw: originalRaw},
 		{Type: llm.ResponseItemTypeCustomToolOutput, CallID: "call-patch", Name: string(toolspec.ToolPatch), Output: json.RawMessage(`{"ok":true}`)},
 	}
 
@@ -85,6 +97,13 @@ func TestCompactionOverflowRepairCollapsesPatchInputAndPreservesPair(t *testing.
 	}
 	if string(repaired[1].Output) != string(items[1].Output) {
 		t.Fatalf("patch output changed: %s", repaired[1].Output)
+	}
+	if len(repaired[0].Raw) != 0 {
+		t.Fatalf("expected stale provider raw payload to be cleared, got %s", repaired[0].Raw)
+	}
+	prepared := llm.PrepareOpenAIInputItems(repaired)
+	if bytes.Contains(mustMarshalItemsForRepairTestBytes(t, prepared), []byte(staleRawMarker)) {
+		t.Fatalf("prepared repaired request still contains stale raw marker")
 	}
 }
 
@@ -346,10 +365,14 @@ func collapseCompactionOverflowToolPayloadsForDefaultWindowRepairAttempt(items [
 }
 
 func mustMarshalItemsForRepairTest(t *testing.T, items []llm.ResponseItem) string {
+	return string(mustMarshalItemsForRepairTestBytes(t, items))
+}
+
+func mustMarshalItemsForRepairTestBytes(t *testing.T, items []llm.ResponseItem) []byte {
 	t.Helper()
 	data, err := json.Marshal(items)
 	if err != nil {
 		t.Fatalf("marshal items: %v", err)
 	}
-	return string(data)
+	return data
 }

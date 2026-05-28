@@ -59,6 +59,21 @@ func mustBuildResponsesInput(t *testing.T, items []ResponseItem) []responses.Res
 	return input
 }
 
+func TestBuildResponsesInputRawTakesPrecedenceOverTypedFields(t *testing.T) {
+	items := []ResponseItem{{
+		Type:   ResponseItemTypeFunctionCallOutput,
+		CallID: "call_1",
+		Name:   string(toolspec.ToolExecCommand),
+		Output: json.RawMessage(`"typed-collapsed-output"`),
+		Raw:    json.RawMessage(`{"type":"function_call_output","call_id":"call_1","output":"stale-raw-output"}`),
+	}}
+
+	jsonItems := mustMarshalItems(t, mustBuildResponsesInput(t, items))
+	if got := jsonItems[0]["output"]; got != "stale-raw-output" {
+		t.Fatalf("expected raw provider payload to take precedence, got %#v", got)
+	}
+}
+
 func TestBuildPayload_SerializesAssistantToolCalls(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	payload, err := transport.buildPayload(OpenAIRequest{
