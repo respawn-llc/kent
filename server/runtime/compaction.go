@@ -21,7 +21,7 @@ const (
 	compactionModeManual  compactionMode = "manual"
 
 	defaultContextWindowTokens         = 200_000
-	compactOverflowRetries             = 2
+	compactOverflowRetries             = 12
 	autoCompactNearLimitMargin         = 8_000
 	compactionSoonReminderPercent      = 85
 	manualCompactionCarryoverMaxChars  = 4_000

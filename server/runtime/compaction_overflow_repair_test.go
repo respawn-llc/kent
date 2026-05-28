@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -178,6 +179,98 @@ func TestLocalCompactionCollapsesToolPayloadAfterOverflow(t *testing.T) {
 	}
 	if !foundDiagnostic {
 		t.Fatalf("expected compaction repair diagnostic in transcript, got %+v", eng.ChatSnapshot().Entries)
+	}
+}
+
+func TestLocalCompactionContinuesRepairPastFortyThousandTokens(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	client := &fakeCompactionClient{
+		errors: []error{
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 0, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 0, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 0, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			nil,
+		},
+		responses: []llm.Response{{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "local summary"},
+			Usage:     llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+		}},
+	}
+	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", CompactionMode: "local"})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	for idx := 0; idx < 5; idx++ {
+		callID := fmt.Sprintf("call-shell-%d", idx)
+		if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+			ID:    callID,
+			Name:  string(toolspec.ToolExecCommand),
+			Input: json.RawMessage(`{"cmd":"echo hi"}`),
+		}}}); err != nil {
+			t.Fatalf("append assistant tool call %d: %v", idx, err)
+		}
+		if err := eng.appendMessage("", llm.Message{
+			Role:       llm.RoleTool,
+			ToolCallID: callID,
+			Name:       string(toolspec.ToolExecCommand),
+			Content:    `{"output":"` + strings.Repeat("x", 48_000) + `"}`,
+		}); err != nil {
+			t.Fatalf("append tool output %d: %v", idx, err)
+		}
+	}
+
+	if err := eng.CompactContext(context.Background(), ""); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if len(client.calls) != 4 {
+		t.Fatalf("local compaction model calls = %d, want 4", len(client.calls))
+	}
+	collapsed := 0
+	for _, item := range client.calls[3].Items {
+		if item.Type == llm.ResponseItemTypeFunctionCallOutput && isCollapsedCompactionOverflowShellOutput(item.Output) {
+			collapsed++
+		}
+	}
+	if collapsed != 5 {
+		t.Fatalf("collapsed shell outputs on fourth attempt = %d, want 5", collapsed)
+	}
+}
+
+func TestGenerateWithRetryDoesNotRetryContextOverflow(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	client := &fakeClient{
+		errors: []error{
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 0, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			nil,
+		},
+		responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "unexpected"}}},
+	}
+	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	req := llm.Request{Model: "gpt-5", Items: llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: "hello"}})}
+
+	_, err = eng.generateWithRetryClient(context.Background(), "step-context-overflow", client, req, nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected context overflow error")
+	}
+	if !llm.IsContextLengthOverflowError(err) {
+		t.Fatalf("expected context overflow classification, got %v", err)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("model calls = %d, want 1", len(client.calls))
 	}
 }
 
