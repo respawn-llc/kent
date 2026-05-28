@@ -188,7 +188,7 @@
 - Supervisor/reviewer cache lineage uses `<session_id>/supervisor` with the same compaction generation counter.
 - Local compaction instructions are final `developer` messages. Runtime rejects any tool calls returned by local compaction.
 - Local compaction summary generation reuses the normal main-agent request envelope and changes only request items by appending compaction instructions.
-- If native or local compaction exceeds provider context length, Builder retries by collapsing supported historical tool payloads in the compaction request only. Shell outputs and patch inputs collapse to exact text `<collapsed>`; tool calls and call/output relationships remain present. Unsupported tool payloads are not removed. Successful repaired compaction persists an operator-visible diagnostic with collapse counts and estimated omitted tokens.
+- If native or local compaction exceeds provider context length, Builder retries by collapsing supported historical tool payloads in the compaction request only. Shell outputs, including `exec_command` and `write_stdin` outputs, and patch inputs collapse to exact text `<collapsed>`; tool calls and call/output relationships remain present. Unsupported tool payloads are not removed. Successful repaired compaction persists an operator-visible diagnostic with collapse counts and estimated omitted tokens.
 - Compaction lifecycle emits and persists started/completed/failed events.
 - Completed compaction creates no UI-only transcript row. Transcript-visible compaction summaries come from server-owned transcript items.
 
