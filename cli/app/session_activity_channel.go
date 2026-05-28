@@ -99,6 +99,9 @@ func resubscribeSessionActivity(ctx context.Context, subscribe sessionActivitySu
 		if err == nil {
 			return sub, nil
 		}
+		// After a restart the broker may reject an old cursor, but cursor 0
+		// asks for the fresh live stream and must keep retrying instead of
+		// closing the TUI runtime event channel.
 		if errors.Is(err, serverapi.ErrStreamGap) && afterSequence > 0 {
 			return nil, err
 		}
