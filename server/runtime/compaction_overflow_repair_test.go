@@ -45,6 +45,24 @@ func TestCompactionOverflowRepairCollapsesShellOutputAndPreservesInput(t *testin
 	}
 }
 
+func TestCompactionOverflowRepairCollapsesWriteStdinOutput(t *testing.T) {
+	items := []llm.ResponseItem{
+		{Type: llm.ResponseItemTypeFunctionCall, ID: "call-stdin", CallID: "call-stdin", Name: string(toolspec.ToolWriteStdin), Arguments: json.RawMessage(`{"session_id":1,"chars":""}`)},
+		{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "call-stdin", Name: string(toolspec.ToolWriteStdin), Output: json.RawMessage(`{"output":"` + strings.Repeat("x", 120_000) + `"}`)},
+	}
+
+	repaired, stats := collapseCompactionOverflowToolPayloads(items, 1)
+	if stats.ShellOutputsCollapsed != 1 {
+		t.Fatalf("shell outputs collapsed = %d, want 1", stats.ShellOutputsCollapsed)
+	}
+	if !isCollapsedCompactionOverflowShellOutput(repaired[1].Output) {
+		t.Fatalf("expected write_stdin output to collapse, got %s", repaired[1].Output)
+	}
+	if string(repaired[0].Arguments) != string(items[0].Arguments) {
+		t.Fatalf("write_stdin input changed: %s", repaired[0].Arguments)
+	}
+}
+
 func TestCompactionOverflowRepairCollapsesPatchInputAndPreservesPair(t *testing.T) {
 	patchInput := "*** Begin Patch\n*** Add File: big.txt\n+" + strings.Repeat("x", 120_000) + "\n*** End Patch\n"
 	items := []llm.ResponseItem{

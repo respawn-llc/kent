@@ -65,7 +65,7 @@ func collapseCompactionOverflowToolPayloadsAfterSavings(items []llm.ResponseItem
 		item := out[idx]
 		switch item.Type {
 		case llm.ResponseItemTypeFunctionCallOutput:
-			if compactionOverflowRepairToolID(item, callTools) != toolspec.ToolExecCommand || isCollapsedCompactionOverflowShellOutput(item.Output) {
+			if !isCompactionOverflowRepairShellOutputTool(compactionOverflowRepairToolID(item, callTools)) || isCollapsedCompactionOverflowShellOutput(item.Output) {
 				continue
 			}
 			replacement, saved := collapsedCompactionOverflowShellOutput(item.Output)
@@ -124,6 +124,10 @@ func compactionOverflowRepairToolID(item llm.ResponseItem, callTools map[string]
 		return ""
 	}
 	return callTools[compactionOverflowRepairCallID(item)]
+}
+
+func isCompactionOverflowRepairShellOutputTool(toolID toolspec.ID) bool {
+	return toolID == toolspec.ToolExecCommand || toolID == toolspec.ToolWriteStdin
 }
 
 func collapsedCompactionOverflowShellOutput(output json.RawMessage) (json.RawMessage, int) {
