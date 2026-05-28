@@ -290,6 +290,37 @@ func TestMapOpenAIRequestError_UsesOpenAISDKContractError(t *testing.T) {
 	}
 }
 
+func TestMapOpenAIStreamErrorPayload_UsesSharedStructuredDecoder(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "nested stream error",
+			body: `{"type":"error","error":{"type":"invalid_request_error","code":"context_length_exceeded","param":"input","message":"too many tokens"}}`,
+		},
+		{
+			name: "response error event",
+			body: `{"type":"error","code":"context_length_exceeded","param":"input","message":"too many tokens"}`,
+		},
+		{
+			name: "response failed",
+			body: `{"type":"response.failed","response":{"error":{"code":"context_length_exceeded","message":"too many tokens"}}}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err, ok := mapOpenAIStreamErrorPayload("openai", []byte(tc.body), nil)
+			if !ok {
+				t.Fatal("expected stream error payload to map")
+			}
+			if !IsContextLengthOverflowError(err) {
+				t.Fatalf("expected context overflow classification, got %v", err)
+			}
+		})
+	}
+}
+
 func TestMapOpenAIRequestError_UsesOpenAIErrorEnvelopeFromRawResponse(t *testing.T) {
 	rawResp := &http.Response{
 		StatusCode: 422,

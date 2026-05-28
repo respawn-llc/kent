@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-func TestRemoteCompactionTrimUsesSublinearPreciseTokenCountCalls(t *testing.T) {
+func TestRemoteCompactionUsesSublinearPreciseTokenCountCalls(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
 	if err != nil {
@@ -866,7 +866,7 @@ func TestRemoteCompactionMissingCheckpointFallsBackToLocal(t *testing.T) {
 	}
 }
 
-func TestAutoCompactionRetries400ByTrimmingOldestEligibleItems(t *testing.T) {
+func TestAutoCompactionRetries400ByCollapsingShellOutput(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
 	if err != nil {
@@ -902,7 +902,8 @@ func TestAutoCompactionRetries400ByTrimmingOldestEligibleItems(t *testing.T) {
 		},
 	}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5.3-codex"})
+	largeOutput := json.RawMessage(`{"output":"` + strings.Repeat("x", 120_000) + `"}`)
+	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand, out: largeOutput}), Config{Model: "gpt-5.3-codex"})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
@@ -917,9 +918,16 @@ func TestAutoCompactionRetries400ByTrimmingOldestEligibleItems(t *testing.T) {
 	if len(client.compactionCalls) != 2 {
 		t.Fatalf("expected two compact calls (retry after 400), got %d", len(client.compactionCalls))
 	}
-	first := len(client.compactionCalls[0].InputItems)
-	second := len(client.compactionCalls[1].InputItems)
-	if second >= first {
-		t.Fatalf("expected trimmed retry input to shrink, first=%d second=%d", first, second)
+	if len(client.compactionCalls[1].InputItems) != len(client.compactionCalls[0].InputItems) {
+		t.Fatalf("expected repair to preserve item count, first=%d second=%d", len(client.compactionCalls[0].InputItems), len(client.compactionCalls[1].InputItems))
+	}
+	foundCollapsed := false
+	for _, item := range client.compactionCalls[1].InputItems {
+		if item.Type == llm.ResponseItemTypeFunctionCallOutput && item.CallID == "call_1" {
+			foundCollapsed = isCollapsedCompactionOverflowShellOutput(item.Output)
+		}
+	}
+	if !foundCollapsed {
+		t.Fatalf("expected repaired retry to collapse shell output, got %+v", client.compactionCalls[1].InputItems)
 	}
 }

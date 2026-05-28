@@ -1,0 +1,200 @@
+package runtime
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"builder/server/llm"
+	"builder/server/session"
+	"builder/server/tools"
+	"builder/shared/toolspec"
+)
+
+func TestCompactionOverflowRepairCollapsesShellOutputAndPreservesInput(t *testing.T) {
+	items := []llm.ResponseItem{
+		{Type: llm.ResponseItemTypeFunctionCall, ID: "call-shell", CallID: "call-shell", Name: string(toolspec.ToolExecCommand), Arguments: json.RawMessage(`{"cmd":"go test ./..."}`)},
+		{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "call-shell", Name: string(toolspec.ToolExecCommand), Output: json.RawMessage(`{"output":"` + strings.Repeat("x", 120_000) + `"}`)},
+	}
+
+	repaired, stats := collapseCompactionOverflowToolPayloads(items, 1)
+	if !stats.Collapsed() {
+		t.Fatalf("expected repair stats, got %+v", stats)
+	}
+	if stats.ShellOutputsCollapsed != 1 {
+		t.Fatalf("shell outputs collapsed = %d, want 1", stats.ShellOutputsCollapsed)
+	}
+	if len(repaired) != len(items) {
+		t.Fatalf("repair removed items: got %d want %d", len(repaired), len(items))
+	}
+	if string(repaired[0].Arguments) != string(items[0].Arguments) {
+		t.Fatalf("shell input changed: %s", repaired[0].Arguments)
+	}
+	if bytes.Contains(repaired[1].Output, []byte(strings.Repeat("x", 100))) {
+		t.Fatalf("shell output was not collapsed")
+	}
+	var collapsed string
+	if err := json.Unmarshal(repaired[1].Output, &collapsed); err != nil {
+		t.Fatalf("decode collapsed shell output: %v", err)
+	}
+	if collapsed != "<collapsed>" {
+		t.Fatalf("collapsed shell output = %q, want <collapsed>", collapsed)
+	}
+}
+
+func TestCompactionOverflowRepairCollapsesPatchInputAndPreservesPair(t *testing.T) {
+	patchInput := "*** Begin Patch\n*** Add File: big.txt\n+" + strings.Repeat("x", 120_000) + "\n*** End Patch\n"
+	items := []llm.ResponseItem{
+		{Type: llm.ResponseItemTypeCustomToolCall, ID: "call-patch", CallID: "call-patch", Name: string(toolspec.ToolPatch), CustomInput: patchInput},
+		{Type: llm.ResponseItemTypeCustomToolOutput, CallID: "call-patch", Name: string(toolspec.ToolPatch), Output: json.RawMessage(`{"ok":true}`)},
+	}
+
+	repaired, stats := collapseCompactionOverflowToolPayloads(items, 1)
+	if stats.PatchInputsCollapsed != 1 {
+		t.Fatalf("patch inputs collapsed = %d, want 1", stats.PatchInputsCollapsed)
+	}
+	if len(repaired) != len(items) {
+		t.Fatalf("repair removed items: got %d want %d", len(repaired), len(items))
+	}
+	if strings.Contains(repaired[0].CustomInput, strings.Repeat("x", 100)) {
+		t.Fatalf("patch input was not collapsed")
+	}
+	if repaired[0].CustomInput != "<collapsed>" {
+		t.Fatalf("collapsed patch input = %q, want <collapsed>", repaired[0].CustomInput)
+	}
+	if string(repaired[1].Output) != string(items[1].Output) {
+		t.Fatalf("patch output changed: %s", repaired[1].Output)
+	}
+}
+
+func TestCompactionOverflowRepairLeavesUnsupportedToolsUnchanged(t *testing.T) {
+	items := []llm.ResponseItem{
+		{Type: llm.ResponseItemTypeFunctionCall, ID: "call-ask", CallID: "call-ask", Name: string(toolspec.ToolAskQuestion), Arguments: json.RawMessage(`{"question":"` + strings.Repeat("x", 80_000) + `"}`)},
+		{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "call-ask", Name: string(toolspec.ToolAskQuestion), Output: json.RawMessage(`{"answer":"` + strings.Repeat("y", 80_000) + `"}`)},
+		{Type: llm.ResponseItemTypeCustomToolCall, ID: "call-custom", CallID: "call-custom", Name: "custom", CustomInput: strings.Repeat("z", 80_000)},
+	}
+
+	repaired, stats := collapseCompactionOverflowToolPayloads(items, 1)
+	if stats.Collapsed() {
+		t.Fatalf("did not expect unsupported repair stats, got %+v", stats)
+	}
+	if got, want := mustMarshalItemsForRepairTest(t, repaired), mustMarshalItemsForRepairTest(t, items); got != want {
+		t.Fatalf("unsupported tools changed\nwant=%s\n got=%s", want, got)
+	}
+}
+
+func TestCompactionOverflowRepairUsesCumulativeAttemptCapOldestFirst(t *testing.T) {
+	items := []llm.ResponseItem{
+		shellOutputRepairItem("call-1", strings.Repeat("a", 48_000)),
+		shellOutputRepairItem("call-2", strings.Repeat("b", 48_000)),
+		shellOutputRepairItem("call-3", strings.Repeat("c", 48_000)),
+	}
+
+	first, firstStats := collapseCompactionOverflowToolPayloads(items, 1)
+	if firstStats.ShellOutputsCollapsed != 2 {
+		t.Fatalf("first attempt collapsed %d shell outputs, want 2", firstStats.ShellOutputsCollapsed)
+	}
+	if bytes.Contains(first[0].Output, []byte("aaa")) || bytes.Contains(first[1].Output, []byte("bbb")) {
+		t.Fatalf("expected first two outputs collapsed")
+	}
+	if !bytes.Contains(first[2].Output, []byte("ccc")) {
+		t.Fatalf("expected third output to remain for first attempt")
+	}
+
+	second, secondStats := collapseCompactionOverflowToolPayloadsAfterSavings(first, 2, firstStats.EstimatedSavedTokens)
+	if secondStats.ShellOutputsCollapsed != 1 {
+		t.Fatalf("second attempt newly collapsed %d shell outputs, want 1", secondStats.ShellOutputsCollapsed)
+	}
+	if bytes.Contains(second[2].Output, []byte("ccc")) {
+		t.Fatalf("expected third output collapsed by second attempt")
+	}
+}
+
+func TestLocalCompactionCollapsesToolPayloadAfterOverflow(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	client := &fakeCompactionClient{
+		errors: []error{
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			nil,
+		},
+		responses: []llm.Response{{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "local summary"},
+			Usage:     llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+		}},
+	}
+	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", CompactionMode: "local"})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+		ID:    "call-shell",
+		Name:  string(toolspec.ToolExecCommand),
+		Input: json.RawMessage(`{"cmd":"go test ./..."}`),
+	}}}); err != nil {
+		t.Fatalf("append assistant tool call: %v", err)
+	}
+	if err := eng.appendMessage("", llm.Message{
+		Role:       llm.RoleTool,
+		ToolCallID: "call-shell",
+		Name:       string(toolspec.ToolExecCommand),
+		Content:    `{"output":"` + strings.Repeat("x", 120_000) + `"}`,
+	}); err != nil {
+		t.Fatalf("append tool output: %v", err)
+	}
+
+	if err := eng.CompactContext(context.Background(), ""); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if len(client.calls) != 2 {
+		t.Fatalf("local compaction model calls = %d, want 2", len(client.calls))
+	}
+	if len(client.calls[1].Items) != len(client.calls[0].Items) {
+		t.Fatalf("expected repair to preserve item count, first=%d second=%d", len(client.calls[0].Items), len(client.calls[1].Items))
+	}
+	foundCollapsed := false
+	for _, item := range client.calls[1].Items {
+		if item.Type == llm.ResponseItemTypeFunctionCallOutput && item.CallID == "call-shell" {
+			foundCollapsed = isCollapsedCompactionOverflowShellOutput(item.Output)
+		}
+	}
+	if !foundCollapsed {
+		t.Fatalf("expected local compaction retry to collapse shell output, got %+v", client.calls[1].Items)
+	}
+	foundDiagnostic := false
+	for _, entry := range eng.ChatSnapshot().Entries {
+		if entry.Role == "developer_error_feedback" && strings.Contains(entry.Text, "Context compaction succeeded after collapsing tool payloads") && strings.Contains(entry.Text, "1 shell outputs") {
+			foundDiagnostic = true
+			break
+		}
+	}
+	if !foundDiagnostic {
+		t.Fatalf("expected compaction repair diagnostic in transcript, got %+v", eng.ChatSnapshot().Entries)
+	}
+}
+
+func shellOutputRepairItem(callID string, output string) llm.ResponseItem {
+	return llm.ResponseItem{
+		Type:   llm.ResponseItemTypeFunctionCallOutput,
+		CallID: callID,
+		Name:   string(toolspec.ToolExecCommand),
+		Output: json.RawMessage(`{"output":"` + output + `"}`),
+	}
+}
+
+func mustMarshalItemsForRepairTest(t *testing.T, items []llm.ResponseItem) string {
+	t.Helper()
+	data, err := json.Marshal(items)
+	if err != nil {
+		t.Fatalf("marshal items: %v", err)
+	}
+	return string(data)
+}

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"builder/server/llm"
+	"builder/server/session"
 	"builder/shared/cachewarn"
 )
 
@@ -19,7 +20,6 @@ func (e *Engine) compactRemote(ctx context.Context, stepID string, input []llm.R
 	if err != nil {
 		return compactionResult{}, err
 	}
-	contextLimit := e.effectiveContextTokenLimit()
 	requestItems := compactionConversationReplicaItems(input)
 	baseRequest := llm.CompactionRequest{
 		Model:        locked.Model,
@@ -28,7 +28,7 @@ func (e *Engine) compactRemote(ctx context.Context, stepID string, input []llm.R
 		InputItems:   requestItems,
 	}
 
-	resp, _, extraTrimmed, err := e.compactWithContextTrimRetry(ctx, stepID, compactor, baseRequest, contextLimit)
+	resp, _, repairStats, err := e.compactWithContextRepairRetry(ctx, stepID, compactor, baseRequest)
 	if err != nil {
 		return compactionResult{}, err
 	}
@@ -45,7 +45,8 @@ func (e *Engine) compactRemote(ctx context.Context, stepID string, input []llm.R
 		engine:            "remote",
 		items:             replacement,
 		usage:             resp.Usage,
-		trimmedItemsCount: extraTrimmed + resp.TrimmedItemsCount,
+		trimmedItemsCount: resp.TrimmedItemsCount,
+		overflowRepair:    repairStats,
 		provider:          providerID,
 	}, nil
 }
@@ -63,15 +64,14 @@ func compactionConversationWithPromptItems(items []llm.ResponseItem, instruction
 	return append(conversation, llm.ResponseItem{Type: llm.ResponseItemTypeMessage, Role: llm.RoleDeveloper, Content: prompt})
 }
 
-func (e *Engine) compactWithContextTrimRetry(
+func (e *Engine) compactWithContextRepairRetry(
 	ctx context.Context,
 	stepID string,
 	client llm.CompactionClient,
 	request llm.CompactionRequest,
-	limit int,
-) (llm.CompactionResponse, []llm.ResponseItem, int, error) {
+) (llm.CompactionResponse, []llm.ResponseItem, compactionOverflowRepairStats, error) {
 	currentInput := llm.CloneResponseItems(request.InputItems)
-	additionalTrimmed := 0
+	repairStats := compactionOverflowRepairStats{}
 
 	for attempt := 0; attempt <= compactOverflowRetries; attempt++ {
 		req := request
@@ -79,24 +79,21 @@ func (e *Engine) compactWithContextTrimRetry(
 
 		resp, err := e.compactWithRetry(ctx, stepID, client, req)
 		if err == nil {
-			return resp, currentInput, additionalTrimmed, nil
+			return resp, currentInput, repairStats, nil
 		}
 		if !isCompactionContextOverflow(err) || attempt == compactOverflowRetries {
-			return llm.CompactionResponse{}, nil, additionalTrimmed, err
+			return llm.CompactionResponse{}, nil, repairStats, err
 		}
 
-		nextInput, trimmed := e.trimCompactionInputToLimit(ctx, request.Model, request.Instructions, currentInput, limit)
-		if trimmed == 0 {
-			nextInput, trimmed = trimOldestEligibleItems(currentInput, 1+attempt)
-		}
-		if trimmed == 0 {
-			return llm.CompactionResponse{}, nil, additionalTrimmed, err
+		nextInput, repaired := collapseCompactionOverflowToolPayloadsAfterSavings(currentInput, attempt+1, repairStats.EstimatedSavedTokens)
+		if !repaired.Collapsed() {
+			return llm.CompactionResponse{}, nil, repairStats, err
 		}
 		currentInput = nextInput
-		additionalTrimmed += trimmed
+		repairStats = repairStats.Add(repaired)
 	}
 
-	return llm.CompactionResponse{}, nil, additionalTrimmed, errors.New("compaction context trim retry exhausted")
+	return llm.CompactionResponse{}, nil, repairStats, errors.New("compaction context repair retry exhausted")
 }
 
 func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client llm.CompactionClient, request llm.CompactionRequest) (llm.CompactionResponse, error) {
@@ -184,7 +181,7 @@ func isCompactionContextOverflow(err error) bool {
 }
 
 func (e *Engine) compactLocal(ctx context.Context, input []llm.ResponseItem, providerID string, instructions string, mode compactionMode) (compactionResult, error) {
-	summary, err := e.localCompactionSummary(ctx, input, instructions, mode)
+	summary, repairStats, err := e.localCompactionSummaryWithRepair(ctx, input, instructions, mode)
 	if err != nil {
 		return compactionResult{}, err
 	}
@@ -206,31 +203,57 @@ func (e *Engine) compactLocal(ctx context.Context, input []llm.ResponseItem, pro
 		items:             replacement,
 		usage:             llm.Usage{InputTokens: usageInputTokens, WindowTokens: e.contextWindowTokens()},
 		trimmedItemsCount: 0,
+		overflowRepair:    repairStats,
 		provider:          providerID,
 		summary:           strings.TrimSpace(summary),
 	}, nil
 }
 
 func (e *Engine) localCompactionSummary(ctx context.Context, input []llm.ResponseItem, instructions string, mode compactionMode) (string, error) {
+	summary, _, err := e.localCompactionSummaryWithRepair(ctx, input, instructions, mode)
+	return summary, err
+}
+
+func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []llm.ResponseItem, instructions string, mode compactionMode) (string, compactionOverflowRepairStats, error) {
 	locked, err := e.ensureLocked()
 	if err != nil {
-		return "", err
+		return "", compactionOverflowRepairStats{}, err
 	}
+	systemPrompt, err := e.systemPrompt(locked)
+	if err != nil {
+		return "", compactionOverflowRepairStats{}, err
+	}
+	workflowMode, err := e.workflowCompletionMode(ctx)
+	if err != nil {
+		return "", compactionOverflowRepairStats{}, err
+	}
+	requestTools := e.requestTools(ctx, workflowMode)
 	window := localCompactionWindow(input)
-	items := append(window, llm.ResponseItem{
+	repairStats := compactionOverflowRepairStats{}
+	for repairAttempt := 0; repairAttempt <= compactOverflowRetries; repairAttempt++ {
+		summary, err := e.localCompactionSummaryFromWindow(ctx, locked, systemPrompt, window, instructions, requestTools, mode)
+		if err == nil {
+			return summary, repairStats, nil
+		}
+		if !isCompactionContextOverflow(err) || repairAttempt == compactOverflowRetries {
+			return "", repairStats, err
+		}
+		nextWindow, repaired := collapseCompactionOverflowToolPayloadsAfterSavings(window, repairAttempt+1, repairStats.EstimatedSavedTokens)
+		if !repaired.Collapsed() {
+			return "", repairStats, err
+		}
+		window = nextWindow
+		repairStats = repairStats.Add(repaired)
+	}
+	return "", repairStats, errors.New("local compaction context repair retry exhausted")
+}
+
+func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, locked session.LockedContract, systemPrompt string, window []llm.ResponseItem, instructions string, requestTools []llm.Tool, mode compactionMode) (string, error) {
+	items := append(llm.CloneResponseItems(window), llm.ResponseItem{
 		Type:    llm.ResponseItemTypeMessage,
 		Role:    llm.RoleDeveloper,
 		Content: instructions,
 	})
-	systemPrompt, err := e.systemPrompt(locked)
-	if err != nil {
-		return "", err
-	}
-	workflowMode, err := e.workflowCompletionMode(ctx)
-	if err != nil {
-		return "", err
-	}
-	requestTools := e.requestTools(ctx, workflowMode)
 	for attempt := 0; ; attempt++ {
 		req, err := llm.RequestFromLockedContract(locked, systemPrompt, items, requestTools)
 		if err != nil {

@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -82,6 +83,116 @@ func TestGenerateStream_EmitsAssistantDeltasAndToolCalls(t *testing.T) {
 	}
 	if len(reasoning) != 1 || reasoning[0].Key == "" || reasoning[0].Role != "reasoning" || reasoning[0].Text != "Plan" {
 		t.Fatalf("unexpected reasoning delta callbacks: %+v", reasoning)
+	}
+}
+
+func TestGenerateStream_MapsStructuredStreamErrorToProviderAPIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"code\":\"context_length_exceeded\",\"param\":\"input\",\"message\":\"too many tokens\"}}\n\n")
+	}))
+	defer server.Close()
+
+	transport := NewHTTPTransport(staticAuthHeader{})
+	transport.BaseURL = server.URL
+	transport.Client = server.Client()
+
+	_, err := transport.GenerateStreamWithEvents(context.Background(), OpenAIRequest{Model: "gpt-5"}, StreamCallbacks{})
+	if err == nil {
+		t.Fatal("expected stream error")
+	}
+	if !IsContextLengthOverflowError(err) {
+		t.Fatalf("expected context overflow classification, got %v", err)
+	}
+	var providerErr *ProviderAPIError
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("expected ProviderAPIError, got %T", err)
+	}
+	if providerErr.ProviderCode != "context_length_exceeded" || providerErr.ProviderParam != "input" {
+		t.Fatalf("unexpected provider error: %+v", providerErr)
+	}
+}
+
+func TestGenerateStream_MapsResponseErrorEventToProviderAPIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"error\",\"code\":\"context_length_exceeded\",\"param\":\"input\",\"message\":\"too many tokens\",\"sequence_number\":1}\n\n")
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	transport := NewHTTPTransport(staticAuthHeader{})
+	transport.BaseURL = server.URL
+	transport.Client = server.Client()
+
+	_, err := transport.GenerateStreamWithEvents(context.Background(), OpenAIRequest{Model: "gpt-5"}, StreamCallbacks{})
+	if err == nil {
+		t.Fatal("expected response error event")
+	}
+	if !IsContextLengthOverflowError(err) {
+		t.Fatalf("expected context overflow classification, got %v", err)
+	}
+}
+
+func TestGenerateStream_MapsResponseFailedEventToProviderAPIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"response.failed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_1\",\"created_at\":1,\"error\":{\"code\":\"context_length_exceeded\",\"message\":\"too many tokens\"}}}\n\n")
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	transport := NewHTTPTransport(staticAuthHeader{})
+	transport.BaseURL = server.URL
+	transport.Client = server.Client()
+
+	_, err := transport.GenerateStreamWithEvents(context.Background(), OpenAIRequest{Model: "gpt-5"}, StreamCallbacks{})
+	if err == nil {
+		t.Fatal("expected response failed event")
+	}
+	if !IsContextLengthOverflowError(err) {
+		t.Fatalf("expected context overflow classification, got %v", err)
+	}
+}
+
+func TestGenerateStream_ReturnsUnknownProviderErrorForUnrecognizedStructuredStreamError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"error\",\"details\":{\"unexpected\":\"shape\"},\"sequence_number\":1}\n\n")
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	transport := NewHTTPTransport(staticAuthHeader{})
+	transport.BaseURL = server.URL
+	transport.Client = server.Client()
+
+	_, err := transport.GenerateStreamWithEvents(context.Background(), OpenAIRequest{Model: "gpt-5"}, StreamCallbacks{})
+	if err == nil {
+		t.Fatal("expected unrecognized stream error")
+	}
+	var providerErr *ProviderAPIError
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("expected ProviderAPIError, got %T", err)
+	}
+	if providerErr.Code != UnifiedErrorCodeUnknown {
+		t.Fatalf("provider code = %q, want %q", providerErr.Code, UnifiedErrorCodeUnknown)
 	}
 }
 
