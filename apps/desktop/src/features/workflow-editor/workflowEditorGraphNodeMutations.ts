@@ -159,6 +159,9 @@ export function addWorkflowNodeToGroup(
     input.inferredTopologyIDs === undefined
       ? membershipDraft
       : inferNodeGroupV1Topology(membershipDraft, node.id, input.inferredTopologyIDs);
+  if (nextDraft === null) {
+    return unchanged(draft, workflowEditorGraphMutationWarnings.nodeGroupTopologyInferenceFailed);
+  }
   return {
     draft: nextDraft,
     nextSelection: { groupID: group.id, kind: "group" },

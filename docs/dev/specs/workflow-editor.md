@@ -118,7 +118,7 @@
 - Done/terminal deletion is allowed only when at least one other terminal node remains; otherwise block with toast.
 - Saved node groups must be execution-shaped parallel groups. A node group without enough branch nodes or without exactly one owned join blocks save validation.
 - Dragging a node in the workflow editor changes node group membership, not persisted canvas position. The real node remains in its derived layout position and a drag ghost follows the pointer. Canvas layout remains derived from the graph.
-- Node group drag/drop is validated as a membership operation. If the editor cannot safely infer the source node or transition group needed for fan-out wiring, the drop changes membership only and validation guides the remaining edge work.
+- Node group drag/drop is validated as a membership operation. If the editor cannot safely infer the source node or transition group needed for fan-out wiring, the drop is blocked instead of committing invalid membership.
 - Destructive delete impact is evaluated on Save, not at draft edit time.
 - Save runs server-side impact check for pending graph diff.
 - If active tasks would be affected, Save is blocked.

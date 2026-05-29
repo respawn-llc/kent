@@ -28,9 +28,9 @@ export function inferNodeGroupV1Topology(
   draft: DraftWorkflowDefinition,
   addedBranchID: string,
   ids: InferredNodeGroupTopologyIDs,
-): DraftWorkflowDefinition {
+): DraftWorkflowDefinition | null {
   const topology = inferNodeGroupV1TopologyFacts(draft, addedBranchID);
-  return topology === null ? draft : applyNodeGroupV1Topology(draft, ids, topology);
+  return topology === null ? null : applyNodeGroupV1Topology(draft, ids, topology);
 }
 
 function inferNodeGroupV1TopologyFacts(

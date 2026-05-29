@@ -214,6 +214,35 @@ describe("workflowEditorGraphMutations", () => {
     });
   });
 
+  it("blocks adding a branch when node group topology cannot be inferred safely", () => {
+    const withBranch = addWorkflowNode(draftDefinitionFromSource(workflowDefinition), {
+      id: "node-review",
+      kind: "agent",
+      name: "Review",
+    });
+    const created = createWorkflowNodeGroupFromNode(withBranch.draft, {
+      groupID: "workflow-node-group-parallel",
+      joinNodeID: "node-join",
+      nodeID: "node-agent",
+    });
+
+    const expanded = addWorkflowNodeToGroup(created.draft, {
+      groupID: "workflow-node-group-parallel",
+      inferredTopologyIDs: {
+        addedBranchJoinEdgeID: "edge-review-join",
+        addedBranchJoinTransitionGroupID: "group-review-join",
+        existingBranchJoinEdgeID: "edge-implement-join",
+        existingBranchJoinTransitionGroupID: "group-implement-join",
+        fanoutEdgeID: "edge-start-review",
+      },
+      nodeID: "node-review",
+    });
+
+    expect(expanded.warnings).toEqual(["node group topology could not be inferred safely"]);
+    expect(expanded.draft).toBe(created.draft);
+    expect(expanded.draft.nodes.find((node) => node.id === "node-review")?.groupID).toBe("");
+  });
+
   it("infers v1 node group topology when adding another branch to an existing valid group", () => {
     const withReview = addWorkflowNode(draftDefinitionFromSource(groupableWorkflowDefinition), {
       id: "node-review",
