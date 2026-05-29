@@ -60,6 +60,24 @@ export function deleteWorkflowNode(
   if (node.kind === "terminal" && draft.nodes.filter((item) => item.kind === "terminal").length <= 1) {
     return unchanged(draft, workflowEditorGraphMutationWarnings.lastTerminalDelete);
   }
+  if (node.groupID.length > 0) {
+    const groupedBranchesAfterDelete = draft.nodes.filter(
+      (item) => item.groupID === node.groupID && item.kind === "agent" && item.id !== nodeID,
+    );
+    if (node.kind === "join") {
+      return dissolveWorkflowNodeGroup(draft, node.groupID, workflowSelection);
+    }
+    if (node.kind === "agent" && groupedBranchesAfterDelete.length < 2) {
+      const afterNodeDelete = deleteNodeIDsInternal(draft, new Set([nodeID]));
+      const dissolved = dissolveWorkflowNodeGroup(
+        afterNodeDelete,
+        node.groupID,
+        workflowSelection,
+        groupedBranchesAfterDelete[0]?.id,
+      );
+      return { ...dissolved, summary: removedGraphRows(draft, dissolved.draft) };
+    }
+  }
   const removedTransitionGroupIDs = new Set(
     draft.transitionGroups.filter((group) => group.sourceNodeID === nodeID).map((group) => group.id),
   );
@@ -294,6 +312,19 @@ function nodeGroupFanoutEdgeIDsToRemove(
     );
   }
   return edgeIDs;
+}
+
+function removedGraphRows(
+  before: DraftWorkflowDefinition,
+  after: DraftWorkflowDefinition,
+): WorkflowEditorGraphMutationResult["summary"] {
+  const remainingNodeIDs = new Set(after.nodes.map((node) => node.id));
+  const remainingEdgeIDs = new Set(after.edges.map((edge) => edge.id));
+  return {
+    removedEdgeIDs: before.edges.filter((edge) => !remainingEdgeIDs.has(edge.id)).map((edge) => edge.id),
+    removedNodeIDs: before.nodes.filter((node) => !remainingNodeIDs.has(node.id)).map((node) => node.id),
+    removedTransitionGroupIDs: transitionGroupDifference(before, after),
+  };
 }
 
 function defaultNodeName(kind: WorkflowNode["kind"]): string {
