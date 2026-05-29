@@ -29,6 +29,57 @@ func TestDeriveWiringPropagatesAgentInputsAcrossNormalEdge(t *testing.T) {
 	})
 }
 
+func TestDeriveWiringPropagatesPromptNodeReferencesToSourceOutputs(t *testing.T) {
+	def := inputWorkflow()
+	for index := range def.Nodes {
+		if def.Nodes[index].ID == "node_plan" {
+			def.Nodes[index].OutputFields = []workflow.OutputField{{Name: "summary", Description: "Plan summary."}}
+		}
+		if def.Nodes[index].ID == "node_implement" {
+			def.Nodes[index].PromptTemplate = "Use {{.Nodes.plan.summary}}."
+			def.Nodes[index].InputFields = nil
+		}
+	}
+
+	derived := workflow.DeriveWiring(def)
+
+	if len(derived.Diagnostics) > 0 {
+		t.Fatalf("expected no diagnostics, got %+v", derived.Diagnostics)
+	}
+	assertOutputFields(t, derived.RequiredProvisionFieldsForTransitionGroup("group_plan_implement"), []workflow.OutputField{
+		{Name: "summary", Description: "Plan summary."},
+	})
+	assertOutputFields(t, derived.PossibleProvisionFieldsForNode("node_plan"), []workflow.OutputField{
+		{Name: "summary", Description: "Plan summary."},
+	})
+}
+
+func TestDeriveWiringPromptNodeReferencesArePathSensitive(t *testing.T) {
+	def := inputWorkflow()
+	for index := range def.Nodes {
+		if def.Nodes[index].ID == "node_plan" {
+			def.Nodes[index].OutputFields = []workflow.OutputField{{Name: "summary", Description: "Plan summary."}}
+		}
+		if def.Nodes[index].ID == "node_implement" {
+			def.Nodes[index].PromptTemplate = "Use {{.Nodes.plan.summary}}."
+			def.Nodes[index].InputFields = nil
+		}
+	}
+	def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{
+		WorkflowID: def.ID, ID: "group_plan_skip", SourceNodeID: "node_plan", TransitionID: "skip", DisplayName: "Skip",
+	})
+	def.Edges = append(def.Edges, workflow.Edge{
+		WorkflowID: def.ID, ID: "edge_plan_skip", Key: "skip", TransitionGroupID: "group_plan_skip", TargetNodeID: "node_done", ContextMode: workflow.ContextModeNewSession,
+	})
+
+	derived := workflow.DeriveWiring(def)
+
+	assertOutputFields(t, derived.RequiredProvisionFieldsForTransitionGroup("group_plan_implement"), []workflow.OutputField{
+		{Name: "summary", Description: "Plan summary."},
+	})
+	assertOutputFields(t, derived.RequiredProvisionFieldsForTransitionGroup("group_plan_skip"), nil)
+}
+
 func TestDeriveWiringUnionsFanoutTargetInputsPerTransitionGroup(t *testing.T) {
 	def := fanoutInputWorkflow()
 

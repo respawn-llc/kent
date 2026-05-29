@@ -225,6 +225,33 @@ func TestSchedulerRunsNextAgentWithBoundInputsAndTaskWorktreeContext(t *testing.
 	assertPromptContains(t, reqs[1], []string{"\nCWD: " + worktreeRoot + "\n"})
 }
 
+func TestBuildWorkflowTaskInstructionsRendersNodeOutputReferences(t *testing.T) {
+	instructions, err := BuildWorkflowTaskInstructions(workflowstore.RunStartContext{
+		Task: workflowstore.TaskRecord{
+			ID:         "task-1",
+			WorkflowID: "workflow-1",
+			ShortID:    "RUN-1",
+			Title:      "Task title",
+			Body:       "Task body",
+		},
+		Workflow: workflowstore.WorkflowRecord{ID: "workflow-1"},
+		Node: workflowstore.NodeRecord{
+			ID:             "node-review",
+			Key:            "review",
+			DisplayName:    "Review",
+			PromptTemplate: "Use {{.Inputs.direct}} and {{.Nodes.plan.summary}}.",
+		},
+		InputValues:      map[string]string{"direct": "direct input"},
+		NodeOutputValues: map[string]map[string]string{"plan": {"summary": "plan output"}},
+	})
+	if err != nil {
+		t.Fatalf("BuildWorkflowTaskInstructions: %v", err)
+	}
+	if instructions.NodePrompt != "Use direct input and plan output." {
+		t.Fatalf("node prompt = %q", instructions.NodePrompt)
+	}
+}
+
 func TestWorkflowRuntimeContinueSessionReusesSourceRunSession(t *testing.T) {
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
 		workflowtest.FinalAnswer(`{"transition_id":"next","commentary":"first comments","prior_summary":"first summary"}`),

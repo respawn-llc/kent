@@ -215,6 +215,7 @@ type RunStartContext struct {
 	TransitionIDs     []string
 	TransitionOptions []TransitionOption
 	InputValues       map[string]string
+	NodeOutputValues  map[string]map[string]string
 	WorkspaceID       string
 	WorkspaceRoot     string
 	WorktreeID        string

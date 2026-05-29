@@ -110,9 +110,13 @@
 - `new_session` and `compact_and_continue_session` use current role config at their fresh context boundary.
 - Consuming agent nodes own required inputs as named top-level string fields with descriptions.
 - Prompt placeholders validate against the consuming node's required inputs through `.Inputs.<name>`.
+- Prompt templates may reference guaranteed-prior agent node outputs through `.Nodes.<node_key>.<output_name>`.
+- `.Nodes` references use stable node keys and declared source-node output fields. The referenced source node must dominate the consuming node in the workflow graph, the source node must not be the consuming node, and unsupported dynamic template access to `.Inputs` or `.Nodes` is invalid.
+- Runtime freezes `.Nodes` values when the consuming run or approval edge is created. Prompt rendering uses the frozen values and does not re-resolve prior runs.
 - The first executable node reached from `start` cannot declare upstream inputs and should use task fields such as `.TaskTitle` and `.TaskBody`.
-- User-authored source-node output fields, edge input bindings, and edge output requirements are not canonical workflow-editing concepts.
-- The server derives provision fields, same-name input bindings, selected-transition output requirements, and possible completion fields from node required inputs, graph topology, and join provider selections.
+- Source-node output fields declare reusable outputs that later prompts can reference through `.Nodes.<node_key>.<output_name>`.
+- Edge input bindings and edge output requirements are not canonical workflow-editing concepts.
+- The server derives provision fields, same-name input bindings, selected-transition output requirements, and possible completion fields from node required inputs, prompt node-output references, graph topology, and join provider selections.
 
 ## Parallelism And Joins
 

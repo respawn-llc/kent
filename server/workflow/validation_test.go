@@ -588,6 +588,238 @@ func TestOutputBindingsTemplatesContextAndRoles(t *testing.T) {
 		}
 		t.Fatalf("missing %s in %+v", workflow.CodeInvalidTemplatePlaceholder, result.Errors)
 	})
+
+	t.Run("valid prior node placeholder passes", func(t *testing.T) {
+		def := inputWorkflow()
+		for index := range def.Nodes {
+			if def.Nodes[index].ID == "node_plan" {
+				def.Nodes[index].OutputFields = []workflow.OutputField{{Name: "summary", Description: "Plan summary."}}
+			}
+			if def.Nodes[index].ID == "node_implement" {
+				def.Nodes[index].PromptTemplate = "Use {{.Nodes.plan.summary}}."
+				def.Nodes[index].InputFields = nil
+			}
+		}
+
+		result := validateForTask(def)
+
+		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("missing prior node placeholder exposes structured details", func(t *testing.T) {
+		def := inputWorkflow()
+		for index := range def.Nodes {
+			if def.Nodes[index].ID == "node_plan" {
+				def.Nodes[index].OutputFields = []workflow.OutputField{{Name: "summary", Description: "Plan summary."}}
+			}
+			if def.Nodes[index].ID == "node_implement" {
+				def.Nodes[index].PromptTemplate = "Use {{.Nodes.deleted.summary}}."
+				def.Nodes[index].InputFields = nil
+			}
+		}
+
+		result := validateForTask(def)
+
+		for _, err := range result.Errors {
+			if err.Code == workflow.CodeInvalidTemplatePlaceholder {
+				if err.FieldName != "summary" || err.Placeholder != ".Nodes.deleted.summary" {
+					t.Fatalf("placeholder details = %+v", err)
+				}
+				return
+			}
+		}
+		t.Fatalf("missing %s in %+v", workflow.CodeInvalidTemplatePlaceholder, result.Errors)
+	})
+
+	t.Run("future node placeholder blocks task validation", func(t *testing.T) {
+		def := inputWorkflow()
+		for index := range def.Nodes {
+			if def.Nodes[index].ID == "node_implement" {
+				def.Nodes[index].OutputFields = []workflow.OutputField{{Name: "summary", Description: "Implementation summary."}}
+			}
+			if def.Nodes[index].ID == "node_plan" {
+				def.Nodes[index].PromptTemplate = "Plan {{.Nodes.implement.summary}}."
+			}
+		}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("malformed node placeholder blocks task validation", func(t *testing.T) {
+		def := inputWorkflow()
+		for index := range def.Nodes {
+			if def.Nodes[index].ID == "node_plan" {
+				def.Nodes[index].OutputFields = []workflow.OutputField{{Name: "summary", Description: "Plan summary."}}
+			}
+			if def.Nodes[index].ID == "node_implement" {
+				def.Nodes[index].PromptTemplate = "Use {{.Nodes.plan}} and {{.Nodes.plan.summary.extra}}."
+				def.Nodes[index].InputFields = nil
+			}
+		}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("self node placeholder blocks task validation", func(t *testing.T) {
+		def := inputWorkflow()
+		for index := range def.Nodes {
+			if def.Nodes[index].ID == "node_implement" {
+				def.Nodes[index].OutputFields = []workflow.OutputField{{Name: "summary", Description: "Implementation summary."}}
+				def.Nodes[index].PromptTemplate = "Use {{.Nodes.implement.summary}}."
+				def.Nodes[index].InputFields = nil
+			}
+		}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("unknown node output placeholder blocks task validation", func(t *testing.T) {
+		def := inputWorkflow()
+		for index := range def.Nodes {
+			if def.Nodes[index].ID == "node_plan" {
+				def.Nodes[index].OutputFields = []workflow.OutputField{{Name: "summary", Description: "Plan summary."}}
+			}
+			if def.Nodes[index].ID == "node_implement" {
+				def.Nodes[index].PromptTemplate = "Use {{.Nodes.plan.deleted}}."
+				def.Nodes[index].InputFields = nil
+			}
+		}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("malformed input placeholder blocks task validation", func(t *testing.T) {
+		def := inputWorkflow()
+		for index := range def.Nodes {
+			if def.Nodes[index].ID == "node_implement" {
+				def.Nodes[index].PromptTemplate = "Use {{.Inputs}} and {{.Inputs.plan.extra}}."
+			}
+		}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("dynamic node placeholder lookup blocks task validation", func(t *testing.T) {
+		def := inputWorkflow()
+		for index := range def.Nodes {
+			if def.Nodes[index].ID == "node_implement" {
+				def.Nodes[index].PromptTemplate = `Use {{index .Nodes "plan" "summary"}}.`
+				def.Nodes[index].InputFields = nil
+			}
+		}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("named template node placeholder blocks task validation", func(t *testing.T) {
+		def := inputWorkflow()
+		for index := range def.Nodes {
+			if def.Nodes[index].ID == "node_implement" {
+				def.Nodes[index].PromptTemplate = `{{define "frag"}}{{.Nodes.deleted.summary}}{{end}}{{template "frag" .}}`
+				def.Nodes[index].InputFields = nil
+			}
+		}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("variable chained node placeholder blocks task validation", func(t *testing.T) {
+		def := inputWorkflow()
+		for index := range def.Nodes {
+			if def.Nodes[index].ID == "node_implement" {
+				def.Nodes[index].PromptTemplate = `{{$root := .}}{{$root.Nodes.deleted.summary}}`
+				def.Nodes[index].InputFields = nil
+			}
+		}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("template invocation node placeholder blocks task validation", func(t *testing.T) {
+		def := inputWorkflow()
+		for index := range def.Nodes {
+			if def.Nodes[index].ID == "node_implement" {
+				def.Nodes[index].PromptTemplate = `{{define "frag"}}{{.}}{{end}}{{template "frag" .Nodes.deleted.summary}}`
+				def.Nodes[index].InputFields = nil
+			}
+		}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("index variable node placeholder blocks task validation", func(t *testing.T) {
+		def := inputWorkflow()
+		for index := range def.Nodes {
+			if def.Nodes[index].ID == "node_implement" {
+				def.Nodes[index].PromptTemplate = `{{$root := .}}{{index $root.Nodes "deleted" "summary"}}`
+				def.Nodes[index].InputFields = nil
+			}
+		}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("index root variable node placeholder blocks task validation", func(t *testing.T) {
+		def := inputWorkflow()
+		for index := range def.Nodes {
+			if def.Nodes[index].ID == "node_implement" {
+				def.Nodes[index].PromptTemplate = `{{$root := .}}{{index $root "Nodes" "deleted" "summary"}}`
+				def.Nodes[index].InputFields = nil
+			}
+		}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("piped index node placeholder blocks task validation", func(t *testing.T) {
+		def := inputWorkflow()
+		for index := range def.Nodes {
+			if def.Nodes[index].ID == "node_implement" {
+				def.Nodes[index].PromptTemplate = `{{$root := .}}{{$root | index "Nodes" "deleted" "summary"}}`
+				def.Nodes[index].InputFields = nil
+			}
+		}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("named template index node placeholder blocks task validation", func(t *testing.T) {
+		def := inputWorkflow()
+		for index := range def.Nodes {
+			if def.Nodes[index].ID == "node_implement" {
+				def.Nodes[index].PromptTemplate = `{{define "frag"}}{{$root := .}}{{index $root "Nodes" "deleted" "summary"}}{{end}}{{template "frag" .}}`
+				def.Nodes[index].InputFields = nil
+			}
+		}
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
 }
 
 func TestRuntimeValidationBlocksUnimplementedExecutionFeatures(t *testing.T) {

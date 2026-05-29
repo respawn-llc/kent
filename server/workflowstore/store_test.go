@@ -869,6 +869,138 @@ func TestCompleteRunCreatesTargetRunForContinueSessionContextMode(t *testing.T) 
 	}
 }
 
+func TestRunStartContextResolvesPromptNodeReferenceOutputs(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createPromptNodeReferenceWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+
+	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "next", OutputValues: map[string]string{"summary": "plan summary"}})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	if len(completed.RunIDs) != 1 {
+		t.Fatalf("target run ids = %+v, want one", completed.RunIDs)
+	}
+	input, err := store.GetRunStartContext(ctx, completed.RunIDs[0])
+	if err != nil {
+		t.Fatalf("GetRunStartContext: %v", err)
+	}
+	if input.NodeOutputValues["plan"]["summary"] != "plan summary" {
+		t.Fatalf("node output values = %+v, want plan summary", input.NodeOutputValues)
+	}
+	mutatedOutputs, err := marshalJSON(map[string]string{"summary": "mutated later"})
+	if err != nil {
+		t.Fatalf("marshal mutated outputs: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE task_transitions SET output_values_json = ? WHERE source_run_id = ?`, mutatedOutputs, string(started.RunID)); err != nil {
+		t.Fatalf("mutate source output: %v", err)
+	}
+	frozenInput, err := store.GetRunStartContext(ctx, completed.RunIDs[0])
+	if err != nil {
+		t.Fatalf("GetRunStartContext frozen: %v", err)
+	}
+	if frozenInput.NodeOutputValues["plan"]["summary"] != "plan summary" {
+		t.Fatalf("frozen node output values = %+v, want original plan summary", frozenInput.NodeOutputValues)
+	}
+}
+
+func TestPromptNodeReferenceDerivesOutputRequirement(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createPromptNodeReferenceWorkflow(t, ctx, store)
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	sourceContext, err := store.GetRunStartContext(ctx, started.RunID)
+	if err != nil {
+		t.Fatalf("GetRunStartContext source: %v", err)
+	}
+	if len(sourceContext.Node.OutputFields) != 1 || sourceContext.Node.OutputFields[0].Name != "summary" || sourceContext.Node.OutputFields[0].Description != "Plan summary." {
+		t.Fatalf("source output fields = %+v, want prompt-derived summary description", sourceContext.Node.OutputFields)
+	}
+
+	_, err = store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "next"})
+	if err == nil || !strings.Contains(err.Error(), "required output") {
+		t.Fatalf("CompleteRun error = %v, want required output", err)
+	}
+}
+
+func TestPromptNodeReferenceApprovalFreezesOutputValue(t *testing.T) {
+	ctx := context.Background()
+	store, binding := newTestStore(t)
+	workflowID := createPromptNodeReferenceWorkflow(t, ctx, store)
+	if _, err := store.UpdateEdge(ctx, EdgeRecord{
+		ID:                workflow.EdgeID("edge-next-" + string(workflowID)),
+		WorkflowID:        workflowID,
+		TransitionGroupID: workflow.TransitionGroupID("group-next-" + string(workflowID)),
+		Key:               "next",
+		TargetNodeID:      workflow.NodeID("node-review-" + string(workflowID)),
+		ContextMode:       workflow.ContextModeNewSession,
+		RequiresApproval:  true,
+	}); err != nil {
+		t.Fatalf("UpdateEdge approval: %v", err)
+	}
+	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := store.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	pending, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "next", OutputValues: map[string]string{"summary": "approval summary"}})
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	if !pending.RequiresApproval {
+		t.Fatalf("completion result = %+v, want pending approval", pending)
+	}
+	mutatedOutputs, err := marshalJSON(map[string]string{"summary": "mutated before approval"})
+	if err != nil {
+		t.Fatalf("marshal mutated outputs: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE task_transitions SET output_values_json = ? WHERE source_run_id = ?`, mutatedOutputs, string(started.RunID)); err != nil {
+		t.Fatalf("mutate source output: %v", err)
+	}
+
+	approved, err := store.ApproveTransition(ctx, pending.TransitionID)
+	if err != nil {
+		t.Fatalf("ApproveTransition: %v", err)
+	}
+	if len(approved.RunIDs) != 1 {
+		t.Fatalf("approved run ids = %+v, want one", approved.RunIDs)
+	}
+	input, err := store.GetRunStartContext(ctx, approved.RunIDs[0])
+	if err != nil {
+		t.Fatalf("GetRunStartContext: %v", err)
+	}
+	if input.NodeOutputValues["plan"]["summary"] != "approval summary" {
+		t.Fatalf("approved node output values = %+v, want frozen approval summary", input.NodeOutputValues)
+	}
+}
+
 func TestRunStartContextUsesSelectedPriorNodeSession(t *testing.T) {
 	ctx := context.Background()
 	store, binding, cfg := newTestStoreWithConfig(t)
@@ -4650,6 +4782,52 @@ func createChainedContextModeWorkflow(t *testing.T, ctx context.Context, store *
 		{ID: workflow.EdgeID("edge-start-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: startGroup, Key: "start", TargetNodeID: planID, ContextMode: workflow.ContextModeNewSession},
 		{ID: workflow.EdgeID("edge-next-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: nextGroup, Key: "next", TargetNodeID: implID, ContextMode: contextMode, InputBindings: []workflow.InputBinding{{Name: "prior_summary", Source: workflow.BindingSourceTransitionOutput, Field: "prior_summary"}}, OutputRequirements: []workflow.OutputRequirement{{FieldName: "prior_summary"}}},
 		{ID: workflow.EdgeID("edge-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: doneGroup, Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+	} {
+		if _, err := store.AddEdge(ctx, edge); err != nil {
+			t.Fatalf("AddEdge %s: %v", edge.Key, err)
+		}
+	}
+	return created.ID
+}
+
+func createPromptNodeReferenceWorkflow(t *testing.T, ctx context.Context, store *Store) workflow.WorkflowID {
+	t.Helper()
+	created, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: "Prompt Node Reference Workflow"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+	def, _, err := store.GetDefinition(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	start := nodeByKind(t, def, workflow.NodeKindStart)
+	done := nodeByKind(t, def, workflow.NodeKindTerminal)
+	planID := workflow.NodeID("node-plan-" + string(created.ID))
+	reviewID := workflow.NodeID("node-review-" + string(created.ID))
+	for _, node := range []NodeRecord{
+		{ID: planID, WorkflowID: created.ID, Key: "plan", Kind: workflow.NodeKindAgent, DisplayName: "Plan", SubagentRole: "coder", PromptTemplate: "Plan work.", OutputFields: []workflow.OutputField{{Name: "summary", Description: "Plan summary."}}},
+		{ID: reviewID, WorkflowID: created.ID, Key: "review", Kind: workflow.NodeKindAgent, DisplayName: "Review", SubagentRole: "coder", PromptTemplate: "Review {{.Nodes.plan.summary}}."},
+	} {
+		if _, err := store.AddNode(ctx, node); err != nil {
+			t.Fatalf("AddNode %s: %v", node.Key, err)
+		}
+	}
+	startGroup := workflow.TransitionGroupID("group-start-" + string(created.ID))
+	nextGroup := workflow.TransitionGroupID("group-next-" + string(created.ID))
+	doneGroup := workflow.TransitionGroupID("group-done-" + string(created.ID))
+	for _, group := range []TransitionGroupRecord{
+		{ID: startGroup, WorkflowID: created.ID, SourceNodeID: start.ID, TransitionID: "start", DisplayName: "Start"},
+		{ID: nextGroup, WorkflowID: created.ID, SourceNodeID: planID, TransitionID: "next", DisplayName: "Next"},
+		{ID: doneGroup, WorkflowID: created.ID, SourceNodeID: reviewID, TransitionID: "done", DisplayName: "Done"},
+	} {
+		if _, err := store.AddTransitionGroup(ctx, group); err != nil {
+			t.Fatalf("AddTransitionGroup %s: %v", group.TransitionID, err)
+		}
+	}
+	for _, edge := range []EdgeRecord{
+		{ID: workflow.EdgeID("edge-start-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: startGroup, Key: "start", TargetNodeID: planID, ContextMode: workflow.ContextModeNewSession},
+		{ID: workflow.EdgeID("edge-next-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: nextGroup, Key: "next", TargetNodeID: reviewID, ContextMode: workflow.ContextModeNewSession},
+		{ID: workflow.EdgeID("edge-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: doneGroup, Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession},
 	} {
 		if _, err := store.AddEdge(ctx, edge); err != nil {
 			t.Fatalf("AddEdge %s: %v", edge.Key, err)

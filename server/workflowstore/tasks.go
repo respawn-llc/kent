@@ -583,7 +583,26 @@ WHERE id = ?
 			if err != nil {
 				return CompleteRunResult{}, err
 			}
-			if err := insertTransitionEdgeSnapshot(ctx, q, transitionID, edge, "", "pending", source); err != nil {
+			edgeMetadata := workflowRunMetadata{
+				ContextSource:   workflow.CanonicalContextSource(edge.ContextSource),
+				SourceRunID:     source.runID,
+				SourceSessionID: source.sessionID,
+			}
+			if edge.TargetNode.Kind == workflow.NodeKindAgent {
+				targetSnapshot, foundSnapshot, err := snapshot.forNode(edge.TargetNode)
+				if err != nil {
+					return CompleteRunResult{}, err
+				}
+				if !foundSnapshot {
+					return CompleteRunResult{}, fmt.Errorf("target node %q missing from run-start snapshot", edge.TargetNode.ID)
+				}
+				nodeOutputValues, err := s.resolvePromptNodeOutputValues(ctx, tx, run.TaskID, now, targetSnapshot)
+				if err != nil {
+					return CompleteRunResult{}, err
+				}
+				edgeMetadata.NodeOutputValues = nodeOutputValues
+			}
+			if err := insertTransitionEdgeSnapshotWithMetadata(ctx, q, transitionID, edge, "", "pending", edgeMetadata); err != nil {
 				return CompleteRunResult{}, err
 			}
 			continue
@@ -628,7 +647,11 @@ WHERE id = ?
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		targetMetadataJSON, err := targetRunMetadata(edge, source)
+		nodeOutputValues, err := s.resolvePromptNodeOutputValues(ctx, tx, run.TaskID, now, targetSnapshot)
+		if err != nil {
+			return CompleteRunResult{}, err
+		}
+		targetMetadataJSON, err := targetRunMetadata(edge, source, nodeOutputValues)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}

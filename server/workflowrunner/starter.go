@@ -557,6 +557,7 @@ type nodePromptTemplateData struct {
 	NodeKey         string
 	NodeDisplayName string
 	Inputs          map[string]string
+	Nodes           map[string]map[string]string
 }
 
 func renderInputPlaceholders(templateText string, input workflowstore.RunStartContext) (string, error) {
@@ -578,6 +579,7 @@ func renderInputPlaceholders(templateText string, input workflowstore.RunStartCo
 		NodeKey:         string(input.Node.Key),
 		NodeDisplayName: strings.TrimSpace(input.Node.DisplayName),
 		Inputs:          input.InputValues,
+		Nodes:           input.NodeOutputValues,
 	}); err != nil {
 		return "", fmt.Errorf("render workflow node prompt template: %w", err)
 	}

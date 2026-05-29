@@ -319,6 +319,12 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 	if err != nil {
 		return RunStartContext{}, err
 	}
+	runMetadata := workflowRunMetadata{}
+	if strings.TrimSpace(run.MetadataJson) != "" {
+		if err := unmarshalJSON(run.MetadataJson, &runMetadata); err != nil {
+			return RunStartContext{}, fmt.Errorf("resolve workflow run metadata: %w", err)
+		}
+	}
 	worktreeID := strings.TrimSpace(task.ManagedWorktreeID.String)
 	if worktreeID == "" {
 		return RunStartContext{
@@ -333,6 +339,7 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 			TransitionIDs:     transitionIDsFromSnapshot(snapshot),
 			TransitionOptions: transitionOptionsFromSnapshot(snapshot),
 			InputValues:       inputValues,
+			NodeOutputValues:  runMetadata.NodeOutputValues,
 		}, nil
 	}
 	worktree, err := s.metadata.GetWorktreeRecordByID(ctx, worktreeID)
@@ -355,6 +362,7 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 		TransitionIDs:     transitionIDsFromSnapshot(snapshot),
 		TransitionOptions: transitionOptionsFromSnapshot(snapshot),
 		InputValues:       inputValues,
+		NodeOutputValues:  runMetadata.NodeOutputValues,
 		WorkspaceID:       workspace.ID,
 		WorkspaceRoot:     workspace.CanonicalRootPath,
 		WorktreeID:        worktree.ID,

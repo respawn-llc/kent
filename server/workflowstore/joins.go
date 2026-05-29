@@ -116,7 +116,11 @@ LIMIT 1`, taskID, string(joinEdge.TargetNode.ID), batchID.String).Scan(&existing
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		targetMetadataJSON, err := targetRunMetadata(outEdge, source)
+		nodeOutputValues, err := s.resolvePromptNodeOutputValues(ctx, tx, taskID, now, targetSnapshot)
+		if err != nil {
+			return CompleteRunResult{}, err
+		}
+		targetMetadataJSON, err := targetRunMetadata(outEdge, source, nodeOutputValues)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}

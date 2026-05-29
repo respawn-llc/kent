@@ -70,6 +70,7 @@ func DeriveWiring(def Definition) DerivedWiring {
 			derived.addPossibleProvisionFields(group.SourceNodeID, requiredFields)
 		}
 	}
+	derived.derivePromptNodeReferences(def.Nodes, nodesByID, groupsBySource, edgesByGroup)
 	for _, node := range def.Nodes {
 		if node.Kind == NodeKindJoin {
 			derived.deriveJoinProviderRequirements(node, nodesByID, groupsByID, edgesByGroup, groupsBySource, incomingByNode)
@@ -186,6 +187,89 @@ func (w *DerivedWiring) deriveJoinProviderRequirements(
 			w.addPossibleProvisionFields(providerGroup.SourceNodeID, providerFields)
 		}
 	}
+}
+
+func (w *DerivedWiring) derivePromptNodeReferences(
+	nodes []Node,
+	nodesByID map[NodeID]Node,
+	groupsBySource map[NodeID][]TransitionGroup,
+	edgesByGroup map[TransitionGroupID][]Edge,
+) {
+	for _, consumer := range nodes {
+		if consumer.Kind != NodeKindAgent {
+			continue
+		}
+		refs, err := ExtractPromptTemplateReferences(consumer.PromptTemplate)
+		if err != nil || len(refs.Invalid) > 0 {
+			continue
+		}
+		for _, ref := range refs.NodeOutputs {
+			source, ok := nodeByKey(nodes, ref.NodeKey)
+			if !ok || source.Kind != NodeKindAgent || source.ID == consumer.ID {
+				continue
+			}
+			field, ok := nodeOutputField(source, ref.FieldName)
+			if !ok {
+				continue
+			}
+			fields := []OutputField{field}
+			for _, group := range groupsBySource[source.ID] {
+				for _, edge := range edgesByGroup[group.ID] {
+					if !nodeCanReach(edge.TargetNodeID, consumer.ID, nodesByID, edgesByGroup, groupsBySource) {
+						continue
+					}
+					w.addRequiredProvisionFields(edge.ID, group.ID, fields)
+					w.addPossibleProvisionFields(source.ID, fields)
+				}
+			}
+		}
+	}
+}
+
+func nodeByKey(nodes []Node, key ModelKey) (Node, bool) {
+	for _, node := range nodes {
+		if node.Key == key {
+			return node, true
+		}
+	}
+	return Node{}, false
+}
+
+func nodeOutputField(node Node, fieldName string) (OutputField, bool) {
+	trimmed := strings.TrimSpace(fieldName)
+	for _, field := range node.OutputFields {
+		if strings.TrimSpace(field.Name) == trimmed {
+			return OutputField{Name: trimmed, Description: strings.TrimSpace(field.Description)}, true
+		}
+	}
+	return OutputField{}, false
+}
+
+func nodeCanReach(start NodeID, target NodeID, nodesByID map[NodeID]Node, edgesByGroup map[TransitionGroupID][]Edge, groupsBySource map[NodeID][]TransitionGroup) bool {
+	visited := map[NodeID]bool{}
+	stack := []NodeID{start}
+	for len(stack) > 0 {
+		nodeID := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if visited[nodeID] {
+			continue
+		}
+		if nodeID == target {
+			return true
+		}
+		visited[nodeID] = true
+		if _, exists := nodesByID[nodeID]; !exists {
+			continue
+		}
+		for _, group := range groupsBySource[nodeID] {
+			for _, edge := range edgesByGroup[group.ID] {
+				if !visited[edge.TargetNodeID] {
+					stack = append(stack, edge.TargetNodeID)
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (w *DerivedWiring) addDiagnostic(code ValidationErrorCode, message string, ref ValidationError) {

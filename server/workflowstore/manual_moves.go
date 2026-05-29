@@ -149,6 +149,11 @@ WHERE id = ? AND state = 'active'`, now, string(sourcePlacement))
 		if err != nil {
 			return ManualMoveResult{}, err
 		}
+		nodeOutputValues, err := s.resolvePromptNodeOutputValues(ctx, tx, string(req.TaskID), now, targetSnapshot)
+		if err != nil {
+			return ManualMoveResult{}, err
+		}
+		edgeMetadata.NodeOutputValues = nodeOutputValues
 		edgeMetadata.TargetRunStartSnapshot = &targetSnapshot
 	}
 	if err := insertTransitionEdgeSnapshotWithMetadata(ctx, q, transitionID, groupSnapshot.Edges[0], targetPlacementID, edgeState, edgeMetadata); err != nil {

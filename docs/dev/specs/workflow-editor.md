@@ -55,7 +55,7 @@
 - If a workflow references a legacy role no longer configured, the current legacy role remains visible/selectable instead of forcing the placeholder state.
 - Join editing shows downstream required inputs derived by the server and stores one provider selection per input.
 - Join provider selection points to an actual incoming edge into that join.
-- Source-node output fields, edge input bindings, and edge output requirements are not user-authored editor concepts. The server derives them from consuming-node required inputs, graph topology, and join provider selections.
+- Source-node output fields define reusable outputs that prompt templates can reference through `.Nodes.<node_key>.<output_name>`. Edge input bindings and edge output requirements are not user-authored editor concepts. The server derives them from consuming-node required inputs, prompt node-output references, graph topology, and join provider selections.
 - Agent node inspectors show read-only `Provides` summaries so operators can understand what the server will ask an agent to produce.
 - Inspector validation sections keep their section header and render errors as plain bullet lists without card containers or code chips.
 - Edge inspectors show the source-to-target node relationship as an equal-width route graphic at the top of the route/config island, plus read-only derived input bindings, derived provision requirements, provider requirements, and validation issues.

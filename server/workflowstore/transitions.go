@@ -210,7 +210,7 @@ WHERE id = ? AND state = 'pending'`, targetPlacementID, edge.ID); err != nil {
 				return CompleteRunResult{}, err
 			}
 		}
-		targetMetadataJSON, err := targetRunMetadata(targetEdge, source)
+		targetMetadataJSON, err := targetRunMetadata(targetEdge, source, edgeMetadata.NodeOutputValues)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}

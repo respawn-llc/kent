@@ -3,8 +3,6 @@ package workflow
 import (
 	"fmt"
 	"strings"
-	"text/template"
-	"text/template/parse"
 
 	"builder/shared/workflowkey"
 )
@@ -645,14 +643,51 @@ func (s *validationState) validatePromptPlaceholders() {
 		for _, field := range node.InputFields {
 			inputs[strings.TrimSpace(field.Name)] = true
 		}
-		placeholders, err := templatePlaceholders(node.PromptTemplate)
+		refs, err := ExtractPromptTemplateReferences(node.PromptTemplate)
 		if err != nil {
 			s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template syntax is invalid", ValidationError{WorkflowID: s.def.ID, NodeID: node.ID})
 			continue
 		}
-		for _, placeholder := range placeholders {
-			if !validModelKey(placeholder) || !inputs[placeholder] {
-				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references an unknown node input", ValidationError{WorkflowID: s.def.ID, NodeID: node.ID, InputName: placeholder, Placeholder: ".Inputs." + placeholder})
+		for _, invalid := range refs.Invalid {
+			s.addSemantic(CodeInvalidTemplatePlaceholder, invalid.Message, ValidationError{WorkflowID: s.def.ID, NodeID: node.ID, Placeholder: invalid.Placeholder})
+		}
+		for _, ref := range refs.Inputs {
+			if !validModelKey(ref.Name) || !inputs[ref.Name] {
+				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references an unknown node input", ValidationError{WorkflowID: s.def.ID, NodeID: node.ID, InputName: ref.Name, Placeholder: ref.Placeholder})
+			}
+		}
+		for _, ref := range refs.NodeOutputs {
+			nodeKey := strings.TrimSpace(string(ref.NodeKey))
+			fieldName := strings.TrimSpace(ref.FieldName)
+			errRef := ValidationError{WorkflowID: s.def.ID, NodeID: node.ID, FieldName: fieldName, Placeholder: ref.Placeholder}
+			if nodeKey == "" || !validModelKey(nodeKey) {
+				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references an invalid node key", errRef)
+				continue
+			}
+			if fieldName == "" || !validModelKey(fieldName) {
+				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references an invalid node output field", errRef)
+				continue
+			}
+			sourceID, exists := s.nodeKeys[ref.NodeKey]
+			if !exists {
+				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references an unknown node", errRef)
+				continue
+			}
+			source := s.nodesByID[sourceID]
+			if source.Kind != NodeKindAgent {
+				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references a non-agent node output", errRef)
+				continue
+			}
+			if source.ID == node.ID {
+				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template cannot reference the current node output", errRef)
+				continue
+			}
+			if !nodeOutputFieldSet(source)[fieldName] {
+				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references an unknown node output", errRef)
+				continue
+			}
+			if len(s.startNodes) == 1 && !s.nodeDominates(source.ID, node.ID) {
+				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template node reference must be guaranteed before the consuming node", errRef)
 			}
 		}
 	}
@@ -910,91 +945,6 @@ func nodeOutputFieldSet(node Node) map[string]bool {
 			out[name] = true
 		}
 	}
-	return out
-}
-
-func templatePlaceholders(promptTemplate string) ([]string, error) {
-	parsed, err := template.New("workflow_node_prompt").Parse(promptTemplate)
-	if err != nil {
-		return nil, err
-	}
-	if parsed.Tree == nil || parsed.Tree.Root == nil {
-		return nil, nil
-	}
-	return templatePlaceholderWalker{}.collect(parsed.Tree.Root), nil
-}
-
-type templatePlaceholderWalker struct{}
-
-func (templatePlaceholderWalker) collect(node parse.Node) []string {
-	out := []string{}
-	var walk func(parse.Node)
-	var walkList func(*parse.ListNode)
-	walkList = func(list *parse.ListNode) {
-		if list == nil {
-			return
-		}
-		for _, child := range list.Nodes {
-			walk(child)
-		}
-	}
-	walk = func(current parse.Node) {
-		if current == nil {
-			return
-		}
-		switch typed := current.(type) {
-		case *parse.ListNode:
-			walkList(typed)
-		case *parse.ActionNode:
-			if typed == nil {
-				return
-			}
-			walk(typed.Pipe)
-		case *parse.IfNode:
-			if typed == nil {
-				return
-			}
-			walk(typed.Pipe)
-			walkList(typed.List)
-			walkList(typed.ElseList)
-		case *parse.RangeNode:
-			if typed == nil {
-				return
-			}
-			walk(typed.Pipe)
-			walkList(typed.List)
-			walkList(typed.ElseList)
-		case *parse.WithNode:
-			if typed == nil {
-				return
-			}
-			walk(typed.Pipe)
-			walkList(typed.List)
-			walkList(typed.ElseList)
-		case *parse.PipeNode:
-			if typed == nil {
-				return
-			}
-			for _, command := range typed.Cmds {
-				walk(command)
-			}
-		case *parse.CommandNode:
-			if typed == nil {
-				return
-			}
-			for _, arg := range typed.Args {
-				walk(arg)
-			}
-		case *parse.FieldNode:
-			if typed == nil {
-				return
-			}
-			if len(typed.Ident) == 2 && typed.Ident[0] == "Inputs" {
-				out = append(out, typed.Ident[1])
-			}
-		}
-	}
-	walk(node)
 	return out
 }
 
