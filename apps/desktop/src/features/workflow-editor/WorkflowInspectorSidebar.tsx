@@ -185,9 +185,10 @@ function EdgeDraftDetails({
   const derivedEdge = derivedEdgeWiring(definition, edge.id);
   const transitionGroup = transitionGroupByID(definition, edge.transitionGroupID);
   const startEdge = details.sourceKind === "start";
+  const sourceAllowsContinuation = details.sourceKind === "agent";
   const disabledReason = t("workflowEditor.edgeControlNotApplicable");
   const contextModeDisabled = startEdge;
-  const contextSourceDisabled = startEdge || edge.contextMode === "new_session";
+  const contextSourceDisabled = startEdge || edge.contextMode === "new_session" || !sourceAllowsContinuation;
   const requiresApprovalDisabled = startEdge;
   return (
     <InspectorStack>
@@ -241,6 +242,9 @@ function EdgeDraftDetails({
               disabled={contextModeDisabled}
               label={t("workflowEditor.contextMode")}
               onValueChange={(value) => {
+                if (value !== "new_session" && !sourceAllowsContinuation) {
+                  return;
+                }
                 controller.dispatch({
                   input: {
                     contextMode: value,
@@ -250,7 +254,7 @@ function EdgeDraftDetails({
                   type: "editEdgeRoute",
                 });
               }}
-              options={contextModeOptions(t)}
+              options={contextModeOptions(t, !sourceAllowsContinuation)}
               value={edge.contextMode}
             />
           </DisabledInteractionGuard>
@@ -954,7 +958,10 @@ function ApprovalToggle({
   );
 }
 
-function contextModeOptions(translate: Translate): readonly SelectFieldOption[] {
+function contextModeOptions(
+  translate: Translate,
+  continuationDisabled = false,
+): readonly SelectFieldOption[] {
   return [
     {
       label: translate("workflowEditor.contextModeNewSession"),
@@ -962,11 +969,13 @@ function contextModeOptions(translate: Translate): readonly SelectFieldOption[] 
       value: "new_session",
     },
     {
+      disabled: continuationDisabled,
       label: translate("workflowEditor.contextModeContinueSession"),
       textValue: translate("workflowEditor.contextModeContinueSession"),
       value: "continue_session",
     },
     {
+      disabled: continuationDisabled,
       label: translate("workflowEditor.contextModeCompactContinueSession"),
       textValue: translate("workflowEditor.contextModeCompactContinueSession"),
       value: "compact_and_continue_session",

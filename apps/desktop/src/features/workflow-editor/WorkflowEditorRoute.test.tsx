@@ -767,11 +767,9 @@ describe("WorkflowEditorRoute", () => {
     });
 
     fireEvent.pointerDown(within(inspector).getByRole("button", { name: "Context mode" }));
-    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Continue session" }));
-    fireEvent.pointerDown(within(inspector).getByRole("button", { name: "Context source" }));
-    expect(screen.queryByRole("menuitemradio", { name: "Join" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("menuitemradio", { name: "Done" })).not.toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Implement" }));
+    expect(await screen.findByRole("menuitemradio", { name: "Continue session" })).toHaveAttribute("aria-disabled", "true");
+    expect(await screen.findByRole("menuitemradio", { name: "Compact and continue session" })).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "New session" }));
 
     const routeSections = within(inspector).getAllByRole("region", { name: "Route" });
     expect(routeSections).toHaveLength(1);
@@ -796,7 +794,7 @@ describe("WorkflowEditorRoute", () => {
     expect(within(routeGraphic).getByTestId("workflow-edge-route-source")).toHaveTextContent("Join");
     expect(within(routeGraphic).getByTestId("workflow-edge-route-target")).toHaveTextContent("Done");
     expect(within(routeGraphic).getByTestId("workflow-edge-route-arrow")).toHaveStyle({
-      color: "var(--color-outline)",
+      color: "var(--color-primary)",
     });
     const requiresApproval = routeControls.getByRole("checkbox", { name: "Requires approval" });
     expect(requiresApproval).toHaveAttribute("data-slot", "checkbox");
@@ -821,8 +819,8 @@ describe("WorkflowEditorRoute", () => {
           id: "edge-2",
           key: "review_edge",
           requires_approval: false,
-          context_mode: "continue_session",
-          context_source: { kind: "selected_node", node_key: "implement" },
+          context_mode: "new_session",
+          context_source: { kind: "immediate_source", node_key: "" },
         }),
       ]);
       expect(saveCall?.params).toMatchObject({
@@ -932,7 +930,7 @@ describe("WorkflowEditorRoute", () => {
         <SidebarProvider>
           <WorkflowEditorDraftBridgeProvider>
             <WorkflowEditorRoute projectID="" workflowID="workflow-1" />
-            <OpenEdgeInspectorButton />
+            <OpenEdgeInspectorButton edgeID="edge-1" />
             <SidebarHost />
           </WorkflowEditorDraftBridgeProvider>
         </SidebarProvider>
@@ -944,6 +942,8 @@ describe("WorkflowEditorRoute", () => {
     const inspector = await screen.findByRole("complementary", { name: "Inspect edge" });
     const routeSection = within(inspector).getByRole("region", { name: "Route" });
 
+    fireEvent.pointerDown(within(routeSection).getByRole("button", { name: "Context mode" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Continue session" }));
     fireEvent.pointerDown(within(routeSection).getByRole("button", { name: "Context source" }));
 
     expect(await screen.findByRole("menuitemradio", { name: "Implement" })).toBeInTheDocument();
