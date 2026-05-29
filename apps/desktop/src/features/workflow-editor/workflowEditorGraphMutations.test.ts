@@ -79,6 +79,20 @@ describe("workflowEditorGraphMutations", () => {
     expect(connected.draft.transitionGroups.at(-1)?.sourceNodeID).toBe("node-start");
   });
 
+  it("blocks draft edges into start nodes", () => {
+    const draft = draftDefinitionFromSource(workflowDefinition);
+
+    const connected = connectWorkflowNodes(draft, {
+      edgeID: "workflow-edge-into-start",
+      sourceNodeID: "node-agent",
+      targetNodeID: "node-start",
+      transitionGroupID: "workflow-transition-group-into-start",
+    });
+
+    expect(connected.warnings).toEqual(["start nodes cannot have incoming edges"]);
+    expect(connected.draft).toBe(draft);
+  });
+
   it("deletes final edge and removes its transition group", () => {
     const deleted = deleteWorkflowEdge(draftDefinitionFromSource(workflowDefinition), "edge-done");
 

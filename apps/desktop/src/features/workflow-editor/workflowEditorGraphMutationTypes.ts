@@ -87,6 +87,7 @@ export const workflowEditorGraphMutationWarnings = {
   nodeGroupRequiresAgent: "node groups can be created from agent nodes only",
   nodeGroupTopologyInferenceFailed: "node group topology could not be inferred safely",
   nodeGroupRequiresUngroupedNode: "node already belongs to a node group",
+  startIncomingEdge: "start nodes cannot have incoming edges",
   startNodeDelete: "start node cannot be deleted",
   terminalOutgoingEdge: "terminal nodes cannot have outgoing edges",
 } as const;

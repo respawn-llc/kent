@@ -28,6 +28,9 @@ export function connectWorkflowNodes(
   if (source.kind === "terminal") {
     return unchanged(draft, workflowEditorGraphMutationWarnings.terminalOutgoingEdge);
   }
+  if (target.kind === "start") {
+    return unchanged(draft, workflowEditorGraphMutationWarnings.startIncomingEdge);
+  }
   const transitionID =
     input.transitionID ??
     uniqueWorkflowModelKey(target.key, transitionIDsForSource(draft, input.sourceNodeID));

@@ -75,6 +75,8 @@ describe("WorkflowGraphCanvas", () => {
     expect(screen.getByTestId("workflow-graph-node-start")).toHaveStyle({
       "--workflow-editor-node-outline-color": "var(--color-primary)",
     });
+    expect(within(screen.getByTestId("workflow-graph-node-start")).queryAllByTestId("workflow-node-target-handle")).toHaveLength(0);
+    expect(within(screen.getByTestId("workflow-graph-node-start")).queryAllByTestId("workflow-node-source-handle")).toHaveLength(1);
     expect(screen.getByTestId("workflow-graph-node-agent")).toHaveAttribute("data-kind", "agent");
     expect(screen.getByTestId("workflow-graph-node-agent")).toHaveClass("island-surface-1", "nopan", "cursor-grab");
     expect(screen.getByTestId("workflow-graph-node-agent")).not.toHaveAttribute("draggable", "true");

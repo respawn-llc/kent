@@ -142,16 +142,18 @@ export const WorkflowNode = memo(function WorkflowNode({
       style={workflowNodeOutlineStyle(data.kind, data.hasError)}
       title={data.kind === "agent" ? t("workflowEditor.dragNodeToGroup") : undefined}
     >
-      <Handle
-        aria-label="Incoming transitions"
-        className="workflow-editor-handle"
-        data-testid="workflow-node-target-handle"
-        onClick={(event) => {
-          inspectEditableNodeFromHandle(event, data, onInspectNode);
-        }}
-        position={Position.Left}
-        type="target"
-      />
+      {data.kind === "start" ? null : (
+        <Handle
+          aria-label="Incoming transitions"
+          className="workflow-editor-handle"
+          data-testid="workflow-node-target-handle"
+          onClick={(event) => {
+            inspectEditableNodeFromHandle(event, data, onInspectNode);
+          }}
+          position={Position.Left}
+          type="target"
+        />
+      )}
       {data.kind === "terminal" ? null : (
         <Handle
           aria-label="Outgoing transitions"
