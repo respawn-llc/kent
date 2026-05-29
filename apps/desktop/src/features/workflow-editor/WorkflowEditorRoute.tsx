@@ -967,13 +967,10 @@ function WorkflowSaveConfirmation({
   onConfirm: () => void;
 }>) {
   const { t } = useTranslation();
-  const taskReferenceCount = impact.nodeTaskReferenceCount + impact.edgeTaskReferenceCount;
   return (
     <div className="grid gap-[var(--space-3)]">
       <p className="m-0 text-sm text-[var(--color-on-island)]">
-        {t("workflowEditor.destructiveSavePrefix", { count: taskReferenceCount })}{" "}
-        <strong>{t("workflowEditor.goneForever")}</strong>{" "}
-        {t("workflowEditor.destructiveSaveSuffix")}
+        {t("workflowEditor.destructiveSaveWarning")}
       </p>
       <ul className="m-0 grid gap-[var(--space-1)] p-0 text-sm text-[var(--color-muted)]">
         <li className="list-none">

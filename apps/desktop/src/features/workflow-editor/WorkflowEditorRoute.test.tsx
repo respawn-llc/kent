@@ -1494,11 +1494,11 @@ describe("WorkflowEditorRoute", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Save" }));
 
     expect(
-      await screen.findByText((_content, element) =>
-        element?.textContent === "3 tasks will be gone forever along with the node. Proceed?",
-      ),
+      await screen.findByText("This save will permanently remove graph rows. Proceed?"),
     ).toBeInTheDocument();
     expect(screen.getByText("Removed nodes: 1")).toBeInTheDocument();
+    expect(screen.getByText("Removed transition groups: 1")).toBeInTheDocument();
+    expect(screen.getByText("Removed edges: 2")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Confirm save" }));
 
     await waitFor(() => {
