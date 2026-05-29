@@ -224,7 +224,7 @@ File-based tool toggles merge with defaults. `BUILDER_TOOLS` and `builder run --
 | `tools.patch` | dynamic | Freeform patch grammar edit tool |
 | `tools.edit` | dynamic | JSON text replacement/create/delete edit tool |
 | `tools.trigger_handoff` | `false` | Experimental tool the agents can use to proactively compact their own context. |
-| `tools.view_image` | `true` | Ability to view images, still GIFs, and PDFs (if supported) |
+| `tools.view_image` | `true` | Ability to view PNG, JPEG, still GIF, and PDF files (if supported) |
 | `tools.web_search` | `true` | Tool to search the web |
 | `tools.write_stdin` | `true` | Interaction with background shells. |
 

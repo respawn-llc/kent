@@ -10,6 +10,7 @@ import (
 
 	"builder/prompts"
 	"builder/server/llm"
+	"builder/shared/transcript"
 )
 
 type compactionMode string
@@ -20,7 +21,6 @@ const (
 	compactionModeManual  compactionMode = "manual"
 
 	defaultContextWindowTokens         = 200_000
-	compactOverflowRetries             = 2
 	autoCompactNearLimitMargin         = 8_000
 	compactionSoonReminderPercent      = 85
 	manualCompactionCarryoverMaxChars  = 4_000
@@ -42,6 +42,7 @@ type compactionResult struct {
 	items             []llm.ResponseItem
 	usage             llm.Usage
 	trimmedItemsCount int
+	overflowRepair    compactionOverflowRepairStats
 	provider          string
 	summary           string
 }
@@ -586,6 +587,12 @@ func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionM
 	if strings.TrimSpace(result.summary) != "" && result.engine != "local" {
 		summary := strings.TrimSpace(result.summary)
 		if err := e.appendPersistedLocalEntry(stepID, "compaction_summary", summary); err != nil {
+			statusErr := e.emitCompactionStatus(stepID, EventCompactionFailed, mode, result.engine, providerID, result.trimmedItemsCount, 0, err.Error())
+			return compactionResult{}, errors.Join(err, statusErr)
+		}
+	}
+	if result.overflowRepair.Collapsed() {
+		if err := e.appendPersistedLocalEntry(stepID, string(transcript.EntryRoleDeveloperErrorFeedback), compactionOverflowRepairDiagnosticText(result.overflowRepair)); err != nil {
 			statusErr := e.emitCompactionStatus(stepID, EventCompactionFailed, mode, result.engine, providerID, result.trimmedItemsCount, 0, err.Error())
 			return compactionResult{}, errors.Join(err, statusErr)
 		}

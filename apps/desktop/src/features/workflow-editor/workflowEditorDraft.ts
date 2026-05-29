@@ -10,6 +10,25 @@ import type {
   WorkflowNodeGroup,
   WorkflowTransitionGroup,
 } from "../../api";
+import {
+  addWorkflowNode,
+  addWorkflowNodeToGroup,
+  connectWorkflowNodes,
+  createWorkflowNodeGroupFromNode,
+  deleteWorkflowEdge,
+  deleteWorkflowNode,
+  deleteWorkflowNodeGroup,
+  editWorkflowEdgeRoute,
+  removeWorkflowNodeFromGroup,
+  type AddWorkflowNodeInput,
+  type AddWorkflowNodeToGroupInput,
+  type ConnectWorkflowNodesInput,
+  type CreateWorkflowNodeGroupInput,
+  type EditWorkflowEdgeRouteInput,
+  type WorkflowEditorCascadeSummary,
+  type WorkflowEditorGraphMutationResult,
+  type WorkflowEditorSelection,
+} from "./workflowEditorGraphMutations";
 
 export type DraftInputField = Readonly<{
   rowID: string;
@@ -33,7 +52,14 @@ export type WorkflowEditorDraftState = Readonly<{
   draft: DraftWorkflowDefinition;
   conflict: WorkflowDefinition | null;
   graphVersion: number;
+  lastTopologyMutation: WorkflowEditorTopologyMutation | null;
   version: number;
+}>;
+
+export type WorkflowEditorTopologyMutation = Readonly<{
+  summary: WorkflowEditorCascadeSummary;
+  warnings: readonly string[];
+  nextSelection: WorkflowEditorSelection;
 }>;
 
 export type WorkflowEditorDraftAction =
@@ -42,6 +68,11 @@ export type WorkflowEditorDraftAction =
   | Readonly<{ type: "keepEditing" }>
   | Readonly<{ type: "reloadConflict" }>
   | Readonly<{ type: "editWorkflowMetadata"; name: string; description: string }>
+  | Readonly<{
+      type: "editNodeIdentity";
+      nodeID: string;
+      patch: Partial<Pick<WorkflowNode, "key" | "name">>;
+    }>
   | Readonly<{
       type: "editAgentNode";
       nodeID: string;
@@ -56,7 +87,16 @@ export type WorkflowEditorDraftAction =
     }>
   | Readonly<{ type: "deleteInputField"; nodeID: string; rowID: string }>
   | Readonly<{ type: "reorderInputField"; nodeID: string; activeRowID: string; overRowID: string }>
-  | Readonly<{ type: "assignJoinInputProvider"; nodeID: string; inputName: string; providerEdgeID: string }>;
+  | Readonly<{ type: "assignJoinInputProvider"; nodeID: string; inputName: string; providerEdgeID: string }>
+  | Readonly<{ type: "addNode"; input: AddWorkflowNodeInput }>
+  | Readonly<{ type: "deleteNode"; nodeID: string }>
+  | Readonly<{ type: "connectNodes"; input: ConnectWorkflowNodesInput }>
+  | Readonly<{ type: "deleteEdge"; edgeID: string }>
+  | Readonly<{ type: "editEdgeRoute"; input: EditWorkflowEdgeRouteInput }>
+  | Readonly<{ type: "createNodeGroupFromNode"; input: CreateWorkflowNodeGroupInput }>
+  | Readonly<{ type: "addNodeToGroup"; input: AddWorkflowNodeToGroupInput }>
+  | Readonly<{ type: "deleteNodeGroup"; groupID: string }>
+  | Readonly<{ type: "removeNodeFromGroup"; nodeID: string }>;
 
 export type WorkflowEditorDirtyState = Readonly<{
   dirty: boolean;
@@ -70,6 +110,7 @@ export function initializeWorkflowEditorDraft(source: WorkflowDefinition): Workf
     conflict: null,
     draft: draftDefinitionFromSource(source),
     graphVersion: 0,
+    lastTopologyMutation: null,
     source,
     version: 0,
   };
@@ -101,6 +142,13 @@ export function workflowEditorDraftReducer(
         },
         false,
       );
+    case "editNodeIdentity":
+      return editDraftNode(state, action.nodeID, (node) => {
+        if (node.kind !== "start" && node.kind !== "terminal" && node.kind !== "agent") {
+          return node;
+        }
+        return { ...node, ...action.patch };
+      });
     case "editAgentNode":
       return editDraftNode(state, action.nodeID, (node) => {
         if (node.kind !== "agent") {
@@ -144,6 +192,24 @@ export function workflowEditorDraftReducer(
         ...node,
         joinInputProviders: assignJoinInputProvider(node.joinInputProviders, action.inputName, action.providerEdgeID),
       }));
+    case "addNode":
+      return applyTopologyMutation(state, addWorkflowNode(state.draft, action.input));
+    case "deleteNode":
+      return applyTopologyMutation(state, deleteWorkflowNode(state.draft, action.nodeID));
+    case "connectNodes":
+      return applyTopologyMutation(state, connectWorkflowNodes(state.draft, action.input));
+    case "deleteEdge":
+      return applyTopologyMutation(state, deleteWorkflowEdge(state.draft, action.edgeID));
+    case "editEdgeRoute":
+      return applyTopologyMutation(state, editWorkflowEdgeRoute(state.draft, action.input));
+    case "createNodeGroupFromNode":
+      return applyTopologyMutation(state, createWorkflowNodeGroupFromNode(state.draft, action.input));
+    case "addNodeToGroup":
+      return applyTopologyMutation(state, addWorkflowNodeToGroup(state.draft, action.input));
+    case "deleteNodeGroup":
+      return applyTopologyMutation(state, deleteWorkflowNodeGroup(state.draft, action.groupID));
+    case "removeNodeFromGroup":
+      return applyTopologyMutation(state, removeWorkflowNodeFromGroup(state.draft, action.nodeID));
   }
 }
 
@@ -221,13 +287,32 @@ function nextDraftState(
   state: WorkflowEditorDraftState,
   draft: DraftWorkflowDefinition,
   graphChanged = true,
+  lastTopologyMutation: WorkflowEditorTopologyMutation | null = null,
 ): WorkflowEditorDraftState {
   return {
     ...state,
     draft,
     graphVersion: graphChanged ? state.graphVersion + 1 : state.graphVersion,
+    lastTopologyMutation,
     version: state.version + 1,
   };
+}
+
+function applyTopologyMutation(
+  state: WorkflowEditorDraftState,
+  mutation: WorkflowEditorGraphMutationResult,
+): WorkflowEditorDraftState {
+  const lastTopologyMutation = {
+    nextSelection: mutation.nextSelection,
+    summary: mutation.summary,
+    warnings: mutation.warnings,
+  };
+  if (mutation.draft === state.draft) {
+    return { ...state, lastTopologyMutation };
+  }
+  return nextDraftState(state, mutation.draft, true, {
+    ...lastTopologyMutation,
+  });
 }
 
 function editDraftNode(

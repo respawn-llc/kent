@@ -465,7 +465,8 @@ func TestServiceRestartRejectsCurrentShellSessionBeforeHealthProbe(t *testing.T)
 	}
 }
 
-func TestServiceRestartRejectsHealthyServerWhenLoadedServiceIsNotRunning(t *testing.T) {
+func TestServiceRestartAllowsHealthyBuilderServerRecoveryWhenLoadedServiceIsNotRunning(t *testing.T) {
+	t.Setenv(sessionenv.BuilderSessionID, "")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/healthz" {
 			http.NotFound(w, r)
@@ -485,14 +486,37 @@ func TestServiceRestartRejectsHealthyServerWhenLoadedServiceIsNotRunning(t *test
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	code := serviceSubcommand([]string{"restart"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
-	if len(backend.calls) != 1 || backend.calls[0] != serviceActionStatus {
-		t.Fatalf("calls = %+v, want status only", backend.calls)
+	want := []serviceAction{serviceActionStatus, serviceActionRestart}
+	if strings.Join(actionsToStrings(backend.calls), ",") != strings.Join(actionsToStrings(want), ",") {
+		t.Fatalf("calls = %+v, want %+v", backend.calls, want)
 	}
-	if !strings.Contains(stderr.String(), "outside the background service") {
-		t.Fatalf("stderr = %q, want unmanaged conflict", stderr.String())
+}
+
+func TestServiceRestartAllowsUnloadedInstalledServiceToRecoverHealthyBuilderServer(t *testing.T) {
+	t.Setenv(sessionenv.BuilderSessionID, "")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"status":"ok","pid":123}`)
+	}))
+	t.Cleanup(server.Close)
+	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: false, Running: false}}
+	withServiceCommandTestBackendEndpoint(t, backend, server.URL)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := serviceSubcommand([]string{"restart"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	want := []serviceAction{serviceActionStatus, serviceActionRestart}
+	if strings.Join(actionsToStrings(backend.calls), ",") != strings.Join(actionsToStrings(want), ",") {
+		t.Fatalf("calls = %+v, want %+v", backend.calls, want)
 	}
 }
 

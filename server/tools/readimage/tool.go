@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
+	"image/draw"
 	"image/gif"
-	_ "image/jpeg"
+	"image/jpeg"
 	_ "image/png"
 	"io"
 	"io/fs"
@@ -24,7 +26,6 @@ import (
 	"builder/server/tools"
 	patchtool "builder/server/tools/patch"
 	"builder/shared/toolspec"
-	"github.com/deepteams/webp"
 )
 
 const maxFileSizeBytes int64 = 800 << 10
@@ -38,7 +39,6 @@ var supportedImageMIMEs = map[string]struct{}{
 	"image/png":  {},
 	"image/jpeg": {},
 	"image/gif":  {},
-	"image/webp": {},
 }
 
 type Tool struct {
@@ -415,6 +415,9 @@ func prepareFileForAttachment(path, mimeType string, data []byte, raw bool) ([]b
 	if !strings.HasPrefix(mimeType, "image/") {
 		return data, mimeType, nil
 	}
+	if _, ok := supportedImageMIMEs[mimeType]; !ok {
+		return data, mimeType, fmt.Errorf("cannot attach image at %q: unsupported image format %q", path, mimeType)
+	}
 	img, decodedMIME, err := decodeSupportedRasterImage(path, data)
 	if err != nil {
 		return data, mimeType, err
@@ -452,10 +455,6 @@ func decodeSupportedRasterImage(path string, data []byte) (image.Image, string, 
 			return nil, "", err
 		}
 		return img, mimeType, nil
-	case "image/webp":
-		if err := validateStillWebP(path, data); err != nil {
-			return nil, "", err
-		}
 	}
 	img, decodedFormat, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
@@ -483,17 +482,6 @@ func decodeStillGIF(path string, data []byte) (image.Image, error) {
 	return img, nil
 }
 
-func validateStillWebP(path string, data []byte) error {
-	features, err := webp.GetFeatures(bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("cannot attach WebP at %q: %v", path, err)
-	}
-	if features.HasAnimation {
-		return fmt.Errorf("cannot attach WebP at %q: animated WebP images are not supported; use a still image or PDF", path)
-	}
-	return nil
-}
-
 func validateDecodedDimensions(path string, width, height int) error {
 	if width <= 0 || height <= 0 {
 		return fmt.Errorf("cannot attach image at %q: invalid image dimensions %dx%d", path, width, height)
@@ -513,8 +501,6 @@ func mimeTypeForImageFormat(format string) (string, bool) {
 		return "image/jpeg", true
 	case "gif":
 		return "image/gif", true
-	case "webp":
-		return "image/webp", true
 	default:
 		return "", false
 	}
@@ -524,12 +510,23 @@ func optimizeRasterImage(img image.Image) ([]byte, string, bool) {
 	if img == nil {
 		return nil, "", false
 	}
-	var out bytes.Buffer
-	opts := webp.OptionsForPreset(webp.PresetPicture, 80)
-	if err := webp.Encode(&out, img, opts); err != nil {
+	bounds := img.Bounds()
+	if bounds.Empty() {
 		return nil, "", false
 	}
-	return out.Bytes(), "image/webp", true
+	opaque := image.NewRGBA(bounds)
+	draw.Draw(opaque, bounds, &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+	draw.Draw(opaque, bounds, img, bounds.Min, draw.Over)
+	for _, quality := range []int{85, 75, 65, 55} {
+		var out bytes.Buffer
+		if err := jpeg.Encode(&out, opaque, &jpeg.Options{Quality: quality}); err != nil {
+			return nil, "", false
+		}
+		if int64(out.Len()) <= maxFileSizeBytes {
+			return out.Bytes(), "image/jpeg", true
+		}
+	}
+	return nil, "", false
 }
 
 func maxAttachmentSizeError(path string, size int64) string {

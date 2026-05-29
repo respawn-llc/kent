@@ -107,6 +107,7 @@ func TestDeriveWiringReportsMissingJoinInputProvider(t *testing.T) {
 	derived := workflow.DeriveWiring(def)
 
 	assertDerivedDiagnosticCodes(t, derived, workflow.CodeMissingJoinInputProvider)
+	assertDerivedDiagnosticMessage(t, derived, workflow.CodeMissingJoinInputProvider, "node_join", "Node Join: join input risk requires a provider edge")
 	assertDerivedDiagnosticsBlock(t, derived)
 }
 
@@ -159,6 +160,7 @@ func TestDeriveWiringReportsJoinOutgoingGroupWithMultipleEdges(t *testing.T) {
 	derived := workflow.DeriveWiring(def)
 
 	assertDerivedDiagnosticCodes(t, derived, workflow.CodeInvalidJoinOutgoingShape)
+	assertDerivedDiagnosticMessage(t, derived, workflow.CodeInvalidJoinOutgoingShape, "node_join", "Node Join must have exactly one edge in its outgoing transition group")
 	assertDerivedDiagnosticsBlock(t, derived)
 }
 
@@ -176,6 +178,7 @@ func TestDeriveWiringReportsInputsOnFirstExecutableNode(t *testing.T) {
 	derived := workflow.DeriveWiring(def)
 
 	assertDerivedDiagnosticCodes(t, derived, workflow.CodeInvalidFirstNodeInput)
+	assertDerivedDiagnosticMessage(t, derived, workflow.CodeInvalidFirstNodeInput, "node_plan", "Node Plan cannot declare upstream inputs as the first executable node")
 	assertDerivedDiagnosticsBlock(t, derived)
 	assertOutputFields(t, derived.RequiredProvisionFieldsForTransitionGroup("group_start"), nil)
 }
@@ -453,6 +456,19 @@ func assertDerivedDiagnosticCodes(t *testing.T, derived workflow.DerivedWiring, 
 			t.Fatalf("missing diagnostic code %q in %+v", code, derived.Diagnostics)
 		}
 	}
+}
+
+func assertDerivedDiagnosticMessage(t *testing.T, derived workflow.DerivedWiring, code workflow.ValidationErrorCode, nodeID workflow.NodeID, want string) {
+	t.Helper()
+	for _, diagnostic := range derived.Diagnostics {
+		if diagnostic.Code == code && diagnostic.NodeID == nodeID {
+			if diagnostic.Message != want {
+				t.Fatalf("diagnostic message for %s on %s = %q, want %q", code, nodeID, diagnostic.Message, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing diagnostic %s on %s in %+v", code, nodeID, derived.Diagnostics)
 }
 
 func assertDerivedDiagnosticsBlock(t *testing.T, derived workflow.DerivedWiring) {

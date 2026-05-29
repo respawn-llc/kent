@@ -1054,6 +1054,10 @@ func (s *Store) GetDefinition(ctx context.Context, workflowID workflow.WorkflowI
 	if err != nil {
 		return workflow.Definition{}, WorkflowRecord{}, err
 	}
+	nodeGroups, err := s.queries.ListWorkflowNodeGroups(ctx, string(workflowID))
+	if err != nil {
+		return workflow.Definition{}, WorkflowRecord{}, err
+	}
 	groups, err := s.queries.ListWorkflowTransitionGroups(ctx, string(workflowID))
 	if err != nil {
 		return workflow.Definition{}, WorkflowRecord{}, err
@@ -1063,6 +1067,10 @@ func (s *Store) GetDefinition(ctx context.Context, workflowID workflow.WorkflowI
 		return workflow.Definition{}, WorkflowRecord{}, err
 	}
 	def := workflow.Definition{ID: workflow.WorkflowID(row.ID), DisplayName: row.Name}
+	groupMemberIDs := map[string][]workflow.NodeID{}
+	for _, group := range nodeGroups {
+		def.NodeGroups = append(def.NodeGroups, workflow.NodeGroup{WorkflowID: workflow.WorkflowID(group.WorkflowID), ID: group.ID, Key: workflow.ModelKey(group.GroupKey), DisplayName: group.DisplayName})
+	}
 	for _, node := range nodes {
 		inputFields := []workflow.InputField{}
 		joinProviders := []workflow.JoinInputProvider{}
@@ -1076,7 +1084,15 @@ func (s *Store) GetDefinition(ctx context.Context, workflowID workflow.WorkflowI
 		if err := unmarshalJSON(node.OutputFieldsJson, &outputFields); err != nil {
 			return workflow.Definition{}, WorkflowRecord{}, err
 		}
-		def.Nodes = append(def.Nodes, workflow.Node{WorkflowID: workflow.WorkflowID(node.WorkflowID), ID: workflow.NodeID(node.ID), Key: workflow.ModelKey(node.NodeKey), DisplayName: node.DisplayName, Kind: workflow.NodeKind(node.Kind), SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: inputFields, JoinInputProviders: joinProviders, OutputFields: outputFields})
+		groupID := ""
+		if node.GroupID.Valid {
+			groupID = node.GroupID.String
+			groupMemberIDs[groupID] = append(groupMemberIDs[groupID], workflow.NodeID(node.ID))
+		}
+		def.Nodes = append(def.Nodes, workflow.Node{WorkflowID: workflow.WorkflowID(node.WorkflowID), ID: workflow.NodeID(node.ID), Key: workflow.ModelKey(node.NodeKey), DisplayName: node.DisplayName, Kind: workflow.NodeKind(node.Kind), GroupID: groupID, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: inputFields, JoinInputProviders: joinProviders, OutputFields: outputFields})
+	}
+	for index := range def.NodeGroups {
+		def.NodeGroups[index].MemberNodeIDs = groupMemberIDs[def.NodeGroups[index].ID]
 	}
 	for _, group := range groups {
 		def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{WorkflowID: workflow.WorkflowID(group.WorkflowID), ID: workflow.TransitionGroupID(group.ID), SourceNodeID: workflow.NodeID(group.SourceNodeID), TransitionID: workflow.TransitionID(group.TransitionID), DisplayName: group.DisplayName})

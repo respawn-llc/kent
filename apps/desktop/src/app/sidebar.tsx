@@ -256,47 +256,65 @@ export function SidebarHost() {
 function SidebarHeaderAccessory({
   destination,
 }: Readonly<{ destination: SidebarDestination }>) {
-  if (destination.kind !== "workflowInspect" || destination.selection.kind !== "node") {
+  if (destination.kind !== "workflowInspect") {
     return null;
   }
-  return <WorkflowNodeIDHeader nodeID={destination.selection.nodeID} />;
+  if (destination.selection.kind === "node") {
+    return <WorkflowEntityIDHeader entityID={destination.selection.nodeID} entityKind="node" />;
+  }
+  if (destination.selection.kind === "edge") {
+    return <WorkflowEntityIDHeader entityID={destination.selection.edgeID} entityKind="edge" />;
+  }
+  return null;
 }
 
-function WorkflowNodeIDHeader({ nodeID }: Readonly<{ nodeID: string }>) {
+function WorkflowEntityIDHeader({
+  entityID,
+  entityKind,
+}: Readonly<{ entityID: string; entityKind: "edge" | "node" }>) {
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
+  const copyLabel =
+    entityKind === "node"
+      ? t("workflowEditor.copyNodeId", { id: entityID })
+      : t("workflowEditor.copyEdgeId", { id: entityID });
+  const successMessage =
+    entityKind === "node" ? t("workflowEditor.nodeIdCopied") : t("workflowEditor.edgeIdCopied");
+  const failureMessage =
+    entityKind === "node" ? t("workflowEditor.nodeIdCopyFailed") : t("workflowEditor.edgeIdCopyFailed");
+  const toastPrefix = entityKind === "node" ? "workflow-node-id" : "workflow-edge-id";
   return (
     <button
-      aria-label={t("workflowEditor.copyNodeId", { id: nodeID })}
+      aria-label={copyLabel}
       className="grid min-w-0 grid-cols-[minmax(0,1fr)] justify-items-end rounded-[var(--radius-s)] border border-transparent bg-transparent px-[var(--space-1)] py-[2px] font-mono text-xs text-[var(--color-muted)] outline-none hover:border-[var(--color-outline)] hover:bg-[var(--color-island-1)] focus-visible:border-[var(--color-primary)]"
       onClick={() => {
-        void copyNodeID(nodeID, nativeBridge)
+        void copyWorkflowEntityID(entityID, nativeBridge)
           .then(() => {
             showStatusToast({
               body: "",
-              id: `workflow-node-id-copied-${nodeID}`,
-              title: t("workflowEditor.nodeIdCopied"),
+              id: `${toastPrefix}-copied-${entityID}`,
+              title: successMessage,
               tone: "success",
             });
           })
           .catch(() => {
             showStatusToast({
               body: "",
-              id: `workflow-node-id-copy-failed-${nodeID}`,
-              title: t("workflowEditor.nodeIdCopyFailed"),
+              id: `${toastPrefix}-copy-failed-${entityID}`,
+              title: failureMessage,
               tone: "danger",
             });
           });
       }}
-      title={nodeID}
+      title={entityID}
       type="button"
     >
-      <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-right">{nodeID}</span>
+      <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-right">{entityID}</span>
     </button>
   );
 }
 
-async function copyNodeID(
+async function copyWorkflowEntityID(
   value: string,
   nativeBridge: ReturnType<typeof useAppServices>["nativeBridge"],
 ): Promise<void> {

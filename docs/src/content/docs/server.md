@@ -42,6 +42,7 @@ builder service uninstall --keep-running
 
 `install` starts the service after registration. `--no-start` only writes the service registration.
 `uninstall` stops the service before removing registration. `--keep-running` removes registration without stopping an already-running process.
+On macOS, `restart` unloads the LaunchAgent, waits for the old server endpoint to stop responding, and bootstraps the LaunchAgent again.
 `restart` fails inside Builder shell commands, because stopping the service can halt active agent work. Ask the operator to restart it outside the session.
 
 ## Backends
@@ -60,7 +61,8 @@ loginctl enable-linger "$USER"
 
 ## Port Conflicts
 
-Service lifecycle commands refuse to change the service when Builder's configured server endpoint is already owned by a manual `builder serve` process or by a non-Builder listener.
-If you started `builder serve` manually, stop that process before installing, starting, or restarting the background service.
+Service install/start commands refuse to change the service when Builder's configured server endpoint is already owned by a manual `builder serve` process or by a non-Builder listener.
+If the service is installed but unloaded, `restart` can stop a healthy Builder listener on the configured endpoint and attach that endpoint back to the background service.
+If you started `builder serve` manually, stop that process before installing or starting the background service.
 
 Running another server on a different configured port is fine. Builder only checks the endpoint resolved from `server_host` and `server_port`.

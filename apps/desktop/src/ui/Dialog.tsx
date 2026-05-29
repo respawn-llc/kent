@@ -1,8 +1,9 @@
-import { useId, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useId, useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { X } from "lucide-react";
 
 import { cx } from "./classes";
 import { chromeContentPaddingClassName } from "./chromePadding";
+import { islandSurfaceClassName } from "./islandSurfaceStyles";
 
 export type DialogProps = Readonly<{
   title: string;
@@ -30,6 +31,8 @@ export function Dialog({
   onClose,
 }: DialogProps) {
   const titleId = useId();
+  const dialogRef = useRef<HTMLElement | null>(null);
+  useModalDialogKeyboard(open, dialogRef, onClose);
 
   if (!open) {
     return null;
@@ -50,12 +53,14 @@ export function Dialog({
         aria-modal="true"
         className={cx(
           "relative grid max-h-[calc(100vh-48px)] w-[min(720px,calc(100vw-32px))] gap-[var(--space-4)] overflow-hidden",
-          surface === "island" && "island-glass rounded-[var(--radius-xl)] p-[var(--space-4)]",
+          surface === "island" && cx(islandSurfaceClassName(0), "rounded-[var(--radius-xl)] p-[var(--space-4)]"),
           surface === "transparent" && "bg-transparent p-0 shadow-none",
           className,
         )}
         role="dialog"
+        ref={dialogRef}
         style={style}
+        tabIndex={-1}
       >
         {chrome === "header" ? (
           <header className="flex items-center justify-between gap-[var(--space-4)]">
@@ -88,6 +93,83 @@ export function Dialog({
       </section>
     </div>
   );
+}
+
+function useModalDialogKeyboard(
+  open: boolean,
+  dialogRef: RefObject<HTMLElement | null>,
+  onClose: () => void,
+): void {
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+    const dialog = dialogRef.current;
+    if (dialog === null) {
+      return undefined;
+    }
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const initialFocus = focusableDialogElements(dialog)[0] ?? dialog;
+    initialFocus.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key === "Tab") {
+        trapTabFocus(event, dialog);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      if (previousFocus?.isConnected === true) {
+        previousFocus.focus();
+      }
+    };
+  }, [dialogRef, onClose, open]);
+}
+
+function trapTabFocus(event: KeyboardEvent, dialog: HTMLElement): void {
+  const focusableElements = focusableDialogElements(dialog);
+  if (focusableElements.length === 0) {
+    event.preventDefault();
+    dialog.focus();
+    return;
+  }
+  const first = focusableElements[0];
+  const last = focusableElements.at(-1);
+  if (first === undefined || last === undefined) {
+    return;
+  }
+  const activeElement = document.activeElement;
+  if (event.shiftKey && (activeElement === first || !dialog.contains(activeElement))) {
+    event.preventDefault();
+    last.focus();
+    return;
+  }
+  if (!event.shiftKey && (activeElement === last || !dialog.contains(activeElement))) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function focusableDialogElements(dialog: HTMLElement): readonly HTMLElement[] {
+  return Array.from(
+    dialog.querySelectorAll<HTMLElement>(
+      [
+        "a[href]",
+        "button:not([disabled])",
+        "input:not([disabled])",
+        "select:not([disabled])",
+        "textarea:not([disabled])",
+        "[tabindex]:not([tabindex='-1'])",
+      ].join(","),
+    ),
+  ).filter((element) => element.getAttribute("aria-hidden") !== "true" && element.tabIndex >= 0);
 }
 
 function DialogCloseButton({

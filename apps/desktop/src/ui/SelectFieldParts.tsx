@@ -1,29 +1,38 @@
-import { Check, ChevronDown } from "lucide-react";
-import type { KeyboardEvent } from "react";
+import { ChevronDown } from "lucide-react";
+import { forwardRef, type ComponentPropsWithoutRef } from "react";
 
 import { cx } from "./classes";
 import { fieldInputClassName, type FieldError } from "./Field";
 import type { SelectFieldOption } from "./SelectField";
+import {
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from "../components/ui/dropdown-menu";
 
-export type SelectTriggerProps = Readonly<{
-  inputId: string;
-  listboxId: string;
-  hintId: string;
-  errorId: string;
-  error?: FieldError | undefined;
-  selectedOption: SelectFieldOption | undefined;
-  placeholder?: string | undefined;
-  open: boolean;
-  disabled: boolean;
-  activeOptionId: string | undefined;
-  className?: string | undefined;
-  onClick: () => void;
-  onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
-}>;
+type SelectTriggerButtonProps = Omit<
+  ComponentPropsWithoutRef<"button">,
+  "children" | "disabled" | "id" | "type"
+>;
 
-export function SelectTrigger({
+export type SelectTriggerProps = SelectTriggerButtonProps &
+  Readonly<{
+    inputId: string;
+    menuId: string;
+    hintId: string;
+    errorId: string;
+    error?: FieldError | undefined;
+    selectedOption: SelectFieldOption | undefined;
+    placeholder?: string | undefined;
+    open: boolean;
+    disabled: boolean;
+    className?: string | undefined;
+  }>;
+
+export const SelectTrigger = forwardRef<HTMLButtonElement, SelectTriggerProps>(function SelectTrigger({
+  className,
   inputId,
-  listboxId,
+  menuId,
   hintId,
   errorId,
   error,
@@ -31,18 +40,15 @@ export function SelectTrigger({
   placeholder,
   open,
   disabled,
-  activeOptionId,
-  className,
-  onClick,
-  onKeyDown,
-}: SelectTriggerProps) {
+  ...buttonProps
+}: SelectTriggerProps, ref) {
   return (
     <button
-      aria-activedescendant={activeOptionId}
-      aria-controls={listboxId}
+      {...buttonProps}
+      aria-controls={menuId}
       aria-describedby={`${hintId} ${errorId}`}
       aria-expanded={open}
-      aria-haspopup="listbox"
+      aria-haspopup="menu"
       aria-invalid={error === undefined ? undefined : true}
       className={cx(
         fieldInputClassName,
@@ -54,9 +60,7 @@ export function SelectTrigger({
       data-slot="select-trigger"
       disabled={disabled}
       id={inputId}
-      onClick={onClick}
-      onKeyDown={onKeyDown}
-      role="combobox"
+      ref={ref}
       type="button"
     >
       <span className="min-w-0 truncate">{selectedOption?.label ?? placeholder}</span>
@@ -68,91 +72,40 @@ export function SelectTrigger({
       />
     </button>
   );
-}
+});
 
 export type SelectOptionsListProps = Readonly<{
-  inputId: string;
-  listboxId: string;
+  menuId: string;
   options: readonly SelectFieldOption[];
   value: string;
-  activeIndex: number;
-  onSelect: (option: SelectFieldOption) => void;
-  onActiveIndexChange: (index: number) => void;
+  onValueChange: (value: string) => void;
 }>;
 
 export function SelectOptionsList({
-  inputId,
-  listboxId,
+  menuId,
   options,
   value,
-  activeIndex,
-  onSelect,
-  onActiveIndexChange,
+  onValueChange,
 }: SelectOptionsListProps) {
   return (
-    <div
-      className="app-region-no-drag absolute left-0 right-0 top-[calc(100%+var(--space-1))] z-50 max-h-80 overflow-auto rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-3)] p-[var(--space-1)] text-[var(--color-on-island)] shadow-[var(--shadow-island-1)] backdrop-blur-[20px]"
-      id={listboxId}
-      role="listbox"
+    <DropdownMenuContent
+      className="max-h-[min(var(--radix-dropdown-menu-content-available-height),20rem)] w-[var(--radix-dropdown-menu-trigger-width)]"
+      id={menuId}
+      level={3}
+      loop
     >
-      {options.map((option, index) => (
-        <SelectOption
-          active={index === activeIndex}
-          inputId={inputId}
-          key={option.value}
-          onActive={() => {
-            onActiveIndexChange(index);
-          }}
-          onSelect={onSelect}
-          option={option}
-          selected={option.value === value}
-        />
-      ))}
-    </div>
+      <DropdownMenuRadioGroup onValueChange={onValueChange} value={value}>
+        {options.map((option) => (
+          <DropdownMenuRadioItem
+            disabled={option.disabled === true}
+            key={option.value}
+            {...(option.textValue === undefined ? {} : { textValue: option.textValue })}
+            value={option.value}
+          >
+            <span className="min-w-0 truncate">{option.label}</span>
+          </DropdownMenuRadioItem>
+        ))}
+      </DropdownMenuRadioGroup>
+    </DropdownMenuContent>
   );
-}
-
-type SelectOptionProps = Readonly<{
-  inputId: string;
-  option: SelectFieldOption;
-  selected: boolean;
-  active: boolean;
-  onSelect: (option: SelectFieldOption) => void;
-  onActive: () => void;
-}>;
-
-function SelectOption({ inputId, option, selected, active, onSelect, onActive }: SelectOptionProps) {
-  return (
-    <button
-      aria-selected={selected}
-      className={cx(
-        "relative grid min-h-9 w-full select-none grid-cols-[1fr_auto] items-center gap-[var(--space-2)] rounded-[var(--radius-s)] px-[var(--space-2)] py-[var(--space-2)] text-left text-sm outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-45",
-        active ? "bg-[var(--color-island-2)]" : undefined,
-      )}
-      disabled={option.disabled === true}
-      id={optionId(inputId, option.value)}
-      onClick={() => {
-        onSelect(option);
-      }}
-      onMouseEnter={() => {
-        if (option.disabled !== true) {
-          onActive();
-        }
-      }}
-      role="option"
-      tabIndex={-1}
-      type="button"
-    >
-      <span className="min-w-0 truncate">{option.label}</span>
-      {selected ? (
-        <span className="text-[var(--color-primary)]">
-          <Check aria-hidden="true" size={16} strokeWidth={1.7} />
-        </span>
-      ) : null}
-    </button>
-  );
-}
-
-function optionId(inputId: string, value: string): string {
-  return `${inputId}-option-${value}`;
 }

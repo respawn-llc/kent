@@ -3641,6 +3641,66 @@ func TestWorkflowGraphSaveSupportsMetadataAndNoopRevisions(t *testing.T) {
 	}
 }
 
+func TestWorkflowGraphSaveAcceptsClientGeneratedTopologyIDsAndRejectsCollisions(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newTestStore(t)
+	workflowID := createValidWorkflow(t, ctx, store)
+	def, record, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+
+	req := workflowGraphSaveRequestFromDefinition(workflowID, record.Version, false, def)
+	req.Nodes = append(req.Nodes, NodeRecord{
+		ID:           "workflow-node-00000000-0000-4000-8000-000000000001",
+		WorkflowID:   workflowID,
+		Key:          "client_generated",
+		Kind:         workflow.NodeKindAgent,
+		DisplayName:  "Client Generated",
+		SubagentRole: workflow.DefaultAgentRole,
+	})
+	req.TransitionGroups = append(req.TransitionGroups, TransitionGroupRecord{
+		ID:           "workflow-transition-group-00000000-0000-4000-8000-000000000001",
+		WorkflowID:   workflowID,
+		SourceNodeID: workflow.NodeID("node-agent-" + string(workflowID)),
+		TransitionID: "client_generated",
+		DisplayName:  "Client Generated",
+	})
+	req.Edges = append(req.Edges, EdgeRecord{
+		ID:                "workflow-edge-00000000-0000-4000-8000-000000000001",
+		WorkflowID:        workflowID,
+		TransitionGroupID: "workflow-transition-group-00000000-0000-4000-8000-000000000001",
+		Key:               "client_generated",
+		TargetNodeID:      "workflow-node-00000000-0000-4000-8000-000000000001",
+		ContextMode:       workflow.ContextModeNewSession,
+	})
+
+	saved, err := store.SaveWorkflowGraph(ctx, req)
+	if err != nil {
+		t.Fatalf("SaveWorkflowGraph client ids: %v", err)
+	}
+	if !saved.Saved || len(saved.Blockers) != 0 {
+		t.Fatalf("client id graph save = %+v, want saved without blockers", saved)
+	}
+	updated, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition after client ids: %v", err)
+	}
+	if nodeByID(t, updated, "workflow-node-00000000-0000-4000-8000-000000000001").Key != "client_generated" {
+		t.Fatalf("client-generated node id was not persisted")
+	}
+
+	colliding := workflowGraphSaveRequestFromDefinition(workflowID, saved.Version, false, updated)
+	colliding.Nodes = append(colliding.Nodes, colliding.Nodes[len(colliding.Nodes)-1])
+	collidingResult, err := store.SaveWorkflowGraph(ctx, colliding)
+	if err != nil {
+		t.Fatalf("SaveWorkflowGraph duplicate client id: %v", err)
+	}
+	if collidingResult.Saved || workflowGraphSaveBlockerCount(collidingResult.Blockers, "validation_failed") == 0 {
+		t.Fatalf("duplicate client id graph save = %+v, want validation blocker", collidingResult)
+	}
+}
+
 func TestWorkflowGraphSaveMetadataAndGraphAreAtomic(t *testing.T) {
 	ctx := context.Background()
 	store, _ := newTestStore(t)
@@ -3685,6 +3745,53 @@ func TestWorkflowGraphSaveMetadataAndGraphAreAtomic(t *testing.T) {
 	}
 	if unchangedRecord.Name != "Combined save" || unchangedRecord.Description != "Graph and metadata" || unchangedRecord.Version != updatedRecord.Version {
 		t.Fatalf("record after blocked combined = %+v, want unchanged", unchangedRecord)
+	}
+}
+
+func TestWorkflowGraphSaveValidatesAndPersistsV1NodeGroups(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newTestStore(t)
+	workflowID := createFanoutJoinWorkflow(t, ctx, store)
+	def, record, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	groupID := "group-parallel-" + string(workflowID)
+	req := workflowGraphSaveRequestFromDefinition(workflowID, record.Version, false, def)
+	req.NodeGroups = append(req.NodeGroups, NodeGroupRecord{ID: groupID, WorkflowID: workflowID, Key: "parallel", DisplayName: "Parallel"})
+	req.Nodes = setWorkflowGraphSaveNodeGroup(req.Nodes, workflow.NodeID("node-impl-a-"+string(workflowID)), groupID)
+	req.Nodes = setWorkflowGraphSaveNodeGroup(req.Nodes, workflow.NodeID("node-impl-b-"+string(workflowID)), groupID)
+	req.Nodes = setWorkflowGraphSaveNodeGroup(req.Nodes, workflow.NodeID("node-join-"+string(workflowID)), groupID)
+
+	result, err := store.SaveWorkflowGraph(ctx, req)
+	if err != nil {
+		t.Fatalf("SaveWorkflowGraph valid group: %v", err)
+	}
+	if !result.Saved || len(result.Blockers) != 0 {
+		t.Fatalf("valid node group graph save = %+v, want saved", result)
+	}
+	savedDef, savedRecord, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition after valid group: %v", err)
+	}
+	if savedRecord.Version != record.Version+1 {
+		t.Fatalf("valid node group version = %d, want %d", savedRecord.Version, record.Version+1)
+	}
+	if len(savedDef.NodeGroups) != 1 || len(savedDef.NodeGroups[0].MemberNodeIDs) != 3 {
+		t.Fatalf("saved node groups = %+v, want one group with three members", savedDef.NodeGroups)
+	}
+	if nodeByID(t, savedDef, workflow.NodeID("node-join-"+string(workflowID))).GroupID != groupID {
+		t.Fatalf("saved join group id not persisted: %+v", nodeByID(t, savedDef, workflow.NodeID("node-join-"+string(workflowID))))
+	}
+
+	invalid := workflowGraphSaveRequestFromDefinition(workflowID, savedRecord.Version, false, savedDef)
+	invalid.Nodes = setWorkflowGraphSaveNodeGroup(invalid.Nodes, workflow.NodeID("node-impl-b-"+string(workflowID)), "")
+	invalidResult, err := store.SaveWorkflowGraph(ctx, invalid)
+	if err != nil {
+		t.Fatalf("SaveWorkflowGraph invalid group: %v", err)
+	}
+	if invalidResult.Saved || workflowGraphSaveBlockerCount(invalidResult.Blockers, "validation_failed") == 0 {
+		t.Fatalf("invalid node group graph save = %+v, want validation blocker", invalidResult)
 	}
 }
 
@@ -4138,8 +4245,11 @@ func TestWorkflowGraphSaveBlocksRemovedParallelBranchEdgeReferences(t *testing.T
 
 func workflowGraphSaveRequestFromDefinition(workflowID workflow.WorkflowID, revision int64, confirmed bool, def workflow.Definition) WorkflowGraphSaveRequest {
 	req := WorkflowGraphSaveRequest{WorkflowID: workflowID, ExpectedVersion: revision, Confirmed: confirmed}
+	for _, group := range def.NodeGroups {
+		req.NodeGroups = append(req.NodeGroups, NodeGroupRecord{ID: group.ID, WorkflowID: workflowID, Key: group.Key, DisplayName: group.DisplayName})
+	}
 	for _, node := range def.Nodes {
-		req.Nodes = append(req.Nodes, NodeRecord{ID: node.ID, WorkflowID: workflowID, Key: node.Key, Kind: node.Kind, DisplayName: node.DisplayName, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, OutputFields: node.OutputFields})
+		req.Nodes = append(req.Nodes, NodeRecord{ID: node.ID, WorkflowID: workflowID, Key: node.Key, Kind: node.Kind, DisplayName: node.DisplayName, GroupID: node.GroupID, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: node.InputFields, JoinInputProviders: node.JoinInputProviders, OutputFields: node.OutputFields})
 	}
 	for _, group := range def.TransitionGroups {
 		req.TransitionGroups = append(req.TransitionGroups, TransitionGroupRecord{ID: group.ID, WorkflowID: workflowID, SourceNodeID: group.SourceNodeID, TransitionID: group.TransitionID, DisplayName: group.DisplayName})
@@ -4159,6 +4269,17 @@ func renameWorkflowGraphSaveNode(nodes []NodeRecord, nodeID workflow.NodeID, dis
 		renamed = append(renamed, node)
 	}
 	return renamed
+}
+
+func setWorkflowGraphSaveNodeGroup(nodes []NodeRecord, nodeID workflow.NodeID, groupID string) []NodeRecord {
+	changed := make([]NodeRecord, 0, len(nodes))
+	for _, node := range nodes {
+		if node.ID == nodeID {
+			node.GroupID = groupID
+		}
+		changed = append(changed, node)
+	}
+	return changed
 }
 
 func confirmWorkflowGraphSaveRequest(req WorkflowGraphSaveRequest, impact WorkflowGraphSaveImpact) WorkflowGraphSaveRequest {

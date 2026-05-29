@@ -1,6 +1,9 @@
 package workflow
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 type DerivedWiring struct {
 	Diagnostics []ValidationError
@@ -57,7 +60,7 @@ func DeriveWiring(def Definition) DerivedWiring {
 		}
 		if group, groupExists := groupsByID[edge.TransitionGroupID]; groupExists {
 			if source, sourceExists := nodesByID[group.SourceNodeID]; sourceExists && source.Kind == NodeKindStart {
-				derived.addDiagnostic(CodeInvalidFirstNodeInput, "first executable node cannot declare upstream inputs", ValidationError{NodeID: target.ID, EdgeID: edge.ID, TransitionGroupID: edge.TransitionGroupID})
+				derived.addDiagnostic(CodeInvalidFirstNodeInput, fmt.Sprintf("%s cannot declare upstream inputs as the first executable node", nodeMessageSubject(target)), ValidationError{NodeID: target.ID, EdgeID: edge.ID, TransitionGroupID: edge.TransitionGroupID})
 				continue
 			}
 		}
@@ -128,12 +131,12 @@ func (w *DerivedWiring) deriveJoinProviderRequirements(
 ) {
 	groups := groupsBySource[join.ID]
 	if len(groups) != 1 {
-		w.addDiagnostic(CodeInvalidJoinOutgoingShape, "join node must have exactly one outgoing transition group", ValidationError{NodeID: join.ID})
+		w.addDiagnostic(CodeInvalidJoinOutgoingShape, fmt.Sprintf("%s must have exactly one outgoing transition group", nodeMessageSubject(join)), ValidationError{NodeID: join.ID})
 		return
 	}
 	outgoingEdges := edgesByGroup[groups[0].ID]
 	if len(outgoingEdges) != 1 {
-		w.addDiagnostic(CodeInvalidJoinOutgoingShape, "join node outgoing transition group must have exactly one edge", ValidationError{NodeID: join.ID, TransitionGroupID: groups[0].ID})
+		w.addDiagnostic(CodeInvalidJoinOutgoingShape, fmt.Sprintf("%s must have exactly one edge in its outgoing transition group", nodeMessageSubject(join)), ValidationError{NodeID: join.ID, TransitionGroupID: groups[0].ID})
 		return
 	}
 	target, targetExists := nodesByID[outgoingEdges[0].TargetNodeID]
@@ -160,22 +163,23 @@ func (w *DerivedWiring) deriveJoinProviderRequirements(
 		providersByInput[inputName] = append(providersByInput[inputName], provider)
 	}
 	for _, field := range requiredFields {
-		providers := providersByInput[strings.TrimSpace(field.Name)]
+		inputName := strings.TrimSpace(field.Name)
+		providers := providersByInput[inputName]
 		if len(providers) == 0 {
-			w.addDiagnostic(CodeMissingJoinInputProvider, "join input requires a provider edge", ValidationError{NodeID: join.ID, InputName: strings.TrimSpace(field.Name)})
+			w.addDiagnostic(CodeMissingJoinInputProvider, nodeJoinInputMessage(join, inputName, "requires a provider edge"), ValidationError{NodeID: join.ID, InputName: inputName})
 			continue
 		}
 		if len(providers) != 1 {
-			w.addDiagnostic(CodeDuplicateJoinInputProvider, "join input must have exactly one provider edge", ValidationError{NodeID: join.ID, InputName: strings.TrimSpace(field.Name)})
+			w.addDiagnostic(CodeDuplicateJoinInputProvider, nodeJoinInputMessage(join, inputName, "must have exactly one provider edge"), ValidationError{NodeID: join.ID, InputName: inputName})
 			continue
 		}
 		providerEdge, ok := incomingByID[providers[0].ProviderEdgeID]
 		if !ok {
-			w.addDiagnostic(CodeInvalidJoinInputProvider, "join input provider must reference an incoming edge into the join", ValidationError{NodeID: join.ID, EdgeID: providers[0].ProviderEdgeID, InputName: strings.TrimSpace(field.Name), ProviderEdgeID: providers[0].ProviderEdgeID})
+			w.addDiagnostic(CodeInvalidJoinInputProvider, nodeJoinInputMessage(join, inputName, "provider must reference an incoming edge into the join"), ValidationError{NodeID: join.ID, EdgeID: providers[0].ProviderEdgeID, InputName: inputName, ProviderEdgeID: providers[0].ProviderEdgeID})
 			continue
 		}
 		providerFields := []OutputField{field}
-		ref := ValidationError{NodeID: join.ID, EdgeID: providerEdge.ID, TransitionGroupID: providerEdge.TransitionGroupID, InputName: strings.TrimSpace(field.Name), ProviderEdgeID: providerEdge.ID}
+		ref := ValidationError{NodeID: join.ID, EdgeID: providerEdge.ID, TransitionGroupID: providerEdge.TransitionGroupID, InputName: inputName, ProviderEdgeID: providerEdge.ID}
 		w.addRequiredProviderFields(providerEdge.ID, providerFields, ref)
 		w.addRequiredProvisionFields(providerEdge.ID, providerEdge.TransitionGroupID, providerFields)
 		if providerGroup, groupExists := groupsByID[providerEdge.TransitionGroupID]; groupExists {
@@ -189,6 +193,14 @@ func (w *DerivedWiring) addDiagnostic(code ValidationErrorCode, message string, 
 	ref.Message = message
 	ref.BlocksContext = true
 	w.Diagnostics = append(w.Diagnostics, ref)
+}
+
+func nodeJoinInputMessage(join Node, inputName string, message string) string {
+	name := strings.TrimSpace(inputName)
+	if name == "" {
+		return fmt.Sprintf("%s: join input %s", nodeMessageSubject(join), message)
+	}
+	return fmt.Sprintf("%s: join input %s %s", nodeMessageSubject(join), name, message)
 }
 
 func targetRequiredInputFields(node Node) []OutputField {

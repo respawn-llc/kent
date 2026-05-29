@@ -11,19 +11,17 @@ import (
 	"image/color"
 	"image/gif"
 	"image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"builder/server/tools"
 	"builder/shared/toolspec"
-	"github.com/deepteams/webp"
-	"github.com/deepteams/webp/animation"
 )
 
-func TestCall_OptimizesLargeJPEGToSmallerWebPOutput(t *testing.T) {
+func TestCall_OptimizesLargeJPEGToSmallerJPEGOutput(t *testing.T) {
 	workspace := t.TempDir()
 	var original bytes.Buffer
 	if err := jpeg.Encode(&original, generatedPhotoLikeImage(1024), &jpeg.Options{Quality: 95}); err != nil {
@@ -58,14 +56,65 @@ func TestCall_OptimizesLargeJPEGToSmallerWebPOutput(t *testing.T) {
 	}
 
 	mimeType, payload := decodeSingleImageDataURL(t, result)
-	if mimeType != "image/webp" {
-		t.Fatalf("expected optimized webp output, got %q", mimeType)
+	if mimeType != "image/jpeg" {
+		t.Fatalf("expected optimized jpeg output, got %q", mimeType)
 	}
 	if len(payload) >= original.Len() {
 		t.Fatalf("expected optimized output smaller than original, got optimized=%d original=%d", len(payload), original.Len())
 	}
 	if int64(len(payload)) > maxFileSizeBytes {
 		t.Fatalf("expected optimized output under attachment cap, got %d", len(payload))
+	}
+}
+
+func TestCall_OptimizesTransparentPNGToJPEGOutput(t *testing.T) {
+	workspace := t.TempDir()
+	var original bytes.Buffer
+	if err := png.Encode(&original, generatedTransparentHighEntropyImage(384)); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+	if int64(original.Len()) < minOptimizationSizeBytes {
+		t.Fatalf("test image is too small for optimization path: %d", original.Len())
+	}
+	imagePath := filepath.Join(workspace, "screenshot.png")
+	if err := os.WriteFile(imagePath, original.Bytes(), 0o644); err != nil {
+		t.Fatalf("write image: %v", err)
+	}
+
+	tool, err := New(workspace, true)
+	if err != nil {
+		t.Fatalf("new tool: %v", err)
+	}
+
+	result, err := tool.Call(context.Background(), tools.Call{
+		ID:    "call-transparent-png",
+		Name:  toolspec.ToolViewImage,
+		Input: json.RawMessage(`{"path":"screenshot.png"}`),
+	})
+	if err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success result, got error payload: %s", string(result.Output))
+	}
+
+	mimeType, payload := decodeSingleImageDataURL(t, result)
+	if mimeType != "image/jpeg" {
+		t.Fatalf("expected jpeg output, got %q", mimeType)
+	}
+	if int64(len(payload)) > maxFileSizeBytes {
+		t.Fatalf("expected optimized output under attachment cap, got %d", len(payload))
+	}
+	decoded, format, err := image.Decode(bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("decode optimized jpeg: %v", err)
+	}
+	if format != "jpeg" {
+		t.Fatalf("expected jpeg decode format, got %q", format)
+	}
+	r, g, b := averageRGB16(decoded, image.Rect(0, 0, 8, 8))
+	if r < 0xd000 || g < 0xd000 || b < 0xd000 {
+		t.Fatalf("expected transparent pixels to flatten against white, got rgba16=(%d,%d,%d)", r, g, b)
 	}
 }
 
@@ -189,11 +238,11 @@ func TestCall_StillGIFAcceptedAndAnimatedGIFRejected(t *testing.T) {
 	}
 }
 
-func TestCall_AnimatedWebPRejected(t *testing.T) {
+func TestCall_WebPRejectedAsUnsupported(t *testing.T) {
 	workspace := t.TempDir()
-	imagePath := filepath.Join(workspace, "animated.webp")
-	if err := os.WriteFile(imagePath, encodedAnimatedWebP(t), 0o644); err != nil {
-		t.Fatalf("write animated webp: %v", err)
+	imagePath := filepath.Join(workspace, "image.webp")
+	if err := os.WriteFile(imagePath, minimalWebPHeader(), 0o644); err != nil {
+		t.Fatalf("write webp: %v", err)
 	}
 
 	tool, err := New(workspace, true)
@@ -202,47 +251,18 @@ func TestCall_AnimatedWebPRejected(t *testing.T) {
 	}
 
 	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-animated-webp",
+		ID:    "call-webp",
 		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"animated.webp"}`),
+		Input: json.RawMessage(`{"path":"image.webp"}`),
 	})
 	if err != nil {
 		t.Fatalf("call: %v", err)
 	}
 	if !result.IsError {
-		t.Fatalf("expected animated webp to be rejected")
+		t.Fatalf("expected webp to be rejected")
 	}
-	if got := toolError(t, result); !strings.Contains(got, "animated WebP images are not supported") {
-		t.Fatalf("expected animated WebP guidance, got %q", got)
-	}
-}
-
-func TestCall_StillWebPAccepted(t *testing.T) {
-	workspace := t.TempDir()
-	imagePath := filepath.Join(workspace, "still.webp")
-	if err := os.WriteFile(imagePath, encodedStillWebP(t), 0o644); err != nil {
-		t.Fatalf("write still webp: %v", err)
-	}
-
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-still-webp",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"still.webp"}`),
-	})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
-	if result.IsError {
-		t.Fatalf("expected still WebP success, got %s", string(result.Output))
-	}
-	mimeType, _ := decodeSingleImageDataURL(t, result)
-	if mimeType != "image/webp" {
-		t.Fatalf("expected still WebP output, got %q", mimeType)
+	if got := toolError(t, result); !strings.Contains(got, "unsupported image format") || !strings.Contains(got, "image/webp") {
+		t.Fatalf("expected unsupported WebP guidance, got %q", got)
 	}
 }
 
@@ -317,6 +337,46 @@ func generatedPhotoLikeImage(size int) image.Image {
 	return img
 }
 
+func generatedTransparentHighEntropyImage(size int) image.Image {
+	img := image.NewRGBA(image.Rect(0, 0, size, size))
+	for y := 0; y < size; y++ {
+		for x := 0; x < size; x++ {
+			img.SetRGBA(x, y, color.RGBA{
+				R: uint8((x*97 + y*53 + x*y*11) % 256),
+				G: uint8((x*29 + y*131 + x*y*7) % 256),
+				B: uint8((x*173 + y*19 + x*y*3) % 256),
+				A: 255,
+			})
+		}
+	}
+	for y := 0; y < 16 && y < size; y++ {
+		for x := 0; x < 16 && x < size; x++ {
+			img.SetRGBA(x, y, color.RGBA{A: 0})
+		}
+	}
+	return img
+}
+
+func averageRGB16(img image.Image, bounds image.Rectangle) (uint32, uint32, uint32) {
+	clipped := bounds.Intersect(img.Bounds())
+	if clipped.Empty() {
+		return 0, 0, 0
+	}
+	var rTotal uint64
+	var gTotal uint64
+	var bTotal uint64
+	count := uint64(clipped.Dx() * clipped.Dy())
+	for y := clipped.Min.Y; y < clipped.Max.Y; y++ {
+		for x := clipped.Min.X; x < clipped.Max.X; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			rTotal += uint64(r)
+			gTotal += uint64(g)
+			bTotal += uint64(b)
+		}
+	}
+	return uint32(rTotal / count), uint32(gTotal / count), uint32(bTotal / count)
+}
+
 func encodedGIF(t *testing.T, frames int) []byte {
 	t.Helper()
 	palette := []color.Color{color.Black, color.White}
@@ -335,38 +395,14 @@ func encodedGIF(t *testing.T, frames int) []byte {
 	return buf.Bytes()
 }
 
-func encodedAnimatedWebP(t *testing.T) []byte {
-	t.Helper()
-	var buf bytes.Buffer
-	encoder := animation.NewEncoder(&buf, 2, 2, &animation.EncodeOptions{Quality: 80, Kmax: 1})
-	if encoder == nil {
-		t.Fatal("create animated WebP encoder")
+func minimalWebPHeader() []byte {
+	return []byte{
+		'R', 'I', 'F', 'F',
+		12, 0, 0, 0,
+		'W', 'E', 'B', 'P',
+		'V', 'P', '8', ' ',
+		0, 0, 0, 0,
 	}
-	first := image.NewRGBA(image.Rect(0, 0, 2, 2))
-	first.Set(0, 0, color.White)
-	second := image.NewRGBA(image.Rect(0, 0, 2, 2))
-	second.Set(1, 1, color.White)
-	if err := encoder.AddFrame(first, 100*time.Millisecond); err != nil {
-		t.Fatalf("add first WebP frame: %v", err)
-	}
-	if err := encoder.AddFrame(second, 100*time.Millisecond); err != nil {
-		t.Fatalf("add second WebP frame: %v", err)
-	}
-	if err := encoder.Close(); err != nil {
-		t.Fatalf("close animated WebP encoder: %v", err)
-	}
-	return buf.Bytes()
-}
-
-func encodedStillWebP(t *testing.T) []byte {
-	t.Helper()
-	var buf bytes.Buffer
-	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
-	img.Set(0, 0, color.White)
-	if err := webp.Encode(&buf, img, webp.OptionsForPreset(webp.PresetPicture, 80)); err != nil {
-		t.Fatalf("encode still WebP: %v", err)
-	}
-	return buf.Bytes()
 }
 
 func pngWithDimensions(t *testing.T, width, height uint32) []byte {

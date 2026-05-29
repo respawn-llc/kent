@@ -75,6 +75,8 @@
 - Workspace boundary checks apply after symlink resolution; symlink escapes are blocked by default.
 - Outside-workspace file reads are approval-gated through the same approver contract as `patch`.
 - Approved outside-workspace reads are written to run logs with requested/resolved path metadata.
+- Default `view_image` raster attachment materialization optimizes performance and minimizes provider-bound data transfer by validating then attempting to re-encode every supported non-raw raster image with source bytes `>= 100 KiB` into JPEG. If JPEG optimization fails or does not reduce payload size, Builder preserves the original validated image bytes and enforces the attachment size cap.
+- WebP input and WebP transcoding are disabled while Builder lacks a reliable maintained WebP encoder. Re-enabling WebP requires a provider-compatible encoder and regression coverage against issue #308's invalid compressed-alpha output.
 
 ## Tool Output And Failures
 
@@ -186,6 +188,7 @@
 - Supervisor/reviewer cache lineage uses `<session_id>/supervisor` with the same compaction generation counter.
 - Local compaction instructions are final `developer` messages. Runtime rejects any tool calls returned by local compaction.
 - Local compaction summary generation reuses the normal main-agent request envelope and changes only request items by appending compaction instructions.
+- If native or local compaction exceeds provider context length, Builder retries by collapsing supported historical tool payloads in the compaction request only. The four total attempts are the original request, then cumulative collapse targets of 10%, 20%, and 40% of the model context window. Shell outputs, including `exec_command` and `write_stdin` outputs, and patch inputs collapse to exact text `<collapsed>`; tool calls and call/output relationships remain present. Reasoning items and unsupported tool payloads are not removed or collapsed. Successful repaired compaction persists an operator-visible diagnostic with collapse counts and estimated omitted tokens.
 - Compaction lifecycle emits and persists started/completed/failed events.
 - Completed compaction creates no UI-only transcript row. Transcript-visible compaction summaries come from server-owned transcript items.
 

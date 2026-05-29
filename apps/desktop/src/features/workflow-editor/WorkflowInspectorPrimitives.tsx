@@ -1,16 +1,37 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { WorkflowValidationError } from "../../api";
-import { Badge } from "../../ui";
+import { IslandSurface } from "../../ui";
 import { WorkflowValidationErrorDetailsLine } from "../workflow/WorkflowValidationIssues";
 
-export function DetailSection({ children, title }: Readonly<{ children: ReactNode; title?: string }>) {
+export function DetailSection({
+  children,
+  hideTitle = false,
+  leading,
+  title,
+}: Readonly<{
+  children: ReactNode;
+  hideTitle?: boolean | undefined;
+  leading?: ReactNode | undefined;
+  title?: string | undefined;
+}>) {
+  const titleID = useId();
   return (
-    <section className="grid gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]">
-      {title === undefined ? null : <h3 className="m-0 text-sm font-bold">{title}</h3>}
+    <IslandSurface
+      aria-labelledby={title === undefined ? undefined : titleID}
+      as="section"
+      className="grid gap-[var(--space-2)] rounded-[var(--radius-l)] p-[var(--space-3)]"
+      level={1}
+    >
+      {leading}
+      {title === undefined ? null : (
+        <h3 className={hideTitle ? "sr-only" : "m-0 text-sm font-bold"} id={titleID}>
+          {title}
+        </h3>
+      )}
       {children}
-    </section>
+    </IslandSurface>
   );
 }
 
@@ -41,16 +62,10 @@ export function ValidationDetails({
   }
   return (
     <DetailSection title={title ?? t("workflowEditor.validationErrors")}>
-      <ul className="m-0 grid gap-[var(--space-2)] p-0">
+      <ul className="m-0 grid list-disc gap-[var(--space-1)] pl-[1.1rem] text-sm leading-snug">
         {errors.map((error, index) => (
-          <li
-            className="list-none rounded-[var(--radius-m)] border border-[var(--color-error)] bg-[color-mix(in_srgb,var(--color-error)_12%,transparent)] p-[var(--space-2)]"
-            key={validationErrorKey(error, index)}
-          >
-            <div className="mb-[var(--space-1)]">
-              <Badge tone={error.blocksContext ? "danger" : "warning"}>{error.code}</Badge>
-            </div>
-            <p className="m-0 text-sm">{error.message}</p>
+          <li className="pl-[2px] marker:text-[var(--color-error)]" key={validationErrorKey(error, index)}>
+            <span>{error.message}</span>
             <WorkflowValidationErrorDetailsLine error={error} />
           </li>
         ))}

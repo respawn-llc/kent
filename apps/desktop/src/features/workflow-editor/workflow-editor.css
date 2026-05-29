@@ -17,7 +17,7 @@
   background: var(--color-island-1);
   border: 2px solid var(--color-outline);
   height: 10px;
-  pointer-events: none;
+  pointer-events: all;
   width: 10px;
 }
 
@@ -38,12 +38,19 @@
   --workflow-editor-node-outline-color: var(--color-error);
 }
 
-.workflow-editor-node-error.workflow-editor-join-node .workflow-editor-join-diamond {
+.workflow-editor-node-error .workflow-editor-join-diamond {
   background: color-mix(in srgb, var(--workflow-editor-node-outline-color) 16%, var(--color-island-3));
 }
 
 .workflow-editor-node-selected {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 32%, transparent);
+}
+
+.workflow-editor-group-drop-active {
+  border-color: var(--color-primary);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--color-primary) 28%, transparent),
+    var(--shadow-island-1);
 }
 
 .workflow-editor-edge-label {

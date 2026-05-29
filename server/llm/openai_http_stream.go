@@ -18,6 +18,14 @@ type responseStreamAccumulator struct {
 	reasoning         *reasoningAccumulator
 	passthrough       *passthroughOutputAccumulator
 	completed         *responses.Response
+	responseError     *responseStreamError
+}
+
+type responseStreamError struct {
+	Code    string
+	Param   string
+	Message string
+	Raw     string
 }
 
 func newResponseStreamAccumulator(callbacks StreamCallbacks, windowTokens int) *responseStreamAccumulator {
@@ -72,6 +80,36 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 	case "response.completed":
 		completed := evt.AsResponseCompleted().Response
 		a.completed = &completed
+	case "response.failed":
+		failed := evt.AsResponseFailed()
+		a.responseError = &responseStreamError{Raw: failed.RawJSON()}
+	case "error":
+		errorEvent := evt.AsError()
+		a.responseError = &responseStreamError{
+			Code:    errorEvent.Code,
+			Param:   errorEvent.Param,
+			Message: errorEvent.Message,
+			Raw:     evt.RawJSON(),
+		}
+	}
+}
+
+func (a *responseStreamAccumulator) Err(providerID string) error {
+	if a == nil || a.responseError == nil {
+		return nil
+	}
+	if err, ok := mapOpenAIStreamErrorPayload(providerID, []byte(a.responseError.Raw), nil); ok {
+		return err
+	}
+	message := strings.TrimSpace(a.responseError.Raw)
+	if message == "" {
+		message = "unrecognized stream error"
+	}
+	return &ProviderAPIError{
+		ProviderID: providerID,
+		Code:       UnifiedErrorCodeUnknown,
+		Message:    message,
+		Raw:        message,
 	}
 }
 

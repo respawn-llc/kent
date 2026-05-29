@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { useAppServices } from "../app/useAppServices";
 import { chromeContentPaddingClassName, nativeChromeContentPaddingClassName } from "./chromePadding";
 import { cx } from "./classes";
+import { islandSurfaceClassName } from "./islandSurfaceStyles";
 
 export type NativeDialogWindowProps = Readonly<{
   title: string;
@@ -121,7 +122,7 @@ function nativeDialogSectionClassName({
 }: Required<Pick<NativeDialogWindowProps, "fitToContent" | "showHeader" | "surface">>): string {
   return cx(
     "app-region-no-drag grid min-h-0 gap-[var(--space-3)]",
-    surface === "island" && "island-glass rounded-[var(--radius-xl)] p-[var(--space-4)]",
+    surface === "island" && cx(islandSurfaceClassName(0), "rounded-[var(--radius-xl)] p-[var(--space-4)]"),
     surface === "transparent" && "bg-transparent p-0 shadow-none",
     showHeader ? "grid-rows-[auto_minmax(0,1fr)]" : "grid-rows-[minmax(0,1fr)]",
     fitToContent ? "w-max" : "h-full",

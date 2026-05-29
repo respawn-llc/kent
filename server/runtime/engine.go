@@ -648,7 +648,7 @@ func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, cli
 			}
 			return resp, nil
 		}
-		if llm.IsNonRetriableModelError(attemptErr) {
+		if llm.IsNonRetriableModelError(attemptErr) || llm.IsContextLengthOverflowError(attemptErr) {
 			return llm.Response{}, attemptErr
 		}
 		if (attemptEmitted || reasoningEmitted) && onAttemptReset != nil {

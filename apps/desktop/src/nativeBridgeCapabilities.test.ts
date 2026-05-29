@@ -6,6 +6,7 @@ import {
   taskDetailNativeDialogWindowOptions,
   taskDetailNativeWindowInitialWidthPx,
 } from "@builder/desktop-native-bridge";
+import { vi } from "vitest";
 
 import tauriDefaultCapability from "../src-tauri/capabilities/default.json";
 
@@ -81,5 +82,16 @@ describe("native bridge capabilities", () => {
       route: "/native-dialog/task-detail",
       title: "Task",
     });
+  });
+
+  it("keeps browser workflow delete confirmation events as no-ops", async () => {
+    const bridge = createBrowserNativeBridge();
+    const handler = vi.fn();
+
+    const unlisten = await bridge.workflowEditor.onGraphDeleteConfirmed(handler);
+    await bridge.workflowEditor.confirmGraphDelete({ requestID: "delete-1" });
+    unlisten();
+
+    expect(handler).not.toHaveBeenCalled();
   });
 });

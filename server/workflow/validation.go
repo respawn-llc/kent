@@ -34,6 +34,7 @@ type validationState struct {
 	errors         []ValidationError
 	nodesByID      map[NodeID]Node
 	nodeKeys       map[ModelKey]NodeID
+	nodeGroupsByID map[string]NodeGroup
 	groupsByID     map[TransitionGroupID]TransitionGroup
 	edgesByID      map[EdgeID]Edge
 	edgesByGroup   map[TransitionGroupID][]Edge
@@ -50,6 +51,7 @@ func newValidationState(def Definition, opts ValidationOptions, context Validati
 		context:        context,
 		nodesByID:      map[NodeID]Node{},
 		nodeKeys:       map[ModelKey]NodeID{},
+		nodeGroupsByID: map[string]NodeGroup{},
 		groupsByID:     map[TransitionGroupID]TransitionGroup{},
 		edgesByID:      map[EdgeID]Edge{},
 		edgesByGroup:   map[TransitionGroupID][]Edge{},
@@ -67,12 +69,45 @@ func (s *validationState) validateShape() {
 		s.addHard(CodeInvalidDisplayName, "workflow display name must be non-empty and at most 120 characters", ValidationError{WorkflowID: s.def.ID})
 	}
 
+	s.indexNodeGroups()
 	s.indexNodes()
 	s.indexTransitionGroups()
 	s.indexEdges()
 	s.validateNodes()
+	s.validateNodeGroups()
 	s.validateTransitionGroups()
 	s.validateEdges()
+}
+
+func (s *validationState) indexNodeGroups() {
+	seenKeys := map[ModelKey]string{}
+	for _, group := range s.def.NodeGroups {
+		ref := ValidationError{WorkflowID: s.def.ID, RelatedIDs: []string{group.ID}}
+		if strings.TrimSpace(string(group.WorkflowID)) != "" && group.WorkflowID != s.def.ID {
+			s.addHard(CodeCrossWorkflowReference, "node group references another workflow", ref)
+		}
+		id := strings.TrimSpace(group.ID)
+		if id == "" {
+			s.addHard(CodeInvalidNodeGroup, "node group id is required", ref)
+			continue
+		}
+		if _, exists := s.nodeGroupsByID[id]; exists {
+			s.addHard(CodeInvalidNodeGroup, "node group id must be unique", ref)
+			continue
+		}
+		key := ModelKey(strings.TrimSpace(string(group.Key)))
+		if key == "" || !validModelKey(string(key)) {
+			s.addHard(CodeInvalidNodeGroup, "node group key is invalid", ref)
+		} else if previousID, exists := seenKeys[key]; exists && previousID != id {
+			s.addHard(CodeInvalidNodeGroup, "node group key must be unique", ref)
+		} else {
+			seenKeys[key] = id
+		}
+		if !validDisplayName(group.DisplayName) {
+			s.addHard(CodeInvalidDisplayName, "node group display name must be non-empty and at most 120 characters", ref)
+		}
+		s.nodeGroupsByID[id] = group
+	}
 }
 
 func (s *validationState) indexNodes() {
@@ -179,6 +214,11 @@ func (s *validationState) validateNodes() {
 		default:
 			s.addHard(CodeInvalidNodeKind, "node kind is invalid", ref)
 		}
+		if strings.TrimSpace(node.GroupID) != "" {
+			if _, exists := s.nodeGroupsByID[strings.TrimSpace(node.GroupID)]; !exists {
+				s.addHard(CodeInvalidNodeGroup, "node references a missing node group", ref)
+			}
+		}
 		s.validateOutputFields(node)
 		s.validateInputFields(node)
 	}
@@ -188,6 +228,101 @@ func (s *validationState) validateNodes() {
 	if len(s.startNodes) > 1 {
 		s.addHard(CodeMultipleStartNodes, "workflow must contain exactly one start node", ValidationError{WorkflowID: s.def.ID})
 	}
+}
+
+func (s *validationState) validateNodeGroups() {
+	for _, group := range s.def.NodeGroups {
+		ref := ValidationError{WorkflowID: s.def.ID, RelatedIDs: []string{group.ID}}
+		members := s.nodeGroupMembers(group)
+		branchIDs := map[NodeID]bool{}
+		joinIDs := []NodeID{}
+		for _, node := range members {
+			switch node.Kind {
+			case NodeKindAgent:
+				branchIDs[node.ID] = true
+			case NodeKindJoin:
+				joinIDs = append(joinIDs, node.ID)
+			default:
+				s.addHard(CodeInvalidNodeGroup, "node group members must be agent branches plus one join", ref)
+			}
+		}
+		if len(branchIDs) < 2 {
+			s.addHard(CodeInvalidNodeGroup, "node group must contain at least two branch nodes", ref)
+		}
+		if len(joinIDs) != 1 {
+			s.addHard(CodeInvalidNodeGroup, "node group must contain exactly one join node", ref)
+			continue
+		}
+		if len(branchIDs) >= 2 && !s.nodeGroupHasV1FanoutTopology(branchIDs, joinIDs[0]) {
+			s.addHard(CodeInvalidNodeGroup, "node group must be represented by one fan-out transition group and branch edges into its join", ref)
+		}
+	}
+}
+
+func (s *validationState) nodeGroupMembers(group NodeGroup) []Node {
+	memberIDs := map[NodeID]bool{}
+	for _, nodeID := range group.MemberNodeIDs {
+		memberIDs[nodeID] = true
+	}
+	for _, node := range s.def.Nodes {
+		if strings.TrimSpace(node.GroupID) == group.ID {
+			memberIDs[node.ID] = true
+		}
+	}
+	members := make([]Node, 0, len(memberIDs))
+	for nodeID := range memberIDs {
+		if node, exists := s.nodesByID[nodeID]; exists {
+			members = append(members, node)
+		}
+	}
+	return members
+}
+
+func (s *validationState) nodeGroupHasV1FanoutTopology(branchIDs map[NodeID]bool, joinID NodeID) bool {
+	fanoutMatches := 0
+	for _, group := range s.def.TransitionGroups {
+		edges := s.edgesByGroup[group.ID]
+		if len(edges) < 2 {
+			continue
+		}
+		targets := map[NodeID]bool{}
+		for _, edge := range edges {
+			targets[edge.TargetNodeID] = true
+		}
+		if nodeIDSetEqual(branchIDs, targets) {
+			fanoutMatches++
+		}
+	}
+	if fanoutMatches != 1 {
+		return false
+	}
+	for branchID := range branchIDs {
+		if !s.nodeHasOutgoingEdgeTo(branchID, joinID) {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *validationState) nodeHasOutgoingEdgeTo(sourceID NodeID, targetID NodeID) bool {
+	for _, edge := range s.outgoingByNode[sourceID] {
+		if edge.TargetNodeID == targetID {
+			return true
+		}
+	}
+	return false
+}
+
+func nodeIDSetEqual(left map[NodeID]bool, right map[NodeID]bool) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for id := range left {
+		if !right[id] {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *validationState) validateTransitionGroups() {
@@ -238,46 +373,48 @@ func (s *validationState) validateEdges() {
 
 func (s *validationState) validateOutputFields(node Node) {
 	seen := map[string]bool{}
-	for _, field := range node.OutputFields {
+	for index, field := range node.OutputFields {
+		ordinal := index + 1
 		name := strings.TrimSpace(field.Name)
 		ref := ValidationError{WorkflowID: s.def.ID, NodeID: node.ID, FieldName: name}
 		if name == "" || !validModelKey(name) || len(name) > MaxOutputFieldNameChars || reservedOutputFieldNames[name] {
-			s.addHard(CodeInvalidOutputField, "output field name is invalid", ref)
+			s.addHard(CodeInvalidOutputField, nodeFieldMessage(node, "output", ordinal, "field name is invalid"), ref)
 		}
 		if seen[name] {
-			s.addHard(CodeDuplicateOutputField, "output field name must be unique per node", ref)
+			s.addHard(CodeDuplicateOutputField, nodeFieldMessage(node, "output", ordinal, "field name must be unique per node"), ref)
 		}
 		seen[name] = true
 		description := strings.TrimSpace(field.Description)
 		if description == "" {
-			s.addHard(CodeOutputFieldDescriptionRequired, "output field description is required", ref)
+			s.addHard(CodeOutputFieldDescriptionRequired, nodeFieldMessage(node, "output", ordinal, "description is required"), ref)
 		} else if len(description) > MaxOutputFieldDescriptionChars {
-			s.addHard(CodeOutputSchemaTooLarge, "output field description is too large", ref)
+			s.addHard(CodeOutputSchemaTooLarge, nodeFieldMessage(node, "output", ordinal, "description is too large"), ref)
 		}
 	}
 }
 
 func (s *validationState) validateInputFields(node Node) {
 	if len(node.InputFields) > 0 && node.Kind != NodeKindAgent {
-		s.addHard(CodeInvalidInputField, "only agent nodes can declare input fields", ValidationError{WorkflowID: s.def.ID, NodeID: node.ID})
+		s.addHard(CodeInvalidInputField, fmt.Sprintf("%s cannot declare input fields; only agent nodes can", nodeMessageSubject(node)), ValidationError{WorkflowID: s.def.ID, NodeID: node.ID})
 		return
 	}
 	seen := map[string]bool{}
-	for _, field := range node.InputFields {
+	for index, field := range node.InputFields {
+		ordinal := index + 1
 		name := strings.TrimSpace(field.Name)
 		ref := ValidationError{WorkflowID: s.def.ID, NodeID: node.ID, InputName: name}
 		if name == "" || !validModelKey(name) || len(name) > MaxInputFieldNameChars || reservedOutputFieldNames[name] {
-			s.addHard(CodeInvalidInputField, "input field name is invalid", ref)
+			s.addHard(CodeInvalidInputField, nodeFieldMessage(node, "input", ordinal, "field name is invalid"), ref)
 		}
 		if seen[name] {
-			s.addHard(CodeDuplicateInputField, "input field name must be unique per node", ref)
+			s.addHard(CodeDuplicateInputField, nodeFieldMessage(node, "input", ordinal, "field name must be unique per node"), ref)
 		}
 		seen[name] = true
 		description := strings.TrimSpace(field.Description)
 		if description == "" {
-			s.addHard(CodeInputFieldDescriptionRequired, "input field description is required", ref)
+			s.addHard(CodeInputFieldDescriptionRequired, nodeFieldMessage(node, "input", ordinal, "description is required"), ref)
 		} else if len(description) > MaxInputFieldDescriptionChars {
-			s.addHard(CodeInputSchemaTooLarge, "input field description is too large", ref)
+			s.addHard(CodeInputSchemaTooLarge, nodeFieldMessage(node, "input", ordinal, "description is too large"), ref)
 		}
 	}
 }
@@ -334,10 +471,10 @@ func (s *validationState) validateGraph() {
 	reachable := s.reachableFrom(s.startNodes[0].ID)
 	for nodeID, node := range s.nodesByID {
 		if !reachable[nodeID] {
-			s.addSemantic(CodeNodeUnreachableFromStart, "node is not reachable from start", ValidationError{WorkflowID: s.def.ID, NodeID: node.ID})
+			s.addSemantic(CodeNodeUnreachableFromStart, fmt.Sprintf("%s not reachable", nodeMessageSubject(node)), ValidationError{WorkflowID: s.def.ID, NodeID: node.ID})
 		}
 		if node.Kind != NodeKindTerminal && !s.canReachTerminal(nodeID) {
-			s.addSemantic(CodeNonTerminalCannotReachTerminal, "non-terminal node cannot reach a terminal node", ValidationError{WorkflowID: s.def.ID, NodeID: node.ID})
+			s.addSemantic(CodeNonTerminalCannotReachTerminal, fmt.Sprintf("%s cannot reach a terminal", nodeMessageSubject(node)), ValidationError{WorkflowID: s.def.ID, NodeID: node.ID})
 		}
 	}
 	s.validatePromptPlaceholders()
@@ -715,6 +852,27 @@ func (s *validationState) addSemantic(code ValidationErrorCode, message string, 
 	ref.Message = message
 	ref.BlocksContext = s.context != ValidationContextDraft
 	s.errors = append(s.errors, ref)
+}
+
+func nodeFieldMessage(node Node, fieldKind string, ordinal int, message string) string {
+	return fmt.Sprintf("%s: %s field #%d %s", nodeMessageSubject(node), fieldKind, ordinal, message)
+}
+
+func nodeMessageSubject(node Node) string {
+	return fmt.Sprintf("Node %s", nodeDisplayName(node))
+}
+
+func nodeDisplayName(node Node) string {
+	if name := strings.TrimSpace(node.DisplayName); name != "" {
+		return name
+	}
+	if key := strings.TrimSpace(string(node.Key)); key != "" {
+		return key
+	}
+	if id := strings.TrimSpace(string(node.ID)); id != "" {
+		return id
+	}
+	return "unknown"
 }
 
 func validDisplayName(value string) bool {

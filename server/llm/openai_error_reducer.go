@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	openai "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/ssestream"
 )
 
 type openAICompatibleErrorReducer struct {
@@ -28,6 +29,9 @@ func newOpaqueProviderErrorReducer(providerID string) ProviderErrorReducer {
 }
 
 func (r openAICompatibleErrorReducer) Reduce(err error, rawResp *http.Response) (*ProviderAPIError, bool) {
+	if reduced, ok := r.reduceFromStreamError(err); ok {
+		return reduced, true
+	}
 	if reduced, ok := r.reduceFromSDK(err); ok {
 		return reduced, true
 	}
@@ -53,6 +57,38 @@ func (r opaqueProviderErrorReducer) Reduce(err error, rawResp *http.Response) (*
 		}, true
 	}
 	return nil, false
+}
+
+func (r openAICompatibleErrorReducer) reduceFromStreamError(err error) (*ProviderAPIError, bool) {
+	if err == nil {
+		return nil, false
+	}
+	var streamErr *ssestream.StreamError
+	if !errors.As(err, &streamErr) {
+		return nil, false
+	}
+	reduced, ok := mapOpenAIStreamErrorPayload(r.providerID, streamErr.Event.Data, err)
+	if !ok {
+		return nil, false
+	}
+	return reduced, true
+}
+
+func mapOpenAIStreamErrorPayload(providerID string, data []byte, cause error) (*ProviderAPIError, bool) {
+	payload, ok := decodeOpenAIStreamErrorPayload(data)
+	if !ok {
+		return nil, false
+	}
+	return mapOpenAIProviderErrorContract(
+		providerID,
+		0,
+		payload.Code,
+		payload.Type,
+		payload.Param,
+		payload.Message,
+		string(data),
+		cause,
+	), true
 }
 
 func (r openAICompatibleErrorReducer) reduceFromSDK(err error) (*ProviderAPIError, bool) {
@@ -142,6 +178,68 @@ func (r opaqueProviderErrorReducer) reduceFromResponse(rawResp *http.Response) (
 		Message:    raw,
 		Raw:        raw,
 	}, true
+}
+
+type openAIStreamErrorPayload struct {
+	Type    string
+	Code    string
+	Param   string
+	Message string
+}
+
+func decodeOpenAIStreamErrorPayload(data []byte) (openAIStreamErrorPayload, bool) {
+	if len(bytes.TrimSpace(data)) == 0 || !json.Valid(data) {
+		return openAIStreamErrorPayload{}, false
+	}
+	var envelope struct {
+		Type    string `json:"type"`
+		Code    string `json:"code"`
+		Param   string `json:"param"`
+		Message string `json:"message"`
+		Error   struct {
+			Type    string `json:"type"`
+			Code    string `json:"code"`
+			Param   string `json:"param"`
+			Message string `json:"message"`
+		} `json:"error"`
+		Response struct {
+			Error struct {
+				Type    string `json:"type"`
+				Code    string `json:"code"`
+				Param   string `json:"param"`
+				Message string `json:"message"`
+			} `json:"error"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return openAIStreamErrorPayload{}, false
+	}
+	payload := openAIStreamErrorPayload{
+		Type:    strings.TrimSpace(envelope.Type),
+		Code:    strings.TrimSpace(envelope.Code),
+		Param:   strings.TrimSpace(envelope.Param),
+		Message: strings.TrimSpace(envelope.Message),
+	}
+	if strings.TrimSpace(envelope.Error.Code) != "" || strings.TrimSpace(envelope.Error.Message) != "" {
+		payload = openAIStreamErrorPayload{
+			Type:    strings.TrimSpace(envelope.Error.Type),
+			Code:    strings.TrimSpace(envelope.Error.Code),
+			Param:   strings.TrimSpace(envelope.Error.Param),
+			Message: strings.TrimSpace(envelope.Error.Message),
+		}
+	}
+	if strings.TrimSpace(envelope.Response.Error.Code) != "" || strings.TrimSpace(envelope.Response.Error.Message) != "" {
+		payload = openAIStreamErrorPayload{
+			Type:    strings.TrimSpace(envelope.Response.Error.Type),
+			Code:    strings.TrimSpace(envelope.Response.Error.Code),
+			Param:   strings.TrimSpace(envelope.Response.Error.Param),
+			Message: strings.TrimSpace(envelope.Response.Error.Message),
+		}
+	}
+	if payload.Code == "" && payload.Message == "" {
+		return openAIStreamErrorPayload{}, false
+	}
+	return payload, true
 }
 
 func mapOpenAIProviderErrorContract(

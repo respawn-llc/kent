@@ -93,6 +93,12 @@ export type NativeBridge = Readonly<{
     notifyChanged(event: NativeTaskDetailChanged): Promise<void>;
     onChanged(handler: (event: NativeTaskDetailChanged) => void): Promise<NativeUnlisten>;
   }>;
+  workflowEditor: Readonly<{
+    confirmGraphDelete(confirmation: NativeWorkflowGraphDeleteConfirmation): Promise<void>;
+    onGraphDeleteConfirmed(
+      handler: (confirmation: NativeWorkflowGraphDeleteConfirmation) => void,
+    ): Promise<NativeUnlisten>;
+  }>;
 }>;
 
 export type NativeWindowGlassTint = Readonly<{
@@ -163,6 +169,10 @@ export type NativeTaskDetailChanged = Readonly<{
   taskId: string;
 }>;
 
+export type NativeWorkflowGraphDeleteConfirmation = Readonly<{
+  requestID: string;
+}>;
+
 export type NativeUnlisten = () => void;
 
 const unavailableCapabilities: NativeCapabilityState = {
@@ -205,6 +215,7 @@ export const taskDetailDialogOuterMaxWidthPx =
 export const taskDetailNativeWindowInitialWidthPx = 840;
 const workspaceUnlinkRequestEvent = "builder://workspace-unlink-request";
 const projectWorkspaceChangedEvent = "builder://project-workspace-changed";
+const workflowGraphDeleteConfirmEvent = "builder://workflow-graph-delete-confirm";
 
 export function taskDetailNativeDialogWindowOptions(
   target: NativeTaskDetailTarget,
@@ -335,6 +346,14 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
         return Promise.resolve();
       },
       async onChanged(): Promise<NativeUnlisten> {
+        return () => undefined;
+      },
+    },
+    workflowEditor: {
+      async confirmGraphDelete(): Promise<void> {
+        return Promise.resolve();
+      },
+      async onGraphDeleteConfirmed(): Promise<NativeUnlisten> {
         return () => undefined;
       },
     },
@@ -477,6 +496,18 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
       },
       async onChanged(handler: (event: NativeTaskDetailChanged) => void): Promise<NativeUnlisten> {
         return listen<NativeTaskDetailChanged>(taskDetailChangedEvent, (event) => {
+          handler(event.payload);
+        });
+      },
+    },
+    workflowEditor: {
+      async confirmGraphDelete(confirmation: NativeWorkflowGraphDeleteConfirmation): Promise<void> {
+        await emitTo("main", workflowGraphDeleteConfirmEvent, confirmation);
+      },
+      async onGraphDeleteConfirmed(
+        handler: (confirmation: NativeWorkflowGraphDeleteConfirmation) => void,
+      ): Promise<NativeUnlisten> {
+        return listen<NativeWorkflowGraphDeleteConfirmation>(workflowGraphDeleteConfirmEvent, (event) => {
           handler(event.payload);
         });
       },

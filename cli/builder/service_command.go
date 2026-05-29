@@ -237,7 +237,7 @@ func runServiceCommandAction(ctx context.Context, action serviceAction, opts ser
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
-			if err := ensureNoUnmanagedServerConflict(ctx, backend, spec); err != nil {
+			if err := ensureNoUnmanagedServerConflictForAction(ctx, backend, spec, action); err != nil {
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
@@ -254,7 +254,7 @@ func runServiceCommandAction(ctx context.Context, action serviceAction, opts ser
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
-			if err := ensureNoUnmanagedServerConflict(ctx, backend, spec); err != nil {
+			if err := ensureNoUnmanagedServerConflictForAction(ctx, backend, spec, action); err != nil {
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
@@ -276,6 +276,10 @@ func runServiceCommandAction(ctx context.Context, action serviceAction, opts ser
 }
 
 func ensureNoUnmanagedServerConflict(ctx context.Context, backend serviceBackend, spec serviceSpec) error {
+	return ensureNoUnmanagedServerConflictForAction(ctx, backend, spec, "")
+}
+
+func ensureNoUnmanagedServerConflictForAction(ctx context.Context, backend serviceBackend, spec serviceSpec, action serviceAction) error {
 	status, err := backend.Status(ctx, spec)
 	if err != nil {
 		return err
@@ -286,6 +290,9 @@ func ensureNoUnmanagedServerConflict(ctx context.Context, backend serviceBackend
 	commandProof := len(status.Command) > 0 && commandArgsEqual(status.Command, serviceCommand(spec))
 	backendOwnsHealthyServer := healthRunning && status.Running && status.Loaded && (pidProof || commandProof)
 	if healthRunning && !backendOwnsHealthyServer {
+		if action == serviceActionRestart && status.Installed && (!status.Loaded || !status.Running) {
+			return nil
+		}
 		pidText := ""
 		if healthPID > 0 {
 			pidText = fmt.Sprintf(" (pid %d)", healthPID)

@@ -17,6 +17,7 @@ export type ElkShape = Readonly<{
 export type ElkExtendedEdge = ElkShape &
   Readonly<{
     id: string;
+    container?: string;
     sources: readonly string[];
     targets: readonly string[];
     sections?: readonly ElkEdgeSection[];

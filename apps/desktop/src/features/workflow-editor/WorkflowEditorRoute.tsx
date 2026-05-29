@@ -1,23 +1,39 @@
 /* eslint-disable complexity, max-lines -- The route coordinates data loading, draft lifecycle, save, and floating islands. */
-import { useEffect, useMemo, useReducer, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
-import { emptyWorkflowDerivedWiring, type WorkflowDefinition, type WorkflowValidation } from "../../api";
+import {
+  emptyWorkflowDerivedWiring,
+  type WorkflowDefinition,
+  type WorkflowGraphSaveConfirmation,
+  type WorkflowGraphSaveImpact,
+  type WorkflowGraphSavePreview,
+  type WorkflowValidation,
+} from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useSidebar } from "../../app/sidebarContext";
 import { queryKeys } from "../../app/queryKeys";
 import { useAppServices } from "../../app/useAppServices";
+import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
 import { useWindowChromeTitle } from "../../app/windowChromeTitle";
 import { Button, ErrorState, FloatingNoticeIsland, LoadingState } from "../../ui";
 import { cx } from "../../ui/classes";
 import { WorkflowValidationIssues } from "../workflow/WorkflowValidationIssues";
 import { WorkflowGraphCanvas } from "./WorkflowGraphCanvas";
+import { WorkflowDeleteConfirmationFallbackDialog } from "./WorkflowDeleteConfirmationWindow";
+import {
+  workflowDeleteConfirmationCountsFromSummary,
+  workflowDeleteConfirmationWindowOptions,
+} from "./workflowDeleteConfirmationModel";
+import { useWorkflowGraphDeleteConfirmationListener } from "./useWorkflowGraphDeleteConfirmationListener";
 import { layoutWorkflowGraph, type WorkflowGraphLayout } from "./workflowGraphLayout";
 import { useWorkflowEditorData, type WorkflowEditorData } from "./useWorkflowEditorData";
 import {
   initializeWorkflowEditorDraft,
+  type DraftWorkflowDefinition,
+  type WorkflowEditorDraftAction,
   workflowDefinitionFromDraft,
   workflowEditorDirtyState,
   workflowEditorDraftGraph,
@@ -29,6 +45,15 @@ import {
   useRegisterWorkflowEditorDraftController,
   type WorkflowEditorDraftController,
 } from "./workflowEditorDraftBridgeCore";
+import {
+  deleteWorkflowEdge,
+  deleteWorkflowNode,
+  deleteWorkflowNodeGroup,
+  workflowEditorGraphMutationWarnings,
+  type WorkflowEditorCascadeSummary,
+} from "./workflowEditorGraphMutations";
+import { newWorkflowTopologyID } from "./workflowTopologyID";
+import type { WorkflowGraphSelection } from "./workflowGraphSelection";
 
 export type WorkflowEditorRouteProps = Readonly<{
   projectID: string;
@@ -49,6 +74,23 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [saveBlockers, setSaveBlockers] = useState<readonly string[]>([]);
+  const [saveConfirmationPreviewEntry, setSaveConfirmationPreviewEntry] =
+    useState<WorkflowSaveConfirmationPreviewEntry | null>(null);
+  const saveConfirmationPreviewKey =
+    draftState === null ? "" : workflowSaveConfirmationPreviewKey(draftState);
+  const saveConfirmationPreview =
+    saveConfirmationPreviewEntry?.key === saveConfirmationPreviewKey
+      ? saveConfirmationPreviewEntry.preview
+      : null;
+  function setSaveConfirmationPreview(preview: WorkflowGraphSavePreview | null): void {
+    setSaveConfirmationPreviewEntry(
+      preview === null ? null : { key: saveConfirmationPreviewKey, preview },
+    );
+  }
+  const [pendingDelete, setPendingDelete] = useState<PendingGraphDelete | null>(null);
+  const pendingDeleteRef = useRef<PendingGraphDelete | null>(null);
+  const deleteRequestIndexRef = useRef(0);
+  const [deleteWarning, setDeleteWarning] = useState("");
   const draftDefinition =
     draftState === null ? data.workflowQuery.data : workflowDefinitionFromDraft(draftState.draft);
   const draftValidationQuery = useWorkflowDraftValidationQuery(workflowID, draftState);
@@ -124,6 +166,69 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
     ],
   );
   useRegisterWorkflowEditorDraftController(controller);
+  useEffect(() => {
+    pendingDeleteRef.current = pendingDelete;
+  }, [pendingDelete]);
+  const confirmPendingGraphDelete = useCallback(
+    (deleteRequest: PendingGraphDelete) => {
+      pendingDeleteRef.current = null;
+      setPendingDelete(null);
+      if (draftState === null) {
+        return;
+      }
+      const currentPlan = planGraphDeletion(draftState.draft, deleteRequest.selection);
+      if (
+        currentPlan.kind !== "ready" ||
+        !cascadeSummaryEquals(currentPlan.summary, deleteRequest.summary)
+      ) {
+        setDeleteWarning(t("workflowEditor.deleteConfirmationStale"));
+        return;
+      }
+      dispatchGraphDeletion(deleteRequest.selection, dispatch);
+    },
+    [draftState, t],
+  );
+  const handleGraphDeleteConfirmationListenerError = useCallback(
+    (error: unknown) => {
+      setDeleteWarning(
+        t("workflowEditor.deleteConfirmationListenerFailed", { message: errorMessage(error) }),
+      );
+    },
+    [t],
+  );
+  useWorkflowGraphDeleteConfirmationListener({
+    nativeBridge,
+    onConfirmed: confirmPendingGraphDelete,
+    onListenerError: handleGraphDeleteConfirmationListenerError,
+    pendingDeleteRef,
+  });
+  const deleteConfirmation = useNativeDialogFallback<PendingGraphDelete>({
+    errorNoticeID: "workflow-delete-confirmation-window-error",
+    errorTitle: t("workflowEditor.deleteCascadeTitle"),
+    nativeAvailable: nativeBridge.capabilities.dialogWindows,
+    openNative: async (deleteRequest) => {
+      await nativeBridge.dialogs.openWindow(
+        workflowDeleteConfirmationWindowOptions({
+          counts: workflowDeleteConfirmationCountsFromSummary(deleteRequest.summary),
+          requestID: deleteRequest.requestID,
+          title: t("workflowEditor.deleteCascadeTitle"),
+        }),
+      );
+    },
+    renderFallback: (deleteRequest, close) => (
+      <WorkflowDeleteConfirmationFallbackDialog
+        counts={workflowDeleteConfirmationCountsFromSummary(deleteRequest.summary)}
+        onCancel={() => {
+          setPendingDelete(null);
+          close();
+        }}
+        onConfirm={() => {
+          confirmPendingGraphDelete(deleteRequest);
+          close();
+        }}
+      />
+    ),
+  });
 
   const viewState = workflowEditorViewState(data, layoutQuery);
   if (viewState.kind === "loading") {
@@ -185,7 +290,76 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
       <WorkflowEditorTopChromeBlur />
       <WorkflowGraphCanvas
         graph={viewState.graph}
+        onAddNode={(kind) => {
+          dispatch({
+            input: {
+              id: newWorkflowTopologyID("node"),
+              kind,
+            },
+            type: "addNode",
+          });
+        }}
+        onAddNodeToGroup={(nodeID, groupID) => {
+          dispatch({
+            input: {
+              groupID,
+              inferredTopologyIDs: {
+                addedBranchJoinEdgeID: newWorkflowTopologyID("edge"),
+                addedBranchJoinTransitionGroupID: newWorkflowTopologyID("transitionGroup"),
+                existingBranchJoinEdgeID: newWorkflowTopologyID("edge"),
+                existingBranchJoinTransitionGroupID: newWorkflowTopologyID("transitionGroup"),
+                fanoutEdgeID: newWorkflowTopologyID("edge"),
+              },
+              nodeID,
+            },
+            type: "addNodeToGroup",
+          });
+        }}
+        onConnectNodes={(sourceNodeID, targetNodeID) => {
+          dispatch({
+            input: {
+              edgeID: newWorkflowTopologyID("edge"),
+              sourceNodeID,
+              targetNodeID,
+              transitionGroupID: newWorkflowTopologyID("transitionGroup"),
+            },
+            type: "connectNodes",
+          });
+        }}
+        onCreateNodeGroup={(nodeID) => {
+          dispatch({
+            input: {
+              groupID: newWorkflowTopologyID("nodeGroup"),
+              joinNodeID: newWorkflowTopologyID("node"),
+              nodeID,
+            },
+            type: "createNodeGroupFromNode",
+          });
+        }}
         onCopyText={async (value) => copyWorkflowNodeText(value, nativeBridge)}
+        onDeleteSelection={(selection) => {
+          if (draftState === null) {
+            return;
+          }
+          const plannedDelete = planGraphDeletion(draftState.draft, selection);
+          setPendingDelete(null);
+          if (plannedDelete.kind === "blocked") {
+            setDeleteWarning(t(deleteWarningTranslationKey(plannedDelete.warning)));
+            return;
+          }
+          setDeleteWarning("");
+          if (cascadeRowCount(plannedDelete.summary) > 1) {
+            const deleteRequest = {
+              requestID: nextGraphDeleteRequestID(workflowID, deleteRequestIndexRef),
+              selection,
+              summary: plannedDelete.summary,
+            };
+            setPendingDelete(deleteRequest);
+            void deleteConfirmation.open(deleteRequest);
+            return;
+          }
+          dispatchGraphDeletion(selection, dispatch);
+        }}
         onEdgeInspect={(edgeID) => {
           void openSidebar({
             kind: "workflowInspect",
@@ -201,6 +375,9 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
             selection: { kind: "group", groupID },
             workflowID,
           });
+        }}
+        onRemoveNodeFromGroup={(nodeID) => {
+          dispatch({ nodeID, type: "removeNodeFromGroup" });
         }}
         onNodeInspect={(nodeID) => {
           void openSidebar({
@@ -220,18 +397,37 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
         }}
       />
       <WorkflowEditorStatusIsland
+        confirmationPreview={saveConfirmationPreview}
         controller={controller}
+        onCancelConfirmation={() => {
+          setSaveConfirmationPreview(null);
+        }}
+        onConfirmSave={() => {
+          if (saveConfirmationPreview === null) {
+            return;
+          }
+          void saveWorkflowDraft(saveConfirmationPreview);
+        }}
         onDiscard={() => {
           dispatch({ source: controller.state.source, type: "reset" });
         }}
       />
+      {deleteConfirmation.fallback}
+      {deleteWarning.length > 0 ? (
+        <WorkflowDeleteBlockedIsland
+          message={deleteWarning}
+          onDismiss={() => {
+            setDeleteWarning("");
+          }}
+        />
+      ) : null}
       <WorkflowEditorLegendIsland />
     </section>
   );
 
   return createPortal(editorRoute, document.body);
 
-  async function saveWorkflowDraft(): Promise<void> {
+  async function saveWorkflowDraft(confirmedPreview?: WorkflowGraphSavePreview): Promise<void> {
     if (draftState === null) {
       return;
     }
@@ -245,26 +441,46 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
     setSaveBlockers([]);
     try {
       const metadata = latestDirty.metadataDirty ? workflowEditorDraftMetadata(draftState) : undefined;
-      const preview = await api.previewWorkflowGraphSave({
-        expectedVersion: draftState.source.workflow.version,
-        graph: workflowEditorDraftGraph(draftState),
-        metadata,
-        workflowID,
-      });
-      if (preview.blockers.length > 0 || preview.confirmationRequired) {
-        setSaveBlockers(preview.blockers.map((blocker) => blocker.message));
+      const graph = workflowEditorDraftGraph(draftState);
+      const preview =
+        confirmedPreview ??
+        (await api.previewWorkflowGraphSave({
+          expectedVersion: draftState.source.workflow.version,
+          graph,
+          metadata,
+          workflowID,
+        }));
+      const actionableBlockers = preview.blockers.filter(
+        (blocker) => blocker.code !== "confirmation_required",
+      );
+      if (
+        confirmedPreview === undefined &&
+        preview.confirmationRequired &&
+        actionableBlockers.length === 0
+      ) {
+        setSaveConfirmationPreview(preview);
+        setSaveBlockers([]);
+        return;
+      }
+      if (actionableBlockers.length > 0) {
+        setSaveConfirmationPreview(null);
+        setSaveBlockers(actionableBlockers.map((blocker) => blocker.message));
         return;
       }
       const saved = await api.saveWorkflowGraph({
         expectedVersion: draftState.source.workflow.version,
-        graph: workflowEditorDraftGraph(draftState),
+        graph,
         metadata,
         workflowID,
+        confirmation:
+          confirmedPreview === undefined ? undefined : confirmationFromImpact(confirmedPreview.impact),
       });
       if (!saved.saved || saved.definition === null) {
+        setSaveConfirmationPreview(saved.confirmationRequired ? saved : null);
         setSaveBlockers(saved.blockers.map((blocker) => blocker.message));
         return;
       }
+      setSaveConfirmationPreview(null);
       dispatch({ source: saved.definition, type: "reset" });
       await Promise.all([
         data.workflowQuery.refetch(),
@@ -298,6 +514,109 @@ const workflowEditorTopChromeBlurStyle = {
   maskImage: "linear-gradient(to bottom, black 0%, black 30%, transparent 100%)",
 } satisfies CSSProperties;
 
+function confirmationFromImpact(impact: WorkflowGraphSaveImpact): WorkflowGraphSaveConfirmation {
+  return {
+    expectedEdgeTaskReferenceCount: impact.edgeTaskReferenceCount,
+    expectedNodeTaskReferenceCount: impact.nodeTaskReferenceCount,
+    expectedRemovedEdgeCount: impact.removedEdgeCount,
+    expectedRemovedNodeCount: impact.removedNodeCount,
+    expectedRemovedTransitionGroupCount: impact.removedTransitionGroupCount,
+  };
+}
+
+type PendingGraphDelete = Readonly<{
+  requestID: string;
+  selection: WorkflowGraphSelection;
+  summary: WorkflowEditorCascadeSummary;
+}>;
+
+type GraphDeletionPlan =
+  | Readonly<{ kind: "blocked"; warning: string }>
+  | Readonly<{ kind: "ready"; summary: WorkflowEditorCascadeSummary }>;
+
+function planGraphDeletion(
+  draft: DraftWorkflowDefinition,
+  selection: WorkflowGraphSelection,
+): GraphDeletionPlan {
+  if (selection.kind === "edge") {
+    const mutation = deleteWorkflowEdge(draft, selection.edgeID);
+    return graphDeletionPlanFromMutation(mutation.warnings, mutation.summary);
+  }
+  if (selection.kind === "node") {
+    const mutation = deleteWorkflowNode(draft, selection.nodeID);
+    return graphDeletionPlanFromMutation(mutation.warnings, mutation.summary);
+  }
+  const mutation = deleteWorkflowNodeGroup(draft, selection.groupID);
+  return graphDeletionPlanFromMutation(mutation.warnings, mutation.summary);
+}
+
+function graphDeletionPlanFromMutation(
+  warnings: readonly string[],
+  summary: WorkflowEditorCascadeSummary,
+): GraphDeletionPlan {
+  const warning = warnings[0];
+  if (warning !== undefined) {
+    return { kind: "blocked", warning };
+  }
+  return { kind: "ready", summary };
+}
+
+function dispatchGraphDeletion(
+  selection: WorkflowGraphSelection,
+  dispatch: (action: WorkflowEditorDraftAction) => void,
+): void {
+  if (selection.kind === "edge") {
+    dispatch({ edgeID: selection.edgeID, type: "deleteEdge" });
+    return;
+  }
+  if (selection.kind === "node") {
+    dispatch({ nodeID: selection.nodeID, type: "deleteNode" });
+    return;
+  }
+  dispatch({ groupID: selection.groupID, type: "deleteNodeGroup" });
+}
+
+function cascadeRowCount(summary: WorkflowEditorCascadeSummary): number {
+  return (
+    summary.removedNodeIDs.length +
+    summary.removedEdgeIDs.length +
+    summary.removedTransitionGroupIDs.length
+  );
+}
+
+function cascadeSummaryEquals(
+  left: WorkflowEditorCascadeSummary,
+  right: WorkflowEditorCascadeSummary,
+): boolean {
+  return (
+    stringListEquals(left.removedNodeIDs, right.removedNodeIDs) &&
+    stringListEquals(left.removedEdgeIDs, right.removedEdgeIDs) &&
+    stringListEquals(left.removedTransitionGroupIDs, right.removedTransitionGroupIDs)
+  );
+}
+
+function stringListEquals(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((value, index) => value === right[index]);
+}
+
+function nextGraphDeleteRequestID(workflowID: string, indexRef: { current: number }): string {
+  indexRef.current += 1;
+  return `${workflowID}-delete-${indexRef.current.toString()}`;
+}
+
+function deleteWarningTranslationKey(warning: string): string {
+  if (warning === workflowEditorGraphMutationWarnings.startNodeDelete) {
+    return "workflowEditor.startNodeDeleteBlocked";
+  }
+  if (warning === workflowEditorGraphMutationWarnings.lastTerminalDelete) {
+    return "workflowEditor.lastTerminalDeleteBlocked";
+  }
+  return "workflowEditor.deleteBlockedGeneric";
+}
+
 async function copyWorkflowNodeText(
   value: string,
   nativeBridge: ReturnType<typeof useAppServices>["nativeBridge"],
@@ -309,6 +628,34 @@ async function copyWorkflowNodeText(
   await navigator.clipboard.writeText(value);
 }
 
+function WorkflowDeleteBlockedIsland({
+  message,
+  onDismiss,
+}: Readonly<{ message: string; onDismiss: () => void }>) {
+  const { t } = useTranslation();
+  const [collapsed, setCollapsed] = useState(false);
+  return (
+    <FloatingNoticeIsland
+      collapsed={collapsed}
+      collapseLabel={t("app.collapse")}
+      expandedClassName="floating-notice-expanded grid w-[min(340px,calc(100vw-32px))] gap-[var(--space-3)] overflow-hidden rounded-[var(--radius-xl)] p-[var(--space-3)]"
+      expandLabel={t("app.expand")}
+      level={3}
+      onCollapsedChange={setCollapsed}
+      positionClassName="right-[var(--space-4)] top-[calc(var(--space-4)+48px)]"
+      title={t("workflowEditor.deleteBlockedTitle")}
+      tone="danger"
+    >
+      <div className="grid gap-[var(--space-3)] pt-[6px]">
+        <p className="m-0 text-sm text-[var(--color-on-island)]">{message}</p>
+        <Button className="w-full" onClick={onDismiss} variant="secondary">
+          {t("app.close")}
+        </Button>
+      </div>
+    </FloatingNoticeIsland>
+  );
+}
+
 function WorkflowEditorLegendIsland() {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
@@ -318,6 +665,7 @@ function WorkflowEditorLegendIsland() {
       collapseLabel={t("app.collapse")}
       expandedClassName="floating-notice-expanded grid h-[204px] w-[min(300px,calc(100vw-var(--space-2)*2))] gap-[6px] overflow-hidden rounded-[var(--radius-xl)] p-[var(--space-2)]"
       expandLabel={t("app.expand")}
+      level={3}
       onCollapsedChange={setCollapsed}
       positionClassName="left-[var(--space-2)] bottom-[var(--space-2)]"
       title={t("workflowEditor.legend")}
@@ -437,6 +785,19 @@ function workflowEditorDraftStateReducer(
   return workflowEditorDraftReducer(state, action);
 }
 
+type WorkflowSaveConfirmationPreviewEntry = Readonly<{
+  key: string;
+  preview: WorkflowGraphSavePreview;
+}>;
+
+function workflowSaveConfirmationPreviewKey(state: WorkflowEditorDraftState): string {
+  return [
+    state.source.workflow.id,
+    state.source.workflow.version.toString(),
+    state.version.toString(),
+  ].join(":");
+}
+
 function useWorkflowDraftValidationQuery(workflowID: string, draftState: WorkflowEditorDraftState | null) {
   const { api } = useAppServices();
   return useQuery({
@@ -485,10 +846,16 @@ function useWorkflowGraphLayoutQuery(
 }
 
 function WorkflowEditorStatusIsland({
+  confirmationPreview,
   controller,
+  onCancelConfirmation,
+  onConfirmSave,
   onDiscard,
 }: Readonly<{
+  confirmationPreview: WorkflowGraphSavePreview | null;
   controller: WorkflowEditorDraftController;
+  onCancelConfirmation: () => void;
+  onConfirmSave: () => void;
   onDiscard: () => void;
 }>) {
   const { t } = useTranslation();
@@ -508,6 +875,7 @@ function WorkflowEditorStatusIsland({
       collapseLabel={t("app.collapse")}
       expandedClassName="floating-notice-expanded grid max-h-[min(400px,calc(100vh-32px))] w-[min(400px,calc(100vw-32px))] gap-[6px] overflow-y-auto overflow-x-hidden rounded-[var(--radius-xl)] p-[var(--space-3)]"
       expandLabel={t("app.expand")}
+      level={3}
       onCollapsedChange={setCollapsed}
       positionClassName="right-[var(--space-4)] bottom-[var(--space-4)]"
       title={controller.dirty.dirty ? t("workflowEditor.unsavedChanges") : t("board.workflowIssues")}
@@ -516,7 +884,14 @@ function WorkflowEditorStatusIsland({
       }
     >
       <div className="grid gap-[var(--space-3)] pt-[6px]">
-        {controller.dirty.dirty ? (
+        {confirmationPreview !== null ? (
+          <WorkflowSaveConfirmation
+            disabled={controller.saving}
+            impact={confirmationPreview.impact}
+            onCancel={onCancelConfirmation}
+            onConfirm={onConfirmSave}
+          />
+        ) : controller.dirty.dirty ? (
           <div className="grid grid-cols-2 gap-[var(--space-2)]">
             <Button className="w-full" disabled={controller.saving} onClick={onDiscard} variant="danger">
               {t("workflowEditor.discard")}
@@ -577,6 +952,48 @@ function WorkflowEditorStatusIsland({
         ) : null}
       </div>
     </FloatingNoticeIsland>
+  );
+}
+
+function WorkflowSaveConfirmation({
+  disabled,
+  impact,
+  onCancel,
+  onConfirm,
+}: Readonly<{
+  disabled: boolean;
+  impact: WorkflowGraphSaveImpact;
+  onCancel: () => void;
+  onConfirm: () => void;
+}>) {
+  const { t } = useTranslation();
+  return (
+    <div className="grid gap-[var(--space-3)]">
+      <p className="m-0 text-sm text-[var(--color-on-island)]">
+        {t("workflowEditor.destructiveSaveWarning")}
+      </p>
+      <ul className="m-0 grid gap-[var(--space-1)] p-0 text-sm text-[var(--color-muted)]">
+        <li className="list-none">
+          {t("workflowEditor.saveImpactNodes", { count: impact.removedNodeCount })}
+        </li>
+        <li className="list-none">
+          {t("workflowEditor.saveImpactTransitionGroups", {
+            count: impact.removedTransitionGroupCount,
+          })}
+        </li>
+        <li className="list-none">
+          {t("workflowEditor.saveImpactEdges", { count: impact.removedEdgeCount })}
+        </li>
+      </ul>
+      <div className="grid grid-cols-2 gap-[var(--space-2)]">
+        <Button className="w-full" disabled={disabled} onClick={onCancel} variant="secondary">
+          {t("app.cancel")}
+        </Button>
+        <Button className="w-full" disabled={disabled} onClick={onConfirm} variant="danger">
+          {disabled ? t("workflowEditor.saving") : t("workflowEditor.confirmSave")}
+        </Button>
+      </div>
+    </div>
   );
 }
 

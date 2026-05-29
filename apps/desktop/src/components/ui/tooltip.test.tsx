@@ -25,8 +25,10 @@ describe("Tooltip", () => {
     );
 
     const tooltipContent = screen.getByTestId("tooltip-content");
-    expect(tooltipContent).toHaveClass("island-glass");
+    expect(tooltipContent).toHaveClass("island-surface", "island-surface-0");
+    expect(tooltipContent).toHaveClass("text-[var(--color-on-island)]");
     expect(tooltipContent).not.toHaveClass("bg-foreground");
+    expect(screen.getByTestId("tooltip-arrow")).toHaveClass("fill-[var(--color-island-0)]");
   });
 });
 

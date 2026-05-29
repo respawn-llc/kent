@@ -289,6 +289,7 @@ func prepareWorkflowGraphSave(workflowID workflow.WorkflowID, displayName string
 	}
 
 	def := workflow.Definition{ID: workflowID, DisplayName: displayName}
+	groupNodeIDs := map[string][]workflow.NodeID{}
 	for i, node := range prepared.nodes {
 		node.WorkflowID = defaultWorkflowID(node.WorkflowID, workflowID)
 		node.GroupID = strings.TrimSpace(node.GroupID)
@@ -304,7 +305,13 @@ func prepareWorkflowGraphSave(workflowID workflow.WorkflowID, displayName string
 			return preparedWorkflowGraphSave{}, workflow.Definition{}, fmt.Errorf("workflow node group %q is not in the saved graph", node.GroupID)
 		}
 		prepared.nodes[i] = node
-		def.Nodes = append(def.Nodes, workflow.Node{WorkflowID: node.WorkflowID, ID: node.ID, Key: node.Key, Kind: node.Kind, DisplayName: node.DisplayName, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: node.InputFields, JoinInputProviders: node.JoinInputProviders, OutputFields: node.OutputFields})
+		if node.GroupID != "" {
+			groupNodeIDs[node.GroupID] = append(groupNodeIDs[node.GroupID], node.ID)
+		}
+		def.Nodes = append(def.Nodes, workflow.Node{WorkflowID: node.WorkflowID, ID: node.ID, Key: node.Key, Kind: node.Kind, DisplayName: node.DisplayName, GroupID: node.GroupID, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: node.InputFields, JoinInputProviders: node.JoinInputProviders, OutputFields: node.OutputFields})
+	}
+	for _, group := range prepared.nodeGroups {
+		def.NodeGroups = append(def.NodeGroups, workflow.NodeGroup{WorkflowID: group.WorkflowID, ID: group.ID, Key: group.Key, DisplayName: group.DisplayName, MemberNodeIDs: groupNodeIDs[group.ID]})
 	}
 	for i, group := range prepared.transitionGroups {
 		group.WorkflowID = defaultWorkflowID(group.WorkflowID, workflowID)

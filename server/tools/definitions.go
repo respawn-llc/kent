@@ -113,7 +113,7 @@ var catalogEntries = []CatalogEntry{
 	{
 		ID:             toolspec.ToolViewImage,
 		Aliases:        []string{"read_image"},
-		Description:    "View a local image, still GIF, or PDF file by path. Images may be compressed before model input unless raw=true. You will see PDFs as images (not OCR/text).",
+		Description:    "View a local PNG, JPEG, still GIF, or PDF file by path. Images may be compressed before model input unless raw=true. You will see PDFs as images (not OCR/text).",
 		DefaultEnabled: true,
 		Contract: localContract(
 			LocalRuntimeBuilderViewImage,
@@ -131,7 +131,7 @@ var catalogEntries = []CatalogEntry{
   "properties": {
     "path": {
       "type": "string",
-      "description": "Local filesystem path to an image or PDF file. Relative paths resolve from the workspace root."
+      "description": "Local filesystem path to a PNG, JPEG, still GIF, or PDF file. Relative paths resolve from the workspace root."
     },
     "raw": {
       "type": "boolean",

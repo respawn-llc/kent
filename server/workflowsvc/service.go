@@ -911,18 +911,34 @@ func (s *Service) workflowGraphDraftDefinition(ctx context.Context, workflowID s
 		displayName = metadata.Name
 	}
 	def := workflow.Definition{ID: workflow.WorkflowID(workflowID), DisplayName: displayName}
+	groupMemberIDs := map[string][]workflow.NodeID{}
+	for _, group := range graph.NodeGroups {
+		def.NodeGroups = append(def.NodeGroups, workflow.NodeGroup{
+			WorkflowID:  workflow.WorkflowID(workflowID),
+			ID:          group.ID,
+			Key:         workflow.ModelKey(group.Key),
+			DisplayName: group.DisplayName,
+		})
+	}
 	for _, node := range graph.Nodes {
+		if strings.TrimSpace(node.GroupID) != "" {
+			groupMemberIDs[node.GroupID] = append(groupMemberIDs[node.GroupID], workflow.NodeID(node.ID))
+		}
 		def.Nodes = append(def.Nodes, workflow.Node{
 			WorkflowID:         workflow.WorkflowID(workflowID),
 			ID:                 workflow.NodeID(node.ID),
 			Key:                workflow.ModelKey(node.Key),
 			Kind:               workflow.NodeKind(node.Kind),
 			DisplayName:        node.DisplayName,
+			GroupID:            node.GroupID,
 			SubagentRole:       node.SubagentRole,
 			PromptTemplate:     node.PromptTemplate,
 			InputFields:        inputFields(node.InputFields),
 			JoinInputProviders: joinInputProviders(node.JoinInputProviders),
 		})
+	}
+	for index := range def.NodeGroups {
+		def.NodeGroups[index].MemberNodeIDs = groupMemberIDs[def.NodeGroups[index].ID]
 	}
 	for _, group := range graph.TransitionGroups {
 		def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{

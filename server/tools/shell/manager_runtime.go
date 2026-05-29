@@ -200,6 +200,9 @@ func (m *Manager) collectUntil(ctx context.Context, entry *processEntry, deadlin
 			_, _ = collected.Write(pending)
 		}
 		if !entry.isRunning() {
+			if pending := entry.drainPending(); len(pending) > 0 {
+				_, _ = collected.Write(pending)
+			}
 			return collected.Bytes(), nil
 		}
 		remaining := time.Until(deadline)

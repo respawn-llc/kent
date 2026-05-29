@@ -1,5 +1,8 @@
 import type { ComponentType, CSSProperties, ReactNode } from "react";
+import type { MouseEvent } from "react";
 
+// Version-locked lightweight declaration shim for @xyflow/react 12.10.x.
+// On @xyflow/react upgrades, verify the node-drag API surface below against upstream before bumping.
 export type XYPosition = Readonly<{ x: number; y: number }>;
 
 export type PositionValue = "left" | "right" | "top" | "bottom";
@@ -19,6 +22,15 @@ export type Node<Data extends Record<string, unknown> = Record<string, unknown>>
   style?: CSSProperties;
 }>;
 
+export type NodeChange<NodeType extends Node = Node> = Readonly<{
+  dragging?: boolean;
+  id: string;
+  item?: NodeType;
+  position?: XYPosition;
+  selected?: boolean;
+  type: string;
+}>;
+
 export type Edge<Data extends Record<string, unknown> = Record<string, unknown>> = Readonly<{
   id: string;
   source: string;
@@ -29,8 +41,14 @@ export type Edge<Data extends Record<string, unknown> = Record<string, unknown>>
   selected?: boolean;
 }>;
 
+export type Connection = Readonly<{
+  source: string | null;
+  target: string | null;
+}>;
+
 export type NodeProps<NodeType extends Node = Node> = Readonly<{
   data: NodeType["data"];
+  dragging?: boolean;
   selected: boolean;
 }>;
 
@@ -61,9 +79,16 @@ export declare const ReactFlow: ComponentType<
     nodes?: readonly Node[];
     nodesConnectable?: boolean;
     nodesDraggable?: boolean;
+    nodeDragThreshold?: number;
     nodeTypes?: NodeTypes;
+    onConnect?: (connection: Connection) => void;
     onEdgeClick?: (event: unknown, edge: Edge) => void;
     onNodeClick?: (event: unknown, node: Node) => void;
+    onNodeContextMenu?: (event: MouseEvent, node: Node) => void;
+    onNodeDrag?: (event: MouseEvent, node: Node, nodes: readonly Node[]) => void;
+    onNodeDragStart?: (event: MouseEvent, node: Node, nodes: readonly Node[]) => void;
+    onNodeDragStop?: (event: MouseEvent, node: Node, nodes: readonly Node[]) => void;
+    onNodesChange?: (changes: readonly NodeChange[]) => void;
     panOnScroll?: boolean;
     proOptions?: Readonly<{ hideAttribution?: boolean }>;
     selectionOnDrag?: boolean;
@@ -76,11 +101,25 @@ export declare const Background: ComponentType<Readonly<{ bgColor?: string; colo
 export declare const BackgroundVariant: Readonly<{ Dots: string }>;
 export declare const BaseEdge: ComponentType<Readonly<{ "data-testid"?: string; markerEnd?: string | Readonly<{ color?: string; type: string }>; path: string; style?: CSSProperties }>>;
 export declare const EdgeLabelRenderer: ComponentType<Readonly<{ children?: ReactNode }>>;
-export declare const Handle: ComponentType<Readonly<{ "aria-label"?: string; className?: string; "data-testid"?: string; position: PositionValue; type: "source" | "target" }>>;
+export declare const Handle: ComponentType<
+  Readonly<{
+    "aria-label"?: string;
+    className?: string;
+    "data-testid"?: string;
+    onClick?: (event: MouseEvent) => void;
+    position: PositionValue;
+    type: "source" | "target";
+  }>
+>;
 export declare const MarkerType: Readonly<{ ArrowClosed: string }>;
 export declare const Position: Readonly<{ Bottom: "bottom"; Left: "left"; Right: "right"; Top: "top" }>;
 
 export declare function getBezierPath(props: EdgeProps): [string, number, number];
+
+export declare function applyNodeChanges<NodeType extends Node>(
+  changes: readonly NodeChange<NodeType>[],
+  nodes: readonly NodeType[],
+): NodeType[];
 
 export declare function useReactFlow(): Readonly<{
   fitView(options?: Readonly<{ padding?: number }>): Promise<boolean>;

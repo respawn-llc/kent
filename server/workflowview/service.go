@@ -1689,6 +1689,15 @@ func bodyPreview(body string) string {
 
 func definitionForValidation(def serverapi.WorkflowDefinition) workflow.Definition {
 	out := workflow.Definition{ID: workflow.WorkflowID(def.Workflow.ID), DisplayName: def.Workflow.Name}
+	groupMemberIDs := map[string][]workflow.NodeID{}
+	for _, group := range def.NodeGroups {
+		out.NodeGroups = append(out.NodeGroups, workflow.NodeGroup{
+			WorkflowID:  workflow.WorkflowID(group.WorkflowID),
+			ID:          group.GroupID,
+			Key:         workflow.ModelKey(group.GroupKey),
+			DisplayName: group.DisplayName,
+		})
+	}
 	for _, node := range def.Nodes {
 		inputs := make([]workflow.InputField, 0, len(node.InputFields))
 		for _, input := range node.InputFields {
@@ -1702,7 +1711,13 @@ func definitionForValidation(def serverapi.WorkflowDefinition) workflow.Definiti
 		for _, field := range node.OutputFields {
 			fields = append(fields, workflow.OutputField{Name: field.Name, Description: field.Description})
 		}
-		out.Nodes = append(out.Nodes, workflow.Node{WorkflowID: workflow.WorkflowID(node.WorkflowID), ID: workflow.NodeID(node.ID), Key: workflow.ModelKey(node.Key), Kind: workflow.NodeKind(node.Kind), DisplayName: node.DisplayName, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: inputs, JoinInputProviders: joinProviders, OutputFields: fields})
+		if strings.TrimSpace(node.GroupID) != "" {
+			groupMemberIDs[node.GroupID] = append(groupMemberIDs[node.GroupID], workflow.NodeID(node.ID))
+		}
+		out.Nodes = append(out.Nodes, workflow.Node{WorkflowID: workflow.WorkflowID(node.WorkflowID), ID: workflow.NodeID(node.ID), Key: workflow.ModelKey(node.Key), Kind: workflow.NodeKind(node.Kind), DisplayName: node.DisplayName, GroupID: node.GroupID, SubagentRole: node.SubagentRole, PromptTemplate: node.PromptTemplate, InputFields: inputs, JoinInputProviders: joinProviders, OutputFields: fields})
+	}
+	for index := range out.NodeGroups {
+		out.NodeGroups[index].MemberNodeIDs = groupMemberIDs[out.NodeGroups[index].ID]
 	}
 	for _, group := range def.TransitionGroups {
 		out.TransitionGroups = append(out.TransitionGroups, workflow.TransitionGroup{WorkflowID: workflow.WorkflowID(group.WorkflowID), ID: workflow.TransitionGroupID(group.ID), SourceNodeID: workflow.NodeID(group.SourceNodeID), TransitionID: workflow.TransitionID(group.TransitionID), DisplayName: group.DisplayName})

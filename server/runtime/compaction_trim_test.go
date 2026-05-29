@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,60 +14,6 @@ import (
 	"builder/shared/cachewarn"
 	"builder/shared/toolspec"
 )
-
-func TestTrimOldestEligibleItemsRemovesFunctionCallWithOutputsAtomically(t *testing.T) {
-	items := []llm.ResponseItem{
-		{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "seed"},
-		{Type: llm.ResponseItemTypeFunctionCall, ID: "call-1", CallID: "call-1", Name: "exec_command"},
-		{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "call-1", Name: "exec_command", Output: json.RawMessage(`{"ok":true}`)},
-		{Type: llm.ResponseItemTypeMessage, Role: llm.RoleAssistant, Content: "later"},
-	}
-
-	trimmed, removed := trimOldestEligibleItems(items, 1)
-	if removed != 2 {
-		t.Fatalf("removed=%d, want 2", removed)
-	}
-	if len(trimmed) != 2 {
-		t.Fatalf("trimmed item count=%d, want 2 (%+v)", len(trimmed), trimmed)
-	}
-	for _, item := range trimmed {
-		if item.Type == llm.ResponseItemTypeFunctionCall || item.Type == llm.ResponseItemTypeFunctionCallOutput {
-			t.Fatalf("expected function call pair to be removed atomically, got %+v", trimmed)
-		}
-	}
-}
-
-func TestTrimOldestEligibleItemsRemovesPromotedViewImageFilePayloadAtomically(t *testing.T) {
-	preparedToolItems := llm.PrepareOpenAIInputItems([]llm.ResponseItem{
-		{Type: llm.ResponseItemTypeFunctionCall, ID: "call-1", CallID: "call-1", Name: string(toolspec.ToolViewImage), Arguments: json.RawMessage(`{"path":"doc.pdf"}`)},
-		{
-			Type:   llm.ResponseItemTypeFunctionCallOutput,
-			CallID: "call-1",
-			Name:   string(toolspec.ToolViewImage),
-			Output: json.RawMessage(`[{"type":"input_file","file_data":"data:application/pdf;base64,Zm9v","filename":"doc.pdf"}]`),
-		},
-	})
-	if len(preparedToolItems) != 3 {
-		t.Fatalf("prepared tool items = %d, want 3 (%+v)", len(preparedToolItems), preparedToolItems)
-	}
-	promotedRaw := string(preparedToolItems[2].Raw)
-	if promotedRaw == "" {
-		t.Fatalf("expected promoted provider raw item, got %+v", preparedToolItems[2])
-	}
-
-	items := append([]llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "seed"}}, preparedToolItems...)
-	items = append(items, llm.ResponseItem{Type: llm.ResponseItemTypeMessage, Role: llm.RoleAssistant, Content: "later"})
-
-	trimmed, removed := trimOldestEligibleItems(items, 1)
-	if removed != 3 {
-		t.Fatalf("removed=%d, want 3", removed)
-	}
-	for _, item := range trimmed {
-		if item.Type == llm.ResponseItemTypeFunctionCall || item.Type == llm.ResponseItemTypeFunctionCallOutput || string(item.Raw) == promotedRaw {
-			t.Fatalf("expected promoted view_image tool unit to be removed atomically, got %+v", trimmed)
-		}
-	}
-}
 
 func TestCompactionCacheObservationRequestAppendsPromptToConversationReplica(t *testing.T) {
 	seedContent := "seed \x1b[31mansi\x1b[0m"
@@ -144,7 +91,7 @@ func TestCompactionCacheObservationRequestAppendsPromptToConversationReplica(t *
 	}
 }
 
-func TestRemoteCompactionOnlyTrimsAfterOverflowAndWarnsOnCacheBreak(t *testing.T) {
+func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndWarnsOnCacheBreak(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
 	if err != nil {
@@ -195,10 +142,17 @@ func TestRemoteCompactionOnlyTrimsAfterOverflowAndWarnsOnCacheBreak(t *testing.T
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
+	reasoningPayload := strings.Repeat("encrypted-reasoning", 4_000)
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, ReasoningItems: []llm.ReasoningItem{{
+		ID:               "rs-preserve",
+		EncryptedContent: reasoningPayload,
+	}}}); err != nil {
+		t.Fatalf("append reasoning message: %v", err)
+	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}}}); err != nil {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleTool, ToolCallID: "call-1", Name: string(toolspec.ToolExecCommand), Content: `{"output":"/tmp"}`}); err != nil {
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleTool, ToolCallID: "call-1", Name: string(toolspec.ToolExecCommand), Content: `{"output":"` + strings.Repeat("x", 120_000) + `"}`}); err != nil {
 		t.Fatalf("append tool output message: %v", err)
 	}
 
@@ -243,28 +197,41 @@ func TestRemoteCompactionOnlyTrimsAfterOverflowAndWarnsOnCacheBreak(t *testing.T
 	secondInput := client.compactionCalls[1].InputItems
 	hasCall := false
 	hasOutput := false
+	outputCollapsed := false
+	reasoningPreserved := false
 	for _, item := range secondInput {
 		switch item.Type {
 		case llm.ResponseItemTypeFunctionCall:
 			if item.CallID == "call-1" || item.ID == "call-1" {
 				hasCall = true
+				if string(item.Arguments) != `{"command":"pwd"}` {
+					t.Fatalf("expected shell input to be preserved, got %s", item.Arguments)
+				}
 			}
 		case llm.ResponseItemTypeFunctionCallOutput:
 			if item.CallID == "call-1" {
 				hasOutput = true
+				outputCollapsed = isCollapsedCompactionOverflowShellOutput(item.Output)
+			}
+		case llm.ResponseItemTypeReasoning:
+			if item.ID == "rs-preserve" {
+				reasoningPreserved = item.EncryptedContent == reasoningPayload
 			}
 		}
 	}
-	if hasOutput && !hasCall {
-		t.Fatalf("expected retry trim to keep function_call/function_call_output linked, got %+v", secondInput)
+	if !hasCall || !hasOutput {
+		t.Fatalf("expected retry repair to preserve function_call/function_call_output pair, got %+v", secondInput)
 	}
-	if hasCall || hasOutput {
-		t.Fatalf("expected retry trim to remove oversized function call pair, got %+v", secondInput)
+	if !reasoningPreserved {
+		t.Fatalf("expected retry repair to preserve encrypted reasoning item byte-for-byte, got %+v", secondInput)
+	}
+	if !outputCollapsed {
+		t.Fatalf("expected retry repair to collapse shell output, got %+v", secondInput)
 	}
 
 	warnings := persistedCacheWarnings(t, store)
 	if len(warnings) != 1 {
-		t.Fatalf("expected one cache warning for trimmed overflow retry, got %+v", warnings)
+		t.Fatalf("expected one cache warning for repaired overflow retry, got %+v", warnings)
 	}
 	if got, want := warnings[0].Reason, cachewarn.ReasonNonPostfix; got != want {
 		t.Fatalf("warning reason = %q, want %q", got, want)
@@ -274,7 +241,7 @@ func TestRemoteCompactionOnlyTrimsAfterOverflowAndWarnsOnCacheBreak(t *testing.T
 	}
 }
 
-func TestRemoteCompactionRetryTrimsPromotedViewImagePayloadAtomically(t *testing.T) {
+func TestRemoteCompactionDoesNotRepairUnsupportedViewImagePayload(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Create(dir, "ws", dir)
 	if err != nil {
@@ -302,13 +269,6 @@ func TestRemoteCompactionRetryTrimsPromotedViewImagePayloadAtomically(t *testing
 			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
 			nil,
 		},
-		compactionResponses: []llm.CompactionResponse{{
-			OutputItems: []llm.ResponseItem{
-				{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "seed"},
-				{Type: llm.ResponseItemTypeCompaction, ID: "cmp_view_image", EncryptedContent: "enc_view_image"},
-			},
-			Usage: llm.Usage{InputTokens: 1000, OutputTokens: 10, WindowTokens: 2500},
-		}},
 	}
 
 	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolViewImage}), Config{
@@ -351,11 +311,11 @@ func TestRemoteCompactionRetryTrimsPromotedViewImagePayloadAtomically(t *testing
 		t.Fatalf("marshal initial snapshot: %v", err)
 	}
 
-	if err := eng.CompactContext(context.Background(), ""); err != nil {
-		t.Fatalf("compact: %v", err)
+	if err := eng.CompactContext(context.Background(), ""); err == nil {
+		t.Fatal("expected unsupported view_image payload to fail repair")
 	}
-	if len(client.compactionCalls) != 2 {
-		t.Fatalf("expected overflow retry to issue two compact calls, got %d", len(client.compactionCalls))
+	if len(client.compactionCalls) != 1 {
+		t.Fatalf("expected no retry when unsupported payload cannot be collapsed, got %d compact calls", len(client.compactionCalls))
 	}
 
 	firstJSON, err := json.Marshal(client.compactionCalls[0].InputItems)
@@ -365,11 +325,55 @@ func TestRemoteCompactionRetryTrimsPromotedViewImagePayloadAtomically(t *testing
 	if string(firstJSON) != string(initialJSON) {
 		t.Fatalf("expected first compaction attempt to use an exact conversation replica\nwant=%s\n got=%s", initialJSON, firstJSON)
 	}
+}
 
-	secondInput := client.compactionCalls[1].InputItems
-	hasCall, hasOutput, hasPromoted := viewImageProviderUnitPresence(secondInput, "call-view-image-1")
-	if hasCall || hasOutput || hasPromoted {
-		t.Fatalf("expected retry trim to remove promoted view_image unit atomically, got call=%v output=%v promoted=%v items=%+v", hasCall, hasOutput, hasPromoted, secondInput)
+func TestRemoteCompactionFailsFastWhenOverflowHasNoCollapsibleToolPayload(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	client := &fakeCompactionClient{
+		compactionErrors: []error{
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			nil,
+		},
+		compactionResponses: []llm.CompactionResponse{{
+			OutputItems: []llm.ResponseItem{
+				{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "unexpected retry"},
+				{Type: llm.ResponseItemTypeCompaction, ID: "cmp_1", EncryptedContent: "enc_1"},
+			},
+		}},
+	}
+
+	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+		Model:               "gpt-5",
+		ContextWindowTokens: 2500,
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
+		t.Fatalf("inject agents: %v", err)
+	}
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("chat-heavy-history", 12_000)}); err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, ReasoningItems: []llm.ReasoningItem{{
+		ID:               "rs-heavy",
+		EncryptedContent: strings.Repeat("reasoning-heavy-history", 12_000),
+	}}}); err != nil {
+		t.Fatalf("append reasoning message: %v", err)
+	}
+
+	if err := eng.CompactContext(context.Background(), ""); err == nil {
+		t.Fatal("expected ordinary-history overflow to fail without retry")
+	} else if !llm.IsContextLengthOverflowError(err) {
+		t.Fatalf("expected context overflow error, got %v", err)
+	}
+	if len(client.compactionCalls) != 1 {
+		t.Fatalf("expected no retry without collapsible tool payloads, got %d compact calls", len(client.compactionCalls))
 	}
 }
 

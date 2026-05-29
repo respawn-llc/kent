@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -18,6 +19,31 @@ type launchdServiceBackend struct{}
 
 var launchdServiceShutdownTimeout = 5 * time.Second
 var launchdServiceShutdownPollInterval = 100 * time.Millisecond
+var signalLaunchdServiceProcess = func(pid int) error {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("find running Builder server process %d: %w", pid, err)
+	}
+	if err := process.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return fmt.Errorf("stop running Builder server process %d before service restart: %w", pid, err)
+	}
+	return nil
+}
+var killLaunchdServiceProcess = func(pid int) error {
+	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
+		return fmt.Errorf("force stop running Builder server process %d before service restart: %w", pid, err)
+	}
+	return nil
+}
+var launchdServiceProcessAlive = func(pid int) (bool, error) {
+	if err := syscall.Kill(pid, 0); err != nil {
+		if err == syscall.ESRCH {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
 
 func currentServiceBackend() serviceBackend {
 	return launchdServiceBackend{}
@@ -95,11 +121,20 @@ func (launchdServiceBackend) Stop(ctx context.Context, spec serviceSpec) error {
 }
 
 func (launchdServiceBackend) Restart(ctx context.Context, spec serviceSpec) error {
-	if loaded, _ := launchdLoaded(ctx); !loaded {
-		return launchdServiceBackend{}.Start(ctx, spec)
+	path, err := launchdPlistPath()
+	if err != nil {
+		return err
 	}
-	_, err := runServiceCommand(ctx, "launchctl", "kickstart", "-k", launchdDomain()+"/"+serviceLaunchdLabel)
-	return err
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return errors.New("Builder background service is not installed; run `builder service install`")
+		}
+		return fmt.Errorf("stat launchd plist: %w", err)
+	}
+	if loaded, _ := launchdLoaded(ctx); !loaded {
+		return reloadLaunchdService(ctx, spec, path)
+	}
+	return reloadLaunchdService(ctx, spec, path)
 }
 
 func (launchdServiceBackend) Status(ctx context.Context, spec serviceSpec) (serviceStatus, error) {
@@ -133,15 +168,118 @@ func (launchdServiceBackend) Status(ctx context.Context, spec serviceSpec) (serv
 }
 
 func reloadLaunchdService(ctx context.Context, spec serviceSpec, path string) error {
+	verifyStartup := false
 	if loaded, _ := launchdLoaded(ctx); loaded {
 		if _, err := runServiceCommand(ctx, "launchctl", "bootout", launchdDomain()+"/"+serviceLaunchdLabel); err != nil {
 			return err
 		}
 		if err := waitForLaunchdServiceShutdown(ctx, spec); err != nil {
+			stopped, stopErr := stopHealthyBuilderServerBeforeLaunchdBootstrap(ctx, spec)
+			if stopErr != nil {
+				return errors.Join(err, stopErr)
+			}
+			verifyStartup = stopped
+		}
+	} else {
+		stopped, err := stopHealthyBuilderServerBeforeLaunchdBootstrap(ctx, spec)
+		if err != nil {
 			return err
 		}
+		verifyStartup = stopped
 	}
-	return bootstrapLaunchdService(ctx, spec, path)
+	if err := bootstrapLaunchdService(ctx, spec, path); err != nil {
+		return err
+	}
+	if verifyStartup {
+		return waitForLaunchdServiceStartup(ctx, spec)
+	}
+	return nil
+}
+
+func stopHealthyBuilderServerBeforeLaunchdBootstrap(ctx context.Context, spec serviceSpec) (bool, error) {
+	healthStatus, healthPID := probeServiceHealth(ctx, spec)
+	if healthStatus != "ok" {
+		return false, nil
+	}
+	if healthPID <= 0 {
+		return false, fmt.Errorf("Builder server is already running on %s, but its process id is unknown. Stop it before restarting the service", spec.Endpoint)
+	}
+	if err := signalLaunchdServiceProcess(healthPID); err != nil {
+		return false, err
+	}
+	if err := waitForLaunchdServiceProcessExit(ctx, healthPID); err != nil {
+		if err := killLaunchdServiceProcess(healthPID); err != nil {
+			return false, err
+		}
+		if err := waitForLaunchdServiceProcessExit(ctx, healthPID); err != nil {
+			return false, err
+		}
+	}
+	return true, waitForLaunchdServiceShutdown(ctx, spec)
+}
+
+func waitForLaunchdServiceProcessExit(ctx context.Context, pid int) error {
+	timeout := launchdServiceShutdownTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	interval := launchdServiceShutdownPollInterval
+	if interval <= 0 {
+		interval = 100 * time.Millisecond
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		alive, err := launchdServiceProcessAlive(pid)
+		if err != nil {
+			return fmt.Errorf("check running Builder server process %d before service restart: %w", pid, err)
+		}
+		if !alive {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("running Builder server process %d did not exit before service restart", pid)
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func waitForLaunchdServiceStartup(ctx context.Context, spec serviceSpec) error {
+	timeout := launchdServiceShutdownTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	interval := launchdServiceShutdownPollInterval
+	if interval <= 0 {
+		interval = 100 * time.Millisecond
+	}
+	deadline := time.Now().Add(timeout)
+	lastDetail := ""
+	for {
+		loaded, output := launchdLoaded(ctx)
+		launchdPID := launchdPID(output)
+		healthStatus, healthPID := probeServiceHealth(ctx, spec)
+		healthOwnedByLaunchd := healthStatus == "ok" && (healthPID == 0 || healthPID == launchdPID)
+		if loaded && launchdPID > 0 && healthOwnedByLaunchd {
+			return nil
+		}
+		lastDetail = fmt.Sprintf("launchd loaded=%t pid=%d state=%s health=%s health_pid=%d", loaded, launchdPID, launchdState(output), healthStatus, healthPID)
+		if time.Now().After(deadline) {
+			return fmt.Errorf("restarted launchd job, but Builder server did not become healthy before timeout: %s", lastDetail)
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func waitForLaunchdServiceShutdown(ctx context.Context, spec serviceSpec) error {

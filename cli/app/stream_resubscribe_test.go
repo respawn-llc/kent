@@ -65,8 +65,14 @@ func TestStartSessionActivityEventsEmitsExplicitGapWhenCursorReplayUnavailable(t
 	defer cancel()
 
 	initial := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 41, Kind: clientui.EventAssistantDelta, AssistantDelta: "first"}}, {err: serverapi.ErrStreamGap}}}
-	events, stop := startSessionActivityEvents(ctx, initial, func(context.Context, uint64) (serverapi.SessionActivitySubscription, error) {
-		return nil, serverapi.ErrStreamGap
+	recovered := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 1, Kind: clientui.EventAssistantMessage, TranscriptEntries: []clientui.ChatEntry{{Role: "assistant", Text: "after restart"}}}}}}
+	var requestedAfter []uint64
+	events, stop := startSessionActivityEvents(ctx, initial, func(_ context.Context, afterSequence uint64) (serverapi.SessionActivitySubscription, error) {
+		requestedAfter = append(requestedAfter, afterSequence)
+		if afterSequence > 0 {
+			return nil, serverapi.ErrStreamGap
+		}
+		return recovered, nil
 	}, func() bool { return false }, nil)
 	defer stop()
 
@@ -80,6 +86,55 @@ func TestStartSessionActivityEventsEmitsExplicitGapWhenCursorReplayUnavailable(t
 	}
 	if gap.RecoveryCause != clientui.TranscriptRecoveryCauseStreamGap {
 		t.Fatalf("stream-gap recovery cause = %q, want %q", gap.RecoveryCause, clientui.TranscriptRecoveryCauseStreamGap)
+	}
+	live := waitSessionActivityEvent(t, events)
+	if live.Kind != clientui.EventAssistantMessage || len(live.TranscriptEntries) != 1 || live.TranscriptEntries[0].Text != "after restart" {
+		t.Fatalf("expected live event after cursor reset, got %+v", live)
+	}
+	if len(requestedAfter) != 2 || requestedAfter[0] != 41 || requestedAfter[1] != 0 {
+		t.Fatalf("resubscribe cursors = %+v, want [41 0]", requestedAfter)
+	}
+}
+
+func TestStartSessionActivityEventsKeepsRetryingFreshSubscribeAfterCursorReplayGap(t *testing.T) {
+	useFastStreamResubscribeDelays(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	initial := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 41, Kind: clientui.EventAssistantDelta, AssistantDelta: "first"}}, {err: io.EOF}}}
+	recovered := &stubSessionActivitySubscription{steps: []stubSessionActivityStep{{evt: clientui.Event{Sequence: 1, Kind: clientui.EventAssistantMessage, TranscriptEntries: []clientui.ChatEntry{{Role: "assistant", Text: "after transient restart"}}}}}}
+	var requestedAfter []uint64
+	freshAttempts := 0
+	events, stop := startSessionActivityEvents(ctx, initial, func(_ context.Context, afterSequence uint64) (serverapi.SessionActivitySubscription, error) {
+		requestedAfter = append(requestedAfter, afterSequence)
+		if afterSequence > 0 {
+			return nil, serverapi.ErrStreamGap
+		}
+		freshAttempts++
+		if freshAttempts == 1 {
+			return nil, serverapi.ErrStreamGap
+		}
+		if freshAttempts == 2 {
+			return nil, serverapi.ErrStreamUnavailable
+		}
+		return recovered, nil
+	}, func() bool { return false }, nil)
+	defer stop()
+
+	first := waitSessionActivityEvent(t, events)
+	if first.Kind != clientui.EventAssistantDelta || first.AssistantDelta != "first" {
+		t.Fatalf("unexpected initial event: %+v", first)
+	}
+	gap := waitSessionActivityEvent(t, events)
+	if gap.Kind != clientui.EventStreamGap {
+		t.Fatalf("expected explicit stream-gap event, got %+v", gap)
+	}
+	live := waitSessionActivityEvent(t, events)
+	if live.Kind != clientui.EventAssistantMessage || len(live.TranscriptEntries) != 1 || live.TranscriptEntries[0].Text != "after transient restart" {
+		t.Fatalf("expected live event after fresh subscribe retry, got %+v", live)
+	}
+	if len(requestedAfter) != 4 || requestedAfter[0] != 41 || requestedAfter[1] != 0 || requestedAfter[2] != 0 || requestedAfter[3] != 0 {
+		t.Fatalf("resubscribe cursors = %+v, want [41 0 0 0]", requestedAfter)
 	}
 }
 
@@ -623,7 +678,10 @@ func (c *retryingPromptControlClient) AnswerApproval(context.Context, serverapi.
 func waitSessionActivityEvent(t *testing.T, events <-chan clientui.Event) clientui.Event {
 	t.Helper()
 	select {
-	case evt := <-events:
+	case evt, ok := <-events:
+		if !ok {
+			t.Fatal("session activity channel closed before next event")
+		}
 		return evt
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for session activity event")

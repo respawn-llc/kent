@@ -20,6 +20,7 @@ import (
 type fakeClient struct {
 	mu        sync.Mutex
 	responses []llm.Response
+	errors    []error
 	calls     []llm.Request
 	caps      llm.ProviderCapabilities
 	capsErr   error
@@ -41,6 +42,13 @@ func (f *fakeClient) Generate(_ context.Context, req llm.Request) (llm.Response,
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, req)
+	if len(f.errors) > 0 {
+		err := f.errors[0]
+		f.errors = f.errors[1:]
+		if err != nil {
+			return llm.Response{}, err
+		}
+	}
 	if len(f.responses) == 0 {
 		return llm.Response{}, nil
 	}
@@ -108,6 +116,7 @@ type fakeCompactionClient struct {
 	mu sync.Mutex
 
 	responses []llm.Response
+	errors    []error
 	calls     []llm.Request
 
 	inputTokenCount      int
@@ -188,6 +197,13 @@ func (f *fakeCompactionClient) Generate(_ context.Context, req llm.Request) (llm
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, req)
+	if len(f.errors) > 0 {
+		err := f.errors[0]
+		f.errors = f.errors[1:]
+		if err != nil {
+			return llm.Response{}, err
+		}
+	}
 	if len(f.responses) == 0 {
 		return llm.Response{}, nil
 	}
@@ -255,12 +271,16 @@ func (f *fakeCompactionClient) ProviderCapabilities(context.Context) (llm.Provid
 type fakeTool struct {
 	name  toolspec.ID
 	delay time.Duration
+	out   json.RawMessage
 }
 
 func (t fakeTool) Name() toolspec.ID { return t.name }
 
 func (t fakeTool) Call(_ context.Context, c tools.Call) (tools.Result, error) {
 	time.Sleep(t.delay)
+	if len(t.out) > 0 {
+		return tools.Result{CallID: c.ID, Name: c.Name, Output: append(json.RawMessage(nil), t.out...)}, nil
+	}
 	out, _ := json.Marshal(map[string]any{"tool": string(t.name)})
 	return tools.Result{CallID: c.ID, Name: c.Name, Output: out}, nil
 }

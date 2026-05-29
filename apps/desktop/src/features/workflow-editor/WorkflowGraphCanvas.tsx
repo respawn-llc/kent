@@ -1,32 +1,41 @@
-/* eslint-disable max-lines -- Graph canvas keeps React Flow node renderers and canvas interactions together. */
 import {
+  applyNodeChanges,
   Background,
   BackgroundVariant,
-  Handle,
   ReactFlow,
   ReactFlowProvider,
-  Position,
   useReactFlow,
   type EdgeProps,
-  type Edge,
   type Node,
-  type NodeTypes,
   type NodeProps,
+  type NodeTypes,
 } from "@xyflow/react";
-import { Info, Maximize2, Minus, Plus, RotateCcw } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, type CSSProperties, type MouseEvent, type ReactNode } from "react";
-import { createPortal } from "react-dom";
-import { useTranslation } from "react-i18next";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { cx } from "../../ui/classes";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../ui";
+import { TooltipProvider } from "../../ui";
+import {
+  connectWorkflowGraphNodes,
+  groupIDFromPoint,
+  inspectEdge,
+  inspectNode,
+  isFormTarget,
+  selectionFromEdge,
+  selectionFromNode,
+  workflowGraphSelectionExists,
+} from "./workflowGraphCanvasInteractions";
 import { WorkflowGraphEdge as WorkflowGraphEdgeRenderer } from "./WorkflowGraphEdge";
+import {
+  WorkflowGroupNode,
+  WorkflowJoinNode,
+  WorkflowNode,
+} from "./WorkflowGraphNodes";
+import { WorkflowGroupDragPreview, type WorkflowGroupDragState } from "./WorkflowGroupDragPreview";
+import type { CopyText } from "./WorkflowGraphNodeMetadata";
+import { WorkflowGraphToolbar } from "./WorkflowGraphToolbar";
+import type { WorkflowGraphSelection } from "./workflowGraphSelection";
 import type {
   WorkflowGraphEdge,
-  WorkflowGraphEdgeData,
   WorkflowGraphGroupNode,
-  WorkflowGraphNodeData,
-  WorkflowGraphGroupData,
   WorkflowGraphLayout,
   WorkflowGraphNode,
   WorkflowGraphWorkflowNode,
@@ -34,59 +43,58 @@ import type {
 import "@xyflow/react/dist/style.css";
 import "./workflow-editor.css";
 
+export { WorkflowNodeInfoTooltipContent } from "./WorkflowGraphNodeMetadata";
+
 export type WorkflowGraphCanvasProps = Readonly<{
   graph: WorkflowGraphLayout;
   onCopyText?: ((value: string) => Promise<void> | void) | undefined;
+  onAddNode?: ((kind: "agent" | "terminal") => void) | undefined;
+  onAddNodeToGroup?: ((nodeID: string, groupID: string) => void) | undefined;
+  onConnectNodes?: ((sourceNodeID: string, targetNodeID: string) => void) | undefined;
+  onCreateNodeGroup?: ((nodeID: string) => void) | undefined;
+  onDeleteSelection?: ((selection: WorkflowGraphSelection) => void) | undefined;
+  onRemoveNodeFromGroup?: ((nodeID: string) => void) | undefined;
   onEdgeInspect: (edgeID: string) => void;
   onGroupInspect: (groupID: string) => void;
   onNodeInspect: (nodeID: string) => void;
   onWorkflowInspect: () => void;
 }>;
 
+type RenderNodesState = Readonly<{
+  nodes: Node[];
+  sourceNodes: readonly WorkflowGraphNode[];
+}>;
+
 export function WorkflowGraphCanvas({
   graph,
   onCopyText = copyTextWithNavigator,
+  onAddNode,
+  onAddNodeToGroup,
+  onConnectNodes,
+  onCreateNodeGroup,
+  onDeleteSelection,
+  onRemoveNodeFromGroup,
   onEdgeInspect,
   onGroupInspect,
   onNodeInspect,
   onWorkflowInspect,
 }: WorkflowGraphCanvasProps) {
-  const localNodeTypes = useMemo(
-    () => ({
-      workflowGroup: WorkflowGroupNode,
-      workflowJoin: (props: NodeProps<WorkflowGraphWorkflowNode>) => (
-        <WorkflowJoinNode {...props} onCopyText={onCopyText} />
-      ),
-      workflowNode: (props: NodeProps<WorkflowGraphWorkflowNode>) => (
-        <WorkflowNode {...props} onCopyText={onCopyText} />
-      ),
-    }) satisfies NodeTypes,
-    [onCopyText],
-  );
-  const localEdgeTypes = useMemo(
-    () => ({
-      workflow: (props: EdgeProps<WorkflowGraphEdge>) => (
-        <WorkflowGraphEdgeRenderer
-          {...props}
-          onInspect={(edgeID) => {
-            onEdgeInspect(edgeID);
-          }}
-        />
-      ),
-    }),
-    [onEdgeInspect],
-  );
   return (
     <TooltipProvider delayDuration={0}>
       <ReactFlowProvider>
         <WorkflowGraphCanvasInner
-          edgeTypes={localEdgeTypes}
           edges={graph.edges}
+          onAddNode={onAddNode}
+          onAddNodeToGroup={onAddNodeToGroup}
+          onConnectNodes={onConnectNodes}
+          onCreateNodeGroup={onCreateNodeGroup}
+          onDeleteSelection={onDeleteSelection}
+          onRemoveNodeFromGroup={onRemoveNodeFromGroup}
           onEdgeInspect={onEdgeInspect}
           onGroupInspect={onGroupInspect}
           onNodeInspect={onNodeInspect}
           onWorkflowInspect={onWorkflowInspect}
-          nodeTypes={localNodeTypes}
+          onCopyText={onCopyText}
           nodes={graph.nodes}
         />
       </ReactFlowProvider>
@@ -95,26 +103,100 @@ export function WorkflowGraphCanvas({
 }
 
 function WorkflowGraphCanvasInner({
-  edgeTypes,
   edges,
+  onAddNode,
+  onAddNodeToGroup,
+  onConnectNodes,
+  onCopyText,
+  onCreateNodeGroup,
+  onDeleteSelection,
   onEdgeInspect,
   onGroupInspect,
   onNodeInspect,
+  onRemoveNodeFromGroup,
   onWorkflowInspect,
-  nodeTypes,
   nodes,
 }: Readonly<{
-  edgeTypes: Readonly<Record<string, (props: EdgeProps<WorkflowGraphEdge>) => ReactNode>>;
   edges: readonly WorkflowGraphEdge[];
+  onAddNode: ((kind: "agent" | "terminal") => void) | undefined;
+  onAddNodeToGroup: ((nodeID: string, groupID: string) => void) | undefined;
+  onConnectNodes: ((sourceNodeID: string, targetNodeID: string) => void) | undefined;
+  onCopyText: CopyText;
+  onCreateNodeGroup: ((nodeID: string) => void) | undefined;
+  onDeleteSelection: ((selection: WorkflowGraphSelection) => void) | undefined;
   onEdgeInspect: (edgeID: string) => void;
   onGroupInspect: (groupID: string) => void;
   onNodeInspect: (nodeID: string) => void;
+  onRemoveNodeFromGroup: ((nodeID: string) => void) | undefined;
   onWorkflowInspect: () => void;
-  nodeTypes: NodeTypes;
   nodes: readonly WorkflowGraphNode[];
 }>) {
-  const { t } = useTranslation();
   const instance = useReactFlow();
+  const [selection, setSelection] = useState<WorkflowGraphSelection | null>(null);
+  // React Flow owns the drag gesture, but workflow layout stays ELK/server-authored.
+  // This transient snapshot lets cards move during drag without persisting canvas positions.
+  const [renderNodesState, setRenderNodesState] = useState<RenderNodesState>(() => ({
+    nodes: [...nodes],
+    sourceNodes: nodes,
+  }));
+  const renderNodes = renderNodesState.sourceNodes === nodes ? renderNodesState.nodes : [...nodes];
+  const [groupDrag, setGroupDrag] = useState<WorkflowGroupDragState | null>(null);
+  const edgeTypes = useMemo(
+    () => ({
+      workflow: (props: EdgeProps<WorkflowGraphEdge>) => (
+        <WorkflowGraphEdgeRenderer
+          {...props}
+          onDeleteSelection={onDeleteSelection}
+          onInspect={(edgeID) => {
+            setSelection({ edgeID, kind: "edge" });
+            onEdgeInspect(edgeID);
+          }}
+          onSelectContextMenu={(edgeID) => {
+            setSelection({ edgeID, kind: "edge" });
+          }}
+        />
+      ),
+    }),
+    [onDeleteSelection, onEdgeInspect],
+  );
+  const nodeTypes = useMemo(
+    () => ({
+      workflowGroup: (props: NodeProps<WorkflowGraphGroupNode>) => (
+        <WorkflowGroupNode {...props} activeDropTarget={groupDrag?.targetGroupID === props.data.entityID} />
+      ),
+      workflowJoin: (props: NodeProps<WorkflowGraphWorkflowNode>) => (
+        <WorkflowJoinNode
+          {...props}
+          onCopyText={onCopyText}
+          onDeleteSelection={onDeleteSelection}
+          onInspectNode={(nodeID) => {
+            setSelection({ kind: "node", nodeID });
+            onNodeInspect(nodeID);
+          }}
+          onSelectContextMenu={(nodeID) => {
+            setSelection({ kind: "node", nodeID });
+          }}
+        />
+      ),
+      workflowNode: (props: NodeProps<WorkflowGraphWorkflowNode>) => (
+        <WorkflowNode
+          {...props}
+          onCopyText={onCopyText}
+          onCreateNodeGroup={onCreateNodeGroup}
+          onDeleteSelection={onDeleteSelection}
+          onInspectNode={(nodeID) => {
+            setSelection({ kind: "node", nodeID });
+            onNodeInspect(nodeID);
+          }}
+          onRemoveNodeFromGroup={onRemoveNodeFromGroup}
+          onSelectContextMenu={(nodeID) => {
+            setSelection({ kind: "node", nodeID });
+          }}
+        />
+      ),
+    }) satisfies NodeTypes,
+    [groupDrag?.targetGroupID, onCopyText, onCreateNodeGroup, onDeleteSelection, onNodeInspect, onRemoveNodeFromGroup],
+  );
   const didFitInitialView = useRef(false);
   useEffect(() => {
     if (didFitInitialView.current) {
@@ -127,75 +209,90 @@ function WorkflowGraphCanvasInner({
   }, [instance]);
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
+      const activeSelection =
+        selection === null || !workflowGraphSelectionExists(selection, nodes, edges) ? null : selection;
       if (event.defaultPrevented || isFormTarget(event.target)) {
         return;
       }
-      if (event.key === "+") {
+      if (applyViewportShortcut(event.key, instance)) {
         event.preventDefault();
-        void instance.zoomIn();
-      } else if (event.key === "-") {
+        return;
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && activeSelection !== null) {
         event.preventDefault();
-        void instance.zoomOut();
-      } else if (event.key === "0") {
-        event.preventDefault();
-        void instance.setViewport({ x: 0, y: 0, zoom: 1 });
-      } else if (event.key.toLowerCase() === "f") {
-        event.preventDefault();
-        void instance.fitView({ padding: 0.18 });
+        onDeleteSelection?.(activeSelection);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [instance]);
-
-  const tools = (
-    <div
-      className="workflow-editor-tools island-glass app-region-no-drag fixed left-[var(--space-2)] top-[calc(var(--native-titlebar-height)+var(--space-2))] z-30 grid gap-[var(--space-1)] rounded-[var(--radius-l)] border p-[var(--space-1)] shadow-[var(--shadow-island-1)]"
-      data-testid="workflow-editor-tools"
-    >
-      <CanvasTool label={t("workflowEditor.inspectWorkflow")} onClick={onWorkflowInspect}>
-        <Info aria-hidden="true" size={18} strokeWidth={1.7} />
-      </CanvasTool>
-      <CanvasTool label={t("workflowEditor.zoomIn")} onClick={() => void instance.zoomIn()}>
-        <Plus aria-hidden="true" size={18} strokeWidth={1.7} />
-      </CanvasTool>
-      <CanvasTool label={t("workflowEditor.zoomOut")} onClick={() => void instance.zoomOut()}>
-        <Minus aria-hidden="true" size={18} strokeWidth={1.7} />
-      </CanvasTool>
-      <CanvasTool label={t("workflowEditor.fitView")} onClick={() => void instance.fitView({ padding: 0.18 })}>
-        <Maximize2 aria-hidden="true" size={18} strokeWidth={1.7} />
-      </CanvasTool>
-      <CanvasTool
-        label={t("workflowEditor.resetZoom")}
-        onClick={() => void instance.setViewport({ x: 0, y: 0, zoom: 1 })}
-      >
-        <RotateCcw aria-hidden="true" size={18} strokeWidth={1.7} />
-      </CanvasTool>
-    </div>
-  );
-
+  }, [edges, instance, nodes, onDeleteSelection, selection]);
   return (
     <div className="workflow-editor-canvas h-full min-h-0 w-full" data-testid="workflow-editor-canvas">
       <ReactFlow
         colorMode="system"
-        defaultEdges={edges}
-        defaultNodes={nodes}
         edges={edges}
         edgeTypes={edgeTypes}
         fitView
         maxZoom={2}
         minZoom={0.15}
-        nodes={nodes}
-        nodesConnectable={false}
+        nodeDragThreshold={6}
+        nodes={renderNodes}
+        nodesConnectable={onConnectNodes !== undefined}
         nodesDraggable={false}
         nodeTypes={nodeTypes}
+        onConnect={(connection) => {
+          connectWorkflowGraphNodes(connection, onConnectNodes);
+        }}
         onEdgeClick={(_event, edge) => {
+          setSelection(selectionFromEdge(edge));
           inspectEdge(edge, onEdgeInspect);
         }}
         onNodeClick={(_event, node) => {
+          setSelection(selectionFromNode(node));
           inspectNode(node, onGroupInspect, onNodeInspect);
+        }}
+        onNodeDrag={(event, node) => {
+          if (!isWorkflowAgentGraphNode(node)) {
+            return;
+          }
+          setGroupDrag({
+            label: node.data.label,
+            nodeID: node.data.entityID,
+            targetGroupID: groupIDFromPoint(event.clientX, event.clientY),
+            x: event.clientX,
+            y: event.clientY,
+          });
+        }}
+        onNodeDragStart={(event, node) => {
+          if (!isWorkflowAgentGraphNode(node)) {
+            return;
+          }
+          setGroupDrag({
+            label: node.data.label,
+            nodeID: node.data.entityID,
+            targetGroupID: null,
+            x: event.clientX,
+            y: event.clientY,
+          });
+        }}
+        onNodeDragStop={(event, node) => {
+          setGroupDrag(null);
+          setRenderNodesState({ nodes: [...nodes], sourceNodes: nodes });
+          if (!isWorkflowAgentGraphNode(node)) {
+            return;
+          }
+          const groupID = groupIDFromPoint(event.clientX, event.clientY);
+          if (groupID !== null && groupID !== node.data.groupID) {
+            onAddNodeToGroup?.(node.data.entityID, groupID);
+          }
+        }}
+        onNodesChange={(changes) => {
+          setRenderNodesState((current) => {
+            const currentNodes = current.sourceNodes === nodes ? current.nodes : [...nodes];
+            return { nodes: applyNodeChanges(changes, currentNodes), sourceNodes: nodes };
+          });
         }}
         panOnScroll
         proOptions={{ hideAttribution: true }}
@@ -209,298 +306,37 @@ function WorkflowGraphCanvasInner({
           size={1}
           variant={BackgroundVariant.Dots}
         />
-        {createPortal(tools, document.body)}
+        <WorkflowGraphToolbar onAddNode={onAddNode} onWorkflowInspect={onWorkflowInspect} />
+        {groupDrag === null ? null : <WorkflowGroupDragPreview drag={groupDrag} />}
       </ReactFlow>
     </div>
   );
 }
 
-function CanvasTool({
-  children,
-  label,
-  onClick,
-}: Readonly<{ children: ReactNode; label: string; onClick: () => void }>) {
-  return (
-    <button
-      aria-label={label}
-      className="grid size-9 place-items-center rounded-[var(--radius-m)] border border-transparent bg-transparent text-[var(--color-on-island)] transition-colors hover:bg-[var(--color-island-1)] focus-visible:border-[var(--color-primary)] focus-visible:outline-none"
-      onClick={onClick}
-      title={label}
-      type="button"
-    >
-      {children}
-    </button>
-  );
-}
-
-type CopyText = (value: string) => Promise<void> | void;
-const NODE_METADATA_TOOLTIP_CLASS =
-  "pointer-events-auto grid w-[420px] max-w-[calc(100vw-var(--space-4)*2)] items-stretch gap-1.5 p-1.5";
-
-const WorkflowNode = memo(function WorkflowNode({
-  data,
-  onCopyText,
-  selected,
-}: NodeProps<WorkflowGraphWorkflowNode> & Readonly<{ onCopyText: CopyText }>) {
-  const nodeCard = (
-    <div
-      className={cx(
-        "workflow-editor-node grid h-full min-w-0 grid-rows-[minmax(0,1fr)_auto] rounded-[var(--radius-l)] border bg-[var(--color-island-3)] p-[var(--space-3)] shadow-[var(--shadow-island-1)]",
-        data.hasError ? "workflow-editor-node-error" : undefined,
-        selected ? "workflow-editor-node-selected" : undefined,
-      )}
-      data-kind={data.kind}
-      data-testid={`workflow-graph-node-${data.entityID}`}
-      style={workflowNodeOutlineStyle(data.kind, data.hasError)}
-    >
-      <Handle
-        aria-label="Incoming transitions"
-        className="workflow-editor-handle"
-        data-testid="workflow-node-target-handle"
-        position={Position.Left}
-        type="target"
-      />
-      <Handle
-        aria-label="Outgoing transitions"
-        className="workflow-editor-handle"
-        data-testid="workflow-node-source-handle"
-        position={Position.Right}
-        type="source"
-      />
-      <strong className="line-clamp-2 min-w-0 text-[0.95rem] leading-snug text-[var(--color-on-island)]">
-        {data.label}
-      </strong>
-      <span className="min-w-0 truncate font-mono text-sm text-[var(--color-muted)]">{data.role}</span>
-    </div>
-  );
-  if (!usesCompactNodeTooltip(data.kind)) {
-    return nodeCard;
-  }
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{nodeCard}</TooltipTrigger>
-      <TooltipContent
-        className={NODE_METADATA_TOOLTIP_CLASS}
-        data-testid="workflow-node-metadata-tooltip"
-        onClick={stopPropagation}
-      >
-        <WorkflowNodeInfoTooltipContent
-          nodeID={data.entityID}
-          nodeKey={data.key}
-          onCopyText={onCopyText}
-        />
-      </TooltipContent>
-    </Tooltip>
-  );
-});
-
-export function WorkflowNodeInfoTooltipContent({
-  nodeID,
-  nodeKey,
-  onCopyText,
-}: Readonly<{ nodeID: string; nodeKey: string; onCopyText: CopyText }>) {
-  const { t } = useTranslation();
-  const keyLabel = t("workflowEditor.key");
-  const idLabel = t("workflowEditor.id");
-  return (
-    <>
-      <CopyableNodeValue
-        copyLabel={t("workflowEditor.copyNodeMetadata", { label: keyLabel, value: nodeKey })}
-        label={keyLabel}
-        onCopyText={onCopyText}
-        value={nodeKey}
-      />
-      <CopyableNodeValue
-        copyLabel={t("workflowEditor.copyNodeMetadata", { label: idLabel, value: nodeID })}
-        label={idLabel}
-        onCopyText={onCopyText}
-        value={nodeID}
-      />
-    </>
-  );
-}
-
-function CopyableNodeValue({
-  copyLabel,
-  label,
-  onCopyText,
-  value,
-}: Readonly<{ copyLabel: string; label: string; onCopyText: CopyText; value: string }>) {
-  return (
-    <button
-      aria-label={copyLabel}
-      className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-baseline gap-2 rounded-sm bg-transparent px-1.5 py-0.5 text-left outline-none hover:bg-[var(--color-island-2)] focus-visible:bg-[var(--color-island-2)] focus-visible:outline-none"
-      onClick={(event) => {
-        event.stopPropagation();
-        copyNodeText(value, onCopyText);
-      }}
-      type="button"
-    >
-      <span className="text-[0.68rem] font-bold uppercase tracking-[0.14em] opacity-70">
-        {label}
-      </span>
-      <span className="min-w-0 break-all font-mono text-sm">{value}</span>
-    </button>
-  );
-}
-
-const WorkflowGroupNode = memo(function WorkflowGroupNode({ data }: NodeProps<WorkflowGraphGroupNode>) {
-  const { t } = useTranslation();
-  return (
-    <div
-      className={cx(
-        "workflow-editor-group h-full rounded-[var(--radius-xl)] border bg-[color-mix(in_srgb,var(--color-island-1)_58%,transparent)] p-[var(--space-3)]",
-        data.hasError ? "workflow-editor-node-error" : undefined,
-      )}
-      data-testid={`workflow-graph-group-${data.entityID}`}
-      style={workflowNodeOutlineStyle(data.kind, data.hasError)}
-    >
-      <div className="font-mono text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-muted)]">
-        {data.label}
-      </div>
-      {"empty" in data && data.empty ? (
-        <div className="grid h-[calc(100%-24px)] place-items-center text-sm text-[var(--color-muted)]">
-          {t("workflowEditor.emptyGroup")}
-        </div>
-      ) : null}
-    </div>
-  );
-});
-
-const WorkflowJoinNode = memo(function WorkflowJoinNode({
-  data,
-  onCopyText,
-  selected,
-}: NodeProps<WorkflowGraphWorkflowNode> & Readonly<{ onCopyText: CopyText }>) {
-  const nodeCard = (
-    <div
-      className={cx(
-        "workflow-editor-join-node grid h-full w-full place-items-center",
-        data.hasError ? "workflow-editor-node-error" : undefined,
-        selected ? "workflow-editor-node-selected" : undefined,
-      )}
-      data-kind={data.kind}
-      data-testid={`workflow-graph-node-${data.entityID}`}
-      style={workflowNodeOutlineStyle(data.kind, data.hasError)}
-      title={data.label}
-    >
-      <Handle
-        aria-label="Incoming transitions"
-        className="workflow-editor-handle"
-        data-testid="workflow-node-target-handle"
-        position={Position.Left}
-        type="target"
-      />
-      <Handle
-        aria-label="Outgoing transitions"
-        className="workflow-editor-handle"
-        data-testid="workflow-node-source-handle"
-        position={Position.Right}
-        type="source"
-      />
-      <div className="workflow-editor-join-diamond" data-testid="workflow-join-diamond">
-        <span className="sr-only">{data.label}</span>
-      </div>
-    </div>
-  );
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{nodeCard}</TooltipTrigger>
-      <TooltipContent
-        className={NODE_METADATA_TOOLTIP_CLASS}
-        data-testid="workflow-node-metadata-tooltip"
-        onClick={stopPropagation}
-      >
-        <WorkflowNodeInfoTooltipContent
-          nodeID={data.entityID}
-          nodeKey={data.key}
-          onCopyText={onCopyText}
-        />
-      </TooltipContent>
-    </Tooltip>
-  );
-});
-
-type WorkflowNodeOutlineStyle = CSSProperties &
-  Readonly<Record<"--workflow-editor-node-outline-color", string>>;
-
-function workflowNodeOutlineStyle(kind: string, hasError: boolean): WorkflowNodeOutlineStyle {
-  if (hasError) {
-    return { "--workflow-editor-node-outline-color": "var(--color-error)" };
-  }
-  if (kind === "start") {
-    return { "--workflow-editor-node-outline-color": "var(--color-primary)" };
-  }
-  if (kind === "terminal") {
-    return { "--workflow-editor-node-outline-color": "var(--color-success)" };
-  }
-  if (kind === "join") {
-    return { "--workflow-editor-node-outline-color": "var(--color-secondary)" };
-  }
-  return { "--workflow-editor-node-outline-color": "var(--color-outline)" };
-}
-
-function inspectNode(
-  node: Node,
-  onGroupInspect: (groupID: string) => void,
-  onNodeInspect: (nodeID: string) => void,
-): void {
-  const { data } = node;
-  if (isWorkflowGraphGroupData(data)) {
-    onGroupInspect(data.entityID);
-    return;
-  }
-  if (isWorkflowGraphNodeData(data)) {
-    if (!isEditableWorkflowNodeKind(data.kind)) {
-      return;
-    }
-    onNodeInspect(data.entityID);
-  }
-}
-
-function inspectEdge(edge: Edge, onEdgeInspect: (edgeID: string) => void): void {
-  const { data } = edge;
-  if (isWorkflowGraphEdgeData(data)) {
-    onEdgeInspect(data.entityID);
-  }
-}
-
-function isWorkflowGraphNodeData(data: Node["data"]): data is WorkflowGraphNodeData {
-  return data.entityKind === "node" && typeof data.entityID === "string";
-}
-
-function isWorkflowGraphGroupData(data: Node["data"]): data is WorkflowGraphGroupData {
-  return data.entityKind === "group" && typeof data.entityID === "string";
-}
-
-function isWorkflowGraphEdgeData(data: Edge["data"]): data is WorkflowGraphEdgeData {
-  return data?.entityKind === "edge" && typeof data.entityID === "string";
-}
-
-function isFormTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
-}
-
-function usesCompactNodeTooltip(kind: string): boolean {
-  return !isEditableWorkflowNodeKind(kind);
-}
-
-function isEditableWorkflowNodeKind(kind: string): boolean {
-  return kind === "agent" || kind === "join";
-}
-
-function stopPropagation(event: MouseEvent): void {
-  event.stopPropagation();
-}
-
-function copyNodeText(value: string, onCopyText: CopyText): void {
-  try {
-    void Promise.resolve(onCopyText(value)).catch(() => undefined);
-  } catch {
-    return;
-  }
-}
-
 function copyTextWithNavigator(value: string): void {
   void navigator.clipboard.writeText(value).catch(() => undefined);
+}
+
+function applyViewportShortcut(key: string, instance: ReturnType<typeof useReactFlow>): boolean {
+  if (key === "+") {
+    void instance.zoomIn();
+    return true;
+  }
+  if (key === "-") {
+    void instance.zoomOut();
+    return true;
+  }
+  if (key === "0") {
+    void instance.setViewport({ x: 0, y: 0, zoom: 1 });
+    return true;
+  }
+  if (key.toLowerCase() === "f") {
+    void instance.fitView({ padding: 0.18 });
+    return true;
+  }
+  return false;
+}
+
+function isWorkflowAgentGraphNode(node: Node): node is WorkflowGraphWorkflowNode {
+  return node.data.entityKind === "node" && node.data.kind === "agent";
 }

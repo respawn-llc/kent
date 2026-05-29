@@ -15,6 +15,10 @@ import { NewTaskWindowRoute } from "../features/tasks/NewTaskDialog";
 import { LoadingState } from "../ui";
 import { AppChrome } from "./AppChrome";
 import { RouteTransitionFrame } from "./RouteTransitionFrame";
+import {
+  createWorkflowDeleteConfirmWindowRoute,
+  workflowDeleteConfirmNativeDialogPath,
+} from "./workflowDeleteConfirmRoute";
 import { useWindowChromeTitle } from "./windowChromeTitle";
 
 const LazyWorkflowEditorRoute = lazy(async () => {
@@ -73,9 +77,7 @@ const lastProjectRouteStorageKey = "builder.desktop.lastProjectRoute";
 const routeRestoreSessionKey = "builder.desktop.routeRestoreChecked";
 let routeRestoreCheckedFallback = false;
 
-const rootRoute = createRootRoute({
-  component: RootRoute,
-});
+const rootRoute = createRootRoute({ component: RootRoute });
 
 const homeRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -150,6 +152,8 @@ const workspaceUnlinkWindowRoute = createRoute({
   component: WorkspaceUnlinkNativeRoute,
 });
 
+const workflowDeleteConfirmWindowRoute = createWorkflowDeleteConfirmWindowRoute(rootRoute);
+
 const routeTree = rootRoute.addChildren([
   homeRoute,
   projectRoute,
@@ -162,6 +166,7 @@ const routeTree = rootRoute.addChildren([
   taskDetailWindowRoute,
   newTaskWindowRoute,
   workspaceUnlinkWindowRoute,
+  workflowDeleteConfirmWindowRoute,
 ]);
 
 export function createAppRouter() {
@@ -195,7 +200,7 @@ function RootRoute() {
 }
 
 export function shouldSkipNativeDialogStartupGate(pathname: string): boolean {
-  return pathname === "/native-dialog/workspace-unlink";
+  return pathname === "/native-dialog/workspace-unlink" || pathname === workflowDeleteConfirmNativeDialogPath;
 }
 
 function RoutePersistence() {
