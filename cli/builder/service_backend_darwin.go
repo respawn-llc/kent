@@ -132,7 +132,7 @@ func (launchdServiceBackend) Restart(ctx context.Context, spec serviceSpec) erro
 		return fmt.Errorf("stat launchd plist: %w", err)
 	}
 	if loaded, _ := launchdLoaded(ctx); !loaded {
-		return launchdServiceBackend{}.Start(ctx, spec)
+		return reloadLaunchdService(ctx, spec, path)
 	}
 	return reloadLaunchdService(ctx, spec, path)
 }
