@@ -33,6 +33,7 @@
 - Layout orientation is left-to-right.
 - Initial viewport fits the whole graph on first open. Live refetch preserves pan/zoom, clears stale selection through current React Flow state, and shows workflow-updated feedback.
 - Canvas controls are inspect workflow, zoom in/out, fit-to-view, and reset zoom in a top-left floating island. There is no minimap.
+- The canvas legend starts collapsed in the bottom-left corner and uses a help/question-mark affordance when collapsed.
 - The canvas add-node affordance uses a plain plus icon. Zoom controls use zoom-specific icons or a visually separate zoom control so `+` consistently means add.
 - Keyboard shortcuts are zoom in/out, reset, fit-to-view, and delete selected editable graph entities.
 - Expected scale is optimized for 5-50 nodes and 5-100 edges, with graceful behavior up to roughly 200 nodes.
@@ -43,6 +44,7 @@
 - Draft state owns workflow metadata, agent-node editable fields, required inputs, join provider selections, dirty state, remote conflicts, and draft version counters.
 - Workflow metadata editing includes workflow name and description through the workflow inspector/settings sidebar.
 - Agent node editing includes display name, key, assignee role, prompt template, and required input fields.
+- Agent prompt editing shows placeholder chips directly below the prompt field. Required input placeholders appear first in declaration order and use the primary color; built-in task/node placeholders follow and use muted outline styling. Clicking a chip inserts the exact Go-template placeholder at the prompt cursor, or at the end when the prompt field is not focused.
 - Start/backlog and terminal node editing includes display name and key. Their kind, execution config, and required inputs stay fixed by domain validation.
 - Required input fields are consuming-node-owned, draggable sidebar islands.
 - New required inputs insert at the top of the node input list.
@@ -96,6 +98,7 @@
 - The editor may own current-workflow settings/delete actions. Workflow Library/sidebar owns create/copy/link entry points.
 - Workflow settings include name/description and actions to link/unlink workflow to projects.
 - Project selection for workflow settings/linking is paginated and minimal, hosted inside the sidebar rather than a native blocking window.
+- The workflow editor toolbar Add node control opens its node-kind popup on hover or focus. Clicking the toolbar button itself does not create a node or toggle the popup.
 
 ## Global Sidebar
 
@@ -113,7 +116,7 @@
 - Editing a linked workflow is disallowed while it has active tasks.
 - Editing is allowed only when existing tasks are all backlog or done.
 - Active means any task whose active/waiting placement is not start/backlog or terminal/done, any pending approval, any non-completed/non-interrupted run needing runtime ownership, or any other non-terminal automation state.
-- Backlog/start deletion is out of scope. Hide `start` from add/kind-change controls. Existing Backlog can be renamed where safe, but kind stays fixed.
+- Backlog/start deletion is out of scope. Blocked graph deletes surface as toast feedback. Hide `start` from add/kind-change controls. Existing Backlog can be renamed where safe, but kind stays fixed.
 - Start node outgoing edges may be edited in drafts, but execution validation requires exactly one start transition group with exactly one edge targeting an agent node.
 - Done/terminal deletion is allowed only when at least one other terminal node remains; otherwise block with toast.
 - Saved node groups must be execution-shaped parallel groups. A node group without enough branch nodes or without exactly one owned join blocks save validation.

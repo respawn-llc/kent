@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSS
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { CircleQuestionMark } from "lucide-react";
 
 import {
   emptyWorkflowDerivedWiring,
@@ -17,6 +18,7 @@ import { useSidebar } from "../../app/sidebarContext";
 import { queryKeys } from "../../app/queryKeys";
 import { useAppServices } from "../../app/useAppServices";
 import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
+import { useStatusController } from "../../app/useStatusController";
 import { useWindowChromeTitle } from "../../app/windowChromeTitle";
 import { Button, ErrorState, FloatingNoticeIsland, LoadingState } from "../../ui";
 import { cx } from "../../ui/classes";
@@ -64,6 +66,7 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
   const { t } = useTranslation();
   const { api, nativeBridge } = useAppServices();
   const { openSidebar } = useSidebar();
+  const { push: pushStatus } = useStatusController();
   const data = useWorkflowEditorData(projectID, workflowID);
   const workflow = data.workflowQuery.data?.workflow;
   const [draftState, dispatch] = useReducer(workflowEditorDraftStateReducer, null);
@@ -90,7 +93,6 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
   const [pendingDelete, setPendingDelete] = useState<PendingGraphDelete | null>(null);
   const pendingDeleteRef = useRef<PendingGraphDelete | null>(null);
   const deleteRequestIndexRef = useRef(0);
-  const [deleteWarning, setDeleteWarning] = useState("");
   const draftDefinition =
     draftState === null ? data.workflowQuery.data : workflowDefinitionFromDraft(draftState.draft);
   const draftValidationQuery = useWorkflowDraftValidationQuery(workflowID, draftState);
@@ -181,20 +183,28 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
         currentPlan.kind !== "ready" ||
         !cascadeSummaryEquals(currentPlan.summary, deleteRequest.summary)
       ) {
-        setDeleteWarning(t("workflowEditor.deleteConfirmationStale"));
+        pushStatus({
+          body: t("workflowEditor.deleteConfirmationStale"),
+          id: "workflow-delete-confirmation-stale",
+          title: t("workflowEditor.deleteBlockedTitle"),
+          tone: "warning",
+        });
         return;
       }
       dispatchGraphDeletion(deleteRequest.selection, dispatch);
     },
-    [draftState, t],
+    [draftState, pushStatus, t],
   );
   const handleGraphDeleteConfirmationListenerError = useCallback(
     (error: unknown) => {
-      setDeleteWarning(
-        t("workflowEditor.deleteConfirmationListenerFailed", { message: errorMessage(error) }),
-      );
+      pushStatus({
+        body: t("workflowEditor.deleteConfirmationListenerFailed", { message: errorMessage(error) }),
+        id: "workflow-delete-confirmation-listener-failed",
+        title: t("workflowEditor.deleteBlockedTitle"),
+        tone: "danger",
+      });
     },
-    [t],
+    [pushStatus, t],
   );
   useWorkflowGraphDeleteConfirmationListener({
     nativeBridge,
@@ -344,10 +354,28 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
           const plannedDelete = planGraphDeletion(draftState.draft, selection);
           setPendingDelete(null);
           if (plannedDelete.kind === "blocked") {
-            setDeleteWarning(t(deleteWarningTranslationKey(plannedDelete.warning)));
+            const message = t(deleteWarningTranslationKey(plannedDelete.warning));
+            const toastID =
+              plannedDelete.warning === workflowEditorGraphMutationWarnings.startNodeDelete
+                ? "workflow-initial-node-delete-blocked"
+                : "workflow-delete-blocked";
+            if (plannedDelete.warning === workflowEditorGraphMutationWarnings.startNodeDelete) {
+              pushStatus({
+                body: message,
+                id: toastID,
+                title: t("workflowEditor.deleteBlockedTitle"),
+                tone: "warning",
+              });
+            } else {
+              pushStatus({
+                body: message,
+                id: toastID,
+                title: t("workflowEditor.deleteBlockedTitle"),
+                tone: "danger",
+              });
+            }
             return;
           }
-          setDeleteWarning("");
           if (cascadeRowCount(plannedDelete.summary) > 1) {
             const deleteRequest = {
               requestID: nextGraphDeleteRequestID(workflowID, deleteRequestIndexRef),
@@ -413,14 +441,6 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
         }}
       />
       {deleteConfirmation.fallback}
-      {deleteWarning.length > 0 ? (
-        <WorkflowDeleteBlockedIsland
-          message={deleteWarning}
-          onDismiss={() => {
-            setDeleteWarning("");
-          }}
-        />
-      ) : null}
       <WorkflowEditorLegendIsland />
     </section>
   );
@@ -628,43 +648,23 @@ async function copyWorkflowNodeText(
   await navigator.clipboard.writeText(value);
 }
 
-function WorkflowDeleteBlockedIsland({
-  message,
-  onDismiss,
-}: Readonly<{ message: string; onDismiss: () => void }>) {
-  const { t } = useTranslation();
-  const [collapsed, setCollapsed] = useState(false);
-  return (
-    <FloatingNoticeIsland
-      collapsed={collapsed}
-      collapseLabel={t("app.collapse")}
-      expandedClassName="floating-notice-expanded grid w-[min(340px,calc(100vw-32px))] gap-[var(--space-3)] overflow-hidden rounded-[var(--radius-xl)] p-[var(--space-3)]"
-      expandLabel={t("app.expand")}
-      level={3}
-      onCollapsedChange={setCollapsed}
-      positionClassName="right-[var(--space-4)] top-[calc(var(--space-4)+48px)]"
-      title={t("workflowEditor.deleteBlockedTitle")}
-      tone="danger"
-    >
-      <div className="grid gap-[var(--space-3)] pt-[6px]">
-        <p className="m-0 text-sm text-[var(--color-on-island)]">{message}</p>
-        <Button className="w-full" onClick={onDismiss} variant="secondary">
-          {t("app.close")}
-        </Button>
-      </div>
-    </FloatingNoticeIsland>
-  );
-}
-
 function WorkflowEditorLegendIsland() {
   const { t } = useTranslation();
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   return (
     <FloatingNoticeIsland
       collapsed={collapsed}
       collapseLabel={t("app.collapse")}
       expandedClassName="floating-notice-expanded grid h-[204px] w-[min(300px,calc(100vw-var(--space-2)*2))] gap-[6px] overflow-hidden rounded-[var(--radius-xl)] p-[var(--space-2)]"
       expandLabel={t("app.expand")}
+      icon={
+        <CircleQuestionMark
+          aria-hidden="true"
+          data-testid="workflow-legend-collapsed-help-icon"
+          size={24}
+          strokeWidth={1.7}
+        />
+      }
       level={3}
       onCollapsedChange={setCollapsed}
       positionClassName="left-[var(--space-2)] bottom-[var(--space-2)]"

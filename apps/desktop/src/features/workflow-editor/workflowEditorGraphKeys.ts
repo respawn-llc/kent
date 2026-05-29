@@ -1,5 +1,13 @@
 const maxModelKeyLength = 64;
 
+export function isWorkflowModelKeyValid(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > maxModelKeyLength || !isLowerAsciiLetter(trimmed[0] ?? "")) {
+    return false;
+  }
+  return Array.from(trimmed).every((char) => isLowerAsciiLetter(char) || isAsciiDigit(char) || char === "_");
+}
+
 export function workflowModelKeyFromLabel(label: string, fallback: string): string {
   const normalized = normalizeModelKey(label);
   const fallbackKey = normalizeModelKey(fallback);

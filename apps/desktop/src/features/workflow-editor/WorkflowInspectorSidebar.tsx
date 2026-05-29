@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Sidebar keeps read-only and draft-backed workflow inspector paths together for now. */
-import { useId, useState, useSyncExternalStore } from "react";
+import { useCallback, useId, useRef, useState, useSyncExternalStore } from "react";
 import {
   closestCenter,
   DndContext,
@@ -45,6 +45,7 @@ import {
 } from "../../ui";
 import { cx } from "../../ui/classes";
 import { fieldInputClassName } from "../../ui/Field";
+import { fieldLabelClassName } from "../../ui/fieldStyles";
 import {
   DetailRow,
   DetailSection,
@@ -59,6 +60,10 @@ import {
   useWorkflowEditorDraftController,
   type WorkflowEditorDraftController,
 } from "./workflowEditorDraftBridgeCore";
+import {
+  workflowPromptTemplatePlaceholders,
+  type PromptTemplatePlaceholder,
+} from "./workflowPromptTemplatePlaceholders";
 
 export function WorkflowInspectorSidebar({
   selection,
@@ -403,17 +408,7 @@ function AgentNodeDraftDetails({
           placeholder={t("workflowEditor.selectAssignee")}
           value={node.subagentRole}
         />
-        <TextArea
-          label={t("workflowEditor.prompt")}
-          onChange={(event) => {
-            controller.dispatch({
-              nodeID: node.id,
-              patch: { promptTemplate: event.target.value },
-              type: "editAgentNode",
-            });
-          }}
-          value={node.promptTemplate}
-        />
+        <PromptTemplateEditor controller={controller} node={node} />
       </DetailSection>
       <EditableInputFields controller={controller} node={node} />
       <FieldSummary
@@ -424,6 +419,111 @@ function AgentNodeDraftDetails({
     </InspectorStack>
   );
 }
+
+function PromptTemplateEditor({
+  controller,
+  node,
+}: Readonly<{
+  controller: WorkflowEditorDraftController;
+  node: DraftWorkflowNode;
+}>) {
+  const { t } = useTranslation();
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const promptInputId = useId();
+  const dispatchPromptTemplate = useCallback(
+    (promptTemplate: string) => {
+      controller.dispatch({
+        nodeID: node.id,
+        patch: { promptTemplate },
+        type: "editAgentNode",
+      });
+    },
+    [controller, node.id],
+  );
+  const insertPlaceholder = useCallback(
+    (placeholder: string) => {
+      const textarea = textareaRef.current;
+      const currentValue = textarea?.value ?? node.promptTemplate;
+      const hasCursor = textarea !== null && document.activeElement === textarea;
+      const insertAt = hasCursor ? textarea.selectionEnd : currentValue.length;
+      const nextValue = `${currentValue.slice(0, insertAt)}${placeholder}${currentValue.slice(insertAt)}`;
+      const nextCursor = insertAt + placeholder.length;
+      dispatchPromptTemplate(nextValue);
+      requestAnimationFrame(() => {
+        textarea?.focus({ preventScroll: true });
+        textarea?.setSelectionRange(nextCursor, nextCursor);
+        if (!hasCursor && textarea !== null) {
+          textarea.scrollTop = textarea.scrollHeight;
+        }
+      });
+    },
+    [dispatchPromptTemplate, node.promptTemplate],
+  );
+  return (
+    <div className="grid gap-[var(--space-3)]">
+      <label className={fieldLabelClassName} htmlFor={promptInputId}>
+        {t("workflowEditor.prompt")}
+      </label>
+      <div className="grid gap-[var(--space-1)]">
+        <textarea
+          className={cx(fieldInputClassName, "min-h-24 resize-y")}
+          id={promptInputId}
+          onChange={(event) => {
+            dispatchPromptTemplate(event.target.value);
+          }}
+          ref={textareaRef}
+          value={node.promptTemplate}
+        />
+        <PromptPlaceholderChips node={node} onInsert={insertPlaceholder} />
+      </div>
+    </div>
+  );
+}
+
+function PromptPlaceholderChips({
+  node,
+  onInsert,
+}: Readonly<{
+  node: DraftWorkflowNode;
+  onInsert: (placeholder: string) => void;
+}>) {
+  const { t } = useTranslation();
+  const placeholders = workflowPromptTemplatePlaceholders(node.inputFields);
+  return (
+    <div
+      aria-label={t("workflowEditor.promptPlaceholders")}
+      className="flex flex-wrap gap-[var(--space-1)]"
+      role="group"
+    >
+      {placeholders.map((placeholder) => (
+        <button
+          className={cx(promptPlaceholderChipBaseClassName, promptPlaceholderChipToneClassNames[placeholder.tone])}
+          data-placeholder-tone={placeholder.tone}
+          key={placeholder.value}
+          onClick={() => {
+            onInsert(placeholder.value);
+          }}
+          onPointerDown={(event) => {
+            event.preventDefault();
+          }}
+          type="button"
+        >
+          {placeholder.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const promptPlaceholderChipBaseClassName =
+  "rounded-full border px-[var(--space-1)] py-px text-[11px] font-semibold leading-4 transition-colors focus-visible:outline-none focus-visible:ring-[2px]";
+
+const promptPlaceholderChipToneClassNames = {
+  muted:
+    "border-[var(--color-outline)] bg-[color-mix(in_srgb,var(--color-on-background)_5%,transparent)] text-[var(--color-muted)] hover:bg-[color-mix(in_srgb,var(--color-on-background)_8%,transparent)] focus-visible:ring-[color-mix(in_srgb,var(--color-muted)_35%,transparent)]",
+  primary:
+    "border-[color-mix(in_srgb,var(--color-primary)_45%,transparent)] bg-[color-mix(in_srgb,var(--color-primary)_10%,transparent)] text-[var(--color-primary)] hover:bg-[color-mix(in_srgb,var(--color-primary)_16%,transparent)] focus-visible:ring-[color-mix(in_srgb,var(--color-primary)_35%,transparent)]",
+} satisfies Record<PromptTemplatePlaceholder["tone"], string>;
 
 function FixedNodeDraftDetails({
   controller,

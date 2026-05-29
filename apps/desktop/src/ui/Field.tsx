@@ -1,4 +1,4 @@
-import { useId, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
+import { forwardRef, useId, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
 
 import { cx } from "./classes";
 import { fieldLabelClassName } from "./fieldStyles";
@@ -80,7 +80,10 @@ export type TextAreaProps = Readonly<{
 }> &
   TextareaHTMLAttributes<HTMLTextAreaElement>;
 
-export function TextArea({ label, error, hint, className, ...props }: TextAreaProps) {
+export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function TextArea(
+  { label, error, hint, className, ...props },
+  ref,
+) {
   const generatedId = useId();
   const inputId = props.id ?? generatedId;
   const hintId = `${inputId}-hint`;
@@ -94,13 +97,14 @@ export function TextArea({ label, error, hint, className, ...props }: TextAreaPr
         className={cx(fieldInputClassName, "min-h-24 resize-y", className)}
         {...props}
         id={inputId}
+        ref={ref}
       />
     </FieldShell>
   );
-}
+});
 
 export const fieldInputClassName =
-  "app-region-no-drag w-full rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] px-[14px] py-3 text-[var(--color-on-island)]";
+  "app-region-no-drag w-full rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] px-[14px] py-3 text-[var(--color-on-island)] outline-none transition-colors focus-visible:border-[var(--color-primary)]";
 
 function normalizeErrors(error: FieldError | undefined): readonly string[] {
   if (error === undefined) {

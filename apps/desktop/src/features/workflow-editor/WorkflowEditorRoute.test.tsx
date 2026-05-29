@@ -38,6 +38,7 @@ describe("WorkflowEditorRoute", () => {
   });
 
   it("renders a linked workflow graph with the shared validation issue island", async () => {
+    const user = userEvent.setup();
     window.history.pushState(null, "", "/projects/project-1/workflows/workflow-1/editor");
     render(
       <App
@@ -84,6 +85,19 @@ describe("WorkflowEditorRoute", () => {
       maskImage: "linear-gradient(to bottom, black 0%, black 30%, transparent 100%)",
     });
     const legend = screen.getByRole("complementary", { name: "Legend" });
+    expect(legend).toHaveClass(
+      "floating-notice-collapsed",
+      "left-[var(--space-2)]",
+      "bottom-[var(--space-2)]",
+      "h-12",
+      "w-12",
+      "p-0",
+    );
+    expect(within(legend).getByTestId("workflow-legend-collapsed-help-icon")).toHaveClass(
+      "lucide-circle-question-mark",
+    );
+
+    await user.click(within(legend).getByRole("button", { name: "Expand" }));
     expect(legend).toHaveClass(
       "floating-notice-expanded",
       "left-[var(--space-2)]",
@@ -163,8 +177,8 @@ describe("WorkflowEditorRoute", () => {
     );
 
     await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
-    fireEvent.click(screen.getByRole("button", { name: "Add node" }));
-    fireEvent.click(screen.getByRole("button", { name: "Agent node" }));
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Add node" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Agent node" }));
 
     expect(await screen.findByText("New agent")).toBeInTheDocument();
     fireEvent.click(screen.getByText("New agent"));
@@ -341,7 +355,11 @@ describe("WorkflowEditorRoute", () => {
       await nativeBridge.workflowEditor.confirmGraphDelete({ requestID: "workflow-1-delete-1" });
     });
 
-    expect(await screen.findByText("The graph changed before confirmation. Review the graph and delete again.")).toBeInTheDocument();
+    expect(
+      await within(screen.getByTestId("sonner-test-surface")).findByText(
+        "The graph changed before confirmation. Review the graph and delete again.",
+      ),
+    ).toBeInTheDocument();
     expect(within(canvas).getByText("Implement")).toBeInTheDocument();
     expect(screen.getByTestId("stale-native-delete-driver-edges")).toHaveTextContent("edge-stale");
   });
@@ -362,10 +380,14 @@ describe("WorkflowEditorRoute", () => {
 
     await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
 
-    expect(await screen.findByText("Delete confirmation listener failed: listener unavailable")).toBeInTheDocument();
+    expect(
+      await within(screen.getByTestId("sonner-test-surface")).findByText(
+        "Delete confirmation listener failed: listener unavailable",
+      ),
+    ).toBeInTheDocument();
   });
 
-  it("shows local feedback when Start Node deletion is blocked", async () => {
+  it("shows a toast when initial node deletion is blocked", async () => {
     window.history.pushState(null, "", "/workflows/workflow-1/editor");
     render(
       <App
@@ -382,11 +404,17 @@ describe("WorkflowEditorRoute", () => {
     fireEvent.click(within(canvas).getByTestId("workflow-graph-node-start"));
     fireEvent.keyDown(window, { key: "Delete" });
 
-    expect(await screen.findByText("The Start node is fixed and cannot be deleted.")).toBeInTheDocument();
+    const toastSurface = screen.getByTestId("sonner-test-surface");
+    expect(await within(toastSurface).findByText("The initial node cannot be deleted.")).toBeInTheDocument();
+    expect(
+      screen
+        .queryAllByTestId("floating-notice-header")
+        .some((element) => element.textContent === "Delete blocked"),
+    ).toBe(false);
     expect(within(canvas).getByTestId("workflow-graph-node-start")).toBeInTheDocument();
   });
 
-  it("shows local feedback when last Terminal Node deletion is blocked", async () => {
+  it("shows a toast when last Terminal Node deletion is blocked", async () => {
     window.history.pushState(null, "", "/workflows/workflow-1/editor");
     render(
       <App
@@ -403,9 +431,15 @@ describe("WorkflowEditorRoute", () => {
     fireEvent.click(within(canvas).getByTestId("workflow-graph-node-done"));
     fireEvent.keyDown(window, { key: "Delete" });
 
+    const toastSurface = screen.getByTestId("sonner-test-surface");
     expect(
-      await screen.findByText("At least one Terminal node must remain in the workflow."),
+      await within(toastSurface).findByText("At least one Terminal node must remain in the workflow."),
     ).toBeInTheDocument();
+    expect(
+      screen
+        .queryAllByTestId("floating-notice-header")
+        .some((element) => element.textContent === "Delete blocked"),
+    ).toBe(false);
     expect(within(canvas).getByTestId("workflow-graph-node-done")).toBeInTheDocument();
   });
 
@@ -429,6 +463,65 @@ describe("WorkflowEditorRoute", () => {
 
     fireEvent.pointerDown(assignee);
     expect(await screen.findByRole("menuitemradio", { name: "legacy_coder" })).toBeInTheDocument();
+  });
+
+  it("inserts prompt placeholders from required input and built-in chips", async () => {
+    const user = userEvent.setup();
+    window.history.pushState(null, "", "/workflows/workflow-1/editor");
+    render(
+      <App
+        services={createTestServices([
+          ...startupRoutes,
+          { method: "workflow.get", result: workflowDefinitionResponse },
+          { method: "workflow.validate", result: invalidValidationResponse },
+          { method: "workflow.graph.validateDraft", result: graphValidationResponse },
+        ])}
+      />,
+    );
+
+    const canvas = await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
+    fireEvent.click(within(canvas).getByTestId("workflow-graph-node-node-1"));
+    const nodeInspector = await screen.findByRole("complementary", { name: "Inspect node" });
+    const prompt = within(nodeInspector).getByRole("textbox", { name: "Prompt" });
+    if (!(prompt instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected Prompt to render as a textarea.");
+    }
+    const placeholders = within(nodeInspector).getByRole("group", { name: "Prompt placeholders" });
+
+    expect(within(placeholders).getAllByRole("button").map((chip) => chip.textContent)).toEqual([
+      ".Inputs.summary",
+      ".TaskId",
+      ".TaskShortId",
+      ".TaskTitle",
+      ".TaskBody",
+      ".NodeId",
+      ".NodeKey",
+      ".NodeDisplayName",
+    ]);
+    expect(within(placeholders).getByRole("button", { name: ".Inputs.summary" })).toHaveAttribute(
+      "data-placeholder-tone",
+      "primary",
+    );
+    expect(within(placeholders).getByRole("button", { name: ".TaskId" })).toHaveAttribute(
+      "data-placeholder-tone",
+      "muted",
+    );
+
+    prompt.focus();
+    prompt.setSelectionRange("Implement".length, "Implement".length);
+    await user.click(within(placeholders).getByRole("button", { name: ".Inputs.summary" }));
+    await waitFor(() => {
+      expect(prompt).toHaveValue("Implement{{.Inputs.summary}} the task.");
+    });
+    expect(prompt.selectionStart).toBe("Implement{{.Inputs.summary}}".length);
+
+    prompt.blur();
+    await user.click(within(placeholders).getByRole("button", { name: ".TaskTitle" }));
+    await waitFor(() => {
+      expect(prompt).toHaveValue("Implement{{.Inputs.summary}} the task.{{.TaskTitle}}");
+    });
+    expect(prompt).toHaveFocus();
+    expect(prompt.selectionStart).toBe("Implement{{.Inputs.summary}} the task.{{.TaskTitle}}".length);
   });
 
   it("edits Start node display name and key from the normal node inspector", async () => {
@@ -553,8 +646,8 @@ describe("WorkflowEditorRoute", () => {
     render(<App services={services} />);
 
     const canvas = await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
-    fireEvent.click(screen.getByRole("button", { name: "Add node" }));
-    fireEvent.click(screen.getByRole("button", { name: "Terminal node" }));
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Add node" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Terminal node" }));
     fireEvent.click(await within(canvas).findByText("New terminal"));
     const nodeInspector = await screen.findByRole("complementary", { name: "Inspect node" });
     const displayName = within(nodeInspector).getByRole("textbox", { name: "Display name" });
@@ -1489,8 +1582,8 @@ describe("WorkflowEditorRoute", () => {
     render(<App services={services} />);
 
     await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
-    fireEvent.click(screen.getByRole("button", { name: "Add node" }));
-    fireEvent.click(screen.getByRole("button", { name: "Agent node" }));
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Add node" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Agent node" }));
     fireEvent.click(await screen.findByRole("button", { name: "Save" }));
 
     expect(

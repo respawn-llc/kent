@@ -160,7 +160,7 @@ describe("WorkflowGraphCanvas", () => {
     expect(copied).toEqual(["backlog", longNodeID]);
   });
 
-  it("adds nodes from the canvas toolbar and reserves plain plus for add", () => {
+  it("adds nodes from the canvas toolbar and reserves plain plus for add", async () => {
     const onAddNode = vi.fn();
     render(
       <WorkflowGraphCanvas
@@ -173,10 +173,10 @@ describe("WorkflowGraphCanvas", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Add node" }));
-    fireEvent.click(screen.getByRole("button", { name: "Agent node" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add node" }));
-    fireEvent.click(screen.getByRole("button", { name: "Terminal node" }));
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Add node" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Agent node" }));
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Add node" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Terminal node" }));
 
     expect(onAddNode).toHaveBeenNthCalledWith(1, "agent");
     expect(onAddNode).toHaveBeenNthCalledWith(2, "terminal");

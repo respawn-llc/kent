@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { uniqueWorkflowModelKey, workflowModelKeyFromLabel } from "./workflowEditorGraphKeys";
+import { isWorkflowModelKeyValid, uniqueWorkflowModelKey, workflowModelKeyFromLabel } from "./workflowEditorGraphKeys";
 
 describe("workflowEditorGraphKeys", () => {
   it("normalizes labels into workflow model keys", () => {
@@ -11,5 +11,13 @@ describe("workflowEditorGraphKeys", () => {
 
   it("creates unique suffixed keys", () => {
     expect(uniqueWorkflowModelKey("Review", ["review", "review_2"])).toBe("review_3");
+  });
+
+  it("validates server-compatible workflow model keys", () => {
+    expect(isWorkflowModelKeyValid("summary_2")).toBe(true);
+    expect(isWorkflowModelKeyValid("Summary")).toBe(false);
+    expect(isWorkflowModelKeyValid("2_summary")).toBe(false);
+    expect(isWorkflowModelKeyValid("summary-field")).toBe(false);
+    expect(isWorkflowModelKeyValid("")).toBe(false);
   });
 });
