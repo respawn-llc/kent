@@ -16,17 +16,11 @@ import (
 func TestSchedulerSelectsOldestRunnableRunAndRespectsConcurrency(t *testing.T) {
 	ctx := context.Background()
 	store, binding, _ := newSchedulerTestStore(t)
-	workflowID := createSchedulerValidWorkflow(t, ctx, store)
-	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow: %v", err)
-	}
+	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	first := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	second := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	starter := &recordingStarter{}
-	scheduler, err := New(store, starter, Config{Concurrency: 1})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	scheduler := newSchedulerTestService(t, store, starter, Config{Concurrency: 1})
 
 	if err := scheduler.Process(ctx); err != nil {
 		t.Fatalf("Process: %v", err)
@@ -50,16 +44,10 @@ func TestSchedulerSelectsOldestRunnableRunAndRespectsConcurrency(t *testing.T) {
 func TestSchedulerConcurrentProcessStartsOneRuntimePerRun(t *testing.T) {
 	ctx := context.Background()
 	store, binding, _ := newSchedulerTestStore(t)
-	workflowID := createSchedulerValidWorkflow(t, ctx, store)
-	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow: %v", err)
-	}
+	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	startedRun := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	starter := &recordingStarter{}
-	scheduler, err := New(store, starter, Config{Concurrency: 5})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	scheduler := newSchedulerTestService(t, store, starter, Config{Concurrency: 5})
 
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
@@ -80,16 +68,10 @@ func TestSchedulerConcurrentProcessStartsOneRuntimePerRun(t *testing.T) {
 func TestSchedulerStartProcessesRebuiltRunnableWork(t *testing.T) {
 	ctx := context.Background()
 	store, binding, _ := newSchedulerTestStore(t)
-	workflowID := createSchedulerValidWorkflow(t, ctx, store)
-	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow: %v", err)
-	}
+	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	startedRun := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	starter := &recordingStarter{}
-	scheduler, err := New(store, starter, Config{Concurrency: 1})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	scheduler := newSchedulerTestService(t, store, starter, Config{Concurrency: 1})
 
 	if err := scheduler.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -103,15 +85,9 @@ func TestSchedulerStartProcessesRebuiltRunnableWork(t *testing.T) {
 func TestSchedulerStartProcessesRunnableWorkCreatedAfterStartup(t *testing.T) {
 	ctx := context.Background()
 	store, binding, _ := newSchedulerTestStore(t)
-	workflowID := createSchedulerValidWorkflow(t, ctx, store)
-	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow: %v", err)
-	}
+	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	starter := &recordingStarter{}
-	scheduler, err := New(store, starter, Config{Concurrency: 1}, WithProcessInterval(10*time.Millisecond))
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	scheduler := newSchedulerTestService(t, store, starter, Config{Concurrency: 1}, WithProcessInterval(10*time.Millisecond))
 	t.Cleanup(func() { _ = scheduler.Close() })
 	if err := scheduler.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -133,10 +109,7 @@ func TestSchedulerStartProcessesRunnableWorkCreatedAfterStartup(t *testing.T) {
 func TestSchedulerDoesNotScheduleCanceledOrInterruptedTasks(t *testing.T) {
 	ctx := context.Background()
 	store, binding, _ := newSchedulerTestStore(t)
-	workflowID := createSchedulerValidWorkflow(t, ctx, store)
-	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow: %v", err)
-	}
+	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	canceledTask, err := store.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Canceled", Body: "Body"})
 	if err != nil {
 		t.Fatalf("CreateTask canceled: %v", err)
@@ -153,10 +126,7 @@ func TestSchedulerDoesNotScheduleCanceledOrInterruptedTasks(t *testing.T) {
 		t.Fatalf("InterruptRun: %v", err)
 	}
 	starter := &recordingStarter{}
-	scheduler, err := New(store, starter, Config{Concurrency: 5})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	scheduler := newSchedulerTestService(t, store, starter, Config{Concurrency: 5})
 
 	if err := scheduler.Process(ctx); err != nil {
 		t.Fatalf("Process: %v", err)
@@ -169,19 +139,13 @@ func TestSchedulerDoesNotScheduleCanceledOrInterruptedTasks(t *testing.T) {
 func TestSchedulerRestartKeepsInterruptedRunInterrupted(t *testing.T) {
 	ctx := context.Background()
 	store, binding, _ := newSchedulerTestStore(t)
-	workflowID := createSchedulerValidWorkflow(t, ctx, store)
-	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow: %v", err)
-	}
+	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	interrupted := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	if err := store.InterruptRun(ctx, interrupted.RunID, "manual", "{}"); err != nil {
 		t.Fatalf("InterruptRun: %v", err)
 	}
 	starter := &recordingStarter{}
-	restarted, err := New(store, starter, Config{Concurrency: 5})
-	if err != nil {
-		t.Fatalf("New restarted: %v", err)
-	}
+	restarted := newSchedulerTestService(t, store, starter, Config{Concurrency: 5})
 
 	if err := restarted.Reconcile(ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -205,18 +169,13 @@ func TestSchedulerRestartKeepsPendingApprovalUnscheduled(t *testing.T) {
 	ctx := context.Background()
 	store, binding, _ := newSchedulerTestStore(t)
 	workflowID := createSchedulerApprovalWorkflow(t, ctx, store)
-	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow: %v", err)
-	}
+	linkSchedulerWorkflow(t, ctx, store, binding.ProjectID, workflowID)
 	started := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	if _, err := store.CompleteRun(ctx, workflowstore.CompleteRunRequest{RunID: started.RunID, TransitionID: "done"}); err != nil {
 		t.Fatalf("CompleteRun pending approval: %v", err)
 	}
 	starter := &recordingStarter{}
-	restarted, err := New(store, starter, Config{Concurrency: 5})
-	if err != nil {
-		t.Fatalf("New restarted: %v", err)
-	}
+	restarted := newSchedulerTestService(t, store, starter, Config{Concurrency: 5})
 
 	if err := restarted.Reconcile(ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -239,25 +198,16 @@ func TestSchedulerRestartKeepsPendingApprovalUnscheduled(t *testing.T) {
 func TestSchedulerActiveOwnershipIsMemoryOnly(t *testing.T) {
 	ctx := context.Background()
 	store, binding, _ := newSchedulerTestStore(t)
-	workflowID := createSchedulerValidWorkflow(t, ctx, store)
-	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow: %v", err)
-	}
+	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	startedRun := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
-	scheduler, err := New(store, &recordingStarter{}, Config{Concurrency: 1})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	scheduler := newSchedulerTestService(t, store, &recordingStarter{}, Config{Concurrency: 1})
 	if err := scheduler.Process(ctx); err != nil {
 		t.Fatalf("Process: %v", err)
 	}
 	if scheduler.ActiveCount() != 1 {
 		t.Fatalf("active count = %d, want in-memory ownership", scheduler.ActiveCount())
 	}
-	restarted, err := New(store, nil, Config{Concurrency: 1})
-	if err != nil {
-		t.Fatalf("New restarted: %v", err)
-	}
+	restarted := newSchedulerTestService(t, store, nil, Config{Concurrency: 1})
 	if restarted.ActiveCount() != 0 {
 		t.Fatalf("restarted active count = %d, want no durable ownership", restarted.ActiveCount())
 	}
@@ -276,16 +226,10 @@ func TestSchedulerActiveOwnershipIsMemoryOnly(t *testing.T) {
 func TestSchedulerCloseStopsNewClaims(t *testing.T) {
 	ctx := context.Background()
 	store, binding, _ := newSchedulerTestStore(t)
-	workflowID := createSchedulerValidWorkflow(t, ctx, store)
-	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow: %v", err)
-	}
+	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	_ = createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	starter := &recordingStarter{}
-	scheduler, err := New(store, starter, Config{Concurrency: 1})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	scheduler := newSchedulerTestService(t, store, starter, Config{Concurrency: 1})
 	if err := scheduler.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -300,19 +244,13 @@ func TestSchedulerCloseStopsNewClaims(t *testing.T) {
 func TestSchedulerRecoveryInterruptsOrphanedStartedRunsAndKeepsRunnable(t *testing.T) {
 	ctx := context.Background()
 	store, binding, _ := newSchedulerTestStore(t)
-	workflowID := createSchedulerValidWorkflow(t, ctx, store)
-	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow: %v", err)
-	}
+	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	orphan := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	if _, err := store.ClaimRun(ctx, orphan.RunID, 0); err != nil {
 		t.Fatalf("ClaimRun orphan: %v", err)
 	}
 	runnable := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
-	scheduler, err := New(store, nil, Config{Concurrency: 5})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	scheduler := newSchedulerTestService(t, store, nil, Config{Concurrency: 5})
 
 	if err := scheduler.Reconcile(ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -336,10 +274,7 @@ func TestSchedulerRecoveryInterruptsOrphanedStartedRunsAndKeepsRunnable(t *testi
 func TestSchedulerRecoveryUsesPendingAskResolver(t *testing.T) {
 	ctx := context.Background()
 	store, binding, metadataStore := newSchedulerTestStore(t)
-	workflowID := createSchedulerValidWorkflow(t, ctx, store)
-	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow: %v", err)
-	}
+	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	keep := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	drop := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	if _, err := metadataStore.DB().ExecContext(ctx, `UPDATE task_runs SET waiting_ask_id = 'ask-keep' WHERE id = ?`, keep.RunID); err != nil {
@@ -351,10 +286,7 @@ func TestSchedulerRecoveryUsesPendingAskResolver(t *testing.T) {
 	resolver := pendingAskResolverFunc(func(_ context.Context, _ string, _ workflow.RunID, askID string) (bool, error) {
 		return askID == "ask-keep", nil
 	})
-	scheduler, err := New(store, nil, Config{Concurrency: 5}, WithPendingAskResolver(resolver))
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	scheduler := newSchedulerTestService(t, store, nil, Config{Concurrency: 5}, WithPendingAskResolver(resolver))
 
 	if err := scheduler.Reconcile(ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -378,16 +310,10 @@ func TestSchedulerRecoveryUsesPendingAskResolver(t *testing.T) {
 func TestSchedulerRuntimeStartFailureInterruptsRun(t *testing.T) {
 	ctx := context.Background()
 	store, binding, _ := newSchedulerTestStore(t)
-	workflowID := createSchedulerValidWorkflow(t, ctx, store)
-	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow: %v", err)
-	}
+	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	started := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	starter := &recordingStarter{err: errors.New("role missing")}
-	scheduler, err := New(store, starter, Config{Concurrency: 1})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	scheduler := newSchedulerTestService(t, store, starter, Config{Concurrency: 1})
 
 	if err := scheduler.Process(ctx); !errors.Is(err, ErrRuntimeStartFailed) {
 		t.Fatalf("Process error = %v, want ErrRuntimeStartFailed", err)
@@ -404,16 +330,10 @@ func TestSchedulerRuntimeStartFailureInterruptsRun(t *testing.T) {
 func TestSchedulerStartContinuesAfterRuntimeStartFailure(t *testing.T) {
 	ctx := context.Background()
 	store, binding, _ := newSchedulerTestStore(t)
-	workflowID := createSchedulerValidWorkflow(t, ctx, store)
-	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-		t.Fatalf("LinkWorkflow: %v", err)
-	}
+	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	started := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	starter := &recordingStarter{err: errors.New("role missing")}
-	scheduler, err := New(store, starter, Config{Concurrency: 1})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	scheduler := newSchedulerTestService(t, store, starter, Config{Concurrency: 1})
 	t.Cleanup(func() { _ = scheduler.Close() })
 
 	if err := scheduler.Start(ctx); err != nil {
@@ -456,6 +376,15 @@ func (f pendingAskResolverFunc) CanRehydrate(ctx context.Context, sessionID stri
 	return f(ctx, sessionID, runID, askID)
 }
 
+func newSchedulerTestService(t *testing.T, store Store, starter RuntimeStarter, cfg Config, opts ...Option) *Service {
+	t.Helper()
+	scheduler, err := New(store, starter, cfg, opts...)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return scheduler
+}
+
 func newSchedulerTestStore(t *testing.T) (*workflowstore.Store, metadata.Binding, *metadata.Store) {
 	t.Helper()
 	home := t.TempDir()
@@ -486,6 +415,20 @@ func newSchedulerTestStore(t *testing.T) (*workflowstore.Store, metadata.Binding
 		t.Fatalf("workflowstore.New: %v", err)
 	}
 	return store, binding, metadataStore
+}
+
+func createLinkedSchedulerValidWorkflow(t *testing.T, ctx context.Context, store *workflowstore.Store, projectID string) workflow.WorkflowID {
+	t.Helper()
+	workflowID := createSchedulerValidWorkflow(t, ctx, store)
+	linkSchedulerWorkflow(t, ctx, store, projectID, workflowID)
+	return workflowID
+}
+
+func linkSchedulerWorkflow(t *testing.T, ctx context.Context, store *workflowstore.Store, projectID string, workflowID workflow.WorkflowID) {
+	t.Helper()
+	if _, err := store.LinkWorkflow(ctx, projectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
 }
 
 func createSchedulerValidWorkflow(t *testing.T, ctx context.Context, store *workflowstore.Store) workflow.WorkflowID {
