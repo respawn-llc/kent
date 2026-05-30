@@ -51,6 +51,24 @@ func newGatewayTestServerForConfig(t *testing.T, cfg config.App) (*core.Core, *h
 	return appCore, server
 }
 
+func resolveGatewayTestConfig(t *testing.T, workspace string) serverbootstrap.ConfigPlan {
+	t.Helper()
+	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
+	if err != nil {
+		t.Fatalf("ResolveConfig: %v", err)
+	}
+	return resolved
+}
+
+func registerGatewayTestBinding(t *testing.T, cfg config.App) metadata.Binding {
+	t.Helper()
+	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("RegisterBinding: %v", err)
+	}
+	return binding
+}
+
 func TestGatewayRequiresExplicitWorkspaceSelectionForMultiWorkspaceProject(t *testing.T) {
 	home := t.TempDir()
 	workspaceA := t.TempDir()
@@ -58,14 +76,8 @@ func TestGatewayRequiresExplicitWorkspaceSelectionForMultiWorkspaceProject(t *te
 	t.Setenv("HOME", home)
 	configureGatewayTestServerPort(t)
 
-	resolvedA, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceA})
-	if err != nil {
-		t.Fatalf("ResolveConfig A: %v", err)
-	}
-	bindingA, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding A: %v", err)
-	}
+	resolvedA := resolveGatewayTestConfig(t, workspaceA)
+	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
 	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)
@@ -105,18 +117,9 @@ func TestGatewayAttachSessionClearsWorkspaceOverrideForLaterPlans(t *testing.T) 
 	t.Setenv("HOME", home)
 	configureGatewayTestServerPort(t)
 
-	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})
-	if err != nil {
-		t.Fatalf("ResolveConfig B: %v", err)
-	}
-	bindingB, err := metadata.RegisterBinding(context.Background(), resolvedB.Config.PersistenceRoot, resolvedB.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding B: %v", err)
-	}
-	resolvedA, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceA})
-	if err != nil {
-		t.Fatalf("ResolveConfig A: %v", err)
-	}
+	resolvedB := resolveGatewayTestConfig(t, workspaceB)
+	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
+	resolvedA := resolveGatewayTestConfig(t, workspaceA)
 	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)
@@ -169,22 +172,10 @@ func TestGatewayScopesProcessAPIsToAttachedProject(t *testing.T) {
 	t.Setenv("HOME", home)
 	configureGatewayTestServerPort(t)
 
-	resolvedA, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceA})
-	if err != nil {
-		t.Fatalf("ResolveConfig A: %v", err)
-	}
-	bindingA, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding A: %v", err)
-	}
-	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})
-	if err != nil {
-		t.Fatalf("ResolveConfig B: %v", err)
-	}
-	bindingB, err := metadata.RegisterBinding(context.Background(), resolvedB.Config.PersistenceRoot, resolvedB.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding B: %v", err)
-	}
+	resolvedA := resolveGatewayTestConfig(t, workspaceA)
+	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	resolvedB := resolveGatewayTestConfig(t, workspaceB)
+	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
 	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)
