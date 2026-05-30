@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -149,12 +148,7 @@ func TestCompleteOpenAIBrowserFlow(t *testing.T) {
 			if got := r.Form.Get("redirect_uri"); got != "http://127.0.0.1:5555/callback" {
 				t.Fatalf("redirect_uri=%q", got)
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"access_token":  "browser-access",
-				"refresh_token": "browser-refresh",
-				"token_type":    "Bearer",
-				"expires_in":    1800,
-			})
+			writeOAuthTokenResponse(t, w, "browser-access", "browser-refresh", 1800)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -200,12 +194,7 @@ func TestCompleteOpenAIBrowserFlowWithDefaultHTTPClient(t *testing.T) {
 			if got := r.Form.Get("redirect_uri"); got != "http://localhost:1455/auth/callback" {
 				t.Fatalf("redirect_uri=%q", got)
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"access_token":  "browser-access-2",
-				"refresh_token": "browser-refresh-2",
-				"token_type":    "Bearer",
-				"expires_in":    1800,
-			})
+			writeOAuthTokenResponse(t, w, "browser-access-2", "browser-refresh-2", 1800)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
