@@ -131,7 +131,7 @@ func TestSubmitUserMessageCommentaryWithoutToolsEmitsRealtimeAssistantEvent(t *t
 		mu     sync.Mutex
 		events []Event
 	)
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		OnEvent: func(evt Event) {
 			mu.Lock()
@@ -139,9 +139,6 @@ func TestSubmitUserMessageCommentaryWithoutToolsEmitsRealtimeAssistantEvent(t *t
 			events = append(events, evt)
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "do the task")
 	if err != nil {
@@ -195,7 +192,7 @@ func TestSubmitUserMessageCommentaryWithToolCallsEmitsRealtimeAssistantEventWith
 		mu     sync.Mutex
 		events []Event
 	)
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		OnEvent: func(evt Event) {
 			mu.Lock()
@@ -203,9 +200,6 @@ func TestSubmitUserMessageCommentaryWithToolCallsEmitsRealtimeAssistantEventWith
 			events = append(events, evt)
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "do the task")
 	if err != nil {
@@ -263,7 +257,7 @@ func TestSubmitUserMessageCommentaryWithToolCallsPublishesCommittedEntryStartMet
 		eventsMu sync.Mutex
 		events   []Event
 	)
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		OnEvent: func(evt Event) {
 			eventsMu.Lock()
@@ -271,9 +265,6 @@ func TestSubmitUserMessageCommentaryWithToolCallsPublishesCommittedEntryStartMet
 			eventsMu.Unlock()
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "do the task"); err != nil {
 		t.Fatalf("submit: %v", err)
@@ -384,7 +375,7 @@ func TestAutoCompactionStatusEventDoesNotPublishCommittedEntryStart(t *testing.T
 		eventsMu sync.Mutex
 		events   []Event
 	)
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		OnEvent: func(evt Event) {
 			eventsMu.Lock()
@@ -392,9 +383,6 @@ func TestAutoCompactionStatusEventDoesNotPublishCommittedEntryStart(t *testing.T
 			eventsMu.Unlock()
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -429,15 +417,12 @@ func TestReplaceHistoryPublishesProjectedTranscriptEntriesBeforeCompactionStatus
 	store := mustCreateTestSession(t)
 
 	var events []Event
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		OnEvent: func(evt Event) {
 			events = append(events, evt)
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "before compaction"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -518,13 +503,10 @@ func TestSubmitUserMessageDoesNotRetainPendingToolStartForHostedExecutions(t *te
 		},
 	}}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:        "gpt-5",
 		EnabledTools: []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "do the task"); err != nil {
 		t.Fatalf("submit: %v", err)
@@ -811,7 +793,7 @@ func TestSubmitUserMessageFinalAnswerWithMixedToolCallsMaterializesAllToolsBefor
 
 	var emittedMu sync.Mutex
 	var emitted []Event
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:        "gpt-5",
 		EnabledTools: []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
 		OnEvent: func(evt Event) {
@@ -820,9 +802,6 @@ func TestSubmitUserMessageFinalAnswerWithMixedToolCallsMaterializesAllToolsBefor
 			emitted = append(emitted, evt)
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "do the task")
 	if err != nil {
@@ -919,7 +898,7 @@ func TestReviewerSkippedWhenNoToolCalls(t *testing.T) {
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 
-	eng, err := New(store, mainClient, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, mainClient, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		Reviewer: ReviewerConfig{
 			Frequency:     "edits",
@@ -928,9 +907,6 @@ func TestReviewerSkippedWhenNoToolCalls(t *testing.T) {
 			Client:        reviewerClient,
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "hello")
 	if err != nil {

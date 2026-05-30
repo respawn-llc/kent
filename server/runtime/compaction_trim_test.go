@@ -21,12 +21,9 @@ func TestCompactionCacheObservationRequestAppendsPromptToConversationReplica(t *
 
 	client := &fakeCompactionClient{}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
@@ -120,13 +117,10 @@ func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndWarnsOnCacheBreak(t
 		}},
 	}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:               "gpt-5",
 		ContextWindowTokens: 2500,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
@@ -259,13 +253,10 @@ func TestRemoteCompactionDoesNotRepairUnsupportedViewImagePayload(t *testing.T) 
 		},
 	}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolViewImage}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolViewImage}), Config{
 		Model:               "gpt-5",
 		ContextWindowTokens: 2500,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
@@ -331,13 +322,10 @@ func TestRemoteCompactionFailsFastWhenOverflowHasNoCollapsibleToolPayload(t *tes
 		}},
 	}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:               "gpt-5",
 		ContextWindowTokens: 2500,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
