@@ -78,14 +78,8 @@ func TestPlannerHeadlessCreatesNewSessionAndAppliesContinuationContext(t *testin
 }
 
 func TestPlannerHeadlessUsesDefaultGPT55ModelAndOpenAIProviderInference(t *testing.T) {
-	home := t.TempDir()
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadLaunchConfig(t, workspace)
 	planner := Planner{
 		Config:       cfg,
 		ContainerDir: filepath.Join(cfg.PersistenceRoot, "projects", "project-a", "sessions"),
@@ -259,11 +253,7 @@ func TestPlannerIgnoresMissingPersistedSubagentRoleOnResume(t *testing.T) {
 func TestPlannerKeepsRoleBaseURLOutOfBaseSettingsOnResume(t *testing.T) {
 	root := t.TempDir()
 	workspace := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
-	loaded, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	loaded := loadLaunchConfig(t, workspace)
 	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store := createTestSessionInContainer(t, containerDir, "workspace-a", workspace)
 	if err := store.SetContinuationContext(session.ContinuationContext{
@@ -608,13 +598,8 @@ func TestApplyRunPromptOverridesLockedModelDoesNotMarkModelSourceAsSubagent(t *t
 
 func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	ctx := context.Background()
-	home := t.TempDir()
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadLaunchConfig(t, workspace)
 	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)
@@ -741,13 +726,8 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 }
 
 func TestPlannerHeadlessChildWithRoleUsesFreshSystemPromptSnapshot(t *testing.T) {
-	home := t.TempDir()
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadLaunchConfig(t, workspace)
 	rolePrompt := filepath.Join(workspace, "code-review-system.md")
 	if err := os.WriteFile(rolePrompt, []byte("code review system prompt"), 0o644); err != nil {
 		t.Fatalf("write role prompt: %v", err)
@@ -908,13 +888,8 @@ func TestPlannerNewChildSessionIgnoresParentOutsideActiveContainer(t *testing.T)
 
 func TestPlannerNewChildSessionRollsBackDurableChildWhenExecutionTargetCopyFails(t *testing.T) {
 	ctx := context.Background()
-	home := t.TempDir()
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadLaunchConfig(t, workspace)
 	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)
@@ -1125,11 +1100,7 @@ func TestSubagentRoleMetadataSurvivesCloneAndSourceReport(t *testing.T) {
 }
 
 func TestResolveSubagentSettingsPreservesSubagentCatalogMetadata(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	cfg, err := config.Load(t.TempDir(), config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
+	cfg := loadLaunchConfig(t, t.TempDir())
 	base := cfg.Settings
 	workerSettings := base
 	workerSettings.ThinkingLevel = "high"
@@ -1436,24 +1407,11 @@ func TestApplyRunPromptOverridesFastRoleUsesCLIProviderOverrideForHeuristic(t *t
 
 func TestPlannerResumeFastRoleUsesProviderOverrideForHeuristic(t *testing.T) {
 	root := t.TempDir()
-	home := t.TempDir()
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
-	contents := strings.Join([]string{
+	loaded := loadLaunchConfig(t, workspace,
 		"model = \"my-team-alias\"",
 		"provider_override = \"openai\"",
-	}, "\n")
-	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	loaded, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	)
 	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store := createTestSessionInContainer(t, containerDir, "workspace-a", workspace)
 	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: config.BuiltInSubagentRoleFast}); err != nil {
@@ -1483,24 +1441,11 @@ func TestPlannerResumeFastRoleUsesProviderOverrideForHeuristic(t *testing.T) {
 
 func TestPlannerResumeFastRoleUsesOpenAIBaseURLForHeuristic(t *testing.T) {
 	root := t.TempDir()
-	home := t.TempDir()
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
-	contents := strings.Join([]string{
+	loaded := loadLaunchConfig(t, workspace,
 		"model = \"my-team-alias\"",
 		"openai_base_url = \"https://api.openai.com/v1\"",
-	}, "\n")
-	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	loaded, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	)
 	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
 	store := createTestSessionInContainer(t, containerDir, "workspace-a", workspace)
 	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: config.BuiltInSubagentRoleFast}); err != nil {
