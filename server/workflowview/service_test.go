@@ -18,11 +18,7 @@ import (
 
 func TestBoardAndTaskDetailUseDurableWorkflowMetadataOnly(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	_, workflowStore, binding, view := newWorkflowViewTestService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
@@ -92,11 +88,7 @@ func TestBoardAndTaskDetailUseDurableWorkflowMetadataOnly(t *testing.T) {
 
 func TestBoardDoesNotAdvertiseHiddenDoneCardsWithoutFetchPath(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	_, workflowStore, binding, view := newWorkflowViewTestService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
@@ -129,11 +121,7 @@ func TestBoardDoesNotAdvertiseHiddenDoneCardsWithoutFetchPath(t *testing.T) {
 
 func TestBoardAndTaskDetailProjectTaskSourceWorkspaceAndBody(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	store, workflowStore, binding, view := newWorkflowViewTestService(t)
 	source, err := store.AttachWorkspaceToProject(ctx, binding.ProjectID, t.TempDir())
 	if err != nil {
 		t.Fatalf("AttachWorkspaceToProject source: %v", err)
@@ -173,11 +161,7 @@ func TestBoardAndTaskDetailProjectTaskSourceWorkspaceAndBody(t *testing.T) {
 
 func TestBoardAndTaskDetailProjectParallelBranchPlacements(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	_, workflowStore, binding, view := newWorkflowViewTestService(t)
 	workflowID := createWorkflowViewFanoutWorkflow(t, ctx, workflowStore)
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
@@ -268,11 +252,7 @@ func TestBoardGroupsHideJoinNodesAndJoinOnlyGroups(t *testing.T) {
 
 func TestBoardSelectsWorkflowAndReturnsPickerAndGroups(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	_, workflowStore, binding, view := newWorkflowViewTestService(t)
 	defaultWorkflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, defaultWorkflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow default: %v", err)
@@ -348,11 +328,7 @@ func TestBoardSelectsWorkflowAndReturnsPickerAndGroups(t *testing.T) {
 
 func TestBoardPickerShowsOnlyActiveWorkflowLinks(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	_, workflowStore, binding, view := newWorkflowViewTestService(t)
 	defaultWorkflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, defaultWorkflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow default: %v", err)
@@ -384,11 +360,7 @@ func TestBoardPickerShowsOnlyActiveWorkflowLinks(t *testing.T) {
 
 func TestTaskDetailPrefersActiveWorkflowLink(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	_, workflowStore, binding, view := newWorkflowViewTestService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	link, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true)
 	if err != nil {
@@ -417,11 +389,7 @@ func TestTaskDetailPrefersActiveWorkflowLink(t *testing.T) {
 
 func TestBoardColumnTaskCountsUseFullSelectedWorkflow(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	store, workflowStore, binding, view := newWorkflowViewTestService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
@@ -480,11 +448,7 @@ func TestBoardColumnTaskCountsUseFullSelectedWorkflow(t *testing.T) {
 
 func TestBoardNodeCardsArchiveCanceledTaskInDoneNode(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	store, workflowStore, binding, view := newWorkflowViewTestService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
@@ -527,11 +491,7 @@ func TestBoardNodeCardsArchiveCanceledTaskInDoneNode(t *testing.T) {
 
 func TestBoardNodeCardsAllowRestartAfterDoneTaskResetToBacklog(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	_, workflowStore, binding, view := newWorkflowViewTestService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
@@ -574,11 +534,7 @@ func TestBoardNodeCardsAllowRestartAfterDoneTaskResetToBacklog(t *testing.T) {
 
 func TestBoardNodeCardsDoNotArchiveCanceledTaskInAlternateTerminalNode(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	store, workflowStore, binding, view := newWorkflowViewTestService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	archiveNodeID := workflow.NodeID("node-archive-" + string(workflowID))
 	if _, err := workflowStore.AddNode(ctx, workflowstore.NodeRecord{ID: archiveNodeID, WorkflowID: workflowID, Key: "archive", Kind: workflow.NodeKindTerminal, DisplayName: "Archive"}); err != nil {
@@ -614,11 +570,7 @@ func TestBoardNodeCardsDoNotArchiveCanceledTaskInAlternateTerminalNode(t *testin
 
 func TestBoardProjectsManualMoveTargetsFromServerPermissions(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	_, workflowStore, binding, view := newWorkflowViewTestService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	def, _, err := workflowStore.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -713,11 +665,7 @@ func TestManualMoveTargetsExcludeEdgesWithDerivedRequiredProvisionFields(t *test
 
 func TestTaskDetailProjectsCancellationAndInterruptedRun(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	_, workflowStore, binding, view := newWorkflowViewTestService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
@@ -749,11 +697,7 @@ func TestTaskDetailProjectsCancellationAndInterruptedRun(t *testing.T) {
 
 func TestInterruptedTaskStatusUsesAttentionKind(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	_, workflowStore, binding, view := newWorkflowViewTestService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
@@ -805,11 +749,7 @@ func TestInterruptedTaskStatusUsesAttentionKind(t *testing.T) {
 
 func TestPendingApprovalTaskRemainsVisibleOnSourceBoardColumn(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	store, workflowStore, binding, view := newWorkflowViewTestService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
@@ -927,11 +867,7 @@ func TestTaskDetailProjectsWaitingAskRun(t *testing.T) {
 
 func TestTaskDetailPendingQuestionFallsBackWhenTranscriptLookupFails(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	store, workflowStore, binding, view := newWorkflowViewTestService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
@@ -1037,11 +973,7 @@ func TestTaskDetailProjectsGuiIdentityWorktreeStatusActionsAndAttention(t *testi
 
 func TestTaskActivityListMergesDurableTaskEventsAndPaginatesStably(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	store, workflowStore, binding, view := newWorkflowViewTestService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
@@ -1123,11 +1055,7 @@ func TestTaskActivityListMergesDurableTaskEventsAndPaginatesStably(t *testing.T)
 
 func TestTaskActivityProjectsApprovalSnapshots(t *testing.T) {
 	ctx := context.Background()
-	store, workflowStore, binding := newWorkflowViewTestStore(t)
-	view, err := New(store)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	store, workflowStore, binding, view := newWorkflowViewTestService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
@@ -1316,6 +1244,16 @@ func newWorkflowViewTestStore(t *testing.T) (*metadata.Store, *workflowstore.Sto
 		t.Fatalf("workflowstore.New: %v", err)
 	}
 	return metadataStore, workflowStore, binding
+}
+
+func newWorkflowViewTestService(t *testing.T) (*metadata.Store, *workflowstore.Store, metadata.Binding, *Service) {
+	t.Helper()
+	store, workflowStore, binding := newWorkflowViewTestStore(t)
+	view, err := New(store)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return store, workflowStore, binding, view
 }
 
 func forceLegacyCanceledBacklogPlacement(t *testing.T, ctx context.Context, store *metadata.Store, taskID workflow.TaskID, workflowID workflow.WorkflowID) {
