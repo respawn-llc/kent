@@ -19,10 +19,7 @@ import (
 )
 
 func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -112,14 +109,13 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 
 func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testing.T) {
 	ctx := context.Background()
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	workspace := t.TempDir()
 	worktree := filepath.Join(home, ".builder", "worktrees", "project", "feature")
 	worktreeSubdir := filepath.Join(worktree, "pkg")
 	if err := os.MkdirAll(worktreeSubdir, 0o755); err != nil {
 		t.Fatalf("mkdir worktree subdir: %v", err)
 	}
-	t.Setenv("HOME", home)
 	configureAppTestServerPort(t)
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
@@ -197,10 +193,7 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 }
 
 func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	home, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
 
 	configPath := filepath.Join(home, ".builder", "config.toml")
@@ -262,10 +255,7 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 }
 
 func TestHeadlessRunPromptClientResumesExistingSessionByID(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
 
 	server, hits := newFakeResponsesServer(t, []string{"first response", "second response"})
@@ -329,10 +319,7 @@ func TestHeadlessRunPromptClientResumesExistingSessionByID(t *testing.T) {
 }
 
 func TestHeadlessRunPromptClientRestoresContinuationContextFromSelectedSession(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
 
 	server, hits := newFakeResponsesServer(t, []string{"created via explicit base url", "resumed via continuation"})

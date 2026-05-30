@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net"
 	"path/filepath"
 	"strconv"
@@ -36,6 +37,21 @@ func newRegisteredAppWorkspace(t *testing.T) (home string, workspace string) {
 	workspace = t.TempDir()
 	registerAppWorkspace(t, workspace)
 	return home, workspace
+}
+
+func serveAppServer(t *testing.T, srv *serve.Server) func() {
+	t.Helper()
+	serveCtx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.Serve(serveCtx)
+	}()
+	return func() {
+		cancel()
+		if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {
+			t.Fatalf("Serve error = %v, want context canceled", serveErr)
+		}
+	}
 }
 
 func configureAppTestServerPort(t *testing.T) {

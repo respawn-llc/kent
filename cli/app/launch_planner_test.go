@@ -111,8 +111,7 @@ func TestRuntimeLaunchPlanCurrentControllerLeaseIDFallsBackToRawID(t *testing.T)
 }
 
 func TestSessionLaunchPlannerBuildsSessionPickerHeaderInfo(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := newAppTestHome(t)
 	workspaceRoot := filepath.Join(home, "Developer", "builder-cli")
 	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
 		t.Fatalf("create workspace: %v", err)
@@ -219,10 +218,7 @@ func TestSessionLaunchPlannerHeadlessCreatesNewSessionAndAppliesContinuationCont
 }
 
 func TestSessionLaunchPlannerInteractiveUsesPickerSelection(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
@@ -291,10 +287,7 @@ func TestSessionLaunchPlannerInteractiveUsesPickerSelection(t *testing.T) {
 }
 
 func TestSessionLaunchPlannerMarksNoOtherSessionsForDirectSingleSessionResume(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {

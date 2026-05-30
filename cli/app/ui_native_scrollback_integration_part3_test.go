@@ -426,10 +426,7 @@ func TestNativeProgramRendersSingleBackgroundCompletionFromChannelWhileIdle(t *t
 }
 
 func TestNativeProgramRendersBackgroundCompletionFromEmbeddedRuntimeWhileIdle(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	server, err := startEmbeddedServer(context.Background(), Options{WorkspaceRoot: workspace}, readyMemoryAuthHandler())
 	if err != nil {
@@ -495,10 +492,7 @@ func TestNativeProgramRendersBackgroundCompletionFromEmbeddedRuntimeWhileIdle(t 
 }
 
 func TestNativeProgramRendersBackgroundCompletionFromShellManagerWhileIdle(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	server, err := startEmbeddedServer(context.Background(), Options{WorkspaceRoot: workspace}, readyMemoryAuthHandler())
 	if err != nil {

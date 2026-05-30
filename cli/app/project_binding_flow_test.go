@@ -21,9 +21,8 @@ import (
 )
 
 func TestEnsureInteractiveProjectBindingBindsRegisteredWorkspaceWithoutPrompt(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
@@ -130,14 +129,12 @@ func TestProjectWorkspacePickerMouseWheelScrolls(t *testing.T) {
 }
 
 func TestEnsureInteractiveProjectBindingTreatsNestedDirectoryAsUnknownWorkspace(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
 	nested := filepath.Join(workspace, "subdir")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatalf("MkdirAll nested: %v", err)
 	}
-	t.Setenv("HOME", home)
-
 	baseCfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load workspace: %v", err)
@@ -206,9 +203,8 @@ func TestEnsureInteractiveProjectBindingTreatsNestedDirectoryAsUnknownWorkspace(
 }
 
 func TestEnsureInteractiveProjectBindingCreatesProjectForUnknownWorkspace(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
@@ -269,9 +265,8 @@ func TestEnsureInteractiveProjectBindingCreatesProjectForUnknownWorkspace(t *tes
 }
 
 func TestEnsureInteractiveProjectBindingUsesServerBrowsingForMissingServerPath(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
@@ -344,9 +339,8 @@ func TestEnsureInteractiveProjectBindingUsesServerBrowsingForMissingServerPath(t
 }
 
 func TestEnsureInteractiveProjectBindingRebindsSameProjectToResolvedWorkspace(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
@@ -388,10 +382,9 @@ func TestEnsureInteractiveProjectBindingRebindsSameProjectToResolvedWorkspace(t 
 }
 
 func TestEnsureInteractiveProjectBindingAttachesUnknownWorkspaceToExistingProject(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
-	t.Setenv("HOME", home)
 
 	cfgA, err := config.Load(workspaceA, config.LoadOptions{})
 	if err != nil {
@@ -457,9 +450,8 @@ func TestEnsureInteractiveProjectBindingAttachesUnknownWorkspaceToExistingProjec
 }
 
 func TestEnsureInteractiveProjectBindingFormatsMissingSelectedProjectError(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
@@ -506,9 +498,8 @@ func TestEnsureInteractiveProjectBindingFormatsMissingSelectedProjectError(t *te
 }
 
 func TestEnsureInteractiveProjectBindingReturnsCancelWhenPickerAborts(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
@@ -553,9 +544,8 @@ func TestEnsureInteractiveProjectBindingReturnsCancelWhenPickerAborts(t *testing
 }
 
 func TestEnsureInteractiveProjectBindingReturnsCancelWhenProjectNamingAborts(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
@@ -599,9 +589,8 @@ func TestEnsureInteractiveProjectBindingReturnsCancelWhenProjectNamingAborts(t *
 }
 
 func TestEnsureInteractiveServerBrowsingBindingUsesConfiguredServerPickerNotice(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
@@ -666,9 +655,8 @@ func TestEnsureInteractiveServerBrowsingBindingUsesConfiguredServerPickerNotice(
 }
 
 func TestEnsureInteractiveProjectBindingFormatsMissingBoundProjectError(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
@@ -707,9 +695,8 @@ func TestEnsureInteractiveProjectBindingFormatsMissingBoundProjectError(t *testi
 }
 
 func TestEnsureInteractiveProjectBindingFormatsUnavailableBoundProjectError(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
@@ -748,9 +735,8 @@ func TestEnsureInteractiveProjectBindingFormatsUnavailableBoundProjectError(t *t
 }
 
 func TestEnsureInteractiveProjectBindingFormatsInaccessibleBoundProjectError(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {

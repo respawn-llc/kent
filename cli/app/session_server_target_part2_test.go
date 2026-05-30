@@ -562,14 +562,7 @@ func TestStartSessionServerOwnsLaunchedDaemonCloser(t *testing.T) {
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -688,14 +681,7 @@ func TestStartSessionServerUsesInvocationOverridesWhenAttachingToDiscoveredDaemo
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         defaultResponses.URL,
 		OpenAIBaseURLExplicit: true,
-	}, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -759,14 +745,7 @@ func TestStartSessionServerPreservesExplicitCLIToolsWithCLIModelOverride(t *test
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5.4",
-	}, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -816,14 +795,7 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}

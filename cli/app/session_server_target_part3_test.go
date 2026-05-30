@@ -1,7 +1,6 @@
 package app
 
 import (
-	"builder/server/auth"
 	"builder/server/serve"
 	serverstartup "builder/server/startup"
 	askquestion "builder/server/tools/askquestion"
@@ -25,23 +24,13 @@ import (
 )
 
 func TestStartSessionServerUsesConfiguredDaemonForSessionLifecycleDraftPersistence(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	srv, err := serve.Start(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -101,23 +90,13 @@ func TestStartSessionServerUsesConfiguredDaemonForSessionLifecycleDraftPersisten
 }
 
 func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	srv, err := serve.Start(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -211,23 +190,13 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 }
 
 func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	srv, err := serve.Start(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -312,10 +281,7 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 
 func TestInteractiveSessionServerWorkflowParity(t *testing.T) {
 	t.Run("embedded", func(t *testing.T) {
-		home := t.TempDir()
-		workspace := t.TempDir()
-		t.Setenv("HOME", home)
-		registerAppWorkspace(t, workspace)
+		_, workspace := newRegisteredAppWorkspace(t)
 		fakeResponses, _ := newFakeResponsesServer(t, []string{"parity reply"})
 		defer fakeResponses.Close()
 		server, err := startEmbeddedServer(context.Background(), Options{
@@ -333,10 +299,7 @@ func TestInteractiveSessionServerWorkflowParity(t *testing.T) {
 	})
 
 	t.Run("daemon", func(t *testing.T) {
-		home := t.TempDir()
-		workspace := t.TempDir()
-		t.Setenv("HOME", home)
-		registerAppWorkspace(t, workspace)
+		_, workspace := newRegisteredAppWorkspace(t)
 		fakeResponses, _ := newFakeResponsesServer(t, []string{"parity reply"})
 		defer fakeResponses.Close()
 
@@ -346,11 +309,7 @@ func TestInteractiveSessionServerWorkflowParity(t *testing.T) {
 			Model:                 "gpt-5",
 			OpenAIBaseURL:         fakeResponses.URL,
 			OpenAIBaseURLExplicit: true,
-		}, memoryAuthHandler{state: auth.State{
-			Scope:     auth.ScopeGlobal,
-			Method:    auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-			UpdatedAt: time.Now().UTC(),
-		}}, autoOnboarding{})
+		}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 		if err != nil {
 			t.Fatalf("serve.Start: %v", err)
 		}

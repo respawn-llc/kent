@@ -14,8 +14,7 @@ import (
 )
 
 func TestOnboardingDefaultsPathPreservesAutoWhenUsingDetectedDefault(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	newAppTestHome(t)
 	model := newOnboardingModel(t.TempDir(), onboardingFlowState{settings: config.Settings{Theme: theme.Auto}, theme: theme.Auto})
 	msg := model.finalizeCmd(true)()
 	done, ok := msg.(onboardingFinalizeDoneMsg)
@@ -200,9 +199,8 @@ func TestOnboardingSpinnerTickReschedulesWhileFinalizing(t *testing.T) {
 }
 
 func TestOnboardingCustomPathPreservesAutoWhenUsingDetectedDefault(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("load defaults: %v", err)
@@ -232,9 +230,8 @@ func TestOnboardingCustomPathPreservesAutoWhenUsingDetectedDefault(t *testing.T)
 }
 
 func TestOnboardingCustomPathPersistsExplicitReviewerOverrides(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("load defaults: %v", err)
@@ -272,10 +269,9 @@ func TestOnboardingCustomPathPersistsExplicitReviewerOverrides(t *testing.T) {
 }
 
 func TestOnboardingCustomPathRollsBackImportsWhenSettingsWriteFails(t *testing.T) {
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	globalRoot := t.TempDir()
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("load defaults: %v", err)
@@ -318,8 +314,7 @@ func TestOnboardingCustomPathRollsBackImportsWhenSettingsWriteFails(t *testing.T
 
 func TestExecuteOnboardingImportsRollsBackSkillsWhenCommandImportFails(t *testing.T) {
 	globalRoot := t.TempDir()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := newAppTestHome(t)
 	skillSourceDir := filepath.Join(home, ".claude", "skills")
 	if err := os.MkdirAll(filepath.Join(skillSourceDir, "demo-skill"), 0o755); err != nil {
 		t.Fatalf("mkdir skill source: %v", err)

@@ -54,9 +54,8 @@ func TestValidateRunPromptAgentRoleUnknownRoleListsCallableRolesForBuilderSessio
 }
 
 func TestStartRunPromptClientUnknownRoleBuilderSessionErrorUsesCallableAvailableRoles(t *testing.T) {
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	configPath := filepath.Join(home, ".builder", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
@@ -89,9 +88,8 @@ func TestStartRunPromptClientUnknownRoleBuilderSessionErrorUsesCallableAvailable
 }
 
 func TestStartRunPromptClientDefaultAliasBlocksNonCallableContextRole(t *testing.T) {
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	configPath := filepath.Join(home, ".builder", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)

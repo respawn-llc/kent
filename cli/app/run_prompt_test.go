@@ -37,11 +37,15 @@ type memoryAuthHandler struct {
 }
 
 func readyMemoryAuthHandler() memoryAuthHandler {
+	return apiKeyMemoryAuthHandler("in-memory-test-key")
+}
+
+func apiKeyMemoryAuthHandler(key string) memoryAuthHandler {
 	return memoryAuthHandler{state: auth.State{
 		Scope: auth.ScopeGlobal,
 		Method: auth.Method{
 			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "in-memory-test-key"},
+			APIKey: &auth.APIKeyMethod{Key: key},
 		},
 		UpdatedAt: time.Now().UTC(),
 	}}
@@ -60,13 +64,12 @@ func saveReadyAppAuthState(t *testing.T, workspace string) {
 }
 
 func TestLoadRemoteAttachConfigUsesSessionWorkspaceWhenWorkspaceImplicit(t *testing.T) {
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	workspace := t.TempDir()
 	worktree := filepath.Join(home, ".builder", "worktrees", "project", "feature")
 	if err := os.MkdirAll(worktree, 0o755); err != nil {
 		t.Fatalf("mkdir worktree: %v", err)
 	}
-	t.Setenv("HOME", home)
 	configureAppTestServerPort(t)
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
@@ -95,9 +98,8 @@ func TestLoadRemoteAttachConfigUsesSessionWorkspaceWhenWorkspaceImplicit(t *test
 }
 
 func TestLoadRemoteAttachConfigRejectsStaleWorkspaceContextSession(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	configureAppTestServerPort(t)
 	if _, err := config.Load(workspace, config.LoadOptions{}); err != nil {
 		t.Fatalf("config.Load workspace: %v", err)
@@ -116,9 +118,8 @@ func TestLoadRemoteAttachConfigRejectsStaleWorkspaceContextSession(t *testing.T)
 }
 
 func TestLoadRemoteAttachConfigKeepsExplicitSessionLookupStrict(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	configureAppTestServerPort(t)
 
 	_, err := loadRemoteAttachConfig(Options{
@@ -131,13 +132,12 @@ func TestLoadRemoteAttachConfigKeepsExplicitSessionLookupStrict(t *testing.T) {
 }
 
 func TestRunPromptFromWorktreeUsesBuilderSessionWorkspaceContext(t *testing.T) {
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	workspace := t.TempDir()
 	worktree := filepath.Join(home, ".builder", "worktrees", "project", "feature")
 	if err := os.MkdirAll(worktree, 0o755); err != nil {
 		t.Fatalf("mkdir worktree: %v", err)
 	}
-	t.Setenv("HOME", home)
 	configureAppTestServerPort(t)
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
@@ -171,10 +171,7 @@ func TestRunPromptFromWorktreeUsesBuilderSessionWorkspaceContext(t *testing.T) {
 }
 
 func TestRunPromptRejectsStaleWorkspaceContextSession(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"workspace reply"})
@@ -531,10 +528,7 @@ func TestRunPromptAskHandlerReturnsError(t *testing.T) {
 }
 
 func TestRunPromptWithoutAuthReturnsErrAuthNotConfiguredWithoutReadingStdin(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("OPENAI_API_KEY", "")
 
 	originalStdin := os.Stdin
@@ -556,10 +550,7 @@ func TestRunPromptWithoutAuthReturnsErrAuthNotConfiguredWithoutReadingStdin(t *t
 }
 
 func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"daemon reply"})
@@ -571,25 +562,14 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         fakeResponses.URL,
 		OpenAIBaseURLExplicit: true,
-	}, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
 	defer func() { _ = srv.Close() }()
 
-	serveCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- srv.Serve(serveCtx)
-	}()
+	stopServing := serveAppServer(t, srv)
+	defer stopServing()
 
 	waitForConfiguredRunPromptDaemon(t, workspace)
 
@@ -604,17 +584,10 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 		t.Fatalf("expected daemon-backed llm call once, got %d", hits.Load())
 	}
 
-	cancel()
-	if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {
-		t.Fatalf("Serve error = %v, want context canceled", serveErr)
-	}
 }
 
 func TestRunPromptRejectsIncompatibleConfiguredDaemonAndFallsBackToEmbedded(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"embedded fallback reply"})
@@ -653,10 +626,7 @@ func TestRunPromptRejectsIncompatibleConfiguredDaemonAndFallsBackToEmbedded(t *t
 }
 
 func TestStartRunPromptClientFallsBackToEmbeddedWhenDaemonLaunchFails(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if testopenai.HandleInputTokenCount(w, r, 1) {
@@ -737,10 +707,7 @@ func TestOwnedDaemonCloseFallsBackToKillWhenInterruptFails(t *testing.T) {
 }
 
 func TestRunPromptUsesInvocationOverridesWhenAttachingToConfiguredDaemon(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	defaultResponses, defaultHits := newFakeResponsesServer(t, []string{"daemon default"})
 	defer defaultResponses.Close()
@@ -753,25 +720,14 @@ func TestRunPromptUsesInvocationOverridesWhenAttachingToConfiguredDaemon(t *test
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         defaultResponses.URL,
 		OpenAIBaseURLExplicit: true,
-	}, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
 	defer func() { _ = srv.Close() }()
 
-	serveCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- srv.Serve(serveCtx)
-	}()
+	stopServing := serveAppServer(t, srv)
+	defer stopServing()
 
 	waitForConfiguredRunPromptDaemon(t, workspace)
 
@@ -795,17 +751,10 @@ func TestRunPromptUsesInvocationOverridesWhenAttachingToConfiguredDaemon(t *test
 		t.Fatalf("expected daemon default llm endpoint unused, got %d", defaultHits.Load())
 	}
 
-	cancel()
-	if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {
-		t.Fatalf("Serve error = %v, want context canceled", serveErr)
-	}
 }
 
 func TestTryDialMatchingConfiguredRemoteRejectsServerThatDoesNotMatchSpawnedPID(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 	cleanup := publishConfiguredRemoteForWorkspace(t, workspace, protocol.CapabilityFlags{RunPrompt: true, AuthBootstrap: true, ProjectAttach: true})
 	defer cleanup()
 	if remote, ok := tryDialMatchingConfiguredRemote(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, remoteattach.SupportsRunPrompt, func(identity protocol.ServerIdentity) bool {
@@ -816,9 +765,8 @@ func TestTryDialMatchingConfiguredRemoteRejectsServerThatDoesNotMatchSpawnedPID(
 }
 
 func TestTryDialMatchingConfiguredRemoteSkipsUnregisteredWorkspace(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	configureAppTestServerPort(t)
 	cleanup := publishConfiguredRemoteForWorkspace(t, workspace, protocol.CapabilityFlags{RunPrompt: true, AuthBootstrap: true, ProjectAttach: true})
 	defer cleanup()
@@ -828,9 +776,8 @@ func TestTryDialMatchingConfiguredRemoteSkipsUnregisteredWorkspace(t *testing.T)
 }
 
 func TestStartLocalRunPromptDaemonAttemptsLaunchWhenRegistrationMustBeResolvedByServer(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	configureAppTestServerPort(t)
 
 	originalResolve := resolveDaemonExecutablePath
@@ -861,9 +808,8 @@ func TestStartLocalRunPromptDaemonAttemptsLaunchWhenRegistrationMustBeResolvedBy
 }
 
 func TestStartRunPromptClientUnregisteredWorkspaceReturnsRegistrationError(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	configureAppTestServerPort(t)
 	saveReadyAppAuthState(t, workspace)
 
@@ -927,9 +873,8 @@ func TestHeadlessProjectBindingPlanIgnoresUnavailableWorkspaces(t *testing.T) {
 }
 
 func TestTryDialConfiguredRunPromptRemoteUsesFreshDialTimeoutAfterWorkspaceDiscovery(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
 	originalProjectViewsDial := dialConfiguredProjectViewRemote
 	originalRemoteDial := dialConfiguredRemote
@@ -1001,9 +946,8 @@ func TestTryDialConfiguredRunPromptRemoteUsesFreshDialTimeoutAfterWorkspaceDisco
 }
 
 func TestTryDialMatchingConfiguredRunPromptRemoteUsesWorkspaceDiscoveryForAcceptedDaemon(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
 	originalProjectViewsDial := dialConfiguredProjectViewRemote
 	originalRemoteDial := dialConfiguredRemote
@@ -1058,9 +1002,8 @@ func TestTryDialMatchingConfiguredRunPromptRemoteUsesWorkspaceDiscoveryForAccept
 }
 
 func TestTryDialConfiguredRunPromptRemoteSkipsServerWithoutAuthBootstrapCapability(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
 	originalProjectViewsDial := dialConfiguredProjectViewRemote
 	t.Cleanup(func() { dialConfiguredProjectViewRemote = originalProjectViewsDial })
@@ -1085,9 +1028,8 @@ func TestTryDialConfiguredRunPromptRemoteSkipsServerWithoutAuthBootstrapCapabili
 }
 
 func TestTryDialConfiguredRunPromptRemoteSkipsServerWithoutProjectAttachCapability(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
 	originalProjectViewsDial := dialConfiguredProjectViewRemote
 	t.Cleanup(func() { dialConfiguredProjectViewRemote = originalProjectViewsDial })

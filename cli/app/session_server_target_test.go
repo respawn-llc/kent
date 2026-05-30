@@ -1,7 +1,6 @@
 package app
 
 import (
-	"builder/server/auth"
 	"builder/server/llm"
 	"builder/server/metadata"
 	"builder/server/serve"
@@ -39,14 +38,7 @@ func TestStartSessionServerHelperDaemonProcess(t *testing.T) {
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -57,10 +49,7 @@ func TestStartSessionServerHelperDaemonProcess(t *testing.T) {
 }
 
 func TestStartSessionServerUsesConfiguredDaemonForInteractiveFlow(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"interactive daemon reply"})
 	defer fakeResponses.Close()
@@ -71,25 +60,14 @@ func TestStartSessionServerUsesConfiguredDaemonForInteractiveFlow(t *testing.T) 
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         fakeResponses.URL,
 		OpenAIBaseURLExplicit: true,
-	}, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
 	defer func() { _ = srv.Close() }()
 
-	serveCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- srv.Serve(serveCtx)
-	}()
+	stopServing := serveAppServer(t, srv)
+	defer stopServing()
 	waitForConfiguredRemoteIdentity(t, workspace)
 
 	server, err := startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, readyMemoryAuthHandler())
@@ -131,16 +109,11 @@ func TestStartSessionServerUsesConfiguredDaemonForInteractiveFlow(t *testing.T) 
 		t.Fatalf("expected refreshed transcript metadata, got %+v", refreshed.MainView.Session.Transcript)
 	}
 
-	cancel()
-	if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {
-		t.Fatalf("Serve error = %v, want context canceled", serveErr)
-	}
 }
 
 func TestConfiguredDaemonPlanSessionUsesSessionWorkspaceLocalConfig(t *testing.T) {
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	configureAppTestServerPort(t)
 	if err := os.MkdirAll(filepath.Join(home, ".builder"), 0o755); err != nil {
 		t.Fatalf("create home config dir: %v", err)
@@ -168,18 +141,8 @@ func TestConfiguredDaemonPlanSessionUsesSessionWorkspaceLocalConfig(t *testing.T
 	}
 	defer func() { _ = srv.Close() }()
 
-	serveCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- srv.Serve(serveCtx)
-	}()
-	defer func() {
-		cancel()
-		if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {
-			t.Fatalf("Serve error = %v, want context canceled", serveErr)
-		}
-	}()
+	stopServing := serveAppServer(t, srv)
+	defer stopServing()
 	waitForConfiguredRemoteIdentity(t, workspace)
 
 	server, err := startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, readyMemoryAuthHandler())
@@ -204,10 +167,7 @@ func TestConfiguredDaemonPlanSessionUsesSessionWorkspaceLocalConfig(t *testing.T
 }
 
 func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"interactive daemon reply"})
 	defer fakeResponses.Close()
@@ -218,25 +178,14 @@ func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *tes
 		Model:                 "gpt-5",
 		OpenAIBaseURL:         fakeResponses.URL,
 		OpenAIBaseURLExplicit: true,
-	}, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
 	defer func() { _ = srv.Close() }()
 
-	serveCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- srv.Serve(serveCtx)
-	}()
+	stopServing := serveAppServer(t, srv)
+	defer stopServing()
 	waitForConfiguredRemoteIdentity(t, workspace)
 
 	server, err := startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
@@ -296,10 +245,6 @@ func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *tes
 		t.Fatalf("expected environment context to avoid process cwd %q leak, got %q", processCWD, envContent)
 	}
 
-	cancel()
-	if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {
-		t.Fatalf("Serve error = %v, want context canceled", serveErr)
-	}
 }
 
 func TestRemoteInteractiveRuntimeTwoClientsConvergeOnSameSessionAcrossWorkspaces(t *testing.T) {
@@ -631,14 +576,7 @@ func startRemoteMultiClientRuntimeFixture(t *testing.T, openAIBaseURL string) *r
 		req.OpenAIBaseURLExplicit = true
 	}
 
-	srv, err := serve.Start(context.Background(), req, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	srv, err := serve.Start(context.Background(), req, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
@@ -724,10 +662,7 @@ func startRemoteMultiClientRuntimeFixture(t *testing.T, openAIBaseURL string) *r
 }
 
 func TestShouldBypassRemoteStartupForInteractiveOnboardingOnFirstRun(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	bypass, err := shouldBypassRemoteStartupForInteractiveOnboarding(Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, &stubAuthInteractor{})
 	if err != nil {
@@ -739,10 +674,7 @@ func TestShouldBypassRemoteStartupForInteractiveOnboardingOnFirstRun(t *testing.
 }
 
 func TestShouldBypassRemoteStartupForInteractiveOnboardingSkipsWhenConfigExists(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 	if _, _, err := config.WriteDefaultSettingsFile(); err != nil {
 		t.Fatalf("WriteDefaultSettingsFile: %v", err)
 	}
@@ -757,10 +689,7 @@ func TestShouldBypassRemoteStartupForInteractiveOnboardingSkipsWhenConfigExists(
 }
 
 func TestStartSessionServerBypassesRemoteAndDaemonOnFirstInteractiveRun(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	originalDial := dialConfiguredProjectViewRemote
 	originalLaunch := launchSessionServerDaemon
@@ -807,9 +736,8 @@ func TestStartSessionServerBypassesRemoteAndDaemonOnFirstInteractiveRun(t *testi
 }
 
 func TestStartSessionServerUnregisteredWorkspaceStartsRegistrationCapableServer(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	configureAppTestServerPort(t)
 
 	server, err := startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, readyMemoryAuthHandler())
