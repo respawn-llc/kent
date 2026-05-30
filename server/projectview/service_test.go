@@ -85,24 +85,9 @@ func TestServiceRejectsUnknownProjectID(t *testing.T) {
 }
 
 func TestMetadataServiceSupportsWildcardAndScopedProjectListing(t *testing.T) {
-	home := t.TempDir()
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfgA, err := config.Load(workspaceA, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load workspace A: %v", err)
-	}
-	store, err := metadata.Open(cfgA.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	bindingA, err := store.RegisterWorkspaceBinding(context.Background(), cfgA.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding A: %v", err)
-	}
+	store, _, bindingA := newProjectViewMetadataStoreForWorkspace(t, workspaceA)
 
 	cfgB, err := config.Load(workspaceB, config.LoadOptions{})
 	if err != nil {
@@ -486,28 +471,12 @@ func TestMetadataServiceListsScopedProjectHomeBeforePagination(t *testing.T) {
 }
 
 func TestMetadataServiceResolveProjectPathLeavesNestedDirectoryUnbound(t *testing.T) {
-	home := t.TempDir()
 	workspace := t.TempDir()
 	nested := filepath.Join(workspace, "nested", "deeper")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatalf("MkdirAll nested: %v", err)
 	}
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	_, err = store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
-
+	store, _, _ := newProjectViewMetadataStoreForWorkspace(t, workspace)
 	svc := newProjectViewMetadataService(t, store, "")
 
 	resolved, err := svc.ResolveProjectPath(context.Background(), serverapi.ProjectResolvePathRequest{Path: nested})
@@ -611,10 +580,12 @@ func newProjectViewMetadataService(t testing.TB, store *metadata.Store, projectI
 
 func newProjectViewMetadataStore(t testing.TB) (*metadata.Store, config.App, metadata.Binding) {
 	t.Helper()
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	return newProjectViewMetadataStoreForWorkspace(t, t.TempDir())
+}
 
+func newProjectViewMetadataStoreForWorkspace(t testing.TB, workspace string) (*metadata.Store, config.App, metadata.Binding) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
