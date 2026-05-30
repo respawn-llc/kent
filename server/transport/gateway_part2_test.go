@@ -30,6 +30,28 @@ import (
 	"time"
 )
 
+func newGatewayTestServerForConfig(t *testing.T, cfg config.App) (*core.Core, *httptest.Server) {
+	t.Helper()
+	authSupport := newGatewayTestAuthSupport(t, true)
+	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(cfg)
+	if err != nil {
+		t.Fatalf("BuildRuntimeSupport: %v", err)
+	}
+	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
+	appCore, err := core.New(cfg, authSupport, runtimeSupport)
+	if err != nil {
+		t.Fatalf("core.New: %v", err)
+	}
+	t.Cleanup(func() { _ = appCore.Close() })
+	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
+	if err != nil {
+		t.Fatalf("NewGateway: %v", err)
+	}
+	server := httptest.NewServer(gateway.Handler())
+	t.Cleanup(server.Close)
+	return appCore, server
+}
+
 func TestGatewayRequiresExplicitWorkspaceSelectionForMultiWorkspaceProject(t *testing.T) {
 	home := t.TempDir()
 	workspaceA := t.TempDir()
@@ -55,23 +77,7 @@ func TestGatewayRequiresExplicitWorkspaceSelectionForMultiWorkspaceProject(t *te
 		t.Fatalf("AttachWorkspaceToProject B: %v", err)
 	}
 
-	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	defer func() { _ = runtimeSupport.Background.Close() }()
-	appCore, err := core.New(resolvedA.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
-	defer func() { _ = appCore.Close() }()
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer server.Close()
+	_, server := newGatewayTestServerForConfig(t, resolvedA.Config)
 
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
@@ -127,17 +133,7 @@ func TestGatewayAttachSessionClearsWorkspaceOverrideForLaterPlans(t *testing.T) 
 		t.Fatalf("AttachWorkspaceToProject: %v", err)
 	}
 
-	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	defer func() { _ = runtimeSupport.Background.Close() }()
-	appCore, err := core.New(resolvedA.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
-	defer func() { _ = appCore.Close() }()
+	_, server := newGatewayTestServerForConfig(t, resolvedA.Config)
 
 	storeB, err := session.Create(
 		config.ProjectSessionsRoot(resolvedA.Config, bindingB.ProjectID),
@@ -151,13 +147,6 @@ func TestGatewayAttachSessionClearsWorkspaceOverrideForLaterPlans(t *testing.T) 
 	if err := storeB.EnsureDurable(); err != nil {
 		t.Fatalf("EnsureDurable workspace B: %v", err)
 	}
-
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer server.Close()
 
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
@@ -209,17 +198,7 @@ func TestGatewayScopesProcessAPIsToAttachedProject(t *testing.T) {
 	}
 	defer func() { _ = metadataStore.Close() }()
 
-	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	defer func() { _ = runtimeSupport.Background.Close() }()
-	appCore, err := core.New(resolvedA.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
-	defer func() { _ = appCore.Close() }()
+	appCore, server := newGatewayTestServerForConfig(t, resolvedA.Config)
 	appCore.Background().SetMinimumExecToBgTime(time.Millisecond)
 
 	storeA := createGatewayAuthoritativeSession(t, appCore)
@@ -257,13 +236,6 @@ func TestGatewayScopesProcessAPIsToAttachedProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start foreign process: %v", err)
 	}
-
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer server.Close()
 
 	remote, err := remoteclient.DialRemoteURLForProject(context.Background(), "ws"+server.URL[len("http"):], bindingA.ProjectID)
 	if err != nil {
