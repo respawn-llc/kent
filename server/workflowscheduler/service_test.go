@@ -14,8 +14,7 @@ import (
 )
 
 func TestSchedulerSelectsOldestRunnableRunAndRespectsConcurrency(t *testing.T) {
-	ctx := context.Background()
-	store, binding, _ := newSchedulerTestStore(t)
+	ctx, store, binding, _ := newSchedulerTestContextStore(t)
 	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	first := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	second := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
@@ -42,8 +41,7 @@ func TestSchedulerSelectsOldestRunnableRunAndRespectsConcurrency(t *testing.T) {
 }
 
 func TestSchedulerConcurrentProcessStartsOneRuntimePerRun(t *testing.T) {
-	ctx := context.Background()
-	store, binding, _ := newSchedulerTestStore(t)
+	ctx, store, binding, _ := newSchedulerTestContextStore(t)
 	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	startedRun := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	starter := &recordingStarter{}
@@ -66,8 +64,7 @@ func TestSchedulerConcurrentProcessStartsOneRuntimePerRun(t *testing.T) {
 }
 
 func TestSchedulerStartProcessesRebuiltRunnableWork(t *testing.T) {
-	ctx := context.Background()
-	store, binding, _ := newSchedulerTestStore(t)
+	ctx, store, binding, _ := newSchedulerTestContextStore(t)
 	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	startedRun := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	starter := &recordingStarter{}
@@ -83,8 +80,7 @@ func TestSchedulerStartProcessesRebuiltRunnableWork(t *testing.T) {
 }
 
 func TestSchedulerStartProcessesRunnableWorkCreatedAfterStartup(t *testing.T) {
-	ctx := context.Background()
-	store, binding, _ := newSchedulerTestStore(t)
+	ctx, store, binding, _ := newSchedulerTestContextStore(t)
 	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	starter := &recordingStarter{}
 	scheduler := newSchedulerTestService(t, store, starter, Config{Concurrency: 1}, WithProcessInterval(10*time.Millisecond))
@@ -107,8 +103,7 @@ func TestSchedulerStartProcessesRunnableWorkCreatedAfterStartup(t *testing.T) {
 }
 
 func TestSchedulerDoesNotScheduleCanceledOrInterruptedTasks(t *testing.T) {
-	ctx := context.Background()
-	store, binding, _ := newSchedulerTestStore(t)
+	ctx, store, binding, _ := newSchedulerTestContextStore(t)
 	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	canceledTask, err := store.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Canceled", Body: "Body"})
 	if err != nil {
@@ -137,8 +132,7 @@ func TestSchedulerDoesNotScheduleCanceledOrInterruptedTasks(t *testing.T) {
 }
 
 func TestSchedulerRestartKeepsInterruptedRunInterrupted(t *testing.T) {
-	ctx := context.Background()
-	store, binding, _ := newSchedulerTestStore(t)
+	ctx, store, binding, _ := newSchedulerTestContextStore(t)
 	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	interrupted := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	if err := store.InterruptRun(ctx, interrupted.RunID, "manual", "{}"); err != nil {
@@ -166,8 +160,7 @@ func TestSchedulerRestartKeepsInterruptedRunInterrupted(t *testing.T) {
 }
 
 func TestSchedulerRestartKeepsPendingApprovalUnscheduled(t *testing.T) {
-	ctx := context.Background()
-	store, binding, _ := newSchedulerTestStore(t)
+	ctx, store, binding, _ := newSchedulerTestContextStore(t)
 	workflowID := createSchedulerApprovalWorkflow(t, ctx, store)
 	linkSchedulerWorkflow(t, ctx, store, binding.ProjectID, workflowID)
 	started := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
@@ -196,8 +189,7 @@ func TestSchedulerRestartKeepsPendingApprovalUnscheduled(t *testing.T) {
 }
 
 func TestSchedulerActiveOwnershipIsMemoryOnly(t *testing.T) {
-	ctx := context.Background()
-	store, binding, _ := newSchedulerTestStore(t)
+	ctx, store, binding, _ := newSchedulerTestContextStore(t)
 	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	startedRun := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	scheduler := newSchedulerTestService(t, store, &recordingStarter{}, Config{Concurrency: 1})
@@ -224,8 +216,7 @@ func TestSchedulerActiveOwnershipIsMemoryOnly(t *testing.T) {
 }
 
 func TestSchedulerCloseStopsNewClaims(t *testing.T) {
-	ctx := context.Background()
-	store, binding, _ := newSchedulerTestStore(t)
+	ctx, store, binding, _ := newSchedulerTestContextStore(t)
 	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	_ = createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	starter := &recordingStarter{}
@@ -242,8 +233,7 @@ func TestSchedulerCloseStopsNewClaims(t *testing.T) {
 }
 
 func TestSchedulerRecoveryInterruptsOrphanedStartedRunsAndKeepsRunnable(t *testing.T) {
-	ctx := context.Background()
-	store, binding, _ := newSchedulerTestStore(t)
+	ctx, store, binding, _ := newSchedulerTestContextStore(t)
 	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	orphan := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	if _, err := store.ClaimRun(ctx, orphan.RunID, 0); err != nil {
@@ -272,8 +262,7 @@ func TestSchedulerRecoveryInterruptsOrphanedStartedRunsAndKeepsRunnable(t *testi
 }
 
 func TestSchedulerRecoveryUsesPendingAskResolver(t *testing.T) {
-	ctx := context.Background()
-	store, binding, metadataStore := newSchedulerTestStore(t)
+	ctx, store, binding, metadataStore := newSchedulerTestContextStore(t)
 	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	keep := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	drop := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
@@ -308,8 +297,7 @@ func TestSchedulerRecoveryUsesPendingAskResolver(t *testing.T) {
 }
 
 func TestSchedulerRuntimeStartFailureInterruptsRun(t *testing.T) {
-	ctx := context.Background()
-	store, binding, _ := newSchedulerTestStore(t)
+	ctx, store, binding, _ := newSchedulerTestContextStore(t)
 	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	started := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	starter := &recordingStarter{err: errors.New("role missing")}
@@ -328,8 +316,7 @@ func TestSchedulerRuntimeStartFailureInterruptsRun(t *testing.T) {
 }
 
 func TestSchedulerStartContinuesAfterRuntimeStartFailure(t *testing.T) {
-	ctx := context.Background()
-	store, binding, _ := newSchedulerTestStore(t)
+	ctx, store, binding, _ := newSchedulerTestContextStore(t)
 	createLinkedSchedulerValidWorkflow(t, ctx, store, binding.ProjectID)
 	started := createAndStartSchedulerTask(t, ctx, store, binding.ProjectID)
 	starter := &recordingStarter{err: errors.New("role missing")}
@@ -415,6 +402,12 @@ func newSchedulerTestStore(t *testing.T) (*workflowstore.Store, metadata.Binding
 		t.Fatalf("workflowstore.New: %v", err)
 	}
 	return store, binding, metadataStore
+}
+
+func newSchedulerTestContextStore(t *testing.T) (context.Context, *workflowstore.Store, metadata.Binding, *metadata.Store) {
+	t.Helper()
+	store, binding, metadataStore := newSchedulerTestStore(t)
+	return context.Background(), store, binding, metadataStore
 }
 
 func createLinkedSchedulerValidWorkflow(t *testing.T, ctx context.Context, store *workflowstore.Store, projectID string) workflow.WorkflowID {
