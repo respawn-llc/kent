@@ -8,11 +8,7 @@ import (
 )
 
 func TestSetGoalPersistsMetadataAndEvent(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 
 	goal, err := store.SetGoal("  ship goal mode\nwith docs  ", GoalActorUser)
 	if err != nil {
@@ -66,14 +62,10 @@ func TestSetGoalPersistsMetadataAndEvent(t *testing.T) {
 }
 
 func TestGoalWithEventsRollsBackMetadataWhenEventAppendFails(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 
 	makeEventsPathDirectory(t, store)
-	_, err = store.SetGoalWithEvents("ship goal mode", GoalActorUser, []EventInput{{Kind: "message", Payload: "goal feedback"}})
+	_, err := store.SetGoalWithEvents("ship goal mode", GoalActorUser, []EventInput{{Kind: "message", Payload: "goal feedback"}})
 	if err == nil {
 		t.Fatal("expected SetGoalWithEvents to fail when event append fails")
 	}
@@ -134,11 +126,7 @@ func restoreEmptyEventsFile(t *testing.T, store *Store) {
 }
 
 func TestGoalStatusAndClearPersistMetadataAndEvents(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	first, err := store.SetGoal("first goal", GoalActorUser)
 	if err != nil {
 		t.Fatalf("SetGoal first: %v", err)
@@ -200,11 +188,7 @@ func TestGoalStatusAndClearPersistMetadataAndEvents(t *testing.T) {
 }
 
 func TestGoalValidationRejectsInvalidValues(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if _, err := store.SetGoal(" \n\t ", GoalActorUser); err == nil {
 		t.Fatalf("SetGoal empty objective error = nil")
 	}

@@ -240,11 +240,7 @@ func TestOpenInitializesMissingEventsFileFromSessionMetadata(t *testing.T) {
 }
 
 func TestReadEventsIgnoresTrailingTruncatedEOFLine(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 		t.Fatalf("append event: %v", err)
 	}
@@ -274,11 +270,7 @@ func TestReadEventsIgnoresTrailingTruncatedEOFLine(t *testing.T) {
 }
 
 func TestAppendEventRepairsTruncatedTailBeforeAppend(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 		t.Fatalf("append event 1: %v", err)
 	}
@@ -316,11 +308,7 @@ func TestAppendEventRepairsTruncatedTailBeforeAppend(t *testing.T) {
 }
 
 func TestOpenReconcilesMetaLastSequenceFromEventLog(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 		t.Fatalf("append event 1: %v", err)
 	}

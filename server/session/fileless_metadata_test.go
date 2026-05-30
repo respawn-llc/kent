@@ -214,17 +214,13 @@ func TestOpenByIDRequiresPersistedSessionResolver(t *testing.T) {
 }
 
 func TestFilelessMetadataRetriesSameValueUntilObserverSucceeds(t *testing.T) {
-	root := t.TempDir()
-	store, err := NewLazy(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("NewLazy: %v", err)
-	}
+	store := newSessionTestLazyStore(t)
 	observer := &flakyPersistenceObserver{failuresRemaining: 1}
 	store.options.filelessMeta = true
 	store.options.observer = observer
 	store.options.observerTimeout = time.Second
 
-	err = store.SetInputDraft("draft")
+	err := store.SetInputDraft("draft")
 	if err == nil {
 		t.Fatal("expected first SetInputDraft call to surface observer failure")
 	}
@@ -244,11 +240,7 @@ func TestFilelessMetadataRetriesSameValueUntilObserverSucceeds(t *testing.T) {
 }
 
 func TestFilelessPersistenceObserverRunsOutsideStoreLock(t *testing.T) {
-	root := t.TempDir()
-	store, err := NewLazy(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("NewLazy: %v", err)
-	}
+	store := newSessionTestLazyStore(t)
 	observer := &reentrantPersistenceObserver{ch: make(chan Meta, 1)}
 	observer.store = store
 	store.options.filelessMeta = true
