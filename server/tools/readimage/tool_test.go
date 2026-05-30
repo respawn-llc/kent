@@ -23,26 +23,50 @@ var tinyPNG = []byte{
 	0, 0, 5, 0, 1, 122, 94, 171, 63, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
 }
 
-func TestCall_ImagePathReturnsInputImageContentItem(t *testing.T) {
-	workspace := t.TempDir()
-	imagePath := filepath.Join(workspace, "img.png")
-	if err := os.WriteFile(imagePath, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write image: %v", err)
-	}
-
-	tool, err := New(workspace, true)
+func newReadImageTestTool(t *testing.T, workspace string, supported bool, opts ...Option) *Tool {
+	t.Helper()
+	tool, err := New(workspace, supported, opts...)
 	if err != nil {
 		t.Fatalf("new tool: %v", err)
 	}
+	return tool
+}
 
+func callReadImageTool(t *testing.T, tool *Tool, id string, input string) tools.Result {
+	t.Helper()
 	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-1",
+		ID:    id,
 		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"img.png"}`),
+		Input: json.RawMessage(input),
 	})
 	if err != nil {
 		t.Fatalf("call: %v", err)
 	}
+	return result
+}
+
+func readImagePathInput(path string) string {
+	return `{"path":"` + strings.ReplaceAll(path, `\`, `\\`) + `"}`
+}
+
+func writeReadImageTestFile(t *testing.T, workspace string, name string, data []byte) {
+	t.Helper()
+	writeReadImageTestPath(t, filepath.Join(workspace, name), data)
+}
+
+func writeReadImageTestPath(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write %s: %v", filepath.Base(path), err)
+	}
+}
+
+func TestCall_ImagePathReturnsInputImageContentItem(t *testing.T) {
+	workspace := t.TempDir()
+	writeReadImageTestFile(t, workspace, "img.png", tinyPNG)
+
+	tool := newReadImageTestTool(t, workspace, true)
+	result := callReadImageTool(t, tool, "call-1", `{"path":"img.png"}`)
 	if result.IsError {
 		t.Fatalf("expected success result, got error payload: %s", string(result.Output))
 	}
@@ -112,24 +136,10 @@ func TestNewSymlinkLoopWorkspaceReturnsContextualResolutionError(t *testing.T) {
 func TestCall_PDFPathReturnsInputFileContentItem(t *testing.T) {
 	workspace := t.TempDir()
 	pdfBytes := []byte("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n")
-	pdfPath := filepath.Join(workspace, "doc.pdf")
-	if err := os.WriteFile(pdfPath, pdfBytes, 0o644); err != nil {
-		t.Fatalf("write pdf: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "doc.pdf", pdfBytes)
 
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-1",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"doc.pdf"}`),
-	})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, true)
+	result := callReadImageTool(t, tool, "call-1", `{"path":"doc.pdf"}`)
 	if result.IsError {
 		t.Fatalf("expected success result, got error payload: %s", string(result.Output))
 	}
@@ -166,24 +176,10 @@ func TestCall_PDFPathReturnsInputFileContentItem(t *testing.T) {
 
 func TestCall_UnsupportedFileReturnsToolError(t *testing.T) {
 	workspace := t.TempDir()
-	textPath := filepath.Join(workspace, "note.txt")
-	if err := os.WriteFile(textPath, []byte("hello"), 0o644); err != nil {
-		t.Fatalf("write text file: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "note.txt", []byte("hello"))
 
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-1",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"note.txt"}`),
-	})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, true)
+	result := callReadImageTool(t, tool, "call-1", `{"path":"note.txt"}`)
 	if !result.IsError {
 		t.Fatalf("expected tool error result for unsupported file type")
 	}
@@ -192,19 +188,8 @@ func TestCall_UnsupportedFileReturnsToolError(t *testing.T) {
 func TestCall_DirectoryPathReturnsToolError(t *testing.T) {
 	workspace := t.TempDir()
 
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-1",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"."}`),
-	})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, true)
+	result := callReadImageTool(t, tool, "call-1", `{"path":"."}`)
 	if !result.IsError {
 		t.Fatalf("expected tool error result for directory path")
 	}
@@ -213,25 +198,10 @@ func TestCall_DirectoryPathReturnsToolError(t *testing.T) {
 func TestCall_OversizedFileReturnsCompressionGuidance(t *testing.T) {
 	workspace := t.TempDir()
 	oversized := make([]byte, int(maxFileSizeBytes)+1)
+	writeReadImageTestFile(t, workspace, "huge.pdf", oversized)
 
-	path := filepath.Join(workspace, "huge.pdf")
-	if err := os.WriteFile(path, oversized, 0o644); err != nil {
-		t.Fatalf("write oversized pdf: %v", err)
-	}
-
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-oversized",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"huge.pdf"}`),
-	})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, true)
+	result := callReadImageTool(t, tool, "call-oversized", `{"path":"huge.pdf"}`)
 	if !result.IsError {
 		t.Fatalf("expected tool error result for oversized file")
 	}
@@ -246,41 +216,16 @@ func TestCall_OversizedFileReturnsCompressionGuidance(t *testing.T) {
 
 func TestCall_FileSizeBoundary(t *testing.T) {
 	workspace := t.TempDir()
-	exactPath := filepath.Join(workspace, "exact.pdf")
-	oversizedPath := filepath.Join(workspace, "oversized.pdf")
+	writeReadImageTestFile(t, workspace, "exact.pdf", make([]byte, int(maxFileSizeBytes)))
+	writeReadImageTestFile(t, workspace, "oversized.pdf", make([]byte, int(maxFileSizeBytes)+1))
 
-	if err := os.WriteFile(exactPath, make([]byte, int(maxFileSizeBytes)), 0o644); err != nil {
-		t.Fatalf("write exact-size file: %v", err)
-	}
-	if err := os.WriteFile(oversizedPath, make([]byte, int(maxFileSizeBytes)+1), 0o644); err != nil {
-		t.Fatalf("write oversized file: %v", err)
-	}
-
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	exactResult, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-exact-size",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"exact.pdf"}`),
-	})
-	if err != nil {
-		t.Fatalf("exact-size call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, true)
+	exactResult := callReadImageTool(t, tool, "call-exact-size", `{"path":"exact.pdf"}`)
 	if exactResult.IsError {
 		t.Fatalf("expected exact-size file to be allowed, got %s", string(exactResult.Output))
 	}
 
-	oversizedResult, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-oversized-size",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"oversized.pdf"}`),
-	})
-	if err != nil {
-		t.Fatalf("oversized call: %v", err)
-	}
+	oversizedResult := callReadImageTool(t, tool, "call-oversized-size", `{"path":"oversized.pdf"}`)
 	if !oversizedResult.IsError {
 		t.Fatalf("expected oversized file to be rejected")
 	}
@@ -288,19 +233,8 @@ func TestCall_FileSizeBoundary(t *testing.T) {
 
 func TestCall_UnsupportedModelReturnsToolError(t *testing.T) {
 	workspace := t.TempDir()
-	tool, err := New(workspace, false)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-1",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"img.png"}`),
-	})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, false)
+	result := callReadImageTool(t, tool, "call-1", `{"path":"img.png"}`)
 	if !result.IsError {
 		t.Fatalf("expected tool error result for unsupported model")
 	}
@@ -313,23 +247,10 @@ func TestCall_PathTraversalOutsideWorkspaceRejectedByDefault(t *testing.T) {
 		t.Fatalf("create workspace: %v", err)
 	}
 	outsidePath := filepath.Join(parent, "outside.png")
-	if err := os.WriteFile(outsidePath, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside file: %v", err)
-	}
+	writeReadImageTestPath(t, outsidePath, tinyPNG)
 
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-traversal",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"../outside.png"}`),
-	})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, true)
+	result := callReadImageTool(t, tool, "call-traversal", `{"path":"../outside.png"}`)
 	if !result.IsError {
 		t.Fatalf("expected error for outside-workspace traversal path")
 	}
@@ -341,27 +262,14 @@ func TestCall_PathTraversalOutsideWorkspaceRejectedByDefault(t *testing.T) {
 func TestCall_SymlinkEscapeOutsideWorkspaceRejectedByDefault(t *testing.T) {
 	workspace := t.TempDir()
 	outside := filepath.Join(outsideNonTempDir(t), "outside.png")
-	if err := os.WriteFile(outside, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside file: %v", err)
-	}
+	writeReadImageTestPath(t, outside, tinyPNG)
 	linkPath := filepath.Join(workspace, "symlink.png")
 	if err := os.Symlink(outside, linkPath); err != nil {
 		t.Fatalf("create symlink: %v", err)
 	}
 
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-symlink",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"symlink.png"}`),
-	})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, true)
+	result := callReadImageTool(t, tool, "call-symlink", `{"path":"symlink.png"}`)
 	if !result.IsError {
 		t.Fatalf("expected error for symlink escape outside workspace")
 	}
@@ -373,12 +281,11 @@ func TestCall_SymlinkEscapeOutsideWorkspaceRejectedByDefault(t *testing.T) {
 func TestCall_OutsideWorkspaceTempDirAllowedWithoutApproval(t *testing.T) {
 	workspace := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "outside.png")
-	if err := os.WriteFile(outside, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside file: %v", err)
-	}
+	writeReadImageTestPath(t, outside, tinyPNG)
 
 	approveCalls := 0
-	tool, err := New(
+	tool := newReadImageTestTool(
+		t,
 		workspace,
 		true,
 		WithOutsideWorkspaceApprover(func(context.Context, patchtool.OutsideWorkspaceRequest) (patchtool.OutsideWorkspaceApproval, error) {
@@ -386,15 +293,8 @@ func TestCall_OutsideWorkspaceTempDirAllowedWithoutApproval(t *testing.T) {
 			return patchtool.OutsideWorkspaceApproval{Decision: patchtool.OutsideWorkspaceDecisionDeny}, nil
 		}),
 	)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
 
-	input := json.RawMessage(`{"path":"` + strings.ReplaceAll(outside, `\`, `\\`) + `"}`)
-	result, err := tool.Call(context.Background(), tools.Call{ID: "call-temp-allow", Name: toolspec.ToolViewImage, Input: input})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	result := callReadImageTool(t, tool, "call-temp-allow", readImagePathInput(outside))
 	if result.IsError {
 		t.Fatalf("expected success for temp outside path, got %s", string(result.Output))
 	}
@@ -408,15 +308,12 @@ func TestCall_OutsideWorkspaceAllowSessionSkipsFuturePrompts(t *testing.T) {
 	outsideRoot := outsideNonTempDir(t)
 	outside1 := filepath.Join(outsideRoot, "outside1.png")
 	outside2 := filepath.Join(outsideRoot, "outside2.png")
-	if err := os.WriteFile(outside1, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside1: %v", err)
-	}
-	if err := os.WriteFile(outside2, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside2: %v", err)
-	}
+	writeReadImageTestPath(t, outside1, tinyPNG)
+	writeReadImageTestPath(t, outside2, tinyPNG)
 
 	approveCalls := 0
-	tool, err := New(
+	tool := newReadImageTestTool(
+		t,
 		workspace,
 		true,
 		WithOutsideWorkspaceApprover(func(context.Context, patchtool.OutsideWorkspaceRequest) (patchtool.OutsideWorkspaceApproval, error) {
@@ -424,30 +321,13 @@ func TestCall_OutsideWorkspaceAllowSessionSkipsFuturePrompts(t *testing.T) {
 			return patchtool.OutsideWorkspaceApproval{Decision: patchtool.OutsideWorkspaceDecisionAllowSession}, nil
 		}),
 	)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
 
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-1",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"` + strings.ReplaceAll(outside1, `\`, `\\`) + `"}`),
-	})
-	if err != nil {
-		t.Fatalf("first call: %v", err)
-	}
+	result := callReadImageTool(t, tool, "call-1", readImagePathInput(outside1))
 	if result.IsError {
 		t.Fatalf("expected first call success, got %s", string(result.Output))
 	}
 
-	result, err = tool.Call(context.Background(), tools.Call{
-		ID:    "call-2",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"` + strings.ReplaceAll(outside2, `\`, `\\`) + `"}`),
-	})
-	if err != nil {
-		t.Fatalf("second call: %v", err)
-	}
+	result = callReadImageTool(t, tool, "call-2", readImagePathInput(outside2))
 	if result.IsError {
 		t.Fatalf("expected second call success, got %s", string(result.Output))
 	}
@@ -460,12 +340,11 @@ func TestCall_OutsideWorkspaceAllowSessionSkipsFuturePrompts(t *testing.T) {
 func TestCall_OutsideWorkspaceAllowOncePromptsEachCall(t *testing.T) {
 	workspace := t.TempDir()
 	outside := filepath.Join(outsideNonTempDir(t), "outside.png")
-	if err := os.WriteFile(outside, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside file: %v", err)
-	}
+	writeReadImageTestPath(t, outside, tinyPNG)
 
 	approveCalls := 0
-	tool, err := New(
+	tool := newReadImageTestTool(
+		t,
 		workspace,
 		true,
 		WithOutsideWorkspaceApprover(func(context.Context, patchtool.OutsideWorkspaceRequest) (patchtool.OutsideWorkspaceApproval, error) {
@@ -473,23 +352,14 @@ func TestCall_OutsideWorkspaceAllowOncePromptsEachCall(t *testing.T) {
 			return patchtool.OutsideWorkspaceApproval{Decision: patchtool.OutsideWorkspaceDecisionAllowOnce}, nil
 		}),
 	)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
 
-	input := json.RawMessage(`{"path":"` + strings.ReplaceAll(outside, `\`, `\\`) + `"}`)
-	result, err := tool.Call(context.Background(), tools.Call{ID: "call-1", Name: toolspec.ToolViewImage, Input: input})
-	if err != nil {
-		t.Fatalf("first call: %v", err)
-	}
+	input := readImagePathInput(outside)
+	result := callReadImageTool(t, tool, "call-1", input)
 	if result.IsError {
 		t.Fatalf("expected first call success, got %s", string(result.Output))
 	}
 
-	result, err = tool.Call(context.Background(), tools.Call{ID: "call-2", Name: toolspec.ToolViewImage, Input: input})
-	if err != nil {
-		t.Fatalf("second call: %v", err)
-	}
+	result = callReadImageTool(t, tool, "call-2", input)
 	if result.IsError {
 		t.Fatalf("expected second call success, got %s", string(result.Output))
 	}
@@ -502,12 +372,11 @@ func TestCall_OutsideWorkspaceAllowOncePromptsEachCall(t *testing.T) {
 func TestCall_OutsideWorkspaceApprovalAuditsResolvedPath(t *testing.T) {
 	workspace := t.TempDir()
 	outside := filepath.Join(outsideNonTempDir(t), "outside.png")
-	if err := os.WriteFile(outside, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside file: %v", err)
-	}
+	writeReadImageTestPath(t, outside, tinyPNG)
 
 	audits := make([]OutsideWorkspaceAudit, 0, 2)
-	tool, err := New(
+	tool := newReadImageTestTool(
+		t,
 		workspace,
 		true,
 		WithOutsideWorkspaceApprover(func(context.Context, patchtool.OutsideWorkspaceRequest) (patchtool.OutsideWorkspaceApproval, error) {
@@ -517,23 +386,14 @@ func TestCall_OutsideWorkspaceApprovalAuditsResolvedPath(t *testing.T) {
 			audits = append(audits, entry)
 		}),
 	)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
 
-	input := json.RawMessage(`{"path":"` + strings.ReplaceAll(outside, `\`, `\\`) + `"}`)
-	result, err := tool.Call(context.Background(), tools.Call{ID: "call-1", Name: toolspec.ToolViewImage, Input: input})
-	if err != nil {
-		t.Fatalf("first call: %v", err)
-	}
+	input := readImagePathInput(outside)
+	result := callReadImageTool(t, tool, "call-1", input)
 	if result.IsError {
 		t.Fatalf("expected first call success, got %s", string(result.Output))
 	}
 
-	result, err = tool.Call(context.Background(), tools.Call{ID: "call-2", Name: toolspec.ToolViewImage, Input: input})
-	if err != nil {
-		t.Fatalf("second call: %v", err)
-	}
+	result = callReadImageTool(t, tool, "call-2", input)
 	if result.IsError {
 		t.Fatalf("expected second call success, got %s", string(result.Output))
 	}
@@ -559,26 +419,18 @@ func TestCall_OutsideWorkspaceApprovalAuditsResolvedPath(t *testing.T) {
 func TestCall_OutsideWorkspaceApprovalFailureUsesReadSpecificWording(t *testing.T) {
 	workspace := t.TempDir()
 	outside := filepath.Join(outsideNonTempDir(t), "outside.png")
-	if err := os.WriteFile(outside, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside file: %v", err)
-	}
+	writeReadImageTestPath(t, outside, tinyPNG)
 
-	tool, err := New(
+	tool := newReadImageTestTool(
+		t,
 		workspace,
 		true,
 		WithOutsideWorkspaceApprover(func(context.Context, patchtool.OutsideWorkspaceRequest) (patchtool.OutsideWorkspaceApproval, error) {
 			return patchtool.OutsideWorkspaceApproval{}, errors.New("ask failed")
 		}),
 	)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
 
-	input := json.RawMessage(`{"path":"` + strings.ReplaceAll(outside, `\`, `\\`) + `"}`)
-	result, err := tool.Call(context.Background(), tools.Call{ID: "call-approval-error", Name: toolspec.ToolViewImage, Input: input})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	result := callReadImageTool(t, tool, "call-approval-error", readImagePathInput(outside))
 	if !result.IsError {
 		t.Fatalf("expected error result")
 	}
@@ -594,26 +446,18 @@ func TestCall_OutsideWorkspaceApprovalFailureUsesReadSpecificWording(t *testing.
 func TestCall_OutsideWorkspaceRejectionIncludesReadSpecificGuidance(t *testing.T) {
 	workspace := t.TempDir()
 	outside := filepath.Join(outsideNonTempDir(t), "outside.png")
-	if err := os.WriteFile(outside, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside file: %v", err)
-	}
+	writeReadImageTestPath(t, outside, tinyPNG)
 
-	tool, err := New(
+	tool := newReadImageTestTool(
+		t,
 		workspace,
 		true,
 		WithOutsideWorkspaceApprover(func(context.Context, patchtool.OutsideWorkspaceRequest) (patchtool.OutsideWorkspaceApproval, error) {
 			return patchtool.OutsideWorkspaceApproval{Decision: patchtool.OutsideWorkspaceDecisionDeny, Commentary: "keep it inside the repo"}, nil
 		}),
 	)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
 
-	input := json.RawMessage(`{"path":"` + strings.ReplaceAll(outside, `\`, `\\`) + `"}`)
-	result, err := tool.Call(context.Background(), tools.Call{ID: "call-deny-guidance", Name: toolspec.ToolViewImage, Input: input})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	result := callReadImageTool(t, tool, "call-deny-guidance", readImagePathInput(outside))
 	if !result.IsError {
 		t.Fatalf("expected error result")
 	}
@@ -626,10 +470,7 @@ func TestCall_OutsideWorkspaceRejectionIncludesReadSpecificGuidance(t *testing.T
 
 func TestCall_CaseVariantAbsolutePathInsideWorkspaceDoesNotTriggerOutsideApproval(t *testing.T) {
 	workspace := t.TempDir()
-	imagePath := filepath.Join(workspace, "img.png")
-	if err := os.WriteFile(imagePath, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write image: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "img.png", tinyPNG)
 
 	variantWorkspace, ok := findCaseVariantExistingAlias(workspace)
 	if !ok {
@@ -638,7 +479,8 @@ func TestCall_CaseVariantAbsolutePathInsideWorkspaceDoesNotTriggerOutsideApprova
 	variantImagePath := filepath.Join(variantWorkspace, "img.png")
 
 	approveCalls := 0
-	tool, err := New(
+	tool := newReadImageTestTool(
+		t,
 		workspace,
 		true,
 		WithOutsideWorkspaceApprover(func(context.Context, patchtool.OutsideWorkspaceRequest) (patchtool.OutsideWorkspaceApproval, error) {
@@ -646,15 +488,8 @@ func TestCall_CaseVariantAbsolutePathInsideWorkspaceDoesNotTriggerOutsideApprova
 			return patchtool.OutsideWorkspaceApproval{Decision: patchtool.OutsideWorkspaceDecisionDeny}, nil
 		}),
 	)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
 
-	input := json.RawMessage(`{"path":"` + strings.ReplaceAll(variantImagePath, `\`, `\\`) + `"}`)
-	result, err := tool.Call(context.Background(), tools.Call{ID: "call-case-variant", Name: toolspec.ToolViewImage, Input: input})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	result := callReadImageTool(t, tool, "call-case-variant", readImagePathInput(variantImagePath))
 	if result.IsError {
 		t.Fatalf("expected success for case-variant absolute in-workspace path, got %s", string(result.Output))
 	}

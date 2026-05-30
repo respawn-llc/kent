@@ -33,12 +33,7 @@ func TestNativeHistoryFlushesPreserveScheduledOrderWhenDeliveredOutOfOrder(t *te
 		t.Fatalf("expected consecutive native flush sequence numbers, first=%d second=%d", firstMsg.Sequence, secondMsg.Sequence)
 	}
 
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(30 * time.Millisecond)
 	program.Send(secondMsg)
@@ -52,14 +47,7 @@ func TestNativeHistoryFlushesPreserveScheduledOrderWhenDeliveredOutOfOrder(t *te
 	})
 
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.Wait(2 * time.Second)
 
 	if normalized := normalizedOutput(out.String()); !containsInOrder(normalized, "assistant final", "queued user") {
 		t.Fatalf("expected native history flushes to preserve scheduled order, got %q", normalized)
@@ -74,12 +62,7 @@ func TestNativeAssistantDeltaSuppressedInDetailMode(t *testing.T) {
 		closedAskEvents(),
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "assistant", Text: "seed"}}),
 	)
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
 	program.Send(tea.KeyMsg{Type: tea.KeyShiftTab})
@@ -87,14 +70,7 @@ func TestNativeAssistantDeltaSuppressedInDetailMode(t *testing.T) {
 	program.Send(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: "hidden-delta"}))
 	time.Sleep(20 * time.Millisecond)
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.Wait(2 * time.Second)
 	if strings.Contains(normalizedOutput(out.String()), "hidden-delta") {
 		t.Fatalf("expected assistant delta to stay suppressed while in detail mode, got %q", normalizedOutput(out.String()))
 	}
@@ -103,12 +79,7 @@ func TestNativeAssistantDeltaSuppressedInDetailMode(t *testing.T) {
 func TestNativeStreamedFinalThenCommitAppearsOnceInScrollback(t *testing.T) {
 	out := &bytes.Buffer{}
 	model := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), closedAskEvents())
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
 	program.Send(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventAssistantDelta, StepID: "step-1", AssistantDelta: "final answer"}))
@@ -128,14 +99,7 @@ func TestNativeStreamedFinalThenCommitAppearsOnceInScrollback(t *testing.T) {
 		return strings.Contains(normalized, "final answer")
 	})
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.Wait(2 * time.Second)
 	normalized := normalizedOutput(out.String())
 	if got := strings.Count(normalized, "final answer"); got != 1 {
 		t.Fatalf("expected streamed final plus commit to appear once, got %d in %q", got, normalized)
@@ -146,12 +110,7 @@ func TestNativeStreamedMultilineMarkdownFinalThenCommitAppearsOnceInScrollback(t
 	out := &bytes.Buffer{}
 	runtimeEvents := make(chan clientui.Event, 8)
 	model := newProjectedTestUIModel(nil, runtimeEvents, closedAskEvents())
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 80, Height: 30})
 
@@ -182,14 +141,7 @@ func TestNativeStreamedMultilineMarkdownFinalThenCommitAppearsOnceInScrollback(t
 			strings.Contains(normalizedOutput(out.String()), "I opened it via the browser client")
 	})
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.Wait(2 * time.Second)
 	normalized := normalizedOutput(out.String())
 	if got := strings.Count(normalized, "Captured the Kent project board"); got != 1 {
 		t.Fatalf("expected streamed multiline final prefix once, got %d in %q", got, normalized)
@@ -352,12 +304,7 @@ func (t *replayTerminal) String() string {
 func TestNativeStreamingTinyDeltasRemainContiguous(t *testing.T) {
 	out := &bytes.Buffer{}
 	model := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), closedAskEvents())
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
 	for _, delta := range []string{"he", "llo", " ", "wor", "ld", "\n"} {
@@ -365,14 +312,7 @@ func TestNativeStreamingTinyDeltasRemainContiguous(t *testing.T) {
 	}
 	time.Sleep(40 * time.Millisecond)
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.Wait(2 * time.Second)
 	plain := xansi.Strip(out.String())
 	if !strings.Contains(plain, "hello world") {
 		t.Fatalf("expected contiguous streamed text from tiny deltas, got %q", plain)
@@ -385,12 +325,7 @@ func TestNativeStreamingTinyDeltasRemainContiguous(t *testing.T) {
 func TestNativeStreamingWithoutNewlineStillVisible(t *testing.T) {
 	out := &bytes.Buffer{}
 	model := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), closedAskEvents())
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
 	for _, delta := range []string{"long", " paragraph", " without", " newline"} {
@@ -398,14 +333,7 @@ func TestNativeStreamingWithoutNewlineStillVisible(t *testing.T) {
 	}
 	time.Sleep(40 * time.Millisecond)
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.Wait(2 * time.Second)
 	if !strings.Contains(xansi.Strip(out.String()), "long paragraph without newline") {
 		t.Fatalf("expected non-newline streaming text to still become visible, got %q", xansi.Strip(out.String()))
 	}
@@ -414,12 +342,7 @@ func TestNativeStreamingWithoutNewlineStillVisible(t *testing.T) {
 func TestNativeProgramClearsResidualLivePadAfterStreamingCommit(t *testing.T) {
 	out := &bytes.Buffer{}
 	model := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), closedAskEvents())
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 20})
 	program.Send(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: "line1\nline2"}))
@@ -427,15 +350,7 @@ func TestNativeProgramClearsResidualLivePadAfterStreamingCommit(t *testing.T) {
 	program.Send(tui.SetConversationMsg{Entries: []tui.TranscriptEntry{}, Ongoing: ""})
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.Wait(2 * time.Second)
 
 	if model.nativeLiveRegionPad <= 0 {
 		t.Fatalf("expected fresh conversation to restore native live region pad after streaming commit, got %d", model.nativeLiveRegionPad)
@@ -448,12 +363,7 @@ func TestNativeProgramClearsResidualLivePadAfterStreamingCommit(t *testing.T) {
 func TestNativeStreamingInterleavedRendersKeepsLinesLeftAligned(t *testing.T) {
 	out := &bytes.Buffer{}
 	model := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), closedAskEvents())
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
 	expected := []string{"LADDER-01", "LADDER-02", "LADDER-03", "LADDER-04"}
@@ -463,14 +373,7 @@ func TestNativeStreamingInterleavedRendersKeepsLinesLeftAligned(t *testing.T) {
 	}
 	time.Sleep(50 * time.Millisecond)
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.Wait(2 * time.Second)
 	plain := xansi.Strip(out.String())
 	normalized := strings.ReplaceAll(strings.ReplaceAll(plain, "\r\n", "\n"), "\r", "\n")
 	lines := strings.Split(normalized, "\n")

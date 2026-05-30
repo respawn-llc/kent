@@ -445,25 +445,6 @@ func visibleKindsForViewport(kinds []VisibleLineKind, viewportLines int) []Visib
 	return out
 }
 
-func sliceVisibleLineKinds(kinds []VisibleLineKind, scroll, maxScroll, viewportLines int) []VisibleLineKind {
-	if viewportLines <= 0 {
-		return nil
-	}
-	if len(kinds) == 0 {
-		return append(make([]VisibleLineKind, 0, viewportLines), VisibleLineContent)
-	}
-	start := clamp(scroll, 0, maxScroll)
-	end := start + viewportLines
-	if end > len(kinds) {
-		end = len(kinds)
-	}
-	out := append([]VisibleLineKind(nil), kinds[start:end]...)
-	for len(out) < viewportLines {
-		out = append(out, VisibleLineContent)
-	}
-	return out
-}
-
 func (m Model) Mode() Mode {
 	return m.mode
 }
@@ -497,14 +478,6 @@ func FormatOngoingError(err error) string {
 		return "error"
 	}
 	return fmt.Sprintf("error: %s", msg)
-}
-
-func (m Model) toggleMode(skipDetailWarmup bool) Model {
-	target := ModeDetail
-	if m.mode == ModeDetail {
-		target = ModeOngoing
-	}
-	return m.transitionMode(target, skipDetailWarmup)
 }
 
 func (m Model) transitionMode(target Mode, skipDetailWarmup bool) Model {
@@ -985,33 +958,8 @@ func (p ongoingLineParts) lineAt(index int) TranscriptProjectionLine {
 	return TranscriptProjectionLine{Kind: VisibleLineContent}
 }
 
-func (m Model) ongoingProjectionLines() []TranscriptProjectionLine {
-	parts := m.ongoingLineParts()
-	lines := make([]TranscriptProjectionLine, 0, parts.lineCount())
-	for idx := 0; idx < parts.lineCount(); idx++ {
-		lines = append(lines, parts.lineAt(idx))
-	}
-	return lines
-}
-
 func (m Model) ongoingRenderedLineCount() int {
 	return m.ongoingLineParts().lineCount()
-}
-
-func (m Model) ongoingLineAt(index int) string {
-	parts := m.ongoingLineParts()
-	if index < 0 || index >= parts.lineCount() {
-		return ""
-	}
-	return parts.lineAt(index).Text
-}
-
-func (m Model) ongoingLineKindAt(index int) VisibleLineKind {
-	parts := m.ongoingLineParts()
-	if index < 0 || index >= parts.lineCount() {
-		return VisibleLineContent
-	}
-	return parts.lineAt(index).Kind
 }
 
 func (m Model) visibleOngoingLineKinds() []VisibleLineKind {
@@ -1115,10 +1063,6 @@ func (m Model) detailAtBottomEdgeForSelectionSpacer() bool {
 		return false
 	}
 	return m.detailScroll == m.maxDetailScroll()
-}
-
-func (m Model) detailViewportLineOwnsSelectableEntry(lineIndex int, owners []int) bool {
-	return newDetailProjectionLookup(m.detailViewProjection()).ownsSelectableEntry(lineIndex, owners)
 }
 
 type detailExpansionSymbolState struct {

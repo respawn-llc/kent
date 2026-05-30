@@ -86,55 +86,34 @@ func (c *MetadataBackedLoopbackClient) Close() error {
 }
 
 func (c *MetadataBackedLoopbackClient) GetInitialInput(ctx context.Context, req serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
-	if c == nil {
-		return serverapi.SessionInitialInputResponse{}, errors.New("session lifecycle client is closed")
-	}
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	client := c.client
-	if client == nil {
-		return serverapi.SessionInitialInputResponse{}, errors.New("session lifecycle client is closed")
-	}
-	return client.GetInitialInput(ctx, req)
+	return callMetadataBackedLoopbackClient(c, ctx, req, client.SessionLifecycleClient.GetInitialInput)
 }
 
 func (c *MetadataBackedLoopbackClient) PersistInputDraft(ctx context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
-	if c == nil {
-		return serverapi.SessionPersistInputDraftResponse{}, errors.New("session lifecycle client is closed")
-	}
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	client := c.client
-	if client == nil {
-		return serverapi.SessionPersistInputDraftResponse{}, errors.New("session lifecycle client is closed")
-	}
-	return client.PersistInputDraft(ctx, req)
+	return callMetadataBackedLoopbackClient(c, ctx, req, client.SessionLifecycleClient.PersistInputDraft)
 }
 
 func (c *MetadataBackedLoopbackClient) RetargetSessionWorkspace(ctx context.Context, req serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
-	if c == nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, errors.New("session lifecycle client is closed")
-	}
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	client := c.client
-	if client == nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, errors.New("session lifecycle client is closed")
-	}
-	return client.RetargetSessionWorkspace(ctx, req)
+	return callMetadataBackedLoopbackClient(c, ctx, req, client.SessionLifecycleClient.RetargetSessionWorkspace)
 }
 
 func (c *MetadataBackedLoopbackClient) ResolveTransition(ctx context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
+	return callMetadataBackedLoopbackClient(c, ctx, req, client.SessionLifecycleClient.ResolveTransition)
+}
+
+func callMetadataBackedLoopbackClient[Req any, Resp any](c *MetadataBackedLoopbackClient, ctx context.Context, req Req, call func(client.SessionLifecycleClient, context.Context, Req) (Resp, error)) (Resp, error) {
 	if c == nil {
-		return serverapi.SessionResolveTransitionResponse{}, errors.New("session lifecycle client is closed")
+		var zero Resp
+		return zero, errors.New("session lifecycle client is closed")
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	client := c.client
 	if client == nil {
-		return serverapi.SessionResolveTransitionResponse{}, errors.New("session lifecycle client is closed")
+		var zero Resp
+		return zero, errors.New("session lifecycle client is closed")
 	}
-	return client.ResolveTransition(ctx, req)
+	return call(client, ctx, req)
 }
 
 func (s *Service) WithControllerLeaseVerifier(verifier ControllerLeaseVerifier) *Service {

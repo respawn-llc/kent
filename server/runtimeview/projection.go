@@ -336,7 +336,3 @@ func cloneRenderedPatch(in *patchformat.RenderedPatch) *patchformat.RenderedPatc
 	}
 	return out
 }
-
-func MessagePhase(raw string) llm.MessagePhase {
-	return llm.MessagePhase(raw)
-}

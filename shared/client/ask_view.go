@@ -2,27 +2,21 @@ package client
 
 import (
 	"context"
-	"errors"
 
 	"builder/shared/serverapi"
 	"builder/shared/servicecontract"
 )
 
-type AskViewClient interface {
-	ListPendingAsksBySession(ctx context.Context, req serverapi.AskListPendingBySessionRequest) (serverapi.AskListPendingBySessionResponse, error)
-}
+type AskViewClient = servicecontract.AskViewService
 
 type loopbackAskViewClient struct {
-	service servicecontract.AskViewService
+	loopbackClient[servicecontract.AskViewService]
 }
 
 func NewLoopbackAskViewClient(service servicecontract.AskViewService) AskViewClient {
-	return &loopbackAskViewClient{service: service}
+	return &loopbackAskViewClient{loopbackClient: newLoopbackClient(service)}
 }
 
 func (c *loopbackAskViewClient) ListPendingAsksBySession(ctx context.Context, req serverapi.AskListPendingBySessionRequest) (serverapi.AskListPendingBySessionResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.AskListPendingBySessionResponse{}, errors.New("ask view service is required")
-	}
-	return c.service.ListPendingAsksBySession(ctx, req)
+	return callLoopbackClient(c, "ask view service is required", ctx, req, servicecontract.AskViewService.ListPendingAsksBySession)
 }

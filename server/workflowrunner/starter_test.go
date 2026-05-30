@@ -190,10 +190,7 @@ func TestWorkflowRuntimeStarterCancelTaskRunsStopsLiveRuntimeAfterTaskCancel(t *
 }
 
 func TestSchedulerRunsNextAgentWithBoundInputsAndTaskWorktreeContext(t *testing.T) {
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
-		workflowtest.FinalAnswer(`{"transition_id":"next","commentary":"first comments","prior_summary":"first summary"}`),
-		workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"second done"}`),
-	)
+	fixture := newChainedStarterFixture(t)
 	workflowID := createChainedStarterWorkflow(t, fixture.store)
 	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow chained: %v", err)
@@ -253,10 +250,7 @@ func TestBuildWorkflowTaskInstructionsRendersNodeOutputReferences(t *testing.T) 
 }
 
 func TestWorkflowRuntimeContinueSessionReusesSourceRunSession(t *testing.T) {
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
-		workflowtest.FinalAnswer(`{"transition_id":"next","commentary":"first comments","prior_summary":"first summary"}`),
-		workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"second done"}`),
-	)
+	fixture := newChainedStarterFixture(t)
 	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeContinueSession, "coder")
 	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow chained: %v", err)
@@ -285,10 +279,7 @@ func TestWorkflowRuntimeContinueSessionReusesSourceRunSession(t *testing.T) {
 }
 
 func TestWorkflowRuntimeContinueSessionKeepsLockedSetupAfterRoleConfigDrift(t *testing.T) {
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
-		workflowtest.FinalAnswer(`{"transition_id":"next","commentary":"first comments","prior_summary":"first summary"}`),
-		workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"second done"}`),
-	)
+	fixture := newChainedStarterFixture(t)
 	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeContinueSession, "coder")
 	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow chained: %v", err)
@@ -328,10 +319,7 @@ func TestWorkflowRuntimeContinueSessionKeepsLockedSetupAfterRoleConfigDrift(t *t
 }
 
 func TestWorkflowRuntimeCompactAndContinueCreatesFreshCrossRoleChildSession(t *testing.T) {
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
-		workflowtest.FinalAnswer(`{"transition_id":"next","commentary":"first comments","prior_summary":"first summary"}`),
-		workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"second done"}`),
-	)
+	fixture := newChainedStarterFixture(t)
 	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeCompactAndContinueSession, "reviewer")
 	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow chained: %v", err)
@@ -533,6 +521,14 @@ func newStarterFixture(t *testing.T, mode config.WorkflowCompletionMode, steps .
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
 	return starterFixture{cfg: cfg, metadata: metadataStore, store: store, view: view, worktrees: worktrees, client: client, clientFactory: clientFactory, runtimes: runtimes, starter: starter, workflowID: workflowID, projectID: binding.ProjectID}
+}
+
+func newChainedStarterFixture(t *testing.T) starterFixture {
+	t.Helper()
+	return newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
+		workflowtest.FinalAnswer(`{"transition_id":"next","commentary":"first comments","prior_summary":"first summary"}`),
+		workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"second done"}`),
+	)
 }
 
 func (f *starterFixture) rebuildStarter(t *testing.T) {

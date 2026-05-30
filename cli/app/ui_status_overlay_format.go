@@ -194,17 +194,6 @@ func statusDisplayPath(path, workdir string) string {
 	return trimmed
 }
 
-func statusJoinNonEmpty(separator string, parts ...string) string {
-	filtered := make([]string, 0, len(parts))
-	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed != "" {
-			filtered = append(filtered, trimmed)
-		}
-	}
-	return strings.Join(filtered, separator)
-}
-
 func statusValueOrFallback(value, fallback string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {

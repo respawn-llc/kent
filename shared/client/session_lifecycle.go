@@ -2,26 +2,21 @@ package client
 
 import (
 	"context"
-	"errors"
 
 	"builder/shared/serverapi"
 	"builder/shared/servicecontract"
 )
 
 type SessionLifecycleClient interface {
+	servicecontract.SessionLifecycleService
 	Close() error
-	GetInitialInput(ctx context.Context, req serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error)
-	PersistInputDraft(ctx context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error)
-	RetargetSessionWorkspace(ctx context.Context, req serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error)
-	ResolveTransition(ctx context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error)
 }
-
 type loopbackSessionLifecycleClient struct {
-	service servicecontract.SessionLifecycleService
+	loopbackClient[servicecontract.SessionLifecycleService]
 }
 
 func NewLoopbackSessionLifecycleClient(service servicecontract.SessionLifecycleService) SessionLifecycleClient {
-	return &loopbackSessionLifecycleClient{service: service}
+	return &loopbackSessionLifecycleClient{loopbackClient: newLoopbackClient(service)}
 }
 
 func (c *loopbackSessionLifecycleClient) Close() error {
@@ -29,29 +24,17 @@ func (c *loopbackSessionLifecycleClient) Close() error {
 }
 
 func (c *loopbackSessionLifecycleClient) GetInitialInput(ctx context.Context, req serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.SessionInitialInputResponse{}, errors.New("session lifecycle service is required")
-	}
-	return c.service.GetInitialInput(ctx, req)
+	return callLoopbackClient(c, "session lifecycle service is required", ctx, req, servicecontract.SessionLifecycleService.GetInitialInput)
 }
 
 func (c *loopbackSessionLifecycleClient) PersistInputDraft(ctx context.Context, req serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.SessionPersistInputDraftResponse{}, errors.New("session lifecycle service is required")
-	}
-	return c.service.PersistInputDraft(ctx, req)
+	return callLoopbackClient(c, "session lifecycle service is required", ctx, req, servicecontract.SessionLifecycleService.PersistInputDraft)
 }
 
 func (c *loopbackSessionLifecycleClient) RetargetSessionWorkspace(ctx context.Context, req serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.SessionRetargetWorkspaceResponse{}, errors.New("session lifecycle service is required")
-	}
-	return c.service.RetargetSessionWorkspace(ctx, req)
+	return callLoopbackClient(c, "session lifecycle service is required", ctx, req, servicecontract.SessionLifecycleService.RetargetSessionWorkspace)
 }
 
 func (c *loopbackSessionLifecycleClient) ResolveTransition(ctx context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.SessionResolveTransitionResponse{}, errors.New("session lifecycle service is required")
-	}
-	return c.service.ResolveTransition(ctx, req)
+	return callLoopbackClient(c, "session lifecycle service is required", ctx, req, servicecontract.SessionLifecycleService.ResolveTransition)
 }

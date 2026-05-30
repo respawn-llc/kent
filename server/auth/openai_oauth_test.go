@@ -38,6 +38,18 @@ func (fn roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) 
 	return fn(req)
 }
 
+func writeOAuthTokenResponse(t testing.TB, w http.ResponseWriter, accessToken string, refreshToken string, expiresIn int) {
+	t.Helper()
+	if err := json.NewEncoder(w).Encode(map[string]any{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+		"token_type":    "Bearer",
+		"expires_in":    expiresIn,
+	}); err != nil {
+		t.Fatalf("write token response: %v", err)
+	}
+}
+
 func TestParsePollInterval(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -110,12 +122,7 @@ func TestRunOpenAIDeviceCodeFlow(t *testing.T) {
 			if got := r.Form.Get("code"); got != "auth-code-1" {
 				t.Fatalf("unexpected code: %s", got)
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"access_token":  "access-1",
-				"refresh_token": "refresh-1",
-				"token_type":    "Bearer",
-				"expires_in":    1800,
-			})
+			writeOAuthTokenResponse(t, w, "access-1", "refresh-1", 1800)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -177,12 +184,7 @@ func TestCompleteOpenAIDeviceAuthorizationGrantNormalizesIssuerBeforeRedirectURI
 		if got := r.Form.Get("redirect_uri"); got != DefaultOpenAIIssuer+"/deviceauth/callback" {
 			t.Fatalf("redirect_uri = %q, want %q", got, DefaultOpenAIIssuer+"/deviceauth/callback")
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"access_token":  "access-1",
-			"refresh_token": "refresh-1",
-			"token_type":    "Bearer",
-			"expires_in":    1800,
-		})
+		writeOAuthTokenResponse(t, w, "access-1", "refresh-1", 1800)
 	}))
 	defer server.Close()
 
@@ -213,12 +215,7 @@ func TestRefreshOpenAIAuthToken(t *testing.T) {
 		if r.Form.Get("refresh_token") != "old-refresh" {
 			t.Fatalf("unexpected refresh token: %s", r.Form.Get("refresh_token"))
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"access_token":  "new-access",
-			"refresh_token": "new-refresh",
-			"token_type":    "Bearer",
-			"expires_in":    3600,
-		})
+		writeOAuthTokenResponse(t, w, "new-access", "new-refresh", 3600)
 	}))
 	defer server.Close()
 

@@ -9,12 +9,6 @@ import (
 	"builder/shared/clientui"
 )
 
-func closedRuntimeEvents() <-chan runtime.Event {
-	ch := make(chan runtime.Event)
-	close(ch)
-	return ch
-}
-
 func closedProjectedRuntimeEvents() <-chan clientui.Event {
 	ch := make(chan clientui.Event)
 	close(ch)
@@ -29,6 +23,34 @@ func newProjectedTestUIModel(runtimeClient clientui.RuntimeClient, runtimeEvents
 		askEvents = make(chan askEvent)
 	}
 	return NewProjectedUIModel(runtimeClient, runtimeEvents, askEvents, opts...).(*uiModel)
+}
+
+func newProjectedClosedUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOption) *uiModel {
+	return newProjectedTestUIModel(runtimeClient, closedProjectedRuntimeEvents(), closedAskEvents(), opts...)
+}
+
+func newProjectedRuntimeEventsUIModel(runtimeClient clientui.RuntimeClient, runtimeEvents <-chan clientui.Event, opts ...UIOption) *uiModel {
+	return newProjectedTestUIModel(runtimeClient, runtimeEvents, closedAskEvents(), opts...)
+}
+
+func newSizedProjectedClosedUIModel(runtimeClient clientui.RuntimeClient, width, height int, opts ...UIOption) *uiModel {
+	return sizedTestUIModel(newProjectedClosedUIModel(runtimeClient, opts...), width, height)
+}
+
+func newSizedProjectedRuntimeEventsUIModel(runtimeClient clientui.RuntimeClient, runtimeEvents <-chan clientui.Event, width, height int, opts ...UIOption) *uiModel {
+	return sizedTestUIModel(newProjectedRuntimeEventsUIModel(runtimeClient, runtimeEvents, opts...), width, height)
+}
+
+func setTestUITerminalSize(m *uiModel, width, height int) *uiModel {
+	m.termWidth = width
+	m.termHeight = height
+	return m
+}
+
+func sizedTestUIModel(m *uiModel, width, height int) *uiModel {
+	m = setTestUITerminalSize(m, width, height)
+	m.windowSizeKnown = true
+	return m
 }
 
 func newProjectedStaticUIModel(opts ...UIOption) *uiModel {
@@ -53,4 +75,12 @@ func newUIRuntimeClientFromEngine(engine *runtime.Engine) clientui.RuntimeClient
 
 func newUIRuntimeClient(engine *runtime.Engine) clientui.RuntimeClient {
 	return newUIRuntimeClientFromEngine(engine)
+}
+
+func newTestSessionRuntimeClient(reads client.SessionViewClient, controls client.RuntimeControlClient) *sessionRuntimeClient {
+	return newUIRuntimeClientWithReads("session-1", reads, controls).(*sessionRuntimeClient)
+}
+
+func newTestSessionRuntimeClientWithControls(controls client.RuntimeControlClient) *sessionRuntimeClient {
+	return newTestSessionRuntimeClient(&countingSessionViewClient{}, controls)
 }

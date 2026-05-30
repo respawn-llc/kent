@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type sessionActivityTestSubscription struct {
@@ -29,17 +31,36 @@ func (s *sessionActivityTestSubscription) Close() error { return nil }
 
 var _ serverapi.SessionActivitySubscription = (*sessionActivityTestSubscription)(nil)
 
+func nextRuntimeEventBatch(t *testing.T, ch <-chan clientui.Event) runtimeEventBatchMsg {
+	t.Helper()
+	return runtimeEventBatchFromCmd(t, waitRuntimeEvent(ch), "runtime event wait")
+}
+
+func runtimeEventBatchFromCmd(t *testing.T, cmd tea.Cmd, description string) runtimeEventBatchMsg {
+	t.Helper()
+	if cmd == nil {
+		t.Fatalf("expected %s command", description)
+	}
+	raw := cmd()
+	msg, ok := raw.(runtimeEventBatchMsg)
+	if !ok {
+		t.Fatalf("expected runtimeEventBatchMsg for %s, got %T", description, raw)
+	}
+	return msg
+}
+
+func assertRuntimeEventBatchLen(t *testing.T, msg runtimeEventBatchMsg, want int) {
+	t.Helper()
+	if len(msg.events) != want {
+		t.Fatalf("events len = %d, want %d", len(msg.events), want)
+	}
+}
+
 func TestWaitRuntimeEventReturnsProjectedMessage(t *testing.T) {
 	ch := make(chan clientui.Event, 1)
 	ch <- clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: "hello"}
-	cmd := waitRuntimeEvent(ch)
-	msg, ok := cmd().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg, got %T", cmd())
-	}
-	if len(msg.events) != 1 {
-		t.Fatalf("events len = %d, want 1", len(msg.events))
-	}
+	msg := nextRuntimeEventBatch(t, ch)
+	assertRuntimeEventBatchLen(t, msg, 1)
 	if msg.events[0].Kind != clientui.EventAssistantDelta || msg.events[0].AssistantDelta != "hello" {
 		t.Fatalf("unexpected projected event: %+v", msg.events[0])
 	}
@@ -50,13 +71,7 @@ func TestWaitRuntimeEventDrainsQueuedBatch(t *testing.T) {
 	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}
 	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.IdleRunLifecycle()}}
 	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}
-	msg, ok := waitRuntimeEvent(ch)().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg, got %T", waitRuntimeEvent(ch)())
-	}
-	if len(msg.events) != 3 {
-		t.Fatalf("events len = %d, want 3", len(msg.events))
-	}
+	assertRuntimeEventBatchLen(t, nextRuntimeEventBatch(t, ch), 3)
 }
 
 func TestWaitRuntimeEventDoesNotCoalesceAssistantDeltas(t *testing.T) {
@@ -65,23 +80,13 @@ func TestWaitRuntimeEventDoesNotCoalesceAssistantDeltas(t *testing.T) {
 	ch <- clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: " world"}
 	ch <- clientui.Event{Kind: clientui.EventRunStateChanged, RunState: &clientui.RunState{Lifecycle: clientui.RunningRunLifecycle(clientui.RunModeTurn)}}
 
-	msg, ok := waitRuntimeEvent(ch)().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg, got %T", waitRuntimeEvent(ch)())
-	}
-	if len(msg.events) != 1 {
-		t.Fatalf("events len = %d, want 1", len(msg.events))
-	}
+	msg := nextRuntimeEventBatch(t, ch)
+	assertRuntimeEventBatchLen(t, msg, 1)
 	if msg.events[0].Kind != clientui.EventAssistantDelta || msg.events[0].AssistantDelta != "hello" {
 		t.Fatalf("first streamed event = %+v, want first assistant delta", msg.events[0])
 	}
-	nextMsg, ok := waitRuntimeEvent(ch)().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected second runtimeEventBatchMsg, got %T", waitRuntimeEvent(ch)())
-	}
-	if len(nextMsg.events) != 1 {
-		t.Fatalf("second events len = %d, want 1", len(nextMsg.events))
-	}
+	nextMsg := nextRuntimeEventBatch(t, ch)
+	assertRuntimeEventBatchLen(t, nextMsg, 1)
 	if nextMsg.events[0].Kind != clientui.EventAssistantDelta || nextMsg.events[0].AssistantDelta != " world" {
 		t.Fatalf("second streamed event = %+v, want second assistant delta", nextMsg.events[0])
 	}
@@ -101,23 +106,15 @@ func TestWaitRuntimeEventFencesTranscriptEventIntoCarry(t *testing.T) {
 	}
 	ch <- clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: "after"}
 
-	msg, ok := waitRuntimeEvent(ch)().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg, got %T", waitRuntimeEvent(ch)())
-	}
-	if len(msg.events) != 1 {
-		t.Fatalf("events len = %d, want 1", len(msg.events))
-	}
+	msg := nextRuntimeEventBatch(t, ch)
+	assertRuntimeEventBatchLen(t, msg, 1)
 	if msg.events[0].Kind != clientui.EventAssistantDelta {
 		t.Fatalf("first event kind = %q, want assistant_delta", msg.events[0].Kind)
 	}
 	if msg.carry != nil {
 		t.Fatalf("did not expect carry when assistant deltas fence batching, got %+v", *msg.carry)
 	}
-	nextMsg, ok := waitRuntimeEvent(ch)().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected second runtimeEventBatchMsg, got %T", waitRuntimeEvent(ch)())
-	}
+	nextMsg := nextRuntimeEventBatch(t, ch)
 	if len(nextMsg.events) != 1 || nextMsg.events[0].Kind != clientui.EventUserMessageFlushed {
 		t.Fatalf("expected transcript event to be delivered on next wait, got %+v", nextMsg.events)
 	}
@@ -141,13 +138,8 @@ func TestWaitRuntimeEventPrefersRichCommittedEventOverBareCommittedConversationU
 		TranscriptEntries:          []clientui.ChatEntry{{Role: "assistant", Text: "final"}},
 	}
 
-	msg, ok := waitRuntimeEvent(ch)().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg, got %T", waitRuntimeEvent(ch)())
-	}
-	if len(msg.events) != 1 {
-		t.Fatalf("events len = %d, want 1", len(msg.events))
-	}
+	msg := nextRuntimeEventBatch(t, ch)
+	assertRuntimeEventBatchLen(t, msg, 1)
 	if msg.events[0].Kind != clientui.EventAssistantMessage {
 		t.Fatalf("event kind = %q, want assistant_message", msg.events[0].Kind)
 	}
@@ -176,13 +168,8 @@ func TestWaitRuntimeEventDoesNotSuppressCommittedConversationUpdateWhenNextEvent
 		TranscriptEntries:          []clientui.ChatEntry{{Role: "reviewer_status", Text: "Supervisor ran: no changes."}},
 	}
 
-	msg, ok := waitRuntimeEvent(ch)().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg, got %T", waitRuntimeEvent(ch)())
-	}
-	if len(msg.events) != 2 {
-		t.Fatalf("events len = %d, want 2", len(msg.events))
-	}
+	msg := nextRuntimeEventBatch(t, ch)
+	assertRuntimeEventBatchLen(t, msg, 2)
 	if msg.events[0].Kind != clientui.EventConversationUpdated {
 		t.Fatalf("event kind = %q, want conversation_updated", msg.events[0].Kind)
 	}
@@ -253,13 +240,8 @@ func TestWaitRuntimeEventReturnsFencedFirstEventWithoutCoalescing(t *testing.T) 
 	}
 	ch <- clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: "after"}
 
-	msg, ok := waitRuntimeEvent(ch)().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg, got %T", waitRuntimeEvent(ch)())
-	}
-	if len(msg.events) != 1 {
-		t.Fatalf("events len = %d, want 1", len(msg.events))
-	}
+	msg := nextRuntimeEventBatch(t, ch)
+	assertRuntimeEventBatchLen(t, msg, 1)
 	if msg.events[0].Kind != clientui.EventUserMessageFlushed {
 		t.Fatalf("first event kind = %q, want user_message_flushed", msg.events[0].Kind)
 	}
@@ -277,14 +259,7 @@ func TestWaitRuntimeEventCmdPrefersPendingCarryBeforeRuntimeChannel(t *testing.T
 	m := newProjectedTestUIModel(nil, runtimeEvents, nil)
 	m.pendingRuntimeEvents = []clientui.Event{{Kind: clientui.EventUserMessageFlushed, UserMessage: "steer now"}}
 
-	first := m.waitRuntimeEventCmd()
-	if first == nil {
-		t.Fatal("expected wait command for pending carry event")
-	}
-	firstMsg, ok := first().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg for pending carry, got %T", first())
-	}
+	firstMsg := runtimeEventBatchFromCmd(t, m.waitRuntimeEventCmd(), "wait command for pending carry event")
 	if len(firstMsg.events) != 1 || firstMsg.events[0].Kind != clientui.EventUserMessageFlushed {
 		t.Fatalf("unexpected pending carry batch: %+v", firstMsg.events)
 	}
@@ -292,14 +267,7 @@ func TestWaitRuntimeEventCmdPrefersPendingCarryBeforeRuntimeChannel(t *testing.T
 		t.Fatalf("expected pending carry queue drained, got %+v", m.pendingRuntimeEvents)
 	}
 
-	second := m.waitRuntimeEventCmd()
-	if second == nil {
-		t.Fatal("expected wait command for runtime channel after carry drain")
-	}
-	secondMsg, ok := second().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg from runtime channel, got %T", second())
-	}
+	secondMsg := runtimeEventBatchFromCmd(t, m.waitRuntimeEventCmd(), "wait command for runtime channel after carry drain")
 	if len(secondMsg.events) != 1 || secondMsg.events[0].AssistantDelta != "later" {
 		t.Fatalf("unexpected runtime channel batch after carry drain: %+v", secondMsg.events)
 	}
@@ -319,14 +287,7 @@ func TestWaitRuntimeEventCmdStaysPausedWhileHydrationFenceIsArmed(t *testing.T) 
 	}
 
 	m.waitRuntimeEventAfterHydration = false
-	cmd := m.waitRuntimeEventCmd()
-	if cmd == nil {
-		t.Fatal("expected runtime wait after hydration fence clears")
-	}
-	msg, ok := cmd().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg after hydration fence clears, got %T", cmd())
-	}
+	msg := runtimeEventBatchFromCmd(t, m.waitRuntimeEventCmd(), "runtime wait after hydration fence clears")
 	if len(msg.events) != 1 || msg.events[0].AssistantDelta != "later" {
 		t.Fatalf("unexpected runtime event after hydration fence clears: %+v", msg.events)
 	}
@@ -656,14 +617,7 @@ func TestRuntimeModelSkipsBareCommittedConversationUpdateWhenRichCommittedEventI
 	m := newProjectedTestUIModel(&runtimeControlFakeClient{}, runtimeEvents, nil)
 	m.startupCmds = nil
 
-	first := m.waitRuntimeEventCmd()
-	if first == nil {
-		t.Fatal("expected runtime wait command")
-	}
-	msg, ok := first().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg, got %T", first())
-	}
+	msg := runtimeEventBatchFromCmd(t, m.waitRuntimeEventCmd(), "runtime wait")
 	next, cmd := m.Update(msg)
 	updated := next.(*uiModel)
 	for _, follow := range collectCmdMessages(t, cmd) {
@@ -715,14 +669,7 @@ func TestRuntimeModelHiddenCommittedSkipDoesNotTriggerFollowUpCommittedConversat
 	m.transcriptRevision = 12
 	m.forwardToView(tui.SetConversationMsg{BaseOffset: m.transcriptBaseOffset, TotalEntries: m.transcriptTotalEntries, Entries: m.transcriptEntries})
 
-	first := m.waitRuntimeEventCmd()
-	if first == nil {
-		t.Fatal("expected runtime wait command for hidden committed event")
-	}
-	firstMsg, ok := first().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg, got %T", first())
-	}
+	firstMsg := runtimeEventBatchFromCmd(t, m.waitRuntimeEventCmd(), "runtime wait command for hidden committed event")
 	next, cmd := m.Update(firstMsg)
 	updated := next.(*uiModel)
 	followMsgs := collectCmdMessages(t, cmd)
@@ -801,14 +748,7 @@ func TestRuntimeModelReplacementAndSameStepTailConvergeWithoutDuplicateRows(t *t
 	m.transcriptRevision = 10
 	m.forwardToView(tui.SetConversationMsg{Entries: m.transcriptEntries})
 
-	first := m.waitRuntimeEventCmd()
-	if first == nil {
-		t.Fatal("expected runtime wait command")
-	}
-	msg, ok := first().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg, got %T", first())
-	}
+	msg := runtimeEventBatchFromCmd(t, m.waitRuntimeEventCmd(), "runtime wait")
 	if got := len(msg.events); got != 2 {
 		t.Fatalf("expected replacement update and same-step tail in one batch, got %+v", msg.events)
 	}
@@ -860,14 +800,7 @@ func TestRuntimeModelRefreshesOngoingErrorOnDedicatedUpdateEvent(t *testing.T) {
 	m := newProjectedTestUIModel(client, runtimeEvents, nil)
 	m.startupCmds = nil
 
-	first := m.waitRuntimeEventCmd()
-	if first == nil {
-		t.Fatal("expected runtime wait command")
-	}
-	msg, ok := first().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg, got %T", first())
-	}
+	msg := runtimeEventBatchFromCmd(t, m.waitRuntimeEventCmd(), "runtime wait")
 	next, cmd := m.Update(msg)
 	updated := next.(*uiModel)
 	if cmd == nil {
@@ -914,14 +847,7 @@ func TestRuntimeModelOngoingErrorUpdatedSetsAndClearsBannerLifecycle(t *testing.
 	m.windowSizeKnown = true
 	m.forwardToView(tui.SetViewportSizeMsg{Lines: 20, Width: 100})
 
-	first := m.waitRuntimeEventCmd()
-	if first == nil {
-		t.Fatal("expected runtime wait command for ongoing error set")
-	}
-	firstMsg, ok := first().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg, got %T", first())
-	}
+	firstMsg := runtimeEventBatchFromCmd(t, m.waitRuntimeEventCmd(), "runtime wait command for ongoing error set")
 	next, cmd := m.Update(firstMsg)
 	updated := next.(*uiModel)
 	if cmd == nil {
@@ -937,14 +863,7 @@ func TestRuntimeModelOngoingErrorUpdatedSetsAndClearsBannerLifecycle(t *testing.
 		t.Fatalf("ongoing error text after set = %q, want background continuation failed", got)
 	}
 
-	second := updated.waitRuntimeEventCmd()
-	if second == nil {
-		t.Fatal("expected runtime wait command for ongoing error clear")
-	}
-	secondMsg, ok := second().(runtimeEventBatchMsg)
-	if !ok {
-		t.Fatalf("expected runtimeEventBatchMsg, got %T", second())
-	}
+	secondMsg := runtimeEventBatchFromCmd(t, updated.waitRuntimeEventCmd(), "runtime wait command for ongoing error clear")
 	next, cmd = updated.Update(secondMsg)
 	updated = next.(*uiModel)
 	if cmd == nil {

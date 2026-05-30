@@ -57,15 +57,6 @@ func countColor(colors []rgbColor, target rgbColor) int {
 	return count
 }
 
-func containsNonPreviewColor(colors []rgbColor, preview rgbColor) bool {
-	for _, color := range colors {
-		if color != preview {
-			return true
-		}
-	}
-	return false
-}
-
 func TestApplyANSIStyleIntentsSupportsPrimaryForeground(t *testing.T) {
 	primary := rgbColor{r: 1, g: 2, b: 3}
 	got := applyANSIStyleIntents("goal", ansiIntentPalette{PrimaryForeground: primary}, PrimaryForeground)

@@ -1,0 +1,26 @@
+Usage of builder service:
+  builder service status [--json]
+  builder service install [--force] [--no-start]
+  builder service uninstall [--keep-running]
+  builder service start
+  builder service stop
+  builder service restart [--if-installed]
+
+What This Does:
+  Manage the Builder server background service for one shared local `builder serve`.
+  The service starts at login and is supervised by the OS.
+
+Backends:
+  macOS: launchd LaunchAgent.
+  Linux/WSL2: systemd --user unit.
+  Windows: Scheduled Task, with Startup folder fallback when needed.
+
+macOS Notes:
+  `restart --if-installed` rewrites the LaunchAgent, unloads the loaded job, and bootstraps it again.
+  `start` bootstraps an unloaded LaunchAgent; launchd starts it through RunAtLoad.
+
+Examples:
+  builder service status
+  builder service install
+  builder service restart
+

@@ -53,12 +53,7 @@ func (s *Store) TaskIdentityForTransition(ctx context.Context, transitionID work
 	if id == "" {
 		return "", "", "", errors.New("transition id is required")
 	}
-	err = s.db.QueryRowContext(ctx, `
-SELECT t.id, t.project_id, t.workflow_id
-FROM task_transitions tt
-JOIN task_records t ON t.id = tt.task_id
-WHERE tt.id = ?
-LIMIT 1`, id).Scan(&taskID, &projectID, &workflowID)
+	err = s.db.QueryRowContext(ctx, workflowStoreQuery(taskIdentityForTransitionQuery), id).Scan(&taskID, &projectID, &workflowID)
 	return taskID, projectID, workflowID, err
 }
 

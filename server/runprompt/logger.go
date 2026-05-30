@@ -3,7 +3,6 @@ package runprompt
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,29 +77,6 @@ func (l *RunLogger) Logf(format string, args ...any) {
 			})
 		}
 	}
-}
-
-func ReportRunLoggerDiagnostic(w io.Writer, diag RunLoggerDiagnostic) {
-	if w == nil {
-		return
-	}
-	_, _ = fmt.Fprintln(w, FormatRunLoggerDiagnostic(diag))
-}
-
-func FormatRunLoggerDiagnostic(diag RunLoggerDiagnostic) string {
-	message := strings.TrimSpace(diag.Message)
-	if message == "" {
-		message = "run logger diagnostic"
-	}
-	parts := []string{"run_logger.diagnostic"}
-	if kind := strings.TrimSpace(diag.Kind); kind != "" {
-		parts = append(parts, fmt.Sprintf("kind=%s", kind))
-	}
-	parts = append(parts, fmt.Sprintf("message=%q", message))
-	if diag.Err != nil {
-		parts = append(parts, fmt.Sprintf("err=%q", diag.Err.Error()))
-	}
-	return strings.Join(parts, " ")
 }
 
 func FormatTranscriptProjectionDiagnostic(sessionID string, evt clientui.Event) string {

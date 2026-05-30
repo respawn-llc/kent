@@ -80,14 +80,7 @@ func TestSessionExecutionTargetClampsEscapingCwdRelpath(t *testing.T) {
 func TestResolveSessionExecutionTargetUsesMetadataAuthority(t *testing.T) {
 	ctx := context.Background()
 	store, cfg, binding := newMetadataTestStore(t)
-	projectSessionsDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
-	sess, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatalf("session.Create: %v", err)
-	}
-	if err := sess.EnsureDurable(); err != nil {
-		t.Fatalf("EnsureDurable: %v", err)
-	}
+	sess := createMetadataTestSession(t, store, cfg, binding)
 
 	target, err := store.ResolveSessionExecutionTarget(ctx, sess.Meta().SessionID)
 	if err != nil {
@@ -114,33 +107,13 @@ func TestResolveSessionExecutionTargetUsesMetadataAuthority(t *testing.T) {
 func TestObservedSessionMetadataPersistencePreservesExecutionTarget(t *testing.T) {
 	ctx := context.Background()
 	store, cfg, binding := newMetadataTestStore(t)
-	projectSessionsDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
 	worktreeRoot := filepath.Join(cfg.WorkspaceRoot, "wt-a")
 	worktreeSubdir := filepath.Join(worktreeRoot, "pkg")
+	canonicalWorktreeRoot := createMetadataTestWorktree(t, ctx, store, binding.WorkspaceID, "worktree-a", worktreeRoot)
 	if err := os.MkdirAll(worktreeSubdir, 0o755); err != nil {
 		t.Fatalf("MkdirAll worktreeSubdir: %v", err)
 	}
-	canonicalWorktreeRoot, err := config.CanonicalWorkspaceRoot(worktreeRoot)
-	if err != nil {
-		t.Fatalf("CanonicalWorkspaceRoot: %v", err)
-	}
-	if err := store.UpsertWorktreeRecord(ctx, WorktreeRecord{
-		ID:              "worktree-a",
-		WorkspaceID:     binding.WorkspaceID,
-		CanonicalRoot:   canonicalWorktreeRoot,
-		DisplayName:     filepath.Base(canonicalWorktreeRoot),
-		Availability:    "available",
-		GitMetadataJSON: `{}`,
-	}); err != nil {
-		t.Fatalf("UpsertWorktreeRecord: %v", err)
-	}
-	sess, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatalf("session.Create: %v", err)
-	}
-	if err := sess.EnsureDurable(); err != nil {
-		t.Fatalf("EnsureDurable: %v", err)
-	}
+	sess := createMetadataTestSession(t, store, cfg, binding)
 	if err := store.UpdateSessionExecutionTargetByID(ctx, sess.Meta().SessionID, binding.WorkspaceID, "worktree-a", "pkg"); err != nil {
 		t.Fatalf("UpdateSessionExecutionTargetByID: %v", err)
 	}
@@ -191,23 +164,7 @@ func TestUpdateSessionExecutionTargetByIDRejectsCrossWorkspaceWorktree(t *testin
 		t.Fatalf("session.Create: %v", err)
 	}
 	worktreeRoot := filepath.Join(cfgB.WorkspaceRoot, "wt-b")
-	if err := os.MkdirAll(worktreeRoot, 0o755); err != nil {
-		t.Fatalf("MkdirAll worktreeRoot: %v", err)
-	}
-	canonicalWorktreeRoot, err := config.CanonicalWorkspaceRoot(worktreeRoot)
-	if err != nil {
-		t.Fatalf("CanonicalWorkspaceRoot: %v", err)
-	}
-	if err := store.UpsertWorktreeRecord(ctx, WorktreeRecord{
-		ID:              "worktree-b",
-		WorkspaceID:     bindingB.WorkspaceID,
-		CanonicalRoot:   canonicalWorktreeRoot,
-		DisplayName:     filepath.Base(canonicalWorktreeRoot),
-		Availability:    "available",
-		GitMetadataJSON: `{}`,
-	}); err != nil {
-		t.Fatalf("UpsertWorktreeRecord: %v", err)
-	}
+	createMetadataTestWorktree(t, ctx, store, bindingB.WorkspaceID, "worktree-b", worktreeRoot)
 
 	err = store.UpdateSessionExecutionTargetByID(ctx, sess.Meta().SessionID, bindingA.WorkspaceID, "worktree-b", ".")
 	if err == nil || err.Error() != "worktree \"worktree-b\" does not belong to workspace \""+bindingA.WorkspaceID+"\"" {
@@ -288,14 +245,7 @@ func TestResolvePersistedSessionUsesReboundWorkspaceRoot(t *testing.T) {
 func TestRuntimeLeaseRecordsAreDurableControllerTokensOnly(t *testing.T) {
 	ctx := context.Background()
 	store, cfg, binding := newMetadataTestStore(t)
-	projectSessionsDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
-	sess, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatalf("session.Create: %v", err)
-	}
-	if err := sess.EnsureDurable(); err != nil {
-		t.Fatalf("EnsureDurable: %v", err)
-	}
+	sess := createMetadataTestSession(t, store, cfg, binding)
 
 	lease, err := store.CreateRuntimeLease(ctx, sess.Meta().SessionID)
 	if err != nil {
@@ -337,14 +287,7 @@ func TestValidateRuntimeLeaseRejectsBlankIDsBeforeLookup(t *testing.T) {
 func TestHiddenDurableSessionStaysOutOfProjectListingsUntilVisible(t *testing.T) {
 	ctx := context.Background()
 	store, cfg, binding := newMetadataTestStore(t)
-	projectSessionsDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
-	sess, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatalf("session.Create: %v", err)
-	}
-	if err := sess.EnsureDurable(); err != nil {
-		t.Fatalf("EnsureDurable: %v", err)
-	}
+	sess := createMetadataTestSession(t, store, cfg, binding)
 
 	projects, err := store.ListProjects(ctx)
 	if err != nil {
@@ -441,14 +384,7 @@ func TestSessionLaunchVisibilityTransitions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			store, cfg, binding := newMetadataTestStore(t)
-			projectSessionsDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
-			sess, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
-			if err != nil {
-				t.Fatalf("session.Create: %v", err)
-			}
-			if err := sess.EnsureDurable(); err != nil {
-				t.Fatalf("EnsureDurable: %v", err)
-			}
+			sess := createMetadataTestSession(t, store, cfg, binding)
 
 			assertProjectSessionListingCount(t, ctx, store, binding.ProjectID, 0)
 
@@ -493,10 +429,62 @@ func assertProjectSessionListingCount(t *testing.T, ctx context.Context, store *
 
 func newMetadataTestStore(t *testing.T) (*Store, config.App, Binding) {
 	t.Helper()
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	return newMetadataTestStoreForBoundWorkspace(t, t.TempDir())
+}
 
+func newMetadataTestStoreForBoundWorkspace(t *testing.T, workspace string) (*Store, config.App, Binding) {
+	t.Helper()
+	store, cfg := newMetadataTestStoreForWorkspace(t, workspace)
+	binding, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("RegisterWorkspaceBinding: %v", err)
+	}
+	return store, cfg, binding
+}
+
+func createMetadataTestSession(t *testing.T, store *Store, cfg config.App, binding Binding) *session.Store {
+	t.Helper()
+	projectSessionsDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	sess, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatalf("session.Create: %v", err)
+	}
+	if err := sess.EnsureDurable(); err != nil {
+		t.Fatalf("EnsureDurable: %v", err)
+	}
+	return sess
+}
+
+func createMetadataTestWorktree(t *testing.T, ctx context.Context, store *Store, workspaceID string, id string, root string) string {
+	t.Helper()
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll worktree root: %v", err)
+	}
+	canonicalRoot, err := config.CanonicalWorkspaceRoot(root)
+	if err != nil {
+		t.Fatalf("CanonicalWorkspaceRoot: %v", err)
+	}
+	if err := store.UpsertWorktreeRecord(ctx, WorktreeRecord{
+		ID:              id,
+		WorkspaceID:     workspaceID,
+		CanonicalRoot:   canonicalRoot,
+		DisplayName:     filepath.Base(canonicalRoot),
+		Availability:    "available",
+		GitMetadataJSON: `{}`,
+	}); err != nil {
+		t.Fatalf("UpsertWorktreeRecord: %v", err)
+	}
+	return canonicalRoot
+}
+
+func newMetadataTestStoreWithoutBinding(t *testing.T) (*Store, config.App) {
+	t.Helper()
+	return newMetadataTestStoreForWorkspace(t, t.TempDir())
+}
+
+func newMetadataTestStoreForWorkspace(t *testing.T, workspace string) (*Store, config.App) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
 	cfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
@@ -506,9 +494,5 @@ func newMetadataTestStore(t *testing.T) (*Store, config.App, Binding) {
 		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	binding, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
-	return store, cfg, binding
+	return store, cfg
 }

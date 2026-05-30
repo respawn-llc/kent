@@ -22,11 +22,6 @@ func (a uiRuntimeAdapter) applyProjectedChatSnapshot(snapshot clientui.ChatSnaps
 	return a.applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, page, clientui.TranscriptRecoveryCauseNone)
 }
 
-func (a uiRuntimeAdapter) applyProjectedSessionView(view clientui.RuntimeSessionView) tea.Cmd {
-	transcript := transcriptPageFromSessionView(view)
-	return batchCmds(a.applyProjectedSessionMetadata(view), a.applyRuntimeTranscriptPageWithRecovery(clientui.TranscriptPageRequest{}, transcript, clientui.TranscriptRecoveryCauseNone))
-}
-
 func (a uiRuntimeAdapter) applyProjectedSessionMetadata(view clientui.RuntimeSessionView) tea.Cmd {
 	m := a.model
 	if len(m.startupCmds) > 0 {

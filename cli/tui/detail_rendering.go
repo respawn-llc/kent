@@ -23,10 +23,6 @@ func (m Model) detailEntryExpanded(entryIndex int) bool {
 	return ok
 }
 
-func (m Model) detailWithTreeGuide(role RenderIntent, lines []string, expanded bool) []string {
-	return m.detailWithTreeGuideWithSymbol(role, lines, expanded, "")
-}
-
 func (m Model) detailWithTreeGuideWithSymbol(role RenderIntent, lines []string, expanded bool, symbolOverride string) []string {
 	if !m.compactDetail {
 		return lines
@@ -128,10 +124,6 @@ func removeExtraSpacesFromLongestRunLongerThan(line string, count int, minLen in
 	return line[:bestStart] + line[bestStart+remove:]
 }
 
-func (m Model) detailCollapsedStandardLines(entry TranscriptEntry, role RenderIntent, text string) []string {
-	return m.detailCollapsedStandardLinesWithSymbol(entry, role, text, "")
-}
-
 func (m Model) detailCollapsedStandardLinesWithSymbol(entry TranscriptEntry, role RenderIntent, text string, symbolOverride string) []string {
 	if label := strings.TrimSpace(entry.CompactLabel); label != "" {
 		if role == RenderIntentGoalFeedback {
@@ -201,10 +193,6 @@ func reviewerSuggestionsCollapsedLabel(entry TranscriptEntry) string {
 		return label
 	}
 	return ""
-}
-
-func (m Model) detailCollapsedToolLines(role RenderIntent, entry TranscriptEntry, resultSummary string) []string {
-	return m.detailCollapsedToolLinesWithSymbol(role, entry, resultSummary, "")
 }
 
 func (m Model) detailCollapsedToolLinesWithSymbol(role RenderIntent, entry TranscriptEntry, resultSummary string, symbolOverride string) []string {

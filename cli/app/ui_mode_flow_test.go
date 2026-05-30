@@ -10,7 +10,6 @@ import (
 	"builder/server/llm"
 	"builder/server/runtime"
 	"builder/server/session"
-	"builder/server/tools"
 	"builder/shared/cachewarn"
 	"builder/shared/clientui"
 
@@ -36,9 +35,7 @@ func (c *recordingTranscriptRuntimeClient) RefreshTranscriptPage(req clientui.Tr
 }
 
 func TestScenarioDetailWhileAgentWorksReturnsToLatestOngoingTail(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.termWidth = 100
-	m.termHeight = 18
+	m := setTestUITerminalSize(newProjectedStaticUIModel(), 100, 18)
 	m.input = "/"
 	m.refreshSlashCommandFilterFromInput()
 	m.syncViewport()
@@ -61,9 +58,7 @@ func TestScenarioDetailWhileAgentWorksReturnsToLatestOngoingTail(t *testing.T) {
 	if ongoing.view.Mode() != tui.ModeOngoing {
 		t.Fatalf("expected ongoing mode, got %q", ongoing.view.Mode())
 	}
-	ongoing.termWidth = 100
-	ongoing.termHeight = 18
-	ongoing.windowSizeKnown = true
+	ongoing = sizedTestUIModel(ongoing, 100, 18)
 	ongoing.syncViewport()
 
 	view := stripANSIAndTrimRight(ongoing.view.OngoingSnapshot())
@@ -77,9 +72,7 @@ func TestScenarioDetailWhileAgentWorksReturnsToLatestOngoingTail(t *testing.T) {
 }
 
 func TestCtrlTTogglesTranscriptModeLikeShiftTab(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.termWidth = 100
-	m.termHeight = 16
+	m := setTestUITerminalSize(newProjectedStaticUIModel(), 100, 16)
 	m.syncViewport()
 
 	m = updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlT})
@@ -94,9 +87,7 @@ func TestCtrlTTogglesTranscriptModeLikeShiftTab(t *testing.T) {
 }
 
 func TestCtrlTShowsLatestDetailTailWithoutResolvingMetricsEagerly(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.termWidth = 100
-	m.termHeight = 12
+	m := setTestUITerminalSize(newProjectedStaticUIModel(), 100, 12)
 	m.syncViewport()
 
 	for i := 0; i < 24; i++ {
@@ -130,13 +121,7 @@ func TestCtrlTPrimesDetailFromCurrentTailWhenPreviousDetailPageIsStale(t *testin
 	currentPage := clientui.TranscriptPage{SessionID: "session-1", Offset: 0, TotalEntries: 1}
 	currentPage.Entries = append(currentPage.Entries, clientui.ChatEntry{Role: "assistant", Text: "fresh ongoing tail"})
 	client := &recordingTranscriptRuntimeClient{loadPage: currentPage}
-	m := newProjectedTestUIModel(
-		client,
-		closedProjectedRuntimeEvents(),
-		closedAskEvents(),
-	)
-	m.termWidth = 100
-	m.termHeight = 12
+	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
 	m.sessionID = "session-1"
 	m.transcriptBaseOffset = currentPage.Offset
 	m.transcriptTotalEntries = currentPage.TotalEntries
@@ -165,9 +150,7 @@ func TestCtrlTPrimesDetailFromCurrentTailWhenPreviousDetailPageIsStale(t *testin
 }
 
 func TestCtrlTPrimesDetailFromCurrentTailAfterOngoingAdvancedSincePreviousDetail(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.termWidth = 100
-	m.termHeight = 12
+	m := setTestUITerminalSize(newProjectedStaticUIModel(), 100, 12)
 	m.syncViewport()
 	m = updateUIModel(t, m, tui.AppendTranscriptMsg{Role: "assistant", Text: "old detail tail", Committed: true})
 
@@ -199,13 +182,7 @@ func TestCtrlTPreservesLoadedDetailWindowWhenNoLocalTailIsKnown(t *testing.T) {
 		stalePage.Entries = append(stalePage.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("history %03d", 100+i)})
 	}
 	client := &recordingTranscriptRuntimeClient{loadPage: stalePage}
-	m := newProjectedTestUIModel(
-		client,
-		closedProjectedRuntimeEvents(),
-		closedAskEvents(),
-	)
-	m.termWidth = 100
-	m.termHeight = 12
+	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
 	m.sessionID = "session-1"
 	m.detailTranscript.replace(stalePage)
 	m.syncViewport()
@@ -229,9 +206,7 @@ func TestDetailEdgePagingWaitsForFirstNavigationToResolveMetrics(t *testing.T) {
 	client := &recordingTranscriptRuntimeClient{
 		loadPage: clientui.TranscriptPage{SessionID: "session-1"},
 	}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 12
+	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
 	m.syncViewport()
 
 	page := clientui.TranscriptPage{SessionID: "session-1", Offset: 100, TotalEntries: 500}
@@ -285,13 +260,7 @@ func TestCtrlTDeferredDetailLoadSkipsDuplicateSeededPageRequest(t *testing.T) {
 		seed.Entries = append(seed.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("line %03d", 300+i)})
 	}
 	client := &recordingTranscriptRuntimeClient{loadPage: seed}
-	m := newProjectedTestUIModel(
-		client,
-		closedProjectedRuntimeEvents(),
-		closedAskEvents(),
-	)
-	m.termWidth = 100
-	m.termHeight = 12
+	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
 	_ = m.runtimeAdapter().applyRuntimeTranscriptPage(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}, seed)
 	m.syncViewport()
 
@@ -335,13 +304,7 @@ func TestCtrlTDeferredDetailLoadSkippedKeepsDetailMetricsLazyEndToEnd(t *testing
 		seed.Entries = append(seed.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("line %03d", 300+i)})
 	}
 	client := &recordingTranscriptRuntimeClient{loadPage: seed}
-	m := newProjectedTestUIModel(
-		client,
-		closedProjectedRuntimeEvents(),
-		closedAskEvents(),
-	)
-	m.termWidth = 100
-	m.termHeight = 12
+	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
 	_ = m.runtimeAdapter().applyRuntimeTranscriptPage(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}, seed)
 	m.syncViewport()
 
@@ -376,13 +339,7 @@ func TestDeferredDetailLoadRefreshesWhenTranscriptDirty(t *testing.T) {
 		seed.Entries = append(seed.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("line %03d", 300+i)})
 	}
 	client := &recordingTranscriptRuntimeClient{loadPage: seed}
-	m := newProjectedTestUIModel(
-		client,
-		closedProjectedRuntimeEvents(),
-		closedAskEvents(),
-	)
-	m.termWidth = 100
-	m.termHeight = 12
+	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
 	_ = m.runtimeAdapter().applyRuntimeTranscriptPage(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}, seed)
 	m.syncViewport()
 
@@ -428,13 +385,7 @@ func TestCtrlTDeferredDetailLoadDoesNotMutateNativeHistoryState(t *testing.T) {
 		detailPage.Entries = append(detailPage.Entries, clientui.ChatEntry{Role: "assistant", Text: fmt.Sprintf("history %03d", i)})
 	}
 	client := &recordingTranscriptRuntimeClient{loadPage: detailPage}
-	m := newProjectedTestUIModel(
-		client,
-		closedProjectedRuntimeEvents(),
-		closedAskEvents(),
-	)
-	m.termWidth = 100
-	m.termHeight = 12
+	m := setTestUITerminalSize(newProjectedClosedUIModel(client), 100, 12)
 	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPage(clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail}, seed); cmd != nil {
 		_ = collectCmdMessages(t, cmd)
 	}
@@ -478,22 +429,14 @@ func TestCtrlTDeferredDetailLoadDoesNotMutateNativeHistoryState(t *testing.T) {
 
 func TestScenarioHarnessRestartAndSessionResumeKeepsTranscriptVisible(t *testing.T) {
 	workspace := t.TempDir()
-	store, err := session.Create(workspace, "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := createAppRuntimeSessionAt(t, workspace, "ws", workspace)
 	appendTranscriptMessage(t, store, llm.RoleUser, "u1")
 	appendTranscriptMessage(t, store, llm.RoleAssistant, "a1")
 	appendTranscriptMessage(t, store, llm.RoleUser, "u2")
 	appendTranscriptMessage(t, store, llm.RoleAssistant, "a2 tail")
 
-	eng, err := runtime.New(store, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
-	m := newProjectedEngineUIModel(eng)
-	m.termWidth = 90
-	m.termHeight = 16
+	eng := newAppRuntimeEngineWithStore(t, store, statusLineFakeClient{}, runtime.Config{})
+	m := setTestUITerminalSize(newProjectedEngineUIModel(eng), 90, 16)
 	m.syncViewport()
 
 	first := stripANSIAndTrimRight(m.view.OngoingSnapshot())
@@ -512,13 +455,8 @@ func TestScenarioHarnessRestartAndSessionResumeKeepsTranscriptVisible(t *testing
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	eng2, err := runtime.New(reopened, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine after restart: %v", err)
-	}
-	m2 := newProjectedEngineUIModel(eng2)
-	m2.termWidth = 90
-	m2.termHeight = 16
+	eng2 := newAppRuntimeEngineWithStore(t, reopened, statusLineFakeClient{}, runtime.Config{})
+	m2 := setTestUITerminalSize(newProjectedEngineUIModel(eng2), 90, 16)
 	m2.syncViewport()
 
 	afterRestart := stripANSIAndTrimRight(m2.view.OngoingSnapshot())
@@ -539,10 +477,7 @@ func TestScenarioHarnessRestartAndSessionResumeKeepsTranscriptVisible(t *testing
 
 func TestScenarioSessionResumeNormalizesLegacyReviewerEntriesInOngoingMode(t *testing.T) {
 	workspace := t.TempDir()
-	store, err := session.Create(workspace, "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := createAppRuntimeSessionAt(t, workspace, "ws", workspace)
 	if _, err := store.AppendEvent("legacy-step", "local_entry", map[string]any{
 		"role":         "reviewer_suggestions",
 		"text":         "Supervisor suggested:\n1. Add final verification notes.",
@@ -561,13 +496,8 @@ func TestScenarioSessionResumeNormalizesLegacyReviewerEntriesInOngoingMode(t *te
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	eng, err := runtime.New(reopened, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine after restart: %v", err)
-	}
-	m := newProjectedEngineUIModel(eng)
-	m.termWidth = 90
-	m.termHeight = 16
+	eng := newAppRuntimeEngineWithStore(t, reopened, statusLineFakeClient{}, runtime.Config{})
+	m := setTestUITerminalSize(newProjectedEngineUIModel(eng), 90, 16)
 	m.syncViewport()
 
 	ongoing := stripANSIAndTrimRight(m.view.OngoingSnapshot())
@@ -584,40 +514,24 @@ func TestScenarioSessionResumeNormalizesLegacyReviewerEntriesInOngoingMode(t *te
 
 func TestScenarioTeleportBetweenSessionsResetsVisibleConversation(t *testing.T) {
 	workspace := t.TempDir()
-	storeA, err := session.Create(workspace, "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store A: %v", err)
-	}
+	storeA := createAppRuntimeSessionAt(t, workspace, "ws", workspace)
 	appendTranscriptMessage(t, storeA, llm.RoleUser, "session-a-user")
 	appendTranscriptMessage(t, storeA, llm.RoleAssistant, "session-a-tail")
 
-	storeB, err := session.Create(workspace, "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store B: %v", err)
-	}
+	storeB := createAppRuntimeSessionAt(t, workspace, "ws", workspace)
 	appendTranscriptMessage(t, storeB, llm.RoleUser, "session-b-user")
 	appendTranscriptMessage(t, storeB, llm.RoleAssistant, "session-b-tail")
 
-	engA, err := runtime.New(storeA, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine A: %v", err)
-	}
-	modelA := newProjectedEngineUIModel(engA)
-	modelA.termWidth = 80
-	modelA.termHeight = 14
+	engA := newAppRuntimeEngineWithStore(t, storeA, statusLineFakeClient{}, runtime.Config{})
+	modelA := setTestUITerminalSize(newProjectedEngineUIModel(engA), 80, 14)
 	modelA.syncViewport()
 	viewA := stripANSIAndTrimRight(modelA.view.OngoingSnapshot())
 	if !strings.Contains(viewA, "session-a-tail") {
 		t.Fatalf("expected session A tail, got %q", viewA)
 	}
 
-	engB, err := runtime.New(storeB, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine B: %v", err)
-	}
-	modelB := newProjectedEngineUIModel(engB)
-	modelB.termWidth = 80
-	modelB.termHeight = 14
+	engB := newAppRuntimeEngineWithStore(t, storeB, statusLineFakeClient{}, runtime.Config{})
+	modelB := setTestUITerminalSize(newProjectedEngineUIModel(engB), 80, 14)
 	modelB.syncViewport()
 	viewB := stripANSIAndTrimRight(modelB.view.OngoingSnapshot())
 	if !strings.Contains(viewB, "session-b-tail") || strings.Contains(viewB, "session-a-tail") {
@@ -628,13 +542,8 @@ func TestScenarioTeleportBetweenSessionsResetsVisibleConversation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("reopen A: %v", err)
 	}
-	engA2, err := runtime.New(reopenA, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine A2: %v", err)
-	}
-	modelA2 := newProjectedEngineUIModel(engA2)
-	modelA2.termWidth = 80
-	modelA2.termHeight = 14
+	engA2 := newAppRuntimeEngineWithStore(t, reopenA, statusLineFakeClient{}, runtime.Config{})
+	modelA2 := setTestUITerminalSize(newProjectedEngineUIModel(engA2), 80, 14)
 	modelA2.syncViewport()
 	viewA2 := stripANSIAndTrimRight(modelA2.view.OngoingSnapshot())
 	if !strings.Contains(viewA2, "session-a-tail") || strings.Contains(viewA2, "session-b-tail") {
@@ -643,9 +552,7 @@ func TestScenarioTeleportBetweenSessionsResetsVisibleConversation(t *testing.T) 
 }
 
 func TestScenarioScrollAttemptsAcrossModesAfterLongDetailStay(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.termWidth = 80
-	m.termHeight = 10
+	m := setTestUITerminalSize(newProjectedStaticUIModel(), 80, 10)
 	m.syncViewport()
 
 	for i := 1; i <= 40; i++ {
@@ -704,7 +611,7 @@ func TestStartupHydrationKeepsCompactionSummaryDetailOnly(t *testing.T) {
 			},
 		},
 	}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m := newProjectedClosedUIModel(client)
 
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	updated := next.(*uiModel)
@@ -762,7 +669,7 @@ func TestStartupHydrationKeepsDefaultCacheWarningDetailOnly(t *testing.T) {
 			},
 		},
 	}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m := newProjectedClosedUIModel(client)
 
 	next, startupCmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	updated := next.(*uiModel)

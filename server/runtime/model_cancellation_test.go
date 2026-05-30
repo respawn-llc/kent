@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"builder/server/llm"
-	"builder/server/session"
 	"builder/server/tools"
 )
 
@@ -21,17 +20,10 @@ func (c cancelAwareModelClient) Generate(ctx context.Context, _ llm.Request) (ll
 }
 
 func TestGenerateWithRetryPropagatesContextCancellation(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	started := make(chan struct{})
 	client := cancelAwareModelClient{started: started}
-	eng, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)

@@ -2,35 +2,25 @@ package client
 
 import (
 	"context"
-	"errors"
 
 	"builder/shared/serverapi"
 	"builder/shared/servicecontract"
 )
 
-type ProcessControlClient interface {
-	KillProcess(ctx context.Context, req serverapi.ProcessKillRequest) (serverapi.ProcessKillResponse, error)
-	GetInlineOutput(ctx context.Context, req serverapi.ProcessInlineOutputRequest) (serverapi.ProcessInlineOutputResponse, error)
-}
+type ProcessControlClient = servicecontract.ProcessControlService
 
 type loopbackProcessControlClient struct {
-	service servicecontract.ProcessControlService
+	loopbackClient[servicecontract.ProcessControlService]
 }
 
 func NewLoopbackProcessControlClient(service servicecontract.ProcessControlService) ProcessControlClient {
-	return &loopbackProcessControlClient{service: service}
+	return &loopbackProcessControlClient{loopbackClient: newLoopbackClient(service)}
 }
 
 func (c *loopbackProcessControlClient) KillProcess(ctx context.Context, req serverapi.ProcessKillRequest) (serverapi.ProcessKillResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.ProcessKillResponse{}, errors.New("process control service is required")
-	}
-	return c.service.KillProcess(ctx, req)
+	return callLoopbackClient(c, "process control service is required", ctx, req, servicecontract.ProcessControlService.KillProcess)
 }
 
 func (c *loopbackProcessControlClient) GetInlineOutput(ctx context.Context, req serverapi.ProcessInlineOutputRequest) (serverapi.ProcessInlineOutputResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.ProcessInlineOutputResponse{}, errors.New("process control service is required")
-	}
-	return c.service.GetInlineOutput(ctx, req)
+	return callLoopbackClient(c, "process control service is required", ctx, req, servicecontract.ProcessControlService.GetInlineOutput)
 }

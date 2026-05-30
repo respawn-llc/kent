@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"database/sql"
+	_ "embed"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,6 +12,24 @@ import (
 
 	_ "modernc.org/sqlite"
 )
+
+//go:embed testdata/workflow_project_key_backfill.sql
+var workflowProjectKeyBackfillSQL string
+
+//go:embed testdata/workflow_schema_node_groups.sql
+var workflowSchemaNodeGroupsSQL string
+
+//go:embed testdata/workflow_seed_graph_nodes.sql
+var workflowSeedGraphNodesSQL string
+
+//go:embed testdata/workflow_seed_graph_edges.sql
+var workflowSeedGraphEdgesSQL string
+
+//go:embed testdata/workflow_seed_task.sql
+var workflowSeedTaskSQL string
+
+//go:embed testdata/workflow_seed_placement.sql
+var workflowSeedPlacementSQL string
 
 func TestOpenCreatesWorkflowSchemaAndForeignKeys(t *testing.T) {
 	store, err := Open(t.TempDir())
@@ -159,15 +178,7 @@ func TestOpenBackfillsProjectKeysForExistingMetadataDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open version 4 db: %v", err)
 	}
-	if _, err := db.Exec(`
-INSERT INTO projects (id, display_name, created_at_unix_ms, updated_at_unix_ms, metadata_json)
-VALUES ('project-a', 'Builder', 1, 1, '{}'), ('project-b', 'Builder', 2, 2, '{}');
-INSERT INTO workspaces (id, project_id, canonical_root_path, display_name, availability, is_primary, git_metadata_json, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('workspace-a', 'project-a', '/tmp/workflow-a', 'workflow-a', 'available', 1, '{}', 1, 1),
-       ('workspace-b', 'project-b', '/tmp/workflow-b', 'workflow-b', 'available', 1, '{}', 2, 2);
-`); err != nil {
-		t.Fatalf("seed version 4 db: %v", err)
-	}
+	execSeed(t, db, "version 4 db", workflowProjectKeyBackfillSQL)
 	if err := db.Close(); err != nil {
 		t.Fatalf("close version 4 db: %v", err)
 	}
@@ -220,15 +231,7 @@ func TestWorkflowSchemaConstraints(t *testing.T) {
 	seedWorkflowGraph(t, store.db, binding.ProjectID, now)
 	seedWorkflowTask(t, store, binding.ProjectID, "BLD-1")
 
-	if _, err := store.db.Exec(`
-INSERT INTO workflows (id, name, version, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('workflow-other', 'Other', 1, ?, ?);
-INSERT INTO workflow_node_groups (id, workflow_id, group_key, display_name)
-VALUES ('group-workflow-1', 'workflow-1', 'impl', 'Implementation'),
-       ('group-other', 'workflow-other', 'impl', 'Implementation');
-`, now, now); err != nil {
-		t.Fatalf("seed node groups: %v", err)
-	}
+	execSeed(t, store.db, "node groups", workflowSchemaNodeGroupsSQL, now, now)
 
 	assertSQLiteConstraint(t, store.db, `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, output_fields_json) VALUES ('node-second-start', 'workflow-1', 'second_start', 'start', 'Second Start', '[]')`)
 	assertSQLiteConstraint(t, store.db, `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, output_fields_json) VALUES ('node-invalid-kind', 'workflow-1', 'bad', 'robot', 'Bad', '[]')`)
@@ -664,16 +667,11 @@ func seedWorkflowGraphForProject(t *testing.T, db *sql.DB, projectID string, now
 	}
 	execSeed(t, db, "workflow", `INSERT INTO workflows (id, name, description, version, created_at_unix_ms, updated_at_unix_ms)
 VALUES (?, 'Workflow', '', 1, ?, ?)`, workflowID, now, now)
-	execSeed(t, db, "nodes", `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, output_fields_json)
-VALUES (?, ?, 'backlog', 'start', 'Backlog', '[]'),
-       (?, ?, 'agent', 'agent', 'Agent', '[{"name":"summary","description":"Summary."}]'),
-       (?, ?, 'done', 'terminal', 'Done', '[]')`, startID, workflowID, agentID, workflowID, doneID, workflowID)
+	execSeed(t, db, "nodes", workflowSeedGraphNodesSQL, startID, workflowID, agentID, workflowID, doneID, workflowID)
 	execSeed(t, db, "transition groups", `INSERT INTO workflow_transition_groups (id, source_node_id, transition_id, display_name)
 VALUES (?, ?, 'start', 'Start'),
        (?, ?, 'done', 'Done')`, startGroupID, startID, doneGroupID, agentID)
-	execSeed(t, db, "edges", `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, context_mode, input_bindings_json, output_requirements_json)
-VALUES (?, ?, 'start', ?, 'new_session', '{}', '{}'),
-       (?, ?, 'done', ?, 'new_session', '{}', '{"fields":["summary"]}')`, "edge-start-"+suffix, startGroupID, agentID, "edge-done-"+suffix, doneGroupID, doneID)
+	execSeed(t, db, "edges", workflowSeedGraphEdgesSQL, "edge-start-"+suffix, startGroupID, agentID, "edge-done-"+suffix, doneGroupID, doneID)
 	linkID := "link-" + suffix
 	execSeed(t, db, "project workflow link", `INSERT INTO project_workflow_links (id, project_id, workflow_id, created_at_unix_ms, updated_at_unix_ms)
 VALUES (?, ?, ?, ?, ?)`, linkID, projectID, workflowID, now, now)
@@ -695,16 +693,6 @@ func seedWorkflowTask(t *testing.T, store *Store, projectID string, shortID stri
 func seedWorkflowTaskWithID(t *testing.T, store *Store, taskID string, linkID string, taskSeq int64, shortID string, placementID string, nodeID string) {
 	t.Helper()
 	now := time.Now().UTC().UnixMilli()
-	if _, err := store.db.Exec(`
-INSERT INTO tasks (id, project_workflow_link_id, workflow_revision_seen, task_seq, short_id, title, body, created_at_unix_ms, updated_at_unix_ms, metadata_json)
-VALUES (?, ?, 1, ?, ?, 'Task', 'Body', ?, ?, '{}');
-`, taskID, linkID, taskSeq, shortID, now, now); err != nil {
-		t.Fatalf("seed workflow task: %v", err)
-	}
-	if _, err := store.db.Exec(`
-INSERT INTO task_node_placements (id, task_id, node_id, state, created_at_unix_ms, updated_at_unix_ms)
-VALUES (?, ?, ?, 'active', ?, ?);
-`, placementID, taskID, nodeID, now, now); err != nil {
-		t.Fatalf("seed workflow placement: %v", err)
-	}
+	execSeed(t, store.db, "workflow task", workflowSeedTaskSQL, taskID, linkID, taskSeq, shortID, now, now)
+	execSeed(t, store.db, "workflow placement", workflowSeedPlacementSQL, placementID, taskID, nodeID, now, now)
 }

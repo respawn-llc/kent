@@ -54,27 +54,18 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
 	defer restore()
 
-	workflowOut, workflowErr, code := runWorkflowRootCommand("workflow", "create", "Workflow")
-	if code != 0 {
-		t.Fatalf("workflow create exit=%d stderr=%q", code, workflowErr)
-	}
+	workflowOut, _ := runWorkflowRootCommandOK(t, "workflow", "create", "Workflow")
 	workflowID := labeledOutputValue(t, workflowOut, "workflow_id")
 	if workflowID == "" {
 		t.Fatalf("workflow create output = %q", workflowOut)
 	}
 
-	inspectOut, inspectErr, code := runWorkflowRootCommand("workflow", "inspect", workflowID)
-	if code != 0 {
-		t.Fatalf("workflow inspect exit=%d stderr=%q", code, inspectErr)
-	}
+	inspectOut, _ := runWorkflowRootCommandOK(t, "workflow", "inspect", workflowID)
 	if !strings.Contains(inspectOut, "backlog") || !strings.Contains(inspectOut, "done") {
 		t.Fatalf("inspect output = %q, want auto-created backlog and done", inspectOut)
 	}
 
-	listOut, listErr, code := runWorkflowRootCommand("workflow", "list")
-	if code != 0 {
-		t.Fatalf("workflow list exit=%d stderr=%q", code, listErr)
-	}
+	listOut, _ := runWorkflowRootCommandOK(t, "workflow", "list")
 	if !strings.Contains(listOut, workflowID) {
 		t.Fatalf("workflow list output = %q, want workflow id", listOut)
 	}
@@ -84,29 +75,18 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 		t.Fatalf("invalid workflow validate code=%d output=%q", code, validateOut)
 	}
 
-	nodeOut, nodeErr, code := runWorkflowRootCommand("workflow", "node", "add", workflowID, "--key", "implement", "--kind", "agent", "--agent", "workflow-test", "--prompt", "Do work")
-	if code != 0 {
-		t.Fatalf("workflow node add exit=%d stderr=%q", code, nodeErr)
-	}
+	nodeOut, _ := runWorkflowRootCommandOK(t, "workflow", "node", "add", workflowID, "--key", "implement", "--kind", "agent", "--agent", "workflow-test", "--prompt", "Do work")
 	if labeledOutputValue(t, nodeOut, "node_id") == "" {
 		t.Fatalf("node output = %q, want node id", nodeOut)
 	}
 
-	if _, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "implement", "--context", "new_session"); code != 0 {
-		t.Fatalf("workflow start edge add exit=%d stderr=%q", code, edgeErr)
-	}
-	edgeOut, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "implement", "--transition", "done", "--edge-key", "done", "--to", "done", "--context", "new_session")
-	if code != 0 {
-		t.Fatalf("workflow done edge add exit=%d stderr=%q", code, edgeErr)
-	}
+	runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "implement", "--context", "new_session")
+	edgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "implement", "--transition", "done", "--edge-key", "done", "--to", "done", "--context", "new_session")
 	if labeledOutputValue(t, edgeOut, "edge_id") == "" || labeledOutputValue(t, edgeOut, "group_id") == "" {
 		t.Fatalf("edge output = %q, want edge and group ids", edgeOut)
 	}
 
-	linkOut, linkErr, code := runWorkflowRootCommand("workflow", "link", binding.ProjectID, workflowID, "--default")
-	if code != 0 {
-		t.Fatalf("workflow link exit=%d stderr=%q", code, linkErr)
-	}
+	linkOut, _ := runWorkflowRootCommandOK(t, "workflow", "link", binding.ProjectID, workflowID, "--default")
 	linkID := labeledOutputValue(t, linkOut, "link_id")
 	if linkID == "" {
 		t.Fatalf("link output = %q, want link id", linkOut)
@@ -115,92 +95,56 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 		t.Fatalf("link default output = %q, want true; output=%q", got, linkOut)
 	}
 
-	defaultOut, defaultErr, code := runWorkflowRootCommand("workflow", "default", binding.ProjectID, workflowID)
-	if code != 0 {
-		t.Fatalf("workflow default exit=%d stderr=%q", code, defaultErr)
-	}
+	defaultOut, _ := runWorkflowRootCommandOK(t, "workflow", "default", binding.ProjectID, workflowID)
 	if !strings.Contains(defaultOut, linkID) {
 		t.Fatalf("default output = %q, want link id %s", defaultOut, linkID)
 	}
 
-	unlinkOut, unlinkErr, code := runWorkflowRootCommand("workflow", "unlink", binding.ProjectID, workflowID)
-	if code != 0 {
-		t.Fatalf("workflow unlink exit=%d stderr=%q", code, unlinkErr)
-	}
+	unlinkOut, _ := runWorkflowRootCommandOK(t, "workflow", "unlink", binding.ProjectID, workflowID)
 	if !strings.Contains(unlinkOut, linkID) {
 		t.Fatalf("unlink output = %q, want link id %s", unlinkOut, linkID)
 	}
 
-	if _, linkErr, code = runWorkflowRootCommand("workflow", "link", binding.ProjectID, workflowID, "--default"); code != 0 {
-		t.Fatalf("workflow relink exit=%d stderr=%q", code, linkErr)
-	}
-	validateOut, validateErr, code := runWorkflowRootCommand("workflow", "validate", workflowID)
-	if code != 0 {
-		t.Fatalf("valid workflow validate exit=%d stdout=%q stderr=%q", code, validateOut, validateErr)
-	}
+	runWorkflowRootCommandOK(t, "workflow", "link", binding.ProjectID, workflowID, "--default")
+	validateOut, _ = runWorkflowRootCommandOK(t, "workflow", "validate", workflowID)
 	if !strings.Contains(validateOut, "valid\ttrue") {
 		t.Fatalf("validate output = %q, want valid true", validateOut)
 	}
 
-	taskOut, taskErr, code := runWorkflowRootCommand("task", "create", "--title", "Task", "--body", "Body", "--workflow", workflowID, "--project", binding.ProjectID)
-	if code != 0 {
-		t.Fatalf("task create exit=%d stderr=%q", code, taskErr)
-	}
+	taskOut, _ := runWorkflowRootCommandOK(t, "task", "create", "--title", "Task", "--body", "Body", "--workflow", workflowID, "--project", binding.ProjectID)
 	taskID := labeledOutputValue(t, taskOut, "task_id")
 	shortID := labeledOutputValue(t, taskOut, "short_id")
 	if taskID == "" || shortID == "" {
 		t.Fatalf("task output = %q, want task and short ids", taskOut)
 	}
 
-	taskListOut, taskListErr, code := runWorkflowRootCommand("task", "list", "--project", binding.ProjectID)
-	if code != 0 {
-		t.Fatalf("task list exit=%d stderr=%q", code, taskListErr)
-	}
+	taskListOut, _ := runWorkflowRootCommandOK(t, "task", "list", "--project", binding.ProjectID)
 	if !strings.Contains(taskListOut, shortID) || !strings.Contains(taskListOut, taskID) {
 		t.Fatalf("task list output = %q, want ids", taskListOut)
 	}
 
-	taskShowOut, taskShowErr, code := runWorkflowRootCommand("task", "show", "--project", binding.ProjectID, shortID)
-	if code != 0 {
-		t.Fatalf("task show exit=%d stderr=%q", code, taskShowErr)
-	}
+	taskShowOut, _ := runWorkflowRootCommandOK(t, "task", "show", "--project", binding.ProjectID, shortID)
 	if !strings.Contains(taskShowOut, "placements") || !strings.Contains(taskShowOut, taskID) {
 		t.Fatalf("task show output = %q, want placement section", taskShowOut)
 	}
-	taskShowOut, taskShowErr, code = runWorkflowRootCommand("task", "show", "--project", "missing-project", taskID)
-	if code != 0 {
-		t.Fatalf("task show by full id exit=%d stderr=%q", code, taskShowErr)
-	}
+	taskShowOut, _ = runWorkflowRootCommandOK(t, "task", "show", "--project", "missing-project", taskID)
 	if !strings.Contains(taskShowOut, taskID) {
 		t.Fatalf("task show by full id output = %q, want task id", taskShowOut)
 	}
 
-	commentOut, commentErr, code := runWorkflowRootCommand("task", "comment", "add", "--project", binding.ProjectID, "--body", "note", shortID)
-	if code != 0 {
-		t.Fatalf("comment add exit=%d stderr=%q", code, commentErr)
-	}
+	commentOut, _ := runWorkflowRootCommandOK(t, "task", "comment", "add", "--project", binding.ProjectID, "--body", "note", shortID)
 	commentID := labeledOutputValue(t, commentOut, "comment_id")
 	if commentID == "" {
 		t.Fatalf("comment output = %q, want comment id", commentOut)
 	}
-	if _, replaceErr, code := runWorkflowRootCommand("task", "comment", "replace", "--body", "edited", commentID); code != 0 {
-		t.Fatalf("comment replace exit=%d stderr=%q", code, replaceErr)
-	}
-	commentListOut, commentListErr, code := runWorkflowRootCommand("task", "comment", "list", "--project", binding.ProjectID, shortID)
-	if code != 0 {
-		t.Fatalf("comment list exit=%d stderr=%q", code, commentListErr)
-	}
+	runWorkflowRootCommandOK(t, "task", "comment", "replace", "--body", "edited", commentID)
+	commentListOut, _ := runWorkflowRootCommandOK(t, "task", "comment", "list", "--project", binding.ProjectID, shortID)
 	if !strings.Contains(commentListOut, commentID) || !strings.Contains(commentListOut, "edited") {
 		t.Fatalf("comment list output = %q, want edited comment", commentListOut)
 	}
-	if _, deleteErr, code := runWorkflowRootCommand("task", "comment", "delete", commentID); code != 0 {
-		t.Fatalf("comment delete exit=%d stderr=%q", code, deleteErr)
-	}
+	runWorkflowRootCommandOK(t, "task", "comment", "delete", commentID)
 
-	startOut, startErr, code := runWorkflowRootCommand("task", "start", "--project", binding.ProjectID, shortID)
-	if code != 0 {
-		t.Fatalf("task start exit=%d stderr=%q", code, startErr)
-	}
+	startOut, _ := runWorkflowRootCommandOK(t, "task", "start", "--project", binding.ProjectID, shortID)
 	runID := labeledOutputValue(t, startOut, "run_id")
 	if runID == "" {
 		t.Fatalf("start output = %q, want run id", startOut)
@@ -212,18 +156,12 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 	if err := remote.store.InterruptRunGeneration(context.Background(), workflow.RunID(runID), claimed.Generation, "manual", "{}"); err != nil {
 		t.Fatalf("InterruptRunGeneration for resume command: %v", err)
 	}
-	resumeOut, resumeErr, code := runWorkflowRootCommand("task", "resume", "--project", binding.ProjectID, shortID)
-	if code != 0 {
-		t.Fatalf("task resume exit=%d stderr=%q", code, resumeErr)
-	}
+	resumeOut, _ := runWorkflowRootCommandOK(t, "task", "resume", "--project", binding.ProjectID, shortID)
 	if labeledOutputValue(t, resumeOut, "run_id") != runID {
 		t.Fatalf("resume output = %q, want run id %s", resumeOut, runID)
 	}
 
-	cancelOut, cancelErr, code := runWorkflowRootCommand("task", "cancel", "--project", binding.ProjectID, "--reason", "test", shortID)
-	if code != 0 {
-		t.Fatalf("task cancel exit=%d stderr=%q", code, cancelErr)
-	}
+	cancelOut, _ := runWorkflowRootCommandOK(t, "task", "cancel", "--project", binding.ProjectID, "--reason", "test", shortID)
 	if !strings.Contains(cancelOut, taskID) {
 		t.Fatalf("cancel output = %q, want task id", cancelOut)
 	}
@@ -244,49 +182,30 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
 	defer restore()
 
-	workflowOut, workflowErr, code := runWorkflowRootCommand("workflow", "create", "Editable Workflow")
-	if code != 0 {
-		t.Fatalf("workflow create exit=%d stderr=%q", code, workflowErr)
-	}
+	workflowOut, _ := runWorkflowRootCommandOK(t, "workflow", "create", "Editable Workflow")
 	workflowID := labeledOutputValue(t, workflowOut, "workflow_id")
 	if workflowID == "" {
 		t.Fatalf("workflow create output = %q, want workflow id", workflowOut)
 	}
-	if _, nodeErr, code := runWorkflowRootCommand("workflow", "node", "add", workflowID, "--key", "triaging", "--kind", "agent", "--display-name", "Triaging", "--agent", "fast", "--prompt", "Triage."); code != 0 {
-		t.Fatalf("workflow node add exit=%d stderr=%q", code, nodeErr)
-	}
-	if _, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "new_session"); code != 0 {
-		t.Fatalf("workflow start edge add exit=%d stderr=%q", code, edgeErr)
-	}
-	edgeOut, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "triaging", "--transition", "done", "--edge-key", "done", "--to", "done", "--context", "continue_session", "--context-source", "node:triaging")
-	if code != 0 {
-		t.Fatalf("workflow done edge add exit=%d stderr=%q", code, edgeErr)
-	}
+	runWorkflowRootCommandOK(t, "workflow", "node", "add", workflowID, "--key", "triaging", "--kind", "agent", "--display-name", "Triaging", "--agent", "fast", "--prompt", "Triage.")
+	runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "new_session")
+	edgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "triaging", "--transition", "done", "--edge-key", "done", "--to", "done", "--context", "continue_session", "--context-source", "node:triaging")
 	edgeID := labeledOutputValue(t, edgeOut, "edge_id")
 	if edgeID == "" {
 		t.Fatalf("edge output = %q, want edge id", edgeOut)
 	}
 
-	updateNodeOut, updateNodeErr, code := runWorkflowRootCommand("workflow", "node", "update", workflowID, "triaging", "--prompt", "Decide whether the ticket is actionable.")
-	if code != 0 {
-		t.Fatalf("workflow node update exit=%d stderr=%q", code, updateNodeErr)
-	}
+	updateNodeOut, _ := runWorkflowRootCommandOK(t, "workflow", "node", "update", workflowID, "triaging", "--prompt", "Decide whether the ticket is actionable.")
 	if !strings.Contains(updateNodeOut, "triaging") {
 		t.Fatalf("node update output = %q, want node key", updateNodeOut)
 	}
 
-	updateEdgeOut, updateEdgeErr, code := runWorkflowRootCommand("workflow", "edge", "update", workflowID, edgeID, "--transition", "not_actionable", "--edge-key", "not_actionable")
-	if code != 0 {
-		t.Fatalf("workflow edge update exit=%d stderr=%q", code, updateEdgeErr)
-	}
+	updateEdgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--transition", "not_actionable", "--edge-key", "not_actionable")
 	if !strings.Contains(updateEdgeOut, edgeID) {
 		t.Fatalf("edge update output = %q, want edge id", updateEdgeOut)
 	}
 
-	inspectOut, inspectErr, code := runWorkflowRootCommand("workflow", "inspect", workflowID)
-	if code != 0 {
-		t.Fatalf("workflow inspect exit=%d stderr=%q", code, inspectErr)
-	}
+	inspectOut, _ := runWorkflowRootCommandOK(t, "workflow", "inspect", workflowID)
 	for _, want := range []string{"\tnot_actionable\tNot Actionable", "context_source\tnot_actionable\tselected_node\ttriaging"} {
 		if !strings.Contains(inspectOut, want) {
 			t.Fatalf("inspect output = %q, want %q", inspectOut, want)
@@ -869,6 +788,15 @@ func runWorkflowRootCommand(args ...string) (string, string, int) {
 	var stderr bytes.Buffer
 	code := rootCommand(args, strings.NewReader(""), &stdout, &stderr)
 	return stdout.String(), stderr.String(), code
+}
+
+func runWorkflowRootCommandOK(t *testing.T, args ...string) (string, string) {
+	t.Helper()
+	stdout, stderr, code := runWorkflowRootCommand(args...)
+	if code != 0 {
+		t.Fatalf("%s exit=%d stdout=%q stderr=%q", strings.Join(args, " "), code, stdout, stderr)
+	}
+	return stdout, stderr
 }
 
 func labeledOutputValue(t *testing.T, output string, label string) string {

@@ -30,21 +30,7 @@ import (
 func TestBuildToolRegistryAllowsHostedWebSearchWithoutLocalRuntimeBuilder(t *testing.T) {
 	workspace := t.TempDir()
 
-	registry, _, _, err := BuildToolRegistry(
-		workspace,
-		"",
-		[]toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
-		15*time.Second,
-		16_000,
-		false,
-		true,
-		nil,
-		nil,
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("build tool registry: %v", err)
-	}
+	registry, _ := newRuntimeWireToolRegistry(t, workspace, toolspec.ToolExecCommand, toolspec.ToolWebSearch)
 
 	defs := registry.Definitions()
 	if len(defs) != 1 {
@@ -70,21 +56,12 @@ func TestBuildToolRegistryViewImageApprovedOutsidePathIsLogged(t *testing.T) {
 	}
 
 	logger := &testLogger{}
-	registry, broker, _, err := BuildToolRegistry(
+	registry, broker := newRuntimeWireLoggedToolRegistry(
+		t,
 		workspace,
-		"",
-		[]toolspec.ID{toolspec.ToolViewImage},
-		15*time.Second,
-		16_000,
-		false,
-		true,
 		logger,
-		nil,
-		nil,
+		toolspec.ToolViewImage,
 	)
-	if err != nil {
-		t.Fatalf("build tool registry: %v", err)
-	}
 	broker.SetAskHandler(func(req askquestion.Request) (askquestion.Response, error) {
 		if !strings.Contains(req.Question, "Allow reading") {
 			t.Fatalf("expected read-focused approval question, got %q", req.Question)
@@ -166,21 +143,7 @@ func TestLocalToolRegistryBindingRebindUpdatesExecCommandRoot(t *testing.T) {
 	if err := os.MkdirAll(rootB, 0o755); err != nil {
 		t.Fatalf("mkdir rootB: %v", err)
 	}
-	binding, _, _, err := NewLocalToolRegistryBinding(
-		rootA,
-		"",
-		[]toolspec.ID{toolspec.ToolExecCommand},
-		15*time.Second,
-		16_000,
-		false,
-		true,
-		nil,
-		nil,
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("new local tool registry binding: %v", err)
-	}
+	binding := newRuntimeWireBinding(t, rootA, toolspec.ToolExecCommand)
 	if got := shellPwdOutput(t, binding.Registry()); got != canonicalPathForTest(t, rootA) {
 		t.Fatalf("pwd before rebind = %q, want %q", got, canonicalPathForTest(t, rootA))
 	}
@@ -212,21 +175,7 @@ func TestNewLocalToolRegistryBindingRejectsEmptyWorkspaceRoot(t *testing.T) {
 
 func TestLocalToolRegistryBindingRebindRejectsEmptyWorkspaceRoot(t *testing.T) {
 	root := t.TempDir()
-	binding, _, _, err := NewLocalToolRegistryBinding(
-		root,
-		"",
-		[]toolspec.ID{toolspec.ToolExecCommand},
-		15*time.Second,
-		16_000,
-		false,
-		true,
-		nil,
-		nil,
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("new local tool registry binding: %v", err)
-	}
+	binding := newRuntimeWireBinding(t, root, toolspec.ToolExecCommand)
 	if err := binding.Rebind("   "); err == nil || err.Error() != "workspace root is required" {
 		t.Fatalf("rebind error = %v, want workspace root is required", err)
 	}
@@ -234,42 +183,20 @@ func TestLocalToolRegistryBindingRebindRejectsEmptyWorkspaceRoot(t *testing.T) {
 
 func TestBackgroundEventRouterSkipsDeveloperNoticeForOrphanedShells(t *testing.T) {
 	root := t.TempDir()
-	storeA, err := session.Create(root, "ws-a", root)
-	if err != nil {
-		t.Fatalf("create store A: %v", err)
-	}
-	storeB, err := session.Create(root, "ws-b", root)
-	if err != nil {
-		t.Fatalf("create store B: %v", err)
-	}
+	storeA := newRuntimeWireSession(t, root, "ws-a")
+	storeB := newRuntimeWireSession(t, root, "ws-b")
 	clientA := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "a", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
 	clientB := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "b", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
 	var mu sync.Mutex
 	backgroundUpdates := 0
-	engA, err := runtime.New(storeA, clientA, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine A: %v", err)
-	}
-	t.Cleanup(func() {
-		if closeErr := engA.Close(); closeErr != nil {
-			t.Fatalf("close engine A: %v", closeErr)
-		}
-	})
-	engB, err := runtime.New(storeB, clientB, tools.NewRegistry(), runtime.Config{Model: "gpt-5", OnEvent: func(evt runtime.Event) {
+	_ = newRuntimeWireEngine(t, storeA, clientA)
+	engB := newRuntimeWireEngine(t, storeB, clientB, runtime.Config{Model: "gpt-5", OnEvent: func(evt runtime.Event) {
 		if evt.Kind == runtime.EventBackgroundUpdated {
 			mu.Lock()
 			backgroundUpdates++
 			mu.Unlock()
 		}
 	}})
-	if err != nil {
-		t.Fatalf("new engine B: %v", err)
-	}
-	t.Cleanup(func() {
-		if closeErr := engB.Close(); closeErr != nil {
-			t.Fatalf("close engine B: %v", closeErr)
-		}
-	})
 
 	router := &BackgroundEventRouter{}
 	router.SetActiveSession(storeB.Meta().SessionID, engB)
@@ -292,34 +219,12 @@ func TestBackgroundEventRouterSkipsDeveloperNoticeForOrphanedShells(t *testing.T
 
 func TestBackgroundEventRouterRoutesCompletionToMatchingActiveOwnerSession(t *testing.T) {
 	root := t.TempDir()
-	storeA, err := session.Create(root, "ws-a", root)
-	if err != nil {
-		t.Fatalf("create store A: %v", err)
-	}
-	storeB, err := session.Create(root, "ws-b", root)
-	if err != nil {
-		t.Fatalf("create store B: %v", err)
-	}
+	storeA := newRuntimeWireSession(t, root, "ws-a")
+	storeB := newRuntimeWireSession(t, root, "ws-b")
 	clientA := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "a", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
 	clientB := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "b", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
-	engA, err := runtime.New(storeA, clientA, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine A: %v", err)
-	}
-	t.Cleanup(func() {
-		if closeErr := engA.Close(); closeErr != nil {
-			t.Fatalf("close engine A: %v", closeErr)
-		}
-	})
-	engB, err := runtime.New(storeB, clientB, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine B: %v", err)
-	}
-	t.Cleanup(func() {
-		if closeErr := engB.Close(); closeErr != nil {
-			t.Fatalf("close engine B: %v", closeErr)
-		}
-	})
+	engA := newRuntimeWireEngine(t, storeA, clientA)
+	engB := newRuntimeWireEngine(t, storeB, clientB)
 
 	router := &BackgroundEventRouter{}
 	router.SetActiveSession(storeA.Meta().SessionID, engA)
@@ -340,34 +245,12 @@ func TestBackgroundEventRouterRoutesCompletionToMatchingActiveOwnerSession(t *te
 
 func TestBackgroundEventRouterClearActiveSessionDropsOnlyThatOwner(t *testing.T) {
 	root := t.TempDir()
-	storeA, err := session.Create(root, "ws-a", root)
-	if err != nil {
-		t.Fatalf("create store A: %v", err)
-	}
-	storeB, err := session.Create(root, "ws-b", root)
-	if err != nil {
-		t.Fatalf("create store B: %v", err)
-	}
+	storeA := newRuntimeWireSession(t, root, "ws-a")
+	storeB := newRuntimeWireSession(t, root, "ws-b")
 	clientA := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "a", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
 	clientB := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "b", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
-	engA, err := runtime.New(storeA, clientA, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine A: %v", err)
-	}
-	t.Cleanup(func() {
-		if closeErr := engA.Close(); closeErr != nil {
-			t.Fatalf("close engine A: %v", closeErr)
-		}
-	})
-	engB, err := runtime.New(storeB, clientB, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine B: %v", err)
-	}
-	t.Cleanup(func() {
-		if closeErr := engB.Close(); closeErr != nil {
-			t.Fatalf("close engine B: %v", closeErr)
-		}
-	})
+	engA := newRuntimeWireEngine(t, storeA, clientA)
+	engB := newRuntimeWireEngine(t, storeB, clientB)
 
 	router := &BackgroundEventRouter{}
 	router.SetActiveSession(storeA.Meta().SessionID, engA)
@@ -394,20 +277,9 @@ func TestBackgroundEventRouterClearActiveSessionDropsOnlyThatOwner(t *testing.T)
 
 func TestBackgroundEventRouterQueuesNoticeForActiveOwnerSession(t *testing.T) {
 	root := t.TempDir()
-	store, err := session.Create(root, "ws", root)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newRuntimeWireSession(t, root, "ws")
 	client := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "notice handled", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
-	eng, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
-	t.Cleanup(func() {
-		if closeErr := eng.Close(); closeErr != nil {
-			t.Fatalf("close engine: %v", closeErr)
-		}
-	})
+	eng := newRuntimeWireEngine(t, store, client)
 
 	router := &BackgroundEventRouter{}
 	router.SetActiveSession(store.Meta().SessionID, eng)
@@ -615,10 +487,7 @@ func TestReviewerAuthNoneDoesNotSendGlobalAuthToLocalEndpoint(t *testing.T) {
 
 func TestReviewerProviderCapabilitiesOverrideControlsRuntimePromptCacheKey(t *testing.T) {
 	root := t.TempDir()
-	store, err := session.Create(root, "ws", root)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newRuntimeWireSession(t, root, "ws")
 	mainClient := &runtimewireCaptureClient{
 		caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true},
 		responses: []llm.Response{{
@@ -642,7 +511,7 @@ func TestReviewerProviderCapabilitiesOverrideControlsRuntimePromptCacheKey(t *te
 		},
 	}
 
-	eng, err := runtime.New(store, mainClient, tools.NewRegistry(), runtime.Config{
+	eng := newRuntimeWireEngine(t, store, mainClient, runtime.Config{
 		Model: "gpt-5",
 		Reviewer: runtime.ReviewerConfig{
 			Frequency: "all",
@@ -650,9 +519,6 @@ func TestReviewerProviderCapabilitiesOverrideControlsRuntimePromptCacheKey(t *te
 			Client:    reviewerOverride,
 		},
 	})
-	if err != nil {
-		t.Fatalf("new runtime: %v", err)
-	}
 	if _, err := eng.SubmitUserMessage(context.Background(), "review this"); err != nil {
 		t.Fatalf("submit user message: %v", err)
 	}
@@ -707,6 +573,56 @@ func outsideNonTempDir(t *testing.T) string {
 	}
 	t.Skip("unable to create non-temporary outside directory for test")
 	return ""
+}
+
+func newRuntimeWireSession(t *testing.T, root string, name string) *session.Store {
+	t.Helper()
+	store, err := session.Create(root, name, root)
+	if err != nil {
+		t.Fatalf("create store %s: %v", name, err)
+	}
+	return store
+}
+
+func newRuntimeWireToolRegistry(t *testing.T, workspace string, enabled ...toolspec.ID) (*tools.Registry, *askquestion.Broker) {
+	t.Helper()
+	return newRuntimeWireLoggedToolRegistry(t, workspace, nil, enabled...)
+}
+
+func newRuntimeWireLoggedToolRegistry(t *testing.T, workspace string, logger Logger, enabled ...toolspec.ID) (*tools.Registry, *askquestion.Broker) {
+	t.Helper()
+	registry, broker, _, err := BuildToolRegistry(workspace, "", enabled, 15*time.Second, 16_000, false, true, logger, nil, nil)
+	if err != nil {
+		t.Fatalf("build tool registry: %v", err)
+	}
+	return registry, broker
+}
+
+func newRuntimeWireBinding(t *testing.T, workspace string, enabled ...toolspec.ID) *LocalToolRegistryBinding {
+	t.Helper()
+	binding, _, _, err := NewLocalToolRegistryBinding(workspace, "", enabled, 15*time.Second, 16_000, false, true, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("new local tool registry binding: %v", err)
+	}
+	return binding
+}
+
+func newRuntimeWireEngine(t *testing.T, store *session.Store, client llm.Client, cfg ...runtime.Config) *runtime.Engine {
+	t.Helper()
+	engineConfig := runtime.Config{Model: "gpt-5"}
+	if len(cfg) > 0 {
+		engineConfig = cfg[0]
+	}
+	eng, err := runtime.New(store, client, tools.NewRegistry(), engineConfig)
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	t.Cleanup(func() {
+		if closeErr := eng.Close(); closeErr != nil {
+			t.Fatalf("close runtime: %v", closeErr)
+		}
+	})
+	return eng
 }
 
 func shellPwdOutput(t *testing.T, registry *tools.Registry) string {

@@ -13,9 +13,7 @@ import (
 func TestBootstrapAppIgnoresOAuthIssuerOverrideEnv(t *testing.T) {
 	t.Setenv("BUILDER_OAUTH_ISSUER", "https://attacker.example")
 	t.Setenv("BUILDER_OAUTH_CLIENT_ID", "client-test")
-	t.Setenv("HOME", t.TempDir())
-	workspace := t.TempDir()
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	readyAuth := readyMemoryAuthHandler()
 	readyAuth.lookupEnv = os.Getenv

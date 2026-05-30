@@ -14,22 +14,6 @@ type Snapshot struct {
 	ConversationFreshness ConversationFreshness
 }
 
-func SnapshotFromStore(store *Store) (Snapshot, error) {
-	if store == nil {
-		return Snapshot{}, fmt.Errorf("session store is required")
-	}
-	events, err := store.ReadEvents()
-	if err != nil {
-		return Snapshot{}, err
-	}
-	return Snapshot{
-		Meta:                  store.Meta(),
-		Events:                events,
-		Runs:                  runsFromEvents(events),
-		ConversationFreshness: store.ConversationFreshness(),
-	}, nil
-}
-
 func SnapshotFromDir(sessionDir string) (Snapshot, error) {
 	meta, err := ReadMetaFromDir(sessionDir)
 	if err != nil {

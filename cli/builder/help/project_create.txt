@@ -1,0 +1,11 @@
+Usage of builder project create:
+  builder project create --path <server-path> --name <project-name>
+
+What This Does:
+  Create a new Builder project and bind its first workspace root.
+  The path must exist and must be visible to the Builder server.
+
+Examples:
+  builder project create --path /srv/repos/app --name app
+
+Flags:

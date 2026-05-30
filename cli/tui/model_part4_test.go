@@ -1,105 +1,17 @@
 package tui
 
 import (
-	"builder/shared/transcript"
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type sgrStyleState struct {
 	hasForeground bool
 	faint         bool
-}
-
-func mutedShellStyleStateAtLineStarts(text string) []sgrStyleState {
-	parser := ansi.GetParser()
-	defer ansi.PutParser(parser)
-
-	states := []sgrStyleState{{}}
-	state := byte(0)
-	input := text
-	current := sgrStyleState{}
-	for len(input) > 0 {
-		seq, width, n, newState := ansi.GraphemeWidth.DecodeSequenceInString(input, state, parser)
-		if n <= 0 {
-			break
-		}
-		state = newState
-		input = input[n:]
-		if width > 0 {
-			continue
-		}
-		if strings.Contains(seq, "\n") {
-			for range strings.Count(seq, "\n") {
-				states = append(states, current)
-			}
-			continue
-		}
-		if ansi.Cmd(parser.Command()).Final() != 'm' {
-			continue
-		}
-		current = applySGRStyleState(current, parser.Params())
-	}
-	return states
-}
-
-func applySGRStyleState(current sgrStyleState, params ansi.Params) sgrStyleState {
-	if len(params) == 0 {
-		return sgrStyleState{}
-	}
-	for idx := 0; idx < len(params); {
-		param, _, ok := params.Param(idx, 0)
-		if !ok {
-			break
-		}
-		switch {
-		case param == 0:
-			current = sgrStyleState{}
-			idx++
-		case param == 2:
-			current.faint = true
-			idx++
-		case param == 22:
-			current.faint = false
-			idx++
-		case param == 39:
-			current.hasForeground = false
-			idx++
-		case (30 <= param && param <= 37) || (90 <= param && param <= 97):
-			current.hasForeground = true
-			idx++
-		case param == 38:
-			_, consumed, ok := parseANSIForegroundColor(params, idx)
-			if !ok {
-				idx++
-				continue
-			}
-			current.hasForeground = true
-			idx += consumed
-		default:
-			idx++
-		}
-	}
-	return current
-}
-
-func lineContaining(text, substring string) string {
-	for _, line := range strings.Split(text, "\n") {
-		if strings.Contains(ansi.Strip(line), substring) {
-			return line
-		}
-	}
-	return ""
-}
-
-func oldFormatterBaseForegroundEscapes(theme string) []string {
-	if strings.EqualFold(strings.TrimSpace(theme), "light") {
-		return []string{"\x1b[38;5;234m"}
-	}
-	return []string{"\x1b[38;5;252m", "\x1b[97m", "\x1b[38;2;255;255;255m"}
 }
 
 func TestDetailProjectionViewportKeepsLineCountAcrossScrollUpdates(t *testing.T) {
@@ -212,12 +124,6 @@ func TestOngoingStreamingUpdateAllocsStayBounded(t *testing.T) {
 	}
 }
 
-type errString string
-
-func (e errString) Error() string {
-	return string(e)
-}
-
 func updateModel(t *testing.T, m Model, msg tea.Msg) Model {
 	t.Helper()
 
@@ -244,27 +150,6 @@ func plainTranscript(view string) string {
 		lines[i] = strings.TrimRight(lines[i], " ")
 	}
 	return strings.Join(lines, "\n")
-}
-
-func trimTrailingBlankLines(text string) string {
-	lines := strings.Split(text, "\n")
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
-	return strings.Join(lines, "\n")
-}
-
-func appendShellToolCall(t *testing.T, m Model, command string) Model {
-	t.Helper()
-	return updateModel(t, m, AppendTranscriptMsg{
-		Role: "tool_call",
-		Text: command,
-		ToolCall: &transcript.ToolCallMeta{
-			ToolName: "exec_command",
-			IsShell:  true,
-			Command:  command,
-		},
-	})
 }
 
 func containsInOrder(text string, parts ...string) bool {

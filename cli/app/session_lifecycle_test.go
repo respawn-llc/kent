@@ -165,10 +165,7 @@ func TestRunSessionLifecyclePickerWorkspaceChangeYesRetargetsSessionAndReplans(t
 	previousWorkspace := t.TempDir()
 	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(currentWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadAppTestConfig(t, currentWorkspace, config.LoadOptions{})
 	binding := mustRegisterAppBinding(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
 	store := createAttachedAuthoritativeAppSession(t, cfg.PersistenceRoot, binding.ProjectID, previousWorkspace)
 	projectViews := sessionLifecycleProjectViewClient(binding, cfg.WorkspaceRoot, []clientui.SessionSummary{{SessionID: store.Meta().SessionID, UpdatedAt: time.Now().UTC()}})
@@ -247,7 +244,7 @@ func TestRunSessionLifecyclePickerWorkspaceChangeYesRetargetsSessionAndReplans(t
 		},
 	}
 
-	err = runSessionLifecycle(context.Background(), server, nil, "")
+	err := runSessionLifecycle(context.Background(), server, nil, "")
 	if !errors.Is(err, stopErr) {
 		t.Fatalf("runSessionLifecycle error = %v, want %v", err, stopErr)
 	}
@@ -275,10 +272,7 @@ func TestRunSessionLifecyclePickerWorkspaceChangeNoReturnsToPicker(t *testing.T)
 	previousWorkspace := t.TempDir()
 	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(currentWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadAppTestConfig(t, currentWorkspace, config.LoadOptions{})
 	binding := mustRegisterAppBinding(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
 	store := createAttachedAuthoritativeAppSession(t, cfg.PersistenceRoot, binding.ProjectID, previousWorkspace)
 	projectViews := sessionLifecycleProjectViewClient(binding, cfg.WorkspaceRoot, []clientui.SessionSummary{{SessionID: store.Meta().SessionID, UpdatedAt: time.Now().UTC()}})
@@ -338,7 +332,7 @@ func TestRunSessionLifecyclePickerWorkspaceChangeNoReturnsToPicker(t *testing.T)
 		}},
 	}
 
-	err = runSessionLifecycle(context.Background(), server, nil, "")
+	err := runSessionLifecycle(context.Background(), server, nil, "")
 	if err == nil || err.Error() != "startup canceled by user" {
 		t.Fatalf("runSessionLifecycle error = %v, want startup canceled by user", err)
 	}
@@ -358,10 +352,7 @@ func TestRunSessionLifecycleStalePickedSessionReturnsToPickerAndOpensAnother(t *
 	currentWorkspace := t.TempDir()
 	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(currentWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadAppTestConfig(t, currentWorkspace, config.LoadOptions{})
 	binding := mustRegisterAppBinding(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
 	validStore := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
 	staleSessionID := "missing-session"
@@ -434,7 +425,7 @@ func TestRunSessionLifecycleStalePickedSessionReturnsToPickerAndOpensAnother(t *
 		},
 	}
 
-	err = runSessionLifecycle(context.Background(), server, nil, "")
+	err := runSessionLifecycle(context.Background(), server, nil, "")
 	if !errors.Is(err, stopErr) {
 		t.Fatalf("runSessionLifecycle error = %v, want %v", err, stopErr)
 	}
@@ -458,10 +449,7 @@ func TestRunSessionLifecycleExplicitSessionIDBypassesWorkspaceChangePrompt(t *te
 	previousWorkspace := t.TempDir()
 	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(currentWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadAppTestConfig(t, currentWorkspace, config.LoadOptions{})
 	binding := mustRegisterAppBinding(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
 	store := createAttachedAuthoritativeAppSession(t, cfg.PersistenceRoot, binding.ProjectID, previousWorkspace)
 	projectViews := sessionLifecycleProjectViewClient(binding, cfg.WorkspaceRoot, nil)
@@ -506,7 +494,7 @@ func TestRunSessionLifecycleExplicitSessionIDBypassesWorkspaceChangePrompt(t *te
 		},
 	}
 
-	err = runSessionLifecycle(context.Background(), server, nil, store.Meta().SessionID)
+	err := runSessionLifecycle(context.Background(), server, nil, store.Meta().SessionID)
 	if !errors.Is(err, stopErr) {
 		t.Fatalf("runSessionLifecycle error = %v, want %v", err, stopErr)
 	}
@@ -907,10 +895,7 @@ func TestReviewTeleportLifecyclePreservesParentWorktreeContext(t *testing.T) {
 
 func TestResolveSessionActionForkRollbackTeleportsToForkWithPrompt(t *testing.T) {
 	root := t.TempDir()
-	store, err := session.Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
+	store := createAppRuntimeSessionAt(t, root, "workspace-x", "/tmp/work")
 	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
@@ -951,10 +936,7 @@ func TestResolveSessionActionForkRollbackTeleportsToForkWithPrompt(t *testing.T)
 
 func TestForkRollbackLifecycleDoesNotPersistEditedPromptAsSourceDraft(t *testing.T) {
 	root := t.TempDir()
-	store, err := session.Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create source store: %v", err)
-	}
+	store := createAppRuntimeSessionAt(t, root, "workspace-x", "/tmp/work")
 	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}

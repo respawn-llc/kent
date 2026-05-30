@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"builder/server/llm"
-	"builder/server/session"
 	"builder/server/tools"
 	"builder/server/workflow"
 	"builder/server/workflowruntime"
@@ -78,22 +77,21 @@ func testWorkflowConfig(controller workflowruntime.Controller, mode config.Workf
 	}
 }
 
+func completeNodeCall(id string, input json.RawMessage) llm.ToolCall {
+	return llm.ToolCall{ID: id, Name: string(toolspec.ToolCompleteNode), Input: input}
+}
+
+func structuredFinalResponse(content string) llm.Response {
+	return llm.Response{Assistant: llm.Message{Role: llm.RoleAssistant, Content: content, Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}}
+}
+
 func TestWorkflowToolModeExposesCompleteNodeDespiteEnabledTools(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
 	workflowCfg.Contract.OutputFields = append(workflowCfg.Contract.OutputFields, workflow.OutputField{Name: "details", Description: "Detailed evidence."})
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:        "gpt-5",
+	eng := mustNewWorkflowTestEngine(t, store, &fakeClient{}, workflowCfg, Config{
 		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
-		WorkflowRun:  workflowCfg,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	req, err := eng.buildRequest(context.Background(), "step", true)
 	if err != nil {
 		t.Fatalf("buildRequest: %v", err)
@@ -115,18 +113,10 @@ func TestWorkflowToolModeExposesCompleteNodeDespiteEnabledTools(t *testing.T) {
 }
 
 func TestCompleteNodeNotAdvertisedOutsideWorkflow(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:        "gpt-5",
+	store := mustCreateTestSession(t)
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		EnabledTools: []toolspec.ID{toolspec.ToolCompleteNode},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	req, err := eng.buildRequest(context.Background(), "step", true)
 	if err != nil {
 		t.Fatalf("buildRequest: %v", err)
@@ -139,35 +129,22 @@ func TestCompleteNodeNotAdvertisedOutsideWorkflow(t *testing.T) {
 }
 
 func TestWorkflowModePromptInjectedWithoutHeadlessOrUserPrompt(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
-	client := &fakeClient{responses: []llm.Response{{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "complete", Phase: llm.MessagePhaseCommentary},
-		ToolCalls: []llm.ToolCall{{
+	client := &fakeClient{responses: []llm.Response{commentaryResponse("complete",
+		llm.ToolCall{
 			ID:    "call_complete",
 			Name:  string(toolspec.ToolCompleteNode),
 			Input: json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`),
-		}},
-		Usage: llm.Usage{WindowTokens: 200000},
-	}}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:        "gpt-5",
+		},
+	)}}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{
 		HeadlessMode: true,
-		WorkflowRun:  testWorkflowConfig(controller, config.WorkflowCompletionModeTool),
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if len(client.calls) != 1 {
-		t.Fatalf("model calls = %d, want 1", len(client.calls))
-	}
+	assertModelCallCount(t, client, 1)
 	messages := requestMessages(client.calls[0])
 	workflowIdx := -1
 	for idx, msg := range messages {
@@ -192,31 +169,15 @@ func TestWorkflowModePromptInjectedWithoutHeadlessOrUserPrompt(t *testing.T) {
 }
 
 func TestWorkflowModePromptReinjectedForNewRunAfterExistingWorkflowPrompt(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	if _, err := store.AppendEvent("seed", "message", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorkflowMode, SourcePath: "run-old", Content: "old workflow instructions"}); err != nil {
 		t.Fatalf("seed workflow message: %v", err)
 	}
 	controller := &fakeWorkflowController{}
-	client := &fakeClient{responses: []llm.Response{{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "complete", Phase: llm.MessagePhaseCommentary},
-		ToolCalls: []llm.ToolCall{{
-			ID:    "call_complete",
-			Name:  string(toolspec.ToolCompleteNode),
-			Input: json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`),
-		}},
-		Usage: llm.Usage{WindowTokens: 200000},
-	}}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:       "gpt-5",
-		WorkflowRun: testWorkflowConfig(controller, config.WorkflowCompletionModeTool),
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	client := &fakeClient{responses: []llm.Response{commentaryResponse("complete",
+		completeNodeCall("call_complete", json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)),
+	)}}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{})
 	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -239,30 +200,15 @@ func TestWorkflowModePromptReinjectedForNewRunAfterExistingWorkflowPrompt(t *tes
 }
 
 func TestWorkflowStructuredModeUsesStructuredOutput(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeStructuredOutput)
 	workflowCfg.Contract.OutputFields = append(workflowCfg.Contract.OutputFields, workflow.OutputField{Name: "details", Description: "Detailed evidence."})
-	client := &fakeClient{responses: []llm.Response{{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"transition_id":"done","commentary":"complete","summary":"done","details":"evidence"}`, Phase: llm.MessagePhaseFinal},
-		Usage:     llm.Usage{WindowTokens: 200000},
-	}}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:       "gpt-5",
-		WorkflowRun: workflowCfg,
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	client := &fakeClient{responses: []llm.Response{structuredFinalResponse(`{"transition_id":"done","commentary":"complete","summary":"done","details":"evidence"}`)}}
+	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{})
 	if _, err := eng.SubmitUserMessage(context.Background(), "node prompt"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if len(client.calls) != 1 {
-		t.Fatalf("model calls = %d, want 1", len(client.calls))
-	}
+	assertModelCallCount(t, client, 1)
 	req := client.calls[0]
 	if req.StructuredOutput == nil {
 		t.Fatal("expected structured output")
@@ -289,19 +235,11 @@ func TestWorkflowStructuredModeUsesStructuredOutput(t *testing.T) {
 }
 
 func TestWorkflowAutoFallsBackToToolModeWhenStructuredOutputUnsupported(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "legacy"}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:       "legacy",
-		WorkflowRun: testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeAuto),
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeAuto), Config{
+		Model: "legacy",
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	req, err := eng.buildRequest(context.Background(), "step", true)
 	if err != nil {
 		t.Fatalf("buildRequest: %v", err)
@@ -318,47 +256,24 @@ func TestWorkflowAutoFallsBackToToolModeWhenStructuredOutputUnsupported(t *testi
 }
 
 func TestWorkflowForcedStructuredOutputFailsWhenUnsupported(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "legacy"}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:       "legacy",
-		WorkflowRun: testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeStructuredOutput),
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeStructuredOutput), Config{
+		Model: "legacy",
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
-	_, err = eng.buildRequest(context.Background(), "step", true)
+	_, err := eng.buildRequest(context.Background(), "step", true)
 	if err == nil || !strings.Contains(err.Error(), "structured output") {
 		t.Fatalf("buildRequest error = %v, want structured output support error", err)
 	}
 }
 
 func TestCompleteNodeOutsideWorkflowReturnsToolError(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{
-		{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "complete", Phase: llm.MessagePhaseCommentary},
-			ToolCalls: []llm.ToolCall{{
-				ID:    "call_complete",
-				Name:  string(toolspec.ToolCompleteNode),
-				Input: json.RawMessage(`{"transition_id":"done"}`),
-			}},
-			Usage: llm.Usage{WindowTokens: 200000},
-		},
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
+		commentaryResponse("complete", completeNodeCall("call_complete", json.RawMessage(`{"transition_id":"done"}`))),
+		structuredFinalResponse("done"),
 	}}
-	eng, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{})
 	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -374,35 +289,19 @@ func TestCompleteNodeOutsideWorkflowReturnsToolError(t *testing.T) {
 }
 
 func TestWorkflowMixedCompleteNodeRunsSideEffects(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	sideEffect := &countingTool{name: toolspec.ToolExecCommand}
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
-		{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "mixed", Phase: llm.MessagePhaseCommentary},
-			ToolCalls: []llm.ToolCall{
-				{ID: "call_complete", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)},
-				{ID: "call_shell", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"echo side-effect"}`)},
-			},
-			Usage: llm.Usage{WindowTokens: 200000},
-		},
-		{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "complete", Phase: llm.MessagePhaseCommentary},
-			ToolCalls: []llm.ToolCall{{ID: "call_complete_2", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)}},
-			Usage:     llm.Usage{WindowTokens: 200000},
-		},
+		commentaryResponse("mixed",
+			completeNodeCall("call_complete", json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)),
+			llm.ToolCall{ID: "call_shell", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"echo side-effect"}`)},
+		),
+		commentaryResponse("complete", completeNodeCall("call_complete_2", json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`))),
 	}}
-	eng, err := New(store, client, tools.NewRegistry(sideEffect), Config{
-		Model:       "gpt-5",
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(sideEffect), Config{
 		WorkflowRun: testWorkflowConfig(controller, config.WorkflowCompletionModeTool),
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -418,34 +317,16 @@ func TestWorkflowMixedCompleteNodeRunsSideEffects(t *testing.T) {
 }
 
 func TestWorkflowDuplicateCompleteNodePreflightSkipsSideEffects(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
-		{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "duplicated", Phase: llm.MessagePhaseCommentary},
-			ToolCalls: []llm.ToolCall{
-				{ID: "call_complete_1", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)},
-				{ID: "call_complete_2", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)},
-			},
-			Usage: llm.Usage{WindowTokens: 200000},
-		},
-		{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "complete", Phase: llm.MessagePhaseCommentary},
-			ToolCalls: []llm.ToolCall{{ID: "call_complete_3", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)}},
-			Usage:     llm.Usage{WindowTokens: 200000},
-		},
+		commentaryResponse("duplicated",
+			completeNodeCall("call_complete_1", json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)),
+			completeNodeCall("call_complete_2", json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)),
+		),
+		commentaryResponse("complete", completeNodeCall("call_complete_3", json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`))),
 	}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:       "gpt-5",
-		WorkflowRun: testWorkflowConfig(controller, config.WorkflowCompletionModeTool),
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{})
 	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -458,159 +339,91 @@ func TestWorkflowDuplicateCompleteNodePreflightSkipsSideEffects(t *testing.T) {
 }
 
 func TestWorkflowStructuredCompletionStopsWithoutAnotherTurn(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"transition_id":"done","commentary":"complete","summary":"done"}`, Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "unexpected", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
+		structuredFinalResponse(`{"transition_id":"done","commentary":"complete","summary":"done"}`),
+		structuredFinalResponse("unexpected"),
 	}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:       "gpt-5",
-		WorkflowRun: testWorkflowConfig(controller, config.WorkflowCompletionModeStructuredOutput),
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeStructuredOutput), Config{})
 	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if len(client.calls) != 1 {
-		t.Fatalf("model calls = %d, want 1", len(client.calls))
-	}
+	assertModelCallCount(t, client, 1)
 	if got := controller.completed.Load(); got != 1 {
 		t.Fatalf("completions = %d, want 1", got)
 	}
 }
 
 func TestWorkflowInvalidCompletionAttemptsInterruptAtCap(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
-		{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "bad", Phase: llm.MessagePhaseCommentary},
-			ToolCalls: []llm.ToolCall{{ID: "call_bad_1", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"summary":1}`)}},
-			Usage:     llm.Usage{WindowTokens: 200000},
-		},
-		{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "bad", Phase: llm.MessagePhaseCommentary},
-			ToolCalls: []llm.ToolCall{{ID: "call_bad_2", Name: string(toolspec.ToolCompleteNode), Input: json.RawMessage(`{"summary":1}`)}},
-			Usage:     llm.Usage{WindowTokens: 200000},
-		},
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "unexpected", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
+		commentaryResponse("bad", completeNodeCall("call_bad_1", json.RawMessage(`{"summary":1}`))),
+		commentaryResponse("bad", completeNodeCall("call_bad_2", json.RawMessage(`{"summary":1}`))),
+		structuredFinalResponse("unexpected"),
 	}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:       "gpt-5",
-		WorkflowRun: testWorkflowConfig(controller, config.WorkflowCompletionModeTool),
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{})
 	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if len(client.calls) != 2 {
-		t.Fatalf("model calls = %d, want 2", len(client.calls))
-	}
+	assertModelCallCount(t, client, 2)
 	if got := controller.maxHits.Load(); got != 1 {
 		t.Fatalf("max hits = %d, want 1", got)
 	}
 }
 
 func TestWorkflowFinalAnswerViolationsInterruptAtCap(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done 1", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done 2", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done 3", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "unexpected", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
+		structuredFinalResponse("done 1"),
+		structuredFinalResponse("done 2"),
+		structuredFinalResponse("done 3"),
+		structuredFinalResponse("unexpected"),
 	}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:       "gpt-5",
-		WorkflowRun: testWorkflowConfig(controller, config.WorkflowCompletionModeTool),
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{})
 	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if len(client.calls) != 3 {
-		t.Fatalf("model calls = %d, want 3", len(client.calls))
-	}
+	assertModelCallCount(t, client, 3)
 	if got := controller.maxHits.Load(); got != 1 {
 		t.Fatalf("max hits = %d, want 1", got)
 	}
 }
 
 func TestWorkflowEmptyFinalAnswerViolationsInterruptAtCap(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "unexpected", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
+		structuredFinalResponse(""),
+		structuredFinalResponse(""),
+		structuredFinalResponse(""),
+		structuredFinalResponse("unexpected"),
 	}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:       "gpt-5",
-		WorkflowRun: testWorkflowConfig(controller, config.WorkflowCompletionModeTool),
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{})
 	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if len(client.calls) != 3 {
-		t.Fatalf("model calls = %d, want 3", len(client.calls))
-	}
+	assertModelCallCount(t, client, 3)
 	if got := controller.maxHits.Load(); got != 1 {
 		t.Fatalf("max hits = %d, want 1", got)
 	}
 }
 
 func TestWorkflowStructuredEmptyFinalInterruptsAtInvalidCompletionCap(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "unexpected", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200000}},
+		structuredFinalResponse(""),
+		structuredFinalResponse(""),
+		structuredFinalResponse("unexpected"),
 	}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:       "gpt-5",
-		WorkflowRun: testWorkflowConfig(controller, config.WorkflowCompletionModeStructuredOutput),
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeStructuredOutput), Config{})
 	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if len(client.calls) != 2 {
-		t.Fatalf("model calls = %d, want 2", len(client.calls))
-	}
+	assertModelCallCount(t, client, 2)
 	if got := controller.maxHits.Load(); got != 1 {
 		t.Fatalf("max hits = %d, want 1", got)
 	}

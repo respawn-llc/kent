@@ -2,7 +2,6 @@ package readimage
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -12,13 +11,10 @@ import (
 	"image/gif"
 	"image/jpeg"
 	"image/png"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"builder/server/tools"
-	"builder/shared/toolspec"
 )
 
 func TestCall_OptimizesLargeJPEGToSmallerJPEGOutput(t *testing.T) {
@@ -33,24 +29,10 @@ func TestCall_OptimizesLargeJPEGToSmallerJPEGOutput(t *testing.T) {
 	if int64(original.Len()) <= maxFileSizeBytes {
 		t.Fatalf("test image must exceed attachment cap before optimization: %d", original.Len())
 	}
-	imagePath := filepath.Join(workspace, "photo.jpg")
-	if err := os.WriteFile(imagePath, original.Bytes(), 0o644); err != nil {
-		t.Fatalf("write image: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "photo.jpg", original.Bytes())
 
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-optimized",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"photo.jpg"}`),
-	})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, true)
+	result := callReadImageTool(t, tool, "call-optimized", `{"path":"photo.jpg"}`)
 	if result.IsError {
 		t.Fatalf("expected success result, got error payload: %s", string(result.Output))
 	}
@@ -76,24 +58,10 @@ func TestCall_OptimizesTransparentPNGToJPEGOutput(t *testing.T) {
 	if int64(original.Len()) < minOptimizationSizeBytes {
 		t.Fatalf("test image is too small for optimization path: %d", original.Len())
 	}
-	imagePath := filepath.Join(workspace, "screenshot.png")
-	if err := os.WriteFile(imagePath, original.Bytes(), 0o644); err != nil {
-		t.Fatalf("write image: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "screenshot.png", original.Bytes())
 
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-transparent-png",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"screenshot.png"}`),
-	})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, true)
+	result := callReadImageTool(t, tool, "call-transparent-png", `{"path":"screenshot.png"}`)
 	if result.IsError {
 		t.Fatalf("expected success result, got error payload: %s", string(result.Output))
 	}
@@ -124,24 +92,10 @@ func TestCall_RawImageSkipsOptimization(t *testing.T) {
 	if err := jpeg.Encode(&original, generatedPhotoLikeImage(512), &jpeg.Options{Quality: 95}); err != nil {
 		t.Fatalf("encode jpeg: %v", err)
 	}
-	imagePath := filepath.Join(workspace, "photo.jpg")
-	if err := os.WriteFile(imagePath, original.Bytes(), 0o644); err != nil {
-		t.Fatalf("write image: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "photo.jpg", original.Bytes())
 
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-raw",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"photo.jpg","raw":true}`),
-	})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, true)
+	result := callReadImageTool(t, tool, "call-raw", `{"path":"photo.jpg","raw":true}`)
 	if result.IsError {
 		t.Fatalf("expected success result, got error payload: %s", string(result.Output))
 	}
@@ -164,24 +118,10 @@ func TestCall_RawImageStillEnforcesAttachmentCap(t *testing.T) {
 	if int64(original.Len()) <= maxFileSizeBytes {
 		t.Fatalf("test image must exceed attachment cap: %d", original.Len())
 	}
-	imagePath := filepath.Join(workspace, "large.jpg")
-	if err := os.WriteFile(imagePath, original.Bytes(), 0o644); err != nil {
-		t.Fatalf("write image: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "large.jpg", original.Bytes())
 
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-raw-large",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"large.jpg","raw":true}`),
-	})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, true)
+	result := callReadImageTool(t, tool, "call-raw-large", `{"path":"large.jpg","raw":true}`)
 	if !result.IsError {
 		t.Fatalf("expected raw oversized image to be rejected")
 	}
@@ -192,28 +132,11 @@ func TestCall_RawImageStillEnforcesAttachmentCap(t *testing.T) {
 
 func TestCall_StillGIFAcceptedAndAnimatedGIFRejected(t *testing.T) {
 	workspace := t.TempDir()
-	stillPath := filepath.Join(workspace, "still.gif")
-	if err := os.WriteFile(stillPath, encodedGIF(t, 1), 0o644); err != nil {
-		t.Fatalf("write still gif: %v", err)
-	}
-	animatedPath := filepath.Join(workspace, "animated.gif")
-	if err := os.WriteFile(animatedPath, encodedGIF(t, 2), 0o644); err != nil {
-		t.Fatalf("write animated gif: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "still.gif", encodedGIF(t, 1))
+	writeReadImageTestFile(t, workspace, "animated.gif", encodedGIF(t, 2))
 
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	still, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-still-gif",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"still.gif"}`),
-	})
-	if err != nil {
-		t.Fatalf("still gif call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, true)
+	still := callReadImageTool(t, tool, "call-still-gif", `{"path":"still.gif"}`)
 	if still.IsError {
 		t.Fatalf("expected still gif success, got %s", string(still.Output))
 	}
@@ -222,14 +145,7 @@ func TestCall_StillGIFAcceptedAndAnimatedGIFRejected(t *testing.T) {
 		t.Fatalf("expected still gif output, got %q", mimeType)
 	}
 
-	animated, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-animated-gif",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"animated.gif"}`),
-	})
-	if err != nil {
-		t.Fatalf("animated gif call: %v", err)
-	}
+	animated := callReadImageTool(t, tool, "call-animated-gif", `{"path":"animated.gif"}`)
 	if !animated.IsError {
 		t.Fatalf("expected animated gif to be rejected")
 	}
@@ -240,24 +156,10 @@ func TestCall_StillGIFAcceptedAndAnimatedGIFRejected(t *testing.T) {
 
 func TestCall_WebPRejectedAsUnsupported(t *testing.T) {
 	workspace := t.TempDir()
-	imagePath := filepath.Join(workspace, "image.webp")
-	if err := os.WriteFile(imagePath, minimalWebPHeader(), 0o644); err != nil {
-		t.Fatalf("write webp: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "image.webp", minimalWebPHeader())
 
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-webp",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"image.webp"}`),
-	})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, true)
+	result := callReadImageTool(t, tool, "call-webp", `{"path":"image.webp"}`)
 	if !result.IsError {
 		t.Fatalf("expected webp to be rejected")
 	}
@@ -268,24 +170,10 @@ func TestCall_WebPRejectedAsUnsupported(t *testing.T) {
 
 func TestCall_CorruptImageReturnsToolError(t *testing.T) {
 	workspace := t.TempDir()
-	imagePath := filepath.Join(workspace, "corrupt.png")
-	if err := os.WriteFile(imagePath, make([]byte, 1024), 0o644); err != nil {
-		t.Fatalf("write corrupt image: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "corrupt.png", make([]byte, 1024))
 
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-corrupt",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"corrupt.png"}`),
-	})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, true)
+	result := callReadImageTool(t, tool, "call-corrupt", `{"path":"corrupt.png"}`)
 	if !result.IsError {
 		t.Fatalf("expected tool error result for corrupt image")
 	}
@@ -296,24 +184,10 @@ func TestCall_CorruptImageReturnsToolError(t *testing.T) {
 
 func TestCall_HugeDecodedDimensionsRejected(t *testing.T) {
 	workspace := t.TempDir()
-	imagePath := filepath.Join(workspace, "huge-dimensions.png")
-	if err := os.WriteFile(imagePath, pngWithDimensions(t, 100_000, 100_000), 0o644); err != nil {
-		t.Fatalf("write huge-dimension image: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "huge-dimensions.png", pngWithDimensions(t, 100_000, 100_000))
 
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new tool: %v", err)
-	}
-
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    "call-huge-dimensions",
-		Name:  toolspec.ToolViewImage,
-		Input: json.RawMessage(`{"path":"huge-dimensions.png"}`),
-	})
-	if err != nil {
-		t.Fatalf("call: %v", err)
-	}
+	tool := newReadImageTestTool(t, workspace, true)
+	result := callReadImageTool(t, tool, "call-huge-dimensions", `{"path":"huge-dimensions.png"}`)
 	if !result.IsError {
 		t.Fatalf("expected huge decoded dimensions to be rejected")
 	}

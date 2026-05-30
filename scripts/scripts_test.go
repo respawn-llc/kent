@@ -259,14 +259,8 @@ func TestTestScriptRunsFrontendForDefaultFullSuite(t *testing.T) {
 	root := repoRoot(t)
 	binDir := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "commands.log")
-	writeFakeCommand(t, binDir, "go", `#!/usr/bin/env bash
-printf 'go %s\n' "$*" >>"$SCRIPT_TEST_LOG"
-exit 0
-`)
-	writeFakeCommand(t, binDir, "pnpm", `#!/usr/bin/env bash
-printf 'pnpm %s\n' "$*" >>"$SCRIPT_TEST_LOG"
-exit 0
-`)
+	writeLoggingFakeCommand(t, binDir, "go")
+	writeLoggingFakeCommand(t, binDir, "pnpm")
 
 	cmd := exec.Command(filepath.Join(root, "scripts", "test.sh"))
 	cmd.Dir = root
@@ -297,14 +291,8 @@ func TestTestScriptSkipsFrontendForTargetedGoArgs(t *testing.T) {
 	root := repoRoot(t)
 	binDir := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "commands.log")
-	writeFakeCommand(t, binDir, "go", `#!/usr/bin/env bash
-printf 'go %s\n' "$*" >>"$SCRIPT_TEST_LOG"
-exit 0
-`)
-	writeFakeCommand(t, binDir, "pnpm", `#!/usr/bin/env bash
-printf 'pnpm %s\n' "$*" >>"$SCRIPT_TEST_LOG"
-exit 0
-`)
+	writeLoggingFakeCommand(t, binDir, "go")
+	writeLoggingFakeCommand(t, binDir, "pnpm")
 
 	cmd := exec.Command(filepath.Join(root, "scripts", "test.sh"), "./server/...", "-count=1")
 	cmd.Dir = root
@@ -332,14 +320,8 @@ func TestTestScriptCanForceFrontendForTargetedGoArgs(t *testing.T) {
 	root := repoRoot(t)
 	binDir := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "commands.log")
-	writeFakeCommand(t, binDir, "go", `#!/usr/bin/env bash
-printf 'go %s\n' "$*" >>"$SCRIPT_TEST_LOG"
-exit 0
-`)
-	writeFakeCommand(t, binDir, "pnpm", `#!/usr/bin/env bash
-printf 'pnpm %s\n' "$*" >>"$SCRIPT_TEST_LOG"
-exit 0
-`)
+	writeLoggingFakeCommand(t, binDir, "go")
+	writeLoggingFakeCommand(t, binDir, "pnpm")
 
 	cmd := exec.Command(filepath.Join(root, "scripts", "test.sh"), "./server/...", "-count=1")
 	cmd.Dir = root
@@ -388,10 +370,7 @@ if [ -n "$output" ]; then
 fi
 exit 0
 `)
-	writeFakeCommand(t, binDir, "pnpm", `#!/usr/bin/env bash
-printf 'pnpm %s\n' "$*" >>"$SCRIPT_TEST_LOG"
-exit 0
-`)
+	writeLoggingFakeCommand(t, binDir, "pnpm")
 
 	cmd := exec.Command(filepath.Join(root, "scripts", "build.sh"), "--output", outPath, "--skip-frontend")
 	cmd.Dir = root
@@ -452,6 +431,11 @@ func writeFakeCommand(t *testing.T, dir string, name string, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatalf("write fake command %s: %v", name, err)
 	}
+}
+
+func writeLoggingFakeCommand(t *testing.T, dir string, name string) {
+	t.Helper()
+	writeFakeCommand(t, dir, name, "#!/usr/bin/env bash\nprintf '"+name+" %s\\n' \"$*\" >>\"$SCRIPT_TEST_LOG\"\nexit 0\n")
 }
 
 func readTextFile(t *testing.T, path string) string {

@@ -109,6 +109,27 @@ func withServiceCommandTestBackendEndpoint(t *testing.T, backend *stubServiceBac
 	}
 }
 
+func newServiceHealthTestServer(t *testing.T, body string, statusCode ...int) *httptest.Server {
+	t.Helper()
+	code := http.StatusOK
+	if len(statusCode) > 0 {
+		code = statusCode[0]
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			http.NotFound(w, r)
+			return
+		}
+		if code != http.StatusOK {
+			http.Error(w, body, code)
+			return
+		}
+		_, _ = fmt.Fprint(w, body)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
 func TestServiceInstallNoStartAndForce(t *testing.T) {
 	backend := &stubServiceBackend{}
 	withServiceCommandTestBackend(t, backend)
@@ -224,14 +245,7 @@ func TestServiceStatusJSON(t *testing.T) {
 }
 
 func TestServiceStatusKeepsManualHealthSeparateFromServiceRunningState(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = fmt.Fprint(w, `{"status":"ok","pid":123}`)
-	}))
-	t.Cleanup(server.Close)
+	server := newServiceHealthTestServer(t, `{"status":"ok","pid":123}`)
 	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: false, Running: false}}
 	withServiceCommandTestBackendEndpoint(t, backend, server.URL)
 
@@ -262,14 +276,7 @@ func actionsToStrings(actions []serviceAction) []string {
 }
 
 func TestServiceInstallRejectsUnmanagedRunningServer(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = fmt.Fprint(w, `{"status":"ok","pid":123}`)
-	}))
-	t.Cleanup(server.Close)
+	server := newServiceHealthTestServer(t, `{"status":"ok","pid":123}`)
 	backend := &stubServiceBackend{status: serviceStatus{Installed: false, Loaded: false, Running: false}}
 	withServiceCommandTestBackendEndpoint(t, backend, server.URL)
 
@@ -288,14 +295,7 @@ func TestServiceInstallRejectsUnmanagedRunningServer(t *testing.T) {
 }
 
 func TestServiceInstallAllowsHealthyServerOwnedByLoadedService(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = fmt.Fprint(w, `{"status":"ok","pid":123}`)
-	}))
-	t.Cleanup(server.Close)
+	server := newServiceHealthTestServer(t, `{"status":"ok","pid":123}`)
 	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: true, PID: 123}}
 	withServiceCommandTestBackendEndpoint(t, backend, server.URL)
 
@@ -312,14 +312,7 @@ func TestServiceInstallAllowsHealthyServerOwnedByLoadedService(t *testing.T) {
 
 func TestServiceRestartAllowsHealthyServerOwnedByLoadedServiceBeforePIDIsVisible(t *testing.T) {
 	t.Setenv(sessionenv.BuilderSessionID, "")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = fmt.Fprint(w, `{"status":"ok","pid":123}`)
-	}))
-	t.Cleanup(server.Close)
+	server := newServiceHealthTestServer(t, `{"status":"ok","pid":123}`)
 	backend := &stubServiceBackend{status: serviceStatus{
 		Installed: true,
 		Loaded:    true,
@@ -342,14 +335,7 @@ func TestServiceRestartAllowsHealthyServerOwnedByLoadedServiceBeforePIDIsVisible
 
 func TestServiceRestartRejectsBuilderShellSession(t *testing.T) {
 	t.Setenv(sessionenv.BuilderSessionID, "session-123")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = fmt.Fprint(w, `{"status":"ok","pid":123}`)
-	}))
-	t.Cleanup(server.Close)
+	server := newServiceHealthTestServer(t, `{"status":"ok","pid":123}`)
 	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: true, PID: 123}}
 	withServiceCommandTestBackendEndpoint(t, backend, server.URL)
 
@@ -372,14 +358,7 @@ func TestServiceRestartRejectsBuilderShellSession(t *testing.T) {
 
 func TestServiceRestartIfInstalledRejectsBuilderShellSession(t *testing.T) {
 	t.Setenv(sessionenv.BuilderSessionID, "session-123")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = fmt.Fprint(w, `{"status":"ok","pid":123}`)
-	}))
-	t.Cleanup(server.Close)
+	server := newServiceHealthTestServer(t, `{"status":"ok","pid":123}`)
 	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: true, PID: 123}}
 	withServiceCommandTestBackendEndpoint(t, backend, server.URL)
 
@@ -467,14 +446,7 @@ func TestServiceRestartRejectsCurrentShellSessionBeforeHealthProbe(t *testing.T)
 
 func TestServiceRestartAllowsHealthyBuilderServerRecoveryWhenLoadedServiceIsNotRunning(t *testing.T) {
 	t.Setenv(sessionenv.BuilderSessionID, "")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = fmt.Fprint(w, `{"status":"ok","pid":123}`)
-	}))
-	t.Cleanup(server.Close)
+	server := newServiceHealthTestServer(t, `{"status":"ok","pid":123}`)
 	backend := &stubServiceBackend{status: serviceStatus{
 		Installed: true,
 		Loaded:    true,
@@ -497,14 +469,7 @@ func TestServiceRestartAllowsHealthyBuilderServerRecoveryWhenLoadedServiceIsNotR
 
 func TestServiceRestartAllowsUnloadedInstalledServiceToRecoverHealthyBuilderServer(t *testing.T) {
 	t.Setenv(sessionenv.BuilderSessionID, "")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = fmt.Fprint(w, `{"status":"ok","pid":123}`)
-	}))
-	t.Cleanup(server.Close)
+	server := newServiceHealthTestServer(t, `{"status":"ok","pid":123}`)
 	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: false, Running: false}}
 	withServiceCommandTestBackendEndpoint(t, backend, server.URL)
 
@@ -521,14 +486,7 @@ func TestServiceRestartAllowsUnloadedInstalledServiceToRecoverHealthyBuilderServ
 }
 
 func TestServiceStartRejectsUnmanagedRunningServer(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = fmt.Fprint(w, `{"status":"ok","pid":123}`)
-	}))
-	t.Cleanup(server.Close)
+	server := newServiceHealthTestServer(t, `{"status":"ok","pid":123}`)
 	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: false, Running: false}}
 	withServiceCommandTestBackendEndpoint(t, backend, server.URL)
 
@@ -544,14 +502,7 @@ func TestServiceStartRejectsUnmanagedRunningServer(t *testing.T) {
 }
 
 func TestServiceRestartRejectsRunningServerWhenServicePIDMismatches(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = fmt.Fprint(w, `{"status":"ok","pid":123}`)
-	}))
-	t.Cleanup(server.Close)
+	server := newServiceHealthTestServer(t, `{"status":"ok","pid":123}`)
 	backend := &stubServiceBackend{status: serviceStatus{
 		Installed: true,
 		Loaded:    true,
@@ -576,14 +527,7 @@ func TestServiceRestartRejectsRunningServerWhenServicePIDMismatches(t *testing.T
 }
 
 func TestServiceRestartRejectsRunningServerWhenOwnershipPIDMissingAndCommandDiffers(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = fmt.Fprint(w, `{"status":"ok"}`)
-	}))
-	t.Cleanup(server.Close)
+	server := newServiceHealthTestServer(t, `{"status":"ok"}`)
 	backend := &stubServiceBackend{status: serviceStatus{
 		Installed: true,
 		Loaded:    true,
@@ -604,14 +548,7 @@ func TestServiceRestartRejectsRunningServerWhenOwnershipPIDMissingAndCommandDiff
 }
 
 func TestServiceRestartAllowsUnhealthyListenerWhenServiceRunning(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
-		http.Error(w, `{"status":"starting","pid":123}`, http.StatusServiceUnavailable)
-	}))
-	t.Cleanup(server.Close)
+	server := newServiceHealthTestServer(t, `{"status":"starting","pid":123}`, http.StatusServiceUnavailable)
 	backend := &stubServiceBackend{status: serviceStatus{Installed: true, Loaded: true, Running: true, PID: 123}}
 	withServiceCommandTestBackendEndpoint(t, backend, server.URL)
 

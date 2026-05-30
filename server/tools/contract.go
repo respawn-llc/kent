@@ -194,15 +194,6 @@ func BuildCallTranscriptMeta(toolName string, ctx ToolCallContext, raw json.RawM
 	return def.BuildToolCallMeta(ctx, raw)
 }
 
-func FormatToolInputByName(toolName string, ctx ToolCallContext, raw json.RawMessage) (string, string) {
-	def, ok := definitionForToolName(toolName)
-	if !ok {
-		meta := fallbackToolCallMeta(toolName, raw)
-		return strings.TrimSpace(meta.Command), strings.TrimSpace(meta.InlineMeta)
-	}
-	return def.FormatToolInput(ctx, raw)
-}
-
 func FormatToolResultByName(toolName string, raw json.RawMessage, isError bool) string {
 	def, ok := definitionForToolName(toolName)
 	if ok {
@@ -289,16 +280,4 @@ func HostedExecutionsFromOutputs(items []HostedToolOutput, defs []Definition) []
 
 func FormatGenericOutput(raw json.RawMessage) string {
 	return formatOutputDefault(raw)
-}
-
-func FormatRawJSON(raw json.RawMessage) string {
-	return formatRawJSON(raw)
-}
-
-func SplitInlineMeta(line string) (string, string) {
-	return transcript.SplitInlineMeta(line)
-}
-
-func CompactToolCallText(meta *transcript.ToolCallMeta, text string) string {
-	return transcript.CompactToolCallText(meta, text)
 }

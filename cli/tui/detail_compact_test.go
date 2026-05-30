@@ -12,13 +12,8 @@ import (
 )
 
 func TestCompactDetailCollapsesToolOutputUntilExpanded(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithPreviewLines(12))
-	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:       "tool_call",
-		Text:       "cat large.txt",
-		ToolCallID: "call_1",
-		ToolCall:   &transcript.ToolCallMeta{ToolName: "exec_command", IsShell: true, Command: "cat large.txt"},
-	})
+	m := newCompactDetailModel(t, 12)
+	m = appendShellToolCall(t, m, "call_1", "cat large.txt")
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "tool_result_ok", ToolCallID: "call_1", Text: "line 1\nline 2\nline 3"})
 	m = updateModel(t, m, ToggleModeMsg{})
 
@@ -38,7 +33,7 @@ func TestCompactDetailCollapsesToolOutputUntilExpanded(t *testing.T) {
 }
 
 func TestCompactDetailKeepsMultipleExpanded(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithPreviewLines(12))
+	m := newCompactDetailModel(t, 12)
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "user", Text: "first user\nhidden"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "first assistant\nhidden"})
 	m = updateModel(t, m, ToggleModeMsg{})
@@ -58,8 +53,7 @@ func TestCompactDetailKeepsMultipleExpanded(t *testing.T) {
 }
 
 func TestCompactDetailToggleStartsWithBottomVisibleEntrySelected(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithPreviewLines(4))
-	m = updateModel(t, m, SetViewportSizeMsg{Lines: 4, Width: 80})
+	m := newSizedCompactDetailModel(t, 4)
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "user", Text: "first"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "second"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "user", Text: "third"})
@@ -82,8 +76,7 @@ func TestCompactDetailToggleStartsWithBottomVisibleEntrySelected(t *testing.T) {
 }
 
 func TestCompactDetailToggleStartsWithMultilineTailBlockSelected(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithPreviewLines(5))
-	m = updateModel(t, m, SetViewportSizeMsg{Lines: 5, Width: 80})
+	m := newSizedCompactDetailModel(t, 5)
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "user", Text: "first"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "tail 1\ntail 2\ntail 3\ntail 4"})
 
@@ -110,11 +103,8 @@ func TestCompactDetailToggleStartsWithMultilineTailBlockSelected(t *testing.T) {
 }
 
 func TestCompactDetailViewportShrinkKeepsBottomSelectionVisible(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithPreviewLines(8))
-	m = updateModel(t, m, SetViewportSizeMsg{Lines: 8, Width: 80})
-	for idx := 0; idx < 24; idx++ {
-		m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("line %02d", idx)})
-	}
+	m := newSizedCompactDetailModel(t, 8)
+	m = appendAssistantLines(t, m, 24, "line %02d")
 	m = updateModel(t, m, ToggleModeMsg{})
 
 	m = updateModel(t, m, SetViewportSizeMsg{Lines: 6, Width: 80})
@@ -130,19 +120,9 @@ func TestCompactDetailViewportShrinkKeepsBottomSelectionVisible(t *testing.T) {
 }
 
 func TestCompactDetailArrowScrollsExpandedItemByLineAndTracksCenterSelection(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithPreviewLines(6))
-	m = updateModel(t, m, SetViewportSizeMsg{Lines: 6, Width: 80})
-	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:       "tool_call",
-		Text:       "long-command",
-		ToolCallID: "call_1",
-		ToolCall:   &transcript.ToolCallMeta{ToolName: "exec_command", IsShell: true, Command: "long-command"},
-	})
-	outputLines := make([]string, 0, 30)
-	for idx := 0; idx < 30; idx++ {
-		outputLines = append(outputLines, fmt.Sprintf("output line %02d", idx))
-	}
-	m = updateModel(t, m, AppendTranscriptMsg{Role: "tool_result_ok", ToolCallID: "call_1", Text: strings.Join(outputLines, "\n")})
+	m := newSizedCompactDetailModel(t, 6)
+	m = appendShellToolCall(t, m, "call_1", "long-command")
+	m = appendToolResultLines(t, m, "call_1", 30, "output line %02d")
 	m = updateModel(t, m, ToggleModeMsg{})
 	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
@@ -181,44 +161,14 @@ func TestCompactDetailLineScrollRailTracksCenterInsideTallExpandedEntry(t *testi
 }
 
 func TestCompactDetailSelectedSpacerRowsAreVisualOnlyWithTallExpandedEntry(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithTheme("dark"), WithPreviewLines(6))
-	m = updateModel(t, m, SetViewportSizeMsg{Lines: 6, Width: 80})
+	m := updateModel(t, newCompactDetailModel(t, 6, WithTheme("dark")), SetViewportSizeMsg{Lines: 6, Width: 80})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "intro"})
-	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:       "tool_call",
-		Text:       "long-command",
-		ToolCallID: "call_1",
-		ToolCall:   &transcript.ToolCallMeta{ToolName: "exec_command", IsShell: true, Command: "long-command"},
-	})
-	outputLines := make([]string, 0, 10)
-	for idx := 0; idx < 10; idx++ {
-		outputLines = append(outputLines, fmt.Sprintf("output line %02d", idx))
-	}
-	m = updateModel(t, m, AppendTranscriptMsg{Role: "tool_result_ok", ToolCallID: "call_1", Text: strings.Join(outputLines, "\n")})
-	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:       "tool_call",
-		Text:       "target-command",
-		ToolCallID: "call_2",
-		ToolCall:   &transcript.ToolCallMeta{ToolName: "exec_command", IsShell: true, Command: "target-command"},
-	})
-	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:       "tool_call",
-		Text:       "after-target-command",
-		ToolCallID: "call_3",
-		ToolCall:   &transcript.ToolCallMeta{ToolName: "exec_command", IsShell: true, Command: "after-target-command"},
-	})
-	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:       "tool_call",
-		Text:       "after-target-command-2",
-		ToolCallID: "call_4",
-		ToolCall:   &transcript.ToolCallMeta{ToolName: "exec_command", IsShell: true, Command: "after-target-command-2"},
-	})
-	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:       "tool_call",
-		Text:       "after-target-command-3",
-		ToolCallID: "call_5",
-		ToolCall:   &transcript.ToolCallMeta{ToolName: "exec_command", IsShell: true, Command: "after-target-command-3"},
-	})
+	m = appendShellToolCall(t, m, "call_1", "long-command")
+	m = appendToolResultLines(t, m, "call_1", 10, "output line %02d")
+	m = appendShellToolCall(t, m, "call_2", "target-command")
+	m = appendShellToolCall(t, m, "call_3", "after-target-command")
+	m = appendShellToolCall(t, m, "call_4", "after-target-command-2")
+	m = appendShellToolCall(t, m, "call_5", "after-target-command-3")
 	m = updateModel(t, m, ToggleModeMsg{})
 	m.detailSelectedEntry = 1
 	m.detailSelectedActive = true
@@ -288,36 +238,14 @@ func TestCompactDetailPageScrollRailTracksCenterInsideTallExpandedEntry(t *testi
 }
 
 func TestCompactDetailLineScrollSelectionTracksCenterItem(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithPreviewLines(6))
-	m = updateModel(t, m, SetViewportSizeMsg{Lines: 6, Width: 80})
-	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:       "tool_call",
-		Text:       "first-command",
-		ToolCallID: "call_1",
-		ToolCall:   &transcript.ToolCallMeta{ToolName: "exec_command", IsShell: true, Command: "first-command"},
-	})
-	outputLines := make([]string, 0, 20)
-	for idx := 0; idx < 20; idx++ {
-		outputLines = append(outputLines, fmt.Sprintf("first output line %02d", idx))
-	}
-	m = updateModel(t, m, AppendTranscriptMsg{Role: "tool_result_ok", ToolCallID: "call_1", Text: strings.Join(outputLines, "\n")})
-	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:       "tool_call",
-		Text:       "second-command",
-		ToolCallID: "call_2",
-		ToolCall:   &transcript.ToolCallMeta{ToolName: "exec_command", IsShell: true, Command: "second-command"},
-	})
+	m := newSizedCompactDetailModel(t, 6)
+	m = appendShellToolCall(t, m, "call_1", "first-command")
+	m = appendToolResultLines(t, m, "call_1", 20, "first output line %02d")
+	m = appendShellToolCall(t, m, "call_2", "second-command")
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "tool_result_ok", ToolCallID: "call_2", Text: "second output"})
-	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:       "tool_call",
-		Text:       "third-command",
-		ToolCallID: "call_3",
-		ToolCall:   &transcript.ToolCallMeta{ToolName: "exec_command", IsShell: true, Command: "third-command"},
-	})
+	m = appendShellToolCall(t, m, "call_3", "third-command")
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "tool_result_ok", ToolCallID: "call_3", Text: "third output"})
-	for idx := 0; idx < 10; idx++ {
-		m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("tail entry %02d", idx)})
-	}
+	m = appendAssistantLines(t, m, 10, "tail entry %02d")
 	m = updateModel(t, m, ToggleModeMsg{})
 	m.detailSelectedEntry = 0
 	m.detailSelectedActive = true
@@ -354,11 +282,8 @@ func TestCompactDetailLineScrollSelectionTracksCenterItem(t *testing.T) {
 }
 
 func TestCompactDetailLineScrollFocusesCenterVisibleSelection(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithPreviewLines(6))
-	m = updateModel(t, m, SetViewportSizeMsg{Lines: 6, Width: 80})
-	for idx := 0; idx < 10; idx++ {
-		m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("entry %02d", idx)})
-	}
+	m := newSizedCompactDetailModel(t, 6)
+	m = appendAssistantLines(t, m, 10, "entry %02d")
 	m = updateModel(t, m, ToggleModeMsg{})
 	m.ensureDetailScrollResolved()
 	m.detailScroll = max(1, m.maxDetailScroll()/2)
@@ -383,11 +308,8 @@ func TestCompactDetailLineScrollFocusesCenterVisibleSelection(t *testing.T) {
 }
 
 func TestCompactDetailReverseInputWalksOffCenterSelectionBeforeCameraScroll(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithPreviewLines(8))
-	m = updateModel(t, m, SetViewportSizeMsg{Lines: 8, Width: 80})
-	for idx := 0; idx < 16; idx++ {
-		m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("entry %02d", idx)})
-	}
+	m := newSizedCompactDetailModel(t, 8)
+	m = appendAssistantLines(t, m, 16, "entry %02d")
 	m = updateModel(t, m, ToggleModeMsg{})
 	m.ensureDetailScrollResolved()
 	m.detailScroll = 4
@@ -432,11 +354,8 @@ func TestCompactDetailWheelReverseFromEndWalksTowardCenterBeforeLineScroll(t *te
 
 func assertCompactDetailReverseFromEndWalksTowardCenterBeforeLineScroll(t *testing.T, reverse tea.Msg) {
 	t.Helper()
-	m := NewModel(WithCompactDetail(), WithPreviewLines(8))
-	m = updateModel(t, m, SetViewportSizeMsg{Lines: 8, Width: 80})
-	for idx := 0; idx < 14; idx++ {
-		m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("entry %02d", idx)})
-	}
+	m := newSizedCompactDetailModel(t, 8)
+	m = appendAssistantLines(t, m, 14, "entry %02d")
 	m = updateModel(t, m, ToggleModeMsg{})
 	m.ensureDetailScrollResolved()
 	for guard := 0; guard < 40 && m.DetailScroll() < m.maxDetailScroll(); guard++ {
@@ -477,11 +396,8 @@ func assertCompactDetailReverseFromEndWalksTowardCenterBeforeLineScroll(t *testi
 
 func assertCompactDetailSelectionMovesWithinViewportAtTranscriptEnd(t *testing.T, scroll tea.Msg) {
 	t.Helper()
-	m := NewModel(WithCompactDetail(), WithPreviewLines(6))
-	m = updateModel(t, m, SetViewportSizeMsg{Lines: 6, Width: 80})
-	for idx := 0; idx < 8; idx++ {
-		m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("entry %02d", idx)})
-	}
+	m := newSizedCompactDetailModel(t, 6)
+	m = appendAssistantLines(t, m, 8, "entry %02d")
 	m = updateModel(t, m, ToggleModeMsg{})
 	m.ensureDetailScrollResolved()
 	for guard := 0; guard < 20 && m.DetailScroll() < m.maxDetailScroll(); guard++ {
@@ -523,11 +439,8 @@ func TestCompactDetailWheelTopPinnedSelectionDoesNotHideRowAbove(t *testing.T) {
 
 func assertCompactDetailTopPinnedSelectionDoesNotHideRowAbove(t *testing.T, scroll tea.Msg) {
 	t.Helper()
-	m := NewModel(WithCompactDetail(), WithPreviewLines(8))
-	m = updateModel(t, m, SetViewportSizeMsg{Lines: 8, Width: 80})
-	for idx := 0; idx < 6; idx++ {
-		m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("entry %02d", idx)})
-	}
+	m := newSizedCompactDetailModel(t, 8)
+	m = appendAssistantLines(t, m, 6, "entry %02d")
 	m = updateModel(t, m, ToggleModeMsg{})
 	m.ensureDetailScrollResolved()
 	m.detailScroll = 0
@@ -564,11 +477,8 @@ func TestCompactDetailWheelReverseFromStartWalksTowardCenterBeforeLineScroll(t *
 
 func assertCompactDetailReverseFromStartWalksTowardCenterBeforeLineScroll(t *testing.T, reverse tea.Msg) {
 	t.Helper()
-	m := NewModel(WithCompactDetail(), WithPreviewLines(8))
-	m = updateModel(t, m, SetViewportSizeMsg{Lines: 8, Width: 80})
-	for idx := 0; idx < 14; idx++ {
-		m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("entry %02d", idx)})
-	}
+	m := newSizedCompactDetailModel(t, 8)
+	m = appendAssistantLines(t, m, 14, "entry %02d")
 	m = updateModel(t, m, ToggleModeMsg{})
 	m.ensureDetailScrollResolved()
 	m.detailScroll = 0
@@ -614,11 +524,8 @@ func assertCompactDetailReverseFromStartWalksTowardCenterBeforeLineScroll(t *tes
 
 func assertCompactDetailSelectionMovesWithinViewportAtTranscriptStart(t *testing.T, scroll tea.Msg) {
 	t.Helper()
-	m := NewModel(WithCompactDetail(), WithPreviewLines(6))
-	m = updateModel(t, m, SetViewportSizeMsg{Lines: 6, Width: 80})
-	for idx := 0; idx < 8; idx++ {
-		m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("entry %02d", idx)})
-	}
+	m := newSizedCompactDetailModel(t, 6)
+	m = appendAssistantLines(t, m, 8, "entry %02d")
 	m = updateModel(t, m, ToggleModeMsg{})
 	m.ensureDetailScrollResolved()
 	m.detailScroll = 0
@@ -646,7 +553,7 @@ func assertCompactDetailSelectionMovesWithinViewportAtTranscriptStart(t *testing
 }
 
 func TestCompactDetailReconcilesSelectionAndExpansionAfterRefresh(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithPreviewLines(12))
+	m := newCompactDetailModel(t, 12)
 	m = updateModel(t, m, SetConversationMsg{BaseOffset: 10, Entries: []TranscriptEntry{
 		{Role: "user", Text: "older"},
 		{Role: "assistant", Text: "newer\nhidden line 1\nhidden line 2\nhidden line 3"},
@@ -668,7 +575,7 @@ func TestCompactDetailReconcilesSelectionAndExpansionAfterRefresh(t *testing.T) 
 }
 
 func TestCompactDetailClearsExpandedEntriesWhenReplacementReusesIndexes(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithPreviewLines(12))
+	m := newCompactDetailModel(t, 12)
 	m = updateModel(t, m, SetConversationMsg{BaseOffset: 0, Entries: []TranscriptEntry{
 		{Role: "assistant", Text: "old intro"},
 		{Role: "assistant", Text: "old expanded\nold hidden"},
@@ -688,7 +595,7 @@ func TestCompactDetailClearsExpandedEntriesWhenReplacementReusesIndexes(t *testi
 }
 
 func TestCompactDetailCollapsesReviewerSuggestions(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithPreviewLines(10))
+	m := newCompactDetailModel(t, 10)
 	m = updateModel(t, m, AppendTranscriptMsg{
 		Role:        "reviewer_suggestions",
 		Text:        "Supervisor suggested:\n1. Add app-level coverage.\n2. Rebuild before final answer.",
@@ -712,7 +619,7 @@ func TestCompactDetailCollapsesReviewerSuggestions(t *testing.T) {
 }
 
 func TestWorktreeReminderUsesOngoingTextAndKeepsDetailText(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithPreviewLines(8))
+	m := newCompactDetailModel(t, 8)
 	fullText := "The user has moved this conversation into a git worktree.\n- Branch: feature/branch\n- New cwd / worktree path: /tmp/worktree/pkg"
 	ongoingText := "Switched worktree to feature/branch: /tmp/worktree/pkg"
 	m = updateModel(t, m, AppendTranscriptMsg{
@@ -743,7 +650,7 @@ func TestWorktreeReminderUsesOngoingTextAndKeepsDetailText(t *testing.T) {
 }
 
 func TestCompactDetailKeepsVerboseReviewerSuggestionsWhenNoStructuredCountExists(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithPreviewLines(10))
+	m := newCompactDetailModel(t, 10)
 	suggestions := "Supervisor suggested:\n1. Add app-level coverage.\n2. Rebuild before final answer."
 	m = updateModel(t, m, AppendTranscriptMsg{
 		Role:        "reviewer_suggestions",
@@ -759,7 +666,7 @@ func TestCompactDetailKeepsVerboseReviewerSuggestionsWhenNoStructuredCountExists
 }
 
 func TestCompactDetailDoesNotGuessReviewerSuggestionCountForUnnumberedLegacyText(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithPreviewLines(10))
+	m := newCompactDetailModel(t, 10)
 	m = updateModel(t, m, AppendTranscriptMsg{
 		Role: "reviewer_suggestions",
 		Text: "Supervisor suggested:\nAdd app-level coverage.\nRebuild before final answer.",
@@ -800,7 +707,7 @@ func TestCompactDetailScrollFocusesCenterVisibleEntryForExpansion(t *testing.T) 
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := NewModel(WithCompactDetail(), WithPreviewLines(4))
+			m := newCompactDetailModel(t, 4)
 			for idx := 0; idx < 8; idx++ {
 				m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf("entry %d\nhidden %d a\nhidden %d b\nhidden %d c", idx, idx, idx, idx)})
 			}
@@ -824,7 +731,7 @@ func TestCompactDetailScrollFocusesCenterVisibleEntryForExpansion(t *testing.T) 
 }
 
 func TestCompactDetailShortSelectedMessagesDoNotShowExpansionAffordance(t *testing.T) {
-	m := NewModel(WithCompactDetail(), WithTheme("dark"), WithPreviewLines(6))
+	m := newCompactDetailModel(t, 6, WithTheme("dark"))
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "user", Text: "short user"})
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "short assistant"})
 	m = updateModel(t, m, ToggleModeMsg{})

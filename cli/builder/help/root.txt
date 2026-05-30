@@ -1,0 +1,56 @@
+Usage of builder:
+  builder [flags]
+  builder --continue <session-id>
+  builder run [flags] <prompt>
+  builder serve [flags]
+  builder service <status|install|uninstall|start|stop|restart>
+  builder session-id
+  builder goal <show|set|pause|resume|clear|complete>
+  builder workflow <create|list|node|edge|link|unlink|default|validate|inspect>
+  builder task <create|start|resume|approve|move|list|show|cancel|comment>
+  builder project [path]
+  builder project list
+  builder project create --path <server-path> --name <project-name>
+  builder attach [--project <project-id>] [path]
+  builder rebind <session-id> <new-path>
+
+What This Does:
+  `builder` without a subcommand starts the interactive TUI.
+  `builder --continue <session-id>` reopens a previous session in the interactive TUI.
+  `builder run` executes one headless prompt and exits.
+  `builder serve` starts the app server in daemon mode.
+  `builder service` manages the Builder server background service.
+  `builder session-id` prints the caller session id when invoked from a Builder shell command.
+  `builder goal` manages the active session goal through the live runtime.
+  `builder workflow` manages workflow definitions and project links.
+  `builder task` manages workflow tasks and comments.
+  `builder project` / `attach` / `rebind` inspect or repair workspace bindings.
+
+Commands:
+  run      Execute a headless prompt against a workspace and print the final result.
+  serve    Start the Builder app server and keep serving until interrupted.
+  service  Install, inspect, or restart the Builder server background service.
+  session-id  Print the Builder caller session id from BUILDER_SESSION_ID.
+  goal     Show or update the live session goal.
+  workflow Manage workflow definitions and project workflow links.
+  task     Manage workflow tasks and task comments.
+  project  Inspect project bindings, list projects, or create a project.
+  attach   Attach another workspace path to an existing project.
+  rebind   Retarget one session to a different workspace root.
+
+Examples:
+  builder
+  builder --continue <session-id>
+  builder run --fast "summarize the repo"
+  builder service status
+  builder service install
+  builder session-id
+  builder goal show
+  builder workflow list
+  builder task list
+  builder project
+  builder attach ../other-checkout
+  builder rebind <session-id> ../moved-workspace
+  builder <command> --help
+
+Flags:

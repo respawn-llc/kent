@@ -2,6 +2,7 @@ package projectview
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -13,6 +14,15 @@ import (
 	"builder/shared/config"
 	"builder/shared/serverapi"
 )
+
+//go:embed testdata/home_sort_task_run.sql
+var homeSortTaskRunSQL string
+
+//go:embed testdata/home_sort_task_transition.sql
+var homeSortTaskTransitionSQL string
+
+//go:embed testdata/home_sort_task_comment.sql
+var homeSortTaskCommentSQL string
 
 func TestMetadataServiceSortsProjectHomeByLatestTaskActivityOrEdit(t *testing.T) {
 	ctx := context.Background()
@@ -109,14 +119,7 @@ func TestMetadataServiceSortsProjectHomeByTaskChildActivitySources(t *testing.T)
 			touch: func(t *testing.T, ctx context.Context, fixture projectHomeActivityFixture) {
 				t.Helper()
 				placementID, _ := taskPlacement(t, ctx, fixture.store, string(fixture.task.ID))
-				if _, err := fixture.store.DB().ExecContext(ctx, `
-INSERT INTO task_runs (
-    id, placement_id, session_id, run_generation, workflow_revision_seen,
-    automation_requested_at_unix_ms, created_at_unix_ms, updated_at_unix_ms, started_at_unix_ms,
-    completed_at_unix_ms, interrupted_at_unix_ms, interruption_reason, interruption_detail_json,
-    waiting_ask_id, final_answer_violation_count, invalid_completion_count, run_start_snapshot_json,
-    metadata_json
-) VALUES (?, ?, NULL, 0, 1, 0, ?, ?, 0, 0, 0, '', '{}', '', 0, 0, '{}', '{}')`,
+				if _, err := fixture.store.DB().ExecContext(ctx, homeSortTaskRunSQL,
 					"run-home-sort", placementID, fixture.highUnixMs, fixture.highUnixMs,
 				); err != nil {
 					t.Fatalf("insert run activity: %v", err)
@@ -127,13 +130,7 @@ INSERT INTO task_runs (
 			name: "task_transitions",
 			touch: func(t *testing.T, ctx context.Context, fixture projectHomeActivityFixture) {
 				t.Helper()
-				if _, err := fixture.store.DB().ExecContext(ctx, `
-INSERT INTO task_transitions (
-    id, task_id, source_run_id, source_placement_id, source_node_key,
-    source_node_display_name, transition_id, transition_display_name,
-    workflow_revision_seen, actor, state, commentary, output_values_json, created_at_unix_ms,
-    applied_at_unix_ms
-) VALUES (?, ?, NULL, NULL, '', '', 'manual', 'Manual', 1, 'user', 'applied', '', '{}', ?, ?)`,
+				if _, err := fixture.store.DB().ExecContext(ctx, homeSortTaskTransitionSQL,
 					"transition-home-sort", string(fixture.task.ID), fixture.highUnixMs-1, fixture.highUnixMs,
 				); err != nil {
 					t.Fatalf("insert transition activity: %v", err)
@@ -144,11 +141,7 @@ INSERT INTO task_transitions (
 			name: "task_comments",
 			touch: func(t *testing.T, ctx context.Context, fixture projectHomeActivityFixture) {
 				t.Helper()
-				if _, err := fixture.store.DB().ExecContext(ctx, `
-INSERT INTO task_comments (
-    id, task_id, body, author_kind, author_id, created_at_unix_ms,
-    updated_at_unix_ms
-) VALUES (?, ?, 'comment', 'user', 'nek', ?, ?)`,
+				if _, err := fixture.store.DB().ExecContext(ctx, homeSortTaskCommentSQL,
 					"comment-home-sort", string(fixture.task.ID), fixture.highUnixMs, fixture.highUnixMs,
 				); err != nil {
 					t.Fatalf("insert comment activity: %v", err)
@@ -214,25 +207,12 @@ func BenchmarkMetadataServiceListProjectHomeSummaries(b *testing.B) {
 			}
 			placementID, _ := taskPlacement(b, ctx, store, string(task.ID))
 			timestamp := int64(projectIndex*10 + taskIndex + 1)
-			if _, err := store.DB().ExecContext(ctx, `
-INSERT INTO task_runs (
-    id, placement_id, session_id, run_generation, workflow_revision_seen,
-    automation_requested_at_unix_ms, created_at_unix_ms, updated_at_unix_ms, started_at_unix_ms,
-    completed_at_unix_ms, interrupted_at_unix_ms, interruption_reason, interruption_detail_json,
-    waiting_ask_id, final_answer_violation_count, invalid_completion_count, run_start_snapshot_json,
-    metadata_json
-) VALUES (?, ?, NULL, 0, 1, 0, ?, ?, 0, 0, 0, '', '{}', '', 0, 0, '{}', '{}')`,
+			if _, err := store.DB().ExecContext(ctx, homeSortTaskRunSQL,
 				fmt.Sprintf("bench-run-%d-%d", projectIndex, taskIndex), placementID, timestamp, timestamp,
 			); err != nil {
 				b.Fatalf("insert run %d/%d: %v", projectIndex, taskIndex, err)
 			}
-			if _, err := store.DB().ExecContext(ctx, `
-INSERT INTO task_transitions (
-    id, task_id, source_run_id, source_placement_id, source_node_key,
-    source_node_display_name, transition_id, transition_display_name,
-    workflow_revision_seen, actor, state, commentary, output_values_json, created_at_unix_ms,
-    applied_at_unix_ms
-) VALUES (?, ?, NULL, NULL, '', '', 'manual', 'Manual', 1, 'user', 'applied', '', '{}', ?, ?)`,
+			if _, err := store.DB().ExecContext(ctx, homeSortTaskTransitionSQL,
 				fmt.Sprintf("bench-transition-%d-%d", projectIndex, taskIndex), string(task.ID), timestamp, timestamp,
 			); err != nil {
 				b.Fatalf("insert transition %d/%d: %v", projectIndex, taskIndex, err)

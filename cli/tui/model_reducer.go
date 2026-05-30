@@ -330,40 +330,6 @@ func toolCallMetaRenderEqual(left *transcript.ToolCallMeta, right *transcript.To
 	return transcript.ToolCallMetaEqual(left, right)
 }
 
-func (m *Model) moveDetailSelection(delta int) {
-	if m == nil || delta == 0 {
-		return
-	}
-	m.ensureDetailSelection()
-	if !m.detailSelectedActive {
-		return
-	}
-	lookup := newDetailProjectionLookup(m.detailViewProjection())
-	blocks := lookup.blocks
-	current := lookup.blockIndexForEntry(m.detailSelectedEntry)
-	if current < 0 {
-		m.detailSelectedActive = false
-		m.ensureDetailSelection()
-		lookup = newDetailProjectionLookup(m.detailViewProjection())
-		blocks = lookup.blocks
-		current = lookup.blockIndexForEntry(m.detailSelectedEntry)
-	}
-	if current < 0 {
-		return
-	}
-	next := current + delta
-	for next >= 0 && next < len(blocks) && !blocks[next].Selectable {
-		next += delta
-	}
-	if next < 0 || next >= len(blocks) {
-		return
-	}
-	m.detailSelectedEntry = blocks[next].EntryIndex
-	m.detailSelectedActive = true
-	m.scrollDetailSelectionIntoView()
-	m.refreshDetailViewport()
-}
-
 func (m *Model) navigateDetailSelection(delta int) {
 	if m == nil || delta == 0 {
 		return

@@ -237,7 +237,7 @@ func resolveHookPath(raw string) (string, bool) {
 	return abs, true
 }
 
-func joinWarnings(existing string, next string) string {
+func JoinWarnings(existing string, next string) string {
 	existing = strings.TrimSpace(existing)
 	next = strings.TrimSpace(next)
 	switch {
@@ -363,13 +363,6 @@ type Chain struct {
 	Processors []Processor
 }
 
-func (c Chain) ID() string {
-	if trimmed := strings.TrimSpace(c.IDValue); trimmed != "" {
-		return trimmed
-	}
-	return "chain"
-}
-
 func (c Chain) Process(ctx context.Context, envelope Envelope) (Decision, error) {
 	current := envelope
 	processedID := ""
@@ -473,10 +466,10 @@ func classifyProcessorFailure(processorID string, err error) ProcessorFailure {
 func resultFromEnvelope(envelope Envelope, processed bool, processorID string, terminal ProcessorFailure) Result {
 	warning := ""
 	for _, processorErr := range envelope.RecoverableErrors {
-		warning = joinWarnings(warning, formatProcessorFailure(processorErr))
+		warning = JoinWarnings(warning, formatProcessorFailure(processorErr))
 	}
 	for _, item := range envelope.Warnings {
-		warning = joinWarnings(warning, item)
+		warning = JoinWarnings(warning, item)
 	}
 	result := Result{Output: envelope.CurrentOutput, Processed: processed, ProcessorID: processorID, Warning: warning}
 	if terminal.Severity == FailureUnrecoverable {

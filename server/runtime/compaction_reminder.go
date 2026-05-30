@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"strings"
 
 	"builder/prompts"
 	"builder/server/llm"
@@ -15,10 +14,6 @@ type compactionReminderCoordinator struct {
 
 func newCompactionReminderCoordinator(engine *Engine) compactionReminderCoordinator {
 	return compactionReminderCoordinator{engine: engine}
-}
-
-func (e *Engine) compactionSoonReminderLimit(ctx context.Context) int {
-	return e.compactionPlannerState().soonReminderLimit(e.compactionPlanningSnapshot())
 }
 
 func (e *Engine) maybeAppendCompactionSoonReminder(ctx context.Context, stepID string) error {
@@ -70,20 +65,6 @@ func (e *Engine) setCompactionSoonReminderIssued(issued bool) {
 func (e *Engine) persistCompactionSoonReminderIssued(issued bool) error {
 	e.setCompactionSoonReminderIssued(issued)
 	return e.store.SetCompactionSoonReminderIssued(issued)
-}
-
-func (e *Engine) syncCompactionSoonReminderIssuedFromMessages(messages []llm.Message) {
-	issued := false
-	for _, message := range messages {
-		if message.Role == llm.RoleDeveloper && message.MessageType == llm.MessageTypeCompactionSoonReminder && strings.TrimSpace(message.Content) != "" {
-			issued = true
-		}
-	}
-	e.setCompactionSoonReminderIssued(issued)
-}
-
-func (e *Engine) syncCompactionSoonReminderIssuedFromItems(items []llm.ResponseItem) {
-	e.syncCompactionSoonReminderIssuedFromMessages(llm.MessagesFromItems(items))
 }
 
 func (e *Engine) triggerHandoffConfigured() bool {

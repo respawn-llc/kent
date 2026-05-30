@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"errors"
 
 	"builder/shared/serverapi"
 	"builder/shared/servicecontract"
@@ -19,37 +18,25 @@ type SessionCommittedTranscriptSuffixClient interface {
 }
 
 type loopbackSessionViewClient struct {
-	service servicecontract.SessionViewService
+	loopbackClient[servicecontract.SessionViewService]
 }
 
 func NewLoopbackSessionViewClient(service servicecontract.SessionViewService) SessionViewClient {
-	return &loopbackSessionViewClient{service: service}
+	return &loopbackSessionViewClient{loopbackClient: newLoopbackClient(service)}
 }
 
 func (c *loopbackSessionViewClient) GetSessionMainView(ctx context.Context, req serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.SessionMainViewResponse{}, errors.New("session view service is required")
-	}
-	return c.service.GetSessionMainView(ctx, req)
+	return callLoopbackClient(c, "session view service is required", ctx, req, servicecontract.SessionViewService.GetSessionMainView)
 }
 
 func (c *loopbackSessionViewClient) GetSessionTranscriptPage(ctx context.Context, req serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.SessionTranscriptPageResponse{}, errors.New("session view service is required")
-	}
-	return c.service.GetSessionTranscriptPage(ctx, req)
+	return callLoopbackClient(c, "session view service is required", ctx, req, servicecontract.SessionViewService.GetSessionTranscriptPage)
 }
 
 func (c *loopbackSessionViewClient) GetSessionCommittedTranscriptSuffix(ctx context.Context, req serverapi.SessionCommittedTranscriptSuffixRequest) (serverapi.SessionCommittedTranscriptSuffixResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.SessionCommittedTranscriptSuffixResponse{}, errors.New("session view service is required")
-	}
-	return c.service.GetSessionCommittedTranscriptSuffix(ctx, req)
+	return callLoopbackClient(c, "session view service is required", ctx, req, servicecontract.SessionViewService.GetSessionCommittedTranscriptSuffix)
 }
 
 func (c *loopbackSessionViewClient) GetRun(ctx context.Context, req serverapi.RunGetRequest) (serverapi.RunGetResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.RunGetResponse{}, errors.New("session view service is required")
-	}
-	return c.service.GetRun(ctx, req)
+	return callLoopbackClient(c, "session view service is required", ctx, req, servicecontract.SessionViewService.GetRun)
 }

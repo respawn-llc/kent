@@ -279,36 +279,6 @@ func (m *uiModel) nativeStreamingLiveTail(tail []tui.TranscriptProjectionLine) [
 	return cloneNativeStreamProjectionLines(tail)
 }
 
-func (m *uiModel) emitNativeProjectionLinesAfterEntry(projection tui.TranscriptProjection, entryIndex int) tea.Cmd {
-	if entryIndex < 0 {
-		entryIndex = 0
-	}
-	startAfter := m.transcriptBaseOffset + entryIndex
-	startBlock := -1
-	for idx, block := range projection.Blocks {
-		if block.EntryIndex > startAfter {
-			startBlock = idx
-			break
-		}
-	}
-	if startBlock < 0 {
-		return nil
-	}
-	styled := renderStyledNativeProjectionLines(projection.LinesFromBlock(startBlock, tui.TranscriptDivider), m.theme, m.nativeReplayRenderWidth())
-	if strings.TrimSpace(styled) == "" {
-		return nil
-	}
-	return m.emitNativeRenderedText(styled)
-}
-
-func (m *uiModel) emitNativeProjectionLinesForEntryRangeExcluding(projection tui.TranscriptProjection, startIndex int, endIndex int, excludedIndex int) tea.Cmd {
-	styled := m.nativeProjectionTextForEntryRangeExcluding(projection, startIndex, endIndex, excludedIndex)
-	if strings.TrimSpace(styled) == "" {
-		return nil
-	}
-	return m.emitNativeRenderedText(styled)
-}
-
 func (m *uiModel) nativeProjectionTextForEntryRangeExcluding(projection tui.TranscriptProjection, startIndex int, endIndex int, excludedIndex int) string {
 	if m == nil || startIndex >= endIndex {
 		return ""

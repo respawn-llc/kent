@@ -559,16 +559,21 @@ func waitForPendingRequests(t *testing.T, b *Broker, want int) []Request {
 	return b.Pending()
 }
 
-func TestToolCallRejectsActionField(t *testing.T) {
-	tl := NewTool(NewBroker())
-	result, err := tl.Call(context.Background(), tools.Call{
-		ID:    "call-1",
+func callAskQuestionTool(t *testing.T, b *Broker, id string, input string) tools.Result {
+	t.Helper()
+	result, err := NewTool(b).Call(context.Background(), tools.Call{
+		ID:    id,
 		Name:  toolspec.ToolAskQuestion,
-		Input: json.RawMessage(`{"question":"pick one","action":{"id":"unsafe"}}`),
+		Input: json.RawMessage(input),
 	})
 	if err != nil {
 		t.Fatalf("unexpected call error: %v", err)
 	}
+	return result
+}
+
+func TestToolCallRejectsActionField(t *testing.T) {
+	result := callAskQuestionTool(t, NewBroker(), "call-1", `{"question":"pick one","action":{"id":"unsafe"}}`)
 	if !result.IsError {
 		t.Fatalf("expected error result, got %+v", result)
 	}
@@ -586,20 +591,11 @@ func TestToolCallSerializesSelectedOptionWithFreeformAsPlainText(t *testing.T) {
 	b.SetAskHandler(func(req Request) (Response, error) {
 		return Response{RequestID: req.ID, SelectedOptionNumber: 2, FreeformAnswer: "need extra context"}, nil
 	})
-	tl := NewTool(b)
-
-	result, err := tl.Call(context.Background(), tools.Call{
-		ID:   "call-structured",
-		Name: toolspec.ToolAskQuestion,
-		Input: json.RawMessage(`{
+	result := callAskQuestionTool(t, b, "call-structured", `{
 			"question":"Pick one",
 			"suggestions":["alpha","beta"],
 			"recommended_option_index":1
-		}`),
-	})
-	if err != nil {
-		t.Fatalf("unexpected call error: %v", err)
-	}
+		}`)
 	if result.IsError {
 		t.Fatalf("expected success result, got %+v", result)
 	}
@@ -620,20 +616,11 @@ func TestToolCallSerializesPureFreeformAsPlainText(t *testing.T) {
 	b.SetAskHandler(func(req Request) (Response, error) {
 		return Response{RequestID: req.ID, FreeformAnswer: "need extra context"}, nil
 	})
-	tl := NewTool(b)
-
-	result, err := tl.Call(context.Background(), tools.Call{
-		ID:   "call-freeform",
-		Name: toolspec.ToolAskQuestion,
-		Input: json.RawMessage(`{
+	result := callAskQuestionTool(t, b, "call-freeform", `{
 			"question":"What else?",
 			"suggestions":["alpha","beta"],
 			"recommended_option_index":1
-		}`),
-	})
-	if err != nil {
-		t.Fatalf("unexpected call error: %v", err)
-	}
+		}`)
 	if result.IsError {
 		t.Fatalf("expected success result, got %+v", result)
 	}
@@ -654,16 +641,7 @@ func TestToolCallOngoingTextPreservesLiteralUserAnsweredFreeformPrefix(t *testin
 	b.SetAskHandler(func(req Request) (Response, error) {
 		return Response{RequestID: req.ID, FreeformAnswer: "User answered: keep going"}, nil
 	})
-	tl := NewTool(b)
-
-	result, err := tl.Call(context.Background(), tools.Call{
-		ID:    "call-freeform-literal-prefix",
-		Name:  toolspec.ToolAskQuestion,
-		Input: json.RawMessage(`{"question":"What else?"}`),
-	})
-	if err != nil {
-		t.Fatalf("unexpected call error: %v", err)
-	}
+	result := callAskQuestionTool(t, b, "call-freeform-literal-prefix", `{"question":"What else?"}`)
 	if result.IsError {
 		t.Fatalf("expected success result, got %+v", result)
 	}
@@ -687,16 +665,7 @@ func TestToolCallAllowsFreeformOnlyWithoutRecommendedOptionIndex(t *testing.T) {
 		}
 		return Response{RequestID: req.ID, FreeformAnswer: "typed answer"}, nil
 	})
-	tl := NewTool(b)
-
-	result, err := tl.Call(context.Background(), tools.Call{
-		ID:    "call-freeform-only",
-		Name:  toolspec.ToolAskQuestion,
-		Input: json.RawMessage(`{"question":"What else?"}`),
-	})
-	if err != nil {
-		t.Fatalf("unexpected call error: %v", err)
-	}
+	result := callAskQuestionTool(t, b, "call-freeform-only", `{"question":"What else?"}`)
 	if result.IsError {
 		t.Fatalf("expected success result, got %+v", result)
 	}
@@ -710,19 +679,10 @@ func TestToolCallAllowsSuggestionAskWithoutRecommendedOptionIndex(t *testing.T) 
 		}
 		return Response{RequestID: req.ID, FreeformAnswer: "typed answer"}, nil
 	})
-	tl := NewTool(b)
-
-	result, err := tl.Call(context.Background(), tools.Call{
-		ID:   "call-missing-recommended",
-		Name: toolspec.ToolAskQuestion,
-		Input: json.RawMessage(`{
+	result := callAskQuestionTool(t, b, "call-missing-recommended", `{
 			"question":"Pick one",
 			"suggestions":["alpha","beta"]
-		}`),
-	})
-	if err != nil {
-		t.Fatalf("unexpected call error: %v", err)
-	}
+		}`)
 	if result.IsError {
 		t.Fatalf("expected success result, got %+v", result)
 	}
@@ -736,20 +696,11 @@ func TestToolCallIgnoresOutOfRangeRecommendedOptionIndex(t *testing.T) {
 		}
 		return Response{RequestID: req.ID, FreeformAnswer: "typed answer"}, nil
 	})
-	tl := NewTool(b)
-
-	result, err := tl.Call(context.Background(), tools.Call{
-		ID:   "call-bad-recommended",
-		Name: toolspec.ToolAskQuestion,
-		Input: json.RawMessage(`{
+	result := callAskQuestionTool(t, b, "call-bad-recommended", `{
 			"question":"Pick one",
 			"suggestions":["alpha","beta"],
 			"recommended_option_index":3
-		}`),
-	})
-	if err != nil {
-		t.Fatalf("unexpected call error: %v", err)
-	}
+		}`)
 	if result.IsError {
 		t.Fatalf("expected success result, got %+v", result)
 	}
@@ -766,37 +717,18 @@ func TestToolCallIgnoresRecommendedIndexAfterBlankSuggestionsAreDropped(t *testi
 		}
 		return Response{RequestID: req.ID, FreeformAnswer: "typed answer"}, nil
 	})
-	tl := NewTool(b)
-
-	result, err := tl.Call(context.Background(), tools.Call{
-		ID:   "call-bad-normalized-recommended",
-		Name: toolspec.ToolAskQuestion,
-		Input: json.RawMessage(`{
+	result := callAskQuestionTool(t, b, "call-bad-normalized-recommended", `{
 			"question":"Pick one",
 			"suggestions":["", "beta"],
 			"recommended_option_index":2
-		}`),
-	})
-	if err != nil {
-		t.Fatalf("unexpected call error: %v", err)
-	}
+		}`)
 	if result.IsError {
 		t.Fatalf("expected success result, got %+v", result)
 	}
 }
 
 func TestToolCallRejectsApprovalField(t *testing.T) {
-	b := NewBroker()
-	tl := NewTool(b)
-
-	result, err := tl.Call(context.Background(), tools.Call{
-		ID:    "call-approval",
-		Name:  toolspec.ToolAskQuestion,
-		Input: json.RawMessage(`{"question":"Approve?","approval":true}`),
-	})
-	if err != nil {
-		t.Fatalf("unexpected call error: %v", err)
-	}
+	result := callAskQuestionTool(t, NewBroker(), "call-approval", `{"question":"Approve?","approval":true}`)
 	if !result.IsError {
 		t.Fatalf("expected error result, got %+v", result)
 	}
@@ -810,20 +742,10 @@ func TestToolCallRejectsApprovalField(t *testing.T) {
 }
 
 func TestToolCallRejectsApprovalOptionsField(t *testing.T) {
-	b := NewBroker()
-	tl := NewTool(b)
-
-	result, err := tl.Call(context.Background(), tools.Call{
-		ID:   "call-approval-options",
-		Name: toolspec.ToolAskQuestion,
-		Input: json.RawMessage(`{
+	result := callAskQuestionTool(t, NewBroker(), "call-approval-options", `{
 			"question":"Approve?",
 			"approval_options":[{"decision":"allow_once","label":"Allow once"}]
-		}`),
-	})
-	if err != nil {
-		t.Fatalf("unexpected call error: %v", err)
-	}
+		}`)
 	if !result.IsError {
 		t.Fatalf("expected error result, got %+v", result)
 	}
@@ -841,16 +763,7 @@ func TestToolCallRejectsApprovalPayloadReturnedByHandler(t *testing.T) {
 	b.SetAskHandler(func(req Request) (Response, error) {
 		return Response{RequestID: req.ID, Approval: &ApprovalPayload{Decision: ApprovalDecisionDeny}}, nil
 	})
-	tl := NewTool(b)
-
-	result, err := tl.Call(context.Background(), tools.Call{
-		ID:    "call-approval-payload",
-		Name:  toolspec.ToolAskQuestion,
-		Input: json.RawMessage(`{"question":"What should I do?"}`),
-	})
-	if err != nil {
-		t.Fatalf("unexpected call error: %v", err)
-	}
+	result := callAskQuestionTool(t, b, "call-approval-payload", `{"question":"What should I do?"}`)
 	if !result.IsError {
 		t.Fatalf("expected error result, got %+v", result)
 	}

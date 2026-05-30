@@ -45,10 +45,6 @@ func (c uiInputController) appendLocalEntryWithStatus(role, text string, status 
 	return sequenceCmds(c.appendLocalEntry(role, text), status)
 }
 
-func (c uiInputController) appendSystemFeedbackWithStatus(text string, status tea.Cmd) tea.Cmd {
-	return c.appendLocalEntryWithStatus("system", text, status)
-}
-
 func (c uiInputController) appendErrorFeedbackWithStatus(text string, status tea.Cmd) tea.Cmd {
 	return c.appendLocalEntryWithStatus("error", text, status)
 }
@@ -224,10 +220,6 @@ func (m *uiModel) appendLocalEntryWithNoticeID(role, text, noticeID string) tea.
 		}
 	}
 	return m.appendLocalEntryFallbackWithNoticeID(role, text, noticeID)
-}
-
-func (m *uiModel) appendLocalEntryFallback(role, text string) tea.Cmd {
-	return m.appendLocalEntryFallbackWithVisibility(role, text, transcript.EntryVisibilityAuto)
 }
 
 func (m *uiModel) appendLocalEntryFallbackWithVisibility(role, text string, visibility transcript.EntryVisibility) tea.Cmd {

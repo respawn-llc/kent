@@ -4,20 +4,19 @@ import (
 	"builder/cli/tui"
 	"builder/server/auth"
 	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
 	"builder/shared/clientui"
 	"builder/shared/config"
 	"context"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 type stubStatusCollector struct {
@@ -88,12 +87,6 @@ func withStatusWorkspaceRoot(root string) statusRequestOption {
 func withStatusAuthManager(manager *auth.Manager) statusRequestOption {
 	return func(req *uiStatusRequest) {
 		req.AuthCacheIdentity = statusAuthCacheIdentity(manager)
-	}
-}
-
-func withStatusSettings(settings config.Settings) statusRequestOption {
-	return func(req *uiStatusRequest) {
-		req.Settings = settings
 	}
 }
 
@@ -389,19 +382,11 @@ func TestStatusCommandRunsForegroundGitRefreshWhileStartupGitInFlight(t *testing
 }
 
 func TestStatusCommandPersistsPromptHistoryWithoutBlockingOpen(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := runtime.New(store, &runtimeAdapterFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	store, eng := newAppRuntimeEngine(t, &runtimeAdapterFakeClient{}, runtime.Config{})
 
 	m := newProjectedEngineUIModel(
 		eng,
-		WithUIStatusConfig(uiStatusConfig{WorkspaceRoot: dir}),
+		WithUIStatusConfig(uiStatusConfig{WorkspaceRoot: store.Meta().WorkspaceRoot}),
 		WithUIStatusCollector(&stubProgressiveStatusCollector{}),
 	)
 	m.termWidth = 100

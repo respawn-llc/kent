@@ -20,10 +20,6 @@ const (
 	preSubmitQueueFront
 )
 
-func (c uiInputController) startSubmission(text string) tea.Cmd {
-	return c.startSubmissionWithPreSubmitQueuePosition(text, preSubmitQueueBack, "")
-}
-
 func (c uiInputController) startSubmissionWithPreSubmitQueuePosition(text string, queuePosition preSubmitQueuePosition, queuedID string) tea.Cmd {
 	m := c.model
 	if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, text); blocked {

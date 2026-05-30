@@ -219,19 +219,6 @@ func (m *uiModel) cancelRollbackEditingBackToSelection() bool {
 	return len(m.rollback.candidates) > 0
 }
 
-func (m *uiModel) clearRollbackFlow() {
-	m.rollback.phase = uiRollbackPhaseInactive
-	m.rollback.suppressedAlternateScroll = false
-	m.rollback.restoreTranscriptMode = ""
-	m.rollback.selectedTranscriptEntry = -1
-	m.rollback.selectedTargetID = ""
-	m.rollback.pendingSelectionAnchor = -1
-	m.rollback.pendingSelectionDelta = 0
-	m.rollback.restoreScrollActive = false
-	m.clearRollbackSelectionHighlight()
-	m.restorePrimaryInputMode()
-}
-
 func (m *uiModel) pushRollbackOverlayIfNeeded() tea.Cmd {
 	if m.surface() == uiSurfaceRollbackSelection {
 		return nil

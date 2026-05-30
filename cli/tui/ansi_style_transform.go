@@ -22,10 +22,6 @@ type ansiStyleTransform struct {
 	ForceFaint          bool
 }
 
-func muteANSIOutput(text string, target rgbColor) string {
-	return applyANSIStyleIntents(text, ansiIntentPalette{SubduedForeground: target}, Subdued)
-}
-
 func applyDefaultForeground(text string, target rgbColor) string {
 	return applyANSIStyleIntents(text, ansiIntentPalette{ThemeForeground: target}, ThemeForeground)
 }

@@ -16,11 +16,7 @@ import (
 )
 
 func TestRunStepLoopDoesNotDuplicateCompactionSoonReminderAfterAutoCompactionIsDisabled(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		responses: []llm.Response{
@@ -53,15 +49,11 @@ func TestRunStepLoopDoesNotDuplicateCompactionSoonReminderAfterAutoCompactionIsD
 		},
 	}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:                 "gpt-5",
+	eng := mustNewExecTestEngine(t, store, client, Config{
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -117,22 +109,12 @@ func countCompactionSoonReminderWarnings(snapshot ChatSnapshot) int {
 }
 
 func TestCompactionSoonReminderIncludesTriggerHandoffAdditionWhenConfigured(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:                 "gpt-5",
+	eng := mustNewHandoffTestEngine(t, store, &fakeClient{}, Config{
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
-		CompactionMode:        "local",
-		EnabledTools:          []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -155,23 +137,13 @@ func TestCompactionSoonReminderIncludesTriggerHandoffAdditionWhenConfigured(t *t
 }
 
 func TestCompactionSoonReminderRechecksPreciselyAfterTranscriptMutation(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &preciseCompactionClient{inputTokenCount: 840, contextWindow: 2_000}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:                 "gpt-5",
+	eng := mustNewHandoffTestEngine(t, store, client, Config{
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
-		CompactionMode:        "local",
-		EnabledTools:          []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -213,22 +185,11 @@ func TestCompactionSoonReminderRechecksPreciselyAfterTranscriptMutation(t *testi
 }
 
 func TestTriggerHandoffFailsBeforeReminder(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:          "gpt-5",
-		CompactionMode: "local",
-		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewHandoffTestEngine(t, store, &fakeClient{}, Config{})
 
-	_, _, err = eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call-handoff-1", Name: string(toolspec.ToolTriggerHandoff)}, "", "")
+	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call-handoff-1", Name: string(toolspec.ToolTriggerHandoff)}, "", "")
 	if err == nil {
 		t.Fatal("expected trigger_handoff to fail before reminder")
 	}
@@ -238,27 +199,16 @@ func TestTriggerHandoffFailsBeforeReminder(t *testing.T) {
 }
 
 func TestTriggerHandoffFailsWhenAutoCompactionDisabled(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:          "gpt-5",
-		CompactionMode: "local",
-		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewHandoffTestEngine(t, store, &fakeClient{}, Config{})
 	eng.setCompactionSoonReminderIssued(true)
 	changed, enabled := eng.SetAutoCompactionEnabled(false)
 	if !changed || enabled {
 		t.Fatalf("expected auto compaction toggle off, changed=%v enabled=%v", changed, enabled)
 	}
 
-	_, _, err = eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call-handoff-1", Name: string(toolspec.ToolTriggerHandoff)}, "", "")
+	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call-handoff-1", Name: string(toolspec.ToolTriggerHandoff)}, "", "")
 	if err == nil {
 		t.Fatal("expected trigger_handoff to fail while auto compaction is disabled")
 	}
@@ -268,23 +218,12 @@ func TestTriggerHandoffFailsWhenAutoCompactionDisabled(t *testing.T) {
 }
 
 func TestTriggerHandoffSchedulesCompactionAndAppendsFutureMessageWithoutManualCarryover(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{
 		responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "summary"}}},
 	}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:          "gpt-5",
-		CompactionMode: "local",
-		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewHandoffTestEngine(t, store, client, Config{})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -353,11 +292,7 @@ func TestTriggerHandoffSchedulesCompactionAndAppendsFutureMessageWithoutManualCa
 }
 
 func TestPrepareModelTurnSkipsAutoCompactionAfterPendingHandoffCompaction(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		responses: []llm.Response{{
@@ -366,16 +301,11 @@ func TestPrepareModelTurnSkipsAutoCompactionAfterPendingHandoffCompaction(t *tes
 		}},
 		inputTokenCount: 1_900,
 	}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:                 "gpt-5",
+	eng := mustNewHandoffTestEngine(t, store, client, Config{
 		CompactionMode:        "local",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
-		EnabledTools:          []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -396,20 +326,14 @@ func TestPrepareModelTurnMaterializesWorktreeReminderAfterPendingHandoffCompacti
 	prompts.WorktreeModePrompt = "enter {{branch}}"
 	defer func() { prompts.WorktreeModePrompt = prevPrompt }()
 
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	if err := store.SetWorktreeReminderState(&session.WorktreeReminderState{
+	store := mustCreateTestSession(t)
+	mustSetWorktreeReminderState(t, store, session.WorktreeReminderState{
 		Mode:          session.WorktreeReminderModeEnter,
 		Branch:        "feature/handoff",
 		WorktreePath:  "/tmp/wt-handoff",
 		WorkspaceRoot: "/tmp/workspace",
 		EffectiveCwd:  "/tmp/wt-handoff",
-	}); err != nil {
-		t.Fatalf("SetWorktreeReminderState: %v", err)
-	}
+	})
 
 	client := &fakeCompactionClient{
 		responses: []llm.Response{{
@@ -418,16 +342,11 @@ func TestPrepareModelTurnMaterializesWorktreeReminderAfterPendingHandoffCompacti
 		}},
 		inputTokenCount: 1_900,
 	}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:                 "gpt-5",
+	eng := mustNewHandoffTestEngine(t, store, client, Config{
 		CompactionMode:        "local",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
-		EnabledTools:          []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -468,19 +387,14 @@ func TestPrepareModelTurnHandoffReminderPersistenceFailureRetriesWithoutDuplicat
 
 	observer := &failOnIssuedWorktreeReminderObservation{}
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir, session.WithPersistenceObserver(observer))
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	if err := store.SetWorktreeReminderState(&session.WorktreeReminderState{
+	store := mustCreateTestSessionAt(t, dir, session.WithPersistenceObserver(observer))
+	mustSetWorktreeReminderState(t, store, session.WorktreeReminderState{
 		Mode:          session.WorktreeReminderModeEnter,
 		Branch:        "feature/handoff-fail",
 		WorktreePath:  "/tmp/wt-handoff-fail",
 		WorkspaceRoot: "/tmp/workspace",
 		EffectiveCwd:  "/tmp/wt-handoff-fail",
-	}); err != nil {
-		t.Fatalf("SetWorktreeReminderState: %v", err)
-	}
+	})
 	client := &fakeCompactionClient{
 		responses: []llm.Response{
 			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "handoff summary"}, Usage: llm.Usage{InputTokens: 1_900, WindowTokens: 2_000}},
@@ -488,16 +402,11 @@ func TestPrepareModelTurnHandoffReminderPersistenceFailureRetriesWithoutDuplicat
 		},
 		inputTokenCount: 1_900,
 	}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:                 "gpt-5",
+	eng := mustNewHandoffTestEngine(t, store, client, Config{
 		CompactionMode:        "local",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
-		EnabledTools:          []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -518,11 +427,7 @@ func TestPrepareModelTurnHandoffReminderPersistenceFailureRetriesWithoutDuplicat
 }
 
 func TestPendingTriggerHandoffFailsToolCallsAndRetriesLocalSummary(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{
 		{
@@ -546,20 +451,16 @@ func TestPendingTriggerHandoffFailsToolCallsAndRetriesLocalSummary(t *testing.T)
 			Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
 		},
 	}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:          "gpt-5",
+	eng := mustNewExecTestEngine(t, store, client, Config{
 		CompactionMode: "local",
 		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch, toolspec.ToolTriggerHandoff},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	eng.setCompactionSoonReminderIssued(true)
 
-	_, _, err = eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_tool_retry", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "")
+	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_tool_retry", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "")
 	if err != nil {
 		t.Fatalf("trigger handoff: %v", err)
 	}
@@ -597,11 +498,7 @@ func TestPendingTriggerHandoffFailsToolCallsAndRetriesLocalSummary(t *testing.T)
 }
 
 func TestPendingTriggerHandoffFailsMalformedToolCallWithEmptyID(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant},
@@ -611,20 +508,13 @@ func TestPendingTriggerHandoffFailsMalformedToolCallWithEmptyID(t *testing.T) {
 		}},
 		Usage: llm.Usage{InputTokens: 100, WindowTokens: 2_000},
 	}}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:          "gpt-5",
-		CompactionMode: "local",
-		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewHandoffTestEngine(t, store, client, Config{})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	eng.setCompactionSoonReminderIssued(true)
 
-	_, _, err = eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_empty_id", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "resume with tests")
+	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_empty_id", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "resume with tests")
 	if err != nil {
 		t.Fatalf("trigger handoff: %v", err)
 	}
@@ -664,11 +554,7 @@ func assertRequestsPreserveCacheIdentity(t *testing.T, first llm.Request, retry 
 }
 
 func TestPendingTriggerHandoffRetriesCustomToolCallOutput(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{
 		{
@@ -686,20 +572,16 @@ func TestPendingTriggerHandoffRetriesCustomToolCallOutput(t *testing.T) {
 			Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
 		},
 	}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolPatch}), Config{
-		Model:          "gpt-5",
+	eng := mustNewFakeToolEngine(t, store, client, Config{
 		CompactionMode: "local",
 		EnabledTools:   []toolspec.ID{toolspec.ToolPatch, toolspec.ToolTriggerHandoff},
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	}, toolspec.ToolPatch)
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	eng.setCompactionSoonReminderIssued(true)
 
-	_, _, err = eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_custom_tool_retry", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "")
+	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_custom_tool_retry", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "")
 	if err != nil {
 		t.Fatalf("trigger handoff: %v", err)
 	}
@@ -733,11 +615,7 @@ func TestPendingTriggerHandoffRetriesCustomToolCallOutput(t *testing.T) {
 }
 
 func TestPendingTriggerHandoffLeavesRequestPendingWhenSummaryRetryStillToolCalls(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{
 		{
@@ -777,20 +655,13 @@ func TestPendingTriggerHandoffLeavesRequestPendingWhenSummaryRetryStillToolCalls
 			Usage: llm.Usage{InputTokens: 400, WindowTokens: 2_000},
 		},
 	}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:          "gpt-5",
-		CompactionMode: "local",
-		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewHandoffTestEngine(t, store, client, Config{})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	eng.setCompactionSoonReminderIssued(true)
 
-	_, _, err = eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_second_failure", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "resume with tests")
+	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_second_failure", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "resume with tests")
 	if err != nil {
 		t.Fatalf("trigger handoff: %v", err)
 	}
@@ -815,11 +686,7 @@ func TestPendingTriggerHandoffLeavesRequestPendingWhenSummaryRetryStillToolCalls
 }
 
 func TestPendingTriggerHandoffRetriesAfterCompactionFailure(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{
 		{
@@ -827,20 +694,13 @@ func TestPendingTriggerHandoffRetriesAfterCompactionFailure(t *testing.T) {
 			Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
 		},
 	}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:          "gpt-5",
-		CompactionMode: "local",
-		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewHandoffTestEngine(t, store, client, Config{})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	eng.setCompactionSoonReminderIssued(true)
 
-	_, _, err = eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_retry", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "resume with tests")
+	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_retry", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", "resume with tests")
 	if err != nil {
 		t.Fatalf("trigger handoff: %v", err)
 	}
@@ -887,31 +747,20 @@ func TestPendingTriggerHandoffRetriesAfterCompactionFailure(t *testing.T) {
 }
 
 func TestPendingTriggerHandoffRetriesFutureMessageAfterAppendFailureWithoutRecompaction(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "condensed summary"},
 		Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
 	}}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:          "gpt-5",
-		CompactionMode: "local",
-		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewHandoffTestEngine(t, store, client, Config{})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	eng.setCompactionSoonReminderIssued(true)
 	futureAgentMessage := "resume \"with tests\"\nthen inspect logs"
 
-	_, _, err = eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_append_retry", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", futureAgentMessage)
+	_, _, err := eng.TriggerHandoff(context.Background(), "step-1", llm.ToolCall{ID: "call_handoff_append_retry", Name: string(toolspec.ToolTriggerHandoff)}, "keep API details", futureAgentMessage)
 	if err != nil {
 		t.Fatalf("trigger handoff: %v", err)
 	}
@@ -964,24 +813,13 @@ func TestPendingTriggerHandoffRetriesFutureMessageAfterAppendFailureWithoutRecom
 }
 
 func TestReopenedSessionAfterTriggerHandoffFutureMessageAppendFailureRetriesWithoutRecompaction(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "condensed summary"},
 		Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
 	}}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:          "gpt-5",
-		CompactionMode: "local",
-		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewHandoffTestEngine(t, store, client, Config{})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -1029,14 +867,7 @@ func TestReopenedSessionAfterTriggerHandoffFutureMessageAppendFailureRetriesWith
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "resumed", Phase: llm.MessagePhaseFinal},
 		Usage:     llm.Usage{InputTokens: 300, WindowTokens: 2_000},
 	}}}
-	restored, err := New(reopenedStore, resumedClient, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:          "gpt-5",
-		CompactionMode: "local",
-		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
-	})
-	if err != nil {
-		t.Fatalf("restore engine: %v", err)
-	}
+	restored := mustNewHandoffTestEngine(t, reopenedStore, resumedClient, Config{})
 	if restored.pendingHandoffRequestSnapshot() != nil {
 		t.Fatalf("did not expect restore to requeue handoff after successful compaction, got %+v", restored.pendingHandoffRequestSnapshot())
 	}
@@ -1073,11 +904,7 @@ func TestReopenedSessionAfterTriggerHandoffFutureMessageAppendFailureRetriesWith
 }
 
 func TestRunStepLoopTriggerHandoffOmitsCallAndOutputFromFollowUpRequestAndKeepsFutureMessage(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{
 		responses: []llm.Response{
@@ -1106,14 +933,10 @@ func TestRunStepLoopTriggerHandoffOmitsCallAndOutputFromFollowUpRequestAndKeepsF
 		fakeTool{name: toolspec.ToolExecCommand},
 		triggerhandofftool.New(func() triggerhandofftool.Controller { return eng }),
 	)
-	eng, err = New(store, client, registry, Config{
-		Model:          "gpt-5",
+	eng = mustNewTestEngine(t, store, client, registry, Config{
 		CompactionMode: "local",
 		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -1159,11 +982,7 @@ func TestRunStepLoopTriggerHandoffOmitsCallAndOutputFromFollowUpRequestAndKeepsF
 }
 
 func TestRunStepLoopInjectsReminderBeforeTriggerHandoffAndOmitsCallOutputFromFollowUp(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{
 		responses: []llm.Response{
@@ -1192,16 +1011,12 @@ func TestRunStepLoopInjectsReminderBeforeTriggerHandoffAndOmitsCallOutputFromFol
 		fakeTool{name: toolspec.ToolExecCommand},
 		triggerhandofftool.New(func() triggerhandofftool.Controller { return eng }),
 	)
-	eng, err = New(store, client, registry, Config{
-		Model:                 "gpt-5",
+	eng = mustNewTestEngine(t, store, client, registry, Config{
 		CompactionMode:        "local",
 		ContextWindowTokens:   20_000,
 		AutoCompactTokenLimit: 10_000,
 		EnabledTools:          []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -1257,11 +1072,7 @@ func TestRunStepLoopInjectsReminderBeforeTriggerHandoffAndOmitsCallOutputFromFol
 }
 
 func TestReopenedSessionAfterTriggerHandoffUsesRotatedRequestSessionAndOmitsLingeringCallOutput(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	firstClient := &fakeClient{responses: []llm.Response{
 		{
@@ -1288,14 +1099,10 @@ func TestReopenedSessionAfterTriggerHandoffUsesRotatedRequestSessionAndOmitsLing
 		fakeTool{name: toolspec.ToolExecCommand},
 		triggerhandofftool.New(func() triggerhandofftool.Controller { return eng }),
 	)
-	eng, err = New(store, firstClient, registry, Config{
-		Model:          "gpt-5",
+	eng = mustNewTestEngine(t, store, firstClient, registry, Config{
 		CompactionMode: "local",
 		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -1321,14 +1128,7 @@ func TestReopenedSessionAfterTriggerHandoffUsesRotatedRequestSessionAndOmitsLing
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "resumed", Phase: llm.MessagePhaseFinal},
 		Usage:     llm.Usage{WindowTokens: 2_000},
 	}}}
-	restored, err := New(reopenedStore, resumedClient, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:          "gpt-5",
-		CompactionMode: "local",
-		EnabledTools:   []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolTriggerHandoff},
-	})
-	if err != nil {
-		t.Fatalf("restore engine: %v", err)
-	}
+	restored := mustNewHandoffTestEngine(t, reopenedStore, resumedClient, Config{})
 
 	msg, err := restored.SubmitUserMessage(context.Background(), "continue")
 	if err != nil {

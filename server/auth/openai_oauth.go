@@ -491,10 +491,6 @@ func extractAccountIDFromClaims(claims idTokenClaims) string {
 	return ""
 }
 
-func extractEmailFromClaims(claims idTokenClaims) string {
-	return strings.TrimSpace(claims.Email)
-}
-
 func parseJWTClaims(token string) (idTokenClaims, error) {
 	var out idTokenClaims
 	parts := strings.Split(token, ".")

@@ -6,8 +6,6 @@ import (
 	"builder/server/runtime"
 	"builder/server/runtimecontrol"
 	"builder/server/runtimeview"
-	"builder/server/session"
-	"builder/server/tools"
 	sharedclient "builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/serverapi"
@@ -24,7 +22,7 @@ import (
 func TestRuntimeClientMainViewDoesNotRefreshCachedSnapshotBehindUIBack(t *testing.T) {
 	reads := &countingSessionViewClient{view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: "session-1"}}}
 	controls := sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(registry.NewRuntimeRegistry(), nil))
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls).(*sessionRuntimeClient)
+	runtimeClient := newTestSessionRuntimeClient(reads, controls)
 	runtimeClient.storeMainView(clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: "session-1"}})
 	notified := make(chan error, 1)
 	runtimeClient.SetConnectionStateObserver(func(err error) {
@@ -253,7 +251,7 @@ func TestRuntimeClientGoalMethodsPatchCachedMainView(t *testing.T) {
 		resumeGoalResp: serverapi.RuntimeGoalShowResponse{Goal: resumeGoal},
 		clearGoalResp:  serverapi.RuntimeGoalShowResponse{},
 	}
-	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls).(*sessionRuntimeClient)
+	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
 	leaseManager := newControllerLeaseManager("lease-old")
 	leaseManager.SetRecoverFunc(func(context.Context) (string, error) { return "lease-new", nil })
 	runtimeClient.SetControllerLeaseManager(leaseManager)
@@ -330,7 +328,7 @@ func assertRuntimeGoalConversionDropsAPITimestamps(t *testing.T, got *clientui.R
 
 func TestRuntimeClientSubmitUserMessageRecoversInvalidControllerLease(t *testing.T) {
 	controls := &leaseRetryRuntimeControlClient{}
-	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls).(*sessionRuntimeClient)
+	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
 	leaseManager := newControllerLeaseManager("lease-old")
 	recoveryCalls := 0
 	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
@@ -359,7 +357,7 @@ func TestRuntimeClientSubmitUserMessageRecoversInvalidControllerLease(t *testing
 
 func TestRuntimeClientSubmitUserMessageRecoversRuntimeUnavailable(t *testing.T) {
 	controls := &leaseRetryRuntimeControlClient{firstSubmitErr: serverapi.ErrRuntimeUnavailable}
-	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls).(*sessionRuntimeClient)
+	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
 	leaseManager := newControllerLeaseManager("lease-old")
 	recoveryCalls := 0
 	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
@@ -396,13 +394,13 @@ func TestRuntimeClientSubmitUserMessageRecoversRuntimeUnavailable(t *testing.T) 
 
 func TestRuntimeClientSubmitTurnRecoveryContinuesFirstPrompt(t *testing.T) {
 	controls := &leaseRetryRuntimeControlClient{firstSubmitErr: serverapi.ErrRuntimeUnavailable}
-	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls).(*sessionRuntimeClient)
+	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
 	leaseManager := newControllerLeaseManager("lease-old")
 	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
 		return "lease-new", nil
 	})
 	runtimeClient.SetControllerLeaseManager(leaseManager)
-	model := newProjectedTestUIModel(runtimeClient, closedProjectedRuntimeEvents(), closedAskEvents())
+	model := newProjectedClosedUIModel(runtimeClient)
 	model.startupCmds = nil
 
 	submitCmd := model.inputController().startSubmissionWithPromptHistory("hello after restart")
@@ -449,7 +447,7 @@ func TestRuntimeClientHydrationRecoversRuntimeUnavailableSilently(t *testing.T) 
 		errs:  []error{serverapi.ErrRuntimeUnavailable, nil},
 		pages: []serverapi.SessionTranscriptPageResponse{{}, {Transcript: authoritativePage}},
 	}
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls).(*sessionRuntimeClient)
+	runtimeClient := newTestSessionRuntimeClient(reads, controls)
 	leaseManager := newControllerLeaseManager("lease-old")
 	recoveryCalls := 0
 	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
@@ -486,7 +484,7 @@ func TestRuntimeClientMainViewRefreshRecoversRuntimeUnavailableSilently(t *testi
 		errs:      []error{serverapi.ErrRuntimeUnavailable, nil},
 		responses: []serverapi.SessionMainViewResponse{{}, {MainView: authoritativeView}},
 	}
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls).(*sessionRuntimeClient)
+	runtimeClient := newTestSessionRuntimeClient(reads, controls)
 	leaseManager := newControllerLeaseManager("lease-old")
 	recoveryCalls := 0
 	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
@@ -525,7 +523,7 @@ func TestRuntimeUnavailableHydrationRecoveryResumesOngoingEventFence(t *testing.
 		errs:  []error{serverapi.ErrRuntimeUnavailable, nil},
 		pages: []serverapi.SessionTranscriptPageResponse{{}, {Transcript: authoritativePage}},
 	}
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls).(*sessionRuntimeClient)
+	runtimeClient := newTestSessionRuntimeClient(reads, controls)
 	leaseManager := newControllerLeaseManager("lease-old")
 	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
 		return "lease-new", nil
@@ -533,7 +531,7 @@ func TestRuntimeUnavailableHydrationRecoveryResumesOngoingEventFence(t *testing.
 	runtimeClient.SetControllerLeaseManager(leaseManager)
 	runtimeEvents := make(chan clientui.Event, 1)
 	runtimeEvents <- clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: "after hydrate"}
-	model := newProjectedTestUIModel(runtimeClient, runtimeEvents, closedAskEvents())
+	model := newProjectedRuntimeEventsUIModel(runtimeClient, runtimeEvents)
 	model.startupCmds = nil
 	model.waitRuntimeEventAfterHydration = true
 
@@ -590,7 +588,7 @@ func TestRuntimeClientShowGoalRecoversRuntimeUnavailableSilently(t *testing.T) {
 		showGoalErr:  serverapi.ErrRuntimeUnavailable,
 		showGoalResp: serverapi.RuntimeGoalShowResponse{Goal: goal},
 	}
-	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls).(*sessionRuntimeClient)
+	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
 	leaseManager := newControllerLeaseManager("lease-old")
 	recoveryCalls := 0
 	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
@@ -622,7 +620,7 @@ func TestRuntimeClientHasQueuedUserWorkRecoversRuntimeUnavailableSilently(t *tes
 		queuedWorkErr: serverapi.ErrRuntimeUnavailable,
 		queuedWork:    true,
 	}
-	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls).(*sessionRuntimeClient)
+	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
 	leaseManager := newControllerLeaseManager("lease-old")
 	recoveryCalls := 0
 	leaseManager.SetRecoverFunc(func(context.Context) (string, error) {
@@ -651,7 +649,7 @@ func TestRuntimeClientHasQueuedUserWorkRecoversRuntimeUnavailableSilently(t *tes
 
 func TestRuntimeClientLeaseRecoveryWarningFailureDoesNotBlockSubmit(t *testing.T) {
 	controls := &leaseRetryRuntimeControlClient{firstSubmitErr: serverapi.ErrRuntimeUnavailable, appendErr: serverapi.ErrRuntimeUnavailable}
-	runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls).(*sessionRuntimeClient)
+	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
 	warnings := make(chan runtimeLeaseRecoveryWarningMsg, 1)
 	runtimeClient.SetLeaseRecoveryWarningObserver(func(text string, visibility clientui.EntryVisibility) {
 		warnings <- runtimeLeaseRecoveryWarningMsg{text: text, visibility: visibility}
@@ -685,23 +683,16 @@ func TestRuntimeClientLeaseRecoveryWarningFailureDoesNotBlockSubmit(t *testing.T
 
 func TestRuntimeClientServerRestartFirstPromptRecoversAndWarnsOngoing(t *testing.T) {
 	runtimeEvents := make(chan clientui.Event, 128)
-	store, err := session.Create(t.TempDir(), "workspace-x", t.TempDir())
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
+	store := createAppRuntimeSessionAt(t, t.TempDir(), "workspace-x", t.TempDir())
 	client := &runtimeClientFakeLLM{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	engine, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{
-		Model: "gpt-5",
+	engine := newAppRuntimeEngineWithStore(t, store, client, runtime.Config{
 		OnEvent: func(evt runtime.Event) {
 			runtimeEvents <- runtimeview.EventFromRuntime(evt)
 		},
 	})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
 	resolver := &mutableRuntimeResolver{}
 	controls := sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(resolver, nil))
 	runtimeClient := newUIRuntimeClientWithReads(store.Meta().SessionID, &countingSessionViewClient{}, controls).(*sessionRuntimeClient)
@@ -711,7 +702,7 @@ func TestRuntimeClientServerRestartFirstPromptRecoversAndWarnsOngoing(t *testing
 		return "lease-new", nil
 	})
 	runtimeClient.SetControllerLeaseManager(leaseManager)
-	model := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), closedAskEvents())
+	model := newProjectedClosedUIModel(nil)
 	sized, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
 	model = sized.(*uiModel)
 

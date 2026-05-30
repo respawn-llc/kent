@@ -125,10 +125,6 @@ func truncationBannerLenWithTemplate(bannerTemplate string, removed int) int {
 	return len(fmt.Sprintf(bannerTemplate, removed))
 }
 
-func formatTruncatedPreview(head string, removed int, tail string) string {
-	return formatTruncatedPreviewWithTemplate(head, removed, tail, truncationBannerTemplate)
-}
-
 func formatBackgroundTruncatedPreview(head string, removed int, tail string) string {
 	return formatTruncatedPreviewWithTemplate(head, removed, tail, backgroundTruncationBannerTemplate)
 }

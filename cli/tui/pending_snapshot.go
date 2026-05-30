@@ -6,32 +6,8 @@ import (
 
 type PendingSpinnerFrameFunc func(entry TranscriptEntry, entryIndex int) string
 
-func RenderPendingToolSnapshot(entries []TranscriptEntry, theme string, width int, spinner string) string {
-	return renderPendingToolSnapshotProjection(entries, theme, width, uniformPendingSpinnerFrame(spinner)).Render(TranscriptDivider)
-}
-
 func RenderPendingOngoingSnapshot(entries []TranscriptEntry, theme string, width int, spinner string) string {
 	return renderPendingOngoingSnapshotProjection(entries, theme, width, uniformPendingSpinnerFrame(spinner)).Render(TranscriptDivider)
-}
-
-func RenderPendingToolSnapshotLines(entries []TranscriptEntry, theme string, width int, spinner string) []TranscriptProjectionLine {
-	return renderPendingToolSnapshotProjection(entries, theme, width, uniformPendingSpinnerFrame(spinner)).Lines(TranscriptDivider)
-}
-
-func RenderPendingOngoingSnapshotLines(entries []TranscriptEntry, theme string, width int, spinner string) []TranscriptProjectionLine {
-	return renderPendingOngoingSnapshotProjection(entries, theme, width, uniformPendingSpinnerFrame(spinner)).Lines(TranscriptDivider)
-}
-
-func RenderPendingToolSnapshotWithSpinnerFrames(entries []TranscriptEntry, theme string, width int, spinnerForEntry PendingSpinnerFrameFunc) string {
-	return renderPendingToolSnapshotProjection(entries, theme, width, spinnerForEntry).Render(TranscriptDivider)
-}
-
-func RenderPendingToolSnapshotLinesWithSpinnerFrames(entries []TranscriptEntry, theme string, width int, spinnerForEntry PendingSpinnerFrameFunc) []TranscriptProjectionLine {
-	return renderPendingToolSnapshotProjection(entries, theme, width, spinnerForEntry).Lines(TranscriptDivider)
-}
-
-func RenderPendingOngoingSnapshotWithSpinnerFrames(entries []TranscriptEntry, theme string, width int, spinnerForEntry PendingSpinnerFrameFunc) string {
-	return renderPendingOngoingSnapshotProjection(entries, theme, width, spinnerForEntry).Render(TranscriptDivider)
 }
 
 func RenderPendingOngoingSnapshotLinesWithSpinnerFrames(entries []TranscriptEntry, theme string, width int, spinnerForEntry PendingSpinnerFrameFunc) []TranscriptProjectionLine {
@@ -42,14 +18,6 @@ func uniformPendingSpinnerFrame(spinner string) PendingSpinnerFrameFunc {
 	return func(TranscriptEntry, int) string {
 		return spinner
 	}
-}
-
-func renderPendingToolSnapshotProjection(entries []TranscriptEntry, theme string, width int, spinnerForEntry PendingSpinnerFrameFunc) TranscriptProjection {
-	pending := PendingToolEntries(entries)
-	if len(pending) == 0 {
-		return TranscriptProjection{}
-	}
-	return renderPendingOngoingSnapshotProjection(pending, theme, width, spinnerForEntry)
 }
 
 func renderPendingOngoingSnapshotProjection(entries []TranscriptEntry, theme string, width int, spinnerForEntry PendingSpinnerFrameFunc) TranscriptProjection {

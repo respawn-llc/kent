@@ -161,6 +161,72 @@ func configureBindingCommandTestServerPort(t *testing.T) {
 	t.Setenv("BUILDER_SERVER_PORT", fmt.Sprintf("%d", port))
 }
 
+func registerBindingCommandWorkspace(t *testing.T, workspace string) metadata.Binding {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	configureBindingCommandTestServerPort(t)
+	cfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("RegisterBinding: %v", err)
+	}
+	return binding
+}
+
+func newBindingCommandSession(t *testing.T, workspace string) (*metadata.Store, metadata.Binding, *session.Store) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load oldWorkspace: %v", err)
+	}
+	store, err := metadata.Open(cfg.PersistenceRoot)
+	if err != nil {
+		t.Fatalf("metadata.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	binding, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("RegisterBinding oldWorkspace: %v", err)
+	}
+	sess, err := session.Create(
+		config.ProjectSessionsRoot(cfg, binding.ProjectID),
+		filepath.Base(cfg.WorkspaceRoot),
+		cfg.WorkspaceRoot,
+		store.AuthoritativeSessionStoreOptions()...,
+	)
+	if err != nil {
+		t.Fatalf("session.Create: %v", err)
+	}
+	return store, binding, sess
+}
+
+func resetBindingCommandRetargetHooks(t *testing.T) {
+	t.Helper()
+	originalOpener := bindingCommandRemoteOpener
+	originalRetargeter := bindingCommandSessionRetargeter
+	originalLocalClient := bindingCommandLocalSessionLifecycleClient
+	t.Cleanup(func() {
+		bindingCommandRemoteOpener = originalOpener
+		bindingCommandSessionRetargeter = originalRetargeter
+		bindingCommandLocalSessionLifecycleClient = originalLocalClient
+	})
+	t.Setenv("HOME", t.TempDir())
+}
+
+func newBindingCommandWorkspaceConfig(t *testing.T) (string, config.App) {
+	t.Helper()
+	workspace := t.TempDir()
+	cfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	return workspace, cfg
+}
+
 func startBindingCommandServer(t *testing.T, workspace string) func() {
 	t.Helper()
 	cfg, err := config.Load(workspace, config.LoadOptions{})
@@ -216,19 +282,8 @@ func waitForBindingCommandServer(t *testing.T, workspace string) {
 }
 
 func TestProjectSubcommandPrintsBoundProjectID(t *testing.T) {
-	home := t.TempDir()
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configureBindingCommandTestServerPort(t)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding: %v", err)
-	}
+	binding := registerBindingCommandWorkspace(t, workspace)
 	cleanup := startBindingCommandServer(t, workspace)
 	defer cleanup()
 
@@ -243,23 +298,12 @@ func TestProjectSubcommandPrintsBoundProjectID(t *testing.T) {
 }
 
 func TestProjectSubcommandTreatsNestedDirectoryAsUnregistered(t *testing.T) {
-	home := t.TempDir()
 	workspace := t.TempDir()
 	nested := filepath.Join(workspace, "subdir")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatalf("MkdirAll nested: %v", err)
 	}
-	t.Setenv("HOME", home)
-	configureBindingCommandTestServerPort(t)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	_, err = metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding: %v", err)
-	}
+	registerBindingCommandWorkspace(t, workspace)
 	cleanup := startBindingCommandServer(t, workspace)
 	defer cleanup()
 
@@ -314,20 +358,9 @@ func TestProjectIDForPathUsesTargetPathServerConfig(t *testing.T) {
 }
 
 func TestAttachSubcommandPathFirstBindsTargetToCurrentProject(t *testing.T) {
-	home := t.TempDir()
 	source := t.TempDir()
 	target := t.TempDir()
-	t.Setenv("HOME", home)
-	configureBindingCommandTestServerPort(t)
-
-	cfg, err := config.Load(source, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load source: %v", err)
-	}
-	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding source: %v", err)
-	}
+	binding := registerBindingCommandWorkspace(t, source)
 	cleanup := startBindingCommandServer(t, source)
 	defer cleanup()
 
@@ -363,21 +396,10 @@ func TestAttachSubcommandPathFirstBindsTargetToCurrentProject(t *testing.T) {
 }
 
 func TestAttachSubcommandExplicitProjectOverridesCurrentWorkspace(t *testing.T) {
-	home := t.TempDir()
 	source := t.TempDir()
 	target := t.TempDir()
 	working := t.TempDir()
-	t.Setenv("HOME", home)
-	configureBindingCommandTestServerPort(t)
-
-	cfg, err := config.Load(source, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load source: %v", err)
-	}
-	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding source: %v", err)
-	}
+	binding := registerBindingCommandWorkspace(t, source)
 	cleanup := startBindingCommandServer(t, source)
 	defer cleanup()
 
@@ -453,38 +475,15 @@ func TestAttachSubcommandRejectsUnknownExplicitProjectIDCleanly(t *testing.T) {
 }
 
 func TestRebindSubcommandRetargetsSessionWorkspace(t *testing.T) {
-	home := t.TempDir()
 	oldWorkspace := t.TempDir()
 	newWorkspace := t.TempDir()
-	t.Setenv("HOME", home)
 	originalOpener := bindingCommandRemoteOpener
 	t.Cleanup(func() { bindingCommandRemoteOpener = originalOpener })
 	bindingCommandRemoteOpener = func(context.Context, string) (config.App, *client.Remote, error) {
 		return config.App{}, nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connect refused")}
 	}
 
-	cfg, err := config.Load(oldWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load oldWorkspace: %v", err)
-	}
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
-	binding, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding oldWorkspace: %v", err)
-	}
-	sess, err := session.Create(
-		config.ProjectSessionsRoot(cfg, binding.ProjectID),
-		filepath.Base(cfg.WorkspaceRoot),
-		cfg.WorkspaceRoot,
-		store.AuthoritativeSessionStoreOptions()...,
-	)
-	if err != nil {
-		t.Fatalf("session.Create: %v", err)
-	}
+	store, binding, sess := newBindingCommandSession(t, oldWorkspace)
 	if err := sess.SetName("incident triage"); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
@@ -520,40 +519,17 @@ func TestRebindSubcommandRetargetsSessionWorkspace(t *testing.T) {
 }
 
 func TestRebindSubcommandRejectsInvalidInputs(t *testing.T) {
-	home := t.TempDir()
 	oldWorkspace := t.TempDir()
 	otherWorkspace := t.TempDir()
 	targetWorkspace := t.TempDir()
 	missingWorkspace := filepath.Join(t.TempDir(), "missing")
-	t.Setenv("HOME", home)
 	originalOpener := bindingCommandRemoteOpener
 	t.Cleanup(func() { bindingCommandRemoteOpener = originalOpener })
 	bindingCommandRemoteOpener = func(context.Context, string) (config.App, *client.Remote, error) {
 		return config.App{}, nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connect refused")}
 	}
 
-	cfg, err := config.Load(oldWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load oldWorkspace: %v", err)
-	}
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
-	binding, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding oldWorkspace: %v", err)
-	}
-	sess, err := session.Create(
-		config.ProjectSessionsRoot(cfg, binding.ProjectID),
-		filepath.Base(cfg.WorkspaceRoot),
-		cfg.WorkspaceRoot,
-		store.AuthoritativeSessionStoreOptions()...,
-	)
-	if err != nil {
-		t.Fatalf("session.Create: %v", err)
-	}
+	store, _, sess := newBindingCommandSession(t, oldWorkspace)
 	if err := sess.SetName("incident triage"); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
@@ -595,22 +571,8 @@ func TestRebindSubcommandRejectsInvalidInputs(t *testing.T) {
 }
 
 func TestRetargetSessionWorkspaceFallsBackToLocalLifecycleClientForLoopbackMethodNotFound(t *testing.T) {
-	originalOpener := bindingCommandRemoteOpener
-	originalRetargeter := bindingCommandSessionRetargeter
-	originalLocalClient := bindingCommandLocalSessionLifecycleClient
-	t.Cleanup(func() {
-		bindingCommandRemoteOpener = originalOpener
-		bindingCommandSessionRetargeter = originalRetargeter
-		bindingCommandLocalSessionLifecycleClient = originalLocalClient
-	})
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	newWorkspace := t.TempDir()
-	newCfg, err := config.Load(newWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	resetBindingCommandRetargetHooks(t)
+	newWorkspace, newCfg := newBindingCommandWorkspaceConfig(t)
 	bindingCommandRemoteOpener = func(context.Context, string) (config.App, *client.Remote, error) {
 		return newCfg, &client.Remote{}, nil
 	}
@@ -653,22 +615,8 @@ func TestRetargetSessionWorkspaceFallsBackToLocalLifecycleClientForLoopbackMetho
 }
 
 func TestRetargetSessionWorkspaceFallsBackToLocalLifecycleClientForLoopbackOpenFailure(t *testing.T) {
-	originalOpener := bindingCommandRemoteOpener
-	originalRetargeter := bindingCommandSessionRetargeter
-	originalLocalClient := bindingCommandLocalSessionLifecycleClient
-	t.Cleanup(func() {
-		bindingCommandRemoteOpener = originalOpener
-		bindingCommandSessionRetargeter = originalRetargeter
-		bindingCommandLocalSessionLifecycleClient = originalLocalClient
-	})
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	newWorkspace := t.TempDir()
-	newCfg, err := config.Load(newWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	resetBindingCommandRetargetHooks(t)
+	newWorkspace, newCfg := newBindingCommandWorkspaceConfig(t)
 	bindingCommandRemoteOpener = func(context.Context, string) (config.App, *client.Remote, error) {
 		return config.App{}, nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connect refused")}
 	}
@@ -704,23 +652,9 @@ func TestRetargetSessionWorkspaceFallsBackToLocalLifecycleClientForLoopbackOpenF
 }
 
 func TestRetargetSessionWorkspaceDoesNotFallbackForNonLoopbackMethodNotFound(t *testing.T) {
-	originalOpener := bindingCommandRemoteOpener
-	originalRetargeter := bindingCommandSessionRetargeter
-	originalLocalClient := bindingCommandLocalSessionLifecycleClient
-	t.Cleanup(func() {
-		bindingCommandRemoteOpener = originalOpener
-		bindingCommandSessionRetargeter = originalRetargeter
-		bindingCommandLocalSessionLifecycleClient = originalLocalClient
-	})
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	resetBindingCommandRetargetHooks(t)
 	t.Setenv("BUILDER_SERVER_HOST", "192.0.2.10")
-	newWorkspace := t.TempDir()
-	newCfg, err := config.Load(newWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	newWorkspace, newCfg := newBindingCommandWorkspaceConfig(t)
 	bindingCommandRemoteOpener = func(context.Context, string) (config.App, *client.Remote, error) {
 		return newCfg, &client.Remote{}, nil
 	}
@@ -735,7 +669,7 @@ func TestRetargetSessionWorkspaceDoesNotFallbackForNonLoopbackMethodNotFound(t *
 		return bindingCommandTimeoutSessionLifecycleStub{}
 	}
 
-	_, err = retargetSessionWorkspace(context.Background(), "session-123", newWorkspace)
+	_, err := retargetSessionWorkspace(context.Background(), "session-123", newWorkspace)
 	if !errors.Is(err, serverapi.ErrMethodNotFound) {
 		t.Fatalf("retargetSessionWorkspace error = %v, want ErrMethodNotFound", err)
 	}
@@ -748,17 +682,7 @@ func TestRetargetSessionWorkspaceDoesNotFallbackForNonLoopbackMethodNotFound(t *
 }
 
 func TestRetargetSessionWorkspaceDoesNotFallbackForNonLoopbackOpenFailure(t *testing.T) {
-	originalOpener := bindingCommandRemoteOpener
-	originalRetargeter := bindingCommandSessionRetargeter
-	originalLocalClient := bindingCommandLocalSessionLifecycleClient
-	t.Cleanup(func() {
-		bindingCommandRemoteOpener = originalOpener
-		bindingCommandSessionRetargeter = originalRetargeter
-		bindingCommandLocalSessionLifecycleClient = originalLocalClient
-	})
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	resetBindingCommandRetargetHooks(t)
 	t.Setenv("BUILDER_SERVER_HOST", "192.0.2.10")
 	newWorkspace := t.TempDir()
 	bindingCommandRemoteOpener = func(context.Context, string) (config.App, *client.Remote, error) {
@@ -781,24 +705,10 @@ func TestRetargetSessionWorkspaceDoesNotFallbackForNonLoopbackOpenFailure(t *tes
 }
 
 func TestRetargetSessionWorkspaceDoesNotFallbackForExplicitLocalhostMethodNotFound(t *testing.T) {
-	originalOpener := bindingCommandRemoteOpener
-	originalRetargeter := bindingCommandSessionRetargeter
-	originalLocalClient := bindingCommandLocalSessionLifecycleClient
-	t.Cleanup(func() {
-		bindingCommandRemoteOpener = originalOpener
-		bindingCommandSessionRetargeter = originalRetargeter
-		bindingCommandLocalSessionLifecycleClient = originalLocalClient
-	})
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	resetBindingCommandRetargetHooks(t)
 	t.Setenv("BUILDER_SERVER_HOST", "localhost")
 	t.Setenv("BUILDER_SERVER_PORT", "65432")
-	newWorkspace := t.TempDir()
-	newCfg, err := config.Load(newWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	newWorkspace, newCfg := newBindingCommandWorkspaceConfig(t)
 	if got := newCfg.Source.Sources["server_host"]; got != "env" {
 		t.Fatalf("server_host source = %q, want env", got)
 	}
@@ -819,7 +729,7 @@ func TestRetargetSessionWorkspaceDoesNotFallbackForExplicitLocalhostMethodNotFou
 		return bindingCommandTimeoutSessionLifecycleStub{}
 	}
 
-	_, err = retargetSessionWorkspace(context.Background(), "session-123", newWorkspace)
+	_, err := retargetSessionWorkspace(context.Background(), "session-123", newWorkspace)
 	if !errors.Is(err, serverapi.ErrMethodNotFound) {
 		t.Fatalf("retargetSessionWorkspace error = %v, want ErrMethodNotFound", err)
 	}

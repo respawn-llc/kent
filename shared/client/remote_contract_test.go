@@ -198,11 +198,22 @@ func remoteRouteCalls(t *testing.T) map[string]remoteRouteCall {
 						recordRemoteCall(calls, methodValues, call.Args, 1, "", rpccontract.ConnectionUnscoped, funcDecl.Name.Name)
 					case "callDedicated":
 						recordRemoteCall(calls, methodValues, call.Args, 2, stringArg(call.Args, 1), rpccontract.ConnectionDedicated, funcDecl.Name.Name)
+					case "subscribeRPC":
+						recordRemoteCall(calls, methodValues, call.Args, 1, stringArg(call.Args, 2), rpccontract.ConnectionSubscription, funcDecl.Name.Name)
 					}
 					return true
 				}
-				if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "callRPC" {
-					recordRemoteCall(calls, methodValues, call.Args, 3, stringArg(call.Args, 2), rpccontract.ConnectionSubscription, funcDecl.Name.Name)
+				if ident := callIdent(call.Fun); ident != "" {
+					switch ident {
+					case "callRPC":
+						recordRemoteCall(calls, methodValues, call.Args, 3, stringArg(call.Args, 2), rpccontract.ConnectionSubscription, funcDecl.Name.Name)
+					case "callControlRPC", "callControlRPCNoResponse":
+						recordRemoteCall(calls, methodValues, call.Args, 2, "", rpccontract.ConnectionControl, funcDecl.Name.Name)
+					case "callDedicatedRPC", "callDedicatedRPCNoResponse":
+						recordRemoteCall(calls, methodValues, call.Args, 3, stringArg(call.Args, 2), rpccontract.ConnectionDedicated, funcDecl.Name.Name)
+					case "callUnscopedRPC", "callUnscopedRPCNoResponse":
+						recordRemoteCall(calls, methodValues, call.Args, 2, "", rpccontract.ConnectionUnscoped, funcDecl.Name.Name)
+					}
 				}
 				return true
 			})
@@ -241,8 +252,25 @@ func remoteRouteCalls(t *testing.T) map[string]remoteRouteCall {
 	return calls
 }
 
+func callIdent(expr ast.Expr) string {
+	switch typed := expr.(type) {
+	case *ast.Ident:
+		return typed.Name
+	case *ast.IndexExpr:
+		if ident, ok := typed.X.(*ast.Ident); ok {
+			return ident.Name
+		}
+	case *ast.IndexListExpr:
+		if ident, ok := typed.X.(*ast.Ident); ok {
+			return ident.Name
+		}
+	}
+	return ""
+}
+
 func clientInterfaceMethods(t *testing.T, dir string) map[string]struct{} {
 	t.Helper()
+	serviceMethods := serviceContractInterfaceMethods(t, dir)
 	methods := map[string]struct{}{}
 	for _, file := range clientSourceFiles(t, dir) {
 		for _, decl := range file.Decls {
@@ -255,11 +283,23 @@ func clientInterfaceMethods(t *testing.T, dir string) map[string]struct{} {
 				if !ok || !strings.HasSuffix(typeSpec.Name.Name, "Client") {
 					continue
 				}
+				if serviceName, ok := serviceContractSelectorName(typeSpec.Type); ok {
+					for method := range serviceMethods[serviceName] {
+						methods[method] = struct{}{}
+					}
+					continue
+				}
 				iface, ok := typeSpec.Type.(*ast.InterfaceType)
 				if !ok {
 					continue
 				}
 				for _, method := range iface.Methods.List {
+					if serviceName, ok := serviceContractSelectorName(method.Type); ok {
+						for method := range serviceMethods[serviceName] {
+							methods[method] = struct{}{}
+						}
+						continue
+					}
 					if len(method.Names) != 1 {
 						continue
 					}
@@ -269,6 +309,51 @@ func clientInterfaceMethods(t *testing.T, dir string) map[string]struct{} {
 		}
 	}
 	return methods
+}
+
+func serviceContractInterfaceMethods(t *testing.T, clientDir string) map[string]map[string]struct{} {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(clientDir, "..", "servicecontract", "services.go"), nil, 0)
+	if err != nil {
+		t.Fatalf("parse servicecontract/services.go: %v", err)
+	}
+	out := map[string]map[string]struct{}{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			iface, ok := typeSpec.Type.(*ast.InterfaceType)
+			if !ok {
+				continue
+			}
+			methods := map[string]struct{}{}
+			for _, method := range iface.Methods.List {
+				if len(method.Names) == 1 {
+					methods[method.Names[0].Name] = struct{}{}
+				}
+			}
+			out[typeSpec.Name.Name] = methods
+		}
+	}
+	return out
+}
+
+func serviceContractSelectorName(expr ast.Expr) (string, bool) {
+	selector, ok := expr.(*ast.SelectorExpr)
+	if !ok {
+		return "", false
+	}
+	pkg, ok := selector.X.(*ast.Ident)
+	if !ok || pkg.Name != "servicecontract" {
+		return "", false
+	}
+	return selector.Sel.Name, true
 }
 
 func loopbackMethodNames(t *testing.T, dir string) map[string]struct{} {
@@ -309,18 +394,11 @@ func loopbackMethodServiceContractTypes(t *testing.T, dir string) map[string]str
 					continue
 				}
 				for _, field := range structType.Fields.List {
-					if len(field.Names) != 1 || field.Names[0].Name != "service" {
-						continue
-					}
-					selector, ok := field.Type.(*ast.SelectorExpr)
+					serviceType, ok := loopbackFieldServiceContractName(field)
 					if !ok {
 						continue
 					}
-					pkg, ok := selector.X.(*ast.Ident)
-					if !ok || pkg.Name != "servicecontract" {
-						continue
-					}
-					serviceTypesByReceiver[typeSpec.Name.Name] = selector.Sel.Name
+					serviceTypesByReceiver[typeSpec.Name.Name] = serviceType
 				}
 			}
 		}
@@ -341,6 +419,24 @@ func loopbackMethodServiceContractTypes(t *testing.T, dir string) map[string]str
 		}
 	}
 	return methods
+}
+
+func loopbackFieldServiceContractName(field *ast.Field) (string, bool) {
+	if len(field.Names) == 1 && field.Names[0].Name == "service" {
+		return serviceContractSelectorName(field.Type)
+	}
+	if len(field.Names) != 0 {
+		return "", false
+	}
+	index, ok := field.Type.(*ast.IndexExpr)
+	if !ok {
+		return "", false
+	}
+	ident, ok := index.X.(*ast.Ident)
+	if !ok || ident.Name != "loopbackClient" {
+		return "", false
+	}
+	return serviceContractSelectorName(index.Index)
 }
 
 func clientSourceFiles(t *testing.T, dir string) []*ast.File {

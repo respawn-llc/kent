@@ -2,27 +2,21 @@ package client
 
 import (
 	"context"
-	"errors"
 
 	"builder/shared/serverapi"
 	"builder/shared/servicecontract"
 )
 
-type AuthStatusClient interface {
-	GetAuthStatus(ctx context.Context, req serverapi.AuthStatusRequest) (serverapi.AuthStatusResponse, error)
-}
+type AuthStatusClient = servicecontract.AuthStatusService
 
 type loopbackAuthStatusClient struct {
-	service servicecontract.AuthStatusService
+	loopbackClient[servicecontract.AuthStatusService]
 }
 
 func NewLoopbackAuthStatusClient(service servicecontract.AuthStatusService) AuthStatusClient {
-	return &loopbackAuthStatusClient{service: service}
+	return &loopbackAuthStatusClient{loopbackClient: newLoopbackClient(service)}
 }
 
 func (c *loopbackAuthStatusClient) GetAuthStatus(ctx context.Context, req serverapi.AuthStatusRequest) (serverapi.AuthStatusResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.AuthStatusResponse{}, errors.New("auth status service is required")
-	}
-	return c.service.GetAuthStatus(ctx, req)
+	return callLoopbackClient(c, "auth status service is required", ctx, req, servicecontract.AuthStatusService.GetAuthStatus)
 }

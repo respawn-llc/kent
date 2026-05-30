@@ -6,23 +6,6 @@ import (
 	"builder/shared/transcript"
 )
 
-func (m Model) renderFlatDetailTranscript() string {
-	return m.DetailProjection(true, true).Render(detailItemSeparator)
-}
-
-func (m Model) buildDetailBlocks(includeStreaming bool, applySelection bool) []ongoingBlock {
-	specs := m.buildDetailBlockSpecs(includeStreaming)
-	blocks := make([]ongoingBlock, 0, len(specs))
-	for _, spec := range specs {
-		lines := spec.render(m, "")
-		if applySelection {
-			lines = m.maybeSelectedUserBlock(spec.entryIndex, spec.role, lines)
-		}
-		blocks = append(blocks, ongoingBlock{role: spec.role, lines: lines, entryIndex: spec.entryIndex, entryEnd: spec.entryEnd})
-	}
-	return blocks
-}
-
 func (m Model) buildDetailBlockSpecs(includeStreaming bool) []detailBlockSpec {
 	blocks := make([]detailBlockSpec, 0, len(m.transcriptInput.Entries)+1)
 	consumedResults := make(map[int]struct{})
@@ -76,16 +59,8 @@ func (m Model) buildDetailBlockSpecs(includeStreaming bool) []detailBlockSpec {
 	return blocks
 }
 
-func (m Model) renderFlatOngoingTranscript() string {
-	return m.renderFlatOngoingTranscriptWithStreaming(true)
-}
-
 func (m Model) renderFlatCommittedOngoingTranscript() string {
 	return m.CommittedOngoingProjection().Render(detailDivider())
-}
-
-func (m Model) renderFlatOngoingTranscriptWithStreaming(includeStreaming bool) string {
-	return m.OngoingProjection(includeStreaming).Render(detailDivider())
 }
 
 func (m Model) buildOngoingBlocks(includeStreaming bool) []ongoingBlock {

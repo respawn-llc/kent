@@ -2,27 +2,21 @@ package client
 
 import (
 	"context"
-	"errors"
 
 	"builder/shared/serverapi"
 	"builder/shared/servicecontract"
 )
 
-type ProcessOutputClient interface {
-	SubscribeProcessOutput(ctx context.Context, req serverapi.ProcessOutputSubscribeRequest) (serverapi.ProcessOutputSubscription, error)
-}
+type ProcessOutputClient = servicecontract.ProcessOutputService
 
 type loopbackProcessOutputClient struct {
-	service servicecontract.ProcessOutputService
+	loopbackClient[servicecontract.ProcessOutputService]
 }
 
 func NewLoopbackProcessOutputClient(service servicecontract.ProcessOutputService) ProcessOutputClient {
-	return &loopbackProcessOutputClient{service: service}
+	return &loopbackProcessOutputClient{loopbackClient: newLoopbackClient(service)}
 }
 
 func (c *loopbackProcessOutputClient) SubscribeProcessOutput(ctx context.Context, req serverapi.ProcessOutputSubscribeRequest) (serverapi.ProcessOutputSubscription, error) {
-	if c == nil || c.service == nil {
-		return nil, errors.New("process output service is required")
-	}
-	return c.service.SubscribeProcessOutput(ctx, req)
+	return callLoopbackClient(c, "process output service is required", ctx, req, servicecontract.ProcessOutputService.SubscribeProcessOutput)
 }

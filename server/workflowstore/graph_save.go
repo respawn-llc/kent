@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"builder/server/metadata/sqlitegen"
@@ -172,9 +173,9 @@ func (s *Store) SaveWorkflowGraph(ctx context.Context, req WorkflowGraphSaveRequ
 		if err := applyWorkflowGraphSave(ctx, tx, q, plan.WorkflowID, plan.Prepared, plan.Removed); err != nil {
 			return WorkflowGraphSaveResult{}, err
 		}
-		revision, err := q.IncrementWorkflowVersion(ctx, sqlitegen.IncrementWorkflowVersionParams{ID: string(plan.WorkflowID), UpdatedAtUnixMs: s.now().UnixMilli()})
+		revision, err := s.incrementWorkflowVersion(ctx, q, plan.WorkflowID)
 		if err != nil {
-			return WorkflowGraphSaveResult{}, fmt.Errorf("increment workflow version: %w", err)
+			return WorkflowGraphSaveResult{}, err
 		}
 		version = revision
 	}
@@ -452,10 +453,10 @@ func workflowGraphSaveBlockersFromEditPolicy(blockers []WorkflowGraphEditPolicyB
 func workflowGraphSavePreparedEqual(left preparedWorkflowGraphSave, right preparedWorkflowGraphSave) bool {
 	leftComparable := workflowGraphSaveComparable(left)
 	rightComparable := workflowGraphSaveComparable(right)
-	return comparableNodeGroupsEqual(leftComparable.NodeGroups, rightComparable.NodeGroups) &&
-		comparableNodesEqual(leftComparable.Nodes, rightComparable.Nodes) &&
-		comparableTransitionGroupsEqual(leftComparable.TransitionGroups, rightComparable.TransitionGroups) &&
-		comparableEdgesEqual(leftComparable.Edges, rightComparable.Edges)
+	return slices.Equal(leftComparable.NodeGroups, rightComparable.NodeGroups) &&
+		slices.EqualFunc(leftComparable.Nodes, rightComparable.Nodes, comparableWorkflowGraphSaveNodesEqual) &&
+		slices.Equal(leftComparable.TransitionGroups, rightComparable.TransitionGroups) &&
+		slices.EqualFunc(leftComparable.Edges, rightComparable.Edges, comparableWorkflowGraphSaveEdgesEqual)
 }
 
 type comparableWorkflowGraphSave struct {
@@ -511,114 +512,12 @@ type comparableWorkflowGraphSaveEdge struct {
 	SortOrder          int64
 }
 
-func comparableNodeGroupsEqual(left []comparableWorkflowGraphSaveNodeGroup, right []comparableWorkflowGraphSaveNodeGroup) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index, item := range left {
-		if item != right[index] {
-			return false
-		}
-	}
-	return true
+func comparableWorkflowGraphSaveNodesEqual(item comparableWorkflowGraphSaveNode, other comparableWorkflowGraphSaveNode) bool {
+	return item.ID == other.ID && item.WorkflowID == other.WorkflowID && item.Key == other.Key && item.Kind == other.Kind && item.DisplayName == other.DisplayName && item.GroupID == other.GroupID && item.SubagentRole == other.SubagentRole && item.PromptTemplate == other.PromptTemplate && item.SortOrder == other.SortOrder && slices.Equal(item.InputFields, other.InputFields) && slices.Equal(item.JoinInputProviders, other.JoinInputProviders) && slices.Equal(item.OutputFields, other.OutputFields)
 }
 
-func comparableNodesEqual(left []comparableWorkflowGraphSaveNode, right []comparableWorkflowGraphSaveNode) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index, item := range left {
-		other := right[index]
-		if item.ID != other.ID || item.WorkflowID != other.WorkflowID || item.Key != other.Key || item.Kind != other.Kind || item.DisplayName != other.DisplayName || item.GroupID != other.GroupID || item.SubagentRole != other.SubagentRole || item.PromptTemplate != other.PromptTemplate || item.SortOrder != other.SortOrder || !workflowInputFieldsEqual(item.InputFields, other.InputFields) || !workflowJoinInputProvidersEqual(item.JoinInputProviders, other.JoinInputProviders) || !workflowOutputFieldsEqual(item.OutputFields, other.OutputFields) {
-			return false
-		}
-	}
-	return true
-}
-
-func comparableTransitionGroupsEqual(left []comparableWorkflowGraphSaveTransitionGroup, right []comparableWorkflowGraphSaveTransitionGroup) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index, item := range left {
-		if item != right[index] {
-			return false
-		}
-	}
-	return true
-}
-
-func comparableEdgesEqual(left []comparableWorkflowGraphSaveEdge, right []comparableWorkflowGraphSaveEdge) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index, item := range left {
-		other := right[index]
-		if item.ID != other.ID || item.WorkflowID != other.WorkflowID || item.TransitionGroupID != other.TransitionGroupID || item.Key != other.Key || item.TargetNodeID != other.TargetNodeID || item.RequiresApproval != other.RequiresApproval || item.ContextMode != other.ContextMode || item.ContextSource != other.ContextSource || item.SortOrder != other.SortOrder || !workflowInputBindingsEqual(item.InputBindings, other.InputBindings) || !workflowOutputRequirementsEqual(item.OutputRequirements, other.OutputRequirements) {
-			return false
-		}
-	}
-	return true
-}
-
-func workflowOutputFieldsEqual(left []workflow.OutputField, right []workflow.OutputField) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index, item := range left {
-		if item != right[index] {
-			return false
-		}
-	}
-	return true
-}
-
-func workflowInputFieldsEqual(left []workflow.InputField, right []workflow.InputField) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index, item := range left {
-		if item != right[index] {
-			return false
-		}
-	}
-	return true
-}
-
-func workflowJoinInputProvidersEqual(left []workflow.JoinInputProvider, right []workflow.JoinInputProvider) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index, item := range left {
-		if item != right[index] {
-			return false
-		}
-	}
-	return true
-}
-
-func workflowInputBindingsEqual(left []workflow.InputBinding, right []workflow.InputBinding) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index, item := range left {
-		if item != right[index] {
-			return false
-		}
-	}
-	return true
-}
-
-func workflowOutputRequirementsEqual(left []workflow.OutputRequirement, right []workflow.OutputRequirement) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index, item := range left {
-		if item != right[index] {
-			return false
-		}
-	}
-	return true
+func comparableWorkflowGraphSaveEdgesEqual(item comparableWorkflowGraphSaveEdge, other comparableWorkflowGraphSaveEdge) bool {
+	return item.ID == other.ID && item.WorkflowID == other.WorkflowID && item.TransitionGroupID == other.TransitionGroupID && item.Key == other.Key && item.TargetNodeID == other.TargetNodeID && item.RequiresApproval == other.RequiresApproval && item.ContextMode == other.ContextMode && item.ContextSource == other.ContextSource && item.SortOrder == other.SortOrder && slices.Equal(item.InputBindings, other.InputBindings) && slices.Equal(item.OutputRequirements, other.OutputRequirements)
 }
 
 func workflowGraphSaveComparable(prepared preparedWorkflowGraphSave) comparableWorkflowGraphSave {
@@ -699,14 +598,7 @@ func applyWorkflowGraphSave(ctx context.Context, tx *sql.Tx, q *sqlitegen.Querie
 }
 
 func upsertWorkflowNodeGroup(ctx context.Context, tx *sql.Tx, group NodeGroupRecord) error {
-	result, err := tx.ExecContext(ctx, `
-INSERT INTO workflow_node_groups (id, workflow_id, group_key, display_name, sort_order)
-VALUES (?, ?, ?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET
-    group_key = excluded.group_key,
-    display_name = excluded.display_name,
-    sort_order = excluded.sort_order
-WHERE workflow_node_groups.workflow_id = excluded.workflow_id`,
+	result, err := tx.ExecContext(ctx, workflowStoreQuery(upsertWorkflowNodeGroupQuery),
 		group.ID,
 		string(group.WorkflowID),
 		string(group.Key),
@@ -729,21 +621,7 @@ func upsertWorkflowNode(ctx context.Context, tx *sql.Tx, node NodeRecord, sortOr
 	if err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `
-INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, subagent_role, prompt_template, input_fields_json, join_input_providers_json, output_fields_json, group_id, sort_order)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET
-    node_key = excluded.node_key,
-    kind = excluded.kind,
-    display_name = excluded.display_name,
-    subagent_role = excluded.subagent_role,
-    prompt_template = excluded.prompt_template,
-    input_fields_json = excluded.input_fields_json,
-    join_input_providers_json = excluded.join_input_providers_json,
-    output_fields_json = excluded.output_fields_json,
-    group_id = excluded.group_id,
-    sort_order = excluded.sort_order
-WHERE workflow_nodes.workflow_id = excluded.workflow_id`,
+	result, err := tx.ExecContext(ctx, workflowStoreQuery(upsertWorkflowNodeQuery),
 		string(node.ID),
 		string(node.WorkflowID),
 		string(node.Key),
@@ -761,20 +639,7 @@ WHERE workflow_nodes.workflow_id = excluded.workflow_id`,
 }
 
 func upsertWorkflowTransitionGroup(ctx context.Context, tx *sql.Tx, group TransitionGroupRecord, sortOrder int64) error {
-	result, err := tx.ExecContext(ctx, `
-INSERT INTO workflow_transition_groups (id, source_node_id, transition_id, display_name, sort_order)
-VALUES (?, ?, ?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET
-    source_node_id = excluded.source_node_id,
-    transition_id = excluded.transition_id,
-    display_name = excluded.display_name,
-    sort_order = excluded.sort_order
-WHERE EXISTS (
-    SELECT 1
-    FROM workflow_nodes source
-    WHERE source.id = workflow_transition_groups.source_node_id
-      AND source.workflow_id = ?
-)`,
+	result, err := tx.ExecContext(ctx, workflowStoreQuery(upsertWorkflowTransitionGroupQuery),
 		string(group.ID),
 		string(group.SourceNodeID),
 		strings.TrimSpace(string(group.TransitionID)),
@@ -795,27 +660,7 @@ func upsertWorkflowEdge(ctx context.Context, tx *sql.Tx, edge EdgeRecord, sortOr
 	if err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `
-INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key, input_bindings_json, output_requirements_json, sort_order)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET
-    transition_group_id = excluded.transition_group_id,
-    edge_key = excluded.edge_key,
-    target_node_id = excluded.target_node_id,
-    requires_approval = excluded.requires_approval,
-    context_mode = excluded.context_mode,
-    context_source_kind = excluded.context_source_kind,
-    context_source_node_key = excluded.context_source_node_key,
-    input_bindings_json = excluded.input_bindings_json,
-    output_requirements_json = excluded.output_requirements_json,
-    sort_order = excluded.sort_order
-WHERE EXISTS (
-    SELECT 1
-    FROM workflow_transition_groups tg
-    JOIN workflow_nodes source ON source.id = tg.source_node_id
-    WHERE tg.id = workflow_edges.transition_group_id
-      AND source.workflow_id = ?
-)`,
+	result, err := tx.ExecContext(ctx, workflowStoreQuery(upsertWorkflowEdgeQuery),
 		string(edge.ID),
 		string(edge.TransitionGroupID),
 		string(edge.Key),

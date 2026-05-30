@@ -2,35 +2,25 @@ package client
 
 import (
 	"context"
-	"errors"
 
 	"builder/shared/serverapi"
 	"builder/shared/servicecontract"
 )
 
-type ProcessViewClient interface {
-	ListProcesses(ctx context.Context, req serverapi.ProcessListRequest) (serverapi.ProcessListResponse, error)
-	GetProcess(ctx context.Context, req serverapi.ProcessGetRequest) (serverapi.ProcessGetResponse, error)
-}
+type ProcessViewClient = servicecontract.ProcessViewService
 
 type loopbackProcessViewClient struct {
-	service servicecontract.ProcessViewService
+	loopbackClient[servicecontract.ProcessViewService]
 }
 
 func NewLoopbackProcessViewClient(service servicecontract.ProcessViewService) ProcessViewClient {
-	return &loopbackProcessViewClient{service: service}
+	return &loopbackProcessViewClient{loopbackClient: newLoopbackClient(service)}
 }
 
 func (c *loopbackProcessViewClient) ListProcesses(ctx context.Context, req serverapi.ProcessListRequest) (serverapi.ProcessListResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.ProcessListResponse{}, errors.New("process view service is required")
-	}
-	return c.service.ListProcesses(ctx, req)
+	return callLoopbackClient(c, "process view service is required", ctx, req, servicecontract.ProcessViewService.ListProcesses)
 }
 
 func (c *loopbackProcessViewClient) GetProcess(ctx context.Context, req serverapi.ProcessGetRequest) (serverapi.ProcessGetResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.ProcessGetResponse{}, errors.New("process view service is required")
-	}
-	return c.service.GetProcess(ctx, req)
+	return callLoopbackClient(c, "process view service is required", ctx, req, servicecontract.ProcessViewService.GetProcess)
 }

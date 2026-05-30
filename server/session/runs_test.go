@@ -6,11 +6,7 @@ import (
 )
 
 func TestStoreReadRunsReconstructsDurableHistoryAfterReopen(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 
 	run1Start := time.Now().UTC().Add(-2 * time.Minute)
 	run1Finish := run1Start.Add(30 * time.Second)
@@ -50,11 +46,7 @@ func TestStoreReadRunsReconstructsDurableHistoryAfterReopen(t *testing.T) {
 }
 
 func TestStoreLatestRunReturnsNewestDurableRun(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 
 	latest, err := store.LatestRun()
 	if err != nil {
@@ -83,11 +75,7 @@ func TestStoreLatestRunReturnsNewestDurableRun(t *testing.T) {
 }
 
 func TestStoreReadRunsTreatsStartedWithoutFinishAsRunning(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 
 	startedAt := time.Now().UTC().Add(-time.Minute)
 	if _, err := store.AppendRunStarted(RunRecord{RunID: "run-1", StepID: "step-1", StartedAt: startedAt}); err != nil {
@@ -111,11 +99,7 @@ func TestStoreReadRunsTreatsStartedWithoutFinishAsRunning(t *testing.T) {
 }
 
 func TestStoreAppendRunFinishedRequiresTerminalStatus(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 
 	if _, err := store.AppendRunFinished(RunRecord{RunID: "run-1", StepID: "step-1", Status: RunStatusRunning}); err == nil {
 		t.Fatal("expected non-terminal run_finished status to be rejected")

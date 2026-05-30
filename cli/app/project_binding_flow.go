@@ -195,15 +195,6 @@ func (m *projectBindingPickerModel) visibleRowsFromOffset(offset int) []projectB
 	})
 }
 
-func (m *projectBindingPickerModel) rowVisibleFromOffset(offset, index int) bool {
-	for _, row := range m.visibleRowsFromOffset(offset) {
-		if row.Index == index {
-			return true
-		}
-	}
-	return false
-}
-
 func (m *projectBindingPickerModel) renderHeader() string {
 	if m.headerMD != nil {
 		rendered, err := m.headerMD.Render(m.options.HeaderMarkdown)
@@ -455,15 +446,6 @@ func (m *projectWorkspacePickerModel) visibleRowsFromOffset(offset int) []projec
 		LineBudget: m.visibleLineBudget(),
 		HasPreview: m.hasPreview,
 	})
-}
-
-func (m *projectWorkspacePickerModel) rowVisibleFromOffset(offset, index int) bool {
-	for _, row := range m.visibleRowsFromOffset(offset) {
-		if row.Index == index {
-			return true
-		}
-	}
-	return false
 }
 
 func (m *projectWorkspacePickerModel) renderHeader() string {

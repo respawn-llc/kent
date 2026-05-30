@@ -1,0 +1,14 @@
+Usage of builder rebind:
+  builder rebind <session-id> <new-path>
+
+What This Does:
+  Retarget one session to a different workspace root.
+  Use this when the original workspace moved or when the session should continue from another bound copy.
+
+Requirements:
+  `<new-path>` must exist.
+  `<new-path>` must not already be bound to a different project.
+
+Examples:
+  builder rebind <session-id> ../moved-workspace
+

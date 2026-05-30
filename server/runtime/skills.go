@@ -195,18 +195,6 @@ func formatSkillDiscoveryWarning(issue skillDiscoveryIssue) string {
 	return fmt.Sprintf("Skipped skill %q at %s: %s", name, issue.Path, issue.Reason)
 }
 
-func skillsInjectionRoots(workspaceRoot string) ([]string, error) {
-	roots, err := skillDiscoveryRoots(workspaceRoot)
-	if err != nil {
-		return nil, err
-	}
-	paths := make([]string, 0, len(roots))
-	for _, root := range roots {
-		paths = append(paths, root.Path)
-	}
-	return paths, nil
-}
-
 func skillDiscoveryRoots(workspaceRoot string) ([]skillRoot, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

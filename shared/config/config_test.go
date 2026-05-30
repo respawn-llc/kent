@@ -48,13 +48,8 @@ func TestPreparePersistenceRootAllowsIsolatedTempHomeUnderGoTest(t *testing.T) {
 }
 
 func TestLoadUsesDefaultsWithoutCreatingConfigOnFirstUse(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	home, workspace := newConfigTestEnv(t)
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 
 	settingsPath := filepath.Join(home, ".builder", "config.toml")
 	if _, err := os.Stat(settingsPath); !errors.Is(err, os.ErrNotExist) {
@@ -215,14 +210,9 @@ func TestWriteManagedRGConfigFileForSettingsPathRejectsEmptyPath(t *testing.T) {
 }
 
 func TestLoadHonorsHOMEEnvironmentForDefaultConfigRoot(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	home, workspace := newConfigTestEnv(t)
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.PersistenceRoot != filepath.Join(home, ".builder") {
 		t.Fatalf("persistence root = %q, want HOME-scoped root", cfg.PersistenceRoot)
 	}
@@ -232,9 +222,7 @@ func TestLoadHonorsHOMEEnvironmentForDefaultConfigRoot(t *testing.T) {
 }
 
 func TestLoadTrimsWorkspaceRootBeforeResolving(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	_, workspace := newConfigTestEnv(t)
 
 	cfg, err := Load("  "+workspace+"  ", LoadOptions{})
 	if err != nil {
@@ -246,9 +234,7 @@ func TestLoadTrimsWorkspaceRootBeforeResolving(t *testing.T) {
 }
 
 func TestLoadAppliesWorkspaceConfigBeforeEnvBeforeCLI(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	home, workspace := newConfigTestEnv(t)
 	t.Setenv("BUILDER_MODEL", "env-model")
 	if err := os.MkdirAll(filepath.Join(home, ".builder"), 0o755); err != nil {
 		t.Fatalf("create home config dir: %v", err)
@@ -344,13 +330,7 @@ func TestEnsureManagedRGConfigFilePreservesExistingContents(t *testing.T) {
 }
 
 func TestLoadSubagentRoleFromFile(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
+	home, workspace, configPath := newConfigTestFile(t)
 	contents := strings.Join([]string{
 		"model = \"gpt-5.5\"",
 		"",
@@ -364,14 +344,9 @@ func TestLoadSubagentRoleFromFile(t *testing.T) {
 		"[subagents.fast.tools]",
 		"patch = false",
 	}, "\n")
-	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeConfigTestFile(t, configPath, contents)
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	role, ok := cfg.Settings.Subagents[BuiltInSubagentRoleFast]
 	if !ok {
 		t.Fatalf("expected fast subagent role, got %+v", cfg.Settings.Subagents)
@@ -397,27 +372,16 @@ func TestLoadSubagentRoleFromFile(t *testing.T) {
 }
 
 func TestLoadSubagentRoleMetadataFromFile(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
+	_, workspace, configPath := newConfigTestFile(t)
 	contents := strings.Join([]string{
 		"[subagents.research]",
 		"description = \"  Deep    repo\\nresearch  \"",
 		"agent_callable = false",
 		"thinking_level = \"high\"",
 	}, "\n")
-	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeConfigTestFile(t, configPath, contents)
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	role := cfg.Settings.Subagents["research"]
 	if role.Description != "Deep repo research" {
 		t.Fatalf("description = %q, want normalized description", role.Description)
@@ -436,17 +400,7 @@ func TestLoadSubagentRoleMetadataFromFile(t *testing.T) {
 func TestLoadSubagentRoleRejectsReservedNames(t *testing.T) {
 	for _, reserved := range []string{"default", "none", "self"} {
 		t.Run(reserved, func(t *testing.T) {
-			home := t.TempDir()
-			workspace := t.TempDir()
-			t.Setenv("HOME", home)
-			configPath := filepath.Join(home, ".builder", "config.toml")
-			if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-				t.Fatalf("mkdir config dir: %v", err)
-			}
-			if err := os.WriteFile(configPath, []byte("[subagents."+reserved+"]\nmodel = \"gpt-5.5\"\n"), 0o644); err != nil {
-				t.Fatalf("write config: %v", err)
-			}
-			_, err := Load(workspace, LoadOptions{})
+			err := loadConfigTestFileError(t, "[subagents."+reserved+"]\nmodel = \"gpt-5.5\"\n", LoadOptions{})
 			if err == nil {
 				t.Fatal("expected reserved role to fail")
 			}
@@ -469,17 +423,7 @@ func TestLoadSubagentRoleRejectsInvalidMetadata(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			home := t.TempDir()
-			workspace := t.TempDir()
-			t.Setenv("HOME", home)
-			configPath := filepath.Join(home, ".builder", "config.toml")
-			if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-				t.Fatalf("mkdir config dir: %v", err)
-			}
-			if err := os.WriteFile(configPath, []byte(tt.body), 0o644); err != nil {
-				t.Fatalf("write config: %v", err)
-			}
-			_, err := Load(workspace, LoadOptions{})
+			err := loadConfigTestFileError(t, tt.body, LoadOptions{})
 			if err == nil {
 				t.Fatal("expected metadata error")
 			}
@@ -575,13 +519,6 @@ func TestParseSubagentRoleSystemPromptFileResolvesConfigRelativePath(t *testing.
 }
 
 func TestLoadSubagentRoleRejectsNestedSubagentsTable(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
 	contents := strings.Join([]string{
 		"model = \"gpt-5.5\"",
 		"",
@@ -591,11 +528,8 @@ func TestLoadSubagentRoleRejectsNestedSubagentsTable(t *testing.T) {
 		"[subagents.fast.subagents.worker]",
 		"thinking_level = \"high\"",
 	}, "\n")
-	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
 
-	_, err := Load(workspace, LoadOptions{})
+	err := loadConfigTestFileError(t, contents, LoadOptions{})
 	if err == nil {
 		t.Fatal("expected nested subagents table to fail")
 	}
@@ -605,13 +539,6 @@ func TestLoadSubagentRoleRejectsNestedSubagentsTable(t *testing.T) {
 }
 
 func TestLoadSubagentRoleRejectsUnknownKeys(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
 	contents := strings.Join([]string{
 		"model = \"gpt-5.5\"",
 		"",
@@ -619,11 +546,8 @@ func TestLoadSubagentRoleRejectsUnknownKeys(t *testing.T) {
 		"thinking_level = \"low\"",
 		"unknown_toggle = true",
 	}, "\n")
-	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
 
-	_, err := Load(workspace, LoadOptions{})
+	err := loadConfigTestFileError(t, contents, LoadOptions{})
 	if err == nil {
 		t.Fatal("expected unknown subagent key to fail")
 	}
@@ -633,13 +557,7 @@ func TestLoadSubagentRoleRejectsUnknownKeys(t *testing.T) {
 }
 
 func TestLoadResolvesWorktreeBaseDirRelativeToPersistenceRoot(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configDir := filepath.Join(home, ".builder")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
+	home, workspace, configPath := newConfigTestFile(t)
 	configText := strings.Join([]string{
 		"persistence_root = \"~/custom-builder\"",
 		"",
@@ -648,14 +566,9 @@ func TestLoadResolvesWorktreeBaseDirRelativeToPersistenceRoot(t *testing.T) {
 		"setup_script = \"scripts/setup-worktree.sh\"",
 		"",
 	}, "\n")
-	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(configText), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeConfigTestFile(t, configPath, configText)
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 
 	if got, want := cfg.PersistenceRoot, filepath.Join(home, "custom-builder"); got != want {
 		t.Fatalf("persistence root = %q, want %q", got, want)
@@ -669,22 +582,8 @@ func TestLoadResolvesWorktreeBaseDirRelativeToPersistenceRoot(t *testing.T) {
 }
 
 func TestLoadDerivesDefaultWorktreeBaseDirFromPersistenceRoot(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configDir := filepath.Join(home, ".builder")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
 	configText := "persistence_root = \"~/custom-builder\"\n"
-	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(configText), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	home, _, cfg := loadConfigTestFileApp(t, configText, LoadOptions{})
 
 	if got, want := cfg.PersistenceRoot, filepath.Join(home, "custom-builder"); got != want {
 		t.Fatalf("persistence root = %q, want %q", got, want)
@@ -695,27 +594,13 @@ func TestLoadDerivesDefaultWorktreeBaseDirFromPersistenceRoot(t *testing.T) {
 }
 
 func TestLoadCreatesWorktreeBaseDir(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configDir := filepath.Join(home, ".builder")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
 	configText := strings.Join([]string{
 		"persistence_root = \"~/custom-builder\"",
 		"",
 		"[worktrees]",
 		"base_dir = \"managed/worktrees\"",
 	}, "\n")
-	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(configText), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	_, _, cfg := loadConfigTestFileApp(t, configText, LoadOptions{})
 	info, err := os.Stat(cfg.Settings.Worktrees.BaseDir)
 	if err != nil {
 		t.Fatalf("stat worktree base dir: %v", err)
@@ -726,24 +611,14 @@ func TestLoadCreatesWorktreeBaseDir(t *testing.T) {
 }
 
 func TestLoadSubagentRoleRejectsInvalidValues(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
 	contents := strings.Join([]string{
 		"model = \"gpt-5.5\"",
 		"",
 		"[subagents.fast]",
 		"provider_override = \"bogus\"",
 	}, "\n")
-	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
 
-	_, err := Load(workspace, LoadOptions{})
+	err := loadConfigTestFileError(t, contents, LoadOptions{})
 	if err == nil {
 		t.Fatal("expected invalid subagent role values to fail")
 	}
@@ -753,13 +628,6 @@ func TestLoadSubagentRoleRejectsInvalidValues(t *testing.T) {
 }
 
 func TestLoadSubagentRoleAllowsReviewerAuthNoneToInheritParentBaseURL(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
 	contents := strings.Join([]string{
 		"model = \"gpt-5.5\"",
 		"openai_base_url = \"http://127.0.0.1:8080/v1\"",
@@ -767,14 +635,8 @@ func TestLoadSubagentRoleAllowsReviewerAuthNoneToInheritParentBaseURL(t *testing
 		"[subagents.fast.reviewer]",
 		"auth = \"none\"",
 	}, "\n")
-	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	_, _, cfg := loadConfigTestFileApp(t, contents, LoadOptions{})
 	role := cfg.Settings.Subagents[BuiltInSubagentRoleFast]
 	if role.Settings.Reviewer.Auth != "none" {
 		t.Fatalf("expected subagent reviewer.auth=none, got %q", role.Settings.Reviewer.Auth)
@@ -782,13 +644,6 @@ func TestLoadSubagentRoleAllowsReviewerAuthNoneToInheritParentBaseURL(t *testing
 }
 
 func TestLoadSubagentRoleAllowsReviewerAuthNoneWithExplicitFirstPartyBaseURL(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
 	contents := strings.Join([]string{
 		"model = \"gpt-5.5\"",
 		"",
@@ -796,14 +651,8 @@ func TestLoadSubagentRoleAllowsReviewerAuthNoneWithExplicitFirstPartyBaseURL(t *
 		"auth = \"none\"",
 		"openai_base_url = \"https://api.openai.com/v1\"",
 	}, "\n")
-	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	_, _, cfg := loadConfigTestFileApp(t, contents, LoadOptions{})
 	role := cfg.Settings.Subagents[BuiltInSubagentRoleFast]
 	if role.Settings.Reviewer.Auth != "none" {
 		t.Fatalf("expected subagent reviewer.auth=none, got %q", role.Settings.Reviewer.Auth)
@@ -811,24 +660,14 @@ func TestLoadSubagentRoleAllowsReviewerAuthNoneWithExplicitFirstPartyBaseURL(t *
 }
 
 func TestLoadSubagentRoleRejectsPersistenceRoot(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
 	contents := strings.Join([]string{
 		"model = \"gpt-5.5\"",
 		"",
 		"[subagents.fast]",
 		"persistence_root = \"/tmp/custom\"",
 	}, "\n")
-	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
 
-	_, err := Load(workspace, LoadOptions{})
+	err := loadConfigTestFileError(t, contents, LoadOptions{})
 	if err == nil {
 		t.Fatal("expected persistence_root in subagent role to fail")
 	}
@@ -883,12 +722,7 @@ func TestWriteSettingsFileForOnboardingDoesNotOverwriteExistingFile(t *testing.T
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
-	if err := os.WriteFile(configPath, []byte("model = \"existing\"\n"), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeConfigTestFile(t, configPath, "model = \"existing\"\n")
 	_, err := WriteSettingsFileForOnboarding(defaultSettings())
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("expected existing settings file error, got %v", err)
@@ -911,22 +745,12 @@ func TestValidateThemeAllowsAutoAndEmpty(t *testing.T) {
 }
 
 func TestLoadReviewerDefaultsInheritMainSettingsWhenUnset(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	home, workspace := newConfigTestEnv(t)
 
 	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(configPath, []byte("model = \"gpt-main-file\"\nthinking_level = \"xhigh\"\nprovider_override = \"openai\"\nopenai_base_url = \"http://127.0.0.1:8080/v1\"\n[reviewer]\nfrequency = \"all\"\n"), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeConfigTestFile(t, configPath, "model = \"gpt-main-file\"\nthinking_level = \"xhigh\"\nprovider_override = \"openai\"\nopenai_base_url = \"http://127.0.0.1:8080/v1\"\n[reviewer]\nfrequency = \"all\"\n")
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.Model != "gpt-main-file" {
 		t.Fatalf("expected reviewer.model to inherit file main model, got %q", cfg.Settings.Reviewer.Model)
 	}
@@ -947,10 +771,7 @@ func TestLoadReviewerDefaultsInheritMainSettingsWhenUnset(t *testing.T) {
 	t.Setenv("BUILDER_REVIEWER_THINKING_LEVEL", "")
 	t.Setenv("BUILDER_REVIEWER_PROVIDER_OVERRIDE", "")
 	t.Setenv("BUILDER_REVIEWER_OPENAI_BASE_URL", "")
-	cfg, err = Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load with env model: %v", err)
-	}
+	cfg = loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.Model != "gpt-main-env" {
 		t.Fatalf("expected reviewer.model to inherit env main model, got %q", cfg.Settings.Reviewer.Model)
 	}
@@ -963,22 +784,12 @@ func TestLoadReviewerDefaultsInheritMainSettingsWhenUnset(t *testing.T) {
 }
 
 func TestLoadReviewerOpenAIProviderOverrideInheritsMainOpenAIBaseURL(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	home, workspace := newConfigTestEnv(t)
 
 	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(configPath, []byte("openai_base_url = \"http://127.0.0.1:8080/v1\"\n[reviewer]\nprovider_override = \"openai\"\nmodel = \"local-reviewer\"\n"), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeConfigTestFile(t, configPath, "openai_base_url = \"http://127.0.0.1:8080/v1\"\n[reviewer]\nprovider_override = \"openai\"\nmodel = \"local-reviewer\"\n")
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.ProviderOverride != "openai" {
 		t.Fatalf("expected explicit reviewer.provider_override, got %q", cfg.Settings.Reviewer.ProviderOverride)
 	}

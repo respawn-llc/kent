@@ -140,15 +140,6 @@ func uiHelpCanToggleTranscript(m *uiModel) bool {
 	}
 }
 
-func uiHelpCanPageTranscript(m *uiModel) bool {
-	switch m.inputMode() {
-	case uiInputModeMain, uiInputModeRollbackEdit, uiInputModeRollbackSelection:
-		return true
-	default:
-		return false
-	}
-}
-
 func uiHelpInMainInput(m *uiModel) bool {
 	return m.inputMode() == uiInputModeMain
 }

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	_ "embed"
+
 	"builder/server/metadata"
 	"builder/server/metadata/sqlitegen"
 	"builder/server/workflow"
@@ -31,6 +33,27 @@ type Service struct {
 }
 
 const attentionKindInterruptedRun = "interrupted_run"
+
+var (
+	//go:embed queries/task_activity_rows.sql
+	taskActivityRowsQuery string
+	//go:embed queries/transition_edges_by_transition_id.sql
+	transitionEdgesByTransitionIDQuery string
+	//go:embed queries/transitions_by_id.sql
+	transitionsByIDQuery string
+	//go:embed queries/runs_by_id.sql
+	runsByIDQuery string
+	//go:embed queries/comments_by_id.sql
+	commentsByIDQuery string
+	//go:embed queries/approval_attention_items.sql
+	approvalAttentionItemsQuery string
+	//go:embed queries/question_attention_items.sql
+	questionAttentionItemsQuery string
+	//go:embed queries/interrupted_run_attention_items.sql
+	interruptedRunAttentionItemsQuery string
+	//go:embed queries/validation_attention_items.sql
+	validationAttentionItemsQuery string
+)
 
 type Option func(*Service)
 
@@ -719,14 +742,6 @@ func workflowNodeByID(def serverapi.WorkflowDefinition) map[string]serverapi.Wor
 	return out
 }
 
-func workflowTransitionGroupByID(def serverapi.WorkflowDefinition) map[string]serverapi.WorkflowTransitionGroup {
-	out := make(map[string]serverapi.WorkflowTransitionGroup, len(def.TransitionGroups))
-	for _, group := range def.TransitionGroups {
-		out[group.ID] = group
-	}
-	return out
-}
-
 func workflowPickerItem(def serverapi.WorkflowDefinition, link sqlitegen.ProjectWorkflowLinkRecord, validation *workflow.ValidationResult) serverapi.WorkflowPickerItem {
 	item := serverapi.WorkflowPickerItem{WorkflowID: def.Workflow.ID, DisplayName: def.Workflow.Name, Description: def.Workflow.Description, Version: def.Workflow.Version, IsProjectDefault: link.ID != "" && link.IsDefault != 0, ValidForTaskCreation: link.ID != ""}
 	if validation != nil {
@@ -790,86 +805,7 @@ func (s *Service) taskActivityRows(ctx context.Context, taskID string, cursor ac
 	if cursor.hasValue {
 		cursorActive = 1
 	}
-	rows, err := s.metadata.DB().QueryContext(ctx, `
-SELECT activity_id, kind, source_id, occurred_at_unix_ms, updated_at_unix_ms, actor
-FROM (
-    SELECT
-        'comment:' || c.id AS activity_id,
-        'comment' AS kind,
-        c.id AS source_id,
-        c.updated_at_unix_ms AS occurred_at_unix_ms,
-        c.updated_at_unix_ms AS updated_at_unix_ms,
-        c.author_kind AS actor
-    FROM task_comments c
-    WHERE c.task_id = ?
-
-    UNION ALL
-
-    SELECT
-        'transition:' || tt.id AS activity_id,
-        'transition' AS kind,
-        tt.id AS source_id,
-        tt.created_at_unix_ms AS occurred_at_unix_ms,
-        tt.applied_at_unix_ms AS updated_at_unix_ms,
-        tt.actor AS actor
-    FROM task_transitions tt
-    WHERE tt.task_id = ?
-
-    UNION ALL
-
-    SELECT
-        'run_started:' || r.id AS activity_id,
-        'run_started' AS kind,
-        r.id AS source_id,
-        r.started_at_unix_ms AS occurred_at_unix_ms,
-        r.updated_at_unix_ms AS updated_at_unix_ms,
-        '' AS actor
-    FROM task_run_records r
-    WHERE r.task_id = ?
-      AND r.started_at_unix_ms > 0
-
-    UNION ALL
-
-    SELECT
-        'run_completed:' || r.id AS activity_id,
-        'run_completed' AS kind,
-        r.id AS source_id,
-        r.completed_at_unix_ms AS occurred_at_unix_ms,
-        r.updated_at_unix_ms AS updated_at_unix_ms,
-        '' AS actor
-    FROM task_run_records r
-    WHERE r.task_id = ?
-      AND r.completed_at_unix_ms > 0
-
-    UNION ALL
-
-    SELECT
-        'run_interrupted:' || r.id AS activity_id,
-        'run_interrupted' AS kind,
-        r.id AS source_id,
-        r.interrupted_at_unix_ms AS occurred_at_unix_ms,
-        r.updated_at_unix_ms AS updated_at_unix_ms,
-        '' AS actor
-    FROM task_run_records r
-    WHERE r.task_id = ?
-      AND r.interrupted_at_unix_ms > 0
-
-    UNION ALL
-
-    SELECT
-        'task_canceled:' || t.id AS activity_id,
-        'task_canceled' AS kind,
-        t.id AS source_id,
-        t.canceled_at_unix_ms AS occurred_at_unix_ms,
-        t.updated_at_unix_ms AS updated_at_unix_ms,
-        '' AS actor
-    FROM task_records t
-    WHERE t.id = ?
-      AND t.canceled_at_unix_ms > 0
-) activity
-WHERE (? = 0 OR occurred_at_unix_ms < ? OR (occurred_at_unix_ms = ? AND activity_id < ?))
-ORDER BY occurred_at_unix_ms DESC, activity_id DESC
-LIMIT ?`, taskID, taskID, taskID, taskID, taskID, taskID, cursorActive, cursor.occurredAtUnixMs, cursor.occurredAtUnixMs, cursor.activityID, limit)
+	rows, err := s.metadata.DB().QueryContext(ctx, workflowViewQuery(taskActivityRowsQuery), taskID, taskID, taskID, taskID, taskID, taskID, cursorActive, cursor.occurredAtUnixMs, cursor.occurredAtUnixMs, cursor.activityID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1068,31 +1004,7 @@ func (s *Service) transitionEdgesByTransitionID(ctx context.Context, transitions
 	if len(args) == 0 {
 		return out, nil
 	}
-	rows, err := s.metadata.DB().QueryContext(ctx, `
-SELECT
-    id,
-    task_transition_id,
-    workflow_edge_id,
-    edge_key,
-    workflow_revision_seen,
-    target_node_id,
-    target_node_key,
-    target_node_display_name,
-    target_node_kind,
-    target_placement_id,
-    state,
-    context_mode,
-    requires_approval,
-    input_bindings_json,
-    output_requirements_json,
-    metadata_json
-FROM task_transition_edge_records
-WHERE task_transition_id IN (`+strings.Join(transitionIDs, ",")+`)
-ORDER BY task_transition_id ASC, (
-    SELECT storage.rowid
-    FROM task_transition_edges storage
-    WHERE storage.id = task_transition_edge_records.id
-) ASC`, args...)
+	rows, err := s.metadata.DB().QueryContext(ctx, workflowViewQueryWithPlaceholders(transitionEdgesByTransitionIDQuery, strings.Join(transitionIDs, ",")), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1130,17 +1042,7 @@ func (s *Service) commentsByID(ctx context.Context, ids []string) (map[string]sq
 		return out, nil
 	}
 	placeholders, args := placeholdersAndArgs(ids)
-	rows, err := s.metadata.DB().QueryContext(ctx, `
-SELECT
-    id,
-    task_id,
-    body,
-    author_kind,
-    author_id,
-    created_at_unix_ms,
-    updated_at_unix_ms
-FROM task_comments
-WHERE id IN (`+placeholders+`)`, args...)
+	rows, err := s.metadata.DB().QueryContext(ctx, workflowViewQueryWithPlaceholders(commentsByIDQuery, placeholders), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1160,27 +1062,7 @@ func (s *Service) transitionsByID(ctx context.Context, ids []string) ([]sqlitege
 		return []sqlitegen.TaskTransitionRecord{}, nil
 	}
 	placeholders, args := placeholdersAndArgs(ids)
-	rows, err := s.metadata.DB().QueryContext(ctx, `
-SELECT
-    id,
-    task_id,
-    source_run_id,
-    source_placement_id,
-    source_node_id,
-    source_node_key,
-    source_node_display_name,
-    transition_group_id,
-    transition_id,
-    transition_display_name,
-    workflow_revision_seen,
-    actor,
-    state,
-    commentary,
-    output_values_json,
-    created_at_unix_ms,
-    applied_at_unix_ms
-FROM task_transition_records
-WHERE id IN (`+placeholders+`)`, args...)
+	rows, err := s.metadata.DB().QueryContext(ctx, workflowViewQueryWithPlaceholders(transitionsByIDQuery, placeholders), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1219,30 +1101,7 @@ func (s *Service) runsByID(ctx context.Context, ids []string) ([]sqlitegen.TaskR
 		return []sqlitegen.TaskRunRecord{}, nil
 	}
 	placeholders, args := placeholdersAndArgs(ids)
-	rows, err := s.metadata.DB().QueryContext(ctx, `
-SELECT
-    id,
-    task_id,
-    placement_id,
-    node_id,
-    session_id,
-    run_generation,
-    workflow_revision_seen,
-    automation_requested_at_unix_ms,
-    created_at_unix_ms,
-    updated_at_unix_ms,
-    started_at_unix_ms,
-    completed_at_unix_ms,
-    interrupted_at_unix_ms,
-    interruption_reason,
-    interruption_detail_json,
-    waiting_ask_id,
-    final_answer_violation_count,
-    invalid_completion_count,
-    run_start_snapshot_json,
-    metadata_json
-FROM task_run_records
-WHERE id IN (`+placeholders+`)`, args...)
+	rows, err := s.metadata.DB().QueryContext(ctx, workflowViewQueryWithPlaceholders(runsByIDQuery, placeholders), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1287,6 +1146,14 @@ func placeholdersAndArgs(ids []string) (string, []any) {
 		args = append(args, id)
 	}
 	return strings.Join(placeholders, ","), args
+}
+
+func workflowViewQueryWithPlaceholders(query string, placeholders string) string {
+	return strings.Replace(workflowViewQuery(query), "{{placeholders}}", placeholders, 1)
+}
+
+func workflowViewQuery(query string) string {
+	return strings.TrimSuffix(query, "\n")
 }
 
 func sourceIDsByType(rows []taskActivityRow, kind string) []string {
@@ -1366,15 +1233,7 @@ func activityPageToken(item serverapi.WorkflowTaskActivityItem) string {
 }
 
 func (s *Service) approvalAttentionItems(ctx context.Context, projectID string, taskID string) ([]serverapi.WorkflowAttentionItem, error) {
-	rows, err := s.metadata.DB().QueryContext(ctx, `
-SELECT tt.id, t.project_id, t.workflow_id, t.id, t.short_id, t.title, tt.created_at_unix_ms
-FROM task_transitions tt
-JOIN task_records t ON t.id = tt.task_id
-WHERE tt.state = 'pending_approval'
-  AND t.canceled_at_unix_ms = 0
-  AND (? = '' OR t.project_id = ?)
-  AND (? = '' OR t.id = ?)
-ORDER BY tt.created_at_unix_ms DESC, tt.rowid DESC`, strings.TrimSpace(projectID), strings.TrimSpace(projectID), strings.TrimSpace(taskID), strings.TrimSpace(taskID))
+	rows, err := s.metadata.DB().QueryContext(ctx, workflowViewQuery(approvalAttentionItemsQuery), strings.TrimSpace(projectID), strings.TrimSpace(projectID), strings.TrimSpace(taskID), strings.TrimSpace(taskID))
 	if err != nil {
 		return nil, err
 	}
@@ -1392,21 +1251,7 @@ ORDER BY tt.created_at_unix_ms DESC, tt.rowid DESC`, strings.TrimSpace(projectID
 }
 
 func (s *Service) questionAttentionItems(ctx context.Context, projectID string, taskID string) ([]serverapi.WorkflowAttentionItem, error) {
-	rows, err := s.metadata.DB().QueryContext(ctx, `
-SELECT r.id, COALESCE(r.session_id, ''), r.waiting_ask_id, t.project_id, t.workflow_id, t.id, t.short_id, t.title, r.updated_at_unix_ms
-FROM task_run_records r
-JOIN task_records t ON t.id = r.task_id
-WHERE trim(r.waiting_ask_id) != ''
-  AND r.completed_at_unix_ms = 0
-  AND r.interrupted_at_unix_ms = 0
-  AND t.canceled_at_unix_ms = 0
-  AND (? = '' OR t.project_id = ?)
-  AND (? = '' OR t.id = ?)
-ORDER BY r.updated_at_unix_ms DESC, (
-    SELECT storage.rowid
-    FROM task_runs storage
-    WHERE storage.id = r.id
-) DESC`, strings.TrimSpace(projectID), strings.TrimSpace(projectID), strings.TrimSpace(taskID), strings.TrimSpace(taskID))
+	rows, err := s.metadata.DB().QueryContext(ctx, workflowViewQuery(questionAttentionItemsQuery), strings.TrimSpace(projectID), strings.TrimSpace(projectID), strings.TrimSpace(taskID), strings.TrimSpace(taskID))
 	if err != nil {
 		return nil, err
 	}
@@ -1521,20 +1366,7 @@ func askQuestionFromTranscriptEntries(entries []clientui.ChatEntry, askID string
 }
 
 func (s *Service) interruptedRunAttentionItems(ctx context.Context, projectID string, taskID string) ([]serverapi.WorkflowAttentionItem, error) {
-	rows, err := s.metadata.DB().QueryContext(ctx, `
-SELECT r.id, COALESCE(r.session_id, ''), r.interruption_reason, t.project_id, t.workflow_id, t.id, t.short_id, t.title, r.interrupted_at_unix_ms
-FROM task_run_records r
-JOIN task_records t ON t.id = r.task_id
-WHERE r.interrupted_at_unix_ms > 0
-  AND r.completed_at_unix_ms = 0
-  AND t.canceled_at_unix_ms = 0
-  AND (? = '' OR t.project_id = ?)
-  AND (? = '' OR t.id = ?)
-ORDER BY r.interrupted_at_unix_ms DESC, (
-    SELECT storage.rowid
-    FROM task_runs storage
-    WHERE storage.id = r.id
-) DESC`, strings.TrimSpace(projectID), strings.TrimSpace(projectID), strings.TrimSpace(taskID), strings.TrimSpace(taskID))
+	rows, err := s.metadata.DB().QueryContext(ctx, workflowViewQuery(interruptedRunAttentionItemsQuery), strings.TrimSpace(projectID), strings.TrimSpace(projectID), strings.TrimSpace(taskID), strings.TrimSpace(taskID))
 	if err != nil {
 		return nil, err
 	}
@@ -1556,11 +1388,7 @@ ORDER BY r.interrupted_at_unix_ms DESC, (
 }
 
 func (s *Service) validationAttentionItems(ctx context.Context, projectID string, roleResolver workflow.RoleResolver) ([]serverapi.WorkflowAttentionItem, error) {
-	rows, err := s.metadata.DB().QueryContext(ctx, `
-SELECT project_id, workflow_id, updated_at_unix_ms
-FROM project_workflow_links
-WHERE (? = '' OR project_id = ?)
-ORDER BY updated_at_unix_ms DESC, rowid DESC`, strings.TrimSpace(projectID), strings.TrimSpace(projectID))
+	rows, err := s.metadata.DB().QueryContext(ctx, workflowViewQuery(validationAttentionItemsQuery), strings.TrimSpace(projectID), strings.TrimSpace(projectID))
 	if err != nil {
 		return nil, err
 	}
@@ -2069,15 +1897,6 @@ func canceledBoardTerminalNodeID(def serverapi.WorkflowDefinition) string {
 	return fallback
 }
 
-func taskBelongsToBoardNode(task sqlitegen.TaskRecord, placements []sqlitegen.TaskNodePlacementRecord, def serverapi.WorkflowDefinition, nodeKinds map[string]workflow.NodeKind, nodeID string) bool {
-	for _, placement := range effectiveBoardPlacementsForTask(task, placements, def, nodeKinds) {
-		if placement.NodeID == nodeID {
-			return true
-		}
-	}
-	return false
-}
-
 type boardNodeCardsPageCursor struct {
 	projectID       string
 	workflowID      string
@@ -2126,23 +1945,4 @@ func boardNodeCardsPageToken(projectID string, workflowID string, nodeID string,
 func apiContextSource(in workflow.ContextSource) serverapi.WorkflowContextSource {
 	source := workflow.CanonicalContextSource(in)
 	return serverapi.WorkflowContextSource{Kind: string(source.Kind), NodeKey: string(source.NodeKey)}
-}
-
-func boardNodeCardIsAfterCursor(task sqlitegen.TaskRecord, cursor boardNodeCardsPageCursor) bool {
-	if task.UpdatedAtUnixMs < cursor.updatedAtUnixMs {
-		return true
-	}
-	if task.UpdatedAtUnixMs > cursor.updatedAtUnixMs {
-		return false
-	}
-	return task.ID < cursor.taskID
-}
-
-func sortBoardNodeTasks(tasks []sqlitegen.TaskRecord) {
-	sort.SliceStable(tasks, func(i, j int) bool {
-		if tasks[i].UpdatedAtUnixMs != tasks[j].UpdatedAtUnixMs {
-			return tasks[i].UpdatedAtUnixMs > tasks[j].UpdatedAtUnixMs
-		}
-		return tasks[i].ID > tasks[j].ID
-	})
 }

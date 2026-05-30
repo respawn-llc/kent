@@ -70,20 +70,17 @@ func (t *WriteStdinTool) Call(ctx context.Context, c tools.Call) (tools.Result, 
 		MaxOutputChars: maxChars,
 	})
 	if err != nil {
-		if postprocess.IsCriticalError(err) {
-			return tools.ErrorResultWith(c, formatToolCallError("write_stdin", err), marshalNoHTMLEscape), nil
-		}
 		return tools.ErrorResultWith(c, formatToolCallError("write_stdin", err), marshalNoHTMLEscape), nil
 	}
 	if strings.TrimSpace(result.ToolError) != "" {
-		return tools.ErrorResultWith(c, appendWarning(result.Warning, result.ToolError), marshalNoHTMLEscape), nil
+		return tools.ErrorResultWith(c, postprocess.JoinWarnings(result.Warning, result.ToolError), marshalNoHTMLEscape), nil
 	}
 	body, marshalErr := marshalNoHTMLEscape(writeStdinOutput{
 		Output:              formatExecResponse(result),
 		BackgroundSessionID: in.SessionID,
 		BackgroundRunning:   result.Running,
 		Backgrounded:        result.Backgrounded,
-		BackgroundExitCode:  cloneIntPtr(result.ExitCode),
+		BackgroundExitCode:  postprocess.CloneIntPtr(result.ExitCode),
 	})
 	if marshalErr != nil {
 		return tools.Result{}, marshalErr

@@ -19,7 +19,6 @@ import (
 	"builder/shared/toolspec"
 	"context"
 	"encoding/json"
-	"golang.org/x/net/websocket"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -30,6 +29,46 @@ import (
 	"time"
 )
 
+func newGatewayTestServerForConfig(t *testing.T, cfg config.App) (*core.Core, *httptest.Server) {
+	t.Helper()
+	authSupport := newGatewayTestAuthSupport(t, true)
+	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(cfg)
+	if err != nil {
+		t.Fatalf("BuildRuntimeSupport: %v", err)
+	}
+	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
+	appCore, err := core.New(cfg, authSupport, runtimeSupport)
+	if err != nil {
+		t.Fatalf("core.New: %v", err)
+	}
+	t.Cleanup(func() { _ = appCore.Close() })
+	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
+	if err != nil {
+		t.Fatalf("NewGateway: %v", err)
+	}
+	server := httptest.NewServer(gateway.Handler())
+	t.Cleanup(server.Close)
+	return appCore, server
+}
+
+func resolveGatewayTestConfig(t *testing.T, workspace string) serverbootstrap.ConfigPlan {
+	t.Helper()
+	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
+	if err != nil {
+		t.Fatalf("ResolveConfig: %v", err)
+	}
+	return resolved
+}
+
+func registerGatewayTestBinding(t *testing.T, cfg config.App) metadata.Binding {
+	t.Helper()
+	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("RegisterBinding: %v", err)
+	}
+	return binding
+}
+
 func TestGatewayRequiresExplicitWorkspaceSelectionForMultiWorkspaceProject(t *testing.T) {
 	home := t.TempDir()
 	workspaceA := t.TempDir()
@@ -37,14 +76,8 @@ func TestGatewayRequiresExplicitWorkspaceSelectionForMultiWorkspaceProject(t *te
 	t.Setenv("HOME", home)
 	configureGatewayTestServerPort(t)
 
-	resolvedA, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceA})
-	if err != nil {
-		t.Fatalf("ResolveConfig A: %v", err)
-	}
-	bindingA, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding A: %v", err)
-	}
+	resolvedA := resolveGatewayTestConfig(t, workspaceA)
+	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
 	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)
@@ -55,36 +88,14 @@ func TestGatewayRequiresExplicitWorkspaceSelectionForMultiWorkspaceProject(t *te
 		t.Fatalf("AttachWorkspaceToProject B: %v", err)
 	}
 
-	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	defer func() { _ = runtimeSupport.Background.Close() }()
-	appCore, err := core.New(resolvedA.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
-	defer func() { _ = appCore.Close() }()
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer server.Close()
+	_, server := newGatewayTestServerForConfig(t, resolvedA.Config)
 
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
-	if err := websocket.JSON.Send(conn, protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: "attach-project", Method: protocol.MethodAttachProject, Params: mustJSON(t, protocol.AttachProjectRequest{ProjectID: bindingA.ProjectID})}); err != nil {
-		t.Fatalf("send attach-project: %v", err)
-	}
-	var resp protocol.Response
-	if err := websocket.JSON.Receive(conn, &resp); err != nil {
-		t.Fatalf("receive attach-project: %v", err)
-	}
-	if resp.Error == nil || !strings.Contains(resp.Error.Message, "requires explicit workspace selection") {
-		t.Fatalf("expected explicit workspace selection error, got %+v", resp.Error)
+	respErr := callGatewayExpectError(t, conn, "attach-project", protocol.MethodAttachProject, protocol.AttachProjectRequest{ProjectID: bindingA.ProjectID})
+	if !strings.Contains(respErr.Message, "requires explicit workspace selection") {
+		t.Fatalf("expected explicit workspace selection error, got %+v", respErr)
 	}
 
 	callGateway(t, conn, "attach-project-explicit", protocol.MethodAttachProject, protocol.AttachProjectRequest{ProjectID: bindingA.ProjectID, WorkspaceID: bindingB.WorkspaceID}, nil)
@@ -106,18 +117,9 @@ func TestGatewayAttachSessionClearsWorkspaceOverrideForLaterPlans(t *testing.T) 
 	t.Setenv("HOME", home)
 	configureGatewayTestServerPort(t)
 
-	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})
-	if err != nil {
-		t.Fatalf("ResolveConfig B: %v", err)
-	}
-	bindingB, err := metadata.RegisterBinding(context.Background(), resolvedB.Config.PersistenceRoot, resolvedB.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding B: %v", err)
-	}
-	resolvedA, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceA})
-	if err != nil {
-		t.Fatalf("ResolveConfig A: %v", err)
-	}
+	resolvedB := resolveGatewayTestConfig(t, workspaceB)
+	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
+	resolvedA := resolveGatewayTestConfig(t, workspaceA)
 	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)
@@ -127,17 +129,7 @@ func TestGatewayAttachSessionClearsWorkspaceOverrideForLaterPlans(t *testing.T) 
 		t.Fatalf("AttachWorkspaceToProject: %v", err)
 	}
 
-	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	defer func() { _ = runtimeSupport.Background.Close() }()
-	appCore, err := core.New(resolvedA.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
-	defer func() { _ = appCore.Close() }()
+	_, server := newGatewayTestServerForConfig(t, resolvedA.Config)
 
 	storeB, err := session.Create(
 		config.ProjectSessionsRoot(resolvedA.Config, bindingB.ProjectID),
@@ -151,13 +143,6 @@ func TestGatewayAttachSessionClearsWorkspaceOverrideForLaterPlans(t *testing.T) 
 	if err := storeB.EnsureDurable(); err != nil {
 		t.Fatalf("EnsureDurable workspace B: %v", err)
 	}
-
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer server.Close()
 
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
@@ -187,39 +172,17 @@ func TestGatewayScopesProcessAPIsToAttachedProject(t *testing.T) {
 	t.Setenv("HOME", home)
 	configureGatewayTestServerPort(t)
 
-	resolvedA, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceA})
-	if err != nil {
-		t.Fatalf("ResolveConfig A: %v", err)
-	}
-	bindingA, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding A: %v", err)
-	}
-	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})
-	if err != nil {
-		t.Fatalf("ResolveConfig B: %v", err)
-	}
-	bindingB, err := metadata.RegisterBinding(context.Background(), resolvedB.Config.PersistenceRoot, resolvedB.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding B: %v", err)
-	}
+	resolvedA := resolveGatewayTestConfig(t, workspaceA)
+	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	resolvedB := resolveGatewayTestConfig(t, workspaceB)
+	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
 	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)
 	}
 	defer func() { _ = metadataStore.Close() }()
 
-	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	defer func() { _ = runtimeSupport.Background.Close() }()
-	appCore, err := core.New(resolvedA.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
-	defer func() { _ = appCore.Close() }()
+	appCore, server := newGatewayTestServerForConfig(t, resolvedA.Config)
 	appCore.Background().SetMinimumExecToBgTime(time.Millisecond)
 
 	storeA := createGatewayAuthoritativeSession(t, appCore)
@@ -257,13 +220,6 @@ func TestGatewayScopesProcessAPIsToAttachedProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start foreign process: %v", err)
 	}
-
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer server.Close()
 
 	remote, err := remoteclient.DialRemoteURLForProject(context.Background(), "ws"+server.URL[len("http"):], bindingA.ProjectID)
 	if err != nil {
@@ -315,17 +271,8 @@ func TestGatewaySessionActivitySubscriptionStreamsEventsAndCompletion(t *testing
 	callGateway(t, conn, "subscribe", protocol.MethodSessionSubscribeActivity, serverapi.SessionActivitySubscribeRequest{SessionID: store.Meta().SessionID}, nil)
 
 	appCore.PublishRuntimeEvent(store.Meta().SessionID, runtime.Event{Kind: runtime.EventConversationUpdated, StepID: "step-1"})
-	var notif protocol.Request
-	if err := websocket.JSON.Receive(conn, &notif); err != nil {
-		t.Fatalf("receive notification: %v", err)
-	}
-	if notif.Method != protocol.MethodSessionActivityEvent {
-		t.Fatalf("notification method = %q", notif.Method)
-	}
 	var event protocol.SessionActivityEventParams
-	if err := json.Unmarshal(notif.Params, &event); err != nil {
-		t.Fatalf("decode event params: %v", err)
-	}
+	receiveGatewayNotification(t, conn, protocol.MethodSessionActivityEvent, "notification", &event)
 	if event.Event.Kind != "conversation_updated" || event.Event.StepID != "step-1" {
 		t.Fatalf("unexpected event: %+v", event.Event)
 	}
@@ -334,15 +281,7 @@ func TestGatewaySessionActivitySubscriptionStreamsEventsAndCompletion(t *testing
 		Kind:     runtime.EventToolCallStarted,
 		ToolCall: &llm.ToolCall{ID: "call-1", Name: "shell"},
 	})
-	if err := websocket.JSON.Receive(conn, &notif); err != nil {
-		t.Fatalf("receive tool event: %v", err)
-	}
-	if notif.Method != protocol.MethodSessionActivityEvent {
-		t.Fatalf("tool event method = %q", notif.Method)
-	}
-	if err := json.Unmarshal(notif.Params, &event); err != nil {
-		t.Fatalf("decode tool event params: %v", err)
-	}
+	receiveGatewayNotification(t, conn, protocol.MethodSessionActivityEvent, "tool event", &event)
 	if len(event.Event.TranscriptEntries) != 1 {
 		t.Fatalf("tool transcript entries len = %d, want 1", len(event.Event.TranscriptEntries))
 	}
@@ -354,16 +293,8 @@ func TestGatewaySessionActivitySubscriptionStreamsEventsAndCompletion(t *testing
 	}
 
 	appCore.UnregisterRuntime(store.Meta().SessionID, engine)
-	if err := websocket.JSON.Receive(conn, &notif); err != nil {
-		t.Fatalf("receive completion: %v", err)
-	}
-	if notif.Method != protocol.MethodSessionActivityComplete {
-		t.Fatalf("completion method = %q", notif.Method)
-	}
 	var complete protocol.StreamCompleteParams
-	if err := json.Unmarshal(notif.Params, &complete); err != nil {
-		t.Fatalf("decode completion: %v", err)
-	}
+	receiveGatewayNotification(t, conn, protocol.MethodSessionActivityComplete, "completion", &complete)
 	if complete.Code != 0 || complete.Message != "" {
 		t.Fatalf("unexpected completion params: %+v", complete)
 	}
@@ -719,31 +650,14 @@ func TestGatewayProcessOutputSubscriptionStreamsOutputAndCompletion(t *testing.T
 	handshakeGateway(t, conn)
 	callGateway(t, conn, "subscribe", protocol.MethodProcessSubscribeOutput, serverapi.ProcessOutputSubscribeRequest{ProcessID: result.SessionID, OffsetBytes: 0}, nil)
 
-	var notif protocol.Request
-	if err := websocket.JSON.Receive(conn, &notif); err != nil {
-		t.Fatalf("receive output: %v", err)
-	}
-	if notif.Method != protocol.MethodProcessOutputEvent {
-		t.Fatalf("output method = %q", notif.Method)
-	}
 	var chunk protocol.ProcessOutputEventParams
-	if err := json.Unmarshal(notif.Params, &chunk); err != nil {
-		t.Fatalf("decode output: %v", err)
-	}
+	receiveGatewayNotification(t, conn, protocol.MethodProcessOutputEvent, "output", &chunk)
 	if chunk.Chunk.ProcessID != result.SessionID || chunk.Chunk.OffsetBytes != 0 || chunk.Chunk.Text != "hello\n" {
 		t.Fatalf("unexpected process output chunk: %+v", chunk.Chunk)
 	}
 
-	if err := websocket.JSON.Receive(conn, &notif); err != nil {
-		t.Fatalf("receive completion: %v", err)
-	}
-	if notif.Method != protocol.MethodProcessOutputComplete {
-		t.Fatalf("completion method = %q", notif.Method)
-	}
 	var complete protocol.StreamCompleteParams
-	if err := json.Unmarshal(notif.Params, &complete); err != nil {
-		t.Fatalf("decode completion: %v", err)
-	}
+	receiveGatewayNotification(t, conn, protocol.MethodProcessOutputComplete, "completion", &complete)
 	if complete.Code != 0 || complete.Message != "" {
 		t.Fatalf("unexpected completion params: %+v", complete)
 	}
@@ -766,61 +680,28 @@ func TestGatewayPromptActivitySubscriptionStreamsPendingResolvedAndCompletion(t 
 	callGateway(t, conn, "attach", protocol.MethodAttachSession, protocol.AttachSessionRequest{SessionID: store.Meta().SessionID}, nil)
 	callGateway(t, conn, "subscribe", protocol.MethodPromptSubscribeActivity, serverapi.PromptActivitySubscribeRequest{SessionID: store.Meta().SessionID}, nil)
 
-	var notif protocol.Request
-	if err := websocket.JSON.Receive(conn, &notif); err != nil {
-		t.Fatalf("receive prompt pending: %v", err)
-	}
-	if notif.Method != protocol.MethodPromptActivityEvent {
-		t.Fatalf("prompt event method = %q", notif.Method)
-	}
 	var pending protocol.PromptActivityEventParams
-	if err := json.Unmarshal(notif.Params, &pending); err != nil {
-		t.Fatalf("decode prompt pending: %v", err)
-	}
+	receiveGatewayNotification(t, conn, protocol.MethodPromptActivityEvent, "prompt pending", &pending)
 	if pending.Event.Type != clientui.PendingPromptEventPending || pending.Event.PromptID != "ask-1" || pending.Event.Question != "Proceed?" {
 		t.Fatalf("unexpected pending prompt event: %+v", pending.Event)
 	}
 
-	if err := websocket.JSON.Receive(conn, &notif); err != nil {
-		t.Fatalf("receive prompt snapshot complete: %v", err)
-	}
-	if notif.Method != protocol.MethodPromptActivityEvent {
-		t.Fatalf("snapshot prompt method = %q", notif.Method)
-	}
 	var snapshot protocol.PromptActivityEventParams
-	if err := json.Unmarshal(notif.Params, &snapshot); err != nil {
-		t.Fatalf("decode prompt snapshot: %v", err)
-	}
+	receiveGatewayNotification(t, conn, protocol.MethodPromptActivityEvent, "prompt snapshot", &snapshot)
 	if snapshot.Event.Type != clientui.PendingPromptEventSnapshot {
 		t.Fatalf("unexpected prompt snapshot event: %+v", snapshot.Event)
 	}
 
 	appCore.CompletePendingPrompt(store.Meta().SessionID, "ask-1")
-	if err := websocket.JSON.Receive(conn, &notif); err != nil {
-		t.Fatalf("receive prompt resolved: %v", err)
-	}
-	if notif.Method != protocol.MethodPromptActivityEvent {
-		t.Fatalf("resolved prompt method = %q", notif.Method)
-	}
 	var resolved protocol.PromptActivityEventParams
-	if err := json.Unmarshal(notif.Params, &resolved); err != nil {
-		t.Fatalf("decode prompt resolved: %v", err)
-	}
+	receiveGatewayNotification(t, conn, protocol.MethodPromptActivityEvent, "prompt resolved", &resolved)
 	if resolved.Event.Type != clientui.PendingPromptEventResolved || resolved.Event.PromptID != "ask-1" {
 		t.Fatalf("unexpected resolved prompt event: %+v", resolved.Event)
 	}
 
 	appCore.UnregisterRuntime(store.Meta().SessionID, engine)
-	if err := websocket.JSON.Receive(conn, &notif); err != nil {
-		t.Fatalf("receive prompt completion: %v", err)
-	}
-	if notif.Method != protocol.MethodPromptActivityComplete {
-		t.Fatalf("prompt completion method = %q", notif.Method)
-	}
 	var complete protocol.StreamCompleteParams
-	if err := json.Unmarshal(notif.Params, &complete); err != nil {
-		t.Fatalf("decode prompt completion: %v", err)
-	}
+	receiveGatewayNotification(t, conn, protocol.MethodPromptActivityComplete, "prompt completion", &complete)
 	if complete.Code != 0 || complete.Message != "" {
 		t.Fatalf("unexpected prompt completion params: %+v", complete)
 	}

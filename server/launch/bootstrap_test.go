@@ -17,18 +17,13 @@ func TestResolveBootstrapPlanUsesSessionWorkspaceAndPersistedBaseURL(t *testing.
 		t.Fatalf("metadata.Open: %v", err)
 	}
 	defer func() { _ = metadataStore.Close() }()
-	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), "/tmp/original-workspace")
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
-	containerDir := config.ProjectSessionsRoot(config.App{PersistenceRoot: persistenceRoot}, binding.ProjectID)
-	store, err := session.Create(containerDir, filepath.Base(containerDir), "/tmp/original-workspace", metadataStore.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-	if err := store.SetContinuationContext(session.ContinuationContext{OpenAIBaseURL: "http://persisted.local/v1"}); err != nil {
-		t.Fatalf("set continuation context: %v", err)
-	}
+	store := createMetadataBackedSession(
+		t,
+		metadataStore,
+		persistenceRoot,
+		"/tmp/original-workspace",
+		session.ContinuationContext{OpenAIBaseURL: "http://persisted.local/v1"},
+	)
 
 	plan, err := ResolveBootstrapPlan(persistenceRoot, BootstrapRequest{
 		WorkspaceRoot: "/tmp/current-dir",
@@ -55,18 +50,13 @@ func TestResolveBootstrapPlanRespectsExplicitOverrides(t *testing.T) {
 		t.Fatalf("metadata.Open: %v", err)
 	}
 	defer func() { _ = metadataStore.Close() }()
-	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), "/tmp/original-workspace")
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
-	containerDir := config.ProjectSessionsRoot(config.App{PersistenceRoot: persistenceRoot}, binding.ProjectID)
-	store, err := session.Create(containerDir, filepath.Base(containerDir), "/tmp/original-workspace", metadataStore.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-	if err := store.SetContinuationContext(session.ContinuationContext{OpenAIBaseURL: "http://persisted.local/v1"}); err != nil {
-		t.Fatalf("set continuation context: %v", err)
-	}
+	store := createMetadataBackedSession(
+		t,
+		metadataStore,
+		persistenceRoot,
+		"/tmp/original-workspace",
+		session.ContinuationContext{OpenAIBaseURL: "http://persisted.local/v1"},
+	)
 
 	plan, err := ResolveBootstrapPlan(persistenceRoot, BootstrapRequest{
 		WorkspaceRoot:         "/tmp/override-workspace",
@@ -96,18 +86,13 @@ func TestResolveBootstrapPlanUsesMetadataSessionLookupByID(t *testing.T) {
 		t.Fatalf("metadata.Open: %v", err)
 	}
 	defer func() { _ = metadataStore.Close() }()
-	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), "/tmp/workspace-b")
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
-	containerB := config.ProjectSessionsRoot(config.App{PersistenceRoot: persistenceRoot}, binding.ProjectID)
-	store, err := session.Create(containerB, filepath.Base(containerB), "/tmp/workspace-b", metadataStore.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-	if err := store.SetContinuationContext(session.ContinuationContext{OpenAIBaseURL: "http://workspace-b.local/v1"}); err != nil {
-		t.Fatalf("set continuation context: %v", err)
-	}
+	store := createMetadataBackedSession(
+		t,
+		metadataStore,
+		persistenceRoot,
+		"/tmp/workspace-b",
+		session.ContinuationContext{OpenAIBaseURL: "http://workspace-b.local/v1"},
+	)
 
 	plan, err := ResolveBootstrapPlan(persistenceRoot, BootstrapRequest{SessionID: store.Meta().SessionID})
 	if err != nil {
@@ -123,14 +108,8 @@ func TestResolveBootstrapPlanUsesMetadataSessionLookupByID(t *testing.T) {
 
 func TestResolveBootstrapPlanUsesReboundWorkspaceRootFromMetadataAuthority(t *testing.T) {
 	ctx := t.Context()
-	home := t.TempDir()
 	oldWorkspace := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(oldWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadLaunchConfig(t, oldWorkspace)
 	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)
@@ -141,10 +120,7 @@ func TestResolveBootstrapPlanUsesReboundWorkspaceRootFromMetadataAuthority(t *te
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
 	projectSessionsDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
-	store, err := session.Create(projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, metadataStore.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatalf("session.Create: %v", err)
-	}
+	store := createTestSessionInContainer(t, projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, metadataStore.AuthoritativeSessionStoreOptions()...)
 	if err := store.SetName("hello"); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}

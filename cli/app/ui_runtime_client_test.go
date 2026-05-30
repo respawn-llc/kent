@@ -6,7 +6,6 @@ import (
 	"builder/server/registry"
 	"builder/server/runtime"
 	"builder/server/runtimecontrol"
-	"builder/server/session"
 	"builder/server/sessionview"
 	"builder/server/tools"
 	sharedclient "builder/shared/client"
@@ -212,10 +211,25 @@ func (t runtimeClientBlockingTool) Call(_ context.Context, c tools.Call) (tools.
 	return tools.Result{CallID: c.ID, Name: c.Name, Output: out}, nil
 }
 
+func newRuntimeClientReadTest(reads sharedclient.SessionViewClient) clientui.RuntimeClient {
+	return newUIRuntimeClientWithReads(
+		"session-1",
+		reads,
+		sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(registry.NewRuntimeRegistry(), nil)),
+	)
+}
+
+func newRuntimeClientReadOnlyTest(reads sharedclient.SessionViewClient) clientui.RuntimeClient {
+	return newUIRuntimeClientWithReads(
+		"session-1",
+		reads,
+		sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(nil, nil)),
+	)
+}
+
 func TestRuntimeClientRefreshTranscriptRequestsOngoingTail(t *testing.T) {
 	reads := &countingSessionViewClient{page: clientui.TranscriptPage{SessionID: "session-1"}}
-	controls := sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(nil, nil))
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls)
+	runtimeClient := newRuntimeClientReadOnlyTest(reads)
 
 	if _, err := runtimeClient.RefreshTranscript(); err != nil {
 		t.Fatalf("refresh transcript: %v", err)
@@ -227,8 +241,7 @@ func TestRuntimeClientRefreshTranscriptRequestsOngoingTail(t *testing.T) {
 
 func TestRuntimeClientLoadTranscriptPageLetsServerApplyDefaultWindow(t *testing.T) {
 	reads := &countingSessionViewClient{page: clientui.TranscriptPage{SessionID: "session-1"}}
-	controls := sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(nil, nil))
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls)
+	runtimeClient := newRuntimeClientReadOnlyTest(reads)
 
 	if _, err := runtimeClient.LoadTranscriptPage(clientui.TranscriptPageRequest{}); err != nil {
 		t.Fatalf("load transcript page: %v", err)
@@ -251,8 +264,7 @@ func TestRuntimeClientRefreshCommittedTranscriptSuffixUsesSessionViewSuffixAPI(t
 			ConversationFreshness: clientui.ConversationFreshnessEstablished,
 		},
 	}
-	controls := sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(nil, nil))
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls).(*sessionRuntimeClient)
+	runtimeClient := newRuntimeClientReadOnlyTest(reads).(*sessionRuntimeClient)
 
 	suffix, err := runtimeClient.RefreshCommittedTranscriptSuffix(clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 2, Limit: 2})
 	if err != nil {
@@ -284,8 +296,7 @@ func TestRuntimeClientCommittedSuffixDisablesUnsupportedRPC(t *testing.T) {
 		},
 		suffixErr: serverapi.ErrMethodNotFound,
 	}
-	controls := sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(nil, nil))
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls).(*sessionRuntimeClient)
+	runtimeClient := newRuntimeClientReadOnlyTest(reads).(*sessionRuntimeClient)
 	req := clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: 2, Limit: 1}
 
 	suffix, err := runtimeClient.RefreshCommittedTranscriptSuffix(req)
@@ -338,8 +349,7 @@ func TestStartupRuntimeTranscriptUsesCommittedSuffixBounding(t *testing.T) {
 			Entries:             []clientui.ChatEntry{{Role: "assistant", Text: "reply-100"}},
 		},
 	}
-	controls := sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(nil, nil))
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls)
+	runtimeClient := newRuntimeClientReadOnlyTest(reads)
 
 	model := NewProjectedUIModel(runtimeClient, closedProjectedRuntimeEvents(), closedAskEvents()).(*uiModel)
 
@@ -382,8 +392,7 @@ func TestWidthResizeReplayFetchesCommittedSuffixBeforeFullReplay(t *testing.T) {
 			Entries:             []clientui.ChatEntry{{Role: "assistant", Text: "startup"}},
 		},
 	}
-	controls := sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(nil, nil))
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls)
+	runtimeClient := newRuntimeClientReadOnlyTest(reads)
 	model := NewProjectedUIModel(runtimeClient, closedProjectedRuntimeEvents(), closedAskEvents()).(*uiModel)
 
 	next, startupCmd := model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
@@ -457,8 +466,7 @@ func TestCommittedRuntimeEventPermanentOutputUsesCommittedSuffix(t *testing.T) {
 			Entries:             []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
 		},
 	}
-	controls := sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(nil, nil))
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls)
+	runtimeClient := newRuntimeClientReadOnlyTest(reads)
 	model := NewProjectedUIModel(runtimeClient, closedProjectedRuntimeEvents(), closedAskEvents()).(*uiModel)
 	model.termWidth = 100
 	model.termHeight = 20
@@ -1160,8 +1168,7 @@ func TestCommittedSuffixRefreshedRequestsNextPageWhenCapped(t *testing.T) {
 
 func TestRuntimeClientLoadTranscriptPageAlwaysReadsFromServerAuthority(t *testing.T) {
 	reads := &countingSessionViewClient{page: clientui.TranscriptPage{SessionID: "session-1", Offset: 300, TotalEntries: 500}}
-	controls := sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(nil, nil))
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls)
+	runtimeClient := newRuntimeClientReadOnlyTest(reads)
 	req := clientui.TranscriptPageRequest{Offset: 300, Limit: 200}
 
 	if _, err := runtimeClient.LoadTranscriptPage(req); err != nil {
@@ -1177,8 +1184,7 @@ func TestRuntimeClientLoadTranscriptPageAlwaysReadsFromServerAuthority(t *testin
 
 func TestRuntimeClientLoadTranscriptPageCachesByRequestKey(t *testing.T) {
 	reads := &countingSessionViewClient{page: clientui.TranscriptPage{SessionID: "session-1", TotalEntries: 500}}
-	controls := sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(nil, nil))
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls)
+	runtimeClient := newRuntimeClientReadOnlyTest(reads)
 
 	if _, err := runtimeClient.LoadTranscriptPage(clientui.TranscriptPageRequest{Offset: 300, Limit: 200}); err != nil {
 		t.Fatalf("first load transcript page: %v", err)
@@ -1193,8 +1199,7 @@ func TestRuntimeClientLoadTranscriptPageCachesByRequestKey(t *testing.T) {
 
 func TestRuntimeClientRefreshTranscriptBypassesFreshCachedPage(t *testing.T) {
 	reads := &countingSessionViewClient{page: clientui.TranscriptPage{SessionID: "session-1"}}
-	controls := sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(nil, nil))
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls)
+	runtimeClient := newRuntimeClientReadOnlyTest(reads)
 
 	if _, err := runtimeClient.LoadTranscriptPage(clientui.TranscriptPageRequest{}); err != nil {
 		t.Fatalf("load transcript page: %v", err)
@@ -1226,8 +1231,7 @@ func TestRuntimeClientLoadTranscriptPageDoesNotPopulateTranscriptAccessor(t *tes
 			}
 		},
 	}
-	controls := sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(nil, nil))
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls)
+	runtimeClient := newRuntimeClientReadOnlyTest(reads)
 
 	if _, err := runtimeClient.RefreshTranscript(); err != nil {
 		t.Fatalf("refresh transcript: %v", err)
@@ -1263,8 +1267,7 @@ func TestRuntimeClientTranscriptDoesNotReadFromServer(t *testing.T) {
 			}
 		},
 	}
-	controls := sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(nil, nil))
-	runtimeClient := newUIRuntimeClientWithReads("session-1", reads, controls)
+	runtimeClient := newRuntimeClientReadOnlyTest(reads)
 
 	if _, err := runtimeClient.RefreshTranscript(); err != nil {
 		t.Fatalf("refresh transcript: %v", err)
@@ -1283,21 +1286,14 @@ func TestRuntimeClientTranscriptDoesNotReadFromServer(t *testing.T) {
 }
 
 func TestRuntimeClientFromEngineDoesNotSeedTranscriptAccessor(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := createAppRuntimeSession(t)
 	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "a1", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
-	eng, err := runtime.New(store, &runtimeClientFakeLLM{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := newAppRuntimeEngineWithStore(t, store, &runtimeClientFakeLLM{}, runtime.Config{})
 
 	runtimeClient := newUIRuntimeClientFromEngine(eng)
 	page := runtimeClient.Transcript()
@@ -1321,11 +1317,6 @@ func TestRuntimeClientFromEngineDoesNotSeedTranscriptAccessor(t *testing.T) {
 }
 
 func TestRuntimeClientMainViewIncludesActiveRunFromRealEngine(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	started := make(chan struct{})
 	release := make(chan struct{})
 	fakeLLM := &runtimeClientFakeLLM{responses: []llm.Response{
@@ -1339,10 +1330,7 @@ func TestRuntimeClientMainViewIncludesActiveRunFromRealEngine(t *testing.T) {
 			Usage:     llm.Usage{WindowTokens: 200000},
 		},
 	}}
-	eng, err := runtime.New(store, fakeLLM, tools.NewRegistry(runtimeClientBlockingTool{started: started, release: release}), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	store, eng := newAppRuntimeEngine(t, fakeLLM, runtime.Config{}, runtimeClientBlockingTool{started: started, release: release})
 	runtimeRegistry := registry.NewRuntimeRegistry()
 	runtimeRegistry.Register(store.Meta().SessionID, eng)
 
@@ -1387,18 +1375,11 @@ func TestRuntimeClientMainViewIncludesActiveRunFromRealEngine(t *testing.T) {
 }
 
 func TestRuntimeClientMainViewFallsBackToLocalRuntimeProjectionOnReadError(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := createAppRuntimeSession(t)
 	if err := store.SetParentSessionID("parent-123"); err != nil {
 		t.Fatalf("set parent session id: %v", err)
 	}
-	eng, err := runtime.New(store, &runtimeClientFakeLLM{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := newAppRuntimeEngineWithStore(t, store, &runtimeClientFakeLLM{}, runtime.Config{})
 	if err := eng.SetThinkingLevel("high"); err != nil {
 		t.Fatalf("set thinking level: %v", err)
 	}
@@ -1423,18 +1404,11 @@ func TestRuntimeClientMainViewFallsBackToLocalRuntimeProjectionOnReadError(t *te
 }
 
 func TestRuntimeClientMainViewSnapshotDoesNotPopulateTranscriptEndpoint(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := createAppRuntimeSession(t)
 	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "seeded from main view", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
-	eng, err := runtime.New(store, &runtimeClientFakeLLM{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := newAppRuntimeEngineWithStore(t, store, &runtimeClientFakeLLM{}, runtime.Config{})
 	runtimeRegistry := registry.NewRuntimeRegistry()
 	runtimeRegistry.Register(store.Meta().SessionID, eng)
 
@@ -1475,11 +1449,7 @@ func TestRuntimeClientWithoutClientsIsNil(t *testing.T) {
 
 func TestRuntimeClientMainViewCachesSuccessfulRead(t *testing.T) {
 	reads := &countingSessionViewClient{view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: "session-1"}, Status: clientui.RuntimeStatus{ThinkingLevel: "high"}}}
-	runtimeClient := newUIRuntimeClientWithReads(
-		"session-1",
-		reads,
-		sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(registry.NewRuntimeRegistry(), nil)),
-	)
+	runtimeClient := newRuntimeClientReadTest(reads)
 
 	first := runtimeClient.MainView()
 	second := runtimeClient.MainView()
@@ -1494,11 +1464,7 @@ func TestRuntimeClientMainViewCachesSuccessfulRead(t *testing.T) {
 
 func TestRuntimeClientRefreshMainViewBypassesCache(t *testing.T) {
 	reads := &countingSessionViewClient{view: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{SessionID: "session-1"}, Status: clientui.RuntimeStatus{ThinkingLevel: "high"}}}
-	runtimeClient := newUIRuntimeClientWithReads(
-		"session-1",
-		reads,
-		sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(registry.NewRuntimeRegistry(), nil)),
-	)
+	runtimeClient := newRuntimeClientReadTest(reads)
 	if _, err := runtimeClient.RefreshMainView(); err != nil {
 		t.Fatalf("RefreshMainView: %v", err)
 	}
@@ -1526,11 +1492,7 @@ func TestRuntimeClientMainViewLeavesTranscriptHydrationToTranscriptEndpoint(t *t
 			Entries: []clientui.ChatEntry{{Role: "assistant", Text: "seed"}},
 		},
 	}}}
-	runtimeClient := newUIRuntimeClientWithReads(
-		"session-1",
-		reads,
-		sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(registry.NewRuntimeRegistry(), nil)),
-	)
+	runtimeClient := newRuntimeClientReadTest(reads)
 
 	view := runtimeClient.MainView()
 	if view.Session.SessionID != "session-1" {
@@ -1557,11 +1519,7 @@ func TestRuntimeClientMainViewBootstrapDoesNotSeedStreamingOngoingState(t *testi
 			Ongoing: "NO_OP",
 		},
 	}}}
-	runtimeClient := newUIRuntimeClientWithReads(
-		"session-1",
-		reads,
-		sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(registry.NewRuntimeRegistry(), nil)),
-	)
+	runtimeClient := newRuntimeClientReadTest(reads)
 
 	_ = runtimeClient.MainView()
 	page := runtimeClient.Transcript()
@@ -1592,11 +1550,7 @@ func TestRuntimeClientRefreshMainViewDoesNotDowngradeCachedTranscriptTail(t *tes
 			},
 		},
 	}
-	runtimeClient := newUIRuntimeClientWithReads(
-		"session-1",
-		reads,
-		sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(registry.NewRuntimeRegistry(), nil)),
-	)
+	runtimeClient := newRuntimeClientReadTest(reads)
 	if _, err := runtimeClient.RefreshTranscript(); err != nil {
 		t.Fatalf("RefreshTranscript: %v", err)
 	}
@@ -1633,11 +1587,7 @@ func TestRuntimeClientRefreshTranscriptUpdatesMainViewChatForWindowedOngoingTail
 			Ongoing:      "streaming",
 		},
 	}
-	runtimeClient := newUIRuntimeClientWithReads(
-		"session-1",
-		reads,
-		sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(registry.NewRuntimeRegistry(), nil)),
-	)
+	runtimeClient := newRuntimeClientReadTest(reads)
 
 	if _, err := runtimeClient.RefreshTranscript(); err != nil {
 		t.Fatalf("RefreshTranscript: %v", err)
@@ -1657,11 +1607,7 @@ func TestRuntimeClientRefreshTranscriptUpdatesMainViewChatForWindowedOngoingTail
 func TestRuntimeClientMainViewFailsFastWhenReadStalls(t *testing.T) {
 	withUIRuntimeReadTimeout(t, time.Millisecond)
 
-	runtimeClient := newUIRuntimeClientWithReads(
-		"session-1",
-		blockingSessionViewClient{},
-		sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(registry.NewRuntimeRegistry(), nil)),
-	)
+	runtimeClient := newRuntimeClientReadTest(blockingSessionViewClient{})
 	start := time.Now()
 	view := runtimeClient.MainView()
 	elapsed := time.Since(start)
@@ -1684,11 +1630,7 @@ func TestRuntimeClientMainViewCachesFallbackAfterReadError(t *testing.T) {
 	withUIRuntimeReadTimeout(t, time.Millisecond)
 
 	reads := &blockingCountingSessionViewClient{}
-	runtimeClient := newUIRuntimeClientWithReads(
-		"session-1",
-		reads,
-		sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(registry.NewRuntimeRegistry(), nil)),
-	)
+	runtimeClient := newRuntimeClientReadTest(reads)
 
 	first := runtimeClient.MainView()
 	if first.Session.SessionID != "session-1" {
@@ -1705,11 +1647,7 @@ func TestRuntimeClientMainViewCachesFallbackAfterReadError(t *testing.T) {
 
 func TestRuntimeClientRefreshTranscriptPageDoesNotUseHiddenPageCacheOnReadError(t *testing.T) {
 	reads := &countingSessionViewClient{}
-	runtimeClient := newUIRuntimeClientWithReads(
-		"session-1",
-		reads,
-		sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(registry.NewRuntimeRegistry(), nil)),
-	)
+	runtimeClient := newRuntimeClientReadTest(reads)
 	seedReq := clientui.TranscriptPageRequest{Page: 2, PageSize: 25}
 	concrete := runtimeClient.(*sessionRuntimeClient)
 
@@ -1751,11 +1689,7 @@ func TestRuntimeClientQueueUserMessageNotifiesConnectionObserverOnFailure(t *tes
 
 func TestRuntimeClientRefreshTranscriptPageRecoveryReturnsAuthoritativePage(t *testing.T) {
 	reads := &countingSessionViewClient{}
-	runtimeClient := newUIRuntimeClientWithReads(
-		"session-1",
-		reads,
-		sharedclient.NewLoopbackRuntimeControlClient(runtimecontrol.NewService(registry.NewRuntimeRegistry(), nil)),
-	)
+	runtimeClient := newRuntimeClientReadTest(reads)
 	concrete, ok := runtimeClient.(*sessionRuntimeClient)
 	if !ok {
 		t.Fatalf("runtime client type = %T, want *sessionRuntimeClient", runtimeClient)

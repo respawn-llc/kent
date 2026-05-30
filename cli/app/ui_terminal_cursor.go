@@ -95,15 +95,6 @@ func (s *uiTerminalCursorState) restoreRendererAnchor() string {
 	return terminalCursorRestoreSequence(s.previous)
 }
 
-func (s *uiTerminalCursorState) placeCursor() string {
-	if s == nil {
-		return ""
-	}
-	placement, suffix := s.placeCursorPlan()
-	s.commitPlacedCursor(placement)
-	return suffix
-}
-
 func (s *uiTerminalCursorState) placeCursorPlan() (uiTerminalCursorPlacement, string) {
 	if s == nil {
 		return uiTerminalCursorPlacement{}, ""

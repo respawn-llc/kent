@@ -1081,10 +1081,7 @@ func (r WorkflowCreateAndLinkProjectRequest) Validate() error {
 }
 
 func (r WorkflowUpdateRequest) Validate() error {
-	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
-		return err
-	}
-	return validateWorkflowName(r.Name)
+	return validateWorkflowIDAndName(r.WorkflowID, r.Name)
 }
 
 func (r WorkflowListRequest) Validate() error {
@@ -1188,10 +1185,7 @@ func (r WorkflowNodeGroupUpdateRequest) Validate() error {
 }
 
 func (r WorkflowNodeGroupDeleteRequest) Validate() error {
-	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
-		return err
-	}
-	return validateRequired("group_id", r.GroupID)
+	return validateRequiredFields(requiredField("workflow_id", r.WorkflowID), requiredField("group_id", r.GroupID))
 }
 
 func (r WorkflowTransitionGroupAddRequest) Validate() error {
@@ -1267,10 +1261,7 @@ func validateWorkflowContextSource(source WorkflowContextSource) error {
 }
 
 func (r WorkflowLinkProjectRequest) Validate() error {
-	if err := validateRequired("project_id", r.ProjectID); err != nil {
-		return err
-	}
-	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
+	if err := validateRequiredFields(requiredField("project_id", r.ProjectID), requiredField("workflow_id", r.WorkflowID)); err != nil {
 		return err
 	}
 	return validateWorkflowProjectLinkDefaultMode(r.DefaultPolicy)
@@ -1281,10 +1272,7 @@ func (r WorkflowListProjectLinksRequest) Validate() error {
 }
 
 func (r WorkflowSetDefaultProjectLinkRequest) Validate() error {
-	if err := validateRequired("project_id", r.ProjectID); err != nil {
-		return err
-	}
-	return validateRequired("workflow_id", r.WorkflowID)
+	return validateRequiredFields(requiredField("project_id", r.ProjectID), requiredField("workflow_id", r.WorkflowID))
 }
 
 func (r WorkflowUnlinkProjectRequest) Validate() error {
@@ -1440,21 +1428,11 @@ func validateWorkflowGraphDraftEnvelope(graph WorkflowGraphDraft) error {
 }
 
 func (r WorkflowTaskCreateRequest) Validate() error {
-	for _, field := range []struct{ name, value string }{{"project_id", r.ProjectID}, {"title", r.Title}} {
-		if err := validateRequired(field.name, field.value); err != nil {
-			return err
-		}
-	}
-	return nil
+	return validateRequiredFields(requiredField("project_id", r.ProjectID), requiredField("title", r.Title))
 }
 
 func (r WorkflowTaskUpdateRequest) Validate() error {
-	for _, field := range []struct{ name, value string }{{"task_id", r.TaskID}, {"title", r.Title}} {
-		if err := validateRequired(field.name, field.value); err != nil {
-			return err
-		}
-	}
-	return nil
+	return validateRequiredFields(requiredField("task_id", r.TaskID), requiredField("title", r.Title))
 }
 
 func (r WorkflowTaskStartRequest) Validate() error {
@@ -1473,10 +1451,7 @@ func (r WorkflowTaskApproveRequest) Validate() error {
 }
 
 func (r WorkflowTaskMoveRequest) Validate() error {
-	if err := validateRequired("task_id", r.TaskID); err != nil {
-		return err
-	}
-	return validateRequired("target_node_id", r.TargetNodeID)
+	return validateRequiredFields(requiredField("task_id", r.TaskID), requiredField("target_node_id", r.TargetNodeID))
 }
 
 func (r WorkflowTaskCancelRequest) Validate() error {
@@ -1499,10 +1474,8 @@ func (r WorkflowTaskAttentionListRequest) Validate() error {
 }
 
 func (r WorkflowTaskQuestionAnswerRequest) Validate() error {
-	for _, field := range []struct{ name, value string }{{"client_request_id", r.ClientRequestID}, {"task_id", r.TaskID}, {"ask_id", r.AskID}} {
-		if err := validateRequired(field.name, field.value); err != nil {
-			return err
-		}
+	if err := validateRequiredFields(requiredField("client_request_id", r.ClientRequestID), requiredField("task_id", r.TaskID), requiredField("ask_id", r.AskID)); err != nil {
+		return err
 	}
 	hasTextAnswer := strings.TrimSpace(r.Answer) != ""
 	hasFreeform := strings.TrimSpace(r.FreeformAnswer) != ""
@@ -1525,13 +1498,7 @@ func (r WorkflowTaskQuestionAnswerRequest) Validate() error {
 }
 
 func (r WorkflowTaskCommentAddRequest) Validate() error {
-	if err := validateRequired("task_id", r.TaskID); err != nil {
-		return err
-	}
-	if err := validateRequired("body", r.Body); err != nil {
-		return err
-	}
-	return validateRequired("author", r.Author)
+	return validateRequiredFields(requiredField("task_id", r.TaskID), requiredField("body", r.Body), requiredField("author", r.Author))
 }
 
 func (r WorkflowTaskCommentListRequest) Validate() error {
@@ -1539,10 +1506,7 @@ func (r WorkflowTaskCommentListRequest) Validate() error {
 }
 
 func (r WorkflowTaskCommentReplaceRequest) Validate() error {
-	if err := validateRequired("comment_id", r.CommentID); err != nil {
-		return err
-	}
-	return validateRequired("body", r.Body)
+	return validateRequiredFields(requiredField("comment_id", r.CommentID), requiredField("body", r.Body))
 }
 
 func (r WorkflowTaskCommentDeleteRequest) Validate() error {
@@ -1566,13 +1530,7 @@ func (r WorkflowBoardRequest) Validate() error {
 }
 
 func (r WorkflowBoardNodeCardsListRequest) Validate() error {
-	if err := validateRequired("project_id", r.ProjectID); err != nil {
-		return err
-	}
-	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
-		return err
-	}
-	if err := validateRequired("node_id", r.NodeID); err != nil {
+	if err := validateRequiredFields(requiredField("project_id", r.ProjectID), requiredField("workflow_id", r.WorkflowID), requiredField("node_id", r.NodeID)); err != nil {
 		return err
 	}
 	if r.PageSize < 0 {
@@ -1638,6 +1596,31 @@ func validateRequired(name string, value string) error {
 		return workflowRequestError(WorkflowRequestErrorRequired, name, name+" is required")
 	}
 	return nil
+}
+
+type requiredWorkflowField struct {
+	name  string
+	value string
+}
+
+func requiredField(name string, value string) requiredWorkflowField {
+	return requiredWorkflowField{name: name, value: value}
+}
+
+func validateRequiredFields(fields ...requiredWorkflowField) error {
+	for _, field := range fields {
+		if err := validateRequired(field.name, field.value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateWorkflowIDAndName(workflowID string, name string) error {
+	if err := validateRequired("workflow_id", workflowID); err != nil {
+		return err
+	}
+	return validateWorkflowName(name)
 }
 
 func validateWorkflowName(name string) error {

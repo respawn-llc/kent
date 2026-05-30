@@ -14,19 +14,6 @@ import (
 
 const noOutputText = "No output"
 
-func readPreviewFromFile(path string, maxChars int, sanitize bool) (string, int, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", 0, err
-	}
-	output := formatCapturedOutput(string(data), !sanitize)
-	preview, truncated, removed := truncateBackgroundOutput(output, normalizeOutputChars(maxChars))
-	if !truncated {
-		removed = 0
-	}
-	return preview, removed, nil
-}
-
 func NormalizeBackgroundOutputMode(raw string) BackgroundOutputMode {
 	switch BackgroundOutputMode(strings.ToLower(strings.TrimSpace(raw))) {
 	case BackgroundOutputVerbose:

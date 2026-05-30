@@ -29,23 +29,16 @@ func TestSystemPromptSnapshotUsesStoredWorkspaceRootWhenTranscriptWorkdirIsNeste
 	}
 	writeTestFile(t, filepath.Join(systemDir, systemPromptFileName), "workspace root system")
 
-	store, err := session.Create(t.TempDir(), "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t, workspace)
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok"},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:                "gpt-5",
+	eng := mustNewExecTestEngine(t, store, client, Config{
 		EnabledTools:         []toolspec.ID{toolspec.ToolExecCommand},
 		TranscriptWorkingDir: nested,
 		ToolPreambles:        false,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if _, err := eng.SubmitUserMessage(context.Background(), "hello"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -91,19 +84,12 @@ func TestEnsureLockedWithSystemPromptAndTranscriptWorkingDirDoesNotDeadlock(t *t
 	}
 	writeTestFile(t, filepath.Join(systemDir, systemPromptFileName), "deadlock guard")
 
-	store, err := session.Create(t.TempDir(), "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:                "gpt-5",
+	store := mustCreateTestSession(t, workspace)
+	eng := mustNewExecTestEngine(t, store, &fakeClient{}, Config{
 		EnabledTools:         []toolspec.ID{toolspec.ToolExecCommand},
 		TranscriptWorkingDir: workspace,
 		ToolPreambles:        false,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	done := make(chan struct {
 		locked session.LockedContract
 		err    error
@@ -138,18 +124,11 @@ func TestBuildSystemPromptSnapshotForRootDoesNotUseMutexTakingWorkspaceAccessor(
 	}
 	writeTestFile(t, filepath.Join(systemDir, systemPromptFileName), "locked helper guard")
 
-	store, err := session.Create(t.TempDir(), "ws", t.TempDir())
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:         "gpt-5",
+	store := mustCreateTestSession(t)
+	eng := mustNewExecTestEngine(t, store, &fakeClient{}, Config{
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 		ToolPreambles: false,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	done := make(chan struct {
 		prompt string
 		err    error
@@ -199,23 +178,16 @@ func TestSystemPromptSnapshotUsesTranscriptWorkingDirForRetargetedSession(t *tes
 	writeTestFile(t, filepath.Join(canonical, agentsGlobalDirName, systemPromptFileName), "canonical system")
 	writeTestFile(t, filepath.Join(worktree, agentsGlobalDirName, systemPromptFileName), "worktree system")
 
-	store, err := session.Create(t.TempDir(), "ws", canonical)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t, canonical)
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok"},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:                "gpt-5",
+	eng := mustNewExecTestEngine(t, store, client, Config{
 		EnabledTools:         []toolspec.ID{toolspec.ToolExecCommand},
 		TranscriptWorkingDir: canonical,
 		ToolPreambles:        false,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	eng.SetTranscriptWorkingDir(worktree)
 	if _, err := eng.SubmitUserMessage(context.Background(), "hello"); err != nil {
 		t.Fatalf("submit: %v", err)
@@ -236,10 +208,7 @@ func TestLegacyLockedSessionBackfillsSystemPromptSnapshotOnce(t *testing.T) {
 	systemPath := filepath.Join(systemDir, systemPromptFileName)
 	writeTestFile(t, systemPath, "stale legacy {{.EstimatedToolCallsForContext}}")
 
-	store, err := session.Create(t.TempDir(), "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t, workspace)
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
 		Model:          "gpt-5",
 		Temperature:    1,
@@ -259,14 +228,10 @@ func TestLegacyLockedSessionBackfillsSystemPromptSnapshotOnce(t *testing.T) {
 			Usage:     llm.Usage{WindowTokens: 200000},
 		},
 	}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:                "gpt-5",
+	eng := mustNewExecTestEngine(t, store, client, Config{
 		EnabledTools:         []toolspec.ID{toolspec.ToolExecCommand},
 		TranscriptWorkingDir: workspace,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if snapshot := store.Meta().Locked.SystemPrompt; snapshot != "" {
 		t.Fatalf("system prompt snapshot before first dispatch = %q, want empty", snapshot)
 	}
@@ -301,10 +266,7 @@ func TestChildSessionSnapshotsRoleSystemPromptOnFirstRequest(t *testing.T) {
 	writeTestFile(t, rolePrompt, "code review system prompt")
 	toolPreambles := false
 	root := t.TempDir()
-	parent, err := session.Create(root, "parent", workspace)
-	if err != nil {
-		t.Fatalf("create parent: %v", err)
-	}
+	parent := mustCreateNamedTestSessionAt(t, root, "parent", workspace)
 	if err := parent.MarkModelDispatchLocked(session.LockedContract{
 		Model:             "locked-parent",
 		EnabledTools:      []string{"shell"},
@@ -327,7 +289,7 @@ func TestChildSessionSnapshotsRoleSystemPromptOnFirstRequest(t *testing.T) {
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok"},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	eng, err := New(child, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewExecTestEngine(t, child, client, Config{
 		Model:         "role-model",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 		ToolPreambles: false,
@@ -335,9 +297,6 @@ func TestChildSessionSnapshotsRoleSystemPromptOnFirstRequest(t *testing.T) {
 			{Path: rolePrompt, Scope: config.SystemPromptFileScopeSubagent},
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "review this"); err != nil {
 		t.Fatalf("submit: %v", err)
@@ -370,10 +329,7 @@ func TestEmptySystemPromptFileIsSkippedAndFallbackSnapshotIsReused(t *testing.T)
 	systemPath := filepath.Join(systemDir, systemPromptFileName)
 	writeTestFile(t, systemPath, "   \n")
 
-	store, err := session.Create(t.TempDir(), "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t, workspace)
 	client := &fakeClient{responses: []llm.Response{
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok"},
@@ -384,15 +340,11 @@ func TestEmptySystemPromptFileIsSkippedAndFallbackSnapshotIsReused(t *testing.T)
 			Usage:     llm.Usage{WindowTokens: 200000},
 		},
 	}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:                "gpt-5",
+	eng := mustNewExecTestEngine(t, store, client, Config{
 		EnabledTools:         []toolspec.ID{toolspec.ToolExecCommand},
 		TranscriptWorkingDir: workspace,
 		ToolPreambles:        false,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if _, err := eng.SubmitUserMessage(context.Background(), "hello"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -418,15 +370,11 @@ func TestEmptySystemPromptFileIsSkippedAndFallbackSnapshotIsReused(t *testing.T)
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "still ok"},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	reopenedEngine, err := New(reopened, reopenedClient, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:                "gpt-5",
+	reopenedEngine := mustNewExecTestEngine(t, reopened, reopenedClient, Config{
 		EnabledTools:         []toolspec.ID{toolspec.ToolExecCommand},
 		TranscriptWorkingDir: workspace,
 		ToolPreambles:        false,
 	})
-	if err != nil {
-		t.Fatalf("new reopened engine: %v", err)
-	}
 	if _, err := reopenedEngine.SubmitUserMessage(context.Background(), "again"); err != nil {
 		t.Fatalf("submit again: %v", err)
 	}
@@ -439,11 +387,7 @@ func TestEmptySystemPromptFileIsSkippedAndFallbackSnapshotIsReused(t *testing.T)
 }
 
 func TestLegacyLockedSessionBackfillsContextBudgetOnce(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
 		Model:          "gpt-5",
 		Temperature:    1,
@@ -452,14 +396,11 @@ func TestLegacyLockedSessionBackfillsContextBudgetOnce(t *testing.T) {
 		t.Fatalf("mark locked: %v", err)
 	}
 
-	firstEngine, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	firstEngine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:               "gpt-5",
 		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
 		ContextWindowTokens: 272_000,
 	})
-	if err != nil {
-		t.Fatalf("new first engine: %v", err)
-	}
 	locked := store.Meta().Locked
 	if locked == nil || locked.ContextWindow != 272_000 || locked.ContextPercent != 95 {
 		t.Fatalf("expected legacy lock backfilled from first resume config, got %+v", locked)
@@ -468,14 +409,11 @@ func TestLegacyLockedSessionBackfillsContextBudgetOnce(t *testing.T) {
 		t.Fatalf("first estimated tool calls = %d, want 185", got)
 	}
 
-	secondEngine, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	secondEngine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:               "gpt-5",
 		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
 		ContextWindowTokens: 400_000,
 	})
-	if err != nil {
-		t.Fatalf("new second engine: %v", err)
-	}
 	locked = store.Meta().Locked
 	if locked == nil || locked.ContextWindow != 272_000 || locked.ContextPercent != 95 {
 		t.Fatalf("expected legacy lock backfill to stay pinned, got %+v", locked)
@@ -487,25 +425,18 @@ func TestLegacyLockedSessionBackfillsContextBudgetOnce(t *testing.T) {
 
 func TestThinkingLevelCanChangeAfterLock(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 
 	client := &fakeClient{responses: []llm.Response{
 		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "one"}, Usage: llm.Usage{WindowTokens: 200000}},
 		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "two"}, Usage: llm.Usage{WindowTokens: 200000}},
 	}}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:         "gpt-5",
+	eng := mustNewExecTestEngine(t, store, client, Config{
 		Temperature:   1,
 		ThinkingLevel: "xhigh",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if _, err := eng.SubmitUserMessage(context.Background(), "hi"); err != nil {
 		t.Fatalf("submit first: %v", err)
 	}
@@ -528,18 +459,10 @@ func TestThinkingLevelCanChangeAfterLock(t *testing.T) {
 }
 
 func TestSetThinkingLevelRejectsInvalidValue(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model:         "gpt-5",
+	store := mustCreateTestSession(t)
+	eng := mustNewExecTestEngine(t, store, &fakeClient{}, Config{
 		ThinkingLevel: "high",
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.SetThinkingLevel("ultra"); err == nil {
 		t.Fatal("expected invalid thinking level error")
 	}
@@ -549,11 +472,7 @@ func TestSetThinkingLevelRejectsInvalidValue(t *testing.T) {
 }
 
 func TestPoisonedLockedSessionFallsBackToModelReasoningSupport(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	if err := store.MarkModelDispatchLocked(session.LockedContract{
 		Model:          "gpt-5.4",
 		Temperature:    1,
@@ -571,14 +490,11 @@ func TestPoisonedLockedSessionFallsBackToModelReasoningSupport(t *testing.T) {
 	}
 
 	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok"}}}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewExecTestEngine(t, store, client, Config{
 		Model:         "gpt-5.4",
 		ThinkingLevel: "high",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if _, err := eng.SubmitUserMessage(context.Background(), "hi"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -594,11 +510,7 @@ func TestPoisonedLockedSessionFallsBackToModelReasoningSupport(t *testing.T) {
 }
 
 func TestFastModeCanChangeAfterLock(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{
 		responses: []llm.Response{
@@ -608,15 +520,12 @@ func TestFastModeCanChangeAfterLock(t *testing.T) {
 		caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true},
 	}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewExecTestEngine(t, store, client, Config{
 		Model:         "gpt-5.3-codex",
 		Temperature:   1,
 		ThinkingLevel: "high",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if _, err := eng.SubmitUserMessage(context.Background(), "hi"); err != nil {
 		t.Fatalf("submit first: %v", err)
 	}
@@ -643,17 +552,10 @@ func TestFastModeCanChangeAfterLock(t *testing.T) {
 }
 
 func TestSetFastModeRejectsUnsupportedProvider(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := New(store, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "azure-openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: false}}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	store := mustCreateTestSession(t)
+	eng := mustNewExecTestEngine(t, store, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "azure-openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: false}}, Config{
 		Model: "gpt-5.3-codex",
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	changed, err := eng.SetFastModeEnabled(true)
 	if err == nil {
 		t.Fatal("expected fast mode unsupported error")
@@ -667,16 +569,9 @@ func TestSetFastModeRejectsUnsupportedProvider(t *testing.T) {
 }
 
 func TestSetFastModeTogglesRuntimeOnly(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	cfg := Config{Model: "gpt-5.3-codex"}
-	eng, err := New(store, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), cfg)
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewExecTestEngine(t, store, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, cfg)
 
 	changed, err := eng.SetFastModeEnabled(true)
 	if err != nil {
@@ -686,10 +581,7 @@ func TestSetFastModeTogglesRuntimeOnly(t *testing.T) {
 		t.Fatalf("expected fast mode enabled, changed=%v enabled=%v", changed, eng.FastModeEnabled())
 	}
 
-	restarted, err := New(store, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), cfg)
-	if err != nil {
-		t.Fatalf("new restarted engine: %v", err)
-	}
+	restarted := mustNewExecTestEngine(t, store, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, cfg)
 	if restarted.FastModeEnabled() {
 		t.Fatal("expected fast mode disabled after restart")
 	}
@@ -698,17 +590,11 @@ func TestSetFastModeTogglesRuntimeOnly(t *testing.T) {
 func TestFastModeSharedStateAppliesAcrossEngines(t *testing.T) {
 	dir := t.TempDir()
 	state := NewFastModeState(false)
-	storeA, err := session.Create(dir, "ws-a", dir)
-	if err != nil {
-		t.Fatalf("create store A: %v", err)
-	}
-	engA, err := New(storeA, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	storeA := mustCreateNamedTestSessionAt(t, dir, "ws-a", dir)
+	engA := mustNewExecTestEngine(t, storeA, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, Config{
 		Model:         "gpt-5.3-codex",
 		FastModeState: state,
 	})
-	if err != nil {
-		t.Fatalf("new engine A: %v", err)
-	}
 
 	changed, err := engA.SetFastModeEnabled(true)
 	if err != nil {
@@ -718,33 +604,20 @@ func TestFastModeSharedStateAppliesAcrossEngines(t *testing.T) {
 		t.Fatalf("expected shared fast mode enabled, changed=%v enabled=%v", changed, state.Enabled())
 	}
 
-	storeB, err := session.Create(dir, "ws-b", dir)
-	if err != nil {
-		t.Fatalf("create store B: %v", err)
-	}
-	engB, err := New(storeB, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	storeB := mustCreateNamedTestSessionAt(t, dir, "ws-b", dir)
+	engB := mustNewExecTestEngine(t, storeB, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, Config{
 		Model:         "gpt-5.3-codex",
 		FastModeState: state,
 	})
-	if err != nil {
-		t.Fatalf("new engine B: %v", err)
-	}
 	if !engB.FastModeEnabled() {
 		t.Fatal("expected shared fast mode to carry into next engine")
 	}
 }
 
 func TestSetAutoCompactionEnabledTogglesRuntimeOnly(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	cfg := Config{Model: "gpt-5"}
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), cfg)
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewExecTestEngine(t, store, &fakeClient{}, cfg)
 
 	changed, enabled := eng.SetAutoCompactionEnabled(false)
 	if !changed || enabled {
@@ -754,10 +627,7 @@ func TestSetAutoCompactionEnabledTogglesRuntimeOnly(t *testing.T) {
 		t.Fatalf("expected runtime auto-compaction disabled, got %v", got)
 	}
 
-	restarted, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), cfg)
-	if err != nil {
-		t.Fatalf("new restarted engine: %v", err)
-	}
+	restarted := mustNewExecTestEngine(t, store, &fakeClient{}, cfg)
 	if got := restarted.AutoCompactionEnabled(); !got {
 		t.Fatalf("expected auto-compaction enabled after restart, got %v", got)
 	}
@@ -765,10 +635,7 @@ func TestSetAutoCompactionEnabledTogglesRuntimeOnly(t *testing.T) {
 
 func TestSetAutoCompactionDisabledConcurrentWithBusyStepSkipsCompactionForCurrentRun(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 
 	client := &fakeCompactionClient{
 		responses: []llm.Response{
@@ -795,13 +662,10 @@ func TestSetAutoCompactionDisabledConcurrentWithBusyStepSkipsCompactionForCurren
 
 	started := make(chan struct{})
 	release := make(chan struct{})
-	eng, err := New(store, client, tools.NewRegistry(blockingTool{name: toolspec.ToolExecCommand, started: started, release: release}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(blockingTool{name: toolspec.ToolExecCommand, started: started, release: release}), Config{
 		Model:                 "gpt-5",
 		AutoCompactTokenLimit: 350000,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	submitDone := make(chan error, 1)
 	go func() {
@@ -830,10 +694,7 @@ func TestSetAutoCompactionDisabledConcurrentWithBusyStepSkipsCompactionForCurren
 
 func TestSetReviewerEnabledTogglesRuntimeOnly(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 	cfg := Config{
 		Model: "gpt-5",
 		Reviewer: ReviewerConfig{
@@ -843,10 +704,7 @@ func TestSetReviewerEnabledTogglesRuntimeOnly(t *testing.T) {
 			Client:        &fakeClient{},
 		},
 	}
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), cfg)
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), cfg)
 	changed, mode, err := eng.SetReviewerEnabled(true)
 	if err != nil {
 		t.Fatalf("enable reviewer: %v", err)
@@ -858,10 +716,7 @@ func TestSetReviewerEnabledTogglesRuntimeOnly(t *testing.T) {
 		t.Fatalf("reviewer frequency = %q, want edits", got)
 	}
 
-	restarted, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), cfg)
-	if err != nil {
-		t.Fatalf("new restarted engine: %v", err)
-	}
+	restarted := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), cfg)
 	if got := restarted.ReviewerFrequency(); got != "off" {
 		t.Fatalf("reviewer frequency after restart = %q, want off", got)
 	}
@@ -869,10 +724,7 @@ func TestSetReviewerEnabledTogglesRuntimeOnly(t *testing.T) {
 
 func TestSetReviewerEnabledFailsWhenReviewerClientMissing(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		Reviewer: ReviewerConfig{
@@ -882,9 +734,6 @@ func TestSetReviewerEnabledFailsWhenReviewerClientMissing(t *testing.T) {
 			Client:        nil,
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	changed, mode, err := eng.SetReviewerEnabled(true)
 	if err == nil {
 		t.Fatal("expected enable reviewer error when reviewer client is missing")
@@ -899,11 +748,8 @@ func TestSetReviewerEnabledFailsWhenReviewerClientMissing(t *testing.T) {
 
 func TestSetReviewerEnabledLazyInitializesReviewerClient(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	store := mustCreateTestSessionAt(t, dir)
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		Reviewer: ReviewerConfig{
 			Frequency:     "off",
@@ -915,9 +761,6 @@ func TestSetReviewerEnabledLazyInitializesReviewerClient(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	changed, mode, err := eng.SetReviewerEnabled(true)
 	if err != nil {
 		t.Fatalf("enable reviewer with lazy client init: %v", err)

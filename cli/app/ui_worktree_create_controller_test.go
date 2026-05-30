@@ -8,14 +8,20 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func newWorktreeCreateControllerTestModel(t *testing.T, client *worktreeCommandTestClient) *uiModel {
+func newWorktreeControllerTestModel(t *testing.T, client *worktreeCommandTestClient, phase uiWorktreeOverlayPhase) *uiModel {
 	t.Helper()
 	if client == nil {
 		client = &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
 	}
 	model := newWorktreeTestModel(t, client)
 	model.worktrees.open = true
-	model.worktrees.phase = uiWorktreeOverlayPhaseCreate
+	model.worktrees.phase = phase
+	return model
+}
+
+func newWorktreeCreateControllerTestModel(t *testing.T, client *worktreeCommandTestClient) *uiModel {
+	t.Helper()
+	model := newWorktreeControllerTestModel(t, client, uiWorktreeOverlayPhaseCreate)
 	model.worktrees.create = newWorktreeCreateDialog("")
 	return model
 }

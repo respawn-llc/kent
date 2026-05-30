@@ -9,8 +9,9 @@ import (
 	"golang.org/x/oauth2"
 )
 
+var managerTestNow = time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC)
+
 func TestSwitchMethodRequiresIdle(t *testing.T) {
-	now := time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC)
 	store := NewMemoryStore(State{
 		Scope: ScopeGlobal,
 		Method: Method{
@@ -19,9 +20,9 @@ func TestSwitchMethodRequiresIdle(t *testing.T) {
 				Key: "old-key",
 			},
 		},
-		UpdatedAt: now,
+		UpdatedAt: managerTestNow,
 	})
-	mgr := NewManager(store, nil, func() time.Time { return now.Add(time.Minute) })
+	mgr := NewManager(store, nil, func() time.Time { return managerTestNow.Add(time.Minute) })
 
 	_, err := mgr.SwitchMethod(context.Background(), Method{
 		Type: MethodOAuth,
@@ -29,7 +30,7 @@ func TestSwitchMethodRequiresIdle(t *testing.T) {
 			AccessToken:  "token-a",
 			RefreshToken: "refresh-a",
 			TokenType:    "Bearer",
-			Expiry:       now.Add(time.Hour),
+			Expiry:       managerTestNow.Add(time.Hour),
 		},
 	}, false)
 	if !errors.Is(err, ErrSwitchRequiresIdle) {
@@ -49,7 +50,6 @@ func TestSwitchMethodRequiresIdle(t *testing.T) {
 }
 
 func TestAuthorizationHeaderSurfacesOAuthRefreshFailure(t *testing.T) {
-	now := time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC)
 	store := NewMemoryStore(State{
 		Scope: ScopeGlobal,
 		Method: Method{
@@ -58,17 +58,17 @@ func TestAuthorizationHeaderSurfacesOAuthRefreshFailure(t *testing.T) {
 				AccessToken:  "stale-token",
 				RefreshToken: "refresh-token",
 				TokenType:    "Bearer",
-				Expiry:       now.Add(-time.Minute),
+				Expiry:       managerTestNow.Add(-time.Minute),
 			},
 		},
-		UpdatedAt: now,
+		UpdatedAt: managerTestNow,
 	})
 
 	refreshErr := errors.New("refresh failed")
 	refresher := NewOAuthRefresher(stubTokenFactory{source: stubTokenSource{err: refreshErr}}, func() time.Time {
-		return now
+		return managerTestNow
 	}, 30*time.Second)
-	mgr := NewManager(store, refresher, func() time.Time { return now })
+	mgr := NewManager(store, refresher, func() time.Time { return managerTestNow })
 
 	_, err := mgr.AuthorizationHeader(context.Background())
 	if !errors.Is(err, ErrOAuthRefreshFailed) {
@@ -85,7 +85,6 @@ func TestAuthorizationHeaderSurfacesOAuthRefreshFailure(t *testing.T) {
 }
 
 func TestCurrentStateRefreshesAndPersistsOAuthState(t *testing.T) {
-	now := time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC)
 	store := NewMemoryStore(State{
 		Scope: ScopeGlobal,
 		Method: Method{
@@ -94,13 +93,13 @@ func TestCurrentStateRefreshesAndPersistsOAuthState(t *testing.T) {
 				AccessToken:  "stale-token",
 				RefreshToken: "refresh-token",
 				TokenType:    "Bearer",
-				Expiry:       now.Add(-time.Minute),
+				Expiry:       managerTestNow.Add(-time.Minute),
 				AccountID:    "acct-123",
 			},
 		},
-		UpdatedAt: now,
+		UpdatedAt: managerTestNow,
 	})
-	refresher := NewOAuthRefresher(nil, func() time.Time { return now }, 30*time.Second)
+	refresher := NewOAuthRefresher(nil, func() time.Time { return managerTestNow }, 30*time.Second)
 	refresher.Refresh = func(context.Context, Method) (Method, error) {
 		return Method{
 			Type: MethodOAuth,
@@ -108,12 +107,12 @@ func TestCurrentStateRefreshesAndPersistsOAuthState(t *testing.T) {
 				AccessToken:  "fresh-token",
 				RefreshToken: "refresh-token",
 				TokenType:    "Bearer",
-				Expiry:       now.Add(time.Hour),
+				Expiry:       managerTestNow.Add(time.Hour),
 				AccountID:    "acct-123",
 			},
 		}, nil
 	}
-	mgr := NewManager(store, refresher, func() time.Time { return now.Add(2 * time.Minute) })
+	mgr := NewManager(store, refresher, func() time.Time { return managerTestNow.Add(2 * time.Minute) })
 
 	state, err := mgr.CurrentState(context.Background())
 	if err != nil {
@@ -132,9 +131,8 @@ func TestCurrentStateRefreshesAndPersistsOAuthState(t *testing.T) {
 }
 
 func TestSetEnvAPIKeyPreferencePersistsChoice(t *testing.T) {
-	now := time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC)
 	store := NewMemoryStore(EmptyState())
-	mgr := NewManager(store, nil, func() time.Time { return now })
+	mgr := NewManager(store, nil, func() time.Time { return managerTestNow })
 
 	state, err := mgr.SetEnvAPIKeyPreference(context.Background(), EnvAPIKeyPreferencePreferEnv, true)
 	if err != nil {
@@ -153,9 +151,8 @@ func TestSetEnvAPIKeyPreferencePersistsChoice(t *testing.T) {
 }
 
 func TestSwitchMethodAndSetEnvAPIKeyPreferencePersistsBoth(t *testing.T) {
-	now := time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC)
 	store := NewMemoryStore(EmptyState())
-	mgr := NewManager(store, nil, func() time.Time { return now })
+	mgr := NewManager(store, nil, func() time.Time { return managerTestNow })
 
 	state, err := mgr.SwitchMethodAndSetEnvAPIKeyPreference(context.Background(), Method{
 		Type: MethodOAuth,
@@ -163,7 +160,7 @@ func TestSwitchMethodAndSetEnvAPIKeyPreferencePersistsBoth(t *testing.T) {
 			AccessToken:  "token-a",
 			RefreshToken: "refresh-a",
 			TokenType:    "Bearer",
-			Expiry:       now.Add(time.Hour),
+			Expiry:       managerTestNow.Add(time.Hour),
 		},
 	}, EnvAPIKeyPreferencePreferSaved, true, true)
 	if err != nil {
@@ -188,7 +185,6 @@ func TestSwitchMethodAndSetEnvAPIKeyPreferencePersistsBoth(t *testing.T) {
 }
 
 func TestClearMethodResetsEnvAPIKeyPreference(t *testing.T) {
-	now := time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC)
 	store := NewMemoryStore(State{
 		Scope:               ScopeGlobal,
 		EnvAPIKeyPreference: EnvAPIKeyPreferencePreferEnv,
@@ -196,9 +192,9 @@ func TestClearMethodResetsEnvAPIKeyPreference(t *testing.T) {
 			Type:   MethodAPIKey,
 			APIKey: &APIKeyMethod{Key: "sk-test"},
 		},
-		UpdatedAt: now,
+		UpdatedAt: managerTestNow,
 	})
-	mgr := NewManager(store, nil, func() time.Time { return now.Add(time.Minute) })
+	mgr := NewManager(store, nil, func() time.Time { return managerTestNow.Add(time.Minute) })
 
 	state, err := mgr.ClearMethod(context.Background(), true)
 	if err != nil {
@@ -223,7 +219,6 @@ func TestClearMethodResetsEnvAPIKeyPreference(t *testing.T) {
 }
 
 func TestSetEnvAPIKeyPreferenceDoesNotPersistBootstrapEnvMethod(t *testing.T) {
-	now := time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC)
 	base := NewMemoryStore(State{
 		Scope: ScopeGlobal,
 		Method: Method{
@@ -232,15 +227,15 @@ func TestSetEnvAPIKeyPreferenceDoesNotPersistBootstrapEnvMethod(t *testing.T) {
 				AccessToken:  "oauth-token",
 				RefreshToken: "oauth-refresh",
 				TokenType:    "Bearer",
-				Expiry:       now.Add(time.Hour),
+				Expiry:       managerTestNow.Add(time.Hour),
 			},
 		},
-		UpdatedAt: now,
+		UpdatedAt: managerTestNow,
 	})
 	store := NewEnvAPIKeyOverrideStore(base, func(string) (string, bool) {
 		return "sk-env", true
 	})
-	mgr := NewManager(store, nil, func() time.Time { return now.Add(time.Minute) })
+	mgr := NewManager(store, nil, func() time.Time { return managerTestNow.Add(time.Minute) })
 
 	state, err := mgr.SetEnvAPIKeyPreference(context.Background(), EnvAPIKeyPreferencePreferSaved, true)
 	if err != nil {
@@ -265,7 +260,6 @@ func TestSetEnvAPIKeyPreferenceDoesNotPersistBootstrapEnvMethod(t *testing.T) {
 }
 
 func TestSwitchMethodDoesNotPersistBootstrapEnvMethod(t *testing.T) {
-	now := time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC)
 	base := NewMemoryStore(State{
 		Scope: ScopeGlobal,
 		Method: Method{
@@ -274,15 +268,15 @@ func TestSwitchMethodDoesNotPersistBootstrapEnvMethod(t *testing.T) {
 				AccessToken:  "oauth-token",
 				RefreshToken: "oauth-refresh",
 				TokenType:    "Bearer",
-				Expiry:       now.Add(time.Hour),
+				Expiry:       managerTestNow.Add(time.Hour),
 			},
 		},
-		UpdatedAt: now,
+		UpdatedAt: managerTestNow,
 	})
 	store := NewEnvAPIKeyOverrideStore(base, func(string) (string, bool) {
 		return "sk-env", true
 	})
-	mgr := NewManager(store, nil, func() time.Time { return now.Add(time.Minute) })
+	mgr := NewManager(store, nil, func() time.Time { return managerTestNow.Add(time.Minute) })
 
 	state, err := mgr.SwitchMethod(context.Background(), Method{
 		Type:   MethodAPIKey,

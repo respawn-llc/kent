@@ -35,7 +35,3 @@ func writeRunProgressEvent(w io.Writer, evt runtime.Event) {
 func publishRunPromptProgress(progress serverapi.RunPromptProgressSink, evt runtime.Event) {
 	runprompt.PublishRunPromptProgress(progress, evt)
 }
-
-func runPromptProgressFromRuntimeEvent(evt runtime.Event) (serverapi.RunPromptProgress, bool) {
-	return runprompt.RunPromptProgressFromRuntimeEvent(evt)
-}

@@ -244,12 +244,15 @@ func (s *Store) mutateAndPersist(mutator func() error) error {
 		s.mu.Unlock()
 		return err
 	}
-	snapshot, err := s.persistMetaLocked()
+	return s.unlockAndObservePersistence(s.persistMetaLocked())
+}
+
+func (s *Store) unlockAndObservePersistence(observation *persistenceObservation, err error) error {
 	s.mu.Unlock()
 	if err != nil {
 		return err
 	}
-	return s.observePersistence(snapshot)
+	return s.observePersistence(observation)
 }
 
 func (s *Store) EnsureDurable() error {
@@ -305,12 +308,7 @@ func (s *Store) SetInputDraft(inputDraft string) error {
 		s.mu.Unlock()
 		return nil
 	}
-	snapshot, err := s.persistMetaLocked()
-	s.mu.Unlock()
-	if err != nil {
-		return err
-	}
-	return s.observePersistence(snapshot)
+	return s.unlockAndObservePersistence(s.persistMetaLocked())
 }
 
 func (s *Store) SetCompactionSoonReminderIssued(issued bool) error {
@@ -321,12 +319,7 @@ func (s *Store) SetCompactionSoonReminderIssued(issued bool) error {
 	}
 	s.meta.CompactionSoonReminderIssued = issued
 	s.meta.UpdatedAt = time.Now().UTC()
-	snapshot, err := s.persistMetaLocked()
-	s.mu.Unlock()
-	if err != nil {
-		return err
-	}
-	return s.observePersistence(snapshot)
+	return s.unlockAndObservePersistence(s.persistMetaLocked())
 }
 
 func (s *Store) SetWorktreeReminderState(state *WorktreeReminderState) error {
@@ -338,12 +331,7 @@ func (s *Store) SetWorktreeReminderState(state *WorktreeReminderState) error {
 	}
 	s.meta.WorktreeReminder = nextState
 	s.meta.UpdatedAt = time.Now().UTC()
-	snapshot, err := s.persistMetaLocked()
-	s.mu.Unlock()
-	if err != nil {
-		return err
-	}
-	return s.observePersistence(snapshot)
+	return s.unlockAndObservePersistence(s.persistMetaLocked())
 }
 
 func (s *Store) SetGoal(objective string, actor GoalActor) (GoalState, error) {
@@ -379,15 +367,9 @@ func (s *Store) SetGoalWithEvents(objective string, actor GoalActor, extraEvents
 		return GoalState{}, err
 	}
 	s.meta.Goal = cloneGoalState(&goal)
-	observation, err := s.appendEventsAtomicLocked(events)
-	if err != nil {
+	if err := s.appendGoalEventsLocked(events, func() {
 		s.meta.Goal = previousGoal
-	}
-	s.mu.Unlock()
-	if err != nil {
-		return GoalState{}, err
-	}
-	if err := s.observePersistence(observation); err != nil {
+	}); err != nil {
 		return GoalState{}, err
 	}
 	return goal, nil
@@ -434,15 +416,9 @@ func (s *Store) SetGoalStatusWithEventBuilder(status GoalStatus, actor GoalActor
 		return GoalState{}, err
 	}
 	s.meta.Goal = cloneGoalState(&goal)
-	observation, err := s.appendEventsAtomicLocked(events)
-	if err != nil {
+	if err := s.appendGoalEventsLocked(events, func() {
 		s.meta.Goal = cloneGoalState(&previousGoalState)
-	}
-	s.mu.Unlock()
-	if err != nil {
-		return GoalState{}, err
-	}
-	if err := s.observePersistence(observation); err != nil {
+	}); err != nil {
 		return GoalState{}, err
 	}
 	return goal, nil
@@ -477,18 +453,20 @@ func (s *Store) ClearGoalWithEvents(actor GoalActor, extraEvents []EventInput) (
 		return GoalState{}, err
 	}
 	s.meta.Goal = nil
-	observation, err := s.appendEventsAtomicLocked(events)
-	if err != nil {
+	if err := s.appendGoalEventsLocked(events, func() {
 		s.meta.Goal = cloneGoalState(&goal)
-	}
-	s.mu.Unlock()
-	if err != nil {
-		return GoalState{}, err
-	}
-	if err := s.observePersistence(observation); err != nil {
+	}); err != nil {
 		return GoalState{}, err
 	}
 	return goal, nil
+}
+
+func (s *Store) appendGoalEventsLocked(events []Event, rollback func()) error {
+	observation, err := s.appendEventsAtomicLocked(events)
+	if err != nil && rollback != nil {
+		rollback()
+	}
+	return s.unlockAndObservePersistence(observation, err)
 }
 
 func storeTimestamp(options storeOptions) time.Time {
@@ -529,12 +507,7 @@ func (s *Store) SetUsageState(state *UsageState) error {
 	}
 	s.meta.UsageState = normalized
 	s.meta.UpdatedAt = time.Now().UTC()
-	snapshot, err := s.persistMetaLocked()
-	s.mu.Unlock()
-	if err != nil {
-		return err
-	}
-	return s.observePersistence(snapshot)
+	return s.unlockAndObservePersistence(s.persistMetaLocked())
 }
 
 func (s *Store) SetContinuationContext(ctx ContinuationContext) error {
@@ -546,12 +519,7 @@ func (s *Store) SetContinuationContext(ctx ContinuationContext) error {
 		s.mu.Unlock()
 		return nil
 	}
-	snapshot, err := s.persistMetaLocked()
-	s.mu.Unlock()
-	if err != nil {
-		return err
-	}
-	return s.observePersistence(snapshot)
+	return s.unlockAndObservePersistence(s.persistMetaLocked())
 }
 
 func (s *Store) MarkAgentsInjected() error {
@@ -605,12 +573,7 @@ func (s *Store) BackfillLockedContextBudget(contextWindow, contextPercent int) e
 		return nil
 	}
 	s.meta.UpdatedAt = time.Now().UTC()
-	snapshot, err := s.persistMetaLocked()
-	s.mu.Unlock()
-	if err != nil {
-		return err
-	}
-	return s.observePersistence(snapshot)
+	return s.unlockAndObservePersistence(s.persistMetaLocked())
 }
 
 func (s *Store) BackfillLockedProviderContract(contract LockedProviderCapabilities) error {
@@ -624,12 +587,7 @@ func (s *Store) BackfillLockedProviderContract(contract LockedProviderCapabiliti
 	}
 	s.meta.Locked.ProviderContract = contract
 	s.meta.UpdatedAt = time.Now().UTC()
-	snapshot, err := s.persistMetaLocked()
-	s.mu.Unlock()
-	if err != nil {
-		return err
-	}
-	return s.observePersistence(snapshot)
+	return s.unlockAndObservePersistence(s.persistMetaLocked())
 }
 
 func (s *Store) BackfillLockedSystemPrompt(systemPrompt string) error {
@@ -642,12 +600,7 @@ func (s *Store) BackfillLockedSystemPrompt(systemPrompt string) error {
 	s.meta.Locked.SystemPrompt = trimmed
 	s.meta.Locked.HasSystemPrompt = true
 	s.meta.UpdatedAt = time.Now().UTC()
-	snapshot, err := s.persistMetaLocked()
-	s.mu.Unlock()
-	if err != nil {
-		return err
-	}
-	return s.observePersistence(snapshot)
+	return s.unlockAndObservePersistence(s.persistMetaLocked())
 }
 
 func (s *Store) BackfillLockedReviewerPrompt(reviewerPrompt string) error {
@@ -660,12 +613,7 @@ func (s *Store) BackfillLockedReviewerPrompt(reviewerPrompt string) error {
 	s.meta.Locked.ReviewerPrompt = trimmed
 	s.meta.Locked.HasReviewerPrompt = true
 	s.meta.UpdatedAt = time.Now().UTC()
-	snapshot, err := s.persistMetaLocked()
-	s.mu.Unlock()
-	if err != nil {
-		return err
-	}
-	return s.observePersistence(snapshot)
+	return s.unlockAndObservePersistence(s.persistMetaLocked())
 }
 
 func (s *Store) AppendEvent(stepID, kind string, payload any) (Event, error) {
@@ -676,16 +624,7 @@ func (s *Store) AppendEvent(stepID, kind string, payload any) (Event, error) {
 		s.mu.Unlock()
 		return Event{}, err
 	}
-	s.captureFirstPromptPreviewLocked([]Event{evt})
-	s.advanceConversationFreshnessLocked([]Event{evt})
-
-	observation, err := s.appendEventsAtomicLocked([]Event{evt})
-	if err != nil {
-		s.mu.Unlock()
-		return Event{}, err
-	}
-	s.mu.Unlock()
-	if err := s.observePersistence(observation); err != nil {
+	if err := s.appendObservedEventsLocked([]Event{evt}); err != nil {
 		return Event{}, err
 	}
 	return evt, nil
@@ -730,16 +669,7 @@ func (s *Store) AppendTurnAtomic(stepID string, events []EventInput) ([]Event, e
 			Payload:   body,
 		})
 	}
-	s.captureFirstPromptPreviewLocked(built)
-	s.advanceConversationFreshnessLocked(built)
-
-	observation, err := s.appendEventsAtomicLocked(built)
-	if err != nil {
-		s.mu.Unlock()
-		return nil, err
-	}
-	s.mu.Unlock()
-	if err := s.observePersistence(observation); err != nil {
+	if err := s.appendObservedEventsLocked(built); err != nil {
 		return nil, err
 	}
 	return built, nil
@@ -772,19 +702,16 @@ func (s *Store) AppendReplayEvents(events []ReplayEvent) ([]Event, error) {
 			Payload:   payload,
 		})
 	}
-	s.captureFirstPromptPreviewLocked(built)
-	s.advanceConversationFreshnessLocked(built)
-
-	observation, err := s.appendEventsAtomicLocked(built)
-	if err != nil {
-		s.mu.Unlock()
-		return nil, err
-	}
-	s.mu.Unlock()
-	if err := s.observePersistence(observation); err != nil {
+	if err := s.appendObservedEventsLocked(built); err != nil {
 		return nil, err
 	}
 	return built, nil
+}
+
+func (s *Store) appendObservedEventsLocked(events []Event) error {
+	s.captureFirstPromptPreviewLocked(events)
+	s.advanceConversationFreshnessLocked(events)
+	return s.unlockAndObservePersistence(s.appendEventsAtomicLocked(events))
 }
 
 type EventInput struct {

@@ -232,17 +232,6 @@ func probeServiceHealth(ctx context.Context, spec serviceSpec) (string, int) {
 	return strings.TrimSpace(health.Status), health.PID
 }
 
-func appendStatusDetail(existing string, detail string) string {
-	detail = strings.TrimSpace(detail)
-	if detail == "" {
-		return existing
-	}
-	if strings.TrimSpace(existing) == "" {
-		return detail
-	}
-	return existing + "; " + detail
-}
-
 func parsePositiveInt(value string) int {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {

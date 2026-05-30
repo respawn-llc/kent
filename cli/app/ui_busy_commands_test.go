@@ -8,8 +8,6 @@ import (
 	"builder/cli/tui"
 	"builder/server/llm"
 	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -382,19 +380,11 @@ func TestBusyQueuedCopyCopiesFinalAnswerAfterTurnDrains(t *testing.T) {
 }
 
 func TestBusyQueuedFastAppliesToNextRuntimeRequestAfterTurnDrains(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	client := &requestCaptureFakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "next done", Phase: llm.MessagePhaseFinal},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	eng, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5.3-codex"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, client, runtime.Config{Model: "gpt-5.3-codex"})
 
 	m := newProjectedEngineUIModel(eng)
 	m.setBusy(true)

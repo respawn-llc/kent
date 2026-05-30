@@ -37,7 +37,7 @@ func TestSessionActivityStreamGapHydratesThenRearmsOngoingRuntimeWait(t *testing
 		TotalEntries: 1,
 		Entries:      []clientui.ChatEntry{{Role: "assistant", Text: "hydrated after restart"}},
 	}}}
-	m := newProjectedTestUIModel(client, runtimeEvents, closedAskEvents())
+	m := newProjectedRuntimeEventsUIModel(client, runtimeEvents)
 	m.startupCmds = nil
 	m.termWidth = 90
 	m.termHeight = 16

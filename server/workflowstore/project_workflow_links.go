@@ -126,17 +126,7 @@ func (s *Store) ListProjectWorkflowLinks(ctx context.Context, projectID string) 
 }
 
 func (s *Store) ListWorkflowProjectLinks(ctx context.Context, workflowID workflow.WorkflowID) ([]ProjectWorkflowLinkRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `
-SELECT
-    id,
-    project_id,
-    workflow_id,
-    is_default,
-    created_at_unix_ms,
-    updated_at_unix_ms
-FROM project_workflow_link_records
-WHERE workflow_id = ?
-ORDER BY project_id ASC, is_default DESC, created_at_unix_ms ASC`, string(workflowID))
+	rows, err := s.db.QueryContext(ctx, workflowStoreQuery(listWorkflowProjectLinksQuery), string(workflowID))
 	if err != nil {
 		return nil, err
 	}
@@ -253,22 +243,7 @@ func (s *Store) UnlinkProjectWorkflow(ctx context.Context, linkID string, replac
 			return ProjectWorkflowUnlinkResult{}, fmt.Errorf("replacement default workflow link is invalid")
 		}
 	} else {
-		deleted, err := tx.ExecContext(ctx, `
-DELETE FROM project_workflow_links
-WHERE id = ?
-  AND NOT (
-      EXISTS (
-          SELECT 1
-          FROM projects p
-          WHERE p.id = project_workflow_links.project_id
-            AND p.default_project_workflow_link_id = project_workflow_links.id
-      )
-      AND (
-          SELECT COUNT(*)
-          FROM project_workflow_links active
-          WHERE active.project_id = project_workflow_links.project_id
-      ) > 1
-  )`, link.ID)
+		deleted, err := tx.ExecContext(ctx, workflowStoreQuery(unlinkProjectWorkflowQuery), link.ID)
 		if err != nil {
 			return ProjectWorkflowUnlinkResult{}, err
 		}
@@ -279,12 +254,7 @@ WHERE id = ?
 		if deletedCount != 1 {
 			var defaultLinkID string
 			var activeLinkCount int
-			if err := tx.QueryRowContext(ctx, `
-SELECT
-    COALESCE(p.default_project_workflow_link_id, ''),
-    (SELECT COUNT(*) FROM project_workflow_links active WHERE active.project_id = p.id)
-FROM projects p
-WHERE p.id = ?`, link.ProjectID).Scan(&defaultLinkID, &activeLinkCount); err != nil {
+			if err := tx.QueryRowContext(ctx, workflowStoreQuery(projectWorkflowUnlinkStateQuery), link.ProjectID).Scan(&defaultLinkID, &activeLinkCount); err != nil {
 				return ProjectWorkflowUnlinkResult{}, err
 			}
 			if defaultLinkID == link.ID && activeLinkCount > 1 {

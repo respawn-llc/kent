@@ -277,36 +277,6 @@ func (e *Engine) restorePromptCacheResponse(payload []byte) error {
 	return nil
 }
 
-func (e *Engine) notePromptCacheInvalidation(cacheKey string, reason cachewarn.Reason) {
-	if e == nil || e.modelRequests().RequestCache() == nil {
-		return
-	}
-	e.modelRequests().RequestCache().RecordInvalidation(cacheKey, reason)
-}
-
-func (e *Engine) clearPromptCacheLineage(cacheKey string) {
-	if e == nil || e.modelRequests().RequestCache() == nil {
-		return
-	}
-	e.modelRequests().RequestCache().Clear(cacheKey)
-}
-
-func (e *Engine) clearPromptCacheLineages(sessionID string, compactionCount int) {
-	if e == nil {
-		return
-	}
-	if cacheKey := conversationPromptCacheKey(sessionID, compactionCount); cacheKey != "" {
-		e.clearPromptCacheLineage(cacheKey)
-	}
-	if cacheKey := reviewerPromptCacheKey(sessionID, compactionCount); cacheKey != "" {
-		e.clearPromptCacheLineage(cacheKey)
-	}
-}
-
-func (e *Engine) clearActivePromptCacheLineages() {
-	e.clearPromptCacheLineages(e.SessionID(), e.compactionCountSnapshot())
-}
-
 func applyPersistedCacheWarningToChat(chat *chatStore, payload []byte, mode config.CacheWarningMode) error {
 	var warning cachewarn.Warning
 	if err := json.Unmarshal(payload, &warning); err != nil {

@@ -40,10 +40,6 @@ func worktreeDeletePreviewLines(dialog uiWorktreeDeleteDialogState) []worktreeDe
 	return worktreedelete.PreviewLines(dialog.target, dialog.selectedAction)
 }
 
-func worktreeDeleteWillDeleteBranch(dialog uiWorktreeDeleteDialogState) bool {
-	return worktreedelete.WillDeleteBranch(dialog.target, dialog.selectedAction)
-}
-
 func renderWorktreeDeleteButtons(width int, theme string, dialog uiWorktreeDeleteDialogState) string {
 	actions := dialog.availableActions()
 	options := make([]uiChoiceOption, 0, len(actions))

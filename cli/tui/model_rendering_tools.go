@@ -25,10 +25,6 @@ func ongoingDividerGroup(role RenderIntent) string {
 	return normalized.String()
 }
 
-func transcriptRoleGroupsNeedSeparator(previousRole RenderIntent, currentRole RenderIntent) bool {
-	return ongoingDividerGroup(previousRole) != ongoingDividerGroup(currentRole)
-}
-
 func normalizeOngoingDividerRole(role RenderIntent) RenderIntent {
 	if role == RenderIntentAssistantCommentary {
 		return RenderIntentAssistant
@@ -57,10 +53,6 @@ func compactOngoingShellPreviewText(command string) string {
 		return trimmed + "\n…"
 	}
 	return "…"
-}
-
-func shellPreviewShouldCollapse(command string) bool {
-	return strings.Contains(textutil.NormalizeCRLF(command), "\n")
 }
 
 func compactReviewerStatusForOngoing(text string) string {

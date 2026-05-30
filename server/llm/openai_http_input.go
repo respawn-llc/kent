@@ -542,14 +542,6 @@ func marshalOpenAIInputRaw(value any) (json.RawMessage, bool) {
 	return append(json.RawMessage(nil), bytes.TrimSpace(buf.Bytes())...), true
 }
 
-func outputStringFromRaw(raw json.RawMessage) string {
-	out, err := providerOutputStringFromRaw(raw)
-	if err != nil {
-		return ""
-	}
-	return out
-}
-
 func providerOutputStringFromRaw(raw json.RawMessage) (string, error) {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" {

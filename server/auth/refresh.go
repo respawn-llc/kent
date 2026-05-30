@@ -16,17 +16,6 @@ type OAuthTokenSourceFactory interface {
 	TokenSource(ctx context.Context, current oauth2.Token) OAuthTokenSource
 }
 
-type OAuth2Factory struct {
-	Config *oauth2.Config
-}
-
-func (f OAuth2Factory) TokenSource(ctx context.Context, current oauth2.Token) OAuthTokenSource {
-	if f.Config == nil {
-		return nil
-	}
-	return f.Config.TokenSource(ctx, &current)
-}
-
 type OAuthRefresher struct {
 	Factory       OAuthTokenSourceFactory
 	Now           func() time.Time

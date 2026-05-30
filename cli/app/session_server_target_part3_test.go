@@ -1,7 +1,6 @@
 package app
 
 import (
-	"builder/server/auth"
 	"builder/server/serve"
 	serverstartup "builder/server/startup"
 	askquestion "builder/server/tools/askquestion"
@@ -11,9 +10,6 @@ import (
 	"builder/shared/protocol"
 	"builder/shared/serverapi"
 	"context"
-	"errors"
-	"github.com/google/uuid"
-	"golang.org/x/net/websocket"
 	"io"
 	"net"
 	"net/http/httptest"
@@ -21,37 +17,26 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"golang.org/x/net/websocket"
 )
 
 func TestStartSessionServerUsesConfiguredDaemonForSessionLifecycleDraftPersistence(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	srv, err := serve.Start(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
 	defer func() { _ = srv.Close() }()
 
-	serveCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- srv.Serve(serveCtx)
-	}()
+	stopServing := serveAppServer(t, srv)
+	defer stopServing()
 	waitForConfiguredRemoteIdentity(t, workspace)
 
 	server, err := startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
@@ -60,15 +45,7 @@ func TestStartSessionServerUsesConfiguredDaemonForSessionLifecycleDraftPersisten
 	}
 	defer func() { _ = server.Close() }()
 
-	planner := newSessionLaunchPlanner(server)
-	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, ForceNewSession: true})
-	if err != nil {
-		t.Fatalf("PlanSession: %v", err)
-	}
-	runtimePlan, err := planner.PrepareRuntime(context.Background(), plan, io.Discard, "session lifecycle draft persistence")
-	if err != nil {
-		t.Fatalf("PrepareRuntime: %v", err)
-	}
+	plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, ForceNewSession: true}, io.Discard, "session lifecycle draft persistence")
 	defer runtimePlan.Close()
 	if _, err := server.SessionLifecycleClient().PersistInputDraft(context.Background(), serverapi.SessionPersistInputDraftRequest{ClientRequestID: uuid.NewString(), SessionID: plan.SessionID, ControllerLeaseID: runtimePlan.ControllerLeaseID, Input: "saved draft"}); err != nil {
 		t.Fatalf("PersistInputDraft: %v", err)
@@ -93,41 +70,23 @@ func TestStartSessionServerUsesConfiguredDaemonForSessionLifecycleDraftPersisten
 		t.Fatalf("unexpected resolved transition: %+v", resolved)
 	}
 
-	cancel()
-	if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {
-		t.Fatalf("Serve error = %v, want context canceled", serveErr)
-	}
 }
 
 func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	srv, err := serve.Start(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
 	defer func() { _ = srv.Close() }()
 
-	serveCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- srv.Serve(serveCtx)
-	}()
+	stopServing := serveAppServer(t, srv)
+	defer stopServing()
 	waitForConfiguredRemoteIdentity(t, workspace)
 
 	server, err := startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
@@ -140,15 +99,7 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 	}
 	promptViews := requirePromptViewServer(t, server)
 
-	planner := newSessionLaunchPlanner(server)
-	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, ForceNewSession: true})
-	if err != nil {
-		t.Fatalf("PlanSession: %v", err)
-	}
-	runtimePlan, err := planner.PrepareRuntime(context.Background(), plan, io.Discard, "test remote prompt snapshot reads")
-	if err != nil {
-		t.Fatalf("PrepareRuntime: %v", err)
-	}
+	plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, ForceNewSession: true}, io.Discard, "test remote prompt snapshot reads")
 	defer runtimePlan.Close()
 
 	askDone := make(chan error, 1)
@@ -203,42 +154,24 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 	waitForPendingAskResources(t, promptViews.AskViewClient(), plan.SessionID, 0)
 	waitForPendingApprovalResources(t, promptViews.ApprovalViewClient(), plan.SessionID, 0)
 
-	cancel()
-	if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {
-		t.Fatalf("Serve error = %v, want context canceled", serveErr)
-	}
 }
 
 func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 
 	srv, err := serve.Start(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-5",
-	}, memoryAuthHandler{state: auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "test-key"},
-		},
-		UpdatedAt: time.Now().UTC(),
-	}}, autoOnboarding{})
+	}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 	if err != nil {
 		t.Fatalf("serve.Start: %v", err)
 	}
 	defer func() { _ = srv.Close() }()
 	srv.Background().SetMinimumExecToBgTime(time.Millisecond)
 
-	serveCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- srv.Serve(serveCtx)
-	}()
+	stopServing := serveAppServer(t, srv)
+	defer stopServing()
 	waitForConfiguredRemoteIdentity(t, workspace)
 
 	server, err := startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
@@ -303,18 +236,11 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 	}
 	waitForRemoteProcessExit(t, processes.ProcessViewClient(), result.SessionID)
 
-	cancel()
-	if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {
-		t.Fatalf("Serve error = %v, want context canceled", serveErr)
-	}
 }
 
 func TestInteractiveSessionServerWorkflowParity(t *testing.T) {
 	t.Run("embedded", func(t *testing.T) {
-		home := t.TempDir()
-		workspace := t.TempDir()
-		t.Setenv("HOME", home)
-		registerAppWorkspace(t, workspace)
+		_, workspace := newRegisteredAppWorkspace(t)
 		fakeResponses, _ := newFakeResponsesServer(t, []string{"parity reply"})
 		defer fakeResponses.Close()
 		server, err := startEmbeddedServer(context.Background(), Options{
@@ -332,10 +258,7 @@ func TestInteractiveSessionServerWorkflowParity(t *testing.T) {
 	})
 
 	t.Run("daemon", func(t *testing.T) {
-		home := t.TempDir()
-		workspace := t.TempDir()
-		t.Setenv("HOME", home)
-		registerAppWorkspace(t, workspace)
+		_, workspace := newRegisteredAppWorkspace(t)
 		fakeResponses, _ := newFakeResponsesServer(t, []string{"parity reply"})
 		defer fakeResponses.Close()
 
@@ -345,22 +268,14 @@ func TestInteractiveSessionServerWorkflowParity(t *testing.T) {
 			Model:                 "gpt-5",
 			OpenAIBaseURL:         fakeResponses.URL,
 			OpenAIBaseURLExplicit: true,
-		}, memoryAuthHandler{state: auth.State{
-			Scope:     auth.ScopeGlobal,
-			Method:    auth.Method{Type: auth.MethodAPIKey, APIKey: &auth.APIKeyMethod{Key: "test-key"}},
-			UpdatedAt: time.Now().UTC(),
-		}}, autoOnboarding{})
+		}, apiKeyMemoryAuthHandler("test-key"), autoOnboarding{})
 		if err != nil {
 			t.Fatalf("serve.Start: %v", err)
 		}
 		defer func() { _ = srv.Close() }()
 
-		serveCtx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		errCh := make(chan error, 1)
-		go func() {
-			errCh <- srv.Serve(serveCtx)
-		}()
+		stopServing := serveAppServer(t, srv)
+		defer stopServing()
 		waitForConfiguredRemoteIdentity(t, workspace)
 
 		server, err := startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
@@ -370,10 +285,6 @@ func TestInteractiveSessionServerWorkflowParity(t *testing.T) {
 		defer func() { _ = server.Close() }()
 		runInteractiveWorkflowScenario(t, server, "parity reply")
 
-		cancel()
-		if serveErr := <-errCh; !errors.Is(serveErr, context.Canceled) {
-			t.Fatalf("Serve error = %v, want context canceled", serveErr)
-		}
 	})
 }
 
@@ -429,25 +340,6 @@ func waitForRemoteAskEvent(t *testing.T, events <-chan askEvent) askEvent {
 	}
 }
 
-func waitForRemoteRuntimeEvent(t *testing.T, events <-chan clientui.Event, description string, predicate func(clientui.Event) bool) clientui.Event {
-	t.Helper()
-	deadline := time.After(5 * time.Second)
-	for {
-		select {
-		case evt, ok := <-events:
-			if !ok {
-				t.Fatalf("runtime event channel closed while waiting for %s", description)
-			}
-			if predicate == nil || predicate(evt) {
-				return evt
-			}
-		case <-deadline:
-			t.Fatalf("timed out waiting for %s", description)
-			return clientui.Event{}
-		}
-	}
-}
-
 func waitForSessionActivitySubscriptionEvent(t *testing.T, sub serverapi.SessionActivitySubscription, description string, predicate func(clientui.Event) bool) clientui.Event {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -459,17 +351,6 @@ func waitForSessionActivitySubscriptionEvent(t *testing.T, sub serverapi.Session
 		}
 		if predicate == nil || predicate(evt) {
 			return evt
-		}
-	}
-}
-
-func waitForSessionActivityGap(sub serverapi.SessionActivitySubscription, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	for {
-		_, err := sub.Next(ctx)
-		if err != nil {
-			return err
 		}
 	}
 }
@@ -495,39 +376,9 @@ func waitForRemoteTranscriptPage(t *testing.T, views client.SessionViewClient, s
 	return clientui.TranscriptPage{}
 }
 
-func waitForRemoteProjectSessions(t *testing.T, views client.ProjectViewClient, projectID string, predicate func([]clientui.SessionSummary) bool) []clientui.SessionSummary {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		resp, err := views.ListSessionsByProject(context.Background(), serverapi.SessionListByProjectRequest{ProjectID: projectID})
-		if err != nil {
-			t.Fatalf("ListSessionsByProject: %v", err)
-		}
-		if predicate == nil || predicate(resp.Sessions) {
-			return resp.Sessions
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	resp, err := views.ListSessionsByProject(context.Background(), serverapi.SessionListByProjectRequest{ProjectID: projectID})
-	if err != nil {
-		t.Fatalf("ListSessionsByProject final: %v", err)
-	}
-	t.Fatalf("timed out waiting for project session list match for project %s: %+v", projectID, resp.Sessions)
-	return nil
-}
-
 func transcriptPageContainsAssistantText(page clientui.TranscriptPage, want string) bool {
 	for _, entry := range page.Entries {
 		if entry.Role == "assistant" && entry.Text == want {
-			return true
-		}
-	}
-	return false
-}
-
-func sessionSummariesContainID(summaries []clientui.SessionSummary, sessionID string) bool {
-	for _, summary := range summaries {
-		if summary.SessionID == sessionID {
 			return true
 		}
 	}
@@ -588,15 +439,7 @@ func waitForRemoteInlineOutput(t *testing.T, controls client.ProcessControlClien
 
 func runInteractiveWorkflowScenario(t *testing.T, server interactiveSessionServer, wantReply string) {
 	t.Helper()
-	planner := newSessionLaunchPlanner(server)
-	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, ForceNewSession: true})
-	if err != nil {
-		t.Fatalf("PlanSession: %v", err)
-	}
-	runtimePlan, err := planner.PrepareRuntime(context.Background(), plan, io.Discard, "workflow parity")
-	if err != nil {
-		t.Fatalf("PrepareRuntime: %v", err)
-	}
+	plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, ForceNewSession: true}, io.Discard, "workflow parity")
 	defer runtimePlan.Close()
 
 	message, err := runtimePlan.Wiring.runtimeClient.SubmitUserMessage(context.Background(), "hello parity")

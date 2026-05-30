@@ -104,15 +104,6 @@ func isCompactionSoonReminderMessage(msg llm.Message) bool {
 	return msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeCompactionSoonReminder && strings.TrimSpace(msg.Content) != ""
 }
 
-func itemsContainCompactionSoonReminder(items []llm.ResponseItem) bool {
-	for _, msg := range llm.MessagesFromItems(items) {
-		if isCompactionSoonReminderMessage(msg) {
-			return true
-		}
-	}
-	return false
-}
-
 type persistedHandoffRecovery struct {
 	toolCalls            map[string]llm.ToolCall
 	pending              *handoffRequest

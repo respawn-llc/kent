@@ -60,7 +60,7 @@ func (p userHookProcessor) Process(ctx context.Context, envelope Envelope) (Deci
 		Workdir:         req.Workdir,
 		OriginalOutput:  envelope.OriginalOutput,
 		CurrentOutput:   envelope.CurrentOutput,
-		ExitCode:        cloneIntPtr(req.ExitCode),
+		ExitCode:        CloneIntPtr(req.ExitCode),
 		Backgrounded:    req.Backgrounded,
 		MaxDisplayChars: req.MaxDisplayChars,
 	})
@@ -147,7 +147,7 @@ func hookFailureWarning(err error, stderr string) string {
 	return fmt.Sprintf("command postprocess hook failed: %v: %s", err, trimmed)
 }
 
-func cloneIntPtr(in *int) *int {
+func CloneIntPtr(in *int) *int {
 	if in == nil {
 		return nil
 	}

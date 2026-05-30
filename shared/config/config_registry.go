@@ -31,7 +31,6 @@ type registrySetting interface {
 	applyEnv(envLookup, *settingsState, map[string]string) error
 	applyCLI(LoadOptions, *settingsState, map[string]string) error
 	registerFileKeys(*fileKeyTree)
-	appendDefaultPayload(map[string]any, settingsState)
 	appendDefaultLines(*[]defaultConfigLine, settingsState)
 }
 
@@ -674,14 +673,6 @@ func (r settingsRegistry) validate(state settingsState, sources map[string]strin
 	return nil
 }
 
-func (r settingsRegistry) defaultPayload(state settingsState) map[string]any {
-	payload := map[string]any{}
-	for _, setting := range r.settings {
-		setting.appendDefaultPayload(payload, state)
-	}
-	return payload
-}
-
 func (r settingsRegistry) defaultLines(state settingsState) []defaultConfigLine {
 	lines := []defaultConfigLine{}
 	for _, setting := range r.settings {
@@ -884,10 +875,6 @@ func (s scalarSetting[T]) registerFileKeys(tree *fileKeyTree) {
 	tree.allowPath(splitSettingKey(s.key))
 }
 
-func (s scalarSetting[T]) appendDefaultPayload(payload map[string]any, state settingsState) {
-	setNestedValue(payload, splitSettingKey(s.key), s.defaultDocValue(state))
-}
-
 func (s scalarSetting[T]) appendDefaultLines(lines *[]defaultConfigLine, state settingsState) {
 	if s.doc.omitInTOML {
 		return
@@ -975,14 +962,6 @@ func (toolsSetting) registerFileKeys(tree *fileKeyTree) {
 	}, nil)
 }
 
-func (toolsSetting) appendDefaultPayload(payload map[string]any, state settingsState) {
-	toolDefaults := map[string]bool{}
-	for _, id := range toolspec.CatalogIDs() {
-		toolDefaults[toolspec.ConfigName(id)] = state.Settings.EnabledTools[id]
-	}
-	payload["tools"] = toolDefaults
-}
-
 func (toolsSetting) appendDefaultLines(lines *[]defaultConfigLine, state settingsState) {
 	for _, id := range toolspec.CatalogIDs() {
 		*lines = append(*lines, defaultConfigLine{
@@ -1043,8 +1022,6 @@ func (skillsSetting) registerFileKeys(tree *fileKeyTree) {
 	}, nil)
 }
 
-func (skillsSetting) appendDefaultPayload(map[string]any, settingsState) {}
-
 func (skillsSetting) appendDefaultLines(*[]defaultConfigLine, settingsState) {}
 
 func (subagentsSetting) applyDefault(state *settingsState) {
@@ -1096,8 +1073,6 @@ func (subagentsSetting) applyCLI(LoadOptions, *settingsState, map[string]string)
 }
 
 func (subagentsSetting) registerFileKeys(*fileKeyTree) {}
-
-func (subagentsSetting) appendDefaultPayload(map[string]any, settingsState) {}
 
 func (subagentsSetting) appendDefaultLines(*[]defaultConfigLine, settingsState) {}
 
@@ -1386,22 +1361,6 @@ func coerceTOMLInt(value any) (int, bool) {
 		return int(v), true
 	default:
 		return 0, false
-	}
-}
-
-func setNestedValue(target map[string]any, path []string, value any) {
-	current := target
-	for index, part := range path {
-		if index == len(path)-1 {
-			current[part] = value
-			return
-		}
-		nested, ok := current[part].(map[string]any)
-		if !ok {
-			nested = map[string]any{}
-			current[part] = nested
-		}
-		current = nested
 	}
 }
 

@@ -85,15 +85,6 @@ func Start(ctx context.Context, req startup.Request, authHandler startup.AuthHan
 	return &Server{Core: appCore}, nil
 }
 
-func Run(ctx context.Context, req startup.Request, authHandler startup.AuthHandler, onboardingHandler startup.OnboardingHandler) error {
-	server, err := Start(ctx, req, authHandler, onboardingHandler)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = server.Close() }()
-	return server.Serve(ctx)
-}
-
 func (s *Server) Serve(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("context is required")

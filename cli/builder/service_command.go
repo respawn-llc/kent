@@ -44,9 +44,7 @@ func serviceSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		stderr = io.Discard
 	}
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fs := flag.NewFlagSet("builder service", flag.ContinueOnError)
-		fs.SetOutput(stderr)
-		fs.Usage = func() { writeServiceUsage(fs) }
+		fs := newCommandFlagSet("builder service", stderr, writeServiceUsage)
 		fs.Usage()
 		if len(args) == 0 {
 			return 2
@@ -69,23 +67,17 @@ func serviceSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return serviceRestartSubcommand(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown service command: %s\n\n", args[0])
-		fs := flag.NewFlagSet("builder service", flag.ContinueOnError)
-		fs.SetOutput(stderr)
+		fs := newCommandFlagSet("builder service", stderr, writeServiceUsage)
 		writeServiceUsage(fs)
 		return 2
 	}
 }
 
 func serviceStatusSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder service status", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeServiceStatusUsage(fs) }
+	fs := newCommandFlagSet("builder service status", stderr, writeServiceStatusUsage)
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "service status does not accept positional arguments")
@@ -95,16 +87,11 @@ func serviceStatusSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 }
 
 func serviceInstallSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder service install", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeServiceInstallUsage(fs) }
+	fs := newCommandFlagSet("builder service install", stderr, writeServiceInstallUsage)
 	force := fs.Bool("force", false, "rewrite existing service registration")
 	noStart := fs.Bool("no-start", false, "install service without starting it")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "service install does not accept positional arguments")
@@ -114,15 +101,10 @@ func serviceInstallSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 }
 
 func serviceUninstallSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder service uninstall", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeServiceUninstallUsage(fs) }
+	fs := newCommandFlagSet("builder service uninstall", stderr, writeServiceUninstallUsage)
 	keepRunning := fs.Bool("keep-running", false, "remove service registration without stopping current server process")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "service uninstall does not accept positional arguments")
@@ -132,14 +114,9 @@ func serviceUninstallSubcommand(args []string, stdout io.Writer, stderr io.Write
 }
 
 func serviceLifecycleSubcommand(action serviceAction, args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder service "+string(action), flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeServiceLifecycleUsage(fs, action) }
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	fs := newCommandFlagSet("builder service "+string(action), stderr, func(fs *flag.FlagSet) { writeServiceLifecycleUsage(fs, action) })
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintf(stderr, "service %s does not accept positional arguments\n", action)
@@ -149,15 +126,10 @@ func serviceLifecycleSubcommand(action serviceAction, args []string, stdout io.W
 }
 
 func serviceRestartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder service restart", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeServiceRestartUsage(fs) }
+	fs := newCommandFlagSet("builder service restart", stderr, writeServiceRestartUsage)
 	ifInstalled := fs.Bool("if-installed", false, "exit successfully without action when service is not installed")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "service restart does not accept positional arguments")

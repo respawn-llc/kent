@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -30,14 +29,9 @@ func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	if stderr == nil {
 		stderr = io.Discard
 	}
-	serveFS := flag.NewFlagSet("builder serve", flag.ContinueOnError)
-	serveFS.SetOutput(stderr)
-	serveFS.Usage = func() { writeServeUsage(serveFS) }
-	if err := serveFS.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	serveFS := newCommandFlagSet("builder serve", stderr, writeServeUsage)
+	if ok, exitCode := parseCommandFlags(serveFS, args); !ok {
+		return exitCode
 	}
 	if remaining := serveFS.Args(); len(remaining) > 0 {
 		fmt.Fprintf(stderr, "unexpected arguments: %s\n", strings.Join(remaining, " "))

@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "transition_id": {
+      "type": "string",
+      "description": "Transition ID to take. Required when multiple outgoing transitions are available."
+    },
+    "commentary": {
+      "type": "string",
+      "description": "Brief explanation of what was completed and why this transition was selected."
+    }
+  }
+}

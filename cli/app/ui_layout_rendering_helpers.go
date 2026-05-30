@@ -14,10 +14,6 @@ func (m *uiModel) renderStatusLine(width int, style uiStyles) string {
 	return m.layout().renderStatusLine(width, style)
 }
 
-func (m *uiModel) renderChatPanel(width, height int, style uiStyles) []string {
-	return m.layout().renderChatPanel(width, height, style)
-}
-
 func (m *uiModel) renderInputLines(width int, style uiStyles) []string {
 	return m.layout().renderInputLines(width, style)
 }
@@ -34,20 +30,12 @@ func (m *uiModel) effectiveWidth() int {
 	return m.layout().effectiveWidth()
 }
 
-func (m *uiModel) effectiveHeight() int {
-	return m.layout().effectiveHeight()
-}
-
 func (m *uiModel) calcChatLines() int {
 	return m.layout().calcChatLines()
 }
 
 func (m *uiModel) syncViewport() {
 	m.layout().syncViewport()
-}
-
-func (m *uiModel) shouldRenderSoftCursor() bool {
-	return m.layout().shouldRenderSoftCursor()
 }
 
 type uiEditableInputRenderSpec struct {
@@ -81,10 +69,6 @@ func wrappedEditableInputLines(width int, spec uiEditableInputRenderSpec) []stri
 	return field.Render(width).Lines
 }
 
-func visibleEditableInputLines(width, maxContentLines int, spec uiEditableInputRenderSpec) []string {
-	return visibleEditableInputRender(width, maxContentLines, spec).Lines
-}
-
 func visibleEditableInputViewport(width, maxContentLines int, spec uiEditableInputRenderSpec) ([]string, int, int) {
 	rendered := visibleEditableInputRender(width, maxContentLines, spec)
 	cursor := rendered.Cursor
@@ -101,10 +85,6 @@ func visibleEditableInputRender(width, maxContentLines int, spec uiEditableInput
 func renderEditableInputField(width, maxContentLines int, spec uiEditableInputRenderSpec) tuiinput.RenderResult {
 	field := editableInputField(width, maxContentLines, spec)
 	return field.Render(width)
-}
-
-func renderEditableInputSoftCursorFieldLines(width, maxContentLines int, spec uiEditableInputRenderSpec, lineStyle lipgloss.Style) []string {
-	return renderEditableInputSoftCursorLines(width, renderEditableInputField(width, maxContentLines, spec), lineStyle)
 }
 
 func renderEditableInputSoftCursorLines(width int, rendered tuiinput.RenderResult, lineStyle lipgloss.Style) []string {

@@ -16,10 +16,6 @@ func NewRegistry() *Registry {
 	return &Registry{handlers: map[string]Handler{}}
 }
 
-func (r *Registry) Register(id string, h Handler) {
-	r.handlers[id] = h
-}
-
 func (r *Registry) Resolve(id string) (Handler, bool) {
 	h, ok := r.handlers[id]
 	return h, ok

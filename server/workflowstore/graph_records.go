@@ -84,86 +84,65 @@ func currentWorkflowGraphSavePrepared(ctx context.Context, q *sqlitegen.Queries,
 
 func withWorkflowGraphNode(prepared preparedWorkflowGraphSave, node NodeRecord) preparedWorkflowGraphSave {
 	out := clonePreparedWorkflowGraphSave(prepared)
-	for i, current := range out.nodes {
-		if current.ID == node.ID {
-			out.nodes[i] = node
-			return out
-		}
-	}
-	out.nodes = append(out.nodes, node)
+	out.nodes = upsertWorkflowGraphRecord(out.nodes, node, func(node NodeRecord) workflow.NodeID { return node.ID })
 	return out
 }
 
 func withoutWorkflowGraphNode(prepared preparedWorkflowGraphSave, nodeID workflow.NodeID) preparedWorkflowGraphSave {
 	out := clonePreparedWorkflowGraphSave(prepared)
-	filtered := make([]NodeRecord, 0, len(out.nodes))
-	for _, node := range out.nodes {
-		if node.ID != nodeID {
-			filtered = append(filtered, node)
-		}
-	}
-	out.nodes = filtered
+	out.nodes = removeWorkflowGraphRecord(out.nodes, nodeID, func(node NodeRecord) workflow.NodeID { return node.ID })
 	return out
 }
 
 func withWorkflowGraphNodeGroup(prepared preparedWorkflowGraphSave, group NodeGroupRecord) preparedWorkflowGraphSave {
 	out := clonePreparedWorkflowGraphSave(prepared)
-	for i, current := range out.nodeGroups {
-		if current.ID == group.ID {
-			out.nodeGroups[i] = group
-			return out
-		}
-	}
-	out.nodeGroups = append(out.nodeGroups, group)
+	out.nodeGroups = upsertWorkflowGraphRecord(out.nodeGroups, group, func(group NodeGroupRecord) string { return group.ID })
 	return out
 }
 
 func withoutWorkflowGraphNodeGroup(prepared preparedWorkflowGraphSave, groupID string) preparedWorkflowGraphSave {
 	out := clonePreparedWorkflowGraphSave(prepared)
-	filtered := make([]NodeGroupRecord, 0, len(out.nodeGroups))
-	for _, group := range out.nodeGroups {
-		if group.ID != groupID {
-			filtered = append(filtered, group)
-		}
-	}
-	out.nodeGroups = filtered
+	out.nodeGroups = removeWorkflowGraphRecord(out.nodeGroups, groupID, func(group NodeGroupRecord) string { return group.ID })
 	return out
 }
 
 func withWorkflowGraphTransitionGroup(prepared preparedWorkflowGraphSave, group TransitionGroupRecord) preparedWorkflowGraphSave {
 	out := clonePreparedWorkflowGraphSave(prepared)
-	for i, current := range out.transitionGroups {
-		if current.ID == group.ID {
-			out.transitionGroups[i] = group
-			return out
-		}
-	}
-	out.transitionGroups = append(out.transitionGroups, group)
+	out.transitionGroups = upsertWorkflowGraphRecord(out.transitionGroups, group, func(group TransitionGroupRecord) workflow.TransitionGroupID { return group.ID })
 	return out
 }
 
 func withWorkflowGraphEdge(prepared preparedWorkflowGraphSave, edge EdgeRecord) preparedWorkflowGraphSave {
 	out := clonePreparedWorkflowGraphSave(prepared)
-	for i, current := range out.edges {
-		if current.ID == edge.ID {
-			out.edges[i] = edge
-			return out
-		}
-	}
-	out.edges = append(out.edges, edge)
+	out.edges = upsertWorkflowGraphRecord(out.edges, edge, func(edge EdgeRecord) workflow.EdgeID { return edge.ID })
 	return out
 }
 
 func withoutWorkflowGraphEdge(prepared preparedWorkflowGraphSave, edgeID workflow.EdgeID) preparedWorkflowGraphSave {
 	out := clonePreparedWorkflowGraphSave(prepared)
-	filtered := make([]EdgeRecord, 0, len(out.edges))
-	for _, edge := range out.edges {
-		if edge.ID != edgeID {
-			filtered = append(filtered, edge)
+	out.edges = removeWorkflowGraphRecord(out.edges, edgeID, func(edge EdgeRecord) workflow.EdgeID { return edge.ID })
+	return out
+}
+
+func upsertWorkflowGraphRecord[T any, ID comparable](records []T, record T, id func(T) ID) []T {
+	recordID := id(record)
+	for i, current := range records {
+		if id(current) == recordID {
+			records[i] = record
+			return records
 		}
 	}
-	out.edges = filtered
-	return out
+	return append(records, record)
+}
+
+func removeWorkflowGraphRecord[T any, ID comparable](records []T, recordID ID, id func(T) ID) []T {
+	filtered := make([]T, 0, len(records))
+	for _, record := range records {
+		if id(record) != recordID {
+			filtered = append(filtered, record)
+		}
+	}
+	return filtered
 }
 
 func clonePreparedWorkflowGraphSave(prepared preparedWorkflowGraphSave) preparedWorkflowGraphSave {

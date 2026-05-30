@@ -274,7 +274,3 @@ func transcriptPageSessionChanged(currentSessionID, nextSessionID string) bool {
 	}
 	return trimmedCurrent != trimmedNext
 }
-
-func isUserTranscriptEntry(entry tui.TranscriptEntry) bool {
-	return entry.Role == tui.TranscriptRoleUser
-}

@@ -383,11 +383,3 @@ func enabledToolsCSV(enabled map[toolspec.ID]bool) string {
 	}
 	return strings.Join(names, ",")
 }
-
-func logLaunchPlanStart(logger *runLogger, plan sessionLaunchPlan, startLogLine string) {
-	logger.Logf("%s", startLogLine)
-	logger.Logf("config.settings path=%s created=%t", plan.Source.SettingsPath, plan.Source.CreatedDefaultConfig)
-	for _, line := range configSourceLines(plan.Source) {
-		logger.Logf("config.source %s", line)
-	}
-}

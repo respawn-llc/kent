@@ -226,13 +226,6 @@ func statusModelLabelText(modelName string, thinkingLevel string, fastModeAvaila
 	return label + " (model locked)"
 }
 
-func (m *uiModel) shouldShowModelLockedLabel() bool {
-	if !m.modelContractLocked {
-		return false
-	}
-	return strings.TrimSpace(m.modelName) != strings.TrimSpace(m.configuredModelName)
-}
-
 func (l uiViewLayout) renderServerOwnershipSection(style uiStyles) string {
 	if !l.model.statusConfig.OwnsServer {
 		return ""
@@ -275,16 +268,6 @@ func statusContextZoneHex(themeName string, percent int) string {
 
 func statusContextEmptyHex(themeName string) string {
 	return theme.ResolvePalette(themeName).Status.ContextEmpty.TrueColor
-}
-
-func statusContextZoneColor(percent int) lipgloss.TerminalColor {
-	if percent < 50 {
-		return statusGreenColor()
-	}
-	if percent < 80 {
-		return statusAmberColor()
-	}
-	return statusRedColor()
 }
 
 func statusGreenColor() lipgloss.CompleteAdaptiveColor {

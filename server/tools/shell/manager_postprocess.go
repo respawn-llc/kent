@@ -20,16 +20,12 @@ func (m *Manager) applyPostprocessing(ctx context.Context, entry *processEntry, 
 		CommandText:     entry.command,
 		Workdir:         entry.workdir,
 		OwnerSessionID:  entry.ownerSessionID,
-		ExitCode:        cloneIntPtr(exitCode),
+		ExitCode:        postprocess.CloneIntPtr(exitCode),
 		Raw:             entry.raw,
 		Output:          output,
 		MaxDisplayChars: maxOutputChars,
 		Backgrounded:    backgrounded,
 	})
-}
-
-func readOutputFile(path string) (string, error) {
-	return readOutputFileLimited(path, 0)
 }
 
 func readOutputFileLimited(path string, maxBytes int64) (string, error) {

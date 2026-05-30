@@ -13,10 +13,6 @@ func (m Model) flattenEntry(role RenderIntent, text string) []string {
 	return m.flattenEntryWithMeta(role, text, false, nil)
 }
 
-func (m Model) flattenEntryWithMutedText(role RenderIntent, text string, muteText bool) []string {
-	return m.flattenEntryWithMeta(role, text, muteText, nil)
-}
-
 func (m Model) flattenEntryWithMeta(role RenderIntent, text string, muteText bool, toolMeta *transcript.ToolCallMeta) []string {
 	return m.flattenEntryWithMetaAndSymbol(role, text, muteText, toolMeta, "")
 }
@@ -445,10 +441,6 @@ func (m Model) renderDiffToolLines(text string, width int, toolMeta *transcript.
 	return out, true
 }
 
-func (m Model) flattenPatchToolBlock(role RenderIntent, toolMeta *transcript.ToolCallMeta, resultText string) []string {
-	return m.flattenPatchToolBlockWithSymbol(role, toolMeta, resultText, "")
-}
-
 func (m Model) flattenPatchToolBlockWithSymbol(role RenderIntent, toolMeta *transcript.ToolCallMeta, resultText string, symbolOverride string) []string {
 	if toolMeta == nil || toolMeta.PatchRender == nil {
 		return m.flattenEntryWithMetaAndSymbol(role, resultText, false, toolMeta, symbolOverride)
@@ -612,22 +604,6 @@ func padRenderedLineToWidth(line string, width int) string {
 		return line
 	}
 	return line + strings.Repeat(" ", width-current)
-}
-
-func (m Model) renderEntryText(role RenderIntent, text string, width int, toolMeta *transcript.ToolCallMeta, muteText bool) string {
-	rendered, intents, wrapMode := m.renderEntryTextStage(role, text, width, toolMeta, muteText)
-	content := transcriptRenderContent{Lines: []transcriptRenderLine{{Text: rendered, Intents: intents}}, WrapMode: wrapMode}
-	content = m.applyEntrySemanticTransformStage(content)
-	content = m.wrapEntryContentStage(content, width)
-	palette := m.ansiIntentPalette()
-	parts := make([]string, 0, len(content.Lines))
-	for _, line := range content.Lines {
-		if !muteText && !strings.Contains(line.Text, "\x1b[") {
-			line.Text = applyANSIStyleIntents(line.Text, palette, line.Intents)
-		}
-		parts = append(parts, line.Text)
-	}
-	return strings.Join(parts, "\n")
 }
 
 func (m Model) renderEntryTextStage(role RenderIntent, text string, width int, toolMeta *transcript.ToolCallMeta, muteText bool) (string, StyleIntent, transcriptRenderWrapMode) {

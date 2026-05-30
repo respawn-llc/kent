@@ -61,38 +61,6 @@ func ensureSettingsDir(path string) error {
 	return nil
 }
 
-func writeSettingsFile(path string, contents string) error {
-	if err := ensureSettingsDir(path); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".config.toml.*")
-	if err != nil {
-		return fmt.Errorf("create temporary settings file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	cleanup := true
-	defer func() {
-		_ = tmp.Close()
-		if cleanup {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	if _, err := tmp.WriteString(contents); err != nil {
-		return fmt.Errorf("write temporary settings file: %w", err)
-	}
-	if err := tmp.Chmod(0o644); err != nil {
-		return fmt.Errorf("chmod temporary settings file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temporary settings file: %w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("replace settings file: %w", err)
-	}
-	cleanup = false
-	return nil
-}
-
 func writeSettingsFileIfMissing(path string, contents string) (bool, error) {
 	if err := ensureSettingsDir(path); err != nil {
 		return false, err

@@ -4,8 +4,6 @@ import (
 	"builder/cli/tui"
 	"builder/server/llm"
 	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
 	sharedclient "builder/shared/client"
 	"builder/shared/clientui"
 	"bytes"
@@ -35,18 +33,7 @@ func TestNativePSOverlayEscBalancesAltScreenWithoutAlternateScroll(t *testing.T)
 	)
 	model.input = "/ps"
 
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(out),
-		tea.WithoutSignals(),
-	)
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(40 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
@@ -57,16 +44,7 @@ func TestNativePSOverlayEscBalancesAltScreenWithoutAlternateScroll(t *testing.T)
 	waitForTestCondition(t, 2*time.Second, "/ps overlay to close", func() bool {
 		return !model.processList.isOpen() && model.surface() != uiSurfaceProcessList && model.view.Mode() == tui.ModeOngoing
 	})
-	program.Quit()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 
 	raw := out.String()
 	enterAlt := strings.Count(raw, "\x1b[?1049h")
@@ -106,18 +84,7 @@ func TestNativePSOverlayUsesFixedAltScreen(t *testing.T) {
 	)
 	model.input = "/ps"
 
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(out),
-		tea.WithoutSignals(),
-	)
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(40 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
@@ -126,16 +93,7 @@ func TestNativePSOverlayUsesFixedAltScreen(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	program.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	time.Sleep(20 * time.Millisecond)
-	program.Quit()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 
 	raw := out.String()
 	enterAlt := strings.Count(raw, "\x1b[?1049h")
@@ -155,42 +113,22 @@ func TestNativePSOverlayUsesFixedAltScreen(t *testing.T) {
 }
 
 func TestNativeFinalizeDoesNotBlinkDuplicateTailTokens(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	runtimeEvents := make(chan runtime.Event, 256)
-	eng, err := runtime.New(
-		store,
+	_, eng := newAppRuntimeEngine(
+		t,
 		singleChunkStreamClient{delta: "TAIL-ONCE"},
-		tools.NewRegistry(),
 		runtime.Config{
-			Model: "gpt-5",
 			OnEvent: func(evt runtime.Event) {
 				runtimeEvents <- evt
 			},
 		},
 	)
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	out := newLockedBuffer()
 	model := newProjectedTestUIModel(newUIRuntimeClient(eng), projectRuntimeEventChannel(runtimeEvents, nil, nil), closedAskEvents())
 	observed := newObservedUIModel(model)
 
-	program := tea.NewProgram(
-		observed,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(out),
-		tea.WithoutSignals(),
-	)
-	done := make(chan error, 1)
-	go func() {
-		_, runErr := program.Run()
-		done <- runErr
-	}()
+	program := startNativeProgram(t, observed, out)
 
 	waitForSignal(t, 2*time.Second, "program startup output", out.Started())
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
@@ -217,16 +155,7 @@ func TestNativeFinalizeDoesNotBlinkDuplicateTailTokens(t *testing.T) {
 		return true
 	})
 	waitForSubmitResult(t, 2*time.Second, submitDone)
-	program.Quit()
-
-	select {
-	case runErr := <-done:
-		if runErr != nil {
-			t.Fatalf("program run failed: %v", runErr)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 
 	if count := strings.Count(model.nativeRenderedSnapshot, "TAIL-ONCE"); count != 1 {
 		t.Fatalf("expected native rendered snapshot to contain tail token once, count=%d snapshot=%q", count, model.nativeRenderedSnapshot)
@@ -234,42 +163,22 @@ func TestNativeFinalizeDoesNotBlinkDuplicateTailTokens(t *testing.T) {
 }
 
 func TestNativeFinalizeSuppressesLateAsyncDeltaArtifacts(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	runtimeEvents := make(chan runtime.Event, 256)
-	eng, err := runtime.New(
-		store,
+	_, eng := newAppRuntimeEngine(
+		t,
 		asyncLateDeltaStreamClient{initial: "FINAL-CONTENT", late: "LATE-BLINK", delay: 25 * time.Millisecond},
-		tools.NewRegistry(),
 		runtime.Config{
-			Model: "gpt-5",
 			OnEvent: func(evt runtime.Event) {
 				runtimeEvents <- evt
 			},
 		},
 	)
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	out := newLockedBuffer()
 	model := newProjectedTestUIModel(newUIRuntimeClient(eng), projectRuntimeEventChannel(runtimeEvents, nil, nil), closedAskEvents())
 	observed := newObservedUIModel(model)
 
-	program := tea.NewProgram(
-		observed,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(out),
-		tea.WithoutSignals(),
-	)
-	done := make(chan error, 1)
-	go func() {
-		_, runErr := program.Run()
-		done <- runErr
-	}()
+	program := startNativeProgram(t, observed, out)
 
 	waitForSignal(t, 2*time.Second, "program startup output", out.Started())
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
@@ -291,16 +200,7 @@ func TestNativeFinalizeSuppressesLateAsyncDeltaArtifacts(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	program.Quit()
-
-	select {
-	case runErr := <-done:
-		if runErr != nil {
-			t.Fatalf("program run failed: %v", runErr)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 
 	normalized := normalizedOutput(out.String())
 	if !strings.Contains(normalized, "FINAL-CONTENT") {
@@ -324,17 +224,7 @@ func TestNativeSubmitErrorFallbackAppendsToScrollbackWhenRuntimeAppendFails(t *t
 	model := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	model.input = "run task"
 
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(out),
-		tea.WithoutSignals(),
-	)
-	done := make(chan error, 1)
-	go func() {
-		_, runErr := program.Run()
-		done <- runErr
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(40 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
@@ -354,15 +244,7 @@ func TestNativeSubmitErrorFallbackAppendsToScrollbackWhenRuntimeAppendFails(t *t
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	program.Quit()
-	select {
-	case runErr := <-done:
-		if runErr != nil {
-			t.Fatalf("program run failed: %v", runErr)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 
 	if normalized := normalizedOutput(out.String()); !strings.Contains(normalized, "daemon stalled") {
 		t.Fatalf("expected submit error in native ongoing scrollback, got %q", normalized)
@@ -375,17 +257,7 @@ func TestNativeDisconnectedSubmissionAppendsToScrollbackWhenRuntimeAppendFails(t
 	model := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
 	model.input = "run task"
 
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(out),
-		tea.WithoutSignals(),
-	)
-	done := make(chan error, 1)
-	go func() {
-		_, runErr := program.Run()
-		done <- runErr
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(40 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
@@ -406,15 +278,7 @@ func TestNativeDisconnectedSubmissionAppendsToScrollbackWhenRuntimeAppendFails(t
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	program.Quit()
-	select {
-	case runErr := <-done:
-		if runErr != nil {
-			t.Fatalf("program run failed: %v", runErr)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 
 	if normalized := normalizedOutput(out.String()); !strings.Contains(normalized, runtimeDisconnectedStatusMessage) {
 		t.Fatalf("expected disconnect error in native ongoing scrollback, got %q", normalized)
@@ -435,17 +299,7 @@ func TestNativeDisconnectedSubmissionAfterRealRemoteDisconnectAppendsToScrollbac
 	model := newProjectedTestUIModel(runtimeClient, closedProjectedRuntimeEvents(), closedAskEvents())
 	model.input = "run task"
 
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(out),
-		tea.WithoutSignals(),
-	)
-	done := make(chan error, 1)
-	go func() {
-		_, runErr := program.Run()
-		done <- runErr
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(40 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
@@ -476,15 +330,7 @@ func TestNativeDisconnectedSubmissionAfterRealRemoteDisconnectAppendsToScrollbac
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	program.Quit()
-	select {
-	case runErr := <-done:
-		if runErr != nil {
-			t.Fatalf("program run failed: %v", runErr)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 
 	if normalized := normalizedOutput(out.String()); !strings.Contains(normalized, runtimeDisconnectedStatusMessage) {
 		t.Fatalf("expected disconnect error in native ongoing scrollback, got %q", normalized)
@@ -496,17 +342,7 @@ func TestNativeBackCommandSystemFeedbackAppendsToScrollback(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	model.input = "/back"
 
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(out),
-		tea.WithoutSignals(),
-	)
-	done := make(chan error, 1)
-	go func() {
-		_, runErr := program.Run()
-		done <- runErr
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(40 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
@@ -526,15 +362,7 @@ func TestNativeBackCommandSystemFeedbackAppendsToScrollback(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	program.Quit()
-	select {
-	case runErr := <-done:
-		if runErr != nil {
-			t.Fatalf("program run failed: %v", runErr)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 
 	if normalized := normalizedOutput(out.String()); !strings.Contains(normalized, "No parent session available") {
 		t.Fatalf("expected back command feedback in native ongoing scrollback, got %q", normalized)
@@ -542,11 +370,6 @@ func TestNativeBackCommandSystemFeedbackAppendsToScrollback(t *testing.T) {
 }
 
 func TestNativeDeferredFinalWithQueuedInjectionKeepsAssistantBeforeQueuedUserInScrollback(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	releaseFirst := make(chan struct{})
 	firstDelta := make(chan struct{})
 	releasedFirst := false
@@ -556,12 +379,10 @@ func TestNativeDeferredFinalWithQueuedInjectionKeepsAssistantBeforeQueuedUserInS
 		}
 	}()
 	var program *tea.Program
-	eng, err := runtime.New(
-		store,
+	_, eng := newAppRuntimeEngine(
+		t,
 		&deferredFinalQueuedInjectionStreamClient{releaseFirst: releaseFirst, firstDelta: firstDelta},
-		tools.NewRegistry(),
 		runtime.Config{
-			Model: "gpt-5",
 			Reviewer: runtime.ReviewerConfig{
 				Frequency:     "all",
 				Model:         "gpt-5",
@@ -578,26 +399,14 @@ func TestNativeDeferredFinalWithQueuedInjectionKeepsAssistantBeforeQueuedUserInS
 			},
 		},
 	)
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	eng.QueueUserMessage("steer now")
 
 	out := newLockedBuffer()
 	model := newProjectedTestUIModel(newUIRuntimeClient(eng), closedProjectedRuntimeEvents(), closedAskEvents())
 	observed := newObservedUIModel(model)
 
-	program = tea.NewProgram(
-		observed,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(out),
-		tea.WithoutSignals(),
-	)
-	done := make(chan error, 1)
-	go func() {
-		_, runErr := program.Run()
-		done <- runErr
-	}()
+	programHarness := startNativeProgram(t, observed, out)
+	program = programHarness.program
 
 	waitForSignal(t, 2*time.Second, "program startup output", out.Started())
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
@@ -624,15 +433,7 @@ func TestNativeDeferredFinalWithQueuedInjectionKeepsAssistantBeforeQueuedUserInS
 		return containsInOrder(normalizedOutput(out.String()), "run task", "foreground done", "steer now")
 	})
 
-	program.Quit()
-	select {
-	case runErr := <-done:
-		if runErr != nil {
-			t.Fatalf("program run failed: %v", runErr)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	programHarness.QuitAndWait(2 * time.Second)
 
 	normalized := normalizedOutput(out.String())
 	if !containsInOrder(normalized, "run task", "foreground done", "steer now") {
@@ -642,11 +443,6 @@ func TestNativeDeferredFinalWithQueuedInjectionKeepsAssistantBeforeQueuedUserInS
 
 func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailModeRoundTrip(t *testing.T) {
 	const roundTripTimeout = 5 * time.Second
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	releaseFirst := make(chan struct{})
 	firstDelta := make(chan struct{})
 	releasedFirst := false
@@ -656,12 +452,10 @@ func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailModeRoundTrip(t *te
 		}
 	}()
 	var program *tea.Program
-	eng, err := runtime.New(
-		store,
+	_, eng := newAppRuntimeEngine(
+		t,
 		&deferredFinalQueuedInjectionStreamClient{releaseFirst: releaseFirst, firstDelta: firstDelta},
-		tools.NewRegistry(),
 		runtime.Config{
-			Model: "gpt-5",
 			Reviewer: runtime.ReviewerConfig{
 				Frequency:     "all",
 				Model:         "gpt-5",
@@ -678,26 +472,14 @@ func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailModeRoundTrip(t *te
 			},
 		},
 	)
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	eng.QueueUserMessage("steer now")
 
 	out := newLockedBuffer()
 	model := newProjectedTestUIModel(newUIRuntimeClient(eng), closedProjectedRuntimeEvents(), closedAskEvents())
 	observed := newObservedUIModel(model)
 
-	program = tea.NewProgram(
-		observed,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(out),
-		tea.WithoutSignals(),
-	)
-	done := make(chan error, 1)
-	go func() {
-		_, runErr := program.Run()
-		done <- runErr
-	}()
+	programHarness := startNativeProgram(t, observed, out)
+	program = programHarness.program
 
 	waitForSignal(t, roundTripTimeout, "program startup output", out.Started())
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
@@ -726,15 +508,7 @@ func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailModeRoundTrip(t *te
 		return snapshot.Mode == tui.ModeOngoing && strings.Contains(snapshot.OngoingSnapshot, "foreground done")
 	})
 
-	program.Quit()
-	select {
-	case runErr := <-done:
-		if runErr != nil {
-			t.Fatalf("program run failed: %v", runErr)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	programHarness.QuitAndWait(2 * time.Second)
 }
 
 func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailRoundTripBeforeCommit(t *testing.T) {
@@ -811,46 +585,27 @@ func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailRoundTripBeforeComm
 }
 
 func TestNativeQueuedSteerDuringBlockingToolAppearsInScrollback(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	runtimeEvents := make(chan runtime.Event, 256)
 	blockingTool := &blockingShellTool{
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	eng, err := runtime.New(
-		store,
+	_, eng := newAppRuntimeEngine(
+		t,
 		&queuedSteerDuringBlockingToolClient{},
-		tools.NewRegistry(blockingTool),
 		runtime.Config{
-			Model: "gpt-5",
 			OnEvent: func(evt runtime.Event) {
 				runtimeEvents <- evt
 			},
 		},
+		blockingTool,
 	)
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	out := newLockedBuffer()
 	model := newProjectedTestUIModel(newUIRuntimeClient(eng), projectRuntimeEventChannel(runtimeEvents, nil, nil), closedAskEvents())
 	observed := newObservedUIModel(model)
 
-	program := tea.NewProgram(
-		observed,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(out),
-		tea.WithoutSignals(),
-	)
-	done := make(chan error, 1)
-	go func() {
-		_, runErr := program.Run()
-		done <- runErr
-	}()
+	program := startNativeProgram(t, observed, out)
 
 	waitForSignal(t, 2*time.Second, "program startup output", out.Started())
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
@@ -884,13 +639,5 @@ func TestNativeQueuedSteerDuringBlockingToolAppearsInScrollback(t *testing.T) {
 	if !hasQueuedUser {
 		t.Fatalf("expected runtime transcript to contain queued steer, got %+v", snapshot.Entries)
 	}
-	program.Quit()
-	select {
-	case runErr := <-done:
-		if runErr != nil {
-			t.Fatalf("program run failed: %v", runErr)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 }

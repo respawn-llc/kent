@@ -9,14 +9,6 @@ import (
 	"builder/shared/transcript"
 )
 
-func detailOnlyDeveloperContextEntry(text string) ChatEntry {
-	return ChatEntry{
-		Visibility: transcript.EntryVisibilityDetailOnly,
-		Role:       string(transcript.EntryRoleDeveloperContext),
-		Text:       text,
-	}
-}
-
 func visibleUserTranscriptEntry(msg llm.Message) (ChatEntry, bool) {
 	content := strings.TrimSpace(msg.Content)
 	if content == "" {

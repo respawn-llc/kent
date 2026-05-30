@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"builder/cli/app/internal/onboardingmodel"
 	"builder/cli/app/internal/onboardingready"
@@ -71,11 +69,4 @@ func runOnboardingFlow(cfg config.App, authState onboardingready.AuthState) (onb
 
 func onboardingProviderCapabilities(authState onboardingready.AuthState, settings config.Settings) (onboardingmodel.ProviderCapabilities, error) {
 	return onboardingmodel.ProviderCapabilitiesForSettings(authState, settings)
-}
-
-func filepathDir(path string) string {
-	if strings.TrimSpace(path) == "" {
-		return ""
-	}
-	return filepath.Dir(path)
 }

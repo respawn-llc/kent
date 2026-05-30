@@ -2,35 +2,25 @@ package client
 
 import (
 	"context"
-	"errors"
 
 	"builder/shared/serverapi"
 	"builder/shared/servicecontract"
 )
 
-type PromptControlClient interface {
-	AnswerAsk(ctx context.Context, req serverapi.AskAnswerRequest) error
-	AnswerApproval(ctx context.Context, req serverapi.ApprovalAnswerRequest) error
-}
+type PromptControlClient = servicecontract.PromptControlService
 
 type loopbackPromptControlClient struct {
-	service servicecontract.PromptControlService
+	loopbackClient[servicecontract.PromptControlService]
 }
 
 func NewLoopbackPromptControlClient(service servicecontract.PromptControlService) PromptControlClient {
-	return &loopbackPromptControlClient{service: service}
+	return &loopbackPromptControlClient{loopbackClient: newLoopbackClient(service)}
 }
 
 func (c *loopbackPromptControlClient) AnswerAsk(ctx context.Context, req serverapi.AskAnswerRequest) error {
-	if c == nil || c.service == nil {
-		return errors.New("prompt control service is required")
-	}
-	return c.service.AnswerAsk(ctx, req)
+	return callLoopbackClientNoResponse(c, "prompt control service is required", ctx, req, servicecontract.PromptControlService.AnswerAsk)
 }
 
 func (c *loopbackPromptControlClient) AnswerApproval(ctx context.Context, req serverapi.ApprovalAnswerRequest) error {
-	if c == nil || c.service == nil {
-		return errors.New("prompt control service is required")
-	}
-	return c.service.AnswerApproval(ctx, req)
+	return callLoopbackClientNoResponse(c, "prompt control service is required", ctx, req, servicecontract.PromptControlService.AnswerApproval)
 }

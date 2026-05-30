@@ -20,9 +20,26 @@ import (
 	"time"
 )
 
+func newLaunchdHealthTestServer(t *testing.T, health func() (string, int)) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			http.NotFound(w, r)
+			return
+		}
+		body, code := health()
+		if code != http.StatusOK {
+			http.Error(w, body, code)
+			return
+		}
+		_, _ = fmt.Fprint(w, body)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
 func TestLaunchdInstallReloadsLoadedServiceBeforeBootstrap(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	spec := testLaunchdServiceSpec(t)
+	spec := newLaunchdTestSpec(t)
 	var calls *[][]string
 	calls = captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
 		switch strings.Join(append([]string{name}, args...), "\x00") {
@@ -52,15 +69,8 @@ func TestLaunchdInstallReloadsLoadedServiceBeforeBootstrap(t *testing.T) {
 }
 
 func TestLaunchdStartBootstrapsUnloadedServiceWithoutKickstart(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	spec := testLaunchdServiceSpec(t)
-	path := mustLaunchdPlistPath(t)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir launch agents: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(renderLaunchdPlist(spec)), 0o644); err != nil {
-		t.Fatalf("write plist: %v", err)
-	}
+	spec := newLaunchdTestSpec(t)
+	path := writeLaunchdTestPlist(t, spec)
 	var calls *[][]string
 	calls = captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
 		switch strings.Join(append([]string{name}, args...), "\x00") {
@@ -87,15 +97,8 @@ func TestLaunchdStartBootstrapsUnloadedServiceWithoutKickstart(t *testing.T) {
 }
 
 func TestLaunchdRestartReloadsLoadedServiceBeforeBootstrap(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	spec := testLaunchdServiceSpec(t)
-	path := mustLaunchdPlistPath(t)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir launch agents: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(renderLaunchdPlist(spec)), 0o644); err != nil {
-		t.Fatalf("write plist: %v", err)
-	}
+	spec := newLaunchdTestSpec(t)
+	path := writeLaunchdTestPlist(t, spec)
 	calls := captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
 		switch strings.Join(append([]string{name}, args...), "\x00") {
 		case "launchctl\x00print\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
@@ -125,36 +128,22 @@ func TestLaunchdRestartReloadsLoadedServiceBeforeBootstrap(t *testing.T) {
 }
 
 func TestLaunchdRestartReloadsUnloadedHealthyServerBeforeBootstrap(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
 	serverRequests := 0
 	serverStopped := false
 	bootstrapped := false
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
+	server := newLaunchdHealthTestServer(t, func() (string, int) {
 		serverRequests++
 		if serverStopped && !bootstrapped {
-			http.Error(w, "stopped", http.StatusServiceUnavailable)
-			return
+			return "stopped", http.StatusServiceUnavailable
 		}
 		if bootstrapped {
-			_, _ = fmt.Fprint(w, `{"status":"ok","pid":77}`)
-			return
+			return `{"status":"ok","pid":77}`, http.StatusOK
 		}
-		_, _ = fmt.Fprint(w, `{"status":"ok","pid":42}`)
-	}))
-	t.Cleanup(server.Close)
-	spec := testLaunchdServiceSpec(t)
+		return `{"status":"ok","pid":42}`, http.StatusOK
+	})
+	spec := newLaunchdTestSpec(t)
 	spec.Endpoint = server.URL
-	path := mustLaunchdPlistPath(t)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir launch agents: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(renderLaunchdPlist(spec)), 0o644); err != nil {
-		t.Fatalf("write plist: %v", err)
-	}
+	path := writeLaunchdTestPlist(t, spec)
 	originalSignal := signalLaunchdServiceProcess
 	signaledPID := 0
 	signalLaunchdServiceProcess = func(pid int) error {
@@ -206,16 +195,9 @@ func TestLaunchdRestartReloadsUnloadedHealthyServerBeforeBootstrap(t *testing.T)
 }
 
 func TestLaunchdRestartIfInstalledReplacesStaleLoadedServiceAfterTransientBootstrapError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	spec := testLaunchdServiceSpec(t)
+	spec := newLaunchdTestSpec(t)
 	withLaunchdServiceCommandSpec(t, spec)
-	path := mustLaunchdPlistPath(t)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir launch agents: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(renderLaunchdPlist(spec)), 0o644); err != nil {
-		t.Fatalf("write plist: %v", err)
-	}
+	path := writeLaunchdTestPlist(t, spec)
 	printCalls := 0
 	var calls *[][]string
 	calls = captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
@@ -263,16 +245,9 @@ func TestLaunchdRestartIfInstalledReplacesStaleLoadedServiceAfterTransientBootst
 }
 
 func TestLaunchdRestartIfInstalledBootstrapRecoveryFailsWhenBootoutFails(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	spec := testLaunchdServiceSpec(t)
+	spec := newLaunchdTestSpec(t)
 	withLaunchdServiceCommandSpec(t, spec)
-	path := mustLaunchdPlistPath(t)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir launch agents: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(renderLaunchdPlist(spec)), 0o644); err != nil {
-		t.Fatalf("write plist: %v", err)
-	}
+	path := writeLaunchdTestPlist(t, spec)
 	printCalls := 0
 	var calls *[][]string
 	calls = captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
@@ -307,16 +282,9 @@ func TestLaunchdRestartIfInstalledBootstrapRecoveryFailsWhenBootoutFails(t *test
 }
 
 func TestLaunchdRestartIfInstalledBootstrapRecoveryFailsWhenRetryBootstrapFails(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	spec := testLaunchdServiceSpec(t)
+	spec := newLaunchdTestSpec(t)
 	withLaunchdServiceCommandSpec(t, spec)
-	path := mustLaunchdPlistPath(t)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir launch agents: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(renderLaunchdPlist(spec)), 0o644); err != nil {
-		t.Fatalf("write plist: %v", err)
-	}
+	path := writeLaunchdTestPlist(t, spec)
 	printCalls := 0
 	var calls *[][]string
 	calls = captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
@@ -354,22 +322,15 @@ func TestLaunchdRestartIfInstalledBootstrapRecoveryFailsWhenRetryBootstrapFails(
 }
 
 func TestLaunchdReloadWaitsForOldServerBeforeBootstrap(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
 	serverRequests := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
+	server := newLaunchdHealthTestServer(t, func() (string, int) {
 		serverRequests++
 		if serverRequests == 1 {
-			_, _ = fmt.Fprint(w, `{"status":"ok","pid":42}`)
-			return
+			return `{"status":"ok","pid":42}`, http.StatusOK
 		}
-		http.Error(w, "stopped", http.StatusServiceUnavailable)
-	}))
-	t.Cleanup(server.Close)
-	spec := testLaunchdServiceSpec(t)
+		return "stopped", http.StatusServiceUnavailable
+	})
+	spec := newLaunchdTestSpec(t)
 	spec.Endpoint = server.URL
 	path := mustLaunchdPlistPath(t)
 	calls := captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
@@ -404,28 +365,20 @@ func TestLaunchdReloadWaitsForOldServerBeforeBootstrap(t *testing.T) {
 }
 
 func TestLaunchdReloadStopsUnloadedHealthyServerBeforeBootstrap(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
 	serverRequests := 0
 	serverStopped := false
 	bootstrapped := false
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
+	server := newLaunchdHealthTestServer(t, func() (string, int) {
 		serverRequests++
 		if serverStopped && !bootstrapped {
-			http.Error(w, "stopped", http.StatusServiceUnavailable)
-			return
+			return "stopped", http.StatusServiceUnavailable
 		}
 		if bootstrapped {
-			_, _ = fmt.Fprint(w, `{"status":"ok","pid":77}`)
-			return
+			return `{"status":"ok","pid":77}`, http.StatusOK
 		}
-		_, _ = fmt.Fprint(w, `{"status":"ok","pid":42}`)
-	}))
-	t.Cleanup(server.Close)
-	spec := testLaunchdServiceSpec(t)
+		return `{"status":"ok","pid":42}`, http.StatusOK
+	})
+	spec := newLaunchdTestSpec(t)
 	spec.Endpoint = server.URL
 	path := mustLaunchdPlistPath(t)
 	originalSignal := signalLaunchdServiceProcess
@@ -478,7 +431,6 @@ func TestLaunchdReloadStopsUnloadedHealthyServerBeforeBootstrap(t *testing.T) {
 }
 
 func TestLaunchdReloadDoesNotAcceptLaunchdPIDWithoutHealthyServer(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
 	originalTimeout := launchdServiceShutdownTimeout
 	originalInterval := launchdServiceShutdownPollInterval
 	launchdServiceShutdownTimeout = time.Millisecond
@@ -488,19 +440,13 @@ func TestLaunchdReloadDoesNotAcceptLaunchdPIDWithoutHealthyServer(t *testing.T) 
 		launchdServiceShutdownPollInterval = originalInterval
 	})
 	serverStopped := false
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
+	server := newLaunchdHealthTestServer(t, func() (string, int) {
 		if serverStopped {
-			http.Error(w, "starting", http.StatusServiceUnavailable)
-			return
+			return "starting", http.StatusServiceUnavailable
 		}
-		_, _ = fmt.Fprint(w, `{"status":"ok","pid":42}`)
-	}))
-	t.Cleanup(server.Close)
-	spec := testLaunchdServiceSpec(t)
+		return `{"status":"ok","pid":42}`, http.StatusOK
+	})
+	spec := newLaunchdTestSpec(t)
 	spec.Endpoint = server.URL
 	path := mustLaunchdPlistPath(t)
 	originalSignal := signalLaunchdServiceProcess
@@ -539,7 +485,6 @@ func TestLaunchdReloadDoesNotAcceptLaunchdPIDWithoutHealthyServer(t *testing.T) 
 }
 
 func TestLaunchdReloadExplainsOldServerStillRunningInsteadOfBootstrapCodeFive(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
 	originalTimeout := launchdServiceShutdownTimeout
 	originalInterval := launchdServiceShutdownPollInterval
 	launchdServiceShutdownTimeout = time.Millisecond
@@ -557,15 +502,8 @@ func TestLaunchdReloadExplainsOldServerStillRunningInsteadOfBootstrapCodeFive(t 
 		killLaunchdServiceProcess = originalKill
 		launchdServiceProcessAlive = originalAlive
 	})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = fmt.Fprint(w, `{"status":"ok","pid":42}`)
-	}))
-	t.Cleanup(server.Close)
-	spec := testLaunchdServiceSpec(t)
+	server := newServiceHealthTestServer(t, `{"status":"ok","pid":42}`)
+	spec := newLaunchdTestSpec(t)
 	spec.Endpoint = server.URL
 	path := mustLaunchdPlistPath(t)
 	calls := captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
@@ -658,15 +596,8 @@ func TestLaunchdRestartIfInstalledRepeatedIntegration(t *testing.T) {
 }
 
 func TestLaunchdStartReplacesStaleLoadedServiceAfterTransientBootstrapError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	spec := testLaunchdServiceSpec(t)
-	path := mustLaunchdPlistPath(t)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir launch agents: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(renderLaunchdPlist(spec)), 0o644); err != nil {
-		t.Fatalf("write plist: %v", err)
-	}
+	spec := newLaunchdTestSpec(t)
+	path := writeLaunchdTestPlist(t, spec)
 	var calls *[][]string
 	calls = captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
 		switch strings.Join(append([]string{name}, args...), "\x00") {
@@ -700,15 +631,8 @@ func TestLaunchdStartReplacesStaleLoadedServiceAfterTransientBootstrapError(t *t
 }
 
 func TestLaunchdStartDoesNotHideNonTransientBootstrapError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	spec := testLaunchdServiceSpec(t)
-	path := mustLaunchdPlistPath(t)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir launch agents: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(renderLaunchdPlist(spec)), 0o644); err != nil {
-		t.Fatalf("write plist: %v", err)
-	}
+	spec := newLaunchdTestSpec(t)
+	path := writeLaunchdTestPlist(t, spec)
 	calls := captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
 		switch strings.Join(append([]string{name}, args...), "\x00") {
 		case "launchctl\x00print\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
@@ -734,15 +658,8 @@ func TestLaunchdStartDoesNotHideNonTransientBootstrapError(t *testing.T) {
 }
 
 func TestLaunchdStatusUsesLoadedCommandAndRunningStateFromPrint(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	spec := testLaunchdServiceSpec(t)
-	path := mustLaunchdPlistPath(t)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir launch agents: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(renderLaunchdPlist(spec)), 0o644); err != nil {
-		t.Fatalf("write plist: %v", err)
-	}
+	spec := newLaunchdTestSpec(t)
+	writeLaunchdTestPlist(t, spec)
 	captureLaunchdServiceCommands(t, func(_ context.Context, name string, args ...string) (serviceCommandResult, error) {
 		if strings.Join(append([]string{name}, args...), "\x00") != "launchctl\x00print\x00gui/"+currentUIDText()+"/"+serviceLaunchdLabel {
 			return serviceCommandResult{}, errors.New("unexpected command")
@@ -761,6 +678,24 @@ func TestLaunchdStatusUsesLoadedCommandAndRunningStateFromPrint(t *testing.T) {
 	if !reflect.DeepEqual(status.Command, wantCommand) {
 		t.Fatalf("command = %#v, want %#v", status.Command, wantCommand)
 	}
+}
+
+func newLaunchdTestSpec(t *testing.T) serviceSpec {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	return testLaunchdServiceSpec(t)
+}
+
+func writeLaunchdTestPlist(t *testing.T, spec serviceSpec) string {
+	t.Helper()
+	path := mustLaunchdPlistPath(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir launch agents: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(renderLaunchdPlist(spec)), 0o644); err != nil {
+		t.Fatalf("write plist: %v", err)
+	}
+	return path
 }
 
 func testLaunchdServiceSpec(t *testing.T) serviceSpec {

@@ -9,18 +9,6 @@ import (
 	patchformat "builder/shared/transcript/patchformat"
 )
 
-func (t *Tool) outsideWorkspaceSessionAllowed() bool {
-	t.outsideWorkspaceSessionMu.RLock()
-	defer t.outsideWorkspaceSessionMu.RUnlock()
-	return t.outsideWorkspaceSessionAllow
-}
-
-func (t *Tool) setOutsideWorkspaceSessionAllowed(allow bool) {
-	t.outsideWorkspaceSessionMu.Lock()
-	t.outsideWorkspaceSessionAllow = allow
-	t.outsideWorkspaceSessionMu.Unlock()
-}
-
 func splitLines(s string) []string {
 	s = textutil.NormalizeCRLF(s)
 	s = strings.TrimSuffix(s, "\n")

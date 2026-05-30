@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["question"],
+  "properties": {
+    "question": {
+      "type": "string",
+      "description": "Question text shown to the user. You must only put exactly ONE question here."
+    },
+    "suggestions": {
+      "type": "array",
+      "description": "Optional choice suggestions. Omit this field when you want a freeform-only answer. If you provide >1 suggestions, provide recommended_option_index. Strive to give users the best, sensible options possible, following best-practices, guidelines, and common sense.",
+      "items": {"type": "string"}
+    },
+    "recommended_option_index": {
+      "type": "integer",
+      "description": "Optional 1-based index of the recommended suggestion."
+    }
+  }
+}

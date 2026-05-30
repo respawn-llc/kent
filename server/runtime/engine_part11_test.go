@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"builder/server/llm"
-	"builder/server/session"
 	"builder/server/tools"
 	"builder/shared/toolspec"
 	"context"
@@ -12,12 +11,6 @@ import (
 )
 
 func TestQueuedUserMessageFlushesWhenAssistantReturnsWithoutTools(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-
 	client := &fakeClient{responses: []llm.Response{
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "first"},
@@ -30,17 +23,13 @@ func TestQueuedUserMessageFlushesWhenAssistantReturnsWithoutTools(t *testing.T) 
 	}}
 
 	var seenFlushed bool
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model: "gpt-5",
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		OnEvent: func(evt Event) {
 			if evt.Kind == EventUserMessageFlushed && evt.UserMessage == "steer now" {
 				seenFlushed = true
 			}
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	eng.QueueUserMessage("steer now")
 	msg, err := eng.SubmitUserMessage(context.Background(), "start")
@@ -70,19 +59,13 @@ func TestQueuedUserMessageFlushesWhenAssistantReturnsWithoutTools(t *testing.T) 
 }
 
 func TestModelResponseEventCarriesContextUsage(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
 		Usage:     llm.Usage{InputTokens: 420, WindowTokens: 1_000},
 	}}}
 	var usage *ContextUsage
 	autoCompactionEnabled := false
-	eng, err := New(store, client, tools.NewRegistry(), Config{
-		Model:                 "gpt-5",
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
 		ContextWindowTokens:   1_000,
 		AutoCompactionEnabled: &autoCompactionEnabled,
 		OnEvent: func(evt Event) {
@@ -91,9 +74,6 @@ func TestModelResponseEventCarriesContextUsage(t *testing.T) {
 			}
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if _, err := eng.SubmitUserMessage(context.Background(), "prompt"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -106,12 +86,6 @@ func TestModelResponseEventCarriesContextUsage(t *testing.T) {
 }
 
 func TestQueuedUserMessageFlushDoesNotEmitConversationUpdatedForInjectedMessage(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-
 	client := &fakeClient{responses: []llm.Response{
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "first"},
@@ -124,13 +98,11 @@ func TestQueuedUserMessageFlushDoesNotEmitConversationUpdatedForInjectedMessage(
 	}}
 
 	var (
-		eng        *Engine
 		events     []Event
 		eventIndex int
 		flushIndex = -1
 	)
-	eng, err = New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model: "gpt-5",
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		OnEvent: func(evt Event) {
 			events = append(events, evt)
 			eventIndex++
@@ -139,9 +111,6 @@ func TestQueuedUserMessageFlushDoesNotEmitConversationUpdatedForInjectedMessage(
 			}
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	eng.QueueUserMessage("steer now")
 	if _, err := eng.SubmitUserMessage(context.Background(), "start"); err != nil {
@@ -156,25 +125,17 @@ func TestQueuedUserMessageFlushDoesNotEmitConversationUpdatedForInjectedMessage(
 }
 
 func TestDirectUserMessageFlushDoesNotEmitConversationUpdated(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done"},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 
 	var (
-		eng        *Engine
 		events     []Event
 		eventIndex int
 		flushIndex = -1
 	)
-	eng, err = New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model: "gpt-5",
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		OnEvent: func(evt Event) {
 			events = append(events, evt)
 			eventIndex++
@@ -183,9 +144,6 @@ func TestDirectUserMessageFlushDoesNotEmitConversationUpdated(t *testing.T) {
 			}
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "say hi"); err != nil {
 		t.Fatalf("submit: %v", err)
@@ -199,12 +157,6 @@ func TestDirectUserMessageFlushDoesNotEmitConversationUpdated(t *testing.T) {
 }
 
 func TestQueuedUserMessagesCoalesceIntoSingleFlush(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-
 	client := &fakeClient{responses: []llm.Response{
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "first"},
@@ -220,8 +172,7 @@ func TestQueuedUserMessagesCoalesceIntoSingleFlush(t *testing.T) {
 		flushCount int
 		flushed    Event
 	)
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
-		Model: "gpt-5",
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		OnEvent: func(evt Event) {
 			if evt.Kind == EventUserMessageFlushed {
 				flushCount++
@@ -229,9 +180,6 @@ func TestQueuedUserMessagesCoalesceIntoSingleFlush(t *testing.T) {
 			}
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	eng.QueueUserMessage("steer now")
 	eng.QueueUserMessage("and keep tests focused")
@@ -272,21 +220,14 @@ func TestQueuedUserMessagesCoalesceIntoSingleFlush(t *testing.T) {
 
 func TestRequestMessagesPreserveANSIEscapes(t *testing.T) {
 	seedContent := "raw \x1b[31mansi\x1b[0m"
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok"},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{})
 
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: seedContent}); err != nil {
 		t.Fatalf("append seed message: %v", err)
@@ -314,11 +255,7 @@ func TestRequestMessagesPreserveANSIEscapes(t *testing.T) {
 }
 
 func TestReasoningSummaryVisibleAndEncryptedReasoningRoundTrips(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{
 		{
@@ -337,10 +274,7 @@ func TestReasoningSummaryVisibleAndEncryptedReasoningRoundTrips(t *testing.T) {
 		},
 	}}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "one"); err != nil {
 		t.Fatalf("first submit: %v", err)
@@ -408,16 +342,7 @@ func TestReasoningSummaryVisibleAndEncryptedReasoningRoundTrips(t *testing.T) {
 }
 
 func TestDiscardQueuedUserMessageRemovesExactQueuedEntry(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{})
 
 	first := eng.QueueUserMessage("same")
 	eng.QueueUserMessage("other")
@@ -434,16 +359,9 @@ func TestDiscardQueuedUserMessageRemovesExactQueuedEntry(t *testing.T) {
 }
 
 func TestContextUsageUsesLastUsageWhenAvailable(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
 	eng.setLastUsage(llm.Usage{InputTokens: 1234, OutputTokens: 66, WindowTokens: 399_000})
 
 	usage := eng.ContextUsage()
@@ -456,16 +374,7 @@ func TestContextUsageUsesLastUsageWhenAvailable(t *testing.T) {
 }
 
 func TestContextUsageFallsBackToEstimatedTokens(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{ContextWindowTokens: 410_000})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "estimate me"}); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
@@ -480,16 +389,7 @@ func TestContextUsageFallsBackToEstimatedTokens(t *testing.T) {
 }
 
 func TestContextUsageTracksWeightedCacheHitPercentageFromModelUsage(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{ContextWindowTokens: 410_000})
 
 	if usage := eng.ContextUsage(); usage.HasCacheHitPercentage {
 		t.Fatalf("expected cache hit percentage to be unavailable before model usage, got %+v", usage)
@@ -509,16 +409,7 @@ func TestContextUsageTracksWeightedCacheHitPercentageFromModelUsage(t *testing.T
 }
 
 func TestContextUsageUsesEstimatedTokensWhenLastUsageIsStale(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{ContextWindowTokens: 410_000})
 	eng.setLastUsage(llm.Usage{InputTokens: 100, OutputTokens: 0, WindowTokens: 410_000})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("x", 1600)}); err != nil {
 		t.Fatalf("append message: %v", err)
@@ -537,16 +428,7 @@ func TestContextUsageUsesEstimatedTokensWhenLastUsageIsStale(t *testing.T) {
 }
 
 func TestContextUsageAddsOnlyPostCheckpointEstimateDelta(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{ContextWindowTokens: 410_000})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("seed-", 100)}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -570,16 +452,8 @@ func TestContextUsageAddsOnlyPostCheckpointEstimateDelta(t *testing.T) {
 }
 
 func TestReopenedSessionRestoresUsageCheckpointDeltaAccounting(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	store := mustCreateTestSession(t)
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{ContextWindowTokens: 410_000})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("seed-", 100)}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
@@ -591,14 +465,8 @@ func TestReopenedSessionRestoresUsageCheckpointDeltaAccounting(t *testing.T) {
 		t.Fatalf("append delta message: %v", err)
 	}
 
-	reopenedStore, err := session.Open(store.Dir())
-	if err != nil {
-		t.Fatalf("re-open store: %v", err)
-	}
-	restored, err := New(reopenedStore, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
-	if err != nil {
-		t.Fatalf("restore engine: %v", err)
-	}
+	reopenedStore := mustOpenTestSession(t, store.Dir())
+	restored := mustNewTestEngine(t, reopenedStore, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{ContextWindowTokens: 410_000})
 
 	currentEstimate := estimateItemsTokens(restored.snapshotItems())
 	deltaEstimate := currentEstimate - checkpointEstimate
@@ -616,15 +484,8 @@ func TestReopenedSessionRestoresUsageCheckpointDeltaAccounting(t *testing.T) {
 }
 
 func TestHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	store := mustCreateTestSession(t)
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{ContextWindowTokens: 410_000})
 	if err := eng.appendPersistedDiagnosticEntry("step-1", preciseTokenCountFailureDiagnostic, "error", "first fallback"); err != nil {
 		t.Fatalf("append first diagnostic: %v", err)
 	}
@@ -658,15 +519,8 @@ func TestHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 }
 
 func TestReopenedSessionHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	store := mustCreateTestSession(t)
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{ContextWindowTokens: 410_000})
 	if err := eng.appendPersistedDiagnosticEntry("step-1", preciseTokenCountFailureDiagnostic, "error", "first fallback"); err != nil {
 		t.Fatalf("append first diagnostic: %v", err)
 	}
@@ -674,14 +528,8 @@ func TestReopenedSessionHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 		t.Fatalf("replace history: %v", err)
 	}
 
-	reopenedStore, err := session.Open(store.Dir())
-	if err != nil {
-		t.Fatalf("re-open store: %v", err)
-	}
-	restored, err := New(reopenedStore, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
-	if err != nil {
-		t.Fatalf("restore engine: %v", err)
-	}
+	reopenedStore := mustOpenTestSession(t, store.Dir())
+	restored := mustNewTestEngine(t, reopenedStore, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{ContextWindowTokens: 410_000})
 	if err := restored.appendPersistedDiagnosticEntry("step-2", preciseTokenCountFailureDiagnostic, "error", "second fallback"); err != nil {
 		t.Fatalf("append second diagnostic after reopen: %v", err)
 	}
@@ -728,16 +576,9 @@ func TestEstimateItemsTokensDoesNotTreatInlineImagePayloadAsPlainText(t *testing
 }
 
 func TestContextUsageDoesNotInflateInlineImagePayloadByBase64Length(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
 	eng.setLastUsage(llm.Usage{InputTokens: 100, OutputTokens: 0, WindowTokens: 410_000})
 	if err := eng.appendMessage("", llm.Message{
 		Role:       llm.RoleTool,
@@ -758,20 +599,13 @@ func TestContextUsageDoesNotInflateInlineImagePayloadByBase64Length(t *testing.T
 }
 
 func TestShouldAutoCompactAccountsForMessagesAppendedAfterLastUsage(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:                 "gpt-5",
 		ContextWindowTokens:   410_000,
 		AutoCompactTokenLimit: 300,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	eng.setLastUsage(llm.Usage{InputTokens: 120, OutputTokens: 0, WindowTokens: 410_000})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("stale-usage-gap-", 120)}); err != nil {
 		t.Fatalf("append message: %v", err)
@@ -783,21 +617,14 @@ func TestShouldAutoCompactAccountsForMessagesAppendedAfterLastUsage(t *testing.T
 }
 
 func TestShouldAutoCompactUsesPreciseRequestInputTokenCountWhenAvailable(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &preciseCompactionClient{inputTokenCount: 960, contextWindow: 1000}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:                 "gpt-5",
 		ContextWindowTokens:   400_000,
 		AutoCompactTokenLimit: 900,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "short"}); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
@@ -830,21 +657,14 @@ func TestPreSubmitCompactionTokenLimitUsesFixedRunwayReserve(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
-			store, err := session.Create(dir, "ws", dir)
-			if err != nil {
-				t.Fatalf("create store: %v", err)
-			}
+			store := mustCreateTestSession(t)
 
-			eng, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{
+			eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
 				Model:                         "gpt-5",
 				AutoCompactTokenLimit:         tt.limit,
 				ContextWindowTokens:           1_000_000,
 				PreSubmitCompactionLeadTokens: tt.runway,
 			})
-			if err != nil {
-				t.Fatalf("new engine: %v", err)
-			}
 
 			if got := eng.preSubmitCompactionTokenLimit(context.Background()); got != tt.expected {
 				t.Fatalf("unexpected pre-submit compaction threshold: got %d want %d", got, tt.expected)
@@ -854,22 +674,15 @@ func TestPreSubmitCompactionTokenLimitUsesFixedRunwayReserve(t *testing.T) {
 }
 
 func TestShouldCompactBeforeUserMessageUsesPromptGrowthBelowPreSubmitBand(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &preciseCompactionClient{inputTokenCount: 960, contextWindow: 1000}
-	eng, err := New(store, client, tools.NewRegistry(), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
 		Model:                         "gpt-5",
 		AutoCompactTokenLimit:         950,
 		ContextWindowTokens:           1000,
 		PreSubmitCompactionLeadTokens: 50,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("a", 3400)}); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
@@ -887,23 +700,16 @@ func TestShouldCompactBeforeUserMessageUsesPromptGrowthBelowPreSubmitBand(t *tes
 }
 
 func TestShouldCompactBeforeUserMessageFallsBackWhenExactCountUnsupported(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	supported := false
 	client := &preciseCompactionClient{inputTokenCount: 960, contextWindow: 1000, countSupported: &supported}
-	eng, err := New(store, client, tools.NewRegistry(), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
 		Model:                         "gpt-5",
 		AutoCompactTokenLimit:         950,
 		ContextWindowTokens:           1000,
 		PreSubmitCompactionLeadTokens: 50,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("a", 3400)}); err != nil {
 		t.Fatalf("append message: %v", err)
 	}

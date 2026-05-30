@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"embed"
 	"encoding/json"
 	"sort"
 
@@ -15,6 +16,17 @@ type CatalogEntry struct {
 	Schema         json.RawMessage
 	DefaultEnabled bool
 	Contract       Contract
+}
+
+//go:embed schemas/*.json
+var toolSchemaFS embed.FS
+
+func mustToolSchema(name string) json.RawMessage {
+	data, err := toolSchemaFS.ReadFile("schemas/" + name)
+	if err != nil {
+		panic("read tool schema " + name + ": " + err.Error())
+	}
+	return json.RawMessage(data)
 }
 
 var catalogEntries = []CatalogEntry{
@@ -32,45 +44,7 @@ var catalogEntries = []CatalogEntry{
 			shellToolCallMeta(toolspec.ToolExecCommand),
 			formatGenericToolResult,
 		),
-		Schema: json.RawMessage(`{
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["cmd"],
-  "properties": {
-    "cmd": {
-      "type": "string",
-      "description": "Shell command to execute."
-    },
-    "workdir": {
-      "type": "string",
-      "description": "Optional working directory to run the command in; defaults to the workspace root."
-    },
-    "shell": {
-      "type": "string",
-      "description": "Shell binary to launch. Defaults to the user's default shell."
-    },
-    "login": {
-      "type": "boolean",
-      "description": "Whether to run the shell with login semantics. Defaults to true."
-    },
-    "tty": {
-      "type": "boolean",
-      "description": "Whether to keep stdin open for follow-up write_stdin calls. Defaults to false."
-    },
-    "raw": {
-      "type": "boolean",
-      "description": "Bypass automatic optimization that reduces noise. Rerun the command in raw mode if the original output hid important details. Defaults to false."
-    },
-    "yield_time_ms": {
-      "type": "integer",
-      "description": "How long to wait for command to finish before backgrounding the process. Omit this for most commands."
-    },
-    "max_output_tokens": {
-      "type": "integer",
-      "description": "Maximum amount of output to return. Excess output will be truncated, and the full log remains available on disk. Omit this unless you want an override."
-    }
-  }
-}`),
+		Schema: mustToolSchema("exec_command.json"),
 	},
 	{
 		ID:             toolspec.ToolWriteStdin,
@@ -86,29 +60,7 @@ var catalogEntries = []CatalogEntry{
 			shellToolCallMeta(toolspec.ToolWriteStdin),
 			formatGenericToolResult,
 		),
-		Schema: json.RawMessage(`{
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["session_id"],
-  "properties": {
-    "session_id": {
-      "type": "integer",
-      "description": "Identifier of the running exec_command session."
-    },
-    "chars": {
-      "type": "string",
-      "description": "Bytes to write to stdin. May be empty to poll for output."
-    },
-    "yield_time_ms": {
-      "type": "integer",
-      "description": "How long to wait in milliseconds for output before yielding."
-    },
-    "max_output_tokens": {
-      "type": "integer",
-      "description": "Optional maximum amount of output to return back. Excess output will be truncated."
-    }
-  }
-}`),
+		Schema: mustToolSchema("write_stdin.json"),
 	},
 	{
 		ID:             toolspec.ToolViewImage,
@@ -124,21 +76,7 @@ var catalogEntries = []CatalogEntry{
 			defaultToolCallMeta(toolspec.ToolViewImage),
 			formatViewImageToolResult,
 		),
-		Schema: json.RawMessage(`{
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["path"],
-  "properties": {
-    "path": {
-      "type": "string",
-      "description": "Local filesystem path to a PNG, JPEG, still GIF, or PDF file. Relative paths resolve from the workspace root."
-    },
-    "raw": {
-      "type": "boolean",
-      "description": "Whether to bypass image compression and postprocessing. Defaults to false. The file size cap still applies."
-    }
-  }
-}`),
+		Schema: mustToolSchema("view_image.json"),
 	},
 	{
 		ID:             toolspec.ToolPatch,
@@ -154,17 +92,7 @@ var catalogEntries = []CatalogEntry{
 			patchToolCallMeta(toolspec.ToolPatch),
 			formatPatchToolResult,
 		),
-		Schema: json.RawMessage(`{
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["patch"],
-  "properties": {
-    "patch": {
-      "type": "string",
-      "description": "Patch text in freeform format."
-    }
-  }
-}`),
+		Schema: mustToolSchema("patch.json"),
 	},
 	{
 		ID:             toolspec.ToolEdit,
@@ -180,29 +108,7 @@ var catalogEntries = []CatalogEntry{
 			editToolCallMeta(toolspec.ToolEdit),
 			formatEditToolResult,
 		),
-		Schema: json.RawMessage(`{
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["path", "old_string", "new_string"],
-  "properties": {
-    "path": {
-      "type": "string",
-      "description": "File path to edit. Relative paths resolve from the workspace root; absolute paths are allowed."
-    },
-    "old_string": {
-      "type": "string",
-      "description": "Exact current text to replace. Include enough surrounding context to make the match unique. Use an empty string only to create a missing or empty file."
-    },
-    "new_string": {
-      "type": "string",
-      "description": "Replacement text. Use an empty string to delete the matched text."
-    },
-    "replace_all": {
-      "type": "boolean",
-      "description": "Replace all occurrences of the selected match. Defaults to false."
-    }
-  }
-}`),
+		Schema: mustToolSchema("edit.json"),
 	},
 	{
 		ID:             toolspec.ToolAskQuestion,
@@ -218,26 +124,7 @@ var catalogEntries = []CatalogEntry{
 			askQuestionToolCallMeta(toolspec.ToolAskQuestion),
 			formatAskQuestionToolResult,
 		),
-		Schema: json.RawMessage(`{
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["question"],
-  "properties": {
-    "question": {
-      "type": "string",
-      "description": "Question text shown to the user. You must only put exactly ONE question here."
-    },
-    "suggestions": {
-      "type": "array",
-      "description": "Optional choice suggestions. Omit this field when you want a freeform-only answer. If you provide >1 suggestions, provide recommended_option_index. Strive to give users the best, sensible options possible, following best-practices, guidelines, and common sense.",
-      "items": {"type": "string"}
-    },
-    "recommended_option_index": {
-      "type": "integer",
-      "description": "Optional 1-based index of the recommended suggestion."
-    }
-  }
-}`),
+		Schema: mustToolSchema("ask_question.json"),
 	},
 	{
 		ID:             toolspec.ToolCompleteNode,
@@ -255,20 +142,7 @@ var catalogEntries = []CatalogEntry{
 		),
 		// Runtime requests replace this fallback with the current workflow
 		// run contract, including valid transition IDs and node output fields.
-		Schema: json.RawMessage(`{
-  "type": "object",
-  "additionalProperties": false,
-  "properties": {
-    "transition_id": {
-      "type": "string",
-      "description": "Transition ID to take. Required when multiple outgoing transitions are available."
-    },
-    "commentary": {
-      "type": "string",
-      "description": "Brief explanation of what was completed and why this transition was selected."
-    }
-  }
-}`),
+		Schema: mustToolSchema("complete_node.json"),
 	},
 	{
 		ID:             toolspec.ToolTriggerHandoff,
@@ -284,20 +158,7 @@ var catalogEntries = []CatalogEntry{
 			triggerHandoffToolCallMeta(toolspec.ToolTriggerHandoff),
 			formatTriggerHandoffToolResult,
 		),
-		Schema: json.RawMessage(`{
-  "type": "object",
-  "additionalProperties": false,
-  "properties": {
-    "summarizer_prompt": {
-      "type": "string",
-      "description": "Optional *extra* instructions for the handoff summarizer. The summarizer already receives detailed generic guidance on preserving the workspace state and full conversation transcript. Only use this to add something specific about your current thoughts or state of work."
-    },
-    "future_agent_message": {
-      "type": "string",
-      "description": "Optional message to forward verbatim to the next agent *in addition* to the detailed summary of current work. Only include here specific concise information to preserve from the analysis block or the next immediate step, not generic guidance or converstaion summary."
-    }
-  }
-}`),
+		Schema: mustToolSchema("trigger_handoff.json"),
 	},
 	{
 		ID:             toolspec.ToolWebSearch,
@@ -314,27 +175,7 @@ var catalogEntries = []CatalogEntry{
 			formatWebSearchToolResult,
 			decodeHostedWebSearchOutput,
 		),
-		Schema: json.RawMessage(`{
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["query"],
-  "properties": {
-    "query": {
-      "type": "string",
-      "description": "Required search query string. Keep it specific and concise; include concrete keywords (entity + property + timeframe) and optionally a site hint."
-    },
-    "allowed_domains": {
-      "type": "array",
-      "description": "Optional allowlist of domains to constrain sources to preferred/authoritative sites.",
-      "items": {"type": "string"}
-    },
-    "blocked_domains": {
-      "type": "array",
-      "description": "Optional blocklist of domains to exclude low-quality or irrelevant sources.",
-      "items": {"type": "string"}
-    }
-  }
-}`),
+		Schema: mustToolSchema("web_search.json"),
 	},
 }
 
@@ -371,13 +212,6 @@ func init() {
 
 	sort.Slice(catalogIDs, func(i, j int) bool { return catalogIDs[i] < catalogIDs[j] })
 	sort.Slice(defaultEnabledIDs, func(i, j int) bool { return defaultEnabledIDs[i] < defaultEnabledIDs[j] })
-}
-
-func Catalog() []CatalogEntry {
-	out := make([]CatalogEntry, len(catalogEntries))
-	copy(out, catalogEntries)
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out
 }
 
 func CatalogIDs() []toolspec.ID {

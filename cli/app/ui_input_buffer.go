@@ -2,10 +2,6 @@ package app
 
 import tuiinput "builder/cli/tui/input"
 
-func (m *uiModel) inputRunes() []rune {
-	return []rune(m.input)
-}
-
 func (m *uiModel) cursorIndex() int {
 	return bufferCursorIndex(m.input, m.inputCursor)
 }
@@ -188,10 +184,6 @@ func (m *uiModel) deleteCurrentInputLine() bool {
 	m.syncPromptHistorySelectionToInput()
 	m.refreshAutocompleteFromInput()
 	return true
-}
-
-func (m *uiModel) askCursorIndex() int {
-	return bufferCursorIndex(m.ask.input, m.ask.inputCursor)
 }
 
 func (m *uiModel) clearAskInput() {

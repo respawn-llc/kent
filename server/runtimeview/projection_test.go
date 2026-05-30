@@ -46,6 +46,39 @@ func (c projectionPreciseClient) ProviderCapabilities(context.Context) (llm.Prov
 	return llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsRequestInputTokenCount: true, IsOpenAIFirstParty: true}, nil
 }
 
+func newRuntimeViewStore(t *testing.T) *session.Store {
+	t.Helper()
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	return store
+}
+
+func newRuntimeViewEngine(t *testing.T, store *session.Store, client llm.Client, cfg ...runtime.Config) *runtime.Engine {
+	t.Helper()
+	engineConfig := runtime.Config{Model: "gpt-5"}
+	if len(cfg) > 0 {
+		engineConfig = cfg[0]
+	}
+	engine, err := runtime.New(store, client, tools.NewRegistry(), engineConfig)
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	t.Cleanup(func() { _ = engine.Close() })
+	return engine
+}
+
+func appendRuntimeViewMessages(t *testing.T, store *session.Store, count int, text func(int) string) {
+	t.Helper()
+	for i := range count {
+		if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: text(i), Phase: llm.MessagePhaseFinal}); err != nil {
+			t.Fatalf("append message %d: %v", i, err)
+		}
+	}
+}
+
 func TestEventFromRuntimeProjectsReasoningAndBackground(t *testing.T) {
 	exitCode := 17
 	view := EventFromRuntime(runtime.Event{
@@ -98,14 +131,7 @@ func TestEventFromRuntimeProjectsReasoningAndBackground(t *testing.T) {
 }
 
 func TestStatusFromRuntimeIncludesSuspendedGoal(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	engine, err := runtime.New(store, projectionFastClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime: %v", err)
-	}
+	engine := newRuntimeViewEngine(t, newRuntimeViewStore(t), projectionFastClient{})
 	if _, err := engine.SetGoal("ship feature", session.GoalActorUser); err != nil {
 		t.Fatalf("set goal: %v", err)
 	}
@@ -226,11 +252,7 @@ func TestRunViewFromRuntimeCopiesSnapshot(t *testing.T) {
 }
 
 func TestMainViewFromRuntimeBundlesStatusAndSession(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newRuntimeViewStore(t)
 	if err := store.SetName("Session Name"); err != nil {
 		t.Fatalf("set name: %v", err)
 	}
@@ -240,10 +262,7 @@ func TestMainViewFromRuntimeBundlesStatusAndSession(t *testing.T) {
 	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "final answer", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
-	eng, err := runtime.New(store, projectionFastClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5", ContextWindowTokens: 400_000})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := newRuntimeViewEngine(t, store, projectionFastClient{}, runtime.Config{Model: "gpt-5", ContextWindowTokens: 400_000})
 	if err := eng.SetThinkingLevel("high"); err != nil {
 		t.Fatalf("set thinking level: %v", err)
 	}
@@ -278,11 +297,7 @@ func TestMainViewFromRuntimeBundlesStatusAndSession(t *testing.T) {
 }
 
 func TestSessionViewFromRuntimeUsesCommittedEntryMetadata(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newRuntimeViewStore(t)
 	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
@@ -292,10 +307,7 @@ func TestSessionViewFromRuntimeUsesCommittedEntryMetadata(t *testing.T) {
 	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeErrorFeedback, Content: "warn"}); err != nil {
 		t.Fatalf("append warning message: %v", err)
 	}
-	eng, err := runtime.New(store, projectionFastClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
 	view := SessionViewFromRuntime(eng)
 	if view.Transcript.CommittedEntryCount != eng.CommittedTranscriptEntryCount() {
 		t.Fatalf("projected committed entry count = %d, engine committed entry count = %d", view.Transcript.CommittedEntryCount, eng.CommittedTranscriptEntryCount())
@@ -306,20 +318,12 @@ func TestSessionViewFromRuntimeUsesCommittedEntryMetadata(t *testing.T) {
 }
 
 func TestStatusFromRuntimeUsesFreshPreciseCurrentTokens(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := runtime.New(store, projectionPreciseClient{inputTokens: 180}, tools.NewRegistry(), runtime.Config{
+	eng := newRuntimeViewEngine(t, newRuntimeViewStore(t), projectionPreciseClient{inputTokens: 180}, runtime.Config{
 		Model:                         "gpt-5",
 		ContextWindowTokens:           400_000,
 		AutoCompactTokenLimit:         1_000,
 		PreSubmitCompactionLeadTokens: 100,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if _, err := eng.SubmitUserMessage(context.Background(), "prompt"); err != nil {
 		t.Fatalf("submit user message: %v", err)
 	}
@@ -517,20 +521,9 @@ func TestTranscriptPageFromChatSupportsPageNumberPagination(t *testing.T) {
 }
 
 func TestTranscriptPageFromRuntimeUsesOngoingTailWindow(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	for i := 0; i < 600; i++ {
-		if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "reply", Phase: llm.MessagePhaseFinal}); err != nil {
-			t.Fatalf("append message %d: %v", i, err)
-		}
-	}
-	eng, err := runtime.New(store, projectionFastClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	store := newRuntimeViewStore(t)
+	appendRuntimeViewMessages(t, store, 600, func(int) string { return "reply" })
+	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
 
 	page := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{Window: clientui.TranscriptWindowOngoingTail})
 	if page.TotalEntries != 600 {
@@ -548,20 +541,9 @@ func TestTranscriptPageFromRuntimeUsesOngoingTailWindow(t *testing.T) {
 }
 
 func TestTranscriptPageFromRuntimeUsesOngoingTailWindowByDefault(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	for i := 0; i < 600; i++ {
-		if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "reply", Phase: llm.MessagePhaseFinal}); err != nil {
-			t.Fatalf("append message %d: %v", i, err)
-		}
-	}
-	eng, err := runtime.New(store, projectionFastClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	store := newRuntimeViewStore(t)
+	appendRuntimeViewMessages(t, store, 600, func(int) string { return "reply" })
+	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
 
 	page := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{})
 	if page.TotalEntries != 600 {
@@ -579,20 +561,9 @@ func TestTranscriptPageFromRuntimeUsesOngoingTailWindowByDefault(t *testing.T) {
 }
 
 func TestTranscriptPageFromRuntimeUsesIncrementalOngoingTailWhenClientKnowsRecentRevision(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	for i := 0; i < 600; i++ {
-		if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("reply-%03d", i), Phase: llm.MessagePhaseFinal}); err != nil {
-			t.Fatalf("append message %d: %v", i, err)
-		}
-	}
-	eng, err := runtime.New(store, projectionFastClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	store := newRuntimeViewStore(t)
+	appendRuntimeViewMessages(t, store, 600, func(i int) string { return fmt.Sprintf("reply-%03d", i) })
+	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
 
 	page := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{
 		Window:                   clientui.TranscriptWindowOngoingTail,
@@ -614,20 +585,9 @@ func TestTranscriptPageFromRuntimeUsesIncrementalOngoingTailWhenClientKnowsRecen
 }
 
 func TestTranscriptPageFromRuntimeUsesPagedSnapshotForOffsetLimit(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	for i := 0; i < 600; i++ {
-		if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("reply-%03d", i), Phase: llm.MessagePhaseFinal}); err != nil {
-			t.Fatalf("append message %d: %v", i, err)
-		}
-	}
-	eng, err := runtime.New(store, projectionFastClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	store := newRuntimeViewStore(t)
+	appendRuntimeViewMessages(t, store, 600, func(i int) string { return fmt.Sprintf("reply-%03d", i) })
+	eng := newRuntimeViewEngine(t, store, projectionFastClient{})
 
 	page := TranscriptPageFromRuntime(eng, clientui.TranscriptPageRequest{Offset: 550, Limit: 25})
 	if page.TotalEntries != 600 {

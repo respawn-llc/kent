@@ -13,10 +13,7 @@ import (
 
 func TestGoalCommandOpensGoalOverlay(t *testing.T) {
 	client := &runtimeControlFakeClient{goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: "active"}}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
+	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	m.input = "/goal"
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -46,10 +43,7 @@ func TestGoalCommandOpensGoalOverlay(t *testing.T) {
 
 func TestGoalCommandOpensGoalOverlayWhileBusy(t *testing.T) {
 	client := &runtimeControlFakeClient{goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: "active"}}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
+	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/goal"
@@ -85,10 +79,7 @@ func TestGoalSetRendersCommittedGoalFeedbackBeforeLaterRuntimeEvents(t *testing.
 	}
 	runtimeEvents <- clientui.Event{Kind: clientui.EventAssistantDelta, AssistantDelta: "later model output"}
 	client := &runtimeControlFakeClient{}
-	m := newProjectedTestUIModel(client, runtimeEvents, closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
+	m := newSizedProjectedRuntimeEventsUIModel(client, runtimeEvents, 100, 20)
 	m.input = "/goal ship feature"
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -179,10 +170,7 @@ func TestGoalLifecycleCommandsDoNotAppendDuplicateLocalFeedback(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client := &runtimeControlFakeClient{goal: cloneRuntimeGoal(tt.initialGoal)}
-			m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-			m.termWidth = 100
-			m.termHeight = 20
-			m.windowSizeKnown = true
+			m := newSizedProjectedClosedUIModel(client, 100, 20)
 			m.input = tt.input
 
 			var updated *uiModel
@@ -207,10 +195,7 @@ func TestGoalLifecycleCommandsDoNotAppendDuplicateLocalFeedback(t *testing.T) {
 }
 
 func TestGoalCommandWithoutGoalShowsLocalHint(t *testing.T) {
-	m := newProjectedTestUIModel(&runtimeControlFakeClient{}, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
+	m := newSizedProjectedClosedUIModel(&runtimeControlFakeClient{}, 100, 20)
 	m.input = "/goal"
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -223,10 +208,7 @@ func TestGoalCommandWithoutGoalShowsLocalHint(t *testing.T) {
 
 func TestGoalClearActiveGoalRequiresConfirmation(t *testing.T) {
 	client := &runtimeControlFakeClient{goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: "active"}}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
+	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	m.input = "/goal clear"
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -253,10 +235,7 @@ func TestGoalClearActiveGoalRequiresConfirmation(t *testing.T) {
 
 func TestGoalClearSuspendedActiveGoalSkipsConfirmation(t *testing.T) {
 	client := &runtimeControlFakeClient{goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: "active", Suspended: true}}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
+	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	m.input = "/goal clear"
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -271,10 +250,7 @@ func TestGoalClearSuspendedActiveGoalSkipsConfirmation(t *testing.T) {
 
 func TestGoalConfirmationEnterUsesSelectedAction(t *testing.T) {
 	client := &runtimeControlFakeClient{goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: "active"}}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
+	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	m.input = "/goal clear"
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -288,10 +264,7 @@ func TestGoalConfirmationEnterUsesSelectedAction(t *testing.T) {
 		t.Fatalf("clear calls after cancel selection = %d, want 0", client.clearGoalCalls)
 	}
 
-	m = newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
+	m = newSizedProjectedClosedUIModel(client, 100, 20)
 	m.input = "/goal clear"
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
@@ -309,10 +282,7 @@ func TestGoalConfirmationEnterUsesSelectedAction(t *testing.T) {
 
 func TestGoalSetWhileBusyCanReplaceActiveGoalWithConfirmation(t *testing.T) {
 	client := &runtimeControlFakeClient{goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "old goal", Status: "active"}}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
+	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	m.setBusy(true)
 	m.activity = uiActivityRunning
 	m.input = "/goal new goal"
@@ -338,10 +308,7 @@ func TestGoalSetWhileBusyCanReplaceActiveGoalWithConfirmation(t *testing.T) {
 
 func TestGoalOverlayRendersObjectiveMarkdown(t *testing.T) {
 	client := &runtimeControlFakeClient{goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "Ship **bold** goal\n\n- one\n- two", Status: "active"}}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
+	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	m.input = "/goal"
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -362,10 +329,7 @@ func TestGoalOverlayRendersObjectiveMarkdown(t *testing.T) {
 func TestGoalOverlayWrapsLongMarkdownObjective(t *testing.T) {
 	objective := "This **important** goal objective must keep the final tail phrase visible after wrapping."
 	client := &runtimeControlFakeClient{goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: objective, Status: "active"}}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 32
-	m.termHeight = 20
-	m.windowSizeKnown = true
+	m := newSizedProjectedClosedUIModel(client, 32, 20)
 	m.input = "/goal"
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -379,10 +343,7 @@ func TestGoalOverlayWrapsLongMarkdownObjective(t *testing.T) {
 func TestGoalOverlayWrapsLongMarkdownListItem(t *testing.T) {
 	objective := "- This **important** list item must keep the final list tail visible after wrapping."
 	client := &runtimeControlFakeClient{goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: objective, Status: "active"}}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 34
-	m.termHeight = 20
-	m.windowSizeKnown = true
+	m := newSizedProjectedClosedUIModel(client, 34, 20)
 	m.input = "/goal"
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -396,10 +357,7 @@ func TestGoalOverlayWrapsLongMarkdownListItem(t *testing.T) {
 func TestGoalOverlayMarkdownCacheRewrapsAfterWidthChange(t *testing.T) {
 	objective := "This **important** goal objective must change wrapping when the overlay width changes."
 	client := &runtimeControlFakeClient{goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: objective, Status: "active"}}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 80
-	m.termHeight = 20
-	m.windowSizeKnown = true
+	m := newSizedProjectedClosedUIModel(client, 80, 20)
 	m.input = "/goal"
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -421,10 +379,7 @@ func TestGoalOverlayMarkdownCacheRewrapsAfterWidthChange(t *testing.T) {
 
 func TestGoalReplaceActiveGoalRequiresConfirmation(t *testing.T) {
 	client := &runtimeControlFakeClient{goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "old goal", Status: "active"}}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
-	m.termWidth = 100
-	m.termHeight = 20
-	m.windowSizeKnown = true
+	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	m.input = "/goal new goal"
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})

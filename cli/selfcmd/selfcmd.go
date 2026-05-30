@@ -10,10 +10,6 @@ import (
 
 const fallbackBinaryName = "builder"
 
-func RunCommandPrefix() string {
-	return formatRunCommandPrefix(currentExecutablePath())
-}
-
 func BuilderCommand() string {
 	return formatBuilderCommand(currentExecutablePath())
 }

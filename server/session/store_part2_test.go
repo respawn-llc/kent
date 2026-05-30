@@ -172,9 +172,7 @@ func TestOpenRejectsSymlinkedSessionMetadata(t *testing.T) {
 	if err := os.Symlink(filepath.Join(targetDir, sessionFile), filepath.Join(sessionDir, sessionFile)); err != nil {
 		t.Fatalf("symlink session meta: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(sessionDir, eventsFile), nil, 0o644); err != nil {
-		t.Fatalf("write events file: %v", err)
-	}
+	writeSessionFixtureEvents(t, sessionDir, nil)
 
 	if _, err := Open(sessionDir); err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("expected open to reject symlinked session meta, got %v", err)
@@ -240,11 +238,7 @@ func TestOpenInitializesMissingEventsFileFromSessionMetadata(t *testing.T) {
 }
 
 func TestReadEventsIgnoresTrailingTruncatedEOFLine(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 		t.Fatalf("append event: %v", err)
 	}
@@ -274,11 +268,7 @@ func TestReadEventsIgnoresTrailingTruncatedEOFLine(t *testing.T) {
 }
 
 func TestAppendEventRepairsTruncatedTailBeforeAppend(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 		t.Fatalf("append event 1: %v", err)
 	}
@@ -316,11 +306,7 @@ func TestAppendEventRepairsTruncatedTailBeforeAppend(t *testing.T) {
 }
 
 func TestOpenReconcilesMetaLastSequenceFromEventLog(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 		t.Fatalf("append event 1: %v", err)
 	}

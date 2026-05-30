@@ -11,14 +11,6 @@ const roleInterruption = TranscriptRoleInterruption
 
 const interruptionUserVisibleText = "You interrupted"
 
-func isCompactionRole(role TranscriptRole) bool {
-	return role.IsCompaction()
-}
-
-func isDetailOnlyRole(role TranscriptRole) bool {
-	return defaultEntryVisibilityForRole(role) == transcript.EntryVisibilityDetailOnly
-}
-
 func isVisibleInOngoing(entry TranscriptEntry) bool {
 	switch entryVisibility(entry) {
 	case transcript.EntryVisibilityDetailOnly:

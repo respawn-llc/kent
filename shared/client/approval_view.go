@@ -2,27 +2,21 @@ package client
 
 import (
 	"context"
-	"errors"
 
 	"builder/shared/serverapi"
 	"builder/shared/servicecontract"
 )
 
-type ApprovalViewClient interface {
-	ListPendingApprovalsBySession(ctx context.Context, req serverapi.ApprovalListPendingBySessionRequest) (serverapi.ApprovalListPendingBySessionResponse, error)
-}
+type ApprovalViewClient = servicecontract.ApprovalViewService
 
 type loopbackApprovalViewClient struct {
-	service servicecontract.ApprovalViewService
+	loopbackClient[servicecontract.ApprovalViewService]
 }
 
 func NewLoopbackApprovalViewClient(service servicecontract.ApprovalViewService) ApprovalViewClient {
-	return &loopbackApprovalViewClient{service: service}
+	return &loopbackApprovalViewClient{loopbackClient: newLoopbackClient(service)}
 }
 
 func (c *loopbackApprovalViewClient) ListPendingApprovalsBySession(ctx context.Context, req serverapi.ApprovalListPendingBySessionRequest) (serverapi.ApprovalListPendingBySessionResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.ApprovalListPendingBySessionResponse{}, errors.New("approval view service is required")
-	}
-	return c.service.ListPendingApprovalsBySession(ctx, req)
+	return callLoopbackClient(c, "approval view service is required", ctx, req, servicecontract.ApprovalViewService.ListPendingApprovalsBySession)
 }

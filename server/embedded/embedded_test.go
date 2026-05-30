@@ -87,6 +87,47 @@ func registerEmbeddedWorkspace(t *testing.T, workspace string) {
 	}
 }
 
+func newRegisteredEmbeddedWorkspace(t *testing.T) string {
+	t.Helper()
+	workspace := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	registerEmbeddedWorkspace(t, workspace)
+	return workspace
+}
+
+func defaultEmbeddedOnboardingHandler() *testOnboardingHandler {
+	return &testOnboardingHandler{ensure: func(_ context.Context, req OnboardingRequest) (config.App, error) {
+		path, created, err := config.WriteDefaultSettingsFile()
+		if err != nil {
+			return config.App{}, err
+		}
+		reloaded, err := req.ReloadConfig()
+		if err != nil {
+			return config.App{}, err
+		}
+		reloaded.Source.CreatedDefaultConfig = created
+		reloaded.Source.SettingsPath = path
+		reloaded.Source.SettingsFileExists = true
+		return reloaded, nil
+	}}
+}
+
+func startReadyEmbeddedServer(t *testing.T, req Request) *Server {
+	t.Helper()
+	if req.LookupEnv == nil {
+		req.LookupEnv = os.Getenv
+	}
+	server, err := Start(context.Background(), req, StartHooks{
+		Auth:       readyEmbeddedAuthHandler(),
+		Onboarding: defaultEmbeddedOnboardingHandler(),
+	})
+	if err != nil {
+		t.Fatalf("start embedded server: %v", err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	return server
+}
+
 func embeddedProjectSessionsRoot(server *Server) string {
 	return config.ProjectSessionsRoot(server.Config(), server.ProjectID())
 }
@@ -147,22 +188,7 @@ func TestStartBuildsEmbeddedServerAndRunsOnboarding(t *testing.T) {
 		return generated.Sync(ctx, opts)
 	})
 	defer restoreGeneratedSync()
-	onboarding := &testOnboardingHandler{
-		ensure: func(_ context.Context, req OnboardingRequest) (config.App, error) {
-			path, created, err := config.WriteDefaultSettingsFile()
-			if err != nil {
-				return config.App{}, err
-			}
-			reloaded, err := req.ReloadConfig()
-			if err != nil {
-				return config.App{}, err
-			}
-			reloaded.Source.CreatedDefaultConfig = created
-			reloaded.Source.SettingsPath = path
-			reloaded.Source.SettingsFileExists = true
-			return reloaded, nil
-		},
-	}
+	onboarding := defaultEmbeddedOnboardingHandler()
 
 	server, err := Start(context.Background(), Request{
 		WorkspaceRoot: workspace,
@@ -204,10 +230,7 @@ func TestStartBuildsEmbeddedServerAndRunsOnboarding(t *testing.T) {
 }
 
 func TestRunPromptClientRunsLoopbackThroughEmbeddedServer(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerEmbeddedWorkspace(t, workspace)
+	workspace := newRegisteredEmbeddedWorkspace(t)
 
 	responseServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if testopenai.HandleInputTokenCount(w, r, 11) {
@@ -223,7 +246,7 @@ func TestRunPromptClientRunsLoopbackThroughEmbeddedServer(t *testing.T) {
 	}))
 	defer responseServer.Close()
 
-	server, err := Start(context.Background(), Request{
+	server := startReadyEmbeddedServer(t, Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		OpenAIBaseURL:         responseServer.URL,
@@ -231,30 +254,7 @@ func TestRunPromptClientRunsLoopbackThroughEmbeddedServer(t *testing.T) {
 		LoadOptions: config.LoadOptions{
 			Model: "gpt-5",
 		},
-		LookupEnv: os.Getenv,
-	}, StartHooks{
-		Auth: readyEmbeddedAuthHandler(),
-		Onboarding: &testOnboardingHandler{
-			ensure: func(_ context.Context, req OnboardingRequest) (config.App, error) {
-				path, created, err := config.WriteDefaultSettingsFile()
-				if err != nil {
-					return config.App{}, err
-				}
-				reloaded, err := req.ReloadConfig()
-				if err != nil {
-					return config.App{}, err
-				}
-				reloaded.Source.CreatedDefaultConfig = created
-				reloaded.Source.SettingsPath = path
-				reloaded.Source.SettingsFileExists = true
-				return reloaded, nil
-			},
-		},
 	})
-	if err != nil {
-		t.Fatalf("start embedded server: %v", err)
-	}
-	defer func() { _ = server.Close() }()
 
 	response, err := server.RunPromptClient().RunPrompt(context.Background(), serverapi.RunPromptRequest{
 		ClientRequestID: "embedded-run-1",
@@ -301,10 +301,7 @@ func TestRunPromptClientRunsLoopbackThroughEmbeddedServer(t *testing.T) {
 }
 
 func TestRunPromptClientPublishesHeadlessSessionActivity(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerEmbeddedWorkspace(t, workspace)
+	workspace := newRegisteredEmbeddedWorkspace(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -327,7 +324,7 @@ func TestRunPromptClientPublishesHeadlessSessionActivity(t *testing.T) {
 	}))
 	defer responseServer.Close()
 
-	server, err := Start(context.Background(), Request{
+	server := startReadyEmbeddedServer(t, Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		OpenAIBaseURL:         responseServer.URL,
@@ -335,30 +332,7 @@ func TestRunPromptClientPublishesHeadlessSessionActivity(t *testing.T) {
 		LoadOptions: config.LoadOptions{
 			Model: "gpt-5",
 		},
-		LookupEnv: os.Getenv,
-	}, StartHooks{
-		Auth: readyEmbeddedAuthHandler(),
-		Onboarding: &testOnboardingHandler{
-			ensure: func(_ context.Context, req OnboardingRequest) (config.App, error) {
-				path, created, err := config.WriteDefaultSettingsFile()
-				if err != nil {
-					return config.App{}, err
-				}
-				reloaded, err := req.ReloadConfig()
-				if err != nil {
-					return config.App{}, err
-				}
-				reloaded.Source.CreatedDefaultConfig = created
-				reloaded.Source.SettingsPath = path
-				reloaded.Source.SettingsFileExists = true
-				return reloaded, nil
-			},
-		},
 	})
-	if err != nil {
-		t.Fatalf("start embedded server: %v", err)
-	}
-	defer func() { _ = server.Close() }()
 
 	store := createEmbeddedProjectSession(t, server, workspace)
 	if err := store.SetName("headless activity"); err != nil {
@@ -386,6 +360,7 @@ func TestRunPromptClientPublishesHeadlessSessionActivity(t *testing.T) {
 		t.Fatal("expected session activity client")
 	}
 	var sub serverapi.SessionActivitySubscription
+	var err error
 	for {
 		sub, err = activity.SubscribeSessionActivity(ctx, serverapi.SessionActivitySubscribeRequest{SessionID: store.Meta().SessionID})
 		if err == nil {
@@ -423,9 +398,7 @@ func TestRunPromptClientPublishesHeadlessSessionActivity(t *testing.T) {
 }
 
 func TestStartPropagatesAuthFailureBeforeOnboarding(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	workspace := t.TempDir()
-	registerEmbeddedWorkspace(t, workspace)
+	workspace := newRegisteredEmbeddedWorkspace(t)
 	authHandler := &testAuthHandler{lookupEnv: os.Getenv}
 	onboarding := &testOnboardingHandler{}
 
@@ -442,37 +415,11 @@ func TestStartPropagatesAuthFailureBeforeOnboarding(t *testing.T) {
 }
 
 func TestSessionViewClientReadsDormantSessionByIDWithoutMutatingFiles(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerEmbeddedWorkspace(t, workspace)
+	workspace := newRegisteredEmbeddedWorkspace(t)
 
-	server, err := Start(context.Background(), Request{
+	server := startReadyEmbeddedServer(t, Request{
 		WorkspaceRoot: workspace,
-		LookupEnv:     os.Getenv,
-	}, StartHooks{
-		Auth: readyEmbeddedAuthHandler(),
-		Onboarding: &testOnboardingHandler{
-			ensure: func(_ context.Context, req OnboardingRequest) (config.App, error) {
-				path, created, err := config.WriteDefaultSettingsFile()
-				if err != nil {
-					return config.App{}, err
-				}
-				reloaded, err := req.ReloadConfig()
-				if err != nil {
-					return config.App{}, err
-				}
-				reloaded.Source.CreatedDefaultConfig = created
-				reloaded.Source.SettingsPath = path
-				reloaded.Source.SettingsFileExists = true
-				return reloaded, nil
-			},
-		},
 	})
-	if err != nil {
-		t.Fatalf("start embedded server: %v", err)
-	}
-	defer func() { _ = server.Close() }()
 
 	store := createEmbeddedProjectSession(t, server, workspace)
 	if err := store.SetName("incident triage"); err != nil {
@@ -516,37 +463,11 @@ func TestSessionViewClientReadsDormantSessionByIDWithoutMutatingFiles(t *testing
 }
 
 func TestSessionViewClientUsesRegisteredRuntimeByID(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerEmbeddedWorkspace(t, workspace)
+	workspace := newRegisteredEmbeddedWorkspace(t)
 
-	server, err := Start(context.Background(), Request{
+	server := startReadyEmbeddedServer(t, Request{
 		WorkspaceRoot: workspace,
-		LookupEnv:     os.Getenv,
-	}, StartHooks{
-		Auth: readyEmbeddedAuthHandler(),
-		Onboarding: &testOnboardingHandler{
-			ensure: func(_ context.Context, req OnboardingRequest) (config.App, error) {
-				path, created, err := config.WriteDefaultSettingsFile()
-				if err != nil {
-					return config.App{}, err
-				}
-				reloaded, err := req.ReloadConfig()
-				if err != nil {
-					return config.App{}, err
-				}
-				reloaded.Source.CreatedDefaultConfig = created
-				reloaded.Source.SettingsPath = path
-				reloaded.Source.SettingsFileExists = true
-				return reloaded, nil
-			},
-		},
 	})
-	if err != nil {
-		t.Fatalf("start embedded server: %v", err)
-	}
-	defer func() { _ = server.Close() }()
 
 	store := createEmbeddedProjectSession(t, server, workspace)
 	eng, err := runtime.New(store, &fakeEmbeddedClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
@@ -574,37 +495,11 @@ func TestSessionViewClientUsesRegisteredRuntimeByID(t *testing.T) {
 }
 
 func TestProjectViewClientListsCurrentProjectAndSessions(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerEmbeddedWorkspace(t, workspace)
+	workspace := newRegisteredEmbeddedWorkspace(t)
 
-	server, err := Start(context.Background(), Request{
+	server := startReadyEmbeddedServer(t, Request{
 		WorkspaceRoot: workspace,
-		LookupEnv:     os.Getenv,
-	}, StartHooks{
-		Auth: readyEmbeddedAuthHandler(),
-		Onboarding: &testOnboardingHandler{
-			ensure: func(_ context.Context, req OnboardingRequest) (config.App, error) {
-				path, created, err := config.WriteDefaultSettingsFile()
-				if err != nil {
-					return config.App{}, err
-				}
-				reloaded, err := req.ReloadConfig()
-				if err != nil {
-					return config.App{}, err
-				}
-				reloaded.Source.CreatedDefaultConfig = created
-				reloaded.Source.SettingsPath = path
-				reloaded.Source.SettingsFileExists = true
-				return reloaded, nil
-			},
-		},
 	})
-	if err != nil {
-		t.Fatalf("start embedded server: %v", err)
-	}
-	defer func() { _ = server.Close() }()
 
 	first := createEmbeddedProjectSession(t, server, workspace)
 	if err := first.SetName("first"); err != nil {
@@ -642,37 +537,11 @@ func TestProjectViewClientListsCurrentProjectAndSessions(t *testing.T) {
 }
 
 func TestProcessViewClientListsBackgroundProcessesWithRunOwnership(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerEmbeddedWorkspace(t, workspace)
+	workspace := newRegisteredEmbeddedWorkspace(t)
 
-	server, err := Start(context.Background(), Request{
+	server := startReadyEmbeddedServer(t, Request{
 		WorkspaceRoot: workspace,
-		LookupEnv:     os.Getenv,
-	}, StartHooks{
-		Auth: readyEmbeddedAuthHandler(),
-		Onboarding: &testOnboardingHandler{
-			ensure: func(_ context.Context, req OnboardingRequest) (config.App, error) {
-				path, created, err := config.WriteDefaultSettingsFile()
-				if err != nil {
-					return config.App{}, err
-				}
-				reloaded, err := req.ReloadConfig()
-				if err != nil {
-					return config.App{}, err
-				}
-				reloaded.Source.CreatedDefaultConfig = created
-				reloaded.Source.SettingsPath = path
-				reloaded.Source.SettingsFileExists = true
-				return reloaded, nil
-			},
-		},
 	})
-	if err != nil {
-		t.Fatalf("start embedded server: %v", err)
-	}
-	defer func() { _ = server.Close() }()
 	server.Background().SetMinimumExecToBgTime(250 * time.Millisecond)
 
 	result, err := server.Background().Start(context.Background(), shelltool.ExecRequest{
@@ -704,37 +573,11 @@ func TestProcessViewClientListsBackgroundProcessesWithRunOwnership(t *testing.T)
 }
 
 func TestProcessOutputClientStreamsBackgroundProcessOutput(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerEmbeddedWorkspace(t, workspace)
+	workspace := newRegisteredEmbeddedWorkspace(t)
 
-	server, err := Start(context.Background(), Request{
+	server := startReadyEmbeddedServer(t, Request{
 		WorkspaceRoot: workspace,
-		LookupEnv:     os.Getenv,
-	}, StartHooks{
-		Auth: readyEmbeddedAuthHandler(),
-		Onboarding: &testOnboardingHandler{
-			ensure: func(_ context.Context, req OnboardingRequest) (config.App, error) {
-				path, created, err := config.WriteDefaultSettingsFile()
-				if err != nil {
-					return config.App{}, err
-				}
-				reloaded, err := req.ReloadConfig()
-				if err != nil {
-					return config.App{}, err
-				}
-				reloaded.Source.CreatedDefaultConfig = created
-				reloaded.Source.SettingsPath = path
-				reloaded.Source.SettingsFileExists = true
-				return reloaded, nil
-			},
-		},
 	})
-	if err != nil {
-		t.Fatalf("start embedded server: %v", err)
-	}
-	defer func() { _ = server.Close() }()
 	server.Background().SetMinimumExecToBgTime(250 * time.Millisecond)
 
 	result, err := server.Background().Start(context.Background(), shelltool.ExecRequest{

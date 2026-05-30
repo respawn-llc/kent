@@ -10,10 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func runUILoop(wiring *runtimeWiring, active config.Settings, logger *runLogger, commandRegistry *commands.Registry) (tea.Model, error) {
-	return runUILoopWithInitialPrompt(wiring, active, logger, commandRegistry, "", "", "", false, active.Model, uiStatusConfig{}, false)
-}
-
 func runUILoopWithInitialPrompt(wiring *runtimeWiring, active config.Settings, logger *runLogger, commandRegistry *commands.Registry, initialPrompt string, initialInput string, sessionName string, modelContractLocked bool, configuredModelName string, statusConfig uiStatusConfig, startupUpdateNotice bool) (tea.Model, error) {
 	terminalCursor := newUITerminalCursorState()
 	options := mainUIProgramOptions(active, terminalCursor)

@@ -18,14 +18,8 @@ import (
 )
 
 func TestGoalSetPersistsGoalAndDeveloperPrompt(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	engine, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{})
 
 	goal, err := engine.SetGoal("ship goal mode", session.GoalActorUser)
 	if err != nil {
@@ -67,20 +61,13 @@ func TestGoalSetPersistsGoalAndDeveloperPrompt(t *testing.T) {
 }
 
 func TestGoalSetEmitsCommittedGoalFeedbackEvent(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	events := make([]Event, 0, 1)
-	engine, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
 		OnEvent: func(evt Event) {
 			events = append(events, evt)
 		},
 	})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
 
 	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
@@ -107,14 +94,8 @@ func TestGoalSetEmitsCommittedGoalFeedbackEvent(t *testing.T) {
 }
 
 func TestGoalStatusAndClearPersistDeveloperPrompts(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	engine, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{})
 	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
@@ -226,38 +207,24 @@ func TestGoalCompleteCompactTextIncludesCookDuration(t *testing.T) {
 }
 
 func TestActiveGoalRequiresAskQuestionBeforeModelTurn(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal}}}}
-	engine, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolExecCommand}})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
+	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolExecCommand}})
 	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
 
-	_, err = engine.runStepLoop(t.Context(), "step-1")
+	_, err := engine.runStepLoop(t.Context(), "step-1")
 	if !errors.Is(err, ErrGoalRequiresAskQuestion) {
 		t.Fatalf("runStepLoop error = %v, want ErrGoalRequiresAskQuestion", err)
 	}
-	if len(client.calls) != 0 {
-		t.Fatalf("model calls = %d, want 0", len(client.calls))
-	}
+	assertModelCallCount(t, client, 0)
 }
 
 func TestActiveGoalAllowsModelTurnWithAskQuestionEnabled(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal}}}}
-	engine, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
+	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
@@ -265,21 +232,13 @@ func TestActiveGoalAllowsModelTurnWithAskQuestionEnabled(t *testing.T) {
 	if _, err := engine.runStepLoop(t.Context(), "step-1"); err != nil {
 		t.Fatalf("runStepLoop: %v", err)
 	}
-	if len(client.calls) != 1 {
-		t.Fatalf("model calls = %d, want 1", len(client.calls))
-	}
+	assertModelCallCount(t, client, 1)
 }
 
 func TestGoalTurnAppendsNudgePromptAndRunsModel(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal}}}}
-	engine, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
+	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
@@ -287,9 +246,7 @@ func TestGoalTurnAppendsNudgePromptAndRunsModel(t *testing.T) {
 	if _, err := engine.runGoalTurn(t.Context(), true); err != nil {
 		t.Fatalf("runGoalTurn: %v", err)
 	}
-	if len(client.calls) != 1 {
-		t.Fatalf("model calls = %d, want 1", len(client.calls))
-	}
+	assertModelCallCount(t, client, 1)
 	events, err := store.ReadEvents()
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
@@ -304,18 +261,12 @@ func TestGoalTurnAppendsNudgePromptAndRunsModel(t *testing.T) {
 }
 
 func TestGoalTurnRejectsNoopFinalWithoutAppendingExtraNudge(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := &fakeClient{responses: []llm.Response{
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "NO_OP", Phase: llm.MessagePhaseFinal}},
-		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "working", Phase: llm.MessagePhaseFinal}},
+		finalTextResponse("NO_OP"),
+		finalTextResponse("working"),
 	}}
-	engine, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
@@ -327,9 +278,7 @@ func TestGoalTurnRejectsNoopFinalWithoutAppendingExtraNudge(t *testing.T) {
 	if msg.Content != "working" {
 		t.Fatalf("assistant content = %q, want working", msg.Content)
 	}
-	if len(client.calls) != 2 {
-		t.Fatalf("model calls = %d, want 2", len(client.calls))
-	}
+	assertModelCallCount(t, client, 2)
 	secondReq := requestMessages(client.calls[1])
 	foundWarning := false
 	for _, reqMsg := range secondReq {
@@ -387,14 +336,8 @@ func TestGoalDeveloperMessageVisibleInOngoingWithDetailPrompt(t *testing.T) {
 }
 
 func TestRecordGoalLoopErrorPersistsOperatorFeedback(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	engine, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
@@ -435,15 +378,9 @@ func TestGoalLoopStopsAfterPauseOrClearDuringActiveTurn(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-			if err != nil {
-				t.Fatalf("create store: %v", err)
-			}
+			store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 			client := newScriptedGoalLoopClient()
-			engine, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-			if err != nil {
-				t.Fatalf("create runtime engine: %v", err)
-			}
+			engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 			if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
 				t.Fatalf("SetGoal: %v", err)
 			}
@@ -465,15 +402,9 @@ func TestGoalLoopStopsAfterPauseOrClearDuringActiveTurn(t *testing.T) {
 }
 
 func TestGoalLoopInterruptSuspendsUntilResumeRestarts(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := newScriptedGoalLoopClient()
-	engine, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	client.beforeReturn = func(call int) {
 		if call == 2 {
 			_, _ = engine.SetGoalStatus(session.GoalStatusComplete, session.GoalActorAgent)
@@ -510,16 +441,10 @@ func TestGoalLoopInterruptSuspendsUntilResumeRestarts(t *testing.T) {
 }
 
 func TestGoalLoopResumeDuringInterruptedTurnDoesNotLaunchDuplicateLoop(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := newScriptedGoalLoopClient()
 	client.ignoreCancelUntilRelease = true
-	engine, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	client.beforeReturn = func(call int) {
 		if call == 2 {
 			_, _ = engine.SetGoalStatus(session.GoalStatusComplete, session.GoalActorAgent)
@@ -554,15 +479,9 @@ func TestGoalLoopResumeDuringInterruptedTurnDoesNotLaunchDuplicateLoop(t *testin
 }
 
 func TestGoalLoopRetriesWhenExclusiveStepIsBusy(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := newScriptedGoalLoopClient()
-	engine, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	baseLifecycle := engine.stepLifecycle
 	attempts := 0
 	engine.stepLifecycle = &stubExclusiveStepLifecycle{runFn: func(ctx context.Context, options exclusiveStepOptions, fn func(stepCtx context.Context, stepID string) error) error {
@@ -600,23 +519,13 @@ func TestGoalLoopRetriesWhenExclusiveStepIsBusy(t *testing.T) {
 }
 
 func TestNewDoesNotRestartPersistedActiveGoalLoop(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	if _, err := store.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
-	reopenedStore, err := session.Open(store.Dir())
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
+	reopenedStore := mustOpenTestSession(t, store.Dir())
 	client := newScriptedGoalLoopClient()
-	engine, err := New(reopenedStore, client, tools.NewRegistry(), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	engine := mustNewTestEngine(t, reopenedStore, client, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	defer func() { _ = engine.Close() }()
 	waitGoalLoopRunning(t, engine, false)
 	if got := client.callCount(); got != 0 {
@@ -634,23 +543,13 @@ func TestNewDoesNotRestartPersistedActiveGoalLoop(t *testing.T) {
 }
 
 func TestNewOpensPersistedActiveGoalWhenAskQuestionDisabled(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	if _, err := store.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
-	reopenedStore, err := session.Open(store.Dir())
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
+	reopenedStore := mustOpenTestSession(t, store.Dir())
 	client := newScriptedGoalLoopClient()
-	engine, err := New(reopenedStore, client, tools.NewRegistry(), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolExecCommand}})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	engine := mustNewTestEngine(t, reopenedStore, client, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolExecCommand}})
 	defer func() { _ = engine.Close() }()
 
 	goal := engine.Goal()

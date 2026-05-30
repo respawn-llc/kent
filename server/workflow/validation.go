@@ -417,48 +417,6 @@ func (s *validationState) validateInputFields(node Node) {
 	}
 }
 
-func (s *validationState) validateOutputRequirements(source Node, edge Edge) {
-	known := nodeOutputFieldSet(source)
-	for _, req := range edge.OutputRequirements {
-		field := strings.TrimSpace(req.FieldName)
-		if field == "" || !known[field] {
-			s.addHard(CodeUnknownOutputRequirement, "output requirement references an unknown source output field", ValidationError{WorkflowID: s.def.ID, NodeID: source.ID, EdgeID: edge.ID})
-		}
-	}
-}
-
-func (s *validationState) validateInputBindings(source Node, edge Edge) {
-	seen := map[string]bool{}
-	outputFields := nodeOutputFieldSet(source)
-	outputFields["commentary"] = true
-	for _, binding := range edge.InputBindings {
-		ref := ValidationError{WorkflowID: s.def.ID, NodeID: source.ID, EdgeID: edge.ID}
-		name := strings.TrimSpace(binding.Name)
-		if name == "" || !validModelKey(name) || len(name) > MaxOutputFieldNameChars || seen[name] {
-			s.addHard(CodeInvalidInputBinding, "input binding name is invalid or duplicated", ref)
-			continue
-		}
-		seen[name] = true
-		field := strings.TrimSpace(binding.Field)
-		switch binding.Source {
-		case BindingSourceTask:
-			if !validTaskBindingField(field) {
-				s.addHard(CodeInvalidInputBinding, "task input binding references unknown field", ref)
-			}
-		case BindingSourceTransitionOutput:
-			if !outputFields[field] {
-				s.addHard(CodeInvalidInputBinding, "transition output binding references unknown field", ref)
-			}
-		case BindingSourceJoin:
-			if field == "" || !validModelKey(field) {
-				s.addHard(CodeInvalidInputBinding, "join input binding field is invalid", ref)
-			}
-		default:
-			s.addHard(CodeInvalidInputBinding, "input binding source is invalid", ref)
-		}
-	}
-}
-
 func (s *validationState) validateGraph() {
 	s.validateKindConstraints()
 	s.validateRuntimeSupport()
@@ -922,15 +880,6 @@ func validModelKey(value string) bool {
 func validContextMode(value ContextMode) bool {
 	switch value {
 	case ContextModeNewSession, ContextModeContinueSession, ContextModeCompactAndContinueSession:
-		return true
-	default:
-		return false
-	}
-}
-
-func validTaskBindingField(field string) bool {
-	switch strings.TrimSpace(field) {
-	case "short_id", "title", "body", "source_url":
 		return true
 	default:
 		return false

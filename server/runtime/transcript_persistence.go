@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"builder/server/llm"
-	"builder/server/tools"
 	"builder/shared/cachewarn"
 	"builder/shared/config"
 	"builder/shared/transcript"
@@ -46,12 +45,6 @@ func (p transcriptPersistenceCoordinator) AppendLocalEntryWithVisibility(role, t
 func (p transcriptPersistenceCoordinator) AppendOngoingDelta(delta string) {
 	if chat := p.chatProjection(); chat != nil {
 		chat.appendOngoingDelta(delta)
-	}
-}
-
-func (p transcriptPersistenceCoordinator) RecordToolCompletion(result tools.Result) {
-	if chat := p.chatProjection(); chat != nil {
-		chat.recordToolCompletion(result)
 	}
 }
 

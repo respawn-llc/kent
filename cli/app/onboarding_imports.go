@@ -46,10 +46,6 @@ type onboardingImportDiscoveryDoneMsg struct {
 	discovery onboardingImportDiscovery
 }
 
-func supportedOnboardingImportProviders() []onboardingImportProvider {
-	return onboardingimportproviders.Supported()
-}
-
 func supportedOnboardingSkillImportProviders() []onboardingImportProvider {
 	return onboardingimportproviders.SkillSupported()
 }
@@ -60,10 +56,6 @@ func supportedOnboardingCommandImportProviders() []onboardingImportProvider {
 
 func onboardingImportProviderByID(providerID onboardingImportProviderID) (onboardingImportProvider, bool) {
 	return onboardingimportproviders.ByID(providerID)
-}
-
-func onboardingImportProviderOrder(providerID onboardingImportProviderID) int {
-	return onboardingimportproviders.Order(providerID)
 }
 
 func onboardingImportProviderLabels(providers []onboardingImportProvider) string {
@@ -334,10 +326,6 @@ func toggleAllOptionTitleForSelection(items []onboardingSkillImportItem, selecti
 	return onboardingimportskills.ToggleAllTitle(items, selection)
 }
 
-func allSkillSelectionItemsSelected(items []onboardingSkillImportItem, selection map[string]bool) bool {
-	return onboardingimportskills.AllSelected(items, selection)
-}
-
 func skillSelectionCandidates(state *onboardingFlowState) []onboardingSkillImportItem {
 	imported := make([]onboardingSkillImportItem, 0)
 	if state.skillImport.Mode == onboardingImportModeSymlinkSource && !state.imports.skipSkills {
@@ -348,10 +336,6 @@ func skillSelectionCandidates(state *onboardingFlowState) []onboardingSkillImpor
 
 func normalizeOnboardingSkillName(raw string) string {
 	return onboardingimportskills.NormalizeName(raw)
-}
-
-func sanitizeOnboardingSkillName(raw string) string {
-	return onboardingimportskills.SanitizeName(raw)
 }
 
 func skillImportSummary(state *onboardingFlowState) string {

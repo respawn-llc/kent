@@ -39,9 +39,7 @@ func workflowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		stderr = io.Discard
 	}
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fs := flag.NewFlagSet("builder workflow", flag.ContinueOnError)
-		fs.SetOutput(stderr)
-		fs.Usage = func() { writeWorkflowUsage(fs) }
+		fs := newCommandFlagSet("builder workflow", stderr, writeWorkflowUsage)
 		fs.Usage()
 		if len(args) == 0 {
 			return 2
@@ -69,23 +67,17 @@ func workflowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return workflowInspectSubcommand(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown workflow command: %s\n\n", args[0])
-		fs := flag.NewFlagSet("builder workflow", flag.ContinueOnError)
-		fs.SetOutput(stderr)
+		fs := newCommandFlagSet("builder workflow", stderr, writeWorkflowUsage)
 		writeWorkflowUsage(fs)
 		return 2
 	}
 }
 
 func workflowCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder workflow create", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeWorkflowCreateUsage(fs) }
+	fs := newCommandFlagSet("builder workflow create", stderr, writeWorkflowCreateUsage)
 	description := fs.String("description", "", "workflow description")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	name := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if name == "" {
@@ -111,14 +103,9 @@ func workflowCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 }
 
 func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder workflow list", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeWorkflowUsage(fs) }
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	fs := newCommandFlagSet("builder workflow list", stderr, writeWorkflowUsage)
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "workflow list does not accept positional arguments")
@@ -148,9 +135,7 @@ func workflowNodeSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 	if len(args) > 0 && args[0] == "update" {
 		return workflowNodeUpdateSubcommand(args[1:], stdout, stderr)
 	}
-	fs := flag.NewFlagSet("builder workflow node", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeWorkflowUsage(fs) }
+	fs := newCommandFlagSet("builder workflow node", stderr, writeWorkflowUsage)
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		fs.Usage()
 		if len(args) == 0 {
@@ -164,20 +149,15 @@ func workflowNodeSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 }
 
 func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder workflow node add", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeWorkflowNodeAddUsage(fs) }
+	fs := newCommandFlagSet("builder workflow node add", stderr, writeWorkflowNodeAddUsage)
 	key := fs.String("key", "", "node model key")
 	kind := fs.String("kind", "", "node kind: start|agent|join|terminal")
 	displayName := fs.String("display-name", "", "node display name")
 	prompt := fs.String("prompt", "", "agent prompt template")
 	agent := fs.String("agent", "", "subagent role for agent nodes")
 	workflowRef, flagArgs := takeLeadingPositionals(args, 1)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	workflowRef = append(workflowRef, fs.Args()...)
 	if len(workflowRef) != 1 {
@@ -215,20 +195,15 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 }
 
 func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder workflow node update", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeWorkflowNodeUpdateUsage(fs) }
+	fs := newCommandFlagSet("builder workflow node update", stderr, writeWorkflowNodeUpdateUsage)
 	key := fs.String("key", "", "node model key")
 	kind := fs.String("kind", "", "node kind: start|agent|join|terminal")
 	displayName := fs.String("display-name", "", "node display name")
 	prompt := fs.String("prompt", "", "agent prompt template")
 	agent := fs.String("agent", "", "subagent role for agent nodes")
 	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 2 {
@@ -296,9 +271,7 @@ func workflowEdgeSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 	if len(args) > 0 && args[0] == "update" {
 		return workflowEdgeUpdateSubcommand(args[1:], stdout, stderr)
 	}
-	fs := flag.NewFlagSet("builder workflow edge", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeWorkflowUsage(fs) }
+	fs := newCommandFlagSet("builder workflow edge", stderr, writeWorkflowUsage)
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		fs.Usage()
 		if len(args) == 0 {
@@ -312,9 +285,7 @@ func workflowEdgeSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 }
 
 func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder workflow edge add", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeWorkflowEdgeAddUsage(fs) }
+	fs := newCommandFlagSet("builder workflow edge add", stderr, writeWorkflowEdgeAddUsage)
 	fromKey := fs.String("from", "", "source node key")
 	transitionID := fs.String("transition", "", "transition id")
 	edgeKey := fs.String("edge-key", "", "edge key")
@@ -323,11 +294,8 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	contextSource := fs.String("context-source", "", "context source: immediate_source|node:<node-key>")
 	requiresApproval := fs.Bool("requires-approval", false, "require approval before target runs")
 	workflowRef, flagArgs := takeLeadingPositionals(args, 1)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	workflowRef = append(workflowRef, fs.Args()...)
 	if len(workflowRef) != 1 {
@@ -395,9 +363,7 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 }
 
 func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder workflow edge update", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeWorkflowEdgeUpdateUsage(fs) }
+	fs := newCommandFlagSet("builder workflow edge update", stderr, writeWorkflowEdgeUpdateUsage)
 	transitionID := fs.String("transition", "", "transition id for the edge's transition group")
 	transitionDisplayName := fs.String("transition-display-name", "", "transition display name")
 	edgeKey := fs.String("edge-key", "", "edge key")
@@ -405,11 +371,8 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	contextMode := fs.String("context", "", "context mode: new_session|continue_session|compact_and_continue_session")
 	contextSource := fs.String("context-source", "", "context source: immediate_source|node:<node-key>")
 	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 2 {
@@ -500,16 +463,11 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 }
 
 func workflowLinkSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder workflow link", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeWorkflowLinkUsage(fs) }
+	fs := newCommandFlagSet("builder workflow link", stderr, writeWorkflowLinkUsage)
 	defaultLink := fs.Bool("default", false, "make workflow project default")
 	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 2 {
@@ -544,15 +502,10 @@ func workflowLinkSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 }
 
 func workflowUnlinkSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder workflow unlink", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeWorkflowUsage(fs) }
+	fs := newCommandFlagSet("builder workflow unlink", stderr, writeWorkflowUsage)
 	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 2 {
@@ -586,15 +539,10 @@ func workflowUnlinkSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 }
 
 func workflowDefaultSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder workflow default", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeWorkflowUsage(fs) }
+	fs := newCommandFlagSet("builder workflow default", stderr, writeWorkflowUsage)
 	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 2 {
@@ -629,17 +577,12 @@ func workflowDefaultSubcommand(args []string, stdout io.Writer, stderr io.Writer
 }
 
 func workflowValidateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder workflow validate", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeWorkflowValidateUsage(fs) }
+	fs := newCommandFlagSet("builder workflow validate", stderr, writeWorkflowValidateUsage)
 	mode := fs.String("mode", string(serverapi.WorkflowValidationModeExecution), "validation mode: draft|task_creation|execution")
 	_ = fs.String("project", "", "reserved project id/path")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 1 {
@@ -675,15 +618,10 @@ func workflowValidateSubcommand(args []string, stdout io.Writer, stderr io.Write
 }
 
 func workflowInspectSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder workflow inspect", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeWorkflowUsage(fs) }
+	fs := newCommandFlagSet("builder workflow inspect", stderr, writeWorkflowUsage)
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 1 {

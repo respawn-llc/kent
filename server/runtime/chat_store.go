@@ -265,28 +265,6 @@ func (s *chatStore) appendLocalEntryRecord(entry ChatEntry) {
 	s.transcriptEntryCount++
 }
 
-func (s *chatStore) appendProjectedEntry(entry ChatEntry) {
-	s.appendProjectedEntryWithMetadata(entry, false)
-}
-
-func (s *chatStore) appendProjectedEntryWithMetadata(entry ChatEntry, marksBoundary bool) {
-	if strings.TrimSpace(entry.Role) == "" {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.appendProjectedEntryLocked(entry, marksBoundary)
-}
-
-func (s *chatStore) appendProjectedHistoryReplacementEntries(entries []ChatEntry) {
-	if len(entries) == 0 {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.appendProjectedHistoryReplacementEntriesLocked(entries)
-}
-
 func (s *chatStore) appendProjectedHistoryReplacementEntriesLocked(entries []ChatEntry) {
 	for idx, entry := range entries {
 		s.appendProjectedEntryLocked(entry, idx == 0)
@@ -425,24 +403,6 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func (s *chatStore) rebuildTranscriptStatsLocked() {
-	s.messageCount = 0
-	s.transcriptEntryCount = 0
-	s.lastCommittedAssistantFinalAnswer = ""
-	s.headlessModeActive = false
-	s.assistantToolCalls = make(map[string]struct{}, len(s.toolCompletions))
-	s.materializedToolResults = make(map[string]struct{}, len(s.toolCompletions))
-	s.synthesizedToolResults = make(map[string]struct{}, len(s.toolCompletions))
-	walker := newResponseItemMessageWalker(func(msg llm.Message) {
-		s.applyMessageStatsLocked(msg)
-	})
-	for _, item := range s.items {
-		walker.Apply(item)
-	}
-	walker.Flush()
-	s.transcriptEntryCount += len(s.local)
 }
 
 func (s *chatStore) applyMessageStatsLocked(msg llm.Message) {
@@ -644,20 +604,6 @@ func (s *chatStore) snapshotWithMetadata() materializedChatSnapshot {
 	}
 }
 
-func (s *chatStore) synthesizedToolResult(call llm.ToolCall, materialized map[string]struct{}) (ChatEntry, bool) {
-	callID := strings.TrimSpace(call.ID)
-	if callID == "" {
-		return ChatEntry{}, false
-	}
-	if _, ok := materialized[callID]; ok {
-		return ChatEntry{}, false
-	}
-	completion, ok := s.toolCompletions[callID]
-	if !ok {
-		return ChatEntry{}, false
-	}
-	return toolResultChatEntry(completion), true
-}
 func (s *chatStore) formatToolCall(call llm.ToolCall) ChatEntry {
 	meta := decodeToolCallMeta(call)
 	text := "tool call"

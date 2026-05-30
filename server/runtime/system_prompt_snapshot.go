@@ -112,10 +112,6 @@ func readSystemPromptTemplate(opts systemPromptSnapshotOptions) (string, string,
 	return "", "", false, nil
 }
 
-func systemPromptPaths(workspaceRoot string) ([]string, error) {
-	return systemPromptPathsWithConfig(systemPromptSnapshotOptions{WorkspaceRoot: workspaceRoot})
-}
-
 func systemPromptPathsWithConfig(opts systemPromptSnapshotOptions) ([]string, error) {
 	paths := make([]string, 0, 2+len(opts.SystemPromptFiles))
 	addPath := func(path string) {

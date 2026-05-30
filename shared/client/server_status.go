@@ -2,27 +2,21 @@ package client
 
 import (
 	"context"
-	"errors"
 
 	"builder/shared/serverapi"
 	"builder/shared/servicecontract"
 )
 
-type ServerStatusClient interface {
-	GetServerReadiness(ctx context.Context, req serverapi.ServerReadinessRequest) (serverapi.ServerReadinessResponse, error)
-}
+type ServerStatusClient = servicecontract.ServerStatusService
 
 type loopbackServerStatusClient struct {
-	service servicecontract.ServerStatusService
+	loopbackClient[servicecontract.ServerStatusService]
 }
 
 func NewLoopbackServerStatusClient(service servicecontract.ServerStatusService) ServerStatusClient {
-	return &loopbackServerStatusClient{service: service}
+	return &loopbackServerStatusClient{loopbackClient: newLoopbackClient(service)}
 }
 
 func (c *loopbackServerStatusClient) GetServerReadiness(ctx context.Context, req serverapi.ServerReadinessRequest) (serverapi.ServerReadinessResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.ServerReadinessResponse{}, errors.New("server status service is required")
-	}
-	return c.service.GetServerReadiness(ctx, req)
+	return callLoopbackClient(c, "server status service is required", ctx, req, servicecontract.ServerStatusService.GetServerReadiness)
 }

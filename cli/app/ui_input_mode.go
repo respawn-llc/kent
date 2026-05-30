@@ -170,7 +170,3 @@ func (mode uiInputMode) showsMainInput() bool {
 func (mode uiInputMode) showsAskInput() bool {
 	return mode == uiInputModeAsk
 }
-
-func (mode uiInputMode) suppressesMainInput() bool {
-	return !mode.showsMainInput() && !mode.showsAskInput()
-}

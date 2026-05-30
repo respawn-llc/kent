@@ -25,10 +25,6 @@ type Remote struct {
 	closed        atomic.Bool
 }
 
-func DialRemote(ctx context.Context, record protocol.DiscoveryRecord) (*Remote, error) {
-	return DialRemoteURL(ctx, record.RPCURL)
-}
-
 func DialRemoteURL(ctx context.Context, rpcURL string) (*Remote, error) {
 	return dialRemoteURL(ctx, rpcURL, "", "", "")
 }
@@ -41,16 +37,8 @@ func DialRemoteURLForProjectWorkspace(ctx context.Context, rpcURL string, projec
 	return dialRemoteURL(ctx, rpcURL, projectID, "", workspaceRoot)
 }
 
-func DialRemoteURLForProjectWorkspaceID(ctx context.Context, rpcURL string, projectID string, workspaceID string) (*Remote, error) {
-	return dialRemoteURL(ctx, rpcURL, projectID, workspaceID, "")
-}
-
 func DialConfiguredRemote(ctx context.Context, cfg config.App) (*Remote, error) {
 	return dialConfiguredRemote(ctx, cfg, "", "", "")
-}
-
-func DialConfiguredRemoteForProject(ctx context.Context, cfg config.App, projectID string) (*Remote, error) {
-	return dialConfiguredRemote(ctx, cfg, projectID, "", "")
 }
 
 func DialConfiguredRemoteForProjectWorkspace(ctx context.Context, cfg config.App, projectID string, workspaceRoot string) (*Remote, error) {
@@ -86,8 +74,7 @@ func (c *Remote) Identity() protocol.ServerIdentity {
 }
 
 func (c *Remote) GetServerReadiness(ctx context.Context, req serverapi.ServerReadinessRequest) (serverapi.ServerReadinessResponse, error) {
-	var resp serverapi.ServerReadinessResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodServerReadinessGet, req, &resp)
+	return callUnscopedRPC[serverapi.ServerReadinessRequest, serverapi.ServerReadinessResponse](c, ctx, protocol.MethodServerReadinessGet, req)
 }
 
 func (c *Remote) ProjectID() string {
@@ -111,299 +98,271 @@ func (c *Remote) WorkspaceID() string {
 	return c.workspaceID
 }
 
+func callUnscopedRPC[Req any, Resp any](c *Remote, ctx context.Context, method string, req Req) (Resp, error) {
+	var resp Resp
+	return resp, c.callUnscoped(ctx, method, req, &resp)
+}
+
+func callUnscopedRPCNoResponse[Req any](c *Remote, ctx context.Context, method string, req Req) error {
+	return c.callUnscoped(ctx, method, req, &struct{}{})
+}
+
+func callControlRPC[Req any, Resp any](c *Remote, ctx context.Context, method string, req Req) (Resp, error) {
+	var resp Resp
+	return resp, c.call(ctx, method, req, &resp)
+}
+
+func callControlRPCNoResponse[Req any](c *Remote, ctx context.Context, method string, req Req) error {
+	return c.call(ctx, method, req, nil)
+}
+
+func callDedicatedRPC[Req any, Resp any](c *Remote, ctx context.Context, requestID string, method string, req Req) (Resp, error) {
+	var resp Resp
+	return resp, c.callDedicated(ctx, requestID, method, req, &resp)
+}
+
+func callDedicatedRPCNoResponse[Req any](c *Remote, ctx context.Context, requestID string, method string, req Req) error {
+	return c.callDedicated(ctx, requestID, method, req, nil)
+}
+
 func (c *Remote) GetAuthBootstrapStatus(ctx context.Context, req serverapi.AuthGetBootstrapStatusRequest) (serverapi.AuthGetBootstrapStatusResponse, error) {
-	var resp serverapi.AuthGetBootstrapStatusResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodAuthGetBootstrapStatus, req, &resp)
+	return callUnscopedRPC[serverapi.AuthGetBootstrapStatusRequest, serverapi.AuthGetBootstrapStatusResponse](c, ctx, protocol.MethodAuthGetBootstrapStatus, req)
 }
 
 func (c *Remote) CompleteAuthBootstrap(ctx context.Context, req serverapi.AuthCompleteBootstrapRequest) (serverapi.AuthCompleteBootstrapResponse, error) {
-	var resp serverapi.AuthCompleteBootstrapResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodAuthCompleteBootstrap, req, &resp)
+	return callUnscopedRPC[serverapi.AuthCompleteBootstrapRequest, serverapi.AuthCompleteBootstrapResponse](c, ctx, protocol.MethodAuthCompleteBootstrap, req)
 }
 
 func (c *Remote) GetAuthStatus(ctx context.Context, req serverapi.AuthStatusRequest) (serverapi.AuthStatusResponse, error) {
-	var resp serverapi.AuthStatusResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodAuthGetStatus, req, &resp)
+	return callUnscopedRPC[serverapi.AuthStatusRequest, serverapi.AuthStatusResponse](c, ctx, protocol.MethodAuthGetStatus, req)
 }
 
 func (c *Remote) ListProjects(ctx context.Context, req serverapi.ProjectListRequest) (serverapi.ProjectListResponse, error) {
-	var resp serverapi.ProjectListResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodProjectList, req, &resp)
+	return callUnscopedRPC[serverapi.ProjectListRequest, serverapi.ProjectListResponse](c, ctx, protocol.MethodProjectList, req)
 }
 
 func (c *Remote) ListProjectHome(ctx context.Context, req serverapi.ProjectHomeListRequest) (serverapi.ProjectHomeListResponse, error) {
-	var resp serverapi.ProjectHomeListResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodProjectHomeList, req, &resp)
+	return callUnscopedRPC[serverapi.ProjectHomeListRequest, serverapi.ProjectHomeListResponse](c, ctx, protocol.MethodProjectHomeList, req)
 }
 
 func (c *Remote) ResolveProjectPath(ctx context.Context, req serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
-	var resp serverapi.ProjectResolvePathResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodProjectResolvePath, req, &resp)
+	return callUnscopedRPC[serverapi.ProjectResolvePathRequest, serverapi.ProjectResolvePathResponse](c, ctx, protocol.MethodProjectResolvePath, req)
 }
 
 func (c *Remote) PlanWorkspaceBinding(ctx context.Context, req serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
-	var resp serverapi.ProjectBindingPlanResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodProjectPlanWorkspaceBinding, req, &resp)
+	return callUnscopedRPC[serverapi.ProjectBindingPlanRequest, serverapi.ProjectBindingPlanResponse](c, ctx, protocol.MethodProjectPlanWorkspaceBinding, req)
 }
 
 func (c *Remote) CreateProject(ctx context.Context, req serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
-	var resp serverapi.ProjectCreateResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodProjectCreate, req, &resp)
+	return callUnscopedRPC[serverapi.ProjectCreateRequest, serverapi.ProjectCreateResponse](c, ctx, protocol.MethodProjectCreate, req)
 }
 
 func (c *Remote) GetProjectEdit(ctx context.Context, req serverapi.ProjectEditGetRequest) (serverapi.ProjectEditGetResponse, error) {
-	var resp serverapi.ProjectEditGetResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodProjectEditGet, req, &resp)
+	return callUnscopedRPC[serverapi.ProjectEditGetRequest, serverapi.ProjectEditGetResponse](c, ctx, protocol.MethodProjectEditGet, req)
 }
 
 func (c *Remote) UpdateProject(ctx context.Context, req serverapi.ProjectUpdateRequest) (serverapi.ProjectUpdateResponse, error) {
-	var resp serverapi.ProjectUpdateResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodProjectUpdate, req, &resp)
+	return callUnscopedRPC[serverapi.ProjectUpdateRequest, serverapi.ProjectUpdateResponse](c, ctx, protocol.MethodProjectUpdate, req)
 }
 
 func (c *Remote) SetDefaultWorkspace(ctx context.Context, req serverapi.ProjectDefaultWorkspaceSetRequest) (serverapi.ProjectDefaultWorkspaceSetResponse, error) {
-	var resp serverapi.ProjectDefaultWorkspaceSetResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodProjectSetDefaultWorkspace, req, &resp)
+	return callUnscopedRPC[serverapi.ProjectDefaultWorkspaceSetRequest, serverapi.ProjectDefaultWorkspaceSetResponse](c, ctx, protocol.MethodProjectSetDefaultWorkspace, req)
 }
 
 func (c *Remote) ListProjectWorkspaces(ctx context.Context, req serverapi.ProjectWorkspaceListRequest) (serverapi.ProjectWorkspaceListResponse, error) {
-	var resp serverapi.ProjectWorkspaceListResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodProjectWorkspaceList, req, &resp)
+	return callUnscopedRPC[serverapi.ProjectWorkspaceListRequest, serverapi.ProjectWorkspaceListResponse](c, ctx, protocol.MethodProjectWorkspaceList, req)
 }
 
 func (c *Remote) UnlinkWorkspaceFromProject(ctx context.Context, req serverapi.ProjectWorkspaceUnlinkRequest) (serverapi.ProjectWorkspaceUnlinkResponse, error) {
-	var resp serverapi.ProjectWorkspaceUnlinkResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodProjectUnlinkWorkspace, req, &resp)
+	return callUnscopedRPC[serverapi.ProjectWorkspaceUnlinkRequest, serverapi.ProjectWorkspaceUnlinkResponse](c, ctx, protocol.MethodProjectUnlinkWorkspace, req)
 }
 
 func (c *Remote) AttachWorkspaceToProject(ctx context.Context, req serverapi.ProjectAttachWorkspaceRequest) (serverapi.ProjectAttachWorkspaceResponse, error) {
-	var resp serverapi.ProjectAttachWorkspaceResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodProjectAttachWorkspace, req, &resp)
+	return callUnscopedRPC[serverapi.ProjectAttachWorkspaceRequest, serverapi.ProjectAttachWorkspaceResponse](c, ctx, protocol.MethodProjectAttachWorkspace, req)
 }
 
 func (c *Remote) RebindWorkspace(ctx context.Context, req serverapi.ProjectRebindWorkspaceRequest) (serverapi.ProjectRebindWorkspaceResponse, error) {
-	var resp serverapi.ProjectRebindWorkspaceResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodProjectRebindWorkspace, req, &resp)
+	return callUnscopedRPC[serverapi.ProjectRebindWorkspaceRequest, serverapi.ProjectRebindWorkspaceResponse](c, ctx, protocol.MethodProjectRebindWorkspace, req)
 }
 
 func (c *Remote) GetProjectOverview(ctx context.Context, req serverapi.ProjectGetOverviewRequest) (serverapi.ProjectGetOverviewResponse, error) {
-	var resp serverapi.ProjectGetOverviewResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodProjectGetOverview, req, &resp)
+	return callUnscopedRPC[serverapi.ProjectGetOverviewRequest, serverapi.ProjectGetOverviewResponse](c, ctx, protocol.MethodProjectGetOverview, req)
 }
 
 func (c *Remote) ListSessionsByProject(ctx context.Context, req serverapi.SessionListByProjectRequest) (serverapi.SessionListByProjectResponse, error) {
-	var resp serverapi.SessionListByProjectResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodSessionListByProject, req, &resp)
+	return callUnscopedRPC[serverapi.SessionListByProjectRequest, serverapi.SessionListByProjectResponse](c, ctx, protocol.MethodSessionListByProject, req)
 }
 
 func (c *Remote) CreateWorkflow(ctx context.Context, req serverapi.WorkflowCreateRequest) (serverapi.WorkflowCreateResponse, error) {
-	var resp serverapi.WorkflowCreateResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowCreate, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowCreateRequest, serverapi.WorkflowCreateResponse](c, ctx, protocol.MethodWorkflowCreate, req)
 }
 
 func (c *Remote) CreateAndLinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowCreateAndLinkProjectRequest) (serverapi.WorkflowCreateAndLinkProjectResponse, error) {
-	var resp serverapi.WorkflowCreateAndLinkProjectResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowCreateAndLinkProject, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowCreateAndLinkProjectRequest, serverapi.WorkflowCreateAndLinkProjectResponse](c, ctx, protocol.MethodWorkflowCreateAndLinkProject, req)
 }
 
 func (c *Remote) UpdateWorkflow(ctx context.Context, req serverapi.WorkflowUpdateRequest) (serverapi.WorkflowGetResponse, error) {
-	var resp serverapi.WorkflowGetResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowUpdate, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowUpdateRequest, serverapi.WorkflowGetResponse](c, ctx, protocol.MethodWorkflowUpdate, req)
 }
 
 func (c *Remote) ListWorkflows(ctx context.Context, req serverapi.WorkflowListRequest) (serverapi.WorkflowListResponse, error) {
-	var resp serverapi.WorkflowListResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowList, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowListRequest, serverapi.WorkflowListResponse](c, ctx, protocol.MethodWorkflowList, req)
 }
 
 func (c *Remote) GetWorkflow(ctx context.Context, req serverapi.WorkflowGetRequest) (serverapi.WorkflowGetResponse, error) {
-	var resp serverapi.WorkflowGetResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowGet, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowGetRequest, serverapi.WorkflowGetResponse](c, ctx, protocol.MethodWorkflowGet, req)
 }
 
 func (c *Remote) AddWorkflowNodeGroup(ctx context.Context, req serverapi.WorkflowNodeGroupAddRequest) (serverapi.WorkflowNodeGroupResponse, error) {
-	var resp serverapi.WorkflowNodeGroupResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowNodeGroupAdd, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowNodeGroupAddRequest, serverapi.WorkflowNodeGroupResponse](c, ctx, protocol.MethodWorkflowNodeGroupAdd, req)
 }
 
 func (c *Remote) UpdateWorkflowNodeGroup(ctx context.Context, req serverapi.WorkflowNodeGroupUpdateRequest) (serverapi.WorkflowNodeGroupResponse, error) {
-	var resp serverapi.WorkflowNodeGroupResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowNodeGroupUpdate, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowNodeGroupUpdateRequest, serverapi.WorkflowNodeGroupResponse](c, ctx, protocol.MethodWorkflowNodeGroupUpdate, req)
 }
 
 func (c *Remote) DeleteWorkflowNodeGroup(ctx context.Context, req serverapi.WorkflowNodeGroupDeleteRequest) error {
-	return c.callUnscoped(ctx, protocol.MethodWorkflowNodeGroupDelete, req, &struct{}{})
+	return callUnscopedRPCNoResponse[serverapi.WorkflowNodeGroupDeleteRequest](c, ctx, protocol.MethodWorkflowNodeGroupDelete, req)
 }
 
 func (c *Remote) AddWorkflowNode(ctx context.Context, req serverapi.WorkflowNodeAddRequest) (serverapi.WorkflowNodeAddResponse, error) {
-	var resp serverapi.WorkflowNodeAddResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowAddNode, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowNodeAddRequest, serverapi.WorkflowNodeAddResponse](c, ctx, protocol.MethodWorkflowAddNode, req)
 }
 
 func (c *Remote) UpdateWorkflowNode(ctx context.Context, req serverapi.WorkflowNodeUpdateRequest) (serverapi.WorkflowNodeUpdateResponse, error) {
-	var resp serverapi.WorkflowNodeUpdateResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowUpdateNode, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowNodeUpdateRequest, serverapi.WorkflowNodeUpdateResponse](c, ctx, protocol.MethodWorkflowUpdateNode, req)
 }
 
 func (c *Remote) AddWorkflowTransitionGroup(ctx context.Context, req serverapi.WorkflowTransitionGroupAddRequest) (serverapi.WorkflowTransitionGroupAddResponse, error) {
-	var resp serverapi.WorkflowTransitionGroupAddResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowAddTransitionGroup, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowTransitionGroupAddRequest, serverapi.WorkflowTransitionGroupAddResponse](c, ctx, protocol.MethodWorkflowAddTransitionGroup, req)
 }
 
 func (c *Remote) UpdateWorkflowTransitionGroup(ctx context.Context, req serverapi.WorkflowTransitionGroupUpdateRequest) (serverapi.WorkflowTransitionGroupUpdateResponse, error) {
-	var resp serverapi.WorkflowTransitionGroupUpdateResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowUpdateTransitionGroup, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowTransitionGroupUpdateRequest, serverapi.WorkflowTransitionGroupUpdateResponse](c, ctx, protocol.MethodWorkflowUpdateTransitionGroup, req)
 }
 
 func (c *Remote) AddWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdgeAddRequest) (serverapi.WorkflowEdgeAddResponse, error) {
-	var resp serverapi.WorkflowEdgeAddResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowAddEdge, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowEdgeAddRequest, serverapi.WorkflowEdgeAddResponse](c, ctx, protocol.MethodWorkflowAddEdge, req)
 }
 
 func (c *Remote) UpdateWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdgeUpdateRequest) (serverapi.WorkflowEdgeUpdateResponse, error) {
-	var resp serverapi.WorkflowEdgeUpdateResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowUpdateEdge, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowEdgeUpdateRequest, serverapi.WorkflowEdgeUpdateResponse](c, ctx, protocol.MethodWorkflowUpdateEdge, req)
 }
 
 func (c *Remote) LinkWorkflowToProject(ctx context.Context, req serverapi.WorkflowLinkProjectRequest) (serverapi.WorkflowLinkProjectResponse, error) {
-	var resp serverapi.WorkflowLinkProjectResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowLinkProject, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowLinkProjectRequest, serverapi.WorkflowLinkProjectResponse](c, ctx, protocol.MethodWorkflowLinkProject, req)
 }
 
 func (c *Remote) ListProjectWorkflowLinks(ctx context.Context, req serverapi.WorkflowListProjectLinksRequest) (serverapi.WorkflowListProjectLinksResponse, error) {
-	var resp serverapi.WorkflowListProjectLinksResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowListProjectLinks, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowListProjectLinksRequest, serverapi.WorkflowListProjectLinksResponse](c, ctx, protocol.MethodWorkflowListProjectLinks, req)
 }
 
 func (c *Remote) SetDefaultProjectWorkflowLink(ctx context.Context, req serverapi.WorkflowSetDefaultProjectLinkRequest) (serverapi.WorkflowSetDefaultProjectLinkResponse, error) {
-	var resp serverapi.WorkflowSetDefaultProjectLinkResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowSetDefaultProjectLink, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowSetDefaultProjectLinkRequest, serverapi.WorkflowSetDefaultProjectLinkResponse](c, ctx, protocol.MethodWorkflowSetDefaultProjectLink, req)
 }
 
 func (c *Remote) UnlinkWorkflowFromProject(ctx context.Context, req serverapi.WorkflowUnlinkProjectRequest) (serverapi.WorkflowUnlinkProjectResponse, error) {
-	var resp serverapi.WorkflowUnlinkProjectResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowUnlinkProject, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowUnlinkProjectRequest, serverapi.WorkflowUnlinkProjectResponse](c, ctx, protocol.MethodWorkflowUnlinkProject, req)
 }
 
 func (c *Remote) PreviewWorkflowDelete(ctx context.Context, req serverapi.WorkflowDeletePreviewRequest) (serverapi.WorkflowDeletePreviewResponse, error) {
-	var resp serverapi.WorkflowDeletePreviewResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowDeletePreview, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowDeletePreviewRequest, serverapi.WorkflowDeletePreviewResponse](c, ctx, protocol.MethodWorkflowDeletePreview, req)
 }
 
 func (c *Remote) DeleteWorkflow(ctx context.Context, req serverapi.WorkflowDeleteRequest) (serverapi.WorkflowDeleteResponse, error) {
-	var resp serverapi.WorkflowDeleteResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowDelete, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowDeleteRequest, serverapi.WorkflowDeleteResponse](c, ctx, protocol.MethodWorkflowDelete, req)
 }
 
 func (c *Remote) ValidateWorkflow(ctx context.Context, req serverapi.WorkflowValidateRequest) (serverapi.WorkflowValidateResponse, error) {
-	var resp serverapi.WorkflowValidateResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowValidate, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowValidateRequest, serverapi.WorkflowValidateResponse](c, ctx, protocol.MethodWorkflowValidate, req)
 }
 
 func (c *Remote) ValidateWorkflowGraphDraft(ctx context.Context, req serverapi.WorkflowGraphValidateDraftRequest) (serverapi.WorkflowGraphValidateDraftResponse, error) {
-	var resp serverapi.WorkflowGraphValidateDraftResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowGraphValidateDraft, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowGraphValidateDraftRequest, serverapi.WorkflowGraphValidateDraftResponse](c, ctx, protocol.MethodWorkflowGraphValidateDraft, req)
 }
 
 func (c *Remote) PreviewWorkflowGraphSave(ctx context.Context, req serverapi.WorkflowGraphSavePreviewRequest) (serverapi.WorkflowGraphSavePreviewResponse, error) {
-	var resp serverapi.WorkflowGraphSavePreviewResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowGraphSavePreview, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowGraphSavePreviewRequest, serverapi.WorkflowGraphSavePreviewResponse](c, ctx, protocol.MethodWorkflowGraphSavePreview, req)
 }
 
 func (c *Remote) SaveWorkflowGraph(ctx context.Context, req serverapi.WorkflowGraphSaveRequest) (serverapi.WorkflowGraphSaveResponse, error) {
-	var resp serverapi.WorkflowGraphSaveResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowGraphSave, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowGraphSaveRequest, serverapi.WorkflowGraphSaveResponse](c, ctx, protocol.MethodWorkflowGraphSave, req)
 }
 
 func (c *Remote) CreateWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCreateRequest) (serverapi.WorkflowTaskCreateResponse, error) {
-	var resp serverapi.WorkflowTaskCreateResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskCreate, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowTaskCreateRequest, serverapi.WorkflowTaskCreateResponse](c, ctx, protocol.MethodWorkflowTaskCreate, req)
 }
 
 func (c *Remote) UpdateWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskUpdateRequest) (serverapi.WorkflowTaskUpdateResponse, error) {
-	var resp serverapi.WorkflowTaskUpdateResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskUpdate, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowTaskUpdateRequest, serverapi.WorkflowTaskUpdateResponse](c, ctx, protocol.MethodWorkflowTaskUpdate, req)
 }
 
 func (c *Remote) StartWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskStartRequest) (serverapi.WorkflowTaskStartResponse, error) {
-	var resp serverapi.WorkflowTaskStartResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskStart, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowTaskStartRequest, serverapi.WorkflowTaskStartResponse](c, ctx, protocol.MethodWorkflowTaskStart, req)
 }
 
 func (c *Remote) InterruptWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskInterruptRequest) (serverapi.WorkflowTaskInterruptResponse, error) {
-	var resp serverapi.WorkflowTaskInterruptResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskInterrupt, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowTaskInterruptRequest, serverapi.WorkflowTaskInterruptResponse](c, ctx, protocol.MethodWorkflowTaskInterrupt, req)
 }
 
 func (c *Remote) ResumeWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskResumeRequest) (serverapi.WorkflowTaskResumeResponse, error) {
-	var resp serverapi.WorkflowTaskResumeResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskResume, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowTaskResumeRequest, serverapi.WorkflowTaskResumeResponse](c, ctx, protocol.MethodWorkflowTaskResume, req)
 }
 
 func (c *Remote) ApproveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskApproveRequest) (serverapi.WorkflowTaskApproveResponse, error) {
-	var resp serverapi.WorkflowTaskApproveResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskApprove, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowTaskApproveRequest, serverapi.WorkflowTaskApproveResponse](c, ctx, protocol.MethodWorkflowTaskApprove, req)
 }
 
 func (c *Remote) MoveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskMoveRequest) (serverapi.WorkflowTaskMoveResponse, error) {
-	var resp serverapi.WorkflowTaskMoveResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskMove, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowTaskMoveRequest, serverapi.WorkflowTaskMoveResponse](c, ctx, protocol.MethodWorkflowTaskMove, req)
 }
 
 func (c *Remote) CancelWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskCancelRequest) error {
-	return c.callUnscoped(ctx, protocol.MethodWorkflowTaskCancel, req, &struct{}{})
+	return callUnscopedRPCNoResponse[serverapi.WorkflowTaskCancelRequest](c, ctx, protocol.MethodWorkflowTaskCancel, req)
 }
 
 func (c *Remote) ListWorkflowAttention(ctx context.Context, req serverapi.WorkflowAttentionListRequest) (serverapi.WorkflowAttentionListResponse, error) {
-	var resp serverapi.WorkflowAttentionListResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowAttentionList, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowAttentionListRequest, serverapi.WorkflowAttentionListResponse](c, ctx, protocol.MethodWorkflowAttentionList, req)
 }
 
 func (c *Remote) ListWorkflowTaskAttention(ctx context.Context, req serverapi.WorkflowTaskAttentionListRequest) (serverapi.WorkflowTaskAttentionListResponse, error) {
-	var resp serverapi.WorkflowTaskAttentionListResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskAttentionList, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowTaskAttentionListRequest, serverapi.WorkflowTaskAttentionListResponse](c, ctx, protocol.MethodWorkflowTaskAttentionList, req)
 }
 
 func (c *Remote) AnswerWorkflowTaskQuestion(ctx context.Context, req serverapi.WorkflowTaskQuestionAnswerRequest) error {
-	return c.callUnscoped(ctx, protocol.MethodWorkflowTaskQuestionAnswer, req, &struct{}{})
+	return callUnscopedRPCNoResponse[serverapi.WorkflowTaskQuestionAnswerRequest](c, ctx, protocol.MethodWorkflowTaskQuestionAnswer, req)
 }
 
 func (c *Remote) AddWorkflowTaskComment(ctx context.Context, req serverapi.WorkflowTaskCommentAddRequest) (serverapi.WorkflowTaskCommentAddResponse, error) {
-	var resp serverapi.WorkflowTaskCommentAddResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskCommentAdd, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowTaskCommentAddRequest, serverapi.WorkflowTaskCommentAddResponse](c, ctx, protocol.MethodWorkflowTaskCommentAdd, req)
 }
 
 func (c *Remote) ListWorkflowTaskComments(ctx context.Context, req serverapi.WorkflowTaskCommentListRequest) (serverapi.WorkflowTaskCommentListResponse, error) {
-	var resp serverapi.WorkflowTaskCommentListResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskCommentList, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowTaskCommentListRequest, serverapi.WorkflowTaskCommentListResponse](c, ctx, protocol.MethodWorkflowTaskCommentList, req)
 }
 
 func (c *Remote) ReplaceWorkflowTaskComment(ctx context.Context, req serverapi.WorkflowTaskCommentReplaceRequest) error {
-	return c.callUnscoped(ctx, protocol.MethodWorkflowTaskCommentReplace, req, &struct{}{})
+	return callUnscopedRPCNoResponse[serverapi.WorkflowTaskCommentReplaceRequest](c, ctx, protocol.MethodWorkflowTaskCommentReplace, req)
 }
 
 func (c *Remote) DeleteWorkflowTaskComment(ctx context.Context, req serverapi.WorkflowTaskCommentDeleteRequest) error {
-	return c.callUnscoped(ctx, protocol.MethodWorkflowTaskCommentDelete, req, &struct{}{})
+	return callUnscopedRPCNoResponse[serverapi.WorkflowTaskCommentDeleteRequest](c, ctx, protocol.MethodWorkflowTaskCommentDelete, req)
 }
 
 func (c *Remote) ListWorkflowTaskActivity(ctx context.Context, req serverapi.WorkflowTaskActivityListRequest) (serverapi.WorkflowTaskActivityListResponse, error) {
-	var resp serverapi.WorkflowTaskActivityListResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskActivityList, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowTaskActivityListRequest, serverapi.WorkflowTaskActivityListResponse](c, ctx, protocol.MethodWorkflowTaskActivityList, req)
 }
 
 func (c *Remote) GetWorkflowBoard(ctx context.Context, req serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
-	var resp serverapi.WorkflowBoardResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowBoardGet, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowBoardRequest, serverapi.WorkflowBoardResponse](c, ctx, protocol.MethodWorkflowBoardGet, req)
 }
 
 func (c *Remote) ListWorkflowBoardNodeCards(ctx context.Context, req serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error) {
-	var resp serverapi.WorkflowBoardNodeCardsListResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowBoardNodeCardsList, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowBoardNodeCardsListRequest, serverapi.WorkflowBoardNodeCardsListResponse](c, ctx, protocol.MethodWorkflowBoardNodeCardsList, req)
 }
 
 func (c *Remote) GetWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
-	var resp serverapi.WorkflowTaskGetResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodWorkflowTaskGet, req, &resp)
+	return callUnscopedRPC[serverapi.WorkflowTaskGetRequest, serverapi.WorkflowTaskGetResponse](c, ctx, protocol.MethodWorkflowTaskGet, req)
 }
 
 func (c *Remote) PlanSession(ctx context.Context, req serverapi.SessionPlanRequest) (serverapi.SessionPlanResponse, error) {
@@ -437,8 +396,7 @@ func (c *Remote) PersistInputDraft(ctx context.Context, req serverapi.SessionPer
 }
 
 func (c *Remote) RetargetSessionWorkspace(ctx context.Context, req serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
-	var resp serverapi.SessionRetargetWorkspaceResponse
-	return resp, c.callUnscoped(ctx, protocol.MethodSessionRetargetWorkspace, req, &resp)
+	return callUnscopedRPC[serverapi.SessionRetargetWorkspaceRequest, serverapi.SessionRetargetWorkspaceResponse](c, ctx, protocol.MethodSessionRetargetWorkspace, req)
 }
 
 func (c *Remote) ResolveTransition(ctx context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
@@ -487,115 +445,99 @@ func (c *Remote) ReleaseSessionRuntime(ctx context.Context, req serverapi.Sessio
 }
 
 func (c *Remote) SetSessionName(ctx context.Context, req serverapi.RuntimeSetSessionNameRequest) error {
-	return c.call(ctx, protocol.MethodRuntimeSetSessionName, req, nil)
+	return callControlRPCNoResponse(c, ctx, protocol.MethodRuntimeSetSessionName, req)
 }
 
 func (c *Remote) SetThinkingLevel(ctx context.Context, req serverapi.RuntimeSetThinkingLevelRequest) error {
-	return c.call(ctx, protocol.MethodRuntimeSetThinkingLevel, req, nil)
+	return callControlRPCNoResponse(c, ctx, protocol.MethodRuntimeSetThinkingLevel, req)
 }
 
 func (c *Remote) SetFastModeEnabled(ctx context.Context, req serverapi.RuntimeSetFastModeEnabledRequest) (serverapi.RuntimeSetFastModeEnabledResponse, error) {
-	var resp serverapi.RuntimeSetFastModeEnabledResponse
-	return resp, c.call(ctx, protocol.MethodRuntimeSetFastModeEnabled, req, &resp)
+	return callControlRPC[serverapi.RuntimeSetFastModeEnabledRequest, serverapi.RuntimeSetFastModeEnabledResponse](c, ctx, protocol.MethodRuntimeSetFastModeEnabled, req)
 }
 
 func (c *Remote) SetReviewerEnabled(ctx context.Context, req serverapi.RuntimeSetReviewerEnabledRequest) (serverapi.RuntimeSetReviewerEnabledResponse, error) {
-	var resp serverapi.RuntimeSetReviewerEnabledResponse
-	return resp, c.call(ctx, protocol.MethodRuntimeSetReviewerEnabled, req, &resp)
+	return callControlRPC[serverapi.RuntimeSetReviewerEnabledRequest, serverapi.RuntimeSetReviewerEnabledResponse](c, ctx, protocol.MethodRuntimeSetReviewerEnabled, req)
 }
 
 func (c *Remote) SetAutoCompactionEnabled(ctx context.Context, req serverapi.RuntimeSetAutoCompactionEnabledRequest) (serverapi.RuntimeSetAutoCompactionEnabledResponse, error) {
-	var resp serverapi.RuntimeSetAutoCompactionEnabledResponse
-	return resp, c.call(ctx, protocol.MethodRuntimeSetAutoCompactionEnabled, req, &resp)
+	return callControlRPC[serverapi.RuntimeSetAutoCompactionEnabledRequest, serverapi.RuntimeSetAutoCompactionEnabledResponse](c, ctx, protocol.MethodRuntimeSetAutoCompactionEnabled, req)
 }
 
 func (c *Remote) AppendLocalEntry(ctx context.Context, req serverapi.RuntimeAppendLocalEntryRequest) error {
-	return c.call(ctx, protocol.MethodRuntimeAppendLocalEntry, req, nil)
+	return callControlRPCNoResponse(c, ctx, protocol.MethodRuntimeAppendLocalEntry, req)
 }
 
 func (c *Remote) ShouldCompactBeforeUserMessage(ctx context.Context, req serverapi.RuntimeShouldCompactBeforeUserMessageRequest) (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error) {
-	var resp serverapi.RuntimeShouldCompactBeforeUserMessageResponse
-	return resp, c.call(ctx, protocol.MethodRuntimeShouldCompactBeforeUserMessage, req, &resp)
+	return callControlRPC[serverapi.RuntimeShouldCompactBeforeUserMessageRequest, serverapi.RuntimeShouldCompactBeforeUserMessageResponse](c, ctx, protocol.MethodRuntimeShouldCompactBeforeUserMessage, req)
 }
 
 func (c *Remote) SubmitUserMessage(ctx context.Context, req serverapi.RuntimeSubmitUserMessageRequest) (serverapi.RuntimeSubmitUserMessageResponse, error) {
-	var resp serverapi.RuntimeSubmitUserMessageResponse
-	return resp, c.callDedicated(ctx, "runtime-submit-user-message", protocol.MethodRuntimeSubmitUserMessage, req, &resp)
+	return callDedicatedRPC[serverapi.RuntimeSubmitUserMessageRequest, serverapi.RuntimeSubmitUserMessageResponse](c, ctx, "runtime-submit-user-message", protocol.MethodRuntimeSubmitUserMessage, req)
 }
 
 func (c *Remote) SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
-	var resp serverapi.RuntimeSubmitUserTurnResponse
-	return resp, c.callDedicated(ctx, "runtime-submit-user-turn", protocol.MethodRuntimeSubmitUserTurn, req, &resp)
+	return callDedicatedRPC[serverapi.RuntimeSubmitUserTurnRequest, serverapi.RuntimeSubmitUserTurnResponse](c, ctx, "runtime-submit-user-turn", protocol.MethodRuntimeSubmitUserTurn, req)
 }
 
 func (c *Remote) SubmitUserShellCommand(ctx context.Context, req serverapi.RuntimeSubmitUserShellCommandRequest) error {
-	return c.callDedicated(ctx, "runtime-submit-user-shell-command", protocol.MethodRuntimeSubmitUserShellCommand, req, nil)
+	return callDedicatedRPCNoResponse(c, ctx, "runtime-submit-user-shell-command", protocol.MethodRuntimeSubmitUserShellCommand, req)
 }
 
 func (c *Remote) CompactContext(ctx context.Context, req serverapi.RuntimeCompactContextRequest) error {
-	return c.callDedicated(ctx, "runtime-compact-context", protocol.MethodRuntimeCompactContext, req, nil)
+	return callDedicatedRPCNoResponse(c, ctx, "runtime-compact-context", protocol.MethodRuntimeCompactContext, req)
 }
 
 func (c *Remote) CompactContextForPreSubmit(ctx context.Context, req serverapi.RuntimeCompactContextForPreSubmitRequest) error {
-	return c.callDedicated(ctx, "runtime-compact-context-pre-submit", protocol.MethodRuntimeCompactContextForPreSubmit, req, nil)
+	return callDedicatedRPCNoResponse(c, ctx, "runtime-compact-context-pre-submit", protocol.MethodRuntimeCompactContextForPreSubmit, req)
 }
 
 func (c *Remote) HasQueuedUserWork(ctx context.Context, req serverapi.RuntimeHasQueuedUserWorkRequest) (serverapi.RuntimeHasQueuedUserWorkResponse, error) {
-	var resp serverapi.RuntimeHasQueuedUserWorkResponse
-	return resp, c.call(ctx, protocol.MethodRuntimeHasQueuedUserWork, req, &resp)
+	return callControlRPC[serverapi.RuntimeHasQueuedUserWorkRequest, serverapi.RuntimeHasQueuedUserWorkResponse](c, ctx, protocol.MethodRuntimeHasQueuedUserWork, req)
 }
 
 func (c *Remote) SubmitQueuedUserMessages(ctx context.Context, req serverapi.RuntimeSubmitQueuedUserMessagesRequest) (serverapi.RuntimeSubmitQueuedUserMessagesResponse, error) {
-	var resp serverapi.RuntimeSubmitQueuedUserMessagesResponse
-	return resp, c.callDedicated(ctx, "runtime-submit-queued-user-messages", protocol.MethodRuntimeSubmitQueuedUserMessages, req, &resp)
+	return callDedicatedRPC[serverapi.RuntimeSubmitQueuedUserMessagesRequest, serverapi.RuntimeSubmitQueuedUserMessagesResponse](c, ctx, "runtime-submit-queued-user-messages", protocol.MethodRuntimeSubmitQueuedUserMessages, req)
 }
 
 func (c *Remote) Interrupt(ctx context.Context, req serverapi.RuntimeInterruptRequest) error {
-	return c.callDedicated(ctx, "runtime-interrupt", protocol.MethodRuntimeInterrupt, req, nil)
+	return callDedicatedRPCNoResponse(c, ctx, "runtime-interrupt", protocol.MethodRuntimeInterrupt, req)
 }
 
 func (c *Remote) QueueUserMessage(ctx context.Context, req serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error) {
-	var resp serverapi.RuntimeQueueUserMessageResponse
-	return resp, c.call(ctx, protocol.MethodRuntimeQueueUserMessage, req, &resp)
+	return callControlRPC[serverapi.RuntimeQueueUserMessageRequest, serverapi.RuntimeQueueUserMessageResponse](c, ctx, protocol.MethodRuntimeQueueUserMessage, req)
 }
 
 func (c *Remote) DiscardQueuedUserMessage(ctx context.Context, req serverapi.RuntimeDiscardQueuedUserMessageRequest) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
-	var resp serverapi.RuntimeDiscardQueuedUserMessageResponse
-	return resp, c.call(ctx, protocol.MethodRuntimeDiscardQueuedUserMessage, req, &resp)
+	return callControlRPC[serverapi.RuntimeDiscardQueuedUserMessageRequest, serverapi.RuntimeDiscardQueuedUserMessageResponse](c, ctx, protocol.MethodRuntimeDiscardQueuedUserMessage, req)
 }
 
 func (c *Remote) RecordPromptHistory(ctx context.Context, req serverapi.RuntimeRecordPromptHistoryRequest) error {
-	return c.call(ctx, protocol.MethodRuntimeRecordPromptHistory, req, nil)
+	return callControlRPCNoResponse(c, ctx, protocol.MethodRuntimeRecordPromptHistory, req)
 }
 
 func (c *Remote) ShowGoal(ctx context.Context, req serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	var resp serverapi.RuntimeGoalShowResponse
-	return resp, c.call(ctx, protocol.MethodRuntimeGoalShow, req, &resp)
+	return callControlRPC[serverapi.RuntimeGoalShowRequest, serverapi.RuntimeGoalShowResponse](c, ctx, protocol.MethodRuntimeGoalShow, req)
 }
 
 func (c *Remote) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	var resp serverapi.RuntimeGoalShowResponse
-	return resp, c.call(ctx, protocol.MethodRuntimeGoalSet, req, &resp)
+	return callControlRPC[serverapi.RuntimeGoalSetRequest, serverapi.RuntimeGoalShowResponse](c, ctx, protocol.MethodRuntimeGoalSet, req)
 }
 
 func (c *Remote) PauseGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	var resp serverapi.RuntimeGoalShowResponse
-	return resp, c.call(ctx, protocol.MethodRuntimeGoalPause, req, &resp)
+	return callControlRPC[serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalShowResponse](c, ctx, protocol.MethodRuntimeGoalPause, req)
 }
 
 func (c *Remote) ResumeGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	var resp serverapi.RuntimeGoalShowResponse
-	return resp, c.call(ctx, protocol.MethodRuntimeGoalResume, req, &resp)
+	return callControlRPC[serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalShowResponse](c, ctx, protocol.MethodRuntimeGoalResume, req)
 }
 
 func (c *Remote) CompleteGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	var resp serverapi.RuntimeGoalShowResponse
-	return resp, c.call(ctx, protocol.MethodRuntimeGoalComplete, req, &resp)
+	return callControlRPC[serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalShowResponse](c, ctx, protocol.MethodRuntimeGoalComplete, req)
 }
 
 func (c *Remote) ClearGoal(ctx context.Context, req serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalShowResponse, error) {
-	var resp serverapi.RuntimeGoalShowResponse
-	return resp, c.call(ctx, protocol.MethodRuntimeGoalClear, req, &resp)
+	return callControlRPC[serverapi.RuntimeGoalClearRequest, serverapi.RuntimeGoalShowResponse](c, ctx, protocol.MethodRuntimeGoalClear, req)
 }
 
 func (c *Remote) ListProcesses(ctx context.Context, req serverapi.ProcessListRequest) (serverapi.ProcessListResponse, error) {

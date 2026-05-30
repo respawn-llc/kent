@@ -239,149 +239,82 @@ func validateGoalActor(actor string) error {
 	}
 }
 
+func validateRuntimeControllerRequest(clientRequestID string, sessionID string, controllerLeaseID string) error {
+	if err := validateClientRequestID(clientRequestID); err != nil {
+		return err
+	}
+	if err := validateRuntimeSessionID(sessionID); err != nil {
+		return err
+	}
+	return validateControllerLeaseID(controllerLeaseID)
+}
+
+func validateRuntimeGoalActionRequest(clientRequestID string, sessionID string, actor string) error {
+	if err := validateClientRequestID(clientRequestID); err != nil {
+		return err
+	}
+	if err := validateRuntimeSessionID(sessionID); err != nil {
+		return err
+	}
+	return validateGoalActor(actor)
+}
+
 func (r RuntimeSetSessionNameRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeSetThinkingLevelRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeSetFastModeEnabledRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeSetReviewerEnabledRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeSetAutoCompactionEnabledRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeAppendLocalEntryRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
+	if err := validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID); err != nil {
 		return err
 	}
 	if visibility := transcript.NormalizeEntryVisibility(transcript.EntryVisibility(r.Visibility)); visibility != "" && visibility != transcript.EntryVisibilityAll && visibility != transcript.EntryVisibilityDetailOnly {
 		return errors.New("visibility must be all or detail_only")
 	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return nil
 }
 func (r RuntimeShouldCompactBeforeUserMessageRequest) Validate() error {
 	return validateRuntimeSessionID(r.SessionID)
 }
 func (r RuntimeSubmitUserMessageRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeSubmitUserTurnRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeSubmitUserShellCommandRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeCompactContextRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeCompactContextForPreSubmitRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeHasQueuedUserWorkRequest) Validate() error {
 	return validateRuntimeSessionID(r.SessionID)
 }
 func (r RuntimeSubmitQueuedUserMessagesRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeInterruptRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeQueueUserMessageRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeDiscardQueuedUserMessageRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	if err := validateControllerLeaseID(r.ControllerLeaseID); err != nil {
+	if err := validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID); err != nil {
 		return err
 	}
 	if strings.TrimSpace(r.QueueItemID) == "" {
@@ -390,13 +323,7 @@ func (r RuntimeDiscardQueuedUserMessageRequest) Validate() error {
 	return nil
 }
 func (r RuntimeRecordPromptHistoryRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateControllerLeaseID(r.ControllerLeaseID)
+	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeGoalShowRequest) Validate() error {
 	return validateRuntimeSessionID(r.SessionID)
@@ -414,20 +341,8 @@ func (r RuntimeGoalSetRequest) Validate() error {
 	return validateGoalActor(r.Actor)
 }
 func (r RuntimeGoalStatusRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateGoalActor(r.Actor)
+	return validateRuntimeGoalActionRequest(r.ClientRequestID, r.SessionID, r.Actor)
 }
 func (r RuntimeGoalClearRequest) Validate() error {
-	if err := validateClientRequestID(r.ClientRequestID); err != nil {
-		return err
-	}
-	if err := validateRuntimeSessionID(r.SessionID); err != nil {
-		return err
-	}
-	return validateGoalActor(r.Actor)
+	return validateRuntimeGoalActionRequest(r.ClientRequestID, r.SessionID, r.Actor)
 }

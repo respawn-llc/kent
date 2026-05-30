@@ -47,14 +47,6 @@ func (t *HTTPTransport) buildRequestOptions(authHeader string, mode openAIAuthMo
 	return opts
 }
 
-func (t *HTTPTransport) errorProviderID(mode openAIAuthMode) (string, error) {
-	variant, err := t.providerVariantForMode(mode)
-	if err != nil {
-		return "", err
-	}
-	return variant.ProviderID, nil
-}
-
 func (t *HTTPTransport) resolveContextWindowFallback(ctx context.Context, model string) int {
 	if t.ContextWindowTokens > 0 {
 		return t.ContextWindowTokens

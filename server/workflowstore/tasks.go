@@ -352,17 +352,7 @@ func (s *Store) StartTask(ctx context.Context, taskID workflow.TaskID) (StartTas
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
-	updatedStart, err := tx.ExecContext(ctx, `
-UPDATE task_node_placements
-SET state = ?, updated_at_unix_ms = ?
-WHERE id = ?
-  AND state = 'active'
-  AND task_id IN (
-      SELECT id
-      FROM tasks
-      WHERE id = ?
-        AND canceled_at_unix_ms = 0
-  )`, "completed", now, prepared.startPlacement.ID, string(taskID))
+	updatedStart, err := tx.ExecContext(ctx, workflowStoreQuery(startTaskCompleteStartPlacementQuery), "completed", now, prepared.startPlacement.ID, string(taskID))
 	if err != nil {
 		return StartTaskResult{}, err
 	}
@@ -540,16 +530,7 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
-	updatedRun, err := tx.ExecContext(ctx, `
-UPDATE task_runs
-SET
-    updated_at_unix_ms = ?,
-    completed_at_unix_ms = ?,
-    waiting_ask_id = ''
-WHERE id = ?
-  AND run_generation = ?
-  AND completed_at_unix_ms = 0
-  AND interrupted_at_unix_ms = 0`,
+	updatedRun, err := tx.ExecContext(ctx, workflowStoreQuery(completeRunUpdateRunQuery),
 		now,
 		now,
 		run.ID,

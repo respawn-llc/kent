@@ -4,17 +4,14 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	_ "embed"
 )
 
 const managedRGConfigName = "rg.conf"
 
-const managedRGConfigContents = `# Builder-managed ripgrep defaults.
-# User-editable. Builder only creates this file when missing.
---heading
---line-number
---max-columns=200
---max-columns-preview
-`
+//go:embed rg.conf
+var managedRGConfigContents string
 
 func ResolveManagedRGConfigPath() (string, error) {
 	settingsPath, err := resolveSettingsFilePath()

@@ -17,20 +17,13 @@ import (
 
 func TestCompactionCacheObservationRequestAppendsPromptToConversationReplica(t *testing.T) {
 	seedContent := "seed \x1b[31mansi\x1b[0m"
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
@@ -92,11 +85,7 @@ func TestCompactionCacheObservationRequestAppendsPromptToConversationReplica(t *
 }
 
 func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndWarnsOnCacheBreak(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		inputTokenCountFn: func(req llm.Request) int {
@@ -128,13 +117,10 @@ func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndWarnsOnCacheBreak(t
 		}},
 	}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:               "gpt-5",
 		ContextWindowTokens: 2500,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
@@ -242,11 +228,7 @@ func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndWarnsOnCacheBreak(t
 }
 
 func TestRemoteCompactionDoesNotRepairUnsupportedViewImagePayload(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		inputTokenCountFn: func(req llm.Request) int {
@@ -271,13 +253,10 @@ func TestRemoteCompactionDoesNotRepairUnsupportedViewImagePayload(t *testing.T) 
 		},
 	}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolViewImage}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolViewImage}), Config{
 		Model:               "gpt-5",
 		ContextWindowTokens: 2500,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
@@ -328,11 +307,7 @@ func TestRemoteCompactionDoesNotRepairUnsupportedViewImagePayload(t *testing.T) 
 }
 
 func TestRemoteCompactionFailsFastWhenOverflowHasNoCollapsibleToolPayload(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		compactionErrors: []error{
@@ -347,13 +322,10 @@ func TestRemoteCompactionFailsFastWhenOverflowHasNoCollapsibleToolPayload(t *tes
 		}},
 	}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:               "gpt-5",
 		ContextWindowTokens: 2500,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
@@ -403,11 +375,7 @@ func viewImageProviderUnitPresence(items []llm.ResponseItem, callID string) (boo
 func TestCompactionTransientRetryObservesCacheLineageOnce(t *testing.T) {
 	withCompactionRetryDelays(t, []time.Duration{time.Millisecond})
 
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		compactionErrors: []error{errors.New("temporary upstream failure"), nil},
@@ -420,10 +388,7 @@ func TestCompactionTransientRetryObservesCacheLineageOnce(t *testing.T) {
 		}},
 	}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}

@@ -125,16 +125,17 @@ func blockAnchorMatches(content, old string) []rangeMatch {
 }
 
 func whitespaceNormalizedMatches(content, old string) []rangeMatch {
-	want := normalizeWhitespace(old)
-	return lineWindowMatches(content, old, func(actual, expected string) bool {
-		return normalizeWhitespace(actual) == want
-	})
+	return normalizedLineWindowMatches(content, old, normalizeWhitespace)
 }
 
 func indentFlexibleMatches(content, old string) []rangeMatch {
-	want := stripCommonIndent(old)
+	return normalizedLineWindowMatches(content, old, stripCommonIndent)
+}
+
+func normalizedLineWindowMatches(content string, old string, normalize func(string) string) []rangeMatch {
+	want := normalize(old)
 	return lineWindowMatches(content, old, func(actual, expected string) bool {
-		return stripCommonIndent(actual) == want
+		return normalize(actual) == want
 	})
 }
 

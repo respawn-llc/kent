@@ -175,14 +175,6 @@ func (m *uiModel) restorePromptHistoryDraft() {
 	m.resetPromptHistoryNavigation()
 }
 
-func (m *uiModel) restorePromptHistoryDraftAfterReuse() bool {
-	if !m.hasPromptHistoryDraft() {
-		return false
-	}
-	m.restorePromptHistoryDraft()
-	return true
-}
-
 func (m *uiModel) capturePromptHistoryDraftForReuse() (string, int, bool) {
 	if !m.hasPromptHistoryDraft() {
 		return "", -1, false

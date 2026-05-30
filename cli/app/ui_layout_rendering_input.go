@@ -131,10 +131,6 @@ func (l uiViewLayout) wrappedMainInputLines(width int) []string {
 	return wrappedEditableInputLines(width, l.mainInputRenderSpec())
 }
 
-func (l uiViewLayout) visibleMainInputLines(width int) []string {
-	return visibleEditableInputLines(width, inputContentLineLimit(l.effectiveHeight()), l.mainInputRenderSpec())
-}
-
 func (l uiViewLayout) wrappedAskPromptLines(width int) ([]wrappedAskPromptLine, int) {
 	promptLines := l.model.renderAskPromptLines()
 	if len(promptLines) == 0 {

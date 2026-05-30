@@ -6,12 +6,13 @@ import (
 	sharedtheme "builder/shared/theme"
 	"builder/shared/transcript"
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	xansi "github.com/charmbracelet/x/ansi"
 	"strings"
 	"testing"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	xansi "github.com/charmbracelet/x/ansi"
 )
 
 func stripANSIText(v string) string {
@@ -841,36 +842,6 @@ func TestRenderNativeScrollbackSnapshotPreservesToolCallFormatting(t *testing.T)
 	if !strings.Contains(plain, "hi") {
 		t.Fatalf("expected tool result preserved, got %q", out)
 	}
-}
-
-func renderNativeScrollbackSnapshotLegacy(entries []tui.TranscriptEntry, theme string, width int) string {
-	if len(entries) == 0 {
-		return ""
-	}
-	if width <= 0 {
-		width = 120
-	}
-	tuiModel := tui.NewModel(tui.WithTheme(theme), tui.WithPreviewLines(200000))
-	next, _ := tuiModel.Update(tui.SetViewportSizeMsg{Lines: 200000, Width: width})
-	if casted, ok := next.(tui.Model); ok {
-		tuiModel = casted
-	}
-	for _, entry := range entries {
-		if strings.TrimSpace(entry.Text) == "" {
-			continue
-		}
-		next, _ = tuiModel.Update(tui.AppendTranscriptMsg{
-			Role:       entry.Role,
-			Text:       entry.Text,
-			Phase:      entry.Phase,
-			ToolCallID: entry.ToolCallID,
-			ToolCall:   entry.ToolCall,
-		})
-		if casted, ok := next.(tui.Model); ok {
-			tuiModel = casted
-		}
-	}
-	return styleNativeReplayDividers(tuiModel.OngoingCommittedSnapshot(), theme, width)
 }
 
 func TestStyleNativeReplayDividersKeepsRawRuleLikeLinesAsContent(t *testing.T) {

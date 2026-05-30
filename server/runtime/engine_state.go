@@ -489,16 +489,8 @@ func (e *Engine) restorePersistedUsageState(state *session.UsageState) {
 	)
 }
 
-func normalizeUsageForTracking(usage llm.Usage) llm.Usage {
-	return normalizeUsageForTrackingState(usage)
-}
-
 func normalizePersistedUsageState(state session.UsageState) session.UsageState {
 	return normalizePersistedUsageTrackingState(state)
-}
-
-func nextUsageTotals(totalInputTokens, totalCachedInputTokens int, usage llm.Usage) (int, int) {
-	return nextUsageTrackingTotals(totalInputTokens, totalCachedInputTokens, usage)
 }
 
 func (e *Engine) nextUsageTrackingState(usage llm.Usage) (llm.Usage, int, int) {

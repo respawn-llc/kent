@@ -8,33 +8,23 @@ import (
 	"builder/cli/app/internal/submissionerror"
 	"builder/server/llm"
 	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
 	"builder/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestCompactDoneResumesQueuedSteeringAsNewTurn(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	client := &requestCaptureFakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "resumed"},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 	projectedEvents := make(chan clientui.Event, 32)
-	eng, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{
+	_, eng := newAppRuntimeEngine(t, client, runtime.Config{
 		Model: "gpt-5",
 		OnEvent: func(evt runtime.Event) {
 			projectedEvents <- projectRuntimeEvent(evt)
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	m := NewProjectedUIModel(newUIRuntimeClient(eng), projectedEvents, make(chan askEvent)).(*uiModel)
 	m.setBusy(true)
@@ -122,15 +112,7 @@ func TestCompactDoneResumesQueuedSteeringAsNewTurn(t *testing.T) {
 }
 
 func TestInterruptedResumedQueuedSteeringRestoresInput(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := runtime.New(store, &requestCaptureFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, &requestCaptureFakeClient{}, runtime.Config{})
 
 	m := newProjectedEngineUIModel(eng)
 	m.setBusy(true)

@@ -13,11 +13,11 @@ import (
 	"builder/shared/transcript/toolcodec"
 	"context"
 	"errors"
-	tea "github.com/charmbracelet/bubbletea"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestApplyRuntimeEventReductionInvalidLifecycleKeepsSideEffectsAndReturnsStatusCommand(t *testing.T) {
@@ -686,22 +686,6 @@ func TestRuntimeEventBatchDoesNotSequenceNativeFlushBehindTransientStatusTimer(t
 	}
 	if !timerFound {
 		t.Fatal("expected second sequence item to keep the transient-status timer batched after native history flush")
-	}
-}
-
-func immediateCmdMsg(cmd tea.Cmd, timeout time.Duration) (tea.Msg, bool) {
-	if cmd == nil {
-		return nil, false
-	}
-	ch := make(chan tea.Msg, 1)
-	go func() {
-		ch <- cmd()
-	}()
-	select {
-	case msg := <-ch:
-		return msg, true
-	case <-time.After(timeout):
-		return nil, false
 	}
 }
 

@@ -14,38 +14,14 @@ import (
 )
 
 func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(250 * time.Millisecond))
-	if err != nil {
-		t.Fatalf("new manager: %v", err)
-	}
-	t.Cleanup(func() { _ = manager.Close() })
-
-	workspace := t.TempDir()
-	tool := shelltool.NewExecCommandTool(workspace, 16_000, manager, "session-1")
-	input, err := json.Marshal(map[string]any{
-		"cmd":           "printf 'working\n'; sleep 1",
-		"yield_time_ms": 250,
-	})
-	if err != nil {
-		t.Fatalf("marshal input: %v", err)
-	}
-	result, err := tool.Call(context.Background(), tools.Call{
-		ID:     "call-1",
-		Name:   toolspec.ToolExecCommand,
-		Input:  input,
-		RunID:  "run-1",
-		StepID: "step-1",
-	})
-	if err != nil {
-		t.Fatalf("tool call: %v", err)
-	}
+	fixture := newProcessViewFixture(t)
+	result := fixture.startCommand(t, "call-1", "printf 'working\n'; sleep 1", "run-1", "step-1")
 	if result.IsError {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
 
-	svc := NewService(manager)
 	waitForProcessSnapshot(t, 2*time.Second, func() (shelltool.Snapshot, bool) {
-		entries := manager.List()
+		entries := fixture.manager.List()
 		if len(entries) != 1 {
 			return shelltool.Snapshot{}, false
 		}
@@ -55,7 +31,7 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 		}
 		return process, true
 	})
-	resp, err := svc.ListProcesses(context.Background(), serverapi.ProcessListRequest{OwnerSessionID: "session-1", OwnerRunID: "run-1"})
+	resp, err := fixture.service.ListProcesses(context.Background(), serverapi.ProcessListRequest{OwnerSessionID: "session-1", OwnerRunID: "run-1"})
 	if err != nil {
 		t.Fatalf("ListProcesses: %v", err)
 	}
@@ -73,7 +49,7 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 		t.Fatalf("expected retained output metadata, got %+v", process)
 	}
 
-	got, err := svc.GetProcess(context.Background(), serverapi.ProcessGetRequest{ProcessID: process.ID})
+	got, err := fixture.service.GetProcess(context.Background(), serverapi.ProcessGetRequest{ProcessID: process.ID})
 	if err != nil {
 		t.Fatalf("GetProcess: %v", err)
 	}
@@ -85,7 +61,14 @@ func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {
 	}
 }
 
-func TestServiceListProcessesFiltersByOwnerRunID(t *testing.T) {
+type processViewFixture struct {
+	manager *shelltool.Manager
+	tool    tools.Handler
+	service *Service
+}
+
+func newProcessViewFixture(t *testing.T) processViewFixture {
+	t.Helper()
 	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(250 * time.Millisecond))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
@@ -94,23 +77,40 @@ func TestServiceListProcessesFiltersByOwnerRunID(t *testing.T) {
 
 	workspace := t.TempDir()
 	tool := shelltool.NewExecCommandTool(workspace, 16_000, manager, "session-1")
+	return processViewFixture{manager: manager, tool: tool, service: NewService(manager)}
+}
+
+func (f processViewFixture) startCommand(t *testing.T, id string, command string, runID string, stepID string) tools.Result {
+	t.Helper()
+	input, err := json.Marshal(map[string]any{
+		"cmd":           command,
+		"yield_time_ms": 250,
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	result, err := f.tool.Call(context.Background(), tools.Call{
+		ID:     id,
+		Name:   toolspec.ToolExecCommand,
+		Input:  input,
+		RunID:  runID,
+		StepID: stepID,
+	})
+	if err != nil {
+		t.Fatalf("tool call: %v", err)
+	}
+	return result
+}
+
+func TestServiceListProcessesFiltersByOwnerRunID(t *testing.T) {
+	fixture := newProcessViewFixture(t)
 	for _, runID := range []string{"run-a", "run-b"} {
-		input, marshalErr := json.Marshal(map[string]any{
-			"cmd":           "sleep 1",
-			"yield_time_ms": 250,
-		})
-		if marshalErr != nil {
-			t.Fatalf("marshal input: %v", marshalErr)
-		}
-		if _, err := tool.Call(context.Background(), tools.Call{ID: runID, Name: toolspec.ToolExecCommand, Input: input, RunID: runID, StepID: runID + "-step"}); err != nil {
-			t.Fatalf("tool call for %s: %v", runID, err)
-		}
+		fixture.startCommand(t, runID, "sleep 1", runID, runID+"-step")
 	}
 
-	waitForProcessCount(t, manager, 2)
+	waitForProcessCount(t, fixture.manager, 2)
 
-	svc := NewService(manager)
-	resp, err := svc.ListProcesses(context.Background(), serverapi.ProcessListRequest{OwnerRunID: "run-b"})
+	resp, err := fixture.service.ListProcesses(context.Background(), serverapi.ProcessListRequest{OwnerRunID: "run-b"})
 	if err != nil {
 		t.Fatalf("ListProcesses: %v", err)
 	}
@@ -120,36 +120,18 @@ func TestServiceListProcessesFiltersByOwnerRunID(t *testing.T) {
 }
 
 func TestServiceGetInlineOutputReturnsManagerPreview(t *testing.T) {
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(250 * time.Millisecond))
-	if err != nil {
-		t.Fatalf("new manager: %v", err)
-	}
-	t.Cleanup(func() { _ = manager.Close() })
-
-	workspace := t.TempDir()
-	tool := shelltool.NewExecCommandTool(workspace, 16_000, manager, "session-1")
-	input, err := json.Marshal(map[string]any{
-		"cmd":           "printf 'inline-preview\n'; sleep 1",
-		"yield_time_ms": 250,
-	})
-	if err != nil {
-		t.Fatalf("marshal input: %v", err)
-	}
-	result, err := tool.Call(context.Background(), tools.Call{ID: "call-inline", Name: toolspec.ToolExecCommand, Input: input, RunID: "run-1", StepID: "step-1"})
-	if err != nil {
-		t.Fatalf("tool call: %v", err)
-	}
+	fixture := newProcessViewFixture(t)
+	result := fixture.startCommand(t, "call-inline", "printf 'inline-preview\n'; sleep 1", "run-1", "step-1")
 	if result.IsError {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
 
-	svc := NewService(manager)
 	waitForInlineOutput(t, 2*time.Second, func() (serverapi.ProcessInlineOutputResponse, error) {
-		return svc.GetInlineOutput(context.Background(), serverapi.ProcessInlineOutputRequest{ProcessID: "1000", MaxChars: 12_000})
+		return fixture.service.GetInlineOutput(context.Background(), serverapi.ProcessInlineOutputRequest{ProcessID: "1000", MaxChars: 12_000})
 	}, func(resp serverapi.ProcessInlineOutputResponse) bool {
 		return resp.LogPath != "" && strings.Contains(resp.Output, "inline-preview")
 	})
-	resp, err := svc.GetInlineOutput(context.Background(), serverapi.ProcessInlineOutputRequest{ProcessID: "1000", MaxChars: 12_000})
+	resp, err := fixture.service.GetInlineOutput(context.Background(), serverapi.ProcessInlineOutputRequest{ProcessID: "1000", MaxChars: 12_000})
 	if err != nil {
 		t.Fatalf("GetInlineOutput: %v", err)
 	}
@@ -159,45 +141,21 @@ func TestServiceGetInlineOutputReturnsManagerPreview(t *testing.T) {
 }
 
 func TestServiceKillProcessSignalsManagerEntry(t *testing.T) {
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(250 * time.Millisecond))
-	if err != nil {
-		t.Fatalf("new manager: %v", err)
-	}
-	t.Cleanup(func() { _ = manager.Close() })
-
-	workspace := t.TempDir()
-	tool := shelltool.NewExecCommandTool(workspace, 16_000, manager, "session-1")
-	input, err := json.Marshal(map[string]any{
-		"cmd":           "sleep 30",
-		"yield_time_ms": 250,
-	})
-	if err != nil {
-		t.Fatalf("marshal input: %v", err)
-	}
-	result, err := tool.Call(context.Background(), tools.Call{ID: "call-kill", Name: toolspec.ToolExecCommand, Input: input, RunID: "run-1", StepID: "step-1"})
-	if err != nil {
-		t.Fatalf("tool call: %v", err)
-	}
+	fixture := newProcessViewFixture(t)
+	result := fixture.startCommand(t, "call-kill", "sleep 30", "run-1", "step-1")
 	if result.IsError {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
 
-	svc := NewService(manager)
-	if _, err := svc.KillProcess(context.Background(), serverapi.ProcessKillRequest{ClientRequestID: "req-kill-1", ProcessID: "1000"}); err != nil {
+	if _, err := fixture.service.KillProcess(context.Background(), serverapi.ProcessKillRequest{ClientRequestID: "req-kill-1", ProcessID: "1000"}); err != nil {
 		t.Fatalf("KillProcess: %v", err)
 	}
-	waitForProcessKilled(t, manager, "1000")
+	waitForProcessKilled(t, fixture.manager, "1000")
 }
 
 func TestServiceKillProcessRequiresClientRequestID(t *testing.T) {
-	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(250 * time.Millisecond))
-	if err != nil {
-		t.Fatalf("new manager: %v", err)
-	}
-	t.Cleanup(func() { _ = manager.Close() })
-
-	svc := NewService(manager)
-	if _, err := svc.KillProcess(context.Background(), serverapi.ProcessKillRequest{ProcessID: "1000"}); err == nil {
+	fixture := newProcessViewFixture(t)
+	if _, err := fixture.service.KillProcess(context.Background(), serverapi.ProcessKillRequest{ProcessID: "1000"}); err == nil {
 		t.Fatal("expected KillProcess to require client_request_id")
 	}
 }

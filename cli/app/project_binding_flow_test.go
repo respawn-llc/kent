@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"builder/server/metadata"
-	"builder/server/projectview"
 	"builder/shared/client"
 	"builder/shared/clientui"
 	"builder/shared/config"
@@ -21,27 +20,15 @@ import (
 )
 
 func TestEnsureInteractiveProjectBindingBindsRegisteredWorkspaceWithoutPrompt(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	service, err := projectview.NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	projectViewClient := newAppMetadataProjectViewClient(t, cfg)
 
 	originalPicker := runProjectBindingPickerFlow
 	originalPrompt := runProjectNamePromptFlow
@@ -61,7 +48,7 @@ func TestEnsureInteractiveProjectBindingBindsRegisteredWorkspaceWithoutPrompt(t 
 	server := &testEmbeddedServer{
 		cfg:               cfg,
 		containerDir:      config.ProjectSessionsRoot(cfg, binding.ProjectID),
-		projectViewClient: client.NewLoopbackProjectViewClient(service),
+		projectViewClient: projectViewClient,
 	}
 
 	bound, err := ensureInteractiveProjectBinding(context.Background(), server)
@@ -130,35 +117,19 @@ func TestProjectWorkspacePickerMouseWheelScrolls(t *testing.T) {
 }
 
 func TestEnsureInteractiveProjectBindingTreatsNestedDirectoryAsUnknownWorkspace(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
 	nested := filepath.Join(workspace, "subdir")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatalf("MkdirAll nested: %v", err)
 	}
-	t.Setenv("HOME", home)
-
-	baseCfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load workspace: %v", err)
-	}
-	nestedCfg, err := config.Load(nested, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load nested: %v", err)
-	}
-	_, err = metadata.RegisterBinding(context.Background(), baseCfg.PersistenceRoot, baseCfg.WorkspaceRoot)
+	baseCfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	nestedCfg := loadAppTestConfig(t, nested, config.LoadOptions{})
+	_, err := metadata.RegisterBinding(context.Background(), baseCfg.PersistenceRoot, baseCfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	store, err := metadata.Open(baseCfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	service, err := projectview.NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	projectViewClient := newAppMetadataProjectViewClient(t, baseCfg)
 
 	originalPicker := runProjectBindingPickerFlow
 	originalPrompt := runProjectNamePromptFlow
@@ -182,7 +153,7 @@ func TestEnsureInteractiveProjectBindingTreatsNestedDirectoryAsUnknownWorkspace(
 	server := &testEmbeddedServer{
 		cfg:               nestedCfg,
 		containerDir:      config.ProjectSessionsRoot(nestedCfg, "project-placeholder"),
-		projectViewClient: client.NewLoopbackProjectViewClient(service),
+		projectViewClient: projectViewClient,
 	}
 
 	bound, err := ensureInteractiveProjectBinding(context.Background(), server)
@@ -206,23 +177,11 @@ func TestEnsureInteractiveProjectBindingTreatsNestedDirectoryAsUnknownWorkspace(
 }
 
 func TestEnsureInteractiveProjectBindingCreatesProjectForUnknownWorkspace(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	service, err := projectview.NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	projectViewClient := newAppMetadataProjectViewClient(t, cfg)
 
 	originalPicker := runProjectBindingPickerFlow
 	originalPrompt := runProjectNamePromptFlow
@@ -246,7 +205,7 @@ func TestEnsureInteractiveProjectBindingCreatesProjectForUnknownWorkspace(t *tes
 	server := &testEmbeddedServer{
 		cfg:               cfg,
 		containerDir:      config.ProjectSessionsRoot(cfg, "project-placeholder"),
-		projectViewClient: client.NewLoopbackProjectViewClient(service),
+		projectViewClient: projectViewClient,
 	}
 
 	bound, err := ensureInteractiveProjectBinding(context.Background(), server)
@@ -269,14 +228,10 @@ func TestEnsureInteractiveProjectBindingCreatesProjectForUnknownWorkspace(t *tes
 }
 
 func TestEnsureInteractiveProjectBindingUsesServerBrowsingForMissingServerPath(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	service := projectBindingFlowStubProjectViewService{
 		resolveResp: serverapi.ProjectResolvePathResponse{
 			CanonicalRoot:    cfg.WorkspaceRoot,
@@ -344,14 +299,10 @@ func TestEnsureInteractiveProjectBindingUsesServerBrowsingForMissingServerPath(t
 }
 
 func TestEnsureInteractiveProjectBindingRebindsSameProjectToResolvedWorkspace(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	service := projectBindingFlowStubProjectViewService{
 		resolveResp: serverapi.ProjectResolvePathResponse{
 			CanonicalRoot: cfg.WorkspaceRoot,
@@ -388,33 +339,18 @@ func TestEnsureInteractiveProjectBindingRebindsSameProjectToResolvedWorkspace(t 
 }
 
 func TestEnsureInteractiveProjectBindingAttachesUnknownWorkspaceToExistingProject(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
-	t.Setenv("HOME", home)
 
-	cfgA, err := config.Load(workspaceA, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load A: %v", err)
-	}
+	cfgA := loadAppTestConfig(t, workspaceA, config.LoadOptions{})
 	bindingA, err := metadata.RegisterBinding(context.Background(), cfgA.PersistenceRoot, cfgA.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding A: %v", err)
 	}
 
-	cfgB, err := config.Load(workspaceB, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load B: %v", err)
-	}
-	store, err := metadata.Open(cfgB.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	service, err := projectview.NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	cfgB := loadAppTestConfig(t, workspaceB, config.LoadOptions{})
+	projectViewClient := newAppMetadataProjectViewClient(t, cfgB)
 
 	originalPicker := runProjectBindingPickerFlow
 	originalPrompt := runProjectNamePromptFlow
@@ -437,7 +373,7 @@ func TestEnsureInteractiveProjectBindingAttachesUnknownWorkspaceToExistingProjec
 	server := &testEmbeddedServer{
 		cfg:               cfgB,
 		containerDir:      config.ProjectSessionsRoot(cfgB, bindingA.ProjectID),
-		projectViewClient: client.NewLoopbackProjectViewClient(service),
+		projectViewClient: projectViewClient,
 	}
 
 	bound, err := ensureInteractiveProjectBinding(context.Background(), server)
@@ -457,23 +393,11 @@ func TestEnsureInteractiveProjectBindingAttachesUnknownWorkspaceToExistingProjec
 }
 
 func TestEnsureInteractiveProjectBindingFormatsMissingSelectedProjectError(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	service, err := projectview.NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	projectViewClient := newAppMetadataProjectViewClient(t, cfg)
 
 	originalPicker := runProjectBindingPickerFlow
 	originalPrompt := runProjectNamePromptFlow
@@ -493,10 +417,10 @@ func TestEnsureInteractiveProjectBindingFormatsMissingSelectedProjectError(t *te
 	server := &testEmbeddedServer{
 		cfg:               cfg,
 		containerDir:      config.ProjectSessionsRoot(cfg, "project-placeholder"),
-		projectViewClient: client.NewLoopbackProjectViewClient(service),
+		projectViewClient: projectViewClient,
 	}
 
-	_, err = ensureInteractiveProjectBinding(context.Background(), server)
+	_, err := ensureInteractiveProjectBinding(context.Background(), server)
 	if !errors.Is(err, serverapi.ErrProjectNotFound) {
 		t.Fatalf("ensureInteractiveProjectBinding error = %v, want ErrProjectNotFound", err)
 	}
@@ -506,23 +430,11 @@ func TestEnsureInteractiveProjectBindingFormatsMissingSelectedProjectError(t *te
 }
 
 func TestEnsureInteractiveProjectBindingReturnsCancelWhenPickerAborts(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	service, err := projectview.NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	projectViewClient := newAppMetadataProjectViewClient(t, cfg)
 
 	originalPicker := runProjectBindingPickerFlow
 	originalPrompt := runProjectNamePromptFlow
@@ -541,7 +453,7 @@ func TestEnsureInteractiveProjectBindingReturnsCancelWhenPickerAborts(t *testing
 	server := &testEmbeddedServer{
 		cfg:               cfg,
 		containerDir:      config.ProjectSessionsRoot(cfg, "project-placeholder"),
-		projectViewClient: client.NewLoopbackProjectViewClient(service),
+		projectViewClient: projectViewClient,
 	}
 
 	if _, err := ensureInteractiveProjectBinding(context.Background(), server); err == nil || !strings.Contains(err.Error(), "startup canceled by user") {
@@ -553,23 +465,11 @@ func TestEnsureInteractiveProjectBindingReturnsCancelWhenPickerAborts(t *testing
 }
 
 func TestEnsureInteractiveProjectBindingReturnsCancelWhenProjectNamingAborts(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	service, err := projectview.NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	projectViewClient := newAppMetadataProjectViewClient(t, cfg)
 
 	originalPicker := runProjectBindingPickerFlow
 	originalPrompt := runProjectNamePromptFlow
@@ -587,7 +487,7 @@ func TestEnsureInteractiveProjectBindingReturnsCancelWhenProjectNamingAborts(t *
 	server := &testEmbeddedServer{
 		cfg:               cfg,
 		containerDir:      config.ProjectSessionsRoot(cfg, "project-placeholder"),
-		projectViewClient: client.NewLoopbackProjectViewClient(service),
+		projectViewClient: projectViewClient,
 	}
 
 	if _, err := ensureInteractiveProjectBinding(context.Background(), server); !errors.Is(err, context.Canceled) {
@@ -599,14 +499,10 @@ func TestEnsureInteractiveProjectBindingReturnsCancelWhenProjectNamingAborts(t *
 }
 
 func TestEnsureInteractiveServerBrowsingBindingUsesConfiguredServerPickerNotice(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	service := projectBindingFlowStubProjectViewService{
 		listProjectsResp: serverapi.ProjectListResponse{Projects: []clientui.ProjectSummary{{
 			ProjectID:   "project-1",
@@ -666,33 +562,21 @@ func TestEnsureInteractiveServerBrowsingBindingUsesConfiguredServerPickerNotice(
 }
 
 func TestEnsureInteractiveProjectBindingFormatsMissingBoundProjectError(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	service, err := projectview.NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	projectViewClient := newAppMetadataProjectViewClient(t, cfg)
 
 	server := &failingBindProjectServer{
 		testEmbeddedServer: &testEmbeddedServer{
 			cfg:               cfg,
 			containerDir:      config.ProjectSessionsRoot(cfg, binding.ProjectID),
-			projectViewClient: client.NewLoopbackProjectViewClient(service),
+			projectViewClient: projectViewClient,
 		},
 		bindErr: fmt.Errorf("bind project: %w", serverapi.ErrProjectNotFound),
 	}
@@ -707,33 +591,21 @@ func TestEnsureInteractiveProjectBindingFormatsMissingBoundProjectError(t *testi
 }
 
 func TestEnsureInteractiveProjectBindingFormatsUnavailableBoundProjectError(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	service, err := projectview.NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	projectViewClient := newAppMetadataProjectViewClient(t, cfg)
 
 	server := &failingBindProjectServer{
 		testEmbeddedServer: &testEmbeddedServer{
 			cfg:               cfg,
 			containerDir:      config.ProjectSessionsRoot(cfg, binding.ProjectID),
-			projectViewClient: client.NewLoopbackProjectViewClient(service),
+			projectViewClient: projectViewClient,
 		},
 		bindErr: serverapi.ProjectUnavailableError{ProjectID: binding.ProjectID, RootPath: cfg.WorkspaceRoot, Availability: clientui.ProjectAvailabilityMissing},
 	}
@@ -748,33 +620,21 @@ func TestEnsureInteractiveProjectBindingFormatsUnavailableBoundProjectError(t *t
 }
 
 func TestEnsureInteractiveProjectBindingFormatsInaccessibleBoundProjectError(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	service, err := projectview.NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	projectViewClient := newAppMetadataProjectViewClient(t, cfg)
 
 	server := &failingBindProjectServer{
 		testEmbeddedServer: &testEmbeddedServer{
 			cfg:               cfg,
 			containerDir:      config.ProjectSessionsRoot(cfg, binding.ProjectID),
-			projectViewClient: client.NewLoopbackProjectViewClient(service),
+			projectViewClient: projectViewClient,
 		},
 		bindErr: serverapi.ProjectUnavailableError{ProjectID: binding.ProjectID, RootPath: cfg.WorkspaceRoot, Availability: clientui.ProjectAvailabilityInaccessible},
 	}

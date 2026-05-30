@@ -50,9 +50,8 @@ func TestSkillSelectionCandidatesAnnotateOpponentSource(t *testing.T) {
 }
 
 func TestDiscoverOnboardingImportsSkipsExistingTargets(t *testing.T) {
-	home := t.TempDir()
+	newAppTestHome(t)
 	globalRoot := t.TempDir()
-	t.Setenv("HOME", home)
 	if err := os.MkdirAll(filepath.Join(globalRoot, "skills", "existing-skill"), 0o755); err != nil {
 		t.Fatalf("mkdir skills: %v", err)
 	}
@@ -75,9 +74,8 @@ func TestDiscoverOnboardingImportsSkipsExistingTargets(t *testing.T) {
 }
 
 func TestDiscoverOnboardingImportsIncludesAgentsSkillsAndCommands(t *testing.T) {
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	globalRoot := t.TempDir()
-	t.Setenv("HOME", home)
 	agentsSkillsDir := filepath.Join(home, ".agents", "skills")
 	writeOnboardingTestSkill(t, filepath.Join(agentsSkillsDir, "demo-skill"), "demo", "from agents")
 	agentsCommandsDir := filepath.Join(home, ".agents", "commands")
@@ -177,9 +175,8 @@ func TestDiscoverProviderCommandSymlinkItemsFallBackToPromptsWhenCommandsHasNoDi
 }
 
 func TestExecuteSkillImportSymlinksRootDirectory(t *testing.T) {
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	globalRoot := t.TempDir()
-	t.Setenv("HOME", home)
 	sourceDir := filepath.Join(home, ".codex", "skills", "local")
 	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
 		t.Fatalf("mkdir source: %v", err)
@@ -205,9 +202,8 @@ func TestExecuteSkillImportSymlinksRootDirectory(t *testing.T) {
 }
 
 func TestExecuteSkillImportSymlinksAgentsRootDirectory(t *testing.T) {
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	globalRoot := t.TempDir()
-	t.Setenv("HOME", home)
 	sourceDir := filepath.Join(home, ".agents", "skills")
 	writeOnboardingTestSkill(t, filepath.Join(sourceDir, "demo-skill"), "demo", "from agents")
 	if _, err := executeSkillImport(globalRoot, onboardingImportDiscovery{}, onboardingImportSelection{Mode: onboardingImportModeSymlinkSource, Provider: onboardingImportProviderAgents}); err != nil {
@@ -224,9 +220,8 @@ func TestExecuteSkillImportSymlinksAgentsRootDirectory(t *testing.T) {
 }
 
 func TestExecuteSkillImportReplacesEmptyTargetDirectory(t *testing.T) {
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	globalRoot := t.TempDir()
-	t.Setenv("HOME", home)
 	sourceDir := filepath.Join(home, ".codex", "skills", "local")
 	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
 		t.Fatalf("mkdir source: %v", err)
@@ -271,8 +266,7 @@ func TestExecuteSkillImportDoesNotDeleteEmptyTargetWhenSourceValidationFails(t *
 }
 
 func TestProviderSkillSymlinkSourcePrefersCodexLocalSkills(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := newAppTestHome(t)
 	if err := os.MkdirAll(filepath.Join(home, ".codex", "skills", "local"), 0o755); err != nil {
 		t.Fatalf("mkdir codex local skills: %v", err)
 	}
@@ -315,8 +309,7 @@ func TestDiscoverProviderSkillSymlinkItemsFallsBackWhenPreferredDirectoryIsEmpty
 }
 
 func TestProviderSkillSymlinkSourceErrorsWithoutSkillsRoot(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := newAppTestHome(t)
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
 		t.Fatalf("mkdir provider home: %v", err)
 	}
@@ -340,9 +333,8 @@ func TestApplyImportChoiceRejectsRemovedCopyModes(t *testing.T) {
 }
 
 func TestExecuteCommandImportSymlinksRootDirectory(t *testing.T) {
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	globalRoot := t.TempDir()
-	t.Setenv("HOME", home)
 	sourceDir := filepath.Join(home, ".claude", "commands")
 	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
 		t.Fatalf("mkdir source: %v", err)
@@ -371,9 +363,8 @@ func TestExecuteCommandImportSymlinksRootDirectory(t *testing.T) {
 }
 
 func TestExecuteCommandImportSymlinksAgentsRootDirectory(t *testing.T) {
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	globalRoot := t.TempDir()
-	t.Setenv("HOME", home)
 	sourceDir := filepath.Join(home, ".agents", "commands")
 	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
 		t.Fatalf("mkdir source: %v", err)
@@ -431,9 +422,8 @@ func TestExecuteCommandImportDoesNotDeleteEmptyTargetWhenSourceValidationFails(t
 }
 
 func TestExecuteCommandImportFallsBackToPromptsWhenCommandsHasNoDirectMarkdown(t *testing.T) {
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	globalRoot := t.TempDir()
-	t.Setenv("HOME", home)
 	commandsDir := filepath.Join(home, ".claude", "commands")
 	promptsDir := filepath.Join(home, ".claude", "prompts")
 	if err := os.MkdirAll(filepath.Join(commandsDir, "nested"), 0o755); err != nil {
@@ -463,9 +453,8 @@ func TestExecuteCommandImportFallsBackToPromptsWhenCommandsHasNoDirectMarkdown(t
 }
 
 func TestExecuteCommandImportFallsBackToAgentsPromptsWhenCommandsMissing(t *testing.T) {
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	globalRoot := t.TempDir()
-	t.Setenv("HOME", home)
 	promptsDir := filepath.Join(home, ".agents", "prompts")
 	if err := os.MkdirAll(promptsDir, 0o755); err != nil {
 		t.Fatalf("mkdir prompts: %v", err)
@@ -554,8 +543,7 @@ func TestBuildSkillSelectionScreenAddsToggleAllOptionWhenThereAreMoreThanTwoItem
 }
 
 func TestDiscoverOnboardingImportsIncludesGeneratedSkillCandidates(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := newAppTestHome(t)
 
 	discovery := discoverOnboardingImports(filepath.Join(home, ".builder"))
 	if discovery.err != nil {
@@ -639,9 +627,8 @@ func TestSkillSelectionCandidatesHideGeneratedSkillsShadowedByExistingSkills(t *
 }
 
 func TestDiscoverOnboardingImportsHidesGeneratedSkillsShadowedByWorkspaceSkills(t *testing.T) {
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	writeOnboardingTestSkill(t, filepath.Join(workspace, ".builder", "skills", "builder-dogfooding"), "builder-dogfooding", "workspace override")
 
 	discovery := discoverOnboardingImportsForWorkspace(filepath.Join(home, ".builder"), workspace)
@@ -687,8 +674,7 @@ func TestReviewSummaryIncludesGeneratedSkillSelectionWithoutImport(t *testing.T)
 }
 
 func TestOnboardingFinalWritePersistsDisabledGeneratedSkillAndRuntimeHonorsIt(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := newAppTestHome(t)
 	if _, err := generated.Sync(context.Background(), generated.SyncOptions{HomeDir: home, FS: prompts.GeneratedSkillsFS}); err != nil {
 		t.Fatalf("sync generated skills: %v", err)
 	}
@@ -878,8 +864,7 @@ func TestThemeStepChoicePreservesAutoWhenKeepingDetectedDefault(t *testing.T) {
 }
 
 func TestOnboardingDefaultsPathPersistsChosenTheme(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	newAppTestHome(t)
 	model := newOnboardingModel(t.TempDir(), onboardingFlowState{settings: config.Settings{Theme: "light"}, theme: "light"})
 	msg := model.finalizeCmd(true)()
 	done, ok := msg.(onboardingFinalizeDoneMsg)

@@ -2,15 +2,12 @@ package shell
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
-	"builder/server/tools"
 	"builder/server/tools/shell/postprocess"
 	"builder/shared/config"
-	"builder/shared/toolspec"
 )
 
 func TestExecCommandSanitizesAnsiInDefaultProcessing(t *testing.T) {
@@ -18,16 +15,12 @@ func TestExecCommandSanitizesAnsiInDefaultProcessing(t *testing.T) {
 	manager := newBackgroundTestManager(t)
 	execTool := NewExecCommandTool(workspace, 16_000, manager, "")
 
-	execInput, _ := json.Marshal(map[string]any{
+	result := callExecCommand(t, execTool, "ansi-sanitized", map[string]any{
 		"cmd":           "printf '\\033[31mred\\033[0m\\rblue\\007'",
 		"shell":         "/bin/sh",
 		"login":         false,
 		"yield_time_ms": 5_000,
 	})
-	result, err := execTool.Call(context.Background(), tools.Call{ID: "ansi-sanitized", Name: toolspec.ToolExecCommand, Input: execInput})
-	if err != nil {
-		t.Fatalf("exec_command call error: %v", err)
-	}
 	if result.IsError {
 		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
 	}
@@ -42,17 +35,13 @@ func TestExecCommandRawPreservesAnsi(t *testing.T) {
 	manager := newBackgroundTestManager(t)
 	execTool := NewExecCommandTool(workspace, 16_000, manager, "")
 
-	execInput, _ := json.Marshal(map[string]any{
+	result := callExecCommand(t, execTool, "ansi-raw", map[string]any{
 		"cmd":           "printf '\\033[31mred\\033[0m'",
 		"shell":         "/bin/sh",
 		"login":         false,
 		"raw":           true,
 		"yield_time_ms": 5_000,
 	})
-	result, err := execTool.Call(context.Background(), tools.Call{ID: "ansi-raw", Name: toolspec.ToolExecCommand, Input: execInput})
-	if err != nil {
-		t.Fatalf("exec_command call error: %v", err)
-	}
 	if result.IsError {
 		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
 	}
@@ -75,16 +64,12 @@ func TestExecCommandPostprocessingNonePreservesAnsi(t *testing.T) {
 	t.Cleanup(func() { _ = manager.Close() })
 	execTool := NewExecCommandTool(workspace, 16_000, manager, "")
 
-	execInput, _ := json.Marshal(map[string]any{
+	result := callExecCommand(t, execTool, "ansi-none", map[string]any{
 		"cmd":           "printf '\\033[31mred\\033[0m'",
 		"shell":         "/bin/sh",
 		"login":         false,
 		"yield_time_ms": 5_000,
 	})
-	result, err := execTool.Call(context.Background(), tools.Call{ID: "ansi-none", Name: toolspec.ToolExecCommand, Input: execInput})
-	if err != nil {
-		t.Fatalf("exec_command call error: %v", err)
-	}
 	if result.IsError {
 		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
 	}
@@ -100,17 +85,13 @@ func TestRawBackgroundOutputPathsPreserveAnsi(t *testing.T) {
 	execTool := NewExecCommandTool(workspace, 16_000, manager, "")
 	stdinTool := NewWriteStdinTool(16_000, manager)
 
-	execInput, _ := json.Marshal(map[string]any{
+	result := callExecCommand(t, execTool, "raw-bg", map[string]any{
 		"cmd":           "printf '\\033[31mhello\\033[0m\\n'; sleep 0.3; printf '\\033[32mdone\\033[0m'",
 		"shell":         "/bin/sh",
 		"login":         false,
 		"raw":           true,
 		"yield_time_ms": 250,
 	})
-	result, err := execTool.Call(context.Background(), tools.Call{ID: "raw-bg", Name: toolspec.ToolExecCommand, Input: execInput})
-	if err != nil {
-		t.Fatalf("exec_command call error: %v", err)
-	}
 	if result.IsError {
 		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
 	}
@@ -139,14 +120,10 @@ func TestRawBackgroundOutputPathsPreserveAnsi(t *testing.T) {
 		t.Fatalf("stream chunk lost ANSI: %q", chunk.Text)
 	}
 
-	pollInput, _ := json.Marshal(map[string]any{
+	pollResult := callWriteStdin(t, stdinTool, "raw-bg-poll", map[string]any{
 		"session_id":    1000,
 		"yield_time_ms": 800,
 	})
-	pollResult, err := stdinTool.Call(context.Background(), tools.Call{ID: "raw-bg-poll", Name: toolspec.ToolWriteStdin, Input: pollInput})
-	if err != nil {
-		t.Fatalf("write_stdin call error: %v", err)
-	}
 	if pollResult.IsError {
 		t.Fatalf("unexpected write_stdin error: %s", string(pollResult.Output))
 	}

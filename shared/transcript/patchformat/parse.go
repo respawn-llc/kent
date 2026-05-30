@@ -124,14 +124,6 @@ func (s *scanner) next() string {
 	return v
 }
 
-func (s *scanner) consumeExact(v string) bool {
-	if s.peek() == v {
-		s.next()
-		return true
-	}
-	return false
-}
-
 func (s *scanner) consumeMarker(v string) bool {
 	if strings.TrimSpace(s.peek()) == v {
 		s.next()

@@ -6,28 +6,20 @@ import (
 	"testing"
 
 	"builder/server/llm"
-	"builder/server/session"
 	"builder/server/tools"
 	"builder/shared/toolspec"
 )
 
 func TestExecuteToolCallsCanonicalizesEditAliases(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	var events []Event
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(capturingTool{name: toolspec.ToolEdit}), Config{
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(capturingTool{name: toolspec.ToolEdit}), Config{
 		Model:        "claude",
 		EnabledTools: []toolspec.ID{toolspec.ToolEdit},
 		OnEvent: func(evt Event) {
 			events = append(events, evt)
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	results, err := eng.executeToolCalls(context.Background(), "step", []llm.ToolCall{{
 		ID:    "call-replace",
@@ -49,7 +41,7 @@ func TestExecuteToolCallsCanonicalizesEditAliases(t *testing.T) {
 	if started == nil {
 		t.Fatalf("events = %+v, want started event", events)
 	}
-	meta := transcriptToolCallMeta(*started, dir)
+	meta := transcriptToolCallMeta(*started, store.Meta().WorkspaceRoot)
 	if got := meta.ToolName; got != string(toolspec.ToolEdit) {
 		t.Fatalf("started tool name = %q, want edit", got)
 	}
@@ -59,15 +51,8 @@ func TestExecuteToolCallsCanonicalizesEditAliases(t *testing.T) {
 }
 
 func TestExecuteToolCallsAcceptsCustomEditJSONAndRejectsPlainText(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(capturingTool{name: toolspec.ToolEdit}), Config{Model: "claude", EnabledTools: []toolspec.ID{toolspec.ToolEdit}})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	store := mustCreateTestSession(t)
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(capturingTool{name: toolspec.ToolEdit}), Config{Model: "claude", EnabledTools: []toolspec.ID{toolspec.ToolEdit}})
 
 	okResults, err := eng.executeToolCalls(context.Background(), "step-json", []llm.ToolCall{{
 		ID:          "call-json",

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"embed"
 	"encoding/json"
 	"io/fs"
 	"os"
@@ -14,6 +15,18 @@ import (
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 )
+
+//go:embed testdata/*.sql
+var metadataDBTestFixtures embed.FS
+
+func metadataDBTestSQL(t *testing.T, name string) string {
+	t.Helper()
+	contents, err := metadataDBTestFixtures.ReadFile("testdata/" + name)
+	if err != nil {
+		t.Fatalf("read metadata db test fixture %s: %v", name, err)
+	}
+	return string(contents)
+}
 
 func TestOpenSuppressesGooseStatusLogging(t *testing.T) {
 	root := t.TempDir()
@@ -56,19 +69,7 @@ func TestOpenAllowsDatabaseAtRemovedMigrationVersion(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS mutation_dedupe (
-			method TEXT NOT NULL,
-			resource_id TEXT NOT NULL,
-			client_request_id TEXT NOT NULL,
-			payload_fingerprint TEXT NOT NULL,
-			response_json BLOB,
-			error_text TEXT NOT NULL,
-			completed_at_unix_ms INTEGER NOT NULL,
-			expires_at_unix_ms INTEGER NOT NULL,
-			PRIMARY KEY (method, resource_id, client_request_id)
-		)
-	`); err != nil {
+	if _, err := db.Exec(metadataDBTestSQL(t, "legacy_mutation_dedupe.sql")); err != nil {
 		t.Fatalf("create legacy mutation_dedupe table: %v", err)
 	}
 	if _, err := db.Exec(`INSERT INTO goose_db_version (version_id, is_applied) VALUES (3, 1)`); err != nil {
@@ -94,16 +95,7 @@ func TestOpenMigratesRuntimeLeaseLivenessColumnsAway(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open test database at version 3: %v", err)
 	}
-	if _, err := db.Exec(`
-INSERT INTO projects (id, display_name, created_at_unix_ms, updated_at_unix_ms, metadata_json)
-VALUES ('project-1', 'Project', 1, 1, '{}');
-INSERT INTO workspaces (id, project_id, canonical_root_path, display_name, availability, is_primary, git_metadata_json, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('workspace-1', 'project-1', '/tmp/workspace-1', 'workspace', 'available', 1, '{}', 1, 1);
-INSERT INTO sessions (id, project_id, workspace_id, artifact_relpath, name, first_prompt_preview, input_draft, parent_session_id, created_at_unix_ms, updated_at_unix_ms, last_sequence, model_request_count, in_flight_step, agents_injected, cwd_relpath, continuation_json, locked_json, usage_state_json, metadata_json)
-VALUES ('session-1', 'project-1', 'workspace-1', 'projects/project-1/sessions/session-1', '', '', '', '', 1, 1, 0, 0, 0, 0, '.', '{}', '{}', '{}', '{}');
-INSERT INTO runtime_leases (id, session_id, client_id, request_id, state, created_at_unix_ms, acquired_at_unix_ms, released_at_unix_ms, expires_at_unix_ms, metadata_json)
-VALUES ('lease-1', 'session-1', '', 'request-1', 'active', 1, 1, 0, 0, '{}');
-`); err != nil {
+	if _, err := db.Exec(metadataDBTestSQL(t, "version3_runtime_lease_liveness.sql")); err != nil {
 		t.Fatalf("seed version 3 runtime lease: %v", err)
 	}
 	if err := db.Close(); err != nil {
@@ -133,23 +125,7 @@ func TestOpenMigratesCommentsAndRuntimeLeasesToMinimalStorage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open test database at version 19: %v", err)
 	}
-	if _, err := db.Exec(`
-INSERT INTO projects (id, display_name, created_at_unix_ms, updated_at_unix_ms, metadata_json)
-VALUES ('project-minimal', 'Project', 1, 1, '{}');
-INSERT INTO sessions (id, project_id, artifact_relpath, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('session-minimal', 'project-minimal', 'projects/project-minimal/sessions/session-minimal', 1, 1);
-INSERT INTO runtime_leases (id, session_id, client_id, request_id, created_at_unix_ms, acquired_at_unix_ms, metadata_json)
-VALUES ('lease-minimal', 'session-minimal', 'client', 'request', 1, 2, '{"trace":true}');
-INSERT INTO workflows (id, name, description, graph_revision, created_at_unix_ms, updated_at_unix_ms, metadata_json)
-VALUES ('workflow-minimal', 'Workflow', '', 1, 1, 1, '{}');
-INSERT INTO project_workflow_links (id, project_id, workflow_id, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('link-minimal', 'project-minimal', 'workflow-minimal', 1, 1);
-INSERT INTO tasks (id, project_workflow_link_id, workflow_revision_seen, task_seq, short_id, title, body, created_at_unix_ms, updated_at_unix_ms, metadata_json)
-VALUES ('task-minimal', 'link-minimal', 1, 1, 'MIN-1', 'Task', '', 1, 1, '{}');
-INSERT INTO task_comments (id, task_id, body, author_kind, author_id, source_run_id, created_at_unix_ms, updated_at_unix_ms, deleted_at_unix_ms, metadata_json)
-VALUES ('comment-visible', 'task-minimal', 'visible', 'user', 'nek', NULL, 1, 3, 0, '{"keep":false}'),
-       ('comment-deleted', 'task-minimal', 'deleted', 'user', 'nek', NULL, 1, 4, 4, '{"keep":false}');
-`); err != nil {
+	if _, err := db.Exec(metadataDBTestSQL(t, "version19_minimal_storage.sql")); err != nil {
 		t.Fatalf("seed version 19 minimal storage data: %v", err)
 	}
 	if err := db.Close(); err != nil {
@@ -204,10 +180,7 @@ func TestOpenDropsPersistedWorkflowEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open test database at version 20: %v", err)
 	}
-	if _, err := db.Exec(`
-INSERT INTO workflow_events (project_id, workflow_id, resource, action, changed_ids_json, occurred_at_unix_ms)
-VALUES ('project-events', 'workflow-events', 'task', 'updated', '["task-1"]', 1);
-`); err != nil {
+	if _, err := db.Exec(metadataDBTestSQL(t, "version20_workflow_events.sql")); err != nil {
 		t.Fatalf("seed workflow events: %v", err)
 	}
 	if err := db.Close(); err != nil {
@@ -231,12 +204,7 @@ func TestOpenRemovesRedundantIndexesAndArchiveMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open test database at version 21: %v", err)
 	}
-	if _, err := db.Exec(`
-INSERT INTO workflows (id, name, description, graph_revision, created_at_unix_ms, updated_at_unix_ms, metadata_json)
-VALUES ('workflow-archive', 'Workflow', '', 1, 1, 1, '{}');
-INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, output_fields_json, metadata_json)
-VALUES ('node-archive', 'workflow-archive', 'archived', 'terminal', 'Archived', '[]', '{"archived_at_unix_ms": 1, "other": true}');
-`); err != nil {
+	if _, err := db.Exec(metadataDBTestSQL(t, "version21_archive_metadata.sql")); err != nil {
 		t.Fatalf("seed archive metadata: %v", err)
 	}
 	if err := db.Close(); err != nil {
@@ -333,20 +301,7 @@ func TestOpenMigratesWorkspaceHistorySnapshots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open test database at version 8: %v", err)
 	}
-	if _, err := db.Exec(`
-INSERT INTO projects (id, display_name, project_key, next_task_seq, created_at_unix_ms, updated_at_unix_ms, metadata_json)
-VALUES ('project-1', 'Project', 'PR', 1, 1, 1, '{}');
-INSERT INTO workspaces (id, project_id, canonical_root_path, display_name, availability, is_primary, git_metadata_json, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('workspace-1', 'project-1', '/tmp/workspace-1', 'Workspace One', 'available', 1, '{}', 1, 1);
-INSERT INTO sessions (id, project_id, workspace_id, artifact_relpath, name, first_prompt_preview, input_draft, parent_session_id, created_at_unix_ms, updated_at_unix_ms, last_sequence, model_request_count, in_flight_step, agents_injected, launch_visible, cwd_relpath, continuation_json, locked_json, usage_state_json, metadata_json)
-VALUES ('session-1', 'project-1', 'workspace-1', 'projects/project-1/sessions/session-1', 'Session', '', '', '', 1, 1, 0, 1, 0, 0, 1, '.', '{}', '{}', '{}', '{invalid json');
-INSERT INTO workflows (id, name, description, graph_revision, created_at_unix_ms, updated_at_unix_ms, metadata_json)
-VALUES ('workflow-1', 'Workflow', '', 1, 1, 1, '{}');
-INSERT INTO project_workflow_links (id, project_id, workflow_id, is_default, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('link-1', 'project-1', 'workflow-1', 1, 1, 1);
-INSERT INTO tasks (id, project_id, project_workflow_link_id, workflow_id, workflow_revision_seen, task_seq, short_id, title, body, source_workspace_id, created_at_unix_ms, updated_at_unix_ms, metadata_json)
-VALUES ('task-1', 'project-1', 'link-1', 'workflow-1', 1, 1, 'PR-1', 'Task', '', 'workspace-1', 1, 1, '{}');
-`); err != nil {
+	if _, err := db.Exec(metadataDBTestSQL(t, "version8_workspace_history.sql")); err != nil {
 		t.Fatalf("seed version 8 workspace history: %v", err)
 	}
 	if err := db.Close(); err != nil {
@@ -390,18 +345,7 @@ func TestOpenMigratesPrimaryWorkspacePointerDeterministically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open test database at version 17: %v", err)
 	}
-	if _, err := db.Exec(`
-INSERT INTO projects (id, display_name, created_at_unix_ms, updated_at_unix_ms, metadata_json)
-VALUES ('project-primary', 'Primary', 1, 1, '{}'),
-       ('project-fallback', 'Fallback', 2, 2, '{}'),
-       ('project-empty', 'Empty', 3, 3, '{}');
-INSERT INTO workspaces (id, project_id, canonical_root_path, display_name, availability, is_primary, git_metadata_json, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('workspace-oldest-nonprimary', 'project-primary', '/tmp/oldest-nonprimary', 'Oldest Nonprimary', 'available', 0, '{}', 1, 1),
-       ('workspace-oldest-primary', 'project-primary', '/tmp/oldest-primary', 'Oldest Primary', 'available', 1, '{}', 2, 2),
-       ('workspace-newest-primary', 'project-primary', '/tmp/newest-primary', 'Newest Primary', 'available', 1, '{}', 3, 3),
-       ('workspace-fallback-newest', 'project-fallback', '/tmp/fallback-newest', 'Fallback Newest', 'available', 0, '{}', 5, 5),
-       ('workspace-fallback-oldest', 'project-fallback', '/tmp/fallback-oldest', 'Fallback Oldest', 'available', 0, '{}', 4, 4);
-`); err != nil {
+	if _, err := db.Exec(metadataDBTestSQL(t, "version17_primary_workspace.sql")); err != nil {
 		t.Fatalf("seed version 17 primary workspace data: %v", err)
 	}
 	if err := db.Close(); err != nil {
@@ -468,14 +412,7 @@ VALUES ('task-cross-worktree', 'link-a', 1, 1, 'A-1', 'Task', '', 'workspace-a',
 			if err != nil {
 				t.Fatalf("open test database at version 17: %v", err)
 			}
-			if _, err := db.Exec(`
-INSERT INTO projects (id, display_name, created_at_unix_ms, updated_at_unix_ms, metadata_json)
-VALUES ('project-a', 'A', 1, 1, '{}'),
-       ('project-b', 'B', 1, 1, '{}');
-INSERT INTO workspaces (id, project_id, canonical_root_path, display_name, availability, is_primary, git_metadata_json, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('workspace-a', 'project-a', '/tmp/workspace-a', 'workspace-a', 'available', 1, '{}', 1, 1),
-       ('workspace-b', 'project-b', '/tmp/workspace-b', 'workspace-b', 'available', 1, '{}', 1, 1);
-`); err != nil {
+			if _, err := db.Exec(metadataDBTestSQL(t, "version17_workspace_session_base.sql")); err != nil {
 				t.Fatalf("seed version 17 base data: %v", err)
 			}
 			if _, err := db.Exec(tt.seed); err != nil {
@@ -500,16 +437,7 @@ func TestOpenBackfillsSessionWorkspaceFromSameProjectWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open test database at version 17: %v", err)
 	}
-	if _, err := db.Exec(`
-INSERT INTO projects (id, display_name, created_at_unix_ms, updated_at_unix_ms, metadata_json)
-VALUES ('project-a', 'A', 1, 1, '{}');
-INSERT INTO workspaces (id, project_id, canonical_root_path, display_name, availability, is_primary, git_metadata_json, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('workspace-a', 'project-a', '/tmp/workspace-a', 'workspace-a', 'available', 1, '{}', 1, 1);
-INSERT INTO worktrees (id, workspace_id, canonical_root_path, display_name, availability, is_main, git_metadata_json, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('worktree-a', 'workspace-a', '/tmp/worktree-a', 'worktree-a', 'available', 0, '{}', 1, 1);
-INSERT INTO sessions (id, project_id, workspace_id, worktree_id, artifact_relpath, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('session-a', 'project-a', NULL, 'worktree-a', 'projects/project-a/sessions/session-a', 1, 1);
-`); err != nil {
+	if _, err := db.Exec(metadataDBTestSQL(t, "version17_session_worktree.sql")); err != nil {
 		t.Fatalf("seed version 17 session worktree data: %v", err)
 	}
 	if err := db.Close(); err != nil {
@@ -541,15 +469,7 @@ func TestOpenMigratesWorkspaceWorktreeDerivedStorageAway(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open test database at version 18: %v", err)
 	}
-	if _, err := db.Exec(`
-INSERT INTO projects (id, display_name, created_at_unix_ms, updated_at_unix_ms, metadata_json)
-VALUES ('project-derived', 'Project', 1, 1, '{}');
-INSERT INTO workspaces (id, project_id, canonical_root_path, display_name, availability, is_primary, git_metadata_json, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('workspace-derived', 'project-derived', ?, 'Stored Workspace Label', 'missing', 0, '{"workspace":"metadata"}', 1, 1);
-UPDATE projects SET primary_workspace_id = 'workspace-derived' WHERE id = 'project-derived';
-INSERT INTO worktrees (id, workspace_id, canonical_root_path, display_name, availability, is_main, builder_managed, created_branch, origin_session_id, git_metadata_json, created_at_unix_ms, updated_at_unix_ms)
-VALUES ('worktree-derived', 'workspace-derived', ?, 'Stored Worktree Label', 'missing', 0, 1, 1, 'session-derived', '{"branch_name":"main"}', 1, 1);
-`, workspaceRoot, workspaceRoot); err != nil {
+	if _, err := db.Exec(metadataDBTestSQL(t, "version18_derived_workspace_worktree.sql"), workspaceRoot, workspaceRoot); err != nil {
 		t.Fatalf("seed version 18 derived workspace data: %v", err)
 	}
 	if err := db.Close(); err != nil {

@@ -1,11 +1,8 @@
 package patch
 
 import (
-	"builder/server/tools"
-	"builder/shared/toolspec"
 	patchformat "builder/shared/transcript/patchformat"
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -21,17 +18,9 @@ func TestDeleteFile(t *testing.T) {
 		t.Fatalf("write seed file: %v", err)
 	}
 
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Delete File: a.txt\n*** End Patch\n"
-	input, _ := json.Marshal(map[string]any{"patch": patchText})
-	result, err := tool.Call(context.Background(), tools.Call{ID: "1", Name: toolspec.ToolPatch, Input: input})
-	if err != nil {
-		t.Fatalf("patch call error: %v", err)
-	}
+	result := callPatch(t, tool, "1", "*** Begin Patch\n*** Delete File: a.txt\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -68,17 +57,9 @@ func TestDeleteParticipatesInAtomicPatchCommit(t *testing.T) {
 		t.Fatalf("write keep target: %v", err)
 	}
 
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Delete File: delete.txt\n*** Add File: added.txt\n+hello\n*** Update File: keep.txt\n-two\n+two\n*** End Patch\n"
-	input, _ := json.Marshal(map[string]any{"patch": patchText})
-	result, err := tool.Call(context.Background(), tools.Call{ID: "atomic-delete", Name: toolspec.ToolPatch, Input: input})
-	if err != nil {
-		t.Fatalf("patch call error: %v", err)
-	}
+	result := callPatch(t, tool, "atomic-delete", "*** Begin Patch\n*** Delete File: delete.txt\n*** Add File: added.txt\n+hello\n*** Update File: keep.txt\n-two\n+two\n*** End Patch\n")
 	if !result.IsError {
 		t.Fatalf("expected tool error result")
 	}
@@ -113,17 +94,9 @@ func TestDeleteAddUpdateCommitTogether(t *testing.T) {
 		t.Fatalf("write update target: %v", err)
 	}
 
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Delete File: delete.txt\n*** Add File: added.txt\n+hello\n*** Update File: update.txt\n one\n-two\n+two updated\n*** End Patch\n"
-	input, _ := json.Marshal(map[string]any{"patch": patchText})
-	result, err := tool.Call(context.Background(), tools.Call{ID: "mixed-success", Name: toolspec.ToolPatch, Input: input})
-	if err != nil {
-		t.Fatalf("patch call error: %v", err)
-	}
+	result := callPatch(t, tool, "mixed-success", "*** Begin Patch\n*** Delete File: delete.txt\n*** Add File: added.txt\n+hello\n*** Update File: update.txt\n one\n-two\n+two updated\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -158,17 +131,9 @@ func TestDeleteThenMoveToSamePathCommitsReplacement(t *testing.T) {
 		t.Fatalf("write destination: %v", err)
 	}
 
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Delete File: dest.txt\n*** Update File: src.txt\n*** Move to: dest.txt\n line1\n-line2\n+line2 moved\n*** End Patch\n"
-	input, _ := json.Marshal(map[string]any{"patch": patchText})
-	result, err := tool.Call(context.Background(), tools.Call{ID: "replace-move", Name: toolspec.ToolPatch, Input: input})
-	if err != nil {
-		t.Fatalf("patch call error: %v", err)
-	}
+	result := callPatch(t, tool, "replace-move", "*** Begin Patch\n*** Delete File: dest.txt\n*** Update File: src.txt\n*** Move to: dest.txt\n line1\n-line2\n+line2 moved\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -192,17 +157,9 @@ func TestDeleteThenAddNestedFileReplacesFileWithDirectory(t *testing.T) {
 		t.Fatalf("write blocker file: %v", err)
 	}
 
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Delete File: tools\n*** Add File: tools/main.go\n+package main\n+\n+func main() {}\n*** End Patch\n"
-	input, _ := json.Marshal(map[string]any{"patch": patchText})
-	result, err := tool.Call(context.Background(), tools.Call{ID: "replace-file-dir", Name: toolspec.ToolPatch, Input: input})
-	if err != nil {
-		t.Fatalf("patch call error: %v", err)
-	}
+	result := callPatch(t, tool, "replace-file-dir", "*** Begin Patch\n*** Delete File: tools\n*** Add File: tools/main.go\n+package main\n+\n+func main() {}\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -230,17 +187,9 @@ func TestAddUpdateMove(t *testing.T) {
 		t.Fatalf("seed source: %v", err)
 	}
 
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Add File: new.txt\n+hello\n*** Update File: one.txt\n*** Move to: moved.txt\n line1\n-line2\n+line2-updated\n*** End Patch\n"
-	input, _ := json.Marshal(map[string]any{"patch": patchText})
-	result, err := tool.Call(context.Background(), tools.Call{ID: "2", Name: toolspec.ToolPatch, Input: input})
-	if err != nil {
-		t.Fatalf("patch call error: %v", err)
-	}
+	result := callPatch(t, tool, "2", "*** Begin Patch\n*** Add File: new.txt\n+hello\n*** Update File: one.txt\n*** Move to: moved.txt\n line1\n-line2\n+line2-updated\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -271,17 +220,9 @@ func TestUpdateFileUsesCodexStyleContextHeader(t *testing.T) {
 		t.Fatalf("seed target: %v", err)
 	}
 
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Update File: a.go\n@@ func two() {\n-\tprintln(2)\n+\tprintln(22)\n*** End Patch\n"
-	input, _ := json.Marshal(map[string]any{"patch": patchText})
-	result, err := tool.Call(context.Background(), tools.Call{ID: "ctx", Name: toolspec.ToolPatch, Input: input})
-	if err != nil {
-		t.Fatalf("patch call error: %v", err)
-	}
+	result := callPatch(t, tool, "ctx", "*** Begin Patch\n*** Update File: a.go\n@@ func two() {\n-\tprintln(2)\n+\tprintln(22)\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -302,17 +243,9 @@ func TestUpdateFileEndOfFileMarkerAnchorsMatch(t *testing.T) {
 		t.Fatalf("seed target: %v", err)
 	}
 
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Update File: a.txt\n@@\n same\n-end\n+finish\n*** End of File\n*** End Patch\n"
-	input, _ := json.Marshal(map[string]any{"patch": patchText})
-	result, err := tool.Call(context.Background(), tools.Call{ID: "eof", Name: toolspec.ToolPatch, Input: input})
-	if err != nil {
-		t.Fatalf("patch call error: %v", err)
-	}
+	result := callPatch(t, tool, "eof", "*** Begin Patch\n*** Update File: a.txt\n@@\n same\n-end\n+finish\n*** End of File\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -332,10 +265,7 @@ func TestUpdateFileAcceptsWhitespacePaddedEndOfFileMarker(t *testing.T) {
 	if err := os.WriteFile(target, []byte("one\ntwo\n"), 0o644); err != nil {
 		t.Fatalf("seed target: %v", err)
 	}
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
 	result := callPatch(t, tool, "eof-padding", "*** Begin Patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n two\n  *** End of File  \n*** End Patch\n")
 	if result.IsError {
@@ -366,10 +296,7 @@ func TestUpdateFileRejectsEmptyHunk(t *testing.T) {
 	if err := os.WriteFile(target, []byte("one\n"), 0o644); err != nil {
 		t.Fatalf("seed target: %v", err)
 	}
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
 	result := callPatch(t, tool, "empty-update", "*** Begin Patch\n*** Update File: a.txt\n*** End Patch\n")
 	if !result.IsError {
@@ -388,10 +315,7 @@ func TestUpdateFileAllowsMoveOnlyHunk(t *testing.T) {
 	if err := os.WriteFile(src, []byte("content\n"), 0o644); err != nil {
 		t.Fatalf("seed source: %v", err)
 	}
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
 	result := callPatch(t, tool, "move-only", "*** Begin Patch\n*** Update File: src.txt\n*** Move to: dst.txt\n*** End Patch\n")
 	if result.IsError {
@@ -411,17 +335,9 @@ func TestUpdateFileAllowsMoveOnlyHunk(t *testing.T) {
 
 func TestAddFileInNewDirectory(t *testing.T) {
 	dir := t.TempDir()
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Add File: nested/new/file.txt\n+hello\n*** End Patch\n"
-	input, _ := json.Marshal(map[string]any{"patch": patchText})
-	result, err := tool.Call(context.Background(), tools.Call{ID: "3", Name: toolspec.ToolPatch, Input: input})
-	if err != nil {
-		t.Fatalf("patch call error: %v", err)
-	}
+	result := callPatch(t, tool, "3", "*** Begin Patch\n*** Add File: nested/new/file.txt\n+hello\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -443,17 +359,9 @@ func TestUpdateAnchorsToHeaderInRepeatedBlocks(t *testing.T) {
 		t.Fatalf("write seed file: %v", err)
 	}
 
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Update File: repeat.txt\n@@ -6,3 +6,3 @@\n block-start\n-x\n+y\n block-end\n*** End Patch\n"
-	input, _ := json.Marshal(map[string]any{"patch": patchText})
-	result, err := tool.Call(context.Background(), tools.Call{ID: "4", Name: toolspec.ToolPatch, Input: input})
-	if err != nil {
-		t.Fatalf("patch call error: %v", err)
-	}
+	result := callPatch(t, tool, "4", "*** Begin Patch\n*** Update File: repeat.txt\n@@ -6,3 +6,3 @@\n block-start\n-x\n+y\n block-end\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -476,17 +384,9 @@ func TestUpdateAnchoredHeaderAllowsFuzz(t *testing.T) {
 		t.Fatalf("write seed file: %v", err)
 	}
 
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Update File: fuzz.txt\n@@ -4,3 +4,3 @@\n b\n-c\n+C\n d\n*** End Patch\n"
-	input, _ := json.Marshal(map[string]any{"patch": patchText})
-	result, err := tool.Call(context.Background(), tools.Call{ID: "5", Name: toolspec.ToolPatch, Input: input})
-	if err != nil {
-		t.Fatalf("patch call error: %v", err)
-	}
+	result := callPatch(t, tool, "5", "*** Begin Patch\n*** Update File: fuzz.txt\n@@ -4,3 +4,3 @@\n b\n-c\n+C\n d\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -509,17 +409,9 @@ func TestUpdateAnchoredHeaderFailsOutsideFuzz(t *testing.T) {
 		t.Fatalf("write seed file: %v", err)
 	}
 
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Update File: far.txt\n@@ -30,3 +30,3 @@\n b\n-c\n+C\n d\n*** End Patch\n"
-	input, _ := json.Marshal(map[string]any{"patch": patchText})
-	result, err := tool.Call(context.Background(), tools.Call{ID: "6", Name: toolspec.ToolPatch, Input: input})
-	if err != nil {
-		t.Fatalf("patch call error: %v", err)
-	}
+	result := callPatch(t, tool, "6", "*** Begin Patch\n*** Update File: far.txt\n@@ -30,3 +30,3 @@\n b\n-c\n+C\n d\n*** End Patch\n")
 	if !result.IsError {
 		t.Fatalf("expected patch failure outside fuzz window")
 	}
@@ -545,10 +437,7 @@ func TestUpdateAnchoredHeaderFailsOutsideFuzz(t *testing.T) {
 
 func TestMalformedPatchReturnsStructuredFailure(t *testing.T) {
 	dir := t.TempDir()
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
 	result := callPatch(t, tool, "malformed", "*** Begin Patch\n*** Update File: a.txt\n-invalid\n")
 	if !result.IsError {
@@ -568,10 +457,7 @@ func TestMalformedPatchReturnsStructuredFailure(t *testing.T) {
 
 func TestUpdateMissingTargetReturnsStructuredFailure(t *testing.T) {
 	dir := t.TempDir()
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
 	result := callPatch(t, tool, "missing-target", "*** Begin Patch\n*** Update File: missing.txt\n-old\n+new\n*** End Patch\n")
 	if !result.IsError {
@@ -595,10 +481,7 @@ func TestUpdateContentMismatchPreservesTargetPathInFailurePayload(t *testing.T) 
 	if err := os.WriteFile(target, []byte("one\ntwo\n"), 0o644); err != nil {
 		t.Fatalf("seed target file: %v", err)
 	}
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
 	result := callPatch(t, tool, "content-mismatch", "*** Begin Patch\n*** Update File: a.txt\n@@\n-one\n+uno\n three\n*** End Patch\n")
 	if !result.IsError {
@@ -625,10 +508,7 @@ func TestAddExistingTargetReturnsStructuredFailure(t *testing.T) {
 	if err := os.WriteFile(target, []byte("keep\n"), 0o644); err != nil {
 		t.Fatalf("seed existing file: %v", err)
 	}
-	tool, err := New(dir, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, dir)
 
 	result := callPatch(t, tool, "existing-target", "*** Begin Patch\n*** Add File: exists.txt\n+new\n*** End Patch\n")
 	if !result.IsError {
@@ -704,10 +584,7 @@ func TestOutsideWorkspaceEditAllowedWhenConfigured(t *testing.T) {
 		t.Fatalf("seed outside file: %v", err)
 	}
 
-	tool, err := New(workspace, true, WithAllowOutsideWorkspace(true))
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, workspace, WithAllowOutsideWorkspace(true))
 
 	result := callPatch(t, tool, "allow-config", "*** Begin Patch\n*** Update File: "+target+"\n-start\n+done\n*** End Patch\n")
 	if result.IsError {
@@ -731,10 +608,7 @@ func TestOutsideWorkspaceTempDirAllowedWithoutApproval(t *testing.T) {
 		t.Fatalf("seed outside file: %v", err)
 	}
 
-	tool, err := New(workspace, true)
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
+	tool := newPatchTestTool(t, workspace)
 
 	result := callPatch(t, tool, "allow-temp-default", "*** Begin Patch\n*** Update File: "+target+"\n-start\n+done\n*** End Patch\n")
 	if result.IsError {
@@ -751,13 +625,10 @@ func TestOutsideWorkspaceTempDirBypassesApprover(t *testing.T) {
 	}
 
 	approveCalls := 0
-	tool, err := New(workspace, true, WithOutsideWorkspaceApprover(func(context.Context, OutsideWorkspaceRequest) (OutsideWorkspaceApproval, error) {
+	tool := newPatchTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, OutsideWorkspaceRequest) (OutsideWorkspaceApproval, error) {
 		approveCalls++
 		return OutsideWorkspaceApproval{Decision: OutsideWorkspaceDecisionDeny}, nil
 	}))
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
 
 	result := callPatch(t, tool, "allow-temp-bypass", "*** Begin Patch\n*** Update File: "+target+"\n-start\n+done\n*** End Patch\n")
 	if result.IsError {
@@ -782,13 +653,10 @@ func TestCaseVariantAbsoluteInWorkspaceDoesNotTriggerOutsideApproval(t *testing.
 	variantTarget := filepath.Join(variantWorkspace, "inside.txt")
 
 	approveCalls := 0
-	tool, err := New(workspace, true, WithOutsideWorkspaceApprover(func(context.Context, OutsideWorkspaceRequest) (OutsideWorkspaceApproval, error) {
+	tool := newPatchTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, OutsideWorkspaceRequest) (OutsideWorkspaceApproval, error) {
 		approveCalls++
 		return OutsideWorkspaceApproval{Decision: OutsideWorkspaceDecisionDeny}, nil
 	}))
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
 
 	result := callPatch(t, tool, "case-variant-inside", "*** Begin Patch\n*** Update File: "+variantTarget+"\n-start\n+done\n*** End Patch\n")
 	if result.IsError {
@@ -816,13 +684,10 @@ func TestOutsideWorkspaceEditRejectionContainsSteeringMessage(t *testing.T) {
 	}
 
 	approveCalls := 0
-	tool, err := New(workspace, true, WithOutsideWorkspaceApprover(func(context.Context, OutsideWorkspaceRequest) (OutsideWorkspaceApproval, error) {
+	tool := newPatchTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, OutsideWorkspaceRequest) (OutsideWorkspaceApproval, error) {
 		approveCalls++
 		return OutsideWorkspaceApproval{Decision: OutsideWorkspaceDecisionDeny}, nil
 	}))
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
 
 	result := callPatch(t, tool, "deny-outside", "*** Begin Patch\n*** Update File: "+target+"\n-start\n+done\n*** End Patch\n")
 	if !result.IsError {
@@ -859,13 +724,10 @@ func TestOutsideWorkspaceAllowSessionSkipsFuturePrompts(t *testing.T) {
 	}
 
 	approveCalls := 0
-	tool, err := New(workspace, true, WithOutsideWorkspaceApprover(func(context.Context, OutsideWorkspaceRequest) (OutsideWorkspaceApproval, error) {
+	tool := newPatchTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, OutsideWorkspaceRequest) (OutsideWorkspaceApproval, error) {
 		approveCalls++
 		return OutsideWorkspaceApproval{Decision: OutsideWorkspaceDecisionAllowSession}, nil
 	}))
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
 
 	result := callPatch(t, tool, "allow-session-1", "*** Begin Patch\n*** Update File: "+first+"\n-one\n+one-updated\n*** End Patch\n")
 	if result.IsError {
@@ -889,13 +751,10 @@ func TestOutsideWorkspaceAllowOncePromptsEachCall(t *testing.T) {
 	}
 
 	approveCalls := 0
-	tool, err := New(workspace, true, WithOutsideWorkspaceApprover(func(context.Context, OutsideWorkspaceRequest) (OutsideWorkspaceApproval, error) {
+	tool := newPatchTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, OutsideWorkspaceRequest) (OutsideWorkspaceApproval, error) {
 		approveCalls++
 		return OutsideWorkspaceApproval{Decision: OutsideWorkspaceDecisionAllowOnce}, nil
 	}))
-	if err != nil {
-		t.Fatalf("new patch tool: %v", err)
-	}
 
 	result := callPatch(t, tool, "allow-once-1", "*** Begin Patch\n*** Update File: "+target+"\n-start\n+mid\n*** End Patch\n")
 	if result.IsError {

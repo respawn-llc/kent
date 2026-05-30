@@ -28,14 +28,6 @@ func (m *uiModel) toggleTranscriptModeWithNativeReplay(emitNativeReplay bool) te
 	return m.transitionTranscriptMode(target, false, emitNativeReplay)
 }
 
-func (m *uiModel) toggleTranscriptModeWithOptions(emitNativeReplay bool, skipDetailWarmup bool) tea.Cmd {
-	target := tui.ModeDetail
-	if m.view.Mode() == tui.ModeDetail {
-		target = tui.ModeOngoing
-	}
-	return m.transitionTranscriptMode(target, skipDetailWarmup, emitNativeReplay)
-}
-
 type transcriptModeTransitionOptions struct {
 	target            tui.Mode
 	skipDetailWarmup  bool

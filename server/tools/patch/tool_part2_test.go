@@ -115,8 +115,7 @@ func TestOutsideWorkspaceQueuesApprovalPerFileInSinglePatch(t *testing.T) {
 		t.Fatalf("new patch tool: %v", err)
 	}
 
-	patchText := "*** Begin Patch\n*** Add File: " + first + "\n+one\n*** Add File: " + second + "\n+two\n*** End Patch\n"
-	result := callPatch(t, tool, "outside-multi-add", patchText)
+	result := callPatch(t, tool, "outside-multi-add", "*** Begin Patch\n*** Add File: "+first+"\n+one\n*** Add File: "+second+"\n+two\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", toolError(t, result))
 	}
@@ -302,6 +301,15 @@ func callPatch(t *testing.T, tool *Tool, id, patchText string) tools.Result {
 		t.Fatalf("patch call error: %v", err)
 	}
 	return result
+}
+
+func newPatchTestTool(t *testing.T, workspace string, opts ...Option) *Tool {
+	t.Helper()
+	tool, err := New(workspace, true, opts...)
+	if err != nil {
+		t.Fatalf("new patch tool: %v", err)
+	}
+	return tool
 }
 
 func toolError(t *testing.T, result tools.Result) string {

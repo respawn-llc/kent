@@ -105,23 +105,6 @@ func WithPendingAskResolver(resolver PendingAskResolver) Option {
 	}
 }
 
-func WithLogger(logger Logger) Option {
-	return func(s *Service) {
-		s.logger = logger
-	}
-}
-
-func WithClaimBackoff(retries int, backoff time.Duration) Option {
-	return func(s *Service) {
-		if retries >= 0 {
-			s.claimRetries = retries
-		}
-		if backoff >= 0 {
-			s.claimBackoff = backoff
-		}
-	}
-}
-
 func WithProcessInterval(interval time.Duration) Option {
 	return func(s *Service) {
 		if interval > 0 {

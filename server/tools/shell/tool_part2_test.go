@@ -1,10 +1,7 @@
 package shell
 
 import (
-	"builder/server/tools"
-	"builder/shared/toolspec"
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -25,28 +22,20 @@ func TestWriteStdinCompletionSuppressesBackgroundNoticeEvent(t *testing.T) {
 		}
 	})
 
-	execInput, _ := json.Marshal(map[string]any{
+	result := callExecCommand(t, execTool, "bg-1", map[string]any{
 		"cmd":           "sleep 0.3; echo done",
 		"shell":         "/bin/sh",
 		"login":         false,
 		"yield_time_ms": 250,
 	})
-	result, err := execTool.Call(context.Background(), tools.Call{ID: "bg-1", Name: toolspec.ToolExecCommand, Input: execInput})
-	if err != nil {
-		t.Fatalf("exec_command call error: %v", err)
-	}
 	if result.IsError {
 		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
 	}
 
-	pollInput, _ := json.Marshal(map[string]any{
+	pollResult := callWriteStdin(t, pollTool, "bg-2", map[string]any{
 		"session_id":    1000,
 		"yield_time_ms": 800,
 	})
-	pollResult, err := pollTool.Call(context.Background(), tools.Call{ID: "bg-2", Name: toolspec.ToolWriteStdin, Input: pollInput})
-	if err != nil {
-		t.Fatalf("write_stdin call error: %v", err)
-	}
 	if pollResult.IsError {
 		t.Fatalf("unexpected write_stdin error: %s", string(pollResult.Output))
 	}
@@ -74,16 +63,12 @@ func TestExecCommandClosesStdinForNonInteractiveProcess(t *testing.T) {
 	})
 	execTool := NewExecCommandTool(workspace, 16_000, manager, "")
 
-	execInput, _ := json.Marshal(map[string]any{
+	result := callExecCommand(t, execTool, "eof-1", map[string]any{
 		"cmd":           "if read line; then echo line:$line; else echo eof; fi",
 		"shell":         "/bin/sh",
 		"login":         false,
 		"yield_time_ms": 1_500,
 	})
-	result, err := execTool.Call(context.Background(), tools.Call{ID: "eof-1", Name: toolspec.ToolExecCommand, Input: execInput})
-	if err != nil {
-		t.Fatalf("exec_command call error: %v", err)
-	}
 	if result.IsError {
 		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
 	}

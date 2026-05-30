@@ -45,12 +45,6 @@ func WithEventLogFSyncPolicy(policy EventLogFSyncPolicy) StoreOption {
 	}
 }
 
-func WithEventLogFSyncIntervalWrites(interval int) StoreOption {
-	return func(options *storeOptions) {
-		options.eventLog.fsyncIntervalWrites = interval
-	}
-}
-
 func WithEventLogCompaction(everyWrites int, minBytes int64) StoreOption {
 	return func(options *storeOptions) {
 		options.eventLog.compactionEveryWrites = everyWrites
@@ -61,12 +55,6 @@ func WithEventLogCompaction(everyWrites int, minBytes int64) StoreOption {
 func WithPersistenceObserver(observer PersistenceObserver) StoreOption {
 	return func(options *storeOptions) {
 		options.observer = observer
-	}
-}
-
-func WithPersistenceObserverTimeout(timeout time.Duration) StoreOption {
-	return func(options *storeOptions) {
-		options.observerTimeout = timeout
 	}
 }
 

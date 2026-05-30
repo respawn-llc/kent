@@ -3,7 +3,6 @@ package prompts
 import (
 	"bytes"
 	"embed"
-	_ "embed"
 	"fmt"
 	"strings"
 	"text/template"
@@ -78,104 +77,54 @@ type WorkflowInputValue struct {
 	Value string
 }
 
-//go:embed system_prompt/system_prompt.md
-var SystemPrompt string
+//go:embed *.md system_prompt/*.md goal/*.md workflow/*.md
+var promptFS embed.FS
 
-//go:embed system_prompt/personality.md
-var SystemPromptPersonality string
+func mustPrompt(path string) string {
+	data, err := promptFS.ReadFile(path)
+	if err != nil {
+		panic(fmt.Sprintf("read prompt %s: %v", path, err))
+	}
+	return string(data)
+}
 
-//go:embed system_prompt/harness_workflow_autonomy.md
-var SystemPromptHarness string
-
-//go:embed system_prompt/ambiguity_output_quality.md
-var SystemPromptAmbiguityAndQuality string
-
-//go:embed system_prompt/final_answer_formatting.md
-var SystemPromptFinalAnswerAndFormatting string
-
-//go:embed system_prompt/delegation.md
-var SystemPromptDelegation string
-
-//go:embed tool_preambles_prompt.md
-var ToolPreamblesPrompt string
-
-//go:embed compaction_prompt.md
-var CompactionPrompt string
-
-//go:embed compaction_summary_prefix.md
-var CompactionSummaryPrefix string
-
-//go:embed compaction_soon_reminder.md
-var CompactionSoonReminderPrompt string
-
-//go:embed compaction_soon_reminder_trigger_handoff.md
-var CompactionSoonReminderTriggerHandoffPrompt string
-
-//go:embed goal/nudge.md
-var GoalNudgePrompt string
-
-//go:embed goal/set.md
-var GoalSetPrompt string
-
-//go:embed goal/pause.md
-var GoalPausePrompt string
-
-//go:embed goal/resume.md
-var GoalResumePrompt string
-
-//go:embed goal/clear.md
-var GoalClearPrompt string
-
-//go:embed goal/complete.md
-var GoalCompletePrompt string
-
-//go:embed goal/already_complete.md
-var GoalAlreadyCompletePrompt string
-
-//go:embed goal/agent_command_denied.md
-var GoalAgentCommandDeniedPrompt string
-
-//go:embed goal/complete_confirm_required.md
-var GoalCompleteConfirmRequiredPrompt string
-
-//go:embed review_prompt.md
-var ReviewPrompt string
-
-//go:embed init_prompt.md
-var InitPrompt string
-
-//go:embed reviewer_system_prompt.md
-var ReviewerSystemPrompt string
-
-//go:embed skills_prompt.md
-var SkillsPrompt string
+var (
+	SystemPrompt                                   = mustPrompt("system_prompt/system_prompt.md")
+	SystemPromptPersonality                        = mustPrompt("system_prompt/personality.md")
+	SystemPromptHarness                            = mustPrompt("system_prompt/harness_workflow_autonomy.md")
+	SystemPromptAmbiguityAndQuality                = mustPrompt("system_prompt/ambiguity_output_quality.md")
+	SystemPromptFinalAnswerAndFormatting           = mustPrompt("system_prompt/final_answer_formatting.md")
+	SystemPromptDelegation                         = mustPrompt("system_prompt/delegation.md")
+	ToolPreamblesPrompt                            = mustPrompt("tool_preambles_prompt.md")
+	CompactionPrompt                               = mustPrompt("compaction_prompt.md")
+	CompactionSummaryPrefix                        = mustPrompt("compaction_summary_prefix.md")
+	CompactionSoonReminderPrompt                   = mustPrompt("compaction_soon_reminder.md")
+	CompactionSoonReminderTriggerHandoffPrompt     = mustPrompt("compaction_soon_reminder_trigger_handoff.md")
+	GoalNudgePrompt                                = mustPrompt("goal/nudge.md")
+	GoalSetPrompt                                  = mustPrompt("goal/set.md")
+	GoalPausePrompt                                = mustPrompt("goal/pause.md")
+	GoalResumePrompt                               = mustPrompt("goal/resume.md")
+	GoalClearPrompt                                = mustPrompt("goal/clear.md")
+	GoalCompletePrompt                             = mustPrompt("goal/complete.md")
+	GoalAlreadyCompletePrompt                      = mustPrompt("goal/already_complete.md")
+	GoalAgentCommandDeniedPrompt                   = mustPrompt("goal/agent_command_denied.md")
+	GoalCompleteConfirmRequiredPrompt              = mustPrompt("goal/complete_confirm_required.md")
+	ReviewPrompt                                   = mustPrompt("review_prompt.md")
+	InitPrompt                                     = mustPrompt("init_prompt.md")
+	ReviewerSystemPrompt                           = mustPrompt("reviewer_system_prompt.md")
+	SkillsPrompt                                   = mustPrompt("skills_prompt.md")
+	HeadlessModePrompt                             = mustPrompt("headless_mode_prompt.md")
+	HeadlessModeExitPrompt                         = mustPrompt("headless_mode_exit_prompt.md")
+	WorkflowTaskInstructionsPrompt                 = mustPrompt("workflow/workflow_task_instructions.md")
+	WorkflowToolCompletionInstructionsPrompt       = mustPrompt("workflow/tool_completion_instructions.md")
+	WorkflowStructuredCompletionInstructionsPrompt = mustPrompt("workflow/structured_completion_instructions.md")
+	WorkflowHumanOnlyTaskActionDeniedPrompt        = mustPrompt("workflow/human_only_task_action_denied.md")
+	WorktreeModePrompt                             = mustPrompt("worktree_mode_prompt.md")
+	WorktreeModeExitPrompt                         = mustPrompt("worktree_mode_exit_prompt.md")
+)
 
 //go:embed skills/**
 var GeneratedSkillsFS embed.FS
-
-//go:embed headless_mode_prompt.md
-var HeadlessModePrompt string
-
-//go:embed headless_mode_exit_prompt.md
-var HeadlessModeExitPrompt string
-
-//go:embed workflow/workflow_task_instructions.md
-var WorkflowTaskInstructionsPrompt string
-
-//go:embed workflow/tool_completion_instructions.md
-var WorkflowToolCompletionInstructionsPrompt string
-
-//go:embed workflow/structured_completion_instructions.md
-var WorkflowStructuredCompletionInstructionsPrompt string
-
-//go:embed workflow/human_only_task_action_denied.md
-var WorkflowHumanOnlyTaskActionDeniedPrompt string
-
-//go:embed worktree_mode_prompt.md
-var WorktreeModePrompt string
-
-//go:embed worktree_mode_exit_prompt.md
-var WorktreeModeExitPrompt string
 
 func MainSystemPrompt(includeToolPreambles bool, args SystemPromptTemplateArgs) string {
 	return WithToolPreambles(BaseSystemPrompt(args), includeToolPreambles)

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -37,14 +36,9 @@ func projectSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			return projectCreateSubcommand(args[1:], stdout, stderr)
 		}
 	}
-	fs := flag.NewFlagSet("builder project", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeProjectUsage(fs) }
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	fs := newCommandFlagSet("builder project", stderr, writeProjectUsage)
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	remaining := fs.Args()
 	if len(remaining) > 1 {
@@ -65,14 +59,9 @@ func projectSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func projectListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder project list", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeProjectListUsage(fs) }
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	fs := newCommandFlagSet("builder project list", stderr, writeProjectListUsage)
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "project list does not accept positional arguments")
@@ -90,16 +79,11 @@ func projectListSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 }
 
 func projectCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder project create", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeProjectCreateUsage(fs) }
+	fs := newCommandFlagSet("builder project create", stderr, writeProjectCreateUsage)
 	name := fs.String("name", "", "project display name")
 	path := fs.String("path", "", "server-visible workspace path")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "project create does not accept positional arguments")
@@ -115,15 +99,10 @@ func projectCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 }
 
 func attachSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder attach", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeAttachUsage(fs) }
+	fs := newCommandFlagSet("builder attach", stderr, writeAttachUsage)
 	projectID := fs.String("project", "", "explicit project id override")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	remaining := fs.Args()
 	if len(remaining) > 1 {
@@ -144,14 +123,9 @@ func attachSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func rebindSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder rebind", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeRebindUsage(fs) }
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	fs := newCommandFlagSet("builder rebind", stderr, writeRebindUsage)
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	remaining := fs.Args()
 	if len(remaining) != 2 {
@@ -271,32 +245,6 @@ func createProject(ctx context.Context, displayName string, workspaceRoot string
 	}
 	defer func() { _ = remote.Close() }()
 	resp, err := createProjectWithTimeout(ctx, remote, trimmedDisplayName, normalizedWorkspaceRoot)
-	if err != nil {
-		return serverapi.ProjectBinding{}, err
-	}
-	return resp.Binding, nil
-}
-
-func rebindWorkspace(ctx context.Context, oldPath string, newPath string) (serverapi.ProjectBinding, error) {
-	oldCfg, err := loadBindingCommandConfig(oldPath)
-	if err != nil {
-		return serverapi.ProjectBinding{}, err
-	}
-	newCfg, err := loadBindingCommandConfig(newPath)
-	if err != nil {
-		return serverapi.ProjectBinding{}, err
-	}
-	if config.ServerRPCURL(oldCfg) != config.ServerRPCURL(newCfg) {
-		return serverapi.ProjectBinding{}, errors.New("rebind requires old and new workspaces to share the same configured server")
-	}
-	dialCtx, cancel := bindingCommandRPCContext(ctx)
-	defer cancel()
-	remote, err := client.DialConfiguredRemote(dialCtx, newCfg)
-	if err != nil {
-		return serverapi.ProjectBinding{}, err
-	}
-	defer func() { _ = remote.Close() }()
-	resp, err := rebindWorkspaceWithTimeout(ctx, remote, oldCfg.WorkspaceRoot, newCfg.WorkspaceRoot)
 	if err != nil {
 		return serverapi.ProjectBinding{}, err
 	}

@@ -93,11 +93,7 @@ func gatewayUnaryHandlerDTOTypes(t *testing.T) map[string]gatewayHandlerDTOTypes
 				if !ok {
 					continue
 				}
-				fn, ok := kv.Value.(*ast.FuncLit)
-				if !ok {
-					continue
-				}
-				types, ok := extractGatewayHandlerDTOTypes(fn)
+				types, ok := extractGatewayHandlerDTOTypes(kv.Value)
 				if !ok {
 					t.Fatalf("gateway unary handler %q does not expose decodable DTO types", method)
 				}
@@ -108,7 +104,14 @@ func gatewayUnaryHandlerDTOTypes(t *testing.T) map[string]gatewayHandlerDTOTypes
 	return out
 }
 
-func extractGatewayHandlerDTOTypes(fn *ast.FuncLit) (gatewayHandlerDTOTypes, bool) {
+func extractGatewayHandlerDTOTypes(expr ast.Expr) (gatewayHandlerDTOTypes, bool) {
+	if types, ok := extractGatewayHelperDTOTypes(expr); ok {
+		return types, true
+	}
+	fn, ok := expr.(*ast.FuncLit)
+	if !ok {
+		return gatewayHandlerDTOTypes{}, false
+	}
 	var out gatewayHandlerDTOTypes
 	ast.Inspect(fn.Body, func(node ast.Node) bool {
 		if out.request != "" && out.response != "" {
@@ -137,6 +140,41 @@ func extractGatewayHandlerDTOTypes(fn *ast.FuncLit) (gatewayHandlerDTOTypes, boo
 		return true
 	})
 	return out, out.request != "" && out.response != ""
+}
+
+func extractGatewayHelperDTOTypes(expr ast.Expr) (gatewayHandlerDTOTypes, bool) {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return gatewayHandlerDTOTypes{}, false
+	}
+	index, ok := call.Fun.(*ast.IndexListExpr)
+	if !ok {
+		return gatewayHandlerDTOTypes{}, false
+	}
+	ident, ok := index.X.(*ast.Ident)
+	if !ok {
+		return gatewayHandlerDTOTypes{}, false
+	}
+	switch ident.Name {
+	case "gatewayClientCall":
+		if len(index.Indices) != 3 {
+			return gatewayHandlerDTOTypes{}, false
+		}
+		return gatewayHandlerDTOTypes{
+			request:  astTypeName(index.Indices[1]),
+			response: astTypeName(index.Indices[2]),
+		}, true
+	case "gatewayClientCallNoResponse":
+		if len(index.Indices) != 2 {
+			return gatewayHandlerDTOTypes{}, false
+		}
+		return gatewayHandlerDTOTypes{
+			request:  astTypeName(index.Indices[1]),
+			response: "struct{}",
+		}, true
+	default:
+		return gatewayHandlerDTOTypes{}, false
+	}
 }
 
 func astTypeName(expr ast.Expr) string {

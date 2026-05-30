@@ -152,14 +152,6 @@ func (e *Engine) shouldAutoCompactWithContext(ctx context.Context) bool {
 	return e.usageAtOrAboveLimit(ctx, limit)
 }
 
-func (e *Engine) autoCompactTokenLimit(ctx context.Context) int {
-	return e.compactionPlannerState().autoCompactTokenLimit(e.compactionPlanningSnapshot())
-}
-
-func (e *Engine) preSubmitCompactionRunwayTokens() int {
-	return e.compactionPlannerState().preSubmitRunwayTokens(e.compactionPlanningSnapshot())
-}
-
 func (e *Engine) preSubmitCompactionTokenLimit(ctx context.Context) int {
 	return e.compactionPlannerState().preSubmitTokenLimit(e.compactionPlanningSnapshot())
 }
@@ -475,10 +467,6 @@ func (e *Engine) resetCurrentPreciseInputTracking() {
 	tracker.invalidateCurrent(tokenUsageMutationHardReset)
 }
 
-func (e *Engine) invalidateCurrentPreciseInputTokens() {
-	e.markCurrentRequestShapeDirty()
-}
-
 func (e *Engine) shouldRefreshCurrentPreciseInputTokens(limit int, critical bool) bool {
 	if limit <= 0 || e.modelRequests().TokenUsage() == nil {
 		return false
@@ -488,10 +476,6 @@ func (e *Engine) shouldRefreshCurrentPreciseInputTokens(limit int, critical bool
 
 func (e *Engine) contextWindowTokens() int {
 	return e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())
-}
-
-func (e *Engine) effectiveContextTokenLimit() int {
-	return e.compactionPlannerState().effectiveContextTokenLimit(e.compactionPlanningSnapshot())
 }
 
 func (e *Engine) estimatedCurrentTokenUsage() int {
@@ -734,10 +718,6 @@ func (e *Engine) compactionReinjectedBaseMessages() ([]llm.Message, error) {
 		return nil, err
 	}
 	return metaResult.OrderedBaseMessages(), nil
-}
-
-func (e *Engine) compactionMode() string {
-	return e.compactionPlannerState().mode(e.compactionPlanningSnapshot().compactionMode)
 }
 
 func (e *Engine) compactionPlannerState() *compactionPlanner {

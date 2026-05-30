@@ -11,6 +11,47 @@ import (
 	"builder/shared/serverapi"
 )
 
+func gatewayClientCall[C any, Req any, Resp any](getClient func(*Gateway) C, call func(C, context.Context, Req) (Resp, error)) gatewayUnaryHandler {
+	return func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params Req) (Resp, error) {
+			return call(getClient(g), ctx, params)
+		})
+	}
+}
+
+func gatewayClientCallNoResponse[C any, Req any](getClient func(*Gateway) C, call func(C, context.Context, Req) error) gatewayUnaryHandler {
+	return func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
+		return decodeAndHandle(req, func(params Req) (struct{}, error) {
+			return struct{}{}, call(getClient(g), ctx, params)
+		})
+	}
+}
+
+func gatewayProjectViewClient(g *Gateway) client.ProjectViewClient { return g.deps.ProjectViewClient() }
+func gatewayWorkflowClient(g *Gateway) client.WorkflowClient       { return g.deps.WorkflowClient() }
+func gatewaySessionViewClient(g *Gateway) client.SessionViewClient { return g.deps.SessionViewClient() }
+func gatewaySessionLifecycleClient(g *Gateway) client.SessionLifecycleClient {
+	return g.deps.SessionLifecycleClient()
+}
+func gatewaySessionRuntimeClient(g *Gateway) client.SessionRuntimeClient {
+	return g.deps.SessionRuntimeClient()
+}
+func gatewayWorktreeClient(g *Gateway) client.WorktreeClient { return g.deps.WorktreeClient() }
+func gatewayRuntimeControlClient(g *Gateway) client.RuntimeControlClient {
+	return g.deps.RuntimeControlClient()
+}
+func gatewayProcessViewClient(g *Gateway) client.ProcessViewClient { return g.deps.ProcessViewClient() }
+func gatewayProcessControlClient(g *Gateway) client.ProcessControlClient {
+	return g.deps.ProcessControlClient()
+}
+func gatewayAskViewClient(g *Gateway) client.AskViewClient { return g.deps.AskViewClient() }
+func gatewayApprovalViewClient(g *Gateway) client.ApprovalViewClient {
+	return g.deps.ApprovalViewClient()
+}
+func gatewayPromptControlClient(g *Gateway) client.PromptControlClient {
+	return g.deps.PromptControlClient()
+}
+
 var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 	protocol.MethodHandshake: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		params, err := decodeParams[protocol.HandshakeRequest](req.Params)
@@ -98,291 +139,63 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return protocol.AttachResponse{Kind: "session", SessionID: params.SessionID}, nil
 		})
 	},
-	protocol.MethodProjectList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProjectListRequest) (serverapi.ProjectListResponse, error) {
-			return g.deps.ProjectViewClient().ListProjects(ctx, params)
-		})
-	},
-	protocol.MethodProjectHomeList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProjectHomeListRequest) (serverapi.ProjectHomeListResponse, error) {
-			return g.deps.ProjectViewClient().ListProjectHome(ctx, params)
-		})
-	},
-	protocol.MethodProjectResolvePath: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProjectResolvePathRequest) (serverapi.ProjectResolvePathResponse, error) {
-			return g.deps.ProjectViewClient().ResolveProjectPath(ctx, params)
-		})
-	},
-	protocol.MethodProjectPlanWorkspaceBinding: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
-			return g.deps.ProjectViewClient().PlanWorkspaceBinding(ctx, params)
-		})
-	},
-	protocol.MethodProjectCreate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProjectCreateRequest) (serverapi.ProjectCreateResponse, error) {
-			return g.deps.ProjectViewClient().CreateProject(ctx, params)
-		})
-	},
-	protocol.MethodProjectEditGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProjectEditGetRequest) (serverapi.ProjectEditGetResponse, error) {
-			return g.deps.ProjectViewClient().GetProjectEdit(ctx, params)
-		})
-	},
-	protocol.MethodProjectUpdate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProjectUpdateRequest) (serverapi.ProjectUpdateResponse, error) {
-			return g.deps.ProjectViewClient().UpdateProject(ctx, params)
-		})
-	},
-	protocol.MethodProjectSetDefaultWorkspace: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProjectDefaultWorkspaceSetRequest) (serverapi.ProjectDefaultWorkspaceSetResponse, error) {
-			return g.deps.ProjectViewClient().SetDefaultWorkspace(ctx, params)
-		})
-	},
-	protocol.MethodProjectWorkspaceList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProjectWorkspaceListRequest) (serverapi.ProjectWorkspaceListResponse, error) {
-			return g.deps.ProjectViewClient().ListProjectWorkspaces(ctx, params)
-		})
-	},
-	protocol.MethodProjectUnlinkWorkspace: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProjectWorkspaceUnlinkRequest) (serverapi.ProjectWorkspaceUnlinkResponse, error) {
-			return g.deps.ProjectViewClient().UnlinkWorkspaceFromProject(ctx, params)
-		})
-	},
-	protocol.MethodProjectAttachWorkspace: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProjectAttachWorkspaceRequest) (serverapi.ProjectAttachWorkspaceResponse, error) {
-			return g.deps.ProjectViewClient().AttachWorkspaceToProject(ctx, params)
-		})
-	},
-	protocol.MethodProjectRebindWorkspace: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProjectRebindWorkspaceRequest) (serverapi.ProjectRebindWorkspaceResponse, error) {
-			return g.deps.ProjectViewClient().RebindWorkspace(ctx, params)
-		})
-	},
-	protocol.MethodProjectGetOverview: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProjectGetOverviewRequest) (serverapi.ProjectGetOverviewResponse, error) {
-			return g.deps.ProjectViewClient().GetProjectOverview(ctx, params)
-		})
-	},
-	protocol.MethodSessionListByProject: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.SessionListByProjectRequest) (serverapi.SessionListByProjectResponse, error) {
-			return g.deps.ProjectViewClient().ListSessionsByProject(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowCreate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowCreateRequest) (serverapi.WorkflowCreateResponse, error) {
-			return g.deps.WorkflowClient().CreateWorkflow(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowCreateAndLinkProject: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowCreateAndLinkProjectRequest) (serverapi.WorkflowCreateAndLinkProjectResponse, error) {
-			return g.deps.WorkflowClient().CreateAndLinkWorkflowToProject(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowUpdate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowUpdateRequest) (serverapi.WorkflowGetResponse, error) {
-			return g.deps.WorkflowClient().UpdateWorkflow(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowListRequest) (serverapi.WorkflowListResponse, error) {
-			return g.deps.WorkflowClient().ListWorkflows(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowGetRequest) (serverapi.WorkflowGetResponse, error) {
-			return g.deps.WorkflowClient().GetWorkflow(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowNodeGroupAdd: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowNodeGroupAddRequest) (serverapi.WorkflowNodeGroupResponse, error) {
-			return g.deps.WorkflowClient().AddWorkflowNodeGroup(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowNodeGroupUpdate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowNodeGroupUpdateRequest) (serverapi.WorkflowNodeGroupResponse, error) {
-			return g.deps.WorkflowClient().UpdateWorkflowNodeGroup(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowNodeGroupDelete: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowNodeGroupDeleteRequest) (struct{}, error) {
-			return struct{}{}, g.deps.WorkflowClient().DeleteWorkflowNodeGroup(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowAddNode: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowNodeAddRequest) (serverapi.WorkflowNodeAddResponse, error) {
-			return g.deps.WorkflowClient().AddWorkflowNode(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowUpdateNode: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowNodeUpdateRequest) (serverapi.WorkflowNodeUpdateResponse, error) {
-			return g.deps.WorkflowClient().UpdateWorkflowNode(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowAddTransitionGroup: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTransitionGroupAddRequest) (serverapi.WorkflowTransitionGroupAddResponse, error) {
-			return g.deps.WorkflowClient().AddWorkflowTransitionGroup(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowUpdateTransitionGroup: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTransitionGroupUpdateRequest) (serverapi.WorkflowTransitionGroupUpdateResponse, error) {
-			return g.deps.WorkflowClient().UpdateWorkflowTransitionGroup(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowAddEdge: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowEdgeAddRequest) (serverapi.WorkflowEdgeAddResponse, error) {
-			return g.deps.WorkflowClient().AddWorkflowEdge(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowUpdateEdge: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowEdgeUpdateRequest) (serverapi.WorkflowEdgeUpdateResponse, error) {
-			return g.deps.WorkflowClient().UpdateWorkflowEdge(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowLinkProject: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowLinkProjectRequest) (serverapi.WorkflowLinkProjectResponse, error) {
-			return g.deps.WorkflowClient().LinkWorkflowToProject(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowListProjectLinks: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowListProjectLinksRequest) (serverapi.WorkflowListProjectLinksResponse, error) {
-			return g.deps.WorkflowClient().ListProjectWorkflowLinks(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowSetDefaultProjectLink: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowSetDefaultProjectLinkRequest) (serverapi.WorkflowSetDefaultProjectLinkResponse, error) {
-			return g.deps.WorkflowClient().SetDefaultProjectWorkflowLink(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowUnlinkProject: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowUnlinkProjectRequest) (serverapi.WorkflowUnlinkProjectResponse, error) {
-			return g.deps.WorkflowClient().UnlinkWorkflowFromProject(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowDeletePreview: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowDeletePreviewRequest) (serverapi.WorkflowDeletePreviewResponse, error) {
-			return g.deps.WorkflowClient().PreviewWorkflowDelete(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowDelete: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowDeleteRequest) (serverapi.WorkflowDeleteResponse, error) {
-			return g.deps.WorkflowClient().DeleteWorkflow(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowValidate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowValidateRequest) (serverapi.WorkflowValidateResponse, error) {
-			return g.deps.WorkflowClient().ValidateWorkflow(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowGraphValidateDraft: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowGraphValidateDraftRequest) (serverapi.WorkflowGraphValidateDraftResponse, error) {
-			return g.deps.WorkflowClient().ValidateWorkflowGraphDraft(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowGraphSavePreview: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowGraphSavePreviewRequest) (serverapi.WorkflowGraphSavePreviewResponse, error) {
-			return g.deps.WorkflowClient().PreviewWorkflowGraphSave(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowGraphSave: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowGraphSaveRequest) (serverapi.WorkflowGraphSaveResponse, error) {
-			return g.deps.WorkflowClient().SaveWorkflowGraph(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskCreate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskCreateRequest) (serverapi.WorkflowTaskCreateResponse, error) {
-			return g.deps.WorkflowClient().CreateWorkflowTask(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskUpdate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskUpdateRequest) (serverapi.WorkflowTaskUpdateResponse, error) {
-			return g.deps.WorkflowClient().UpdateWorkflowTask(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskStart: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskStartRequest) (serverapi.WorkflowTaskStartResponse, error) {
-			return g.deps.WorkflowClient().StartWorkflowTask(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskInterrupt: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskInterruptRequest) (serverapi.WorkflowTaskInterruptResponse, error) {
-			return g.deps.WorkflowClient().InterruptWorkflowTask(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskResume: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskResumeRequest) (serverapi.WorkflowTaskResumeResponse, error) {
-			return g.deps.WorkflowClient().ResumeWorkflowTask(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskApprove: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskApproveRequest) (serverapi.WorkflowTaskApproveResponse, error) {
-			return g.deps.WorkflowClient().ApproveWorkflowTask(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskMove: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskMoveRequest) (serverapi.WorkflowTaskMoveResponse, error) {
-			return g.deps.WorkflowClient().MoveWorkflowTask(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskCancel: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskCancelRequest) (struct{}, error) {
-			return struct{}{}, g.deps.WorkflowClient().CancelWorkflowTask(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowAttentionList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowAttentionListRequest) (serverapi.WorkflowAttentionListResponse, error) {
-			return g.deps.WorkflowClient().ListWorkflowAttention(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskAttentionList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskAttentionListRequest) (serverapi.WorkflowTaskAttentionListResponse, error) {
-			return g.deps.WorkflowClient().ListWorkflowTaskAttention(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskQuestionAnswer: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskQuestionAnswerRequest) (struct{}, error) {
-			return struct{}{}, g.deps.WorkflowClient().AnswerWorkflowTaskQuestion(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskCommentAdd: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskCommentAddRequest) (serverapi.WorkflowTaskCommentAddResponse, error) {
-			return g.deps.WorkflowClient().AddWorkflowTaskComment(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskCommentList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskCommentListRequest) (serverapi.WorkflowTaskCommentListResponse, error) {
-			return g.deps.WorkflowClient().ListWorkflowTaskComments(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskCommentReplace: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskCommentReplaceRequest) (struct{}, error) {
-			return struct{}{}, g.deps.WorkflowClient().ReplaceWorkflowTaskComment(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskCommentDelete: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskCommentDeleteRequest) (struct{}, error) {
-			return struct{}{}, g.deps.WorkflowClient().DeleteWorkflowTaskComment(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskActivityList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskActivityListRequest) (serverapi.WorkflowTaskActivityListResponse, error) {
-			return g.deps.WorkflowClient().ListWorkflowTaskActivity(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowBoardGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowBoardRequest) (serverapi.WorkflowBoardResponse, error) {
-			return g.deps.WorkflowClient().GetWorkflowBoard(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowBoardNodeCardsList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowBoardNodeCardsListRequest) (serverapi.WorkflowBoardNodeCardsListResponse, error) {
-			return g.deps.WorkflowClient().ListWorkflowBoardNodeCards(ctx, params)
-		})
-	},
-	protocol.MethodWorkflowTaskGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorkflowTaskGetRequest) (serverapi.WorkflowTaskGetResponse, error) {
-			return g.deps.WorkflowClient().GetWorkflowTask(ctx, params)
-		})
-	},
+	protocol.MethodProjectList:                   gatewayClientCall[client.ProjectViewClient, serverapi.ProjectListRequest, serverapi.ProjectListResponse](gatewayProjectViewClient, client.ProjectViewClient.ListProjects),
+	protocol.MethodProjectHomeList:               gatewayClientCall[client.ProjectViewClient, serverapi.ProjectHomeListRequest, serverapi.ProjectHomeListResponse](gatewayProjectViewClient, client.ProjectViewClient.ListProjectHome),
+	protocol.MethodProjectResolvePath:            gatewayClientCall[client.ProjectViewClient, serverapi.ProjectResolvePathRequest, serverapi.ProjectResolvePathResponse](gatewayProjectViewClient, client.ProjectViewClient.ResolveProjectPath),
+	protocol.MethodProjectPlanWorkspaceBinding:   gatewayClientCall[client.ProjectViewClient, serverapi.ProjectBindingPlanRequest, serverapi.ProjectBindingPlanResponse](gatewayProjectViewClient, client.ProjectViewClient.PlanWorkspaceBinding),
+	protocol.MethodProjectCreate:                 gatewayClientCall[client.ProjectViewClient, serverapi.ProjectCreateRequest, serverapi.ProjectCreateResponse](gatewayProjectViewClient, client.ProjectViewClient.CreateProject),
+	protocol.MethodProjectEditGet:                gatewayClientCall[client.ProjectViewClient, serverapi.ProjectEditGetRequest, serverapi.ProjectEditGetResponse](gatewayProjectViewClient, client.ProjectViewClient.GetProjectEdit),
+	protocol.MethodProjectUpdate:                 gatewayClientCall[client.ProjectViewClient, serverapi.ProjectUpdateRequest, serverapi.ProjectUpdateResponse](gatewayProjectViewClient, client.ProjectViewClient.UpdateProject),
+	protocol.MethodProjectSetDefaultWorkspace:    gatewayClientCall[client.ProjectViewClient, serverapi.ProjectDefaultWorkspaceSetRequest, serverapi.ProjectDefaultWorkspaceSetResponse](gatewayProjectViewClient, client.ProjectViewClient.SetDefaultWorkspace),
+	protocol.MethodProjectWorkspaceList:          gatewayClientCall[client.ProjectViewClient, serverapi.ProjectWorkspaceListRequest, serverapi.ProjectWorkspaceListResponse](gatewayProjectViewClient, client.ProjectViewClient.ListProjectWorkspaces),
+	protocol.MethodProjectUnlinkWorkspace:        gatewayClientCall[client.ProjectViewClient, serverapi.ProjectWorkspaceUnlinkRequest, serverapi.ProjectWorkspaceUnlinkResponse](gatewayProjectViewClient, client.ProjectViewClient.UnlinkWorkspaceFromProject),
+	protocol.MethodProjectAttachWorkspace:        gatewayClientCall[client.ProjectViewClient, serverapi.ProjectAttachWorkspaceRequest, serverapi.ProjectAttachWorkspaceResponse](gatewayProjectViewClient, client.ProjectViewClient.AttachWorkspaceToProject),
+	protocol.MethodProjectRebindWorkspace:        gatewayClientCall[client.ProjectViewClient, serverapi.ProjectRebindWorkspaceRequest, serverapi.ProjectRebindWorkspaceResponse](gatewayProjectViewClient, client.ProjectViewClient.RebindWorkspace),
+	protocol.MethodProjectGetOverview:            gatewayClientCall[client.ProjectViewClient, serverapi.ProjectGetOverviewRequest, serverapi.ProjectGetOverviewResponse](gatewayProjectViewClient, client.ProjectViewClient.GetProjectOverview),
+	protocol.MethodSessionListByProject:          gatewayClientCall[client.ProjectViewClient, serverapi.SessionListByProjectRequest, serverapi.SessionListByProjectResponse](gatewayProjectViewClient, client.ProjectViewClient.ListSessionsByProject),
+	protocol.MethodWorkflowCreate:                gatewayClientCall[client.WorkflowClient, serverapi.WorkflowCreateRequest, serverapi.WorkflowCreateResponse](gatewayWorkflowClient, client.WorkflowClient.CreateWorkflow),
+	protocol.MethodWorkflowCreateAndLinkProject:  gatewayClientCall[client.WorkflowClient, serverapi.WorkflowCreateAndLinkProjectRequest, serverapi.WorkflowCreateAndLinkProjectResponse](gatewayWorkflowClient, client.WorkflowClient.CreateAndLinkWorkflowToProject),
+	protocol.MethodWorkflowUpdate:                gatewayClientCall[client.WorkflowClient, serverapi.WorkflowUpdateRequest, serverapi.WorkflowGetResponse](gatewayWorkflowClient, client.WorkflowClient.UpdateWorkflow),
+	protocol.MethodWorkflowList:                  gatewayClientCall[client.WorkflowClient, serverapi.WorkflowListRequest, serverapi.WorkflowListResponse](gatewayWorkflowClient, client.WorkflowClient.ListWorkflows),
+	protocol.MethodWorkflowGet:                   gatewayClientCall[client.WorkflowClient, serverapi.WorkflowGetRequest, serverapi.WorkflowGetResponse](gatewayWorkflowClient, client.WorkflowClient.GetWorkflow),
+	protocol.MethodWorkflowNodeGroupAdd:          gatewayClientCall[client.WorkflowClient, serverapi.WorkflowNodeGroupAddRequest, serverapi.WorkflowNodeGroupResponse](gatewayWorkflowClient, client.WorkflowClient.AddWorkflowNodeGroup),
+	protocol.MethodWorkflowNodeGroupUpdate:       gatewayClientCall[client.WorkflowClient, serverapi.WorkflowNodeGroupUpdateRequest, serverapi.WorkflowNodeGroupResponse](gatewayWorkflowClient, client.WorkflowClient.UpdateWorkflowNodeGroup),
+	protocol.MethodWorkflowNodeGroupDelete:       gatewayClientCallNoResponse[client.WorkflowClient, serverapi.WorkflowNodeGroupDeleteRequest](gatewayWorkflowClient, client.WorkflowClient.DeleteWorkflowNodeGroup),
+	protocol.MethodWorkflowAddNode:               gatewayClientCall[client.WorkflowClient, serverapi.WorkflowNodeAddRequest, serverapi.WorkflowNodeAddResponse](gatewayWorkflowClient, client.WorkflowClient.AddWorkflowNode),
+	protocol.MethodWorkflowUpdateNode:            gatewayClientCall[client.WorkflowClient, serverapi.WorkflowNodeUpdateRequest, serverapi.WorkflowNodeUpdateResponse](gatewayWorkflowClient, client.WorkflowClient.UpdateWorkflowNode),
+	protocol.MethodWorkflowAddTransitionGroup:    gatewayClientCall[client.WorkflowClient, serverapi.WorkflowTransitionGroupAddRequest, serverapi.WorkflowTransitionGroupAddResponse](gatewayWorkflowClient, client.WorkflowClient.AddWorkflowTransitionGroup),
+	protocol.MethodWorkflowUpdateTransitionGroup: gatewayClientCall[client.WorkflowClient, serverapi.WorkflowTransitionGroupUpdateRequest, serverapi.WorkflowTransitionGroupUpdateResponse](gatewayWorkflowClient, client.WorkflowClient.UpdateWorkflowTransitionGroup),
+	protocol.MethodWorkflowAddEdge:               gatewayClientCall[client.WorkflowClient, serverapi.WorkflowEdgeAddRequest, serverapi.WorkflowEdgeAddResponse](gatewayWorkflowClient, client.WorkflowClient.AddWorkflowEdge),
+	protocol.MethodWorkflowUpdateEdge:            gatewayClientCall[client.WorkflowClient, serverapi.WorkflowEdgeUpdateRequest, serverapi.WorkflowEdgeUpdateResponse](gatewayWorkflowClient, client.WorkflowClient.UpdateWorkflowEdge),
+	protocol.MethodWorkflowLinkProject:           gatewayClientCall[client.WorkflowClient, serverapi.WorkflowLinkProjectRequest, serverapi.WorkflowLinkProjectResponse](gatewayWorkflowClient, client.WorkflowClient.LinkWorkflowToProject),
+	protocol.MethodWorkflowListProjectLinks:      gatewayClientCall[client.WorkflowClient, serverapi.WorkflowListProjectLinksRequest, serverapi.WorkflowListProjectLinksResponse](gatewayWorkflowClient, client.WorkflowClient.ListProjectWorkflowLinks),
+	protocol.MethodWorkflowSetDefaultProjectLink: gatewayClientCall[client.WorkflowClient, serverapi.WorkflowSetDefaultProjectLinkRequest, serverapi.WorkflowSetDefaultProjectLinkResponse](gatewayWorkflowClient, client.WorkflowClient.SetDefaultProjectWorkflowLink),
+	protocol.MethodWorkflowUnlinkProject:         gatewayClientCall[client.WorkflowClient, serverapi.WorkflowUnlinkProjectRequest, serverapi.WorkflowUnlinkProjectResponse](gatewayWorkflowClient, client.WorkflowClient.UnlinkWorkflowFromProject),
+	protocol.MethodWorkflowDeletePreview:         gatewayClientCall[client.WorkflowClient, serverapi.WorkflowDeletePreviewRequest, serverapi.WorkflowDeletePreviewResponse](gatewayWorkflowClient, client.WorkflowClient.PreviewWorkflowDelete),
+	protocol.MethodWorkflowDelete:                gatewayClientCall[client.WorkflowClient, serverapi.WorkflowDeleteRequest, serverapi.WorkflowDeleteResponse](gatewayWorkflowClient, client.WorkflowClient.DeleteWorkflow),
+	protocol.MethodWorkflowValidate:              gatewayClientCall[client.WorkflowClient, serverapi.WorkflowValidateRequest, serverapi.WorkflowValidateResponse](gatewayWorkflowClient, client.WorkflowClient.ValidateWorkflow),
+	protocol.MethodWorkflowGraphValidateDraft:    gatewayClientCall[client.WorkflowClient, serverapi.WorkflowGraphValidateDraftRequest, serverapi.WorkflowGraphValidateDraftResponse](gatewayWorkflowClient, client.WorkflowClient.ValidateWorkflowGraphDraft),
+	protocol.MethodWorkflowGraphSavePreview:      gatewayClientCall[client.WorkflowClient, serverapi.WorkflowGraphSavePreviewRequest, serverapi.WorkflowGraphSavePreviewResponse](gatewayWorkflowClient, client.WorkflowClient.PreviewWorkflowGraphSave),
+	protocol.MethodWorkflowGraphSave:             gatewayClientCall[client.WorkflowClient, serverapi.WorkflowGraphSaveRequest, serverapi.WorkflowGraphSaveResponse](gatewayWorkflowClient, client.WorkflowClient.SaveWorkflowGraph),
+	protocol.MethodWorkflowTaskCreate:            gatewayClientCall[client.WorkflowClient, serverapi.WorkflowTaskCreateRequest, serverapi.WorkflowTaskCreateResponse](gatewayWorkflowClient, client.WorkflowClient.CreateWorkflowTask),
+	protocol.MethodWorkflowTaskUpdate:            gatewayClientCall[client.WorkflowClient, serverapi.WorkflowTaskUpdateRequest, serverapi.WorkflowTaskUpdateResponse](gatewayWorkflowClient, client.WorkflowClient.UpdateWorkflowTask),
+	protocol.MethodWorkflowTaskStart:             gatewayClientCall[client.WorkflowClient, serverapi.WorkflowTaskStartRequest, serverapi.WorkflowTaskStartResponse](gatewayWorkflowClient, client.WorkflowClient.StartWorkflowTask),
+	protocol.MethodWorkflowTaskInterrupt:         gatewayClientCall[client.WorkflowClient, serverapi.WorkflowTaskInterruptRequest, serverapi.WorkflowTaskInterruptResponse](gatewayWorkflowClient, client.WorkflowClient.InterruptWorkflowTask),
+	protocol.MethodWorkflowTaskResume:            gatewayClientCall[client.WorkflowClient, serverapi.WorkflowTaskResumeRequest, serverapi.WorkflowTaskResumeResponse](gatewayWorkflowClient, client.WorkflowClient.ResumeWorkflowTask),
+	protocol.MethodWorkflowTaskApprove:           gatewayClientCall[client.WorkflowClient, serverapi.WorkflowTaskApproveRequest, serverapi.WorkflowTaskApproveResponse](gatewayWorkflowClient, client.WorkflowClient.ApproveWorkflowTask),
+	protocol.MethodWorkflowTaskMove:              gatewayClientCall[client.WorkflowClient, serverapi.WorkflowTaskMoveRequest, serverapi.WorkflowTaskMoveResponse](gatewayWorkflowClient, client.WorkflowClient.MoveWorkflowTask),
+	protocol.MethodWorkflowTaskCancel:            gatewayClientCallNoResponse[client.WorkflowClient, serverapi.WorkflowTaskCancelRequest](gatewayWorkflowClient, client.WorkflowClient.CancelWorkflowTask),
+	protocol.MethodWorkflowAttentionList:         gatewayClientCall[client.WorkflowClient, serverapi.WorkflowAttentionListRequest, serverapi.WorkflowAttentionListResponse](gatewayWorkflowClient, client.WorkflowClient.ListWorkflowAttention),
+	protocol.MethodWorkflowTaskAttentionList:     gatewayClientCall[client.WorkflowClient, serverapi.WorkflowTaskAttentionListRequest, serverapi.WorkflowTaskAttentionListResponse](gatewayWorkflowClient, client.WorkflowClient.ListWorkflowTaskAttention),
+	protocol.MethodWorkflowTaskQuestionAnswer:    gatewayClientCallNoResponse[client.WorkflowClient, serverapi.WorkflowTaskQuestionAnswerRequest](gatewayWorkflowClient, client.WorkflowClient.AnswerWorkflowTaskQuestion),
+	protocol.MethodWorkflowTaskCommentAdd:        gatewayClientCall[client.WorkflowClient, serverapi.WorkflowTaskCommentAddRequest, serverapi.WorkflowTaskCommentAddResponse](gatewayWorkflowClient, client.WorkflowClient.AddWorkflowTaskComment),
+	protocol.MethodWorkflowTaskCommentList:       gatewayClientCall[client.WorkflowClient, serverapi.WorkflowTaskCommentListRequest, serverapi.WorkflowTaskCommentListResponse](gatewayWorkflowClient, client.WorkflowClient.ListWorkflowTaskComments),
+	protocol.MethodWorkflowTaskCommentReplace:    gatewayClientCallNoResponse[client.WorkflowClient, serverapi.WorkflowTaskCommentReplaceRequest](gatewayWorkflowClient, client.WorkflowClient.ReplaceWorkflowTaskComment),
+	protocol.MethodWorkflowTaskCommentDelete:     gatewayClientCallNoResponse[client.WorkflowClient, serverapi.WorkflowTaskCommentDeleteRequest](gatewayWorkflowClient, client.WorkflowClient.DeleteWorkflowTaskComment),
+	protocol.MethodWorkflowTaskActivityList:      gatewayClientCall[client.WorkflowClient, serverapi.WorkflowTaskActivityListRequest, serverapi.WorkflowTaskActivityListResponse](gatewayWorkflowClient, client.WorkflowClient.ListWorkflowTaskActivity),
+	protocol.MethodWorkflowBoardGet:              gatewayClientCall[client.WorkflowClient, serverapi.WorkflowBoardRequest, serverapi.WorkflowBoardResponse](gatewayWorkflowClient, client.WorkflowClient.GetWorkflowBoard),
+	protocol.MethodWorkflowBoardNodeCardsList:    gatewayClientCall[client.WorkflowClient, serverapi.WorkflowBoardNodeCardsListRequest, serverapi.WorkflowBoardNodeCardsListResponse](gatewayWorkflowClient, client.WorkflowClient.ListWorkflowBoardNodeCards),
+	protocol.MethodWorkflowTaskGet:               gatewayClientCall[client.WorkflowClient, serverapi.WorkflowTaskGetRequest, serverapi.WorkflowTaskGetResponse](gatewayWorkflowClient, client.WorkflowClient.GetWorkflowTask),
 	protocol.MethodSessionPlan: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.SessionPlanRequest) (serverapi.SessionPlanResponse, error) {
 			launchClient, err := g.sessionLaunchClientForState(ctx, state)
@@ -392,16 +205,8 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return launchClient.PlanSession(ctx, params)
 		})
 	},
-	protocol.MethodSessionGetMainView: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
-			return g.deps.SessionViewClient().GetSessionMainView(ctx, params)
-		})
-	},
-	protocol.MethodSessionGetTranscriptPage: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.SessionTranscriptPageRequest) (serverapi.SessionTranscriptPageResponse, error) {
-			return g.deps.SessionViewClient().GetSessionTranscriptPage(ctx, params)
-		})
-	},
+	protocol.MethodSessionGetMainView:       gatewayClientCall[client.SessionViewClient, serverapi.SessionMainViewRequest, serverapi.SessionMainViewResponse](gatewaySessionViewClient, client.SessionViewClient.GetSessionMainView),
+	protocol.MethodSessionGetTranscriptPage: gatewayClientCall[client.SessionViewClient, serverapi.SessionTranscriptPageRequest, serverapi.SessionTranscriptPageResponse](gatewaySessionViewClient, client.SessionViewClient.GetSessionTranscriptPage),
 	protocol.MethodSessionGetCommittedTranscriptSuffix: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.SessionCommittedTranscriptSuffixRequest) (serverapi.SessionCommittedTranscriptSuffixResponse, error) {
 			suffixClient, ok := g.deps.SessionViewClient().(client.SessionCommittedTranscriptSuffixClient)
@@ -411,186 +216,42 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return suffixClient.GetSessionCommittedTranscriptSuffix(ctx, params)
 		})
 	},
-	protocol.MethodSessionGetInitialInput: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.SessionInitialInputRequest) (serverapi.SessionInitialInputResponse, error) {
-			return g.deps.SessionLifecycleClient().GetInitialInput(ctx, params)
-		})
-	},
-	protocol.MethodSessionPersistInputDraft: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.SessionPersistInputDraftRequest) (serverapi.SessionPersistInputDraftResponse, error) {
-			return g.deps.SessionLifecycleClient().PersistInputDraft(ctx, params)
-		})
-	},
-	protocol.MethodSessionRetargetWorkspace: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.SessionRetargetWorkspaceRequest) (serverapi.SessionRetargetWorkspaceResponse, error) {
-			return g.deps.SessionLifecycleClient().RetargetSessionWorkspace(ctx, params)
-		})
-	},
-	protocol.MethodSessionResolveTransition: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
-			return g.deps.SessionLifecycleClient().ResolveTransition(ctx, params)
-		})
-	},
-	protocol.MethodWorktreeList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorktreeListRequest) (serverapi.WorktreeListResponse, error) {
-			return g.deps.WorktreeClient().ListWorktrees(ctx, params)
-		})
-	},
-	protocol.MethodWorktreeCreateTargetResolve: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorktreeCreateTargetResolveRequest) (serverapi.WorktreeCreateTargetResolveResponse, error) {
-			return g.deps.WorktreeClient().ResolveWorktreeCreateTarget(ctx, params)
-		})
-	},
-	protocol.MethodWorktreeCreate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorktreeCreateRequest) (serverapi.WorktreeCreateResponse, error) {
-			return g.deps.WorktreeClient().CreateWorktree(ctx, params)
-		})
-	},
-	protocol.MethodWorktreeSwitch: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorktreeSwitchRequest) (serverapi.WorktreeSwitchResponse, error) {
-			return g.deps.WorktreeClient().SwitchWorktree(ctx, params)
-		})
-	},
-	protocol.MethodWorktreeDelete: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.WorktreeDeleteRequest) (serverapi.WorktreeDeleteResponse, error) {
-			return g.deps.WorktreeClient().DeleteWorktree(ctx, params)
-		})
-	},
-	protocol.MethodSessionRuntimeActivate: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
-			return g.deps.SessionRuntimeClient().ActivateSessionRuntime(ctx, params)
-		})
-	},
-	protocol.MethodSessionRuntimeRelease: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
-			return g.deps.SessionRuntimeClient().ReleaseSessionRuntime(ctx, params)
-		})
-	},
-	protocol.MethodRunGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RunGetRequest) (serverapi.RunGetResponse, error) {
-			return g.deps.SessionViewClient().GetRun(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeSetSessionName: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeSetSessionNameRequest) (struct{}, error) {
-			return struct{}{}, g.deps.RuntimeControlClient().SetSessionName(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeSetThinkingLevel: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeSetThinkingLevelRequest) (struct{}, error) {
-			return struct{}{}, g.deps.RuntimeControlClient().SetThinkingLevel(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeSetFastModeEnabled: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeSetFastModeEnabledRequest) (serverapi.RuntimeSetFastModeEnabledResponse, error) {
-			return g.deps.RuntimeControlClient().SetFastModeEnabled(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeSetReviewerEnabled: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeSetReviewerEnabledRequest) (serverapi.RuntimeSetReviewerEnabledResponse, error) {
-			return g.deps.RuntimeControlClient().SetReviewerEnabled(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeSetAutoCompactionEnabled: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeSetAutoCompactionEnabledRequest) (serverapi.RuntimeSetAutoCompactionEnabledResponse, error) {
-			return g.deps.RuntimeControlClient().SetAutoCompactionEnabled(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeAppendLocalEntry: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeAppendLocalEntryRequest) (struct{}, error) {
-			return struct{}{}, g.deps.RuntimeControlClient().AppendLocalEntry(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeShouldCompactBeforeUserMessage: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeShouldCompactBeforeUserMessageRequest) (serverapi.RuntimeShouldCompactBeforeUserMessageResponse, error) {
-			return g.deps.RuntimeControlClient().ShouldCompactBeforeUserMessage(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeSubmitUserMessage: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeSubmitUserMessageRequest) (serverapi.RuntimeSubmitUserMessageResponse, error) {
-			return g.deps.RuntimeControlClient().SubmitUserMessage(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeSubmitUserTurn: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {
-			return g.deps.RuntimeControlClient().SubmitUserTurn(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeSubmitUserShellCommand: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeSubmitUserShellCommandRequest) (struct{}, error) {
-			return struct{}{}, g.deps.RuntimeControlClient().SubmitUserShellCommand(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeCompactContext: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeCompactContextRequest) (struct{}, error) {
-			return struct{}{}, g.deps.RuntimeControlClient().CompactContext(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeCompactContextForPreSubmit: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeCompactContextForPreSubmitRequest) (struct{}, error) {
-			return struct{}{}, g.deps.RuntimeControlClient().CompactContextForPreSubmit(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeHasQueuedUserWork: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeHasQueuedUserWorkRequest) (serverapi.RuntimeHasQueuedUserWorkResponse, error) {
-			return g.deps.RuntimeControlClient().HasQueuedUserWork(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeSubmitQueuedUserMessages: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeSubmitQueuedUserMessagesRequest) (serverapi.RuntimeSubmitQueuedUserMessagesResponse, error) {
-			return g.deps.RuntimeControlClient().SubmitQueuedUserMessages(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeInterrupt: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeInterruptRequest) (struct{}, error) {
-			return struct{}{}, g.deps.RuntimeControlClient().Interrupt(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeQueueUserMessage: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error) {
-			return g.deps.RuntimeControlClient().QueueUserMessage(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeDiscardQueuedUserMessage: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeDiscardQueuedUserMessageRequest) (serverapi.RuntimeDiscardQueuedUserMessageResponse, error) {
-			return g.deps.RuntimeControlClient().DiscardQueuedUserMessage(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeRecordPromptHistory: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeRecordPromptHistoryRequest) (struct{}, error) {
-			return struct{}{}, g.deps.RuntimeControlClient().RecordPromptHistory(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeGoalShow: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeGoalShowRequest) (serverapi.RuntimeGoalShowResponse, error) {
-			return g.deps.RuntimeControlClient().ShowGoal(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeGoalSet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalShowResponse, error) {
-			return g.deps.RuntimeControlClient().SetGoal(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeGoalPause: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-			return g.deps.RuntimeControlClient().PauseGoal(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeGoalResume: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-			return g.deps.RuntimeControlClient().ResumeGoal(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeGoalComplete: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
-			return g.deps.RuntimeControlClient().CompleteGoal(ctx, params)
-		})
-	},
-	protocol.MethodRuntimeGoalClear: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.RuntimeGoalClearRequest) (serverapi.RuntimeGoalShowResponse, error) {
-			return g.deps.RuntimeControlClient().ClearGoal(ctx, params)
-		})
-	},
+	protocol.MethodSessionGetInitialInput:                gatewayClientCall[client.SessionLifecycleClient, serverapi.SessionInitialInputRequest, serverapi.SessionInitialInputResponse](gatewaySessionLifecycleClient, client.SessionLifecycleClient.GetInitialInput),
+	protocol.MethodSessionPersistInputDraft:              gatewayClientCall[client.SessionLifecycleClient, serverapi.SessionPersistInputDraftRequest, serverapi.SessionPersistInputDraftResponse](gatewaySessionLifecycleClient, client.SessionLifecycleClient.PersistInputDraft),
+	protocol.MethodSessionRetargetWorkspace:              gatewayClientCall[client.SessionLifecycleClient, serverapi.SessionRetargetWorkspaceRequest, serverapi.SessionRetargetWorkspaceResponse](gatewaySessionLifecycleClient, client.SessionLifecycleClient.RetargetSessionWorkspace),
+	protocol.MethodSessionResolveTransition:              gatewayClientCall[client.SessionLifecycleClient, serverapi.SessionResolveTransitionRequest, serverapi.SessionResolveTransitionResponse](gatewaySessionLifecycleClient, client.SessionLifecycleClient.ResolveTransition),
+	protocol.MethodWorktreeList:                          gatewayClientCall[client.WorktreeClient, serverapi.WorktreeListRequest, serverapi.WorktreeListResponse](gatewayWorktreeClient, client.WorktreeClient.ListWorktrees),
+	protocol.MethodWorktreeCreateTargetResolve:           gatewayClientCall[client.WorktreeClient, serverapi.WorktreeCreateTargetResolveRequest, serverapi.WorktreeCreateTargetResolveResponse](gatewayWorktreeClient, client.WorktreeClient.ResolveWorktreeCreateTarget),
+	protocol.MethodWorktreeCreate:                        gatewayClientCall[client.WorktreeClient, serverapi.WorktreeCreateRequest, serverapi.WorktreeCreateResponse](gatewayWorktreeClient, client.WorktreeClient.CreateWorktree),
+	protocol.MethodWorktreeSwitch:                        gatewayClientCall[client.WorktreeClient, serverapi.WorktreeSwitchRequest, serverapi.WorktreeSwitchResponse](gatewayWorktreeClient, client.WorktreeClient.SwitchWorktree),
+	protocol.MethodWorktreeDelete:                        gatewayClientCall[client.WorktreeClient, serverapi.WorktreeDeleteRequest, serverapi.WorktreeDeleteResponse](gatewayWorktreeClient, client.WorktreeClient.DeleteWorktree),
+	protocol.MethodSessionRuntimeActivate:                gatewayClientCall[client.SessionRuntimeClient, serverapi.SessionRuntimeActivateRequest, serverapi.SessionRuntimeActivateResponse](gatewaySessionRuntimeClient, client.SessionRuntimeClient.ActivateSessionRuntime),
+	protocol.MethodSessionRuntimeRelease:                 gatewayClientCall[client.SessionRuntimeClient, serverapi.SessionRuntimeReleaseRequest, serverapi.SessionRuntimeReleaseResponse](gatewaySessionRuntimeClient, client.SessionRuntimeClient.ReleaseSessionRuntime),
+	protocol.MethodRunGet:                                gatewayClientCall[client.SessionViewClient, serverapi.RunGetRequest, serverapi.RunGetResponse](gatewaySessionViewClient, client.SessionViewClient.GetRun),
+	protocol.MethodRuntimeSetSessionName:                 gatewayClientCallNoResponse[client.RuntimeControlClient, serverapi.RuntimeSetSessionNameRequest](gatewayRuntimeControlClient, client.RuntimeControlClient.SetSessionName),
+	protocol.MethodRuntimeSetThinkingLevel:               gatewayClientCallNoResponse[client.RuntimeControlClient, serverapi.RuntimeSetThinkingLevelRequest](gatewayRuntimeControlClient, client.RuntimeControlClient.SetThinkingLevel),
+	protocol.MethodRuntimeSetFastModeEnabled:             gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeSetFastModeEnabledRequest, serverapi.RuntimeSetFastModeEnabledResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.SetFastModeEnabled),
+	protocol.MethodRuntimeSetReviewerEnabled:             gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeSetReviewerEnabledRequest, serverapi.RuntimeSetReviewerEnabledResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.SetReviewerEnabled),
+	protocol.MethodRuntimeSetAutoCompactionEnabled:       gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeSetAutoCompactionEnabledRequest, serverapi.RuntimeSetAutoCompactionEnabledResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.SetAutoCompactionEnabled),
+	protocol.MethodRuntimeAppendLocalEntry:               gatewayClientCallNoResponse[client.RuntimeControlClient, serverapi.RuntimeAppendLocalEntryRequest](gatewayRuntimeControlClient, client.RuntimeControlClient.AppendLocalEntry),
+	protocol.MethodRuntimeShouldCompactBeforeUserMessage: gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeShouldCompactBeforeUserMessageRequest, serverapi.RuntimeShouldCompactBeforeUserMessageResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.ShouldCompactBeforeUserMessage),
+	protocol.MethodRuntimeSubmitUserMessage:              gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeSubmitUserMessageRequest, serverapi.RuntimeSubmitUserMessageResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.SubmitUserMessage),
+	protocol.MethodRuntimeSubmitUserTurn:                 gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeSubmitUserTurnRequest, serverapi.RuntimeSubmitUserTurnResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.SubmitUserTurn),
+	protocol.MethodRuntimeSubmitUserShellCommand:         gatewayClientCallNoResponse[client.RuntimeControlClient, serverapi.RuntimeSubmitUserShellCommandRequest](gatewayRuntimeControlClient, client.RuntimeControlClient.SubmitUserShellCommand),
+	protocol.MethodRuntimeCompactContext:                 gatewayClientCallNoResponse[client.RuntimeControlClient, serverapi.RuntimeCompactContextRequest](gatewayRuntimeControlClient, client.RuntimeControlClient.CompactContext),
+	protocol.MethodRuntimeCompactContextForPreSubmit:     gatewayClientCallNoResponse[client.RuntimeControlClient, serverapi.RuntimeCompactContextForPreSubmitRequest](gatewayRuntimeControlClient, client.RuntimeControlClient.CompactContextForPreSubmit),
+	protocol.MethodRuntimeHasQueuedUserWork:              gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeHasQueuedUserWorkRequest, serverapi.RuntimeHasQueuedUserWorkResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.HasQueuedUserWork),
+	protocol.MethodRuntimeSubmitQueuedUserMessages:       gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeSubmitQueuedUserMessagesRequest, serverapi.RuntimeSubmitQueuedUserMessagesResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.SubmitQueuedUserMessages),
+	protocol.MethodRuntimeInterrupt:                      gatewayClientCallNoResponse[client.RuntimeControlClient, serverapi.RuntimeInterruptRequest](gatewayRuntimeControlClient, client.RuntimeControlClient.Interrupt),
+	protocol.MethodRuntimeQueueUserMessage:               gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeQueueUserMessageRequest, serverapi.RuntimeQueueUserMessageResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.QueueUserMessage),
+	protocol.MethodRuntimeDiscardQueuedUserMessage:       gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeDiscardQueuedUserMessageRequest, serverapi.RuntimeDiscardQueuedUserMessageResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.DiscardQueuedUserMessage),
+	protocol.MethodRuntimeRecordPromptHistory:            gatewayClientCallNoResponse[client.RuntimeControlClient, serverapi.RuntimeRecordPromptHistoryRequest](gatewayRuntimeControlClient, client.RuntimeControlClient.RecordPromptHistory),
+	protocol.MethodRuntimeGoalShow:                       gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeGoalShowRequest, serverapi.RuntimeGoalShowResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.ShowGoal),
+	protocol.MethodRuntimeGoalSet:                        gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeGoalSetRequest, serverapi.RuntimeGoalShowResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.SetGoal),
+	protocol.MethodRuntimeGoalPause:                      gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalShowResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.PauseGoal),
+	protocol.MethodRuntimeGoalResume:                     gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalShowResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.ResumeGoal),
+	protocol.MethodRuntimeGoalComplete:                   gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeGoalStatusRequest, serverapi.RuntimeGoalShowResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.CompleteGoal),
+	protocol.MethodRuntimeGoalClear:                      gatewayClientCall[client.RuntimeControlClient, serverapi.RuntimeGoalClearRequest, serverapi.RuntimeGoalShowResponse](gatewayRuntimeControlClient, client.RuntimeControlClient.ClearGoal),
 	protocol.MethodProcessList: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
 		return decodeAndHandle(req, func(params serverapi.ProcessListRequest) (serverapi.ProcessListResponse, error) {
 			resp, err := g.deps.ProcessViewClient().ListProcesses(ctx, params)
@@ -608,39 +269,11 @@ var gatewayUnaryHandlerEntries = map[string]gatewayUnaryHandler{
 			return resp, nil
 		})
 	},
-	protocol.MethodProcessGet: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProcessGetRequest) (serverapi.ProcessGetResponse, error) {
-			return g.deps.ProcessViewClient().GetProcess(ctx, params)
-		})
-	},
-	protocol.MethodProcessKill: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProcessKillRequest) (serverapi.ProcessKillResponse, error) {
-			return g.deps.ProcessControlClient().KillProcess(ctx, params)
-		})
-	},
-	protocol.MethodProcessInlineOutput: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ProcessInlineOutputRequest) (serverapi.ProcessInlineOutputResponse, error) {
-			return g.deps.ProcessControlClient().GetInlineOutput(ctx, params)
-		})
-	},
-	protocol.MethodAskListPending: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.AskListPendingBySessionRequest) (serverapi.AskListPendingBySessionResponse, error) {
-			return g.deps.AskViewClient().ListPendingAsksBySession(ctx, params)
-		})
-	},
-	protocol.MethodAskAnswer: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.AskAnswerRequest) (struct{}, error) {
-			return struct{}{}, g.deps.PromptControlClient().AnswerAsk(ctx, params)
-		})
-	},
-	protocol.MethodApprovalListPending: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ApprovalListPendingBySessionRequest) (serverapi.ApprovalListPendingBySessionResponse, error) {
-			return g.deps.ApprovalViewClient().ListPendingApprovalsBySession(ctx, params)
-		})
-	},
-	protocol.MethodApprovalAnswer: func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-		return decodeAndHandle(req, func(params serverapi.ApprovalAnswerRequest) (struct{}, error) {
-			return struct{}{}, g.deps.PromptControlClient().AnswerApproval(ctx, params)
-		})
-	},
+	protocol.MethodProcessGet:          gatewayClientCall[client.ProcessViewClient, serverapi.ProcessGetRequest, serverapi.ProcessGetResponse](gatewayProcessViewClient, client.ProcessViewClient.GetProcess),
+	protocol.MethodProcessKill:         gatewayClientCall[client.ProcessControlClient, serverapi.ProcessKillRequest, serverapi.ProcessKillResponse](gatewayProcessControlClient, client.ProcessControlClient.KillProcess),
+	protocol.MethodProcessInlineOutput: gatewayClientCall[client.ProcessControlClient, serverapi.ProcessInlineOutputRequest, serverapi.ProcessInlineOutputResponse](gatewayProcessControlClient, client.ProcessControlClient.GetInlineOutput),
+	protocol.MethodAskListPending:      gatewayClientCall[client.AskViewClient, serverapi.AskListPendingBySessionRequest, serverapi.AskListPendingBySessionResponse](gatewayAskViewClient, client.AskViewClient.ListPendingAsksBySession),
+	protocol.MethodAskAnswer:           gatewayClientCallNoResponse[client.PromptControlClient, serverapi.AskAnswerRequest](gatewayPromptControlClient, client.PromptControlClient.AnswerAsk),
+	protocol.MethodApprovalListPending: gatewayClientCall[client.ApprovalViewClient, serverapi.ApprovalListPendingBySessionRequest, serverapi.ApprovalListPendingBySessionResponse](gatewayApprovalViewClient, client.ApprovalViewClient.ListPendingApprovalsBySession),
+	protocol.MethodApprovalAnswer:      gatewayClientCallNoResponse[client.PromptControlClient, serverapi.ApprovalAnswerRequest](gatewayPromptControlClient, client.PromptControlClient.AnswerApproval),
 }

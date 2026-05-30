@@ -12,23 +12,9 @@ import (
 )
 
 func TestRetargetSessionWorkspaceDoesNotFallbackForExplicitLoopbackPortOpenFailure(t *testing.T) {
-	originalOpener := bindingCommandRemoteOpener
-	originalRetargeter := bindingCommandSessionRetargeter
-	originalLocalClient := bindingCommandLocalSessionLifecycleClient
-	t.Cleanup(func() {
-		bindingCommandRemoteOpener = originalOpener
-		bindingCommandSessionRetargeter = originalRetargeter
-		bindingCommandLocalSessionLifecycleClient = originalLocalClient
-	})
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	resetBindingCommandRetargetHooks(t)
 	t.Setenv("BUILDER_SERVER_PORT", "65432")
-	newWorkspace := t.TempDir()
-	newCfg, err := config.Load(newWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	newWorkspace, newCfg := newBindingCommandWorkspaceConfig(t)
 	if got := newCfg.Settings.ServerHost; got != "127.0.0.1" {
 		t.Fatalf("server host = %q, want default loopback", got)
 	}
@@ -47,7 +33,7 @@ func TestRetargetSessionWorkspaceDoesNotFallbackForExplicitLoopbackPortOpenFailu
 		return bindingCommandTimeoutSessionLifecycleStub{}
 	}
 
-	_, err = retargetSessionWorkspace(context.Background(), "session-123", newWorkspace)
+	_, err := retargetSessionWorkspace(context.Background(), "session-123", newWorkspace)
 	var opErr *net.OpError
 	if !errors.As(err, &opErr) {
 		t.Fatalf("retargetSessionWorkspace error = %v, want net.OpError", err)

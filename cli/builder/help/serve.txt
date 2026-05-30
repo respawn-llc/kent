@@ -1,0 +1,16 @@
+Usage of builder serve:
+  builder serve [flags]
+
+What This Does:
+  Start the Builder app server and keep serving until interrupted.
+  This is for daemon/server mode, not for running one prompt interactively.
+
+Notes:
+  `builder serve` is workspace-agnostic at startup.
+  Session config is resolved from each session workspace: defaults, ~/.builder, env, <workspace>/.builder.
+
+Examples:
+  builder serve
+  builder project create --path /srv/repos/app --name app
+
+Flags:

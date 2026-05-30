@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"builder/server/tools/shell/postprocess"
 )
 
 const (
@@ -203,7 +205,7 @@ func (p *processEntry) snapshotLocked() Snapshot {
 		Workdir:                 p.workdir,
 		StartedAt:               p.startedAt,
 		FinishedAt:              p.finishedAt,
-		ExitCode:                cloneIntPtr(p.exitCode),
+		ExitCode:                postprocess.CloneIntPtr(p.exitCode),
 		LogPath:                 p.logPath,
 		RecentOutput:            formatCapturedOutput(string(p.recentOutput), p.preserveOutput),
 		OutputAvailable:         p.logPath != "",
@@ -216,11 +218,6 @@ func (p *processEntry) snapshotLocked() Snapshot {
 		KillRequested:           p.killRequested,
 		LastUpdatedAt:           p.lastUpdatedAt,
 	}
-}
-
-func (p *processEntry) closeResourcesLocked() {
-	stdin, log := p.detachResourcesLocked()
-	closeDetachedResources(stdin, log)
 }
 
 func (p *processEntry) detachResourcesLocked() (io.Closer, *asyncLogWriter) {
@@ -369,14 +366,6 @@ func (w *outputWriter) Write(p []byte) (int, error) {
 		return 0, err
 	}
 	return len(p), nil
-}
-
-func cloneIntPtr(in *int) *int {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	return &out
 }
 
 func normalizeOutputChars(maxChars int) int {

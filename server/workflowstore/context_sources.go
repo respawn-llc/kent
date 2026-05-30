@@ -55,16 +55,7 @@ func (s *Store) resolveContextSourceRun(ctx context.Context, tx *sql.Tx, taskID 
 			return resolvedContextSourceRun{}, fmt.Errorf("selected context source node %q missing from run snapshot", source.NodeKey)
 		}
 		var runID string
-		err := tx.QueryRowContext(ctx, `
-SELECT r.id
-FROM task_runs r
-JOIN task_node_placements p ON p.id = r.placement_id
-WHERE p.task_id = ?
-  AND p.node_id = ?
-  AND r.completed_at_unix_ms > 0
-  AND r.completed_at_unix_ms <= ?
-ORDER BY r.completed_at_unix_ms DESC, r.rowid DESC
-LIMIT 1`, taskID, string(node.ID), beforeUnixMs).Scan(&runID)
+		err := tx.QueryRowContext(ctx, workflowStoreQuery(resolveContextSourceRunQuery), taskID, string(node.ID), beforeUnixMs).Scan(&runID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return resolvedContextSourceRun{}, fmt.Errorf("selected context source node %q has no completed run for task", source.NodeKey)
 		}
@@ -113,18 +104,7 @@ func (s *Store) resolvePromptNodeOutputValues(ctx context.Context, tx *sql.Tx, t
 
 func latestNodeOutputValue(ctx context.Context, tx *sql.Tx, taskID string, nodeID string, fieldName string, beforeUnixMs int64) (string, error) {
 	var outputValuesJSON string
-	err := tx.QueryRowContext(ctx, `
-SELECT tr.output_values_json
-FROM task_runs r
-JOIN task_node_placements p ON p.id = r.placement_id
-JOIN task_transitions tr ON tr.source_run_id = r.id
-WHERE p.task_id = ?
-  AND p.node_id = ?
-  AND r.completed_at_unix_ms > 0
-  AND r.completed_at_unix_ms <= ?
-  AND tr.state != 'rejected'
-ORDER BY r.completed_at_unix_ms DESC, tr.created_at_unix_ms DESC, r.rowid DESC
-LIMIT 1`, taskID, nodeID, beforeUnixMs).Scan(&outputValuesJSON)
+	err := tx.QueryRowContext(ctx, workflowStoreQuery(latestNodeOutputValueQuery), taskID, nodeID, beforeUnixMs).Scan(&outputValuesJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", fmt.Errorf("prompt node reference source node %q has no completed output for task", nodeID)
 	}

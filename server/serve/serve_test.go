@@ -97,6 +97,24 @@ func registerServeWorkspace(t *testing.T, workspace string) {
 	}
 }
 
+func newServeWorkspace(t *testing.T) string {
+	t.Helper()
+	workspace := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	registerServeWorkspace(t, workspace)
+	return workspace
+}
+
+func startServeTestServer(t *testing.T, request startup.Request, authHandler envAuthHandler, onboarding noopOnboarding) *Server {
+	t.Helper()
+	server, err := Start(context.Background(), request, authHandler, onboarding)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	return server
+}
+
 func configureServeTestServerPort(t *testing.T) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -139,14 +157,11 @@ func TestReserveTestListenReservationDrainerStopsAfterRelease(t *testing.T) {
 }
 
 func TestStartBuildsStandaloneServerFromCoreStartup(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	workspace := newServeWorkspace(t)
 
 	request := startup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
 	authHandler := envAuthHandler{}
 	onboarding := noopOnboarding{}
-	registerServeWorkspace(t, workspace)
 
 	appCore, err := startup.StartCore(context.Background(), request, authHandler, onboarding)
 	if err != nil {
@@ -161,11 +176,7 @@ func TestStartBuildsStandaloneServerFromCoreStartup(t *testing.T) {
 		t.Fatalf("appCore.Close: %v", err)
 	}
 
-	server, err := Start(context.Background(), request, authHandler, onboarding)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = server.Close() }()
+	server := startServeTestServer(t, request, authHandler, onboarding)
 
 	if server.Core == nil {
 		t.Fatal("expected standalone server to expose core")
@@ -189,22 +200,15 @@ func TestStartBuildsStandaloneServerFromCoreStartup(t *testing.T) {
 }
 
 func TestStartRejectsSecondOwnerForSamePersistenceRoot(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	workspace := newServeWorkspace(t)
 
 	request := startup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
 	authHandler := envAuthHandler{}
 	onboarding := noopOnboarding{}
-	registerServeWorkspace(t, workspace)
 
-	first, err := Start(context.Background(), request, authHandler, onboarding)
-	if err != nil {
-		t.Fatalf("Start first: %v", err)
-	}
-	defer func() { _ = first.Close() }()
+	_ = startServeTestServer(t, request, authHandler, onboarding)
 
-	_, err = Start(context.Background(), request, authHandler, onboarding)
+	_, err := Start(context.Background(), request, authHandler, onboarding)
 	if !errors.Is(err, rootlock.ErrPersistenceRootBusy) {
 		t.Fatalf("Start second error = %v, want ErrPersistenceRootBusy", err)
 	}
@@ -227,20 +231,13 @@ func TestServeRequiresContext(t *testing.T) {
 }
 
 func TestServeExposesConfiguredHealthEndpoints(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	workspace := newServeWorkspace(t)
 
 	request := startup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
 	authHandler := envAuthHandler{}
 	onboarding := noopOnboarding{}
-	registerServeWorkspace(t, workspace)
 
-	server, err := Start(context.Background(), request, authHandler, onboarding)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = server.Close() }()
+	server := startServeTestServer(t, request, authHandler, onboarding)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -294,14 +291,11 @@ func TestServeExposesConfiguredHealthEndpoints(t *testing.T) {
 }
 
 func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	workspace := newServeWorkspace(t)
 
 	request := startup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
 	authHandler := envAuthHandler{}
 	onboarding := noopOnboarding{}
-	registerServeWorkspace(t, workspace)
 
 	loadCfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
@@ -325,11 +319,7 @@ func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {
 		t.Fatalf("close stale unix socket: %v", err)
 	}
 
-	server, err := Start(context.Background(), request, authHandler, onboarding)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = server.Close() }()
+	server := startServeTestServer(t, request, authHandler, onboarding)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -389,14 +379,11 @@ func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {
 }
 
 func TestServeDegradesToTCPWhenDerivedLocalSocketFails(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	workspace := newServeWorkspace(t)
 
 	request := startup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
 	authHandler := envAuthHandler{}
 	onboarding := noopOnboarding{}
-	registerServeWorkspace(t, workspace)
 
 	originalLocalSocketListener := localSocketListener
 	localSocketListener = func(config.App) (net.Listener, func(), bool, error) {
@@ -404,11 +391,7 @@ func TestServeDegradesToTCPWhenDerivedLocalSocketFails(t *testing.T) {
 	}
 	t.Cleanup(func() { localSocketListener = originalLocalSocketListener })
 
-	server, err := Start(context.Background(), request, authHandler, onboarding)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = server.Close() }()
+	server := startServeTestServer(t, request, authHandler, onboarding)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -448,20 +431,13 @@ func TestServeDegradesToTCPWhenDerivedLocalSocketFails(t *testing.T) {
 }
 
 func TestServeStartsUnauthenticatedAndReportsBootstrapReadiness(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	workspace := newServeWorkspace(t)
 
 	request := startup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, AllowUnauthenticated: true}
 	authHandler := envAuthHandler{lookupEnv: func(string) string { return "" }}
 	onboarding := noopOnboarding{}
-	registerServeWorkspace(t, workspace)
 
-	server, err := Start(context.Background(), request, authHandler, onboarding)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = server.Close() }()
+	server := startServeTestServer(t, request, authHandler, onboarding)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -541,11 +517,7 @@ model = "blocked-model"
 	onboarding := noopOnboarding{}
 	registerServeWorkspace(t, workspace)
 
-	server, err := Start(context.Background(), request, authHandler, onboarding)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = server.Close() }()
+	server := startServeTestServer(t, request, authHandler, onboarding)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -637,18 +609,11 @@ func assertReadinessRoles(t *testing.T, roles []serverapi.SubagentRoleSummary, w
 }
 
 func TestServeFailsWhenConfiguredPortIsOccupied(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerServeWorkspace(t, workspace)
+	workspace := newServeWorkspace(t)
 	request := startup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
 	authHandler := envAuthHandler{}
 	onboarding := noopOnboarding{}
-	server, err := Start(context.Background(), request, authHandler, onboarding)
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = server.Close() }()
+	server := startServeTestServer(t, request, authHandler, onboarding)
 	loadCfg, err := config.Load(workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)

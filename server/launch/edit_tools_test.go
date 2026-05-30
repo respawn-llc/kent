@@ -63,10 +63,7 @@ func TestActiveToolIDsLockedSessionPreservesPatchAndEdit(t *testing.T) {
 }
 
 func TestApplyRunPromptOverridesSubagentExplicitEditToolWins(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-a", t.TempDir())
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
+	store := createTestSession(t, t.TempDir())
 	settings := validLaunchSettings("gpt-5.5")
 	settings.Subagents = map[string]config.SubagentRole{
 		"worker": {
@@ -101,10 +98,7 @@ func TestApplyRunPromptOverridesSubagentExplicitEditToolWins(t *testing.T) {
 
 func TestApplyRunPromptOverridesSubagentToolSourceSurvivesModelOverride(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	store, err := session.Create(t.TempDir(), "workspace-a", t.TempDir())
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
+	store := createTestSession(t, t.TempDir())
 	settings := validLaunchSettings("gpt-5.5")
 	settings.Subagents = map[string]config.SubagentRole{
 		"worker": {

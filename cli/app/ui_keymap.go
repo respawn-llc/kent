@@ -1,7 +1,6 @@
 package app
 
 import (
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -92,10 +91,6 @@ func isHelpKey(msg tea.KeyMsg, model *uiModel) bool {
 	return msg.Runes[0] == '?' && model != nil && model.canToggleHelpWithQuestionMark()
 }
 
-func isTranscriptToggleKey(msg tea.KeyMsg) bool {
-	return msg.Type == tea.KeyShiftTab || msg.Type == tea.KeyCtrlT
-}
-
 func isQueueSubmissionKey(msg tea.KeyMsg) bool {
 	keyString := strings.ToLower(msg.String())
 	return keyString == "tab" || keyString == "ctrl+enter" || msg.Type == keyTypeCtrlEnterCSI
@@ -103,10 +98,6 @@ func isQueueSubmissionKey(msg tea.KeyMsg) bool {
 
 func isShiftEnterKey(msg tea.KeyMsg) bool {
 	return msg.Type == keyTypeShiftEnterCSI || strings.ToLower(msg.String()) == "shift+enter"
-}
-
-func isDeleteCurrentLineKey(msg tea.KeyMsg) bool {
-	return isDeleteCurrentLineKeyForGOOS(msg, runtime.GOOS)
 }
 
 func isDeleteCurrentLineKeyForGOOS(msg tea.KeyMsg, goos string) bool {

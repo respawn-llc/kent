@@ -103,6 +103,40 @@ func boundProjectView(plan func(context.Context, serverapi.ProjectBindingPlanReq
 	}
 }
 
+func testDialWorkspace(context.Context, config.App, string, string) (*client.Remote, error) {
+	return new(client.Remote), nil
+}
+
+func testSupportsAll(protocol.CapabilityFlags) bool {
+	return true
+}
+
+func boundProjectDial(context.Context, config.App) (ProjectViewRemote, error) {
+	return boundProjectView(func(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+		return boundPlanResponse(), nil
+	}), nil
+}
+
+func unavailableProjectDial(context.Context, config.App) (ProjectViewRemote, error) {
+	return nil, errors.New("configured remote unavailable")
+}
+
+func testRemotePolicy(dialProject func(context.Context, config.App) (ProjectViewRemote, error)) RemotePolicy {
+	return RemotePolicy{
+		Config:          config.App{WorkspaceRoot: "/workspace"},
+		AttachTimeout:   time.Second,
+		DialProjectView: dialProject,
+		DialWorkspace:   testDialWorkspace,
+		Supports:        testSupportsAll,
+	}
+}
+
+func testRemotePolicyWithDiscovery(dialProject func(context.Context, config.App) (ProjectViewRemote, error)) RemotePolicy {
+	policy := testRemotePolicy(dialProject)
+	policy.DiscoveryTimeout = time.Second
+	return policy
+}
+
 func TestResolveUsesSharedRemoteDaemonEmbeddedPolicyByMode(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -138,47 +172,23 @@ func TestResolveUsesSharedRemoteDaemonEmbeddedPolicyByMode(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := config.App{WorkspaceRoot: "/workspace"}
 			var modes []serverapi.ProjectBindingPlanMode
-			resolution, err := Resolve[string](context.Background(), Request[string]{
-				Mode: tc.mode,
-				Remote: RemotePolicy{
-					Config:        cfg,
-					AttachTimeout: time.Second,
-					DialProjectView: func(context.Context, config.App) (ProjectViewRemote, error) {
-						return &projectViewRemoteStub{
-							identity: protocol.ServerIdentity{Capabilities: protocol.CapabilityFlags{
-								AuthBootstrap:           true,
-								ProjectAttach:           true,
-								RunPrompt:               true,
-								SessionPlan:             true,
-								SessionLifecycle:        true,
-								SessionTranscriptPaging: true,
-								SessionRuntime:          true,
-								RuntimeControl:          true,
-								PromptControl:           true,
-								PromptActivity:          true,
-								SessionActivity:         true,
-								ProcessOutput:           true,
-							}},
-							plan: func(_ context.Context, req serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
-								modes = append(modes, req.Mode)
-								if tc.planKind == serverapi.ProjectBindingPlanKindBound {
-									return serverapi.ProjectBindingPlanResponse{
-										Kind:    tc.planKind,
-										Binding: &serverapi.ProjectBinding{ProjectID: "project-1", WorkspaceID: "workspace-1"},
-									}, nil
-								}
-								return serverapi.ProjectBindingPlanResponse{Kind: tc.planKind}, nil
-							},
+			remotePolicy := testRemotePolicy(func(context.Context, config.App) (ProjectViewRemote, error) {
+				return boundProjectView(func(_ context.Context, req serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
+					modes = append(modes, req.Mode)
+					if tc.planKind == serverapi.ProjectBindingPlanKindBound {
+						return serverapi.ProjectBindingPlanResponse{
+							Kind:    tc.planKind,
+							Binding: &serverapi.ProjectBinding{ProjectID: "project-1", WorkspaceID: "workspace-1"},
 						}, nil
-					},
-					DialWorkspace: func(context.Context, config.App, string, string) (*client.Remote, error) {
-						return new(client.Remote), nil
-					},
-					Supports:     func(protocol.CapabilityFlags) bool { return true },
-					RequireBound: tc.requireBind,
-				},
+					}
+					return serverapi.ProjectBindingPlanResponse{Kind: tc.planKind}, nil
+				}), nil
+			})
+			remotePolicy.RequireBound = tc.requireBind
+			resolution, err := Resolve[string](context.Background(), Request[string]{
+				Mode:   tc.mode,
+				Remote: remotePolicy,
 				WrapRemote: func(_ *client.Remote, _ config.App, _ func() error, _ OwnershipState) (Target[string], error) {
 					return Target[string]{Value: "remote"}, nil
 				},
@@ -219,17 +229,8 @@ func TestResolveLaunchesDaemonWithSameRemoteAttachmentPolicy(t *testing.T) {
 		}, nil
 	}
 	resolution, err := Resolve[string](context.Background(), Request[string]{
-		Mode: ModeHeadless,
-		Remote: RemotePolicy{
-			Config:           config.App{WorkspaceRoot: "/workspace"},
-			AttachTimeout:    time.Second,
-			DiscoveryTimeout: time.Second,
-			DialProjectView:  dialProjectView,
-			DialWorkspace: func(context.Context, config.App, string, string) (*client.Remote, error) {
-				return new(client.Remote), nil
-			},
-			Supports: func(protocol.CapabilityFlags) bool { return true },
-		},
+		Mode:   ModeHeadless,
+		Remote: testRemotePolicyWithDiscovery(dialProjectView),
 		LaunchDaemon: func(ctx context.Context, dial LaunchedRemoteDialer) (DaemonTarget[*client.Remote], bool, error) {
 			remote, ok, err := dial(ctx, func(identity protocol.ServerIdentity) bool {
 				acceptedPID = identity.PID
@@ -255,22 +256,13 @@ func TestResolveLaunchesDaemonWithSameRemoteAttachmentPolicy(t *testing.T) {
 	dialAttempts := 0
 	resolution, err = Resolve[string](context.Background(), Request[string]{
 		Mode: ModeHeadless,
-		Remote: RemotePolicy{
-			Config:           config.App{WorkspaceRoot: "/workspace"},
-			AttachTimeout:    time.Second,
-			DiscoveryTimeout: time.Second,
-			DialProjectView: func(context.Context, config.App) (ProjectViewRemote, error) {
-				dialAttempts++
-				if dialAttempts == 1 {
-					return nil, errors.New("configured remote unavailable")
-				}
-				return dialProjectView(context.Background(), config.App{})
-			},
-			DialWorkspace: func(context.Context, config.App, string, string) (*client.Remote, error) {
-				return new(client.Remote), nil
-			},
-			Supports: func(protocol.CapabilityFlags) bool { return true },
-		},
+		Remote: testRemotePolicyWithDiscovery(func(context.Context, config.App) (ProjectViewRemote, error) {
+			dialAttempts++
+			if dialAttempts == 1 {
+				return nil, errors.New("configured remote unavailable")
+			}
+			return dialProjectView(context.Background(), config.App{})
+		}),
 		LaunchDaemon: func(ctx context.Context, dial LaunchedRemoteDialer) (DaemonTarget[*client.Remote], bool, error) {
 			remote, ok, err := dial(ctx, func(identity protocol.ServerIdentity) bool {
 				acceptedPID = identity.PID
@@ -326,16 +318,8 @@ func TestResolvePassesRemoteOwnershipToWrapper(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gotOwnership := OwnershipState("")
 			resolution, err := Resolve[string](context.Background(), Request[string]{
-				Mode: ModeInteractive,
-				Remote: RemotePolicy{
-					Config:          config.App{WorkspaceRoot: "/workspace"},
-					AttachTimeout:   time.Second,
-					DialProjectView: tt.dialProject,
-					DialWorkspace: func(context.Context, config.App, string, string) (*client.Remote, error) {
-						return new(client.Remote), nil
-					},
-					Supports: func(protocol.CapabilityFlags) bool { return true },
-				},
+				Mode:         ModeInteractive,
+				Remote:       testRemotePolicy(tt.dialProject),
 				LaunchDaemon: tt.launchDaemon,
 				WrapRemote: func(_ *client.Remote, _ config.App, _ func() error, ownership OwnershipState) (Target[string], error) {
 					gotOwnership = ownership
@@ -523,20 +507,8 @@ func TestResolveTargetResolutionPolicyTable(t *testing.T) {
 
 func TestResolveRecordsAuthReadinessFromValidation(t *testing.T) {
 	resolution, err := Resolve[string](context.Background(), Request[string]{
-		Mode: ModeInteractive,
-		Remote: RemotePolicy{
-			Config:        config.App{WorkspaceRoot: "/workspace"},
-			AttachTimeout: time.Second,
-			DialProjectView: func(context.Context, config.App) (ProjectViewRemote, error) {
-				return boundProjectView(func(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
-					return boundPlanResponse(), nil
-				}), nil
-			},
-			DialWorkspace: func(context.Context, config.App, string, string) (*client.Remote, error) {
-				return new(client.Remote), nil
-			},
-			Supports: func(protocol.CapabilityFlags) bool { return true },
-		},
+		Mode:   ModeInteractive,
+		Remote: testRemotePolicy(boundProjectDial),
 		WrapRemote: func(_ *client.Remote, _ config.App, _ func() error, _ OwnershipState) (Target[string], error) {
 			return Target[string]{Value: "remote"}, nil
 		},
@@ -568,20 +540,8 @@ func TestResolveClosesOwnedTargetOnValidationFailure(t *testing.T) {
 			name: "configured remote",
 			req: func(closed *int) Request[string] {
 				return Request[string]{
-					Mode: ModeInteractive,
-					Remote: RemotePolicy{
-						Config:        config.App{WorkspaceRoot: "/workspace"},
-						AttachTimeout: time.Second,
-						DialProjectView: func(context.Context, config.App) (ProjectViewRemote, error) {
-							return boundProjectView(func(context.Context, serverapi.ProjectBindingPlanRequest) (serverapi.ProjectBindingPlanResponse, error) {
-								return boundPlanResponse(), nil
-							}), nil
-						},
-						DialWorkspace: func(context.Context, config.App, string, string) (*client.Remote, error) {
-							return new(client.Remote), nil
-						},
-						Supports: func(protocol.CapabilityFlags) bool { return true },
-					},
+					Mode:   ModeInteractive,
+					Remote: testRemotePolicy(boundProjectDial),
 					WrapRemote: func(_ *client.Remote, _ config.App, _ func() error, _ OwnershipState) (Target[string], error) {
 						return Target[string]{Value: "remote", Close: func() error {
 							*closed = *closed + 1
@@ -598,19 +558,8 @@ func TestResolveClosesOwnedTargetOnValidationFailure(t *testing.T) {
 			name: "launched daemon",
 			req: func(closed *int) Request[string] {
 				return Request[string]{
-					Mode: ModeInteractive,
-					Remote: RemotePolicy{
-						Config:           config.App{WorkspaceRoot: "/workspace"},
-						AttachTimeout:    time.Second,
-						DiscoveryTimeout: time.Second,
-						DialProjectView: func(context.Context, config.App) (ProjectViewRemote, error) {
-							return nil, errors.New("configured remote unavailable")
-						},
-						DialWorkspace: func(context.Context, config.App, string, string) (*client.Remote, error) {
-							return new(client.Remote), nil
-						},
-						Supports: func(protocol.CapabilityFlags) bool { return true },
-					},
+					Mode:   ModeInteractive,
+					Remote: testRemotePolicyWithDiscovery(unavailableProjectDial),
 					LaunchDaemon: func(context.Context, LaunchedRemoteDialer) (DaemonTarget[*client.Remote], bool, error) {
 						return DaemonTarget[*client.Remote]{Value: new(client.Remote)}, true, nil
 					},

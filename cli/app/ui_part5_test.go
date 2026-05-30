@@ -4,8 +4,6 @@ import (
 	"builder/cli/tui"
 	"builder/server/llm"
 	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
 	shelltool "builder/server/tools/shell"
 	"context"
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,21 +13,14 @@ import (
 )
 
 func TestViewDuringActiveWorkKeepsCommittedTranscriptVisible(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := createAppRuntimeSession(t)
 	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "prior user"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleAssistant, Content: "prior assistant"}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
-	eng, err := runtime.New(store, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := newAppRuntimeEngineWithStore(t, store, statusLineFakeClient{}, runtime.Config{})
 	m := newProjectedEngineUIModel(eng)
 	m.termWidth = 100
 	m.termHeight = 24
@@ -56,15 +47,7 @@ func TestViewDuringActiveWorkKeepsCommittedTranscriptVisible(t *testing.T) {
 }
 
 func TestSlashPickerShowsFastForOpenAIFirstPartyResponsesProvider(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := runtime.New(store, statusLineFastClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, statusLineFastClient{}, runtime.Config{})
 	m := newProjectedEngineUIModel(eng)
 	m.input = "/"
 	m.refreshSlashCommandFilterFromInput()
@@ -79,15 +62,7 @@ func TestSlashPickerShowsFastForOpenAIFirstPartyResponsesProvider(t *testing.T) 
 }
 
 func TestSlashPickerHidesFastForNonFirstPartyResponsesProvider(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := runtime.New(store, statusLineAzureClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, statusLineAzureClient{}, runtime.Config{})
 	m := newProjectedEngineUIModel(eng)
 	m.input = "/"
 	m.refreshSlashCommandFilterFromInput()

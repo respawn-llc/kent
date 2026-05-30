@@ -14,7 +14,6 @@ import (
 	"builder/shared/rpcwire"
 	"builder/shared/serverapi"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"golang.org/x/net/websocket"
@@ -29,13 +28,8 @@ import (
 func registerGatewayWorkspace(t *testing.T, workspace string) {
 	t.Helper()
 	configureGatewayTestServerPort(t)
-	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
-	if err != nil {
-		t.Fatalf("ResolveConfig: %v", err)
-	}
-	if _, err := metadata.RegisterBinding(context.Background(), resolved.Config.PersistenceRoot, resolved.Config.WorkspaceRoot); err != nil {
-		t.Fatalf("RegisterBinding: %v", err)
-	}
+	resolved := resolveGatewayTestConfig(t, workspace)
+	registerGatewayTestBinding(t, resolved.Config)
 }
 
 func configureGatewayTestServerPort(t *testing.T) {
@@ -222,174 +216,51 @@ func releaseGatewayController(t *testing.T, appCore *core.Core, sessionID string
 }
 
 func TestGatewayHandshakeAndProjectList(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerGatewayWorkspace(t, workspace)
-
-	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
-	if err != nil {
-		t.Fatalf("ResolveConfig: %v", err)
-	}
-	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := core.New(resolved.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
+	appCore, server := newGatewayTestServer(t)
 	defer server.Close()
 
-	wsURL := "ws" + server.URL[len("http"):]
-	conn, err := websocket.Dial(wsURL, "", server.URL)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
+	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 
-	if err := websocket.JSON.Send(conn, protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: "1", Method: protocol.MethodHandshake, Params: mustJSON(t, protocol.HandshakeRequest{ProtocolVersion: protocol.Version})}); err != nil {
-		t.Fatalf("send handshake: %v", err)
-	}
-	var handshakeResp protocol.Response
-	if err := websocket.JSON.Receive(conn, &handshakeResp); err != nil {
-		t.Fatalf("receive handshake: %v", err)
-	}
-	if handshakeResp.Error != nil {
-		t.Fatalf("handshake error: %+v", handshakeResp.Error)
-	}
 	var handshake protocol.HandshakeResponse
-	if err := json.Unmarshal(handshakeResp.Result, &handshake); err != nil {
-		t.Fatalf("decode handshake result: %v", err)
-	}
+	callGateway(t, conn, "1", protocol.MethodHandshake, protocol.HandshakeRequest{ProtocolVersion: protocol.Version}, &handshake)
 	if handshake.Identity.ProtocolVersion != protocol.Version || handshake.Identity.ServerID != "server-1" {
 		t.Fatalf("unexpected handshake: %+v", handshake.Identity)
 	}
 
-	if err := websocket.JSON.Send(conn, protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: "2", Method: protocol.MethodProjectList, Params: mustJSON(t, serverapi.ProjectListRequest{})}); err != nil {
-		t.Fatalf("send project list: %v", err)
-	}
-	var projectListResp protocol.Response
-	if err := websocket.JSON.Receive(conn, &projectListResp); err != nil {
-		t.Fatalf("receive project list: %v", err)
-	}
-	if projectListResp.Error != nil {
-		t.Fatalf("project list error: %+v", projectListResp.Error)
-	}
 	var projects serverapi.ProjectListResponse
-	if err := json.Unmarshal(projectListResp.Result, &projects); err != nil {
-		t.Fatalf("decode project list: %v", err)
-	}
+	callGateway(t, conn, "2", protocol.MethodProjectList, serverapi.ProjectListRequest{}, &projects)
 	if len(projects.Projects) != 1 || projects.Projects[0].ProjectID != appCore.ProjectID() {
 		t.Fatalf("unexpected project list: %+v", projects.Projects)
 	}
 }
 
 func TestGatewayHandshakeRejectsProtocolVersionMismatch(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerGatewayWorkspace(t, workspace)
-
-	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
-	if err != nil {
-		t.Fatalf("ResolveConfig: %v", err)
-	}
-	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := core.New(resolved.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
+	_, server := newGatewayTestServer(t)
 	defer server.Close()
 
-	wsURL := "ws" + server.URL[len("http"):]
-	conn, err := websocket.Dial(wsURL, "", server.URL)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
+	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 
-	if err := websocket.JSON.Send(conn, protocol.Request{
-		JSONRPC: protocol.JSONRPCVersion,
-		ID:      "1",
-		Method:  protocol.MethodHandshake,
-		Params:  mustJSON(t, protocol.HandshakeRequest{ProtocolVersion: "1"}),
-	}); err != nil {
-		t.Fatalf("send handshake: %v", err)
-	}
-	var resp protocol.Response
-	if err := websocket.JSON.Receive(conn, &resp); err != nil {
-		t.Fatalf("receive handshake: %v", err)
-	}
-	if resp.Error == nil ||
-		resp.Error.Code != protocol.ErrCodeInvalidRequest ||
-		!strings.Contains(resp.Error.Message, "unsupported protocol version") ||
-		!strings.Contains(resp.Error.Message, "server requires "+strconv.Quote(protocol.Version)) ||
-		!strings.Contains(resp.Error.Message, "upgrade the older Builder process") {
-		t.Fatalf("expected unsupported protocol version error, got %+v", resp.Error)
+	respErr := callGatewayExpectError(t, conn, "1", protocol.MethodHandshake, protocol.HandshakeRequest{ProtocolVersion: "1"})
+	if respErr.Code != protocol.ErrCodeInvalidRequest ||
+		!strings.Contains(respErr.Message, "unsupported protocol version") ||
+		!strings.Contains(respErr.Message, "server requires "+strconv.Quote(protocol.Version)) ||
+		!strings.Contains(respErr.Message, "upgrade the older Builder process") {
+		t.Fatalf("expected unsupported protocol version error, got %+v", respErr)
 	}
 }
 
 func TestGatewayRejectsMethodsBeforeHandshake(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerGatewayWorkspace(t, workspace)
-
-	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
-	if err != nil {
-		t.Fatalf("ResolveConfig: %v", err)
-	}
-	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := core.New(resolved.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
+	_, server := newGatewayTestServer(t)
 	defer server.Close()
 
-	wsURL := "ws" + server.URL[len("http"):]
-	conn, err := websocket.Dial(wsURL, "", server.URL)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
+	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 
-	if err := websocket.JSON.Send(conn, protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: "1", Method: protocol.MethodProjectList, Params: mustJSON(t, serverapi.ProjectListRequest{})}); err != nil {
-		t.Fatalf("send project list: %v", err)
-	}
-	var resp protocol.Response
-	if err := websocket.JSON.Receive(conn, &resp); err != nil {
-		t.Fatalf("receive response: %v", err)
-	}
-	if resp.Error == nil || resp.Error.Code != protocol.ErrCodeInvalidRequest {
-		t.Fatalf("expected handshake-required error, got %+v", resp.Error)
+	respErr := callGatewayExpectError(t, conn, "1", protocol.MethodProjectList, serverapi.ProjectListRequest{})
+	if respErr.Code != protocol.ErrCodeInvalidRequest {
+		t.Fatalf("expected handshake-required error, got %+v", respErr)
 	}
 }
 
@@ -504,31 +375,8 @@ func TestGatewayStreamRoutesUseRouteContractMethods(t *testing.T) {
 }
 
 func TestGatewayAuthBootstrapStatusAllowedBeforeAttach(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerGatewayWorkspace(t, workspace)
-
-	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
-	if err != nil {
-		t.Fatalf("ResolveConfig: %v", err)
-	}
-	authSupport := newGatewayTestAuthSupport(t, false)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := core.New(resolved.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
+	appCore, server, _ := newGatewayTestServerWithAuth(t, false)
 	defer func() { _ = appCore.Close() }()
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
 	defer server.Close()
 
 	conn := dialGateway(t, server)
@@ -555,31 +403,8 @@ func TestGatewayAuthBootstrapStatusAllowedBeforeAttach(t *testing.T) {
 }
 
 func TestGatewayAuthBootstrapAPIKeyCompletionEnablesAuthRequiredMethods(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerGatewayWorkspace(t, workspace)
-
-	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
-	if err != nil {
-		t.Fatalf("ResolveConfig: %v", err)
-	}
-	authSupport := newGatewayTestAuthSupport(t, false)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := core.New(resolved.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
+	appCore, server, authSupport := newGatewayTestServerWithAuth(t, false)
 	defer func() { _ = appCore.Close() }()
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
 	defer server.Close()
 
 	conn := dialGateway(t, server)
@@ -587,15 +412,8 @@ func TestGatewayAuthBootstrapAPIKeyCompletionEnablesAuthRequiredMethods(t *testi
 	handshakeGateway(t, conn)
 
 	callGateway(t, conn, "attach-project", protocol.MethodAttachProject, protocol.AttachProjectRequest{ProjectID: appCore.ProjectID()}, nil)
-	if err := websocket.JSON.Send(conn, protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: "run-1", Method: protocol.MethodRunPrompt, Params: mustJSON(t, serverapi.RunPromptRequest{})}); err != nil {
-		t.Fatalf("send run.prompt: %v", err)
-	}
-	var runResp protocol.Response
-	if err := websocket.JSON.Receive(conn, &runResp); err != nil {
-		t.Fatalf("receive run.prompt: %v", err)
-	}
-	if runResp.Error == nil || runResp.Error.Code != protocol.ErrCodeAuthRequired {
-		t.Fatalf("run.prompt error = %+v, want auth required", runResp.Error)
+	if respErr := callGatewayExpectError(t, conn, "run-1", protocol.MethodRunPrompt, serverapi.RunPromptRequest{}); respErr.Code != protocol.ErrCodeAuthRequired {
+		t.Fatalf("run.prompt error = %+v, want auth required", respErr)
 	}
 
 	callGateway(t, conn, "complete-1", protocol.MethodAuthCompleteBootstrap, serverapi.AuthCompleteBootstrapRequest{
@@ -615,20 +433,8 @@ func TestGatewayAuthBootstrapAPIKeyCompletionEnablesAuthRequiredMethods(t *testi
 		t.Fatalf("unexpected stored auth method: %+v", state.Method)
 	}
 
-	if err := websocket.JSON.Send(conn, protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: "complete-2", Method: protocol.MethodAuthCompleteBootstrap, Params: mustJSON(t, serverapi.AuthCompleteBootstrapRequest{Mode: serverapi.AuthBootstrapModeAPIKey, APIKey: "server-key-2"})}); err != nil {
-		t.Fatalf("send second auth.completeBootstrap: %v", err)
-	}
-	var secondCompleteResp protocol.Response
-	if err := websocket.JSON.Receive(conn, &secondCompleteResp); err != nil {
-		t.Fatalf("receive second auth.completeBootstrap: %v", err)
-	}
-	if secondCompleteResp.Error != nil {
-		t.Fatalf("second auth.completeBootstrap error = %+v, want success", secondCompleteResp.Error)
-	}
 	var secondComplete serverapi.AuthCompleteBootstrapResponse
-	if err := json.Unmarshal(secondCompleteResp.Result, &secondComplete); err != nil {
-		t.Fatalf("decode second auth.completeBootstrap result: %v", err)
-	}
+	callGateway(t, conn, "complete-2", protocol.MethodAuthCompleteBootstrap, serverapi.AuthCompleteBootstrapRequest{Mode: serverapi.AuthBootstrapModeAPIKey, APIKey: "server-key-2"}, &secondComplete)
 	if !secondComplete.AuthReady || secondComplete.MethodType != string(auth.MethodAPIKey) {
 		t.Fatalf("unexpected second auth.completeBootstrap result: %+v", secondComplete)
 	}
@@ -642,31 +448,8 @@ func TestGatewayAuthBootstrapAPIKeyCompletionEnablesAuthRequiredMethods(t *testi
 }
 
 func TestGatewayRejectsProjectWorkspaceMutationBeforeServerAuthReady(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerGatewayWorkspace(t, workspace)
-
-	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
-	if err != nil {
-		t.Fatalf("ResolveConfig: %v", err)
-	}
-	authSupport := newGatewayTestAuthSupport(t, false)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := core.New(resolved.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
+	appCore, server, _ := newGatewayTestServerWithAuth(t, false)
 	defer func() { _ = appCore.Close() }()
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
 	defer server.Close()
 
 	conn := dialGateway(t, server)
@@ -674,46 +457,16 @@ func TestGatewayRejectsProjectWorkspaceMutationBeforeServerAuthReady(t *testing.
 	handshakeGateway(t, conn)
 	callGateway(t, conn, "attach-project", protocol.MethodAttachProject, protocol.AttachProjectRequest{ProjectID: appCore.ProjectID()}, nil)
 
-	if err := websocket.JSON.Send(conn, protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: "attach-workspace", Method: protocol.MethodProjectAttachWorkspace, Params: mustJSON(t, serverapi.ProjectAttachWorkspaceRequest{ProjectID: appCore.ProjectID(), WorkspaceRoot: "/tmp/workspace"})}); err != nil {
-		t.Fatalf("send project.attachWorkspace: %v", err)
-	}
-	var resp protocol.Response
-	if err := websocket.JSON.Receive(conn, &resp); err != nil {
-		t.Fatalf("receive project.attachWorkspace: %v", err)
-	}
-	if resp.Error == nil || resp.Error.Code != protocol.ErrCodeAuthRequired {
-		t.Fatalf("project.attachWorkspace error = %+v, want auth required", resp.Error)
+	if respErr := callGatewayExpectError(t, conn, "attach-workspace", protocol.MethodProjectAttachWorkspace, serverapi.ProjectAttachWorkspaceRequest{ProjectID: appCore.ProjectID(), WorkspaceRoot: "/tmp/workspace"}); respErr.Code != protocol.ErrCodeAuthRequired {
+		t.Fatalf("project.attachWorkspace error = %+v, want auth required", respErr)
 	}
 }
 
 func TestGatewayRejectsSessionActivitySubscriptionBeforeServerAuthReady(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerGatewayWorkspace(t, workspace)
-
-	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
-	if err != nil {
-		t.Fatalf("ResolveConfig: %v", err)
-	}
-	authSupport := newGatewayTestAuthSupport(t, false)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	t.Cleanup(func() { _ = runtimeSupport.Background.Close() })
-	appCore, err := core.New(resolved.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
+	appCore, server, _ := newGatewayTestServerWithAuth(t, false)
 	defer func() { _ = appCore.Close() }()
 	store := createGatewayAuthoritativeSession(t, appCore)
 	appCore.RegisterSessionStore(store)
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
 	defer server.Close()
 
 	conn := dialGateway(t, server)
@@ -722,15 +475,8 @@ func TestGatewayRejectsSessionActivitySubscriptionBeforeServerAuthReady(t *testi
 
 	callGateway(t, conn, "attach-project", protocol.MethodAttachProject, protocol.AttachProjectRequest{ProjectID: appCore.ProjectID()}, nil)
 	callGateway(t, conn, "attach-session", protocol.MethodAttachSession, protocol.AttachSessionRequest{SessionID: store.Meta().SessionID}, nil)
-	if err := websocket.JSON.Send(conn, protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: "subscribe", Method: protocol.MethodSessionSubscribeActivity, Params: mustJSON(t, serverapi.SessionActivitySubscribeRequest{SessionID: store.Meta().SessionID})}); err != nil {
-		t.Fatalf("send session activity subscribe: %v", err)
-	}
-	var resp protocol.Response
-	if err := websocket.JSON.Receive(conn, &resp); err != nil {
-		t.Fatalf("receive session activity subscribe: %v", err)
-	}
-	if resp.Error == nil || resp.Error.Code != protocol.ErrCodeAuthRequired {
-		t.Fatalf("session activity subscribe error = %+v, want auth required", resp.Error)
+	if respErr := callGatewayExpectError(t, conn, "subscribe", protocol.MethodSessionSubscribeActivity, serverapi.SessionActivitySubscribeRequest{SessionID: store.Meta().SessionID}); respErr.Code != protocol.ErrCodeAuthRequired {
+		t.Fatalf("session activity subscribe error = %+v, want auth required", respErr)
 	}
 }
 
@@ -772,22 +518,10 @@ func TestGatewayRejectsSessionAccessOutsideAttachedProject(t *testing.T) {
 	t.Setenv("HOME", home)
 	configureGatewayTestServerPort(t)
 
-	resolvedA, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceA})
-	if err != nil {
-		t.Fatalf("ResolveConfig A: %v", err)
-	}
-	bindingA, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding A: %v", err)
-	}
-	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})
-	if err != nil {
-		t.Fatalf("ResolveConfig B: %v", err)
-	}
-	bindingB, err := metadata.RegisterBinding(context.Background(), resolvedB.Config.PersistenceRoot, resolvedB.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding B: %v", err)
-	}
+	resolvedA := resolveGatewayTestConfig(t, workspaceA)
+	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	resolvedB := resolveGatewayTestConfig(t, workspaceB)
+	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
 	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)
@@ -818,23 +552,7 @@ func TestGatewayRejectsSessionAccessOutsideAttachedProject(t *testing.T) {
 	}
 	_ = opened
 
-	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	defer func() { _ = runtimeSupport.Background.Close() }()
-	appCore, err := core.New(resolvedA.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
-	defer func() { _ = appCore.Close() }()
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer server.Close()
+	_, server := newGatewayTestServerForConfig(t, resolvedA.Config)
 
 	remote, err := remoteclient.DialRemoteURLForProject(context.Background(), "ws"+server.URL[len("http"):], bindingA.ProjectID)
 	if err != nil {
@@ -890,22 +608,10 @@ func TestGatewayAllowsUnscopedSessionRetargetOutsideServerDefaultProject(t *test
 	t.Setenv("HOME", home)
 	configureGatewayTestServerPort(t)
 
-	resolvedA, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceA})
-	if err != nil {
-		t.Fatalf("ResolveConfig A: %v", err)
-	}
-	bindingA, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding A: %v", err)
-	}
-	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})
-	if err != nil {
-		t.Fatalf("ResolveConfig B: %v", err)
-	}
-	bindingB, err := metadata.RegisterBinding(context.Background(), resolvedB.Config.PersistenceRoot, resolvedB.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding B: %v", err)
-	}
+	resolvedA := resolveGatewayTestConfig(t, workspaceA)
+	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	resolvedB := resolveGatewayTestConfig(t, workspaceB)
+	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
 	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)
@@ -953,31 +659,12 @@ func TestGatewayAllowsOptionalSessionLifecycleRequestsWithoutSessionID(t *testin
 	t.Setenv("HOME", home)
 	registerGatewayWorkspace(t, workspace)
 
-	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
-	if err != nil {
-		t.Fatalf("ResolveConfig: %v", err)
-	}
+	resolved := resolveGatewayTestConfig(t, workspace)
 	binding, err := metadata.ResolveBinding(context.Background(), resolved.Config.PersistenceRoot, resolved.Config.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("ResolveBinding: %v", err)
 	}
-	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	defer func() { _ = runtimeSupport.Background.Close() }()
-	appCore, err := core.New(resolved.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
-	defer func() { _ = appCore.Close() }()
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer server.Close()
+	_, server := newGatewayTestServerForConfig(t, resolved.Config)
 
 	remote, err := remoteclient.DialRemoteURLForProject(context.Background(), "ws"+server.URL[len("http"):], binding.ProjectID)
 	if err != nil {
@@ -1018,42 +705,14 @@ func TestGatewayProjectReattachClearsStaleSessionAttachment(t *testing.T) {
 	t.Setenv("HOME", home)
 	configureGatewayTestServerPort(t)
 
-	resolvedA, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceA})
-	if err != nil {
-		t.Fatalf("ResolveConfig A: %v", err)
-	}
-	bindingA, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding A: %v", err)
-	}
-	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})
-	if err != nil {
-		t.Fatalf("ResolveConfig B: %v", err)
-	}
-	bindingB, err := metadata.RegisterBinding(context.Background(), resolvedB.Config.PersistenceRoot, resolvedB.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding B: %v", err)
-	}
+	resolvedA := resolveGatewayTestConfig(t, workspaceA)
+	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	resolvedB := resolveGatewayTestConfig(t, workspaceB)
+	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
 
-	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	defer func() { _ = runtimeSupport.Background.Close() }()
-	appCore, err := core.New(resolvedA.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
-	defer func() { _ = appCore.Close() }()
+	appCore, server := newGatewayTestServerForConfig(t, resolvedA.Config)
 	storeA := createGatewayAuthoritativeSession(t, appCore)
 	appCore.RegisterSessionStore(storeA)
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer server.Close()
 
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
@@ -1062,15 +721,8 @@ func TestGatewayProjectReattachClearsStaleSessionAttachment(t *testing.T) {
 	callGateway(t, conn, "attach-session-a", protocol.MethodAttachSession, protocol.AttachSessionRequest{SessionID: storeA.Meta().SessionID}, nil)
 	callGateway(t, conn, "attach-project-b", protocol.MethodAttachProject, protocol.AttachProjectRequest{ProjectID: bindingB.ProjectID}, nil)
 
-	if err := websocket.JSON.Send(conn, protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: "subscribe", Method: protocol.MethodSessionSubscribeActivity, Params: mustJSON(t, serverapi.SessionActivitySubscribeRequest{SessionID: storeA.Meta().SessionID})}); err != nil {
-		t.Fatalf("send subscribe: %v", err)
-	}
-	var resp protocol.Response
-	if err := websocket.JSON.Receive(conn, &resp); err != nil {
-		t.Fatalf("receive subscribe response: %v", err)
-	}
-	if resp.Error == nil || resp.Error.Code != protocol.ErrCodeInvalidRequest {
-		t.Fatalf("expected session-attach-required error after project reattach, got %+v", resp.Error)
+	if respErr := callGatewayExpectError(t, conn, "subscribe", protocol.MethodSessionSubscribeActivity, serverapi.SessionActivitySubscribeRequest{SessionID: storeA.Meta().SessionID}); respErr.Code != protocol.ErrCodeInvalidRequest {
+		t.Fatalf("expected session-attach-required error after project reattach, got %+v", respErr)
 	}
 }
 
@@ -1081,51 +733,18 @@ func TestGatewayRejectsAttachProjectWorkspaceOutsideProject(t *testing.T) {
 	t.Setenv("HOME", home)
 	configureGatewayTestServerPort(t)
 
-	resolvedA, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceA})
-	if err != nil {
-		t.Fatalf("ResolveConfig A: %v", err)
-	}
-	bindingA, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding A: %v", err)
-	}
-	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})
-	if err != nil {
-		t.Fatalf("ResolveConfig B: %v", err)
-	}
-	if _, err := metadata.RegisterBinding(context.Background(), resolvedB.Config.PersistenceRoot, resolvedB.Config.WorkspaceRoot); err != nil {
-		t.Fatalf("RegisterBinding B: %v", err)
-	}
+	resolvedA := resolveGatewayTestConfig(t, workspaceA)
+	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	resolvedB := resolveGatewayTestConfig(t, workspaceB)
+	registerGatewayTestBinding(t, resolvedB.Config)
 
-	authSupport := newGatewayTestAuthSupport(t, true)
-	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
-	if err != nil {
-		t.Fatalf("BuildRuntimeSupport: %v", err)
-	}
-	defer func() { _ = runtimeSupport.Background.Close() }()
-	appCore, err := core.New(resolvedA.Config, authSupport, runtimeSupport)
-	if err != nil {
-		t.Fatalf("core.New: %v", err)
-	}
-	defer func() { _ = appCore.Close() }()
-	gateway, err := NewGateway(appCore, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"})
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer server.Close()
+	_, server := newGatewayTestServerForConfig(t, resolvedA.Config)
 
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
-	if err := websocket.JSON.Send(conn, protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: "attach-project", Method: protocol.MethodAttachProject, Params: mustJSON(t, protocol.AttachProjectRequest{ProjectID: bindingA.ProjectID, WorkspaceRoot: resolvedB.Config.WorkspaceRoot})}); err != nil {
-		t.Fatalf("send attach-project: %v", err)
-	}
-	var resp protocol.Response
-	if err := websocket.JSON.Receive(conn, &resp); err != nil {
-		t.Fatalf("receive attach-project: %v", err)
-	}
-	if resp.Error == nil || !strings.Contains(resp.Error.Message, "not bound to project") {
-		t.Fatalf("expected workspace/project mismatch error, got %+v", resp.Error)
+	respErr := callGatewayExpectError(t, conn, "attach-project", protocol.MethodAttachProject, protocol.AttachProjectRequest{ProjectID: bindingA.ProjectID, WorkspaceRoot: resolvedB.Config.WorkspaceRoot})
+	if !strings.Contains(respErr.Message, "not bound to project") {
+		t.Fatalf("expected workspace/project mismatch error, got %+v", respErr)
 	}
 }

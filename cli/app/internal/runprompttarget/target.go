@@ -22,10 +22,6 @@ type ValidateRequest struct {
 	EnsureAuthReady func(context.Context, client.AuthBootstrapClient) error
 }
 
-func Remote(remote *client.Remote, cfg config.App) targetstartup.Target[Target] {
-	return RemoteWithClose(remote, cfg, remote.Close)
-}
-
 func RemoteWithClose(remote *client.Remote, _ config.App, closeFn func() error) targetstartup.Target[Target] {
 	return targetstartup.Target[Target]{
 		Value: Target{

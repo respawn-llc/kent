@@ -216,14 +216,11 @@ func (s *Service) UpdateProject(ctx context.Context, req serverapi.ProjectUpdate
 	if err := s.metadata.UpdateProjectDisplayName(ctx, req.ProjectID, req.DisplayName); err != nil {
 		return serverapi.ProjectUpdateResponse{}, err
 	}
-	projects, err := s.metadata.ListProjectHomeSummaries(ctx, req.ProjectID, 1, 0)
+	project, err := s.projectHomeSummary(ctx, req.ProjectID)
 	if err != nil {
 		return serverapi.ProjectUpdateResponse{}, err
 	}
-	if len(projects) == 0 {
-		return serverapi.ProjectUpdateResponse{}, fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, strings.TrimSpace(req.ProjectID))
-	}
-	return serverapi.ProjectUpdateResponse{Project: projects[0]}, nil
+	return serverapi.ProjectUpdateResponse{Project: project}, nil
 }
 
 func (s *Service) GetProjectEdit(ctx context.Context, req serverapi.ProjectEditGetRequest) (serverapi.ProjectEditGetResponse, error) {
@@ -236,12 +233,9 @@ func (s *Service) GetProjectEdit(ctx context.Context, req serverapi.ProjectEditG
 	if err := s.requireProjectID(req.ProjectID); err != nil {
 		return serverapi.ProjectEditGetResponse{}, err
 	}
-	projects, err := s.metadata.ListProjectHomeSummaries(ctx, req.ProjectID, 1, 0)
+	project, err := s.projectHomeSummary(ctx, req.ProjectID)
 	if err != nil {
 		return serverapi.ProjectEditGetResponse{}, err
-	}
-	if len(projects) == 0 {
-		return serverapi.ProjectEditGetResponse{}, fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, strings.TrimSpace(req.ProjectID))
 	}
 	workspaces, err := s.ListProjectWorkspaces(ctx, serverapi.ProjectWorkspaceListRequest{
 		ProjectID: req.ProjectID,
@@ -251,7 +245,6 @@ func (s *Service) GetProjectEdit(ctx context.Context, req serverapi.ProjectEditG
 	if err != nil {
 		return serverapi.ProjectEditGetResponse{}, err
 	}
-	project := projects[0]
 	return serverapi.ProjectEditGetResponse{
 		ProjectID:          project.ProjectID,
 		ProjectKey:         project.ProjectKey,
@@ -275,14 +268,11 @@ func (s *Service) SetDefaultWorkspace(ctx context.Context, req serverapi.Project
 	if err := s.metadata.SetProjectDefaultWorkspace(ctx, req.ProjectID, req.WorkspaceID); err != nil {
 		return serverapi.ProjectDefaultWorkspaceSetResponse{}, err
 	}
-	projects, err := s.metadata.ListProjectHomeSummaries(ctx, req.ProjectID, 1, 0)
+	project, err := s.projectHomeSummary(ctx, req.ProjectID)
 	if err != nil {
 		return serverapi.ProjectDefaultWorkspaceSetResponse{}, err
 	}
-	if len(projects) == 0 {
-		return serverapi.ProjectDefaultWorkspaceSetResponse{}, fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, strings.TrimSpace(req.ProjectID))
-	}
-	return serverapi.ProjectDefaultWorkspaceSetResponse{Project: projects[0]}, nil
+	return serverapi.ProjectDefaultWorkspaceSetResponse{Project: project}, nil
 }
 
 func (s *Service) UnlinkWorkspaceFromProject(ctx context.Context, req serverapi.ProjectWorkspaceUnlinkRequest) (serverapi.ProjectWorkspaceUnlinkResponse, error) {
@@ -369,12 +359,9 @@ func (s *Service) ListProjectWorkspaces(ctx context.Context, req serverapi.Proje
 	if err != nil {
 		return serverapi.ProjectWorkspaceListResponse{}, err
 	}
-	projects, err := s.metadata.ListProjectHomeSummaries(ctx, req.ProjectID, 1, 0)
+	project, err := s.projectHomeSummary(ctx, req.ProjectID)
 	if err != nil {
 		return serverapi.ProjectWorkspaceListResponse{}, err
-	}
-	if len(projects) == 0 {
-		return serverapi.ProjectWorkspaceListResponse{}, fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, strings.TrimSpace(req.ProjectID))
 	}
 	workspaces, err := s.metadata.ListProjectWorkspacesPage(ctx, req.ProjectID, pageSize+1, offset)
 	if err != nil {
@@ -388,7 +375,7 @@ func (s *Service) ListProjectWorkspaces(ctx context.Context, req serverapi.Proje
 	response := serverapi.ProjectWorkspaceListResponse{
 		ProjectID:          strings.TrimSpace(req.ProjectID),
 		Workspaces:         make([]serverapi.ProjectWorkspaceSummary, 0, len(workspaces)),
-		DefaultWorkspaceID: projects[0].PrimaryWorkspace.WorkspaceID,
+		DefaultWorkspaceID: project.PrimaryWorkspace.WorkspaceID,
 		NextPageToken:      nextPageToken,
 	}
 	for _, workspace := range workspaces {
@@ -465,6 +452,17 @@ func (s *Service) requireProjectID(projectID string) error {
 		return fmt.Errorf("project %q not available", strings.TrimSpace(projectID))
 	}
 	return nil
+}
+
+func (s *Service) projectHomeSummary(ctx context.Context, projectID string) (serverapi.ProjectHomeSummary, error) {
+	projects, err := s.metadata.ListProjectHomeSummaries(ctx, projectID, 1, 0)
+	if err != nil {
+		return serverapi.ProjectHomeSummary{}, err
+	}
+	if len(projects) == 0 {
+		return serverapi.ProjectHomeSummary{}, fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, strings.TrimSpace(projectID))
+	}
+	return projects[0], nil
 }
 
 func parseProjectHomePageToken(token string) (int, error) {

@@ -32,10 +32,6 @@ func (d *uiWorktreeCreateDialogState) syncFocus() {
 	d.focus = worktreecreateform.ClampField(d.focus, d.resolution.Kind)
 }
 
-func (d uiWorktreeCreateDialogState) orderedFields() []uiWorktreeCreateField {
-	return worktreecreateform.OrderedFields(d.resolution.Kind)
-}
-
 func (d uiWorktreeCreateDialogState) usesBaseRef() bool {
 	return worktreecreateform.UsesBaseRef(d.resolution.Kind)
 }

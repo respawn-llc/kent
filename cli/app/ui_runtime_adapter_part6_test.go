@@ -13,7 +13,7 @@ import (
 
 func TestProjectedConversationUpdatedSkipsHydrationAfterImmediateUserFlushAppend(t *testing.T) {
 	client := &runtimeControlFakeClient{}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m := newProjectedClosedUIModel(client)
 	m.termWidth = 100
 	m.termHeight = 20
 	m.windowSizeKnown = true
@@ -62,7 +62,7 @@ func TestProjectedConversationUpdatedSkipsHydrationAfterImmediateUserFlushAppend
 
 func TestProjectedAssistantMessageMergesDeferredCommittedUserFlushWithoutHydration(t *testing.T) {
 	client := &runtimeControlFakeClient{}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m := newProjectedClosedUIModel(client)
 	m.termWidth = 100
 	m.termHeight = 20
 	m.windowSizeKnown = true
@@ -125,7 +125,7 @@ func TestProjectedAssistantMessageMergesDeferredCommittedUserFlushWithoutHydrati
 
 func TestProjectedAssistantMessageReplacesNonTailCommittedRangeWithoutHydration(t *testing.T) {
 	client := &runtimeControlFakeClient{}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m := newProjectedClosedUIModel(client)
 	m.termWidth = 100
 	m.termHeight = 20
 	m.windowSizeKnown = true
@@ -175,7 +175,7 @@ func TestProjectedAssistantMessageReplacesNonTailCommittedRangeWithoutHydration(
 
 func TestProjectedCommittedGapClearsDeferredCommittedTailBeforeHydration(t *testing.T) {
 	client := &runtimeControlFakeClient{transcript: clientui.TranscriptPage{SessionID: "session-1"}}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m := newProjectedClosedUIModel(client)
 	m.termWidth = 100
 	m.termHeight = 20
 	m.windowSizeKnown = true
@@ -225,7 +225,7 @@ func TestProjectedCommittedGapClearsDeferredCommittedTailBeforeHydration(t *test
 
 func TestProjectedUserMessageFlushedDoesNotDeferAfterCommittedAssistantToolProgress(t *testing.T) {
 	client := &runtimeControlFakeClient{}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m := newProjectedClosedUIModel(client)
 	m.termWidth = 100
 	m.termHeight = 20
 	m.windowSizeKnown = true
@@ -264,7 +264,7 @@ func TestProjectedUserMessageFlushedDoesNotDeferAfterCommittedAssistantToolProgr
 
 func TestProjectedUserMessageFlushedDoesNotDeferWhenUIIsIdleDespiteStaleLiveAssistantState(t *testing.T) {
 	client := &runtimeControlFakeClient{}
-	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m := newProjectedClosedUIModel(client)
 	m.termWidth = 100
 	m.termHeight = 20
 	m.windowSizeKnown = true

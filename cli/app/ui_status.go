@@ -36,10 +36,6 @@ func statusEnvironmentCacheKey(req uiStatusRequest) string {
 	return appstatus.EnvironmentCacheKey(req)
 }
 
-func cloneStatusTokenMap(input map[string]int) map[string]int {
-	return appstatus.CloneTokenMap(input)
-}
-
 type uiStatusConfig struct {
 	WorkspaceRoot   string
 	PersistenceRoot string
@@ -229,32 +225,12 @@ func enrichStatusBaseSnapshot(ctx context.Context, req uiStatusRequest, snapshot
 	return defaultUIStatusCollector{}.adapter().EnrichBase(ctx, req, snapshot)
 }
 
-func statusExecutionTarget(req uiStatusRequest) clientui.SessionExecutionTarget {
-	return appstatus.ExecutionTarget(req)
-}
-
-func statusEnvironmentRoot(workspaceRoot string, target clientui.SessionExecutionTarget) string {
-	return appstatus.EnvironmentRoot(workspaceRoot, target)
-}
-
-func statusWorkdir(workspaceRoot string, target clientui.SessionExecutionTarget) string {
-	return appstatus.Workdir(workspaceRoot, target)
-}
-
 func statusGitRoot(req uiStatusRequest) string {
 	return appstatus.GitRoot(req)
 }
 
 func collectGitStatus(ctx context.Context, workdir string) uiStatusGitInfo {
 	return appstatus.CollectGitStatus(ctx, workdir, statusGitTimeout, sanitizedGitEnv)
-}
-
-func statusGitRepositoryProbe(workdir string) (bool, error) {
-	return appstatus.GitRepositoryProbe(workdir)
-}
-
-func statusGitError(err error, output string) string {
-	return appstatus.GitError(err, output)
 }
 
 func statusAuthCacheIdentity(manager statuscollect.AuthStateLoader) string {
@@ -266,13 +242,6 @@ func statusOnOff(value bool) string {
 		return "on"
 	}
 	return "off"
-}
-
-func statusYesNo(value bool) string {
-	if value {
-		return "yes"
-	}
-	return "no"
 }
 
 func (m *uiModel) openStatusOverlay() {

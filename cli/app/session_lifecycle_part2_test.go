@@ -5,7 +5,6 @@ import (
 	"builder/server/llm"
 	"builder/server/runtime"
 	"builder/server/session"
-	"builder/server/tools"
 	"builder/shared/config"
 	"builder/shared/rollbacktarget"
 	"context"
@@ -35,18 +34,12 @@ func TestBackTeleportLifecycleSeedsParentDraftWithoutAutoSubmit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			root := t.TempDir()
-			parentStore, err := session.Create(root, "workspace-x", "/tmp/work")
-			if err != nil {
-				t.Fatalf("create parent store: %v", err)
-			}
+			parentStore := createAppRuntimeSessionAt(t, root, "workspace-x", "/tmp/work")
 			if err := parentStore.SetInputDraft(tt.existingParentDraft); err != nil {
 				t.Fatalf("set parent draft: %v", err)
 			}
 
-			childStore, err := session.Create(root, "workspace-x", "/tmp/work")
-			if err != nil {
-				t.Fatalf("create child store: %v", err)
-			}
+			childStore := createAppRuntimeSessionAt(t, root, "workspace-x", "/tmp/work")
 			if err := childStore.SetParentSessionID(parentStore.Meta().SessionID); err != nil {
 				t.Fatalf("set child parent id: %v", err)
 			}
@@ -56,10 +49,7 @@ func TestBackTeleportLifecycleSeedsParentDraftWithoutAutoSubmit(t *testing.T) {
 					t.Fatalf("append child transcript message %d: %v", idx, err)
 				}
 			}
-			childEngine, err := runtime.New(childStore, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-			if err != nil {
-				t.Fatalf("new child engine after transcript seed: %v", err)
-			}
+			childEngine := newAppRuntimeEngineWithStore(t, childStore, statusLineFakeClient{}, runtime.Config{})
 			childModel := newProjectedEngineUIModel(childEngine)
 			childModel.activity = tt.childActivity
 			if tt.childOngoing != "" {
@@ -92,10 +82,7 @@ func TestBackTeleportLifecycleSeedsParentDraftWithoutAutoSubmit(t *testing.T) {
 			if err != nil {
 				t.Fatalf("reopen parent store: %v", err)
 			}
-			parentEngine, err := runtime.New(reopenedParent, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-			if err != nil {
-				t.Fatalf("new parent engine: %v", err)
-			}
+			parentEngine := newAppRuntimeEngineWithStore(t, reopenedParent, statusLineFakeClient{}, runtime.Config{})
 			parentModel := newProjectedEngineUIModel(
 				parentEngine,
 				WithUIInitialInput(sessionLaunchInitialInputFromServer(context.Background(), server, reopenedParent.Meta().SessionID, resolved.InitialInput)),
@@ -119,10 +106,7 @@ func TestBackTeleportLifecycleSeedsParentDraftWithoutAutoSubmit(t *testing.T) {
 
 func TestForkRollbackNativeStartupReplayUsesForkedHistory(t *testing.T) {
 	root := t.TempDir()
-	store, err := session.Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
+	store := createAppRuntimeSessionAt(t, root, "workspace-x", "/tmp/work")
 	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
 		t.Fatalf("append u1: %v", err)
 	}
@@ -155,10 +139,7 @@ func TestForkRollbackNativeStartupReplayUsesForkedHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open fork session store: %v", err)
 	}
-	eng, err := runtime.New(forkedStore, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new runtime for fork: %v", err)
-	}
+	eng := newAppRuntimeEngineWithStore(t, forkedStore, statusLineFakeClient{}, runtime.Config{})
 
 	m := newProjectedEngineUIModel(eng)
 	next, cmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})

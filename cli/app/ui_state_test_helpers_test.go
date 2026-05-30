@@ -99,17 +99,6 @@ func testRollbackEditing(m *uiModel) bool {
 	return m.rollback.isEditing()
 }
 
-func testSetRollbackSelecting(m *uiModel, selection int, selectedTranscriptEntry int) {
-	if m == nil {
-		return
-	}
-	m.rollback.phase = uiRollbackPhaseSelection
-	m.rollback.selection = selection
-	m.rollback.selectedTranscriptEntry = selectedTranscriptEntry
-	m.rollback.selectedTargetID = rollbackTargetIDForTestSelection(selectedTranscriptEntry)
-	m.setInputMode(uiInputModeRollbackSelection)
-}
-
 func testSetRollbackEditing(m *uiModel, selection int, selectedTranscriptEntry int) {
 	if m == nil {
 		return
@@ -147,25 +136,4 @@ func testRollbackSelectionSurfaceActive(m *uiModel) bool {
 		return false
 	}
 	return m.surface() == uiSurfaceRollbackSelection
-}
-
-func testStatusOpen(m *uiModel) bool {
-	if m == nil {
-		return false
-	}
-	return m.status.open
-}
-
-func testStatusSurfaceActive(m *uiModel) bool {
-	if m == nil {
-		return false
-	}
-	return m.surface() == uiSurfaceStatus
-}
-
-func testStatusRefreshToken(m *uiModel) uint64 {
-	if m == nil {
-		return 0
-	}
-	return m.status.refreshToken
 }

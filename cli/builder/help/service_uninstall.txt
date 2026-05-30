@@ -1,0 +1,4 @@
+Usage of builder service uninstall:
+  builder service uninstall [--keep-running]
+
+Flags:

@@ -225,7 +225,7 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 			return ExecResult{}, err
 		}
 		display, _, _ := truncate(processed.Output, maxOutputChars)
-		result.ExitCode = cloneIntPtr(snapshot.ExitCode)
+		result.ExitCode = postprocess.CloneIntPtr(snapshot.ExitCode)
 		result.Output = display
 		result.Warning = processed.Warning
 		result.ToolError = processed.UnrecoverableError
@@ -311,9 +311,9 @@ func (m *Manager) WriteStdin(ctx context.Context, req WriteRequest) (ExecResult,
 			if previewErr == nil {
 				processed = postprocess.Result{Output: preview}
 				consumedCompletion = true
-				warning = appendWarning(warning, fmt.Sprintf("full output log skipped: %v", readErr))
+				warning = postprocess.JoinWarnings(warning, fmt.Sprintf("full output log skipped: %v", readErr))
 			} else {
-				warning = appendWarning(warning, fmt.Sprintf("failed to read full output log: %v", readErr))
+				warning = postprocess.JoinWarnings(warning, fmt.Sprintf("failed to read full output log: %v", readErr))
 			}
 		}
 	}
@@ -330,27 +330,14 @@ func (m *Manager) WriteStdin(ctx context.Context, req WriteRequest) (ExecResult,
 	return ExecResult{
 		SessionID:    id,
 		WallTime:     time.Since(start),
-		Warning:      appendWarning(warning, processed.Warning),
+		Warning:      postprocess.JoinWarnings(warning, processed.Warning),
 		ToolError:    processed.UnrecoverableError,
 		Output:       display,
 		OutputPath:   snapshot.LogPath,
 		Running:      snapshot.Running,
 		Backgrounded: snapshot.Backgrounded,
-		ExitCode:     cloneIntPtr(snapshot.ExitCode),
+		ExitCode:     postprocess.CloneIntPtr(snapshot.ExitCode),
 	}, nil
-}
-
-func appendWarning(existing string, next string) string {
-	existing = strings.TrimSpace(existing)
-	next = strings.TrimSpace(next)
-	switch {
-	case existing == "":
-		return next
-	case next == "":
-		return existing
-	default:
-		return existing + "\n" + next
-	}
 }
 
 func (m *Manager) Kill(id string) error {

@@ -2,35 +2,25 @@ package client
 
 import (
 	"context"
-	"errors"
 
 	"builder/shared/serverapi"
 	"builder/shared/servicecontract"
 )
 
-type SessionRuntimeClient interface {
-	ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error)
-	ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error)
-}
+type SessionRuntimeClient = servicecontract.SessionRuntimeService
 
 type loopbackSessionRuntimeClient struct {
-	service servicecontract.SessionRuntimeService
+	loopbackClient[servicecontract.SessionRuntimeService]
 }
 
 func NewLoopbackSessionRuntimeClient(service servicecontract.SessionRuntimeService) SessionRuntimeClient {
-	return &loopbackSessionRuntimeClient{service: service}
+	return &loopbackSessionRuntimeClient{loopbackClient: newLoopbackClient(service)}
 }
 
 func (c *loopbackSessionRuntimeClient) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.SessionRuntimeActivateResponse{}, errors.New("session runtime service is required")
-	}
-	return c.service.ActivateSessionRuntime(ctx, req)
+	return callLoopbackClient(c, "session runtime service is required", ctx, req, servicecontract.SessionRuntimeService.ActivateSessionRuntime)
 }
 
 func (c *loopbackSessionRuntimeClient) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.SessionRuntimeReleaseResponse{}, errors.New("session runtime service is required")
-	}
-	return c.service.ReleaseSessionRuntime(ctx, req)
+	return callLoopbackClient(c, "session runtime service is required", ctx, req, servicecontract.SessionRuntimeService.ReleaseSessionRuntime)
 }

@@ -73,24 +73,6 @@ func settingsTOMLWithOptions(settings Settings, includeToolSection bool) string 
 	return settingsTOMLWithRenderingOptions(settings, includeToolSection, nil, nil)
 }
 
-func appendPreservedReviewerLines(lines []defaultConfigLine, settings Settings, preservedDefaults map[string]bool) []defaultConfigLine {
-	if len(preservedDefaults) == 0 {
-		return lines
-	}
-	withPreserved := append([]defaultConfigLine{}, lines...)
-	if preservedDefaults["reviewer.model"] {
-		withPreserved = append(withPreserved, defaultConfigLine{Path: []string{"reviewer", "model"}, Value: settings.Reviewer.Model})
-	}
-	if preservedDefaults["reviewer.thinking_level"] {
-		withPreserved = append(withPreserved, defaultConfigLine{Path: []string{"reviewer", "thinking_level"}, Value: settings.Reviewer.ThinkingLevel})
-	}
-	return withPreserved
-}
-
-func settingsTOMLWithPreservedDefaults(settings Settings, includeToolSection bool, preservedDefaults map[string]bool) string {
-	return settingsTOMLWithRenderingOptions(settings, includeToolSection, preservedDefaults, nil)
-}
-
 func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool, preservedDefaults map[string]bool, omittedKeys map[string]bool) string {
 	state := configRegistry.defaultState()
 	state.Settings = settings

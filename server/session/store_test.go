@@ -9,11 +9,7 @@ import (
 )
 
 func TestNewLazyDoesNotPersistUntilFirstWrite(t *testing.T) {
-	root := t.TempDir()
-	store, err := NewLazy(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("new lazy store: %v", err)
-	}
+	store := newSessionTestLazyStore(t)
 	if _, err := os.Stat(store.Dir()); !os.IsNotExist(err) {
 		t.Fatalf("expected no session dir before first write, stat err=%v", err)
 	}
@@ -30,11 +26,7 @@ func TestNewLazyDoesNotPersistUntilFirstWrite(t *testing.T) {
 }
 
 func TestNewLazyReadEventsBeforePersistReturnsEmpty(t *testing.T) {
-	root := t.TempDir()
-	store, err := NewLazy(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("new lazy store: %v", err)
-	}
+	store := newSessionTestLazyStore(t)
 	events, err := store.ReadEvents()
 	if err != nil {
 		t.Fatalf("read events: %v", err)
@@ -45,11 +37,7 @@ func TestNewLazyReadEventsBeforePersistReturnsEmpty(t *testing.T) {
 }
 
 func TestBackfillLockedContextBudgetWithoutLockedContractDoesNotPersistLazyStore(t *testing.T) {
-	root := t.TempDir()
-	store, err := NewLazy(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("new lazy store: %v", err)
-	}
+	store := newSessionTestLazyStore(t)
 
 	if err := store.BackfillLockedContextBudget(1000, 50); err != nil {
 		t.Fatalf("BackfillLockedContextBudget: %v", err)
@@ -60,11 +48,7 @@ func TestBackfillLockedContextBudgetWithoutLockedContractDoesNotPersistLazyStore
 }
 
 func TestAppendEventMonotonicSequence(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 
 	e1, err := store.AppendEvent("step1", "message", map[string]any{"a": 1})
 	if err != nil {
@@ -92,11 +76,7 @@ func TestAppendEventMonotonicSequence(t *testing.T) {
 }
 
 func TestReadPromptHistoryFallsBackToVisibleUserMessages(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "first\nline"}); err != nil {
 		t.Fatalf("append first user message: %v", err)
 	}
@@ -120,11 +100,7 @@ func TestReadPromptHistoryFallsBackToVisibleUserMessages(t *testing.T) {
 }
 
 func TestReadPromptHistoryUsesExplicitPromptHistoryEvents(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if _, err := store.AppendEvent("", "prompt_history", map[string]any{"text": "/resume"}); err != nil {
 		t.Fatalf("append slash command history: %v", err)
 	}
@@ -148,11 +124,7 @@ func TestReadPromptHistoryUsesExplicitPromptHistoryEvents(t *testing.T) {
 }
 
 func TestReadPromptHistoryKeepsLegacyEntriesBeforeFirstExplicitEvent(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "legacy one"}); err != nil {
 		t.Fatalf("append legacy one: %v", err)
 	}
@@ -179,11 +151,7 @@ func TestReadPromptHistoryKeepsLegacyEntriesBeforeFirstExplicitEvent(t *testing.
 }
 
 func TestReadPromptHistoryPreservesExactStoredText(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	want := "  line one\nline two  "
 	if _, err := store.AppendEvent("", "prompt_history", map[string]any{"text": want}); err != nil {
 		t.Fatalf("append prompt history: %v", err)
@@ -202,11 +170,7 @@ func TestReadPromptHistoryPreservesExactStoredText(t *testing.T) {
 }
 
 func TestSetInputDraftPersistsAcrossReopen(t *testing.T) {
-	root := t.TempDir()
-	store, err := NewLazy(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("new lazy store: %v", err)
-	}
+	store := newSessionTestLazyStore(t)
 	want := "draft line one\nline two"
 	if err := store.SetInputDraft(want); err != nil {
 		t.Fatalf("set input draft: %v", err)
@@ -221,11 +185,7 @@ func TestSetInputDraftPersistsAcrossReopen(t *testing.T) {
 }
 
 func TestSetInputDraftClearsPersistedValue(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if err := store.SetInputDraft("draft"); err != nil {
 		t.Fatalf("set draft: %v", err)
 	}
@@ -242,11 +202,7 @@ func TestSetInputDraftClearsPersistedValue(t *testing.T) {
 }
 
 func TestSetUsageStatePersistsAcrossReopen(t *testing.T) {
-	root := t.TempDir()
-	store, err := NewLazy(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("new lazy store: %v", err)
-	}
+	store := newSessionTestLazyStore(t)
 	if err := store.SetUsageState(&UsageState{
 		InputTokens:             900,
 		OutputTokens:            120,
@@ -273,18 +229,12 @@ func TestSetUsageStatePersistsAcrossReopen(t *testing.T) {
 
 func TestListSessionsSortedByUpdatedAt(t *testing.T) {
 	root := t.TempDir()
-	s1, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create session1: %v", err)
-	}
+	s1 := newSessionTestStoreAt(t, root)
 	if _, err := s1.AppendEvent("step1", "message", map[string]any{"a": 1}); err != nil {
 		t.Fatalf("append event1: %v", err)
 	}
 
-	s2, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create session2: %v", err)
-	}
+	s2 := newSessionTestStoreAt(t, root)
 	if _, err := s2.AppendEvent("step1", "message", map[string]any{"b": 2}); err != nil {
 		t.Fatalf("append event2: %v", err)
 	}
@@ -302,11 +252,7 @@ func TestListSessionsSortedByUpdatedAt(t *testing.T) {
 }
 
 func TestLockedContractPersistenceIncludesSystemPromptButNotToolSchema(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if err := store.MarkModelDispatchLocked(LockedContract{
 		Model:             "gpt-5",
 		Temperature:       1,
@@ -341,11 +287,7 @@ func TestLockedContractPersistenceIncludesSystemPromptButNotToolSchema(t *testin
 }
 
 func TestReadEventsHandlesLargeJSONLines(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 
 	const payloadSize = 128 * 1024
 	large := strings.Repeat("x", payloadSize)
@@ -372,10 +314,7 @@ func TestReadEventsHandlesLargeJSONLines(t *testing.T) {
 
 func TestAppendEventPersistsFirstPromptPreview(t *testing.T) {
 	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStoreAt(t, root)
 	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "assistant", "content": "hello"}); err != nil {
 		t.Fatalf("append assistant event: %v", err)
 	}
@@ -410,11 +349,7 @@ func TestAppendEventPersistsFirstPromptPreview(t *testing.T) {
 }
 
 func TestConversationFreshnessAdvancesOnlyForVisibleUserMessages(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if got := store.ConversationFreshness(); got != ConversationFreshnessFresh {
 		t.Fatalf("freshness = %v, want fresh", got)
 	}
@@ -439,11 +374,7 @@ func TestConversationFreshnessAdvancesOnlyForVisibleUserMessages(t *testing.T) {
 }
 
 func TestOpenRehydratesConversationFreshnessFromEvents(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "Investigate config load failures"}); err != nil {
 		t.Fatalf("append user event: %v", err)
 	}
@@ -458,11 +389,7 @@ func TestOpenRehydratesConversationFreshnessFromEvents(t *testing.T) {
 }
 
 func TestFirstPromptPreviewSkipsCompactionSummaryMessages(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "developer", "message_type": "compaction_summary", "content": "summary"}); err != nil {
 		t.Fatalf("append compaction summary event: %v", err)
 	}
@@ -478,11 +405,7 @@ func TestFirstPromptPreviewSkipsCompactionSummaryMessages(t *testing.T) {
 }
 
 func TestAppendTurnAtomicPersistsFirstPromptPreview(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if _, err := store.AppendTurnAtomic("s1", []EventInput{{Kind: "message", Payload: map[string]any{"role": "assistant", "content": "hello"}}, {Kind: "message", Payload: map[string]any{"role": "user", "content": "Atomic preview source\nmore"}}}); err != nil {
 		t.Fatalf("append turn: %v", err)
 	}
@@ -493,10 +416,7 @@ func TestAppendTurnAtomicPersistsFirstPromptPreview(t *testing.T) {
 
 func TestListSessionsUsesPersistedFirstPromptPreviewOnly(t *testing.T) {
 	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStoreAt(t, root)
 	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "Preview source\nsecond line"}); err != nil {
 		t.Fatalf("append user event: %v", err)
 	}
@@ -838,11 +758,7 @@ func TestInitializeChildFromParentCopiesContextWithoutConversationState(t *testi
 }
 
 func TestSetContinuationContextStaysLazyUntilFirstWrite(t *testing.T) {
-	root := t.TempDir()
-	store, err := NewLazy(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("new lazy store: %v", err)
-	}
+	store := newSessionTestLazyStore(t)
 	if err := store.SetContinuationContext(ContinuationContext{OpenAIBaseURL: "http://example.local/v1"}); err != nil {
 		t.Fatalf("set continuation context: %v", err)
 	}
@@ -865,11 +781,7 @@ func TestSetContinuationContextStaysLazyUntilFirstWrite(t *testing.T) {
 }
 
 func TestSessionMetadataDoesNotPersistModelVerbosityState(t *testing.T) {
-	root := t.TempDir()
-	store, err := Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := newSessionTestStore(t)
 	if err := store.MarkModelDispatchLocked(LockedContract{
 		Model:          "gpt-5",
 		Temperature:    1,

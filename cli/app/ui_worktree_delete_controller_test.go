@@ -19,12 +19,7 @@ func worktreeDeleteControllerTarget() serverapi.WorktreeView {
 
 func newWorktreeDeleteControllerTestModel(t *testing.T, client *worktreeCommandTestClient) *uiModel {
 	t.Helper()
-	if client == nil {
-		client = &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
-	}
-	model := newWorktreeTestModel(t, client)
-	model.worktrees.open = true
-	model.worktrees.phase = uiWorktreeOverlayPhaseDeleteConfirm
+	model := newWorktreeControllerTestModel(t, client, uiWorktreeOverlayPhaseDeleteConfirm)
 	model.worktrees.deleteConfirm = uiWorktreeDeleteDialogState{target: worktreeDeleteControllerTarget()}
 	model.worktrees.deleteConfirm.clampSelection()
 	model.setInputMode(uiInputModeWorktree)

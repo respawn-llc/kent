@@ -616,17 +616,3 @@ type RequestInputTokenCountSupportClient interface {
 type ModelContextWindowClient interface {
 	ResolveModelContextWindow(ctx context.Context, model string) (int, error)
 }
-
-func AppendToolResultMessages(messages []Message, results []ToolResult) []Message {
-	out := make([]Message, 0, len(messages)+len(results))
-	out = append(out, messages...)
-	for _, result := range results {
-		out = append(out, Message{
-			Role:       RoleTool,
-			Name:       result.Name,
-			ToolCallID: result.CallID,
-			Content:    string(result.Output),
-		})
-	}
-	return out
-}

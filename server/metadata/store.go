@@ -1170,14 +1170,7 @@ func (s *Store) SetProjectKey(ctx context.Context, projectID string, projectKey 
 	if strings.TrimSpace(state.ProjectKey) == normalizedKey {
 		return nil
 	}
-	result, err := tx.ExecContext(ctx, `
-UPDATE projects
-SET project_key = ?, updated_at_unix_ms = ?
-WHERE id = ?
-  AND (
-    project_key = ?
-    OR NOT EXISTS (SELECT 1 FROM task_records WHERE project_id = ?)
-  )`, normalizedKey, time.Now().UTC().UnixMilli(), trimmedProjectID, normalizedKey, trimmedProjectID)
+	result, err := tx.ExecContext(ctx, metadataQuery(setProjectKeyQuery), normalizedKey, time.Now().UTC().UnixMilli(), trimmedProjectID, normalizedKey, trimmedProjectID)
 	if err != nil {
 		if isSQLiteUniqueConstraint(err) {
 			return fmt.Errorf("%w: %q", ErrProjectKeyAlreadyInUse, normalizedKey)
@@ -1916,23 +1909,6 @@ func projectHomeSummaryFromRow(row sqlitegen.ListProjectHomeSummariesRow) server
 	}
 }
 
-func int64FromStoredValue(value any) int64 {
-	switch typed := value.(type) {
-	case int64:
-		return typed
-	case int:
-		return int64(typed)
-	case []byte:
-		parsed, _ := strconv.ParseInt(string(typed), 10, 64)
-		return parsed
-	case string:
-		parsed, _ := strconv.ParseInt(typed, 10, 64)
-		return parsed
-	default:
-		return 0
-	}
-}
-
 func sessionExecutionTargetFromRow(row sqlitegen.GetSessionExecutionTargetByIDRow) clientui.SessionExecutionTarget {
 	worktreeID := ""
 	if row.WorktreeID.Valid {
@@ -1968,10 +1944,6 @@ func runtimeLeaseRecordFromRow(row sqlitegen.RuntimeLease) RuntimeLeaseRecord {
 		SessionID: row.SessionID,
 		CreatedAt: timeFromStoredTimestamp(row.CreatedAtUnixMs),
 	}
-}
-
-func worktreeRecordFromModel(row sqlitegen.Worktree) WorktreeRecord {
-	return worktreeRecordFromParts(row.ID, row.WorkspaceID, row.CanonicalRootPath, false, row.BuilderManaged != 0, row.CreatedBranch != 0, row.OriginSessionID, row.GitMetadataJson, row.CreatedAtUnixMs, row.UpdatedAtUnixMs)
 }
 
 func worktreeRecordFromListRow(row sqlitegen.ListWorktreesByWorkspaceIDRow) WorktreeRecord {

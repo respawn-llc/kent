@@ -96,19 +96,6 @@ func transcriptOffsetAndLimit(req clientui.TranscriptPageRequest) (int, int) {
 	return offset, limit
 }
 
-func TranscriptPageFromWindow(sessionID, sessionName string, freshness clientui.ConversationFreshness, revision int64, window runtime.TranscriptWindowSnapshot) clientui.TranscriptPage {
-	return TranscriptPageFromCollectedChat(
-		sessionID,
-		sessionName,
-		freshness,
-		revision,
-		ChatSnapshotFromRuntime(window.Snapshot),
-		window.TotalEntries,
-		window.Offset,
-		clientui.TranscriptPageRequest{Offset: window.Offset, Limit: window.TotalEntries - window.Offset},
-	)
-}
-
 func ongoingTailTranscriptRequest(req clientui.TranscriptPageRequest, revision int64, window runtime.TranscriptWindowSnapshot) clientui.TranscriptPageRequest {
 	pageReq := clientui.TranscriptPageRequest{Offset: window.Offset, Limit: window.TotalEntries - window.Offset}
 	if req.Window != clientui.TranscriptWindowOngoingTail {

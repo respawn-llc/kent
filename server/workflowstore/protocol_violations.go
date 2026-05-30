@@ -31,35 +31,11 @@ func (s *Store) RecordProtocolViolation(ctx context.Context, req RecordProtocolV
 	var err error
 	switch req.Kind {
 	case ProtocolViolationFinalAnswer:
-		err = s.db.QueryRowContext(ctx, `
-UPDATE task_runs
-SET
-    updated_at_unix_ms = ?,
-    final_answer_violation_count = final_answer_violation_count + 1,
-    interrupted_at_unix_ms = CASE WHEN final_answer_violation_count + 1 >= ? THEN ? ELSE interrupted_at_unix_ms END,
-    interruption_reason = CASE WHEN final_answer_violation_count + 1 >= ? THEN 'workflow_protocol_violation_limit' ELSE interruption_reason END,
-    interruption_detail_json = CASE WHEN final_answer_violation_count + 1 >= ? THEN ? ELSE interruption_detail_json END
-WHERE id = ?
-  AND completed_at_unix_ms = 0
-  AND interrupted_at_unix_ms = 0
-  AND (? = 0 OR run_generation = ?)
-RETURNING final_answer_violation_count, interrupted_at_unix_ms`,
+		err = s.db.QueryRowContext(ctx, workflowStoreQuery(recordFinalAnswerProtocolViolationQuery),
 			now, req.MaxCount, now, req.MaxCount, req.MaxCount, detail, string(req.RunID), boolToInt64(req.RequireGeneration), req.ExpectedGeneration,
 		).Scan(&count, &interruptedAt)
 	case ProtocolViolationInvalidCompletion:
-		err = s.db.QueryRowContext(ctx, `
-UPDATE task_runs
-SET
-    updated_at_unix_ms = ?,
-    invalid_completion_count = invalid_completion_count + 1,
-    interrupted_at_unix_ms = CASE WHEN invalid_completion_count + 1 >= ? THEN ? ELSE interrupted_at_unix_ms END,
-    interruption_reason = CASE WHEN invalid_completion_count + 1 >= ? THEN 'workflow_protocol_violation_limit' ELSE interruption_reason END,
-    interruption_detail_json = CASE WHEN invalid_completion_count + 1 >= ? THEN ? ELSE interruption_detail_json END
-WHERE id = ?
-  AND completed_at_unix_ms = 0
-  AND interrupted_at_unix_ms = 0
-  AND (? = 0 OR run_generation = ?)
-RETURNING invalid_completion_count, interrupted_at_unix_ms`,
+		err = s.db.QueryRowContext(ctx, workflowStoreQuery(recordInvalidCompletionProtocolViolationQuery),
 			now, req.MaxCount, now, req.MaxCount, req.MaxCount, detail, string(req.RunID), boolToInt64(req.RequireGeneration), req.ExpectedGeneration,
 		).Scan(&count, &interruptedAt)
 	default:

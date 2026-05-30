@@ -227,20 +227,8 @@ func ProjectSessionDir(cfg App, projectID string, sessionID string) string {
 	return filepath.Join(ProjectSessionsRoot(cfg, projectID), sessionID)
 }
 
-func DatabaseRoot(cfg App) string {
-	return filepath.Join(cfg.PersistenceRoot, databaseDirName)
-}
-
-func MainDatabasePath(cfg App) string {
-	return filepath.Join(DatabaseRoot(cfg), "main.sqlite3")
-}
-
 func GlobalAuthConfigPath(cfg App) string {
 	return filepath.Join(cfg.PersistenceRoot, globalAuthConfigName)
-}
-
-func WorktreesRoot(cfg App) string {
-	return cfg.Settings.Worktrees.BaseDir
 }
 
 func ServerListenAddress(cfg App) string {

@@ -145,14 +145,6 @@ func StartEmbedded(ctx context.Context, req StartupRequest, authHandler StartupA
 	return serverstartup.Start(ctx, req, authHandler, onboardingHandler)
 }
 
-func NewHeadlessHandlers(lookupEnv func(string) string) (StartupAuthHandler, StartupOnboardingHandler) {
-	return serverstartup.NewHeadlessHandlers(lookupEnv)
-}
-
-func StartServe(ctx context.Context, req StartupRequest, authHandler StartupAuthHandler, onboardingHandler StartupOnboardingHandler) (*ServeServer, error) {
-	return serve.Start(ctx, req, authHandler, onboardingHandler)
-}
-
 func ReleaseServeReservation(cfg config.App) {
 	serve.ReleaseTestListenReservation(config.ServerListenAddress(cfg))
 }

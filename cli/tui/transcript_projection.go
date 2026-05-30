@@ -990,20 +990,6 @@ func projectionFromOngoingBlocks(blocks []ongoingBlock) TranscriptProjection {
 	return projection
 }
 
-func projectionFromDetailBlocks(blocks []ongoingBlock) TranscriptProjection {
-	projection := TranscriptProjection{Blocks: make([]TranscriptProjectionBlock, 0, len(blocks))}
-	for _, block := range blocks {
-		projection.Blocks = append(projection.Blocks, TranscriptProjectionBlock{
-			Role:         block.role,
-			DividerGroup: ongoingDividerGroup(block.role),
-			EntryIndex:   block.entryIndex,
-			EntryEnd:     block.entryEnd,
-			Lines:        append([]string(nil), block.lines...),
-		})
-	}
-	return projection
-}
-
 func (m Model) projectionFromDetailBlockSpecs(specs []detailBlockSpec, applySelection bool) TranscriptProjection {
 	projection := TranscriptProjection{Blocks: make([]TranscriptProjectionBlock, 0, len(specs))}
 	for _, spec := range specs {

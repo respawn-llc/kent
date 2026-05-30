@@ -1,0 +1,21 @@
+Usage of builder project:
+  builder project [path]
+  builder project list
+  builder project create --path <server-path> --name <project-name>
+
+What This Does:
+  Inspect or manage Builder project bindings.
+  `builder project [path]` prints the project id bound to `path` or the current directory.
+  `builder project list` lists projects known to the current server.
+  `builder project create` registers a new project for a server-visible workspace path.
+
+Path Semantics:
+  For local loopback mode, paths are local filesystem paths.
+  For remote daemons, paths passed to `project create` must be visible on the server machine.
+
+Examples:
+  builder project
+  builder project ../other-checkout
+  builder project list
+  builder project create --path /srv/repos/app --name app
+

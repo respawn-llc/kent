@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -24,9 +23,7 @@ func taskSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		stderr = io.Discard
 	}
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fs := flag.NewFlagSet("builder task", flag.ContinueOnError)
-		fs.SetOutput(stderr)
-		fs.Usage = func() { writeTaskUsage(fs) }
+		fs := newCommandFlagSet("builder task", stderr, writeTaskUsage)
 		fs.Usage()
 		if len(args) == 0 {
 			return 2
@@ -54,26 +51,20 @@ func taskSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return taskCommentSubcommand(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown task command: %s\n\n", args[0])
-		fs := flag.NewFlagSet("builder task", flag.ContinueOnError)
-		fs.SetOutput(stderr)
+		fs := newCommandFlagSet("builder task", stderr, writeTaskUsage)
 		writeTaskUsage(fs)
 		return 2
 	}
 }
 
 func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder task create", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeTaskCreateUsage(fs) }
+	fs := newCommandFlagSet("builder task create", stderr, writeTaskCreateUsage)
 	title := fs.String("title", "", "task title")
 	body := fs.String("body", "", "task body")
 	workflowRef := fs.String("workflow", "", "workflow id or exact workflow name")
 	projectRef := fs.String("project", ".", "project id or path")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "task create does not accept positional arguments")
@@ -110,16 +101,11 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 }
 
 func taskStartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder task start", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeTaskStartUsage(fs) }
+	fs := newCommandFlagSet("builder task start", stderr, writeTaskStartUsage)
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 1 {
@@ -152,15 +138,10 @@ func taskStartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 }
 
 func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder task list", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeTaskListUsage(fs) }
+	fs := newCommandFlagSet("builder task list", stderr, writeTaskListUsage)
 	projectRef := fs.String("project", ".", "project id or path")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "task list does not accept positional arguments")
@@ -184,16 +165,11 @@ func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func taskShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder task show", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeTaskShowUsage(fs) }
+	fs := newCommandFlagSet("builder task show", stderr, writeTaskShowUsage)
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 1 {
@@ -219,17 +195,12 @@ func taskShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func taskCancelSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder task cancel", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeTaskCancelUsage(fs) }
+	fs := newCommandFlagSet("builder task cancel", stderr, writeTaskCancelUsage)
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	reason := fs.String("reason", "", "cancel reason")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 1 {
@@ -261,16 +232,11 @@ func taskCancelSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 }
 
 func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder task resume", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeTaskResumeUsage(fs) }
+	fs := newCommandFlagSet("builder task resume", stderr, writeTaskResumeUsage)
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 1 {
@@ -306,15 +272,10 @@ func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 }
 
 func taskApproveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder task approve", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeTaskApproveUsage(fs) }
+	fs := newCommandFlagSet("builder task approve", stderr, writeTaskApproveUsage)
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 1 {
@@ -348,19 +309,14 @@ func taskApproveSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 }
 
 func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder task move", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeTaskMoveUsage(fs) }
+	fs := newCommandFlagSet("builder task move", stderr, writeTaskMoveUsage)
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	commentary := fs.String("commentary", "", "transition commentary")
 	outputs := stringMapFlag{}
 	fs.Var(&outputs, "output", "output value as name=value; repeatable")
 	positionals, flagArgs := takeLeadingPositionals(args, 2)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 2 {
@@ -398,12 +354,6 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
-func taskUnsupportedSubcommand(action string, stdout io.Writer, stderr io.Writer) int {
-	_ = stdout
-	fmt.Fprintf(stderr, "task %s is not implemented yet; reserved for a later workflow runtime slice\n", action)
-	return 1
-}
-
 type stringMapFlag struct {
 	values map[string]string
 }
@@ -430,9 +380,7 @@ func (f *stringMapFlag) Set(raw string) error {
 
 func taskCommentSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fs := flag.NewFlagSet("builder task comment", flag.ContinueOnError)
-		fs.SetOutput(stderr)
-		fs.Usage = func() { writeTaskCommentUsage(fs) }
+		fs := newCommandFlagSet("builder task comment", stderr, writeTaskCommentUsage)
 		fs.Usage()
 		if len(args) == 0 {
 			return 2
@@ -450,26 +398,20 @@ func taskCommentSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 		return taskCommentDeleteSubcommand(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown task comment command: %s\n\n", args[0])
-		fs := flag.NewFlagSet("builder task comment", flag.ContinueOnError)
-		fs.SetOutput(stderr)
+		fs := newCommandFlagSet("builder task comment", stderr, writeTaskCommentUsage)
 		writeTaskCommentUsage(fs)
 		return 2
 	}
 }
 
 func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder task comment add", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeTaskCommentAddUsage(fs) }
+	fs := newCommandFlagSet("builder task comment add", stderr, writeTaskCommentAddUsage)
 	body := fs.String("body", "", "comment body")
 	author := fs.String("author", "user", "comment author")
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 1 {
@@ -499,16 +441,11 @@ func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 }
 
 func taskCommentListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder task comment list", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeTaskCommentListUsage(fs) }
+	fs := newCommandFlagSet("builder task comment list", stderr, writeTaskCommentListUsage)
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 1 {
@@ -540,16 +477,11 @@ func taskCommentListSubcommand(args []string, stdout io.Writer, stderr io.Writer
 }
 
 func taskCommentReplaceSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder task comment replace", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeTaskCommentReplaceUsage(fs) }
+	fs := newCommandFlagSet("builder task comment replace", stderr, writeTaskCommentReplaceUsage)
 	body := fs.String("body", "", "replacement comment body")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 1 {
@@ -573,15 +505,10 @@ func taskCommentReplaceSubcommand(args []string, stdout io.Writer, stderr io.Wri
 }
 
 func taskCommentDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder task comment delete", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeTaskCommentDeleteUsage(fs) }
+	fs := newCommandFlagSet("builder task comment delete", stderr, writeTaskCommentDeleteUsage)
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
-	if err := fs.Parse(flagArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
+		return exitCode
 	}
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 1 {

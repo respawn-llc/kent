@@ -333,15 +333,6 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (c uiAskController) renderPrompt() string {
-	lines := c.renderPromptLines()
-	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		out = append(out, line.Text)
-	}
-	return strings.Join(out, "\n")
-}
-
 func (c uiAskController) renderPromptLines() []askPromptLine {
 	m := c.model
 	if !m.ask.hasCurrent() {
@@ -476,15 +467,6 @@ func askVisibleOptions(req clientui.PendingPromptEvent) []string {
 	return req.Suggestions
 }
 
-func approvalOptionIndex(req clientui.PendingPromptEvent, decision clientui.ApprovalDecision) int {
-	for i, option := range req.ApprovalOptions {
-		if option.Decision == decision {
-			return i
-		}
-	}
-	return -1
-}
-
 func approvalSupportsCommentary(req clientui.PendingPromptEvent) bool {
 	if !req.Approval {
 		return false
@@ -568,18 +550,6 @@ func (c uiAskController) showFreeformSelectionCommentaryRequiredError() tea.Cmd 
 	)
 }
 
-func (m *uiModel) renderAskPrompt() string {
-	return m.askController().renderPrompt()
-}
-
 func (m *uiModel) renderAskPromptLines() []askPromptLine {
 	return m.askController().renderPromptLines()
-}
-
-func (m *uiModel) answerAsk(answer string, err error) bool {
-	return m.askController().answer(clientui.PromptAnswer{Answer: answer}, err)
-}
-
-func (m *uiModel) setActiveAsk(evt askEvent) {
-	m.askController().setActiveAsk(evt)
 }

@@ -5,8 +5,6 @@ import (
 	"builder/cli/tui"
 	"builder/server/llm"
 	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
 	"builder/shared/toolspec"
 	"builder/shared/transcript"
 	"context"
@@ -20,11 +18,6 @@ import (
 )
 
 func TestBusySlashSupervisorOnAppliesToInFlightRunCompletion(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	mainClient := &busyToggleFakeClient{responses: []llm.Response{
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "working", Phase: llm.MessagePhaseCommentary},
@@ -40,7 +33,7 @@ func TestBusySlashSupervisorOnAppliesToInFlightRunCompletion(t *testing.T) {
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"suggestions":[]}`},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	eng, err := runtime.New(store, mainClient, tools.NewRegistry(busyTogglePatchTool{delay: 80 * time.Millisecond}), runtime.Config{
+	_, eng := newAppRuntimeEngine(t, mainClient, runtime.Config{
 		Model: "gpt-5",
 		Reviewer: runtime.ReviewerConfig{
 			Frequency:     "off",
@@ -48,10 +41,7 @@ func TestBusySlashSupervisorOnAppliesToInFlightRunCompletion(t *testing.T) {
 			ThinkingLevel: "low",
 			Client:        reviewerClient,
 		},
-	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	}, busyTogglePatchTool{delay: 80 * time.Millisecond})
 
 	m := newProjectedEngineUIModel(eng)
 	m.setBusy(true)
@@ -83,12 +73,7 @@ func TestBusySlashSupervisorOnAppliesToInFlightRunCompletion(t *testing.T) {
 }
 
 func TestSlashSupervisorWithEngineTogglesRuntimeReviewer(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := runtime.New(store, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{
+	_, eng := newAppRuntimeEngine(t, statusLineFakeClient{}, runtime.Config{
 		Model: "gpt-5",
 		Reviewer: runtime.ReviewerConfig{
 			Frequency:     "off",
@@ -97,9 +82,6 @@ func TestSlashSupervisorWithEngineTogglesRuntimeReviewer(t *testing.T) {
 			Client:        statusLineFakeClient{},
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	m := newProjectedEngineUIModel(eng)
 	m.input = "/supervisor on"
 
@@ -203,15 +185,7 @@ func TestBusySlashAutoCompactionExecutesImmediatelyWithoutQueueing(t *testing.T)
 }
 
 func TestSlashAutoCompactionWithEngineTogglesRuntime(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := runtime.New(store, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, statusLineFakeClient{}, runtime.Config{})
 	m := newProjectedEngineUIModel(eng)
 	m.input = "/autocompaction off"
 
@@ -259,15 +233,7 @@ func TestSlashAutoCompactionKeepsPriorStateWhenRuntimeToggleFails(t *testing.T) 
 }
 
 func TestSlashAutoCompactionShowsCompactionModeNoneNote(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := runtime.New(store, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5", CompactionMode: "none"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, statusLineFakeClient{}, runtime.Config{CompactionMode: "none"})
 	m := newProjectedEngineUIModel(eng)
 	m.input = "/autocompaction on"
 
@@ -474,15 +440,7 @@ func TestInitialInputSeedsDraftWithoutAutoSubmit(t *testing.T) {
 }
 
 func TestReviewerStatusEndToEnd_VerboseSuggestionsIssuedAndStatusConcise(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := runtime.New(store, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, statusLineFakeClient{}, runtime.Config{})
 	eng.AppendLocalEntryWithOngoingText("reviewer_suggestions", "Supervisor suggested:\n1. First detailed suggestion text\n2. Second detailed suggestion text", "Supervisor suggested:\n1. First detailed suggestion text\n2. Second detailed suggestion text")
 	eng.AppendLocalEntry("reviewer_status", "Supervisor ran: 2 suggestions, no changes applied.")
 

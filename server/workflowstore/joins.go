@@ -133,11 +133,7 @@ LIMIT 1`, taskID, string(joinEdge.TargetNode.ID), batchID.String).Scan(&existing
 }
 
 func joinExpectedBranches(ctx context.Context, tx *sql.Tx, batchID string) (map[string]bool, error) {
-	rows, err := tx.QueryContext(ctx, `
-SELECT target_placement_id
-FROM task_transition_edges
-WHERE task_transition_id = ? AND target_placement_id IS NOT NULL
-ORDER BY rowid ASC`, batchID)
+	rows, err := tx.QueryContext(ctx, workflowStoreQuery(joinExpectedBranchesQuery), batchID)
 	if err != nil {
 		return nil, err
 	}
@@ -156,21 +152,7 @@ ORDER BY rowid ASC`, batchID)
 }
 
 func joinArrivals(ctx context.Context, tx *sql.Tx, batchID string, joinNodeID workflow.NodeID) ([]joinArrival, error) {
-	rows, err := tx.QueryContext(ctx, `
-SELECT
-    p.id,
-    p.parallel_branch_edge_id,
-    te.workflow_edge_id,
-    tr.source_node_key,
-    tr.output_values_json
-FROM task_node_placements p
-JOIN task_transitions tr ON tr.source_placement_id = p.id
-JOIN task_transition_edges te ON te.task_transition_id = tr.id
-WHERE p.parallel_batch_transition_id = ?
-  AND p.state = 'completed'
-  AND te.target_node_id = ?
-  AND te.state = 'applied'
-ORDER BY p.parallel_branch_edge_id ASC, tr.created_at_unix_ms ASC, te.rowid ASC`, batchID, string(joinNodeID))
+	rows, err := tx.QueryContext(ctx, workflowStoreQuery(joinArrivalsQuery), batchID, string(joinNodeID))
 	if err != nil {
 		return nil, err
 	}

@@ -16,19 +16,34 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-func TestRemoteRunPromptPublishesProgressNotifications(t *testing.T) {
+func newRemoteTestServer(t *testing.T, handle func(*websocket.Conn)) *httptest.Server {
+	t.Helper()
 	server := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
 		defer func() { _ = ws.Close() }()
-		var req protocol.Request
-		if err := websocket.JSON.Receive(ws, &req); err != nil {
-			t.Fatalf("receive handshake: %v", err)
-		}
-		if req.Method != protocol.MethodHandshake {
-			t.Fatalf("handshake method = %q", req.Method)
-		}
-		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, protocol.HandshakeResponse{Identity: protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"}})); err != nil {
-			t.Fatalf("send handshake response: %v", err)
-		}
+		handle(ws)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func acceptRemoteHandshake(t *testing.T, ws *websocket.Conn) protocol.Request {
+	t.Helper()
+	var req protocol.Request
+	if err := websocket.JSON.Receive(ws, &req); err != nil {
+		t.Fatalf("receive handshake: %v", err)
+	}
+	if req.Method != protocol.MethodHandshake {
+		t.Fatalf("handshake method = %q", req.Method)
+	}
+	if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, protocol.HandshakeResponse{Identity: protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"}})); err != nil {
+		t.Fatalf("send handshake response: %v", err)
+	}
+	return req
+}
+
+func TestRemoteRunPromptPublishesProgressNotifications(t *testing.T) {
+	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
+		req := acceptRemoteHandshake(t, ws)
 		if err := websocket.JSON.Receive(ws, &req); err != nil {
 			if errors.Is(err, io.EOF) {
 				return
@@ -47,8 +62,7 @@ func TestRemoteRunPromptPublishesProgressNotifications(t *testing.T) {
 		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, serverapi.RunPromptResponse{SessionID: "session-1", SessionName: "Session 1", Result: "done"})); err != nil {
 			t.Fatalf("send response: %v", err)
 		}
-	}))
-	defer server.Close()
+	})
 
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 	if err != nil {
@@ -72,8 +86,7 @@ func TestRemoteRunPromptPublishesProgressNotifications(t *testing.T) {
 }
 
 func TestRemoteSessionActivitySubscriptionNextHonorsCanceledContext(t *testing.T) {
-	server := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
-		defer func() { _ = ws.Close() }()
+	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		var req protocol.Request
 		if err := websocket.JSON.Receive(ws, &req); err != nil {
 			return
@@ -94,8 +107,7 @@ func TestRemoteSessionActivitySubscriptionNextHonorsCanceledContext(t *testing.T
 			return
 		}
 		<-time.After(2 * time.Second)
-	}))
-	defer server.Close()
+	})
 
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 	if err != nil {
@@ -130,8 +142,7 @@ func TestRemoteSessionActivitySubscriptionNextHonorsCanceledContext(t *testing.T
 }
 
 func TestRemoteSessionActivitySubscriptionPreservesTranscriptEntries(t *testing.T) {
-	server := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
-		defer func() { _ = ws.Close() }()
+	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		var req protocol.Request
 		if err := websocket.JSON.Receive(ws, &req); err != nil {
 			return
@@ -160,8 +171,7 @@ func TestRemoteSessionActivitySubscriptionPreservesTranscriptEntries(t *testing.
 			}},
 		}}
 		_ = websocket.JSON.Send(ws, protocol.Request{JSONRPC: protocol.JSONRPCVersion, Method: protocol.MethodSessionActivityEvent, Params: mustJSON(t, evt)})
-	}))
-	defer server.Close()
+	})
 
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 	if err != nil {
@@ -191,15 +201,8 @@ func TestRemoteSessionActivitySubscriptionPreservesTranscriptEntries(t *testing.
 }
 
 func TestRemoteDeleteWorktreeCarriesDeleteBranchFlagAndResponseFields(t *testing.T) {
-	server := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
-		defer func() { _ = ws.Close() }()
-		var req protocol.Request
-		if err := websocket.JSON.Receive(ws, &req); err != nil {
-			t.Fatalf("receive handshake: %v", err)
-		}
-		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, protocol.HandshakeResponse{Identity: protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"}})); err != nil {
-			t.Fatalf("send handshake response: %v", err)
-		}
+	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
+		req := acceptRemoteHandshake(t, ws)
 		if err := websocket.JSON.Receive(ws, &req); err != nil {
 			t.Fatalf("receive worktree delete: %v", err)
 		}
@@ -224,8 +227,7 @@ func TestRemoteDeleteWorktreeCarriesDeleteBranchFlagAndResponseFields(t *testing
 		})); err != nil {
 			t.Fatalf("send delete response: %v", err)
 		}
-	}))
-	defer server.Close()
+	})
 
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 	if err != nil {
@@ -249,15 +251,8 @@ func TestRemoteDeleteWorktreeCarriesDeleteBranchFlagAndResponseFields(t *testing
 }
 
 func TestRemoteResolveWorktreeCreateTargetCarriesMethodAndPayload(t *testing.T) {
-	server := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
-		defer func() { _ = ws.Close() }()
-		var req protocol.Request
-		if err := websocket.JSON.Receive(ws, &req); err != nil {
-			t.Fatalf("receive handshake: %v", err)
-		}
-		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, protocol.HandshakeResponse{Identity: protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"}})); err != nil {
-			t.Fatalf("send handshake response: %v", err)
-		}
+	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
+		req := acceptRemoteHandshake(t, ws)
 		if err := websocket.JSON.Receive(ws, &req); err != nil {
 			t.Fatalf("receive worktree resolve: %v", err)
 		}
@@ -276,8 +271,7 @@ func TestRemoteResolveWorktreeCreateTargetCarriesMethodAndPayload(t *testing.T) 
 		})); err != nil {
 			t.Fatalf("send resolve response: %v", err)
 		}
-	}))
-	defer server.Close()
+	})
 
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 	if err != nil {
@@ -295,8 +289,7 @@ func TestRemoteResolveWorktreeCreateTargetCarriesMethodAndPayload(t *testing.T) 
 }
 
 func TestRemoteSessionActivitySubscriptionPreservesTranscriptCriticalOrderingWithAssistantDeltaProgress(t *testing.T) {
-	server := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
-		defer func() { _ = ws.Close() }()
+	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		var req protocol.Request
 		if err := websocket.JSON.Receive(ws, &req); err != nil {
 			return
@@ -345,8 +338,7 @@ func TestRemoteSessionActivitySubscriptionPreservesTranscriptCriticalOrderingWit
 			}
 		}
 		_ = websocket.JSON.Send(ws, protocol.Request{JSONRPC: protocol.JSONRPCVersion, Method: protocol.MethodSessionActivityComplete, Params: mustJSON(t, protocol.StreamCompleteParams{})})
-	}))
-	defer server.Close()
+	})
 
 	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 	if err != nil {
@@ -406,8 +398,7 @@ func TestRemoteSessionActivitySubscriptionPreservesTranscriptCriticalOrderingWit
 }
 
 func TestRemoteProcessOutputSubscriptionAttachesProjectBeforeSubscribe(t *testing.T) {
-	server := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
-		defer func() { _ = ws.Close() }()
+	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		var req protocol.Request
 		if err := websocket.JSON.Receive(ws, &req); err != nil {
 			return
@@ -441,8 +432,7 @@ func TestRemoteProcessOutputSubscriptionAttachesProjectBeforeSubscribe(t *testin
 			return
 		}
 		_ = websocket.JSON.Send(ws, protocol.Request{JSONRPC: protocol.JSONRPCVersion, Method: protocol.MethodProcessOutputComplete, Params: mustJSON(t, protocol.StreamCompleteParams{})})
-	}))
-	defer server.Close()
+	})
 
 	remote, err := DialRemoteURLForProject(context.Background(), "ws"+server.URL[len("http"):], "project-1")
 	if err != nil {
@@ -458,8 +448,7 @@ func TestRemoteProcessOutputSubscriptionAttachesProjectBeforeSubscribe(t *testin
 }
 
 func TestDialRemoteURLForProjectAttachesProjectAndReturnsRemote(t *testing.T) {
-	server := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
-		defer func() { _ = ws.Close() }()
+	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		var req protocol.Request
 		if err := websocket.JSON.Receive(ws, &req); err != nil {
 			return
@@ -481,8 +470,7 @@ func TestDialRemoteURLForProjectAttachesProjectAndReturnsRemote(t *testing.T) {
 			t.Fatalf("attach project id = %q, want project-1", attach.ProjectID)
 		}
 		_ = websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, protocol.AttachResponse{Kind: "project", ProjectID: attach.ProjectID}))
-	}))
-	defer server.Close()
+	})
 
 	remote, err := DialRemoteURLForProject(context.Background(), "ws"+server.URL[len("http"):], "project-1")
 	if err != nil {
@@ -498,8 +486,7 @@ func TestDialRemoteURLForProjectAttachesProjectAndReturnsRemote(t *testing.T) {
 }
 
 func TestDialRemoteURLForProjectValidatesAttachProject(t *testing.T) {
-	server := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
-		defer func() { _ = ws.Close() }()
+	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
 		var req protocol.Request
 		if err := websocket.JSON.Receive(ws, &req); err != nil {
 			return
@@ -514,8 +501,7 @@ func TestDialRemoteURLForProjectValidatesAttachProject(t *testing.T) {
 			t.Fatalf("expected attach-project during dial, got %q", req.Method)
 		}
 		_ = websocket.JSON.Send(ws, protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, "project not available"))
-	}))
-	defer server.Close()
+	})
 
 	remote, err := DialRemoteURLForProject(context.Background(), "ws"+server.URL[len("http"):], "project-missing")
 	if err == nil {
@@ -531,18 +517,8 @@ func TestDialRemoteURLForProjectValidatesAttachProject(t *testing.T) {
 
 func TestRemoteProjectViewCallsReuseInitialProjectAttach(t *testing.T) {
 	var attachCount atomic.Int32
-	server := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
-		defer func() { _ = ws.Close() }()
-		var req protocol.Request
-		if err := websocket.JSON.Receive(ws, &req); err != nil {
-			t.Fatalf("receive handshake: %v", err)
-		}
-		if req.Method != protocol.MethodHandshake {
-			t.Fatalf("handshake method = %q", req.Method)
-		}
-		if err := websocket.JSON.Send(ws, protocol.NewSuccessResponse(req.ID, protocol.HandshakeResponse{Identity: protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: "server-1"}})); err != nil {
-			t.Fatalf("send handshake response: %v", err)
-		}
+	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
+		req := acceptRemoteHandshake(t, ws)
 		for {
 			if err := websocket.JSON.Receive(ws, &req); err != nil {
 				if errors.Is(err, io.EOF) {
@@ -574,8 +550,7 @@ func TestRemoteProjectViewCallsReuseInitialProjectAttach(t *testing.T) {
 				t.Fatalf("unexpected project view method %q", req.Method)
 			}
 		}
-	}))
-	defer server.Close()
+	})
 
 	remote, err := DialRemoteURLForProjectWorkspace(context.Background(), "ws"+server.URL[len("http"):], "project-1", "/tmp/attached")
 	if err != nil {

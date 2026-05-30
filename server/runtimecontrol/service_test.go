@@ -79,6 +79,42 @@ func (fakeShellHandler) Call(context.Context, tools.Call) (tools.Result, error) 
 	return tools.Result{Output: json.RawMessage(`{"output":"ok","exit_code":0,"truncated":false}`)}, nil
 }
 
+func newRuntimeControlTestEngine(t *testing.T, client llm.Client, registry *tools.Registry, cfg runtime.Config, opts ...session.StoreOption) (*session.Store, *runtime.Engine) {
+	t.Helper()
+	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x", opts...)
+	if err != nil {
+		t.Fatalf("create session store: %v", err)
+	}
+	if client == nil {
+		client = &runtimeControlFakeClient{}
+	}
+	if registry == nil {
+		registry = tools.NewRegistry()
+	}
+	if cfg.Model == "" {
+		cfg.Model = "gpt-5"
+	}
+	engine, err := runtime.New(store, client, registry, cfg)
+	if err != nil {
+		t.Fatalf("create runtime engine: %v", err)
+	}
+	t.Cleanup(func() { _ = engine.Close() })
+	return store, engine
+}
+
+func newRuntimeControlTestService(t *testing.T, client llm.Client, registry *tools.Registry, cfg runtime.Config, opts ...session.StoreOption) (*session.Store, *runtime.Engine, *Service) {
+	t.Helper()
+	store, engine := newRuntimeControlTestEngine(t, client, registry, cfg, opts...)
+	return store, engine, NewService(stubRuntimeResolver{engine: engine}, nil)
+}
+
+func finalResponseRuntimeControlClient() *runtimeControlFakeClient {
+	return &runtimeControlFakeClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
+		Usage:     llm.Usage{WindowTokens: 200000},
+	}}}
+}
+
 func (c *runtimeControlFakeClient) Generate(context.Context, llm.Request) (llm.Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -123,14 +159,7 @@ func TestServiceSubmitUserMessageReturnsTypedRuntimeUnavailable(t *testing.T) {
 }
 
 func TestServiceGoalCommandsDoNotRequireControllerLease(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	engine, err := runtime.New(store, &runtimeControlFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
+	store, engine := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	verifier := &stubRuntimeLeaseVerifier{err: serverapi.ErrInvalidControllerLease}
 	service := NewService(stubRuntimeResolver{engine: engine}, nil).WithControllerLeaseVerifier(verifier)
 
@@ -170,16 +199,7 @@ func TestServiceGoalCommandsDoNotRequireControllerLease(t *testing.T) {
 }
 
 func TestServiceSetGoalMemoNormalizesObjectiveWhitespace(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	engine, err := runtime.New(store, &blockingRuntimeControlClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
-	defer func() { _ = engine.Close() }()
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+	store, _, service := newRuntimeControlTestService(t, &blockingRuntimeControlClient{}, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 
 	req := serverapi.RuntimeGoalSetRequest{
 		ClientRequestID: "goal-set-retry",
@@ -215,16 +235,7 @@ func TestServiceSetGoalMemoNormalizesObjectiveWhitespace(t *testing.T) {
 }
 
 func TestServiceSetGoalAllowsAgentWithoutExistingGoal(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	engine, err := runtime.New(store, &blockingRuntimeControlClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
-	defer func() { _ = engine.Close() }()
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+	store, _, service := newRuntimeControlTestService(t, &blockingRuntimeControlClient{}, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 
 	resp, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
 		ClientRequestID: "agent-goal-set",
@@ -241,21 +252,12 @@ func TestServiceSetGoalAllowsAgentWithoutExistingGoal(t *testing.T) {
 }
 
 func TestServiceSetGoalRejectsAgentOverwrite(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	engine, err := runtime.New(store, &blockingRuntimeControlClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
-	defer func() { _ = engine.Close() }()
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+	store, engine, service := newRuntimeControlTestService(t, &blockingRuntimeControlClient{}, nil, runtime.Config{})
 	if _, err := engine.SetGoal("existing goal", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal initial: %v", err)
 	}
 
-	_, err = service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
+	_, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
 		ClientRequestID: "agent-goal-overwrite",
 		SessionID:       store.Meta().SessionID,
 		Objective:       "agent replacement",
@@ -270,16 +272,7 @@ func TestServiceSetGoalRejectsAgentOverwrite(t *testing.T) {
 }
 
 func TestServiceSetGoalAllowsAgentAfterCompletedGoal(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	engine, err := runtime.New(store, &blockingRuntimeControlClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
-	defer func() { _ = engine.Close() }()
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+	store, engine, service := newRuntimeControlTestService(t, &blockingRuntimeControlClient{}, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	completed, err := engine.SetGoal("completed goal", session.GoalActorUser)
 	if err != nil {
 		t.Fatalf("SetGoal initial: %v", err)
@@ -335,17 +328,9 @@ func TestServiceSetGoalAllowsAgentAfterCompletedGoal(t *testing.T) {
 }
 
 func TestServiceSetGoalPropagatesGoalLoopStartError(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	engine, err := runtime.New(store, &runtimeControlFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
 
-	_, err = service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
+	_, err := service.SetGoal(context.Background(), serverapi.RuntimeGoalSetRequest{
 		ClientRequestID: "goal-set-ask-disabled",
 		SessionID:       store.Meta().SessionID,
 		Objective:       "ship goal mode",
@@ -421,15 +406,7 @@ func TestServiceActiveGoalUpdatesDoNotUsePrimaryRunGate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-			if err != nil {
-				t.Fatalf("create session store: %v", err)
-			}
-			engine, err := runtime.New(store, &runtimeControlFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-			if err != nil {
-				t.Fatalf("create runtime engine: %v", err)
-			}
-			defer func() { _ = engine.Close() }()
+			store, engine := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 			if tt.prepare != nil {
 				tt.prepare(t, engine)
 			}
@@ -460,14 +437,7 @@ func TestServiceActiveGoalUpdatesDoNotUsePrimaryRunGate(t *testing.T) {
 }
 
 func TestServiceShowGoalReportsRuntimeSuspension(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	engine, err := runtime.New(store, &runtimeControlFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
+	store, engine := newRuntimeControlTestEngine(t, nil, nil, runtime.Config{})
 	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
@@ -486,15 +456,7 @@ func TestServiceShowGoalReportsRuntimeSuspension(t *testing.T) {
 }
 
 func TestServiceCompleteGoalAlreadyCompleteDoesNotDuplicateAudit(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	engine, err := runtime.New(store, &runtimeControlFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+	store, engine, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
@@ -519,17 +481,9 @@ func TestServiceCompleteGoalAlreadyCompleteDoesNotDuplicateAudit(t *testing.T) {
 
 func TestServiceCompleteGoalFeedbackIncludesCookDuration(t *testing.T) {
 	now := time.Date(2026, 5, 9, 10, 0, 0, 0, time.UTC)
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x", session.WithClock(func() time.Time {
+	store, engine, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}}, session.WithClock(func() time.Time {
 		return now
 	}))
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	engine, err := runtime.New(store, &runtimeControlFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
 	if _, err := engine.SetGoal("ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
@@ -549,16 +503,9 @@ func TestServiceCompleteGoalFeedbackIncludesCookDuration(t *testing.T) {
 }
 
 func TestServiceSetSessionNameReplaysSuccessfulRetryAfterLeaseInvalidation(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
+	store, engine := newRuntimeControlTestEngine(t, nil, tools.NewRegistry(fakeShellHandler{}), runtime.Config{})
 	if err := store.SetName("before"); err != nil {
 		t.Fatalf("persist initial session name: %v", err)
-	}
-	engine, err := runtime.New(store, &runtimeControlFakeClient{}, tools.NewRegistry(fakeShellHandler{}), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
 	}
 	verifier := &stubRuntimeLeaseVerifier{}
 	service := NewService(stubRuntimeResolver{engine: engine}, nil).
@@ -597,25 +544,9 @@ func TestServiceSetSessionNameReplaysSuccessfulRetryAfterLeaseInvalidation(t *te
 }
 
 func TestServiceSubmitUserMessageDedupesSuccessfulRetry(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	client := &runtimeControlFakeClient{responses: []llm.Response{{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
-		Usage:     llm.Usage{WindowTokens: 200000},
-	}}}
-	engine, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
-	req := serverapi.RuntimeSubmitUserMessageRequest{
-		ClientRequestID:   "req-1",
-		SessionID:         store.Meta().SessionID,
-		ControllerLeaseID: "lease-1",
-		Text:              "hello",
-	}
+	client := finalResponseRuntimeControlClient()
+	store, _, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
+	req := runtimeControlUserMessageRequest(store, "req-1", "hello")
 
 	first, err := service.SubmitUserMessage(context.Background(), req)
 	if err != nil {
@@ -634,27 +565,12 @@ func TestServiceSubmitUserMessageDedupesSuccessfulRetry(t *testing.T) {
 }
 
 func TestServiceSubmitUserMessageReplaysSuccessfulRetryAfterLeaseInvalidation(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	client := &runtimeControlFakeClient{responses: []llm.Response{{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
-		Usage:     llm.Usage{WindowTokens: 200000},
-	}}}
-	engine, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
+	client := finalResponseRuntimeControlClient()
+	store, engine := newRuntimeControlTestEngine(t, client, nil, runtime.Config{})
 	verifier := &stubRuntimeLeaseVerifier{}
 	service := NewService(stubRuntimeResolver{engine: engine}, nil).
 		WithControllerLeaseVerifier(verifier)
-	req := serverapi.RuntimeSubmitUserMessageRequest{
-		ClientRequestID:   "req-1",
-		SessionID:         store.Meta().SessionID,
-		ControllerLeaseID: "lease-1",
-		Text:              "hello",
-	}
+	req := runtimeControlUserMessageRequest(store, "req-1", "hello")
 
 	first, err := service.SubmitUserMessage(context.Background(), req)
 	if err != nil {
@@ -677,25 +593,9 @@ func TestServiceSubmitUserMessageReplaysSuccessfulRetryAfterLeaseInvalidation(t 
 }
 
 func TestServiceSubmitUserMessageRejectsClientRequestIDPayloadMismatch(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	client := &runtimeControlFakeClient{responses: []llm.Response{{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
-		Usage:     llm.Usage{WindowTokens: 200000},
-	}}}
-	engine, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
-	first := serverapi.RuntimeSubmitUserMessageRequest{
-		ClientRequestID:   "req-1",
-		SessionID:         store.Meta().SessionID,
-		ControllerLeaseID: "lease-1",
-		Text:              "hello",
-	}
+	client := finalResponseRuntimeControlClient()
+	store, _, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
+	first := runtimeControlUserMessageRequest(store, "req-1", "hello")
 	if _, err := service.SubmitUserMessage(context.Background(), first); err != nil {
 		t.Fatalf("SubmitUserMessage first: %v", err)
 	}
@@ -710,26 +610,10 @@ func TestServiceSubmitUserMessageRejectsClientRequestIDPayloadMismatch(t *testin
 }
 
 func TestServiceSubmitUserTurnRecordsPromptHistoryAndSubmits(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	client := &runtimeControlFakeClient{responses: []llm.Response{{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
-		Usage:     llm.Usage{WindowTokens: 200000},
-	}}}
-	engine, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
+	client := finalResponseRuntimeControlClient()
+	store, _, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
 
-	resp, err := service.SubmitUserTurn(context.Background(), serverapi.RuntimeSubmitUserTurnRequest{
-		ClientRequestID:   "req-1",
-		SessionID:         store.Meta().SessionID,
-		ControllerLeaseID: "lease-1",
-		Text:              "hello",
-	})
+	resp, err := service.SubmitUserTurn(context.Background(), runtimeControlUserTurnRequest(store, "req-1", "hello"))
 	if err != nil {
 		t.Fatalf("SubmitUserTurn: %v", err)
 	}
@@ -745,25 +629,9 @@ func TestServiceSubmitUserTurnRecordsPromptHistoryAndSubmits(t *testing.T) {
 }
 
 func TestServiceSubmitUserTurnDedupesSuccessfulRetry(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	client := &runtimeControlFakeClient{responses: []llm.Response{{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
-		Usage:     llm.Usage{WindowTokens: 200000},
-	}}}
-	engine, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
-	req := serverapi.RuntimeSubmitUserTurnRequest{
-		ClientRequestID:   "req-1",
-		SessionID:         store.Meta().SessionID,
-		ControllerLeaseID: "lease-1",
-		Text:              "hello",
-	}
+	client := finalResponseRuntimeControlClient()
+	store, _, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
+	req := runtimeControlUserTurnRequest(store, "req-1", "hello")
 
 	first, err := service.SubmitUserTurn(context.Background(), req)
 	if err != nil {
@@ -785,21 +653,8 @@ func TestServiceSubmitUserTurnDedupesSuccessfulRetry(t *testing.T) {
 }
 
 func TestServiceSubmitUserShellCommandDedupesSuccessfulRetry(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	engine, err := runtime.New(store, &runtimeControlFakeClient{}, tools.NewRegistry(fakeShellHandler{}), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
-	req := serverapi.RuntimeSubmitUserShellCommandRequest{
-		ClientRequestID:   "req-1",
-		SessionID:         store.Meta().SessionID,
-		ControllerLeaseID: "lease-1",
-		Command:           "pwd",
-	}
+	store, _, service := newRuntimeControlTestService(t, nil, tools.NewRegistry(fakeShellHandler{}), runtime.Config{})
+	req := runtimeControlShellCommandRequest(store, "req-1", "pwd")
 
 	if err := service.SubmitUserShellCommand(context.Background(), req); err != nil {
 		t.Fatalf("SubmitUserShellCommand first: %v", err)
@@ -818,23 +673,11 @@ func TestServiceSubmitUserShellCommandDedupesSuccessfulRetry(t *testing.T) {
 }
 
 func TestServiceSubmitUserShellCommandReplaysSuccessfulRetryAfterLeaseInvalidation(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	engine, err := runtime.New(store, &runtimeControlFakeClient{}, tools.NewRegistry(fakeShellHandler{}), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
+	store, engine := newRuntimeControlTestEngine(t, nil, tools.NewRegistry(fakeShellHandler{}), runtime.Config{})
 	verifier := &stubRuntimeLeaseVerifier{}
 	service := NewService(stubRuntimeResolver{engine: engine}, nil).
 		WithControllerLeaseVerifier(verifier)
-	req := serverapi.RuntimeSubmitUserShellCommandRequest{
-		ClientRequestID:   "req-1",
-		SessionID:         store.Meta().SessionID,
-		ControllerLeaseID: "lease-1",
-		Command:           "pwd",
-	}
+	req := runtimeControlShellCommandRequest(store, "req-1", "pwd")
 
 	if err := service.SubmitUserShellCommand(context.Background(), req); err != nil {
 		t.Fatalf("SubmitUserShellCommand first: %v", err)
@@ -852,21 +695,8 @@ func TestServiceSubmitUserShellCommandReplaysSuccessfulRetryAfterLeaseInvalidati
 }
 
 func TestServiceSubmitUserShellCommandRejectsClientRequestIDPayloadMismatch(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	engine, err := runtime.New(store, &runtimeControlFakeClient{}, tools.NewRegistry(fakeShellHandler{}), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
-	first := serverapi.RuntimeSubmitUserShellCommandRequest{
-		ClientRequestID:   "req-1",
-		SessionID:         store.Meta().SessionID,
-		ControllerLeaseID: "lease-1",
-		Command:           "pwd",
-	}
+	store, _, service := newRuntimeControlTestService(t, nil, tools.NewRegistry(fakeShellHandler{}), runtime.Config{})
+	first := runtimeControlShellCommandRequest(store, "req-1", "pwd")
 	if err := service.SubmitUserShellCommand(context.Background(), first); err != nil {
 		t.Fatalf("SubmitUserShellCommand first: %v", err)
 	}
@@ -881,25 +711,9 @@ func TestServiceSubmitUserShellCommandRejectsClientRequestIDPayloadMismatch(t *t
 }
 
 func TestServiceQueueUserMessageDedupesSuccessfulRetry(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	client := &runtimeControlFakeClient{responses: []llm.Response{{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
-		Usage:     llm.Usage{WindowTokens: 200000},
-	}}}
-	engine, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
-	req := serverapi.RuntimeQueueUserMessageRequest{
-		ClientRequestID:   "req-1",
-		SessionID:         store.Meta().SessionID,
-		ControllerLeaseID: "lease-1",
-		Text:              "hello",
-	}
+	client := finalResponseRuntimeControlClient()
+	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
+	req := runtimeControlQueueUserMessageRequest(store, "req-1", "hello")
 
 	firstQueue, err := service.QueueUserMessage(context.Background(), req)
 	if err != nil {
@@ -924,27 +738,12 @@ func TestServiceQueueUserMessageDedupesSuccessfulRetry(t *testing.T) {
 }
 
 func TestServiceQueueUserMessageReplaysSuccessfulRetryAfterLeaseInvalidation(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	client := &runtimeControlFakeClient{responses: []llm.Response{{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
-		Usage:     llm.Usage{WindowTokens: 200000},
-	}}}
-	engine, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
+	client := finalResponseRuntimeControlClient()
+	store, engine := newRuntimeControlTestEngine(t, client, nil, runtime.Config{})
 	verifier := &stubRuntimeLeaseVerifier{}
 	service := NewService(stubRuntimeResolver{engine: engine}, nil).
 		WithControllerLeaseVerifier(verifier)
-	req := serverapi.RuntimeQueueUserMessageRequest{
-		ClientRequestID:   "req-1",
-		SessionID:         store.Meta().SessionID,
-		ControllerLeaseID: "lease-1",
-		Text:              "hello",
-	}
+	req := runtimeControlQueueUserMessageRequest(store, "req-1", "hello")
 
 	firstQueue, err := service.QueueUserMessage(context.Background(), req)
 	if err != nil {
@@ -970,25 +769,9 @@ func TestServiceQueueUserMessageReplaysSuccessfulRetryAfterLeaseInvalidation(t *
 }
 
 func TestServiceQueueUserMessageRejectsClientRequestIDPayloadMismatch(t *testing.T) {
-	store, err := session.Create(t.TempDir(), "workspace-x", "/tmp/workspace-x")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
-	client := &runtimeControlFakeClient{responses: []llm.Response{{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
-		Usage:     llm.Usage{WindowTokens: 200000},
-	}}}
-	engine, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("create runtime engine: %v", err)
-	}
-	service := NewService(stubRuntimeResolver{engine: engine}, nil)
-	first := serverapi.RuntimeQueueUserMessageRequest{
-		ClientRequestID:   "req-1",
-		SessionID:         store.Meta().SessionID,
-		ControllerLeaseID: "lease-1",
-		Text:              "hello",
-	}
+	client := finalResponseRuntimeControlClient()
+	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
+	first := runtimeControlQueueUserMessageRequest(store, "req-1", "hello")
 	if _, err := service.QueueUserMessage(context.Background(), first); err != nil {
 		t.Fatalf("QueueUserMessage first: %v", err)
 	}
@@ -1075,4 +858,40 @@ func countUserMessagesWithContent(t *testing.T, store *session.Store, content st
 		}
 	}
 	return count
+}
+
+func runtimeControlUserMessageRequest(store *session.Store, requestID string, text string) serverapi.RuntimeSubmitUserMessageRequest {
+	return serverapi.RuntimeSubmitUserMessageRequest{
+		ClientRequestID:   requestID,
+		SessionID:         store.Meta().SessionID,
+		ControllerLeaseID: "lease-1",
+		Text:              text,
+	}
+}
+
+func runtimeControlUserTurnRequest(store *session.Store, requestID string, text string) serverapi.RuntimeSubmitUserTurnRequest {
+	return serverapi.RuntimeSubmitUserTurnRequest{
+		ClientRequestID:   requestID,
+		SessionID:         store.Meta().SessionID,
+		ControllerLeaseID: "lease-1",
+		Text:              text,
+	}
+}
+
+func runtimeControlShellCommandRequest(store *session.Store, requestID string, command string) serverapi.RuntimeSubmitUserShellCommandRequest {
+	return serverapi.RuntimeSubmitUserShellCommandRequest{
+		ClientRequestID:   requestID,
+		SessionID:         store.Meta().SessionID,
+		ControllerLeaseID: "lease-1",
+		Command:           command,
+	}
+}
+
+func runtimeControlQueueUserMessageRequest(store *session.Store, requestID string, text string) serverapi.RuntimeQueueUserMessageRequest {
+	return serverapi.RuntimeQueueUserMessageRequest{
+		ClientRequestID:   requestID,
+		SessionID:         store.Meta().SessionID,
+		ControllerLeaseID: "lease-1",
+		Text:              text,
+	}
 }

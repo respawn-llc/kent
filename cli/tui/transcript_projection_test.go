@@ -11,6 +11,14 @@ import (
 	xansi "github.com/charmbracelet/x/ansi"
 )
 
+func defaultProjectionViewState() TranscriptProjectionViewState {
+	return TranscriptProjectionViewState{ViewportWidth: 80, ViewportLines: 20, Theme: "dark"}
+}
+
+func projectTranscriptViewsForTest(input TranscriptProjectionInput) TranscriptViewProjection {
+	return ProjectTranscriptViews(input, defaultProjectionViewState())
+}
+
 func TestCommittedOngoingProjectionRenderAppendDeltaFromAppendedEntry(t *testing.T) {
 	m := NewModel(WithPreviewLines(20))
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "seed"})
@@ -424,13 +432,9 @@ func TestProjectTranscriptViewsDerivesOngoingAndDetailFromSameCanonicalEntries(t
 		{Role: "assistant", Text: "answer"},
 	}
 
-	projection := ProjectTranscriptViews(TranscriptProjectionInput{
+	projection := projectTranscriptViewsForTest(TranscriptProjectionInput{
 		BaseOffset: 10,
 		Entries:    entries,
-	}, TranscriptProjectionViewState{
-		ViewportWidth: 80,
-		ViewportLines: 20,
-		Theme:         "dark",
 	})
 
 	if len(projection.Ongoing.Blocks) != 2 {
@@ -448,15 +452,11 @@ func TestProjectTranscriptViewsDerivesOngoingAndDetailFromSameCanonicalEntries(t
 }
 
 func TestDetailProjectionEmptySeparatorsRemainContentLines(t *testing.T) {
-	projection := ProjectTranscriptViews(TranscriptProjectionInput{
+	projection := projectTranscriptViewsForTest(TranscriptProjectionInput{
 		Entries: []TranscriptEntry{
 			{Role: "user", Text: "prompt"},
 			{Role: "assistant", Text: "answer"},
 		},
-	}, TranscriptProjectionViewState{
-		ViewportWidth: 80,
-		ViewportLines: 20,
-		Theme:         "dark",
 	})
 
 	if len(projection.DetailLines) < 3 {
@@ -498,18 +498,15 @@ func TestProjectTranscriptViewsMapsSelectionEntryToDetailLines(t *testing.T) {
 		{Role: "user", Text: "third"},
 	}
 
+	state := defaultProjectionViewState()
+	state.DetailSelectedEntry = 21
+	state.DetailSelectedActive = true
+	state.SelectedEntry = 21
+	state.SelectedEntryIsActive = true
 	projection := ProjectTranscriptViews(TranscriptProjectionInput{
 		BaseOffset: 20,
 		Entries:    entries,
-	}, TranscriptProjectionViewState{
-		ViewportWidth:         80,
-		ViewportLines:         20,
-		Theme:                 "dark",
-		DetailSelectedEntry:   21,
-		DetailSelectedActive:  true,
-		SelectedEntry:         21,
-		SelectedEntryIsActive: true,
-	})
+	}, state)
 
 	lineRange, ok := projection.DetailEntryLineRanges[21]
 	if !ok {
@@ -642,14 +639,14 @@ func TestProjectTranscriptViewsExpansionChangesDetailProjectionOnly(t *testing.T
 }
 
 func TestProjectTranscriptViewsIncludesStreamingReasoningInDetailProjection(t *testing.T) {
-	projection := ProjectTranscriptViews(TranscriptProjectionInput{
+	projection := projectTranscriptViewsForTest(TranscriptProjectionInput{
 		Entries: []TranscriptEntry{{Role: "assistant", Text: "answer"}},
 		StreamingReasoning: []StreamingReasoningEntry{{
 			Key:  "r1",
 			Role: TranscriptRoleReasoning,
 			Text: "thinking now",
 		}},
-	}, TranscriptProjectionViewState{ViewportWidth: 80, ViewportLines: 20, Theme: "dark"})
+	})
 
 	detail := xansi.Strip(projection.Detail.Render(detailItemSeparator))
 	if !strings.Contains(detail, "thinking now") {
@@ -667,7 +664,7 @@ func TestProjectTranscriptViewsToolCallRenderingUsesSameEntryMapping(t *testing.
 		{Role: "tool_result_ok", Text: "/tmp/project", ToolCallID: "call_1"},
 	}
 
-	projection := ProjectTranscriptViews(TranscriptProjectionInput{BaseOffset: 30, Entries: entries}, TranscriptProjectionViewState{ViewportWidth: 80, ViewportLines: 20, Theme: "dark"})
+	projection := projectTranscriptViewsForTest(TranscriptProjectionInput{BaseOffset: 30, Entries: entries})
 
 	if len(projection.Ongoing.Blocks) != 1 || projection.Ongoing.Blocks[0].EntryIndex != 30 || projection.Ongoing.Blocks[0].EntryEnd != 31 {
 		t.Fatalf("expected ongoing tool projection to merge call/result entry range, got %#v", projection.Ongoing.Blocks)
@@ -713,11 +710,11 @@ func TestProjectTranscriptViewsLargeTranscriptKeepsLastEntryRange(t *testing.T) 
 }
 
 func TestTranscriptViewProjectionDetailViewportPreservesScrollAndOwners(t *testing.T) {
-	projection := ProjectTranscriptViews(TranscriptProjectionInput{Entries: []TranscriptEntry{
+	projection := projectTranscriptViewsForTest(TranscriptProjectionInput{Entries: []TranscriptEntry{
 		{Role: "user", Text: "first"},
 		{Role: "assistant", Text: "second"},
 		{Role: "user", Text: "third"},
-	}}, TranscriptProjectionViewState{ViewportWidth: 80, ViewportLines: 2, Theme: "dark"})
+	}})
 
 	viewport := projection.DetailViewport(ProjectionViewportState{ViewportLines: 2, Scroll: 2})
 	if viewport.Scroll != 2 {
@@ -732,11 +729,7 @@ func TestTranscriptViewProjectionDetailViewportPreservesScrollAndOwners(t *testi
 }
 
 func TestTranscriptViewProjectionDetailViewportBottomAnchorUsesOffset(t *testing.T) {
-	projection := ProjectTranscriptViews(TranscriptProjectionInput{Entries: benchmarkDetailEntries(4)}, TranscriptProjectionViewState{
-		ViewportWidth: 80,
-		ViewportLines: 3,
-		Theme:         "dark",
-	})
+	projection := ProjectTranscriptViews(TranscriptProjectionInput{Entries: benchmarkDetailEntries(4)}, TranscriptProjectionViewState{ViewportWidth: 80, ViewportLines: 3, Theme: "dark"})
 
 	viewport := projection.DetailViewport(ProjectionViewportState{ViewportLines: 3, BottomAnchor: true, BottomOffset: 2})
 	if viewport.Scroll != viewport.MaxScroll-2 {

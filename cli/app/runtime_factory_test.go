@@ -14,7 +14,6 @@ import (
 	"builder/server/llm"
 	"builder/server/runtime"
 	"builder/server/runtimewire"
-	"builder/server/session"
 	"builder/server/tools"
 	"builder/server/tools/askquestion"
 	patchtool "builder/server/tools/patch"
@@ -263,10 +262,7 @@ func TestBuildToolRegistry_ViewImageConfiguredAllowBypassesApprovalForOutsidePat
 
 func TestNewRuntimeWiring_ProviderOverrideSupportsAliasModelsForMainAndReviewer(t *testing.T) {
 	workspace := t.TempDir()
-	store, err := session.Create(t.TempDir(), "ws", workspace)
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
+	store := createAppRuntimeSessionAt(t, t.TempDir(), "ws", workspace)
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -307,10 +303,7 @@ func TestNewRuntimeWiring_ProviderOverrideSupportsAliasModelsForMainAndReviewer(
 
 func TestNewRuntimeWiring_ReviewerProviderCanUseLocalAnonymousModel(t *testing.T) {
 	workspace := t.TempDir()
-	store, err := session.Create(t.TempDir(), "ws", workspace)
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
+	store := createAppRuntimeSessionAt(t, t.TempDir(), "ws", workspace)
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -344,34 +337,22 @@ func TestNewRuntimeWiring_ReviewerProviderCanUseLocalAnonymousModel(t *testing.T
 
 func TestBackgroundEventRouterSkipsDeveloperNoticeForOrphanedShells(t *testing.T) {
 	root := t.TempDir()
-	storeA, err := session.Create(root, "ws-a", root)
-	if err != nil {
-		t.Fatalf("create store A: %v", err)
-	}
-	storeB, err := session.Create(root, "ws-b", root)
-	if err != nil {
-		t.Fatalf("create store B: %v", err)
-	}
+	storeA := createAppRuntimeSessionAt(t, root, "ws-a", root)
+	storeB := createAppRuntimeSessionAt(t, root, "ws-b", root)
 
 	clientA := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "a", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
 	clientB := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "b", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
 	var mu sync.Mutex
 	backgroundUpdates := 0
-	engA, err := runtime.New(storeA, clientA, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine A: %v", err)
-	}
+	engA := newAppRuntimeEngineWithStore(t, storeA, clientA, runtime.Config{})
 	t.Cleanup(func() { _ = engA.Close() })
-	engB, err := runtime.New(storeB, clientB, tools.NewRegistry(), runtime.Config{Model: "gpt-5", OnEvent: func(evt runtime.Event) {
+	engB := newAppRuntimeEngineWithStore(t, storeB, clientB, runtime.Config{OnEvent: func(evt runtime.Event) {
 		if evt.Kind == runtime.EventBackgroundUpdated {
 			mu.Lock()
 			backgroundUpdates++
 			mu.Unlock()
 		}
 	}})
-	if err != nil {
-		t.Fatalf("new engine B: %v", err)
-	}
 	t.Cleanup(func() { _ = engB.Close() })
 
 	router := &backgroundEventRouter{}
@@ -395,26 +376,14 @@ func TestBackgroundEventRouterSkipsDeveloperNoticeForOrphanedShells(t *testing.T
 
 func TestBackgroundEventRouterRoutesCompletionToMatchingActiveOwnerSession(t *testing.T) {
 	root := t.TempDir()
-	storeA, err := session.Create(root, "ws-a", root)
-	if err != nil {
-		t.Fatalf("create store A: %v", err)
-	}
-	storeB, err := session.Create(root, "ws-b", root)
-	if err != nil {
-		t.Fatalf("create store B: %v", err)
-	}
+	storeA := createAppRuntimeSessionAt(t, root, "ws-a", root)
+	storeB := createAppRuntimeSessionAt(t, root, "ws-b", root)
 
 	clientA := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "a", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
 	clientB := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "b", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
-	engA, err := runtime.New(storeA, clientA, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine A: %v", err)
-	}
+	engA := newAppRuntimeEngineWithStore(t, storeA, clientA, runtime.Config{})
 	t.Cleanup(func() { _ = engA.Close() })
-	engB, err := runtime.New(storeB, clientB, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine B: %v", err)
-	}
+	engB := newAppRuntimeEngineWithStore(t, storeB, clientB, runtime.Config{})
 	t.Cleanup(func() { _ = engB.Close() })
 
 	router := &backgroundEventRouter{}
@@ -436,15 +405,9 @@ func TestBackgroundEventRouterRoutesCompletionToMatchingActiveOwnerSession(t *te
 
 func TestBackgroundEventRouterQueuesNoticeForActiveOwnerSession(t *testing.T) {
 	root := t.TempDir()
-	store, err := session.Create(root, "ws", root)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := createAppRuntimeSessionAt(t, root, "ws", root)
 	client := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "notice handled", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
-	eng, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := newAppRuntimeEngineWithStore(t, store, client, runtime.Config{})
 	t.Cleanup(func() { _ = eng.Close() })
 
 	router := &backgroundEventRouter{}
@@ -531,23 +494,16 @@ func TestBackgroundEventRouterShapesBackgroundNoticeByOutputMode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			root := t.TempDir()
-			store, err := session.Create(root, "ws", root)
-			if err != nil {
-				t.Fatalf("create store: %v", err)
-			}
+			store := createAppRuntimeSessionAt(t, root, "ws", root)
 			client := &busyToggleFakeClient{}
 			events := make(chan runtime.Event, 4)
-			eng, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{
-				Model: "gpt-5",
+			eng := newAppRuntimeEngineWithStore(t, store, client, runtime.Config{
 				OnEvent: func(evt runtime.Event) {
 					if evt.Kind == runtime.EventBackgroundUpdated {
 						events <- evt
 					}
 				},
 			})
-			if err != nil {
-				t.Fatalf("new engine: %v", err)
-			}
 			t.Cleanup(func() { _ = eng.Close() })
 
 			logPath := filepath.Join(root, "1000.log")
@@ -593,23 +549,16 @@ func TestBackgroundEventRouterShapesBackgroundNoticeByOutputMode(t *testing.T) {
 
 func TestBackgroundEventRouterWhitespacePreviewUsesNoOutputLine(t *testing.T) {
 	root := t.TempDir()
-	store, err := session.Create(root, "ws", root)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := createAppRuntimeSessionAt(t, root, "ws", root)
 	client := &busyToggleFakeClient{}
 	events := make(chan runtime.Event, 4)
-	eng, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{
-		Model: "gpt-5",
+	eng := newAppRuntimeEngineWithStore(t, store, client, runtime.Config{
 		OnEvent: func(evt runtime.Event) {
 			if evt.Kind == runtime.EventBackgroundUpdated {
 				events <- evt
 			}
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	t.Cleanup(func() { _ = eng.Close() })
 
 	router := newBackgroundEventRouter(nil, 80, shelltool.BackgroundOutputDefault)
@@ -693,24 +642,12 @@ func TestBackgroundEventRouterDoesNotRetroactivelyQueueNoticeAfterOwnerSessionRe
 	t.Cleanup(func() { _ = manager.Close() })
 	router := newBackgroundEventRouter(manager, 16_000, shelltool.BackgroundOutputDefault)
 
-	storeA, err := session.Create(root, "ws-a", root)
-	if err != nil {
-		t.Fatalf("create store A: %v", err)
-	}
-	storeB, err := session.Create(root, "ws-b", root)
-	if err != nil {
-		t.Fatalf("create store B: %v", err)
-	}
+	storeA := createAppRuntimeSessionAt(t, root, "ws-a", root)
+	storeB := createAppRuntimeSessionAt(t, root, "ws-b", root)
 	clientA := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "a", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
 	clientB := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "b", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
-	engA, err := runtime.New(storeA, clientA, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine A: %v", err)
-	}
-	engB, err := runtime.New(storeB, clientB, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine B: %v", err)
-	}
+	engA := newAppRuntimeEngineWithStore(t, storeA, clientA, runtime.Config{})
+	engB := newAppRuntimeEngineWithStore(t, storeB, clientB, runtime.Config{})
 
 	router.SetActiveSession(storeA.Meta().SessionID, engA)
 	workdir := t.TempDir()
@@ -764,15 +701,9 @@ func TestBackgroundEventRouterDropsNoticeWhenNoSessionIsActive(t *testing.T) {
 	manager := newFastBackgroundTestManager(t)
 	router := newBackgroundEventRouter(manager, 16_000, shelltool.BackgroundOutputDefault)
 
-	store, err := session.Create(root, "ws", root)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := createAppRuntimeSessionAt(t, root, "ws", root)
 	client := &busyToggleFakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal}, Usage: llm.Usage{WindowTokens: 200_000}}}}
-	eng, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := newAppRuntimeEngineWithStore(t, store, client, runtime.Config{})
 	router.SetActiveSession(store.Meta().SessionID, eng)
 	router.ClearActiveSession(store.Meta().SessionID)
 	router.handle(shelltool.Event{Snapshot: shelltool.Snapshot{ID: "1002", OwnerSessionID: store.Meta().SessionID, State: "completed"}, Type: shelltool.EventCompleted, Preview: "done"})

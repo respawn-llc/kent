@@ -235,11 +235,3 @@ func waitRuntimeLeaseRecoveryWarning(ch <-chan runtimeLeaseRecoveryWarningMsg) t
 		return msg
 	}
 }
-
-func (m *uiModel) handleRuntimeEvent(evt clientui.Event) {
-	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(evt)
-}
-
-func (m *uiModel) syncConversationFromEngine() {
-	_ = m.runtimeAdapter().syncConversationFromEngine()
-}

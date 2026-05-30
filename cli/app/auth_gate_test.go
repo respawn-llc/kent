@@ -11,7 +11,6 @@ import (
 	"builder/cli/app/internal/oauthadapter"
 	"builder/server/auth"
 	"builder/server/authflow"
-	"builder/server/session"
 	"builder/shared/config"
 )
 
@@ -63,11 +62,8 @@ func (s *stubAuthInteractor) Interactive() bool {
 }
 
 func TestBootstrapAppHeadlessUsesEnvAPIKeyWithoutPersistingAuthState(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	home, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("OPENAI_API_KEY", "sk-env")
-	registerAppWorkspace(t, workspace)
 
 	boot, err := startEmbeddedServer(context.Background(), Options{WorkspaceRoot: workspace}, newHeadlessAuthInteractor())
 	if err != nil {
@@ -96,11 +92,8 @@ func TestBootstrapAppHeadlessUsesEnvAPIKeyWithoutPersistingAuthState(t *testing.
 }
 
 func TestBootstrapAppReadyEnvAuthDoesNotOpenAuthPicker(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	home, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("OPENAI_API_KEY", "sk-env")
-	registerAppWorkspace(t, workspace)
 	if err := os.MkdirAll(filepath.Join(home, ".builder"), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -136,10 +129,7 @@ func TestBootstrapAppReadyEnvAuthDoesNotOpenAuthPicker(t *testing.T) {
 }
 
 func TestBootstrapAppNoAuthPreferenceDoesNotOpenAuthPicker(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	home, workspace := newRegisteredAppWorkspace(t)
 	if err := os.MkdirAll(filepath.Join(home, ".builder"), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -200,10 +190,7 @@ func TestResolveSessionActionLogoutUsesBootstrapAuthInteractor(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	store, err := session.Create(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("create session store: %v", err)
-	}
+	store := createAppRuntimeSessionAt(t, root, "workspace-x", "/tmp/work")
 
 	resolved, err := resolveSessionAction(
 		ctx,
@@ -450,11 +437,8 @@ func TestResolveSessionActionLogoutPickerFailurePreservesStoredAuth(t *testing.T
 }
 
 func TestBootstrapAppSkipAuthDoesNotPersistAuthState(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
+	home, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("OPENAI_API_KEY", "")
-	registerAppWorkspace(t, workspace)
 
 	interactor := &stubAuthInteractor{
 		interactive:    false,

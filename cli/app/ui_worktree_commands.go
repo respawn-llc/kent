@@ -91,15 +91,6 @@ func (m *uiModel) suggestedWorktreeSessionName() string {
 	return ""
 }
 
-func isWorktreeMutationCommand(command string) bool {
-	switch strings.ToLower(strings.TrimSpace(command)) {
-	case "new", "create", "switch", "delete", "remove", "rm":
-		return true
-	default:
-		return false
-	}
-}
-
 func worktreeUsage() string {
 	return "Usage: /wt | /wt status | /wt create | /wt new | /wt delete [target] | /wt remove [target] | /wt rm [target] | /wt switch <target>"
 }
@@ -110,8 +101,4 @@ func worktreeDisplayName(item serverapi.WorktreeView) string {
 
 func sanitizeWorktreeBranchSuggestion(raw string) string {
 	return worktreeview.SanitizeBranchSuggestion(raw)
-}
-
-func worktreeDeleteCanAutoDeleteBranch(item serverapi.WorktreeView) bool {
-	return worktreeview.DeleteCanAutoDeleteBranch(item)
 }

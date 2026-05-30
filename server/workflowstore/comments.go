@@ -50,12 +50,7 @@ func (s *Store) DeleteComment(ctx context.Context, commentID string) error {
 }
 
 func (s *Store) TaskIdentityForComment(ctx context.Context, commentID string) (taskID string, projectID string, workflowID string, err error) {
-	row := s.metadata.DB().QueryRowContext(ctx, `
-SELECT t.id, t.project_id, t.workflow_id
-FROM task_comments c
-JOIN task_records t ON t.id = c.task_id
-WHERE c.id = ?
-LIMIT 1`, strings.TrimSpace(commentID))
+	row := s.metadata.DB().QueryRowContext(ctx, workflowStoreQuery(taskIdentityForCommentQuery), strings.TrimSpace(commentID))
 	if scanErr := row.Scan(&taskID, &projectID, &workflowID); scanErr != nil {
 		return "", "", "", scanErr
 	}

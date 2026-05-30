@@ -1,0 +1,10 @@
+Usage of builder project list:
+  builder project list
+
+What This Does:
+  List projects known to the current Builder server.
+  Output columns are: project id, display name, and root path.
+
+Examples:
+  builder project list
+

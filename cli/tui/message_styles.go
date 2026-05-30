@@ -9,10 +9,6 @@ const (
 	transcriptMessageStyleError
 )
 
-func transcriptMessageStyleForRole(role string) transcriptMessageStyle {
-	return transcriptMessageStyleForIntent(TranscriptRoleFromWire(role).DisplayIntent(""))
-}
-
 func transcriptMessageStyleForIntent(intent RenderIntent) transcriptMessageStyle {
 	switch intent {
 	case RenderIntentReviewerStatus, RenderIntentReviewerSuggestions:

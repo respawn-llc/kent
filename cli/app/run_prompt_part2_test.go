@@ -19,10 +19,7 @@ import (
 )
 
 func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -59,10 +56,7 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 		t.Fatalf("expected subagent session name, got %q", result.SessionName)
 	}
 
-	cfg, err := config.Load(workspace, config.LoadOptions{OpenAIBaseURL: server.URL})
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{OpenAIBaseURL: server.URL})
 	store := openAuthoritativeAppSession(t, cfg.PersistenceRoot, result.SessionID)
 	meta := store.Meta()
 	wantWorkspaceRoot, err := config.CanonicalWorkspaceRoot(cfg.WorkspaceRoot)
@@ -112,19 +106,15 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 
 func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testing.T) {
 	ctx := context.Background()
-	home := t.TempDir()
+	home := newAppTestHome(t)
 	workspace := t.TempDir()
 	worktree := filepath.Join(home, ".builder", "worktrees", "project", "feature")
 	worktreeSubdir := filepath.Join(worktree, "pkg")
 	if err := os.MkdirAll(worktreeSubdir, 0o755); err != nil {
 		t.Fatalf("mkdir worktree subdir: %v", err)
 	}
-	t.Setenv("HOME", home)
 	configureAppTestServerPort(t)
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load workspace: %v", err)
-	}
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	parent := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
 	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
 	if err != nil {
@@ -197,10 +187,7 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 }
 
 func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	home, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
 
 	configPath := filepath.Join(home, ".builder", "config.toml")
@@ -262,10 +249,7 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 }
 
 func TestHeadlessRunPromptClientResumesExistingSessionByID(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
 
 	server, hits := newFakeResponsesServer(t, []string{"first response", "second response"})
@@ -329,10 +313,7 @@ func TestHeadlessRunPromptClientResumesExistingSessionByID(t *testing.T) {
 }
 
 func TestHeadlessRunPromptClientRestoresContinuationContextFromSelectedSession(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	registerAppWorkspace(t, workspace)
+	_, workspace := newRegisteredAppWorkspace(t)
 	saveReadyAppAuthState(t, workspace)
 
 	server, hits := newFakeResponsesServer(t, []string{"created via explicit base url", "resumed via continuation"})
@@ -410,10 +391,7 @@ func openAuthoritativeWorkspaceSessionStore(t *testing.T, workspaceRoot, openAIB
 	if strings.TrimSpace(openAIBaseURL) != "" {
 		loadOpts.OpenAIBaseURL = openAIBaseURL
 	}
-	cfg, err := config.Load(workspaceRoot, loadOpts)
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadAppTestConfig(t, workspaceRoot, loadOpts)
 	return openAuthoritativeAppSession(t, cfg.PersistenceRoot, sessionID)
 }
 

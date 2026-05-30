@@ -117,17 +117,12 @@ func rootCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Wri
 		return taskSubcommand(args[1:], stdout, stderr)
 	}
 
-	rootFS := flag.NewFlagSet("builder", flag.ContinueOnError)
-	rootFS.SetOutput(stderr)
-	rootFS.Usage = func() { writeRootUsage(rootFS) }
+	rootFS := newCommandFlagSet("builder", stderr, writeRootUsage)
 	showVersion := rootFS.Bool("version", false, "print version and exit")
 	forceInteractive := rootFS.Bool("force-interactive", false, "run interactive UI even when stdin/stdout are not terminals")
 	flags := registerSessionFlags(rootFS)
-	if err := rootFS.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(rootFS, args); !ok {
+		return exitCode
 	}
 	if *showVersion {
 		_, _ = fmt.Fprintln(stdout, buildinfo.Version)
@@ -374,14 +369,9 @@ func effectiveSessionID(flags commonFlags) (string, error) {
 }
 
 func sessionIDSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	sessionFS := flag.NewFlagSet("builder session-id", flag.ContinueOnError)
-	sessionFS.SetOutput(stderr)
-	sessionFS.Usage = func() { writeSessionIDUsage(sessionFS) }
-	if err := sessionFS.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	sessionFS := newCommandFlagSet("builder session-id", stderr, writeSessionIDUsage)
+	if ok, exitCode := parseCommandFlags(sessionFS, args); !ok {
+		return exitCode
 	}
 	if remaining := sessionFS.Args(); len(remaining) > 0 {
 		fmt.Fprintf(stderr, "unknown arguments: %s\n\n", strings.Join(remaining, " "))

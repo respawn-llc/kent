@@ -17,19 +17,7 @@ import (
 )
 
 func TestEnsureWorkspaceBindingDoesNotRegisterUnknownWorkspace(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
+	store, cfg := newMetadataTestStoreWithoutBinding(t)
 
 	if _, err := store.EnsureWorkspaceBinding(context.Background(), cfg.WorkspaceRoot); !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		t.Fatalf("EnsureWorkspaceBinding error = %v, want ErrWorkspaceNotRegistered", err)
@@ -60,23 +48,12 @@ func TestEnsureWorkspaceBindingDoesNotRegisterUnknownWorkspace(t *testing.T) {
 }
 
 func TestResolveWorkspacePathLeavesNestedDirectoryUnbound(t *testing.T) {
-	home := t.TempDir()
 	workspace := t.TempDir()
 	nested := filepath.Join(workspace, "subdir", "deeper")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatalf("MkdirAll nested: %v", err)
 	}
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
+	store, cfg := newMetadataTestStoreForWorkspace(t, workspace)
 
 	binding, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
 	if err != nil {
@@ -119,19 +96,7 @@ func TestResolveWorkspacePathLeavesNestedDirectoryUnbound(t *testing.T) {
 }
 
 func TestLookupWorkspaceBindingByIDReturnsWorkspaceNotRegisteredForUnknownID(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
+	store, _ := newMetadataTestStoreWithoutBinding(t)
 
 	if _, err := store.LookupWorkspaceBindingByID(context.Background(), "workspace-missing"); !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		t.Fatalf("LookupWorkspaceBindingByID error = %v, want ErrWorkspaceNotRegistered", err)
@@ -139,28 +104,18 @@ func TestLookupWorkspaceBindingByIDReturnsWorkspaceNotRegisteredForUnknownID(t *
 }
 
 func TestAttachWorkspaceToProjectAllowsNestedPathAsSeparateWorkspace(t *testing.T) {
-	home := t.TempDir()
 	workspace := t.TempDir()
 	nested := filepath.Join(workspace, "nested")
 	other := t.TempDir()
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatalf("MkdirAll nested: %v", err)
 	}
-	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load workspace: %v", err)
-	}
+	store, cfg := newMetadataTestStoreForWorkspace(t, workspace)
 	otherCfg, err := config.Load(other, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load other: %v", err)
 	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
 
 	binding, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
 	if err != nil {
@@ -214,23 +169,7 @@ func TestAttachWorkspaceToProjectAllowsNestedPathAsSeparateWorkspace(t *testing.
 
 func TestUnlinkProjectWorkspaceBlocksUnsafeStates(t *testing.T) {
 	ctx := context.Background()
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	binding, err := store.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
+	store, _, binding := newMetadataTestStore(t)
 	attached, err := store.AttachWorkspaceToProject(ctx, binding.ProjectID, t.TempDir())
 	if err != nil {
 		t.Fatalf("AttachWorkspaceToProject: %v", err)
@@ -266,23 +205,7 @@ VALUES ('transition-pending-workspace', 'task-active-workspace', 'placement-acti
 
 func TestUnlinkProjectWorkspacePreservesTerminalHistory(t *testing.T) {
 	ctx := context.Background()
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	binding, err := store.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
+	store, _, binding := newMetadataTestStore(t)
 	attached, err := store.AttachWorkspaceToProject(ctx, binding.ProjectID, t.TempDir())
 	if err != nil {
 		t.Fatalf("AttachWorkspaceToProject: %v", err)
@@ -338,23 +261,7 @@ VALUES ('session-terminal-workspace', ?, ?, ?, ?, 'Historical', '', '', '', ?, ?
 
 func TestProjectWorkspaceMutationsDoNotRequireWorkflowEvents(t *testing.T) {
 	ctx := context.Background()
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	binding, err := store.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
+	store, _, binding := newMetadataTestStore(t)
 	attached, err := store.AttachWorkspaceToProject(ctx, binding.ProjectID, t.TempDir())
 	if err != nil {
 		t.Fatalf("AttachWorkspaceToProject: %v", err)
@@ -389,26 +296,10 @@ func assertWorkspaceUnlinkBlocker(t *testing.T, blockers []serverapi.ProjectWork
 }
 
 func TestRebindWorkspacePreservesWorkspaceIdentity(t *testing.T) {
-	home := t.TempDir()
 	oldWorkspace := t.TempDir()
 	newParent := t.TempDir()
 	newWorkspace := filepath.Join(newParent, "renamed-workspace")
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(oldWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load oldWorkspace: %v", err)
-	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
-
-	binding, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
+	store, cfg, binding := newMetadataTestStoreForBoundWorkspace(t, oldWorkspace)
 	sessionID := "session-rebind"
 	sessionDir := config.ProjectSessionDir(cfg, binding.ProjectID, sessionID)
 	if err := store.ImportSessionSnapshot(context.Background(), session.PersistedStoreSnapshot{
@@ -472,27 +363,16 @@ func TestRebindWorkspacePreservesWorkspaceIdentity(t *testing.T) {
 }
 
 func TestRebindWorkspaceRejectsInvalidTargets(t *testing.T) {
-	home := t.TempDir()
 	oldWorkspace := t.TempDir()
 	otherWorkspace := t.TempDir()
 	projectWorkspace := t.TempDir()
 	missingWorkspace := filepath.Join(t.TempDir(), "missing")
-	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(oldWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load oldWorkspace: %v", err)
-	}
+	store, cfg := newMetadataTestStoreForWorkspace(t, oldWorkspace)
 	otherCfg, err := config.Load(otherWorkspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load otherWorkspace: %v", err)
 	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
-
 	oldBinding, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding oldWorkspace: %v", err)
@@ -525,25 +405,14 @@ func TestRebindWorkspaceRejectsInvalidTargets(t *testing.T) {
 }
 
 func TestRebindWorkspaceAllowsTargetPathUsedByAnotherProject(t *testing.T) {
-	home := t.TempDir()
 	oldWorkspace := t.TempDir()
 	sharedTarget := t.TempDir()
-	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(oldWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load oldWorkspace: %v", err)
-	}
+	store, cfg := newMetadataTestStoreForWorkspace(t, oldWorkspace)
 	targetCfg, err := config.Load(sharedTarget, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load sharedTarget: %v", err)
 	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
-
 	oldBinding, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding oldWorkspace: %v", err)
@@ -568,20 +437,9 @@ func TestRebindWorkspaceAllowsTargetPathUsedByAnotherProject(t *testing.T) {
 }
 
 func TestRebindWorkspaceRejectsAmbiguousOldPath(t *testing.T) {
-	home := t.TempDir()
 	oldWorkspace := t.TempDir()
 	newWorkspace := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(oldWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load oldWorkspace: %v", err)
-	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
+	store, cfg := newMetadataTestStoreForWorkspace(t, oldWorkspace)
 
 	if _, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot); err != nil {
 		t.Fatalf("RegisterWorkspaceBinding oldWorkspace: %v", err)
@@ -596,25 +454,10 @@ func TestRebindWorkspaceRejectsAmbiguousOldPath(t *testing.T) {
 
 func TestRetargetSessionWorkspaceAttachesTargetAndUpdatesSession(t *testing.T) {
 	ctx := context.Background()
-	home := t.TempDir()
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
-	t.Setenv("HOME", home)
 
-	cfg, err := config.Load(workspaceA, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load workspaceA: %v", err)
-	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
-
-	bindingA, err := store.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding workspaceA: %v", err)
-	}
+	store, cfg, bindingA := newMetadataTestStoreForBoundWorkspace(t, workspaceA)
 	sess, err := session.Create(
 		config.ProjectSessionsRoot(cfg, bindingA.ProjectID),
 		filepath.Base(cfg.WorkspaceRoot),
@@ -720,25 +563,7 @@ func TestRetargetSessionWorkspaceAttachesTargetAndUpdatesSession(t *testing.T) {
 }
 
 func TestResolvePersistedSessionPreservesWorktreeReminderStateFromMetadata(t *testing.T) {
-	ctx := context.Background()
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
-
-	binding, err := store.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
+	store, cfg, binding := newMetadataTestStore(t)
 	sess, err := session.Create(
 		config.ProjectSessionsRoot(cfg, binding.ProjectID),
 		filepath.Base(cfg.WorkspaceRoot),
@@ -775,25 +600,7 @@ func TestResolvePersistedSessionPreservesWorktreeReminderStateFromMetadata(t *te
 }
 
 func TestResolvePersistedSessionPreservesGoalStateFromMetadata(t *testing.T) {
-	ctx := context.Background()
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
-
-	binding, err := store.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
+	store, cfg, binding := newMetadataTestStore(t)
 	sess, err := session.Create(
 		config.ProjectSessionsRoot(cfg, binding.ProjectID),
 		filepath.Base(cfg.WorkspaceRoot),
@@ -823,7 +630,6 @@ func TestResolvePersistedSessionPreservesGoalStateFromMetadata(t *testing.T) {
 
 func TestRebindWorkspaceRetargetsDescendantWorktrees(t *testing.T) {
 	ctx := context.Background()
-	home := t.TempDir()
 	oldWorkspace := t.TempDir()
 	oldWorktree := filepath.Join(oldWorkspace, "wt-a")
 	newParent := t.TempDir()
@@ -832,22 +638,7 @@ func TestRebindWorkspaceRetargetsDescendantWorktrees(t *testing.T) {
 	if err := os.MkdirAll(oldWorktree, 0o755); err != nil {
 		t.Fatalf("MkdirAll oldWorktree: %v", err)
 	}
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(oldWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load oldWorkspace: %v", err)
-	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
-
-	binding, err := store.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterWorkspaceBinding: %v", err)
-	}
+	store, cfg, binding := newMetadataTestStoreForBoundWorkspace(t, oldWorkspace)
 	worktreeID := "worktree-rebind"
 	canonicalOldWorktree, err := config.CanonicalWorkspaceRoot(oldWorktree)
 	if err != nil {
@@ -1000,19 +791,7 @@ func TestRebindWorkspaceNormalizesUniqueConflictRace(t *testing.T) {
 
 func TestInsertWorkspaceBindingAllowsSameCanonicalRootAcrossProjects(t *testing.T) {
 	ctx := context.Background()
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store, cfg := newMetadataTestStoreWithoutBinding(t)
 	canonicalRoot, err := config.CanonicalWorkspaceRoot(cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("CanonicalWorkspaceRoot: %v", err)
@@ -1153,19 +932,7 @@ func TestRegisterWorkspaceBindingConvergesUnderConcurrentFirstRegistration(t *te
 
 func TestInsertWorkspaceBindingRollsBackProjectOnWorkspaceFailure(t *testing.T) {
 	ctx := context.Background()
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	store, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store, cfg := newMetadataTestStoreWithoutBinding(t)
 	canonicalRoot, err := config.CanonicalWorkspaceRoot(cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("CanonicalWorkspaceRoot: %v", err)

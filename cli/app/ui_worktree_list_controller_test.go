@@ -10,12 +10,7 @@ import (
 
 func newWorktreeListControllerTestModel(t *testing.T, client *worktreeCommandTestClient) *uiModel {
 	t.Helper()
-	if client == nil {
-		client = &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
-	}
-	model := newWorktreeTestModel(t, client)
-	model.worktrees.open = true
-	model.worktrees.phase = uiWorktreeOverlayPhaseList
+	model := newWorktreeControllerTestModel(t, client, uiWorktreeOverlayPhaseList)
 	model.worktrees.entries = []serverapi.WorktreeView{
 		{WorktreeID: "wt-feature", DisplayName: "feature", CanonicalRoot: "/wt/feature", BranchName: "feature"},
 		{WorktreeID: "wt-current", DisplayName: "current", CanonicalRoot: "/wt/current", IsCurrent: true},

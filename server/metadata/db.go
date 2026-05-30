@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/shared/config"
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 )
@@ -21,11 +20,6 @@ var migrationsFS embed.FS
 // routine migration status output silent unless debug logging is explicitly enabled.
 var metadataMigrationDebugLogs = false
 var metadataMigrationLogWriter io.Writer = os.Stderr
-
-func openDatabase(persistenceRoot string) (*sql.DB, error) {
-	trimmedRoot := filepath.Clean(persistenceRoot)
-	return openDatabaseAtPath(trimmedRoot, filepath.Join(trimmedRoot, "db", "main.sqlite3"))
-}
 
 func openDatabaseAtPath(persistenceRoot string, databasePath string) (*sql.DB, error) {
 	trimmedRoot, err := filepath.Abs(filepath.Clean(persistenceRoot))
@@ -87,10 +81,6 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("apply metadata migrations: %w", err)
 	}
 	return nil
-}
-
-func metadataDBPath(cfg config.App) string {
-	return config.MainDatabasePath(cfg)
 }
 
 type metadataMigrationLogger struct {

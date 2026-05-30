@@ -1,0 +1,23 @@
+Usage of builder run:
+  builder run [flags] <prompt>
+
+What This Does:
+  Execute one headless prompt against a workspace without starting the TUI.
+  Builder creates or resumes a session, runs the prompt, prints the final answer, and exits.
+
+Session Selection:
+  `--session <id>` resumes an existing session.
+  `--continue <id>` is the same concept, optimized for chaining follow-up runs.
+  `--session` and `--continue` may both be provided only when they match.
+
+Subagents:
+  `--agent <role>` selects a named role from `[subagents.<role>]` in `~/.builder/config.toml`.
+  `--fast` is shorthand for the built-in `fast` role.
+
+Examples:
+  builder run "summarize the unstaged changes"
+  builder run --continue <session-id> "follow-up"
+  builder run --fast --output-mode=json "scan the repo and return JSON"
+  builder run --model gpt-5.4-mini "review this module"
+
+Flags:

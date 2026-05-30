@@ -2,59 +2,37 @@ package client
 
 import (
 	"context"
-	"errors"
 
 	"builder/shared/serverapi"
 	"builder/shared/servicecontract"
 )
 
-type WorktreeClient interface {
-	ListWorktrees(ctx context.Context, req serverapi.WorktreeListRequest) (serverapi.WorktreeListResponse, error)
-	ResolveWorktreeCreateTarget(ctx context.Context, req serverapi.WorktreeCreateTargetResolveRequest) (serverapi.WorktreeCreateTargetResolveResponse, error)
-	CreateWorktree(ctx context.Context, req serverapi.WorktreeCreateRequest) (serverapi.WorktreeCreateResponse, error)
-	SwitchWorktree(ctx context.Context, req serverapi.WorktreeSwitchRequest) (serverapi.WorktreeSwitchResponse, error)
-	DeleteWorktree(ctx context.Context, req serverapi.WorktreeDeleteRequest) (serverapi.WorktreeDeleteResponse, error)
-}
+type WorktreeClient = servicecontract.WorktreeService
 
 type loopbackWorktreeClient struct {
-	service servicecontract.WorktreeService
+	loopbackClient[servicecontract.WorktreeService]
 }
 
 func NewLoopbackWorktreeClient(service servicecontract.WorktreeService) WorktreeClient {
-	return &loopbackWorktreeClient{service: service}
+	return &loopbackWorktreeClient{loopbackClient: newLoopbackClient(service)}
 }
 
 func (c *loopbackWorktreeClient) ListWorktrees(ctx context.Context, req serverapi.WorktreeListRequest) (serverapi.WorktreeListResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.WorktreeListResponse{}, errors.New("worktree service is required")
-	}
-	return c.service.ListWorktrees(ctx, req)
+	return callLoopbackClient(c, "worktree service is required", ctx, req, servicecontract.WorktreeService.ListWorktrees)
 }
 
 func (c *loopbackWorktreeClient) ResolveWorktreeCreateTarget(ctx context.Context, req serverapi.WorktreeCreateTargetResolveRequest) (serverapi.WorktreeCreateTargetResolveResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.WorktreeCreateTargetResolveResponse{}, errors.New("worktree service is required")
-	}
-	return c.service.ResolveWorktreeCreateTarget(ctx, req)
+	return callLoopbackClient(c, "worktree service is required", ctx, req, servicecontract.WorktreeService.ResolveWorktreeCreateTarget)
 }
 
 func (c *loopbackWorktreeClient) CreateWorktree(ctx context.Context, req serverapi.WorktreeCreateRequest) (serverapi.WorktreeCreateResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.WorktreeCreateResponse{}, errors.New("worktree service is required")
-	}
-	return c.service.CreateWorktree(ctx, req)
+	return callLoopbackClient(c, "worktree service is required", ctx, req, servicecontract.WorktreeService.CreateWorktree)
 }
 
 func (c *loopbackWorktreeClient) SwitchWorktree(ctx context.Context, req serverapi.WorktreeSwitchRequest) (serverapi.WorktreeSwitchResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.WorktreeSwitchResponse{}, errors.New("worktree service is required")
-	}
-	return c.service.SwitchWorktree(ctx, req)
+	return callLoopbackClient(c, "worktree service is required", ctx, req, servicecontract.WorktreeService.SwitchWorktree)
 }
 
 func (c *loopbackWorktreeClient) DeleteWorktree(ctx context.Context, req serverapi.WorktreeDeleteRequest) (serverapi.WorktreeDeleteResponse, error) {
-	if c == nil || c.service == nil {
-		return serverapi.WorktreeDeleteResponse{}, errors.New("worktree service is required")
-	}
-	return c.service.DeleteWorktree(ctx, req)
+	return callLoopbackClient(c, "worktree service is required", ctx, req, servicecontract.WorktreeService.DeleteWorktree)
 }

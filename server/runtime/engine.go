@@ -516,16 +516,6 @@ func (e *Engine) runStepLoopWithOptions(ctx context.Context, stepID string, revi
 	})
 }
 
-func (e *Engine) phaseProtocolEnabledForModel(ctx context.Context) bool {
-	e.ensureOrchestrationCollaborators()
-	return e.phaseProtocol.EnabledForModel(ctx)
-}
-
-func (e *Engine) shouldRunReviewerTurnForFrequency(frequency string, reviewerClient llm.Client, patchEditsApplied bool) bool {
-	e.ensureOrchestrationCollaborators()
-	return e.reviewerFlow.ShouldRunTurn(frequency, reviewerClient, patchEditsApplied)
-}
-
 func (e *Engine) runReviewerFollowUp(ctx context.Context, stepID string, original llm.Message, originalCommittedStart int, originalCommittedStartSet bool, reviewerClient llm.Client) (reviewerFollowUpResult, error) {
 	e.ensureOrchestrationCollaborators()
 	return e.reviewerFlow.RunFollowUp(ctx, stepID, original, originalCommittedStart, originalCommittedStartSet, reviewerClient)

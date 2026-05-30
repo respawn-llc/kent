@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -41,9 +40,7 @@ func goalSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		stderr = io.Discard
 	}
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fs := flag.NewFlagSet("builder goal", flag.ContinueOnError)
-		fs.SetOutput(stderr)
-		fs.Usage = func() { writeGoalUsage(fs) }
+		fs := newCommandFlagSet("builder goal", stderr, writeGoalUsage)
 		fs.Usage()
 		if len(args) == 0 {
 			return 2
@@ -66,24 +63,18 @@ func goalSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return goalClearSubcommand(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown goal command: %s\n\n", action)
-		fs := flag.NewFlagSet("builder goal", flag.ContinueOnError)
-		fs.SetOutput(stderr)
+		fs := newCommandFlagSet("builder goal", stderr, writeGoalUsage)
 		writeGoalUsage(fs)
 		return 2
 	}
 }
 
 func goalShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder goal show", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeGoalCommandUsage(fs) }
+	fs := newCommandFlagSet("builder goal show", stderr, writeGoalCommandUsage)
 	sessionFlag := fs.String("session", "", "target session id")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "goal show does not accept positional arguments")
@@ -119,15 +110,10 @@ func goalShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func goalSetSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder goal set", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeGoalCommandUsage(fs) }
+	fs := newCommandFlagSet("builder goal set", stderr, writeGoalCommandUsage)
 	sessionFlag := fs.String("session", "", "target session id")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	target, agent, err := resolveGoalCommandSession(*sessionFlag)
 	if err != nil {
@@ -161,15 +147,10 @@ func goalSetSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func goalStatusSubcommand(action string, args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder goal "+action, flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeGoalCommandUsage(fs) }
+	fs := newCommandFlagSet("builder goal "+action, stderr, writeGoalCommandUsage)
 	sessionFlag := fs.String("session", "", "target session id")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintf(stderr, "goal %s does not accept positional arguments\n", action)
@@ -208,16 +189,11 @@ func goalStatusSubcommand(action string, args []string, stdout io.Writer, stderr
 }
 
 func goalCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder goal complete", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeGoalCommandUsage(fs) }
+	fs := newCommandFlagSet("builder goal complete", stderr, writeGoalCommandUsage)
 	sessionFlag := fs.String("session", "", "target session id")
 	confirmed := fs.Bool("confirm", false, "confirm goal completion")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "goal complete does not accept positional arguments")
@@ -269,15 +245,10 @@ func goalAlreadyComplete(goal *serverapi.RuntimeGoal) bool {
 }
 
 func goalClearSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := flag.NewFlagSet("builder goal clear", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { writeGoalCommandUsage(fs) }
+	fs := newCommandFlagSet("builder goal clear", stderr, writeGoalCommandUsage)
 	sessionFlag := fs.String("session", "", "target session id")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if ok, exitCode := parseCommandFlags(fs, args); !ok {
+		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "goal clear does not accept positional arguments")

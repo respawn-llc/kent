@@ -66,82 +66,47 @@ func TestHeadlessToInteractiveReopenPreservesPromptCachePrefix(t *testing.T) {
 		prompts.HeadlessModeExitPrompt = prevExitPrompt
 	}()
 
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	registry := tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand})
-	headlessClient := &fakeClient{responses: []llm.Response{{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "headless-ok"},
-		OutputItems: []llm.ResponseItem{{
-			Type:    llm.ResponseItemTypeMessage,
-			Role:    llm.RoleAssistant,
-			Phase:   llm.MessagePhaseFinal,
-			Content: "headless-ok",
-		}},
-		Usage: llm.Usage{WindowTokens: 200000, HasCachedInputTokens: true, CachedInputTokens: 4096},
-	}}}
-	headlessEngine, err := New(store, headlessClient, registry, Config{
-		Model:         "gpt-5",
+	headlessResponse := finalOutputItemResponse("headless-ok")
+	headlessResponse.Usage.HasCachedInputTokens = true
+	headlessResponse.Usage.CachedInputTokens = 4096
+	headlessClient := &fakeClient{responses: []llm.Response{headlessResponse}}
+	headlessEngine := mustNewTestEngine(t, store, headlessClient, registry, Config{
 		HeadlessMode:  true,
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 		ToolPreambles: false,
 	})
-	if err != nil {
-		t.Fatalf("new headless engine: %v", err)
-	}
 	if _, err := headlessEngine.SubmitUserMessage(context.Background(), "run headless"); err != nil {
 		t.Fatalf("headless submit: %v", err)
 	}
-	if len(headlessClient.calls) != 1 {
-		t.Fatalf("headless calls = %d, want 1", len(headlessClient.calls))
-	}
+	assertModelCallCount(t, headlessClient, 1)
 	lastHeadlessRequest := headlessClient.calls[0]
 	if err := headlessEngine.Close(); err != nil {
 		t.Fatalf("close headless engine: %v", err)
 	}
-	reopenedStore, err := session.Open(store.Dir())
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	interactiveClient := &fakeClient{responses: []llm.Response{{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "interactive-ok"},
-		OutputItems: []llm.ResponseItem{{
-			Type:    llm.ResponseItemTypeMessage,
-			Role:    llm.RoleAssistant,
-			Phase:   llm.MessagePhaseFinal,
-			Content: "interactive-ok",
-		}},
-		Usage: llm.Usage{WindowTokens: 200000, HasCachedInputTokens: true, CachedInputTokens: 4096},
-	}}}
-	interactiveEngine, err := New(reopenedStore, interactiveClient, registry, Config{
-		Model:         "gpt-5",
+	reopenedStore := mustOpenTestSession(t, store.Dir())
+	interactiveResponse := finalOutputItemResponse("interactive-ok")
+	interactiveResponse.Usage.HasCachedInputTokens = true
+	interactiveResponse.Usage.CachedInputTokens = 4096
+	interactiveClient := &fakeClient{responses: []llm.Response{interactiveResponse}}
+	interactiveEngine := mustNewTestEngine(t, reopenedStore, interactiveClient, registry, Config{
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 		ToolPreambles: false,
 	})
-	if err != nil {
-		t.Fatalf("new interactive engine: %v", err)
-	}
 	if err := interactiveEngine.RecordPromptHistory("continue interactively"); err != nil {
 		t.Fatalf("record prompt history: %v", err)
 	}
 	if _, err := interactiveEngine.SubmitUserMessage(context.Background(), "continue interactively"); err != nil {
 		t.Fatalf("interactive submit: %v", err)
 	}
-	if len(interactiveClient.calls) != 1 {
-		t.Fatalf("interactive calls = %d, want 1", len(interactiveClient.calls))
-	}
+	assertModelCallCount(t, interactiveClient, 1)
 
 	assertPromptCacheChunkPrefix(t, lastHeadlessRequest, interactiveClient.calls[0])
 }
 
 func TestBuildRequest_ReopenPreservesShellStringToolOutputPayload(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{
@@ -152,48 +117,26 @@ func TestBuildRequest_ReopenPreservesShellStringToolOutputPayload(t *testing.T) 
 			ReasoningItems: []llm.ReasoningItem{{ID: "rs-1", EncryptedContent: "encrypted"}},
 			Usage:          llm.Usage{WindowTokens: 200000},
 		},
-		{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "done"},
-			OutputItems: []llm.ResponseItem{{
-				Type:    llm.ResponseItemTypeMessage,
-				Role:    llm.RoleAssistant,
-				Phase:   llm.MessagePhaseFinal,
-				Content: "done",
-			}},
-			Usage: llm.Usage{WindowTokens: 200000},
-		},
+		finalOutputItemResponse("done"),
 	}}
 	registry := tools.NewRegistry(stringOutputTool{name: toolspec.ToolExecCommand})
-	engine, err := New(store, client, registry, Config{
-		Model:         "gpt-5",
+	engine := mustNewTestEngine(t, store, client, registry, Config{
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 		ToolPreambles: false,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	if _, err := engine.SubmitUserMessage(context.Background(), "run tools"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if len(client.calls) != 2 {
-		t.Fatalf("client calls = %d, want 2", len(client.calls))
-	}
+	assertModelCallCount(t, client, 2)
 	liveFollowup := client.calls[1]
 	if err := engine.Close(); err != nil {
 		t.Fatalf("close engine: %v", err)
 	}
-	reopenedStore, err := session.Open(store.Dir())
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	reopened, err := New(reopenedStore, client, registry, Config{
-		Model:         "gpt-5",
+	reopenedStore := mustOpenTestSession(t, store.Dir())
+	reopened := mustNewTestEngine(t, reopenedStore, client, registry, Config{
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand},
 		ToolPreambles: false,
 	})
-	if err != nil {
-		t.Fatalf("new reopened engine: %v", err)
-	}
 	reopenedFollowup, err := reopened.buildRequest(context.Background(), "", true)
 	if err != nil {
 		t.Fatalf("build reopened request: %v", err)
@@ -262,10 +205,7 @@ func newPromptCacheContinuityFixture(t *testing.T) *promptCacheContinuityFixture
 	writeTestFile(t, filepath.Join(home, ".builder", "skills", "global-cache-skill", "SKILL.md"), skillFixtureMarkdown("global-cache-skill", "Global prompt-cache continuity skill."))
 	writeTestFile(t, filepath.Join(workspaceRoot, ".builder", "skills", "workspace-cache-skill", "SKILL.md"), skillFixtureMarkdown("workspace-cache-skill", "Workspace prompt-cache continuity skill."))
 
-	store, err := session.Create(persistenceRoot, "ws", workspaceRoot)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSessionAt(t, persistenceRoot, "ws", workspaceRoot)
 	clientCaps := llm.ProviderCapabilities{
 		ProviderID:                    "openai",
 		SupportsResponsesAPI:          true,
@@ -287,10 +227,7 @@ func newPromptCacheContinuityFixture(t *testing.T) *promptCacheContinuityFixture
 			ThinkingLevel: "medium",
 		},
 	}
-	engine, err := New(store, client, registry, cfg)
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	engine := mustNewTestEngine(t, store, client, registry, cfg)
 	seedPromptCacheContinuityConversation(t, engine)
 	assertSessionPersistenceFilesPresent(t, store)
 	return &promptCacheContinuityFixture{
@@ -308,14 +245,8 @@ func (f *promptCacheContinuityFixture) reopen(t *testing.T) (*Engine, *session.S
 	if err := f.engine.Close(); err != nil {
 		t.Fatalf("close original engine: %v", err)
 	}
-	reopenedStore, err := session.Open(f.store.Dir())
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	reopened, err := New(reopenedStore, f.client, f.registry, f.cfg)
-	if err != nil {
-		t.Fatalf("new reopened engine: %v", err)
-	}
+	reopenedStore := mustOpenTestSession(t, f.store.Dir())
+	reopened := mustNewTestEngine(t, reopenedStore, f.client, f.registry, f.cfg)
 	return reopened, reopenedStore
 }
 

@@ -62,12 +62,7 @@ func (o *reentrantPersistenceObserver) ObservePersistedStore(_ context.Context, 
 func TestOpenByIDUsesResolverWhenSessionMetaFileIsMissing(t *testing.T) {
 	root := t.TempDir()
 	sessionDir := filepath.Join(root, "projects", "project-1", "sessions", "session-1")
-	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
-		t.Fatalf("mkdir session dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(sessionDir, eventsFile), nil, 0o644); err != nil {
-		t.Fatalf("write events file: %v", err)
-	}
+	writeSessionFixtureEvents(t, sessionDir, nil)
 	now := time.Now().UTC()
 	store, err := OpenByID(
 		root,
@@ -97,12 +92,7 @@ func TestOpenByIDUsesResolverWhenSessionMetaFileIsMissing(t *testing.T) {
 func TestFilelessMetadataPersistenceSkipsSessionFileAndPublishesObserver(t *testing.T) {
 	root := t.TempDir()
 	sessionDir := filepath.Join(root, "projects", "project-1", "sessions", "session-1")
-	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
-		t.Fatalf("mkdir session dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(sessionDir, eventsFile), nil, 0o644); err != nil {
-		t.Fatalf("write events file: %v", err)
-	}
+	writeSessionFixtureEvents(t, sessionDir, nil)
 	now := time.Now().UTC()
 	observer := &recordingPersistenceObserver{}
 	store, err := Open(
@@ -172,12 +162,7 @@ func TestForkAtUserMessagePreservesPersistenceOptions(t *testing.T) {
 func TestOpenByIDRejectsResolverRecordWithoutMetadata(t *testing.T) {
 	root := t.TempDir()
 	sessionDir := filepath.Join(root, "projects", "project-1", "sessions", "session-1")
-	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
-		t.Fatalf("mkdir session dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(sessionDir, eventsFile), nil, 0o644); err != nil {
-		t.Fatalf("write events file: %v", err)
-	}
+	writeSessionFixtureEvents(t, sessionDir, nil)
 	_, err := OpenByID(
 		root,
 		"session-1",
@@ -214,17 +199,13 @@ func TestOpenByIDRequiresPersistedSessionResolver(t *testing.T) {
 }
 
 func TestFilelessMetadataRetriesSameValueUntilObserverSucceeds(t *testing.T) {
-	root := t.TempDir()
-	store, err := NewLazy(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("NewLazy: %v", err)
-	}
+	store := newSessionTestLazyStore(t)
 	observer := &flakyPersistenceObserver{failuresRemaining: 1}
 	store.options.filelessMeta = true
 	store.options.observer = observer
 	store.options.observerTimeout = time.Second
 
-	err = store.SetInputDraft("draft")
+	err := store.SetInputDraft("draft")
 	if err == nil {
 		t.Fatal("expected first SetInputDraft call to surface observer failure")
 	}
@@ -244,11 +225,7 @@ func TestFilelessMetadataRetriesSameValueUntilObserverSucceeds(t *testing.T) {
 }
 
 func TestFilelessPersistenceObserverRunsOutsideStoreLock(t *testing.T) {
-	root := t.TempDir()
-	store, err := NewLazy(root, "workspace-x", "/tmp/work")
-	if err != nil {
-		t.Fatalf("NewLazy: %v", err)
-	}
+	store := newSessionTestLazyStore(t)
 	observer := &reentrantPersistenceObserver{ch: make(chan Meta, 1)}
 	observer.store = store
 	store.options.filelessMeta = true
