@@ -141,42 +141,14 @@ func TestStartNodeRules(t *testing.T) {
 		{
 			name: "start incoming edge",
 			edit: func(def *workflow.Definition) {
-				def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{
-					WorkflowID:   def.ID,
-					ID:           "group_restart",
-					SourceNodeID: "node_agent",
-					TransitionID: "restart",
-					DisplayName:  "Restart",
-				})
-				def.Edges = append(def.Edges, workflow.Edge{
-					WorkflowID:        def.ID,
-					ID:                "edge_restart",
-					Key:               "restart",
-					TransitionGroupID: "group_restart",
-					TargetNodeID:      "node_start",
-					ContextMode:       workflow.ContextModeNewSession,
-				})
+				addTransitionForValidationTest(def, "group_restart", "node_agent", "restart", "Restart", "edge_restart", "restart", "node_start")
 			},
 			code: workflow.CodeInvalidStartNode,
 		},
 		{
 			name: "start has two groups",
 			edit: func(def *workflow.Definition) {
-				def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{
-					WorkflowID:   def.ID,
-					ID:           "group_alt",
-					SourceNodeID: "node_start",
-					TransitionID: "alt",
-					DisplayName:  "Alternative",
-				})
-				def.Edges = append(def.Edges, workflow.Edge{
-					WorkflowID:        def.ID,
-					ID:                "edge_alt",
-					Key:               "alt",
-					TransitionGroupID: "group_alt",
-					TargetNodeID:      "node_agent",
-					ContextMode:       workflow.ContextModeNewSession,
-				})
+				addTransitionForValidationTest(def, "group_alt", "node_start", "alt", "Alternative", "edge_alt", "alt", "node_agent")
 			},
 			code: workflow.CodeInvalidStartOutgoingShape,
 		},
@@ -227,21 +199,7 @@ func TestNodeKindRules(t *testing.T) {
 		{
 			name: "terminal outgoing edge",
 			edit: func(def *workflow.Definition) {
-				def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{
-					WorkflowID:   def.ID,
-					ID:           "group_done_again",
-					SourceNodeID: "node_done",
-					TransitionID: "again",
-					DisplayName:  "Again",
-				})
-				def.Edges = append(def.Edges, workflow.Edge{
-					WorkflowID:        def.ID,
-					ID:                "edge_done_again",
-					Key:               "again",
-					TransitionGroupID: "group_done_again",
-					TargetNodeID:      "node_agent",
-					ContextMode:       workflow.ContextModeNewSession,
-				})
+				addTransitionForValidationTest(def, "group_done_again", "node_done", "again", "Again", "edge_done_again", "again", "node_agent")
 			},
 			code: workflow.CodeTerminalHasOutgoingEdge,
 		},
@@ -275,21 +233,7 @@ func TestNodeKindRules(t *testing.T) {
 				def.Nodes[1].Kind = workflow.NodeKindJoin
 				def.Nodes[1].SubagentRole = ""
 				def.Nodes[1].PromptTemplate = ""
-				def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{
-					WorkflowID:   def.ID,
-					ID:           "group_join_alt",
-					SourceNodeID: "node_agent",
-					TransitionID: "alt",
-					DisplayName:  "Alternative",
-				})
-				def.Edges = append(def.Edges, workflow.Edge{
-					WorkflowID:        def.ID,
-					ID:                "edge_join_alt",
-					Key:               "alt",
-					TransitionGroupID: "group_join_alt",
-					TargetNodeID:      "node_done",
-					ContextMode:       workflow.ContextModeNewSession,
-				})
+				addTransitionForValidationTest(def, "group_join_alt", "node_agent", "alt", "Alternative", "edge_join_alt", "alt", "node_done")
 			},
 			code: workflow.CodeInvalidJoinOutgoingShape,
 		},
@@ -455,14 +399,7 @@ func TestIdentifierAndReferenceRules(t *testing.T) {
 		{name: "invalid transition id", edit: func(def *workflow.Definition) { def.TransitionGroups[1].TransitionID = "Done!" }, code: workflow.CodeInvalidTransitionID},
 		{name: "invalid transition group display name", edit: func(def *workflow.Definition) { def.TransitionGroups[1].DisplayName = "" }, code: workflow.CodeInvalidDisplayName},
 		{name: "duplicate transition id per source", edit: func(def *workflow.Definition) {
-			def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{
-				WorkflowID:   def.ID,
-				ID:           "group_second_done",
-				SourceNodeID: "node_agent",
-				TransitionID: "done",
-				DisplayName:  "Done Again",
-			})
-			def.Edges = append(def.Edges, workflow.Edge{WorkflowID: def.ID, ID: "edge_second_done", Key: "second_done", TransitionGroupID: "group_second_done", TargetNodeID: "node_done", ContextMode: workflow.ContextModeNewSession})
+			addTransitionForValidationTest(def, "group_second_done", "node_agent", "done", "Done Again", "edge_second_done", "second_done", "node_done")
 		}, code: workflow.CodeDuplicateTransitionID},
 		{name: "edge transition group missing", edit: func(def *workflow.Definition) { def.Edges[1].TransitionGroupID = "missing" }, code: workflow.CodeEdgeTransitionGroupMissing},
 		{name: "missing edge id", edit: func(def *workflow.Definition) { def.Edges[1].ID = "" }, code: workflow.CodeMissingEdgeID},
@@ -1364,6 +1301,24 @@ func nodeByKeyForValidationTest(t *testing.T, def *workflow.Definition, key work
 	}
 	t.Fatalf("node %q not found", key)
 	return nil
+}
+
+func addTransitionForValidationTest(def *workflow.Definition, groupID, sourceNodeID, transitionID, displayName, edgeID, edgeKey, targetNodeID string) {
+	def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{
+		WorkflowID:   def.ID,
+		ID:           workflow.TransitionGroupID(groupID),
+		SourceNodeID: workflow.NodeID(sourceNodeID),
+		TransitionID: workflow.TransitionID(transitionID),
+		DisplayName:  displayName,
+	})
+	def.Edges = append(def.Edges, workflow.Edge{
+		WorkflowID:        def.ID,
+		ID:                workflow.EdgeID(edgeID),
+		Key:               workflow.ModelKey(edgeKey),
+		TransitionGroupID: workflow.TransitionGroupID(groupID),
+		TargetNodeID:      workflow.NodeID(targetNodeID),
+		ContextMode:       workflow.ContextModeNewSession,
+	})
 }
 
 func addV1NodeGroup(def *workflow.Definition) {
