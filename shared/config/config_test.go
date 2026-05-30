@@ -49,10 +49,7 @@ func TestPreparePersistenceRootAllowsIsolatedTempHomeUnderGoTest(t *testing.T) {
 
 func TestLoadUsesDefaultsWithoutCreatingConfigOnFirstUse(t *testing.T) {
 	home, workspace := newConfigTestEnv(t)
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 
 	settingsPath := filepath.Join(home, ".builder", "config.toml")
 	if _, err := os.Stat(settingsPath); !errors.Is(err, os.ErrNotExist) {
@@ -215,10 +212,7 @@ func TestWriteManagedRGConfigFileForSettingsPathRejectsEmptyPath(t *testing.T) {
 func TestLoadHonorsHOMEEnvironmentForDefaultConfigRoot(t *testing.T) {
 	home, workspace := newConfigTestEnv(t)
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.PersistenceRoot != filepath.Join(home, ".builder") {
 		t.Fatalf("persistence root = %q, want HOME-scoped root", cfg.PersistenceRoot)
 	}
@@ -622,10 +616,7 @@ func TestLoadDerivesDefaultWorktreeBaseDirFromPersistenceRoot(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 
 	if got, want := cfg.PersistenceRoot, filepath.Join(home, "custom-builder"); got != want {
 		t.Fatalf("persistence root = %q, want %q", got, want)
@@ -651,10 +642,7 @@ func TestLoadCreatesWorktreeBaseDir(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	info, err := os.Stat(cfg.Settings.Worktrees.BaseDir)
 	if err != nil {
 		t.Fatalf("stat worktree base dir: %v", err)
@@ -706,10 +694,7 @@ func TestLoadSubagentRoleAllowsReviewerAuthNoneToInheritParentBaseURL(t *testing
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	role := cfg.Settings.Subagents[BuiltInSubagentRoleFast]
 	if role.Settings.Reviewer.Auth != "none" {
 		t.Fatalf("expected subagent reviewer.auth=none, got %q", role.Settings.Reviewer.Auth)
@@ -733,10 +718,7 @@ func TestLoadSubagentRoleAllowsReviewerAuthNoneWithExplicitFirstPartyBaseURL(t *
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	role := cfg.Settings.Subagents[BuiltInSubagentRoleFast]
 	if role.Settings.Reviewer.Auth != "none" {
 		t.Fatalf("expected subagent reviewer.auth=none, got %q", role.Settings.Reviewer.Auth)
@@ -852,10 +834,7 @@ func TestLoadReviewerDefaultsInheritMainSettingsWhenUnset(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.Model != "gpt-main-file" {
 		t.Fatalf("expected reviewer.model to inherit file main model, got %q", cfg.Settings.Reviewer.Model)
 	}
@@ -876,10 +855,7 @@ func TestLoadReviewerDefaultsInheritMainSettingsWhenUnset(t *testing.T) {
 	t.Setenv("BUILDER_REVIEWER_THINKING_LEVEL", "")
 	t.Setenv("BUILDER_REVIEWER_PROVIDER_OVERRIDE", "")
 	t.Setenv("BUILDER_REVIEWER_OPENAI_BASE_URL", "")
-	cfg, err = Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load with env model: %v", err)
-	}
+	cfg = loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.Model != "gpt-main-env" {
 		t.Fatalf("expected reviewer.model to inherit env main model, got %q", cfg.Settings.Reviewer.Model)
 	}
@@ -902,10 +878,7 @@ func TestLoadReviewerOpenAIProviderOverrideInheritsMainOpenAIBaseURL(t *testing.
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.ProviderOverride != "openai" {
 		t.Fatalf("expected explicit reviewer.provider_override, got %q", cfg.Settings.Reviewer.ProviderOverride)
 	}

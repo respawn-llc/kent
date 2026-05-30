@@ -123,10 +123,7 @@ func TestLoadAcceptsCustomThinkingLevel(t *testing.T) {
 	_, workspace := newConfigTestEnv(t)
 	t.Setenv("BUILDER_THINKING_LEVEL", "ultra")
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.ThinkingLevel != "ultra" {
 		t.Fatalf("expected custom thinking level preserved, got %q", cfg.Settings.ThinkingLevel)
 	}
@@ -136,10 +133,7 @@ func TestLoadExpandsTildePersistenceRootFromEnv(t *testing.T) {
 	home, workspace := newConfigTestEnv(t)
 	t.Setenv("BUILDER_PERSISTENCE_ROOT", "~/.builder-custom")
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if got := cfg.PersistenceRoot; got != filepath.Join(home, ".builder-custom") {
 		t.Fatalf("expanded persistence root mismatch: %q", got)
 	}
@@ -205,10 +199,7 @@ func TestNormalizeSettingsForPersistence_AllowsProviderOverrideWithExplicitPersi
 func TestLoadCanonicalTimeoutEnvAndSourceKeys(t *testing.T) {
 	_, workspace := newConfigTestEnv(t)
 	t.Setenv("BUILDER_TIMEOUTS_MODEL_REQUEST_SECONDS", "123")
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Timeouts.ModelRequestSeconds != 123 {
 		t.Fatalf("expected canonical env model timeout, got %d", cfg.Settings.Timeouts.ModelRequestSeconds)
 	}
@@ -223,10 +214,7 @@ func TestLoadStorePrecedence(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if !cfg.Settings.Store {
 		t.Fatalf("expected file store=true")
 	}
@@ -235,10 +223,7 @@ func TestLoadStorePrecedence(t *testing.T) {
 	}
 
 	t.Setenv("BUILDER_STORE", "false")
-	cfg, err = Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load with env: %v", err)
-	}
+	cfg = loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Store {
 		t.Fatalf("expected env store=false")
 	}
@@ -255,10 +240,7 @@ func TestLoadIgnoresUnknownBuilderEnvVars(t *testing.T) {
 	t.Setenv("BUILDER_USE_NATIVE_COMPACTION", "true")
 	t.Setenv("BUILDER_REVIEWER_MAX_SUGGESTIONS", "15")
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.ModelCapabilities.SupportsReasoningEffort {
 		t.Fatal("expected unknown legacy env vars to be ignored")
 	}
@@ -287,10 +269,7 @@ func TestLoadAllowNonCwdEditsPrecedence(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if !cfg.Settings.AllowNonCwdEdits {
 		t.Fatalf("expected file allow_non_cwd_edits=true")
 	}
@@ -299,10 +278,7 @@ func TestLoadAllowNonCwdEditsPrecedence(t *testing.T) {
 	}
 
 	t.Setenv("BUILDER_ALLOW_NON_CWD_EDITS", "false")
-	cfg, err = Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load with env: %v", err)
-	}
+	cfg = loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.AllowNonCwdEdits {
 		t.Fatalf("expected env allow_non_cwd_edits=false")
 	}
@@ -387,10 +363,7 @@ func TestLoadCompactionModePrecedence(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.CompactionMode != CompactionModeLocal {
 		t.Fatalf("expected file override compaction_mode=local, got %q", cfg.Settings.CompactionMode)
 	}
@@ -399,10 +372,7 @@ func TestLoadCompactionModePrecedence(t *testing.T) {
 	}
 
 	t.Setenv("BUILDER_COMPACTION_MODE", "none")
-	cfg, err = Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load with env: %v", err)
-	}
+	cfg = loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.CompactionMode != CompactionModeNone {
 		t.Fatalf("expected env override compaction_mode=none, got %q", cfg.Settings.CompactionMode)
 	}
@@ -453,10 +423,7 @@ func TestLoadModelContextWindowPrecedence(t *testing.T) {
 	}
 
 	t.Setenv("BUILDER_MODEL_CONTEXT_WINDOW", "420000")
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.ModelContextWindow != 420000 {
 		t.Fatalf("expected env model context window override, got %d", cfg.Settings.ModelContextWindow)
 	}

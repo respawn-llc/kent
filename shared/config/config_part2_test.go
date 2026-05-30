@@ -35,10 +35,7 @@ is_openai_first_party = false
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if !cfg.Settings.ModelCapabilities.SupportsReasoningEffort || !cfg.Settings.ModelCapabilities.SupportsVisionInputs {
 		t.Fatalf("expected model capability overrides from file, got %+v", cfg.Settings.ModelCapabilities)
 	}
@@ -73,10 +70,7 @@ func TestLoadCapabilityOverridesFromEnv(t *testing.T) {
 	t.Setenv("BUILDER_PROVIDER_CAPABILITIES_SUPPORTS_SERVER_SIDE_CONTEXT_EDIT", "false")
 	t.Setenv("BUILDER_PROVIDER_CAPABILITIES_IS_OPENAI_FIRST_PARTY", "false")
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if !cfg.Settings.ModelCapabilities.SupportsReasoningEffort || !cfg.Settings.ModelCapabilities.SupportsVisionInputs {
 		t.Fatalf("expected model capability overrides from env, got %+v", cfg.Settings.ModelCapabilities)
 	}
@@ -125,10 +119,7 @@ supports_prompt_cache_key = true
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.ModelVerbosity != ModelVerbosityLow {
 		t.Fatalf("expected reviewer.model_verbosity=low, got %q", cfg.Settings.Reviewer.ModelVerbosity)
 	}
@@ -155,10 +146,7 @@ supports_prompt_cache_key = true
 	t.Setenv("BUILDER_REVIEWER_PROVIDER_CAPABILITIES_PROVIDER_ID", "env-reviewer")
 	t.Setenv("BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_RESPONSES_API", "true")
 	t.Setenv("BUILDER_REVIEWER_PROVIDER_CAPABILITIES_SUPPORTS_PROMPT_CACHE_KEY", "false")
-	cfg, err = Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load with env: %v", err)
-	}
+	cfg = loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.ModelVerbosity != ModelVerbosityMedium {
 		t.Fatalf("expected env reviewer.model_verbosity=medium, got %q", cfg.Settings.Reviewer.ModelVerbosity)
 	}
@@ -201,10 +189,7 @@ supports_responses_api = true
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.ModelVerbosity != ModelVerbosityHigh {
 		t.Fatalf("expected reviewer.model_verbosity to inherit main, got %q", cfg.Settings.Reviewer.ModelVerbosity)
 	}
@@ -249,10 +234,7 @@ supports_prompt_cache_key = false
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	reviewer := EffectiveReviewerSettings(cfg.Settings)
 	if reviewer.ModelCapabilities.SupportsReasoningEffort || reviewer.ModelCapabilities.SupportsVisionInputs {
 		t.Fatalf("expected explicit false reviewer model capabilities to survive effective helper, got %+v", reviewer.ModelCapabilities)
@@ -307,10 +289,7 @@ supports_vision_inputs = false
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.ModelCapabilities.SupportsReasoningEffort || cfg.Settings.Reviewer.ModelCapabilities.SupportsVisionInputs {
 		t.Fatalf("expected explicit false reviewer model capabilities to be preserved, got %+v", cfg.Settings.Reviewer.ModelCapabilities)
 	}
@@ -464,10 +443,7 @@ openai_base_url = "http://127.0.0.1:11434/v1"
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.ProviderCapabilities.ProviderID != "" || cfg.Settings.Reviewer.ProviderCapabilities.SupportsResponsesAPI {
 		t.Fatalf("expected separate reviewer endpoint not to inherit main provider capabilities, got %+v", cfg.Settings.Reviewer.ProviderCapabilities)
 	}
@@ -494,10 +470,7 @@ provider_override = "openai"
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.OpenAIBaseURL != "http://127.0.0.1:8080/v1" {
 		t.Fatalf("expected reviewer to inherit main base URL, got %q", cfg.Settings.Reviewer.OpenAIBaseURL)
 	}
@@ -521,10 +494,7 @@ provider_override = "anthropic"
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.ProviderOverride != "anthropic" {
 		t.Fatalf("expected reviewer provider to inherit anthropic, got %q", cfg.Settings.Reviewer.ProviderOverride)
 	}
@@ -546,10 +516,7 @@ provider_override = "anthropic"
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.ProviderOverride != "anthropic" {
 		t.Fatalf("expected reviewer provider override anthropic, got %q", cfg.Settings.Reviewer.ProviderOverride)
 	}
@@ -566,10 +533,7 @@ func TestLoadProviderOverrideFromFile(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.ProviderOverride != "openai" {
 		t.Fatalf("expected normalized provider_override from file, got %q", cfg.Settings.ProviderOverride)
 	}
@@ -698,10 +662,7 @@ func TestLoadPriorityRequestModeFromFile(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if !cfg.Settings.PriorityRequestMode {
 		t.Fatal("expected priority_request_mode=true from file")
 	}
@@ -721,10 +682,7 @@ func TestLoadModelVerbosityFromFile(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.ModelVerbosity != ModelVerbosityHigh {
 		t.Fatalf("expected model_verbosity=high from file, got %q", cfg.Settings.ModelVerbosity)
 	}
@@ -805,10 +763,7 @@ verbose_output = true
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.Frequency != "all" {
 		t.Fatalf("expected file reviewer.frequency=all, got %q", cfg.Settings.Reviewer.Frequency)
 	}
@@ -859,10 +814,7 @@ verbose_output = true
 	if err := os.WriteFile(workspaceConfigPath, []byte("[reviewer]\nsystem_prompt_file = \"workspace-reviewer.md\"\n"), 0o644); err != nil {
 		t.Fatalf("write workspace config: %v", err)
 	}
-	cfg, err = Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load with workspace config: %v", err)
-	}
+	cfg = loadConfigTestApp(t, workspace, LoadOptions{})
 	if want := filepath.Join(workspace, ".builder", "workspace-reviewer.md"); cfg.Settings.Reviewer.SystemPromptFile != want {
 		t.Fatalf("expected workspace reviewer.system_prompt_file=%q, got %q", want, cfg.Settings.Reviewer.SystemPromptFile)
 	}
@@ -876,10 +828,7 @@ verbose_output = true
 	t.Setenv("BUILDER_REVIEWER_TIMEOUT_SECONDS", "30")
 	t.Setenv("BUILDER_REVIEWER_VERBOSE_OUTPUT", "false")
 
-	cfg, err = Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load with env: %v", err)
-	}
+	cfg = loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.Frequency != "off" {
 		t.Fatalf("expected env reviewer.frequency=off, got %q", cfg.Settings.Reviewer.Frequency)
 	}
@@ -940,10 +889,7 @@ func TestLoadWebSearchPrecedenceAndValidation(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.WebSearch != "native" {
 		t.Fatalf("expected file web_search=native, got %q", cfg.Settings.WebSearch)
 	}
@@ -955,10 +901,7 @@ func TestLoadWebSearchPrecedenceAndValidation(t *testing.T) {
 	}
 
 	t.Setenv("BUILDER_WEB_SEARCH", "off")
-	cfg, err = Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load with env: %v", err)
-	}
+	cfg = loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.WebSearch != "off" {
 		t.Fatalf("expected env web_search=off, got %q", cfg.Settings.WebSearch)
 	}
@@ -986,10 +929,7 @@ func TestLoadWebSearchNativeRespectsExplicitToolToggle(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.EnabledTools[toolspec.ToolWebSearch] {
 		t.Fatalf("expected explicit tools.web_search=false to stay disabled")
 	}
@@ -1009,10 +949,7 @@ func TestLoadTriggerHandoffToolToggleFromFile(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if !cfg.Settings.EnabledTools[toolspec.ToolTriggerHandoff] {
 		t.Fatalf("expected explicit tools.trigger_handoff=true to enable the tool")
 	}
@@ -1032,10 +969,7 @@ func TestLoadSkillTogglesFromFile(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.SkillToggles["apiresult"] {
 		t.Fatalf("expected apiresult skill to be explicitly disabled, got %+v", cfg.Settings.SkillToggles)
 	}
@@ -1101,10 +1035,7 @@ func TestLoadNotificationMethodPrecedenceAndValidation(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.NotificationMethod != "bel" {
 		t.Fatalf("expected file notification_method=bel, got %q", cfg.Settings.NotificationMethod)
 	}
@@ -1113,10 +1044,7 @@ func TestLoadNotificationMethodPrecedenceAndValidation(t *testing.T) {
 	}
 
 	t.Setenv("BUILDER_NOTIFICATION_METHOD", "osc9")
-	cfg, err = Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load with env: %v", err)
-	}
+	cfg = loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.NotificationMethod != "osc9" {
 		t.Fatalf("expected env notification_method=osc9, got %q", cfg.Settings.NotificationMethod)
 	}
@@ -1141,10 +1069,7 @@ func TestLoadToolPreamblesPrecedence(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.ToolPreambles {
 		t.Fatalf("expected file tool_preambles=false")
 	}
@@ -1153,10 +1078,7 @@ func TestLoadToolPreamblesPrecedence(t *testing.T) {
 	}
 
 	t.Setenv("BUILDER_TOOL_PREAMBLES", "true")
-	cfg, err = Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load with env: %v", err)
-	}
+	cfg = loadConfigTestApp(t, workspace, LoadOptions{})
 	if !cfg.Settings.ToolPreambles {
 		t.Fatalf("expected env tool_preambles=true")
 	}
@@ -1183,10 +1105,7 @@ auth = "none"
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.Auth != "none" {
 		t.Fatalf("expected reviewer.auth=none, got %q", cfg.Settings.Reviewer.Auth)
 	}
@@ -1206,10 +1125,7 @@ auth = "none"
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.Auth != "none" {
 		t.Fatalf("expected reviewer.auth=none, got %q", cfg.Settings.Reviewer.Auth)
 	}
@@ -1233,10 +1149,7 @@ auth = "none"
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.OpenAIBaseURL != "http://127.0.0.1:11434/v1" {
 		t.Fatalf("expected reviewer to inherit compatible base URL, got %q", cfg.Settings.Reviewer.OpenAIBaseURL)
 	}
