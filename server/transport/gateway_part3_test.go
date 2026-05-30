@@ -17,6 +17,12 @@ import (
 
 func newGatewayTestServer(t *testing.T) (*core.Core, *httptest.Server) {
 	t.Helper()
+	appCore, server, _ := newGatewayTestServerWithAuth(t, true)
+	return appCore, server
+}
+
+func newGatewayTestServerWithAuth(t *testing.T, ready bool) (*core.Core, *httptest.Server, serverbootstrap.AuthSupport) {
+	t.Helper()
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
@@ -26,7 +32,7 @@ func newGatewayTestServer(t *testing.T) (*core.Core, *httptest.Server) {
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	authSupport := newGatewayTestAuthSupport(t, true)
+	authSupport := newGatewayTestAuthSupport(t, ready)
 	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolved.Config)
 	if err != nil {
 		t.Fatalf("BuildRuntimeSupport: %v", err)
@@ -40,7 +46,7 @@ func newGatewayTestServer(t *testing.T) (*core.Core, *httptest.Server) {
 	if err != nil {
 		t.Fatalf("NewGateway: %v", err)
 	}
-	return appCore, httptest.NewServer(gateway.Handler())
+	return appCore, httptest.NewServer(gateway.Handler()), authSupport
 }
 
 func newUnboundGatewayTestServer(t *testing.T) (*core.Core, *httptest.Server) {
