@@ -19,7 +19,6 @@ import (
 	"builder/shared/toolspec"
 	"context"
 	"encoding/json"
-	"golang.org/x/net/websocket"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -82,15 +81,9 @@ func TestGatewayRequiresExplicitWorkspaceSelectionForMultiWorkspaceProject(t *te
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
-	if err := websocket.JSON.Send(conn, protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: "attach-project", Method: protocol.MethodAttachProject, Params: mustJSON(t, protocol.AttachProjectRequest{ProjectID: bindingA.ProjectID})}); err != nil {
-		t.Fatalf("send attach-project: %v", err)
-	}
-	var resp protocol.Response
-	if err := websocket.JSON.Receive(conn, &resp); err != nil {
-		t.Fatalf("receive attach-project: %v", err)
-	}
-	if resp.Error == nil || !strings.Contains(resp.Error.Message, "requires explicit workspace selection") {
-		t.Fatalf("expected explicit workspace selection error, got %+v", resp.Error)
+	respErr := callGatewayExpectError(t, conn, "attach-project", protocol.MethodAttachProject, protocol.AttachProjectRequest{ProjectID: bindingA.ProjectID})
+	if !strings.Contains(respErr.Message, "requires explicit workspace selection") {
+		t.Fatalf("expected explicit workspace selection error, got %+v", respErr)
 	}
 
 	callGateway(t, conn, "attach-project-explicit", protocol.MethodAttachProject, protocol.AttachProjectRequest{ProjectID: bindingA.ProjectID, WorkspaceID: bindingB.WorkspaceID}, nil)
