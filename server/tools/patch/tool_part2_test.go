@@ -115,8 +115,7 @@ func TestOutsideWorkspaceQueuesApprovalPerFileInSinglePatch(t *testing.T) {
 		t.Fatalf("new patch tool: %v", err)
 	}
 
-	patchText := "*** Begin Patch\n*** Add File: " + first + "\n+one\n*** Add File: " + second + "\n+two\n*** End Patch\n"
-	result := callPatch(t, tool, "outside-multi-add", patchText)
+	result := callPatch(t, tool, "outside-multi-add", "*** Begin Patch\n*** Add File: "+first+"\n+one\n*** Add File: "+second+"\n+two\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", toolError(t, result))
 	}

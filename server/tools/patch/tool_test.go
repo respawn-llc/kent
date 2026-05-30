@@ -20,8 +20,7 @@ func TestDeleteFile(t *testing.T) {
 
 	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Delete File: a.txt\n*** End Patch\n"
-	result := callPatch(t, tool, "1", patchText)
+	result := callPatch(t, tool, "1", "*** Begin Patch\n*** Delete File: a.txt\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -60,8 +59,7 @@ func TestDeleteParticipatesInAtomicPatchCommit(t *testing.T) {
 
 	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Delete File: delete.txt\n*** Add File: added.txt\n+hello\n*** Update File: keep.txt\n-two\n+two\n*** End Patch\n"
-	result := callPatch(t, tool, "atomic-delete", patchText)
+	result := callPatch(t, tool, "atomic-delete", "*** Begin Patch\n*** Delete File: delete.txt\n*** Add File: added.txt\n+hello\n*** Update File: keep.txt\n-two\n+two\n*** End Patch\n")
 	if !result.IsError {
 		t.Fatalf("expected tool error result")
 	}
@@ -98,8 +96,7 @@ func TestDeleteAddUpdateCommitTogether(t *testing.T) {
 
 	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Delete File: delete.txt\n*** Add File: added.txt\n+hello\n*** Update File: update.txt\n one\n-two\n+two updated\n*** End Patch\n"
-	result := callPatch(t, tool, "mixed-success", patchText)
+	result := callPatch(t, tool, "mixed-success", "*** Begin Patch\n*** Delete File: delete.txt\n*** Add File: added.txt\n+hello\n*** Update File: update.txt\n one\n-two\n+two updated\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -136,8 +133,7 @@ func TestDeleteThenMoveToSamePathCommitsReplacement(t *testing.T) {
 
 	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Delete File: dest.txt\n*** Update File: src.txt\n*** Move to: dest.txt\n line1\n-line2\n+line2 moved\n*** End Patch\n"
-	result := callPatch(t, tool, "replace-move", patchText)
+	result := callPatch(t, tool, "replace-move", "*** Begin Patch\n*** Delete File: dest.txt\n*** Update File: src.txt\n*** Move to: dest.txt\n line1\n-line2\n+line2 moved\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -163,8 +159,7 @@ func TestDeleteThenAddNestedFileReplacesFileWithDirectory(t *testing.T) {
 
 	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Delete File: tools\n*** Add File: tools/main.go\n+package main\n+\n+func main() {}\n*** End Patch\n"
-	result := callPatch(t, tool, "replace-file-dir", patchText)
+	result := callPatch(t, tool, "replace-file-dir", "*** Begin Patch\n*** Delete File: tools\n*** Add File: tools/main.go\n+package main\n+\n+func main() {}\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -194,8 +189,7 @@ func TestAddUpdateMove(t *testing.T) {
 
 	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Add File: new.txt\n+hello\n*** Update File: one.txt\n*** Move to: moved.txt\n line1\n-line2\n+line2-updated\n*** End Patch\n"
-	result := callPatch(t, tool, "2", patchText)
+	result := callPatch(t, tool, "2", "*** Begin Patch\n*** Add File: new.txt\n+hello\n*** Update File: one.txt\n*** Move to: moved.txt\n line1\n-line2\n+line2-updated\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -228,8 +222,7 @@ func TestUpdateFileUsesCodexStyleContextHeader(t *testing.T) {
 
 	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Update File: a.go\n@@ func two() {\n-\tprintln(2)\n+\tprintln(22)\n*** End Patch\n"
-	result := callPatch(t, tool, "ctx", patchText)
+	result := callPatch(t, tool, "ctx", "*** Begin Patch\n*** Update File: a.go\n@@ func two() {\n-\tprintln(2)\n+\tprintln(22)\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -252,8 +245,7 @@ func TestUpdateFileEndOfFileMarkerAnchorsMatch(t *testing.T) {
 
 	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Update File: a.txt\n@@\n same\n-end\n+finish\n*** End of File\n*** End Patch\n"
-	result := callPatch(t, tool, "eof", patchText)
+	result := callPatch(t, tool, "eof", "*** Begin Patch\n*** Update File: a.txt\n@@\n same\n-end\n+finish\n*** End of File\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -345,8 +337,7 @@ func TestAddFileInNewDirectory(t *testing.T) {
 	dir := t.TempDir()
 	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Add File: nested/new/file.txt\n+hello\n*** End Patch\n"
-	result := callPatch(t, tool, "3", patchText)
+	result := callPatch(t, tool, "3", "*** Begin Patch\n*** Add File: nested/new/file.txt\n+hello\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -370,8 +361,7 @@ func TestUpdateAnchorsToHeaderInRepeatedBlocks(t *testing.T) {
 
 	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Update File: repeat.txt\n@@ -6,3 +6,3 @@\n block-start\n-x\n+y\n block-end\n*** End Patch\n"
-	result := callPatch(t, tool, "4", patchText)
+	result := callPatch(t, tool, "4", "*** Begin Patch\n*** Update File: repeat.txt\n@@ -6,3 +6,3 @@\n block-start\n-x\n+y\n block-end\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -396,8 +386,7 @@ func TestUpdateAnchoredHeaderAllowsFuzz(t *testing.T) {
 
 	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Update File: fuzz.txt\n@@ -4,3 +4,3 @@\n b\n-c\n+C\n d\n*** End Patch\n"
-	result := callPatch(t, tool, "5", patchText)
+	result := callPatch(t, tool, "5", "*** Begin Patch\n*** Update File: fuzz.txt\n@@ -4,3 +4,3 @@\n b\n-c\n+C\n d\n*** End Patch\n")
 	if result.IsError {
 		t.Fatalf("expected success, got %s", string(result.Output))
 	}
@@ -422,8 +411,7 @@ func TestUpdateAnchoredHeaderFailsOutsideFuzz(t *testing.T) {
 
 	tool := newPatchTestTool(t, dir)
 
-	patchText := "*** Begin Patch\n*** Update File: far.txt\n@@ -30,3 +30,3 @@\n b\n-c\n+C\n d\n*** End Patch\n"
-	result := callPatch(t, tool, "6", patchText)
+	result := callPatch(t, tool, "6", "*** Begin Patch\n*** Update File: far.txt\n@@ -30,3 +30,3 @@\n b\n-c\n+C\n d\n*** End Patch\n")
 	if !result.IsError {
 		t.Fatalf("expected patch failure outside fuzz window")
 	}
