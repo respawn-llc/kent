@@ -715,22 +715,7 @@ func TestCompleteRunRejectsUnsupportedRuntimeSnapshots(t *testing.T) {
 			if err != nil {
 				t.Fatalf("StartTask: %v", err)
 			}
-			row, err := store.queries.GetTaskRun(ctx, string(started.RunID))
-			if err != nil {
-				t.Fatalf("GetTaskRun: %v", err)
-			}
-			snapshot := runStartSnapshot{}
-			if err := unmarshalJSON(row.RunStartSnapshotJson, &snapshot); err != nil {
-				t.Fatalf("unmarshal snapshot: %v", err)
-			}
-			tt.mutate(t, &snapshot)
-			snapshotJSON, err := marshalJSON(snapshot)
-			if err != nil {
-				t.Fatalf("marshal snapshot: %v", err)
-			}
-			if _, err := store.db.ExecContext(ctx, `UPDATE task_runs SET run_start_snapshot_json = ? WHERE id = ?`, snapshotJSON, string(started.RunID)); err != nil {
-				t.Fatalf("update snapshot: %v", err)
-			}
+			mutateRunStartSnapshot(t, ctx, store, started.RunID, tt.mutate)
 
 			_, err = store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done"})
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
@@ -1119,26 +1104,13 @@ func TestSelectedContextSourceMissingPriorRunFailsClearly(t *testing.T) {
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	row, err := store.queries.GetTaskRun(ctx, string(started.RunID))
-	if err != nil {
-		t.Fatalf("GetTaskRun: %v", err)
-	}
-	snapshot := runStartSnapshot{}
-	if err := unmarshalJSON(row.RunStartSnapshotJson, &snapshot); err != nil {
-		t.Fatalf("unmarshal snapshot: %v", err)
-	}
-	mutateSnapshotTransition(t, &snapshot, "implement", func(group *transitionContractSnapshot) {
-		group.Edges[0].ContextMode = workflow.ContextModeContinueSession
-		group.Edges[0].ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "implementation"}
+	mutateRunStartSnapshot(t, ctx, store, started.RunID, func(t *testing.T, snapshot *runStartSnapshot) {
+		mutateSnapshotTransition(t, snapshot, "implement", func(group *transitionContractSnapshot) {
+			group.Edges[0].ContextMode = workflow.ContextModeContinueSession
+			group.Edges[0].ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "implementation"}
+		})
 	})
-	snapshotJSON, err := marshalJSON(snapshot)
-	if err != nil {
-		t.Fatalf("marshal snapshot: %v", err)
-	}
-	if _, err := store.db.ExecContext(ctx, `UPDATE task_runs SET run_start_snapshot_json = ? WHERE id = ?`, snapshotJSON, string(started.RunID)); err != nil {
-		t.Fatalf("update snapshot: %v", err)
-	}
-	_, err = store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}})
+	_, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}})
 	if err == nil || !strings.Contains(err.Error(), "selected context source node \"implementation\" has no completed run") {
 		t.Fatalf("CompleteRun selected source error = %v, want missing completed run", err)
 	}
@@ -1266,13 +1238,7 @@ func TestApprovePendingAgentTransitionRejectsLegacySnapshotWithoutFrozenTarget(t
 	plan := nodeByKey(t, def, "plan")
 	completed := completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "next", OutputValues: map[string]string{"prior_summary": "done"}})
 	legacySnapshot := runStartSnapshot{WorkflowID: workflowID, WorkflowRevisionSeen: currentWorkflowRevision(t, ctx, store, workflowID), Node: nodeSnapshot(plan)}
-	legacySnapshotJSON, err := marshalJSON(legacySnapshot)
-	if err != nil {
-		t.Fatalf("marshal legacy snapshot: %v", err)
-	}
-	if _, err := store.db.ExecContext(ctx, `UPDATE task_runs SET run_start_snapshot_json = ? WHERE id = ?`, legacySnapshotJSON, string(started.RunID)); err != nil {
-		t.Fatalf("update legacy snapshot: %v", err)
-	}
+	updateRunStartSnapshot(t, ctx, store, started.RunID, legacySnapshot)
 
 	_, err = store.ApproveTransition(ctx, completed.TransitionID)
 	if err == nil || !strings.Contains(err.Error(), "no frozen run-start snapshot") {
@@ -1450,27 +1416,14 @@ func TestApprovalTransitionGroupWaitsAsWholeWhenAnyEdgeRequiresApproval(t *testi
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	row, err := store.queries.GetTaskRun(ctx, string(started.RunID))
-	if err != nil {
-		t.Fatalf("GetTaskRun: %v", err)
-	}
-	snapshot := runStartSnapshot{}
-	if err := unmarshalJSON(row.RunStartSnapshotJson, &snapshot); err != nil {
-		t.Fatalf("unmarshal snapshot: %v", err)
-	}
-	mutateSnapshotTransition(t, &snapshot, "done", func(group *transitionContractSnapshot) {
-		second := group.Edges[0]
-		second.Key = "second"
-		second.RequiresApproval = false
-		group.Edges = append(group.Edges, second)
+	mutateRunStartSnapshot(t, ctx, store, started.RunID, func(t *testing.T, snapshot *runStartSnapshot) {
+		mutateSnapshotTransition(t, snapshot, "done", func(group *transitionContractSnapshot) {
+			second := group.Edges[0]
+			second.Key = "second"
+			second.RequiresApproval = false
+			group.Edges = append(group.Edges, second)
+		})
 	})
-	snapshotJSON, err := marshalJSON(snapshot)
-	if err != nil {
-		t.Fatalf("marshal snapshot: %v", err)
-	}
-	if _, err := store.db.ExecContext(ctx, `UPDATE task_runs SET run_start_snapshot_json = ? WHERE id = ?`, snapshotJSON, string(started.RunID)); err != nil {
-		t.Fatalf("update snapshot: %v", err)
-	}
 
 	result := completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "done"})
 	if result.State != "pending_approval" || len(result.PlacementIDs) != 0 {
@@ -2241,6 +2194,31 @@ func mutateSnapshotTransition(t *testing.T, snapshot *runStartSnapshot, transiti
 		}
 	}
 	t.Fatalf("snapshot transition %q missing from %+v", transitionID, snapshot.TransitionGroups)
+}
+
+func mutateRunStartSnapshot(t *testing.T, ctx context.Context, store *Store, runID workflow.RunID, mutate func(*testing.T, *runStartSnapshot)) {
+	t.Helper()
+	row, err := store.queries.GetTaskRun(ctx, string(runID))
+	if err != nil {
+		t.Fatalf("GetTaskRun: %v", err)
+	}
+	snapshot := runStartSnapshot{}
+	if err := unmarshalJSON(row.RunStartSnapshotJson, &snapshot); err != nil {
+		t.Fatalf("unmarshal snapshot: %v", err)
+	}
+	mutate(t, &snapshot)
+	updateRunStartSnapshot(t, ctx, store, runID, snapshot)
+}
+
+func updateRunStartSnapshot(t *testing.T, ctx context.Context, store *Store, runID workflow.RunID, snapshot runStartSnapshot) {
+	t.Helper()
+	snapshotJSON, err := marshalJSON(snapshot)
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE task_runs SET run_start_snapshot_json = ? WHERE id = ?`, snapshotJSON, string(runID)); err != nil {
+		t.Fatalf("update snapshot: %v", err)
+	}
 }
 
 func TestCompleteRunValidatesOutputRequirements(t *testing.T) {
