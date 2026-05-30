@@ -89,12 +89,7 @@ func TestLoadWorkflowConfigValidation(t *testing.T) {
 func TestLoadSubagentRoleWorkflowConfigValidation(t *testing.T) {
 	home, workspace := newConfigTestEnv(t)
 	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(configPath, []byte("[subagents.fast.workflow]\nconcurrency = 0\n"), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeConfigTestFile(t, configPath, "[subagents.fast.workflow]\nconcurrency = 0\n")
 
 	_, err := Load(workspace, LoadOptions{})
 	if err == nil || !strings.Contains(err.Error(), "workflow.concurrency") {

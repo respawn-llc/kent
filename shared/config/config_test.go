@@ -796,12 +796,7 @@ func TestWriteSettingsFileForOnboardingDoesNotOverwriteExistingFile(t *testing.T
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
-	if err := os.WriteFile(configPath, []byte("model = \"existing\"\n"), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeConfigTestFile(t, configPath, "model = \"existing\"\n")
 	_, err := WriteSettingsFileForOnboarding(defaultSettings())
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("expected existing settings file error, got %v", err)
@@ -827,12 +822,7 @@ func TestLoadReviewerDefaultsInheritMainSettingsWhenUnset(t *testing.T) {
 	home, workspace := newConfigTestEnv(t)
 
 	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(configPath, []byte("model = \"gpt-main-file\"\nthinking_level = \"xhigh\"\nprovider_override = \"openai\"\nopenai_base_url = \"http://127.0.0.1:8080/v1\"\n[reviewer]\nfrequency = \"all\"\n"), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeConfigTestFile(t, configPath, "model = \"gpt-main-file\"\nthinking_level = \"xhigh\"\nprovider_override = \"openai\"\nopenai_base_url = \"http://127.0.0.1:8080/v1\"\n[reviewer]\nfrequency = \"all\"\n")
 
 	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.Model != "gpt-main-file" {
@@ -871,12 +861,7 @@ func TestLoadReviewerOpenAIProviderOverrideInheritsMainOpenAIBaseURL(t *testing.
 	home, workspace := newConfigTestEnv(t)
 
 	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(configPath, []byte("openai_base_url = \"http://127.0.0.1:8080/v1\"\n[reviewer]\nprovider_override = \"openai\"\nmodel = \"local-reviewer\"\n"), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeConfigTestFile(t, configPath, "openai_base_url = \"http://127.0.0.1:8080/v1\"\n[reviewer]\nprovider_override = \"openai\"\nmodel = \"local-reviewer\"\n")
 
 	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Reviewer.ProviderOverride != "openai" {
