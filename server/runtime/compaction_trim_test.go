@@ -420,10 +420,7 @@ func TestCompactionTransientRetryObservesCacheLineageOnce(t *testing.T) {
 		}},
 	}
 
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
