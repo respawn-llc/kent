@@ -185,71 +185,62 @@ func TestSupportsPromptCacheKeyProvider(t *testing.T) {
 	}
 }
 
-func TestProviderCapabilitiesFromLockedPreservesExplicitRequestInputTokenCountDisable(t *testing.T) {
-	locked := &session.LockedContract{
-		ProviderContract: session.LockedProviderCapabilities{
-			ProviderID:                        "openai-compatible",
-			SupportsResponsesAPI:              true,
-			SupportsRequestInputTokenCount:    false,
-			HasSupportsRequestInputTokenCount: true,
+func TestProviderCapabilitiesFromLockedHandlesExplicitAndLegacyCapabilities(t *testing.T) {
+	tests := []struct {
+		name                       string
+		locked                     session.LockedProviderCapabilities
+		wantRequestInputTokenCount bool
+		wantPromptCacheKey         bool
+	}{
+		{
+			name: "explicit request input token count false is preserved",
+			locked: session.LockedProviderCapabilities{
+				ProviderID:                        "openai-compatible",
+				SupportsResponsesAPI:              true,
+				SupportsRequestInputTokenCount:    false,
+				HasSupportsRequestInputTokenCount: true,
+			},
+		},
+		{
+			name: "legacy request input token count inherits conservative compatible default",
+			locked: session.LockedProviderCapabilities{
+				ProviderID:                     "openai-compatible",
+				SupportsResponsesAPI:           true,
+				SupportsRequestInputTokenCount: false,
+			},
+		},
+		{
+			name: "explicit prompt cache false is preserved",
+			locked: session.LockedProviderCapabilities{
+				ProviderID:                "openai",
+				SupportsResponsesAPI:      true,
+				SupportsPromptCacheKey:    false,
+				HasSupportsPromptCacheKey: true,
+			},
+			wantRequestInputTokenCount: true,
+		},
+		{
+			name: "legacy prompt cache inherits openai support",
+			locked: session.LockedProviderCapabilities{
+				ProviderID:           "openai",
+				SupportsResponsesAPI: true,
+			},
+			wantRequestInputTokenCount: true,
+			wantPromptCacheKey:         true,
 		},
 	}
-	caps, ok := ProviderCapabilitiesFromLocked(locked)
-	if !ok {
-		t.Fatal("expected locked provider capabilities")
-	}
-	if caps.SupportsRequestInputTokenCount {
-		t.Fatalf("expected explicit locked false to be preserved, got %+v", caps)
-	}
-}
-
-func TestProviderCapabilitiesFromLockedBackfillsLegacyRequestInputTokenCountCapability(t *testing.T) {
-	locked := &session.LockedContract{
-		ProviderContract: session.LockedProviderCapabilities{
-			ProviderID:                     "openai-compatible",
-			SupportsResponsesAPI:           true,
-			SupportsRequestInputTokenCount: false,
-		},
-	}
-	caps, ok := ProviderCapabilitiesFromLocked(locked)
-	if !ok {
-		t.Fatal("expected locked provider capabilities")
-	}
-	if caps.SupportsRequestInputTokenCount {
-		t.Fatalf("expected legacy locked session to inherit conservative openai-compatible default, got %+v", caps)
-	}
-}
-
-func TestProviderCapabilitiesFromLockedPreservesExplicitPromptCacheKeyDisable(t *testing.T) {
-	locked := &session.LockedContract{
-		ProviderContract: session.LockedProviderCapabilities{
-			ProviderID:                "openai",
-			SupportsResponsesAPI:      true,
-			SupportsPromptCacheKey:    false,
-			HasSupportsPromptCacheKey: true,
-		},
-	}
-	caps, ok := ProviderCapabilitiesFromLocked(locked)
-	if !ok {
-		t.Fatal("expected locked provider capabilities")
-	}
-	if caps.SupportsPromptCacheKey {
-		t.Fatalf("expected explicit locked prompt-cache false to be preserved, got %+v", caps)
-	}
-}
-
-func TestProviderCapabilitiesFromLockedBackfillsLegacyPromptCacheKeyCapability(t *testing.T) {
-	locked := &session.LockedContract{
-		ProviderContract: session.LockedProviderCapabilities{
-			ProviderID:           "openai",
-			SupportsResponsesAPI: true,
-		},
-	}
-	caps, ok := ProviderCapabilitiesFromLocked(locked)
-	if !ok {
-		t.Fatal("expected locked provider capabilities")
-	}
-	if !caps.SupportsPromptCacheKey {
-		t.Fatalf("expected legacy locked session to inherit prompt-cache support, got %+v", caps)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			caps, ok := ProviderCapabilitiesFromLocked(&session.LockedContract{ProviderContract: tt.locked})
+			if !ok {
+				t.Fatal("expected locked provider capabilities")
+			}
+			if caps.SupportsRequestInputTokenCount != tt.wantRequestInputTokenCount {
+				t.Fatalf("request input token count = %v, want %v, caps=%+v", caps.SupportsRequestInputTokenCount, tt.wantRequestInputTokenCount, caps)
+			}
+			if caps.SupportsPromptCacheKey != tt.wantPromptCacheKey {
+				t.Fatalf("prompt cache key = %v, want %v, caps=%+v", caps.SupportsPromptCacheKey, tt.wantPromptCacheKey, caps)
+			}
+		})
 	}
 }
