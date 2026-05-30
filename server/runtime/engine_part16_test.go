@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"builder/server/llm"
-	"builder/server/session"
 	"builder/server/tools"
 	"builder/shared/toolspec"
 	"context"
@@ -12,11 +11,7 @@ import (
 )
 
 func TestAutoCompactionDoesNotRetryNonOverflow400(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		responses: []llm.Response{
@@ -54,11 +49,7 @@ func TestAutoCompactionDoesNotRetryNonOverflow400(t *testing.T) {
 }
 
 func TestAutoCompactionRetries413ByCollapsingShellOutput(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		responses: []llm.Response{
@@ -120,11 +111,7 @@ func TestAutoCompactionRetries413ByCollapsingShellOutput(t *testing.T) {
 }
 
 func TestOpenAIModelCompact404DoesNotFallbackToLocalCompaction(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		responses: []llm.Response{

@@ -387,10 +387,7 @@ func TestPrepareModelTurnHandoffReminderPersistenceFailureRetriesWithoutDuplicat
 
 	observer := &failOnIssuedWorktreeReminderObservation{}
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir, session.WithPersistenceObserver(observer))
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir, session.WithPersistenceObserver(observer))
 	mustSetWorktreeReminderState(t, store, session.WorktreeReminderState{
 		Mode:          session.WorktreeReminderModeEnter,
 		Branch:        "feature/handoff-fail",

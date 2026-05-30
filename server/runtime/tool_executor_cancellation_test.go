@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"builder/server/llm"
-	"builder/server/session"
 	"builder/server/tools"
 	"builder/shared/toolspec"
 )
@@ -31,11 +30,7 @@ func (t cancelAwareTool) Call(ctx context.Context, c tools.Call) (tools.Result, 
 }
 
 func TestExecuteToolCallsPropagatesContextCancellation(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	started := make(chan struct{})
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(cancelAwareTool{name: toolspec.ToolExecCommand, started: started}), Config{Model: "gpt-5"})
 	if err != nil {

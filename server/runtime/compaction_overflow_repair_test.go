@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"builder/server/llm"
-	"builder/server/session"
 	"builder/server/tools"
 	"builder/shared/toolspec"
 )
@@ -167,10 +166,7 @@ func TestCompactionOverflowRepairTargetsUseContextWindow(t *testing.T) {
 
 func TestLocalCompactionCollapsesToolPayloadAfterOverflow(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 	client := &fakeCompactionClient{
 		errors: []error{
 			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
@@ -233,10 +229,7 @@ func TestLocalCompactionCollapsesToolPayloadAfterOverflow(t *testing.T) {
 
 func TestLocalCompactionFailsFastWhenOverflowHasNoCollapsibleToolPayload(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 	client := &fakeCompactionClient{
 		errors: []error{
 			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
@@ -269,10 +262,7 @@ func TestLocalCompactionFailsFastWhenOverflowHasNoCollapsibleToolPayload(t *test
 
 func TestLocalCompactionUsesTenTwentyFortyPercentRepairScheduleFromConfiguredContextWindow(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 	client := &fakeCompactionClient{
 		errors: []error{
 			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 0, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
@@ -352,10 +342,7 @@ func TestLocalCompactionUsesTenTwentyFortyPercentRepairScheduleFromConfiguredCon
 
 func TestGenerateWithRetryDoesNotRetryContextOverflow(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 	client := &fakeClient{
 		errors: []error{
 			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 0, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
@@ -366,7 +353,7 @@ func TestGenerateWithRetryDoesNotRetryContextOverflow(t *testing.T) {
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 	req := llm.Request{Model: "gpt-5", Items: llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: "hello"}})}
 
-	_, err = eng.generateWithRetryClient(context.Background(), "step-context-overflow", client, req, nil, nil, nil)
+	_, err := eng.generateWithRetryClient(context.Background(), "step-context-overflow", client, req, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected context overflow error")
 	}

@@ -413,10 +413,7 @@ func (o *failOnUsageStateResetObservation) ObservePersistedStore(_ context.Conte
 func TestReplaceHistoryUpdatesRuntimeStateWhenMetadataPersistFailsAfterEventAppend(t *testing.T) {
 	dir := t.TempDir()
 	observer := &failOnCompactionReminderResetObservation{}
-	store, err := session.Create(dir, "ws", dir, session.WithPersistenceObserver(observer))
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir, session.WithPersistenceObserver(observer))
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 	if err := eng.appendMessage("step-1", llm.Message{Role: llm.RoleUser, Content: "pre-compaction"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
@@ -426,7 +423,7 @@ func TestReplaceHistoryUpdatesRuntimeStateWhenMetadataPersistFailsAfterEventAppe
 	}
 	eng.setCompactionSoonReminderIssued(true)
 
-	err = eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}))
+	err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}))
 	if err == nil {
 		t.Fatal("expected replaceHistory metadata persistence failure")
 	}
@@ -442,10 +439,7 @@ func TestReplaceHistoryUpdatesRuntimeStateWhenMetadataPersistFailsAfterEventAppe
 func TestReplaceHistoryUpdatesRuntimeStateWhenUsageMetadataPersistFailsAfterEventAppend(t *testing.T) {
 	dir := t.TempDir()
 	observer := &failOnUsageStateResetObservation{}
-	store, err := session.Create(dir, "ws", dir, session.WithPersistenceObserver(observer))
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir, session.WithPersistenceObserver(observer))
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 	if err := eng.appendMessage("step-1", llm.Message{Role: llm.RoleUser, Content: "pre-compaction"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
@@ -455,7 +449,7 @@ func TestReplaceHistoryUpdatesRuntimeStateWhenUsageMetadataPersistFailsAfterEven
 	}
 	eng.setLastUsage(llm.Usage{InputTokens: 42, WindowTokens: 100})
 
-	err = eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}))
+	err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}))
 	if err == nil {
 		t.Fatal("expected replaceHistory usage metadata persistence failure")
 	}
@@ -646,10 +640,7 @@ func TestManualRemoteCompactionRebuildsCanonicalPrefixOrder(t *testing.T) {
 	}
 	writeTestSkill(t, filepath.Join(workspace, ".builder", "skills", "workspace-skill"), "workspace-skill", "from workspace")
 
-	store, err := session.Create(t.TempDir(), "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "ws", workspace)
 	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
 		OutputItems: []llm.ResponseItem{
 			{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "remote summary"},

@@ -15,11 +15,7 @@ import (
 )
 
 func TestSubmitUserMessageDoesNotEmitCommittedConversationUpdatedAfterFlushedUserTurn(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
 		Usage:     llm.Usage{WindowTokens: 200000},
@@ -41,11 +37,7 @@ func TestSubmitUserMessageDoesNotEmitCommittedConversationUpdatedAfterFlushedUse
 }
 
 func TestSubmitUserMessageWithToolCallDoesNotEmitCommittedConversationUpdatedAfterUserFlush(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "working", Phase: llm.MessagePhaseCommentary},
@@ -126,11 +118,7 @@ func TestPatchToolCallStartedUsesTranscriptWorkingDir(t *testing.T) {
 }
 
 func TestHostedToolOnlyTurnEmitsCommittedConversationUpdatedBeforeFollowUpAssistantMessage(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: ""},
@@ -185,11 +173,7 @@ func TestHostedToolOnlyTurnEmitsCommittedConversationUpdatedBeforeFollowUpAssist
 }
 
 func TestHostedToolOnlyMissingPhaseTurnEmitsCommittedConversationUpdatedAfterHostedPersistence(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: ""},
@@ -238,11 +222,7 @@ func TestHostedToolOnlyMissingPhaseTurnEmitsCommittedConversationUpdatedAfterHos
 }
 
 func TestReviewerTranscriptPathsUseRichEventsWithoutCommittedConversationUpdatedAfterUserFlush(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	mainClient := &fakeClient{responses: []llm.Response{
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "original final", Phase: llm.MessagePhaseFinal},

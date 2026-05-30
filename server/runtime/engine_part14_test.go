@@ -517,10 +517,7 @@ func TestManualLocalCompactionRebuildsCanonicalContextOrder(t *testing.T) {
 	}
 	writeTestSkill(t, filepath.Join(workspace, ".builder", "skills", "workspace-skill"), "workspace-skill", "from workspace")
 
-	store, err := session.Create(t.TempDir(), "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "ws", workspace)
 	client := &fakeCompactionClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "condensed summary"},
 		Usage:     llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},

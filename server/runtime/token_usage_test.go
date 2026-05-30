@@ -135,11 +135,7 @@ func TestTokenUsageTrackerEstimatesCurrentInputTokensFromUsageBaselineDelta(t *t
 }
 
 func TestCurrentInputTokensPreciselyRechecksAfterTranscriptMutation(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &preciseCompactionClient{inputTokenCount: 240, contextWindow: 400000}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
@@ -173,11 +169,7 @@ func TestCurrentInputTokensPreciselyRechecksAfterTranscriptMutation(t *testing.T
 }
 
 func TestContextUsagePrefersFreshPreciseCurrentTokens(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &preciseCompactionClient{inputTokenCount: 180, contextWindow: 400000}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
@@ -196,11 +188,7 @@ func TestContextUsagePrefersFreshPreciseCurrentTokens(t *testing.T) {
 }
 
 func TestCurrentInputTokensPreciselyRechecksAfterFastModeToggle(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &preciseCompactionClient{inputTokenCount: 180, contextWindow: 400000}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
@@ -230,11 +218,7 @@ func TestCurrentInputTokensPreciselyRechecksAfterFastModeToggle(t *testing.T) {
 }
 
 func TestCurrentInputTokensPreciselyIfDueSkipsBackendFarBelowCheckpoint(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &preciseCompactionClient{inputTokenCount: 999, contextWindow: 400000}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
@@ -251,11 +235,7 @@ func TestCurrentInputTokensPreciselyIfDueSkipsBackendFarBelowCheckpoint(t *testi
 }
 
 func TestCurrentInputTokensPreciselyIfCriticalForcesRefreshAfterSignificantMutation(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &preciseCompactionClient{inputTokenCount: 180, contextWindow: 400000}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
@@ -284,11 +264,7 @@ func TestCurrentInputTokensPreciselyIfCriticalForcesRefreshAfterSignificantMutat
 }
 
 func TestCurrentInputTokensPreciselyPersistsTranscriptErrorOnceOnCountFailure(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &preciseCompactionClient{countErr: errors.New("chatgpt-codex status 404"), contextWindow: 400000}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
@@ -356,11 +332,7 @@ func TestCurrentInputTokensPreciselyPersistsTranscriptErrorOnceOnCountFailure(t 
 }
 
 func TestCurrentInputTokensPreciselySkipsUnsupportedCountClient(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	supported := false
 	client := &preciseCompactionClient{inputTokenCount: 123, contextWindow: 400000, countSupported: &supported}
@@ -395,11 +367,7 @@ func TestCurrentInputTokensPreciselySkipsUnsupportedCountClient(t *testing.T) {
 }
 
 func TestCurrentInputTokensPreciselyPersistsTranscriptErrorOnSupportProbeFailure(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &preciseCompactionClient{inputTokenCount: 123, contextWindow: 400000, supportErr: errors.New("oauth metadata unavailable")}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})

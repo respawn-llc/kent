@@ -58,10 +58,7 @@ func TestReviewerSystemPromptFileIsLazyLockedAndReused(t *testing.T) {
 	reviewerPromptPath := filepath.Join(dir, "reviewer-prompt.md")
 	writeTestFile(t, reviewerPromptPath, "custom reviewer prompt")
 
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 	mainClient := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
 		Usage:     llm.Usage{WindowTokens: 200000},
@@ -129,10 +126,7 @@ func TestReviewerSystemPromptFileResolvesTilde(t *testing.T) {
 	reviewerPromptPath := filepath.Join(home, "reviewer-prompt.md")
 	writeTestFile(t, reviewerPromptPath, "tilde reviewer prompt")
 
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 	reviewerClient := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"suggestions":[]}`},
 		Usage:     llm.Usage{WindowTokens: 200000},
@@ -158,10 +152,7 @@ func TestReviewerSystemPromptFileResolvesTilde(t *testing.T) {
 func TestReviewerSystemPromptFileMissingFailsWithoutSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	missingPromptPath := filepath.Join(dir, "missing-reviewer-prompt.md")
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{
 		Model: "gpt-5",
 		Reviewer: ReviewerConfig{
@@ -190,10 +181,7 @@ func TestReviewerSystemPromptFileMissingFailsWithoutSnapshot(t *testing.T) {
 func TestReviewerFrequencyOffDoesNotReadSystemPromptFile(t *testing.T) {
 	dir := t.TempDir()
 	missingPromptPath := filepath.Join(dir, "missing-reviewer-prompt.md")
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 	mainClient := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
 		Usage:     llm.Usage{WindowTokens: 200000},

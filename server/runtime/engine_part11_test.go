@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"builder/server/llm"
-	"builder/server/session"
 	"builder/server/tools"
 	"builder/shared/toolspec"
 	"context"
@@ -360,11 +359,7 @@ func TestDiscardQueuedUserMessageRemovesExactQueuedEntry(t *testing.T) {
 }
 
 func TestContextUsageUsesLastUsageWhenAvailable(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
 	eng.setLastUsage(llm.Usage{InputTokens: 1234, OutputTokens: 66, WindowTokens: 399_000})
@@ -581,11 +576,7 @@ func TestEstimateItemsTokensDoesNotTreatInlineImagePayloadAsPlainText(t *testing
 }
 
 func TestContextUsageDoesNotInflateInlineImagePayloadByBase64Length(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
 	eng.setLastUsage(llm.Usage{InputTokens: 100, OutputTokens: 0, WindowTokens: 410_000})
@@ -608,11 +599,7 @@ func TestContextUsageDoesNotInflateInlineImagePayloadByBase64Length(t *testing.T
 }
 
 func TestShouldAutoCompactAccountsForMessagesAppendedAfterLastUsage(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:                 "gpt-5",
@@ -633,11 +620,7 @@ func TestShouldAutoCompactAccountsForMessagesAppendedAfterLastUsage(t *testing.T
 }
 
 func TestShouldAutoCompactUsesPreciseRequestInputTokenCountWhenAvailable(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &preciseCompactionClient{inputTokenCount: 960, contextWindow: 1000}
 	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
@@ -680,11 +663,7 @@ func TestPreSubmitCompactionTokenLimitUsesFixedRunwayReserve(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
-			store, err := session.Create(dir, "ws", dir)
-			if err != nil {
-				t.Fatalf("create store: %v", err)
-			}
+			store := mustCreateTestSession(t)
 
 			eng, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{
 				Model:                         "gpt-5",
@@ -704,11 +683,7 @@ func TestPreSubmitCompactionTokenLimitUsesFixedRunwayReserve(t *testing.T) {
 }
 
 func TestShouldCompactBeforeUserMessageUsesPromptGrowthBelowPreSubmitBand(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &preciseCompactionClient{inputTokenCount: 960, contextWindow: 1000}
 	eng, err := New(store, client, tools.NewRegistry(), Config{
@@ -737,11 +712,7 @@ func TestShouldCompactBeforeUserMessageUsesPromptGrowthBelowPreSubmitBand(t *tes
 }
 
 func TestShouldCompactBeforeUserMessageFallsBackWhenExactCountUnsupported(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	supported := false
 	client := &preciseCompactionClient{inputTokenCount: 960, contextWindow: 1000, countSupported: &supported}

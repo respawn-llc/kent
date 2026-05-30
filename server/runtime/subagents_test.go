@@ -165,10 +165,7 @@ func TestSubagentsMetaMessageCurrentNonCallableRoleDoesNotDisableOtherRoles(t *t
 func TestCompactionReinjectsSubagentsMetaContext(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
-	store, err := session.Create(t.TempDir(), "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "ws", workspace)
 	settings := config.Settings{
 		Model:         "gpt-5.5",
 		ThinkingLevel: "medium",
@@ -205,10 +202,7 @@ func TestCompactionReinjectsSubagentsMetaContext(t *testing.T) {
 func TestManualCompactionPersistsSubagentCatalogInCanonicalTranscript(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
-	store, err := session.Create(t.TempDir(), "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "ws", workspace)
 	settings := config.Settings{
 		Model:         "gpt-5.5",
 		ThinkingLevel: "medium",

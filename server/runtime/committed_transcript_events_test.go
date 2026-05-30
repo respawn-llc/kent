@@ -8,16 +8,11 @@ import (
 	"testing"
 
 	"builder/server/llm"
-	"builder/server/session"
 	"builder/server/tools"
 )
 
 func TestCommittedTranscriptChangedMarksOnlyDurableTranscriptMutations(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	events := make([]Event, 0, 16)
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:   "gpt-5",
@@ -104,11 +99,7 @@ func TestCommittedTranscriptChangedMarksOnlyDurableTranscriptMutations(t *testin
 }
 
 func TestToolResultMirrorMessageDoesNotEmitGenericCommittedAdvance(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	events := make([]Event, 0, 16)
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:   "gpt-5",

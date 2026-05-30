@@ -586,11 +586,7 @@ func TestHeadlessModeTransitionDecisionsFollowLatestMarker(t *testing.T) {
 }
 
 func TestManualCompactionReinjectsHeadlessEnterOnlyWhileHeadlessRemainsActive(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "condensed summary"},
 		Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
@@ -627,11 +623,7 @@ func TestManualCompactionReinjectsHeadlessEnterOnlyWhileHeadlessRemainsActive(t 
 }
 
 func TestManualCompactionDoesNotReinjectHeadlessEnterAfterExit(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "condensed summary"},
 		Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
@@ -669,11 +661,7 @@ func TestSubmitUserMessageInjectsHeadlessEnterPromptWhenContinuingRegularSession
 		prompts.HeadlessModePrompt = prevHeadlessPrompt
 	}()
 
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	interactiveClient := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "interactive-ok"},
@@ -769,11 +757,7 @@ func TestSubmitUserMessageInjectsHeadlessExitPromptOnFirstInteractiveTurn(t *tes
 		prompts.HeadlessModeExitPrompt = prevExitPrompt
 	}()
 
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	headlessClient := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "headless-ok"},
@@ -878,11 +862,7 @@ func TestSubmitUserMessageDoesNotInjectHeadlessExitPromptForNormalSession(t *tes
 		prompts.HeadlessModeExitPrompt = prevExitPrompt
 	}()
 
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "ok"},

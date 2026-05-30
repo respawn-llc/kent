@@ -813,10 +813,7 @@ func TestSystemPromptSnapshotUsesLocalFileAndSurvivesMidSessionFileChanges(t *te
 	localPath := filepath.Join(workspace, agentsGlobalDirName, systemPromptFileName)
 	writeTestFile(t, localPath, "local {{.EstimatedToolCallsForContext}} {{.BuilderCommand}} run")
 
-	store, err := session.Create(t.TempDir(), "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSession(t, "ws", workspace)
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "first"},
 		Usage:     llm.Usage{WindowTokens: 200000},

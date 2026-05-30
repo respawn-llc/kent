@@ -121,11 +121,7 @@ func TestGenerateWithRetryClient_SuppressesExactNonPostfixWarningWithoutProvider
 }
 
 func TestNew_RejectsInvalidCacheWarningMode(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	if _, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5", CacheWarningMode: config.CacheWarningMode("bogus")}); err == nil {
 		t.Fatal("expected invalid cache_warning_mode to fail")
 	}
@@ -210,11 +206,7 @@ func TestGenerateWithRetryClient_DoesNotWarnAcrossDistinctCacheKeys(t *testing.T
 }
 
 func TestBuildRequest_SkipsPromptCacheKeyForUnsupportedProvider(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true}}
 	eng, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
 	if err != nil {
@@ -233,11 +225,7 @@ func TestBuildRequest_SkipsPromptCacheKeyForUnsupportedProvider(t *testing.T) {
 }
 
 func TestBuildRequest_UsesBasePromptCacheKeyBeforeFirstCompactionWhenProviderSupportsIt(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true}}
 	eng, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
 	if err != nil {
@@ -259,11 +247,7 @@ func TestBuildRequest_UsesBasePromptCacheKeyBeforeFirstCompactionWhenProviderSup
 }
 
 func TestBuildRequest_RotatesPromptCacheKeyWithRequestSessionIDAfterCompaction(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true}}
 	eng, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
 	if err != nil {
@@ -283,11 +267,7 @@ func TestBuildRequest_RotatesPromptCacheKeyWithRequestSessionIDAfterCompaction(t
 }
 
 func TestBuildRequest_RotatesPromptCacheKeyFromPersistedCompactionOnReopen(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	if _, err := store.AppendEvent("legacy-compact", "history_replaced", historyReplacementPayload{
 		Engine: "local",
 		Mode:   string(compactionModeManual),
@@ -318,11 +298,7 @@ func TestBuildRequest_RotatesPromptCacheKeyFromPersistedCompactionOnReopen(t *te
 }
 
 func TestLocalCompactionSummary_UsesMainConversationRequestIdentityAndPrompt(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{
 		caps:      llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true},
 		responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "summary"}}},
@@ -369,11 +345,7 @@ func TestLocalCompactionSummary_UsesMainConversationRequestIdentityAndPrompt(t *
 }
 
 func TestOpenAIResponsesPayload_UsesExpectedCacheKeyShapesAcrossConversationSupervisorAndReopen(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsPromptCacheKey: true, IsOpenAIFirstParty: true}}
 	eng, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
 	if err != nil {
@@ -478,11 +450,7 @@ func TestOpenAITransport_UsesExpectedSessionHeadersAndPromptCacheKeysAcrossConve
 	transport.Client = server.Client()
 	openAIClient := llm.NewOpenAIClient(transport)
 
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	engineClient := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsPromptCacheKey: true, IsOpenAIFirstParty: true}}
 	eng, err := New(store, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
 	if err != nil {
@@ -593,11 +561,7 @@ func TestOpenAITransport_UsesExpectedSessionHeadersAndPromptCacheKeysAcrossConve
 }
 
 func TestReviewerSuggestions_SkipsPromptCacheKeyForUnsupportedProvider(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	engineClient := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsPromptCacheKey: true, IsOpenAIFirstParty: true}}
 	reviewerClient := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true}, responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"suggestions":[]}`}}}}
 	eng, err := New(store, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
@@ -622,11 +586,7 @@ func TestReviewerSuggestions_SkipsPromptCacheKeyForUnsupportedProvider(t *testin
 }
 
 func TestReviewerSuggestions_UsesReviewerClientPromptCacheCapability(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	engineClient := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true}}
 	reviewerClient := &fakeClient{
 		caps:      llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true},
@@ -655,11 +615,7 @@ func TestReviewerSuggestions_UsesReviewerClientPromptCacheCapability(t *testing.
 }
 
 func TestReviewerSuggestions_PromptCacheKeyStaysOnReviewerSessionAfterConversationCompaction(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	if _, err := store.AppendEvent("legacy-compact", "history_replaced", historyReplacementPayload{
 		Engine: "local",
 		Mode:   string(compactionModeManual),
@@ -753,11 +709,7 @@ func TestGenerateWithRetryClient_CompactionRotatesConversationCacheKeyWithoutWar
 }
 
 func TestGenerateWithRetryClient_RestoreIgnoresRequestObservationWithoutResponse(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	if _, err := store.AppendEvent("legacy-request", sessionEventCacheRequestObserved, persistedCacheRequestObserved{
 		DigestVersion: requestCacheDigestVersion,
 		CacheKey:      "cache-key-1",

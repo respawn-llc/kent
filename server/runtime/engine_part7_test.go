@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"builder/server/llm"
-	"builder/server/session"
 	"builder/server/tools"
 	shelltool "builder/server/tools/shell"
 	"builder/shared/toolspec"
@@ -239,10 +238,7 @@ func TestAppendMissingReviewerMetaContextLeavesUntypedLegacyMetaInTranscript(t *
 
 func TestFastExecCommandCompletionDoesNotQueueBackgroundNotice(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(250 * time.Millisecond))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
@@ -320,10 +316,7 @@ func TestFastExecCommandCompletionDoesNotQueueBackgroundNotice(t *testing.T) {
 
 func TestBackgroundShellNoticeFlushesOnFirstAvailableSlot(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 
 	client := &fakeClient{responses: []llm.Response{
 		{
@@ -438,10 +431,7 @@ func TestBackgroundShellNoticeFlushesOnFirstAvailableSlot(t *testing.T) {
 
 func TestDeferredFinalWithBackgroundNoticeStillRunsReviewerAndEmitsAssistantEvent(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 
 	mainClient := &fakeClient{responses: []llm.Response{
 		{
@@ -540,10 +530,7 @@ func TestDeferredFinalWithBackgroundNoticeStillRunsReviewerAndEmitsAssistantEven
 
 func TestDeferredFinalWithQueuedUserInjectionStillRunsReviewerAndEmitsAssistantEvent(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 
 	mainClient := &fakeClient{responses: []llm.Response{
 		{
@@ -638,10 +625,7 @@ func TestDeferredFinalWithQueuedUserInjectionStillRunsReviewerAndEmitsAssistantE
 
 func TestDeferredFinalWithQueuedUserInjectionAndTrailingNoopStillUsesDeferredFinal(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 
 	mainClient := &fakeClient{responses: []llm.Response{
 		{
@@ -726,10 +710,7 @@ func TestDeferredFinalWithQueuedUserInjectionAndTrailingNoopStillUsesDeferredFin
 
 func TestBackgroundShellNoticeSameTurnNoopAddsNoAssistantMessage(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 
 	client := &fakeClient{responses: []llm.Response{
 		{

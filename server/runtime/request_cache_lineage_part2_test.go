@@ -12,11 +12,7 @@ import (
 )
 
 func TestGenerateWithRetryClient_RestoreSkipsDigestVersionMismatch(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	legacyRequest := persistedCacheRequestObserved{
 		DigestVersion: 999,
 		CacheKey:      "cache-key-1",
@@ -61,11 +57,7 @@ func TestGenerateWithRetryClient_RestoreSkipsDigestVersionMismatch(t *testing.T)
 }
 
 func TestGenerateWithRetryClient_DoesNotInventCompactionCauseWithoutPriorLineageOnReopen(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	if _, err := store.AppendEvent("legacy-compact", "history_replaced", historyReplacementPayload{
 		Engine: "local",
 		Mode:   string(compactionModeManual),

@@ -46,11 +46,7 @@ func TestBuildReviewerTranscriptMessagesSummarizesViewImagePayloads(t *testing.T
 }
 
 func TestReviewerSuggestions_ReusesStableMetaForPromptCachePrefix(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	engineClient := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true}}
 	reviewerClient := &fakeClient{
 		caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true},
@@ -85,11 +81,7 @@ func TestReviewerSuggestions_ReusesStableMetaForPromptCachePrefix(t *testing.T) 
 }
 
 func TestBuildReviewerRequestUsesReviewerModelCapabilities(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{
 		Model: "gpt-5",
 		Reviewer: ReviewerConfig{
@@ -114,11 +106,7 @@ func TestBuildReviewerRequestUsesReviewerModelCapabilities(t *testing.T) {
 
 func TestBuildReviewerRequestPreservesTranscriptBytes(t *testing.T) {
 	seedContent := "review raw \x1b[31mansi\x1b[0m"
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{
 		Model:    "gpt-5",
 		Reviewer: ReviewerConfig{Model: "gpt-5"},
@@ -146,11 +134,7 @@ func TestBuildReviewerRequestPreservesTranscriptBytes(t *testing.T) {
 }
 
 func TestReviewerSuggestions_ReopenKeepsPromptCachePrefixStable(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	engineClient := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true}}
 	reviewerClient := &fakeClient{
 		caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true},

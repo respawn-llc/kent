@@ -434,10 +434,7 @@ func TestLegacyLockedSessionBackfillsContextBudgetOnce(t *testing.T) {
 
 func TestThinkingLevelCanChangeAfterLock(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 
 	client := &fakeClient{responses: []llm.Response{
 		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "one"}, Usage: llm.Usage{WindowTokens: 200000}},
@@ -653,10 +650,7 @@ func TestSetAutoCompactionEnabledTogglesRuntimeOnly(t *testing.T) {
 
 func TestSetAutoCompactionDisabledConcurrentWithBusyStepSkipsCompactionForCurrentRun(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 
 	client := &fakeCompactionClient{
 		responses: []llm.Response{
@@ -718,10 +712,7 @@ func TestSetAutoCompactionDisabledConcurrentWithBusyStepSkipsCompactionForCurren
 
 func TestSetReviewerEnabledTogglesRuntimeOnly(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 	cfg := Config{
 		Model: "gpt-5",
 		Reviewer: ReviewerConfig{
@@ -757,10 +748,7 @@ func TestSetReviewerEnabledTogglesRuntimeOnly(t *testing.T) {
 
 func TestSetReviewerEnabledFailsWhenReviewerClientMissing(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		Reviewer: ReviewerConfig{
@@ -787,10 +775,7 @@ func TestSetReviewerEnabledFailsWhenReviewerClientMissing(t *testing.T) {
 
 func TestSetReviewerEnabledLazyInitializesReviewerClient(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSessionAt(t, dir)
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		Reviewer: ReviewerConfig{

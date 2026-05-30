@@ -25,6 +25,15 @@ func mustCreateTestSession(t *testing.T, workspaceRoot ...string) *session.Store
 	return store
 }
 
+func mustCreateTestSessionAt(t *testing.T, root string, options ...session.StoreOption) *session.Store {
+	t.Helper()
+	store, err := session.Create(root, "ws", root, options...)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	return store
+}
+
 func mustCreateNamedTestSession(t *testing.T, workspaceContainerName string, workspaceRoot string, options ...session.StoreOption) *session.Store {
 	t.Helper()
 	store, err := session.Create(t.TempDir(), workspaceContainerName, workspaceRoot, options...)

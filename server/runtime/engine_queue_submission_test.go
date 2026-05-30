@@ -6,16 +6,11 @@ import (
 	"testing"
 
 	"builder/server/llm"
-	"builder/server/session"
 	"builder/server/tools"
 )
 
 func TestSubmitQueuedUserMessagesStartsTurnFromQueuedInjection(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "after queued steer"},
@@ -64,11 +59,7 @@ func TestSubmitQueuedUserMessagesStartsTurnFromQueuedInjection(t *testing.T) {
 }
 
 func TestSubmitQueuedUserMessagesRetriesTransientBusyErrors(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "after queued steer"},
@@ -115,11 +106,7 @@ func TestSubmitQueuedUserMessagesRetriesTransientBusyErrors(t *testing.T) {
 }
 
 func TestSubmitQueuedUserMessagesStopsRetryingWhenContextIsCanceled(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
 	if err != nil {
@@ -146,11 +133,7 @@ func TestSubmitQueuedUserMessagesStopsRetryingWhenContextIsCanceled(t *testing.T
 }
 
 func TestHasQueuedUserWorkDetectsBackgroundNotices(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
 	if err != nil {
