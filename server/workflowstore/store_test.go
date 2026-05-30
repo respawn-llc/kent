@@ -933,9 +933,7 @@ func TestRunStartContextUsesSelectedPriorNodeSession(t *testing.T) {
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}}); err != nil {
-		t.Fatalf("CompleteRun plan: %v", err)
-	}
+	completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}})
 	runs, err := store.ListRuns(ctx, task.ID)
 	if err != nil {
 		t.Fatalf("ListRuns after plan: %v", err)
@@ -957,9 +955,7 @@ func TestRunStartContextUsesSelectedPriorNodeSession(t *testing.T) {
 	if err := store.AttachRunSession(ctx, implementationRun.ID, claimedImplementation.Generation, implementationSessionID); err != nil {
 		t.Fatalf("AttachRunSession implementation: %v", err)
 	}
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: implementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "implemented"}}); err != nil {
-		t.Fatalf("CompleteRun implementation: %v", err)
-	}
+	completeRun(t, ctx, store, CompleteRunRequest{RunID: implementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "implemented"}})
 	runs, err = store.ListRuns(ctx, task.ID)
 	if err != nil {
 		t.Fatalf("ListRuns after implementation: %v", err)
@@ -981,10 +977,7 @@ func TestRunStartContextUsesSelectedPriorNodeSession(t *testing.T) {
 	if err := store.AttachRunSession(ctx, acceptanceRun.ID, claimedAcceptance.Generation, acceptanceSessionID); err != nil {
 		t.Fatalf("AttachRunSession acceptance: %v", err)
 	}
-	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: acceptanceRun.ID, TransitionID: "open_pr", OutputValues: map[string]string{"acceptance_decision": "approved"}})
-	if err != nil {
-		t.Fatalf("CompleteRun acceptance: %v", err)
-	}
+	completed := completeRun(t, ctx, store, CompleteRunRequest{RunID: acceptanceRun.ID, TransitionID: "open_pr", OutputValues: map[string]string{"acceptance_decision": "approved"}})
 	if len(completed.RunIDs) != 1 {
 		t.Fatalf("acceptance completion = %+v, want open_pr run", completed)
 	}
@@ -1020,9 +1013,7 @@ func TestSelectedContextSourceUsesLatestCompletedPriorNodeRun(t *testing.T) {
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}}); err != nil {
-		t.Fatalf("CompleteRun plan: %v", err)
-	}
+	completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}})
 	firstImplementationRun := runForNode(t, ctx, store, task.ID, implementationNode.ID)
 	firstClaim, err := store.ClaimRun(ctx, firstImplementationRun.ID, firstImplementationRun.Generation)
 	if err != nil {
@@ -1032,13 +1023,9 @@ func TestSelectedContextSourceUsesLatestCompletedPriorNodeRun(t *testing.T) {
 	if err := store.AttachRunSession(ctx, firstImplementationRun.ID, firstClaim.Generation, firstSessionID); err != nil {
 		t.Fatalf("AttachRunSession first implementation: %v", err)
 	}
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: firstImplementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "first implementation"}}); err != nil {
-		t.Fatalf("CompleteRun first implementation: %v", err)
-	}
+	completeRun(t, ctx, store, CompleteRunRequest{RunID: firstImplementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "first implementation"}})
 	firstAcceptanceRun := runForNode(t, ctx, store, task.ID, acceptanceNode.ID)
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: firstAcceptanceRun.ID, TransitionID: "rework", OutputValues: map[string]string{"summary": "needs changes"}}); err != nil {
-		t.Fatalf("CompleteRun first acceptance: %v", err)
-	}
+	completeRun(t, ctx, store, CompleteRunRequest{RunID: firstAcceptanceRun.ID, TransitionID: "rework", OutputValues: map[string]string{"summary": "needs changes"}})
 	secondImplementationRun := latestRunForNode(t, ctx, store, task.ID, implementationNode.ID)
 	if secondImplementationRun.ID == firstImplementationRun.ID {
 		t.Fatalf("second implementation run = first run %q", secondImplementationRun.ID)
@@ -1051,14 +1038,9 @@ func TestSelectedContextSourceUsesLatestCompletedPriorNodeRun(t *testing.T) {
 	if err := store.AttachRunSession(ctx, secondImplementationRun.ID, secondClaim.Generation, secondSessionID); err != nil {
 		t.Fatalf("AttachRunSession second implementation: %v", err)
 	}
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: secondImplementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "second implementation"}}); err != nil {
-		t.Fatalf("CompleteRun second implementation: %v", err)
-	}
+	completeRun(t, ctx, store, CompleteRunRequest{RunID: secondImplementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "second implementation"}})
 	secondAcceptanceRun := latestRunForNode(t, ctx, store, task.ID, acceptanceNode.ID)
-	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: secondAcceptanceRun.ID, TransitionID: "open_pr", OutputValues: map[string]string{"acceptance_decision": "approved"}})
-	if err != nil {
-		t.Fatalf("CompleteRun second acceptance: %v", err)
-	}
+	completed := completeRun(t, ctx, store, CompleteRunRequest{RunID: secondAcceptanceRun.ID, TransitionID: "open_pr", OutputValues: map[string]string{"acceptance_decision": "approved"}})
 	input, err := store.GetRunStartContext(ctx, completed.RunIDs[0])
 	if err != nil {
 		t.Fatalf("GetRunStartContext open_pr: %v", err)
@@ -1089,9 +1071,7 @@ func TestPendingApprovalResolvesSelectedContextSourceOnApproval(t *testing.T) {
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}}); err != nil {
-		t.Fatalf("CompleteRun plan: %v", err)
-	}
+	completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}})
 	runs, err := store.ListRuns(ctx, task.ID)
 	if err != nil {
 		t.Fatalf("ListRuns after plan: %v", err)
@@ -1110,9 +1090,7 @@ func TestPendingApprovalResolvesSelectedContextSourceOnApproval(t *testing.T) {
 	if err := store.AttachRunSession(ctx, implementationRun.ID, claimedImplementation.Generation, implementationSessionID); err != nil {
 		t.Fatalf("AttachRunSession implementation: %v", err)
 	}
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: implementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "implemented"}}); err != nil {
-		t.Fatalf("CompleteRun implementation: %v", err)
-	}
+	completeRun(t, ctx, store, CompleteRunRequest{RunID: implementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "implemented"}})
 	runs, err = store.ListRuns(ctx, task.ID)
 	if err != nil {
 		t.Fatalf("ListRuns after implementation: %v", err)
@@ -1123,10 +1101,7 @@ func TestPendingApprovalResolvesSelectedContextSourceOnApproval(t *testing.T) {
 			acceptanceRun = run
 		}
 	}
-	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: acceptanceRun.ID, TransitionID: "open_pr", OutputValues: map[string]string{"acceptance_decision": "approved"}})
-	if err != nil {
-		t.Fatalf("CompleteRun acceptance: %v", err)
-	}
+	completed := completeRun(t, ctx, store, CompleteRunRequest{RunID: acceptanceRun.ID, TransitionID: "open_pr", OutputValues: map[string]string{"acceptance_decision": "approved"}})
 	if completed.State != "pending_approval" {
 		t.Fatalf("acceptance completion = %+v, want pending approval", completed)
 	}
@@ -1228,10 +1203,7 @@ func TestApprovePendingTransitionStartsStoredTargetEdgeSnapshot(t *testing.T) {
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done"})
-	if err != nil {
-		t.Fatalf("CompleteRun: %v", err)
-	}
+	completed := completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "done"})
 
 	approved, err := store.ApproveTransition(ctx, completed.TransitionID)
 	if err != nil {
@@ -1278,10 +1250,7 @@ func TestApprovePendingAgentTransitionRetryPreservesRunIDs(t *testing.T) {
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "next", OutputValues: map[string]string{"prior_summary": "done"}})
-	if err != nil {
-		t.Fatalf("CompleteRun: %v", err)
-	}
+	completed := completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "next", OutputValues: map[string]string{"prior_summary": "done"}})
 
 	approved, err := store.ApproveTransition(ctx, completed.TransitionID)
 	if err != nil {
@@ -1312,10 +1281,7 @@ func TestApprovePendingAgentTransitionRejectsLegacySnapshotWithoutFrozenTarget(t
 		t.Fatalf("GetDefinition: %v", err)
 	}
 	plan := nodeByKey(t, def, "plan")
-	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "next", OutputValues: map[string]string{"prior_summary": "done"}})
-	if err != nil {
-		t.Fatalf("CompleteRun: %v", err)
-	}
+	completed := completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "next", OutputValues: map[string]string{"prior_summary": "done"}})
 	legacySnapshot := runStartSnapshot{WorkflowID: workflowID, WorkflowRevisionSeen: currentWorkflowRevision(t, ctx, store, workflowID), Node: nodeSnapshot(plan)}
 	legacySnapshotJSON, err := marshalJSON(legacySnapshot)
 	if err != nil {
@@ -1338,10 +1304,7 @@ func TestApprovePendingTransitionIsConcurrentIdempotent(t *testing.T) {
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	completed, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done"})
-	if err != nil {
-		t.Fatalf("CompleteRun: %v", err)
-	}
+	completed := completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "done"})
 	var wg sync.WaitGroup
 	results := make([]CompleteRunResult, 2)
 	errs := make([]error, 2)
@@ -1774,9 +1737,7 @@ func TestJoinDownstreamCanUseSelectedPriorContextSource(t *testing.T) {
 	if err := store.AttachRunSession(ctx, started.RunID, claimedPlan.Generation, planSessionID); err != nil {
 		t.Fatalf("AttachRunSession plan: %v", err)
 	}
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "split", OutputValues: map[string]string{"summary": "plan"}}); err != nil {
-		t.Fatalf("CompleteRun split: %v", err)
-	}
+	completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "split", OutputValues: map[string]string{"summary": "plan"}})
 	runs, err := store.ListRuns(ctx, task.ID)
 	if err != nil {
 		t.Fatalf("ListRuns branches: %v", err)
@@ -1837,16 +1798,11 @@ func TestDuplicateBranchArrivalIsRejectedAndDoesNotDuplicateJoin(t *testing.T) {
 			branchRunsByNode[run.NodeID] = run.ID
 		}
 	}
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: branchRunsByNode[implA.ID], TransitionID: "join", OutputValues: map[string]string{"joined": "branch a"}}); err != nil {
-		t.Fatalf("CompleteRun branch a: %v", err)
-	}
+	completeRun(t, ctx, store, CompleteRunRequest{RunID: branchRunsByNode[implA.ID], TransitionID: "join", OutputValues: map[string]string{"joined": "branch a"}})
 	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: branchRunsByNode[implA.ID], TransitionID: "join", OutputValues: map[string]string{"joined": "branch a again"}}); err == nil || !strings.Contains(err.Error(), "run already completed") {
 		t.Fatalf("duplicate branch completion error = %v, want run already completed", err)
 	}
-	joined, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: branchRunsByNode[implB.ID], TransitionID: "join"})
-	if err != nil {
-		t.Fatalf("CompleteRun branch b: %v", err)
-	}
+	joined := completeRun(t, ctx, store, CompleteRunRequest{RunID: branchRunsByNode[implB.ID], TransitionID: "join"})
 	if len(joined.PlacementIDs) != 1 || len(joined.RunIDs) != 1 {
 		t.Fatalf("join result = %+v, want one downstream placement/run", joined)
 	}
@@ -4239,6 +4195,15 @@ func startTask(t *testing.T, ctx context.Context, store *Store, taskID workflow.
 		t.Fatalf("StartTask: %v", err)
 	}
 	return started
+}
+
+func completeRun(t *testing.T, ctx context.Context, store *Store, req CompleteRunRequest) CompleteRunResult {
+	t.Helper()
+	completed, err := store.CompleteRun(ctx, req)
+	if err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	return completed
 }
 
 func createValidWorkflow(t *testing.T, ctx context.Context, store *Store) workflow.WorkflowID {
