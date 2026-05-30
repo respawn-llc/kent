@@ -16,11 +16,7 @@ import (
 )
 
 func TestReviewerRunsOnAllFrequencyWithoutToolCalls(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	mainClient := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
@@ -230,11 +226,7 @@ func TestReviewerFrequencyOffDoesNotReadSystemPromptFile(t *testing.T) {
 }
 
 func TestReviewerSuggestionsRequestInheritsFastMode(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	mainClient := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal},
@@ -271,11 +263,7 @@ func TestReviewerSuggestionsRequestInheritsFastMode(t *testing.T) {
 }
 
 func TestFinalNoopAnswerIsInvisibleAndSkipsReviewer(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	mainClient := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: reviewerNoopToken, Phase: llm.MessagePhaseFinal},
@@ -367,11 +355,7 @@ func TestFinalNoopAnswerIsInvisibleAndSkipsReviewer(t *testing.T) {
 }
 
 func TestReviewerRunsOnEditsFrequencyOnlyWhenPatchApplied(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	mainClient := &fakeClient{responses: []llm.Response{
 		{
@@ -426,11 +410,7 @@ func TestReviewerSuggestionsTriggerFollowUpAndNoopKeepsOriginalAnswer(t *testing
 		t.Fatalf("write global AGENTS: %v", err)
 	}
 
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	mainClient := &fakeClient{responses: []llm.Response{
 		{
@@ -642,11 +622,7 @@ func TestReviewerSuggestionsTriggerFollowUpAndNoopKeepsOriginalAnswer(t *testing
 }
 
 func TestReviewerNoSuggestionsPersistsStatusEntry(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	mainClient := &fakeClient{responses: []llm.Response{
 		{
@@ -703,11 +679,7 @@ func TestReviewerNoSuggestionsPersistsStatusEntry(t *testing.T) {
 }
 
 func TestReviewerArrayPayloadIsIgnoredAsNoSuggestions(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	mainClient := &fakeClient{responses: []llm.Response{
 		{
@@ -764,11 +736,7 @@ func TestReviewerArrayPayloadIsIgnoredAsNoSuggestions(t *testing.T) {
 }
 
 func TestReviewerUsesStreamingClientWhenAvailable(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	mainClient := &fakeClient{responses: []llm.Response{
 		{
@@ -819,11 +787,7 @@ func TestReviewerUsesStreamingClientWhenAvailable(t *testing.T) {
 }
 
 func TestReviewerAppliedFollowUpRemainsVisibleInTranscript(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	var (
 		eventsMu sync.Mutex

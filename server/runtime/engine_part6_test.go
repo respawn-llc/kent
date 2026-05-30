@@ -19,11 +19,7 @@ import (
 )
 
 func TestReviewerCompletedEventReflectsPersistedReviewerStatusStateWithoutTranscriptAdvance(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	mainClient := &fakeClient{responses: []llm.Response{
 		{
@@ -48,7 +44,7 @@ func TestReviewerCompletedEventReflectsPersistedReviewerStatusStateWithoutTransc
 		snapshotAtReviewerComplete ChatSnapshot
 		eng                        *Engine
 	)
-	eng, err = New(store, mainClient, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng, err := New(store, mainClient, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		OnEvent: func(evt Event) {
 			if evt.Kind == EventAssistantMessage && evt.Message.Content == "updated final after review" {
@@ -130,11 +126,7 @@ func TestReviewerCompletedEventReflectsPersistedReviewerStatusStateWithoutTransc
 }
 
 func TestAppendPersistedLocalEntryEmitsRealtimeLocalEntryEvent(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	var events []Event
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{
 		Model: "gpt-5",
@@ -167,11 +159,7 @@ func TestAppendPersistedLocalEntryEmitsRealtimeLocalEntryEvent(t *testing.T) {
 }
 
 func TestRunReviewerFollowUpReturnsCompletionWhenReviewerInstructionAppendFails(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:    "gpt-5",
 		Reviewer: ReviewerConfig{Model: "gpt-5"},
@@ -222,11 +210,7 @@ func TestRunReviewerFollowUpReturnsCompletionWhenReviewerInstructionAppendFails(
 func TestRunStepLoopFailsWhenReviewerStatusPersistenceFailsAfterReviewerInstructionAppendFailure(t *testing.T) {
 	reviewerInstructionErr := errors.New("injected reviewer instruction persistence failure")
 	localEntryErr := errors.New("injected reviewer status persistence failure")
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	mainClient := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "original final", Phase: llm.MessagePhaseFinal},
@@ -311,11 +295,7 @@ func TestRunStepLoopFailsWhenReviewerStatusPersistenceFailsAfterReviewerInstruct
 
 func TestSubmitUserMessageFailsWhenReviewerStatusPersistenceFailsAfterAssistantEvent(t *testing.T) {
 	localEntryErr := errors.New("injected reviewer status persistence failure")
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	mainClient := &fakeClient{responses: []llm.Response{
 		{
@@ -380,11 +360,7 @@ func TestSubmitUserMessageFailsWhenReviewerStatusPersistenceFailsAfterAssistantE
 }
 
 func TestRestoreMessagesKeepsStoredReviewerEntriesVerbatim(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	if _, err := store.AppendEvent("legacy-step", "local_entry", storedLocalEntry{
 		Role:        "reviewer_suggestions",
 		Text:        "Supervisor suggested:\n1. Add final verification notes.",
@@ -416,11 +392,7 @@ func TestRestoreMessagesKeepsStoredReviewerEntriesVerbatim(t *testing.T) {
 }
 
 func TestRestoreMessagesPreservesStoredLocalEntryNoticeID(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	if _, err := store.AppendEvent("legacy-step", "local_entry", storedLocalEntry{
 		Role:     "system",
 		Text:     "Mirrored notice",
@@ -444,17 +416,13 @@ func TestRestoreMessagesPreservesStoredLocalEntryNoticeID(t *testing.T) {
 
 func TestAppendPersistedLocalEntryRecordDoesNotMutateChatOnAppendFailure(t *testing.T) {
 	localEntryErr := errors.New("injected local entry persistence failure")
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 	eng.beforePersistLocalEntry = func(entry storedLocalEntry) error {
 		return localEntryErr
 	}
 
-	err = eng.appendPersistedLocalEntryRecord("step-1", storedLocalEntry{
+	err := eng.appendPersistedLocalEntryRecord("step-1", storedLocalEntry{
 		Visibility: transcript.EntryVisibilityAll,
 		Role:       "reviewer_status",
 		Text:       "Supervisor ran, applied 1 suggestion.",
@@ -468,11 +436,7 @@ func TestAppendPersistedLocalEntryRecordDoesNotMutateChatOnAppendFailure(t *test
 }
 
 func TestAppendLocalEntryWithOngoingTextSkipsBlankEntries(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	var events []Event
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:   "gpt-5",
@@ -492,11 +456,7 @@ func TestAppendLocalEntryWithOngoingTextSkipsBlankEntries(t *testing.T) {
 }
 
 func TestRestoreMessagesKeepsStoredToolCallPresentationPayload(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	presentation := toolcodec.EncodeToolCallMeta(transcript.ToolCallMeta{
 		ToolName:       string(toolspec.ToolExecCommand),
 		Presentation:   transcript.ToolPresentationShell,
@@ -542,11 +502,7 @@ func TestRestoreMessagesKeepsStoredToolCallPresentationPayload(t *testing.T) {
 }
 
 func TestRestoreMessagesIgnoresLegacyReviewerRollbackHistoryReplacement(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	presentation := toolcodec.EncodeToolCallMeta(transcript.ToolCallMeta{
 		ToolName:       string(toolspec.ToolExecCommand),
 		Presentation:   transcript.ToolPresentationShell,
@@ -603,11 +559,7 @@ func TestRestoreMessagesIgnoresLegacyReviewerRollbackHistoryReplacement(t *testi
 
 func TestRestoreMessagesFailsOnMalformedHistoryReplacementPayload(t *testing.T) {
 	t.Run("non-legacy payload still fails", func(t *testing.T) {
-		dir := t.TempDir()
-		store, err := session.Create(dir, "ws", dir)
-		if err != nil {
-			t.Fatalf("create store: %v", err)
-		}
+		store := mustCreateTestSession(t)
 		if _, err := store.AppendReplayEvents([]session.ReplayEvent{{
 			StepID:  "legacy-step",
 			Kind:    "history_replaced",
@@ -622,11 +574,7 @@ func TestRestoreMessagesFailsOnMalformedHistoryReplacementPayload(t *testing.T) 
 	})
 
 	t.Run("legacy reviewer rollback payload is ignored", func(t *testing.T) {
-		dir := t.TempDir()
-		store, err := session.Create(dir, "ws", dir)
-		if err != nil {
-			t.Fatalf("create store: %v", err)
-		}
+		store := mustCreateTestSession(t)
 		if _, err := store.AppendReplayEvents([]session.ReplayEvent{{
 			StepID:  "legacy-step",
 			Kind:    "history_replaced",
@@ -642,11 +590,7 @@ func TestRestoreMessagesFailsOnMalformedHistoryReplacementPayload(t *testing.T) 
 }
 
 func TestReviewerDefaultOutputOmitsReviewerSuggestionsEntry(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	mainClient := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "original final"},
@@ -694,11 +638,7 @@ func TestReviewerDefaultOutputOmitsReviewerSuggestionsEntry(t *testing.T) {
 }
 
 func TestReviewerVerboseOutputShowsSuggestionsWhenIssuedAndKeepsFinalStatusConcise(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	mainClient := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "original final"},

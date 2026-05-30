@@ -75,11 +75,7 @@ func (s *stubExclusiveStepLifecycle) calls() int {
 }
 
 func TestExclusiveStepLifecycleRejectsConcurrentRun(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
@@ -100,7 +96,7 @@ func TestExclusiveStepLifecycleRejectsConcurrentRun(t *testing.T) {
 		t.Fatal("timed out waiting for first exclusive step")
 	}
 
-	err = lifecycle.Run(context.Background(), exclusiveStepOptions{}, func(stepCtx context.Context, stepID string) error {
+	err := lifecycle.Run(context.Background(), exclusiveStepOptions{}, func(stepCtx context.Context, stepID string) error {
 		return nil
 	})
 	if !errors.Is(err, errExclusiveStepBusy) {
@@ -117,11 +113,7 @@ func TestExclusiveStepLifecycleRejectsConcurrentRun(t *testing.T) {
 }
 
 func TestExclusiveStepLifecycleSnapshotTracksActiveRun(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
@@ -166,11 +158,7 @@ func TestExclusiveStepLifecycleSnapshotTracksActiveRun(t *testing.T) {
 }
 
 func TestExclusiveStepLifecycleEmitsCompletedRunStatePayloads(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	var (
 		mu     sync.Mutex
 		events []Event
@@ -231,11 +219,7 @@ func TestExclusiveStepLifecycleEmitsCompletedRunStatePayloads(t *testing.T) {
 }
 
 func TestExclusiveStepLifecycleEmitsInterruptedRunStatePayloads(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	var (
 		mu     sync.Mutex
 		events []Event
@@ -307,11 +291,7 @@ func TestExclusiveStepLifecycleEmitsInterruptedRunStatePayloads(t *testing.T) {
 }
 
 func TestExclusiveStepLifecyclePersistsPanicsAsFailedRuns(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
@@ -342,11 +322,7 @@ func TestExclusiveStepLifecyclePersistsPanicsAsFailedRuns(t *testing.T) {
 }
 
 func TestExclusiveStepLifecycleInterruptAppendsMessageAndClearsInFlight(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
@@ -393,11 +369,7 @@ func TestExclusiveStepLifecycleInterruptAppendsMessageAndClearsInFlight(t *testi
 }
 
 func TestExclusiveStepLifecycleCanEmitRunStateWithoutPersistingDurableRun(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	var events []Event
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
@@ -439,11 +411,7 @@ func collectRunStateEvents(events []Event) []RunState {
 }
 
 func TestExclusiveStepLifecycleInterruptSkipsStaleRunCleanup(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 
 	lifecycle := &defaultExclusiveStepLifecycle{engine: eng}
@@ -468,11 +436,7 @@ func TestExclusiveStepLifecycleInterruptSkipsStaleRunCleanup(t *testing.T) {
 }
 
 func TestExclusiveStepLifecycleClearsInFlightBeforeSchedulingBackground(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 
 	scheduled := false
@@ -500,11 +464,7 @@ func TestExclusiveStepLifecycleClearsInFlightBeforeSchedulingBackground(t *testi
 }
 
 func TestBackgroundNoticeSchedulerSchedulesAfterBusyStepEnds(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "background done", Phase: llm.MessagePhaseFinal},
 		Usage:     llm.Usage{WindowTokens: 200000},
@@ -576,11 +536,7 @@ func TestBackgroundNoticeSchedulerSchedulesAfterBusyStepEnds(t *testing.T) {
 }
 
 func TestContextCompactorUsesExclusiveStepLifecycle(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "summary"},
 		Usage:     llm.Usage{WindowTokens: 200000},

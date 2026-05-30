@@ -358,11 +358,7 @@ func (f *fakeStreamClient) GenerateStream(_ context.Context, req llm.Request, on
 }
 
 func TestLastCommittedAssistantFinalAnswerSkipsTrailingReminderEntries(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "final handoff"}); err != nil {
@@ -378,11 +374,7 @@ func TestLastCommittedAssistantFinalAnswerSkipsTrailingReminderEntries(t *testin
 }
 
 func TestLastCommittedAssistantFinalAnswerSkipsTrailingErrorFeedback(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "final handoff"}); err != nil {
@@ -398,11 +390,7 @@ func TestLastCommittedAssistantFinalAnswerSkipsTrailingErrorFeedback(t *testing.
 }
 
 func TestLastCommittedAssistantFinalAnswerSkipsTrailingHandoffFutureMessage(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "final handoff"}); err != nil {
@@ -418,11 +406,7 @@ func TestLastCommittedAssistantFinalAnswerSkipsTrailingHandoffFutureMessage(t *t
 }
 
 func TestLastCommittedAssistantFinalAnswerSkipsTrailingReviewerFeedback(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "final handoff"}); err != nil {
@@ -438,11 +422,7 @@ func TestLastCommittedAssistantFinalAnswerSkipsTrailingReviewerFeedback(t *testi
 }
 
 func TestLastCommittedAssistantFinalAnswerSkipsTrailingGoalFeedback(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "final handoff"}); err != nil {
@@ -458,11 +438,7 @@ func TestLastCommittedAssistantFinalAnswerSkipsTrailingGoalFeedback(t *testing.T
 }
 
 func TestLastCommittedAssistantFinalAnswerDoesNotSkipTrailingUntypedDeveloperMessage(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "final handoff"}); err != nil {
@@ -629,11 +605,7 @@ func (c *providerContractFailClient) Calls() int {
 }
 
 func TestLocksAtFirstDispatch(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done"},
@@ -682,11 +654,7 @@ func TestLocksAtFirstDispatch(t *testing.T) {
 }
 
 func TestHeadlessSessionLocksToolPreamblesOff(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done"},
@@ -718,11 +686,7 @@ func TestHeadlessSessionLocksToolPreamblesOff(t *testing.T) {
 }
 
 func TestLockedToolPreamblesPersistAcrossResume(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	firstClient := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "first"},
@@ -764,11 +728,7 @@ func TestLockedToolPreamblesPersistAcrossResume(t *testing.T) {
 }
 
 func TestLockedContextWindowKeepsSystemPromptToolCallEstimateStableAcrossResume(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	firstClient := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "first"},

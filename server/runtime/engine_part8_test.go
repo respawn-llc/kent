@@ -18,11 +18,7 @@ import (
 )
 
 func TestMultipleBackgroundShellNoticesFlushTogetherOnFirstAvailableSlot(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{
 		{
@@ -112,11 +108,7 @@ func TestMultipleBackgroundShellNoticesFlushTogetherOnFirstAvailableSlot(t *test
 }
 
 func TestWriteStdinCompletionDoesNotQueueDuplicateBackgroundNotice(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	manager, err := shelltool.NewManager(shelltool.WithMinimumExecToBgTime(250 * time.Millisecond))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
@@ -154,7 +146,7 @@ func TestWriteStdinCompletionDoesNotQueueDuplicateBackgroundNotice(t *testing.T)
 		},
 	}}
 	registry := tools.NewRegistry(
-		shelltool.NewExecCommandTool(dir, 16_000, manager, store.Meta().SessionID),
+		shelltool.NewExecCommandTool(store.Meta().WorkspaceRoot, 16_000, manager, store.Meta().SessionID),
 		shelltool.NewWriteStdinTool(16_000, manager),
 	)
 	eng, err := New(store, client, registry, Config{Model: "gpt-5"})
@@ -205,11 +197,7 @@ func TestWriteStdinCompletionDoesNotQueueDuplicateBackgroundNotice(t *testing.T)
 }
 
 func TestSubmitUserMessageSurfacesInFlightClearFailure(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	sessionDir := store.Dir()
 	defer func() {
 		_ = os.Chmod(sessionDir, 0o755)
@@ -307,11 +295,7 @@ func TestSubmitUserMessageSurfacesInFlightClearFailure(t *testing.T) {
 }
 
 func TestNewNormalizesPersistedInFlightStepOnReopen(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	if _, err := store.AppendEvent("legacy-step", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
@@ -392,11 +376,7 @@ func TestReopenCarriesInterruptedApprovalBackedPatchToolAttemptIntoNextModelRequ
 func testReopenCarriesInterruptedToolAttemptIntoNextModelRequest(t *testing.T, call llm.ToolCall) {
 	t.Helper()
 
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	if _, err := store.AppendEvent("legacy-step", "message", llm.Message{Role: llm.RoleUser, Content: "do the thing"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
@@ -470,11 +450,7 @@ func testReopenCarriesInterruptedToolAttemptIntoNextModelRequest(t *testing.T, c
 }
 
 func TestSubmitUserShellCommandPersistsDeveloperNoticeAndToolEntries(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 
@@ -539,11 +515,7 @@ func TestSubmitUserShellCommandPersistsDeveloperNoticeAndToolEntries(t *testing.
 }
 
 func TestSubmitUserShellCommandReturnsUnknownToolErrorWhenShellNotRegistered(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
 	if err != nil {
@@ -588,11 +560,7 @@ func TestSubmitUserShellCommandReturnsUnknownToolErrorWhenShellNotRegistered(t *
 }
 
 func TestParallelToolsReturnDeclaredOrder(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{
 		{
@@ -667,11 +635,7 @@ func TestParallelToolsReturnDeclaredOrder(t *testing.T) {
 }
 
 func TestParallelToolCompletionAppearsInChatSnapshotBeforeAllToolsFinish(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{
 		{
@@ -759,11 +723,7 @@ func TestParallelToolCompletionAppearsInChatSnapshotBeforeAllToolsFinish(t *test
 }
 
 func TestPersistedAssistantToolCallsContainNoUIDisplayMarkers(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{responses: []llm.Response{
 		{
@@ -842,11 +802,7 @@ func TestExecuteToolCallsFailsOnToolCompletionPersistence(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			store, err := session.Create(dir, "ws", dir)
-			if err != nil {
-				t.Fatalf("create store: %v", err)
-			}
+			store := mustCreateTestSession(t)
 
 			eng, err := New(store, &fakeClient{}, tc.registry, Config{Model: "gpt-5"})
 			if err != nil {

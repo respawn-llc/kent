@@ -17,11 +17,7 @@ import (
 
 func TestCompactionCacheObservationRequestAppendsPromptToConversationReplica(t *testing.T) {
 	seedContent := "seed \x1b[31mansi\x1b[0m"
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{}
 
@@ -92,11 +88,7 @@ func TestCompactionCacheObservationRequestAppendsPromptToConversationReplica(t *
 }
 
 func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndWarnsOnCacheBreak(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		inputTokenCountFn: func(req llm.Request) int {
@@ -242,11 +234,7 @@ func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndWarnsOnCacheBreak(t
 }
 
 func TestRemoteCompactionDoesNotRepairUnsupportedViewImagePayload(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		inputTokenCountFn: func(req llm.Request) int {
@@ -328,11 +316,7 @@ func TestRemoteCompactionDoesNotRepairUnsupportedViewImagePayload(t *testing.T) 
 }
 
 func TestRemoteCompactionFailsFastWhenOverflowHasNoCollapsibleToolPayload(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		compactionErrors: []error{
@@ -403,11 +387,7 @@ func viewImageProviderUnitPresence(items []llm.ResponseItem, callID string) (boo
 func TestCompactionTransientRetryObservesCacheLineageOnce(t *testing.T) {
 	withCompactionRetryDelays(t, []time.Duration{time.Millisecond})
 
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		compactionErrors: []error{errors.New("temporary upstream failure"), nil},

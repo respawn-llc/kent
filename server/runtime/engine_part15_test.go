@@ -17,11 +17,7 @@ import (
 )
 
 func TestRemoteCompactionUsesSublinearPreciseTokenCountCalls(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	maxItemsSeen := 0
 	client := &fakeCompactionClient{
@@ -62,11 +58,7 @@ func TestRemoteCompactionUsesSublinearPreciseTokenCountCalls(t *testing.T) {
 }
 
 func TestLocalCompactionCarryoverUsesSublinearPreciseTokenCountCalls(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	maxItemsSeen := 0
 	client := &fakeCompactionClient{
@@ -121,11 +113,7 @@ func ceilLog2Int(value int) int {
 }
 
 func TestManualCompactionLocalUsesHistorySinceLastCompactionCheckpoint(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{
 		responses: []llm.Response{
@@ -206,11 +194,7 @@ func TestManualCompactionLocalUsesHistorySinceLastCompactionCheckpoint(t *testin
 }
 
 func TestManualCompactionLocalFailsWhenModelAttemptsToolCalls(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeClient{
 		responses: []llm.Response{
@@ -225,7 +209,7 @@ func TestManualCompactionLocalFailsWhenModelAttemptsToolCalls(t *testing.T) {
 		t.Fatalf("append message: %v", err)
 	}
 
-	err = eng.CompactContext(context.Background(), "")
+	err := eng.CompactContext(context.Background(), "")
 	if err == nil {
 		t.Fatal("expected local compaction to fail when model attempts tool calls")
 	}
@@ -243,11 +227,7 @@ func TestManualCompactionLocalFailsWhenModelAttemptsToolCalls(t *testing.T) {
 }
 
 func TestManualCompactionDisabledWhenModeNone(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", CompactionMode: "none"})
@@ -255,7 +235,7 @@ func TestManualCompactionDisabledWhenModeNone(t *testing.T) {
 		t.Fatalf("append message: %v", err)
 	}
 
-	err = eng.CompactContext(context.Background(), "")
+	err := eng.CompactContext(context.Background(), "")
 	if err == nil {
 		t.Fatal("expected manual compaction to fail when compaction_mode=none")
 	}
@@ -271,11 +251,7 @@ func TestManualCompactionDisabledWhenModeNone(t *testing.T) {
 }
 
 func TestAutoCompactionRecomputesUsageFromReplacementHistory(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		compactionResponses: []llm.CompactionResponse{
@@ -304,11 +280,7 @@ func TestAutoCompactionRecomputesUsageFromReplacementHistory(t *testing.T) {
 }
 
 func TestCompactionLabelsSingleSummaryEntry(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		compactionResponses: []llm.CompactionResponse{
@@ -352,11 +324,7 @@ func TestCompactionLabelsSingleSummaryEntry(t *testing.T) {
 
 func TestEmitCompactionStatusStillPublishesFailureEventWhenErrorPersistenceFails(t *testing.T) {
 	localEntryErr := errors.New("injected compaction error persistence failure")
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	var events []Event
 	eng, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model:   "gpt-5",
@@ -391,11 +359,7 @@ func TestEmitCompactionStatusStillPublishesFailureEventWhenErrorPersistenceFails
 }
 
 func TestReplaceHistoryDoesNotMutateRuntimeStateWhenEventAppendFails(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 	if err := eng.appendMessage("step-1", llm.Message{Role: llm.RoleUser, Content: "pre-compaction"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
@@ -410,7 +374,7 @@ func TestReplaceHistoryDoesNotMutateRuntimeStateWhenEventAppendFails(t *testing.
 		_ = os.Chmod(eventsPath, 0o644)
 	}()
 
-	err = eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}))
+	err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}))
 	if err == nil {
 		t.Fatal("expected replaceHistory persistence failure")
 	}
@@ -502,11 +466,7 @@ func TestReplaceHistoryUpdatesRuntimeStateWhenUsageMetadataPersistFailsAfterEven
 }
 
 func TestAutoCompactionRemoteReplacesHistoryAndCarriesCompactionItem(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		responses: []llm.Response{
@@ -760,11 +720,7 @@ func TestSanitizeRemoteCompactionOutputAcceptsEncryptedReasoningCheckpoint(t *te
 }
 
 func TestRemoteCompactionMissingCheckpointFallsBackToLocal(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		responses: []llm.Response{
@@ -828,11 +784,7 @@ func TestRemoteCompactionMissingCheckpointFallsBackToLocal(t *testing.T) {
 }
 
 func TestAutoCompactionRetries400ByCollapsingShellOutput(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateTestSession(t)
 
 	client := &fakeCompactionClient{
 		responses: []llm.Response{
