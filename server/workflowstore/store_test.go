@@ -18,8 +18,7 @@ import (
 )
 
 func TestWorkflowCreateUpdateReadAndGraphPersistence(t *testing.T) {
-	ctx := context.Background()
-	store, _ := newTestStore(t)
+	ctx, store, _ := newTestStoreContext(t)
 
 	created, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: "Default Pipeline", Description: "desc"})
 	if err != nil {
@@ -90,8 +89,7 @@ func TestWorkflowCreateUpdateReadAndGraphPersistence(t *testing.T) {
 }
 
 func TestWorkflowListPaginatesWithStableNameOrderAndQuery(t *testing.T) {
-	ctx := context.Background()
-	store, _ := newTestStore(t)
+	ctx, store, _ := newTestStoreContext(t)
 	created := map[string]workflow.WorkflowID{}
 	for _, name := range []string{"Gamma", "Alpha", "Beta", "Beta Searchable"} {
 		record, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: name, Description: "desc " + name})
@@ -131,8 +129,7 @@ func TestWorkflowListPaginatesWithStableNameOrderAndQuery(t *testing.T) {
 }
 
 func TestProjectWorkflowLinkFirstDefaultAndDuplicateIdempotency(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowA, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: "Workflow A"})
 	if err != nil {
 		t.Fatalf("CreateWorkflow A: %v", err)
@@ -166,8 +163,7 @@ func TestProjectWorkflowLinkFirstDefaultAndDuplicateIdempotency(t *testing.T) {
 }
 
 func TestCreateAndLinkWorkflowIsAtomicAndAppliesFirstDefaultPolicy(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	created, link, err := store.CreateAndLinkWorkflow(ctx, CreateAndLinkWorkflowRequest{
 		Name:          "Created from Project",
 		ProjectID:     binding.ProjectID,
@@ -196,8 +192,7 @@ func TestCreateAndLinkWorkflowIsAtomicAndAppliesFirstDefaultPolicy(t *testing.T)
 }
 
 func TestAddNodeRejectsNodeGroupFromDifferentWorkflow(t *testing.T) {
-	ctx := context.Background()
-	store, _ := newTestStore(t)
+	ctx, store, _ := newTestStoreContext(t)
 	workflowA, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: "Workflow A"})
 	if err != nil {
 		t.Fatalf("CreateWorkflow A: %v", err)
@@ -218,8 +213,7 @@ func TestAddNodeRejectsNodeGroupFromDifferentWorkflow(t *testing.T) {
 }
 
 func TestWorkflowEventPublisherNormalizesAndDispatchesEvents(t *testing.T) {
-	ctx := context.Background()
-	store, _ := newTestStore(t)
+	ctx, store, _ := newTestStoreContext(t)
 	store.now = func() time.Time { return time.UnixMilli(1234).UTC() }
 	if err := store.PublishWorkflowEvent(ctx, WorkflowEventRecord{Action: "created"}); err == nil || !strings.Contains(err.Error(), "event resource") {
 		t.Fatalf("missing resource error = %v", err)
@@ -270,8 +264,7 @@ func (p *recordingWorkflowEventPublisher) PublishWorkflowEvent(_ context.Context
 }
 
 func TestTaskCreateStartCancelAndComments(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 
 	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Implement feature", Body: "Body"})
@@ -380,8 +373,7 @@ func TestTaskCreateStartCancelAndComments(t *testing.T) {
 }
 
 func TestTaskCreatePersistsSourceWorkspaceAndOptionalBody(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	source, err := store.metadata.AttachWorkspaceToProject(ctx, binding.ProjectID, t.TempDir())
 	if err != nil {
@@ -412,8 +404,7 @@ func TestTaskCreatePersistsSourceWorkspaceAndOptionalBody(t *testing.T) {
 }
 
 func TestTaskUpdateEditsTitleAndBodyAfterAutomationStarts(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	source, err := store.metadata.AttachWorkspaceToProject(ctx, binding.ProjectID, t.TempDir())
 	if err != nil {
@@ -473,8 +464,7 @@ func TestTaskUpdateEditsTitleAndBodyAfterAutomationStarts(t *testing.T) {
 }
 
 func TestCompleteRunUsesRunStartSnapshotAfterGraphChanges(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -537,8 +527,7 @@ func TestCompleteRunUsesRunStartSnapshotAfterGraphChanges(t *testing.T) {
 }
 
 func TestCompleteRunBuildsChildSnapshotFromParentRevision(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createValidWorkflow(t, ctx, store)
 	def, _, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -585,8 +574,7 @@ func TestCompleteRunBuildsChildSnapshotFromParentRevision(t *testing.T) {
 }
 
 func TestStartTaskRejectsCanceledAndAlreadyStartedTasks(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	canceled, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Canceled", Body: "Body"})
 	if err != nil {
@@ -619,8 +607,7 @@ func TestStartTaskRejectsCanceledAndAlreadyStartedTasks(t *testing.T) {
 }
 
 func TestWorkflowTransitionsRefreshTaskUpdatedAt(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	if _, err := store.db.ExecContext(ctx, `UPDATE tasks SET updated_at_unix_ms = 1 WHERE id = ?`, string(task.ID)); err != nil {
@@ -648,8 +635,7 @@ func TestWorkflowTransitionsRefreshTaskUpdatedAt(t *testing.T) {
 }
 
 func TestStartTaskConcurrentCallsCreateOneRun(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 
@@ -693,48 +679,8 @@ func TestStartTaskConcurrentCallsCreateOneRun(t *testing.T) {
 	}
 }
 
-func TestCompleteRunRejectsUnsupportedRuntimeSnapshots(t *testing.T) {
-	tests := []struct {
-		name   string
-		mutate func(*testing.T, *runStartSnapshot)
-		want   string
-	}{}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			store, binding := newTestStore(t)
-			workflowID := createValidWorkflow(t, ctx, store)
-			if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-				t.Fatalf("LinkWorkflow: %v", err)
-			}
-			task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
-			if err != nil {
-				t.Fatalf("CreateTask: %v", err)
-			}
-			started, err := store.StartTask(ctx, task.ID)
-			if err != nil {
-				t.Fatalf("StartTask: %v", err)
-			}
-			mutateRunStartSnapshot(t, ctx, store, started.RunID, tt.mutate)
-
-			_, err = store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done"})
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("CompleteRun error = %v, want %q", err, tt.want)
-			}
-			runs, err := store.ListRuns(ctx, task.ID)
-			if err != nil {
-				t.Fatalf("ListRuns: %v", err)
-			}
-			if len(runs) != 1 || runs[0].CompletedAt != 0 {
-				t.Fatalf("run after rejected completion = %+v, want still active", runs)
-			}
-		})
-	}
-}
-
 func TestCompleteRunCreatesTargetRunForContinueSessionContextMode(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeContinueSession, "coder")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -787,8 +733,7 @@ func TestCompleteRunCreatesTargetRunForContinueSessionContextMode(t *testing.T) 
 }
 
 func TestRunStartContextResolvesPromptNodeReferenceOutputs(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createPromptNodeReferenceWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -822,8 +767,7 @@ func TestRunStartContextResolvesPromptNodeReferenceOutputs(t *testing.T) {
 }
 
 func TestPromptNodeReferenceDerivesOutputRequirement(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createPromptNodeReferenceWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -843,8 +787,7 @@ func TestPromptNodeReferenceDerivesOutputRequirement(t *testing.T) {
 }
 
 func TestPromptNodeReferenceApprovalFreezesOutputValue(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createPromptNodeReferenceWorkflow(t, ctx, store)
 	if _, err := store.UpdateEdge(ctx, EdgeRecord{
 		ID:                workflow.EdgeID("edge-next-" + string(workflowID)),
@@ -892,8 +835,7 @@ func TestPromptNodeReferenceApprovalFreezesOutputValue(t *testing.T) {
 }
 
 func TestRunStartContextUsesSelectedPriorNodeSession(t *testing.T) {
-	ctx := context.Background()
-	store, binding, cfg := newTestStoreWithConfig(t)
+	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
 	workflowID := createSelectedContextSourceWorkflow(t, ctx, store, workflow.ContextModeContinueSession)
 	def, _, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -965,8 +907,7 @@ func TestRunStartContextUsesSelectedPriorNodeSession(t *testing.T) {
 }
 
 func TestSelectedContextSourceUsesLatestCompletedPriorNodeRun(t *testing.T) {
-	ctx := context.Background()
-	store, binding, cfg := newTestStoreWithConfig(t)
+	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
 	workflowID := createSelectedContextSourceWorkflow(t, ctx, store, workflow.ContextModeContinueSession)
 	def, _, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -1022,8 +963,7 @@ func TestSelectedContextSourceUsesLatestCompletedPriorNodeRun(t *testing.T) {
 }
 
 func TestPendingApprovalResolvesSelectedContextSourceOnApproval(t *testing.T) {
-	ctx := context.Background()
-	store, binding, cfg := newTestStoreWithConfig(t)
+	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
 	workflowID := createSelectedContextSourceWorkflow(t, ctx, store, workflow.ContextModeContinueSession)
 	def, _, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -1098,8 +1038,7 @@ func TestPendingApprovalResolvesSelectedContextSourceOnApproval(t *testing.T) {
 }
 
 func TestSelectedContextSourceMissingPriorRunFailsClearly(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createSelectedContextSourceWorkflow(t, ctx, store, workflow.ContextModeContinueSession)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -1117,8 +1056,7 @@ func TestSelectedContextSourceMissingPriorRunFailsClearly(t *testing.T) {
 }
 
 func TestCompleteRunCreatesPendingApprovalTransition(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createApprovalWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -1152,8 +1090,7 @@ func TestCompleteRunCreatesPendingApprovalTransition(t *testing.T) {
 }
 
 func TestApprovePendingTransitionStartsStoredTargetEdgeSnapshot(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createApprovalWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -1198,8 +1135,7 @@ func TestApprovePendingTransitionStartsStoredTargetEdgeSnapshot(t *testing.T) {
 }
 
 func TestApprovePendingAgentTransitionRetryPreservesRunIDs(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
 	requireApprovalOnWorkflowEdge(t, ctx, store, workflowID, "next")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
@@ -1224,8 +1160,7 @@ func TestApprovePendingAgentTransitionRetryPreservesRunIDs(t *testing.T) {
 }
 
 func TestApprovePendingAgentTransitionRejectsLegacySnapshotWithoutFrozenTarget(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
 	requireApprovalOnWorkflowEdge(t, ctx, store, workflowID, "next")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
@@ -1247,8 +1182,7 @@ func TestApprovePendingAgentTransitionRejectsLegacySnapshotWithoutFrozenTarget(t
 }
 
 func TestApprovePendingTransitionIsConcurrentIdempotent(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createApprovalWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -1276,8 +1210,7 @@ func TestApprovePendingTransitionIsConcurrentIdempotent(t *testing.T) {
 }
 
 func TestApprovePendingJoinEdgesProgressesJoin(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	requireApprovalOnWorkflowEdge(t, ctx, store, workflowID, "join_a")
 	requireApprovalOnWorkflowEdge(t, ctx, store, workflowID, "join_b")
@@ -1324,8 +1257,7 @@ func TestApprovePendingJoinEdgesProgressesJoin(t *testing.T) {
 }
 
 func TestApprovePendingJoinWaitsForAllBranchApprovals(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	requireApprovalOnWorkflowEdge(t, ctx, store, workflowID, "join_a")
 	requireApprovalOnWorkflowEdge(t, ctx, store, workflowID, "join_b")
@@ -1375,8 +1307,7 @@ func TestApprovePendingJoinWaitsForAllBranchApprovals(t *testing.T) {
 }
 
 func TestRejectPendingApprovalTransitionMarksRejected(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createApprovalWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -1410,8 +1341,7 @@ func TestRejectPendingApprovalTransitionMarksRejected(t *testing.T) {
 }
 
 func TestApprovalTransitionGroupWaitsAsWholeWhenAnyEdgeRequiresApproval(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createApprovalWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -1439,8 +1369,7 @@ func TestApprovalTransitionGroupWaitsAsWholeWhenAnyEdgeRequiresApproval(t *testi
 }
 
 func TestCompleteRunFanoutCreatesParallelBranchPlacements(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -1481,8 +1410,7 @@ ORDER BY parallel_branch_edge_id ASC`, string(result.PlacementIDs[0]), string(re
 }
 
 func TestSerialCompletionDoesNotCreateParallelBranchPlacement(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -1497,8 +1425,7 @@ func TestSerialCompletionDoesNotCreateParallelBranchPlacement(t *testing.T) {
 }
 
 func TestJoinWaitsForAllBranchesAndRoutesSelectedProvider(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -1560,8 +1487,7 @@ func TestJoinWaitsForAllBranchesAndRoutesSelectedProvider(t *testing.T) {
 }
 
 func TestJoinArrivalsKeepMultipleJoinEdgesForOneBranchPlacement(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task, branchRunsByNode := startFanoutTask(t, ctx, store, binding.ProjectID, workflowID)
@@ -1630,8 +1556,7 @@ WHERE r.id = ?`, string(branchRunsByNode[implA.ID])).Scan(&batchID); err != nil 
 }
 
 func TestJoinDownstreamCanUseSelectedPriorContextSource(t *testing.T) {
-	ctx := context.Background()
-	store, binding, cfg := newTestStoreWithConfig(t)
+	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	def, _, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -1692,8 +1617,7 @@ func TestJoinDownstreamCanUseSelectedPriorContextSource(t *testing.T) {
 }
 
 func TestDuplicateBranchArrivalIsRejectedAndDoesNotDuplicateJoin(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -1739,8 +1663,7 @@ func TestDuplicateBranchArrivalIsRejectedAndDoesNotDuplicateJoin(t *testing.T) {
 }
 
 func TestUnrelatedFanoutBatchDoesNotSatisfyWaitingJoin(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	waitingTask, waitingRuns := startFanoutTask(t, ctx, store, binding.ProjectID, workflowID)
@@ -1774,8 +1697,7 @@ func TestUnrelatedFanoutBatchDoesNotSatisfyWaitingJoin(t *testing.T) {
 }
 
 func TestApprovalUsesStoredEdgeSnapshotAfterGraphEdit(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createApprovalWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	def, _, err := store.GetDefinition(ctx, workflowID)
@@ -1816,8 +1738,7 @@ WHERE edge_key = 'done'
 }
 
 func TestManualMoveToTerminalArchivesWithoutOutputValues(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	startTask(t, ctx, store, task.ID)
@@ -1851,8 +1772,7 @@ func TestManualMoveToTerminalArchivesWithoutOutputValues(t *testing.T) {
 }
 
 func TestManualMoveFromTerminalToStartResetsTaskToBacklog(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -1901,8 +1821,7 @@ func TestManualMoveFromTerminalToStartResetsTaskToBacklog(t *testing.T) {
 }
 
 func TestManualMoveBackwardReusesStoredOutputValues(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -1931,8 +1850,7 @@ func TestManualMoveBackwardReusesStoredOutputValues(t *testing.T) {
 }
 
 func TestManualMoveMissingEdgeOverrideValidatesTargetInputFields(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -1960,8 +1878,7 @@ func TestManualMoveMissingEdgeOverrideValidatesTargetInputFields(t *testing.T) {
 }
 
 func TestManualMoveMissingEdgeOverrideWithInputsCreatesPendingAgentTransition(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -2031,8 +1948,7 @@ func TestTargetInputBindingsUseSameInputAndFieldNames(t *testing.T) {
 }
 
 func TestManualMoveContinueSessionRequiresSourceSession(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeContinueSession, "coder")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -2050,8 +1966,7 @@ func TestManualMoveContinueSessionRequiresSourceSession(t *testing.T) {
 }
 
 func TestManualMoveRejectsSelectedContextSourceV1(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createSelectedContextSourceWorkflow(t, ctx, store, workflow.ContextModeContinueSession)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -2081,8 +1996,7 @@ func TestManualMoveRejectsSelectedContextSourceV1(t *testing.T) {
 }
 
 func TestBackwardManualMoveRejectsHistoricalSelectedContextSourceV1(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createSelectedContextSourceWorkflow(t, ctx, store, workflow.ContextModeContinueSession)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -2106,8 +2020,7 @@ func TestBackwardManualMoveRejectsHistoricalSelectedContextSourceV1(t *testing.T
 }
 
 func TestManualMovePendingApprovalRequiresSourceRun(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	def, _, err := store.GetDefinition(ctx, workflowID)
@@ -2130,8 +2043,7 @@ func TestManualMovePendingApprovalRequiresSourceRun(t *testing.T) {
 }
 
 func TestManualMoveExecutableTargetRequiresApprovalBeforeAutomation(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -2152,8 +2064,7 @@ func TestManualMoveExecutableTargetRequiresApprovalBeforeAutomation(t *testing.T
 }
 
 func TestManualMoveRejectsActiveParallelBatch(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task, branchRuns := startFanoutTask(t, ctx, store, binding.ProjectID, workflowID)
@@ -2171,8 +2082,7 @@ func TestManualMoveRejectsActiveParallelBatch(t *testing.T) {
 }
 
 func TestStartTaskRejectsCrossRoleContinueSessionContextMode(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeContinueSession, "reviewer")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 
@@ -2222,8 +2132,7 @@ func updateRunStartSnapshot(t *testing.T, ctx context.Context, store *Store, run
 }
 
 func TestCompleteRunValidatesOutputRequirements(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -2248,8 +2157,7 @@ func TestCompleteRunValidatesOutputRequirements(t *testing.T) {
 }
 
 func TestCompleteRunInfersSingleTransitionID(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -2257,8 +2165,7 @@ func TestCompleteRunInfersSingleTransitionID(t *testing.T) {
 }
 
 func TestCompleteRunRejectsMissingTransitionIDWhenAmbiguous(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createValidWorkflow(t, ctx, store)
 	def, _, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -2281,8 +2188,7 @@ func TestCompleteRunRejectsMissingTransitionIDWhenAmbiguous(t *testing.T) {
 }
 
 func TestCompleteRunRejectsUnknownOutputField(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -2292,8 +2198,7 @@ func TestCompleteRunRejectsUnknownOutputField(t *testing.T) {
 }
 
 func TestCompleteRunReturnsStructuredValidationIssues(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -2313,8 +2218,7 @@ func TestCompleteRunReturnsStructuredValidationIssues(t *testing.T) {
 }
 
 func TestCompleteRunRejectsOversizedCompletionFields(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -2330,8 +2234,7 @@ func TestCompleteRunRejectsOversizedCompletionFields(t *testing.T) {
 }
 
 func TestRecordProtocolViolationInterruptsAtCap(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -2359,8 +2262,7 @@ func TestRecordProtocolViolationInterruptsAtCap(t *testing.T) {
 }
 
 func TestCompleteRunRejectsStaleGeneration(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -2375,8 +2277,7 @@ func TestCompleteRunRejectsStaleGeneration(t *testing.T) {
 }
 
 func TestRunStartContextHandlesMissingInputEdgeAndRejectsNonArrayInputJSON(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -2426,8 +2327,7 @@ func TestRunStartContextHandlesMissingInputEdgeAndRejectsNonArrayInputJSON(t *te
 }
 
 func TestAttachRunSessionGenerationGuard(t *testing.T) {
-	ctx := context.Background()
-	store, binding, cfg := newTestStoreWithConfig(t)
+	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	sessionID := createTestSession(t, ctx, store, binding, cfg)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -2455,8 +2355,7 @@ func TestAttachRunSessionGenerationGuard(t *testing.T) {
 }
 
 func TestSetAndClearRunWaitingAskGenerationGuard(t *testing.T) {
-	ctx := context.Background()
-	store, binding, cfg := newTestStoreWithConfig(t)
+	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	sessionID := createTestSession(t, ctx, store, binding, cfg)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -2504,8 +2403,7 @@ func TestSetAndClearRunWaitingAskGenerationGuard(t *testing.T) {
 }
 
 func TestInterruptRunGenerationGuard(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -2539,8 +2437,7 @@ func TestInterruptRunGenerationGuard(t *testing.T) {
 }
 
 func TestResumeTaskRunRequeuesInterruptedRunWithSameSession(t *testing.T) {
-	ctx := context.Background()
-	store, binding, cfg := newTestStoreWithConfig(t)
+	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -2580,8 +2477,7 @@ func TestResumeTaskRunRequeuesInterruptedRunWithSameSession(t *testing.T) {
 }
 
 func TestResumeTaskRunRejectsRoleDrift(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -2599,8 +2495,7 @@ func TestResumeTaskRunRejectsRoleDrift(t *testing.T) {
 }
 
 func TestResumeTaskRunAllowsDefaultAgentRoleWithoutResolver(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createValidWorkflow(t, ctx, store)
 	def, _, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -2631,8 +2526,7 @@ func TestResumeTaskRunAllowsDefaultAgentRoleWithoutResolver(t *testing.T) {
 }
 
 func TestResumeTaskRunCanResumeInterruptedWaitingAskRun(t *testing.T) {
-	ctx := context.Background()
-	store, binding, cfg := newTestStoreWithConfig(t)
+	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -2661,8 +2555,7 @@ func TestResumeTaskRunCanResumeInterruptedWaitingAskRun(t *testing.T) {
 }
 
 func TestInterruptAndResumeTaskRunCanTargetSpecificRun(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task, branchRuns := startFanoutTask(t, ctx, store, binding.ProjectID, workflowID)
@@ -2704,8 +2597,7 @@ func TestInterruptAndResumeTaskRunCanTargetSpecificRun(t *testing.T) {
 }
 
 func TestTaskStartRejectsCurrentInvalidWorkflow(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	def, _, err := store.GetDefinition(ctx, workflowID)
@@ -2722,8 +2614,7 @@ func TestTaskStartRejectsCurrentInvalidWorkflow(t *testing.T) {
 }
 
 func TestTaskCreateAllowsInvalidWorkflowBacklogButRejectsUnlinkedWorkflow(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	invalid, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: "Invalid"})
 	if err != nil {
 		t.Fatalf("CreateWorkflow invalid: %v", err)
@@ -2764,8 +2655,7 @@ func TestTaskCreateAllowsInvalidWorkflowBacklogButRejectsUnlinkedWorkflow(t *tes
 }
 
 func TestProjectWorkflowUnlinkHardDeletesUnusedLinksAndBlocksTaskReferences(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createValidWorkflow(t, ctx, store)
 	link, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true)
 	if err != nil {
@@ -2834,8 +2724,7 @@ func TestProjectWorkflowUnlinkHardDeletesUnusedLinksAndBlocksTaskReferences(t *t
 }
 
 func TestProjectWorkflowUnlinkBlocksTerminalTaskHistory(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createValidWorkflow(t, ctx, store)
 	link, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true)
 	if err != nil {
@@ -2873,8 +2762,7 @@ func hasProjectWorkflowUnlinkBlocker(blockers []ProjectWorkflowUnlinkBlocker, co
 }
 
 func TestWorkflowDeletePreviewAndConfirmedApplyDeleteDatabaseRows(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 
@@ -2932,8 +2820,7 @@ func TestWorkflowDeletePreviewAndConfirmedApplyDeleteDatabaseRows(t *testing.T) 
 }
 
 func TestWorkflowDeleteBlocksRunnableAndActiveRuns(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -2973,8 +2860,7 @@ func TestWorkflowDeleteBlocksRunnableAndActiveRuns(t *testing.T) {
 }
 
 func TestWorkflowDeleteBlocksDefaultReplacementAndDetectsImpactChanges(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	defaultWorkflowID := createValidWorkflow(t, ctx, store)
 	defaultLink, err := store.LinkWorkflow(ctx, binding.ProjectID, defaultWorkflowID, true)
 	if err != nil {
@@ -3075,8 +2961,7 @@ func hasWorkflowDeleteBlocker(blockers []WorkflowDeleteBlocker, code string, cou
 }
 
 func TestWorkflowGraphSaveAppliesExpectedRevisionAndRemovalConfirmation(t *testing.T) {
-	ctx := context.Background()
-	store, _ := newTestStore(t)
+	ctx, store, _ := newTestStoreContext(t)
 	workflowID := createValidWorkflow(t, ctx, store)
 	def, record, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -3128,8 +3013,7 @@ func TestWorkflowGraphSaveAppliesExpectedRevisionAndRemovalConfirmation(t *testi
 }
 
 func TestWorkflowGraphSaveSupportsMetadataAndNoopRevisions(t *testing.T) {
-	ctx := context.Background()
-	store, _ := newTestStore(t)
+	ctx, store, _ := newTestStoreContext(t)
 	workflowID := createValidWorkflow(t, ctx, store)
 	def, record, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -3165,8 +3049,7 @@ func TestWorkflowGraphSaveSupportsMetadataAndNoopRevisions(t *testing.T) {
 }
 
 func TestWorkflowGraphSaveAcceptsClientGeneratedTopologyIDsAndRejectsCollisions(t *testing.T) {
-	ctx := context.Background()
-	store, _ := newTestStore(t)
+	ctx, store, _ := newTestStoreContext(t)
 	workflowID := createValidWorkflow(t, ctx, store)
 	def, record, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -3225,8 +3108,7 @@ func TestWorkflowGraphSaveAcceptsClientGeneratedTopologyIDsAndRejectsCollisions(
 }
 
 func TestWorkflowGraphSaveMetadataAndGraphAreAtomic(t *testing.T) {
-	ctx := context.Background()
-	store, _ := newTestStore(t)
+	ctx, store, _ := newTestStoreContext(t)
 	workflowID := createValidWorkflow(t, ctx, store)
 	def, record, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -3272,8 +3154,7 @@ func TestWorkflowGraphSaveMetadataAndGraphAreAtomic(t *testing.T) {
 }
 
 func TestWorkflowGraphSaveValidatesAndPersistsV1NodeGroups(t *testing.T) {
-	ctx := context.Background()
-	store, _ := newTestStore(t)
+	ctx, store, _ := newTestStoreContext(t)
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	def, record, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -3319,8 +3200,7 @@ func TestWorkflowGraphSaveValidatesAndPersistsV1NodeGroups(t *testing.T) {
 }
 
 func TestWorkflowGraphSaveRejectsStaleVersion(t *testing.T) {
-	ctx := context.Background()
-	store, _ := newTestStore(t)
+	ctx, store, _ := newTestStoreContext(t)
 	workflowID := createValidWorkflow(t, ctx, store)
 	def, record, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -3353,8 +3233,7 @@ func TestWorkflowGraphSaveRejectsStaleVersion(t *testing.T) {
 }
 
 func TestPreviewWorkflowGraphSaveDoesNotMutateWithoutBlockers(t *testing.T) {
-	ctx := context.Background()
-	store, _ := newTestStore(t)
+	ctx, store, _ := newTestStoreContext(t)
 	workflowID := createValidWorkflow(t, ctx, store)
 	def, record, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -3384,8 +3263,7 @@ func TestPreviewWorkflowGraphSaveDoesNotMutateWithoutBlockers(t *testing.T) {
 }
 
 func TestWorkflowGraphSaveRejectsChangedConfirmationImpact(t *testing.T) {
-	ctx := context.Background()
-	store, _ := newTestStore(t)
+	ctx, store, _ := newTestStoreContext(t)
 	workflowID := createValidWorkflow(t, ctx, store)
 	def, record, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -3420,15 +3298,9 @@ func TestWorkflowGraphSaveRejectsChangedConfirmationImpact(t *testing.T) {
 
 func TestWorkflowGraphSaveBlocksActiveWorkButAllowsBacklogAndTerminalTasks(t *testing.T) {
 	t.Run("backlog only task", func(t *testing.T) {
-		ctx := context.Background()
-		store, binding := newTestStore(t)
-		workflowID := createValidWorkflow(t, ctx, store)
-		if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-			t.Fatalf("LinkWorkflow: %v", err)
-		}
-		if _, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Backlog", Body: "Body"}); err != nil {
-			t.Fatalf("CreateTask: %v", err)
-		}
+		ctx, store, binding := newTestStoreContext(t)
+		workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
+		createTask(t, ctx, store, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Backlog", Body: "Body"})
 		def, record, err := store.GetDefinition(ctx, workflowID)
 		if err != nil {
 			t.Fatalf("GetDefinition: %v", err)
@@ -3446,19 +3318,10 @@ func TestWorkflowGraphSaveBlocksActiveWorkButAllowsBacklogAndTerminalTasks(t *te
 	})
 
 	t.Run("active task", func(t *testing.T) {
-		ctx := context.Background()
-		store, binding := newTestStore(t)
-		workflowID := createValidWorkflow(t, ctx, store)
-		if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-			t.Fatalf("LinkWorkflow: %v", err)
-		}
-		task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Active", Body: "Body"})
-		if err != nil {
-			t.Fatalf("CreateTask: %v", err)
-		}
-		if _, err := store.StartTask(ctx, task.ID); err != nil {
-			t.Fatalf("StartTask: %v", err)
-		}
+		ctx, store, binding := newTestStoreContext(t)
+		workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
+		task := createTask(t, ctx, store, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Active", Body: "Body"})
+		startTask(t, ctx, store, task.ID)
 		def, record, err := store.GetDefinition(ctx, workflowID)
 		if err != nil {
 			t.Fatalf("GetDefinition: %v", err)
@@ -3476,20 +3339,10 @@ func TestWorkflowGraphSaveBlocksActiveWorkButAllowsBacklogAndTerminalTasks(t *te
 	})
 
 	t.Run("terminal only task", func(t *testing.T) {
-		ctx := context.Background()
-		store, binding := newTestStore(t)
-		workflowID := createValidWorkflow(t, ctx, store)
-		if _, err := store.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
-			t.Fatalf("LinkWorkflow: %v", err)
-		}
-		task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Terminal", Body: "Body"})
-		if err != nil {
-			t.Fatalf("CreateTask: %v", err)
-		}
-		started, err := store.StartTask(ctx, task.ID)
-		if err != nil {
-			t.Fatalf("StartTask: %v", err)
-		}
+		ctx, store, binding := newTestStoreContext(t)
+		workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
+		task := createTask(t, ctx, store, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Terminal", Body: "Body"})
+		started := startTask(t, ctx, store, task.ID)
 		completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "done"})
 		def, record, err := store.GetDefinition(ctx, workflowID)
 		if err != nil {
@@ -3509,8 +3362,7 @@ func TestWorkflowGraphSaveBlocksActiveWorkButAllowsBacklogAndTerminalTasks(t *te
 }
 
 func TestWorkflowGraphSaveEditPolicyBlocksStartNodeChanges(t *testing.T) {
-	ctx := context.Background()
-	store, _ := newTestStore(t)
+	ctx, store, _ := newTestStoreContext(t)
 	workflowID := createValidWorkflow(t, ctx, store)
 	def, record, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -3535,8 +3387,7 @@ func TestWorkflowGraphSaveEditPolicyBlocksStartNodeChanges(t *testing.T) {
 }
 
 func TestWorkflowGraphSaveEditPolicyBlocksLastTerminalRemovalOrKindChange(t *testing.T) {
-	ctx := context.Background()
-	store, _ := newTestStore(t)
+	ctx, store, _ := newTestStoreContext(t)
 	workflowID := createValidWorkflow(t, ctx, store)
 	def, record, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
@@ -3561,8 +3412,7 @@ func TestWorkflowGraphSaveEditPolicyBlocksLastTerminalRemovalOrKindChange(t *tes
 }
 
 func TestWorkflowGraphSaveEditPolicyBlocksTaskReferencedNodeKindChange(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -3654,8 +3504,7 @@ func TestWorkflowPerEntityMutationsUseGraphEditPolicy(t *testing.T) {
 }
 
 func TestWorkflowGraphSaveBlocksRemovedTaskReferences(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -3696,8 +3545,7 @@ func TestWorkflowGraphSaveBlocksRemovedTaskReferences(t *testing.T) {
 }
 
 func TestWorkflowGraphSaveBlocksRemovedParallelBranchEdgeReferences(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createFanoutJoinWorkflow(t, ctx, store)
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
@@ -3930,8 +3778,7 @@ func forceWorkflowGraphRowsForSnapshotTest(t *testing.T, ctx context.Context, st
 }
 
 func TestGuardedGraphDeletesRespectTaskHistory(t *testing.T) {
-	ctx := context.Background()
-	store, binding := newTestStore(t)
+	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
@@ -3981,8 +3828,7 @@ func TestGuardedGraphDeletesRespectTaskHistory(t *testing.T) {
 }
 
 func TestWorkflowGraphUpdatesRejectCrossWorkflowReferences(t *testing.T) {
-	ctx := context.Background()
-	store, _ := newTestStore(t)
+	ctx, store, _ := newTestStoreContext(t)
 	firstWorkflowID := createValidWorkflow(t, ctx, store)
 	secondWorkflowID := createValidWorkflow(t, ctx, store)
 	firstDef, _, err := store.GetDefinition(ctx, firstWorkflowID)
@@ -4012,6 +3858,18 @@ func newTestStore(t *testing.T) (*Store, metadata.Binding) {
 	t.Helper()
 	store, binding, _ := newTestStoreWithConfig(t)
 	return store, binding
+}
+
+func newTestStoreContext(t *testing.T) (context.Context, *Store, metadata.Binding) {
+	t.Helper()
+	store, binding := newTestStore(t)
+	return context.Background(), store, binding
+}
+
+func newTestStoreWithConfigContext(t *testing.T) (context.Context, *Store, metadata.Binding, config.App) {
+	t.Helper()
+	store, binding, cfg := newTestStoreWithConfig(t)
+	return context.Background(), store, binding, cfg
 }
 
 func newTestStoreWithConfig(t *testing.T) (*Store, metadata.Binding, config.App) {
