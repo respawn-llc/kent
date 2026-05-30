@@ -204,6 +204,19 @@ func newBindingCommandSession(t *testing.T, workspace string) (*metadata.Store, 
 	return store, binding, sess
 }
 
+func resetBindingCommandRetargetHooks(t *testing.T) {
+	t.Helper()
+	originalOpener := bindingCommandRemoteOpener
+	originalRetargeter := bindingCommandSessionRetargeter
+	originalLocalClient := bindingCommandLocalSessionLifecycleClient
+	t.Cleanup(func() {
+		bindingCommandRemoteOpener = originalOpener
+		bindingCommandSessionRetargeter = originalRetargeter
+		bindingCommandLocalSessionLifecycleClient = originalLocalClient
+	})
+	t.Setenv("HOME", t.TempDir())
+}
+
 func startBindingCommandServer(t *testing.T, workspace string) func() {
 	t.Helper()
 	cfg, err := config.Load(workspace, config.LoadOptions{})
@@ -548,17 +561,7 @@ func TestRebindSubcommandRejectsInvalidInputs(t *testing.T) {
 }
 
 func TestRetargetSessionWorkspaceFallsBackToLocalLifecycleClientForLoopbackMethodNotFound(t *testing.T) {
-	originalOpener := bindingCommandRemoteOpener
-	originalRetargeter := bindingCommandSessionRetargeter
-	originalLocalClient := bindingCommandLocalSessionLifecycleClient
-	t.Cleanup(func() {
-		bindingCommandRemoteOpener = originalOpener
-		bindingCommandSessionRetargeter = originalRetargeter
-		bindingCommandLocalSessionLifecycleClient = originalLocalClient
-	})
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	resetBindingCommandRetargetHooks(t)
 	newWorkspace := t.TempDir()
 	newCfg, err := config.Load(newWorkspace, config.LoadOptions{})
 	if err != nil {
@@ -606,17 +609,7 @@ func TestRetargetSessionWorkspaceFallsBackToLocalLifecycleClientForLoopbackMetho
 }
 
 func TestRetargetSessionWorkspaceFallsBackToLocalLifecycleClientForLoopbackOpenFailure(t *testing.T) {
-	originalOpener := bindingCommandRemoteOpener
-	originalRetargeter := bindingCommandSessionRetargeter
-	originalLocalClient := bindingCommandLocalSessionLifecycleClient
-	t.Cleanup(func() {
-		bindingCommandRemoteOpener = originalOpener
-		bindingCommandSessionRetargeter = originalRetargeter
-		bindingCommandLocalSessionLifecycleClient = originalLocalClient
-	})
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	resetBindingCommandRetargetHooks(t)
 	newWorkspace := t.TempDir()
 	newCfg, err := config.Load(newWorkspace, config.LoadOptions{})
 	if err != nil {
@@ -657,17 +650,7 @@ func TestRetargetSessionWorkspaceFallsBackToLocalLifecycleClientForLoopbackOpenF
 }
 
 func TestRetargetSessionWorkspaceDoesNotFallbackForNonLoopbackMethodNotFound(t *testing.T) {
-	originalOpener := bindingCommandRemoteOpener
-	originalRetargeter := bindingCommandSessionRetargeter
-	originalLocalClient := bindingCommandLocalSessionLifecycleClient
-	t.Cleanup(func() {
-		bindingCommandRemoteOpener = originalOpener
-		bindingCommandSessionRetargeter = originalRetargeter
-		bindingCommandLocalSessionLifecycleClient = originalLocalClient
-	})
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	resetBindingCommandRetargetHooks(t)
 	t.Setenv("BUILDER_SERVER_HOST", "192.0.2.10")
 	newWorkspace := t.TempDir()
 	newCfg, err := config.Load(newWorkspace, config.LoadOptions{})
@@ -701,17 +684,7 @@ func TestRetargetSessionWorkspaceDoesNotFallbackForNonLoopbackMethodNotFound(t *
 }
 
 func TestRetargetSessionWorkspaceDoesNotFallbackForNonLoopbackOpenFailure(t *testing.T) {
-	originalOpener := bindingCommandRemoteOpener
-	originalRetargeter := bindingCommandSessionRetargeter
-	originalLocalClient := bindingCommandLocalSessionLifecycleClient
-	t.Cleanup(func() {
-		bindingCommandRemoteOpener = originalOpener
-		bindingCommandSessionRetargeter = originalRetargeter
-		bindingCommandLocalSessionLifecycleClient = originalLocalClient
-	})
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	resetBindingCommandRetargetHooks(t)
 	t.Setenv("BUILDER_SERVER_HOST", "192.0.2.10")
 	newWorkspace := t.TempDir()
 	bindingCommandRemoteOpener = func(context.Context, string) (config.App, *client.Remote, error) {
@@ -734,17 +707,7 @@ func TestRetargetSessionWorkspaceDoesNotFallbackForNonLoopbackOpenFailure(t *tes
 }
 
 func TestRetargetSessionWorkspaceDoesNotFallbackForExplicitLocalhostMethodNotFound(t *testing.T) {
-	originalOpener := bindingCommandRemoteOpener
-	originalRetargeter := bindingCommandSessionRetargeter
-	originalLocalClient := bindingCommandLocalSessionLifecycleClient
-	t.Cleanup(func() {
-		bindingCommandRemoteOpener = originalOpener
-		bindingCommandSessionRetargeter = originalRetargeter
-		bindingCommandLocalSessionLifecycleClient = originalLocalClient
-	})
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	resetBindingCommandRetargetHooks(t)
 	t.Setenv("BUILDER_SERVER_HOST", "localhost")
 	t.Setenv("BUILDER_SERVER_PORT", "65432")
 	newWorkspace := t.TempDir()

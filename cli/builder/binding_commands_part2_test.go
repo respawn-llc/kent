@@ -12,17 +12,7 @@ import (
 )
 
 func TestRetargetSessionWorkspaceDoesNotFallbackForExplicitLoopbackPortOpenFailure(t *testing.T) {
-	originalOpener := bindingCommandRemoteOpener
-	originalRetargeter := bindingCommandSessionRetargeter
-	originalLocalClient := bindingCommandLocalSessionLifecycleClient
-	t.Cleanup(func() {
-		bindingCommandRemoteOpener = originalOpener
-		bindingCommandSessionRetargeter = originalRetargeter
-		bindingCommandLocalSessionLifecycleClient = originalLocalClient
-	})
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	resetBindingCommandRetargetHooks(t)
 	t.Setenv("BUILDER_SERVER_PORT", "65432")
 	newWorkspace := t.TempDir()
 	newCfg, err := config.Load(newWorkspace, config.LoadOptions{})
