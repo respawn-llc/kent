@@ -524,7 +524,7 @@ func TestExecCommandMovesToBackgroundAndPollsToCompletion(t *testing.T) {
 	pollTool := NewWriteStdinTool(16_000, manager)
 
 	result := callExecCommand(t, execTool, "bg-1", map[string]any{
-		"cmd":           "sleep 0.3; echo done",
+		"cmd":           "sleep 0.3; echo done; sleep 0.3",
 		"shell":         "/bin/sh",
 		"login":         false,
 		"yield_time_ms": 250,
