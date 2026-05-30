@@ -205,10 +205,7 @@ func newPromptCacheContinuityFixture(t *testing.T) *promptCacheContinuityFixture
 	writeTestFile(t, filepath.Join(home, ".builder", "skills", "global-cache-skill", "SKILL.md"), skillFixtureMarkdown("global-cache-skill", "Global prompt-cache continuity skill."))
 	writeTestFile(t, filepath.Join(workspaceRoot, ".builder", "skills", "workspace-cache-skill", "SKILL.md"), skillFixtureMarkdown("workspace-cache-skill", "Workspace prompt-cache continuity skill."))
 
-	store, err := session.Create(persistenceRoot, "ws", workspaceRoot)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSessionAt(t, persistenceRoot, "ws", workspaceRoot)
 	clientCaps := llm.ProviderCapabilities{
 		ProviderID:                    "openai",
 		SupportsResponsesAPI:          true,

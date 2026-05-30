@@ -549,10 +549,7 @@ func TestAutoCompactionRemoteDropsPreCompactionDeveloperContext(t *testing.T) {
 	}
 
 	storeRoot := t.TempDir()
-	store, err := session.Create(storeRoot, "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace)
 
 	client := &fakeCompactionClient{
 		responses: []llm.Response{

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"builder/server/llm"
-	"builder/server/session"
 	"builder/server/tools"
 	edittool "builder/server/tools/edit"
 	"builder/shared/toolspec"
@@ -20,10 +19,7 @@ func TestEditAliasCompletionDiffAndReviewerEditsFlow(t *testing.T) {
 	if err := os.WriteFile(target, []byte("old\n"), 0o644); err != nil {
 		t.Fatalf("seed file: %v", err)
 	}
-	store, err := session.Create(filepath.Join(t.TempDir(), "sessions"), "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSessionAt(t, filepath.Join(t.TempDir(), "sessions"), "ws", workspace)
 	editTool, err := edittool.New(workspace, true)
 	if err != nil {
 		t.Fatalf("new edit tool: %v", err)

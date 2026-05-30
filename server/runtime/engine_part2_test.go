@@ -266,10 +266,7 @@ func TestChildSessionSnapshotsRoleSystemPromptOnFirstRequest(t *testing.T) {
 	writeTestFile(t, rolePrompt, "code review system prompt")
 	toolPreambles := false
 	root := t.TempDir()
-	parent, err := session.Create(root, "parent", workspace)
-	if err != nil {
-		t.Fatalf("create parent: %v", err)
-	}
+	parent := mustCreateNamedTestSessionAt(t, root, "parent", workspace)
 	if err := parent.MarkModelDispatchLocked(session.LockedContract{
 		Model:             "locked-parent",
 		EnabledTools:      []string{"shell"},
@@ -599,10 +596,7 @@ func TestSetFastModeTogglesRuntimeOnly(t *testing.T) {
 func TestFastModeSharedStateAppliesAcrossEngines(t *testing.T) {
 	dir := t.TempDir()
 	state := NewFastModeState(false)
-	storeA, err := session.Create(dir, "ws-a", dir)
-	if err != nil {
-		t.Fatalf("create store A: %v", err)
-	}
+	storeA := mustCreateNamedTestSessionAt(t, dir, "ws-a", dir)
 	engA := mustNewExecTestEngine(t, storeA, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, Config{
 		Model:         "gpt-5.3-codex",
 		FastModeState: state,
@@ -616,10 +610,7 @@ func TestFastModeSharedStateAppliesAcrossEngines(t *testing.T) {
 		t.Fatalf("expected shared fast mode enabled, changed=%v enabled=%v", changed, state.Enabled())
 	}
 
-	storeB, err := session.Create(dir, "ws-b", dir)
-	if err != nil {
-		t.Fatalf("create store B: %v", err)
-	}
+	storeB := mustCreateNamedTestSessionAt(t, dir, "ws-b", dir)
 	engB := mustNewExecTestEngine(t, storeB, &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}}, Config{
 		Model:         "gpt-5.3-codex",
 		FastModeState: state,

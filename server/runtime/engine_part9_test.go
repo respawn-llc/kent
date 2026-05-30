@@ -321,14 +321,8 @@ func TestRestoreMessagesPreservesRecoveredMultiToolProviderOrder(t *testing.T) {
 
 func TestRestoreMessagesPreservesRecoveredMultiToolExactTokenParity(t *testing.T) {
 	dir := t.TempDir()
-	liveStore, err := session.Create(filepath.Join(dir, "live"), "ws", dir)
-	if err != nil {
-		t.Fatalf("create live store: %v", err)
-	}
-	restoredStore, err := session.Create(filepath.Join(dir, "restored"), "ws", dir)
-	if err != nil {
-		t.Fatalf("create restored store: %v", err)
-	}
+	liveStore := mustCreateNamedTestSessionAt(t, filepath.Join(dir, "live"), "ws", dir)
+	restoredStore := mustCreateNamedTestSessionAt(t, filepath.Join(dir, "restored"), "ws", dir)
 	countForRequest := func(req llm.Request) int {
 		count := 0
 		for i, item := range req.Items {

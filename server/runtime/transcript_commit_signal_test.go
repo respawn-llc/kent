@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"builder/server/llm"
-	"builder/server/session"
 	"builder/server/tools"
 	"builder/shared/toolspec"
 	"builder/shared/transcript"
@@ -73,10 +72,7 @@ func TestSubmitUserMessageWithToolCallDoesNotEmitCommittedConversationUpdatedAft
 
 func TestPatchToolCallStartedUsesTranscriptWorkingDir(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", "/main")
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSessionAt(t, dir, "ws", "/main")
 	patchText := "*** Begin Patch\n*** Add File: probe.txt\n+hello\n*** End Patch\n"
 	client := &fakeClient{responses: []llm.Response{
 		{

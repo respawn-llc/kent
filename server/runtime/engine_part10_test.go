@@ -35,10 +35,7 @@ func TestInjectsGlobalAndWorkspaceAgentsAfterExistingMessagesAndBeforeFirstUserM
 	}
 
 	storeRoot := t.TempDir()
-	store, err := session.Create(storeRoot, "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace)
 	if _, err := store.AppendEvent("prior-step", "message", llm.Message{
 		Role:    llm.RoleDeveloper,
 		Content: "existing context",
@@ -152,10 +149,7 @@ func TestFreshChildSessionReinjectsDeveloperContextEvenWhenParentAlreadyInjected
 	writeTestSkill(t, filepath.Join(workspace, ".builder", "skills", "workspace-skill"), "workspace-skill", "from workspace")
 
 	storeRoot := t.TempDir()
-	parent, err := session.Create(storeRoot, "parent", workspace)
-	if err != nil {
-		t.Fatalf("create parent: %v", err)
-	}
+	parent := mustCreateNamedTestSessionAt(t, storeRoot, "parent", workspace)
 	if err := parent.MarkAgentsInjected(); err != nil {
 		t.Fatalf("mark parent agents injected: %v", err)
 	}
@@ -206,10 +200,7 @@ func TestInjectsEnvironmentInfoWithoutAnyAgentsFiles(t *testing.T) {
 
 	workspace := t.TempDir()
 	storeRoot := t.TempDir()
-	store, err := session.Create(storeRoot, "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace)
 
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok"},
@@ -248,10 +239,7 @@ func TestInjectsSkillsContextBeforeEnvironmentAndPersists(t *testing.T) {
 	workspaceSkillPath := writeTestSkill(t, filepath.Join(workspace, ".builder", "skills", "workspace-skill"), "workspace-skill", "from workspace")
 
 	storeRoot := t.TempDir()
-	store, err := session.Create(storeRoot, "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace)
 
 	client := &fakeClient{responses: []llm.Response{
 		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok-1"}, Usage: llm.Usage{WindowTokens: 200000}},
@@ -325,10 +313,7 @@ func TestDisabledSkillsAreNotInjectedIntoNewSessions(t *testing.T) {
 	writeTestSkill(t, filepath.Join(workspace, ".builder", "skills", "workspace-skill"), "Workspace Skill", "from workspace")
 
 	storeRoot := t.TempDir()
-	store, err := session.Create(storeRoot, "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace)
 
 	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok"}, Usage: llm.Usage{WindowTokens: 200000}}}}
 	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
@@ -373,10 +358,7 @@ func TestBrokenSymlinkedSkillsAreSkippedAndWarnedInTranscript(t *testing.T) {
 	}
 
 	storeRoot := t.TempDir()
-	store, err := session.Create(storeRoot, "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace)
 
 	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok"}, Usage: llm.Usage{WindowTokens: 200000}}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
@@ -477,12 +459,9 @@ func TestEnvironmentContextMessageRejectsEmptyModel(t *testing.T) {
 func TestNewRejectsEmptyModel(t *testing.T) {
 	storeRoot := t.TempDir()
 	workspace := t.TempDir()
-	store, err := session.Create(storeRoot, "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace)
 
-	_, err = New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{})
+	_, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{})
 	if err == nil {
 		t.Fatal("expected New to reject empty model")
 	}
@@ -497,10 +476,7 @@ func TestSubmitInjectsEnvironmentLineWithLabeledModelIdentifier(t *testing.T) {
 
 	workspace := t.TempDir()
 	storeRoot := t.TempDir()
-	store, err := session.Create(storeRoot, "ws", workspace)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace)
 
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "ok"},
