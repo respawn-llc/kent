@@ -34,10 +34,7 @@ func TestServiceListsSingleProjectAndSessions(t *testing.T) {
 		t.Fatalf("persist second session meta: %v", err)
 	}
 
-	svc, err := NewMetadataService(store, binding.ProjectID)
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	svc := newProjectViewMetadataService(t, store, binding.ProjectID)
 
 	projects, err := svc.ListProjects(context.Background(), serverapi.ProjectListRequest{})
 	if err != nil {
@@ -78,10 +75,7 @@ func TestServiceListsSingleProjectAndSessions(t *testing.T) {
 
 func TestServiceRejectsUnknownProjectID(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	svc, err := NewMetadataService(store, binding.ProjectID)
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	svc := newProjectViewMetadataService(t, store, binding.ProjectID)
 	if _, err := svc.GetProjectOverview(context.Background(), serverapi.ProjectGetOverviewRequest{ProjectID: "project-2"}); err == nil {
 		t.Fatal("expected GetProjectOverview to reject unknown project")
 	}
@@ -119,10 +113,7 @@ func TestMetadataServiceSupportsWildcardAndScopedProjectListing(t *testing.T) {
 		t.Fatalf("RegisterWorkspaceBinding B: %v", err)
 	}
 
-	wildcard, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService wildcard: %v", err)
-	}
+	wildcard := newProjectViewMetadataService(t, store, "")
 	projects, err := wildcard.ListProjects(context.Background(), serverapi.ProjectListRequest{})
 	if err != nil {
 		t.Fatalf("ListProjects wildcard: %v", err)
@@ -131,10 +122,7 @@ func TestMetadataServiceSupportsWildcardAndScopedProjectListing(t *testing.T) {
 		t.Fatalf("expected wildcard metadata service to list both projects, got %+v", projects.Projects)
 	}
 
-	scoped, err := NewMetadataService(store, bindingA.ProjectID)
-	if err != nil {
-		t.Fatalf("NewMetadataService scoped: %v", err)
-	}
+	scoped := newProjectViewMetadataService(t, store, bindingA.ProjectID)
 	projects, err = scoped.ListProjects(context.Background(), serverapi.ProjectListRequest{})
 	if err != nil {
 		t.Fatalf("ListProjects scoped: %v", err)
@@ -150,10 +138,7 @@ func TestMetadataServiceSupportsWildcardAndScopedProjectListing(t *testing.T) {
 func TestMetadataServiceCreatesProjectWithExplicitKey(t *testing.T) {
 	store, _, _ := newProjectViewMetadataStore(t)
 	workspace := t.TempDir()
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	svc := newProjectViewMetadataService(t, store, "")
 
 	created, err := svc.CreateProject(context.Background(), serverapi.ProjectCreateRequest{
 		DisplayName:   "GUI Project",
@@ -178,10 +163,7 @@ func TestMetadataServiceCreatesProjectWithExplicitKey(t *testing.T) {
 
 func TestMetadataServiceRejectsInvalidAndDuplicateProjectKeys(t *testing.T) {
 	store, _, _ := newProjectViewMetadataStore(t)
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	svc := newProjectViewMetadataService(t, store, "")
 
 	if _, err := svc.CreateProject(context.Background(), serverapi.ProjectCreateRequest{
 		DisplayName:   "Invalid",
@@ -215,10 +197,7 @@ func TestMetadataServiceRejectsInvalidAndDuplicateProjectKeys(t *testing.T) {
 
 func TestMetadataServiceCreatesProjectWithoutExplicitKey(t *testing.T) {
 	store, _, _ := newProjectViewMetadataStore(t)
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	svc := newProjectViewMetadataService(t, store, "")
 
 	created, err := svc.CreateProject(context.Background(), serverapi.ProjectCreateRequest{
 		DisplayName:   "Default Key",
@@ -234,14 +213,8 @@ func TestMetadataServiceCreatesProjectWithoutExplicitKey(t *testing.T) {
 
 func TestMetadataServiceListsProjectWorkspacesForGUI(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	attached, err := store.AttachWorkspaceToProject(context.Background(), binding.ProjectID, t.TempDir())
-	if err != nil {
-		t.Fatalf("AttachWorkspaceToProject: %v", err)
-	}
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	attached := attachProjectViewWorkspace(t, store, binding.ProjectID)
+	svc := newProjectViewMetadataService(t, store, "")
 
 	list, err := svc.ListProjectWorkspaces(context.Background(), serverapi.ProjectWorkspaceListRequest{ProjectID: binding.ProjectID})
 	if err != nil {
@@ -266,18 +239,9 @@ func TestMetadataServiceListsProjectWorkspacesForGUI(t *testing.T) {
 
 func TestMetadataServicePaginatesProjectWorkspacesForGUI(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	first, err := store.AttachWorkspaceToProject(context.Background(), binding.ProjectID, t.TempDir())
-	if err != nil {
-		t.Fatalf("AttachWorkspaceToProject first: %v", err)
-	}
-	second, err := store.AttachWorkspaceToProject(context.Background(), binding.ProjectID, t.TempDir())
-	if err != nil {
-		t.Fatalf("AttachWorkspaceToProject second: %v", err)
-	}
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	first := attachProjectViewWorkspace(t, store, binding.ProjectID)
+	second := attachProjectViewWorkspace(t, store, binding.ProjectID)
+	svc := newProjectViewMetadataService(t, store, "")
 
 	page1, err := svc.ListProjectWorkspaces(context.Background(), serverapi.ProjectWorkspaceListRequest{ProjectID: binding.ProjectID, PageSize: 2})
 	if err != nil {
@@ -304,10 +268,7 @@ func TestMetadataServicePaginatesProjectWorkspacesForGUI(t *testing.T) {
 
 func TestMetadataServiceUpdatesProjectNameForEditPage(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	svc := newProjectViewMetadataService(t, store, "")
 
 	updated, err := svc.UpdateProject(context.Background(), serverapi.ProjectUpdateRequest{
 		ProjectID:   binding.ProjectID,
@@ -334,10 +295,7 @@ func TestMetadataServiceUpdatesProjectNameForEditPage(t *testing.T) {
 
 func TestMetadataServiceRejectsInvalidProjectEditNames(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	svc := newProjectViewMetadataService(t, store, "")
 
 	for _, displayName := range []string{"", " trimmed", "trimmed ", "line\nbreak", strings.Repeat("a", 81)} {
 		_, err := svc.UpdateProject(context.Background(), serverapi.ProjectUpdateRequest{
@@ -352,14 +310,8 @@ func TestMetadataServiceRejectsInvalidProjectEditNames(t *testing.T) {
 
 func TestMetadataServiceSetsDefaultWorkspaceForEditPage(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	attached, err := store.AttachWorkspaceToProject(context.Background(), binding.ProjectID, t.TempDir())
-	if err != nil {
-		t.Fatalf("AttachWorkspaceToProject: %v", err)
-	}
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	attached := attachProjectViewWorkspace(t, store, binding.ProjectID)
+	svc := newProjectViewMetadataService(t, store, "")
 
 	updated, err := svc.SetDefaultWorkspace(context.Background(), serverapi.ProjectDefaultWorkspaceSetRequest{
 		ProjectID:   binding.ProjectID,
@@ -383,14 +335,8 @@ func TestMetadataServiceSetsDefaultWorkspaceForEditPage(t *testing.T) {
 
 func TestMetadataServiceUnlinksWorkspaceForEditPage(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	attached, err := store.AttachWorkspaceToProject(context.Background(), binding.ProjectID, t.TempDir())
-	if err != nil {
-		t.Fatalf("AttachWorkspaceToProject: %v", err)
-	}
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	attached := attachProjectViewWorkspace(t, store, binding.ProjectID)
+	svc := newProjectViewMetadataService(t, store, "")
 
 	blocked, err := svc.UnlinkWorkspaceFromProject(context.Background(), serverapi.ProjectWorkspaceUnlinkRequest{
 		ProjectID:   binding.ProjectID,
@@ -424,14 +370,8 @@ func TestMetadataServiceUnlinksWorkspaceForEditPage(t *testing.T) {
 
 func TestMetadataServiceGetsProjectEditForGUI(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	_, err := store.AttachWorkspaceToProject(context.Background(), binding.ProjectID, t.TempDir())
-	if err != nil {
-		t.Fatalf("AttachWorkspaceToProject: %v", err)
-	}
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	attachProjectViewWorkspace(t, store, binding.ProjectID)
+	svc := newProjectViewMetadataService(t, store, "")
 
 	edit, err := svc.GetProjectEdit(context.Background(), serverapi.ProjectEditGetRequest{ProjectID: binding.ProjectID, PageSize: 1})
 	if err != nil {
@@ -453,10 +393,7 @@ func TestMetadataServiceGetsProjectEditForGUI(t *testing.T) {
 
 func TestMetadataServiceListsProjectHomeForGUI(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	svc := newProjectViewMetadataService(t, store, "")
 	created, err := svc.CreateProject(context.Background(), serverapi.ProjectCreateRequest{
 		DisplayName:   "GUI Home",
 		ProjectKey:    "HOME",
@@ -528,10 +465,7 @@ func TestMetadataServiceListsProjectHomeForGUI(t *testing.T) {
 
 func TestMetadataServiceListsScopedProjectHomeBeforePagination(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	unscoped, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService unscoped: %v", err)
-	}
+	unscoped := newProjectViewMetadataService(t, store, "")
 	created, err := unscoped.CreateProject(context.Background(), serverapi.ProjectCreateRequest{
 		DisplayName:   "Newer GUI Home",
 		ProjectKey:    "NEW",
@@ -540,10 +474,7 @@ func TestMetadataServiceListsScopedProjectHomeBeforePagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	scoped, err := NewMetadataService(store, binding.ProjectID)
-	if err != nil {
-		t.Fatalf("NewMetadataService scoped: %v", err)
-	}
+	scoped := newProjectViewMetadataService(t, store, binding.ProjectID)
 
 	home, err := scoped.ListProjectHome(context.Background(), serverapi.ProjectHomeListRequest{PageSize: 1})
 	if err != nil {
@@ -577,10 +508,7 @@ func TestMetadataServiceResolveProjectPathLeavesNestedDirectoryUnbound(t *testin
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
 
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	svc := newProjectViewMetadataService(t, store, "")
 
 	resolved, err := svc.ResolveProjectPath(context.Background(), serverapi.ProjectResolvePathRequest{Path: nested})
 	if err != nil {
@@ -594,10 +522,7 @@ func TestMetadataServiceResolveProjectPathLeavesNestedDirectoryUnbound(t *testin
 func TestMetadataServicePlansInteractiveLocalUnboundWorkspace(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
 	workspace := t.TempDir()
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	svc := newProjectViewMetadataService(t, store, "")
 
 	plan, err := svc.PlanWorkspaceBinding(context.Background(), serverapi.ProjectBindingPlanRequest{Path: workspace, Mode: serverapi.ProjectBindingPlanModeInteractive})
 	if err != nil {
@@ -617,10 +542,7 @@ func TestMetadataServicePlansAmbiguousDuplicateWorkspaceBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace second: %v", err)
 	}
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	svc := newProjectViewMetadataService(t, store, "")
 
 	if _, err := svc.ResolveProjectPath(context.Background(), serverapi.ProjectResolvePathRequest{Path: cfg.WorkspaceRoot}); !errors.Is(err, serverapi.ErrWorkspaceBindingAmbiguous) {
 		t.Fatalf("ResolveProjectPath duplicate binding error = %v, want ErrWorkspaceBindingAmbiguous", err)
@@ -650,10 +572,7 @@ func TestMetadataServicePlansAmbiguousDuplicateWorkspaceBinding(t *testing.T) {
 
 func TestMetadataServicePlansHeadlessSingleRemoteWorkspace(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	svc := newProjectViewMetadataService(t, store, "")
 
 	plan, err := svc.PlanWorkspaceBinding(context.Background(), serverapi.ProjectBindingPlanRequest{Path: filepath.Join(t.TempDir(), "missing"), Mode: serverapi.ProjectBindingPlanModeHeadless})
 	if err != nil {
@@ -669,13 +588,8 @@ func TestMetadataServicePlansHeadlessSingleRemoteWorkspace(t *testing.T) {
 
 func TestMetadataServicePlansHeadlessAmbiguousRemoteWorkspaces(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	if _, err := store.AttachWorkspaceToProject(context.Background(), binding.ProjectID, t.TempDir()); err != nil {
-		t.Fatalf("AttachWorkspaceToProject: %v", err)
-	}
-	svc, err := NewMetadataService(store, "")
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	attachProjectViewWorkspace(t, store, binding.ProjectID)
+	svc := newProjectViewMetadataService(t, store, "")
 
 	plan, err := svc.PlanWorkspaceBinding(context.Background(), serverapi.ProjectBindingPlanRequest{Path: filepath.Join(t.TempDir(), "missing"), Mode: serverapi.ProjectBindingPlanModeHeadless})
 	if err != nil {
@@ -684,6 +598,15 @@ func TestMetadataServicePlansHeadlessAmbiguousRemoteWorkspaces(t *testing.T) {
 	if plan.Kind != serverapi.ProjectBindingPlanKindHeadlessRemoteAmbiguous {
 		t.Fatalf("plan kind = %q, want %q", plan.Kind, serverapi.ProjectBindingPlanKindHeadlessRemoteAmbiguous)
 	}
+}
+
+func newProjectViewMetadataService(t testing.TB, store *metadata.Store, projectID string) *Service {
+	t.Helper()
+	svc, err := NewMetadataService(store, projectID)
+	if err != nil {
+		t.Fatalf("NewMetadataService: %v", err)
+	}
+	return svc
 }
 
 func newProjectViewMetadataStore(t testing.TB) (*metadata.Store, config.App, metadata.Binding) {
@@ -706,6 +629,15 @@ func newProjectViewMetadataStore(t testing.TB) (*metadata.Store, config.App, met
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
 	return store, cfg, binding
+}
+
+func attachProjectViewWorkspace(t testing.TB, store *metadata.Store, projectID string) metadata.Binding {
+	t.Helper()
+	binding, err := store.AttachWorkspaceToProject(context.Background(), projectID, t.TempDir())
+	if err != nil {
+		t.Fatalf("AttachWorkspaceToProject: %v", err)
+	}
+	return binding
 }
 
 func workspaceIDs(workspaces []serverapi.ProjectWorkspaceSummary) []string {
