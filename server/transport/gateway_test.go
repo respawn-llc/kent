@@ -28,13 +28,8 @@ import (
 func registerGatewayWorkspace(t *testing.T, workspace string) {
 	t.Helper()
 	configureGatewayTestServerPort(t)
-	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
-	if err != nil {
-		t.Fatalf("ResolveConfig: %v", err)
-	}
-	if _, err := metadata.RegisterBinding(context.Background(), resolved.Config.PersistenceRoot, resolved.Config.WorkspaceRoot); err != nil {
-		t.Fatalf("RegisterBinding: %v", err)
-	}
+	resolved := resolveGatewayTestConfig(t, workspace)
+	registerGatewayTestBinding(t, resolved.Config)
 }
 
 func configureGatewayTestServerPort(t *testing.T) {
@@ -523,22 +518,10 @@ func TestGatewayRejectsSessionAccessOutsideAttachedProject(t *testing.T) {
 	t.Setenv("HOME", home)
 	configureGatewayTestServerPort(t)
 
-	resolvedA, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceA})
-	if err != nil {
-		t.Fatalf("ResolveConfig A: %v", err)
-	}
-	bindingA, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding A: %v", err)
-	}
-	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})
-	if err != nil {
-		t.Fatalf("ResolveConfig B: %v", err)
-	}
-	bindingB, err := metadata.RegisterBinding(context.Background(), resolvedB.Config.PersistenceRoot, resolvedB.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding B: %v", err)
-	}
+	resolvedA := resolveGatewayTestConfig(t, workspaceA)
+	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	resolvedB := resolveGatewayTestConfig(t, workspaceB)
+	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
 	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)
@@ -641,22 +624,10 @@ func TestGatewayAllowsUnscopedSessionRetargetOutsideServerDefaultProject(t *test
 	t.Setenv("HOME", home)
 	configureGatewayTestServerPort(t)
 
-	resolvedA, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceA})
-	if err != nil {
-		t.Fatalf("ResolveConfig A: %v", err)
-	}
-	bindingA, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding A: %v", err)
-	}
-	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})
-	if err != nil {
-		t.Fatalf("ResolveConfig B: %v", err)
-	}
-	bindingB, err := metadata.RegisterBinding(context.Background(), resolvedB.Config.PersistenceRoot, resolvedB.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding B: %v", err)
-	}
+	resolvedA := resolveGatewayTestConfig(t, workspaceA)
+	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	resolvedB := resolveGatewayTestConfig(t, workspaceB)
+	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
 	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)
@@ -704,10 +675,7 @@ func TestGatewayAllowsOptionalSessionLifecycleRequestsWithoutSessionID(t *testin
 	t.Setenv("HOME", home)
 	registerGatewayWorkspace(t, workspace)
 
-	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
-	if err != nil {
-		t.Fatalf("ResolveConfig: %v", err)
-	}
+	resolved := resolveGatewayTestConfig(t, workspace)
 	binding, err := metadata.ResolveBinding(context.Background(), resolved.Config.PersistenceRoot, resolved.Config.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("ResolveBinding: %v", err)
@@ -769,22 +737,10 @@ func TestGatewayProjectReattachClearsStaleSessionAttachment(t *testing.T) {
 	t.Setenv("HOME", home)
 	configureGatewayTestServerPort(t)
 
-	resolvedA, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceA})
-	if err != nil {
-		t.Fatalf("ResolveConfig A: %v", err)
-	}
-	bindingA, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding A: %v", err)
-	}
-	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})
-	if err != nil {
-		t.Fatalf("ResolveConfig B: %v", err)
-	}
-	bindingB, err := metadata.RegisterBinding(context.Background(), resolvedB.Config.PersistenceRoot, resolvedB.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding B: %v", err)
-	}
+	resolvedA := resolveGatewayTestConfig(t, workspaceA)
+	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	resolvedB := resolveGatewayTestConfig(t, workspaceB)
+	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
 
 	authSupport := newGatewayTestAuthSupport(t, true)
 	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
@@ -825,21 +781,10 @@ func TestGatewayRejectsAttachProjectWorkspaceOutsideProject(t *testing.T) {
 	t.Setenv("HOME", home)
 	configureGatewayTestServerPort(t)
 
-	resolvedA, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceA})
-	if err != nil {
-		t.Fatalf("ResolveConfig A: %v", err)
-	}
-	bindingA, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding A: %v", err)
-	}
-	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})
-	if err != nil {
-		t.Fatalf("ResolveConfig B: %v", err)
-	}
-	if _, err := metadata.RegisterBinding(context.Background(), resolvedB.Config.PersistenceRoot, resolvedB.Config.WorkspaceRoot); err != nil {
-		t.Fatalf("RegisterBinding B: %v", err)
-	}
+	resolvedA := resolveGatewayTestConfig(t, workspaceA)
+	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	resolvedB := resolveGatewayTestConfig(t, workspaceB)
+	registerGatewayTestBinding(t, resolvedB.Config)
 
 	authSupport := newGatewayTestAuthSupport(t, true)
 	runtimeSupport, err := serverbootstrap.BuildRuntimeSupport(resolvedA.Config)
