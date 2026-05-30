@@ -17,6 +17,7 @@ import (
 	"errors"
 	tea "github.com/charmbracelet/bubbletea"
 	xansi "github.com/charmbracelet/x/ansi"
+	"io"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -258,6 +259,74 @@ func waitForSubmitResult(t *testing.T, timeout time.Duration, submitDone <-chan 
 		}
 	case <-time.After(timeout):
 		t.Fatal("timed out waiting for submit user message completion")
+	}
+}
+
+type nativeProgramHarness struct {
+	t       *testing.T
+	program *tea.Program
+	done    chan error
+}
+
+func startNativeProgram(t *testing.T, model tea.Model, output io.Writer, options ...tea.ProgramOption) *nativeProgramHarness {
+	t.Helper()
+	programOptions := append([]tea.ProgramOption{
+		tea.WithInput(strings.NewReader("")),
+		tea.WithOutput(output),
+		tea.WithoutSignals(),
+	}, options...)
+	program := tea.NewProgram(model, programOptions...)
+	harness := &nativeProgramHarness{
+		t:       t,
+		program: program,
+		done:    make(chan error, 1),
+	}
+	go func() {
+		_, err := program.Run()
+		harness.done <- err
+	}()
+	return harness
+}
+
+func (h *nativeProgramHarness) Send(msg tea.Msg) {
+	h.program.Send(msg)
+}
+
+func (h *nativeProgramHarness) Quit() {
+	h.program.Quit()
+}
+
+func (h *nativeProgramHarness) Wait(timeout time.Duration) {
+	h.t.Helper()
+	h.wait(timeout, false)
+}
+
+func (h *nativeProgramHarness) WaitAllowContextCanceled(timeout time.Duration) {
+	h.t.Helper()
+	h.wait(timeout, true)
+}
+
+func (h *nativeProgramHarness) QuitAndWait(timeout time.Duration) {
+	h.t.Helper()
+	h.Quit()
+	h.Wait(timeout)
+}
+
+func (h *nativeProgramHarness) QuitAndWaitAllowContextCanceled(timeout time.Duration) {
+	h.t.Helper()
+	h.Quit()
+	h.WaitAllowContextCanceled(timeout)
+}
+
+func (h *nativeProgramHarness) wait(timeout time.Duration, allowContextCanceled bool) {
+	h.t.Helper()
+	select {
+	case err := <-h.done:
+		if err != nil && !(allowContextCanceled && strings.Contains(err.Error(), "context canceled")) {
+			h.t.Fatalf("program run failed: %v", err)
+		}
+	case <-time.After(timeout):
+		h.t.Fatal("program did not terminate")
 	}
 }
 
@@ -511,33 +580,13 @@ func TestNativeScrollbackProgramOutputContract(t *testing.T) {
 		}),
 	)
 
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(out),
-		tea.WithoutSignals(),
-	)
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(40 * time.Millisecond)
 	program.Send(nativeHistoryFlushMsg{Text: "delta replay line"})
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
 	time.Sleep(20 * time.Millisecond)
-	program.Quit()
-
-	select {
-	case err := <-done:
-		if err != nil && !strings.Contains(err.Error(), "context canceled") {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWaitAllowContextCanceled(2 * time.Second)
 
 	raw := out.String()
 	normalized := normalizedOutput(raw)
@@ -571,32 +620,13 @@ func TestNativeScrollbackInitClearsOnEachProgramRun(t *testing.T) {
 		out := &bytes.Buffer{}
 		model := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), closedAskEvents())
 
-		program := tea.NewProgram(
-			model,
-			tea.WithInput(strings.NewReader("")),
-			tea.WithOutput(out),
-			tea.WithoutSignals(),
-		)
-
-		done := make(chan error, 1)
-		go func() {
-			_, err := program.Run()
-			done <- err
-		}()
+		program := startNativeProgram(t, model, out)
 
 		time.Sleep(40 * time.Millisecond)
 		program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
 		time.Sleep(20 * time.Millisecond)
 		program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("program run failed: %v", err)
-			}
-		case <-time.After(2 * time.Second):
-			t.Fatal("program did not terminate")
-		}
+		program.Wait(2 * time.Second)
 
 		return out.String()
 	}
@@ -627,18 +657,7 @@ func TestNativeResizeReplaysOngoingScreenAfterRealResize(t *testing.T) {
 	)
 	model.input = "line one\nline two"
 
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(out),
-		tea.WithoutSignals(),
-	)
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(40 * time.Millisecond)
 	for _, size := range []tea.WindowSizeMsg{
@@ -651,16 +670,7 @@ func TestNativeResizeReplaysOngoingScreenAfterRealResize(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	time.Sleep(50 * time.Millisecond)
-	program.Quit()
-
-	select {
-	case err := <-done:
-		if err != nil && !strings.Contains(err.Error(), "context canceled") {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWaitAllowContextCanceled(2 * time.Second)
 
 	raw := out.String()
 	if count := strings.Count(raw, "\x1b[2J"); count < 2 || count > 3 {
@@ -700,18 +710,7 @@ func TestNativeResizeClearWithoutHistoryRedrawsSingleLiveRegion(t *testing.T) {
 	model := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), closedAskEvents())
 	model.input = "top\ncurrent\nbottom"
 
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(out),
-		tea.WithoutSignals(),
-	)
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(40 * time.Millisecond)
 	for _, size := range []tea.WindowSizeMsg{
@@ -724,16 +723,7 @@ func TestNativeResizeClearWithoutHistoryRedrawsSingleLiveRegion(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	time.Sleep(40 * time.Millisecond)
-	program.Quit()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 
 	raw := out.String()
 	if count := strings.Count(raw, "\x1b[2J"); count < 1 {
@@ -787,18 +777,7 @@ func TestNativeRollbackOverlayCtrlCBalancesAltScreenAndAlternateScroll(t *testin
 		}),
 	)
 
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(strings.NewReader("")),
-		tea.WithOutput(out),
-		tea.WithoutSignals(),
-	)
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(40 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
@@ -812,15 +791,7 @@ func TestNativeRollbackOverlayCtrlCBalancesAltScreenAndAlternateScroll(t *testin
 		return strings.Contains(out.String(), "\x1b[?1049h")
 	})
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.Wait(2 * time.Second)
 
 	raw := out.String()
 	enterAlt := strings.Count(raw, "\x1b[?1049h")

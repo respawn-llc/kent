@@ -31,12 +31,7 @@ func TestNativeProgramUserFlushDoesNotTriggerTranscriptSyncThatDropsCommentary(t
 		runtimeEvents,
 		closedAskEvents(),
 	)
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -78,15 +73,7 @@ func TestNativeProgramUserFlushDoesNotTriggerTranscriptSyncThatDropsCommentary(t
 		t.Fatalf("expected flushed user message to avoid extra transcript syncs, baseline=%d current=%d", baselineLoadCalls, currentLoadCalls)
 	}
 
-	program.Quit()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 	if normalized := normalizedOutput(out.String()); !containsInOrder(normalized, "seed", "say hi", "pwd", "done") {
 		t.Fatalf("expected realtime terminal sequence after user flush, got %q", normalized)
 	}
@@ -102,12 +89,7 @@ func TestNativeProgramCommittedToolStartReplacesMatchingTransientToolRowWithoutH
 		},
 	}
 	model := newProjectedTestUIModel(client, runtimeEvents, closedAskEvents())
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -176,15 +158,7 @@ func TestNativeProgramCommittedToolStartReplacesMatchingTransientToolRowWithoutH
 		t.Fatalf("expected committed tool start to avoid transcript hydrate when only replacing a matching transient row, baseline=%d current=%d", baselineLoadCalls, currentLoadCalls)
 	}
 
-	program.Quit()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 	if committed := stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot()); !strings.Contains(committed, "pwd") {
 		t.Fatalf("expected committed tool pair in ongoing committed surface after replacement, got %q", committed)
 	}
@@ -210,12 +184,7 @@ func TestNativeProgramUserFlushHydratesCommittedGapWhileAssistantStreamIsLive(t 
 		},
 	}
 	model := newProjectedTestUIModel(client, runtimeEvents, closedAskEvents())
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -286,15 +255,7 @@ func TestNativeProgramUserFlushHydratesCommittedGapWhileAssistantStreamIsLive(t 
 		t.Fatalf("expected assistant response append to keep avoiding transcript hydrate, baseline=%d current=%d", baselineLoadCalls, currentLoadCalls)
 	}
 
-	program.Quit()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 	if committed := stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot()); !containsInOrder(committed, "seed", "steered message", "after follow-up") {
 		t.Fatalf("expected hydrated committed user flush to remain visible in ongoing committed surface, got %q", committed)
 	}
@@ -310,12 +271,7 @@ func TestNativeProgramReviewerTerminalMessageRemainsVisibleWithoutHydration(t *t
 		},
 	}
 	model := newProjectedTestUIModel(client, runtimeEvents, closedAskEvents())
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -346,15 +302,7 @@ func TestNativeProgramReviewerTerminalMessageRemainsVisibleWithoutHydration(t *t
 		t.Fatalf("expected reviewer terminal message to avoid transcript hydrate when rich committed entries already cover the tail, baseline=%d current=%d", baselineLoadCalls, currentLoadCalls)
 	}
 
-	program.Quit()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 	if committed := stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot()); !containsInOrder(committed, "seed", "Supervisor ran: no changes.") {
 		t.Fatalf("expected reviewer terminal message in ongoing committed surface, got %q", committed)
 	}
@@ -378,12 +326,7 @@ func TestNativeProgramConversationRefreshHydratesCommittedTranscriptWithoutRepla
 	}
 	model := newProjectedTestUIModel(client, runtimeEvents, closedAskEvents())
 	model.startupCmds = nil
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -406,15 +349,7 @@ func TestNativeProgramConversationRefreshHydratesCommittedTranscriptWithoutRepla
 		return strings.Contains(normalizedOutput(out.String()), "restored after reconnect")
 	})
 
-	program.Quit()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 
 	raw := out.String()
 	if strings.Contains(raw[baselineLen:], "\x1b[2J") {
@@ -460,12 +395,7 @@ func TestNativeProgramSlashLocalEntryDoesNotReplayPreviousPrompt(t *testing.T) {
 	model := newProjectedTestUIModel(client, runtimeEvents, closedAskEvents())
 	model.promptHistoryDraft = "can u backfill this into the conversation so i can post this on twitter"
 	model.promptHistoryDraftCursor = -1
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -477,15 +407,7 @@ func TestNativeProgramSlashLocalEntryDoesNotReplayPreviousPrompt(t *testing.T) {
 	waitForTestCondition(t, 2*time.Second, "slash command feedback visible", func() bool {
 		return strings.Contains(normalizedOutput(out.String()), "Auto-compaction disabled")
 	})
-	program.Quit()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 
 	normalized := normalizedOutput(out.String())
 	if got := strings.Count(normalized, "can u backfill this into the conversation"); got != 1 {
@@ -537,12 +459,7 @@ func TestNativeStreamingInterleavedWithStatusRedrawStaysCoherent(t *testing.T) {
 		closedAskEvents(),
 		WithUIInitialTranscript([]UITranscriptEntry{{Role: "user", Text: "prompt once"}}),
 	)
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 32})
 	program.Send(projectedRuntimeEventMsg(runtime.Event{Kind: runtime.EventAssistantDelta, AssistantDelta: "line1\n"}))
@@ -551,14 +468,7 @@ func TestNativeStreamingInterleavedWithStatusRedrawStaysCoherent(t *testing.T) {
 	program.Send(spinnerTickMsg{})
 	time.Sleep(40 * time.Millisecond)
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.Wait(2 * time.Second)
 	raw := out.String()
 	plain := xansi.Strip(raw)
 	if strings.Count(normalizedOutput(raw), "prompt once") != 1 {
@@ -606,12 +516,7 @@ func TestQueuedFollowUpWaitsForFinalTranscriptCatchUpBeforeNativeScrollbackAppen
 	model.sawAssistantDelta = true
 	model.forwardToView(tui.SetConversationMsg{Ongoing: "working"})
 
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -654,14 +559,7 @@ func TestQueuedFollowUpWaitsForFinalTranscriptCatchUpBeforeNativeScrollbackAppen
 	})
 
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.Wait(2 * time.Second)
 
 	normalized := normalizedOutput(out.String())
 	if !containsInOrder(normalized, "final answer", "follow up") {
@@ -698,12 +596,7 @@ func TestQueuedFollowUpRemainsHiddenUntilFinalCatchUpThenAppendsOnceInRenderedOn
 	model.sawAssistantDelta = true
 	model.forwardToView(tui.SetConversationMsg{Ongoing: "working"})
 
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -743,14 +636,7 @@ func TestQueuedFollowUpRemainsHiddenUntilFinalCatchUpThenAppendsOnceInRenderedOn
 	})
 
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.Wait(2 * time.Second)
 
 	committed := stripANSIAndTrimRight(model.view.OngoingCommittedSnapshot())
 	if strings.Count(committed, "final answer") != 1 {
@@ -792,12 +678,7 @@ func TestRuntimeContinuityRecoveryReplaysOngoingScrollbackAndLaterAssistantAppen
 	model.sawAssistantDelta = true
 	model.forwardToView(tui.SetConversationMsg{Entries: model.transcriptEntries, Ongoing: "working"})
 
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -848,15 +729,7 @@ func TestRuntimeContinuityRecoveryReplaysOngoingScrollbackAndLaterAssistantAppen
 		return containsInOrder(normalizedOutput(out.String()), "after", "next answer")
 	})
 
-	program.Quit()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 
 	normalized := normalizedOutput(out.String())
 	if !containsInOrder(normalized, "before", "after", "next answer") {
@@ -930,12 +803,7 @@ func TestNativeOngoingScrollbackContinuesAfterTransientActivityResubscribeTimeou
 
 	out := &bytes.Buffer{}
 	model := newProjectedTestUIModel(&runtimeControlFakeClient{sessionView: clientui.RuntimeSessionView{SessionID: "session-1"}}, runtimeEvents, closedAskEvents())
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -946,15 +814,7 @@ func TestNativeOngoingScrollbackContinuesAfterTransientActivityResubscribeTimeou
 		return containsInOrder(normalizedOutput(out.String()), "before disconnect", "after reconnect")
 	})
 
-	program.Quit()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 	if subscribeCalls != 2 {
 		t.Fatalf("subscribe calls = %d, want 2", subscribeCalls)
 	}
@@ -987,12 +847,7 @@ func TestRuntimeAuthoritativeHydrateRepairsOngoingScrollbackWithoutContinuityLos
 	model.sawAssistantDelta = true
 	model.forwardToView(tui.SetConversationMsg{Entries: model.transcriptEntries, Ongoing: "working"})
 
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, err := program.Run()
-		done <- err
-	}()
+	program := startNativeProgram(t, model, out)
 
 	time.Sleep(30 * time.Millisecond)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -1016,15 +871,7 @@ func TestRuntimeAuthoritativeHydrateRepairsOngoingScrollbackWithoutContinuityLos
 		return strings.Contains(got, "after") && !strings.Contains(got, "before")
 	})
 
-	program.Quit()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("program run failed: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
-	}
+	program.QuitAndWait(2 * time.Second)
 
 	if strings.Contains(out.String()[baselineLen:], "\x1b[2J") {
 		t.Fatalf("did not expect ordinary authoritative hydrate divergence to clear/replay ongoing scrollback, got %q", out.String()[baselineLen:])
