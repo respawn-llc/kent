@@ -49,12 +49,21 @@ func readImagePathInput(path string) string {
 	return `{"path":"` + strings.ReplaceAll(path, `\`, `\\`) + `"}`
 }
 
+func writeReadImageTestFile(t *testing.T, workspace string, name string, data []byte) {
+	t.Helper()
+	writeReadImageTestPath(t, filepath.Join(workspace, name), data)
+}
+
+func writeReadImageTestPath(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write %s: %v", filepath.Base(path), err)
+	}
+}
+
 func TestCall_ImagePathReturnsInputImageContentItem(t *testing.T) {
 	workspace := t.TempDir()
-	imagePath := filepath.Join(workspace, "img.png")
-	if err := os.WriteFile(imagePath, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write image: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "img.png", tinyPNG)
 
 	tool := newReadImageTestTool(t, workspace, true)
 	result := callReadImageTool(t, tool, "call-1", `{"path":"img.png"}`)
@@ -127,10 +136,7 @@ func TestNewSymlinkLoopWorkspaceReturnsContextualResolutionError(t *testing.T) {
 func TestCall_PDFPathReturnsInputFileContentItem(t *testing.T) {
 	workspace := t.TempDir()
 	pdfBytes := []byte("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n")
-	pdfPath := filepath.Join(workspace, "doc.pdf")
-	if err := os.WriteFile(pdfPath, pdfBytes, 0o644); err != nil {
-		t.Fatalf("write pdf: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "doc.pdf", pdfBytes)
 
 	tool := newReadImageTestTool(t, workspace, true)
 	result := callReadImageTool(t, tool, "call-1", `{"path":"doc.pdf"}`)
@@ -170,10 +176,7 @@ func TestCall_PDFPathReturnsInputFileContentItem(t *testing.T) {
 
 func TestCall_UnsupportedFileReturnsToolError(t *testing.T) {
 	workspace := t.TempDir()
-	textPath := filepath.Join(workspace, "note.txt")
-	if err := os.WriteFile(textPath, []byte("hello"), 0o644); err != nil {
-		t.Fatalf("write text file: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "note.txt", []byte("hello"))
 
 	tool := newReadImageTestTool(t, workspace, true)
 	result := callReadImageTool(t, tool, "call-1", `{"path":"note.txt"}`)
@@ -195,11 +198,7 @@ func TestCall_DirectoryPathReturnsToolError(t *testing.T) {
 func TestCall_OversizedFileReturnsCompressionGuidance(t *testing.T) {
 	workspace := t.TempDir()
 	oversized := make([]byte, int(maxFileSizeBytes)+1)
-
-	path := filepath.Join(workspace, "huge.pdf")
-	if err := os.WriteFile(path, oversized, 0o644); err != nil {
-		t.Fatalf("write oversized pdf: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "huge.pdf", oversized)
 
 	tool := newReadImageTestTool(t, workspace, true)
 	result := callReadImageTool(t, tool, "call-oversized", `{"path":"huge.pdf"}`)
@@ -217,15 +216,8 @@ func TestCall_OversizedFileReturnsCompressionGuidance(t *testing.T) {
 
 func TestCall_FileSizeBoundary(t *testing.T) {
 	workspace := t.TempDir()
-	exactPath := filepath.Join(workspace, "exact.pdf")
-	oversizedPath := filepath.Join(workspace, "oversized.pdf")
-
-	if err := os.WriteFile(exactPath, make([]byte, int(maxFileSizeBytes)), 0o644); err != nil {
-		t.Fatalf("write exact-size file: %v", err)
-	}
-	if err := os.WriteFile(oversizedPath, make([]byte, int(maxFileSizeBytes)+1), 0o644); err != nil {
-		t.Fatalf("write oversized file: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "exact.pdf", make([]byte, int(maxFileSizeBytes)))
+	writeReadImageTestFile(t, workspace, "oversized.pdf", make([]byte, int(maxFileSizeBytes)+1))
 
 	tool := newReadImageTestTool(t, workspace, true)
 	exactResult := callReadImageTool(t, tool, "call-exact-size", `{"path":"exact.pdf"}`)
@@ -255,9 +247,7 @@ func TestCall_PathTraversalOutsideWorkspaceRejectedByDefault(t *testing.T) {
 		t.Fatalf("create workspace: %v", err)
 	}
 	outsidePath := filepath.Join(parent, "outside.png")
-	if err := os.WriteFile(outsidePath, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside file: %v", err)
-	}
+	writeReadImageTestPath(t, outsidePath, tinyPNG)
 
 	tool := newReadImageTestTool(t, workspace, true)
 	result := callReadImageTool(t, tool, "call-traversal", `{"path":"../outside.png"}`)
@@ -272,9 +262,7 @@ func TestCall_PathTraversalOutsideWorkspaceRejectedByDefault(t *testing.T) {
 func TestCall_SymlinkEscapeOutsideWorkspaceRejectedByDefault(t *testing.T) {
 	workspace := t.TempDir()
 	outside := filepath.Join(outsideNonTempDir(t), "outside.png")
-	if err := os.WriteFile(outside, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside file: %v", err)
-	}
+	writeReadImageTestPath(t, outside, tinyPNG)
 	linkPath := filepath.Join(workspace, "symlink.png")
 	if err := os.Symlink(outside, linkPath); err != nil {
 		t.Fatalf("create symlink: %v", err)
@@ -293,9 +281,7 @@ func TestCall_SymlinkEscapeOutsideWorkspaceRejectedByDefault(t *testing.T) {
 func TestCall_OutsideWorkspaceTempDirAllowedWithoutApproval(t *testing.T) {
 	workspace := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "outside.png")
-	if err := os.WriteFile(outside, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside file: %v", err)
-	}
+	writeReadImageTestPath(t, outside, tinyPNG)
 
 	approveCalls := 0
 	tool := newReadImageTestTool(
@@ -322,12 +308,8 @@ func TestCall_OutsideWorkspaceAllowSessionSkipsFuturePrompts(t *testing.T) {
 	outsideRoot := outsideNonTempDir(t)
 	outside1 := filepath.Join(outsideRoot, "outside1.png")
 	outside2 := filepath.Join(outsideRoot, "outside2.png")
-	if err := os.WriteFile(outside1, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside1: %v", err)
-	}
-	if err := os.WriteFile(outside2, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside2: %v", err)
-	}
+	writeReadImageTestPath(t, outside1, tinyPNG)
+	writeReadImageTestPath(t, outside2, tinyPNG)
 
 	approveCalls := 0
 	tool := newReadImageTestTool(
@@ -358,9 +340,7 @@ func TestCall_OutsideWorkspaceAllowSessionSkipsFuturePrompts(t *testing.T) {
 func TestCall_OutsideWorkspaceAllowOncePromptsEachCall(t *testing.T) {
 	workspace := t.TempDir()
 	outside := filepath.Join(outsideNonTempDir(t), "outside.png")
-	if err := os.WriteFile(outside, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside file: %v", err)
-	}
+	writeReadImageTestPath(t, outside, tinyPNG)
 
 	approveCalls := 0
 	tool := newReadImageTestTool(
@@ -392,9 +372,7 @@ func TestCall_OutsideWorkspaceAllowOncePromptsEachCall(t *testing.T) {
 func TestCall_OutsideWorkspaceApprovalAuditsResolvedPath(t *testing.T) {
 	workspace := t.TempDir()
 	outside := filepath.Join(outsideNonTempDir(t), "outside.png")
-	if err := os.WriteFile(outside, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside file: %v", err)
-	}
+	writeReadImageTestPath(t, outside, tinyPNG)
 
 	audits := make([]OutsideWorkspaceAudit, 0, 2)
 	tool := newReadImageTestTool(
@@ -441,9 +419,7 @@ func TestCall_OutsideWorkspaceApprovalAuditsResolvedPath(t *testing.T) {
 func TestCall_OutsideWorkspaceApprovalFailureUsesReadSpecificWording(t *testing.T) {
 	workspace := t.TempDir()
 	outside := filepath.Join(outsideNonTempDir(t), "outside.png")
-	if err := os.WriteFile(outside, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside file: %v", err)
-	}
+	writeReadImageTestPath(t, outside, tinyPNG)
 
 	tool := newReadImageTestTool(
 		t,
@@ -470,9 +446,7 @@ func TestCall_OutsideWorkspaceApprovalFailureUsesReadSpecificWording(t *testing.
 func TestCall_OutsideWorkspaceRejectionIncludesReadSpecificGuidance(t *testing.T) {
 	workspace := t.TempDir()
 	outside := filepath.Join(outsideNonTempDir(t), "outside.png")
-	if err := os.WriteFile(outside, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write outside file: %v", err)
-	}
+	writeReadImageTestPath(t, outside, tinyPNG)
 
 	tool := newReadImageTestTool(
 		t,
@@ -496,10 +470,7 @@ func TestCall_OutsideWorkspaceRejectionIncludesReadSpecificGuidance(t *testing.T
 
 func TestCall_CaseVariantAbsolutePathInsideWorkspaceDoesNotTriggerOutsideApproval(t *testing.T) {
 	workspace := t.TempDir()
-	imagePath := filepath.Join(workspace, "img.png")
-	if err := os.WriteFile(imagePath, tinyPNG, 0o644); err != nil {
-		t.Fatalf("write image: %v", err)
-	}
+	writeReadImageTestFile(t, workspace, "img.png", tinyPNG)
 
 	variantWorkspace, ok := findCaseVariantExistingAlias(workspace)
 	if !ok {
