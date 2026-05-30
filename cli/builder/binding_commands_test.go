@@ -176,6 +176,34 @@ func registerBindingCommandWorkspace(t *testing.T, workspace string) metadata.Bi
 	return binding
 }
 
+func newBindingCommandSession(t *testing.T, workspace string) (*metadata.Store, metadata.Binding, *session.Store) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load oldWorkspace: %v", err)
+	}
+	store, err := metadata.Open(cfg.PersistenceRoot)
+	if err != nil {
+		t.Fatalf("metadata.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	binding, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("RegisterBinding oldWorkspace: %v", err)
+	}
+	sess, err := session.Create(
+		config.ProjectSessionsRoot(cfg, binding.ProjectID),
+		filepath.Base(cfg.WorkspaceRoot),
+		cfg.WorkspaceRoot,
+		store.AuthoritativeSessionStoreOptions()...,
+	)
+	if err != nil {
+		t.Fatalf("session.Create: %v", err)
+	}
+	return store, binding, sess
+}
+
 func startBindingCommandServer(t *testing.T, workspace string) func() {
 	t.Helper()
 	cfg, err := config.Load(workspace, config.LoadOptions{})
@@ -424,38 +452,15 @@ func TestAttachSubcommandRejectsUnknownExplicitProjectIDCleanly(t *testing.T) {
 }
 
 func TestRebindSubcommandRetargetsSessionWorkspace(t *testing.T) {
-	home := t.TempDir()
 	oldWorkspace := t.TempDir()
 	newWorkspace := t.TempDir()
-	t.Setenv("HOME", home)
 	originalOpener := bindingCommandRemoteOpener
 	t.Cleanup(func() { bindingCommandRemoteOpener = originalOpener })
 	bindingCommandRemoteOpener = func(context.Context, string) (config.App, *client.Remote, error) {
 		return config.App{}, nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connect refused")}
 	}
 
-	cfg, err := config.Load(oldWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load oldWorkspace: %v", err)
-	}
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
-	binding, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding oldWorkspace: %v", err)
-	}
-	sess, err := session.Create(
-		config.ProjectSessionsRoot(cfg, binding.ProjectID),
-		filepath.Base(cfg.WorkspaceRoot),
-		cfg.WorkspaceRoot,
-		store.AuthoritativeSessionStoreOptions()...,
-	)
-	if err != nil {
-		t.Fatalf("session.Create: %v", err)
-	}
+	store, binding, sess := newBindingCommandSession(t, oldWorkspace)
 	if err := sess.SetName("incident triage"); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
@@ -491,40 +496,17 @@ func TestRebindSubcommandRetargetsSessionWorkspace(t *testing.T) {
 }
 
 func TestRebindSubcommandRejectsInvalidInputs(t *testing.T) {
-	home := t.TempDir()
 	oldWorkspace := t.TempDir()
 	otherWorkspace := t.TempDir()
 	targetWorkspace := t.TempDir()
 	missingWorkspace := filepath.Join(t.TempDir(), "missing")
-	t.Setenv("HOME", home)
 	originalOpener := bindingCommandRemoteOpener
 	t.Cleanup(func() { bindingCommandRemoteOpener = originalOpener })
 	bindingCommandRemoteOpener = func(context.Context, string) (config.App, *client.Remote, error) {
 		return config.App{}, nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connect refused")}
 	}
 
-	cfg, err := config.Load(oldWorkspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load oldWorkspace: %v", err)
-	}
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = store.Close() }()
-	binding, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding oldWorkspace: %v", err)
-	}
-	sess, err := session.Create(
-		config.ProjectSessionsRoot(cfg, binding.ProjectID),
-		filepath.Base(cfg.WorkspaceRoot),
-		cfg.WorkspaceRoot,
-		store.AuthoritativeSessionStoreOptions()...,
-	)
-	if err != nil {
-		t.Fatalf("session.Create: %v", err)
-	}
+	store, _, sess := newBindingCommandSession(t, oldWorkspace)
 	if err := sess.SetName("incident triage"); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
