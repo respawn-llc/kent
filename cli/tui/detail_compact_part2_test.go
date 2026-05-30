@@ -10,6 +10,44 @@ import (
 	"testing"
 )
 
+func newCompactDetailModel(t *testing.T, previewLines int, opts ...Option) Model {
+	t.Helper()
+	modelOptions := append([]Option{WithCompactDetail(), WithPreviewLines(previewLines)}, opts...)
+	return NewModel(modelOptions...)
+}
+
+func newSizedCompactDetailModel(t *testing.T, previewLines int) Model {
+	t.Helper()
+	return updateModel(t, newCompactDetailModel(t, previewLines), SetViewportSizeMsg{Lines: previewLines, Width: 80})
+}
+
+func appendAssistantLines(t *testing.T, m Model, count int, format string) Model {
+	t.Helper()
+	for idx := 0; idx < count; idx++ {
+		m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: fmt.Sprintf(format, idx)})
+	}
+	return m
+}
+
+func appendShellToolCall(t *testing.T, m Model, id, command string) Model {
+	t.Helper()
+	return updateModel(t, m, AppendTranscriptMsg{
+		Role:       "tool_call",
+		Text:       command,
+		ToolCallID: id,
+		ToolCall:   &transcript.ToolCallMeta{ToolName: "exec_command", IsShell: true, Command: command},
+	})
+}
+
+func appendToolResultLines(t *testing.T, m Model, id string, count int, format string) Model {
+	t.Helper()
+	lines := make([]string, 0, count)
+	for idx := 0; idx < count; idx++ {
+		lines = append(lines, fmt.Sprintf(format, idx))
+	}
+	return updateModel(t, m, AppendTranscriptMsg{Role: "tool_result_ok", ToolCallID: id, Text: strings.Join(lines, "\n")})
+}
+
 func leadingViewportSelectableDetailEntry(t *testing.T, m Model) int {
 	t.Helper()
 
@@ -28,20 +66,10 @@ func leadingViewportSelectableDetailEntry(t *testing.T, m Model) int {
 func newTallExpandedCenterRailModel(t *testing.T) Model {
 	t.Helper()
 
-	m := NewModel(WithCompactDetail(), WithPreviewLines(6))
-	m = updateModel(t, m, SetViewportSizeMsg{Lines: 6, Width: 80})
+	m := newSizedCompactDetailModel(t, 6)
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "intro line 0\nintro line 1\nintro line 2"})
-	m = updateModel(t, m, AppendTranscriptMsg{
-		Role:       "tool_call",
-		Text:       "long-command",
-		ToolCallID: "call_1",
-		ToolCall:   &transcript.ToolCallMeta{ToolName: "exec_command", IsShell: true, Command: "long-command"},
-	})
-	outputLines := make([]string, 0, 12)
-	for idx := 0; idx < 12; idx++ {
-		outputLines = append(outputLines, fmt.Sprintf("output line %02d", idx))
-	}
-	m = updateModel(t, m, AppendTranscriptMsg{Role: "tool_result_ok", ToolCallID: "call_1", Text: strings.Join(outputLines, "\n")})
+	m = appendShellToolCall(t, m, "call_1", "long-command")
+	m = appendToolResultLines(t, m, "call_1", 12, "output line %02d")
 	m = updateModel(t, m, AppendTranscriptMsg{Role: "assistant", Text: "tail"})
 	m = updateModel(t, m, ToggleModeMsg{})
 	m.detailSelectedEntry = 1
