@@ -486,28 +486,7 @@ func TestParseOutputItems_UsesTrailingAssistantPhaseBlock(t *testing.T) {
 }
 
 func TestCompactRequestTargetsResponsesCompactPath(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/responses/compact" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		if r.Method != http.MethodPost {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"id":"resp_cmp_1",
-			"object":"response.compaction",
-			"created_at":1731459200,
-			"output":[
-				{"type":"message","role":"user","content":[{"type":"input_text","text":"u1"}]},
-				{"type":"compaction","id":"cmp_1","encrypted_content":"enc_1"}
-			],
-			"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}
-		}`))
-	}))
-	defer server.Close()
+	server := newCompactResponseServer(t, "application/json")
 
 	transport := NewHTTPTransport(staticAuth{})
 	transport.BaseURL = server.URL + "/v1"
@@ -531,28 +510,7 @@ func TestCompactRequestTargetsResponsesCompactPath(t *testing.T) {
 }
 
 func TestCompactRequestAcceptsJSONBodyWithNonJSONContentType(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/responses/compact" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		if r.Method != http.MethodPost {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		w.Header().Set("Content-Type", "text/plain")
-		_, _ = w.Write([]byte(`{
-			"id":"resp_cmp_1",
-			"object":"response.compaction",
-			"created_at":1731459200,
-			"output":[
-				{"type":"message","role":"user","content":[{"type":"input_text","text":"u1"}]},
-				{"type":"compaction","id":"cmp_1","encrypted_content":"enc_1"}
-			],
-			"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}
-		}`))
-	}))
-	defer server.Close()
+	server := newCompactResponseServer(t, "text/plain")
 
 	transport := NewHTTPTransport(staticAuth{})
 	transport.BaseURL = server.URL + "/v1"
@@ -573,6 +531,24 @@ func TestCompactRequestAcceptsJSONBodyWithNonJSONContentType(t *testing.T) {
 	if resp.OutputItems[1].Type != ResponseItemTypeCompaction {
 		t.Fatalf("expected compaction output item, got %+v", resp.OutputItems[1])
 	}
+}
+
+func newCompactResponseServer(t *testing.T, contentType string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses/compact" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
+		_, _ = w.Write([]byte(compactResponseFixtureJSON))
+	}))
+	t.Cleanup(server.Close)
+	return server
 }
 
 func TestInputTokenCountPayloadMatchesCompactPayloadInputShape(t *testing.T) {

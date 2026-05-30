@@ -21,6 +21,17 @@ import (
 
 type staticAuth struct{}
 
+const compactResponseFixtureJSON = `{
+	"id":"resp_cmp_1",
+	"object":"response.compaction",
+	"created_at":1731459200,
+	"output":[
+		{"type":"message","role":"user","content":[{"type":"input_text","text":"u1"}]},
+		{"type":"compaction","id":"cmp_1","encrypted_content":"enc_1"}
+	],
+	"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}
+}`
+
 func (staticAuth) AuthorizationHeader(context.Context) (string, error) {
 	return "Bearer token", nil
 }
