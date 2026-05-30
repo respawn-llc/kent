@@ -496,19 +496,7 @@ func TestBoardNodeCardsArchiveCanceledTaskInDoneNode(t *testing.T) {
 	if err := workflowStore.CancelTask(ctx, task.ID, "stop"); err != nil {
 		t.Fatalf("CancelTask: %v", err)
 	}
-	if _, err := store.DB().ExecContext(ctx, `
-DELETE FROM task_node_placements
-WHERE task_id = ?
-  AND node_id IN (SELECT id FROM workflow_nodes WHERE workflow_id = ? AND kind = 'terminal')`, string(task.ID), string(workflowID)); err != nil {
-		t.Fatalf("force legacy canceled terminal placement removal: %v", err)
-	}
-	if _, err := store.DB().ExecContext(ctx, `
-UPDATE task_node_placements
-SET state = 'active'
-WHERE task_id = ?
-  AND node_id IN (SELECT id FROM workflow_nodes WHERE workflow_id = ? AND kind = 'start')`, string(task.ID), string(workflowID)); err != nil {
-		t.Fatalf("force legacy canceled backlog placement: %v", err)
-	}
+	forceLegacyCanceledBacklogPlacement(t, ctx, store, task.ID, workflowID)
 	board, err := view.GetBoard(ctx, serverapi.WorkflowBoardRequest{ProjectID: binding.ProjectID}, workflow.StaticRoleResolver{"coder": true})
 	if err != nil {
 		t.Fatalf("GetBoard: %v", err)
@@ -606,19 +594,7 @@ func TestBoardNodeCardsDoNotArchiveCanceledTaskInAlternateTerminalNode(t *testin
 	if err := workflowStore.CancelTask(ctx, task.ID, "stop"); err != nil {
 		t.Fatalf("CancelTask: %v", err)
 	}
-	if _, err := store.DB().ExecContext(ctx, `
-DELETE FROM task_node_placements
-WHERE task_id = ?
-  AND node_id IN (SELECT id FROM workflow_nodes WHERE workflow_id = ? AND kind = 'terminal')`, string(task.ID), string(workflowID)); err != nil {
-		t.Fatalf("force legacy canceled terminal placement removal: %v", err)
-	}
-	if _, err := store.DB().ExecContext(ctx, `
-UPDATE task_node_placements
-SET state = 'active'
-WHERE task_id = ?
-  AND node_id IN (SELECT id FROM workflow_nodes WHERE workflow_id = ? AND kind = 'start')`, string(task.ID), string(workflowID)); err != nil {
-		t.Fatalf("force legacy canceled backlog placement: %v", err)
-	}
+	forceLegacyCanceledBacklogPlacement(t, ctx, store, task.ID, workflowID)
 	board, err := view.GetBoard(ctx, serverapi.WorkflowBoardRequest{ProjectID: binding.ProjectID}, workflow.StaticRoleResolver{"coder": true})
 	if err != nil {
 		t.Fatalf("GetBoard: %v", err)
@@ -838,19 +814,7 @@ func TestPendingApprovalTaskRemainsVisibleOnSourceBoardColumn(t *testing.T) {
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
-	if _, err := store.DB().ExecContext(ctx, `
-UPDATE workflow_edges
-SET requires_approval = 1
-WHERE edge_key = 'done'
-  AND EXISTS (
-      SELECT 1
-      FROM workflow_transition_groups tg
-      JOIN workflow_nodes source ON source.id = tg.source_node_id
-      WHERE tg.id = workflow_edges.transition_group_id
-        AND source.workflow_id = ?
-  )`, string(workflowID)); err != nil {
-		t.Fatalf("require approval: %v", err)
-	}
+	requireDoneTransitionApproval(t, ctx, store, workflowID)
 	task, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "BUI-7", Body: "Waiting approval"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
@@ -1168,19 +1132,7 @@ func TestTaskActivityProjectsApprovalSnapshots(t *testing.T) {
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
-	if _, err := store.DB().ExecContext(ctx, `
-UPDATE workflow_edges
-SET requires_approval = 1
-WHERE edge_key = 'done'
-  AND EXISTS (
-      SELECT 1
-      FROM workflow_transition_groups tg
-      JOIN workflow_nodes source ON source.id = tg.source_node_id
-      WHERE tg.id = workflow_edges.transition_group_id
-        AND source.workflow_id = ?
-  )`, string(workflowID)); err != nil {
-		t.Fatalf("require approval: %v", err)
-	}
+	requireDoneTransitionApproval(t, ctx, store, workflowID)
 	task, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Task", Body: "Body"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
@@ -1231,19 +1183,7 @@ func TestAttentionListProjectsApprovalQuestionAndInterruptedRun(t *testing.T) {
 	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
-	if _, err := store.DB().ExecContext(ctx, `
-UPDATE workflow_edges
-SET requires_approval = 1
-WHERE edge_key = 'done'
-  AND EXISTS (
-      SELECT 1
-      FROM workflow_transition_groups tg
-      JOIN workflow_nodes source ON source.id = tg.source_node_id
-      WHERE tg.id = workflow_edges.transition_group_id
-        AND source.workflow_id = ?
-  )`, string(workflowID)); err != nil {
-		t.Fatalf("require approval: %v", err)
-	}
+	requireDoneTransitionApproval(t, ctx, store, workflowID)
 	approvalTask, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Approval", Body: "Body"})
 	if err != nil {
 		t.Fatalf("CreateTask approval: %v", err)
@@ -1376,6 +1316,40 @@ func newWorkflowViewTestStore(t *testing.T) (*metadata.Store, *workflowstore.Sto
 		t.Fatalf("workflowstore.New: %v", err)
 	}
 	return metadataStore, workflowStore, binding
+}
+
+func forceLegacyCanceledBacklogPlacement(t *testing.T, ctx context.Context, store *metadata.Store, taskID workflow.TaskID, workflowID workflow.WorkflowID) {
+	t.Helper()
+	if _, err := store.DB().ExecContext(ctx, `
+DELETE FROM task_node_placements
+WHERE task_id = ?
+  AND node_id IN (SELECT id FROM workflow_nodes WHERE workflow_id = ? AND kind = 'terminal')`, string(taskID), string(workflowID)); err != nil {
+		t.Fatalf("force legacy canceled terminal placement removal: %v", err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `
+UPDATE task_node_placements
+SET state = 'active'
+WHERE task_id = ?
+  AND node_id IN (SELECT id FROM workflow_nodes WHERE workflow_id = ? AND kind = 'start')`, string(taskID), string(workflowID)); err != nil {
+		t.Fatalf("force legacy canceled backlog placement: %v", err)
+	}
+}
+
+func requireDoneTransitionApproval(t *testing.T, ctx context.Context, store *metadata.Store, workflowID workflow.WorkflowID) {
+	t.Helper()
+	if _, err := store.DB().ExecContext(ctx, `
+UPDATE workflow_edges
+SET requires_approval = 1
+WHERE edge_key = 'done'
+  AND EXISTS (
+      SELECT 1
+      FROM workflow_transition_groups tg
+      JOIN workflow_nodes source ON source.id = tg.source_node_id
+      WHERE tg.id = workflow_edges.transition_group_id
+        AND source.workflow_id = ?
+  )`, string(workflowID)); err != nil {
+		t.Fatalf("require approval: %v", err)
+	}
 }
 
 func createWorkflowViewValidWorkflow(t *testing.T, ctx context.Context, store *workflowstore.Store) workflow.WorkflowID {
