@@ -6,7 +6,6 @@ import (
 	"builder/server/registry"
 	"builder/server/runtime"
 	"builder/server/runtimecontrol"
-	"builder/server/session"
 	"builder/server/sessionview"
 	"builder/server/tools"
 	sharedclient "builder/shared/client"
@@ -1283,21 +1282,14 @@ func TestRuntimeClientTranscriptDoesNotReadFromServer(t *testing.T) {
 }
 
 func TestRuntimeClientFromEngineDoesNotSeedTranscriptAccessor(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := createAppRuntimeSession(t)
 	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "a1", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
-	eng, err := runtime.New(store, &runtimeClientFakeLLM{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := newAppRuntimeEngineWithStore(t, store, &runtimeClientFakeLLM{}, runtime.Config{})
 
 	runtimeClient := newUIRuntimeClientFromEngine(eng)
 	page := runtimeClient.Transcript()
@@ -1321,11 +1313,6 @@ func TestRuntimeClientFromEngineDoesNotSeedTranscriptAccessor(t *testing.T) {
 }
 
 func TestRuntimeClientMainViewIncludesActiveRunFromRealEngine(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	started := make(chan struct{})
 	release := make(chan struct{})
 	fakeLLM := &runtimeClientFakeLLM{responses: []llm.Response{
@@ -1339,10 +1326,7 @@ func TestRuntimeClientMainViewIncludesActiveRunFromRealEngine(t *testing.T) {
 			Usage:     llm.Usage{WindowTokens: 200000},
 		},
 	}}
-	eng, err := runtime.New(store, fakeLLM, tools.NewRegistry(runtimeClientBlockingTool{started: started, release: release}), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	store, eng := newAppRuntimeEngine(t, fakeLLM, runtime.Config{}, runtimeClientBlockingTool{started: started, release: release})
 	runtimeRegistry := registry.NewRuntimeRegistry()
 	runtimeRegistry.Register(store.Meta().SessionID, eng)
 
@@ -1387,18 +1371,11 @@ func TestRuntimeClientMainViewIncludesActiveRunFromRealEngine(t *testing.T) {
 }
 
 func TestRuntimeClientMainViewFallsBackToLocalRuntimeProjectionOnReadError(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := createAppRuntimeSession(t)
 	if err := store.SetParentSessionID("parent-123"); err != nil {
 		t.Fatalf("set parent session id: %v", err)
 	}
-	eng, err := runtime.New(store, &runtimeClientFakeLLM{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := newAppRuntimeEngineWithStore(t, store, &runtimeClientFakeLLM{}, runtime.Config{})
 	if err := eng.SetThinkingLevel("high"); err != nil {
 		t.Fatalf("set thinking level: %v", err)
 	}
@@ -1423,18 +1400,11 @@ func TestRuntimeClientMainViewFallsBackToLocalRuntimeProjectionOnReadError(t *te
 }
 
 func TestRuntimeClientMainViewSnapshotDoesNotPopulateTranscriptEndpoint(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := createAppRuntimeSession(t)
 	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "seeded from main view", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
-	eng, err := runtime.New(store, &runtimeClientFakeLLM{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := newAppRuntimeEngineWithStore(t, store, &runtimeClientFakeLLM{}, runtime.Config{})
 	runtimeRegistry := registry.NewRuntimeRegistry()
 	runtimeRegistry.Register(store.Meta().SessionID, eng)
 

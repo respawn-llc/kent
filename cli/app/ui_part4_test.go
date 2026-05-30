@@ -5,8 +5,6 @@ import (
 	"builder/cli/tui"
 	"builder/server/llm"
 	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
 	"builder/shared/clientui"
 	"builder/shared/transcript"
 	"context"
@@ -503,19 +501,11 @@ func TestSubmitErrorRestoresQueuedSteeringInput(t *testing.T) {
 }
 
 func TestSubmitErrorRestoresQueuedSteeringAndDiscardsEngineQueue(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	client := &requestCaptureFakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok"},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	eng, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, client, runtime.Config{})
 
 	m := newProjectedEngineUIModel(eng)
 	m.setBusy(true)
@@ -698,19 +688,11 @@ func TestCtrlCWhileBusyUnlocksSubmitLockedInput(t *testing.T) {
 }
 
 func TestCtrlCRestoresQueuedSteeringAndDiscardsEngineQueue(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	client := &requestCaptureFakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok"},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	eng, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, client, runtime.Config{})
 
 	m := newProjectedEngineUIModel(eng)
 	m.setBusy(true)
@@ -1145,18 +1127,11 @@ func TestCalcChatLinesUsesFullHeightInDetailMode(t *testing.T) {
 }
 
 func TestCalcChatLinesRemainsViewportBasedDuringActiveWork(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := createAppRuntimeSession(t)
 	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	eng, err := runtime.New(store, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := newAppRuntimeEngineWithStore(t, store, statusLineFakeClient{}, runtime.Config{})
 	m := newProjectedEngineUIModel(eng)
 	m.termWidth = 100
 	m.termHeight = 24

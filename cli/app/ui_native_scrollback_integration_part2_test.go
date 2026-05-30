@@ -4,8 +4,6 @@ import (
 	"builder/cli/tui"
 	"builder/server/llm"
 	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
 	sharedclient "builder/shared/client"
 	"builder/shared/clientui"
 	"bytes"
@@ -115,26 +113,16 @@ func TestNativePSOverlayUsesFixedAltScreen(t *testing.T) {
 }
 
 func TestNativeFinalizeDoesNotBlinkDuplicateTailTokens(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	runtimeEvents := make(chan runtime.Event, 256)
-	eng, err := runtime.New(
-		store,
+	_, eng := newAppRuntimeEngine(
+		t,
 		singleChunkStreamClient{delta: "TAIL-ONCE"},
-		tools.NewRegistry(),
 		runtime.Config{
-			Model: "gpt-5",
 			OnEvent: func(evt runtime.Event) {
 				runtimeEvents <- evt
 			},
 		},
 	)
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	out := newLockedBuffer()
 	model := newProjectedTestUIModel(newUIRuntimeClient(eng), projectRuntimeEventChannel(runtimeEvents, nil, nil), closedAskEvents())
@@ -175,26 +163,16 @@ func TestNativeFinalizeDoesNotBlinkDuplicateTailTokens(t *testing.T) {
 }
 
 func TestNativeFinalizeSuppressesLateAsyncDeltaArtifacts(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	runtimeEvents := make(chan runtime.Event, 256)
-	eng, err := runtime.New(
-		store,
+	_, eng := newAppRuntimeEngine(
+		t,
 		asyncLateDeltaStreamClient{initial: "FINAL-CONTENT", late: "LATE-BLINK", delay: 25 * time.Millisecond},
-		tools.NewRegistry(),
 		runtime.Config{
-			Model: "gpt-5",
 			OnEvent: func(evt runtime.Event) {
 				runtimeEvents <- evt
 			},
 		},
 	)
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	out := newLockedBuffer()
 	model := newProjectedTestUIModel(newUIRuntimeClient(eng), projectRuntimeEventChannel(runtimeEvents, nil, nil), closedAskEvents())
@@ -392,11 +370,6 @@ func TestNativeBackCommandSystemFeedbackAppendsToScrollback(t *testing.T) {
 }
 
 func TestNativeDeferredFinalWithQueuedInjectionKeepsAssistantBeforeQueuedUserInScrollback(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	releaseFirst := make(chan struct{})
 	firstDelta := make(chan struct{})
 	releasedFirst := false
@@ -406,12 +379,10 @@ func TestNativeDeferredFinalWithQueuedInjectionKeepsAssistantBeforeQueuedUserInS
 		}
 	}()
 	var program *tea.Program
-	eng, err := runtime.New(
-		store,
+	_, eng := newAppRuntimeEngine(
+		t,
 		&deferredFinalQueuedInjectionStreamClient{releaseFirst: releaseFirst, firstDelta: firstDelta},
-		tools.NewRegistry(),
 		runtime.Config{
-			Model: "gpt-5",
 			Reviewer: runtime.ReviewerConfig{
 				Frequency:     "all",
 				Model:         "gpt-5",
@@ -428,9 +399,6 @@ func TestNativeDeferredFinalWithQueuedInjectionKeepsAssistantBeforeQueuedUserInS
 			},
 		},
 	)
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	eng.QueueUserMessage("steer now")
 
 	out := newLockedBuffer()
@@ -475,11 +443,6 @@ func TestNativeDeferredFinalWithQueuedInjectionKeepsAssistantBeforeQueuedUserInS
 
 func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailModeRoundTrip(t *testing.T) {
 	const roundTripTimeout = 5 * time.Second
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	releaseFirst := make(chan struct{})
 	firstDelta := make(chan struct{})
 	releasedFirst := false
@@ -489,12 +452,10 @@ func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailModeRoundTrip(t *te
 		}
 	}()
 	var program *tea.Program
-	eng, err := runtime.New(
-		store,
+	_, eng := newAppRuntimeEngine(
+		t,
 		&deferredFinalQueuedInjectionStreamClient{releaseFirst: releaseFirst, firstDelta: firstDelta},
-		tools.NewRegistry(),
 		runtime.Config{
-			Model: "gpt-5",
 			Reviewer: runtime.ReviewerConfig{
 				Frequency:     "all",
 				Model:         "gpt-5",
@@ -511,9 +472,6 @@ func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailModeRoundTrip(t *te
 			},
 		},
 	)
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 	eng.QueueUserMessage("steer now")
 
 	out := newLockedBuffer()
@@ -627,30 +585,21 @@ func TestNativeDeferredFinalWithQueuedInjectionSurvivesDetailRoundTripBeforeComm
 }
 
 func TestNativeQueuedSteerDuringBlockingToolAppearsInScrollback(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	runtimeEvents := make(chan runtime.Event, 256)
 	blockingTool := &blockingShellTool{
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	eng, err := runtime.New(
-		store,
+	_, eng := newAppRuntimeEngine(
+		t,
 		&queuedSteerDuringBlockingToolClient{},
-		tools.NewRegistry(blockingTool),
 		runtime.Config{
-			Model: "gpt-5",
 			OnEvent: func(evt runtime.Event) {
 				runtimeEvents <- evt
 			},
 		},
+		blockingTool,
 	)
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	out := newLockedBuffer()
 	model := newProjectedTestUIModel(newUIRuntimeClient(eng), projectRuntimeEventChannel(runtimeEvents, nil, nil), closedAskEvents())

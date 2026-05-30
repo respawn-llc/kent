@@ -9,9 +9,12 @@ import (
 	"strconv"
 	"testing"
 
+	"builder/server/llm"
 	"builder/server/metadata"
+	"builder/server/runtime"
 	"builder/server/serve"
 	"builder/server/session"
+	"builder/server/tools"
 	"builder/shared/config"
 )
 
@@ -67,6 +70,34 @@ func prepareAppRuntimePlan(t *testing.T, server launchPlannerServer, req session
 		t.Fatalf("PrepareRuntime: %v", err)
 	}
 	return plan, runtimePlan
+}
+
+func newAppRuntimeEngine(t *testing.T, client llm.Client, cfg runtime.Config, handlers ...tools.Handler) (*session.Store, *runtime.Engine) {
+	t.Helper()
+	store := createAppRuntimeSession(t)
+	return store, newAppRuntimeEngineWithStore(t, store, client, cfg, handlers...)
+}
+
+func createAppRuntimeSession(t *testing.T) *session.Store {
+	t.Helper()
+	dir := t.TempDir()
+	store, err := session.Create(dir, "ws", dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	return store
+}
+
+func newAppRuntimeEngineWithStore(t *testing.T, store *session.Store, client llm.Client, cfg runtime.Config, handlers ...tools.Handler) *runtime.Engine {
+	t.Helper()
+	if cfg.Model == "" {
+		cfg.Model = "gpt-5"
+	}
+	eng, err := runtime.New(store, client, tools.NewRegistry(handlers...), cfg)
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	return eng
 }
 
 func configureAppTestServerPort(t *testing.T) {

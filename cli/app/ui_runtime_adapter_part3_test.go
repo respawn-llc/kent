@@ -4,8 +4,6 @@ import (
 	"builder/cli/tui"
 	"builder/server/llm"
 	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
 	"builder/shared/clientui"
 	"errors"
 	"fmt"
@@ -15,11 +13,7 @@ import (
 )
 
 func TestSyncConversationFromEngineUsesBundledSessionViewMetadata(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := createAppRuntimeSession(t)
 	if err := store.SetName("incident triage"); err != nil {
 		t.Fatalf("set name: %v", err)
 	}
@@ -29,10 +23,7 @@ func TestSyncConversationFromEngineUsesBundledSessionViewMetadata(t *testing.T) 
 	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "hello", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
-	eng, err := runtime.New(store, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := newAppRuntimeEngineWithStore(t, store, statusLineFakeClient{}, runtime.Config{})
 
 	m := newProjectedEngineUIModel(eng)
 	m.sessionName = "stale"

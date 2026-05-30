@@ -4,8 +4,6 @@ import (
 	"builder/cli/tui"
 	"builder/server/llm"
 	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
 	"builder/shared/clientui"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -558,15 +556,7 @@ func TestAskFreeformCtrlUEditingMatchesMainInput(t *testing.T) {
 }
 
 func TestApprovalAskUsesSingleDenyOptionAndTabCommentary(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := runtime.New(store, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5", ContextWindowTokens: 400_000})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, statusLineFakeClient{}, runtime.Config{ContextWindowTokens: 400_000})
 	m := newProjectedEngineUIModel(eng)
 	m.setBusy(true)
 	reply := make(chan askReply, 1)

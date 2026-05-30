@@ -6,7 +6,6 @@ import (
 	"builder/server/llm"
 	"builder/server/runtime"
 	"builder/server/session"
-	"builder/server/tools"
 	shelltool "builder/server/tools/shell"
 	"builder/shared/clientui"
 	"context"
@@ -286,15 +285,7 @@ func TestBusyQueuedReviewSlashCommandWaitsForHydrationBeforePromptSubmission(t *
 }
 
 func TestQueuedReviewUsesEngineConversationFreshnessWhenUIDidNotReceiveRuntimeUpdateYet(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := runtime.New(store, &runtimeAdapterFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	store, eng := newAppRuntimeEngine(t, &runtimeAdapterFakeClient{}, runtime.Config{})
 
 	m := newProjectedEngineUIModel(eng)
 	m.setBusy(true)
@@ -375,11 +366,7 @@ func TestBackSlashCommandCopiesLatestAssistantOutputWhenAvailable(t *testing.T) 
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
-			store, err := session.Create(dir, "ws", dir)
-			if err != nil {
-				t.Fatalf("create store: %v", err)
-			}
+			store := createAppRuntimeSession(t)
 			if err := store.SetParentSessionID("parent-1"); err != nil {
 				t.Fatalf("set parent session id: %v", err)
 			}
@@ -388,10 +375,7 @@ func TestBackSlashCommandCopiesLatestAssistantOutputWhenAvailable(t *testing.T) 
 					t.Fatalf("append transcript message %d: %v", idx, err)
 				}
 			}
-			eng, err := runtime.New(store, &runtimeAdapterFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-			if err != nil {
-				t.Fatalf("new engine: %v", err)
-			}
+			eng := newAppRuntimeEngineWithStore(t, store, &runtimeAdapterFakeClient{}, runtime.Config{})
 			if tt.localEntry != "" {
 				eng.AppendLocalEntry("reviewer_status", tt.localEntry)
 			}
@@ -420,21 +404,14 @@ func TestBackSlashCommandCopiesLatestAssistantOutputWhenAvailable(t *testing.T) 
 }
 
 func TestBackSlashCommandIgnoresRestoredPromptHistoryDraftInChildSession(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
+	store := createAppRuntimeSession(t)
 	if err := store.SetParentSessionID("parent-1"); err != nil {
 		t.Fatalf("set parent session id: %v", err)
 	}
 	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "latest reply", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append assistant reply: %v", err)
 	}
-	eng, err := runtime.New(store, &runtimeAdapterFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := newAppRuntimeEngineWithStore(t, store, &runtimeAdapterFakeClient{}, runtime.Config{})
 
 	m := newProjectedEngineUIModel(eng)
 	m.promptHistory = []string{"/back"}
@@ -813,15 +790,7 @@ func TestSlashFastUnavailableShowsError(t *testing.T) {
 }
 
 func TestSlashFastWithEngineTogglesRuntime(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := runtime.New(store, statusLineFastClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5.3-codex"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, statusLineFastClient{}, runtime.Config{Model: "gpt-5.3-codex"})
 	m := newProjectedEngineUIModel(eng)
 	m.input = "/fast on"
 
@@ -928,11 +897,6 @@ func TestBusySlashSupervisorExecutesImmediatelyWithoutQueueing(t *testing.T) {
 }
 
 func TestBusySlashSupervisorOffAppliesToInFlightRunCompletion(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	mainClient := &busyToggleFakeClient{
 		delay: 80 * time.Millisecond,
 		responses: []llm.Response{{
@@ -944,7 +908,7 @@ func TestBusySlashSupervisorOffAppliesToInFlightRunCompletion(t *testing.T) {
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"suggestions":[]}`},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	eng, err := runtime.New(store, mainClient, tools.NewRegistry(), runtime.Config{
+	_, eng := newAppRuntimeEngine(t, mainClient, runtime.Config{
 		Model: "gpt-5",
 		Reviewer: runtime.ReviewerConfig{
 			Frequency:     "all",
@@ -953,9 +917,6 @@ func TestBusySlashSupervisorOffAppliesToInFlightRunCompletion(t *testing.T) {
 			Client:        reviewerClient,
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	m := newProjectedEngineUIModel(eng)
 	m.setBusy(true)

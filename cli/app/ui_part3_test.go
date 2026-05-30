@@ -3,8 +3,6 @@ package app
 import (
 	"builder/server/llm"
 	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
 	"builder/shared/clientui"
 	"bytes"
 	"context"
@@ -614,16 +612,8 @@ func TestRuntimeClientSubmitShowsUserMessageInTranscriptWhenFlushedEventArrives(
 }
 
 func TestSubmitDoneKeepsDuplicateQueuedPromptsInOrder(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	client := &runtimeAdapterFakeClient{}
-	eng, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, client, runtime.Config{})
 
 	m := newProjectedEngineUIModel(eng)
 	m.input = "continue"
@@ -644,15 +634,7 @@ func TestSubmitDoneKeepsDuplicateQueuedPromptsInOrder(t *testing.T) {
 }
 
 func TestCtrlCWhileSubmitRestoresQueuedDraft(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := runtime.New(store, &runtimeAdapterFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, &runtimeAdapterFakeClient{}, runtime.Config{})
 
 	m := newProjectedEngineUIModel(eng)
 	m.input = "continue"
@@ -681,15 +663,7 @@ func TestCtrlCWhileSubmitRestoresQueuedDraft(t *testing.T) {
 }
 
 func TestActiveSubmitErrorRestoresQueuedSteeringInput(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := runtime.New(store, &runtimeAdapterFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, &runtimeAdapterFakeClient{}, runtime.Config{})
 
 	m := newProjectedEngineUIModel(eng)
 	m.input = "continue"
@@ -724,19 +698,11 @@ func TestActiveSubmitErrorRestoresQueuedSteeringInput(t *testing.T) {
 }
 
 func TestActiveSubmitErrorRestoresQueuedSteeringAndDiscardsEngineQueue(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
 	client := &requestCaptureFakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: "ok"},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	eng, err := runtime.New(store, client, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, client, runtime.Config{})
 
 	m := newProjectedEngineUIModel(eng)
 	m.input = "continue"
@@ -824,15 +790,7 @@ func TestApprovalAskTabInCommentaryDoesNotReturnToPicker(t *testing.T) {
 }
 
 func TestApprovalAskTabCommentaryUsesCurrentSelection(t *testing.T) {
-	dir := t.TempDir()
-	store, err := session.Create(dir, "ws", dir)
-	if err != nil {
-		t.Fatalf("create store: %v", err)
-	}
-	eng, err := runtime.New(store, statusLineFakeClient{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5", ContextWindowTokens: 400_000})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	_, eng := newAppRuntimeEngine(t, statusLineFakeClient{}, runtime.Config{ContextWindowTokens: 400_000})
 	m := newProjectedEngineUIModel(eng)
 	m.setBusy(true)
 	reply := make(chan askReply, 1)
