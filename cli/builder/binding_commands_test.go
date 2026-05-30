@@ -161,6 +161,21 @@ func configureBindingCommandTestServerPort(t *testing.T) {
 	t.Setenv("BUILDER_SERVER_PORT", fmt.Sprintf("%d", port))
 }
 
+func registerBindingCommandWorkspace(t *testing.T, workspace string) metadata.Binding {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	configureBindingCommandTestServerPort(t)
+	cfg, err := config.Load(workspace, config.LoadOptions{})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("RegisterBinding: %v", err)
+	}
+	return binding
+}
+
 func startBindingCommandServer(t *testing.T, workspace string) func() {
 	t.Helper()
 	cfg, err := config.Load(workspace, config.LoadOptions{})
@@ -216,19 +231,8 @@ func waitForBindingCommandServer(t *testing.T, workspace string) {
 }
 
 func TestProjectSubcommandPrintsBoundProjectID(t *testing.T) {
-	home := t.TempDir()
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configureBindingCommandTestServerPort(t)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding: %v", err)
-	}
+	binding := registerBindingCommandWorkspace(t, workspace)
 	cleanup := startBindingCommandServer(t, workspace)
 	defer cleanup()
 
@@ -243,23 +247,12 @@ func TestProjectSubcommandPrintsBoundProjectID(t *testing.T) {
 }
 
 func TestProjectSubcommandTreatsNestedDirectoryAsUnregistered(t *testing.T) {
-	home := t.TempDir()
 	workspace := t.TempDir()
 	nested := filepath.Join(workspace, "subdir")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatalf("MkdirAll nested: %v", err)
 	}
-	t.Setenv("HOME", home)
-	configureBindingCommandTestServerPort(t)
-
-	cfg, err := config.Load(workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	_, err = metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding: %v", err)
-	}
+	registerBindingCommandWorkspace(t, workspace)
 	cleanup := startBindingCommandServer(t, workspace)
 	defer cleanup()
 
@@ -314,20 +307,9 @@ func TestProjectIDForPathUsesTargetPathServerConfig(t *testing.T) {
 }
 
 func TestAttachSubcommandPathFirstBindsTargetToCurrentProject(t *testing.T) {
-	home := t.TempDir()
 	source := t.TempDir()
 	target := t.TempDir()
-	t.Setenv("HOME", home)
-	configureBindingCommandTestServerPort(t)
-
-	cfg, err := config.Load(source, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load source: %v", err)
-	}
-	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding source: %v", err)
-	}
+	binding := registerBindingCommandWorkspace(t, source)
 	cleanup := startBindingCommandServer(t, source)
 	defer cleanup()
 
@@ -363,21 +345,10 @@ func TestAttachSubcommandPathFirstBindsTargetToCurrentProject(t *testing.T) {
 }
 
 func TestAttachSubcommandExplicitProjectOverridesCurrentWorkspace(t *testing.T) {
-	home := t.TempDir()
 	source := t.TempDir()
 	target := t.TempDir()
 	working := t.TempDir()
-	t.Setenv("HOME", home)
-	configureBindingCommandTestServerPort(t)
-
-	cfg, err := config.Load(source, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load source: %v", err)
-	}
-	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding source: %v", err)
-	}
+	binding := registerBindingCommandWorkspace(t, source)
 	cleanup := startBindingCommandServer(t, source)
 	defer cleanup()
 
