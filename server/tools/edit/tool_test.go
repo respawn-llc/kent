@@ -241,13 +241,10 @@ func TestOutsideWorkspaceAncestorAliasUsesSingleCallApproval(t *testing.T) {
 		t.Skipf("symlink unavailable: %v", err)
 	}
 	prompts := 0
-	tool, err := New(workspace, true, WithOutsideWorkspaceApprover(func(context.Context, fsguard.Request) (fsguard.Approval, error) {
+	tool := newTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, fsguard.Request) (fsguard.Approval, error) {
 		prompts++
 		return fsguard.Approval{Decision: fsguard.DecisionAllowOnce}, nil
 	}))
-	if err != nil {
-		t.Fatalf("new edit tool: %v", err)
-	}
 
 	result := callEdit(t, tool, map[string]any{"path": filepath.Join(alias, "target.txt"), "old_string": "old", "new_string": "new"})
 	if result.IsError {
@@ -277,13 +274,10 @@ func TestOutsideWorkspaceMissingAncestorAliasUsesSingleCallApproval(t *testing.T
 		t.Skipf("symlink unavailable: %v", err)
 	}
 	prompts := 0
-	tool, err := New(workspace, true, WithOutsideWorkspaceApprover(func(context.Context, fsguard.Request) (fsguard.Approval, error) {
+	tool := newTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, fsguard.Request) (fsguard.Approval, error) {
 		prompts++
 		return fsguard.Approval{Decision: fsguard.DecisionAllowOnce}, nil
 	}))
-	if err != nil {
-		t.Fatalf("new edit tool: %v", err)
-	}
 
 	result := callEdit(t, tool, map[string]any{"path": filepath.Join(alias, "new.txt"), "old_string": "", "new_string": "new\n"})
 	if result.IsError {
@@ -313,13 +307,10 @@ func TestOutsideWorkspaceFinalSymlinkRequiresRealPathApproval(t *testing.T) {
 		t.Skipf("symlink unavailable: %v", err)
 	}
 	prompts := 0
-	tool, err := New(workspace, true, WithOutsideWorkspaceApprover(func(context.Context, fsguard.Request) (fsguard.Approval, error) {
+	tool := newTestTool(t, workspace, WithOutsideWorkspaceApprover(func(context.Context, fsguard.Request) (fsguard.Approval, error) {
 		prompts++
 		return fsguard.Approval{Decision: fsguard.DecisionAllowOnce}, nil
 	}))
-	if err != nil {
-		t.Fatalf("new edit tool: %v", err)
-	}
 
 	result := callEdit(t, tool, map[string]any{"path": link, "old_string": "old", "new_string": "new"})
 	if result.IsError {
@@ -347,9 +338,9 @@ func newNonTemporaryOutsideDir(t *testing.T) string {
 	return outside
 }
 
-func newTestTool(t *testing.T, dir string) *Tool {
+func newTestTool(t *testing.T, dir string, opts ...Option) *Tool {
 	t.Helper()
-	tool, err := New(dir, true)
+	tool, err := New(dir, true, opts...)
 	if err != nil {
 		t.Fatalf("new edit tool: %v", err)
 	}
