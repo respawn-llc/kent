@@ -10,10 +10,7 @@ import (
 func TestLoadWorkflowConfigDefaults(t *testing.T) {
 	_, workspace := newConfigTestEnv(t)
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Workflow.CompletionMode != WorkflowCompletionModeAuto {
 		t.Fatalf("completion mode = %q, want auto", cfg.Settings.Workflow.CompletionMode)
 	}
@@ -46,24 +43,15 @@ func TestDefaultSettingsTOMLRendersWorkflowDefaults(t *testing.T) {
 }
 
 func TestLoadWorkflowConfigFromFile(t *testing.T) {
-	home, workspace := newConfigTestEnv(t)
-	configPath := filepath.Join(home, ".builder", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(configPath, []byte(`[workflow]
+	_, workspace, configPath := newConfigTestFile(t)
+	writeConfigTestFile(t, configPath, `[workflow]
 completion_mode = "tool"
 concurrency = 7
 max_final_answer_violations = 4
 max_invalid_completion_attempts = 6
-`), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+`)
 
-	cfg, err := Load(workspace, LoadOptions{})
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
+	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.Workflow.CompletionMode != WorkflowCompletionModeTool || cfg.Settings.Workflow.Concurrency != 7 || cfg.Settings.Workflow.MaxFinalAnswerViolations != 4 || cfg.Settings.Workflow.MaxInvalidCompletionAttempts != 6 {
 		t.Fatalf("workflow settings = %+v", cfg.Settings.Workflow)
 	}
