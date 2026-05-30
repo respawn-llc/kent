@@ -25,12 +25,7 @@ func TestDeleteWorktreeBlocksWhenBackgroundProcessUsesDescendantPath(t *testing.
 	created := mustCreateWorktree(t, env, "feature/delete-blocked-process")
 	env.processes.snapshots = []shelltool.Snapshot{{ID: "proc-1", Command: "sleep 30", Workdir: filepath.Join(created.CanonicalRoot, "tmp"), Running: true}}
 
-	_, err := env.service.DeleteWorktree(env.ctx, serverapi.WorktreeDeleteRequest{
-		ClientRequestID:   "req-delete-blocked-process",
-		SessionID:         env.session.Meta().SessionID,
-		ControllerLeaseID: env.leaseID,
-		WorktreeID:        created.WorktreeID,
-	})
+	_, err := env.service.DeleteWorktree(env.ctx, worktreeDeleteRequest(env, "req-delete-blocked-process", created.WorktreeID))
 	if !errors.Is(err, serverapi.ErrWorktreeBlocked) {
 		t.Fatalf("DeleteWorktree error = %v, want ErrWorktreeBlocked", err)
 	}
@@ -39,23 +34,13 @@ func TestDeleteWorktreeBlocksWhenBackgroundProcessUsesDescendantPath(t *testing.
 func TestDeleteWorktreeRebindsCurrentSessionToMainBeforeRemoval(t *testing.T) {
 	env := newServiceTestEnv(t)
 	created := mustCreateWorktree(t, env, "feature/delete-current")
-	if _, err := env.service.SwitchWorktree(env.ctx, serverapi.WorktreeSwitchRequest{
-		ClientRequestID:   "req-switch-delete-target",
-		SessionID:         env.session.Meta().SessionID,
-		ControllerLeaseID: env.leaseID,
-		WorktreeID:        created.WorktreeID,
-	}); err != nil {
+	if _, err := env.service.SwitchWorktree(env.ctx, worktreeSwitchRequest(env, "req-switch-delete-target", created.WorktreeID)); err != nil {
 		t.Fatalf("SwitchWorktree: %v", err)
 	}
 	env.localNotes = &serviceTestLocalNotes{}
 	env.service.localNotes = env.localNotes
 
-	resp, err := env.service.DeleteWorktree(env.ctx, serverapi.WorktreeDeleteRequest{
-		ClientRequestID:   "req-delete-current",
-		SessionID:         env.session.Meta().SessionID,
-		ControllerLeaseID: env.leaseID,
-		WorktreeID:        created.WorktreeID,
-	})
+	resp, err := env.service.DeleteWorktree(env.ctx, worktreeDeleteRequest(env, "req-delete-current", created.WorktreeID))
 	if err != nil {
 		t.Fatalf("DeleteWorktree: %v", err)
 	}
@@ -166,9 +151,7 @@ func TestBeginMutationReacquiresWorkspaceLockWhenSessionWorkspaceChanges(t *test
 		firstCh <- mutationResult{release: release, workspaceCtx: workspaceCtx, err: err}
 	}()
 
-	if err := env.store.UpdateSessionExecutionTargetByID(env.ctx, env.session.Meta().SessionID, secondBinding.WorkspaceID, "", "."); err != nil {
-		t.Fatalf("UpdateSessionExecutionTargetByID second workspace: %v", err)
-	}
+	updateServiceTestSessionTarget(t, env, env.session.Meta().SessionID, secondBinding.WorkspaceID, "", ".")
 	firstWorkspaceLock.Release()
 	firstLockReleased = true
 
@@ -227,12 +210,8 @@ func TestRetargetSessionsFromMissingWorktreeRollsBackActiveSessionMetadataOnRunt
 	env := newServiceTestEnv(t)
 	created := mustCreateWorktree(t, env, "feature/missing-runtime-error")
 	otherSession := createServiceTestSession(t, env.store, env.cfg, env.binding)
-	if err := env.store.UpdateSessionExecutionTargetByID(env.ctx, otherSession.Meta().SessionID, env.binding.WorkspaceID, created.WorktreeID, "."); err != nil {
-		t.Fatalf("UpdateSessionExecutionTargetByID other session: %v", err)
-	}
-	if err := env.store.UpdateSessionExecutionTargetByID(env.ctx, env.session.Meta().SessionID, env.binding.WorkspaceID, created.WorktreeID, "."); err != nil {
-		t.Fatalf("UpdateSessionExecutionTargetByID active session: %v", err)
-	}
+	updateServiceTestSessionTarget(t, env, otherSession.Meta().SessionID, env.binding.WorkspaceID, created.WorktreeID, ".")
+	updateServiceTestSessionTarget(t, env, env.session.Meta().SessionID, env.binding.WorkspaceID, created.WorktreeID, ".")
 	record, err := env.store.GetWorktreeRecordByID(env.ctx, created.WorktreeID)
 	if err != nil {
 		t.Fatalf("GetWorktreeRecordByID: %v", err)
@@ -459,6 +438,31 @@ func mustCreateWorktree(t *testing.T, env *serviceTestEnv, branchName string) se
 		t.Fatalf("CreateWorktree(%s): %v", branchName, err)
 	}
 	return resp.Worktree
+}
+
+func worktreeSwitchRequest(env *serviceTestEnv, clientRequestID string, worktreeID string) serverapi.WorktreeSwitchRequest {
+	return serverapi.WorktreeSwitchRequest{
+		ClientRequestID:   clientRequestID,
+		SessionID:         env.session.Meta().SessionID,
+		ControllerLeaseID: env.leaseID,
+		WorktreeID:        worktreeID,
+	}
+}
+
+func worktreeDeleteRequest(env *serviceTestEnv, clientRequestID string, worktreeID string) serverapi.WorktreeDeleteRequest {
+	return serverapi.WorktreeDeleteRequest{
+		ClientRequestID:   clientRequestID,
+		SessionID:         env.session.Meta().SessionID,
+		ControllerLeaseID: env.leaseID,
+		WorktreeID:        worktreeID,
+	}
+}
+
+func updateServiceTestSessionTarget(t *testing.T, env *serviceTestEnv, sessionID, workspaceID, worktreeID, cwdRelpath string) {
+	t.Helper()
+	if err := env.store.UpdateSessionExecutionTargetByID(env.ctx, sessionID, workspaceID, worktreeID, cwdRelpath); err != nil {
+		t.Fatalf("UpdateSessionExecutionTargetByID %s: %v", sessionID, err)
+	}
 }
 
 func mustListWorktrees(t *testing.T, env *serviceTestEnv) serverapi.WorktreeListResponse {
