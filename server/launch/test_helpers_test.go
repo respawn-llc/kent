@@ -52,13 +52,23 @@ func applyRunPromptOverridesNoWarnings(t *testing.T, plan SessionPlan, overrides
 
 func newLoadedConfigPlan(t *testing.T, workspace string, loaded config.App) SessionPlan {
 	t.Helper()
+	return newSettingsPlanWithSource(t, workspace, loaded.Settings, loaded.Source)
+}
+
+func newSettingsPlan(t *testing.T, workspace string, settings config.Settings) SessionPlan {
+	t.Helper()
+	return newSettingsPlanWithSource(t, workspace, settings, config.SourceReport{})
+}
+
+func newSettingsPlanWithSource(t *testing.T, workspace string, settings config.Settings, source config.SourceReport) SessionPlan {
+	t.Helper()
 	return SessionPlan{
 		Store:               createTestSessionInContainer(t, filepath.Join(t.TempDir(), "projects", "project-a", "sessions"), "workspace-a", workspace),
-		ActiveSettings:      loaded.Settings,
+		ActiveSettings:      settings,
 		EnabledTools:        []toolspec.ID{toolspec.ToolExecCommand},
-		ConfiguredModelName: loaded.Settings.Model,
+		ConfiguredModelName: settings.Model,
 		WorkspaceRoot:       workspace,
-		Source:              loaded.Source,
+		Source:              source,
 	}
 }
 
