@@ -208,10 +208,7 @@ func TestGenerateWithRetryClient_DoesNotWarnAcrossDistinctCacheKeys(t *testing.T
 func TestBuildRequest_SkipsPromptCacheKeyForUnsupportedProvider(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true}}
-	eng, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
 	req, err := eng.buildRequestWithExtraItems(context.Background(), "", []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "hello"}}, true)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -227,10 +224,7 @@ func TestBuildRequest_SkipsPromptCacheKeyForUnsupportedProvider(t *testing.T) {
 func TestBuildRequest_UsesBasePromptCacheKeyBeforeFirstCompactionWhenProviderSupportsIt(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true}}
-	eng, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
 	req, err := eng.buildRequestWithExtraItems(context.Background(), "", []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "hello"}}, true)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -249,10 +243,7 @@ func TestBuildRequest_UsesBasePromptCacheKeyBeforeFirstCompactionWhenProviderSup
 func TestBuildRequest_RotatesPromptCacheKeyWithRequestSessionIDAfterCompaction(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true}}
-	eng, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
 	eng.compactionRuntimeState().SetCount(1)
 	req, err := eng.buildRequestWithExtraItems(context.Background(), "", []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "hello"}}, true)
 	if err != nil {
@@ -281,10 +272,7 @@ func TestBuildRequest_RotatesPromptCacheKeyFromPersistedCompactionOnReopen(t *te
 		t.Fatalf("reopen store: %v", err)
 	}
 	client := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true}}
-	eng, err := New(reopened, client, tools.NewRegistry(), Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, reopened, client, tools.NewRegistry(), Config{Model: "gpt-5"})
 	req, err := eng.buildRequestWithExtraItems(context.Background(), "", []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "hello"}}, true)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -347,10 +335,7 @@ func TestLocalCompactionSummary_UsesMainConversationRequestIdentityAndPrompt(t *
 func TestOpenAIResponsesPayload_UsesExpectedCacheKeyShapesAcrossConversationSupervisorAndReopen(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsPromptCacheKey: true, IsOpenAIFirstParty: true}}
-	eng, err := New(store, client, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
 	payloadOptions := llm.OpenAIResponsesPayloadOptions{Capabilities: client.caps}
 
 	beforeReq, err := eng.buildRequestWithExtraItems(context.Background(), "", []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "before"}}, true)
@@ -398,10 +383,7 @@ func TestOpenAIResponsesPayload_UsesExpectedCacheKeyShapesAcrossConversationSupe
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	reopenedEng, err := New(reopened, client, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
-	if err != nil {
-		t.Fatalf("new reopened engine: %v", err)
-	}
+	reopenedEng := mustNewTestEngine(t, reopened, client, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
 	reopenedReq, err := reopenedEng.buildRequestWithExtraItems(context.Background(), "", []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "payload-probe"}}, true)
 	if err != nil {
 		t.Fatalf("build reopened request: %v", err)
@@ -452,10 +434,7 @@ func TestOpenAITransport_UsesExpectedSessionHeadersAndPromptCacheKeysAcrossConve
 
 	store := mustCreateTestSession(t)
 	engineClient := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsPromptCacheKey: true, IsOpenAIFirstParty: true}}
-	eng, err := New(store, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
 	send := func(req llm.Request) capturedRequest {
 		t.Helper()
 		before := len(capturedRequests)
@@ -531,10 +510,7 @@ func TestOpenAITransport_UsesExpectedSessionHeadersAndPromptCacheKeysAcrossConve
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	reopenedEng, err := New(reopened, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
-	if err != nil {
-		t.Fatalf("new reopened engine: %v", err)
-	}
+	reopenedEng := mustNewTestEngine(t, reopened, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
 	reopenedMainReq, err := reopenedEng.buildRequestWithExtraItems(context.Background(), "", []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "reopened"}}, true)
 	if err != nil {
 		t.Fatalf("build reopened main request: %v", err)
@@ -564,10 +540,7 @@ func TestReviewerSuggestions_SkipsPromptCacheKeyForUnsupportedProvider(t *testin
 	store := mustCreateTestSession(t)
 	engineClient := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsPromptCacheKey: true, IsOpenAIFirstParty: true}}
 	reviewerClient := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true}, responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"suggestions":[]}`}}}}
-	eng, err := New(store, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
 	if _, err := eng.runReviewerSuggestions(context.Background(), "step-1", reviewerClient); err != nil {
 		t.Fatalf("run reviewer suggestions: %v", err)
 	}
@@ -592,10 +565,7 @@ func TestReviewerSuggestions_UsesReviewerClientPromptCacheCapability(t *testing.
 		caps:      llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true},
 		responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"suggestions":[]}`}}},
 	}
-	eng, err := New(store, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
 	eng.compactionRuntimeState().SetCount(1)
 	if _, err := eng.runReviewerSuggestions(context.Background(), "step-1", reviewerClient); err != nil {
 		t.Fatalf("run reviewer suggestions: %v", err)
@@ -633,10 +603,7 @@ func TestReviewerSuggestions_PromptCacheKeyStaysOnReviewerSessionAfterConversati
 		caps:      llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true},
 		responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: `{"suggestions":[]}`}}},
 	}
-	eng, err := New(reopened, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, reopened, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
 	if _, err := eng.runReviewerSuggestions(context.Background(), "step-1", reviewerClient); err != nil {
 		t.Fatalf("run reviewer suggestions: %v", err)
 	}
@@ -724,10 +691,7 @@ func TestGenerateWithRetryClient_RestoreIgnoresRequestObservationWithoutResponse
 		t.Fatalf("reopen store: %v", err)
 	}
 	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: 12}}}}
-	eng, err := New(reopened, client, tools.NewRegistry(), Config{Model: "gpt-5", CacheWarningMode: config.CacheWarningModeDefault})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, reopened, client, tools.NewRegistry(), Config{Model: "gpt-5", CacheWarningMode: config.CacheWarningModeDefault})
 	if _, err := eng.generateWithRetryClient(context.Background(), "step-1", client, testPromptCacheRequest("cache-key-1", "alpha", "omega"), nil, nil, nil); err != nil {
 		t.Fatalf("generate after reopen: %v", err)
 	}
@@ -768,10 +732,7 @@ func TestGenerateWithRetryClient_RestorePreservesRotatedCompactionKeyWithoutWarn
 		t.Fatalf("reopen store: %v", err)
 	}
 	reopenedClient := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: 12}}}}
-	reopenedEng, err := New(reopened, reopenedClient, tools.NewRegistry(), Config{Model: "gpt-5", CacheWarningMode: config.CacheWarningModeVerbose})
-	if err != nil {
-		t.Fatalf("new reopened engine: %v", err)
-	}
+	reopenedEng := mustNewTestEngine(t, reopened, reopenedClient, tools.NewRegistry(), Config{Model: "gpt-5", CacheWarningMode: config.CacheWarningModeVerbose})
 
 	if _, err := reopenedEng.generateWithRetryClient(context.Background(), "step-2", reopenedClient, testPromptCacheRequest("cache-key-1/compact-1", "beta"), nil, nil, nil); err != nil {
 		t.Fatalf("generate after reopen: %v", err)

@@ -18,10 +18,7 @@ import (
 func TestExecuteToolCallsRejectsWhitespaceWebSearchQuery(t *testing.T) {
 	store := mustCreateTestSession(t)
 
-	eng, err := New(store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
 
 	results, err := eng.executeToolCalls(context.Background(), "step", []llm.ToolCall{{
 		ID:    "call-web",
@@ -123,10 +120,7 @@ func TestCustomToolResultPersistsAsCustomToolCallOutput(t *testing.T) {
 			Usage:     llm.Usage{WindowTokens: 200000},
 		},
 	}}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolPatch}), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolPatch}})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolPatch}), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolPatch}})
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "apply patch")
 	if err != nil {
@@ -178,10 +172,7 @@ func TestRequestToolsExposePatchAsCustomToolOnlyForFirstPartyResponsesProvider(t
 		t.Run(tt.name, func(t *testing.T) {
 			store := mustCreateTestSession(t)
 			client := &fakeClient{caps: tt.caps}
-			eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolPatch}), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolPatch}})
-			if err != nil {
-				t.Fatalf("new engine: %v", err)
-			}
+			eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolPatch}), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolPatch}})
 			if _, err := eng.ensureLocked(); err != nil {
 				t.Fatalf("ensureLocked: %v", err)
 			}
@@ -216,14 +207,11 @@ func TestRequestToolsUseActiveProviderCapsForCustomPatchTool(t *testing.T) {
 	}
 	activeCaps := llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, IsOpenAIFirstParty: false}
 	client := &fakeClient{caps: activeCaps}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolPatch}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolPatch}), Config{
 		Model:                        "gpt-5",
 		EnabledTools:                 []toolspec.ID{toolspec.ToolPatch},
 		ProviderCapabilitiesOverride: &activeCaps,
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	requestTools := eng.requestTools(context.Background(), "")
 	if len(requestTools) != 1 {
@@ -257,10 +245,7 @@ func TestFailedCustomToolResultPersistsAsCustomToolCallOutput(t *testing.T) {
 			Usage:     llm.Usage{WindowTokens: 200000},
 		},
 	}}
-	eng, err := New(store, client, tools.NewRegistry(failingTool{name: toolspec.ToolPatch}), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolPatch}})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(failingTool{name: toolspec.ToolPatch}), Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolPatch}})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "apply patch"); err != nil {
 		t.Fatalf("submit: %v", err)
@@ -297,10 +282,7 @@ func TestRestoreMessagesPreservesRecoveredMultiToolProviderOrder(t *testing.T) {
 	if _, err := store.AppendEvent("step", "tool_completed", map[string]any{"call_id": call2.ID, "name": string(toolspec.ToolExecCommand), "is_error": false, "output": json.RawMessage(`{"output":"a.txt"}`)}); err != nil {
 		t.Fatalf("append second tool completion: %v", err)
 	}
-	restored, err := New(store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
-	if err != nil {
-		t.Fatalf("restore engine: %v", err)
-	}
+	restored := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5"})
 	items := restored.snapshotItems()
 	if len(items) != 4 {
 		t.Fatalf("expected 4 restored items, got %d (%+v)", len(items), items)
@@ -338,10 +320,7 @@ func TestRestoreMessagesPreservesRecoveredMultiToolExactTokenParity(t *testing.T
 		return count
 	}
 	client := &fakeCompactionClient{inputTokenCountFn: countForRequest}
-	live, err := New(liveStore, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
-	if err != nil {
-		t.Fatalf("new live engine: %v", err)
-	}
+	live := mustNewTestEngine(t, liveStore, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
 	call1 := llm.ToolCall{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}
 	call2 := llm.ToolCall{ID: "call-2", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"ls"}`)}
 	if err := live.appendAssistantMessage("step", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call1, call2}}); err != nil {
@@ -367,10 +346,7 @@ func TestRestoreMessagesPreservesRecoveredMultiToolExactTokenParity(t *testing.T
 	if _, err := restoredStore.AppendEvent("step", "tool_completed", map[string]any{"call_id": call2.ID, "name": string(toolspec.ToolExecCommand), "is_error": false, "output": json.RawMessage(`{"tool":"exec_command"}`)}); err != nil {
 		t.Fatalf("append restored tool completion 2: %v", err)
 	}
-	restored, err := New(restoredStore, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
-	if err != nil {
-		t.Fatalf("new restored engine: %v", err)
-	}
+	restored := mustNewTestEngine(t, restoredStore, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
 	restoredReq, err := restored.buildRequest(context.Background(), "", true)
 	if err != nil {
 		t.Fatalf("build restored request: %v", err)
@@ -406,7 +382,7 @@ func TestStreamingRetryResetsAttemptDeltas(t *testing.T) {
 		mu     sync.Mutex
 		events []Event
 	)
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		OnEvent: func(evt Event) {
 			mu.Lock()
@@ -414,9 +390,6 @@ func TestStreamingRetryResetsAttemptDeltas(t *testing.T) {
 			mu.Unlock()
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "retry stream")
 	if err != nil {
@@ -465,7 +438,7 @@ func TestStreamingEmitsReasoningSummaryDeltaEvents(t *testing.T) {
 		mu     sync.Mutex
 		events []Event
 	)
-	eng, err := New(store, fakeReasoningStreamClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, fakeReasoningStreamClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		OnEvent: func(evt Event) {
 			mu.Lock()
@@ -473,9 +446,6 @@ func TestStreamingEmitsReasoningSummaryDeltaEvents(t *testing.T) {
 			mu.Unlock()
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "stream reasoning"); err != nil {
 		t.Fatalf("submit: %v", err)
@@ -502,7 +472,7 @@ func TestStreamingIgnoresAsyncLateDeltasAfterGenerateReturns(t *testing.T) {
 		mu     sync.Mutex
 		events []Event
 	)
-	eng, err := New(store, fakeAsyncLateDeltaClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, fakeAsyncLateDeltaClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		OnEvent: func(evt Event) {
 			mu.Lock()
@@ -510,9 +480,6 @@ func TestStreamingIgnoresAsyncLateDeltasAfterGenerateReturns(t *testing.T) {
 			mu.Unlock()
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "test")
 	if err != nil {
@@ -542,7 +509,7 @@ func TestStreamingNoopFinalClearsLiveAssistantDelta(t *testing.T) {
 		mu     sync.Mutex
 		events []Event
 	)
-	eng, err := New(store, fakeNoopStreamClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, fakeNoopStreamClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		OnEvent: func(evt Event) {
 			mu.Lock()
@@ -550,9 +517,6 @@ func TestStreamingNoopFinalClearsLiveAssistantDelta(t *testing.T) {
 			mu.Unlock()
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "stream noop")
 	if err != nil {
@@ -608,7 +572,7 @@ func TestStreamingDeltasDoNotEmitConversationSnapshotEvents(t *testing.T) {
 		conversationWithLive int
 	)
 	var eng *Engine
-	eng, err := New(store, fakeSimpleStreamClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng = mustNewTestEngine(t, store, fakeSimpleStreamClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		OnEvent: func(evt Event) {
 			mu.Lock()
@@ -621,9 +585,6 @@ func TestStreamingDeltasDoNotEmitConversationSnapshotEvents(t *testing.T) {
 			}
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
 	msg, err := eng.SubmitUserMessage(context.Background(), "stream")
 	if err != nil {
@@ -648,7 +609,7 @@ func TestChatSnapshotOngoingTracksStreamingAndClearsOnCommit(t *testing.T) {
 		deltaSnapshots []string
 	)
 	var eng *Engine
-	eng, err := New(store, fakeSimpleStreamClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng = mustNewTestEngine(t, store, fakeSimpleStreamClient{}, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 		OnEvent: func(evt Event) {
 			if evt.Kind != EventAssistantDelta || eng == nil {
@@ -659,11 +620,8 @@ func TestChatSnapshotOngoingTracksStreamingAndClearsOnCommit(t *testing.T) {
 			mu.Unlock()
 		},
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
-	_, err = eng.SubmitUserMessage(context.Background(), "stream")
+	_, err := eng.SubmitUserMessage(context.Background(), "stream")
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -688,14 +646,11 @@ func TestAuthErrorsAreNotRetried(t *testing.T) {
 	store := mustCreateTestSession(t)
 
 	client := &authFailClient{}
-	eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 		Model: "gpt-5",
 	})
-	if err != nil {
-		t.Fatalf("new engine: %v", err)
-	}
 
-	_, err = eng.SubmitUserMessage(context.Background(), "trigger auth error")
+	_, err := eng.SubmitUserMessage(context.Background(), "trigger auth error")
 	if err == nil {
 		t.Fatal("expected auth failure")
 	}
@@ -710,14 +665,11 @@ func TestNonRetriableStatusCodesAreNotRetried(t *testing.T) {
 			store := mustCreateTestSession(t)
 
 			client := &statusFailClient{status: status}
-			eng, err := New(store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
+			eng := mustNewTestEngine(t, store, client, tools.NewRegistry(fakeTool{name: toolspec.ToolExecCommand}), Config{
 				Model: "gpt-5",
 			})
-			if err != nil {
-				t.Fatalf("new engine: %v", err)
-			}
 
-			_, err = eng.SubmitUserMessage(context.Background(), "trigger status error")
+			_, err := eng.SubmitUserMessage(context.Background(), "trigger status error")
 			if err == nil {
 				t.Fatalf("expected status %d failure", status)
 			}
