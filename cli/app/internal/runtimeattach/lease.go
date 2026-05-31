@@ -77,6 +77,7 @@ func Release(service servicecontract.SessionRuntimeService, sessionID string, le
 		SessionID:       sessionID,
 		LeaseID:         trimmedLeaseID,
 		OnlyIfIdle:      true,
+		DropOwner:       true,
 	})
 }
 

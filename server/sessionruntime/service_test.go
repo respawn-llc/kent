@@ -663,6 +663,7 @@ func TestReleaseSessionRuntimeOnlyIfIdleKeepsActivePrimaryRun(t *testing.T) {
 	handle := &runtimeHandle{
 		controllerRequestID: "req-1",
 		controllerLeaseID:   lease.LeaseID,
+		ownerRefs:           1,
 		ready:               make(chan struct{}),
 		close: func() {
 			closed.Add(1)
@@ -696,6 +697,50 @@ func TestReleaseSessionRuntimeOnlyIfIdleKeepsActivePrimaryRun(t *testing.T) {
 	}
 	if _, err := fixture.service.validateRuntimeLease(context.Background(), fixture.store.Meta().SessionID, lease.LeaseID); err != nil {
 		t.Fatalf("active runtime lease should remain valid: %v", err)
+	}
+	if handle.ownerRefs != 1 {
+		t.Fatalf("connected owner refs = %d, want preserved owner", handle.ownerRefs)
+	}
+}
+
+func TestReleaseSessionRuntimeOnlyIfIdleDropsOwnerWhenRequested(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	runtimeRegistry := registry.NewRuntimeRegistry()
+	fixture.service.runtimes = runtimeRegistry
+	lease, err := fixture.metadata.CreateRuntimeLease(context.Background(), fixture.store.Meta().SessionID)
+	if err != nil {
+		t.Fatalf("CreateRuntimeLease: %v", err)
+	}
+	handle := &runtimeHandle{
+		controllerRequestID: "req-1",
+		controllerLeaseID:   lease.LeaseID,
+		ownerRefs:           1,
+		ready:               make(chan struct{}),
+		close:               func() {},
+	}
+	close(handle.ready)
+	fixture.service.handles[fixture.store.Meta().SessionID] = handle
+	active, err := runtimeRegistry.AcquirePrimaryRun(fixture.store.Meta().SessionID)
+	if err != nil {
+		t.Fatalf("AcquirePrimaryRun: %v", err)
+	}
+	defer active.Release()
+
+	resp, err := fixture.service.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
+		ClientRequestID: "rel-1",
+		SessionID:       fixture.store.Meta().SessionID,
+		LeaseID:         lease.LeaseID,
+		OnlyIfIdle:      true,
+		DropOwner:       true,
+	})
+	if err != nil {
+		t.Fatalf("ReleaseSessionRuntime OnlyIfIdle DropOwner: %v", err)
+	}
+	if !resp.Active || resp.Released {
+		t.Fatalf("release response = %+v, want active not released", resp)
+	}
+	if handle.ownerRefs != 0 {
+		t.Fatalf("owner refs = %d, want dropped owner", handle.ownerRefs)
 	}
 }
 

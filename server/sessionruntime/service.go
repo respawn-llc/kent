@@ -379,7 +379,9 @@ func (s *Service) ReleaseSessionRuntime(ctx context.Context, req serverapi.Sessi
 		s.mu.Unlock()
 		lease, err := s.acquirePrimaryRunLease(sessionID)
 		if errors.Is(err, primaryrun.ErrActivePrimaryRun) {
-			s.markRuntimeHandleOrphaned(sessionID, handle, leaseID)
+			if req.DropOwner {
+				s.markRuntimeHandleOrphaned(sessionID, handle, leaseID)
+			}
 			return serverapi.SessionRuntimeReleaseResponse{Active: true}, nil
 		}
 		if err != nil {
@@ -397,7 +399,9 @@ func (s *Service) ReleaseSessionRuntime(ctx context.Context, req serverapi.Sessi
 			if primaryLease != nil {
 				primaryLease.Release()
 			}
-			s.markRuntimeHandleOrphaned(sessionID, handle, leaseID)
+			if req.DropOwner {
+				s.markRuntimeHandleOrphaned(sessionID, handle, leaseID)
+			}
 			return serverapi.SessionRuntimeReleaseResponse{Active: true}, nil
 		}
 		s.mu.Lock()

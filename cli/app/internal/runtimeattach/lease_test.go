@@ -138,7 +138,7 @@ func TestReleaseSkipsNilOrEmptyLeaseAndIgnoresReleaseError(t *testing.T) {
 		t.Fatalf("release requests = %d, want 1", len(service.releaseRequests))
 	}
 	req := service.releaseRequests[0]
-	if req.SessionID != "session-1" || req.LeaseID != "lease-1" || req.ClientRequestID == "" || !req.OnlyIfIdle {
+	if req.SessionID != "session-1" || req.LeaseID != "lease-1" || req.ClientRequestID == "" || !req.OnlyIfIdle || !req.DropOwner {
 		t.Fatalf("release request = %+v, want session/lease/request ids", req)
 	}
 }

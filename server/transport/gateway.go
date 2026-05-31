@@ -242,6 +242,7 @@ func (g *Gateway) cleanupConnectionRuntimeLeases(state *connectionState) {
 			SessionID:       lease.SessionID,
 			LeaseID:         lease.LeaseID,
 			OnlyIfIdle:      true,
+			DropOwner:       true,
 		})
 		cancel()
 	}

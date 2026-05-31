@@ -25,6 +25,7 @@ type SessionRuntimeReleaseRequest struct {
 	SessionID       string `json:"session_id"`
 	LeaseID         string `json:"lease_id"`
 	OnlyIfIdle      bool   `json:"only_if_idle,omitempty"`
+	DropOwner       bool   `json:"drop_owner,omitempty"`
 }
 
 type SessionRuntimeReleaseResponse struct {
