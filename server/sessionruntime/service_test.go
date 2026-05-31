@@ -355,6 +355,59 @@ func TestActivateSessionRuntimeReplaysDuplicateRequestAfterReady(t *testing.T) {
 	if got := (<-done).LeaseID; got != "lease-1" {
 		t.Fatalf("lease id = %q, want lease-1", got)
 	}
+	if handle.ownerRefs != 1 {
+		t.Fatalf("owner refs after replay = %d, want 1", handle.ownerRefs)
+	}
+}
+
+func TestActivateSessionRuntimeReplayOwnerSurvivesOriginalDisconnect(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	lease, err := fixture.metadata.CreateRuntimeLease(context.Background(), fixture.store.Meta().SessionID)
+	if err != nil {
+		t.Fatalf("CreateRuntimeLease: %v", err)
+	}
+	closed := atomic.Int32{}
+	handle := &runtimeHandle{
+		controllerRequestID: "req-1",
+		controllerLeaseID:   lease.LeaseID,
+		ownerRefs:           1,
+		ready:               make(chan struct{}),
+		close: func() {
+			closed.Add(1)
+		},
+	}
+	close(handle.ready)
+	fixture.service.handles[fixture.store.Meta().SessionID] = handle
+
+	resp, err := fixture.service.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
+		ClientRequestID: "req-1",
+		SessionID:       fixture.store.Meta().SessionID,
+	})
+	if err != nil {
+		t.Fatalf("ActivateSessionRuntime replay: %v", err)
+	}
+	if resp.LeaseID != lease.LeaseID {
+		t.Fatalf("replay lease = %q, want %q", resp.LeaseID, lease.LeaseID)
+	}
+	release, err := fixture.service.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
+		ClientRequestID: "rel-1",
+		SessionID:       fixture.store.Meta().SessionID,
+		LeaseID:         lease.LeaseID,
+		OnlyIfIdle:      true,
+		DropOwner:       true,
+	})
+	if err != nil {
+		t.Fatalf("ReleaseSessionRuntime original disconnect: %v", err)
+	}
+	if release.Released {
+		t.Fatalf("release response = %+v, want unreleased while replay owner remains", release)
+	}
+	if closed.Load() != 0 {
+		t.Fatalf("runtime closed despite replay owner, close count = %d", closed.Load())
+	}
+	if handle.ownerRefs != 1 {
+		t.Fatalf("owner refs after original disconnect = %d, want replay owner", handle.ownerRefs)
+	}
 }
 
 func TestActivateSessionRuntimeReissuesControllerLeaseForTakeover(t *testing.T) {

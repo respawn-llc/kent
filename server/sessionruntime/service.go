@@ -199,6 +199,7 @@ func (s *Service) ActivateSessionRuntime(ctx context.Context, req serverapi.Sess
 		if err := waitForRuntimeHandleReady(ctx, handle); err != nil {
 			return serverapi.SessionRuntimeActivateResponse{}, err
 		}
+		s.addRuntimeHandleOwnerRef(sessionID, handle)
 		return activationResponseForHandle(handle)
 	}
 	if claim == activationClaimTakeoverReuse {
@@ -380,6 +381,11 @@ func (s *Service) ReleaseSessionRuntime(ctx context.Context, req serverapi.Sessi
 	}
 	var primaryLease primaryrun.Lease
 	if req.OnlyIfIdle {
+		if req.DropOwner && current.ownerRefs > 1 {
+			current.ownerRefs--
+			s.mu.Unlock()
+			return serverapi.SessionRuntimeReleaseResponse{}, nil
+		}
 		s.mu.Unlock()
 		lease, err := s.acquirePrimaryRunLease(sessionID)
 		if errors.Is(err, primaryrun.ErrActivePrimaryRun) {
@@ -478,10 +484,28 @@ func (s *Service) markRuntimeHandleOrphaned(sessionID string, handle *runtimeHan
 	s.mu.Lock()
 	current := s.handles[trimmedSessionID]
 	if current == handle && strings.TrimSpace(current.controllerLeaseID) == trimmedLeaseID {
-		current.ownerRefs = 0
+		if current.ownerRefs > 0 {
+			current.ownerRefs--
+		}
 	}
 	s.mu.Unlock()
 	s.scheduleIdleUnload(trimmedSessionID, s.defaultIdleUnloadDelay())
+}
+
+func (s *Service) addRuntimeHandleOwnerRef(sessionID string, handle *runtimeHandle) {
+	if s == nil || handle == nil {
+		return
+	}
+	trimmedSessionID := strings.TrimSpace(sessionID)
+	if trimmedSessionID == "" {
+		return
+	}
+	s.mu.Lock()
+	if current := s.handles[trimmedSessionID]; current == handle {
+		current.ownerRefs++
+	}
+	s.mu.Unlock()
+	s.cancelScheduledIdleUnload(trimmedSessionID)
 }
 
 func (s *Service) runtimeInterestChanged(sessionID string, reason registry.RuntimeInterestReason) {
