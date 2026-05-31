@@ -1098,7 +1098,7 @@ func TestReleaseSessionRuntimeClosesHandleWhenLeaseValidatedAndWaitCanceled(t *t
 	}
 }
 
-func TestReleaseSessionRuntimeStillClosesHandleWhenLeaseValidationFails(t *testing.T) {
+func TestReleaseSessionRuntimeRejectsInvalidLeaseWithoutClosingHandle(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
 	closed := atomic.Int32{}
 	handle := &runtimeHandle{
@@ -1119,11 +1119,49 @@ func TestReleaseSessionRuntimeStillClosesHandleWhenLeaseValidationFails(t *testi
 	if err == nil {
 		t.Fatal("expected lease validation error for missing lease record")
 	}
-	if closed.Load() != 1 {
-		t.Fatalf("expected closeFn to run exactly once, got %d", closed.Load())
+	if closed.Load() != 0 {
+		t.Fatalf("expected invalid lease to preserve runtime handle, close count = %d", closed.Load())
 	}
 	if _, ok := fixture.service.handles[fixture.store.Meta().SessionID]; ok {
-		t.Fatal("expected runtime handle to be removed even when lease validation fails")
+		return
+	}
+	t.Fatal("expected runtime handle to remain when lease validation fails")
+}
+
+func TestReleaseSessionRuntimeRejectsReleasedLeaseWithoutClosingHandle(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	lease, err := fixture.metadata.CreateRuntimeLease(context.Background(), fixture.store.Meta().SessionID)
+	if err != nil {
+		t.Fatalf("CreateRuntimeLease: %v", err)
+	}
+	if _, err := fixture.metadata.ReleaseRuntimeLease(context.Background(), fixture.store.Meta().SessionID, lease.LeaseID); err != nil {
+		t.Fatalf("ReleaseRuntimeLease setup: %v", err)
+	}
+	closed := atomic.Int32{}
+	handle := &runtimeHandle{
+		controllerRequestID: "req-1",
+		controllerLeaseID:   lease.LeaseID,
+		ready:               make(chan struct{}),
+		close: func() {
+			closed.Add(1)
+		},
+	}
+	close(handle.ready)
+	fixture.service.handles[fixture.store.Meta().SessionID] = handle
+
+	_, err = fixture.service.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
+		ClientRequestID: "rel-1",
+		SessionID:       fixture.store.Meta().SessionID,
+		LeaseID:         lease.LeaseID,
+	})
+	if !errors.Is(err, serverapi.ErrInvalidControllerLease) {
+		t.Fatalf("ReleaseSessionRuntime error = %v, want invalid controller lease", err)
+	}
+	if closed.Load() != 0 {
+		t.Fatalf("released stale lease closed runtime handle, close count = %d", closed.Load())
+	}
+	if got := fixture.service.handles[fixture.store.Meta().SessionID]; got != handle {
+		t.Fatalf("runtime handle = %+v, want preserved handle", got)
 	}
 }
 

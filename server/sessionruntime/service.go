@@ -374,6 +374,10 @@ func (s *Service) ReleaseSessionRuntime(ctx context.Context, req serverapi.Sessi
 		s.mu.Unlock()
 		return serverapi.SessionRuntimeReleaseResponse{}, invalidControllerLeaseError(sessionID)
 	}
+	if leaseErr != nil {
+		s.mu.Unlock()
+		return serverapi.SessionRuntimeReleaseResponse{}, leaseErr
+	}
 	var primaryLease primaryrun.Lease
 	if req.OnlyIfIdle {
 		s.mu.Unlock()
@@ -443,9 +447,6 @@ func (s *Service) ReleaseSessionRuntime(ctx context.Context, req serverapi.Sessi
 	}
 	s.mu.Unlock()
 	s.clearScheduledIdleUnload(sessionID)
-	if leaseErr != nil {
-		return serverapi.SessionRuntimeReleaseResponse{}, leaseErr
-	}
 	_, err := s.releaseRuntimeLease(ctx, sessionID, leaseID)
 	return serverapi.SessionRuntimeReleaseResponse{Released: err == nil}, err
 }
