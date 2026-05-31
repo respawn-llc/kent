@@ -884,6 +884,46 @@ func TestIdleRuntimeUnloadReleasesOrphanedRuntimeAfterPrimaryRunFinishes(t *test
 	}
 }
 
+func TestIdleRuntimeUnloadRetriesAfterNonRuntimePrimaryWorkFinishes(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	runtimeRegistry := registry.NewRuntimeRegistry()
+	fixture.service.runtimes = runtimeRegistry
+	fixture.service.idleUnloadDelay = 20 * time.Millisecond
+	lease, err := fixture.metadata.CreateRuntimeLease(context.Background(), fixture.store.Meta().SessionID)
+	if err != nil {
+		t.Fatalf("CreateRuntimeLease: %v", err)
+	}
+	closed := make(chan struct{}, 1)
+	handle := &runtimeHandle{
+		controllerRequestID: "req-1",
+		controllerLeaseID:   lease.LeaseID,
+		ownerRefs:           0,
+		ready:               make(chan struct{}),
+		close: func() {
+			closed <- struct{}{}
+		},
+	}
+	close(handle.ready)
+	fixture.service.handles[fixture.store.Meta().SessionID] = handle
+	active, err := runtimeRegistry.AcquirePrimaryRun(fixture.store.Meta().SessionID)
+	if err != nil {
+		t.Fatalf("AcquirePrimaryRun: %v", err)
+	}
+
+	fixture.service.runtimeInterestChanged(fixture.store.Meta().SessionID, registry.RuntimeInterestChanged)
+	select {
+	case <-closed:
+		t.Fatal("idle reaper closed runtime while primary work was active")
+	case <-time.After(60 * time.Millisecond):
+	}
+	active.Release()
+	select {
+	case <-closed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for idle reaper retry after primary work finished")
+	}
+}
+
 func TestIdleRuntimeUnloadUsesThreeMinuteDefaultAfterRunFinishes(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
 	if fixture.service.runFinishedIdleUnloadDelay() != 3*time.Minute {

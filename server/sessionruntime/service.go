@@ -602,6 +602,7 @@ func (s *Service) runScheduledIdleUnload(sessionID string, generation uint64) {
 		SessionID:       trimmedSessionID,
 		LeaseID:         leaseID,
 		OnlyIfIdle:      true,
+		DropOwner:       true,
 	})
 }
 
