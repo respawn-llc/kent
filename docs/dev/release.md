@@ -83,7 +83,7 @@ builder --version
 
 ```bash
 brew update
-brew tap respawn-app/tap
+brew tap respawn-llc/tap
 brew install builder-cli
 builder --version
 ```
@@ -91,7 +91,7 @@ builder --version
 If short-name resolution is stale on a machine, use the fully qualified formula name:
 
 ```bash
-brew install respawn-app/tap/builder-cli
+brew install respawn-llc/tap/builder-cli
 ```
 
 7. Clean up the Homebrew and direct installs to restore your local development build:

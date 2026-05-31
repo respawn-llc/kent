@@ -8,7 +8,7 @@ description: Install Builder, authenticate on first launch, tune the most useful
 ### Homebrew (macOS/Linux)
 
 ```bash
-brew tap respawn-app/tap
+brew tap respawn-llc/tap
 brew install builder-cli
 ```
 
