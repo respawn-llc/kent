@@ -10,6 +10,7 @@ import { render, screen } from "@testing-library/react";
 import { vi } from "vitest";
 
 import { AppProviders } from "../../app/AppProviders";
+import { SidebarProvider } from "../../app/sidebarProvider";
 import { createTestServices, startupRoutes } from "../../testSupport/appServices";
 import { homeListCardButtonClassName, homeListCardShellClassName } from "../../ui";
 import { WorkflowCard } from "../workflows/WorkflowCard";
@@ -18,7 +19,9 @@ import { ProjectRow } from "./ProjectRow";
 it("keeps project and workflow cards on the same Home list card shell", async () => {
   render(
     <AppProviders services={createTestServices(startupRoutes)}>
-      <RouterProvider router={cardTestRouter()} />
+      <SidebarProvider>
+        <RouterProvider router={cardTestRouter()} />
+      </SidebarProvider>
     </AppProviders>,
   );
 

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type {
   BindingPlan,
   ProjectEdit,
+  ProjectDeleteResponse,
   ProjectMutationResponse,
   ProjectPage,
   WorkspaceList,
@@ -113,6 +114,27 @@ export const workspaceUnlinkResponseSchema: z.ZodType<WorkspaceUnlinkResponse> =
     unlinked: value.unlinked,
     blockers: value.blockers,
     project: value.project ?? null,
+  }));
+
+export const projectDeleteResponseSchema: z.ZodType<ProjectDeleteResponse> = z
+  .object({
+    project_id: z.string(),
+    deleted: z.boolean(),
+    blockers: z
+      .array(
+        z.object({
+          code: z.string(),
+          message: z.string(),
+          count: z.number().optional().default(0),
+        }),
+      )
+      .nullish()
+      .transform((value) => value ?? []),
+  })
+  .transform((value) => ({
+    projectID: value.project_id,
+    deleted: value.deleted,
+    blockers: value.blockers,
   }));
 
 export const bindingPlanSchema: z.ZodType<BindingPlan> = z

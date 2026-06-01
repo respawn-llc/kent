@@ -203,6 +203,29 @@ VALUES ('transition-pending-workspace', 'task-active-workspace', 'placement-acti
 	assertWorkspaceUnlinkBlocker(t, pendingApprovalBlockers, "non_terminal_tasks")
 }
 
+func TestDeleteProjectBlocksWorkflowWork(t *testing.T) {
+	store, _, binding := newMetadataTestStore(t)
+	ctx, now := context.Background(), time.Now().UTC().UnixMilli()
+	seedWorkflowGraph(t, store.db, binding.ProjectID, now)
+	seedWorkflowTaskWithID(t, store, "task-delete-active", "link-1", 1, "BLD-1", "placement-delete-active", "node-agent")
+	seedWorkflowTaskWithID(t, store, "task-delete-running", "link-1", 2, "BLD-2", "placement-delete-running", "node-agent")
+	seedWorkflowTaskWithID(t, store, "task-delete-runnable", "link-1", 3, "BLD-3", "placement-delete-runnable", "node-agent")
+	execSeed(t, store.db, "delete runs", `INSERT INTO task_runs (id, placement_id, workflow_revision_seen, automation_requested_at_unix_ms, started_at_unix_ms, created_at_unix_ms, updated_at_unix_ms)
+VALUES ('run-delete-running', 'placement-delete-running', 1, 0, ?, ?, ?),
+       ('run-delete-runnable', 'placement-delete-runnable', 1, ?, 0, ?, ?)`, now, now, now, now, now, now)
+	blockers, err := store.DeleteProject(ctx, binding.ProjectID, func(ProjectSessionArtifact, bool) error { return nil })
+	if err != nil {
+		t.Fatalf("DeleteProject: %v", err)
+	}
+	counts := map[string]int{}
+	for _, blocker := range blockers {
+		counts[blocker.Code] = blocker.Count
+	}
+	if len(blockers) != 3 || counts["non_terminal_tasks"] != 3 || counts["active_runs"] != 1 || counts["runnable_runs"] != 1 {
+		t.Fatalf("delete blockers = %+v, want exact workflow blockers", blockers)
+	}
+}
+
 func TestUnlinkProjectWorkspacePreservesTerminalHistory(t *testing.T) {
 	ctx := context.Background()
 	store, _, binding := newMetadataTestStore(t)

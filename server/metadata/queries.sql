@@ -1920,6 +1920,82 @@ WHERE project_id = sqlc.arg(project_id)
   AND launch_visible <> 0
 ORDER BY updated_at_unix_ms DESC, rowid DESC;
 
+-- name: ListProjectSessionArtifacts :many
+SELECT
+    id,
+    artifact_relpath
+FROM sessions
+WHERE project_id = sqlc.arg(project_id)
+  AND trim(artifact_relpath) != ''
+ORDER BY rowid ASC;
+
+-- name: GetProjectDeleteBlockerCounts :one
+SELECT
+    CAST((SELECT COUNT(*) FROM sessions s WHERE s.project_id = sqlc.arg(delete_project_id) AND s.in_flight_step <> 0) AS INTEGER) AS active_sessions,
+    CAST((
+        SELECT COUNT(DISTINCT id)
+        FROM (
+            SELECT t.id
+            FROM task_records t
+            JOIN task_node_placements p ON p.task_id = t.id AND p.state IN ('active', 'waiting_approval')
+            JOIN workflow_nodes n ON n.id = p.node_id
+            WHERE t.project_id = sqlc.arg(delete_project_id)
+              AND t.canceled_at_unix_ms = 0
+              AND n.kind != 'terminal'
+            UNION
+            SELECT t.id
+            FROM task_records t
+            JOIN task_transitions tt ON tt.task_id = t.id AND tt.state = 'pending_approval'
+            WHERE t.project_id = sqlc.arg(delete_project_id)
+              AND t.canceled_at_unix_ms = 0
+        )
+    ) AS INTEGER) AS non_terminal_tasks,
+    CAST((
+        SELECT COUNT(DISTINCT r.id)
+        FROM task_run_records r
+        JOIN task_records t ON t.id = r.task_id
+        JOIN task_node_placements p ON p.id = r.placement_id
+        JOIN workflow_nodes n ON n.id = r.node_id
+        WHERE t.project_id = sqlc.arg(delete_project_id)
+          AND t.canceled_at_unix_ms = 0
+          AND r.started_at_unix_ms > 0
+          AND r.completed_at_unix_ms = 0
+          AND r.interrupted_at_unix_ms = 0
+          AND p.state = 'active'
+          AND n.kind = 'agent'
+    ) AS INTEGER) AS active_runs,
+    CAST((
+        SELECT COUNT(DISTINCT r.id)
+        FROM task_run_records r
+        JOIN task_records t ON t.id = r.task_id
+        JOIN task_node_placements p ON p.id = r.placement_id
+        JOIN workflow_nodes n ON n.id = r.node_id
+        WHERE t.project_id = sqlc.arg(delete_project_id)
+          AND t.canceled_at_unix_ms = 0
+          AND r.automation_requested_at_unix_ms > 0
+          AND r.started_at_unix_ms = 0
+          AND r.completed_at_unix_ms = 0
+          AND r.interrupted_at_unix_ms = 0
+          AND r.waiting_ask_id = ''
+          AND p.state = 'active'
+          AND n.kind = 'agent'
+    ) AS INTEGER) AS runnable_runs;
+
+-- name: AcquireProjectDeleteWriteLock :execrows
+UPDATE projects
+SET updated_at_unix_ms = updated_at_unix_ms
+WHERE id = sqlc.arg(project_id);
+
+-- name: DeleteProjectTasks :exec
+DELETE FROM tasks
+WHERE id IN (
+    SELECT id FROM task_records WHERE project_id = sqlc.arg(project_id)
+);
+
+-- name: DeleteProject :execrows
+DELETE FROM projects
+WHERE id = sqlc.arg(project_id);
+
 -- name: GetSessionRecordByID :one
 SELECT
     s.id,

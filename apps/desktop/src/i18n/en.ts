@@ -98,6 +98,13 @@ export const englishResources = {
       unlinkBody:
         "This removes the workspace from Builder app state only. Files stay on disk, completed history remains readable, and active work blocks unlink.",
       unlinkConfirm: "Unlink workspace",
+      deleteProject: "Delete project",
+      deleteTitle: "Delete project?",
+      deleteBody:
+        "Delete this Builder project and its tasks/sessions from Builder. Workspace files, repos, worktrees, and reusable workflows stay on disk.",
+      deleteConfirm: "Delete project",
+      deleteBlocked: "Project cannot be deleted yet.",
+      deleteDeleted: "Project deleted.",
     },
     board: {
       title: "Workflow board",

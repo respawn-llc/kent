@@ -391,6 +391,79 @@ func (s *Store) DeleteSessionRecordByID(ctx context.Context, sessionID string) e
 	return nil
 }
 
+type ProjectSessionArtifact struct {
+	SessionID       string
+	ArtifactRelpath string
+}
+
+func projectDeleteBlockersFromCounts(counts sqlitegen.GetProjectDeleteBlockerCountsRow) []serverapi.ProjectDeleteBlocker {
+	blockers := []serverapi.ProjectDeleteBlocker{}
+	add := func(code string, message string, count int64) {
+		if count > 0 {
+			blockers = append(blockers, serverapi.ProjectDeleteBlocker{Code: code, Message: message, Count: int(count)})
+		}
+	}
+	add("active_sessions", "Project has sessions with in-flight steps.", counts.ActiveSessions)
+	add("non_terminal_tasks", "Project has active or non-terminal tasks.", counts.NonTerminalTasks)
+	add("active_runs", "Project has active workflow runs.", counts.ActiveRuns)
+	add("runnable_runs", "Project has runnable workflow runs.", counts.RunnableRuns)
+	return blockers
+}
+
+func (s *Store) DeleteProject(ctx context.Context, projectID string, deleteArtifact func(ProjectSessionArtifact, bool) error) ([]serverapi.ProjectDeleteBlocker, error) {
+	if s == nil || s.db == nil || s.queries == nil {
+		return nil, errors.New("metadata store is required")
+	}
+	if deleteArtifact == nil {
+		return nil, errors.New("session artifact delete callback is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin project delete tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	trimmedProjectID := strings.TrimSpace(projectID)
+	q := s.queries.WithTx(tx)
+	locked, err := q.AcquireProjectDeleteWriteLock(ctx, trimmedProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("lock project delete: %w", err)
+	}
+	if locked == 0 {
+		return nil, fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, trimmedProjectID)
+	}
+	counts, err := q.GetProjectDeleteBlockerCounts(ctx, trimmedProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("count project delete blockers: %w", err)
+	}
+	if blockers := projectDeleteBlockersFromCounts(counts); len(blockers) > 0 {
+		return blockers, nil
+	}
+	artifacts, err := q.ListProjectSessionArtifacts(ctx, trimmedProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("list project session artifacts: %w", err)
+	}
+	for _, artifact := range artifacts {
+		if err := deleteArtifact(ProjectSessionArtifact{SessionID: artifact.ID, ArtifactRelpath: artifact.ArtifactRelpath}, false); err != nil {
+			return nil, err
+		}
+	}
+	if err := q.DeleteProjectTasks(ctx, trimmedProjectID); err != nil {
+		return nil, fmt.Errorf("delete project tasks: %w", err)
+	}
+	rows, err := q.DeleteProject(ctx, trimmedProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("delete project: %w", err)
+	}
+	if rows == 0 {
+		return nil, fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, trimmedProjectID)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit project delete tx: %w", err)
+	}
+	_ = deleteArtifact(ProjectSessionArtifact{ArtifactRelpath: filepath.ToSlash(filepath.Join("projects", trimmedProjectID, "sessions"))}, true)
+	return nil, nil
+}
+
 func (s *Store) ListSessionsTargetingWorktree(ctx context.Context, worktreeID string) ([]WorktreeSessionBlocker, error) {
 	if s == nil || s.queries == nil {
 		return nil, errors.New("metadata store is required")

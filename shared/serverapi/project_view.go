@@ -178,6 +178,22 @@ type ProjectWorkspaceUnlinkBlocker struct {
 	Count   int    `json:"count,omitempty"`
 }
 
+type ProjectDeleteRequest struct {
+	ProjectID string `json:"project_id"`
+}
+
+type ProjectDeleteResponse struct {
+	ProjectID string                 `json:"project_id"`
+	Deleted   bool                   `json:"deleted"`
+	Blockers  []ProjectDeleteBlocker `json:"blockers,omitempty"`
+}
+
+type ProjectDeleteBlocker struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Count   int    `json:"count,omitempty"`
+}
+
 type ProjectAttachWorkspaceRequest struct {
 	ProjectID     string `json:"project_id"`
 	WorkspaceRoot string `json:"workspace_root"`
@@ -267,6 +283,13 @@ func (r ProjectWorkspaceUnlinkRequest) Validate() error {
 	}
 	if strings.TrimSpace(r.WorkspaceID) == "" {
 		return errors.New("workspace_id is required")
+	}
+	return nil
+}
+
+func (r ProjectDeleteRequest) Validate() error {
+	if strings.TrimSpace(r.ProjectID) == "" {
+		return errors.New("project_id is required")
 	}
 	return nil
 }

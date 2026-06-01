@@ -5,14 +5,17 @@ import {
   type NativeDirectorySelection,
   type NativeDialogWindowOptions,
 } from "@builder/desktop-native-bridge";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 
 import type { JsonValue } from "../../api/json";
 import { App } from "../../App";
+import { AppProviders } from "../../app/AppProviders";
 import { createTestServices, startupRoutes } from "../../testSupport/appServices";
+import { ProjectEditRoute } from "./ProjectEditRoute";
 
 const originalHistoryLengthDescriptor = Object.getOwnPropertyDescriptor(window.history, "length");
+const originalLocalStorageDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 
 describe("ProjectEditRoute", () => {
   beforeEach(() => {
@@ -26,6 +29,7 @@ describe("ProjectEditRoute", () => {
     } else {
       Object.defineProperty(window.history, "length", originalHistoryLengthDescriptor);
     }
+    restoreGlobalProperty("localStorage", originalLocalStorageDescriptor);
   });
 
   it("renders project identity, validates/saves name, and saves default workspace from row star", async () => {
@@ -36,10 +40,9 @@ describe("ProjectEditRoute", () => {
       { method: "project.defaultWorkspace.set", result: { project: projectSummary } },
     ]);
 
-    render(<App services={services} />);
+    renderProjectEdit(services);
 
     await screen.findByRole("heading", { name: "Workspaces" });
-    expect(screen.getByTestId("route-transition-frame")).toHaveClass("p-[var(--space-2)]");
     expect(screen.getByDisplayValue("PROJ")).toBeDisabled();
     expect(screen.queryByLabelText("Default workspace")).not.toBeInTheDocument();
 
@@ -79,7 +82,7 @@ describe("ProjectEditRoute", () => {
     expect(screen.getByRole("button", { name: "Unlink /tmp/project" }).className).not.toContain("hover:");
   });
 
-  it("uses Home pencil entry for edit route and shows duplicate attach info without mutation", async () => {
+  it("opens Project Edit from the Home pencil and shows duplicate attach info without mutation", async () => {
     window.history.replaceState(null, "", "/");
     const services = createTestServices(
       [
@@ -104,6 +107,7 @@ describe("ProjectEditRoute", () => {
     render(<App services={services} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Edit Project" }));
+    await screen.findByRole("complementary", { name: "Project" });
     await screen.findByRole("heading", { name: "Workspaces" });
 
     fireEvent.click(screen.getByRole("button", { name: "Attach workspace" }));
@@ -136,7 +140,7 @@ describe("ProjectEditRoute", () => {
       directoryBridge("/tmp/project-extra"),
     );
 
-    render(<App services={services} />);
+    renderProjectEdit(services);
 
     fireEvent.click(await screen.findByRole("button", { name: "Attach workspace" }));
 
@@ -169,7 +173,7 @@ describe("ProjectEditRoute", () => {
       },
     ]);
 
-    render(<App services={services} />);
+    renderProjectEdit(services);
 
     fireEvent.click(await screen.findByRole("button", { name: "Unlink /tmp/project-alt" }));
     await screen.findByRole("dialog");
@@ -190,7 +194,7 @@ describe("ProjectEditRoute", () => {
       nativeDialogBridge(opened),
     );
 
-    render(<App services={services} />);
+    renderProjectEdit(services);
 
     fireEvent.click(await screen.findByRole("button", { name: "Unlink /tmp/project-alt" }));
 
@@ -333,6 +337,9 @@ describe("ProjectEditRoute", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Unlink workspace" }));
 
+    expect(
+      await within(screen.getByTestId("sonner-test-surface")).findByText("Workspace unlink window failed"),
+    ).toBeInTheDocument();
     expect(services.transport.calls.map((call) => call.method)).not.toContain("server.readiness.get");
   });
 
@@ -355,7 +362,7 @@ describe("ProjectEditRoute", () => {
       rejectingNativeDialogBridge(opened),
     );
 
-    render(<App services={services} />);
+    renderProjectEdit(services);
 
     fireEvent.click(await screen.findByRole("button", { name: "Unlink /tmp/project-alt" }));
 
@@ -395,7 +402,7 @@ describe("ProjectEditRoute", () => {
       },
     ]);
 
-    render(<App services={services} />);
+    renderProjectEdit(services);
 
     await waitFor(() => {
       expect(services.transport.calls).toContainEqual({
@@ -411,12 +418,75 @@ describe("ProjectEditRoute", () => {
       { method: "project.edit.get", result: projectEditResponse },
     ]);
 
-    render(<App services={services} />);
+    renderProjectEdit(services);
 
     await screen.findByRole("heading", { name: "Workspaces" });
     expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
   });
+
+  it("confirms project deletion from the sidebar trash button and returns Home", async () => {
+    window.history.replaceState(null, "", "/");
+    installStorage("localStorage");
+    localStorage.setItem(
+      "builder.desktop.lastProjectRoute",
+      JSON.stringify({ projectId: "project-1", workflowId: "workflow-1" }),
+    );
+    const services = createTestServices([
+      {
+        method: "server.readiness.get",
+        result: startupRoutes[0]?.result,
+      },
+      {
+        method: "project.home.list",
+        result: {
+          projects: [projectSummary],
+          next_page_token: "",
+          generated_at_unix_ms: 1,
+        },
+      },
+      globalAttentionRoute,
+      { method: "project.edit.get", result: projectEditResponse },
+      {
+        method: "project.delete",
+        result: {
+          project_id: "project-1",
+          deleted: true,
+          blockers: [],
+        },
+      },
+    ]);
+
+    render(<App services={services} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Project" }));
+    await screen.findByRole("complementary", { name: "Project" });
+    fireEvent.click(screen.getByRole("button", { name: "Delete project" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete project?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete project" }));
+
+    await waitFor(() => {
+      expect(services.transport.calls).toContainEqual({
+        method: "project.delete",
+        params: { project_id: "project-1" },
+      });
+    });
+    expect(
+      await within(screen.getByTestId("sonner-test-surface")).findByText("Project deleted."),
+    ).toBeInTheDocument();
+    expect(localStorage.getItem("builder.desktop.lastProjectRoute")).toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByRole("complementary", { name: "Project" })).not.toBeInTheDocument();
+    });
+  });
 });
+
+function renderProjectEdit(services: ReturnType<typeof createTestServices>) {
+  return render(
+    <AppProviders services={services}>
+      <ProjectEditRoute projectId="project-1" />
+    </AppProviders>,
+  );
+}
 
 function directoryBridge(path: string): NativeBridge {
   const base = createBrowserNativeBridge();
@@ -518,6 +588,32 @@ function dialogRect(width: number, height: number): DOMRect {
 
 function isObject(value: JsonValue): value is Readonly<Record<string, JsonValue>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function installStorage(name: "localStorage"): void {
+  const values = new Map<string, string>();
+  Object.defineProperty(globalThis, name, {
+    configurable: true,
+    value: {
+      getItem(key: string) {
+        return values.get(key) ?? null;
+      },
+      removeItem(key: string) {
+        values.delete(key);
+      },
+      setItem(key: string, value: string) {
+        values.set(key, value);
+      },
+    },
+  });
+}
+
+function restoreGlobalProperty(name: "localStorage", descriptor: PropertyDescriptor | undefined): void {
+  if (descriptor === undefined) {
+    Reflect.deleteProperty(globalThis, name);
+    return;
+  }
+  Object.defineProperty(globalThis, name, descriptor);
 }
 
 const workspace1 = {

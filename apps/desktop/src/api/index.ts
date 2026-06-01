@@ -12,6 +12,7 @@ export type {
   BoardGroup,
   PendingAsk,
   ProjectBinding,
+  ProjectDeleteResponse,
   ProjectEdit,
   ProjectMutationResponse,
   ProjectWorkflowLink,

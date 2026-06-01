@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"builder/server/metadata"
@@ -18,6 +20,18 @@ import (
 type Service struct {
 	metadata  *metadata.Store
 	projectID string
+}
+
+var projectDeleteLocks = keyedProjectDeleteLocks{locks: map[string]*projectDeleteLock{}}
+
+type keyedProjectDeleteLocks struct {
+	mu    sync.Mutex
+	locks map[string]*projectDeleteLock
+}
+
+type projectDeleteLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
 const (
@@ -306,6 +320,100 @@ func (s *Service) UnlinkWorkspaceFromProject(ctx context.Context, req serverapi.
 		resp.Project = &projects[0]
 	}
 	return resp, nil
+}
+
+func (s *Service) DeleteProject(ctx context.Context, req serverapi.ProjectDeleteRequest) (serverapi.ProjectDeleteResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.ProjectDeleteResponse{}, err
+	}
+	if s == nil {
+		return serverapi.ProjectDeleteResponse{}, errors.New("project service is required")
+	}
+	if err := s.requireProjectID(req.ProjectID); err != nil {
+		return serverapi.ProjectDeleteResponse{}, err
+	}
+	projectID := strings.TrimSpace(req.ProjectID)
+	unlock := lockProjectDelete(projectID)
+	defer unlock()
+
+	if _, err := s.projectHomeSummary(ctx, projectID); err != nil {
+		return serverapi.ProjectDeleteResponse{}, err
+	}
+	blockers, err := s.metadata.DeleteProject(ctx, projectID, func(artifact metadata.ProjectSessionArtifact, remove bool) error {
+		return deleteSessionArtifact(s.metadata.PersistenceRoot(), projectID, artifact.ArtifactRelpath, remove)
+	})
+	if err != nil {
+		return serverapi.ProjectDeleteResponse{}, err
+	}
+	if len(blockers) > 0 {
+		return serverapi.ProjectDeleteResponse{ProjectID: projectID, Deleted: false, Blockers: blockers}, nil
+	}
+	return serverapi.ProjectDeleteResponse{ProjectID: projectID, Deleted: true}, nil
+}
+
+func lockProjectDelete(projectID string) func() {
+	// Artifact paths are persisted under projects/<projectID>/sessions and are DB-unique.
+	// A per-project lock serializes retries for the same tree without blocking disjoint projects.
+	projectDeleteLocks.mu.Lock()
+	lock := projectDeleteLocks.locks[projectID]
+	if lock == nil {
+		lock = &projectDeleteLock{}
+		projectDeleteLocks.locks[projectID] = lock
+	}
+	lock.refs++
+	projectDeleteLocks.mu.Unlock()
+
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		projectDeleteLocks.mu.Lock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(projectDeleteLocks.locks, projectID)
+		}
+		projectDeleteLocks.mu.Unlock()
+	}
+}
+
+func deleteSessionArtifact(persistenceRoot string, projectID string, relpath string, remove bool) error {
+	cleanRelpath := filepath.Clean(strings.TrimSpace(relpath))
+	if cleanRelpath == "." || filepath.IsAbs(cleanRelpath) || cleanRelpath == ".." || strings.HasPrefix(cleanRelpath, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("invalid session artifact path %q", relpath)
+	}
+	root, err := filepath.Abs(filepath.Clean(persistenceRoot))
+	if err != nil {
+		return fmt.Errorf("resolve persistence root: %w", err)
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return fmt.Errorf("resolve persistence root symlinks: %w", err)
+	}
+	projectRoot := filepath.Join(root, "projects", strings.TrimSpace(projectID), "sessions")
+	target, err := filepath.Abs(filepath.Join(root, cleanRelpath))
+	if err != nil {
+		return fmt.Errorf("resolve session artifact path: %w", err)
+	}
+	resolvedTarget, err := filepath.EvalSymlinks(target)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("resolve session artifact symlinks: %w", err)
+	}
+	if err == nil {
+		target = resolvedTarget
+	}
+	inside, err := filepath.Rel(projectRoot, target)
+	if err != nil {
+		return fmt.Errorf("validate session artifact path: %w", err)
+	}
+	if inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("session artifact path %q escapes project sessions root", relpath)
+	}
+	if !remove {
+		return nil
+	}
+	if err := os.RemoveAll(target); err != nil {
+		return fmt.Errorf("delete session artifact %q: %w", relpath, err)
+	}
+	return nil
 }
 
 func (s *Service) selectSingleAvailableWorkspace(ctx context.Context) (serverapi.ProjectWorkspacePlanSelected, bool, error) {

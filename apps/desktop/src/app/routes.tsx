@@ -7,13 +7,13 @@ import { z } from "zod";
 import { BoardRoute } from "../features/board/BoardRoute";
 import { HomeRoute } from "../features/home/HomeRoute";
 import { ProjectCreateWindowRoute } from "../features/home/ProjectCreateForm";
-import { ProjectEditRoute } from "../features/project-edit/ProjectEditRoute";
 import { WorkspaceUnlinkWindowRoute } from "../features/project-edit/ProjectEditParts";
 import { StandaloneTaskRoute, TaskDetailWindowRoute } from "../features/task-detail/StandaloneTaskRoute";
 import { StartupGate } from "../features/startup/StartupGate";
 import { NewTaskWindowRoute } from "../features/tasks/NewTaskDialog";
 import { LoadingState } from "../ui";
 import { AppChrome } from "./AppChrome";
+import { readLastProjectRoute, writeLastProjectRoute } from "./projectRoutePersistence";
 import { RouteTransitionFrame } from "./RouteTransitionFrame";
 import {
   createWorkflowDeleteConfirmWindowRoute,
@@ -68,12 +68,6 @@ const workspaceUnlinkSearchSchema = z.object({
   rootPath: optionalSearchString,
 });
 
-const storedProjectRouteSchema = z.object({
-  projectId: z.string(),
-  workflowId: z.string(),
-});
-
-const lastProjectRouteStorageKey = "builder.desktop.lastProjectRoute";
 const routeRestoreSessionKey = "builder.desktop.routeRestoreChecked";
 let routeRestoreCheckedFallback = false;
 
@@ -92,12 +86,6 @@ const projectRoute = createRoute({
   component: ProjectRoute,
 });
 
-const projectEditRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/projects/$projectId/edit",
-  component: ProjectEditShellRoute,
-});
-
 const workflowLibraryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/workflows",
@@ -114,7 +102,8 @@ const workflowEditorRoute = createRoute({
 const legacyWorkflowEditorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/projects/$projectId/workflows/$workflowId/editor",
-  validateSearch: (search: Record<string, unknown>) => projectSearchSchema.pick({ workflowId: true }).parse(search),
+  validateSearch: (search: Record<string, unknown>) =>
+    projectSearchSchema.pick({ workflowId: true }).parse(search),
   component: LegacyWorkflowEditorRedirectRoute,
 });
 
@@ -160,7 +149,6 @@ const routeTree = rootRoute.addChildren([
   workflowLibraryRoute,
   workflowEditorRoute,
   legacyWorkflowEditorRoute,
-  projectEditRoute,
   taskRoute,
   projectCreateRoute,
   taskDetailWindowRoute,
@@ -245,28 +233,6 @@ function projectRouteState(
   };
 }
 
-function readLastProjectRoute(): Readonly<{ projectId: string; workflowId: string }> | null {
-  const storage = safeStorage("local");
-  const raw = storage?.getItem(lastProjectRouteStorageKey) ?? null;
-  if (raw === null) {
-    return null;
-  }
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    const result = storedProjectRouteSchema.safeParse(parsed);
-    if (!result.success) {
-      return null;
-    }
-    return result.data;
-  } catch {
-    return null;
-  }
-}
-
-function writeLastProjectRoute(route: Readonly<{ projectId: string; workflowId: string }>): void {
-  safeStorage("local")?.setItem(lastProjectRouteStorageKey, JSON.stringify(route));
-}
-
 function claimRouteRestoreCheck(): boolean {
   const storage = safeStorage("session");
   if (storage === null) {
@@ -310,12 +276,6 @@ function HomeShellRoute() {
   const { t } = useTranslation();
   useWindowChromeTitle(t("home.projectsPane"));
   return <HomeRoute />;
-}
-
-function ProjectEditShellRoute() {
-  const params = projectEditRoute.useParams();
-  useWindowChromeTitle(null);
-  return <ProjectEditRoute projectId={params.projectId} />;
 }
 
 function WorkflowEditorShellRoute() {

@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button, showStatusToast } from "../ui";
 import { cx } from "../ui/classes";
+import { ProjectDeleteButton } from "../features/project-edit/ProjectDeleteButton";
 import { useAppServices } from "./useAppServices";
 import { SidebarDestinationView, sidebarTitle } from "./sidebarDestinations";
 import { useSidebar, type SidebarDestination } from "./sidebarContext";
@@ -58,11 +59,10 @@ export function SidebarHost() {
   );
 
   const sidebarStyle = useMemo<SidebarStyle>(
-    () =>
-      ({
-        "--app-sidebar-inset": "var(--space-2)",
-        "--app-sidebar-width": `${sidebarWidthPx.toString()}px`,
-      }),
+    () => ({
+      "--app-sidebar-inset": "var(--space-2)",
+      "--app-sidebar-width": `${sidebarWidthPx.toString()}px`,
+    }),
     [sidebarWidthPx],
   );
 
@@ -102,9 +102,7 @@ export function SidebarHost() {
         return;
       }
       event.preventDefault();
-      resizeSidebar(
-        clampSidebarWidth(drag.startWidth + drag.startX - event.clientX, drag.bounds.maxWidthPx),
-      );
+      resizeSidebar(clampSidebarWidth(drag.startWidth + drag.startX - event.clientX, drag.bounds.maxWidthPx));
     },
     [resizeSidebar],
   );
@@ -233,10 +231,10 @@ export function SidebarHost() {
       <header className="grid grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-[var(--space-3)] border-b border-[var(--color-outline)] px-[var(--space-4)] py-[var(--space-3)]">
         <Button
           aria-label={t("app.close")}
-          className="grid h-9 w-9 place-items-center rounded-full p-0"
           onClick={() => {
             closeSidebar("closed");
           }}
+          size="icon"
           variant="ghost"
         >
           <X aria-hidden="true" size={18} strokeWidth={1.5} />
@@ -253,17 +251,17 @@ export function SidebarHost() {
   );
 }
 
-function SidebarHeaderAccessory({
-  destination,
-}: Readonly<{ destination: SidebarDestination }>) {
-  if (destination.kind !== "workflowInspect") {
-    return null;
+function SidebarHeaderAccessory({ destination }: Readonly<{ destination: SidebarDestination }>) {
+  if (destination.kind === "projectEdit") {
+    return <ProjectDeleteButton projectID={destination.projectID} />;
   }
-  if (destination.selection.kind === "node") {
-    return <WorkflowEntityIDHeader entityID={destination.selection.nodeID} entityKind="node" />;
-  }
-  if (destination.selection.kind === "edge") {
-    return <WorkflowEntityIDHeader entityID={destination.selection.edgeID} entityKind="edge" />;
+  if (destination.kind === "workflowInspect") {
+    if (destination.selection.kind === "node") {
+      return <WorkflowEntityIDHeader entityID={destination.selection.nodeID} entityKind="node" />;
+    }
+    if (destination.selection.kind === "edge") {
+      return <WorkflowEntityIDHeader entityID={destination.selection.edgeID} entityKind="edge" />;
+    }
   }
   return null;
 }
@@ -309,7 +307,9 @@ function WorkflowEntityIDHeader({
       title={entityID}
       type="button"
     >
-      <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-right">{entityID}</span>
+      <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-right">
+        {entityID}
+      </span>
     </button>
   );
 }
@@ -325,8 +325,7 @@ async function copyWorkflowEntityID(
   await navigator.clipboard.writeText(value);
 }
 
-type SidebarStyle = CSSProperties &
-  Readonly<Record<"--app-sidebar-inset" | "--app-sidebar-width", string>>;
+type SidebarStyle = CSSProperties & Readonly<Record<"--app-sidebar-inset" | "--app-sidebar-width", string>>;
 
 type PointerCaptureTarget = Partial<
   Readonly<{

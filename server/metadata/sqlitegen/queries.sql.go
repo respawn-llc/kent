@@ -11,6 +11,20 @@ import (
 	"strings"
 )
 
+const acquireProjectDeleteWriteLock = `-- name: AcquireProjectDeleteWriteLock :execrows
+UPDATE projects
+SET updated_at_unix_ms = updated_at_unix_ms
+WHERE id = ?1
+`
+
+func (q *Queries) AcquireProjectDeleteWriteLock(ctx context.Context, projectID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, acquireProjectDeleteWriteLock, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const allocateProjectTaskSequence = `-- name: AllocateProjectTaskSequence :one
 UPDATE projects
 SET
@@ -450,6 +464,31 @@ func (q *Queries) CountWorkflowNodesByGroup(ctx context.Context, groupID sql.Nul
 	return node_count, err
 }
 
+const deleteProject = `-- name: DeleteProject :execrows
+DELETE FROM projects
+WHERE id = ?1
+`
+
+func (q *Queries) DeleteProject(ctx context.Context, projectID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteProject, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteProjectTasks = `-- name: DeleteProjectTasks :exec
+DELETE FROM tasks
+WHERE id IN (
+    SELECT id FROM task_records WHERE project_id = ?1
+)
+`
+
+func (q *Queries) DeleteProjectTasks(ctx context.Context, projectID string) error {
+	_, err := q.db.ExecContext(ctx, deleteProjectTasks, projectID)
+	return err
+}
+
 const deleteProjectWorkflowLink = `-- name: DeleteProjectWorkflowLink :execrows
 DELETE FROM project_workflow_links
 WHERE id = ?1
@@ -646,6 +685,78 @@ func (q *Queries) GetDefaultProjectWorkflowLink(ctx context.Context, projectID s
 		&i.IsDefault,
 		&i.CreatedAtUnixMs,
 		&i.UpdatedAtUnixMs,
+	)
+	return i, err
+}
+
+const getProjectDeleteBlockerCounts = `-- name: GetProjectDeleteBlockerCounts :one
+SELECT
+    CAST((SELECT COUNT(*) FROM sessions s WHERE s.project_id = ?1 AND s.in_flight_step <> 0) AS INTEGER) AS active_sessions,
+    CAST((
+        SELECT COUNT(DISTINCT id)
+        FROM (
+            SELECT t.id
+            FROM task_records t
+            JOIN task_node_placements p ON p.task_id = t.id AND p.state IN ('active', 'waiting_approval')
+            JOIN workflow_nodes n ON n.id = p.node_id
+            WHERE t.project_id = ?1
+              AND t.canceled_at_unix_ms = 0
+              AND n.kind != 'terminal'
+            UNION
+            SELECT t.id
+            FROM task_records t
+            JOIN task_transitions tt ON tt.task_id = t.id AND tt.state = 'pending_approval'
+            WHERE t.project_id = ?1
+              AND t.canceled_at_unix_ms = 0
+        )
+    ) AS INTEGER) AS non_terminal_tasks,
+    CAST((
+        SELECT COUNT(DISTINCT r.id)
+        FROM task_run_records r
+        JOIN task_records t ON t.id = r.task_id
+        JOIN task_node_placements p ON p.id = r.placement_id
+        JOIN workflow_nodes n ON n.id = r.node_id
+        WHERE t.project_id = ?1
+          AND t.canceled_at_unix_ms = 0
+          AND r.started_at_unix_ms > 0
+          AND r.completed_at_unix_ms = 0
+          AND r.interrupted_at_unix_ms = 0
+          AND p.state = 'active'
+          AND n.kind = 'agent'
+    ) AS INTEGER) AS active_runs,
+    CAST((
+        SELECT COUNT(DISTINCT r.id)
+        FROM task_run_records r
+        JOIN task_records t ON t.id = r.task_id
+        JOIN task_node_placements p ON p.id = r.placement_id
+        JOIN workflow_nodes n ON n.id = r.node_id
+        WHERE t.project_id = ?1
+          AND t.canceled_at_unix_ms = 0
+          AND r.automation_requested_at_unix_ms > 0
+          AND r.started_at_unix_ms = 0
+          AND r.completed_at_unix_ms = 0
+          AND r.interrupted_at_unix_ms = 0
+          AND r.waiting_ask_id = ''
+          AND p.state = 'active'
+          AND n.kind = 'agent'
+    ) AS INTEGER) AS runnable_runs
+`
+
+type GetProjectDeleteBlockerCountsRow struct {
+	ActiveSessions   int64
+	NonTerminalTasks int64
+	ActiveRuns       int64
+	RunnableRuns     int64
+}
+
+func (q *Queries) GetProjectDeleteBlockerCounts(ctx context.Context, deleteProjectID string) (GetProjectDeleteBlockerCountsRow, error) {
+	row := q.db.QueryRowContext(ctx, getProjectDeleteBlockerCounts, deleteProjectID)
+	var i GetProjectDeleteBlockerCountsRow
+	err := row.Scan(
+		&i.ActiveSessions,
+		&i.NonTerminalTasks,
+		&i.ActiveRuns,
+		&i.RunnableRuns,
 	)
 	return i, err
 }
@@ -2880,6 +2991,44 @@ func (q *Queries) ListProjectKeyRows(ctx context.Context) ([]ListProjectKeyRowsR
 	for rows.Next() {
 		var i ListProjectKeyRowsRow
 		if err := rows.Scan(&i.ID, &i.DisplayName, &i.ProjectKey); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectSessionArtifacts = `-- name: ListProjectSessionArtifacts :many
+SELECT
+    id,
+    artifact_relpath
+FROM sessions
+WHERE project_id = ?1
+  AND trim(artifact_relpath) != ''
+ORDER BY rowid ASC
+`
+
+type ListProjectSessionArtifactsRow struct {
+	ID              string
+	ArtifactRelpath string
+}
+
+func (q *Queries) ListProjectSessionArtifacts(ctx context.Context, projectID string) ([]ListProjectSessionArtifactsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listProjectSessionArtifacts, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProjectSessionArtifactsRow
+	for rows.Next() {
+		var i ListProjectSessionArtifactsRow
+		if err := rows.Scan(&i.ID, &i.ArtifactRelpath); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
