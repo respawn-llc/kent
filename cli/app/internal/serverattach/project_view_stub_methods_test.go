@@ -22,3 +22,7 @@ func (*projectViewRemoteStub) SetDefaultWorkspace(context.Context, serverapi.Pro
 func (*projectViewRemoteStub) UnlinkWorkspaceFromProject(context.Context, serverapi.ProjectWorkspaceUnlinkRequest) (serverapi.ProjectWorkspaceUnlinkResponse, error) {
 	return serverapi.ProjectWorkspaceUnlinkResponse{}, errors.New("unexpected UnlinkWorkspaceFromProject call")
 }
+
+func (*projectViewRemoteStub) DeleteProject(context.Context, serverapi.ProjectDeleteRequest) (serverapi.ProjectDeleteResponse, error) {
+	return serverapi.ProjectDeleteResponse{}, errors.New("unexpected DeleteProject call")
+}

@@ -177,6 +177,10 @@ func (c *Remote) UnlinkWorkspaceFromProject(ctx context.Context, req serverapi.P
 	return callUnscopedRPC[serverapi.ProjectWorkspaceUnlinkRequest, serverapi.ProjectWorkspaceUnlinkResponse](c, ctx, protocol.MethodProjectUnlinkWorkspace, req)
 }
 
+func (c *Remote) DeleteProject(ctx context.Context, req serverapi.ProjectDeleteRequest) (serverapi.ProjectDeleteResponse, error) {
+	return callUnscopedRPC[serverapi.ProjectDeleteRequest, serverapi.ProjectDeleteResponse](c, ctx, protocol.MethodProjectDelete, req)
+}
+
 func (c *Remote) AttachWorkspaceToProject(ctx context.Context, req serverapi.ProjectAttachWorkspaceRequest) (serverapi.ProjectAttachWorkspaceResponse, error) {
 	return callUnscopedRPC[serverapi.ProjectAttachWorkspaceRequest, serverapi.ProjectAttachWorkspaceResponse](c, ctx, protocol.MethodProjectAttachWorkspace, req)
 }

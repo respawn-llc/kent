@@ -67,6 +67,30 @@ export function useProjectWorkspaceUnlink(projectID: string) {
   });
 }
 
+export function useProjectDelete(projectID: string) {
+  const { api } = useAppServices();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => api.deleteProject(projectID),
+    onSuccess: async (response) => {
+      if (!response.deleted) {
+        await invalidateProjectEditQueries(queryClient, projectID);
+        return;
+      }
+      queryClient.removeQueries({ queryKey: queryKeys.projectEdit(projectID) });
+      queryClient.removeQueries({ queryKey: queryKeys.workspaces(projectID) });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.allProjectEdits }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.allWorkspaces }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.allBoards }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.allAttention }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.allTasks }),
+      ]);
+    },
+  });
+}
+
 export function useProjectWorkspaceUnlinkRequests(
   nativeBridge: NativeBridge,
   handler: (target: NativeWorkspaceUnlinkTarget) => void,

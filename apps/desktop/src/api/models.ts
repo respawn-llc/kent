@@ -87,6 +87,18 @@ export type WorkspaceUnlinkResponse = Readonly<{
   project: ProjectSummary | null;
 }>;
 
+export type ProjectDeleteBlocker = Readonly<{
+  code: string;
+  message: string;
+  count: number;
+}>;
+
+export type ProjectDeleteResponse = Readonly<{
+  projectID: string;
+  deleted: boolean;
+  blockers: readonly ProjectDeleteBlocker[];
+}>;
+
 export type ProjectBinding = Readonly<{
   projectID: string;
   projectKey: string;

@@ -2,6 +2,7 @@
 import type { ReactElement } from "react";
 import type { useTranslation } from "react-i18next";
 
+import { ProjectEditRoute } from "../features/project-edit/ProjectEditRoute";
 import { TaskDetailSurface } from "../features/task-detail/TaskDetailDialog";
 import { NewTaskForm } from "../features/tasks/NewTaskDialog";
 import { WorkflowInspectorSidebar } from "../features/workflow-editor/WorkflowInspectorSidebar";
@@ -52,6 +53,10 @@ export function SidebarDestinationView({
 
   if (destination.kind === "workflowInspect") {
     return <WorkflowInspectorSidebar selection={destination.selection} workflowID={destination.workflowID} />;
+  }
+
+  if (destination.kind === "projectEdit") {
+    return <ProjectEditRoute projectId={destination.projectID} />;
   }
 
   return <>{destination.content}</>;
@@ -135,6 +140,9 @@ export function sidebarTitle(
       return t("workflowEditor.inspectGroup");
     }
     return t("workflowEditor.inspectEdge");
+  }
+  if (destination.kind === "projectEdit") {
+    return t("projectEdit.title");
   }
   return destination.title;
 }

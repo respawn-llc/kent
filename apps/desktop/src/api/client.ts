@@ -12,6 +12,7 @@ import type {
   ProjectWorkflowLink,
   ProjectBinding,
   ProjectEdit,
+  ProjectDeleteResponse,
   ProjectMutationResponse,
   ProjectPage,
   ServerReadiness,
@@ -37,6 +38,7 @@ import type {
 import {
   bindingPlanSchema,
   projectCreateSchema,
+  projectDeleteResponseSchema,
   projectEditSchema,
   projectMutationResponseSchema,
   projectPageSchema,
@@ -179,6 +181,14 @@ export class BuilderApiClient {
         project_id: projectID,
         workspace_id: workspaceID,
       }),
+    );
+  }
+
+  async deleteProject(projectID: string): Promise<ProjectDeleteResponse> {
+    return parse(
+      "project.delete",
+      projectDeleteResponseSchema,
+      await this.transport.call("project.delete", { project_id: projectID }),
     );
   }
 

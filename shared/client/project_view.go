@@ -56,6 +56,10 @@ func (c *loopbackProjectViewClient) UnlinkWorkspaceFromProject(ctx context.Conte
 	return callLoopbackClient(c, "project view service is required", ctx, req, servicecontract.ProjectViewService.UnlinkWorkspaceFromProject)
 }
 
+func (c *loopbackProjectViewClient) DeleteProject(ctx context.Context, req serverapi.ProjectDeleteRequest) (serverapi.ProjectDeleteResponse, error) {
+	return callLoopbackClient(c, "project view service is required", ctx, req, servicecontract.ProjectViewService.DeleteProject)
+}
+
 func (c *loopbackProjectViewClient) AttachWorkspaceToProject(ctx context.Context, req serverapi.ProjectAttachWorkspaceRequest) (serverapi.ProjectAttachWorkspaceResponse, error) {
 	return callLoopbackClient(c, "project view service is required", ctx, req, servicecontract.ProjectViewService.AttachWorkspaceToProject)
 }

@@ -194,6 +194,7 @@ var routeContracts = []Route{
 	unary[serverapi.ProjectDefaultWorkspaceSetRequest, serverapi.ProjectDefaultWorkspaceSetResponse](protocol.MethodProjectSetDefaultWorkspace, AuthServer, ScopeProjectView, ConnectionUnscoped, DependencyProjectView),
 	unary[serverapi.ProjectWorkspaceListRequest, serverapi.ProjectWorkspaceListResponse](protocol.MethodProjectWorkspaceList, AuthPreServerAuth, ScopeProjectView, ConnectionUnscoped, DependencyProjectView),
 	unary[serverapi.ProjectWorkspaceUnlinkRequest, serverapi.ProjectWorkspaceUnlinkResponse](protocol.MethodProjectUnlinkWorkspace, AuthServer, ScopeProjectView, ConnectionUnscoped, DependencyProjectView),
+	unary[serverapi.ProjectDeleteRequest, serverapi.ProjectDeleteResponse](protocol.MethodProjectDelete, AuthServer, ScopeProjectView, ConnectionUnscoped, DependencyProjectView),
 	unary[serverapi.ProjectAttachWorkspaceRequest, serverapi.ProjectAttachWorkspaceResponse](protocol.MethodProjectAttachWorkspace, AuthServer, ScopeProjectView, ConnectionUnscoped, DependencyProjectView),
 	unary[serverapi.ProjectRebindWorkspaceRequest, serverapi.ProjectRebindWorkspaceResponse](protocol.MethodProjectRebindWorkspace, AuthServer, ScopeProjectView, ConnectionUnscoped, DependencyProjectView),
 	unary[serverapi.ProjectGetOverviewRequest, serverapi.ProjectGetOverviewResponse](protocol.MethodProjectGetOverview, AuthPreServerAuth, ScopeProjectView, ConnectionUnscoped, DependencyProjectView),

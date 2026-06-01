@@ -84,6 +84,89 @@ func TestServiceRejectsUnknownProjectID(t *testing.T) {
 	}
 }
 
+func TestServiceDeletesProjectMetadataAndSessionArtifacts(t *testing.T) {
+	store, cfg, binding := newProjectViewMetadataStore(t)
+	sessionDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	created, err := session.Create(sessionDir, filepath.Base(sessionDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := created.SetName("delete-me"); err != nil {
+		t.Fatalf("persist session: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(created.Dir(), "events.jsonl"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("write session event: %v", err)
+	}
+	svc := newProjectViewMetadataService(t, store, binding.ProjectID)
+
+	deleted, err := svc.DeleteProject(context.Background(), serverapi.ProjectDeleteRequest{ProjectID: binding.ProjectID})
+	if err != nil {
+		t.Fatalf("DeleteProject: %v", err)
+	}
+	if !deleted.Deleted || len(deleted.Blockers) != 0 {
+		t.Fatalf("delete response = %+v, want deleted", deleted)
+	}
+	if _, err := os.Stat(created.Dir()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("session dir stat = %v, want not exists", err)
+	}
+	if _, err := svc.GetProjectOverview(context.Background(), serverapi.ProjectGetOverviewRequest{ProjectID: binding.ProjectID}); err == nil {
+		t.Fatal("expected deleted project lookup to fail")
+	}
+	if _, err := os.Stat(binding.CanonicalRoot); err != nil {
+		t.Fatalf("workspace root should remain: %v", err)
+	}
+}
+
+func TestServiceDeleteProjectBlocksActiveSession(t *testing.T) {
+	store, cfg, binding := newProjectViewMetadataStore(t)
+	sessionDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)
+	created, err := session.Create(sessionDir, filepath.Base(sessionDir), cfg.WorkspaceRoot, store.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := created.SetName("active"); err != nil {
+		t.Fatalf("persist session: %v", err)
+	}
+	if _, err := store.DB().ExecContext(context.Background(), `UPDATE sessions SET in_flight_step = 1 WHERE id = ?`, created.Meta().SessionID); err != nil {
+		t.Fatalf("mark session active: %v", err)
+	}
+	svc := newProjectViewMetadataService(t, store, binding.ProjectID)
+
+	deleted, err := svc.DeleteProject(context.Background(), serverapi.ProjectDeleteRequest{ProjectID: binding.ProjectID})
+	if err != nil {
+		t.Fatalf("DeleteProject: %v", err)
+	}
+	if deleted.Deleted || len(deleted.Blockers) != 1 || deleted.Blockers[0].Code != "active_sessions" {
+		t.Fatalf("delete response = %+v, want active_sessions blocker", deleted)
+	}
+	if _, err := os.Stat(created.Dir()); err != nil {
+		t.Fatalf("session dir should remain: %v", err)
+	}
+}
+
+func TestDeleteSessionArtifactRejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "keep"), []byte("keep"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "projects", "project-1"), 0o755); err != nil {
+		t.Fatalf("create project dir: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "projects", "project-1", "sessions")); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	err := deleteSessionArtifact(root, "project-1", filepath.Join("projects", "project-1", "sessions", "keep"), true)
+
+	if err == nil || !strings.Contains(err.Error(), "escapes project sessions root") {
+		t.Fatalf("deleteSessionArtifact error = %v, want escape rejection", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "keep")); err != nil {
+		t.Fatalf("outside file should remain: %v", err)
+	}
+}
+
 func TestMetadataServiceSupportsWildcardAndScopedProjectListing(t *testing.T) {
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()

@@ -106,11 +106,6 @@ describe("navigation stack state", () => {
       path: "/workflows/$workflowId/editor",
       component: () => createElement(NavigationIdentityProbe, { observed }),
     });
-    const projectEditRoute = createRoute({
-      getParentRoute: () => rootRoute,
-      path: "/projects/$projectId/edit",
-      component: () => createElement(NavigationIdentityProbe, { observed }),
-    });
     const taskRoute = createRoute({
       getParentRoute: () => rootRoute,
       path: "/tasks/$taskId",
@@ -123,7 +118,6 @@ describe("navigation stack state", () => {
         projectRoute,
         workflowRoute,
         workflowEditorRoute,
-        projectEditRoute,
         taskRoute,
       ]),
     });
@@ -151,10 +145,6 @@ describe("navigation stack state", () => {
     });
     expectRoute(router, "/workflows", {});
     await act(async () => {
-      await navigation.openProjectEdit("project-1");
-    });
-    expectRoute(router, "/projects/project-1/edit", {});
-    await act(async () => {
       await navigation.openTask("task-1");
     });
     expectRoute(router, "/tasks/task-1", {});
@@ -179,7 +169,7 @@ describe("navigation stack state", () => {
     });
     expectRoute(router, "/", {});
 
-    expect(startViewTransition).toHaveBeenCalledTimes(8);
+    expect(startViewTransition).toHaveBeenCalledTimes(7);
   });
 });
 

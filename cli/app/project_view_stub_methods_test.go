@@ -23,6 +23,10 @@ func (projectBindingFlowStubProjectViewService) UnlinkWorkspaceFromProject(conte
 	return serverapi.ProjectWorkspaceUnlinkResponse{}, errors.New("unexpected UnlinkWorkspaceFromProject call")
 }
 
+func (projectBindingFlowStubProjectViewService) DeleteProject(context.Context, serverapi.ProjectDeleteRequest) (serverapi.ProjectDeleteResponse, error) {
+	return serverapi.ProjectDeleteResponse{}, errors.New("unexpected DeleteProject call")
+}
+
 func (*configuredProjectViewRemoteStub) GetProjectEdit(context.Context, serverapi.ProjectEditGetRequest) (serverapi.ProjectEditGetResponse, error) {
 	return serverapi.ProjectEditGetResponse{}, errors.New("unexpected GetProjectEdit call")
 }
@@ -39,6 +43,10 @@ func (*configuredProjectViewRemoteStub) UnlinkWorkspaceFromProject(context.Conte
 	return serverapi.ProjectWorkspaceUnlinkResponse{}, errors.New("unexpected UnlinkWorkspaceFromProject call")
 }
 
+func (*configuredProjectViewRemoteStub) DeleteProject(context.Context, serverapi.ProjectDeleteRequest) (serverapi.ProjectDeleteResponse, error) {
+	return serverapi.ProjectDeleteResponse{}, errors.New("unexpected DeleteProject call")
+}
+
 func (headlessProjectViewStubService) GetProjectEdit(context.Context, serverapi.ProjectEditGetRequest) (serverapi.ProjectEditGetResponse, error) {
 	return serverapi.ProjectEditGetResponse{}, errors.New("unexpected GetProjectEdit call")
 }
@@ -53,4 +61,8 @@ func (headlessProjectViewStubService) SetDefaultWorkspace(context.Context, serve
 
 func (headlessProjectViewStubService) UnlinkWorkspaceFromProject(context.Context, serverapi.ProjectWorkspaceUnlinkRequest) (serverapi.ProjectWorkspaceUnlinkResponse, error) {
 	return serverapi.ProjectWorkspaceUnlinkResponse{}, errors.New("unexpected UnlinkWorkspaceFromProject call")
+}
+
+func (headlessProjectViewStubService) DeleteProject(context.Context, serverapi.ProjectDeleteRequest) (serverapi.ProjectDeleteResponse, error) {
+	return serverapi.ProjectDeleteResponse{}, errors.New("unexpected DeleteProject call")
 }

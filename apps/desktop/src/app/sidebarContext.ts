@@ -71,6 +71,11 @@ export type SidebarDestination =
       selection: WorkflowInspectorSelection;
     }>
   | Readonly<{
+      kind: "projectEdit";
+      mode?: SidebarMode;
+      projectID: string;
+    }>
+  | Readonly<{
       kind: "custom";
       mode?: SidebarMode;
       title: string;

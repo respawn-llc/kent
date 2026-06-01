@@ -22,3 +22,7 @@ func (*testProjectViewClient) SetDefaultWorkspace(context.Context, serverapi.Pro
 func (*testProjectViewClient) UnlinkWorkspaceFromProject(context.Context, serverapi.ProjectWorkspaceUnlinkRequest) (serverapi.ProjectWorkspaceUnlinkResponse, error) {
 	return serverapi.ProjectWorkspaceUnlinkResponse{}, errors.New("unexpected UnlinkWorkspaceFromProject call")
 }
+
+func (*testProjectViewClient) DeleteProject(context.Context, serverapi.ProjectDeleteRequest) (serverapi.ProjectDeleteResponse, error) {
+	return serverapi.ProjectDeleteResponse{}, errors.New("unexpected DeleteProject call")
+}
