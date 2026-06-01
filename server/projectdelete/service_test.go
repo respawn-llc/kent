@@ -70,6 +70,30 @@ func TestServiceDeleteProjectBlocksActiveSession(t *testing.T) {
 	assertProjectDeleteRowCount(t, store.DB(), "project_delete_jobs", "project_id = ?", 0, binding.ProjectID)
 }
 
+func TestServiceDeleteProjectResumeDoesNotBypassFreshDeleteBlockers(t *testing.T) {
+	store, binding := newProjectDeleteTestStore(t)
+	service := newProjectDeleteTestService(t, store, WithAttachedProjectID(binding.ProjectID))
+
+	preview, err := service.PreviewProjectDelete(context.Background(), projectDeletePreviewRequest(binding.ProjectID))
+	if err != nil {
+		t.Fatalf("PreviewProjectDelete: %v", err)
+	}
+	if !hasProjectDeleteBlocker(preview.Impact.Blockers, "active_attached_project") {
+		t.Fatalf("blockers = %+v, want active_attached_project", preview.Impact.Blockers)
+	}
+	req := projectDeleteRequestFromImpact(preview.Impact)
+	req.Resume = true
+	deleted, err := service.DeleteProject(context.Background(), req)
+	if err != nil {
+		t.Fatalf("DeleteProject: %v", err)
+	}
+	if deleted.Deleted || !hasProjectDeleteBlocker(deleted.Blockers, "active_attached_project") {
+		t.Fatalf("delete response = %+v, want active_attached_project blocker", deleted)
+	}
+	assertProjectDeleteRowCount(t, store.DB(), "projects", "id = ?", 1, binding.ProjectID)
+	assertProjectDeleteRowCount(t, store.DB(), "project_delete_jobs", "project_id = ?", 0, binding.ProjectID)
+}
+
 func TestServiceDeleteProjectCleanupFailureLeavesJobResumable(t *testing.T) {
 	store, binding := newProjectDeleteTestStore(t)
 	service := newProjectDeleteTestService(t, store)
@@ -113,9 +137,9 @@ func newProjectDeleteTestStore(t *testing.T) (*metadata.Store, metadata.Binding)
 	return store, binding
 }
 
-func newProjectDeleteTestService(t *testing.T, store *metadata.Store) *Service {
+func newProjectDeleteTestService(t *testing.T, store *metadata.Store, opts ...Option) *Service {
 	t.Helper()
-	service, err := New(store, projectgate.New())
+	service, err := New(store, projectgate.New(), opts...)
 	if err != nil {
 		t.Fatalf("new project delete service: %v", err)
 	}

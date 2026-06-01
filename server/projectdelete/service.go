@@ -104,11 +104,12 @@ func (s *Service) DeleteProject(ctx context.Context, req serverapi.ProjectDelete
 	projectID := strings.TrimSpace(req.ProjectID)
 	var response serverapi.ProjectDeleteResponse
 	err := s.gate.WithProject(ctx, projectID, func(ctx context.Context) error {
-		impact, err := s.previewImpact(ctx, projectID, req.Resume)
+		impact, err := s.previewImpact(ctx, projectID, false)
 		if err != nil {
 			return err
 		}
-		if !req.Resume && len(impact.Blockers) > 0 {
+		resumeExistingDelete := req.Resume && impact.ResumeRequired
+		if !resumeExistingDelete && len(impact.Blockers) > 0 {
 			response = serverapi.ProjectDeleteResponse{Deleted: false, Impact: impact, Blockers: impact.Blockers}
 			return nil
 		}
@@ -122,7 +123,7 @@ func (s *Service) DeleteProject(ctx context.Context, req serverapi.ProjectDelete
 			ExpectedNonTerminalTaskCount: int64(req.ExpectedNonTerminalTaskCount),
 			ExpectedSessionCount:         int64(req.ExpectedSessionCount),
 			ExpectedSessionArtifactCount: int64(req.ExpectedSessionArtifactCount),
-			Resume:                       req.Resume || impact.ResumeRequired,
+			Resume:                       resumeExistingDelete,
 		})
 		if err != nil {
 			return err
