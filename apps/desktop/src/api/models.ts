@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- GUI API model contracts stay centralized at the server transport boundary. */
 export type ServerCause = Readonly<{
   code: string;
   severity: string;

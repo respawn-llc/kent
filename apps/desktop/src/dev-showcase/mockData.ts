@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- Showcase fixtures keep representative board/workflow data in one place. */
 import type {
   BoardCard,
   BoardColumn,

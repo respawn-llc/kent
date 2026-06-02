@@ -12,7 +12,7 @@ describe("workflowDeleteConfirmationModel", () => {
         transitionGroupCount: 3,
       },
       requestID: "workflow-1-delete-4",
-      title: "Confirm graph delete",
+      title: "Delete node?",
     });
 
     expect(options).toMatchObject({
@@ -26,7 +26,7 @@ describe("workflowDeleteConfirmationModel", () => {
         transitionGroupCount: "3",
       },
       route: "/native-dialog/workflow-delete-confirm",
-      title: "Confirm graph delete",
+      title: "Delete node?",
     });
     expect(workflowDeleteConfirmationWindowTargetFromSearch(options.params)).toEqual({
       counts: {

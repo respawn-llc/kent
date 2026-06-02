@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  shouldNotifyWorkflowEditorRefresh,
   shouldRefreshWorkflowDefinition,
   shouldRefreshWorkflowEditor,
   shouldRefreshWorkflowLink,
@@ -111,6 +112,47 @@ describe("shouldRefreshWorkflowEditor", () => {
     expect(shouldRefreshWorkflowDefinition(linkEvent, "workflow-1")).toBe(false);
     expect(shouldRefreshWorkflowLink(workflowEvent, "project-1", "workflow-1")).toBe(false);
     expect(shouldRefreshWorkflowLink(linkEvent, "project-1", "workflow-1")).toBe(true);
+  });
+
+  it("does not show workflow-updated feedback for workflow deletion refreshes", () => {
+    expect(
+      shouldNotifyWorkflowEditorRefresh(
+        eventParams({ action: "graph_saved", resource: "workflow", workflow_id: "workflow-1" }),
+        "project-1",
+        "workflow-1",
+      ),
+    ).toBe(true);
+    expect(
+      shouldNotifyWorkflowEditorRefresh(
+        eventParams({ action: "deleted", resource: "workflow", workflow_id: "workflow-1" }),
+        "project-1",
+        "workflow-1",
+      ),
+    ).toBe(false);
+    expect(
+      shouldNotifyWorkflowEditorRefresh(
+        eventParams({
+          action: "unlinked",
+          project_id: "project-1",
+          resource: "workflow_link",
+          workflow_id: "workflow-1",
+        }),
+        "project-1",
+        "workflow-1",
+      ),
+    ).toBe(false);
+    expect(
+      shouldNotifyWorkflowEditorRefresh(
+        eventParams({
+          action: "default_changed",
+          project_id: "project-1",
+          resource: "workflow_link",
+          workflow_id: "workflow-1",
+        }),
+        "project-1",
+        "workflow-1",
+      ),
+    ).toBe(true);
   });
 });
 

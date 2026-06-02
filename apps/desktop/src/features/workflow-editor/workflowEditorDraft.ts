@@ -1,4 +1,4 @@
-/* eslint-disable complexity, max-lines -- The draft reducer and serializers are kept together as one pure state module. */
+/* eslint-disable complexity -- The draft reducer and serializers are kept together as one pure state module. */
 import type {
   WorkflowContextSource,
   WorkflowDefinition,

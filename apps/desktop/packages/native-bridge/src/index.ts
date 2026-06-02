@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- Native bridge is the package-level contract surface; Phase 8 will revisit capability cleanup. */
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -81,6 +80,10 @@ export type NativeBridge = Readonly<{
     notifyCreated(binding: NativeProjectBinding): Promise<void>;
     onCreated(handler: (binding: NativeProjectBinding) => void): Promise<NativeUnlisten>;
   }>;
+  projectDeletion: Readonly<{
+    notifyDeleted(event: NativeProjectDeleted): Promise<void>;
+    onDeleted(handler: (event: NativeProjectDeleted) => void): Promise<NativeUnlisten>;
+  }>;
   projectWorkspace: Readonly<{
     requestUnlink(target: NativeWorkspaceUnlinkTarget): Promise<void>;
     onUnlinkRequested(handler: (target: NativeWorkspaceUnlinkTarget) => void): Promise<NativeUnlisten>;
@@ -98,6 +101,10 @@ export type NativeBridge = Readonly<{
     onGraphDeleteConfirmed(
       handler: (confirmation: NativeWorkflowGraphDeleteConfirmation) => void,
     ): Promise<NativeUnlisten>;
+  }>;
+  workflowDeletion: Readonly<{
+    notifyDeleted(event: NativeWorkflowDeleted): Promise<void>;
+    onDeleted(handler: (event: NativeWorkflowDeleted) => void): Promise<NativeUnlisten>;
   }>;
 }>;
 
@@ -150,6 +157,10 @@ export type NativeProjectBinding = Readonly<{
   projectID: string;
 }>;
 
+export type NativeProjectDeleted = Readonly<{
+  projectID: string;
+}>;
+
 export type NativeWorkspaceUnlinkTarget = Readonly<{
   projectID: string;
   workspaceID: string;
@@ -171,6 +182,10 @@ export type NativeTaskDetailChanged = Readonly<{
 
 export type NativeWorkflowGraphDeleteConfirmation = Readonly<{
   requestID: string;
+}>;
+
+export type NativeWorkflowDeleted = Readonly<{
+  workflowID: string;
 }>;
 
 export type NativeUnlisten = () => void;
@@ -213,9 +228,11 @@ export const nativeDialogWindowHorizontalInsetPx = 16;
 export const taskDetailDialogOuterMaxWidthPx =
   taskDetailContentMaxWidthPx + taskDetailDialogHorizontalPaddingPx;
 export const taskDetailNativeWindowInitialWidthPx = 840;
+const projectDeletedEvent = "builder://project-deleted";
 const workspaceUnlinkRequestEvent = "builder://workspace-unlink-request";
 const projectWorkspaceChangedEvent = "builder://project-workspace-changed";
 const workflowGraphDeleteConfirmEvent = "builder://workflow-graph-delete-confirm";
+const workflowDeletedEvent = "builder://workflow-deleted";
 
 export function taskDetailNativeDialogWindowOptions(
   target: NativeTaskDetailTarget,
@@ -247,6 +264,7 @@ export type BrowserNativeBridgeOptions = Readonly<{
 
 export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = {}): NativeBridge {
   const capabilities = { ...unavailableCapabilities, platform: options.platform ?? "browser" };
+  const workflowDeletionHandlers = new Set<(event: NativeWorkflowDeleted) => void>();
   return {
     capabilities,
     clipboard: {
@@ -321,6 +339,14 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
         return () => undefined;
       },
     },
+    projectDeletion: {
+      async notifyDeleted(): Promise<void> {
+        return Promise.resolve();
+      },
+      async onDeleted(): Promise<NativeUnlisten> {
+        return () => undefined;
+      },
+    },
     projectWorkspace: {
       async requestUnlink(): Promise<void> {
         return Promise.resolve();
@@ -355,6 +381,20 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
       },
       async onGraphDeleteConfirmed(): Promise<NativeUnlisten> {
         return () => undefined;
+      },
+    },
+    workflowDeletion: {
+      async notifyDeleted(event: NativeWorkflowDeleted): Promise<void> {
+        workflowDeletionHandlers.forEach((handler) => {
+          handler(event);
+        });
+        return Promise.resolve();
+      },
+      async onDeleted(handler: (event: NativeWorkflowDeleted) => void): Promise<NativeUnlisten> {
+        workflowDeletionHandlers.add(handler);
+        return () => {
+          workflowDeletionHandlers.delete(handler);
+        };
       },
     },
   };
@@ -448,6 +488,16 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
         });
       },
     },
+    projectDeletion: {
+      async notifyDeleted(event: NativeProjectDeleted): Promise<void> {
+        await emitTo("main", projectDeletedEvent, event);
+      },
+      async onDeleted(handler: (event: NativeProjectDeleted) => void): Promise<NativeUnlisten> {
+        return listen<NativeProjectDeleted>(projectDeletedEvent, (event) => {
+          handler(event.payload);
+        });
+      },
+    },
     projectWorkspace: {
       async requestUnlink(target: NativeWorkspaceUnlinkTarget): Promise<void> {
         await emitTo("main", workspaceUnlinkRequestEvent, target);
@@ -508,6 +558,16 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
         handler: (confirmation: NativeWorkflowGraphDeleteConfirmation) => void,
       ): Promise<NativeUnlisten> {
         return listen<NativeWorkflowGraphDeleteConfirmation>(workflowGraphDeleteConfirmEvent, (event) => {
+          handler(event.payload);
+        });
+      },
+    },
+    workflowDeletion: {
+      async notifyDeleted(event: NativeWorkflowDeleted): Promise<void> {
+        await emitTo("main", workflowDeletedEvent, event);
+      },
+      async onDeleted(handler: (event: NativeWorkflowDeleted) => void): Promise<NativeUnlisten> {
+        return listen<NativeWorkflowDeleted>(workflowDeletedEvent, (event) => {
           handler(event.payload);
         });
       },

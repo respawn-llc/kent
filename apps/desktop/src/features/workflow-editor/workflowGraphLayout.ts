@@ -54,10 +54,15 @@ export type WorkflowGraphEdgeData = Readonly<{
 
 export type WorkflowGraphPoint = Readonly<{ x: number; y: number }>;
 
-export type WorkflowGraphNode = Node<WorkflowGraphNodeData | WorkflowGraphGroupData>;
-export type WorkflowGraphWorkflowNode = Node<WorkflowGraphNodeData>;
-export type WorkflowGraphGroupNode = Node<WorkflowGraphGroupData>;
-export type WorkflowGraphEdge = Edge<WorkflowGraphEdgeData>;
+type WorkflowGraphRenderClassName = Readonly<{
+  className?: string | undefined;
+}>;
+
+export type WorkflowGraphNode = Node<WorkflowGraphNodeData | WorkflowGraphGroupData> &
+  WorkflowGraphRenderClassName;
+export type WorkflowGraphWorkflowNode = Node<WorkflowGraphNodeData> & WorkflowGraphRenderClassName;
+export type WorkflowGraphGroupNode = Node<WorkflowGraphGroupData> & WorkflowGraphRenderClassName;
+export type WorkflowGraphEdge = Edge<WorkflowGraphEdgeData> & WorkflowGraphRenderClassName;
 
 export type WorkflowGraphLayout = Readonly<{
   nodes: readonly WorkflowGraphNode[];

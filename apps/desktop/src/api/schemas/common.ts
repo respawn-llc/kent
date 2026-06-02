@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- Shared API schema mappers stay colocated with shared DTO model types. */
 import { z } from "zod";
 
 import type {

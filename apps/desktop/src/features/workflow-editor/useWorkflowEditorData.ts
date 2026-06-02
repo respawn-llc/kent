@@ -57,7 +57,6 @@ export function useWorkflowEditorData(projectID: string, workflowID: string) {
           id: "workflow-editor-updated",
           tone: "neutral",
           title: t("workflowEditor.updated"),
-          body: "",
         });
       }
     }
@@ -68,7 +67,7 @@ export function useWorkflowEditorData(projectID: string, workflowID: string) {
         },
         onEvent(_method, params) {
           if (shouldRefreshWorkflowDefinition(params, workflowID)) {
-            void refresh(true);
+            void refresh(shouldNotifyWorkflowEditorRefresh(params, projectID, workflowID));
           }
         },
         onComplete() {
@@ -87,7 +86,7 @@ export function useWorkflowEditorData(projectID: string, workflowID: string) {
           },
           onEvent(_method, params) {
             if (shouldRefreshWorkflowLink(params, projectID, workflowID)) {
-              void refresh(true);
+              void refresh(shouldNotifyWorkflowEditorRefresh(params, projectID, workflowID));
             }
           },
           onComplete() {
@@ -122,6 +121,33 @@ export function shouldRefreshWorkflowEditor(params: unknown, projectID: string, 
     shouldRefreshWorkflowDefinition(params, workflowID) ||
     shouldRefreshWorkflowLink(params, projectID, workflowID)
   );
+}
+
+export function shouldNotifyWorkflowEditorRefresh(
+  params: unknown,
+  projectID: string,
+  workflowID: string,
+): boolean {
+  const event = workflowProjectEvent(params);
+  if (event === null) {
+    return false;
+  }
+  if (
+    event.resource === "workflow" &&
+    event.workflowID === workflowID &&
+    workflowDefinitionActions.has(event.action)
+  ) {
+    return event.action !== "deleted";
+  }
+  if (
+    event.resource === "workflow_link" &&
+    event.projectID === projectID &&
+    workflowLinkActions.has(event.action) &&
+    (event.workflowID === workflowID || event.changedIDs.includes(workflowID))
+  ) {
+    return event.action !== "unlinked";
+  }
+  return false;
 }
 
 export function shouldRefreshWorkflowDefinition(params: unknown, workflowID: string): boolean {

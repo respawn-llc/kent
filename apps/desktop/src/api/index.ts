@@ -1,5 +1,5 @@
 export { BuilderApiClient } from "./client";
-export type { QuestionAnswerInput, TaskEditInput, TaskMutationInput } from "./client";
+export type { QuestionAnswerInput, TaskEditInput, TaskMutationInput, WorkflowDeleteInput } from "./client";
 export { emptyWorkflowDerivedWiring } from "./models";
 export { createJsonRpcTransport } from "./jsonRpc";
 export type {
@@ -26,6 +26,7 @@ export type {
   WorkflowBoard,
   WorkflowContextSource,
   WorkflowDefinition,
+  WorkflowDeleteImpact,
   WorkflowDerivedEdgeWiring,
   WorkflowDerivedNodeWiring,
   WorkflowDerivedTransitionGroupWiring,

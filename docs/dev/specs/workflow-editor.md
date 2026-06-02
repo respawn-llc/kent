@@ -31,6 +31,7 @@
 - Node groups render visually as labeled branch islands. The owned Join renders outside the island to the right, vertically centered with the island, while remaining owned by the node group. Branch-to-Join edge routes are normalized into root canvas coordinates before rendering. Empty node groups are not a saved workflow concept.
 - Canvas layout is deterministic client-side ELK layout from graph structure. Coordinates are not persisted.
 - Layout orientation is left-to-right.
+- Canvas layering keeps group backgrounds below edge paths and edge labels, while workflow node cards and handles stay above edge paths and labels.
 - Initial viewport fits the whole graph on first open. Live refetch preserves pan/zoom, clears stale selection through current React Flow state, and shows workflow-updated feedback.
 - Canvas controls are inspect workflow, zoom in/out, fit-to-view, and reset zoom in a top-left floating island. There is no minimap.
 - The canvas legend starts collapsed in the bottom-left corner and uses a help/question-mark affordance when collapsed.
@@ -64,7 +65,8 @@
 - Topology editing includes adding and deleting agent/terminal nodes, node groups, and edges, drag-connecting edges on the canvas, editing edge route/config facts, and creating/removing node group membership.
 - Add node is a canvas action, not a right-sidebar form. It creates unconnected agent or terminal nodes; draft/execution validation explains unreachable or incomplete graph states until the operator wires them.
 - Drag-connecting from a source node to a target node creates a new transition group by default, with one edge to the target node.
-- Adding an edge to an existing transition group is an explicit fan-out/group action, not the default drag-connect behavior.
+- When the target is an agent branch inside a node group and the source already has one unambiguous fan-out transition group into sibling branches of that group, drag-connect reuses that transition group so the group remains execution-shaped.
+- Other fan-out edits that add edges to an existing transition group are explicit fan-out/group actions, not the default drag-connect behavior.
 - Node deletion cascades incident edge deletion and removes transition groups that become empty from that deletion.
 - Deleting the final edge in a transition group removes that transition group.
 - Deletion is available through keyboard delete/backspace, context menu actions, and inspector trash actions where the selected entity is editable.
@@ -118,10 +120,11 @@
 - Active means any task whose active/waiting placement is not start/backlog or terminal/done, any pending approval, any non-completed/non-interrupted run needing runtime ownership, or any other non-terminal automation state.
 - Backlog/start deletion is out of scope. Blocked graph deletes surface as toast feedback. Hide `start` from add/kind-change controls. Existing Backlog can be renamed where safe, but kind stays fixed.
 - Start node outgoing edges may be edited in drafts, but execution validation requires exactly one start transition group with exactly one edge targeting an agent node.
+- Start/Backlog cannot be the fan-out source for a node group. Use a split agent after Start/Backlog, fan out from that agent into the grouped branches, then join the branches.
 - Done/terminal deletion is allowed only when at least one other terminal node remains; otherwise block with toast.
 - Saved node groups must be execution-shaped parallel groups. A node group without enough branch nodes or without exactly one owned join blocks save validation.
 - Dragging a node in the workflow editor changes node group membership, not persisted canvas position. The real node remains in its derived layout position and a drag ghost follows the pointer. Canvas layout remains derived from the graph.
-- Node group drag/drop is validated as a membership operation. If the editor cannot safely infer the source node or transition group needed for fan-out wiring, the drop is blocked instead of committing invalid membership.
+- Node group drag/drop is validated as a membership operation. If the editor cannot safely infer the source node or transition group needed for fan-out wiring, the membership is preserved and validation explains the incomplete wiring before save.
 - Destructive delete impact is evaluated on Save, not at draft edit time.
 - Save runs server-side impact check for pending graph diff.
 - If active tasks would be affected, Save is blocked.

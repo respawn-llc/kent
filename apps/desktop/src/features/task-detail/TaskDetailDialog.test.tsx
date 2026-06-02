@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- Task detail route tests keep representative detail/native bridge fixtures local. */
 /* eslint-disable testing-library/no-node-access -- Dialog tests verify native window dimensions and focus ownership. */
 import {
   createBrowserNativeBridge,
@@ -201,12 +200,11 @@ describe("TaskDetailDialog", () => {
     });
     expect(screen.getByTestId("task-description-save")).toBeDisabled();
     expect(screen.getByTestId("task-detail-description-island")).toHaveClass(
-      "h-full",
       "min-w-0",
-      "grid-rows-[auto_minmax(0,1fr)_auto]",
+      "grid-rows-[auto_auto_auto]",
     );
-    expect(screen.getByTestId("task-description-input-frame")).toHaveClass("h-full", "min-h-0");
-    expect(screen.getByRole("textbox", { name: "Description" })).toHaveClass("h-full", "min-h-[220px]");
+    expect(screen.getByTestId("task-description-input-frame")).toHaveClass("min-h-0");
+    expect(screen.getByRole("textbox", { name: "Description" })).toHaveClass("min-h-[220px]");
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Renamed task" } });
@@ -281,12 +279,11 @@ describe("TaskDetailDialog", () => {
     expect(screen.getByTestId("task-detail-body-split")).toHaveClass("items-stretch");
     expect(screen.getByTestId("task-detail-body-split")).not.toHaveClass("items-start");
     expect(screen.getByTestId("task-detail-description-island")).toHaveClass(
-      "h-full",
       "min-w-0",
-      "grid-rows-[auto_minmax(0,1fr)_auto]",
+      "grid-rows-[auto_auto_auto]",
     );
-    expect(screen.getByTestId("task-description-input-frame")).toHaveClass("h-full", "min-h-0");
-    expect(screen.getByRole("textbox", { name: "Description" })).toHaveClass("h-full", "min-h-[220px]");
+    expect(screen.getByTestId("task-description-input-frame")).toHaveClass("min-h-0");
+    expect(screen.getByRole("textbox", { name: "Description" })).toHaveClass("min-h-[220px]");
     expect(screen.getByTestId("task-description-save")).not.toHaveClass("absolute");
     expect(screen.getByTestId("task-description-save").parentElement).toBe(
       screen.getByTestId("task-description-input-frame"),

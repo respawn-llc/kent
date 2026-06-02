@@ -32,6 +32,7 @@ import {
 import { WorkflowGroupDragPreview, type WorkflowGroupDragState } from "./WorkflowGroupDragPreview";
 import type { CopyText } from "./WorkflowGraphNodeMetadata";
 import { WorkflowGraphToolbar } from "./WorkflowGraphToolbar";
+import { workflowGraphRenderEdges, workflowGraphRenderNodes } from "./workflowGraphRenderLayers";
 import type { WorkflowGraphSelection } from "./workflowGraphSelection";
 import type {
   WorkflowGraphEdge,
@@ -136,10 +137,12 @@ function WorkflowGraphCanvasInner({
   // React Flow owns the drag gesture, but workflow layout stays ELK/server-authored.
   // This transient snapshot lets cards move during drag without persisting canvas positions.
   const [renderNodesState, setRenderNodesState] = useState<RenderNodesState>(() => ({
-    nodes: [...nodes],
+    nodes: workflowGraphRenderNodes(nodes),
     sourceNodes: nodes,
   }));
-  const renderNodes = renderNodesState.sourceNodes === nodes ? renderNodesState.nodes : [...nodes];
+  const renderNodes =
+    renderNodesState.sourceNodes === nodes ? renderNodesState.nodes : workflowGraphRenderNodes(nodes);
+  const renderEdges = useMemo(() => workflowGraphRenderEdges(edges), [edges]);
   const [groupDrag, setGroupDrag] = useState<WorkflowGroupDragState | null>(null);
   const edgeTypes = useMemo(
     () => ({
@@ -232,7 +235,7 @@ function WorkflowGraphCanvasInner({
     <div className="workflow-editor-canvas h-full min-h-0 w-full" data-testid="workflow-editor-canvas">
       <ReactFlow
         colorMode="system"
-        edges={edges}
+        edges={renderEdges}
         edgeTypes={edgeTypes}
         fitView
         maxZoom={2}
@@ -279,7 +282,7 @@ function WorkflowGraphCanvasInner({
         }}
         onNodeDragStop={(event, node) => {
           setGroupDrag(null);
-          setRenderNodesState({ nodes: [...nodes], sourceNodes: nodes });
+          setRenderNodesState({ nodes: workflowGraphRenderNodes(nodes), sourceNodes: nodes });
           if (!isWorkflowAgentGraphNode(node)) {
             return;
           }
@@ -290,7 +293,8 @@ function WorkflowGraphCanvasInner({
         }}
         onNodesChange={(changes) => {
           setRenderNodesState((current) => {
-            const currentNodes = current.sourceNodes === nodes ? current.nodes : [...nodes];
+            const currentNodes =
+              current.sourceNodes === nodes ? current.nodes : workflowGraphRenderNodes(nodes);
             return { nodes: applyNodeChanges(changes, currentNodes), sourceNodes: nodes };
           });
         }}

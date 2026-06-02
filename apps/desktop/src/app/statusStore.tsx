@@ -52,7 +52,7 @@ function TestStatusToasts({
       {notices.map((notice) => (
         <article key={notice.id}>
           <strong>{notice.title}</strong>
-          <p>{notice.body}</p>
+          {notice.body === undefined || notice.body.length === 0 ? null : <p>{notice.body}</p>}
           {notice.dismissible === false ? null : (
             <button
               onClick={() => {

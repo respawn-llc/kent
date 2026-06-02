@@ -251,8 +251,11 @@ func (s *validationState) validateNodeGroups() {
 			s.addHard(CodeInvalidNodeGroup, "node group must contain exactly one join node", ref)
 			continue
 		}
-		if len(branchIDs) >= 2 && !s.nodeGroupHasV1FanoutTopology(branchIDs, joinIDs[0]) {
-			s.addHard(CodeInvalidNodeGroup, "node group must be represented by one fan-out transition group and branch edges into its join", ref)
+		if len(branchIDs) >= 2 {
+			message := s.nodeGroupV1FanoutTopologyError(branchIDs, joinIDs[0])
+			if message != "" {
+				s.addHard(CodeInvalidNodeGroup, message, ref)
+			}
 		}
 	}
 }
@@ -276,30 +279,111 @@ func (s *validationState) nodeGroupMembers(group NodeGroup) []Node {
 	return members
 }
 
-func (s *validationState) nodeGroupHasV1FanoutTopology(branchIDs map[NodeID]bool, joinID NodeID) bool {
-	fanoutMatches := 0
+func (s *validationState) nodeGroupV1FanoutTopologyError(branchIDs map[NodeID]bool, joinID NodeID) string {
+	fanoutGroups := []TransitionGroup{}
 	for _, group := range s.def.TransitionGroups {
 		edges := s.edgesByGroup[group.ID]
 		if len(edges) < 2 {
 			continue
 		}
-		targets := map[NodeID]bool{}
-		for _, edge := range edges {
-			targets[edge.TargetNodeID] = true
-		}
-		if nodeIDSetEqual(branchIDs, targets) {
-			fanoutMatches++
+		if transitionGroupTargetsExactly(edges, branchIDs) {
+			fanoutGroups = append(fanoutGroups, group)
 		}
 	}
-	if fanoutMatches != 1 {
-		return false
+	if len(fanoutGroups) != 1 {
+		if s.nodeGroupBranchesHaveStartIncoming(branchIDs) {
+			return nodeGroupStartFanoutMessage(s.startNodes[0])
+		}
+		if message := s.nodeGroupSeparateFanoutMessage(branchIDs); message != "" {
+			return message
+		}
+		return "node group must be represented by one fan-out transition group and branch edges into its join"
+	}
+	source, exists := s.nodesByID[fanoutGroups[0].SourceNodeID]
+	if exists && source.Kind == NodeKindStart {
+		return nodeGroupStartFanoutMessage(source)
+	}
+	if s.nodeGroupBranchesHaveStartIncoming(branchIDs) {
+		return nodeGroupStartFanoutMessage(s.startNodes[0])
+	}
+	if message := s.nodeGroupSeparateFanoutMessage(branchIDs); message != "" {
+		return message
 	}
 	for branchID := range branchIDs {
 		if !s.nodeHasOutgoingEdgeTo(branchID, joinID) {
+			return "node group must be represented by one fan-out transition group and branch edges into its join"
+		}
+	}
+	return ""
+}
+
+func transitionGroupTargetsExactly(edges []Edge, branchIDs map[NodeID]bool) bool {
+	if len(edges) != len(branchIDs) {
+		return false
+	}
+	targets := map[NodeID]bool{}
+	for _, edge := range edges {
+		targets[edge.TargetNodeID] = true
+	}
+	return nodeIDSetEqual(branchIDs, targets)
+}
+
+func (s *validationState) nodeGroupBranchesHaveStartIncoming(branchIDs map[NodeID]bool) bool {
+	if len(s.startNodes) != 1 {
+		return false
+	}
+	startID := s.startNodes[0].ID
+	for branchID := range branchIDs {
+		hasStartIncoming := false
+		for _, edge := range s.incomingByNode[branchID] {
+			if s.groupsByID[edge.TransitionGroupID].SourceNodeID == startID {
+				hasStartIncoming = true
+				break
+			}
+		}
+		if !hasStartIncoming {
 			return false
 		}
 	}
 	return true
+}
+
+func (s *validationState) nodeGroupSeparateFanoutMessage(branchIDs map[NodeID]bool) string {
+	type sourceFanout struct {
+		branchIDs          map[NodeID]bool
+		transitionGroupIDs map[TransitionGroupID]bool
+	}
+	bySource := map[NodeID]sourceFanout{}
+	for branchID := range branchIDs {
+		for _, edge := range s.incomingByNode[branchID] {
+			group := s.groupsByID[edge.TransitionGroupID]
+			fanout := bySource[group.SourceNodeID]
+			if fanout.branchIDs == nil {
+				fanout = sourceFanout{
+					branchIDs:          map[NodeID]bool{},
+					transitionGroupIDs: map[TransitionGroupID]bool{},
+				}
+			}
+			fanout.branchIDs[branchID] = true
+			fanout.transitionGroupIDs[edge.TransitionGroupID] = true
+			bySource[group.SourceNodeID] = fanout
+		}
+	}
+	for sourceID, fanout := range bySource {
+		if len(fanout.branchIDs) != len(branchIDs) || len(fanout.transitionGroupIDs) < 2 {
+			continue
+		}
+		source, exists := s.nodesByID[sourceID]
+		if !exists {
+			continue
+		}
+		return fmt.Sprintf("%s uses separate transitions into the node group branches; use one transition from %s with one edge to each branch, then connect every branch to the join", nodeMessageSubject(source), source.DisplayName)
+	}
+	return ""
+}
+
+func nodeGroupStartFanoutMessage(start Node) string {
+	return fmt.Sprintf("%s cannot directly fan out into a node group yet; insert one split agent after it, fan out from that agent into the group, then join the branches", nodeMessageSubject(start))
 }
 
 func (s *validationState) nodeHasOutgoingEdgeTo(sourceID NodeID, targetID NodeID) bool {

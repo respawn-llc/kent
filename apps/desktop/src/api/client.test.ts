@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- API client contract tests keep representative RPC fixtures close to assertions. */
 import { BuilderApiClient } from "./client";
 import { ContractError } from "./errors";
 import { FakeRpcTransport } from "./fakeTransport";

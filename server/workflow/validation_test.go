@@ -968,6 +968,139 @@ func TestNodeGroupV1ParallelGroupValidation(t *testing.T) {
 
 		assertHasCodes(t, result, workflow.CodeInvalidNodeGroup)
 	})
+
+	t.Run("start backed fanout explains split agent workaround", func(t *testing.T) {
+		def := fanoutWorkflow()
+		addV1NodeGroup(&def)
+		transitionGroupByIDForValidationTest(t, &def, "group_split").SourceNodeID = "node_start"
+
+		result := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft, RoleResolver: workflow.StaticRoleResolver{"coder": true}})
+
+		assertValidationMessage(
+			t,
+			result,
+			workflow.CodeInvalidNodeGroup,
+			"",
+			"Node Backlog cannot directly fan out into a node group yet; insert one split agent after it, fan out from that agent into the group, then join the branches",
+		)
+	})
+
+	t.Run("start backed fanout message uses renamed start node", func(t *testing.T) {
+		def := fanoutWorkflow()
+		addV1NodeGroup(&def)
+		nodeByKeyForValidationTest(t, &def, "backlog").DisplayName = "Inbox"
+		transitionGroupByIDForValidationTest(t, &def, "group_split").SourceNodeID = "node_start"
+
+		result := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft, RoleResolver: workflow.StaticRoleResolver{"coder": true}})
+
+		assertValidationMessage(
+			t,
+			result,
+			workflow.CodeInvalidNodeGroup,
+			"",
+			"Node Inbox cannot directly fan out into a node group yet; insert one split agent after it, fan out from that agent into the group, then join the branches",
+		)
+	})
+
+	t.Run("separate start backed branch transitions explain split agent workaround", func(t *testing.T) {
+		def := fanoutWorkflow()
+		addV1NodeGroup(&def)
+		transitionGroupByIDForValidationTest(t, &def, "group_split").SourceNodeID = "node_start"
+		def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{
+			WorkflowID:   def.ID,
+			ID:           "group_start_impl_b",
+			SourceNodeID: "node_start",
+			TransitionID: "split_b",
+			DisplayName:  "Split B",
+		})
+		edgeByIDForValidationTest(t, &def, "edge_split_b").TransitionGroupID = "group_start_impl_b"
+
+		result := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft, RoleResolver: workflow.StaticRoleResolver{"coder": true}})
+
+		assertValidationMessage(
+			t,
+			result,
+			workflow.CodeInvalidNodeGroup,
+			"",
+			"Node Backlog cannot directly fan out into a node group yet; insert one split agent after it, fan out from that agent into the group, then join the branches",
+		)
+	})
+
+	t.Run("separate source branch transitions explain single fanout repair", func(t *testing.T) {
+		def := fanoutWorkflow()
+		addV1NodeGroup(&def)
+		def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{
+			WorkflowID:   def.ID,
+			ID:           "group_plan_impl_b",
+			SourceNodeID: "node_plan",
+			TransitionID: "implement_b",
+			DisplayName:  "Implement B",
+		})
+		edgeByIDForValidationTest(t, &def, "edge_split_b").TransitionGroupID = "group_plan_impl_b"
+
+		result := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft, RoleResolver: workflow.StaticRoleResolver{"coder": true}})
+
+		assertValidationMessage(
+			t,
+			result,
+			workflow.CodeInvalidNodeGroup,
+			"",
+			"Node Plan uses separate transitions into the node group branches; use one transition from Plan with one edge to each branch, then connect every branch to the join",
+		)
+	})
+
+	t.Run("stale same source branch transition with valid fanout explains single fanout repair", func(t *testing.T) {
+		def := fanoutWorkflow()
+		addV1NodeGroup(&def)
+		def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{
+			WorkflowID:   def.ID,
+			ID:           "group_plan_impl_b_stale",
+			SourceNodeID: "node_plan",
+			TransitionID: "implement_b_stale",
+			DisplayName:  "Implement B",
+		})
+		def.Edges = append(def.Edges, workflow.Edge{
+			WorkflowID:        def.ID,
+			ID:                "edge_plan_impl_b_stale",
+			Key:               "implement_b_stale",
+			TransitionGroupID: "group_plan_impl_b_stale",
+			TargetNodeID:      "node_impl_b",
+			ContextMode:       workflow.ContextModeNewSession,
+		})
+
+		result := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft, RoleResolver: workflow.StaticRoleResolver{"coder": true}})
+
+		assertValidationMessage(
+			t,
+			result,
+			workflow.CodeInvalidNodeGroup,
+			"",
+			"Node Plan uses separate transitions into the node group branches; use one transition from Plan with one edge to each branch, then connect every branch to the join",
+		)
+	})
+
+	t.Run("duplicate fanout branch edge is invalid", func(t *testing.T) {
+		def := fanoutWorkflow()
+		addV1NodeGroup(&def)
+		def.Edges = append(def.Edges, workflow.Edge{
+			WorkflowID:        def.ID,
+			ID:                "edge_split_b_duplicate",
+			Key:               "split_b_duplicate",
+			TransitionGroupID: "group_split",
+			TargetNodeID:      "node_impl_b",
+			ContextMode:       workflow.ContextModeNewSession,
+		})
+
+		result := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft, RoleResolver: workflow.StaticRoleResolver{"coder": true}})
+
+		assertValidationMessage(
+			t,
+			result,
+			workflow.CodeInvalidNodeGroup,
+			"",
+			"node group must be represented by one fan-out transition group and branch edges into its join",
+		)
+	})
 }
 
 func TestContextSourceValidation(t *testing.T) {
@@ -1289,6 +1422,17 @@ func edgeByIDForValidationTest(t *testing.T, def *workflow.Definition, id workfl
 		}
 	}
 	t.Fatalf("edge %q not found", id)
+	return nil
+}
+
+func transitionGroupByIDForValidationTest(t *testing.T, def *workflow.Definition, id workflow.TransitionGroupID) *workflow.TransitionGroup {
+	t.Helper()
+	for i := range def.TransitionGroups {
+		if def.TransitionGroups[i].ID == id {
+			return &def.TransitionGroups[i]
+		}
+	}
+	t.Fatalf("transition group %q not found", id)
 	return nil
 }
 

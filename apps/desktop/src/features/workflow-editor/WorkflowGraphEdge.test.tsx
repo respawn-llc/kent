@@ -6,6 +6,7 @@ import type * as XyflowReact from "@xyflow/react";
 
 import { initializeI18n } from "../../i18n/setup";
 import { WorkflowGraphEdge } from "./WorkflowGraphEdge";
+import { workflowGraphZOrder } from "./workflowGraphZOrder";
 
 void initializeI18n();
 
@@ -167,6 +168,9 @@ describe("WorkflowGraphEdge", () => {
       "island-surface-1",
       "text-[var(--color-on-background)]",
     );
+    expect(screen.getByTestId("workflow-edge-label-edge-1")).toHaveStyle({
+      zIndex: workflowGraphZOrder.edgeLabel.toString(),
+    });
     expect(screen.getByTestId("workflow-edge-label-edge-1")).not.toHaveClass(
       "text-[var(--color-on-island)]",
       "bg-[color-mix(in_srgb,var(--color-island-0)_94%,transparent)]",

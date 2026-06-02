@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import { Button, showStatusToast } from "../ui";
 import { cx } from "../ui/classes";
 import { ProjectDeleteButton } from "../features/project-edit/ProjectDeleteButton";
+import { WorkflowDeleteButton } from "../features/workflow-editor/WorkflowDeleteButton";
 import { useAppServices } from "./useAppServices";
 import { SidebarDestinationView, sidebarTitle } from "./sidebarDestinations";
 import { useSidebar, type SidebarDestination } from "./sidebarContext";
@@ -256,6 +257,9 @@ function SidebarHeaderAccessory({ destination }: Readonly<{ destination: Sidebar
     return <ProjectDeleteButton projectID={destination.projectID} />;
   }
   if (destination.kind === "workflowInspect") {
+    if (destination.selection.kind === "workflow") {
+      return <WorkflowDeleteButton workflowID={destination.workflowID} />;
+    }
     if (destination.selection.kind === "node") {
       return <WorkflowEntityIDHeader entityID={destination.selection.nodeID} entityKind="node" />;
     }
@@ -289,7 +293,6 @@ function WorkflowEntityIDHeader({
         void copyWorkflowEntityID(entityID, nativeBridge)
           .then(() => {
             showStatusToast({
-              body: "",
               id: `${toastPrefix}-copied-${entityID}`,
               title: successMessage,
               tone: "success",
@@ -297,7 +300,6 @@ function WorkflowEntityIDHeader({
           })
           .catch(() => {
             showStatusToast({
-              body: "",
               id: `${toastPrefix}-copy-failed-${entityID}`,
               title: failureMessage,
               tone: "danger",

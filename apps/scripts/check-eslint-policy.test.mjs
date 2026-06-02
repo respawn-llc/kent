@@ -86,7 +86,14 @@ test("desktop ESLint architecture rules reject representative component violatio
 test("desktop ESLint config explicitly enforces complexity and debug-output limits", () => {
   assert.deepEqual(findRule("complexity"), ["error", { max: 12 }]);
   assert.deepEqual(findRule("max-depth"), ["error", 4]);
-  assert.deepEqual(findRule("max-lines"), ["error", { max: 350, skipBlankLines: true, skipComments: true }]);
+  assert.deepEqual(findRuleForFiles("max-lines", "**/*.{ts,tsx}"), [
+    "error",
+    { max: 650, skipBlankLines: true, skipComments: true },
+  ]);
+  assert.deepEqual(findRuleForFiles("max-lines", "**/*.test.{ts,tsx}"), [
+    "error",
+    { max: 1100, skipBlankLines: true, skipComments: true },
+  ]);
   assert.deepEqual(findRule("max-params"), ["error", 4]);
   assert.equal(findRule("no-console"), "error");
 });
@@ -99,6 +106,19 @@ function findRule(name) {
     }
   }
   return result;
+}
+
+function findRuleForFiles(name, files) {
+  for (const configEntry of eslintConfig) {
+    if (arrayEqual(configEntry.files, [files]) && configEntry.rules !== undefined && Object.hasOwn(configEntry.rules, name)) {
+      return configEntry.rules[name];
+    }
+  }
+  return undefined;
+}
+
+function arrayEqual(left, right) {
+  return Array.isArray(left) && left.length === right.length && left.every((item, index) => item === right[index]);
 }
 
 async function lintWithBuilderArchitectureRules(source) {

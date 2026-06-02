@@ -1,11 +1,11 @@
-/* eslint-disable max-lines -- Project edit integration tests keep representative workspace fixtures local. */
 import {
   createBrowserNativeBridge,
   type NativeBridge,
   type NativeDirectorySelection,
   type NativeDialogWindowOptions,
+  type NativeProjectDeleted,
 } from "@builder/desktop-native-bridge";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 
 import type { JsonValue } from "../../api/json";
@@ -470,13 +470,263 @@ describe("ProjectEditRoute", () => {
         params: { project_id: "project-1" },
       });
     });
+    const toastSurface = screen.getByTestId("sonner-test-surface");
+    expect(await within(toastSurface).findByText("Project deleted")).toBeInTheDocument();
+    expect(within(toastSurface).queryByText("Delete project?")).not.toBeInTheDocument();
+    expect(localStorage.getItem("builder.desktop.lastProjectRoute")).toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByRole("complementary", { name: "Project" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("opens project deletion from the sidebar trash button in a native dialog window", async () => {
+    window.history.replaceState(null, "", "/");
+    const opened: NativeDialogWindowOptions[] = [];
+    const services = createTestServices(
+      [
+        {
+          method: "server.readiness.get",
+          result: startupRoutes[0]?.result,
+        },
+        {
+          method: "project.home.list",
+          result: {
+            projects: [projectSummary],
+            next_page_token: "",
+            generated_at_unix_ms: 1,
+          },
+        },
+        globalAttentionRoute,
+        { method: "project.edit.get", result: projectEditResponse },
+      ],
+      nativeProjectDeleteDialogBridge(opened),
+    );
+
+    render(<App services={services} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Project" }));
+    await screen.findByRole("complementary", { name: "Project" });
+    fireEvent.click(await screen.findByRole("button", { name: "Delete project" }));
+
+    await waitFor(() => {
+      expect(opened).toHaveLength(1);
+    });
+    expect(screen.queryByRole("dialog", { name: "Delete project?" })).not.toBeInTheDocument();
+    expect(opened[0]).toMatchObject({
+      initialHeight: 260,
+      initialWidth: 420,
+      route: "/native-dialog/project-delete",
+      title: "Delete project?",
+      params: {
+        projectID: "project-1",
+      },
+    });
+  });
+
+  it("handles native project delete notifications in the main window", async () => {
+    window.history.replaceState(null, "", "/");
+    installStorage("localStorage");
+    localStorage.setItem(
+      "builder.desktop.lastProjectRoute",
+      JSON.stringify({ projectId: "project-1", workflowId: "workflow-1" }),
+    );
+    const opened: NativeDialogWindowOptions[] = [];
+    const nativeBridge = nativeProjectDeleteDialogBridge(opened);
+    const services = createTestServices(
+      [
+        {
+          method: "server.readiness.get",
+          result: startupRoutes[0]?.result,
+        },
+        {
+          method: "project.home.list",
+          result: {
+            projects: [projectSummary],
+            next_page_token: "",
+            generated_at_unix_ms: 1,
+          },
+        },
+        globalAttentionRoute,
+        { method: "project.edit.get", result: projectEditResponse },
+      ],
+      nativeBridge,
+    );
+
+    render(<App services={services} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Project" }));
+    await screen.findByRole("complementary", { name: "Project" });
+    fireEvent.click(screen.getByRole("button", { name: "Delete project" }));
+    await waitFor(() => {
+      expect(opened).toHaveLength(1);
+    });
+
+    await act(async () => {
+      await nativeBridge.projectDeletion.notifyDeleted({ projectID: "project-1" });
+    });
+
+    expect(services.transport.calls.map((call) => call.method)).not.toContain("project.delete");
     expect(
-      await within(screen.getByTestId("sonner-test-surface")).findByText("Project deleted."),
+      await within(screen.getByTestId("sonner-test-surface")).findByText("Project deleted"),
     ).toBeInTheDocument();
     expect(localStorage.getItem("builder.desktop.lastProjectRoute")).toBeNull();
     await waitFor(() => {
       expect(screen.queryByRole("complementary", { name: "Project" })).not.toBeInTheDocument();
     });
+  });
+
+  it("handles native project delete notifications after the Project sidebar is already closed", async () => {
+    window.history.replaceState(null, "", "/");
+    installStorage("localStorage");
+    localStorage.setItem(
+      "builder.desktop.lastProjectRoute",
+      JSON.stringify({ projectId: "project-1", workflowId: "workflow-1" }),
+    );
+    const opened: NativeDialogWindowOptions[] = [];
+    const nativeBridge = nativeProjectDeleteDialogBridge(opened);
+    const services = createTestServices(
+      [
+        {
+          method: "server.readiness.get",
+          result: startupRoutes[0]?.result,
+        },
+        {
+          method: "project.home.list",
+          result: {
+            projects: [projectSummary],
+            next_page_token: "",
+            generated_at_unix_ms: 1,
+          },
+        },
+        globalAttentionRoute,
+        { method: "project.edit.get", result: projectEditResponse },
+      ],
+      nativeBridge,
+    );
+
+    render(<App services={services} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Project" }));
+    const sidebar = await screen.findByRole("complementary", { name: "Project" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Delete project" }));
+    await waitFor(() => {
+      expect(opened).toHaveLength(1);
+    });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Close" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("complementary", { name: "Project" })).not.toBeInTheDocument();
+    });
+
+    await act(async () => {
+      await nativeBridge.projectDeletion.notifyDeleted({ projectID: "project-1" });
+    });
+
+    expect(services.transport.calls.map((call) => call.method)).not.toContain("project.delete");
+    expect(
+      await within(screen.getByTestId("sonner-test-surface")).findByText("Project deleted"),
+    ).toBeInTheDocument();
+    expect(localStorage.getItem("builder.desktop.lastProjectRoute")).toBeNull();
+  });
+
+  it("deletes a project from the native project delete dialog route", async () => {
+    let closeCount = 0;
+    const deleted: NativeProjectDeleted[] = [];
+    window.history.pushState(null, "", "/native-dialog/project-delete?projectID=project-1");
+    const services = createTestServices(
+      [
+        ...startupRoutes,
+        {
+          method: "project.delete",
+          result: {
+            project_id: "project-1",
+            deleted: true,
+            blockers: [],
+          },
+        },
+      ],
+      nativeProjectDeleteWindowBridge(
+        () => {
+          closeCount += 1;
+        },
+        (event) => {
+          deleted.push(event);
+        },
+      ),
+    );
+
+    render(<App services={services} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Delete project" }));
+
+    await waitFor(() => {
+      expect(services.transport.calls).toContainEqual({
+        method: "project.delete",
+        params: { project_id: "project-1" },
+      });
+    });
+    expect(services.transport.calls.map((call) => call.method)).toContain("server.readiness.get");
+    expect(deleted).toEqual([{ projectID: "project-1" }]);
+    expect(closeCount).toBe(1);
+  });
+
+  it("does not offer project delete retry when native notification fails after commit", async () => {
+    let closeCount = 0;
+    window.history.pushState(null, "", "/native-dialog/project-delete?projectID=project-1");
+    const services = createTestServices(
+      [
+        ...startupRoutes,
+        {
+          method: "project.delete",
+          result: {
+            project_id: "project-1",
+            deleted: true,
+            blockers: [],
+          },
+        },
+      ],
+      nativeProjectDeleteWindowBridge(
+        () => {
+          closeCount += 1;
+        },
+        () => {
+          throw new Error("event bus down");
+        },
+      ),
+    );
+
+    render(<App services={services} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Delete project" }));
+
+    await waitFor(() => {
+      expect(services.transport.calls.filter((call) => call.method === "project.delete")).toHaveLength(1);
+    });
+    const dialog = screen.getByRole("dialog", { name: "Delete project?" });
+    expect(
+      await within(dialog).findByText(
+        "Project was deleted, but the main window could not be updated: event bus down",
+      ),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Delete project" })).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(closeCount).toBe(1);
+  });
+
+  it("does not delete a project from a malformed native project delete dialog route", async () => {
+    window.history.pushState(null, "", "/native-dialog/project-delete?projectID=%20%20");
+    const services = createTestServices(
+      startupRoutes,
+      nativeProjectDeleteWindowBridge(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+
+    render(<App services={services} />);
+
+    expect(await screen.findByRole("dialog", { name: "Invalid native dialog" })).toBeInTheDocument();
+    expect(services.transport.calls.map((call) => call.method)).not.toContain("project.delete");
   });
 });
 
@@ -520,6 +770,27 @@ function nativeDialogBridge(opened: NativeDialogWindowOptions[]): NativeBridge {
   };
 }
 
+function nativeProjectDeleteDialogBridge(opened: NativeDialogWindowOptions[]): NativeBridge {
+  const base = nativeDialogBridge(opened);
+  const handlers = new Set<(event: NativeProjectDeleted) => void>();
+  return {
+    ...base,
+    projectDeletion: {
+      async notifyDeleted(event): Promise<void> {
+        for (const handler of handlers) {
+          handler(event);
+        }
+      },
+      async onDeleted(handler): Promise<() => void> {
+        handlers.add(handler);
+        return () => {
+          handlers.delete(handler);
+        };
+      },
+    },
+  };
+}
+
 function rejectingNativeDialogBridge(opened: NativeDialogWindowOptions[]): NativeBridge {
   const base = createBrowserNativeBridge();
   return {
@@ -532,6 +803,28 @@ function rejectingNativeDialogBridge(opened: NativeDialogWindowOptions[]): Nativ
       async openWindow(options): Promise<void> {
         opened.push(options);
         throw new Error("Native dialog windows are unavailable in this shell.");
+      },
+    },
+  };
+}
+
+function nativeProjectDeleteWindowBridge(
+  onClose: () => void,
+  onDeleted: (event: NativeProjectDeleted) => void,
+): NativeBridge {
+  const base = createBrowserNativeBridge();
+  return {
+    ...base,
+    window: {
+      ...base.window,
+      async closeCurrent(): Promise<void> {
+        onClose();
+      },
+    },
+    projectDeletion: {
+      ...base.projectDeletion,
+      async notifyDeleted(event): Promise<void> {
+        onDeleted(event);
       },
     },
   };

@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 
 import type { WorkflowValidationError } from "../../api";
+import { normalizeWorkflowValidationErrors } from "./workflowValidationIssueNormalization";
 import { workflowValidationErrorDetails } from "./workflowValidationErrorDetails";
 
 export type WorkflowValidationIssuesProps = Readonly<{
@@ -9,9 +10,10 @@ export type WorkflowValidationIssuesProps = Readonly<{
 
 export function WorkflowValidationIssues({ errors }: WorkflowValidationIssuesProps) {
   const { t } = useTranslation();
+  const displayErrors = normalizeWorkflowValidationErrors(errors);
   const items =
-    errors.length > 0
-      ? errors.map((issue, index) => ({
+    displayErrors.length > 0
+      ? displayErrors.map((issue, index) => ({
           id: `${issue.code}-${issue.workflowID}-${issue.nodeID}-${issue.transitionGroupID}-${issue.edgeID}-${index.toString()}`,
           details: workflowValidationErrorDetails(issue, t),
           message: issue.message,

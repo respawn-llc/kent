@@ -6,19 +6,18 @@ import { z } from "zod";
 
 import { BoardRoute } from "../features/board/BoardRoute";
 import { HomeRoute } from "../features/home/HomeRoute";
-import { ProjectCreateWindowRoute } from "../features/home/ProjectCreateForm";
-import { WorkspaceUnlinkWindowRoute } from "../features/project-edit/ProjectEditParts";
-import { StandaloneTaskRoute, TaskDetailWindowRoute } from "../features/task-detail/StandaloneTaskRoute";
+import { StandaloneTaskRoute } from "../features/task-detail/StandaloneTaskRoute";
 import { StartupGate } from "../features/startup/StartupGate";
-import { NewTaskWindowRoute } from "../features/tasks/NewTaskDialog";
 import { LoadingState } from "../ui";
 import { AppChrome } from "./AppChrome";
+import { createNativeDialogRoutes, workspaceUnlinkNativeDialogPath } from "./nativeDialogRoutes";
 import { readLastProjectRoute, writeLastProjectRoute } from "./projectRoutePersistence";
 import { RouteTransitionFrame } from "./RouteTransitionFrame";
 import {
   createWorkflowDeleteConfirmWindowRoute,
   workflowDeleteConfirmNativeDialogPath,
 } from "./workflowDeleteConfirmRoute";
+import { createWorkflowDeleteWindowRoute } from "./workflowDeleteRoute";
 import { useWindowChromeTitle } from "./windowChromeTitle";
 
 const LazyWorkflowEditorRoute = lazy(async () => {
@@ -42,30 +41,8 @@ const projectSearchSchema = z.object({
   resumeRunId: optionalSearchString,
 });
 
-const projectCreateSearchSchema = z.object({
-  name: optionalSearchString,
-  key: optionalSearchString,
-  workspaceRoot: optionalSearchString,
-});
-
-const taskDetailSearchSchema = z.object({
-  taskId: optionalSearchString,
-  resumeRunId: optionalSearchString,
-});
-
 const workflowEditorSearchSchema = z.object({
   projectId: optionalSearchString,
-});
-
-const newTaskSearchSchema = z.object({
-  projectID: optionalSearchString,
-  workflowID: optionalSearchString,
-});
-
-const workspaceUnlinkSearchSchema = z.object({
-  projectID: optionalSearchString,
-  workspaceID: optionalSearchString,
-  rootPath: optionalSearchString,
 });
 
 const routeRestoreSessionKey = "builder.desktop.routeRestoreChecked";
@@ -113,35 +90,9 @@ const taskRoute = createRoute({
   component: TaskRoute,
 });
 
-const projectCreateRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/native-dialog/project-create",
-  validateSearch: (search: Record<string, unknown>) => projectCreateSearchSchema.parse(search),
-  component: ProjectCreateRoute,
-});
-
-const taskDetailWindowRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/native-dialog/task-detail",
-  validateSearch: (search: Record<string, unknown>) => taskDetailSearchSchema.parse(search),
-  component: TaskDetailNativeRoute,
-});
-
-const newTaskWindowRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/native-dialog/new-task",
-  validateSearch: (search: Record<string, unknown>) => newTaskSearchSchema.parse(search),
-  component: NewTaskNativeRoute,
-});
-
-const workspaceUnlinkWindowRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/native-dialog/workspace-unlink",
-  validateSearch: (search: Record<string, unknown>) => workspaceUnlinkSearchSchema.parse(search),
-  component: WorkspaceUnlinkNativeRoute,
-});
-
+const nativeDialogRoutes = createNativeDialogRoutes(rootRoute);
 const workflowDeleteConfirmWindowRoute = createWorkflowDeleteConfirmWindowRoute(rootRoute);
+const workflowDeleteWindowRoute = createWorkflowDeleteWindowRoute(rootRoute);
 
 const routeTree = rootRoute.addChildren([
   homeRoute,
@@ -150,10 +101,8 @@ const routeTree = rootRoute.addChildren([
   workflowEditorRoute,
   legacyWorkflowEditorRoute,
   taskRoute,
-  projectCreateRoute,
-  taskDetailWindowRoute,
-  newTaskWindowRoute,
-  workspaceUnlinkWindowRoute,
+  ...nativeDialogRoutes,
+  workflowDeleteWindowRoute,
   workflowDeleteConfirmWindowRoute,
 ]);
 
@@ -188,7 +137,10 @@ function RootRoute() {
 }
 
 export function shouldSkipNativeDialogStartupGate(pathname: string): boolean {
-  return pathname === "/native-dialog/workspace-unlink" || pathname === workflowDeleteConfirmNativeDialogPath;
+  return (
+    pathname === workspaceUnlinkNativeDialogPath ||
+    pathname === workflowDeleteConfirmNativeDialogPath
+  );
 }
 
 function RoutePersistence() {
@@ -332,32 +284,6 @@ function TaskRoute() {
   const params = taskRoute.useParams();
   useWindowChromeTitle(t("task.title"));
   return <StandaloneTaskRoute taskId={params.taskId} />;
-}
-
-function ProjectCreateRoute() {
-  const search = projectCreateRoute.useSearch();
-  return <ProjectCreateWindowRoute draft={search} />;
-}
-
-function TaskDetailNativeRoute() {
-  const search = taskDetailWindowRoute.useSearch();
-  return <TaskDetailWindowRoute resumeRunId={search.resumeRunId} taskId={search.taskId} />;
-}
-
-function NewTaskNativeRoute() {
-  const search = newTaskWindowRoute.useSearch();
-  return <NewTaskWindowRoute projectID={search.projectID} workflowID={search.workflowID} />;
-}
-
-function WorkspaceUnlinkNativeRoute() {
-  const search = workspaceUnlinkWindowRoute.useSearch();
-  return (
-    <WorkspaceUnlinkWindowRoute
-      projectID={search.projectID}
-      rootPath={search.rootPath}
-      workspaceID={search.workspaceID}
-    />
-  );
 }
 
 declare module "@tanstack/react-router" {

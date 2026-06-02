@@ -33,4 +33,42 @@ describe("WorkflowValidationIssues", () => {
 
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
   });
+
+  it("deduplicates repeated draft and execution messages for the same validation identity", () => {
+    render(
+      <WorkflowValidationIssues
+        errors={[
+          validationError("join node must have exactly one outgoing transition group"),
+          validationError("Node Proof Agent join must have exactly one outgoing transition group"),
+          validationError("join node must have exactly one outgoing transition group"),
+          validationError("Node Proof Agent join must have exactly one outgoing transition group"),
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(
+      screen.getByText("Node Proof Agent join must have exactly one outgoing transition group"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("join node must have exactly one outgoing transition group")).not.toBeInTheDocument();
+  });
 });
+
+function validationError(message: string) {
+  return {
+    blocksContext: true,
+    code: "workflow.validation.invalid_join_outgoing_shape",
+    details: {
+      fieldName: "",
+      inputName: "",
+      placeholder: "",
+      providerEdgeID: "",
+    },
+    edgeID: "",
+    message,
+    nodeID: "join",
+    relatedIDs: [],
+    transitionGroupID: "",
+    workflowID: "workflow-1",
+  };
+}

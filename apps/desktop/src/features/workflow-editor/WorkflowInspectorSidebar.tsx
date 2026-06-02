@@ -102,8 +102,9 @@ function WorkflowDraftInspectorContent({
     ...workflowDefinitionFromDraft(controller.draft),
     derivedWiring: controller.derivedWiring,
   };
-  const validation = controller.draftValidation ??
-    controller.executionValidation ?? { errors: [], valid: true };
+  const validation = controller.dirty.graphDirty
+    ? controller.draftValidation ?? emptyWorkflowValidation
+    : controller.draftValidation ?? controller.executionValidation ?? emptyWorkflowValidation;
   if (selection.kind === "workflow") {
     return <WorkflowDraftDetails controller={controller} />;
   }
@@ -466,7 +467,7 @@ function PromptTemplateEditor({
       </label>
       <div className="grid gap-[var(--space-1)]">
         <textarea
-          className={cx(fieldInputClassName, "min-h-24 resize-y")}
+          className={cx(fieldInputClassName, "min-h-24")}
           id={promptInputId}
           onChange={(event) => {
             dispatchPromptTemplate(event.target.value);
@@ -1401,6 +1402,8 @@ function formatContextSourceLabel(edge: WorkflowEdge, translate: Translate): str
 }
 
 type Translate = ReturnType<typeof useTranslation>["t"];
+
+const emptyWorkflowValidation: WorkflowValidation = { errors: [], valid: true };
 
 function useCachedWorkflowDefinition(workflowID: string): WorkflowDefinition | undefined {
   const queryKey = queryKeys.workflowDefinition(workflowID);

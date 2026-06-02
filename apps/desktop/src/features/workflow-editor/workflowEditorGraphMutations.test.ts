@@ -1,6 +1,6 @@
-/* eslint-disable max-lines -- Graph mutation scenarios share compact fixtures and regression setup. */
 import { describe, expect, it } from "vitest";
 
+import type { WorkflowDefinition } from "../../api";
 import { draftDefinitionFromSource } from "./workflowEditorDraft";
 import {
   edgesForTransition,
@@ -65,6 +65,63 @@ describe("workflowEditorGraphMutations", () => {
       targetNodeID: "node-done",
       transitionGroupID: "workflow-transition-group-review",
     });
+  });
+
+  it("reuses a source fan-out transition group when dragging into another branch of the same node group", () => {
+    const draft = draftDefinitionFromSource(parallelBranchWorkflowDefinition());
+
+    const connected = connectWorkflowNodes(draft, {
+      edgeID: "workflow-edge-review",
+      sourceNodeID: "node-source",
+      targetNodeID: "node-review",
+      transitionGroupID: "workflow-transition-group-review",
+    });
+
+    expect(connected.draft.transitionGroups.some((group) => group.id === "workflow-transition-group-review")).toBe(false);
+    expect(edgesForTransition(connected.draft, "group-source-agent")).toMatchObject([
+      { id: "edge-source-agent", targetNodeID: "node-agent" },
+      { id: "workflow-edge-review", key: "review", targetNodeID: "node-review" },
+    ]);
+  });
+
+  it("moves an existing single-branch transition into the source fan-out group when redragging the branch edge", () => {
+    const draft = draftDefinitionFromSource(
+      parallelBranchWorkflowDefinition({ separateReviewTransition: true }),
+    );
+
+    const connected = connectWorkflowNodes(draft, {
+      edgeID: "workflow-edge-review-duplicate",
+      sourceNodeID: "node-source",
+      targetNodeID: "node-review",
+      transitionGroupID: "workflow-transition-group-review-duplicate",
+    });
+
+    expect(connected.draft.edges.some((edge) => edge.id === "workflow-edge-review-duplicate")).toBe(false);
+    expect(connected.draft.transitionGroups.some((group) => group.id === "group-source-review")).toBe(false);
+    expect(connected.summary.removedTransitionGroupIDs).toEqual(["group-source-review"]);
+    expect(edgesForTransition(connected.draft, "group-source-agent")).toMatchObject([
+      { id: "edge-source-agent", targetNodeID: "node-agent" },
+      { id: "edge-source-review", key: "custom_review_edge", targetNodeID: "node-review" },
+    ]);
+  });
+
+  it("creates a new transition group instead of reusing a partial branch group in larger node groups", () => {
+    const draft = draftDefinitionFromSource(parallelBranchWorkflowDefinition({ auditBranch: true }));
+
+    const connected = connectWorkflowNodes(draft, {
+      edgeID: "workflow-edge-review",
+      sourceNodeID: "node-source",
+      targetNodeID: "node-review",
+      transitionGroupID: "workflow-transition-group-review",
+    });
+
+    expect(connected.draft.transitionGroups.some((group) => group.id === "workflow-transition-group-review")).toBe(true);
+    expect(edgesForTransition(connected.draft, "group-source-agent")).toMatchObject([
+      { id: "edge-source-agent", targetNodeID: "node-agent" },
+    ]);
+    expect(edgesForTransition(connected.draft, "workflow-transition-group-review")).toMatchObject([
+      { id: "workflow-edge-review", targetNodeID: "node-review" },
+    ]);
   });
 
   it("allows draft edges from start while preserving graph shape for validation", () => {
@@ -314,7 +371,7 @@ describe("workflowEditorGraphMutations", () => {
     });
   });
 
-  it("blocks adding a branch when node group topology cannot be inferred safely", () => {
+  it("adds a branch with a warning when node group topology cannot be inferred safely", () => {
     const withBranch = addWorkflowNode(draftDefinitionFromSource(workflowDefinition), {
       id: "node-review",
       kind: "agent",
@@ -339,8 +396,45 @@ describe("workflowEditorGraphMutations", () => {
     });
 
     expect(expanded.warnings).toEqual(["node group topology could not be inferred safely"]);
-    expect(expanded.draft).toBe(created.draft);
-    expect(expanded.draft.nodes.find((node) => node.id === "node-review")?.groupID).toBe("");
+    expect(expanded.draft.nodes.find((node) => node.id === "node-review")).toMatchObject({
+      groupID: "workflow-node-group-parallel",
+      groupKey: "implement_parallel",
+    });
+    expect(expanded.draft.nodeGroups.find((group) => group.id === "workflow-node-group-parallel")?.nodeIDs).toEqual([
+      "node-agent",
+      "node-review",
+      "node-join",
+    ]);
+  });
+
+  it("blocks moving a grouped branch directly into another group", () => {
+    const created = createWorkflowNodeGroupFromNode(draftDefinitionFromSource(workflowDefinition), {
+      groupID: "workflow-node-group-parallel",
+      joinNodeID: "node-join",
+      nodeID: "node-agent",
+    });
+    const otherGroupDraft = {
+      ...created.draft,
+      nodeGroups: [
+        ...created.draft.nodeGroups,
+        {
+          id: "workflow-node-group-other",
+          key: "other",
+          name: "Other",
+          nodeIDs: [],
+          sortOrder: 100,
+          workflowID: "workflow-1",
+        },
+      ],
+    };
+
+    const moved = addWorkflowNodeToGroup(otherGroupDraft, {
+      groupID: "workflow-node-group-other",
+      nodeID: "node-agent",
+    });
+
+    expect(moved.warnings).toEqual(["node already belongs to a node group"]);
+    expect(moved.draft).toBe(otherGroupDraft);
   });
 
   it("infers v1 node group topology when adding another branch to an existing valid group", () => {
@@ -524,4 +618,90 @@ function inferredTwoBranchGroupDraft() {
     },
     nodeID: "node-review",
   }).draft;
+}
+
+function parallelBranchWorkflowDefinition(
+  options: Readonly<{ auditBranch?: boolean; separateReviewTransition?: boolean }> = {},
+): WorkflowDefinition {
+  const templateBranch = groupableWorkflowDefinition.nodes.find((node) => node.id === "node-agent");
+  if (templateBranch === undefined) {
+    throw new Error("groupable workflow fixture must include node-agent");
+  }
+  const branchNodeIDs =
+    options.auditBranch === true
+      ? ["node-agent", "node-review", "node-audit"]
+      : ["node-agent", "node-review"];
+  const auditBranch =
+    options.auditBranch === true
+      ? [
+          {
+            ...templateBranch,
+            groupID: "group-parallel",
+            groupKey: "parallel",
+            id: "node-audit",
+            key: "audit",
+            name: "Audit",
+          },
+        ]
+      : [];
+  const base: WorkflowDefinition = {
+    ...groupableWorkflowDefinition,
+    nodeGroups: [
+      {
+        id: "group-parallel",
+        key: "parallel",
+        name: "Parallel",
+        nodeIDs: branchNodeIDs,
+        sortOrder: 0,
+        workflowID: "workflow-1",
+      },
+    ],
+    nodes: [
+      ...groupableWorkflowDefinition.nodes.map((node) =>
+        node.id === "node-agent"
+          ? { ...node, groupID: "group-parallel", groupKey: "parallel" }
+          : node,
+      ),
+      {
+        ...templateBranch,
+        groupID: "group-parallel",
+        groupKey: "parallel",
+        id: "node-review",
+        key: "review",
+        name: "Review",
+      },
+      ...auditBranch,
+    ],
+  };
+  if (options.separateReviewTransition !== true) {
+    return base;
+  }
+  return {
+    ...base,
+    edges: [
+      ...base.edges,
+      {
+        contextMode: "new_session",
+        contextSource: { kind: "immediate_source", nodeKey: "" },
+        id: "edge-source-review",
+        inputBindings: [],
+        key: "custom_review_edge",
+        outputRequirements: [],
+        requiresApproval: false,
+        targetNodeID: "node-review",
+        transitionGroupID: "group-source-review",
+        workflowID: "workflow-1",
+      },
+    ],
+    transitionGroups: [
+      ...base.transitionGroups,
+      {
+        id: "group-source-review",
+        name: "Review",
+        sourceNodeID: "node-source",
+        transitionID: "review",
+        workflowID: "workflow-1",
+      },
+    ],
+  };
 }

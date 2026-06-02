@@ -8,6 +8,7 @@ import type {
 
 import type { ProjectBinding } from "../../api";
 import { errorMessage } from "../../api/errors";
+import { invalidateProjectDeleteQueries } from "../../app/projectDeletionEvents";
 import { queryKeys } from "../../app/queryKeys";
 import { useAppServices } from "../../app/useAppServices";
 
@@ -67,9 +68,13 @@ export function useProjectWorkspaceUnlink(projectID: string) {
   });
 }
 
-export function useProjectDelete(projectID: string) {
+export function useProjectDelete(
+  projectID: string,
+  options: Readonly<{ invalidateOnDeleted?: boolean | undefined }> = {},
+) {
   const { api } = useAppServices();
   const queryClient = useQueryClient();
+  const invalidateOnDeleted = options.invalidateOnDeleted ?? true;
   return useMutation({
     mutationFn: async () => api.deleteProject(projectID),
     onSuccess: async (response) => {
@@ -77,16 +82,9 @@ export function useProjectDelete(projectID: string) {
         await invalidateProjectEditQueries(queryClient, projectID);
         return;
       }
-      queryClient.removeQueries({ queryKey: queryKeys.projectEdit(projectID) });
-      queryClient.removeQueries({ queryKey: queryKeys.workspaces(projectID) });
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.allProjectEdits }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.allWorkspaces }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.allBoards }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.allAttention }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.allTasks }),
-      ]);
+      if (invalidateOnDeleted) {
+        await invalidateProjectDeleteQueries(queryClient, projectID);
+      }
     },
   });
 }

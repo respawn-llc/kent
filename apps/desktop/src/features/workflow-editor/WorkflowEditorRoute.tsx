@@ -23,6 +23,7 @@ import { useWindowChromeTitle } from "../../app/windowChromeTitle";
 import { Button, ErrorState, FloatingNoticeIsland, LoadingState } from "../../ui";
 import { cx } from "../../ui/classes";
 import { WorkflowValidationIssues } from "../workflow/WorkflowValidationIssues";
+import { normalizeWorkflowValidationErrors } from "../workflow/workflowValidationIssueNormalization";
 import { WorkflowGraphCanvas } from "./WorkflowGraphCanvas";
 import { WorkflowDeleteConfirmationFallbackDialog } from "./WorkflowDeleteConfirmationWindow";
 import {
@@ -100,11 +101,14 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
   const draftDerivedWiring =
     draftValidationQuery.data?.derivedWiring ?? draftDefinition?.derivedWiring ?? emptyWorkflowDerivedWiring;
   const executionValidation = draftValidationQuery.data?.execution ?? data.validationQuery.data ?? null;
+  const graphValidation = dirty.graphDirty
+    ? draftValidation ?? emptyWorkflowValidation
+    : draftValidation ?? executionValidation;
   const layoutQuery = useWorkflowGraphLayoutQuery(
     workflowID,
     draftDefinition,
     draftState?.graphVersion ?? 0,
-    draftValidation ?? executionValidation,
+    graphValidation,
   );
   useWindowChromeTitle(workflow === undefined ? t("workflowEditor.title") : workflow.name);
 
@@ -140,7 +144,7 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
       draft: fallbackDraftState.draft,
       derivedWiring: draftDerivedWiring,
       draftValidation,
-      executionValidation,
+      executionValidation: dirty.graphDirty && draftValidation === null ? emptyWorkflowValidation : executionValidation,
       save() {
         if (draftState === null || saving) {
           return;
@@ -171,6 +175,18 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
   useEffect(() => {
     pendingDeleteRef.current = pendingDelete;
   }, [pendingDelete]);
+  useEffect(() => {
+    const warning = draftState?.lastTopologyMutation?.warnings[0];
+    if (warning === undefined) {
+      return;
+    }
+    pushStatus({
+      body: t(graphEditWarningTranslationKey(warning)),
+      id: `workflow-graph-edit-warning-${draftState?.version.toString() ?? "unknown"}`,
+      title: t("workflowEditor.graphEditBlockedTitle"),
+      tone: "warning",
+    });
+  }, [draftState?.lastTopologyMutation, draftState?.version, pushStatus, t]);
   const confirmPendingGraphDelete = useCallback(
     (deleteRequest: PendingGraphDelete) => {
       pendingDeleteRef.current = null;
@@ -637,6 +653,16 @@ function deleteWarningTranslationKey(warning: string): string {
   return "workflowEditor.deleteBlockedGeneric";
 }
 
+function graphEditWarningTranslationKey(warning: string): string {
+  if (warning === workflowEditorGraphMutationWarnings.nodeGroupTopologyInferenceFailed) {
+    return "workflowEditor.nodeGroupTopologyInferenceFailed";
+  }
+  if (warning === workflowEditorGraphMutationWarnings.nodeGroupRequiresUngroupedNode) {
+    return "workflowEditor.nodeGroupRequiresUngroupedNode";
+  }
+  return "workflowEditor.graphEditBlockedGeneric";
+}
+
 async function copyWorkflowNodeText(
   value: string,
   nativeBridge: ReturnType<typeof useAppServices>["nativeBridge"],
@@ -860,10 +886,11 @@ function WorkflowEditorStatusIsland({
 }>) {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
-  const validationErrors = [
-    ...(controller.draftValidation?.errors ?? []),
-    ...(controller.executionValidation?.errors ?? []),
-  ];
+  const validationErrors = normalizeWorkflowValidationErrors(
+    controller.dirty.graphDirty
+      ? (controller.draftValidation?.errors ?? [])
+      : [...(controller.draftValidation?.errors ?? []), ...(controller.executionValidation?.errors ?? [])],
+  );
   const hasIssues =
     validationErrors.length > 0 || controller.saveBlockers.length > 0 || controller.saveError.length > 0;
   if (!controller.dirty.dirty && controller.state.conflict === null && !hasIssues) {
@@ -944,11 +971,8 @@ function WorkflowEditorStatusIsland({
             ))}
           </ul>
         ) : null}
-        {controller.draftValidation !== null && controller.draftValidation.errors.length > 0 ? (
-          <WorkflowValidationIssues errors={controller.draftValidation.errors} />
-        ) : null}
-        {controller.executionValidation !== null && controller.executionValidation.errors.length > 0 ? (
-          <WorkflowValidationIssues errors={controller.executionValidation.errors} />
+        {validationErrors.length > 0 ? (
+          <WorkflowValidationIssues errors={validationErrors} />
         ) : null}
       </div>
     </FloatingNoticeIsland>
@@ -1007,6 +1031,8 @@ function emptyWorkflowDefinition(workflowID: string): WorkflowDefinition {
     derivedWiring: emptyWorkflowDerivedWiring,
   };
 }
+
+const emptyWorkflowValidation: WorkflowValidation = { errors: [], valid: true };
 
 type WorkflowEditorViewState =
   | Readonly<{ kind: "loading" }>
