@@ -660,6 +660,45 @@ describe("ProjectEditRoute", () => {
     expect(closeCount).toBe(1);
   });
 
+  it("submits native project delete only once when confirm is clicked twice before the request settles", async () => {
+    let resolveDelete: ((response: unknown) => void) | undefined;
+    window.history.pushState(null, "", "/native-dialog/project-delete?projectID=project-1");
+    const services = createTestServices(
+      [
+        ...startupRoutes,
+        {
+          method: "project.delete",
+          handler: async () =>
+            new Promise((resolve) => {
+              resolveDelete = resolve;
+            }),
+        },
+      ],
+      nativeProjectDeleteWindowBridge(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+
+    render(<App services={services} />);
+
+    const deleteButton = await screen.findByRole("button", { name: "Delete project" });
+    fireEvent.click(deleteButton);
+    fireEvent.click(deleteButton);
+
+    await waitFor(() => {
+      expect(services.transport.calls.filter((call) => call.method === "project.delete")).toHaveLength(1);
+    });
+
+    await act(async () => {
+      resolveDelete?.({
+        project_id: "project-1",
+        deleted: true,
+        blockers: [],
+      });
+    });
+  });
+
   it("does not offer project delete retry when native notification fails after commit", async () => {
     let closeCount = 0;
     window.history.pushState(null, "", "/native-dialog/project-delete?projectID=project-1");

@@ -34,13 +34,11 @@ describe("WorkflowValidationIssues", () => {
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
   });
 
-  it("deduplicates repeated draft and execution messages for the same validation identity", () => {
+  it("deduplicates exact draft and execution messages for the same validation identity", () => {
     render(
       <WorkflowValidationIssues
         errors={[
-          validationError("join node must have exactly one outgoing transition group"),
           validationError("Node Proof Agent join must have exactly one outgoing transition group"),
-          validationError("join node must have exactly one outgoing transition group"),
           validationError("Node Proof Agent join must have exactly one outgoing transition group"),
         ]}
       />,
@@ -50,7 +48,21 @@ describe("WorkflowValidationIssues", () => {
     expect(
       screen.getByText("Node Proof Agent join must have exactly one outgoing transition group"),
     ).toBeInTheDocument();
-    expect(screen.queryByText("join node must have exactly one outgoing transition group")).not.toBeInTheDocument();
+  });
+
+  it("preserves distinct messages for the same validation identity", () => {
+    render(
+      <WorkflowValidationIssues
+        errors={[
+          validationError("node group must contain at least two branch nodes"),
+          validationError("node group must contain exactly one join node"),
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.getByText("node group must contain at least two branch nodes")).toBeInTheDocument();
+    expect(screen.getByText("node group must contain exactly one join node")).toBeInTheDocument();
   });
 });
 

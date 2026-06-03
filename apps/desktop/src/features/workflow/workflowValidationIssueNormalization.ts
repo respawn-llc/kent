@@ -5,27 +5,15 @@ export function normalizeWorkflowValidationErrors(
 ): readonly WorkflowValidationError[] {
   const byIdentity = new Map<string, WorkflowValidationError>();
   for (const error of errors) {
-    const identity = workflowValidationErrorIdentity(error);
-    const existing = byIdentity.get(identity);
-    if (existing === undefined || shouldReplaceValidationError(existing, error)) {
-      byIdentity.delete(identity);
-      byIdentity.set(identity, error);
-    }
+    byIdentity.set(workflowValidationErrorIdentity(error), error);
   }
   return [...byIdentity.values()];
-}
-
-function shouldReplaceValidationError(
-  existing: WorkflowValidationError,
-  candidate: WorkflowValidationError,
-): boolean {
-  // Derived-wiring diagnostics currently arrive as the scoped, more specific wording for the same identity.
-  return candidate.message.length >= existing.message.length;
 }
 
 function workflowValidationErrorIdentity(error: WorkflowValidationError): string {
   return [
     error.code,
+    error.message,
     error.workflowID,
     error.nodeID,
     error.transitionGroupID,

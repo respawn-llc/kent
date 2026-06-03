@@ -4,6 +4,7 @@ import {
   type NativeDialogWindowOptions,
 } from "@builder/desktop-native-bridge";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach } from "vitest";
 
 import { App } from "../../App";
@@ -59,6 +60,64 @@ describe("WorkflowLibraryRoute", () => {
     expect(await within(sidebar).findByRole("complementary", { name: "Inspect workflow" })).toBeInTheDocument();
     expect(within(sidebar).getByTestId("workflow-editor-route")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/workflows");
+  });
+
+  it("refreshes the mounted workflow list after saving from the sidebar editor", async () => {
+    const user = userEvent.setup();
+    const updatedWorkflowDefinitionResponse = workflowDefinitionResponseWithMetadata({
+      description: "Ship changes faster",
+      name: "Delivery Updated",
+      version: 2,
+    });
+    render(
+      <App
+        services={createTestServices([
+          ...startupRoutes,
+          {
+            method: "workflow.list",
+            handler: (_params, callIndex) =>
+              callIndex === 0
+                ? workflowListResponse
+                : workflowListResponseWithMetadata({
+                    description: "Ship changes faster",
+                    name: "Delivery Updated",
+                    version: 2,
+                  }),
+          },
+          {
+            method: "workflow.get",
+            handler: (_params, callIndex) =>
+              callIndex === 0 ? workflowDefinitionResponse : updatedWorkflowDefinitionResponse,
+          },
+          { method: "workflow.validate", result: validWorkflowValidationResponse },
+          { method: "workflow.graph.validateDraft", result: validWorkflowGraphValidationResponse },
+          { method: "workflow.graph.savePreview", result: graphSavePreviewResponse },
+          {
+            method: "workflow.graph.save",
+            result: {
+              ...graphSavePreviewResponse,
+              current_version: 2,
+              definition: updatedWorkflowDefinitionResponse.definition,
+              saved: true,
+            },
+          },
+        ])}
+      />,
+    );
+
+    fireEvent.contextMenu(await screen.findByRole("button", { name: "Delivery rev 1" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
+
+    const sidebar = await screen.findByRole("complementary", { name: "Workflow editor" });
+    fireEvent.click(await within(sidebar).findByRole("button", { name: "Inspect workflow" }));
+    const inspector = await within(sidebar).findByRole("complementary", { name: "Inspect workflow" });
+    await user.clear(within(inspector).getByLabelText("Workflow name"));
+    await user.type(within(inspector).getByLabelText("Workflow name"), "Delivery Updated");
+    fireEvent.click(within(inspector).getByRole("button", { name: "Close" }));
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByRole("button", { name: "Delivery Updated rev 2" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delivery rev 1" })).not.toBeInTheDocument();
   });
 
   it("opens existing workflow delete confirmation flow from the workflow picker context menu", async () => {
@@ -145,6 +204,24 @@ const workflowListResponse = {
   next_page_token: "",
 };
 
+function workflowListResponseWithMetadata({
+  description,
+  name,
+  version,
+}: Readonly<{ description: string; name: string; version: number }>) {
+  return {
+    workflows: [
+      {
+        id: "workflow-1",
+        name,
+        description,
+        version,
+      },
+    ],
+    next_page_token: "",
+  };
+}
+
 const workflowDefinitionResponse = {
   definition: {
     workflow: {
@@ -216,6 +293,24 @@ const workflowDefinitionResponse = {
   },
 };
 
+function workflowDefinitionResponseWithMetadata({
+  description,
+  name,
+  version,
+}: Readonly<{ description: string; name: string; version: number }>) {
+  return {
+    definition: {
+      ...workflowDefinitionResponse.definition,
+      workflow: {
+        ...workflowDefinitionResponse.definition.workflow,
+        description,
+        name,
+        version,
+      },
+    },
+  };
+}
+
 const validWorkflowValidationResponse = {
   valid: true,
   errors: [],
@@ -232,6 +327,30 @@ const validWorkflowGraphValidationResponse = {
     nodes: [],
     transition_groups: [],
   },
+};
+
+const graphSaveImpactResponse = {
+  removed_node_count: 0,
+  removed_transition_group_count: 0,
+  removed_edge_count: 0,
+  node_task_reference_count: 0,
+  edge_task_reference_count: 0,
+  active_node_placement_count: 0,
+  pending_approval_count: 0,
+  active_run_count: 0,
+  runnable_run_count: 0,
+  start_node_change_count: 0,
+  last_terminal_change_count: 0,
+  task_referenced_node_kind_change_count: 0,
+};
+
+const graphSavePreviewResponse = {
+  current_version: 1,
+  validation_results: validWorkflowGraphValidationResponse.results,
+  impact: graphSaveImpactResponse,
+  blockers: [],
+  can_save: true,
+  confirmation_required: false,
 };
 
 const workflowDeletePreviewResponse = {

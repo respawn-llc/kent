@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { CircleQuestionMark, X } from "lucide-react";
 
 import {
@@ -74,6 +74,7 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
   const { api, nativeBridge } = useAppServices();
   const { closeSidebar, openSidebar } = useSidebar();
   const { push: pushStatus } = useStatusController();
+  const queryClient = useQueryClient();
   const data = useWorkflowEditorData(projectID, workflowID);
   const workflow = data.workflowQuery.data?.workflow;
   const [draftState, dispatch] = useReducer(workflowEditorDraftStateReducer, null);
@@ -598,6 +599,7 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
       await Promise.all([
         data.workflowQuery.refetch(),
         data.validationQuery.refetch(),
+        queryClient.invalidateQueries({ queryKey: queryKeys.allWorkflows }),
         projectID.length > 0 ? data.boardQuery.refetch() : Promise.resolve(),
       ]);
     } catch (error) {

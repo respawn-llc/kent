@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
@@ -114,14 +114,17 @@ export function ProjectDeleteWindowRoute({ projectID }: ProjectDeleteTarget) {
   const mutation = useProjectDelete(projectID, { invalidateOnDeleted: false });
   const [actionError, setActionError] = useState("");
   const [committed, setCommitted] = useState(false);
+  const submittedRef = useRef(false);
   const confirmDelete = useCallback(async (): Promise<void> => {
-    if (committed) {
+    if (committed || submittedRef.current) {
       return;
     }
+    submittedRef.current = true;
     setActionError("");
     try {
       const response = await mutation.mutateAsync();
       if (!response.deleted) {
+        submittedRef.current = false;
         setActionError(
           response.blockers.map((blocker) => blocker.message).join("\n") || t("projectEdit.deleteBlocked"),
         );
@@ -154,6 +157,7 @@ export function ProjectDeleteWindowRoute({ projectID }: ProjectDeleteTarget) {
         });
       }
     } catch (error) {
+      submittedRef.current = false;
       setActionError(errorMessage(error));
       push({
         id: "project-delete-window-error",
