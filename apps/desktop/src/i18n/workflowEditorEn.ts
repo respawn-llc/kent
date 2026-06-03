@@ -123,9 +123,15 @@ export const workflowEditorEnglish = {
   deleteCascadeEdges: "Edges: {{count}}",
   deleteCascadeTransitionGroups: "Transition groups: {{count}}",
   deleteCascadeConfirm: "Delete node",
+  extractNodeCascadeTitle: "Remove node from group?",
+  extractNodeCascadeBody:
+    "This will remove the node from the group and remove group join wiring that no longer applies.",
+  extractNodeCascadeConfirm: "Remove from group",
   deleteBlockedTitle: "Delete blocked",
   graphEditBlockedTitle: "Graph edit needs attention",
   graphEditBlockedGeneric: "This graph edit cannot be applied to the current draft.",
+  nodeGroupExtractionTopologyFailed:
+    "The node could not be removed from the group safely. Review the group fan-out and join wiring before trying again.",
   nodeGroupTopologyInferenceFailed:
     "Node added to the group, but automatic parallel wiring could not be inferred. If the group starts from Backlog, insert a split agent after Backlog; otherwise review the group fan-out and join edges before saving.",
   nodeGroupRequiresUngroupedNode: "Remove the node from its current group before adding it to another group.",

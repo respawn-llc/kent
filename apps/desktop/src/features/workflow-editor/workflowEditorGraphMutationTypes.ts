@@ -63,6 +63,11 @@ export type AddWorkflowNodeToGroupInput = Readonly<{
   groupID: string;
 }>;
 
+export type ExtractWorkflowNodeFromGroupInput = Readonly<{
+  nodeID: string;
+  rehomedIncomingTransitionGroupID: string;
+}>;
+
 export type InferredNodeGroupTopologyIDs = Readonly<{
   addedBranchJoinEdgeID: string;
   addedBranchJoinTransitionGroupID: string;
@@ -85,6 +90,7 @@ export const workflowEditorGraphMutationWarnings = {
   nodeGroupNotFound: "node group was not found",
   nodeGroupRequiresAgentMembership: "node group membership can be changed for agent nodes only",
   nodeGroupRequiresAgent: "node groups can be created from agent nodes only",
+  nodeGroupExtractionTopologyFailed: "node group extraction topology could not be inferred safely",
   nodeGroupTopologyInferenceFailed: "node group topology could not be inferred safely",
   nodeGroupRequiresUngroupedNode: "node already belongs to a node group",
   startIncomingEdge: "start nodes cannot have incoming edges",

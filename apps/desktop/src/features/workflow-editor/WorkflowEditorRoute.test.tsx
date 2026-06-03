@@ -666,6 +666,140 @@ describe("WorkflowEditorRoute", () => {
     expect(services.transport.calls.map((call) => call.method)).not.toContain("workflow.graph.savePreview");
   });
 
+  it("confirms drag-out extraction and preserves the extracted branch incoming edge", async () => {
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue("00000000-0000-4000-8000-000000000042");
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.get", result: workflowDefinitionResponseWithValidGroupedBranches },
+      { method: "workflow.validate", result: invalidValidationResponse },
+      { method: "workflow.graph.validateDraft", result: validGraphValidationResponse },
+    ]);
+    window.history.pushState(null, "", "/workflows/workflow-1/editor");
+    render(
+      <AppProviders services={services}>
+        <SidebarProvider>
+          <WorkflowEditorDraftBridgeProvider>
+            <WorkflowEditorRoute projectID="" workflowID="workflow-1" />
+            <WorkflowNodeGroupProbe nodeID="impl-b" testID="impl-b-group-probe" />
+            <WorkflowFanoutProbe />
+          </WorkflowEditorDraftBridgeProvider>
+        </SidebarProvider>
+      </AppProviders>,
+    );
+
+    await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
+    expect(screen.getByTestId("impl-b-group-probe")).toHaveTextContent("group-parallel");
+    expect(screen.getByTestId("workflow-fanout-probe")).toHaveTextContent("tg-plan-new-agent,tg-plan-new-agent");
+
+    dragWorkflowNodeOut(screen.getByTestId("workflow-graph-node-impl-b"));
+
+    const confirmation = await screen.findByRole("dialog", { name: "Remove node from group?" });
+    expect(
+      within(confirmation).getByText(
+        "This will remove the node from the group and remove group join wiring that no longer applies.",
+      ),
+    ).toBeInTheDocument();
+    expect(within(confirmation).getByText("Nodes: 1")).toBeInTheDocument();
+    expect(within(confirmation).getByText("Edges: 2")).toBeInTheDocument();
+    expect(within(confirmation).getByText("Transition groups: 2")).toBeInTheDocument();
+    expect(screen.getByTestId("impl-b-group-probe")).toHaveTextContent("group-parallel");
+
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Remove from group" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("impl-b-group-probe")).toHaveTextContent("none");
+    });
+    expect(screen.getByTestId("workflow-fanout-probe")).toHaveTextContent(
+      "tg-plan-new-agent,workflow-transition-group-00000000-0000-4000-8000-000000000042",
+    );
+  });
+
+  it("opens drag-out extraction confirmation in a native dialog window with extraction copy", async () => {
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue("00000000-0000-4000-8000-000000000044");
+    const opened: NativeDialogWindowOptions[] = [];
+    const nativeBridge = nativeWorkflowDeleteDialogBridge(opened);
+    const services = createTestServices(
+      [
+        ...startupRoutes,
+        { method: "workflow.get", result: workflowDefinitionResponseWithValidGroupedBranches },
+        { method: "workflow.validate", result: invalidValidationResponse },
+        { method: "workflow.graph.validateDraft", result: validGraphValidationResponse },
+      ],
+      nativeBridge,
+    );
+    window.history.pushState(null, "", "/workflows/workflow-1/editor");
+    render(
+      <AppProviders services={services}>
+        <SidebarProvider>
+          <WorkflowEditorDraftBridgeProvider>
+            <WorkflowEditorRoute projectID="" workflowID="workflow-1" />
+          </WorkflowEditorDraftBridgeProvider>
+        </SidebarProvider>
+      </AppProviders>,
+    );
+
+    await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
+    dragWorkflowNodeOut(screen.getByTestId("workflow-graph-node-impl-b"));
+
+    await waitFor(() => {
+      expect(opened).toHaveLength(1);
+    });
+    expect(opened[0]).toMatchObject({
+      route: "/native-dialog/workflow-delete-confirm",
+      title: "Remove node from group?",
+      params: {
+        edgeCount: "2",
+        nodeCount: "1",
+        operation: "extract",
+        requestID: "workflow-1-delete-1",
+        transitionGroupCount: "2",
+      },
+    });
+    expect(screen.queryByRole("dialog", { name: "Remove node from group?" })).not.toBeInTheDocument();
+  });
+
+  it("rejects stale drag-out extraction confirmations after draft graph changes", async () => {
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue("00000000-0000-4000-8000-000000000043");
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.get", result: workflowDefinitionResponseWithValidGroupedBranches },
+      { method: "workflow.validate", result: invalidValidationResponse },
+      { method: "workflow.graph.validateDraft", result: validGraphValidationResponse },
+    ]);
+    window.history.pushState(null, "", "/workflows/workflow-1/editor");
+    render(
+      <AppProviders services={services}>
+        <SidebarProvider>
+          <WorkflowEditorDraftBridgeProvider>
+            <WorkflowEditorRoute projectID="" workflowID="workflow-1" />
+            <WorkflowNodeGroupProbe nodeID="impl-b" testID="impl-b-group-probe" />
+            <WorkflowFanoutProbe />
+          </WorkflowEditorDraftBridgeProvider>
+        </SidebarProvider>
+      </AppProviders>,
+    );
+
+    await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
+    dragWorkflowNodeOut(screen.getByTestId("workflow-graph-node-impl-b"));
+
+    const confirmation = await screen.findByRole("dialog", { name: "Remove node from group?" });
+    fireEvent.click(screen.getByRole("button", { name: "Delete stale branch edge" }));
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Remove from group" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Remove node from group?" })).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId("impl-b-group-probe")).toHaveTextContent("group-parallel");
+    expect(screen.getByTestId("workflow-fanout-probe")).not.toHaveTextContent(
+      "workflow-transition-group-00000000-0000-4000-8000-000000000043",
+    );
+    expect(
+      await within(screen.getByTestId("sonner-test-surface")).findByText(
+        "The graph changed before confirmation. Review the graph and delete again.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("opens cascade delete confirmation in a native dialog window when available", async () => {
     const opened: NativeDialogWindowOptions[] = [];
     const nativeBridge = nativeWorkflowDeleteDialogBridge(opened);
@@ -2221,6 +2355,21 @@ function dispatchMouseEvent(
   fireEvent(target, event);
 }
 
+function dragWorkflowNodeOut(card: HTMLElement): void {
+  const eventView = card.ownerDocument.defaultView;
+  if (eventView === null) {
+    throw new Error("Expected test document to have a default window");
+  }
+  Object.defineProperty(document, "elementFromPoint", {
+    configurable: true,
+    value: vi.fn<typeof document.elementFromPoint>(() => card),
+  });
+  dispatchMouseEvent(card, eventView, "mousedown", { button: 0, clientX: 12, clientY: 18 });
+  dispatchMouseEvent(document, eventView, "mousemove", { buttons: 1, clientX: 28, clientY: 34 });
+  dispatchMouseEvent(document, eventView, "mousemove", { buttons: 1, clientX: 500, clientY: 500 });
+  dispatchMouseEvent(document, eventView, "mouseup", { clientX: 500, clientY: 500 });
+}
+
 function expectIdentifierInputCorrectionsDisabled(input: HTMLElement): void {
   expect(input).toHaveAttribute("autocapitalize", "none");
   expect(input).toHaveAttribute("autocomplete", "off");
@@ -2915,6 +3064,18 @@ const workflowDefinitionResponseWithSeparateGroupedBranchTransitions = {
         context_source: { kind: "immediate_source" },
       },
     ],
+  },
+};
+
+const workflowDefinitionResponseWithValidGroupedBranches = {
+  definition: {
+    ...workflowDefinitionResponseWithSeparateGroupedBranchTransitions.definition,
+    transition_groups: workflowDefinitionResponseWithSeparateGroupedBranchTransitions.definition.transition_groups.filter(
+      (group) => group.id !== "tg-plan-implement",
+    ),
+    edges: workflowDefinitionResponseWithSeparateGroupedBranchTransitions.definition.edges.map((edge) =>
+      edge.id === "edge-plan-implement" ? { ...edge, transition_group_id: "tg-plan-new-agent" } : edge,
+    ),
   },
 };
 

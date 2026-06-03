@@ -11,8 +11,9 @@ describe("workflowDeleteConfirmationModel", () => {
         nodeCount: 1,
         transitionGroupCount: 3,
       },
+      operation: "extract",
       requestID: "workflow-1-delete-4",
-      title: "Delete node?",
+      title: "Remove node from group?",
     });
 
     expect(options).toMatchObject({
@@ -22,11 +23,12 @@ describe("workflowDeleteConfirmationModel", () => {
       params: {
         edgeCount: "2",
         nodeCount: "1",
+        operation: "extract",
         requestID: "workflow-1-delete-4",
         transitionGroupCount: "3",
       },
       route: "/native-dialog/workflow-delete-confirm",
-      title: "Delete node?",
+      title: "Remove node from group?",
     });
     expect(workflowDeleteConfirmationWindowTargetFromSearch(options.params)).toEqual({
       counts: {
@@ -34,11 +36,12 @@ describe("workflowDeleteConfirmationModel", () => {
         nodeCount: 1,
         transitionGroupCount: 3,
       },
+      operation: "extract",
       requestID: "workflow-1-delete-4",
     });
   });
 
-  it("clamps missing and malformed native dialog counts", () => {
+  it("clamps missing and malformed native dialog counts while defaulting to delete copy", () => {
     expect(
       workflowDeleteConfirmationWindowTargetFromSearch({
         edgeCount: "-1",
@@ -52,6 +55,7 @@ describe("workflowDeleteConfirmationModel", () => {
         nodeCount: 0,
         transitionGroupCount: 0,
       },
+      operation: "delete",
       requestID: "delete-invalid",
     });
   });

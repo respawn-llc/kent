@@ -276,6 +276,64 @@ describe("WorkflowGraphCanvas", () => {
     fireEvent.click(card);
     expect(onNodeInspect).toHaveBeenCalledWith("agent");
   });
+
+  it("extracts grouped nodes only when dropped outside groups", async () => {
+    const onAddNodeToGroup = vi.fn();
+    const onExtractNodeFromGroup = vi.fn();
+    render(
+      <WorkflowGraphCanvas
+        graph={{
+          edges: [],
+          nodes: [
+            workflowGroupGraphNode({ hasError: false, id: "group", label: "Group", x: -140 }),
+            workflowGroupGraphNode({ hasError: false, id: "other", label: "Other", x: 260 }),
+            workflowGraphNode({
+              groupID: "group",
+              hasError: false,
+              id: "agent",
+              kind: "agent",
+              label: "Agent",
+              parentId: "group",
+              x: 0,
+            }),
+          ],
+        }}
+        onAddNodeToGroup={onAddNodeToGroup}
+        onEdgeInspect={() => undefined}
+        onExtractNodeFromGroup={onExtractNodeFromGroup}
+        onGroupInspect={() => undefined}
+        onNodeInspect={() => undefined}
+        onWorkflowInspect={() => undefined}
+      />,
+    );
+
+    const card = screen.getByTestId("workflow-graph-node-agent");
+    const eventView = card.ownerDocument.defaultView;
+    if (eventView === null) {
+      throw new Error("Expected test document to have a default window");
+    }
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: vi.fn<typeof document.elementFromPoint>(() => card),
+    });
+
+    dragNode(card, eventView, { x: 500, y: 500 });
+    await waitFor(() => {
+      expect(onExtractNodeFromGroup).toHaveBeenCalledWith("agent");
+    });
+    expect(onAddNodeToGroup).not.toHaveBeenCalled();
+
+    onAddNodeToGroup.mockClear();
+    onExtractNodeFromGroup.mockClear();
+    Object.defineProperty(screen.getByTestId("workflow-graph-group-group"), "getBoundingClientRect", {
+      configurable: true,
+      value: () => new eventView.DOMRect(0, 0, 100, 100),
+    });
+    dragNode(card, eventView, { x: 36, y: 40 });
+    expect(onAddNodeToGroup).not.toHaveBeenCalled();
+    expect(onExtractNodeFromGroup).not.toHaveBeenCalled();
+  });
+
 });
 
 class MockResizeObserver implements ResizeObserver {
@@ -303,12 +361,25 @@ function dispatchMouseEvent(
   fireEvent(target, event);
 }
 
+function dragNode(
+  element: HTMLElement,
+  eventView: Window & typeof globalThis,
+  end: Readonly<{ x: number; y: number }>,
+): void {
+  dispatchMouseEvent(element, eventView, "mousedown", { button: 0, clientX: 12, clientY: 18 });
+  dispatchMouseEvent(eventView, eventView, "mousemove", { buttons: 1, clientX: 28, clientY: 34 });
+  dispatchMouseEvent(eventView, eventView, "mousemove", { buttons: 1, clientX: end.x, clientY: end.y });
+  dispatchMouseEvent(eventView, eventView, "mouseup", { clientX: end.x, clientY: end.y });
+}
+
 function workflowGraphNode({
   id,
   label,
   kind,
   hasError,
+  groupID,
   nodeKey = id,
+  parentId,
   x,
   type = "workflowNode",
 }: Readonly<{
@@ -319,12 +390,14 @@ function workflowGraphNode({
   nodeKey?: string;
   type?: string;
   x: number;
+  groupID?: string | undefined;
+  parentId?: string | undefined;
 }>): WorkflowGraphNode {
   return {
     data: {
       entityID: id,
       entityKind: "node",
-      groupID: "",
+      groupID: groupID ?? "",
       hasError,
       key: nodeKey,
       kind,
@@ -332,6 +405,7 @@ function workflowGraphNode({
       role: kind === "agent" ? "coder" : "",
     },
     draggable: kind === "agent",
+    ...(parentId === undefined ? {} : { extent: "parent", parentId }),
     id,
     position: { x, y: 0 },
     style: { height: 92, width: 220 },

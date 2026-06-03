@@ -17,6 +17,7 @@ import {
   deleteWorkflowNode,
   deleteWorkflowNodeGroup,
   editWorkflowEdgeRoute,
+  extractWorkflowNodeFromGroup,
   removeWorkflowNodeFromGroup,
 } from "./workflowEditorGraphMutations";
 
@@ -437,6 +438,103 @@ describe("workflowEditorGraphMutations", () => {
     expect(moved.draft).toBe(otherGroupDraft);
   });
 
+  it("extracts a branch from a larger node group while preserving valid fan-out topology", () => {
+    const expanded = withJoinProvider(
+      withSourceTransitionIDConflict(inferredThreeBranchGroupDraft()),
+      "node-join",
+      "risk",
+      "edge-review-join",
+    );
+
+    const extracted = extractWorkflowNodeFromGroup(expanded, {
+      rehomedIncomingTransitionGroupID: "group-review-extracted",
+      nodeID: "node-review",
+    });
+
+    expect(extracted.draft.nodes.find((node) => node.id === "node-review")).toMatchObject({
+      groupID: "",
+      groupKey: "",
+    });
+    expect(
+      [
+        ...(extracted.draft.nodeGroups.find((group) => group.id === "workflow-node-group-parallel")?.nodeIDs ?? []),
+      ].sort(),
+    ).toEqual(["node-agent", "node-audit", "node-join"]);
+    expect(edgesForTransition(extracted.draft, "group-source-agent").map((edge) => edge.targetNodeID).sort()).toEqual([
+      "node-agent",
+      "node-audit",
+    ]);
+    expect(extracted.draft.edges.find((edge) => edge.id === "edge-start-review")).toMatchObject({
+      targetNodeID: "node-review",
+      transitionGroupID: "group-review-extracted",
+    });
+    expect(extracted.draft.transitionGroups.find((group) => group.id === "group-review-extracted")).toMatchObject({
+      name: "Review",
+      sourceNodeID: "node-source",
+      transitionID: "review_2",
+    });
+    expect(extracted.draft.edges.some((edge) => edge.id === "edge-review-join")).toBe(false);
+    expect(extracted.draft.transitionGroups.some((group) => group.id === "group-review-join")).toBe(false);
+    expect(extracted.draft.nodes.find((node) => node.id === "node-join")?.joinInputProviders).toEqual([]);
+    expect(extracted.summary).toEqual({
+      removedEdgeIDs: ["edge-review-join"],
+      removedNodeIDs: [],
+      removedTransitionGroupIDs: ["group-review-join"],
+    });
+  });
+
+  it("removes only extracted branch join edges from mixed transition groups", () => {
+    const base = inferredThreeBranchGroupDraft();
+    const expanded = {
+      ...base,
+      edges: [
+        ...base.edges,
+        {
+          contextMode: "new_session",
+          contextSource: { kind: "immediate_source", nodeKey: "" },
+          id: "edge-review-extra",
+          inputBindings: [],
+          key: "extra",
+          outputRequirements: [],
+          requiresApproval: false,
+          targetNodeID: "node-done",
+          transitionGroupID: "group-review-join",
+          workflowID: "workflow-1",
+        },
+      ],
+    };
+
+    const extracted = extractWorkflowNodeFromGroup(expanded, {
+      rehomedIncomingTransitionGroupID: "group-review-extracted",
+      nodeID: "node-review",
+    });
+
+    expect(extracted.draft.edges.some((edge) => edge.id === "edge-review-join")).toBe(false);
+    expect(extracted.draft.edges.find((edge) => edge.id === "edge-review-extra")).toMatchObject({
+      targetNodeID: "node-done",
+      transitionGroupID: "group-review-join",
+    });
+    expect(extracted.draft.transitionGroups.some((group) => group.id === "group-review-join")).toBe(true);
+    expect(extracted.summary.removedTransitionGroupIDs).toEqual([]);
+  });
+
+  it("blocks extraction when the incoming fan-out cannot be identified safely", () => {
+    const draft = withDuplicateExactBranchFanout(inferredThreeBranchGroupDraft());
+
+    const extracted = extractWorkflowNodeFromGroup(draft, {
+      rehomedIncomingTransitionGroupID: "group-review-extracted",
+      nodeID: "node-review",
+    });
+
+    expect(extracted.draft).toBe(draft);
+    expect(extracted.warnings).toEqual(["node group extraction topology could not be inferred safely"]);
+    expect(extracted.summary).toEqual({
+      removedEdgeIDs: [],
+      removedNodeIDs: [],
+      removedTransitionGroupIDs: [],
+    });
+  });
+
   it("infers v1 node group topology when adding another branch to an existing valid group", () => {
     const withReview = addWorkflowNode(draftDefinitionFromSource(groupableWorkflowDefinition), {
       id: "node-review",
@@ -594,6 +692,34 @@ describe("workflowEditorGraphMutations", () => {
     });
     expect(removed.summary.removedNodeIDs).toEqual(["node-join"]);
   });
+
+  it("extracts from two-branch groups without losing the extracted branch incoming edge", () => {
+    const expanded = inferredTwoBranchGroupDraft();
+
+    const extracted = extractWorkflowNodeFromGroup(expanded, {
+      rehomedIncomingTransitionGroupID: "group-review-extracted",
+      nodeID: "node-review",
+    });
+
+    expect(extracted.draft.nodeGroups.some((group) => group.id === "workflow-node-group-parallel")).toBe(false);
+    expect(extracted.draft.nodes.find((node) => node.id === "node-review")).toMatchObject({
+      groupID: "",
+      groupKey: "",
+    });
+    expect(extracted.draft.edges.find((edge) => edge.id === "edge-start-review")).toMatchObject({
+      targetNodeID: "node-review",
+      transitionGroupID: "group-review-extracted",
+    });
+    expect(extracted.draft.transitionGroups.find((group) => group.id === "group-review-extracted")).toMatchObject({
+      sourceNodeID: "node-source",
+      transitionID: "review",
+    });
+    expect(edgesForTransition(extracted.draft, "group-source-agent")).toMatchObject([
+      { targetNodeID: "node-agent" },
+    ]);
+    expect(extracted.draft.nodes.some((node) => node.id === "node-join")).toBe(false);
+    expect(extracted.summary.removedNodeIDs).toEqual(["node-join"]);
+  });
 });
 
 function inferredTwoBranchGroupDraft() {
@@ -618,6 +744,109 @@ function inferredTwoBranchGroupDraft() {
     },
     nodeID: "node-review",
   }).draft;
+}
+
+function inferredThreeBranchGroupDraft() {
+  const withAudit = addWorkflowNode(inferredTwoBranchGroupDraft(), {
+    id: "node-audit",
+    kind: "agent",
+    name: "Audit",
+  });
+  return addWorkflowNodeToGroup(withAudit.draft, {
+    groupID: "workflow-node-group-parallel",
+    inferredTopologyIDs: {
+      addedBranchJoinEdgeID: "edge-audit-join",
+      addedBranchJoinTransitionGroupID: "group-audit-join",
+      existingBranchJoinEdgeID: "edge-unused-existing-join",
+      existingBranchJoinTransitionGroupID: "group-unused-existing-join",
+      fanoutEdgeID: "edge-start-audit",
+    },
+    nodeID: "node-audit",
+  }).draft;
+}
+
+function withJoinProvider(
+  draft: ReturnType<typeof draftDefinitionFromSource>,
+  joinNodeID: string,
+  inputName: string,
+  providerEdgeID: string,
+) {
+  return {
+    ...draft,
+    nodes: draft.nodes.map((node) =>
+      node.id === joinNodeID
+        ? { ...node, joinInputProviders: [{ inputName, providerEdgeID }] }
+        : node,
+    ),
+  };
+}
+
+function withSourceTransitionIDConflict(draft: ReturnType<typeof draftDefinitionFromSource>) {
+  return {
+    ...draft,
+    edges: [
+      ...draft.edges,
+      {
+        contextMode: "new_session",
+        contextSource: { kind: "immediate_source", nodeKey: "" },
+        id: "edge-source-review-conflict",
+        inputBindings: [],
+        key: "review_conflict",
+        outputRequirements: [],
+        requiresApproval: false,
+        targetNodeID: "node-done",
+        transitionGroupID: "group-source-review-conflict",
+        workflowID: "workflow-1",
+      },
+    ],
+    transitionGroups: [
+      ...draft.transitionGroups,
+      {
+        id: "group-source-review-conflict",
+        name: "Review conflict",
+        sourceNodeID: "node-source",
+        transitionID: "review",
+        workflowID: "workflow-1",
+      },
+    ],
+  };
+}
+
+function withDuplicateExactBranchFanout(draft: ReturnType<typeof draftDefinitionFromSource>) {
+  return {
+    ...draft,
+    edges: [
+      ...draft.edges,
+      duplicateFanoutEdge("edge-source-agent-duplicate", "agent_duplicate", "node-agent"),
+      duplicateFanoutEdge("edge-source-review-duplicate", "review_duplicate", "node-review"),
+      duplicateFanoutEdge("edge-source-audit-duplicate", "audit_duplicate", "node-audit"),
+    ],
+    transitionGroups: [
+      ...draft.transitionGroups,
+      {
+        id: "group-source-duplicate",
+        name: "Duplicate fan-out",
+        sourceNodeID: "node-source",
+        transitionID: "duplicate",
+        workflowID: "workflow-1",
+      },
+    ],
+  };
+}
+
+function duplicateFanoutEdge(id: string, key: string, targetNodeID: string) {
+  return {
+    contextMode: "new_session",
+    contextSource: { kind: "immediate_source", nodeKey: "" },
+    id,
+    inputBindings: [],
+    key,
+    outputRequirements: [],
+    requiresApproval: false,
+    targetNodeID,
+    transitionGroupID: "group-source-duplicate",
+    workflowID: "workflow-1",
+  };
 }
 
 function parallelBranchWorkflowDefinition(

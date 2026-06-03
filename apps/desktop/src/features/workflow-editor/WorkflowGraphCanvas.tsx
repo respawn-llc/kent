@@ -54,6 +54,7 @@ export type WorkflowGraphCanvasProps = Readonly<{
   onConnectNodes?: ((sourceNodeID: string, targetNodeID: string) => void) | undefined;
   onCreateNodeGroup?: ((nodeID: string) => void) | undefined;
   onDeleteSelection?: ((selection: WorkflowGraphSelection) => void) | undefined;
+  onExtractNodeFromGroup?: ((nodeID: string) => void) | undefined;
   onRemoveNodeFromGroup?: ((nodeID: string) => void) | undefined;
   onEdgeInspect: (edgeID: string) => void;
   onGroupInspect: (groupID: string) => void;
@@ -74,6 +75,7 @@ export function WorkflowGraphCanvas({
   onConnectNodes,
   onCreateNodeGroup,
   onDeleteSelection,
+  onExtractNodeFromGroup,
   onRemoveNodeFromGroup,
   onEdgeInspect,
   onGroupInspect,
@@ -90,6 +92,7 @@ export function WorkflowGraphCanvas({
           onConnectNodes={onConnectNodes}
           onCreateNodeGroup={onCreateNodeGroup}
           onDeleteSelection={onDeleteSelection}
+          onExtractNodeFromGroup={onExtractNodeFromGroup}
           onRemoveNodeFromGroup={onRemoveNodeFromGroup}
           onEdgeInspect={onEdgeInspect}
           onGroupInspect={onGroupInspect}
@@ -112,6 +115,7 @@ function WorkflowGraphCanvasInner({
   onCreateNodeGroup,
   onDeleteSelection,
   onEdgeInspect,
+  onExtractNodeFromGroup,
   onGroupInspect,
   onNodeInspect,
   onRemoveNodeFromGroup,
@@ -126,6 +130,7 @@ function WorkflowGraphCanvasInner({
   onCreateNodeGroup: ((nodeID: string) => void) | undefined;
   onDeleteSelection: ((selection: WorkflowGraphSelection) => void) | undefined;
   onEdgeInspect: (edgeID: string) => void;
+  onExtractNodeFromGroup: ((nodeID: string) => void) | undefined;
   onGroupInspect: (groupID: string) => void;
   onNodeInspect: (nodeID: string) => void;
   onRemoveNodeFromGroup: ((nodeID: string) => void) | undefined;
@@ -140,10 +145,14 @@ function WorkflowGraphCanvasInner({
     nodes: workflowGraphRenderNodes(nodes),
     sourceNodes: nodes,
   }));
+  const [groupDrag, setGroupDrag] = useState<WorkflowGroupDragState | null>(null);
   const renderNodes =
     renderNodesState.sourceNodes === nodes ? renderNodesState.nodes : workflowGraphRenderNodes(nodes);
+  const dragAwareRenderNodes = useMemo(
+    () => relaxActiveGroupedNodeClamp(renderNodes, groupDrag?.nodeID ?? null),
+    [groupDrag?.nodeID, renderNodes],
+  );
   const renderEdges = useMemo(() => workflowGraphRenderEdges(edges), [edges]);
-  const [groupDrag, setGroupDrag] = useState<WorkflowGroupDragState | null>(null);
   const edgeTypes = useMemo(
     () => ({
       workflow: (props: EdgeProps<WorkflowGraphEdge>) => (
@@ -241,7 +250,7 @@ function WorkflowGraphCanvasInner({
         maxZoom={2}
         minZoom={0.15}
         nodeDragThreshold={6}
-        nodes={renderNodes}
+        nodes={dragAwareRenderNodes}
         nodesConnectable={onConnectNodes !== undefined}
         nodesDraggable={false}
         nodeTypes={nodeTypes}
@@ -289,6 +298,10 @@ function WorkflowGraphCanvasInner({
           const groupID = groupIDFromPoint(event.clientX, event.clientY);
           if (groupID !== null && groupID !== node.data.groupID) {
             onAddNodeToGroup?.(node.data.entityID, groupID);
+            return;
+          }
+          if (groupID === null && node.data.groupID.length > 0) {
+            onExtractNodeFromGroup?.(node.data.entityID);
           }
         }}
         onNodesChange={(changes) => {
@@ -343,4 +356,17 @@ function applyViewportShortcut(key: string, instance: ReturnType<typeof useReact
 
 function isWorkflowAgentGraphNode(node: Node): node is WorkflowGraphWorkflowNode {
   return node.data.entityKind === "node" && node.data.kind === "agent";
+}
+
+function relaxActiveGroupedNodeClamp(nodes: Node[], activeNodeID: string | null): Node[] {
+  if (activeNodeID === null) {
+    return nodes;
+  }
+  return nodes.map((node) => {
+    if (node.id !== activeNodeID || !isWorkflowAgentGraphNode(node) || node.parentId === undefined) {
+      return node;
+    }
+    const { extent: _extent, ...unclamped } = node;
+    return unclamped;
+  });
 }

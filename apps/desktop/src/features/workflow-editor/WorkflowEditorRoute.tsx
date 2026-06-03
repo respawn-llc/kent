@@ -29,6 +29,7 @@ import { WorkflowDeleteConfirmationFallbackDialog } from "./WorkflowDeleteConfir
 import {
   workflowDeleteConfirmationCountsFromSummary,
   workflowDeleteConfirmationWindowOptions,
+  type WorkflowGraphCascadeConfirmationOperation,
 } from "./workflowDeleteConfirmationModel";
 import { useWorkflowGraphDeleteConfirmationListener } from "./useWorkflowGraphDeleteConfirmationListener";
 import { layoutWorkflowGraph, type WorkflowGraphLayout } from "./workflowGraphLayout";
@@ -52,7 +53,9 @@ import {
   deleteWorkflowEdge,
   deleteWorkflowNode,
   deleteWorkflowNodeGroup,
+  extractWorkflowNodeFromGroup,
   workflowEditorGraphMutationWarnings,
+  type ExtractWorkflowNodeFromGroupInput,
   type WorkflowEditorCascadeSummary,
 } from "./workflowEditorGraphMutations";
 import { newWorkflowTopologyID } from "./workflowTopologyID";
@@ -91,8 +94,8 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
       preview === null ? null : { key: saveConfirmationPreviewKey, preview },
     );
   }
-  const [pendingDelete, setPendingDelete] = useState<PendingGraphDelete | null>(null);
-  const pendingDeleteRef = useRef<PendingGraphDelete | null>(null);
+  const [pendingGraphMutation, setPendingGraphMutation] = useState<PendingGraphMutation | null>(null);
+  const pendingGraphMutationRef = useRef<PendingGraphMutation | null>(null);
   const deleteRequestIndexRef = useRef(0);
   const draftDefinition =
     draftState === null ? data.workflowQuery.data : workflowDefinitionFromDraft(draftState.draft);
@@ -173,8 +176,8 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
   );
   useRegisterWorkflowEditorDraftController(controller);
   useEffect(() => {
-    pendingDeleteRef.current = pendingDelete;
-  }, [pendingDelete]);
+    pendingGraphMutationRef.current = pendingGraphMutation;
+  }, [pendingGraphMutation]);
   useEffect(() => {
     const warning = draftState?.lastTopologyMutation?.warnings[0];
     if (warning === undefined) {
@@ -187,18 +190,15 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
       tone: "warning",
     });
   }, [draftState?.lastTopologyMutation, draftState?.version, pushStatus, t]);
-  const confirmPendingGraphDelete = useCallback(
-    (deleteRequest: PendingGraphDelete) => {
-      pendingDeleteRef.current = null;
-      setPendingDelete(null);
+  const confirmPendingGraphMutation = useCallback(
+    (mutationRequest: PendingGraphMutation) => {
+      pendingGraphMutationRef.current = null;
+      setPendingGraphMutation(null);
       if (draftState === null) {
         return;
       }
-      const currentPlan = planGraphDeletion(draftState.draft, deleteRequest.selection);
-      if (
-        currentPlan.kind !== "ready" ||
-        !cascadeSummaryEquals(currentPlan.summary, deleteRequest.summary)
-      ) {
+      const currentPlan = planPendingGraphMutation(draftState, mutationRequest);
+      if (currentPlan.kind !== "ready" || !cascadeSummaryEquals(currentPlan.summary, mutationRequest.summary)) {
         pushStatus({
           body: t("workflowEditor.deleteConfirmationStale"),
           id: "workflow-delete-confirmation-stale",
@@ -207,7 +207,7 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
         });
         return;
       }
-      dispatchGraphDeletion(deleteRequest.selection, dispatch);
+      dispatchPendingGraphMutation(mutationRequest, dispatch);
     },
     [draftState, pushStatus, t],
   );
@@ -224,34 +224,37 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
   );
   useWorkflowGraphDeleteConfirmationListener({
     nativeBridge,
-    onConfirmed: confirmPendingGraphDelete,
+    onConfirmed: confirmPendingGraphMutation,
     onListenerError: handleGraphDeleteConfirmationListenerError,
-    pendingDeleteRef,
+    pendingDeleteRef: pendingGraphMutationRef,
   });
-  const deleteConfirmation = useNativeDialogFallback<PendingGraphDelete>({
+  const deleteConfirmation = useNativeDialogFallback<PendingGraphMutation>({
     errorNoticeID: "workflow-delete-confirmation-window-error",
     errorTitle: t("workflowEditor.deleteCascadeTitle"),
     nativeAvailable: nativeBridge.capabilities.dialogWindows,
     openNative: async (deleteRequest) => {
+      const operation = confirmationOperation(deleteRequest);
       await nativeBridge.dialogs.openWindow(
         workflowDeleteConfirmationWindowOptions({
           counts: workflowDeleteConfirmationCountsFromSummary(deleteRequest.summary),
+          operation,
           requestID: deleteRequest.requestID,
-          title: t("workflowEditor.deleteCascadeTitle"),
+          title: t(cascadeConfirmationTitleKey(operation)),
         }),
       );
     },
-    renderFallback: (deleteRequest, close) => (
+    renderFallback: (mutationRequest, close) => (
       <WorkflowDeleteConfirmationFallbackDialog
-        counts={workflowDeleteConfirmationCountsFromSummary(deleteRequest.summary)}
+        counts={workflowDeleteConfirmationCountsFromSummary(mutationRequest.summary)}
         onCancel={() => {
-          setPendingDelete(null);
+          setPendingGraphMutation(null);
           close();
         }}
         onConfirm={() => {
-          confirmPendingGraphDelete(deleteRequest);
+          confirmPendingGraphMutation(mutationRequest);
           close();
         }}
+        operation={confirmationOperation(mutationRequest)}
       />
     ),
   });
@@ -368,7 +371,7 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
             return;
           }
           const plannedDelete = planGraphDeletion(draftState.draft, selection);
-          setPendingDelete(null);
+          setPendingGraphMutation(null);
           if (plannedDelete.kind === "blocked") {
             const message = t(deleteWarningTranslationKey(plannedDelete.warning));
             const toastID =
@@ -394,11 +397,11 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
           }
           if (cascadeRowCount(plannedDelete.summary) > 1) {
             const deleteRequest = {
+              action: { kind: "delete", selection },
               requestID: nextGraphDeleteRequestID(workflowID, deleteRequestIndexRef),
-              selection,
               summary: plannedDelete.summary,
-            };
-            setPendingDelete(deleteRequest);
+            } satisfies PendingGraphMutation;
+            setPendingGraphMutation(deleteRequest);
             void deleteConfirmation.open(deleteRequest);
             return;
           }
@@ -419,6 +422,36 @@ export function WorkflowEditorRoute({ projectID, workflowID }: WorkflowEditorRou
             selection: { kind: "group", groupID },
             workflowID,
           });
+        }}
+        onExtractNodeFromGroup={(nodeID) => {
+          if (draftState === null) {
+            return;
+          }
+          const input = {
+            nodeID,
+            rehomedIncomingTransitionGroupID: newWorkflowTopologyID("transitionGroup"),
+          };
+          const plannedExtraction = planGraphExtraction(draftState.draft, input);
+          if (plannedExtraction.kind === "blocked") {
+            pushStatus({
+              body: t(graphEditWarningTranslationKey(plannedExtraction.warning)),
+              id: "workflow-extract-node-from-group-blocked",
+              title: t("workflowEditor.graphEditBlockedTitle"),
+              tone: "warning",
+            });
+            return;
+          }
+          if (cascadeRowCount(plannedExtraction.summary) > 0) {
+            const extractionRequest = {
+              action: { graphVersion: draftState.graphVersion, input, kind: "extract" },
+              requestID: nextGraphDeleteRequestID(workflowID, deleteRequestIndexRef),
+              summary: plannedExtraction.summary,
+            } satisfies PendingGraphMutation;
+            setPendingGraphMutation(extractionRequest);
+            void deleteConfirmation.open(extractionRequest);
+            return;
+          }
+          dispatch({ input, type: "extractNodeFromGroup" });
         }}
         onRemoveNodeFromGroup={(nodeID) => {
           dispatch({ nodeID, type: "removeNodeFromGroup" });
@@ -560,11 +593,19 @@ function confirmationFromImpact(impact: WorkflowGraphSaveImpact): WorkflowGraphS
   };
 }
 
-type PendingGraphDelete = Readonly<{
+type PendingGraphMutation = Readonly<{
+  action: PendingGraphMutationAction;
   requestID: string;
-  selection: WorkflowGraphSelection;
   summary: WorkflowEditorCascadeSummary;
 }>;
+
+type PendingGraphMutationAction =
+  | Readonly<{ kind: "delete"; selection: WorkflowGraphSelection }>
+  | Readonly<{
+      kind: "extract";
+      graphVersion: number;
+      input: ExtractWorkflowNodeFromGroupInput;
+    }>;
 
 type GraphDeletionPlan =
   | Readonly<{ kind: "blocked"; warning: string }>
@@ -586,6 +627,27 @@ function planGraphDeletion(
   return graphDeletionPlanFromMutation(mutation.warnings, mutation.summary);
 }
 
+function planGraphExtraction(
+  draft: DraftWorkflowDefinition,
+  input: ExtractWorkflowNodeFromGroupInput,
+): GraphDeletionPlan {
+  const mutation = extractWorkflowNodeFromGroup(draft, input);
+  return graphDeletionPlanFromMutation(mutation.warnings, mutation.summary);
+}
+
+function planPendingGraphMutation(
+  state: WorkflowEditorDraftState,
+  request: PendingGraphMutation,
+): GraphDeletionPlan {
+  if (request.action.kind === "delete") {
+    return planGraphDeletion(state.draft, request.action.selection);
+  }
+  if (state.graphVersion !== request.action.graphVersion) {
+    return { kind: "blocked", warning: workflowEditorGraphMutationWarnings.nodeGroupExtractionTopologyFailed };
+  }
+  return planGraphExtraction(state.draft, request.action.input);
+}
+
 function graphDeletionPlanFromMutation(
   warnings: readonly string[],
   summary: WorkflowEditorCascadeSummary,
@@ -595,6 +657,17 @@ function graphDeletionPlanFromMutation(
     return { kind: "blocked", warning };
   }
   return { kind: "ready", summary };
+}
+
+function dispatchPendingGraphMutation(
+  request: PendingGraphMutation,
+  dispatch: (action: WorkflowEditorDraftAction) => void,
+): void {
+  if (request.action.kind === "delete") {
+    dispatchGraphDeletion(request.action.selection, dispatch);
+    return;
+  }
+  dispatch({ input: request.action.input, type: "extractNodeFromGroup" });
 }
 
 function dispatchGraphDeletion(
@@ -643,6 +716,14 @@ function nextGraphDeleteRequestID(workflowID: string, indexRef: { current: numbe
   return `${workflowID}-delete-${indexRef.current.toString()}`;
 }
 
+function confirmationOperation(request: PendingGraphMutation): WorkflowGraphCascadeConfirmationOperation {
+  return request.action.kind === "extract" ? "extract" : "delete";
+}
+
+function cascadeConfirmationTitleKey(operation: WorkflowGraphCascadeConfirmationOperation): string {
+  return operation === "extract" ? "workflowEditor.extractNodeCascadeTitle" : "workflowEditor.deleteCascadeTitle";
+}
+
 function deleteWarningTranslationKey(warning: string): string {
   if (warning === workflowEditorGraphMutationWarnings.startNodeDelete) {
     return "workflowEditor.startNodeDeleteBlocked";
@@ -656,6 +737,9 @@ function deleteWarningTranslationKey(warning: string): string {
 function graphEditWarningTranslationKey(warning: string): string {
   if (warning === workflowEditorGraphMutationWarnings.nodeGroupTopologyInferenceFailed) {
     return "workflowEditor.nodeGroupTopologyInferenceFailed";
+  }
+  if (warning === workflowEditorGraphMutationWarnings.nodeGroupExtractionTopologyFailed) {
+    return "workflowEditor.nodeGroupExtractionTopologyFailed";
   }
   if (warning === workflowEditorGraphMutationWarnings.nodeGroupRequiresUngroupedNode) {
     return "workflowEditor.nodeGroupRequiresUngroupedNode";
