@@ -21,6 +21,24 @@ describe("WorkflowLibraryRoute", () => {
     globalThis.ResizeObserver = originalResizeObserver;
   });
 
+  it("renders the empty workflow library as one full-height empty state without duplicate header controls", async () => {
+    render(
+      <App
+        services={createTestServices([
+          ...startupRoutes,
+          { method: "workflow.list", result: { workflows: [], next_page_token: "" } },
+        ])}
+      />,
+    );
+
+    const route = await screen.findByTestId("workflow-library-route");
+    expect(route).toHaveClass("h-full", "min-h-0");
+    expect(screen.getByTestId("empty-state")).toHaveClass("h-full", "min-h-0");
+    expect(screen.getByTestId("empty-state-island")).toHaveClass("h-full", "min-h-0", "w-full");
+    expect(screen.queryByRole("heading", { name: "Workflow Library" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Create workflow" })).toHaveLength(1);
+  });
+
   it("opens workflow editor in the sidebar from the workflow picker context menu", async () => {
     render(
       <App

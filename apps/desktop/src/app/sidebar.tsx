@@ -1,5 +1,5 @@
 import { useLocation } from "@tanstack/react-router";
-import { X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -253,13 +253,20 @@ export function SidebarHost() {
             : "overflow-y-auto px-[var(--space-4)] py-[var(--space-4)]",
         )}
       >
-        <SidebarDestinationView destination={activeDestination} resolveSidebar={resolveSidebar} />
+        <SidebarDestinationView
+          closeSidebar={closeSidebar}
+          destination={activeDestination}
+          resolveSidebar={resolveSidebar}
+        />
       </div>
     </aside>
   );
 }
 
 function SidebarHeaderAccessory({ destination }: Readonly<{ destination: SidebarDestination }>) {
+  if (destination.kind === "linkWorkflow" && destination.creating !== true) {
+    return <LinkWorkflowCreateHeaderButton destination={destination} />;
+  }
   if (destination.kind === "projectEdit") {
     return <ProjectDeleteButton projectID={destination.projectID} />;
   }
@@ -275,6 +282,27 @@ function SidebarHeaderAccessory({ destination }: Readonly<{ destination: Sidebar
     }
   }
   return null;
+}
+
+function LinkWorkflowCreateHeaderButton({
+  destination,
+}: Readonly<{ destination: Extract<SidebarDestination, { kind: "linkWorkflow" }> }>) {
+  const { t } = useTranslation();
+  const { openSidebar } = useSidebar();
+  return (
+    <Button
+      aria-label={t("workflowLibrary.newWorkflow")}
+      className="justify-self-end"
+      onClick={() => {
+        void openSidebar({ ...destination, creating: true });
+      }}
+      size="icon"
+      title={t("workflowLibrary.newWorkflow")}
+      variant="ghost"
+    >
+      <Plus aria-hidden="true" size={18} strokeWidth={1.6} />
+    </Button>
+  );
 }
 
 function WorkflowEntityIDHeader({

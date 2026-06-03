@@ -78,7 +78,7 @@ describe("App", () => {
     render(<App services={services} />);
 
     const createButtons = await screen.findAllByRole("button", { name: "Create workflow" });
-    expect(createButtons).toHaveLength(2);
+    expect(createButtons).toHaveLength(1);
     expect(createButtons.every((button) => button.hasAttribute("disabled"))).toBe(true);
   });
 

@@ -2,7 +2,7 @@ import { useId, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { WorkflowValidationError } from "../../api";
-import { IslandSurface } from "../../ui";
+import { ErrorState, IslandSurface } from "../../ui";
 import { WorkflowValidationErrorDetailsLine } from "../workflow/WorkflowValidationIssues";
 
 export function DetailSection({
@@ -85,11 +85,12 @@ function validationErrorKey(error: WorkflowValidationError, index: number): stri
 export function MissingEntity({ entityID }: Readonly<{ entityID: string }>) {
   const { t } = useTranslation();
   return (
-    <InspectorStack>
-      <DetailSection title={t("workflowEditor.inspectorUnavailable")}>
-        <p className="m-0 text-sm text-[var(--color-muted)]">{t("workflowEditor.entityMissing")}</p>
-        <code className="font-mono text-sm">{entityID}</code>
-      </DetailSection>
-    </InspectorStack>
+    <ErrorState
+      body={t("workflowEditor.entityMissing")}
+      details={entityID}
+      fullPage={false}
+      reveal={false}
+      title={t("workflowEditor.inspectorUnavailable")}
+    />
   );
 }

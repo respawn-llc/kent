@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Sidebar keeps read-only and draft-backed workflow inspector paths together for now. */
-import { useCallback, useId, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import {
   closestCenter,
   DndContext,
@@ -71,9 +71,11 @@ import {
 } from "./workflowPromptTemplatePlaceholders";
 
 export function WorkflowInspectorSidebar({
+  onMissingSelectedNode,
   selection,
   workflowID,
 }: Readonly<{
+  onMissingSelectedNode?: (() => void) | undefined;
   selection: WorkflowInspectorSelection;
   workflowID: string;
 }>) {
@@ -81,6 +83,19 @@ export function WorkflowInspectorSidebar({
   const controller = useWorkflowEditorDraftController(workflowID);
   const definition = useCachedWorkflowDefinition(workflowID);
   const validation = useCachedWorkflowValidation(workflowID);
+  const selectedNodeMissing = selectedNodeNoLongerExists({
+    controller,
+    definition,
+    selection,
+  });
+  useEffect(() => {
+    if (selectedNodeMissing) {
+      onMissingSelectedNode?.();
+    }
+  }, [onMissingSelectedNode, selectedNodeMissing]);
+  if (selectedNodeMissing && onMissingSelectedNode !== undefined) {
+    return null;
+  }
   if (controller !== null) {
     return <WorkflowDraftInspectorContent controller={controller} selection={selection} />;
   }
@@ -94,6 +109,22 @@ export function WorkflowInspectorSidebar({
       validation={validation ?? { valid: true, errors: [] }}
     />
   );
+}
+
+function selectedNodeNoLongerExists({
+  controller,
+  definition,
+  selection,
+}: Readonly<{
+  controller: WorkflowEditorDraftController | null;
+  definition: WorkflowDefinition | undefined;
+  selection: WorkflowInspectorSelection;
+}>): boolean {
+  if (selection.kind !== "node") {
+    return false;
+  }
+  const nodes = controller === null ? definition?.nodes : workflowDefinitionFromDraft(controller.draft).nodes;
+  return nodes !== undefined && !nodes.some((node) => node.id === selection.nodeID);
 }
 
 function WorkflowDraftInspectorContent({

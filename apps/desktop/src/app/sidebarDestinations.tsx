@@ -13,9 +13,11 @@ import { useAppNavigation } from "./navigation";
 import type { SidebarController, SidebarDestination } from "./sidebarContext";
 
 export function SidebarDestinationView({
+  closeSidebar,
   destination,
   resolveSidebar,
 }: Readonly<{
+  closeSidebar: SidebarController["closeSidebar"];
   destination: SidebarDestination;
   resolveSidebar: SidebarController["resolveSidebar"];
 }>): ReactElement {
@@ -53,7 +55,15 @@ export function SidebarDestinationView({
   }
 
   if (destination.kind === "workflowInspect") {
-    return <WorkflowInspectorSidebar selection={destination.selection} workflowID={destination.workflowID} />;
+    return (
+      <WorkflowInspectorSidebar
+        onMissingSelectedNode={() => {
+          closeSidebar("closed");
+        }}
+        selection={destination.selection}
+        workflowID={destination.workflowID}
+      />
+    );
   }
 
   if (destination.kind === "workflowEditor") {
@@ -95,6 +105,7 @@ function LinkWorkflowDestinationView({
         resolveSidebar({ destination: "workflow", status: "completed", workflowID });
         void navigation.openProject(destination.projectID, workflowID);
       }}
+      creating={destination.creating === true}
       projectID={destination.projectID}
       selectedWorkflowID={destination.selectedWorkflowID ?? ""}
     />

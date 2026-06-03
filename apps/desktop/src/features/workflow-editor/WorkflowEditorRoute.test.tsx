@@ -389,7 +389,7 @@ describe("WorkflowEditorRoute", () => {
     expect(services.transport.calls.map((call) => call.method)).not.toContain("workflow.delete");
   });
 
-  it("adds and deletes an unconnected agent node from the canvas toolbar", async () => {
+  it("closes an inspected node sidebar when the node is deleted from its context menu", async () => {
     window.history.pushState(null, "", "/workflows/workflow-1/editor");
     render(
       <App
@@ -402,16 +402,19 @@ describe("WorkflowEditorRoute", () => {
       />,
     );
 
-    await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
+    const canvas = await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
     fireEvent.pointerEnter(screen.getByRole("button", { name: "Add node" }));
     fireEvent.click(await screen.findByRole("button", { name: "Agent node" }));
 
-    expect(await screen.findByText("New agent")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("New agent"));
-    fireEvent.keyDown(window, { key: "Delete" });
+    expect(await within(canvas).findByText("New agent")).toBeInTheDocument();
+    fireEvent.click(within(canvas).getByText("New agent"));
+    expect(await screen.findByRole("complementary", { name: "Inspect node" })).toBeInTheDocument();
+    fireEvent.contextMenu(within(canvas).getByText("New agent"));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete node" }));
 
     await waitFor(() => {
-      expect(screen.queryByText("New agent")).not.toBeInTheDocument();
+      expect(within(canvas).queryByText("New agent")).not.toBeInTheDocument();
+      expect(screen.queryByRole("complementary", { name: "Inspect node" })).not.toBeInTheDocument();
     });
   });
 

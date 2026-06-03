@@ -23,6 +23,9 @@ export function WorkflowLibraryRoute() {
     () => workflowsQuery.data?.pages.flatMap((page) => page.workflows) ?? [],
     [workflowsQuery.data],
   );
+  const openCreateWorkflow = () => {
+    void openSidebar({ kind: "workflowCreate", mode: "overlay" });
+  };
 
   if (workflowsQuery.isPending) {
     return <LoadingState appearanceDelayMs={0} title={t("workflowLibrary.title")} />;
@@ -38,39 +41,34 @@ export function WorkflowLibraryRoute() {
       />
     );
   }
+  if (workflows.length === 0) {
+    return (
+      <section className="h-full min-h-0" data-testid="workflow-library-route">
+        <EmptyState
+          action={
+            <Button disabled={createDisabled} onClick={openCreateWorkflow} variant="primary">
+              {t("workflowLibrary.createWorkflow")}
+            </Button>
+          }
+          body={t("workflowLibrary.emptyBody")}
+          title={t("workflowLibrary.emptyTitle")}
+        />
+      </section>
+    );
+  }
 
   return (
     <section className="h-full min-h-0" data-testid="workflow-library-route">
       <div className="island-glass grid h-full min-h-0 overflow-hidden rounded-[var(--radius-xl)]">
         <VirtualizedInfiniteList
           className={`h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full ${workflowLibraryItemMaxWidthClassName}`}
-          empty={
-            <EmptyState
-              action={
-                <Button
-                  disabled={createDisabled}
-                  onClick={() => {
-                    void openSidebar({ kind: "workflowCreate", mode: "overlay" });
-                  }}
-                  variant="primary"
-                >
-                  {t("workflowLibrary.createWorkflow")}
-                </Button>
-              }
-              body={t("workflowLibrary.emptyBody")}
-              fullPage={false}
-              title={t("workflowLibrary.emptyTitle")}
-            />
-          }
           estimateSize={() => 96}
           getItemKey={(workflow) => workflow.id}
           hasNextPage={workflowsQuery.hasNextPage}
           header={
             <WorkflowLibraryHeader
               disabled={createDisabled}
-              onCreate={() => {
-                void openSidebar({ kind: "workflowCreate", mode: "overlay" });
-              }}
+              onCreate={openCreateWorkflow}
             />
           }
           isFetchingNextPage={workflowsQuery.isFetchingNextPage}

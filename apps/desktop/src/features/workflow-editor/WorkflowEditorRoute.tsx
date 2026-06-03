@@ -72,7 +72,7 @@ export type WorkflowEditorRouteProps = Readonly<{
 export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }: WorkflowEditorRouteProps) {
   const { t } = useTranslation();
   const { api, nativeBridge } = useAppServices();
-  const { openSidebar } = useSidebar();
+  const { closeSidebar, openSidebar } = useSidebar();
   const { push: pushStatus } = useStatusController();
   const data = useWorkflowEditorData(projectID, workflowID);
   const workflow = data.workflowQuery.data?.workflow;
@@ -134,6 +134,26 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
       });
     },
     [openSidebar, surface, workflowID],
+  );
+
+  const closeDeletedNodeInspector = useCallback(
+    (selection: WorkflowGraphSelection) => {
+      if (selection.kind !== "node") {
+        return;
+      }
+      if (
+        surface === "sidebar" &&
+        embeddedInspectorSelection?.workflowID === workflowID &&
+        embeddedInspectorSelection.selection.kind === "node" &&
+        embeddedInspectorSelection.selection.nodeID === selection.nodeID
+      ) {
+        setEmbeddedInspectorSelection(null);
+      }
+      if (surface === "route") {
+        closeSidebar("closed");
+      }
+    },
+    [closeSidebar, embeddedInspectorSelection, surface, workflowID],
   );
 
   useEffect(() => {
@@ -229,8 +249,11 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
         return;
       }
       dispatchPendingGraphMutation(mutationRequest, dispatch);
+      if (mutationRequest.action.kind === "delete") {
+        closeDeletedNodeInspector(mutationRequest.action.selection);
+      }
     },
-    [draftState, pushStatus, t],
+    [closeDeletedNodeInspector, draftState, pushStatus, t],
   );
   const handleGraphDeleteConfirmationListenerError = useCallback(
     (error: unknown) => {
@@ -438,6 +461,7 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
             return;
           }
           dispatchGraphDeletion(selection, dispatch);
+          closeDeletedNodeInspector(selection);
         }}
         onEdgeInspect={(edgeID) => {
           inspectWorkflowGraphItem({ kind: "edge", edgeID });
@@ -816,7 +840,11 @@ function WorkflowEditorEmbeddedInspector({
         <h2 className="m-0 truncate text-[1rem] font-bold">{title}</h2>
       </header>
       <div className="min-h-0 overflow-y-auto p-[var(--space-3)]">
-        <WorkflowInspectorSidebar selection={selection} workflowID={workflowID} />
+        <WorkflowInspectorSidebar
+          onMissingSelectedNode={onClose}
+          selection={selection}
+          workflowID={workflowID}
+        />
       </div>
     </IslandSurface>
   );

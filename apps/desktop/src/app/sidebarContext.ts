@@ -61,6 +61,7 @@ export type SidebarDestination =
   | Readonly<{
       kind: "linkWorkflow";
       mode?: SidebarMode;
+      creating?: boolean | undefined;
       projectID: string;
       selectedWorkflowID?: string | undefined;
     }>
