@@ -1668,6 +1668,51 @@ describe("WorkflowEditorRoute", () => {
     expect(requiresApproval).not.toBeChecked();
   });
 
+  it("disables required input controls when the agent is the first executable node", async () => {
+    const user = userEvent.setup();
+    window.history.pushState(null, "", "/workflows/workflow-1/editor");
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.get", result: workflowDefinitionResponseWithStartNode },
+      { method: "workflow.validate", result: { valid: true, errors: [] } },
+      {
+        method: "workflow.graph.validateDraft",
+        result: {
+          derived_wiring: graphValidationResponse.derived_wiring,
+          results: { draft: { valid: true, errors: [] }, execution: { valid: true, errors: [] } },
+        },
+      },
+    ]);
+    render(<App services={services} />);
+
+    const canvas = await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
+    fireEvent.click(within(canvas).getByTestId("workflow-graph-node-node-1"));
+    const inspector = await screen.findByRole("complementary", { name: "Inspect node" });
+    const addRequiredInput = within(inspector).getByRole("button", { name: "Add required input" });
+    const existingField = within(inspector).getByTestId("workflow-input-field");
+    const inputName = within(existingField).getByRole("button", { name: "summary" });
+    const inputDescription = within(existingField).getByRole("textbox", { name: "Input description" });
+    const deleteField = within(existingField).getByRole("button", { name: "Delete field" });
+    const reorderField = within(existingField).getByLabelText("Reorder input field");
+
+    expect(addRequiredInput).toBeDisabled();
+    expect(inputName).toBeDisabled();
+    expect(inputDescription).toBeDisabled();
+    expect(deleteField).toBeDisabled();
+    expect(reorderField).toHaveAttribute("aria-disabled", "true");
+    await user.hover(addRequiredInput);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("N/A for current node configuration");
+    await user.unhover(addRequiredInput);
+
+    fireEvent.click(addRequiredInput);
+    fireEvent.click(inputName);
+    fireEvent.change(inputDescription, { target: { value: "Edited" } });
+    fireEvent.click(deleteField);
+    expect(within(inspector).getAllByTestId("workflow-input-field")).toHaveLength(1);
+    expect(within(existingField).queryByRole("textbox", { name: "Input name" })).not.toBeInTheDocument();
+    expect(inputDescription).toHaveValue("Summary");
+  });
+
   it("serializes enabled edge approval and reloads it from the saved graph", async () => {
     const savedWorkflowResponse = workflowDefinitionResponseWithEdgeApproval("edge-1", true, 2);
     const services = createTestServices([

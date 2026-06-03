@@ -14,3 +14,13 @@ export function transitionGroupByID(
 export function nodeByID(definition: WorkflowDefinition, nodeID: string): WorkflowNode | undefined {
   return definition.nodes.find((node) => node.id === nodeID);
 }
+
+export function nodeInputFieldsDisabled(definition: WorkflowDefinition, nodeID: string): boolean {
+  return definition.edges.some((edge) => {
+    if (edge.targetNodeID !== nodeID) {
+      return false;
+    }
+    const sourceNodeID = transitionGroupByID(definition, edge.transitionGroupID)?.sourceNodeID;
+    return nodeByID(definition, sourceNodeID ?? "")?.kind === "start";
+  });
+}

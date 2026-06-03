@@ -88,6 +88,7 @@ export const workflowEditorEnglish = {
   contextSourceSelected: "Selected node",
   contextSourceNode: "Node: {{nodeKey}}",
   edgeControlNotApplicable: "N/A for current edge configuration",
+  nodeControlNotApplicable: "N/A for current node configuration",
   requiresApproval: "Requires approval",
   required: "Required",
   derivedInputBindings: "Derived input bindings",
