@@ -6,8 +6,11 @@ export type WorkflowDeleteConfirmationCounts = Readonly<{
   transitionGroupCount: number;
 }>;
 
+export type WorkflowGraphCascadeConfirmationOperation = "delete" | "extract";
+
 export type WorkflowDeleteConfirmationWindowTarget = Readonly<{
   counts: WorkflowDeleteConfirmationCounts;
+  operation: WorkflowGraphCascadeConfirmationOperation;
   requestID: string;
 }>;
 
@@ -23,6 +26,7 @@ export function workflowDeleteConfirmationCountsFromSummary(
 
 export function workflowDeleteConfirmationWindowOptions({
   counts,
+  operation,
   requestID,
   title,
 }: WorkflowDeleteConfirmationWindowTarget & Readonly<{ title: string }>) {
@@ -33,6 +37,7 @@ export function workflowDeleteConfirmationWindowOptions({
     params: {
       edgeCount: counts.edgeCount.toString(),
       nodeCount: counts.nodeCount.toString(),
+      operation,
       requestID,
       transitionGroupCount: counts.transitionGroupCount.toString(),
     },
@@ -44,6 +49,7 @@ export function workflowDeleteConfirmationWindowOptions({
 export function workflowDeleteConfirmationWindowTargetFromSearch(search: Readonly<{
   edgeCount: string;
   nodeCount: string;
+  operation?: string | undefined;
   requestID: string;
   transitionGroupCount: string;
 }>): WorkflowDeleteConfirmationWindowTarget {
@@ -53,6 +59,7 @@ export function workflowDeleteConfirmationWindowTargetFromSearch(search: Readonl
       nodeCount: parseSearchCount(search.nodeCount),
       transitionGroupCount: parseSearchCount(search.transitionGroupCount),
     },
+    operation: parseOperation(search.operation),
     requestID: search.requestID,
   };
 }
@@ -63,4 +70,8 @@ function parseSearchCount(value: string): number {
     return 0;
   }
   return count;
+}
+
+function parseOperation(value: string | undefined): WorkflowGraphCascadeConfirmationOperation {
+  return value === "extract" ? "extract" : "delete";
 }

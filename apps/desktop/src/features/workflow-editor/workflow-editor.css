@@ -2,6 +2,30 @@
   --xy-background-color: transparent;
 }
 
+.workflow-editor-canvas .react-flow__node.workflow-graph-layer-group {
+  z-index: 1 !important;
+}
+
+.workflow-editor-canvas .react-flow__node.workflow-graph-layer-node {
+  z-index: 3 !important;
+}
+
+.workflow-editor-canvas .react-flow__nodes {
+  z-index: auto !important;
+}
+
+.workflow-editor-canvas .react-flow__edges {
+  z-index: 2 !important;
+}
+
+.workflow-editor-canvas .react-flow__edge.workflow-graph-layer-edge {
+  z-index: 2 !important;
+}
+
+.workflow-editor-canvas .react-flow__edgelabel-renderer {
+  z-index: 2 !important;
+}
+
 .workflow-editor-node,
 .workflow-editor-group,
 .workflow-editor-join-node {

@@ -185,7 +185,6 @@ export function installProductionContextMenuGuard(isProduction: boolean): void {
     (event) => {
       event.preventDefault();
     },
-    { capture: true },
   );
 }
 

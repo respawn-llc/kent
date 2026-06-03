@@ -45,16 +45,16 @@ export function WindowChromeTitleProvider({ children }: WindowChromeTitleProvide
   );
 }
 
-export function useWindowChromeTitle(title: string | null): void {
+export function useWindowChromeTitle(title: string | null, enabled = true): void {
   const controller = useContext(WindowChromeTitleControllerContext);
   const normalizedTitle = normalizeWindowChromeTitle(title);
 
   useEffect(() => {
-    if (controller === null) {
+    if (controller === null || !enabled) {
       return undefined;
     }
     return controller.setTitle(normalizedTitle);
-  }, [controller, normalizedTitle]);
+  }, [controller, enabled, normalizedTitle]);
 }
 
 export function useCurrentWindowChromeTitle(): string | null {

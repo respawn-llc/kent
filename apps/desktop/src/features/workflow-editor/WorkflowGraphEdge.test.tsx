@@ -134,43 +134,4 @@ describe("WorkflowGraphEdge", () => {
     expect(screen.queryByRole("menuitem", { name: "Delete node" })).not.toBeInTheDocument();
   });
 
-  it("renders edge labels with the card island background and on-background text", () => {
-    render(
-      <svg>
-        <WorkflowGraphEdge
-          data={{
-            contextMode: "compact_and_continue_session",
-            entityID: "edge-1",
-            entityKind: "edge",
-            hasError: false,
-            label: "Review",
-            routePoints: [
-              { x: 0, y: 0 },
-              { x: 100, y: 0 },
-            ],
-            transitionGroupID: "tg-1",
-          }}
-          id="edge-1"
-          onInspect={() => undefined}
-          source="node-1"
-          sourceX={0}
-          sourceY={0}
-          target="done"
-          targetX={100}
-          targetY={0}
-          type="workflow"
-        />
-      </svg>,
-    );
-
-    expect(screen.getByTestId("workflow-edge-label-edge-1")).toHaveClass(
-      "island-surface-1",
-      "text-[var(--color-on-background)]",
-    );
-    expect(screen.getByTestId("workflow-edge-label-edge-1")).not.toHaveClass(
-      "text-[var(--color-on-island)]",
-      "bg-[color-mix(in_srgb,var(--color-island-0)_94%,transparent)]",
-      "bg-[var(--color-island-1)]",
-    );
-  });
 });

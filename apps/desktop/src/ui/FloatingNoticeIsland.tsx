@@ -16,6 +16,7 @@ export type FloatingNoticeIslandProps = Readonly<{
   icon?: ReactNode;
   onCollapsedChange: (collapsed: boolean) => void;
   positionClassName?: string | undefined;
+  positionStrategy?: "absolute" | "fixed" | undefined;
   level?: IslandLevel | undefined;
   title: string;
   tone?: FloatingNoticeTone;
@@ -32,6 +33,7 @@ export function FloatingNoticeIsland({
   level = 1,
   onCollapsedChange,
   positionClassName = "right-[var(--space-4)] bottom-[var(--space-4)]",
+  positionStrategy = "fixed",
   title,
   tone = "danger",
 }: FloatingNoticeIslandProps) {
@@ -46,7 +48,8 @@ export function FloatingNoticeIsland({
       aria-label={collapsed ? title : undefined}
       aria-labelledby={collapsed ? undefined : titleID}
       className={cx(
-        "floating-notice-morph app-region-no-drag fixed z-50",
+        "floating-notice-morph app-region-no-drag z-50",
+        positionStrategy,
         islandSurfaceClassName(level),
         collapsed
           ? cx(

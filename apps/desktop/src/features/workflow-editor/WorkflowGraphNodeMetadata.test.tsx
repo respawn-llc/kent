@@ -38,14 +38,12 @@ describe("WorkflowNodeInfoTooltipContent", () => {
     expect(copyText).toHaveBeenNthCalledWith(2, "node-terminal");
     await waitFor(() => {
       expect(showStatusToast).toHaveBeenNthCalledWith(1, {
-        body: "",
         id: "workflow-node-metadata-copy-done",
         title: "Copied Key to clipboard",
         tone: "success",
       });
     });
     expect(showStatusToast).toHaveBeenNthCalledWith(2, {
-      body: "",
       id: "workflow-node-metadata-copy-node-terminal",
       title: "Copied ID to clipboard",
       tone: "success",
@@ -65,7 +63,6 @@ describe("WorkflowNodeInfoTooltipContent", () => {
 
     await waitFor(() => {
       expect(showStatusToast).toHaveBeenCalledWith({
-        body: "",
         id: "workflow-node-metadata-copy-failed-node-terminal",
         title: "ID copy failed",
         tone: "danger",

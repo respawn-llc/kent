@@ -5,6 +5,7 @@ import {
   deleteNodeIDsInternal,
   refreshNodeGroupMembership,
   removeEdgesInternal,
+  transitionIDsForSource,
   transitionGroupDifference,
 } from "./workflowEditorGraphMutationHelpers";
 import {
@@ -15,6 +16,7 @@ import {
   type AddWorkflowNodeInput,
   type AddWorkflowNodeToGroupInput,
   type CreateWorkflowNodeGroupInput,
+  type ExtractWorkflowNodeFromGroupInput,
   type WorkflowEditorGraphMutationResult,
 } from "./workflowEditorGraphMutationTypes";
 import { inferNodeGroupV1Topology } from "./workflowEditorGraphNodeGroupTopology";
@@ -180,14 +182,13 @@ export function addWorkflowNodeToGroup(
     input.inferredTopologyIDs === undefined
       ? membershipDraft
       : inferNodeGroupV1Topology(membershipDraft, node.id, input.inferredTopologyIDs);
-  if (nextDraft === null) {
-    return unchanged(draft, workflowEditorGraphMutationWarnings.nodeGroupTopologyInferenceFailed);
-  }
+  const warnings =
+    nextDraft === null ? [workflowEditorGraphMutationWarnings.nodeGroupTopologyInferenceFailed] : [];
   return {
-    draft: nextDraft,
+    draft: nextDraft ?? membershipDraft,
     nextSelection: { groupID: group.id, kind: "group" },
     summary: emptySummary,
-    warnings: [],
+    warnings,
   };
 }
 
@@ -225,6 +226,70 @@ export function removeWorkflowNodeFromGroup(
     };
   }
   return dissolveWorkflowNodeGroup(draft, groupID, { nodeID, kind: "node" }, remainingBranches[0]?.id);
+}
+
+export function extractWorkflowNodeFromGroup(
+  draft: DraftWorkflowDefinition,
+  input: ExtractWorkflowNodeFromGroupInput,
+): WorkflowEditorGraphMutationResult {
+  const node = draft.nodes.find((item) => item.id === input.nodeID);
+  if (node === undefined) {
+    return unchanged(draft, workflowEditorGraphMutationWarnings.nodeNotFound);
+  }
+  if (node.groupID.length === 0) {
+    return unchanged(draft, workflowEditorGraphMutationWarnings.nodeGroupNotFound);
+  }
+  if (node.kind !== "agent") {
+    return unchanged(draft, workflowEditorGraphMutationWarnings.nodeGroupRequiresAgentMembership);
+  }
+  const groupID = node.groupID;
+  const rehomeResult = rehomeExtractedBranchFanoutEdge(draft, node, input.rehomedIncomingTransitionGroupID);
+  if (rehomeResult.kind === "blocked") {
+    return unchanged(draft, workflowEditorGraphMutationWarnings.nodeGroupExtractionTopologyFailed);
+  }
+  const rehomedIncoming = rehomeResult.draft;
+  const joinIDs = new Set(
+    rehomedIncoming.nodes
+      .filter((item) => item.groupID === groupID && item.kind === "join")
+      .map((item) => item.id),
+  );
+  const extractedTransitionGroupIDs = new Set(
+    rehomedIncoming.transitionGroups
+      .filter((group) => group.sourceNodeID === node.id)
+      .map((group) => group.id),
+  );
+  const joinEdgeIDs = new Set(
+    rehomedIncoming.edges
+      .filter((edge) => extractedTransitionGroupIDs.has(edge.transitionGroupID) && joinIDs.has(edge.targetNodeID))
+      .map((edge) => edge.id),
+  );
+  const afterJoinEdges = joinEdgeIDs.size === 0 ? rehomedIncoming : removeEdgesInternal(rehomedIncoming, joinEdgeIDs);
+  const ungroupedNodes = afterJoinEdges.nodes.map((item) =>
+    item.id === node.id ? { ...item, groupID: "", groupKey: "" } : item,
+  );
+  const remainingBranches = ungroupedNodes.filter(
+    (item) => item.groupID === groupID && item.kind === "agent",
+  );
+  const membershipDraft = {
+    ...afterJoinEdges,
+    nodeGroups: refreshNodeGroupMembership(afterJoinEdges.nodeGroups, ungroupedNodes),
+    nodes: ungroupedNodes,
+  };
+  if (remainingBranches.length > 1) {
+    return {
+      draft: membershipDraft,
+      nextSelection: { nodeID: node.id, kind: "node" },
+      summary: removedGraphRows(draft, membershipDraft),
+      warnings: [],
+    };
+  }
+  const dissolved = dissolveWorkflowNodeGroup(
+    membershipDraft,
+    groupID,
+    { nodeID: node.id, kind: "node" },
+    remainingBranches[0]?.id,
+  );
+  return { ...dissolved, summary: removedGraphRows(draft, dissolved.draft) };
 }
 
 export function deleteWorkflowNodeGroup(
@@ -293,6 +358,63 @@ function orderedNodeGroupBranchIDs(draft: DraftWorkflowDefinition, groupID: stri
   );
   const ordered = group?.nodeIDs.filter((nodeID) => branchIDs.has(nodeID)) ?? [];
   return ordered.length > 0 ? ordered : [...branchIDs];
+}
+
+function rehomeExtractedBranchFanoutEdge(
+  draft: DraftWorkflowDefinition,
+  node: DraftWorkflowNode,
+  rehomedTransitionGroupID: string,
+): Readonly<{ kind: "ready"; draft: DraftWorkflowDefinition } | { kind: "blocked" }> {
+  const branchIDs = new Set(orderedNodeGroupBranchIDs(draft, node.groupID));
+  const fanoutGroups = draft.transitionGroups.filter((group) =>
+    transitionGroupTargetsExactly(draft, group.id, branchIDs),
+  );
+  if (fanoutGroups.length !== 1) {
+    return { kind: "blocked" };
+  }
+  const fanoutGroup = fanoutGroups[0];
+  if (fanoutGroup === undefined || draft.transitionGroups.some((group) => group.id === rehomedTransitionGroupID)) {
+    return { kind: "blocked" };
+  }
+  const branchEdge = draft.edges.find(
+    (edge) => edge.transitionGroupID === fanoutGroup.id && edge.targetNodeID === node.id,
+  );
+  if (branchEdge === undefined) {
+    return { kind: "blocked" };
+  }
+  const transitionGroup = {
+    id: rehomedTransitionGroupID,
+    name: node.name,
+    sourceNodeID: fanoutGroup.sourceNodeID,
+    transitionID: uniqueWorkflowModelKey(node.key, transitionIDsForSource(draft, fanoutGroup.sourceNodeID)),
+    workflowID: draft.workflow.id,
+  };
+  return {
+    kind: "ready",
+    draft: {
+      ...draft,
+      edges: draft.edges.map((edge) =>
+        edge.id === branchEdge.id ? { ...edge, transitionGroupID: rehomedTransitionGroupID } : edge,
+      ),
+      transitionGroups: [...draft.transitionGroups, transitionGroup],
+    },
+  };
+}
+
+function transitionGroupTargetsExactly(
+  draft: DraftWorkflowDefinition,
+  transitionGroupID: string,
+  targetNodeIDs: ReadonlySet<string>,
+): boolean {
+  const edges = draft.edges.filter((edge) => edge.transitionGroupID === transitionGroupID);
+  return (
+    edges.length === targetNodeIDs.size &&
+    setsEqual(new Set(edges.map((edge) => edge.targetNodeID)), targetNodeIDs)
+  );
+}
+
+function setsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  return left.size === right.size && Array.from(left).every((item) => right.has(item));
 }
 
 function nodeGroupFanoutEdgeIDsToRemove(

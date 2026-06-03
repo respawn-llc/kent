@@ -51,10 +51,22 @@ describe("window chrome title", () => {
 
     expect(screen.getByRole("status")).not.toHaveAttribute("data-title");
   });
+
+  it("does not override the active route title when a nested surface disables registration", () => {
+    render(
+      <WindowChromeTitleProvider>
+        <TitleReader />
+        <TitleSetter title="Workflow Library" />
+        <TitleSetter enabled={false} title="Nested workflow editor" />
+      </WindowChromeTitleProvider>,
+    );
+
+    expect(screen.getByRole("status")).toHaveAttribute("data-title", "Workflow Library");
+  });
 });
 
-function TitleSetter({ title }: Readonly<{ title: string | null }>) {
-  useWindowChromeTitle(title);
+function TitleSetter({ enabled, title }: Readonly<{ enabled?: boolean | undefined; title: string | null }>) {
+  useWindowChromeTitle(title, enabled);
   return null;
 }
 

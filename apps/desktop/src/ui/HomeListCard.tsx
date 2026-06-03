@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode } from "react";
+import { forwardRef, type ComponentPropsWithoutRef, type MouseEvent, type ReactNode } from "react";
 
 import { cx } from "./classes";
 
@@ -8,26 +8,22 @@ export const homeListCardShellClassName =
 export const homeListCardButtonClassName =
   "grid w-full gap-[var(--space-1)] p-[var(--space-3)] pr-14 text-left text-[var(--color-on-island)]";
 
-export function HomeListCard({
+export const HomeListCard = forwardRef<HTMLElement, HomeListCardProps>(function HomeListCard({
   action,
   ariaLabel,
   children,
   className,
   onClick,
   title,
-}: Readonly<{
-  action?: ReactNode | undefined;
-  ariaLabel: string;
-  children: ReactNode;
-  className?: string | undefined;
-  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
-  title?: string | undefined;
-}>) {
+  ...articleProps
+}, ref) {
   return (
     <article
+      {...articleProps}
       className={cx(homeListCardShellClassName, className)}
       data-slot="home-list-card"
       data-testid="home-list-card"
+      ref={ref}
     >
       <button
         aria-label={ariaLabel}
@@ -43,4 +39,14 @@ export function HomeListCard({
       {action}
     </article>
   );
-}
+});
+
+export type HomeListCardProps = Readonly<{
+  action?: ReactNode | undefined;
+  ariaLabel: string;
+  children: ReactNode;
+  className?: string | undefined;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+  title?: string | undefined;
+}> &
+  Omit<ComponentPropsWithoutRef<"article">, "children" | "className" | "onClick" | "title">;

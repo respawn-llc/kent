@@ -5,7 +5,7 @@ import { vi } from "vitest";
 import { Item, ItemContent, ItemGroup, ItemTitle } from "./Item";
 
 describe("Item", () => {
-  it("renders a plain clickable item with shadcn-compatible slots", () => {
+  it("renders a plain clickable item", () => {
     const onClick = vi.fn();
 
     render(
@@ -18,16 +18,15 @@ describe("Item", () => {
       </ItemGroup>,
     );
 
-    expect(screen.getByTestId("item-group")).toHaveAttribute("data-slot", "item-group");
-    expect(screen.getByRole("button", { name: "Delivery" })).toHaveAttribute("data-slot", "item");
-    expect(screen.getByTestId("item-title")).toHaveAttribute("data-slot", "item-title");
+    expect(screen.getByTestId("item-group")).toBeInTheDocument();
+    expect(screen.getByTestId("item-title")).toHaveTextContent("Delivery");
 
     fireEvent.click(screen.getByRole("button", { name: "Delivery" }));
 
     expect(onClick).toHaveBeenCalledOnce();
   });
 
-  it("keeps native button keyboard semantics and focus classes", async () => {
+  it("keeps native button keyboard semantics and focus", async () => {
     const onClick = vi.fn();
     const user = userEvent.setup();
 

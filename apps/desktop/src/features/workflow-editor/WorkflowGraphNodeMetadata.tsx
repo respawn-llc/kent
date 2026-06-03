@@ -77,7 +77,6 @@ function copyNodeText({
     void Promise.resolve(onCopyText(value))
       .then(() => {
         showStatusToast({
-          body: "",
           id: `workflow-node-metadata-copy-${value}`,
           title: successMessage,
           tone: "success",
@@ -85,7 +84,6 @@ function copyNodeText({
       })
       .catch(() => {
         showStatusToast({
-          body: "",
           id: `workflow-node-metadata-copy-failed-${value}`,
           title: failureMessage,
           tone: "danger",
@@ -93,7 +91,6 @@ function copyNodeText({
       });
   } catch {
     showStatusToast({
-      body: "",
       id: `workflow-node-metadata-copy-failed-${value}`,
       title: failureMessage,
       tone: "danger",

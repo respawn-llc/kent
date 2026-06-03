@@ -701,7 +701,7 @@ SELECT
             JOIN workflow_nodes n ON n.id = p.node_id
             WHERE t.project_id = ?1
               AND t.canceled_at_unix_ms = 0
-              AND n.kind != 'terminal'
+              AND n.kind NOT IN ('start', 'terminal')
             UNION
             SELECT t.id
             FROM task_records t

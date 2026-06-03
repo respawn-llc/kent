@@ -61,6 +61,7 @@ export type SidebarDestination =
   | Readonly<{
       kind: "linkWorkflow";
       mode?: SidebarMode;
+      creating?: boolean | undefined;
       projectID: string;
       selectedWorkflowID?: string | undefined;
     }>
@@ -69,6 +70,12 @@ export type SidebarDestination =
       mode?: SidebarMode;
       workflowID: string;
       selection: WorkflowInspectorSelection;
+    }>
+  | Readonly<{
+      kind: "workflowEditor";
+      mode?: SidebarMode;
+      projectID?: string | undefined;
+      workflowID: string;
     }>
   | Readonly<{
       kind: "projectEdit";

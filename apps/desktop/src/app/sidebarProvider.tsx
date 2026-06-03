@@ -29,6 +29,7 @@ export function SidebarProvider({ children }: Readonly<{ children: ReactNode }>)
     [defaultSidebarWidthProfile]: defaultSidebarWidth(),
   }));
   const sidebarWidthPx = sidebarWidths[activeWidthProfile] ?? defaultSidebarWidth();
+  const activeDestinationRef = useRef<SidebarDestination | null>(activeDestination);
   const pendingRef = useRef<PendingSidebar | null>(null);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -54,11 +55,11 @@ export function SidebarProvider({ children }: Readonly<{ children: ReactNode }>)
       const pending = pendingRef.current;
       pendingRef.current = null;
       pending?.resolve({ status: "canceled", reason });
-      if (activeDestination !== null) {
+      if (activeDestinationRef.current !== null) {
         animateClosed();
       }
     },
-    [activeDestination, animateClosed],
+    [animateClosed],
   );
 
   const openSidebar = useCallback(
@@ -79,6 +80,7 @@ export function SidebarProvider({ children }: Readonly<{ children: ReactNode }>)
       pendingRef.current = null;
       pending?.resolve({ status: "canceled", reason: "replaced" });
       setPhase("open");
+      activeDestinationRef.current = destination;
       setActiveDestination(destination);
       return new Promise<SidebarResult>((resolve) => {
         pendingRef.current = { resolve };
@@ -92,11 +94,11 @@ export function SidebarProvider({ children }: Readonly<{ children: ReactNode }>)
       const pending = pendingRef.current;
       pendingRef.current = null;
       pending?.resolve(result);
-      if (activeDestination !== null) {
+      if (activeDestinationRef.current !== null) {
         animateClosed();
       }
     },
-    [activeDestination, animateClosed],
+    [animateClosed],
   );
 
   const resizeSidebar = useCallback(
@@ -112,6 +114,10 @@ export function SidebarProvider({ children }: Readonly<{ children: ReactNode }>)
   useEffect(() => {
     return clearCloseTimeout;
   }, [clearCloseTimeout]);
+
+  useEffect(() => {
+    activeDestinationRef.current = activeDestination;
+  }, [activeDestination]);
 
   const value = useMemo(
     () => ({
@@ -130,7 +136,7 @@ export function SidebarProvider({ children }: Readonly<{ children: ReactNode }>)
 }
 
 function sidebarWidthProfile(destination: SidebarDestination): SidebarWidthProfile {
-  if (destination.kind === "workflowInspect") {
+  if (destination.kind === "workflowInspect" || destination.kind === "workflowEditor") {
     return "workflowEditor";
   }
   return defaultSidebarWidthProfile;

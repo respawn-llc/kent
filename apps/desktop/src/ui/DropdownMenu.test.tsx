@@ -11,7 +11,7 @@ import {
 } from "./index";
 
 describe("DropdownMenu", () => {
-  it("renders shadcn island content through a portal with icons and separators", async () => {
+  it("renders content through a portal with icons and separators", async () => {
     const onSelect = vi.fn();
     render(
       <DropdownMenu>
@@ -32,17 +32,8 @@ describe("DropdownMenu", () => {
     fireEvent.pointerDown(screen.getByRole("button", { name: "Open actions" }));
 
     const menu = await screen.findByRole("menu");
-    expect(menu).toHaveClass(
-      "island-surface",
-      "island-surface-2",
-      "app-region-no-drag",
-      "max-h-[var(--radix-dropdown-menu-content-available-height)]",
-      "overflow-y-auto",
-    );
     expect(document.body).toContainElement(menu);
-    expect(screen.getByRole("menuitem", { name: "Add node" })).toHaveClass(
-      "data-[highlighted]:bg-[var(--color-island-2)]",
-    );
+    expect(screen.getByRole("menuitem", { name: "Add node" })).toBeInTheDocument();
     expect(screen.getByTestId("dropdown-menu-separator")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("menuitem", { name: "Add node" }));

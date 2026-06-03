@@ -13,6 +13,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../../ui";
+import { cx } from "../../ui/classes";
 
 type AddNodeMenuOpenOrigin = "focus" | "pointer";
 
@@ -27,16 +28,23 @@ interface StoppableEvent extends CancelableEvent {
 export function WorkflowGraphToolbar({
   onAddNode,
   onWorkflowInspect,
+  positionStrategy = "fixed",
 }: Readonly<{
   onAddNode: ((kind: "agent" | "terminal") => void) | undefined;
   onWorkflowInspect: () => void;
+  positionStrategy?: "absolute" | "fixed" | undefined;
 }>) {
   const { t } = useTranslation();
   const instance = useReactFlow();
-  return createPortal(
+  const toolbar = (
     <IslandSurface
       as="div"
-      className="workflow-editor-tools app-region-no-drag fixed left-[var(--space-2)] top-[calc(var(--native-titlebar-height)+var(--space-2))] z-30 grid gap-[var(--space-1)] rounded-[var(--radius-l)] p-[var(--space-1)]"
+      className={cx(
+        "workflow-editor-tools app-region-no-drag left-[var(--space-2)] z-30 grid gap-[var(--space-1)] rounded-[var(--radius-l)] p-[var(--space-1)]",
+        positionStrategy === "fixed"
+          ? "fixed top-[calc(var(--native-titlebar-height)+var(--space-2))]"
+          : "absolute top-[var(--space-2)]",
+      )}
       data-testid="workflow-editor-tools"
       level={3}
     >
@@ -78,9 +86,9 @@ export function WorkflowGraphToolbar({
       >
         <Fullscreen aria-hidden="true" size={18} strokeWidth={1.7} />
       </CanvasTool>
-    </IslandSurface>,
-    document.body,
+    </IslandSurface>
   );
+  return positionStrategy === "fixed" ? createPortal(toolbar, document.body) : toolbar;
 }
 
 function AddNodeTool({
@@ -191,6 +199,7 @@ function AddNodeTool({
     cancelClose();
   }, [cancelClose]);
   const handleTriggerBlur = useCallback(() => {
+    suppressReturnedTriggerFocusRef.current = false;
     focusInsideMenuRef.current = false;
     scheduleClose();
   }, [scheduleClose]);

@@ -14,6 +14,7 @@ const optionalSearchString = z.preprocess(
 const workflowDeleteConfirmSearchSchema = z.object({
   edgeCount: optionalSearchString,
   nodeCount: optionalSearchString,
+  operation: optionalSearchString,
   requestID: optionalSearchString,
   transitionGroupCount: optionalSearchString,
 });

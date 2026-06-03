@@ -84,6 +84,7 @@ describe("WorkflowGraphToolbar", () => {
     await new Promise((resolve) => setTimeout(resolve, 180));
     expect(screen.queryByRole("button", { name: "Agent node" })).not.toBeInTheDocument();
 
+    fireEvent.blur(addNode, { relatedTarget: document.body });
     fireEvent.focus(addNode);
     expect(await screen.findByRole("button", { name: "Agent node" })).toBeInTheDocument();
     fireEvent.blur(addNode, { relatedTarget: document.body });

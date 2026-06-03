@@ -93,11 +93,12 @@ export function VirtualizedInfiniteList<TItem>({
 
   if (count > 0 && virtualItems.length === 0) {
     return (
-      <div className={className} ref={scrollRef}>
+      <div className={className} ref={scrollRef} role="list">
         {Array.from({ length: count }, (_value, index) => (
           <div
             className="py-[var(--space-2)] first:pt-0 last:pb-0"
             key={fallbackRowKey({ emptyCount, getItemKey, headerCount, index, items })}
+            role="listitem"
             style={fallbackRowStyle({ count, index, paddingEnd, paddingStart })}
           >
             {renderRow(index)}
@@ -108,7 +109,7 @@ export function VirtualizedInfiniteList<TItem>({
   }
 
   return (
-    <div className={className} ref={scrollRef}>
+    <div className={className} ref={scrollRef} role="list">
       <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize().toString()}px` }}>
         {virtualItems.map((virtualItem) => {
           return (
@@ -121,6 +122,7 @@ export function VirtualizedInfiniteList<TItem>({
               data-index={virtualItem.index}
               key={virtualItem.key}
               ref={virtualizer.measureElement}
+              role="listitem"
               style={{ transform: `translateY(${virtualItem.start.toString()}px)` }}
             >
               {renderRow(virtualItem.index)}

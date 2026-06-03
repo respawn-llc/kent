@@ -2,6 +2,7 @@ import { Plus } from "lucide-react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { WorkflowRecord } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useAppNavigation } from "../../app/navigation";
 import { useSidebar } from "../../app/sidebarContext";
@@ -14,7 +15,6 @@ const workflowLibraryItemMaxWidthClassName = "[&>*]:max-w-[1280px]";
 
 export function WorkflowLibraryRoute() {
   const { t } = useTranslation();
-  const navigation = useAppNavigation();
   const { openSidebar } = useSidebar();
   const connection = useConnectionSnapshot();
   const workflowsQuery = useWorkflowPages();
@@ -23,6 +23,9 @@ export function WorkflowLibraryRoute() {
     () => workflowsQuery.data?.pages.flatMap((page) => page.workflows) ?? [],
     [workflowsQuery.data],
   );
+  const openCreateWorkflow = () => {
+    void openSidebar({ kind: "workflowCreate", mode: "overlay" });
+  };
 
   if (workflowsQuery.isPending) {
     return <LoadingState appearanceDelayMs={0} title={t("workflowLibrary.title")} />;
@@ -38,39 +41,34 @@ export function WorkflowLibraryRoute() {
       />
     );
   }
+  if (workflows.length === 0) {
+    return (
+      <section className="h-full min-h-0" data-testid="workflow-library-route">
+        <EmptyState
+          action={
+            <Button disabled={createDisabled} onClick={openCreateWorkflow} variant="primary">
+              {t("workflowLibrary.createWorkflow")}
+            </Button>
+          }
+          body={t("workflowLibrary.emptyBody")}
+          title={t("workflowLibrary.emptyTitle")}
+        />
+      </section>
+    );
+  }
 
   return (
     <section className="h-full min-h-0" data-testid="workflow-library-route">
       <div className="island-glass grid h-full min-h-0 overflow-hidden rounded-[var(--radius-xl)]">
         <VirtualizedInfiniteList
           className={`h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full ${workflowLibraryItemMaxWidthClassName}`}
-          empty={
-            <EmptyState
-              action={
-                <Button
-                  disabled={createDisabled}
-                  onClick={() => {
-                    void openSidebar({ kind: "workflowCreate", mode: "overlay" });
-                  }}
-                  variant="primary"
-                >
-                  {t("workflowLibrary.createWorkflow")}
-                </Button>
-              }
-              body={t("workflowLibrary.emptyBody")}
-              fullPage={false}
-              title={t("workflowLibrary.emptyTitle")}
-            />
-          }
           estimateSize={() => 96}
           getItemKey={(workflow) => workflow.id}
           hasNextPage={workflowsQuery.hasNextPage}
           header={
             <WorkflowLibraryHeader
               disabled={createDisabled}
-              onCreate={() => {
-                void openSidebar({ kind: "workflowCreate", mode: "overlay" });
-              }}
+              onCreate={openCreateWorkflow}
             />
           }
           isFetchingNextPage={workflowsQuery.isFetchingNextPage}
@@ -79,17 +77,29 @@ export function WorkflowLibraryRoute() {
           onLoadMore={() => void workflowsQuery.fetchNextPage()}
           paddingEnd={16}
           paddingStart={16}
-          renderItem={(workflow) => (
-            <WorkflowCard
-              onOpen={() => {
-                void navigation.openWorkflowEditor({ workflowID: workflow.id });
-              }}
-              workflow={workflow}
-            />
-          )}
+          renderItem={(workflow) => <WorkflowLibraryCard workflow={workflow} />}
         />
       </div>
     </section>
+  );
+}
+
+function WorkflowLibraryCard({ workflow }: Readonly<{ workflow: WorkflowRecord }>) {
+  const navigation = useAppNavigation();
+  const { openSidebar } = useSidebar();
+
+  return (
+    <WorkflowCard
+      contextActions={{
+        onEdit: () => {
+          void openSidebar({ kind: "workflowEditor", mode: "overlay", workflowID: workflow.id });
+        },
+      }}
+      onOpen={() => {
+        void navigation.openWorkflowEditor({ workflowID: workflow.id });
+      }}
+      workflow={workflow}
+    />
   );
 }
 

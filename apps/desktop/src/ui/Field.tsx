@@ -94,7 +94,7 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
       <textarea
         aria-describedby={`${hintId} ${errorId}`}
         aria-invalid={error === undefined ? undefined : true}
-        className={cx(fieldInputClassName, "min-h-24 resize-y", className)}
+        className={cx(fieldInputClassName, "min-h-24", className)}
         {...props}
         id={inputId}
         ref={ref}

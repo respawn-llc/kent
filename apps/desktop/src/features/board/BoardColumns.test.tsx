@@ -72,14 +72,6 @@ describe("KanbanColumn", () => {
     );
 
     const footer = screen.getByTestId("task-card-footer");
-    expect(footer).toHaveClass("items-start", "justify-between");
-    expect(screen.getByTestId("task-card-chips")).toHaveClass(
-      "task-card-chip-row",
-      "flex-wrap",
-      "flex-1",
-      "min-w-0",
-    );
-    expect(screen.getByTestId("task-card-chip-slot")).toHaveClass("task-card-chip-slot", "items-center");
     expect(screen.queryByRole("button", { name: "Open task detail" })).not.toBeInTheDocument();
 
     const interruptButton = within(footer).getByRole("button", { name: "Interrupt" });

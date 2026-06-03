@@ -66,6 +66,8 @@
   color: var(--color-on-island);
 
   color-scheme: light dark;
+  /* Chromium-only today; other engines still get content sizing without smooth intrinsic-size interpolation. */
+  interpolate-size: allow-keywords;
   background: transparent;
   font-family: var(--font-main);
   font-synthesis: none;
@@ -291,6 +293,8 @@
   select {
     font: inherit;
   }
+
+  textarea { field-sizing: content; resize: none; overflow: hidden; transition: all 0.3s ease !important; }
 
   button {
     cursor: pointer;

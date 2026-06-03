@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Sidebar keeps read-only and draft-backed workflow inspector paths together for now. */
-import { useCallback, useId, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import {
   closestCenter,
   DndContext,
@@ -54,7 +54,12 @@ import {
   ValidationDetails,
 } from "./WorkflowInspectorPrimitives";
 import { WorkflowEdgeRouteGraphic } from "./WorkflowEdgeRouteGraphic";
-import { fallbackLabel, nodeByID, transitionGroupByID } from "./workflowInspectorModel";
+import {
+  fallbackLabel,
+  nodeByID,
+  nodeInputFieldsDisabled,
+  transitionGroupByID,
+} from "./workflowInspectorModel";
 import { workflowDefinitionFromDraft, type DraftWorkflowNode } from "./workflowEditorDraft";
 import {
   useWorkflowEditorDraftController,
@@ -66,9 +71,11 @@ import {
 } from "./workflowPromptTemplatePlaceholders";
 
 export function WorkflowInspectorSidebar({
+  onMissingSelectedNode,
   selection,
   workflowID,
 }: Readonly<{
+  onMissingSelectedNode?: (() => void) | undefined;
   selection: WorkflowInspectorSelection;
   workflowID: string;
 }>) {
@@ -76,6 +83,19 @@ export function WorkflowInspectorSidebar({
   const controller = useWorkflowEditorDraftController(workflowID);
   const definition = useCachedWorkflowDefinition(workflowID);
   const validation = useCachedWorkflowValidation(workflowID);
+  const selectedNodeMissing = selectedNodeNoLongerExists({
+    controller,
+    definition,
+    selection,
+  });
+  useEffect(() => {
+    if (selectedNodeMissing) {
+      onMissingSelectedNode?.();
+    }
+  }, [onMissingSelectedNode, selectedNodeMissing]);
+  if (selectedNodeMissing && onMissingSelectedNode !== undefined) {
+    return null;
+  }
   if (controller !== null) {
     return <WorkflowDraftInspectorContent controller={controller} selection={selection} />;
   }
@@ -91,6 +111,22 @@ export function WorkflowInspectorSidebar({
   );
 }
 
+function selectedNodeNoLongerExists({
+  controller,
+  definition,
+  selection,
+}: Readonly<{
+  controller: WorkflowEditorDraftController | null;
+  definition: WorkflowDefinition | undefined;
+  selection: WorkflowInspectorSelection;
+}>): boolean {
+  if (selection.kind !== "node") {
+    return false;
+  }
+  const nodes = controller === null ? definition?.nodes : workflowDefinitionFromDraft(controller.draft).nodes;
+  return nodes !== undefined && !nodes.some((node) => node.id === selection.nodeID);
+}
+
 function WorkflowDraftInspectorContent({
   controller,
   selection,
@@ -102,8 +138,9 @@ function WorkflowDraftInspectorContent({
     ...workflowDefinitionFromDraft(controller.draft),
     derivedWiring: controller.derivedWiring,
   };
-  const validation = controller.draftValidation ??
-    controller.executionValidation ?? { errors: [], valid: true };
+  const validation = controller.dirty.graphDirty
+    ? controller.draftValidation ?? emptyWorkflowValidation
+    : controller.draftValidation ?? controller.executionValidation ?? emptyWorkflowValidation;
   if (selection.kind === "workflow") {
     return <WorkflowDraftDetails controller={controller} />;
   }
@@ -410,7 +447,7 @@ function AgentNodeDraftDetails({
         />
         <PromptTemplateEditor controller={controller} node={node} />
       </DetailSection>
-      <EditableInputFields controller={controller} node={node} />
+      <EditableInputFields controller={controller} definition={definition} node={node} />
       <FieldSummary
         fields={derivedNodeWiring(definition, node.id).possibleProvisionFields}
         title={t("workflowEditor.provides")}
@@ -466,7 +503,7 @@ function PromptTemplateEditor({
       </label>
       <div className="grid gap-[var(--space-1)]">
         <textarea
-          className={cx(fieldInputClassName, "min-h-24 resize-y")}
+          className={cx(fieldInputClassName, "min-h-24")}
           id={promptInputId}
           onChange={(event) => {
             dispatchPromptTemplate(event.target.value);
@@ -598,62 +635,82 @@ function JoinNodeDraftDetails({
 
 function EditableInputFields({
   controller,
+  definition,
   node,
 }: Readonly<{
   controller: WorkflowEditorDraftController;
+  definition: WorkflowDefinition;
   node: DraftWorkflowNode;
 }>) {
   const { t } = useTranslation();
+  const disabled = nodeInputFieldsDisabled(definition, node.id);
+  const disabledReason = t("workflowEditor.nodeControlNotApplicable");
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   return (
     <DetailSection title={t("workflowEditor.requiredInputs")}>
-      <Button
-        onClick={() => {
-          controller.dispatch({ nodeID: node.id, type: "addInputField" });
-        }}
-        variant="secondary"
-      >
-        {t("workflowEditor.addRequiredInput")}
-      </Button>
-      {node.inputFields.length === 0 ? (
-        <p className="m-0 text-sm text-[var(--color-muted)]">{t("workflowEditor.none")}</p>
-      ) : null}
-      <DndContext
-        collisionDetection={closestCenter}
-        onDragEnd={(event) => {
-          reorderInputField(controller, node.id, event);
-        }}
-        sensors={sensors}
-      >
-        <SortableContext
-          items={node.inputFields.map((field) => field.rowID)}
-          strategy={verticalListSortingStrategy}
-        >
+      <TooltipProvider delayDuration={0}>
+        <DisabledInteractionGuard disabled={disabled} reason={disabledReason}>
           <div className="grid gap-[var(--space-3)]">
-            {node.inputFields.map((field) => (
-              <SortableInputField
-                controller={controller}
-                field={field}
-                key={field.rowID}
-                nodeID={node.id}
-              />
-            ))}
+            <Button
+              disabled={disabled}
+              onClick={() => {
+                if (disabled) {
+                  return;
+                }
+                controller.dispatch({ nodeID: node.id, type: "addInputField" });
+              }}
+              variant="secondary"
+            >
+              {t("workflowEditor.addRequiredInput")}
+            </Button>
+            {node.inputFields.length === 0 ? (
+              <p className="m-0 text-sm text-[var(--color-muted)]">{t("workflowEditor.none")}</p>
+            ) : null}
+            <DndContext
+              collisionDetection={closestCenter}
+              onDragEnd={(event) => {
+                if (disabled) {
+                  return;
+                }
+                reorderInputField(controller, node.id, event);
+              }}
+              sensors={sensors}
+            >
+              <SortableContext
+                items={node.inputFields.map((field) => field.rowID)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="grid gap-[var(--space-3)]">
+                  {node.inputFields.map((field) => (
+                    <SortableInputField
+                      controller={controller}
+                      disabled={disabled}
+                      field={field}
+                      key={field.rowID}
+                      nodeID={node.id}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
           </div>
-        </SortableContext>
-      </DndContext>
+        </DisabledInteractionGuard>
+      </TooltipProvider>
     </DetailSection>
   );
 }
 
 function SortableInputField({
   controller,
+  disabled,
   field,
   nodeID,
 }: Readonly<{
   controller: WorkflowEditorDraftController;
+  disabled: boolean;
   field: DraftWorkflowNode["inputFields"][number];
   nodeID: string;
 }>) {
@@ -661,6 +718,7 @@ function SortableInputField({
   const [isEditingName, setIsEditingName] = useState(field.name.length === 0);
   const descriptionID = useId();
   const { attributes, listeners, setActivatorNodeRef, setNodeRef, transform, transition } = useSortable({
+    disabled,
     id: field.rowID,
   });
   const style = {
@@ -682,10 +740,14 @@ function SortableInputField({
     >
       <div
         aria-label={t("workflowEditor.reorderInputField")}
-        className="absolute inset-0 cursor-grab rounded-[inherit] outline-none focus-visible:ring-[3px] focus-visible:ring-[color-mix(in_srgb,var(--color-primary)_35%,transparent)] active:cursor-grabbing"
+        className={cx(
+          "absolute inset-0 rounded-[inherit] outline-none focus-visible:ring-[3px] focus-visible:ring-[color-mix(in_srgb,var(--color-primary)_35%,transparent)]",
+          disabled ? "cursor-not-allowed" : "cursor-grab active:cursor-grabbing",
+        )}
         ref={setActivatorNodeRef}
         {...attributes}
         {...listeners}
+        aria-disabled={disabled}
       />
       <div className="pointer-events-none relative grid gap-[var(--space-2)]">
         <div className="flex min-w-0 items-center gap-[var(--space-2)]">
@@ -701,10 +763,14 @@ function SortableInputField({
               aria-label={t("workflowEditor.inputFieldName")}
               autoFocus
               className="app-region-no-drag pointer-events-auto min-w-0 flex-1 rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] px-[var(--space-2)] py-[var(--space-1)] font-bold text-[var(--color-on-island)] outline-none focus:border-[var(--color-primary)]"
+              disabled={disabled}
               onBlur={() => {
                 setIsEditingName(false);
               }}
               onChange={(event) => {
+                if (disabled) {
+                  return;
+                }
                 controller.dispatch({
                   nodeID,
                   patch: { name: event.target.value.replaceAll("\n", " ") },
@@ -724,7 +790,11 @@ function SortableInputField({
           ) : (
             <button
               className="pointer-events-auto min-w-0 flex-1 truncate rounded-[var(--radius-m)] border border-transparent bg-transparent px-0 py-[var(--space-1)] text-left font-bold text-[var(--color-on-island)] outline-none focus:border-[var(--color-outline)] focus:bg-[var(--color-island-1)] focus:px-[var(--space-2)]"
+              disabled={disabled}
               onClick={() => {
+                if (disabled) {
+                  return;
+                }
                 setIsEditingName(true);
               }}
               type="button"
@@ -735,7 +805,11 @@ function SortableInputField({
           <Button
             aria-label={t("workflowEditor.deleteField")}
             className="pointer-events-auto grid h-8 w-8 shrink-0 place-items-center rounded-full !border-transparent !bg-transparent !p-0"
+            disabled={disabled}
             onClick={() => {
+              if (disabled) {
+                return;
+              }
               controller.dispatch({ nodeID, rowID: field.rowID, type: "deleteInputField" });
             }}
             variant="danger"
@@ -749,8 +823,12 @@ function SortableInputField({
           </label>
           <input
             className={cx(fieldInputClassName, "px-[var(--space-2)] py-[var(--space-2)]")}
+            disabled={disabled}
             id={descriptionID}
             onChange={(event) => {
+              if (disabled) {
+                return;
+              }
               controller.dispatch({
                 nodeID,
                 patch: { description: event.target.value },
@@ -1401,6 +1479,8 @@ function formatContextSourceLabel(edge: WorkflowEdge, translate: Translate): str
 }
 
 type Translate = ReturnType<typeof useTranslation>["t"];
+
+const emptyWorkflowValidation: WorkflowValidation = { errors: [], valid: true };
 
 function useCachedWorkflowDefinition(workflowID: string): WorkflowDefinition | undefined {
   const queryKey = queryKeys.workflowDefinition(workflowID);

@@ -131,6 +131,7 @@ describe("applyConfiguredTheme", () => {
 
     const registration = addEventListener.mock.calls.find(([type]) => type === "contextmenu");
     expect(registration).toBeDefined();
+    expect(registration?.[2]).toBeUndefined();
     const listener = registration?.[1];
     expect(listener).toBeTypeOf("function");
     const event = new MouseEvent("contextmenu", { cancelable: true });

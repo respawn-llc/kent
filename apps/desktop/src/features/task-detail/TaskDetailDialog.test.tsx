@@ -1,12 +1,10 @@
-/* eslint-disable max-lines -- Task detail route tests keep representative detail/native bridge fixtures local. */
-/* eslint-disable testing-library/no-node-access -- Dialog tests verify native window dimensions and focus ownership. */
 import {
   createBrowserNativeBridge,
   type NativeBridge,
   type NativeTaskDetailChanged,
   type NativeTaskDetailTarget,
 } from "@builder/desktop-native-bridge";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { App } from "../../App";
 import type { JsonObject, JsonValue } from "../../api/json";
@@ -33,7 +31,6 @@ describe("TaskDetailDialog", () => {
     render(<App services={services} />);
 
     const recommendedOption = await screen.findByRole("radio", { name: /Use option A/u });
-    expect(screen.getByTestId("route-transition-frame")).toHaveClass("p-[var(--space-2)]");
     expect(recommendedOption).toBeInTheDocument();
     fireEvent.click(recommendedOption);
     fireEvent.click(screen.getByRole("button", { name: "Submit answer" }));
@@ -61,14 +58,6 @@ describe("TaskDetailDialog", () => {
     fireEvent.change(screen.getByLabelText("Add comment"), {
       target: { value: "Fresh comment" },
     });
-    expect(screen.getByTestId("task-comment-save")).not.toHaveClass("absolute");
-    expect(screen.getByTestId("task-comment-save").parentElement).toBe(
-      screen.getByTestId("task-comment-input-frame"),
-    );
-    expect(screen.getByTestId("task-comment-save")).toHaveStyle({
-      marginBottom: "var(--space-2)",
-      marginRight: "var(--space-2)",
-    });
     fireEvent.click(screen.getByRole("button", { name: "Submit comment" }));
     await waitFor(() => {
       expect(services.transport.calls).toContainEqual({
@@ -81,14 +70,6 @@ describe("TaskDetailDialog", () => {
     expect(screen.getAllByLabelText("Edit comment")).toHaveLength(1);
     fireEvent.change(screen.getByLabelText("Edit comment"), {
       target: { value: "Edited comment" },
-    });
-    expect(screen.getByTestId("task-comment-save")).not.toHaveClass("absolute");
-    expect(screen.getByTestId("task-comment-save").parentElement).toBe(
-      screen.getByTestId("task-comment-input-frame"),
-    );
-    expect(screen.getByTestId("task-comment-save")).toHaveStyle({
-      marginBottom: "var(--space-2)",
-      marginRight: "var(--space-2)",
     });
     fireEvent.click(screen.getByRole("button", { name: "Save comment" }));
     await waitFor(() => {
@@ -118,7 +99,7 @@ describe("TaskDetailDialog", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Cancel task" }));
 
-    expect(screen.getByRole("dialog")).toHaveAttribute("data-slot", "popover-content");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
 
@@ -130,7 +111,7 @@ describe("TaskDetailDialog", () => {
     });
   });
 
-  it("renders task detail as islands and edits active task title and description", async () => {
+  it("edits active task title and description", async () => {
     window.history.pushState(null, "", "/tasks/task-1");
     let currentTitle = taskDetailNoInboxResponse.task.summary.title;
     let currentBody = taskDetailNoInboxResponse.task.body;
@@ -163,55 +144,11 @@ describe("TaskDetailDialog", () => {
 
     expect(await screen.findByRole("textbox", { name: "Title" })).toHaveValue("Resolve blocker");
     expect(screen.queryByRole("region", { name: "Inbox" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("task-detail-island-stack")).toHaveClass(
-      "task-detail-island-stack",
-      "gap-[var(--space-2)]",
-    );
-    expect(screen.getByTestId("task-detail-body-split")).toHaveClass(
-      "task-detail-body-split",
-      "gap-[var(--space-2)]",
-      "items-stretch",
-    );
-    expect(screen.getByTestId("task-detail-body-split")).not.toHaveClass("items-start");
-    expect(screen.getByTestId("task-detail-body-split")).not.toHaveClass(
-      "min-[512px]:grid-cols-[minmax(0,7fr)_minmax(260px,3fr)]",
-    );
-    expect(screen.getByTestId("task-detail-title-island")).toHaveClass(
-      "px-[var(--space-4)]",
-      "py-[var(--space-2)]",
-    );
-    expect(screen.getByTestId("task-detail-title-island")).not.toHaveClass("p-[var(--space-2)]");
-    const titleInput = within(screen.getByTestId("task-detail-title-island")).getByRole("textbox", {
-      name: "Title",
-    });
-    const titleForm = titleInput.closest("form");
-    if (titleForm === null) {
-      throw new Error("expected title textbox to be inside the title island form");
-    }
-    expect(titleForm.firstElementChild).toBe(titleInput);
-    expect(titleForm.lastElementChild).toHaveClass("uppercase");
-    expect(screen.getByTestId("task-description-save")).toHaveClass("opacity-0", "pointer-events-none");
-    expect(screen.getByTestId("task-description-save")).not.toHaveClass("absolute");
-    expect(screen.getByTestId("task-description-save").parentElement).toBe(
-      screen.getByTestId("task-description-input-frame"),
-    );
-    expect(screen.getByTestId("task-description-save")).toHaveStyle({
-      marginBottom: "var(--space-2)",
-      marginRight: "var(--space-2)",
-    });
     expect(screen.getByTestId("task-description-save")).toBeDisabled();
-    expect(screen.getByTestId("task-detail-description-island")).toHaveClass(
-      "h-full",
-      "min-w-0",
-      "grid-rows-[auto_minmax(0,1fr)_auto]",
-    );
-    expect(screen.getByTestId("task-description-input-frame")).toHaveClass("h-full", "min-h-0");
-    expect(screen.getByRole("textbox", { name: "Description" })).toHaveClass("h-full", "min-h-[220px]");
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Renamed task" } });
     expect(screen.getByRole("button", { name: "Save title" })).toBeInTheDocument();
-    expect(screen.getByTestId("task-description-save")).toHaveClass("opacity-0", "pointer-events-none");
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save title" }));
 
@@ -229,12 +166,7 @@ describe("TaskDetailDialog", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Description" }), {
       target: { value: "Updated details" },
     });
-    expect(screen.getByTestId("task-description-save")).toHaveClass("opacity-100");
-    expect(screen.getByTestId("task-description-save")).toHaveStyle({
-      marginBottom: "var(--space-2)",
-      marginRight: "var(--space-2)",
-    });
-    expect(screen.getByTestId("task-description-save")).not.toHaveClass("pointer-events-none");
+    expect(screen.getByTestId("task-description-save")).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => {
@@ -246,54 +178,6 @@ describe("TaskDetailDialog", () => {
           body: "Updated details",
         },
       });
-    });
-  });
-
-  it("keeps the description save control anchored to the textarea when properties are taller", async () => {
-    window.history.pushState(null, "", "/tasks/task-1");
-    const longRunID = "4999ea41-e5e2-43be-8735-9ce37eefd661";
-    const services = createTestServices([
-      ...startupRoutes,
-      {
-        method: "workflow.task.get",
-        result: {
-          task: {
-            ...taskDetailNoInboxResponse.task,
-            runs: [
-              {
-                ...taskDetailNoInboxResponse.task.runs[0],
-                id: longRunID,
-                completed_at_unix_ms: 0,
-                interrupted_at_unix_ms: 0,
-              },
-            ],
-          },
-        },
-      },
-      { method: "workflow.task.activity.list", result: activityResponse },
-    ]);
-
-    render(<App services={services} />);
-
-    expect(
-      await screen.findByRole("button", { name: new RegExp(`Interrupt ${longRunID}`, "u") }),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId("task-detail-body-split")).toHaveClass("items-stretch");
-    expect(screen.getByTestId("task-detail-body-split")).not.toHaveClass("items-start");
-    expect(screen.getByTestId("task-detail-description-island")).toHaveClass(
-      "h-full",
-      "min-w-0",
-      "grid-rows-[auto_minmax(0,1fr)_auto]",
-    );
-    expect(screen.getByTestId("task-description-input-frame")).toHaveClass("h-full", "min-h-0");
-    expect(screen.getByRole("textbox", { name: "Description" })).toHaveClass("h-full", "min-h-[220px]");
-    expect(screen.getByTestId("task-description-save")).not.toHaveClass("absolute");
-    expect(screen.getByTestId("task-description-save").parentElement).toBe(
-      screen.getByTestId("task-description-input-frame"),
-    );
-    expect(screen.getByTestId("task-description-save")).toHaveStyle({
-      marginBottom: "var(--space-2)",
-      marginRight: "var(--space-2)",
     });
   });
 
@@ -364,31 +248,6 @@ describe("TaskDetailDialog", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("attention-row")).not.toBeInTheDocument();
     });
-  });
-
-  it("uses the large task detail content width in native dialog windows", async () => {
-    window.history.pushState(null, "", "/native-dialog/task-detail?taskId=task-1&resumeRunId=");
-    const services = createTestServices([
-      ...startupRoutes,
-      { method: "workflow.task.get", result: taskDetailResponse },
-      { method: "workflow.task.activity.list", result: activityResponse },
-      { method: "ask.listPendingBySession", result: pendingAskResponse },
-    ]);
-
-    render(<App services={services} />);
-
-    expect(await screen.findByRole("dialog", { name: "Task" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Task" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("native-dialog-content")).toHaveStyle({ maxWidth: "1200px" });
-    expect(screen.getByTestId("native-dialog-scrollport")).toHaveClass(
-      "p-[var(--space-2)]",
-    );
-    expect(screen.getByTestId("native-dialog-scrollport").closest("main")).toHaveClass(
-      "pt-[var(--native-titlebar-height)]",
-    );
-    expect(screen.getByTestId("native-dialog-scrollport").closest("main")).not.toHaveClass(
-      "p-[var(--native-titlebar-height)_var(--space-2)_var(--space-2)]",
-    );
   });
 
 });

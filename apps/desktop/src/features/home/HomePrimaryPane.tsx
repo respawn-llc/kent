@@ -1,11 +1,11 @@
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
 import { Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { ProjectSummary } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useAppNavigation } from "../../app/navigation";
-import { EmptyState, ErrorState, LoadingState, VirtualizedInfiniteList } from "../../ui";
+import { EmptyState, ErrorState, IslandSurface, LoadingState, VirtualizedInfiniteList } from "../../ui";
 import { WorkflowCard } from "../workflows/WorkflowCard";
 import { useWorkflowPages } from "../workflows/WorkflowData";
 import { ProjectRow } from "./ProjectRow";
@@ -35,24 +35,27 @@ export function HomePrimaryPane({
   projectsQuery,
 }: HomePrimaryPaneProps) {
   const { t } = useTranslation();
+  const controlsRef = useRef<HTMLDivElement | null>(null);
+  const controlsHeight = useElementHeight(controlsRef);
   return (
-    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+    <div className="relative h-full min-h-0" data-testid="home-primary-pane">
       <HomePrimaryTabs
         activeTab={activeTab}
+        controlsRef={controlsRef}
         disabled={disabled}
         onChooseWorkspace={onChooseWorkspace}
         onCreateWorkflow={onCreateWorkflow}
         onTabChange={onTabChange}
       />
-      <div className="min-h-0" key={activeTab}>
+      <div className="h-full min-h-0" key={activeTab}>
         <h2 className="sr-only" id="home-primary-pane-title">
           {activeTab === "projects" ? t("home.projectsPane") : t("workflowLibrary.homeIslandTitle")}
         </h2>
-        <div className="route-transition-frame h-full min-h-0">
+        <div className="route-transition-frame h-full min-h-0" data-testid="home-primary-scroll-layer">
           {activeTab === "projects" ? (
-            <ProjectList items={projectItems} query={projectsQuery} />
+            <ProjectList controlsHeight={controlsHeight} items={projectItems} query={projectsQuery} />
           ) : (
-            <HomeWorkflowList />
+            <HomeWorkflowList controlsHeight={controlsHeight} />
           )}
         </div>
       </div>
@@ -62,12 +65,14 @@ export function HomePrimaryPane({
 
 function HomePrimaryTabs({
   activeTab,
+  controlsRef,
   disabled,
   onChooseWorkspace,
   onCreateWorkflow,
   onTabChange,
 }: Readonly<{
   activeTab: HomePrimaryTab;
+  controlsRef: Ref<HTMLDivElement>;
   disabled: boolean;
   onChooseWorkspace: () => void;
   onCreateWorkflow: () => void;
@@ -77,7 +82,9 @@ function HomePrimaryTabs({
   return (
     <div
       aria-label={t("home.projectsPane")}
-      className="grid grid-cols-2 gap-[var(--space-2)] px-[var(--space-4)] pt-[var(--space-4)] pb-[var(--space-2)]"
+      className="pointer-events-none absolute inset-x-0 top-0 z-10 grid grid-cols-2 gap-[var(--space-2)] px-[var(--space-4)] pt-[var(--space-4)] pb-[var(--space-2)]"
+      data-testid="home-primary-controls"
+      ref={controlsRef}
       role="tablist"
     >
       <HomePrimaryTabButton
@@ -120,7 +127,11 @@ function HomePrimaryTabButton({
   onSelect: () => void;
 }>) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-[var(--space-1)] rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] p-1">
+    <IslandSurface
+      className="pointer-events-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-[var(--space-1)] rounded-full p-1"
+      data-testid="home-primary-tab-island"
+      level={1}
+    >
       <button
         aria-selected={active}
         className="min-w-0 rounded-full px-[var(--space-3)] py-[var(--space-2)] text-left font-bold text-[var(--color-on-island)] transition-colors data-[active=true]:bg-[var(--color-island-2)]"
@@ -133,21 +144,26 @@ function HomePrimaryTabButton({
       </button>
       <button
         aria-label={createLabel}
-        className="grid h-8 w-8 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-on-island)] disabled:cursor-not-allowed disabled:opacity-55"
+        className="grid h-8 w-8 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-2)] text-[var(--color-on-island)] disabled:cursor-not-allowed disabled:opacity-55"
         disabled={disabled}
         onClick={onCreate}
         type="button"
       >
         <Plus aria-hidden="true" size={18} strokeWidth={1.5} />
       </button>
-    </div>
+    </IslandSurface>
   );
 }
 
 function ProjectList({
+  controlsHeight,
   items,
   query,
-}: Readonly<{ items: readonly ProjectSummary[]; query: ReturnType<typeof useProjectPages> }>) {
+}: Readonly<{
+  controlsHeight: number;
+  items: readonly ProjectSummary[];
+  query: ReturnType<typeof useProjectPages>;
+}>) {
   const { t } = useTranslation();
   if (query.isPending) {
     return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} title={t("states.loading")} />;
@@ -167,13 +183,13 @@ function ProjectList({
       loadingLabel={t("app.loadingMore")}
       onLoadMore={() => void query.fetchNextPage()}
       paddingEnd={16}
-      paddingStart={16}
+      paddingStart={controlsHeight}
       renderItem={(project) => <ProjectRow project={project} />}
     />
   );
 }
 
-function HomeWorkflowList() {
+function HomeWorkflowList({ controlsHeight }: Readonly<{ controlsHeight: number }>) {
   const { t } = useTranslation();
   const navigation = useAppNavigation();
   const workflowsQuery = useWorkflowPages();
@@ -211,7 +227,7 @@ function HomeWorkflowList() {
       loadingLabel={t("app.loadingMore")}
       onLoadMore={() => void workflowsQuery.fetchNextPage()}
       paddingEnd={16}
-      paddingStart={16}
+      paddingStart={controlsHeight}
       renderItem={(workflow) => (
         <WorkflowCard
           onOpen={() => {
@@ -222,6 +238,30 @@ function HomeWorkflowList() {
       )}
     />
   );
+}
+
+function useElementHeight(ref: Readonly<{ current: HTMLElement | null }>): number {
+  const [height, setHeight] = useState(0);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (element === null) {
+      return;
+    }
+    const measure = () => {
+      const nextHeight = element.getBoundingClientRect().height;
+      setHeight((currentHeight) => (currentHeight === nextHeight ? currentHeight : nextHeight));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [ref]);
+  return height;
 }
 
 function HomeInlineEmptyState({ body }: Readonly<{ body: string }>) {

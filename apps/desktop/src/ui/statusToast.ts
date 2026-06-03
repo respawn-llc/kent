@@ -6,7 +6,7 @@ export type StatusNotice = Readonly<{
   id: string;
   tone: ToastTone;
   title: string;
-  body: string;
+  body?: string;
   actionLabel?: string;
   onAction?: () => void;
   dismissible?: boolean;
@@ -20,11 +20,13 @@ export function showStatusToast(notice: StatusNotice): void {
       ? { action: { label: notice.actionLabel, onClick: notice.onAction } }
       : {};
   const durationOption = duration !== undefined ? { duration } : {};
+  const descriptionOption =
+    notice.body === undefined || notice.body.length === 0 ? {} : { description: notice.body };
   const options: ExternalToast = {
     ...action,
+    ...descriptionOption,
     ...durationOption,
     closeButton: notice.dismissible !== false,
-    description: notice.body,
     id: notice.id,
   };
 

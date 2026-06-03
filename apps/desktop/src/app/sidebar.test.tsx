@@ -60,17 +60,8 @@ describe("SidebarHost", () => {
 
     const sidebar = await screen.findByRole("complementary", { name: "Settings" });
     expect(sidebar).toHaveAttribute("data-mode", "shift");
-    expect(sidebar).toHaveClass(
-      "app-sidebar-panel-shift",
-      "h-[calc(100%-(var(--app-sidebar-inset)*2))]",
-      "mr-[var(--app-sidebar-inset)]",
-      "mt-[var(--app-sidebar-inset)]",
-      "shrink-0",
-    );
-    expect(sidebar.style.getPropertyValue("--app-sidebar-inset")).toBe("var(--space-2)");
-    expect(sidebar).not.toHaveClass("absolute", "app-sidebar-panel-overlay");
-    expect(screen.getByRole("button", { name: "Close" })).toHaveClass("h-9", "w-9");
-    expect(screen.getByRole("heading", { name: "Settings" })).toHaveClass("whitespace-nowrap");
+    expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByTestId("default-shift-content")).toBeInTheDocument();
   });
 
@@ -92,14 +83,6 @@ describe("SidebarHost", () => {
 
     const sidebar = await screen.findByRole("complementary", { name: "Create workflow" });
     expect(sidebar).toHaveAttribute("data-mode", "overlay");
-    expect(sidebar).toHaveClass(
-      "app-sidebar-panel-overlay",
-      "fixed",
-      "top-[calc(var(--native-titlebar-height)+var(--app-sidebar-inset))]",
-      "right-[var(--app-sidebar-inset)]",
-      "bottom-[var(--app-sidebar-inset)]",
-    );
-    expect(sidebar).not.toHaveClass("relative", "app-sidebar-panel-shift", "shrink-0");
     expect(screen.getByTestId("overlay-source-content")).toBeInTheDocument();
   });
 

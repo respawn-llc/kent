@@ -1,5 +1,5 @@
 import { useLocation } from "@tanstack/react-router";
-import { X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import { Button, showStatusToast } from "../ui";
 import { cx } from "../ui/classes";
 import { ProjectDeleteButton } from "../features/project-edit/ProjectDeleteButton";
+import { WorkflowDeleteButton } from "../features/workflow-editor/WorkflowDeleteButton";
 import { useAppServices } from "./useAppServices";
 import { SidebarDestinationView, sidebarTitle } from "./sidebarDestinations";
 import { useSidebar, type SidebarDestination } from "./sidebarContext";
@@ -244,18 +245,35 @@ export function SidebarHost() {
         </h2>
         <SidebarHeaderAccessory destination={activeDestination} />
       </header>
-      <div className="min-h-0 overflow-y-auto px-[var(--space-4)] py-[var(--space-4)]">
-        <SidebarDestinationView destination={activeDestination} resolveSidebar={resolveSidebar} />
+      <div
+        className={cx(
+          "min-h-0",
+          activeDestination.kind === "workflowEditor"
+            ? "overflow-hidden p-[var(--space-2)]"
+            : "overflow-y-auto px-[var(--space-4)] py-[var(--space-4)]",
+        )}
+      >
+        <SidebarDestinationView
+          closeSidebar={closeSidebar}
+          destination={activeDestination}
+          resolveSidebar={resolveSidebar}
+        />
       </div>
     </aside>
   );
 }
 
 function SidebarHeaderAccessory({ destination }: Readonly<{ destination: SidebarDestination }>) {
+  if (destination.kind === "linkWorkflow" && destination.creating !== true) {
+    return <LinkWorkflowCreateHeaderButton destination={destination} />;
+  }
   if (destination.kind === "projectEdit") {
     return <ProjectDeleteButton projectID={destination.projectID} />;
   }
   if (destination.kind === "workflowInspect") {
+    if (destination.selection.kind === "workflow") {
+      return <WorkflowDeleteButton workflowID={destination.workflowID} />;
+    }
     if (destination.selection.kind === "node") {
       return <WorkflowEntityIDHeader entityID={destination.selection.nodeID} entityKind="node" />;
     }
@@ -264,6 +282,27 @@ function SidebarHeaderAccessory({ destination }: Readonly<{ destination: Sidebar
     }
   }
   return null;
+}
+
+function LinkWorkflowCreateHeaderButton({
+  destination,
+}: Readonly<{ destination: Extract<SidebarDestination, { kind: "linkWorkflow" }> }>) {
+  const { t } = useTranslation();
+  const { openSidebar } = useSidebar();
+  return (
+    <Button
+      aria-label={t("workflowLibrary.newWorkflow")}
+      className="justify-self-end"
+      onClick={() => {
+        void openSidebar({ ...destination, creating: true });
+      }}
+      size="icon"
+      title={t("workflowLibrary.newWorkflow")}
+      variant="ghost"
+    >
+      <Plus aria-hidden="true" size={18} strokeWidth={1.6} />
+    </Button>
+  );
 }
 
 function WorkflowEntityIDHeader({
@@ -289,7 +328,6 @@ function WorkflowEntityIDHeader({
         void copyWorkflowEntityID(entityID, nativeBridge)
           .then(() => {
             showStatusToast({
-              body: "",
               id: `${toastPrefix}-copied-${entityID}`,
               title: successMessage,
               tone: "success",
@@ -297,7 +335,6 @@ function WorkflowEntityIDHeader({
           })
           .catch(() => {
             showStatusToast({
-              body: "",
               id: `${toastPrefix}-copy-failed-${entityID}`,
               title: failureMessage,
               tone: "danger",

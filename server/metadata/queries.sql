@@ -1941,7 +1941,8 @@ SELECT
             JOIN workflow_nodes n ON n.id = p.node_id
             WHERE t.project_id = sqlc.arg(delete_project_id)
               AND t.canceled_at_unix_ms = 0
-              AND n.kind != 'terminal'
+              -- Backlog/start-node tasks are drafts, not active project work.
+              AND n.kind NOT IN ('start', 'terminal')
             UNION
             SELECT t.id
             FROM task_records t

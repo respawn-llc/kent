@@ -6,15 +6,18 @@ import { ProjectEditRoute } from "../features/project-edit/ProjectEditRoute";
 import { TaskDetailSurface } from "../features/task-detail/TaskDetailDialog";
 import { NewTaskForm } from "../features/tasks/NewTaskDialog";
 import { WorkflowInspectorSidebar } from "../features/workflow-editor/WorkflowInspectorSidebar";
+import { WorkflowEditorRoute } from "../features/workflow-editor/WorkflowEditorRoute";
 import { LinkWorkflowSidebar } from "../features/workflows/LinkWorkflowSidebar";
 import { WorkflowCreateForm } from "../features/workflows/WorkflowCreateForm";
 import { useAppNavigation } from "./navigation";
 import type { SidebarController, SidebarDestination } from "./sidebarContext";
 
 export function SidebarDestinationView({
+  closeSidebar,
   destination,
   resolveSidebar,
 }: Readonly<{
+  closeSidebar: SidebarController["closeSidebar"];
   destination: SidebarDestination;
   resolveSidebar: SidebarController["resolveSidebar"];
 }>): ReactElement {
@@ -52,7 +55,25 @@ export function SidebarDestinationView({
   }
 
   if (destination.kind === "workflowInspect") {
-    return <WorkflowInspectorSidebar selection={destination.selection} workflowID={destination.workflowID} />;
+    return (
+      <WorkflowInspectorSidebar
+        onMissingSelectedNode={() => {
+          closeSidebar("closed");
+        }}
+        selection={destination.selection}
+        workflowID={destination.workflowID}
+      />
+    );
+  }
+
+  if (destination.kind === "workflowEditor") {
+    return (
+      <WorkflowEditorRoute
+        projectID={destination.projectID ?? ""}
+        surface="sidebar"
+        workflowID={destination.workflowID}
+      />
+    );
   }
 
   if (destination.kind === "projectEdit") {
@@ -84,6 +105,7 @@ function LinkWorkflowDestinationView({
         resolveSidebar({ destination: "workflow", status: "completed", workflowID });
         void navigation.openProject(destination.projectID, workflowID);
       }}
+      creating={destination.creating === true}
       projectID={destination.projectID}
       selectedWorkflowID={destination.selectedWorkflowID ?? ""}
     />
@@ -140,6 +162,9 @@ export function sidebarTitle(
       return t("workflowEditor.inspectGroup");
     }
     return t("workflowEditor.inspectEdge");
+  }
+  if (destination.kind === "workflowEditor") {
+    return t("workflowEditor.title");
   }
   if (destination.kind === "projectEdit") {
     return t("projectEdit.title");

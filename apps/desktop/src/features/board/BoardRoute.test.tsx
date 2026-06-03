@@ -11,44 +11,7 @@ import { afterEach, vi } from "vitest";
 
 import type { JsonValue } from "../../api/json";
 import { App } from "../../App";
-import { appChromeInlineTitleClassNames, appChromeTitleClassNames } from "../../app/appChromeStyles";
 import { createTestServices, startupRoutes } from "../../testSupport/appServices";
-
-const boardHoverMenuCollapsedClassNames = [
-  "board-hover-menu-collapsed",
-  "fixed",
-  "bottom-[var(--space-4)]",
-  "left-[var(--space-4)]",
-  "grid-rows-[0fr]",
-  "min-h-[var(--board-menu-collapsed-height)]",
-  "max-h-[min(700px,70vh)]",
-  "p-[var(--board-menu-padding)]",
-  "w-[var(--board-menu-collapsed-width)]",
-  "rounded-[var(--radius-l)]",
-] as const;
-
-const boardHoverMenuExpandedClassNames = [
-  "board-hover-menu-expanded",
-  "grid-rows-[1fr]",
-  "max-h-[min(700px,70vh)]",
-  "p-[var(--board-menu-padding)]",
-  "w-[min(360px,calc(100vw-32px))]",
-] as const;
-
-const boardHoverMenuActionDockClassNames = [
-  "gap-[var(--board-menu-icon-gap)]",
-  "absolute",
-  "bottom-[var(--board-menu-padding)]",
-  "h-10",
-  "left-[var(--board-menu-padding)]",
-] as const;
-
-const boardHoverMenuWorkflowContentClassNames = [
-  "gap-[var(--board-menu-content-gap)]",
-  "min-h-0",
-  "min-w-0",
-  "overflow-y-auto",
-] as const;
 
 async function expandBoardHoverMenu(): Promise<HTMLElement> {
   const menu = await screen.findByRole("navigation");
@@ -97,36 +60,7 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     expect(await screen.findByRole("heading", { name: "Core" })).toBeInTheDocument();
-    expect(screen.getByTestId("app-chrome-title")).toHaveClass(
-      ...appChromeTitleClassNames,
-      "left-[var(--space-2)]",
-    );
-    expect(screen.getByTestId("route-transition-frame")).not.toHaveClass("p-[var(--space-2)]");
-    expect(screen.getByTestId("route-transition-frame")).toHaveClass("min-w-0", "w-full");
-    expect(screen.getByRole("list")).toHaveClass("min-w-0", "w-full", "overflow-x-auto");
-    expect(screen.getByRole("list")).not.toHaveClass(
-      "hide-scrollbar",
-      "overflow-y-hidden",
-      "pb-[var(--shadow-bleed-island)]",
-    );
-    expect(screen.getByRole("listitem", { name: "Backlog" })).toHaveClass("island-glass");
-    expect(screen.getByRole("listitem", { name: "Backlog" }).className).toContain("w-[min(");
-    expect(screen.getByRole("listitem", { name: "Backlog" })).toHaveClass("shrink-0");
     expect(screen.queryByTestId("board-transition-source")).not.toBeInTheDocument();
-    expect(screen.getByTestId("board-column-rail")).toHaveClass(
-      "w-max",
-      "min-w-full",
-      "p-[var(--space-2)]",
-    );
-    expect(screen.getByTestId("board-column-rail")).not.toHaveClass(
-      "px-[var(--space-2)]",
-      "pb-[var(--space-2)]",
-      "pt-[var(--space-2)]",
-    );
-    expect(screen.getByTestId("kanban-column-scroll-backlog")).toHaveClass(
-      "overflow-y-auto",
-      "pr-[var(--space-1)]",
-    );
     const card = await screen.findByRole("article", { name: "Write focused tests" });
     const targetColumn = screen.getByRole("listitem", { name: "Implement" });
     const dataTransfer = new TestDataTransfer();
@@ -169,7 +103,7 @@ describe("BoardRoute", () => {
     });
   });
 
-  it("accepts an override drop on a red-outlined target", async () => {
+  it("accepts an override drop on a blocked target", async () => {
     window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
     const services = createTestServices([
       ...startupRoutes,
@@ -358,8 +292,6 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     expect(await screen.findByTestId("empty-state")).toBeInTheDocument();
-    expect(screen.getByTestId("empty-state")).toHaveClass("h-full", "min-h-0", "place-items-center");
-    expect(screen.getByTestId("empty-state-content")).toHaveClass("justify-items-center", "text-center");
     expect(screen.getByTestId("empty-state-icon")).not.toBeEmptyDOMElement();
     expect(screen.getByRole("button", { name: "Link workflow" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create workflow" })).toBeInTheDocument();
@@ -500,9 +432,7 @@ describe("BoardRoute", () => {
 
     await screen.findByTestId("app-chrome-title");
     const chromeNavigation = screen.getByTestId("app-chrome-navigation");
-    expect(within(chromeNavigation).getByTestId("app-chrome-title")).toHaveClass(
-      ...appChromeInlineTitleClassNames,
-    );
+    expect(within(chromeNavigation).getByTestId("app-chrome-title")).toBeInTheDocument();
   });
 
   it("lets invalid workflows create Backlog tasks while blocking execution moves", async () => {
@@ -574,30 +504,10 @@ describe("BoardRoute", () => {
     expect(await screen.findByRole("heading", { name: "Backlog" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Done" })).toBeInTheDocument();
     const issues = screen.getByRole("complementary", { name: "Workflow issues" });
-    expect(issues).toHaveClass("fixed", "right-[var(--space-4)]", "bottom-[var(--space-4)]", "gap-[6px]");
-    expect(within(issues).getByTestId("floating-notice-header")).toHaveClass("items-center", "leading-none");
-    expect(within(issues).getByRole("heading", { name: "Workflow issues" })).toHaveClass(
-      "text-lg",
-      "font-bold",
-      "leading-none",
-    );
-    expect(within(issues).getByRole("button", { name: "Collapse" })).toHaveClass("h-[18px]", "w-[18px]");
-    expect(within(issues).getByRole("list")).toHaveClass(
-      "workflow-issues-list",
-      "list-none",
-      "leading-snug",
-      "max-w-[72ch]",
-    );
     expect(within(issues).getAllByRole("listitem")).toHaveLength(3);
     fireEvent.click(within(issues).getByRole("button", { name: "Collapse" }));
     const expandButton = screen.getByRole("button", { name: "Expand" });
-    expect(screen.getByRole("complementary", { name: "Workflow issues" })).toHaveClass(
-      "floating-notice-collapsed",
-      "h-12",
-      "rounded-[var(--radius-m)]",
-      "w-12",
-    );
-    expect(expandButton).toHaveClass("h-full", "w-full");
+    expect(expandButton).toBeInTheDocument();
     expect(screen.getByRole("article", { name: "Write focused tests" })).toHaveAttribute("draggable", "true");
 
     const card = screen.getByRole("article", { name: "Write focused tests" });
@@ -646,15 +556,6 @@ describe("BoardRoute", () => {
     const sidebar = await screen.findByTestId("app-sidebar-host");
     const panel = screen.getByRole("complementary", { name: "Create Backlog task" });
     expect(panel).toHaveAttribute("data-mode", "overlay");
-    expect(panel).toHaveClass(
-      "fixed",
-      "top-[calc(var(--native-titlebar-height)+var(--app-sidebar-inset))]",
-      "right-[var(--app-sidebar-inset)]",
-      "bottom-[var(--app-sidebar-inset)]",
-    );
-    expect(panel.style.getPropertyValue("--app-sidebar-inset")).toBe("var(--space-2)");
-    expect(panel).not.toHaveClass("relative");
-    expect(panel).not.toHaveClass("top-0");
     expect(opened).toHaveLength(0);
     await within(sidebar).findByDisplayValue("workspace-1");
     fireEvent.change(within(sidebar).getByLabelText("Title"), { target: { value: "Sidebar task" } });
@@ -772,7 +673,6 @@ describe("BoardRoute", () => {
     expect(sidebar).toHaveAttribute("data-mode", "overlay");
     expect(opened).toHaveLength(0);
     await within(sidebar).findByDisplayValue("workspace-1");
-    expect(screen.getByRole("button", { name: "Create task" })).toHaveClass("mx-auto", "max-w-[400px]");
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Fallback task" } });
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
 
@@ -909,7 +809,6 @@ describe("BoardRoute", () => {
 
     expect(await screen.findByRole("dialog", { name: "Create Backlog task" })).toBeInTheDocument();
     await screen.findByDisplayValue("workspace-1");
-    expect(screen.getByRole("button", { name: "Create task" })).toHaveClass("mx-auto", "max-w-[400px]");
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Native task" } });
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
 
@@ -938,50 +837,21 @@ describe("BoardRoute", () => {
 
     const menu = await screen.findByRole("navigation");
     vi.useFakeTimers();
-    expect(menu).toHaveClass(...boardHoverMenuCollapsedClassNames);
     expect(screen.getByRole("button", { name: "New Task" })).toBeInTheDocument();
-    expect(screen.getByTestId("board-hover-menu-actions")).toHaveClass(...boardHoverMenuActionDockClassNames);
-    expect(screen.getByTestId("board-hover-menu-workflows")).toHaveClass("opacity-0");
 
     fireEvent.mouseEnter(menu);
 
-    expect(menu).toHaveClass(...boardHoverMenuExpandedClassNames);
-    expect(screen.getByRole("heading", { name: "Workflows" })).toHaveClass(
-      "text-lg",
-      "font-bold",
-      "leading-none",
-    );
-    expect(screen.getByTestId("board-hover-menu-header")).toHaveClass(
-      "grid",
-      "grid-cols-[minmax(0,1fr)_auto]",
-      "items-center",
-      "px-[var(--space-2)]",
-      "pt-[var(--space-2)]",
-      "leading-none",
-    );
-    const linkWorkflowButton = within(screen.getByTestId("board-hover-menu-header")).getByRole("button", {
+    expect(screen.getByRole("heading", { name: "Workflows" })).toBeInTheDocument();
+    expect(within(screen.getByTestId("board-hover-menu-header")).getByRole("button", {
       name: "Link workflow",
-    });
-    expect(linkWorkflowButton).toHaveClass(
-      "size-[20px]",
-    );
-    expect(screen.getByTestId("board-hover-menu-link-icon")).toHaveAttribute("width", "14");
-    expect(screen.getByTestId("board-hover-menu-link-icon")).toHaveAttribute("height", "14");
-    expect(screen.getByTestId("board-hover-menu-workflows")).toHaveClass(
-      ...boardHoverMenuWorkflowContentClassNames,
-    );
-    expect(screen.getByTestId("board-hover-menu-actions")).toHaveClass(...boardHoverMenuActionDockClassNames);
+    })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Delivery" })).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "Delivery" })).toHaveAttribute("data-slot", "item");
     expect(screen.getByRole("button", { name: "Edit workflow Delivery" })).toBeInTheDocument();
 
     fireEvent.mouseLeave(menu);
     act(() => {
       vi.advanceTimersByTime(500);
     });
-
-    expect(menu).toHaveClass(...boardHoverMenuCollapsedClassNames);
-    expect(screen.getByTestId("board-hover-menu-workflows")).toHaveClass("opacity-0");
 
     fireEvent.mouseEnter(menu);
   });

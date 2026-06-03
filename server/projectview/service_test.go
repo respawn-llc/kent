@@ -117,6 +117,37 @@ func TestServiceDeletesProjectMetadataAndSessionArtifacts(t *testing.T) {
 	}
 }
 
+func TestServiceDeletesProjectWithBacklogTasks(t *testing.T) {
+	ctx := context.Background()
+	store, _, binding := newProjectViewMetadataStore(t)
+	workflowStore, err := workflowstore.New(store)
+	if err != nil {
+		t.Fatalf("workflowstore.New: %v", err)
+	}
+	workflow, err := workflowStore.CreateWorkflow(ctx, workflowstore.CreateWorkflowRequest{Name: "Backlog Board"})
+	if err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflow.ID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	if _, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Backlog", Body: "Body"}); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	svc := newProjectViewMetadataService(t, store, binding.ProjectID)
+
+	deleted, err := svc.DeleteProject(ctx, serverapi.ProjectDeleteRequest{ProjectID: binding.ProjectID})
+	if err != nil {
+		t.Fatalf("DeleteProject: %v", err)
+	}
+	if !deleted.Deleted || len(deleted.Blockers) != 0 {
+		t.Fatalf("delete response = %+v, want deleted without backlog blockers", deleted)
+	}
+	if _, err := svc.GetProjectOverview(ctx, serverapi.ProjectGetOverviewRequest{ProjectID: binding.ProjectID}); err == nil {
+		t.Fatal("expected deleted backlog-only project lookup to fail")
+	}
+}
+
 func TestServiceDeleteProjectBlocksActiveSession(t *testing.T) {
 	store, cfg, binding := newProjectViewMetadataStore(t)
 	sessionDir := config.ProjectSessionsRoot(cfg, binding.ProjectID)

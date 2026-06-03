@@ -17,6 +17,9 @@ export const englishResources = {
       unavailable: "Unavailable",
       none: "None",
       close: "Close",
+      invalidNativeDialogTitle: "Invalid native dialog",
+      invalidNativeDialogBody:
+        "This dialog link is missing required delete context. Close it and try again from the main window.",
       resizeSidebar: "Resize sidebar",
       cancel: "Cancel",
       confirm: "Confirm",
@@ -104,7 +107,11 @@ export const englishResources = {
         "Delete this Builder project and its tasks/sessions from Builder. Workspace files, repos, worktrees, and reusable workflows stay on disk.",
       deleteConfirm: "Delete project",
       deleteBlocked: "Project cannot be deleted yet.",
-      deleteDeleted: "Project deleted.",
+      deleteDeleted: "Project deleted",
+      deleteWindowError: "Project delete window failed",
+      deleteCommittedNotifyError:
+        "Project was deleted, but the main window could not be updated: {{message}}",
+      deleteCommittedCloseError: "Project was deleted, but this dialog could not close: {{message}}",
     },
     board: {
       title: "Workflow board",
@@ -164,6 +171,8 @@ export const englishResources = {
       defaultLinked: "Default workflow",
       selected: "Selected workflow",
       reusableDefinition: "Reusable workflow definition",
+      edit: "Edit",
+      delete: "Delete",
     },
     task: {
       title: "Task",

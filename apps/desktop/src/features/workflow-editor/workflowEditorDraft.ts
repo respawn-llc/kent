@@ -1,4 +1,4 @@
-/* eslint-disable complexity, max-lines -- The draft reducer and serializers are kept together as one pure state module. */
+/* eslint-disable complexity -- The draft reducer and serializers are kept together as one pure state module. */
 import type {
   WorkflowContextSource,
   WorkflowDefinition,
@@ -19,12 +19,14 @@ import {
   deleteWorkflowNode,
   deleteWorkflowNodeGroup,
   editWorkflowEdgeRoute,
+  extractWorkflowNodeFromGroup,
   removeWorkflowNodeFromGroup,
   type AddWorkflowNodeInput,
   type AddWorkflowNodeToGroupInput,
   type ConnectWorkflowNodesInput,
   type CreateWorkflowNodeGroupInput,
   type EditWorkflowEdgeRouteInput,
+  type ExtractWorkflowNodeFromGroupInput,
   type WorkflowEditorCascadeSummary,
   type WorkflowEditorGraphMutationResult,
   type WorkflowEditorSelection,
@@ -96,6 +98,7 @@ export type WorkflowEditorDraftAction =
   | Readonly<{ type: "createNodeGroupFromNode"; input: CreateWorkflowNodeGroupInput }>
   | Readonly<{ type: "addNodeToGroup"; input: AddWorkflowNodeToGroupInput }>
   | Readonly<{ type: "deleteNodeGroup"; groupID: string }>
+  | Readonly<{ type: "extractNodeFromGroup"; input: ExtractWorkflowNodeFromGroupInput }>
   | Readonly<{ type: "removeNodeFromGroup"; nodeID: string }>;
 
 export type WorkflowEditorDirtyState = Readonly<{
@@ -208,6 +211,8 @@ export function workflowEditorDraftReducer(
       return applyTopologyMutation(state, addWorkflowNodeToGroup(state.draft, action.input));
     case "deleteNodeGroup":
       return applyTopologyMutation(state, deleteWorkflowNodeGroup(state.draft, action.groupID));
+    case "extractNodeFromGroup":
+      return applyTopologyMutation(state, extractWorkflowNodeFromGroup(state.draft, action.input));
     case "removeNodeFromGroup":
       return applyTopologyMutation(state, removeWorkflowNodeFromGroup(state.draft, action.nodeID));
   }

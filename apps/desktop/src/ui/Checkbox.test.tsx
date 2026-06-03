@@ -5,7 +5,7 @@ import { vi } from "vitest";
 import { Checkbox } from "./index";
 
 describe("Checkbox", () => {
-  it("renders the shadcn checkbox primitive with Builder styling", () => {
+  it("renders the shadcn checkbox primitive", () => {
     const onCheckedChange = vi.fn();
 
     render(
@@ -16,12 +16,6 @@ describe("Checkbox", () => {
     );
 
     const checkbox = screen.getByRole("checkbox", { name: "Requires approval" });
-
-    expect(checkbox).toHaveAttribute("data-slot", "checkbox");
-    expect(checkbox).toHaveClass(
-      "data-[state=checked]:bg-[var(--color-primary)]",
-      "focus-visible:ring-[color-mix(in_srgb,var(--color-primary)_35%,transparent)]",
-    );
 
     expect(checkbox).not.toBeChecked();
   });

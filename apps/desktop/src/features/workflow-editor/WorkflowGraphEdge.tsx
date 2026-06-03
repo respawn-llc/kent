@@ -8,6 +8,7 @@ import { workflowEdgePath } from "./workflowEdgePath";
 import { workflowEdgeColor } from "./workflowGraphColors";
 import type { WorkflowGraphEdge as WorkflowGraphEdgeModel } from "./workflowGraphLayout";
 import type { WorkflowGraphSelection } from "./workflowGraphSelection";
+import { workflowGraphZOrder } from "./workflowGraphZOrder";
 
 export function WorkflowGraphEdge(
   props: EdgeProps<WorkflowGraphEdgeModel> &
@@ -93,6 +94,7 @@ export function WorkflowGraphEdge(
                 onClick={inspect}
                 style={{
                   transform: `translate(-50%, -50%) translate(${edgePath.labelPoint.x.toString()}px, ${edgePath.labelPoint.y.toString()}px)`,
+                  zIndex: workflowGraphZOrder.edgeLabel,
                 }}
                 title={label}
               >

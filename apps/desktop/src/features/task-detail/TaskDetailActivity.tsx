@@ -44,7 +44,7 @@ export function Comments({
         </label>
         <div className="grid" data-testid="task-comment-input-frame">
           <textarea
-            className={cx(fieldInputClassName, "col-start-1 row-start-1 block min-h-[88px] resize-y pb-0")}
+            className={cx(fieldInputClassName, "col-start-1 row-start-1 block min-h-[88px] pb-0")}
             disabled={disabled}
             id="task-comment-body"
             onChange={(event) => {

@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- Board route coordinates data, drag/drop, and board-level dialogs. */
 import type { DragEvent, SyntheticEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";

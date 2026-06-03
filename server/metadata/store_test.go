@@ -226,6 +226,21 @@ VALUES ('run-delete-running', 'placement-delete-running', 1, 0, ?, ?, ?),
 	}
 }
 
+func TestDeleteProjectAllowsBacklogTasks(t *testing.T) {
+	store, _, binding := newMetadataTestStore(t)
+	ctx, now := context.Background(), time.Now().UTC().UnixMilli()
+	seedWorkflowGraph(t, store.db, binding.ProjectID, now)
+	seedWorkflowTaskWithID(t, store, "task-delete-backlog", "link-1", 1, "BLD-1", "placement-delete-backlog", "node-start")
+
+	blockers, err := store.DeleteProject(ctx, binding.ProjectID, func(ProjectSessionArtifact, bool) error { return nil })
+	if err != nil {
+		t.Fatalf("DeleteProject: %v", err)
+	}
+	if len(blockers) != 0 {
+		t.Fatalf("delete blockers = %+v, want none for backlog-only task", blockers)
+	}
+}
+
 func TestUnlinkProjectWorkspacePreservesTerminalHistory(t *testing.T) {
 	ctx := context.Background()
 	store, _, binding := newMetadataTestStore(t)

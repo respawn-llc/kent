@@ -2,13 +2,19 @@ import { useTranslation } from "react-i18next";
 
 import type { WorkflowRecord } from "../../api";
 import { HomeListCard } from "../../ui";
+import { WorkflowActionsContextMenu } from "./WorkflowActionsContextMenu";
 
 export function WorkflowCard({
+  contextActions,
   onOpen,
   workflow,
-}: Readonly<{ onOpen: () => void; workflow: WorkflowRecord }>) {
+}: Readonly<{
+  contextActions?: WorkflowCardContextActions | undefined;
+  onOpen: () => void;
+  workflow: WorkflowRecord;
+}>) {
   const { t } = useTranslation();
-  return (
+  const card = (
     <HomeListCard ariaLabel={`${workflow.name} rev ${workflow.version.toString()}`} onClick={onOpen}>
       <span className="font-mono text-[0.78rem] text-[var(--color-muted)]">rev {workflow.version}</span>
       <strong>{workflow.name}</strong>
@@ -17,4 +23,16 @@ export function WorkflowCard({
       </span>
     </HomeListCard>
   );
+  if (contextActions === undefined) {
+    return card;
+  }
+  return (
+    <WorkflowActionsContextMenu onEdit={contextActions.onEdit} workflowID={workflow.id}>
+      {card}
+    </WorkflowActionsContextMenu>
+  );
 }
+
+export type WorkflowCardContextActions = Readonly<{
+  onEdit: () => void;
+}>;

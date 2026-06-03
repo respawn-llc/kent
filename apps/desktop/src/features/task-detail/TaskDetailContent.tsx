@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- Task detail content keeps the editable header, properties, and feed panes colocated. */
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { Check, Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -7,7 +6,15 @@ import type { TaskDetail, TaskRun } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { useAppServices } from "../../app/useAppServices";
-import { Badge, Button, Island, Popover, PopoverContent, PopoverTrigger, showStatusToast } from "../../ui";
+import {
+  Badge,
+  Button,
+  Island,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  showStatusToast,
+} from "../../ui";
 import { fieldInputClassName } from "../../ui/Field";
 import { cx } from "../../ui/classes";
 import { fieldLabelClassName } from "../../ui/fieldStyles";
@@ -240,17 +247,17 @@ function DescriptionIsland({
   return (
     <Island
       aria-label={t("task.description")}
-      className="grid h-full min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-[var(--space-3)]"
+      className="grid min-w-0 grid-rows-[auto_auto_auto] gap-[var(--space-3)]"
       data-testid="task-detail-description-island"
     >
       <label className={fieldLabelClassName} htmlFor={descriptionId}>
         {t("task.description")}
       </label>
-      <div className="grid h-full min-h-0" data-testid="task-description-input-frame">
+      <div className="grid min-h-0" data-testid="task-description-input-frame">
         <textarea
           aria-describedby={descriptionError.length > 0 ? descriptionErrorId : undefined}
           aria-invalid={descriptionError.length > 0 ? true : undefined}
-          className={cx(fieldInputClassName, "col-start-1 row-start-1 block h-full min-h-[220px] resize-y pb-0")}
+          className={cx(fieldInputClassName, "col-start-1 row-start-1 block min-h-[220px] pb-0")}
           disabled={disabled}
           id={descriptionId}
           onChange={(event) => {
@@ -319,7 +326,6 @@ function PropertiesIsland({
     }
     await copyText(cliCommand, nativeBridge);
     showStatusToast({
-      body: "",
       id: "task-cli-command-copied",
       title: t("task.cliCommandCopied"),
       tone: "success",

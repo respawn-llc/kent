@@ -9,6 +9,7 @@ export {
   createWorkflowNodeGroupFromNode,
   deleteWorkflowNode,
   deleteWorkflowNodeGroup,
+  extractWorkflowNodeFromGroup,
   removeWorkflowNodeFromGroup,
 } from "./workflowEditorGraphNodeMutations";
 export {
@@ -18,6 +19,7 @@ export {
   type ConnectWorkflowNodesInput,
   type CreateWorkflowNodeGroupInput,
   type EditWorkflowEdgeRouteInput,
+  type ExtractWorkflowNodeFromGroupInput,
   type InferredNodeGroupTopologyIDs,
   type WorkflowEditorCascadeSummary,
   type WorkflowEditorGraphMutationResult,

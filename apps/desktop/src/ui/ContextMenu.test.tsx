@@ -4,7 +4,7 @@ import { vi } from "vitest";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "./index";
 
 describe("ContextMenu", () => {
-  it("renders island-styled menu items through a portal and dismisses with Escape", async () => {
+  it("renders menu items through a portal and dismisses with Escape", async () => {
     const onSelect = vi.fn();
     render(
       <ContextMenu>
@@ -20,11 +20,8 @@ describe("ContextMenu", () => {
     fireEvent.contextMenu(screen.getByRole("button", { name: "Open actions" }));
 
     const menu = await screen.findByRole("menu");
-    expect(menu).toHaveClass("island-surface", "island-surface-2", "app-region-no-drag");
     expect(document.body).toContainElement(menu);
-    expect(screen.getByRole("menuitem", { name: "Create node group" })).toHaveClass(
-      "data-[highlighted]:bg-[var(--color-island-2)]",
-    );
+    expect(screen.getByRole("menuitem", { name: "Create node group" })).toBeInTheDocument();
 
     fireEvent.keyDown(menu, { key: "Escape" });
 

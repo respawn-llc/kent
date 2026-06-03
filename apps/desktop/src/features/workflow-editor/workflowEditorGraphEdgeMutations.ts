@@ -11,6 +11,7 @@ import {
   workflowEditorGraphMutationWarnings,
   type ConnectWorkflowNodesInput,
   type EditWorkflowEdgeRouteInput,
+  type WorkflowEditorCascadeSummary,
   type WorkflowEditorGraphMutationResult,
   workflowSelection,
   unchanged,
@@ -30,6 +31,10 @@ export function connectWorkflowNodes(
   }
   if (target.kind === "start") {
     return unchanged(draft, workflowEditorGraphMutationWarnings.startIncomingEdge);
+  }
+  const nodeGroupFanout = nodeGroupFanoutConnection(draft, source.id, target.id);
+  if (nodeGroupFanout !== null) {
+    return connectNodeGroupFanoutBranch(draft, input, nodeGroupFanout);
   }
   const transitionID =
     input.transitionID ??
@@ -68,6 +73,210 @@ export function connectWorkflowNodes(
     nextSelection: { edgeID: edge.id, kind: "edge" },
     summary: emptySummary,
     warnings: [],
+  };
+}
+
+type NodeGroupFanoutConnection = Readonly<{
+  transitionGroupID: string;
+  existingEdgeID: string | null;
+  existingTransitionGroupID: string | null;
+}>;
+
+function nodeGroupFanoutConnection(
+  draft: DraftWorkflowDefinition,
+  sourceNodeID: string,
+  targetNodeID: string,
+): NodeGroupFanoutConnection | null {
+  const target = draft.nodes.find((node) => node.id === targetNodeID);
+  if (target?.kind !== "agent" || target.groupID.trim() === "") {
+    return null;
+  }
+  const groupedBranchIDs = groupedSiblingBranchIDs(draft, target.groupID, targetNodeID);
+  if (groupedBranchIDs.size === 0) {
+    return null;
+  }
+  const sourceTransitionGroupIDs = transitionGroupIDsForSourceNode(draft, sourceNodeID);
+  const candidateTransitionGroupIDs = transitionGroupIDsCoveringBranches(
+    draft,
+    sourceTransitionGroupIDs,
+    groupedBranchIDs,
+  );
+  const transitionGroupID = singleTransitionGroupID(candidateTransitionGroupIDs);
+  if (transitionGroupID === null) {
+    return null;
+  }
+  const existingConnection = existingSourceTargetConnection(
+    draft,
+    sourceTransitionGroupIDs,
+    targetNodeID,
+    transitionGroupID,
+  );
+  if (existingConnection === "already_connected" || existingConnection === "ambiguous") {
+    return null;
+  }
+  return {
+    existingEdgeID: existingConnection?.id ?? null,
+    existingTransitionGroupID: existingConnection?.transitionGroupID ?? null,
+    transitionGroupID,
+  };
+}
+
+function groupedSiblingBranchIDs(
+  draft: DraftWorkflowDefinition,
+  groupID: string,
+  targetNodeID: string,
+): ReadonlySet<string> {
+  return new Set(
+    draft.nodes
+      .filter((node) => node.kind === "agent" && node.groupID === groupID && node.id !== targetNodeID)
+      .map((node) => node.id),
+  );
+}
+
+function transitionGroupIDsForSourceNode(
+  draft: DraftWorkflowDefinition,
+  sourceNodeID: string,
+): ReadonlySet<string> {
+  return new Set(
+    draft.transitionGroups.filter((group) => group.sourceNodeID === sourceNodeID).map((group) => group.id),
+  );
+}
+
+function transitionGroupIDsCoveringBranches(
+  draft: DraftWorkflowDefinition,
+  sourceTransitionGroupIDs: ReadonlySet<string>,
+  branchIDs: ReadonlySet<string>,
+): ReadonlySet<string> {
+  return new Set(
+    Array.from(sourceTransitionGroupIDs).filter((transitionGroupID) =>
+      transitionGroupTargetsExactly(draft, transitionGroupID, branchIDs),
+    ),
+  );
+}
+
+function transitionGroupTargetsExactly(
+  draft: DraftWorkflowDefinition,
+  transitionGroupID: string,
+  targetNodeIDs: ReadonlySet<string>,
+): boolean {
+  const edges = edgesForTransitionGroup(draft, transitionGroupID);
+  return (
+    edges.length === targetNodeIDs.size &&
+    setsEqual(new Set(edges.map((edge) => edge.targetNodeID)), targetNodeIDs)
+  );
+}
+
+function setsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  return left.size === right.size && Array.from(left).every((item) => right.has(item));
+}
+
+function singleTransitionGroupID(transitionGroupIDs: ReadonlySet<string>): string | null {
+  if (transitionGroupIDs.size !== 1) {
+    return null;
+  }
+  return Array.from(transitionGroupIDs)[0] ?? null;
+}
+
+function existingSourceTargetConnection(
+  draft: DraftWorkflowDefinition,
+  sourceTransitionGroupIDs: ReadonlySet<string>,
+  targetNodeID: string,
+  fanoutTransitionGroupID: string,
+): "already_connected" | "ambiguous" | DraftWorkflowDefinition["edges"][number] | null {
+  const existingSourceTargetEdges = draft.edges.filter(
+    (edge) => sourceTransitionGroupIDs.has(edge.transitionGroupID) && edge.targetNodeID === targetNodeID,
+  );
+  if (existingSourceTargetEdges.some((edge) => edge.transitionGroupID === fanoutTransitionGroupID)) {
+    return "already_connected";
+  }
+  if (existingSourceTargetEdges.length > 1) {
+    return "ambiguous";
+  }
+  return existingSourceTargetEdges[0] ?? null;
+}
+
+function connectNodeGroupFanoutBranch(
+  draft: DraftWorkflowDefinition,
+  input: ConnectWorkflowNodesInput,
+  connection: NodeGroupFanoutConnection,
+): WorkflowEditorGraphMutationResult {
+  const target = draft.nodes.find((node) => node.id === input.targetNodeID);
+  if (target === undefined) {
+    return unchanged(draft, workflowEditorGraphMutationWarnings.missingConnectNodes);
+  }
+  if (connection.existingEdgeID !== null) {
+    const edges = draft.edges.map((edge) =>
+      edge.id === connection.existingEdgeID
+        ? { ...edge, key: input.edgeKey ?? edge.key, transitionGroupID: connection.transitionGroupID }
+        : edge,
+    );
+    const nextDraft = {
+      ...draft,
+      edges,
+      transitionGroups: removeTransitionGroupIfEmpty(draft, edges, connection.existingTransitionGroupID),
+    };
+    return {
+      draft: nextDraft,
+      nextSelection: { edgeID: connection.existingEdgeID, kind: "edge" },
+      summary: removedTransitionGroupSummary(connection.existingTransitionGroupID, draft, nextDraft),
+      warnings: [],
+    };
+  }
+  const edgeKey = input.edgeKey ?? uniqueWorkflowModelKey(
+    target.key,
+    edgesForTransitionGroup(draft, connection.transitionGroupID).map((edge) => edge.key),
+  );
+  const edge = {
+    contextMode: "new_session",
+    contextSource: { kind: "immediate_source", nodeKey: "" },
+    id: input.edgeID,
+    inputBindings: [],
+    key: edgeKey,
+    outputRequirements: [],
+    requiresApproval: false,
+    targetNodeID: input.targetNodeID,
+    transitionGroupID: connection.transitionGroupID,
+    workflowID: draft.workflow.id,
+  };
+  return {
+    draft: {
+      ...draft,
+      edges: [...draft.edges, edge],
+    },
+    nextSelection: { edgeID: edge.id, kind: "edge" },
+    summary: emptySummary,
+    warnings: [],
+  };
+}
+
+function removeTransitionGroupIfEmpty(
+  draft: DraftWorkflowDefinition,
+  edges: DraftWorkflowDefinition["edges"],
+  transitionGroupID: string | null,
+): DraftWorkflowDefinition["transitionGroups"] {
+  if (transitionGroupID === null) {
+    return draft.transitionGroups;
+  }
+  const transitionGroupIDs = new Set(edges.map((edge) => edge.transitionGroupID));
+  return draft.transitionGroups.filter(
+    (group) => group.id !== transitionGroupID || transitionGroupIDs.has(group.id),
+  );
+}
+
+function removedTransitionGroupSummary(
+  transitionGroupID: string | null,
+  before: DraftWorkflowDefinition,
+  after: DraftWorkflowDefinition,
+): WorkflowEditorCascadeSummary {
+  if (transitionGroupID === null) {
+    return emptySummary;
+  }
+  const wasPresent = before.transitionGroups.some((group) => group.id === transitionGroupID);
+  const isPresent = after.transitionGroups.some((group) => group.id === transitionGroupID);
+  return {
+    removedEdgeIDs: [],
+    removedNodeIDs: [],
+    removedTransitionGroupIDs: wasPresent && !isPresent ? [transitionGroupID] : [],
   };
 }
 
