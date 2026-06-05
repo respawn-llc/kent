@@ -227,6 +227,38 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 	}
 }
 
+func TestWorkflowEdgeUpdatePreservesPromptAndParameters(t *testing.T) {
+	cfg, _, remote := newWorkflowCommandLoopback(t)
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	workflowOut, _ := runWorkflowRootCommandOK(t, "workflow", "create", "Parameter Preservation Workflow")
+	workflowID := labeledOutputValue(t, workflowOut, "workflow_id")
+	runWorkflowRootCommandOK(t, "workflow", "node", "add", workflowID, "--key", "triaging", "--kind", "agent", "--display-name", "Triaging", "--agent", "workflow-test", "--prompt", "Triage.")
+	edgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "new_session", "--prompt", "Triage.")
+	edgeID := labeledOutputValue(t, edgeOut, "edge_id")
+	if edgeID == "" {
+		t.Fatalf("edge output = %q, want edge id", edgeOut)
+	}
+
+	ctx := context.Background()
+	edge := workflowCommandStoredEdgeByID(t, ctx, remote.store, workflowID, edgeID)
+	edge.Parameters = []workflow.Parameter{{Key: "summary", Description: "Summary."}}
+	if _, err := remote.store.UpdateEdge(ctx, workflowCommandEdgeRecord(edge)); err != nil {
+		t.Fatalf("UpdateEdge seed parameters: %v", err)
+	}
+
+	runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--transition-display-name", "Start Review")
+
+	updated := workflowCommandStoredEdgeByID(t, ctx, remote.store, workflowID, edgeID)
+	if updated.PromptTemplate != "Triage." {
+		t.Fatalf("edge prompt = %q, want preserved prompt", updated.PromptTemplate)
+	}
+	if len(updated.Parameters) != 1 || updated.Parameters[0].Key != "summary" || updated.Parameters[0].Description != "Summary." {
+		t.Fatalf("edge parameters = %+v, want preserved summary parameter", updated.Parameters)
+	}
+}
+
 func TestWorkflowNodeUpdatePreservesCanonicalWiringFields(t *testing.T) {
 	cfg := config.App{WorkspaceRoot: t.TempDir()}
 	remote := &preservingNodeUpdateRemote{}
@@ -862,6 +894,38 @@ func labeledOutputValue(t *testing.T, output string, label string) string {
 		t.Fatalf("label %q not found in empty output", label)
 	}
 	return ""
+}
+
+func workflowCommandStoredEdgeByID(t *testing.T, ctx context.Context, store *workflowstore.Store, workflowID string, edgeID string) workflow.Edge {
+	t.Helper()
+	def, _, err := store.GetDefinition(ctx, workflow.WorkflowID(workflowID))
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	for _, edge := range def.Edges {
+		if string(edge.ID) == edgeID {
+			return edge
+		}
+	}
+	t.Fatalf("missing edge %s in %+v", edgeID, def.Edges)
+	return workflow.Edge{}
+}
+
+func workflowCommandEdgeRecord(edge workflow.Edge) workflowstore.EdgeRecord {
+	return workflowstore.EdgeRecord{
+		ID:                 edge.ID,
+		WorkflowID:         edge.WorkflowID,
+		TransitionGroupID:  edge.TransitionGroupID,
+		Key:                edge.Key,
+		TargetNodeID:       edge.TargetNodeID,
+		RequiresApproval:   edge.RequiresApproval,
+		ContextMode:        edge.ContextMode,
+		ContextSource:      edge.ContextSource,
+		InputBindings:      edge.InputBindings,
+		PromptTemplate:     edge.PromptTemplate,
+		Parameters:         edge.Parameters,
+		OutputRequirements: edge.OutputRequirements,
+	}
 }
 
 func TestWorkflowListAndResolutionFetchAllWorkflowPages(t *testing.T) {

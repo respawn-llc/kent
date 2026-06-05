@@ -231,10 +231,7 @@ func inputBindingsForOutputFields(fields []workflow.OutputField) []workflow.Inpu
 }
 
 func edgeOutputRequirementsSnapshot(edge workflow.Edge, source workflow.Node, target workflow.Node, derived workflow.DerivedWiring) []workflow.OutputRequirement {
-	fields := derived.RequiredProvisionFieldsForEdge(edge.ID)
-	if source.Kind == workflow.NodeKindJoin {
-		fields = derived.JoinOutputFieldsForNode(source.ID)
-	}
+	fields := derived.TransitionOutputFieldsForEdge(edge, source)
 	if target.Kind == workflow.NodeKindJoin {
 		fields = derived.RequiredProviderFieldsForJoinEdge(edge.ID)
 	}

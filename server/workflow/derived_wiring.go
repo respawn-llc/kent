@@ -90,6 +90,40 @@ func (w DerivedWiring) JoinOutputFieldsForNode(nodeID NodeID) []OutputField {
 	return append([]OutputField(nil), w.joinOutputFieldsByNode[nodeID]...)
 }
 
+func (w DerivedWiring) TransitionOutputFieldsForEdge(edge Edge, source Node) []OutputField {
+	if source.Kind == NodeKindJoin {
+		return w.JoinOutputFieldsForNode(source.ID)
+	}
+	return w.RequiredProvisionFieldsForEdge(edge.ID)
+}
+
+func TransitionOutputFieldsForTargetNode(def Definition, derived DerivedWiring, targetNodeID NodeID) []OutputField {
+	nodesByID := make(map[NodeID]Node, len(def.Nodes))
+	groupsByID := make(map[TransitionGroupID]TransitionGroup, len(def.TransitionGroups))
+	for _, node := range def.Nodes {
+		nodesByID[node.ID] = node
+	}
+	for _, group := range def.TransitionGroups {
+		groupsByID[group.ID] = group
+	}
+	fields := []OutputField{}
+	for _, edge := range def.Edges {
+		if edge.TargetNodeID != targetNodeID {
+			continue
+		}
+		group, groupExists := groupsByID[edge.TransitionGroupID]
+		if !groupExists {
+			continue
+		}
+		source, sourceExists := nodesByID[group.SourceNodeID]
+		if !sourceExists {
+			continue
+		}
+		fields = appendUniqueOutputFields(fields, derived.TransitionOutputFieldsForEdge(edge, source))
+	}
+	return fields
+}
+
 func (w *DerivedWiring) addRequiredProvisionFields(edgeID EdgeID, groupID TransitionGroupID, fields []OutputField) {
 	edgeMerged, edgeDiagnostics := appendCompatibleOutputFields(w.requiredProvisionFieldsByEdge[edgeID], fields, ValidationError{EdgeID: edgeID, TransitionGroupID: groupID})
 	w.requiredProvisionFieldsByEdge[edgeID] = edgeMerged

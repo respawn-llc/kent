@@ -110,6 +110,16 @@ func TestDeriveWiringAggregatesJoinIncomingParameters(t *testing.T) {
 	})
 }
 
+func TestTransitionOutputFieldsForTargetNodeUsesJoinAggregate(t *testing.T) {
+	def := joinParameterWorkflow()
+	derived := workflow.DeriveWiring(def)
+
+	assertOutputFields(t, workflow.TransitionOutputFieldsForTargetNode(def, derived, "node_consume"), []workflow.OutputField{
+		{Name: "plan", Description: "Implementation plan."},
+		{Name: "risk", Description: "Known implementation risk."},
+	})
+}
+
 func TestDeriveWiringReportsJoinAggregateCollisionsAcrossProducingTransitions(t *testing.T) {
 	def := joinParameterWorkflow()
 	edgeByIDForDerivedTest(t, &def, "edge_branch_b_join").Parameters = []workflow.Parameter{

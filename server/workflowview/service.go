@@ -1615,16 +1615,8 @@ func boardGroups(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardGrou
 
 func boardColumns(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardColumn {
 	columns := make([]serverapi.WorkflowBoardColumn, 0, len(def.Nodes))
-	derivedNodes := workflowDerivedNodeWiringByID(def.DerivedWiring)
-	derivedEdges := workflowDerivedEdgeWiringByID(def.DerivedWiring)
-	nodeKinds := map[string]workflow.NodeKind{}
-	for _, node := range def.Nodes {
-		nodeKinds[node.ID] = workflow.NodeKind(node.Kind)
-	}
-	sourceNodeIDsByTransitionGroup := map[string]string{}
-	for _, group := range def.TransitionGroups {
-		sourceNodeIDsByTransitionGroup[group.ID] = group.SourceNodeID
-	}
+	domainDef := definitionForValidation(def)
+	derived := workflow.DeriveWiring(domainDef)
 	for index, node := range def.Nodes {
 		if !boardVisibleNodeKind(node.Kind) {
 			continue
@@ -1637,8 +1629,8 @@ func boardColumns(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardCol
 				DisplayName:            node.DisplayName,
 				AssigneeRole:           node.SubagentRole,
 				SortOrder:              index,
-				OutputFields:           derivedNodes[node.ID].PossibleProvisionFields,
-				TransitionOutputFields: boardTransitionOutputFields(node.ID, def.Edges, sourceNodeIDsByTransitionGroup, nodeKinds, derivedNodes, derivedEdges),
+				OutputFields:           workflowapi.OutputFields(derived.PossibleProvisionFieldsForNode(workflow.NodeID(node.ID))),
+				TransitionOutputFields: workflowapi.OutputFields(workflow.TransitionOutputFieldsForTargetNode(domainDef, derived, workflow.NodeID(node.ID))),
 			},
 			GroupID:   node.GroupID,
 			SortOrder: index,
@@ -1651,45 +1643,6 @@ func boardColumns(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardCol
 
 func boardVisibleNodeKind(kind string) bool {
 	return workflow.NodeKind(kind) != workflow.NodeKindJoin
-}
-
-func workflowDerivedNodeWiringByID(derived serverapi.WorkflowDerivedWiring) map[string]serverapi.WorkflowDerivedNodeWiring {
-	byID := make(map[string]serverapi.WorkflowDerivedNodeWiring, len(derived.Nodes))
-	for _, node := range derived.Nodes {
-		byID[node.NodeID] = node
-	}
-	return byID
-}
-
-func boardTransitionOutputFields(
-	nodeID string,
-	edges []serverapi.WorkflowEdge,
-	sourceNodeIDsByTransitionGroup map[string]string,
-	nodeKinds map[string]workflow.NodeKind,
-	derivedNodes map[string]serverapi.WorkflowDerivedNodeWiring,
-	derivedEdges map[string]serverapi.WorkflowDerivedEdgeWiring,
-) []serverapi.WorkflowOutputField {
-	fields := []serverapi.WorkflowOutputField{}
-	seen := map[string]bool{}
-	for _, edge := range edges {
-		if edge.TargetNodeID != nodeID {
-			continue
-		}
-		sourceNodeID := sourceNodeIDsByTransitionGroup[edge.TransitionGroupID]
-		incomingFields := derivedEdges[edge.ID].RequiredProvisionFields
-		if nodeKinds[sourceNodeID] == workflow.NodeKindJoin {
-			incomingFields = derivedNodes[sourceNodeID].JoinOutputFields
-		}
-		for _, field := range incomingFields {
-			name := strings.TrimSpace(field.Name)
-			if name == "" || seen[name] {
-				continue
-			}
-			seen[name] = true
-			fields = append(fields, serverapi.WorkflowOutputField{Name: name, Description: strings.TrimSpace(field.Description)})
-		}
-	}
-	return fields
 }
 
 func (s *Service) taskCard(ctx context.Context, task sqlitegen.TaskRecord, placements []sqlitegen.TaskNodePlacementRecord, def serverapi.WorkflowDefinition, nodeKinds map[string]workflow.NodeKind, sourceWorkspace serverapi.ProjectWorkspaceSummary) (serverapi.WorkflowBoardTaskCard, bool, error) {
