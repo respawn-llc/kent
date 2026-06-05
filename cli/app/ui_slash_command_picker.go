@@ -90,6 +90,14 @@ func normalizeSlashCommandToken(token string) string {
 }
 
 func (m *uiModel) refreshSlashCommandFilterFromInput() tea.Cmd {
+	return m.refreshSlashCommandFilterFromInputWithAuth(true)
+}
+
+func (m *uiModel) refreshSlashCommandFilterStateFromInput() {
+	_ = m.refreshSlashCommandFilterFromInputWithAuth(false)
+}
+
+func (m *uiModel) refreshSlashCommandFilterFromInputWithAuth(scheduleAuth bool) tea.Cmd {
 	parsed := parseSlashCommandInput(m.input)
 	if !parsed.active || parsed.argumentMode {
 		m.authSlashSessionOpen = false
@@ -104,7 +112,9 @@ func (m *uiModel) refreshSlashCommandFilterFromInput() tea.Cmd {
 		m.authSlashSessionOpen = true
 		m.authSlashGeneration = nextNonZeroToken(m.authSlashGeneration)
 	}
-	cmd = m.requestAuthSlashCommandRefresh()
+	if scheduleAuth {
+		cmd = m.requestAuthSlashCommandRefresh()
+	}
 	normalized := normalizeSlashCommandToken(parsed.token)
 	if !m.slashCommandFilterSet || m.slashCommandFilter != normalized {
 		m.slashCommandSelection = 0
@@ -193,6 +203,7 @@ func (m *uiModel) requestAuthSlashCommandRefresh() tea.Cmd {
 	token := m.authSlashToken
 	generation := m.authSlashGeneration
 	loader := m.statusConfig.AuthManager
+	m.authSlashLoading = true
 	return func() tea.Msg {
 		name, err := authcommand.SlashCommandName(context.Background(), loader)
 		return authSlashCommandRefreshedMsg{token: token, generation: generation, name: name, err: err}

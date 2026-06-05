@@ -619,8 +619,8 @@ func TestSlashCommandPickerTypingSlashDefersAuthLoadToCommand(t *testing.T) {
 	}
 }
 
-func TestSlashCommandPickerDroppedAuthRefreshCanBeRescheduled(t *testing.T) {
-	manager := auth.NewManager(auth.NewMemoryStore(auth.State{
+func TestSlashCommandPickerAuthRefreshSingleFlightsAfterScheduledCommand(t *testing.T) {
+	store := &countingAuthStore{state: auth.State{
 		Scope: auth.ScopeGlobal,
 		Method: auth.Method{
 			Type: auth.MethodOAuth,
@@ -629,21 +629,35 @@ func TestSlashCommandPickerDroppedAuthRefreshCanBeRescheduled(t *testing.T) {
 				TokenType:   "Bearer",
 			},
 		},
-	}), nil, nil)
+	}}
+	manager := auth.NewManager(store, nil, nil)
 	m := newProjectedStaticUIModel(WithUIStatusConfig(uiStatusConfig{AuthManager: manager}))
 	m.replaceMainInput("/", -1)
-	droppedCmd := m.refreshSlashCommandFilterFromInput()
-	if droppedCmd == nil {
-		t.Fatal("expected first auth slash refresh command")
+	if m.authSlashLoading {
+		t.Fatal("replaceMainInput must not mark an unscheduled auth refresh in flight")
 	}
 
 	cmd := m.refreshSlashCommandFilterFromInput()
 	if cmd == nil {
-		t.Fatal("expected dropped auth slash refresh to be rescheduled")
+		t.Fatal("expected auth slash refresh command after state-only input replacement")
+	}
+	if !m.authSlashLoading {
+		t.Fatal("expected scheduled auth slash refresh to be marked loading")
+	}
+	m.input = "/lo"
+	secondCmd := m.refreshSlashCommandFilterFromInput()
+	if secondCmd != nil {
+		t.Fatal("did not expect concurrent auth slash refresh while first is loading")
+	}
+	if store.loads != 0 {
+		t.Fatalf("expected no auth load before command executes, got %d", store.loads)
 	}
 	for _, msg := range collectCmdMessages(t, cmd) {
 		next, _ := m.Update(msg)
 		m = next.(*uiModel)
+	}
+	if store.loads != 1 {
+		t.Fatalf("expected one auth load after command executes, got %d", store.loads)
 	}
 	if state := m.slashCommandPicker(); !slashPickerContainsCommand(state, "logout") {
 		t.Fatalf("expected /logout after rescheduled auth refresh, got %+v", slashPickerCommandNames(state))

@@ -96,6 +96,11 @@ func (m *uiModel) refreshAutocompleteFromInput() tea.Cmd {
 	return cmd
 }
 
+func (m *uiModel) refreshAutocompleteStateFromInput() {
+	m.refreshSlashCommandFilterStateFromInput()
+	m.refreshPathReferenceFromInput()
+}
+
 func (m *uiModel) refreshPathReferenceFromInput() {
 	if m.pathReferenceSearch == nil {
 		m.clearPathReferenceState()

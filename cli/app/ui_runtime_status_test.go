@@ -70,6 +70,22 @@ func TestCurrentConversationFreshnessAcceptsCachedFreshness(t *testing.T) {
 	}
 }
 
+func TestCurrentConversationFreshnessDoesNotDowngradeLocalTurnFromCachedFresh(t *testing.T) {
+	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
+		ConversationFreshness: clientui.ConversationFreshnessFresh,
+	}}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.conversationFreshness = clientui.ConversationFreshnessEstablished
+	m.localConversationTurn = true
+
+	if got := m.currentConversationFreshness(); got != clientui.ConversationFreshnessEstablished {
+		t.Fatalf("conversation freshness = %v, want established", got)
+	}
+	if m.conversationFreshness != clientui.ConversationFreshnessEstablished {
+		t.Fatalf("cached stale freshness downgraded local turn state: %v", m.conversationFreshness)
+	}
+}
+
 func TestRuntimeStatusLineHidesGoalStatusText(t *testing.T) {
 	for _, goalStatus := range []clientui.RuntimeGoalStatus{clientui.RuntimeGoalStatusActive, clientui.RuntimeGoalStatusPaused, clientui.RuntimeGoalStatusComplete} {
 		client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{

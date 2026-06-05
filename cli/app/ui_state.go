@@ -60,6 +60,7 @@ type uiInputFeatureState struct {
 	reviewerMode             string
 	autoCompactionEnabled    bool
 	conversationFreshness    clientui.ConversationFreshness
+	localConversationTurn    bool
 	runtimeControlToken      uint64
 	runtimeControlTokens     map[runtimeControlOperation]uint64
 	runtimeControlPending    map[runtimeControlOperation]runtimeControlPendingState

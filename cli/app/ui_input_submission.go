@@ -286,6 +286,8 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 		}
 		m.forwardToView(tui.CommitAssistantMsg{})
 	}
+	m.conversationFreshness = clientui.ConversationFreshnessEstablished
+	m.localConversationTurn = true
 	m.logf("step.done assistant_chars=%d", len(msg.message))
 	m.sawAssistantDelta = false
 	if len(m.queued) > 0 {
