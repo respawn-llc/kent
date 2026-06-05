@@ -4,10 +4,11 @@ import { useTranslation } from "react-i18next";
 import { errorMessage } from "../../api/errors";
 import { useAppServices } from "../../app/useAppServices";
 import { Button, Dialog, NativeDialogWindow } from "../../ui";
-import type {
-  WorkflowGraphCascadeConfirmationOperation,
-  WorkflowDeleteConfirmationCounts,
-  WorkflowDeleteConfirmationWindowTarget,
+import {
+  workflowDeleteConfirmationTextKeys,
+  type WorkflowDeleteConfirmationCounts,
+  type WorkflowGraphCascadeConfirmationOperation,
+  type WorkflowDeleteConfirmationWindowTarget,
 } from "./workflowDeleteConfirmationModel";
 
 export function WorkflowDeleteConfirmationFallbackDialog({
@@ -22,13 +23,14 @@ export function WorkflowDeleteConfirmationFallbackDialog({
   operation?: WorkflowGraphCascadeConfirmationOperation | undefined;
 }>) {
   const { t } = useTranslation();
+  const textKeys = workflowDeleteConfirmationTextKeys(counts, operation);
   return (
     <Dialog
       closeLabel={t("app.close")}
       onClose={onCancel}
       open
       style={{ width: "min(420px, calc(100vw - 32px))" }}
-      title={t(cascadeConfirmationTitleKey(operation))}
+      title={t(textKeys.titleKey)}
     >
       <WorkflowDeleteConfirmationContent counts={counts} onCancel={onCancel} onConfirm={onConfirm} operation={operation} />
     </Dialog>
@@ -43,8 +45,9 @@ export function WorkflowDeleteConfirmationWindowRoute({
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
   const [actionError, setActionError] = useState("");
+  const textKeys = workflowDeleteConfirmationTextKeys(counts, operation);
   return (
-    <NativeDialogWindow contentMaxWidth="420px" title={t(cascadeConfirmationTitleKey(operation))}>
+    <NativeDialogWindow contentMaxWidth="420px" title={t(textKeys.titleKey)}>
       <WorkflowDeleteConfirmationContent
         actionError={actionError}
         counts={counts}
@@ -80,17 +83,24 @@ function WorkflowDeleteConfirmationContent({
   operation: WorkflowGraphCascadeConfirmationOperation;
 }>) {
   const { t } = useTranslation();
+  const textKeys = workflowDeleteConfirmationTextKeys(counts, operation);
   return (
     <div className="grid gap-[var(--space-3)]">
       <p className="m-0 text-sm text-[var(--color-on-island)]">
-        {t(cascadeConfirmationBodyKey(operation))}
+        {t(textKeys.bodyKey)}
       </p>
+      {counts.promptCount > 0 ? (
+        <p className="m-0 text-sm text-[var(--color-error)]">{t("workflowEditor.deletePromptLossWarning")}</p>
+      ) : null}
       {actionError === undefined || actionError.length === 0 ? null : (
         <p className="m-0 text-sm text-[var(--color-error)]">{actionError}</p>
       )}
       <ul className="m-0 grid gap-[var(--space-1)] p-0 text-sm text-[var(--color-muted)]">
         <li className="list-none">{t("workflowEditor.deleteCascadeNodes", { count: counts.nodeCount })}</li>
         <li className="list-none">{t("workflowEditor.deleteCascadeEdges", { count: counts.edgeCount })}</li>
+        {counts.promptCount > 0 ? (
+          <li className="list-none">{t("workflowEditor.deleteCascadePrompts", { count: counts.promptCount })}</li>
+        ) : null}
         <li className="list-none">
           {t("workflowEditor.deleteCascadeTransitionGroups", { count: counts.transitionGroupCount })}
         </li>
@@ -100,23 +110,11 @@ function WorkflowDeleteConfirmationContent({
           {t("app.cancel")}
         </Button>
         <Button className="w-full" onClick={onConfirm} variant="danger">
-          {t(cascadeConfirmationConfirmKey(operation))}
+          {t(textKeys.confirmKey)}
         </Button>
       </div>
     </div>
   );
-}
-
-function cascadeConfirmationTitleKey(operation: WorkflowGraphCascadeConfirmationOperation): string {
-  return operation === "extract" ? "workflowEditor.extractNodeCascadeTitle" : "workflowEditor.deleteCascadeTitle";
-}
-
-function cascadeConfirmationBodyKey(operation: WorkflowGraphCascadeConfirmationOperation): string {
-  return operation === "extract" ? "workflowEditor.extractNodeCascadeBody" : "workflowEditor.deleteCascadeBody";
-}
-
-function cascadeConfirmationConfirmKey(operation: WorkflowGraphCascadeConfirmationOperation): string {
-  return operation === "extract" ? "workflowEditor.extractNodeCascadeConfirm" : "workflowEditor.deleteCascadeConfirm";
 }
 
 async function confirmWorkflowGraphDelete(

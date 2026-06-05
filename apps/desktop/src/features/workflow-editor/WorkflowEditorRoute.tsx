@@ -29,10 +29,15 @@ import { WorkflowGraphCanvas } from "./WorkflowGraphCanvas";
 import { WorkflowInspectorSidebar } from "./WorkflowInspectorSidebar";
 import { WorkflowDeleteConfirmationFallbackDialog } from "./WorkflowDeleteConfirmationWindow";
 import {
-  workflowDeleteConfirmationCountsFromSummary,
+  workflowDeleteConfirmationTextKeys,
   workflowDeleteConfirmationWindowOptions,
+  type WorkflowDeleteConfirmationCounts,
   type WorkflowGraphCascadeConfirmationOperation,
 } from "./workflowDeleteConfirmationModel";
+import {
+  workflowDeleteNeedsConfirmation,
+  workflowDeletionConfirmationCounts,
+} from "./workflowDeleteConfirmationPolicy";
 import { useWorkflowGraphDeleteConfirmationListener } from "./useWorkflowGraphDeleteConfirmationListener";
 import { layoutWorkflowGraph, type WorkflowGraphLayout } from "./workflowGraphLayout";
 import { useWorkflowEditorData, type WorkflowEditorData } from "./useWorkflowEditorData";
@@ -246,13 +251,24 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
         return;
       }
       const currentPlan = planPendingGraphMutation(draftState, mutationRequest);
-      if (currentPlan.kind !== "ready" || !cascadeSummaryEquals(currentPlan.summary, mutationRequest.summary)) {
+      const rejectStaleConfirmation = () => {
         pushStatus({
           body: t("workflowEditor.deleteConfirmationStale"),
           id: "workflow-delete-confirmation-stale",
           title: t("workflowEditor.deleteBlockedTitle"),
           tone: "warning",
         });
+      };
+      if (currentPlan.kind !== "ready") {
+        rejectStaleConfirmation();
+        return;
+      }
+      const currentCounts = workflowDeletionConfirmationCounts(draftState.draft, currentPlan.summary);
+      if (
+        !cascadeSummaryEquals(currentPlan.summary, mutationRequest.summary) ||
+        currentCounts.promptCount !== mutationRequest.counts.promptCount
+      ) {
+        rejectStaleConfirmation();
         return;
       }
       dispatchPendingGraphMutation(mutationRequest, dispatch);
@@ -285,18 +301,19 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
     nativeAvailable: nativeBridge.capabilities.dialogWindows,
     openNative: async (deleteRequest) => {
       const operation = confirmationOperation(deleteRequest);
+      const textKeys = workflowDeleteConfirmationTextKeys(deleteRequest.counts, operation);
       await nativeBridge.dialogs.openWindow(
         workflowDeleteConfirmationWindowOptions({
-          counts: workflowDeleteConfirmationCountsFromSummary(deleteRequest.summary),
+          counts: deleteRequest.counts,
           operation,
           requestID: deleteRequest.requestID,
-          title: t(cascadeConfirmationTitleKey(operation)),
+          title: t(textKeys.titleKey),
         }),
       );
     },
     renderFallback: (mutationRequest, close) => (
       <WorkflowDeleteConfirmationFallbackDialog
-        counts={workflowDeleteConfirmationCountsFromSummary(mutationRequest.summary)}
+        counts={mutationRequest.counts}
         onCancel={() => {
           setPendingGraphMutation(null);
           close();
@@ -417,6 +434,9 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
             type: "connectNodes",
           });
         }}
+        onReconnectEdge={(input) => {
+          dispatch({ input, type: "reconnectEdge" });
+        }}
         onCreateNodeGroup={(nodeID) => {
           dispatch({
             input: {
@@ -457,9 +477,11 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
             }
             return;
           }
-          if (cascadeRowCount(plannedDelete.summary) > 1) {
+          const counts = workflowDeletionConfirmationCounts(draftState.draft, plannedDelete.summary);
+          if (workflowDeleteNeedsConfirmation(counts)) {
             const deleteRequest = {
               action: { kind: "delete", selection },
+              counts,
               requestID: nextGraphDeleteRequestID(workflowID, deleteRequestIndexRef),
               summary: plannedDelete.summary,
             } satisfies PendingGraphMutation;
@@ -495,8 +517,10 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
             return;
           }
           if (cascadeRowCount(plannedExtraction.summary) > 0) {
+            const counts = workflowDeletionConfirmationCounts(draftState.draft, plannedExtraction.summary);
             const extractionRequest = {
               action: { graphVersion: draftState.graphVersion, input, kind: "extract" },
+              counts,
               requestID: nextGraphDeleteRequestID(workflowID, deleteRequestIndexRef),
               summary: plannedExtraction.summary,
             } satisfies PendingGraphMutation;
@@ -647,6 +671,7 @@ function confirmationFromImpact(impact: WorkflowGraphSaveImpact): WorkflowGraphS
 
 type PendingGraphMutation = Readonly<{
   action: PendingGraphMutationAction;
+  counts: WorkflowDeleteConfirmationCounts;
   requestID: string;
   summary: WorkflowEditorCascadeSummary;
 }>;
@@ -775,10 +800,6 @@ function nextGraphDeleteRequestID(workflowID: string, indexRef: { current: numbe
 
 function confirmationOperation(request: PendingGraphMutation): WorkflowGraphCascadeConfirmationOperation {
   return request.action.kind === "extract" ? "extract" : "delete";
-}
-
-function cascadeConfirmationTitleKey(operation: WorkflowGraphCascadeConfirmationOperation): string {
-  return operation === "extract" ? "workflowEditor.extractNodeCascadeTitle" : "workflowEditor.deleteCascadeTitle";
 }
 
 function deleteWarningTranslationKey(warning: string): string {

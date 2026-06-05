@@ -53,8 +53,10 @@ func testWorkflowConfig(controller workflowruntime.Controller, mode config.Workf
 			RunID:              "run-1",
 			ExpectedGeneration: 7,
 			RequireGeneration:  true,
-			TransitionIDs:      []string{"done"},
-			OutputFields:       []workflow.OutputField{{Name: "summary", Description: "Summary of work."}},
+			Transitions: []workflowruntime.CompletionTransition{{
+				ID:         "done",
+				Parameters: []workflow.Parameter{{Key: "summary", Description: "Summary of work."}},
+			}},
 		},
 		CompletionMode:               mode,
 		MaxFinalAnswerViolations:     3,
@@ -88,7 +90,7 @@ func structuredFinalResponse(content string) llm.Response {
 func TestWorkflowToolModeExposesCompleteNodeDespiteEnabledTools(t *testing.T) {
 	store := mustCreateTestSession(t)
 	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
-	workflowCfg.Contract.OutputFields = append(workflowCfg.Contract.OutputFields, workflow.OutputField{Name: "details", Description: "Detailed evidence."})
+	workflowCfg.Contract.Transitions[0].Parameters = append(workflowCfg.Contract.Transitions[0].Parameters, workflow.Parameter{Key: "details", Description: "Detailed evidence."})
 	eng := mustNewWorkflowTestEngine(t, store, &fakeClient{}, workflowCfg, Config{
 		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
 	})
@@ -106,7 +108,7 @@ func TestWorkflowToolModeExposesCompleteNodeDespiteEnabledTools(t *testing.T) {
 	assertCompletionSchema(t, toolsByName[string(toolspec.ToolCompleteNode)].Schema, map[string]string{
 		"summary": "Summary of work.",
 		"details": "Detailed evidence.",
-	}, "done")
+	})
 	if _, ok := toolsByName[string(toolspec.ToolExecCommand)]; ok {
 		t.Fatalf("exec_command should not be re-added from role tools, tools=%+v", req.Tools)
 	}
@@ -135,7 +137,7 @@ func TestWorkflowModePromptInjectedWithoutHeadlessOrUserPrompt(t *testing.T) {
 		llm.ToolCall{
 			ID:    "call_complete",
 			Name:  string(toolspec.ToolCompleteNode),
-			Input: json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`),
+			Input: json.RawMessage(`{"commentary":"complete","summary":"done"}`),
 		},
 	)}}
 	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{
@@ -175,7 +177,7 @@ func TestWorkflowModePromptReinjectedForNewRunAfterExistingWorkflowPrompt(t *tes
 	}
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{commentaryResponse("complete",
-		completeNodeCall("call_complete", json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)),
+		completeNodeCall("call_complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`)),
 	)}}
 	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{})
 	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
@@ -202,8 +204,8 @@ func TestWorkflowModePromptReinjectedForNewRunAfterExistingWorkflowPrompt(t *tes
 func TestWorkflowStructuredModeUsesStructuredOutput(t *testing.T) {
 	store := mustCreateTestSession(t)
 	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeStructuredOutput)
-	workflowCfg.Contract.OutputFields = append(workflowCfg.Contract.OutputFields, workflow.OutputField{Name: "details", Description: "Detailed evidence."})
-	client := &fakeClient{responses: []llm.Response{structuredFinalResponse(`{"transition_id":"done","commentary":"complete","summary":"done","details":"evidence"}`)}}
+	workflowCfg.Contract.Transitions[0].Parameters = append(workflowCfg.Contract.Transitions[0].Parameters, workflow.Parameter{Key: "details", Description: "Detailed evidence."})
+	client := &fakeClient{responses: []llm.Response{structuredFinalResponse(`{"commentary":"complete","summary":"done","details":"evidence"}`)}}
 	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{})
 	if _, err := eng.SubmitUserMessage(context.Background(), "node prompt"); err != nil {
 		t.Fatalf("submit: %v", err)
@@ -216,7 +218,7 @@ func TestWorkflowStructuredModeUsesStructuredOutput(t *testing.T) {
 	assertCompletionSchema(t, req.StructuredOutput.Schema, map[string]string{
 		"summary": "Summary of work.",
 		"details": "Detailed evidence.",
-	}, "done")
+	})
 	messages := requestMessages(req)
 	workflowIdx := -1
 	for idx, msg := range messages {
@@ -270,7 +272,7 @@ func TestWorkflowForcedStructuredOutputFailsWhenUnsupported(t *testing.T) {
 func TestCompleteNodeOutsideWorkflowReturnsToolError(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{
-		commentaryResponse("complete", completeNodeCall("call_complete", json.RawMessage(`{"transition_id":"done"}`))),
+		commentaryResponse("complete", completeNodeCall("call_complete", json.RawMessage(`{"transition":"done"}`))),
 		structuredFinalResponse("done"),
 	}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{})
@@ -294,10 +296,10 @@ func TestWorkflowMixedCompleteNodeRunsSideEffects(t *testing.T) {
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
 		commentaryResponse("mixed",
-			completeNodeCall("call_complete", json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)),
+			completeNodeCall("call_complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`)),
 			llm.ToolCall{ID: "call_shell", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"echo side-effect"}`)},
 		),
-		commentaryResponse("complete", completeNodeCall("call_complete_2", json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`))),
+		commentaryResponse("complete", completeNodeCall("call_complete_2", json.RawMessage(`{"commentary":"complete","summary":"done"}`))),
 	}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(sideEffect), Config{
 		WorkflowRun: testWorkflowConfig(controller, config.WorkflowCompletionModeTool),
@@ -321,10 +323,10 @@ func TestWorkflowDuplicateCompleteNodePreflightSkipsSideEffects(t *testing.T) {
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
 		commentaryResponse("duplicated",
-			completeNodeCall("call_complete_1", json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)),
-			completeNodeCall("call_complete_2", json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`)),
+			completeNodeCall("call_complete_1", json.RawMessage(`{"commentary":"complete","summary":"done"}`)),
+			completeNodeCall("call_complete_2", json.RawMessage(`{"commentary":"complete","summary":"done"}`)),
 		),
-		commentaryResponse("complete", completeNodeCall("call_complete_3", json.RawMessage(`{"transition_id":"done","commentary":"complete","summary":"done"}`))),
+		commentaryResponse("complete", completeNodeCall("call_complete_3", json.RawMessage(`{"commentary":"complete","summary":"done"}`))),
 	}}
 	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{})
 	if _, err := eng.SubmitUserMessage(context.Background(), "run"); err != nil {
@@ -342,7 +344,7 @@ func TestWorkflowStructuredCompletionStopsWithoutAnotherTurn(t *testing.T) {
 	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
 	client := &fakeClient{responses: []llm.Response{
-		structuredFinalResponse(`{"transition_id":"done","commentary":"complete","summary":"done"}`),
+		structuredFinalResponse(`{"commentary":"complete","summary":"done"}`),
 		structuredFinalResponse("unexpected"),
 	}}
 	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeStructuredOutput), Config{})
@@ -429,19 +431,22 @@ func TestWorkflowStructuredEmptyFinalInterruptsAtInvalidCompletionCap(t *testing
 	}
 }
 
-func assertCompletionSchema(t *testing.T, schema json.RawMessage, outputDescriptions map[string]string, transitionID string) {
+func assertCompletionSchema(t *testing.T, schema json.RawMessage, parameterDescriptions map[string]string) {
 	t.Helper()
 	root := schemaRoot(t, schema)
 	if got := root["additionalProperties"]; got != false {
 		t.Fatalf("schema additionalProperties = %v, want false in %s", got, string(schema))
 	}
-	assertSchemaProperty(t, schema, "transition_id", "string", "Transition ID to take. Required when multiple outgoing transitions are available.")
-	assertToolSchemaEnum(t, schema, "transition_id", transitionID)
-	assertSchemaProperty(t, schema, "commentary", "string", "Brief explanation of what was completed and why this transition was selected.")
-	for name, description := range outputDescriptions {
-		assertNullableStringSchemaProperty(t, schema, name, description)
+	if _, ok := schemaProperties(t, schema)["transition"]; ok {
+		t.Fatalf("single-transition schema should infer transition instead of advertising it: %s", string(schema))
 	}
-	assertSchemaRequiredFields(t, schema, []string{"transition_id", "commentary"})
+	assertSchemaProperty(t, schema, "commentary", "string", "Brief explanation of what was completed and why this transition was selected.")
+	required := []string{"commentary"}
+	for name, description := range parameterDescriptions {
+		assertSchemaProperty(t, schema, name, "string", description)
+		required = append(required, name)
+	}
+	assertSchemaRequiredFields(t, schema, required)
 }
 
 func assertSchemaProperty(t *testing.T, schema json.RawMessage, name string, propertyType string, description string) {
@@ -455,56 +460,24 @@ func assertSchemaProperty(t *testing.T, schema json.RawMessage, name string, pro
 	}
 }
 
-func assertNullableStringSchemaProperty(t *testing.T, schema json.RawMessage, name string, description string) {
-	t.Helper()
-	property := schemaProperty(t, schema, name)
-	rawTypes, ok := property["type"].([]any)
-	if !ok || len(rawTypes) != 2 {
-		t.Fatalf("schema property %s type = %v, want [string null] in %s", name, property["type"], string(schema))
-	}
-	types := map[string]bool{}
-	for _, item := range rawTypes {
-		text, ok := item.(string)
-		if !ok {
-			t.Fatalf("schema property %s type item = %T, want string in %s", name, item, string(schema))
-		}
-		types[text] = true
-	}
-	if !types["string"] || !types["null"] || len(types) != 2 {
-		t.Fatalf("schema property %s type = %v, want [string null] in %s", name, property["type"], string(schema))
-	}
-	if got := property["description"]; got != description {
-		t.Fatalf("schema property %s description = %v, want %q in %s", name, got, description, string(schema))
-	}
-}
-
-func assertToolSchemaEnum(t *testing.T, schema json.RawMessage, name string, value string) {
-	t.Helper()
-	property := schemaProperty(t, schema, name)
-	rawEnum, ok := property["enum"].([]any)
-	if !ok {
-		t.Fatalf("schema property %s enum missing in %s", name, string(schema))
-	}
-	for _, item := range rawEnum {
-		if item == value {
-			return
-		}
-	}
-	t.Fatalf("schema property %s enum missing %q: %+v", name, value, rawEnum)
-}
-
 func schemaProperty(t *testing.T, schema json.RawMessage, name string) map[string]any {
+	t.Helper()
+	properties := schemaProperties(t, schema)
+	property, ok := properties[name].(map[string]any)
+	if !ok {
+		t.Fatalf("schema property %s missing: %s", name, string(schema))
+	}
+	return property
+}
+
+func schemaProperties(t *testing.T, schema json.RawMessage) map[string]any {
 	t.Helper()
 	root := schemaRoot(t, schema)
 	properties, ok := root["properties"].(map[string]any)
 	if !ok {
 		t.Fatalf("schema properties missing: %s", string(schema))
 	}
-	property, ok := properties[name].(map[string]any)
-	if !ok {
-		t.Fatalf("schema property %s missing: %s", name, string(schema))
-	}
-	return property
+	return properties
 }
 
 func schemaRequired(t *testing.T, schema json.RawMessage) []string {

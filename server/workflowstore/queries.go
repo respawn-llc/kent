@@ -31,6 +31,8 @@ var (
 	resolveContextSourceRunQuery string
 	//go:embed queries/latest_node_output_value.sql
 	latestNodeOutputValueQuery string
+	//go:embed queries/latest_transition_output_values.sql
+	latestTransitionOutputValuesQuery string
 	//go:embed queries/join_expected_branches.sql
 	joinExpectedBranchesQuery string
 	//go:embed queries/join_arrivals.sql

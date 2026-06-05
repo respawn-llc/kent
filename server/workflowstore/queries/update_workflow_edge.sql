@@ -7,6 +7,8 @@ SET
     context_mode = ?,
     context_source_kind = ?,
     context_source_node_key = ?,
+    prompt_template = ?,
+    parameters_json = ?,
     input_bindings_json = ?,
     output_requirements_json = ?
 WHERE id = ?

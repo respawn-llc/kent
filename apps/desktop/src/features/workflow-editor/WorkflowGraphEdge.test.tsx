@@ -85,7 +85,7 @@ describe("WorkflowGraphEdge", () => {
     );
 
     fireEvent.contextMenu(screen.getByTestId("workflow-edge-hit-path"));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete edge" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete branch" }));
 
     expect(onSelectContextMenu).toHaveBeenCalledExactlyOnceWith("edge-1");
     expect(onDeleteSelection).toHaveBeenCalledExactlyOnceWith({ edgeID: "edge-1", kind: "edge" });
@@ -127,7 +127,7 @@ describe("WorkflowGraphEdge", () => {
     );
 
     fireEvent.contextMenu(screen.getByTestId("workflow-edge-label-edge-1"));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete edge" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete branch" }));
 
     expect(onSelectContextMenu).toHaveBeenCalledExactlyOnceWith("edge-1");
     expect(onDeleteSelection).toHaveBeenCalledExactlyOnceWith({ edgeID: "edge-1", kind: "edge" });

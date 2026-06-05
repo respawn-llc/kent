@@ -27,9 +27,6 @@ func DeriveWiring(def Definition) DerivedWiring {
 	}
 	nodesByID := make(map[NodeID]Node, len(def.Nodes))
 	groupsByID := make(map[TransitionGroupID]TransitionGroup, len(def.TransitionGroups))
-	edgesByID := make(map[EdgeID]Edge, len(def.Edges))
-	edgesByGroup := make(map[TransitionGroupID][]Edge, len(def.Edges))
-	groupsBySource := make(map[NodeID][]TransitionGroup, len(def.TransitionGroups))
 	incomingByNode := make(map[NodeID][]Edge, len(def.Edges))
 	for _, node := range def.Nodes {
 		if strings.TrimSpace(string(node.ID)) != "" {
@@ -39,41 +36,31 @@ func DeriveWiring(def Definition) DerivedWiring {
 	for _, group := range def.TransitionGroups {
 		if strings.TrimSpace(string(group.ID)) != "" {
 			groupsByID[group.ID] = group
-			groupsBySource[group.SourceNodeID] = append(groupsBySource[group.SourceNodeID], group)
 		}
 	}
 	for _, edge := range def.Edges {
-		if strings.TrimSpace(string(edge.ID)) != "" {
-			edgesByID[edge.ID] = edge
-		}
-		edgesByGroup[edge.TransitionGroupID] = append(edgesByGroup[edge.TransitionGroupID], edge)
 		incomingByNode[edge.TargetNodeID] = append(incomingByNode[edge.TargetNodeID], edge)
 	}
 	for _, edge := range def.Edges {
-		target, targetExists := nodesByID[edge.TargetNodeID]
-		if !targetExists {
+		group, groupExists := groupsByID[edge.TransitionGroupID]
+		if !groupExists {
 			continue
 		}
-		requiredFields := targetRequiredInputFields(target)
+		source, sourceExists := nodesByID[group.SourceNodeID]
+		if sourceExists && (source.Kind == NodeKindStart || source.Kind == NodeKindJoin) {
+			continue
+		}
+		requiredFields := edgeParameterFields(edge)
 		if len(requiredFields) == 0 {
 			continue
 		}
-		if group, groupExists := groupsByID[edge.TransitionGroupID]; groupExists {
-			if source, sourceExists := nodesByID[group.SourceNodeID]; sourceExists && source.Kind == NodeKindStart {
-				derived.addDiagnostic(CodeInvalidFirstNodeInput, fmt.Sprintf("%s cannot declare upstream inputs as the first executable node", nodeMessageSubject(target)), ValidationError{NodeID: target.ID, EdgeID: edge.ID, TransitionGroupID: edge.TransitionGroupID})
-				continue
-			}
-		}
 		derived.inputBindingsByEdge[edge.ID] = inputBindingsForFields(requiredFields)
 		derived.addRequiredProvisionFields(edge.ID, edge.TransitionGroupID, requiredFields)
-		if group, groupExists := groupsByID[edge.TransitionGroupID]; groupExists {
-			derived.addPossibleProvisionFields(group.SourceNodeID, requiredFields)
-		}
+		derived.addPossibleProvisionFields(group.SourceNodeID, requiredFields, ValidationError{NodeID: group.SourceNodeID, EdgeID: edge.ID, TransitionGroupID: edge.TransitionGroupID})
 	}
-	derived.derivePromptNodeReferences(def.Nodes, nodesByID, groupsBySource, edgesByGroup)
 	for _, node := range def.Nodes {
 		if node.Kind == NodeKindJoin {
-			derived.deriveJoinProviderRequirements(node, nodesByID, groupsByID, edgesByGroup, groupsBySource, incomingByNode)
+			derived.deriveJoinAggregateParameters(node, incomingByNode)
 		}
 	}
 	return derived
@@ -112,8 +99,10 @@ func (w *DerivedWiring) addRequiredProvisionFields(edgeID EdgeID, groupID Transi
 	w.Diagnostics = append(w.Diagnostics, diagnostics...)
 }
 
-func (w *DerivedWiring) addPossibleProvisionFields(nodeID NodeID, fields []OutputField) {
-	w.possibleProvisionFieldsByNode[nodeID] = appendUniqueOutputFields(w.possibleProvisionFieldsByNode[nodeID], fields)
+func (w *DerivedWiring) addPossibleProvisionFields(nodeID NodeID, fields []OutputField, ref ValidationError) {
+	merged, diagnostics := appendCompatibleOutputFields(w.possibleProvisionFieldsByNode[nodeID], fields, ref)
+	w.possibleProvisionFieldsByNode[nodeID] = merged
+	w.Diagnostics = append(w.Diagnostics, diagnostics...)
 }
 
 func (w *DerivedWiring) addRequiredProviderFields(edgeID EdgeID, fields []OutputField, ref ValidationError) {
@@ -122,154 +111,44 @@ func (w *DerivedWiring) addRequiredProviderFields(edgeID EdgeID, fields []Output
 	w.Diagnostics = append(w.Diagnostics, diagnostics...)
 }
 
-func (w *DerivedWiring) deriveJoinProviderRequirements(
-	join Node,
-	nodesByID map[NodeID]Node,
-	groupsByID map[TransitionGroupID]TransitionGroup,
-	edgesByGroup map[TransitionGroupID][]Edge,
-	groupsBySource map[NodeID][]TransitionGroup,
-	incomingByNode map[NodeID][]Edge,
-) {
-	groups := groupsBySource[join.ID]
-	if len(groups) != 1 {
-		w.addDiagnostic(CodeInvalidJoinOutgoingShape, fmt.Sprintf("%s must have exactly one outgoing transition group", nodeMessageSubject(join)), ValidationError{NodeID: join.ID})
-		return
-	}
-	outgoingEdges := edgesByGroup[groups[0].ID]
-	if len(outgoingEdges) != 1 {
-		w.addDiagnostic(CodeInvalidJoinOutgoingShape, fmt.Sprintf("%s must have exactly one edge in its outgoing transition group", nodeMessageSubject(join)), ValidationError{NodeID: join.ID, TransitionGroupID: groups[0].ID})
-		return
-	}
-	target, targetExists := nodesByID[outgoingEdges[0].TargetNodeID]
-	if !targetExists {
-		return
-	}
-	requiredFields := targetRequiredInputFields(target)
-	if len(requiredFields) == 0 {
-		return
-	}
-	w.joinOutputFieldsByNode[join.ID] = appendUniqueOutputFields(w.joinOutputFieldsByNode[join.ID], requiredFields)
-
+func (w *DerivedWiring) deriveJoinAggregateParameters(join Node, incomingByNode map[NodeID][]Edge) {
 	incomingEdges := incomingByNode[join.ID]
-	incomingByID := make(map[EdgeID]Edge, len(incomingEdges))
+	groupFields := map[TransitionGroupID][]OutputField{}
+	groupOrder := []TransitionGroupID{}
+	seenGroup := map[TransitionGroupID]bool{}
 	for _, edge := range incomingEdges {
-		incomingByID[edge.ID] = edge
+		fields := edgeParameterFields(edge)
+		if len(fields) == 0 {
+			continue
+		}
+		ref := ValidationError{NodeID: join.ID, EdgeID: edge.ID, TransitionGroupID: edge.TransitionGroupID}
+		w.addRequiredProviderFields(edge.ID, fields, ref)
+		if !seenGroup[edge.TransitionGroupID] {
+			groupOrder = append(groupOrder, edge.TransitionGroupID)
+			seenGroup[edge.TransitionGroupID] = true
+		}
+		merged, diagnostics := appendCompatibleOutputFields(groupFields[edge.TransitionGroupID], fields, ref)
+		groupFields[edge.TransitionGroupID] = merged
+		w.Diagnostics = append(w.Diagnostics, diagnostics...)
 	}
-	providersByInput := map[string][]JoinInputProvider{}
-	for _, provider := range join.JoinInputProviders {
-		inputName := strings.TrimSpace(provider.InputName)
-		if inputName == "" {
-			continue
-		}
-		providersByInput[inputName] = append(providersByInput[inputName], provider)
-	}
-	for _, field := range requiredFields {
-		inputName := strings.TrimSpace(field.Name)
-		providers := providersByInput[inputName]
-		if len(providers) == 0 {
-			w.addDiagnostic(CodeMissingJoinInputProvider, nodeJoinInputMessage(join, inputName, "requires a provider edge"), ValidationError{NodeID: join.ID, InputName: inputName})
-			continue
-		}
-		if len(providers) != 1 {
-			w.addDiagnostic(CodeDuplicateJoinInputProvider, nodeJoinInputMessage(join, inputName, "must have exactly one provider edge"), ValidationError{NodeID: join.ID, InputName: inputName})
-			continue
-		}
-		providerEdge, ok := incomingByID[providers[0].ProviderEdgeID]
-		if !ok {
-			w.addDiagnostic(CodeInvalidJoinInputProvider, nodeJoinInputMessage(join, inputName, "provider must reference an incoming edge into the join"), ValidationError{NodeID: join.ID, EdgeID: providers[0].ProviderEdgeID, InputName: inputName, ProviderEdgeID: providers[0].ProviderEdgeID})
-			continue
-		}
-		providerFields := []OutputField{field}
-		ref := ValidationError{NodeID: join.ID, EdgeID: providerEdge.ID, TransitionGroupID: providerEdge.TransitionGroupID, InputName: inputName, ProviderEdgeID: providerEdge.ID}
-		w.addRequiredProviderFields(providerEdge.ID, providerFields, ref)
-		w.addRequiredProvisionFields(providerEdge.ID, providerEdge.TransitionGroupID, providerFields)
-		if providerGroup, groupExists := groupsByID[providerEdge.TransitionGroupID]; groupExists {
-			w.addPossibleProvisionFields(providerGroup.SourceNodeID, providerFields)
-		}
-	}
-}
 
-func (w *DerivedWiring) derivePromptNodeReferences(
-	nodes []Node,
-	nodesByID map[NodeID]Node,
-	groupsBySource map[NodeID][]TransitionGroup,
-	edgesByGroup map[TransitionGroupID][]Edge,
-) {
-	for _, consumer := range nodes {
-		if consumer.Kind != NodeKindAgent {
-			continue
-		}
-		refs, err := ExtractPromptTemplateReferences(consumer.PromptTemplate)
-		if err != nil || len(refs.Invalid) > 0 {
-			continue
-		}
-		for _, ref := range refs.NodeOutputs {
-			source, ok := nodeByKey(nodes, ref.NodeKey)
-			if !ok || source.Kind != NodeKindAgent || source.ID == consumer.ID {
+	ownerByField := map[string]TransitionGroupID{}
+	aggregate := []OutputField{}
+	for _, groupID := range groupOrder {
+		for _, field := range groupFields[groupID] {
+			name := strings.TrimSpace(field.Name)
+			if name == "" {
 				continue
 			}
-			field, ok := nodeOutputField(source, ref.FieldName)
-			if !ok {
+			if owner, exists := ownerByField[name]; exists && owner != groupID {
+				w.addDiagnostic(CodeProvisionFieldOverlap, fmt.Sprintf("%s: join aggregate parameter %s is produced by multiple transitions", nodeMessageSubject(join), name), ValidationError{NodeID: join.ID, FieldName: name, TransitionGroupID: groupID})
 				continue
 			}
-			fields := []OutputField{field}
-			for _, group := range groupsBySource[source.ID] {
-				for _, edge := range edgesByGroup[group.ID] {
-					if !nodeCanReach(edge.TargetNodeID, consumer.ID, nodesByID, edgesByGroup, groupsBySource) {
-						continue
-					}
-					w.addRequiredProvisionFields(edge.ID, group.ID, fields)
-					w.addPossibleProvisionFields(source.ID, fields)
-				}
-			}
+			ownerByField[name] = groupID
+			aggregate = appendUniqueOutputFields(aggregate, []OutputField{field})
 		}
 	}
-}
-
-func nodeByKey(nodes []Node, key ModelKey) (Node, bool) {
-	for _, node := range nodes {
-		if node.Key == key {
-			return node, true
-		}
-	}
-	return Node{}, false
-}
-
-func nodeOutputField(node Node, fieldName string) (OutputField, bool) {
-	trimmed := strings.TrimSpace(fieldName)
-	for _, field := range node.OutputFields {
-		if strings.TrimSpace(field.Name) == trimmed {
-			return OutputField{Name: trimmed, Description: strings.TrimSpace(field.Description)}, true
-		}
-	}
-	return OutputField{}, false
-}
-
-func nodeCanReach(start NodeID, target NodeID, nodesByID map[NodeID]Node, edgesByGroup map[TransitionGroupID][]Edge, groupsBySource map[NodeID][]TransitionGroup) bool {
-	visited := map[NodeID]bool{}
-	stack := []NodeID{start}
-	for len(stack) > 0 {
-		nodeID := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if visited[nodeID] {
-			continue
-		}
-		if nodeID == target {
-			return true
-		}
-		visited[nodeID] = true
-		if _, exists := nodesByID[nodeID]; !exists {
-			continue
-		}
-		for _, group := range groupsBySource[nodeID] {
-			for _, edge := range edgesByGroup[group.ID] {
-				if !visited[edge.TargetNodeID] {
-					stack = append(stack, edge.TargetNodeID)
-				}
-			}
-		}
-	}
-	return false
+	w.joinOutputFieldsByNode[join.ID] = aggregate
 }
 
 func (w *DerivedWiring) addDiagnostic(code ValidationErrorCode, message string, ref ValidationError) {
@@ -279,26 +158,15 @@ func (w *DerivedWiring) addDiagnostic(code ValidationErrorCode, message string, 
 	w.Diagnostics = append(w.Diagnostics, ref)
 }
 
-func nodeJoinInputMessage(join Node, inputName string, message string) string {
-	name := strings.TrimSpace(inputName)
-	if name == "" {
-		return fmt.Sprintf("%s: join input %s", nodeMessageSubject(join), message)
-	}
-	return fmt.Sprintf("%s: join input %s %s", nodeMessageSubject(join), name, message)
-}
-
-func targetRequiredInputFields(node Node) []OutputField {
-	if node.Kind != NodeKindAgent {
-		return nil
-	}
-	fields := make([]OutputField, 0, len(node.InputFields))
-	for _, input := range node.InputFields {
-		name := strings.TrimSpace(input.Name)
-		description := strings.TrimSpace(input.Description)
-		if name == "" {
+func edgeParameterFields(edge Edge) []OutputField {
+	fields := make([]OutputField, 0, len(edge.Parameters))
+	for _, parameter := range edge.Parameters {
+		key := strings.TrimSpace(parameter.Key)
+		description := strings.TrimSpace(parameter.Description)
+		if key == "" {
 			continue
 		}
-		fields = append(fields, OutputField{Name: name, Description: description})
+		fields = append(fields, OutputField{Name: key, Description: description})
 	}
 	return fields
 }

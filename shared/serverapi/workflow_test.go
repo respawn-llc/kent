@@ -37,15 +37,31 @@ func TestWorkflowNodeAndEdgeRequestValidation(t *testing.T) {
 		t.Fatalf("invalid display name error = %v", err)
 	}
 
-	validEdge := WorkflowEdgeAddRequest{WorkflowID: "workflow-1", TransitionGroupID: "group-1", Key: "done", TargetNodeID: "node-2", ContextMode: "new_session"}
+	validEdge := WorkflowEdgeAddRequest{WorkflowID: "workflow-1", TransitionGroupID: "group-1", Key: "done", TargetNodeID: "node-2", ContextMode: "new_session", PromptTemplate: "Do the next step.", Parameters: []WorkflowParameter{{Key: "summary", Description: "Summary"}}}
 	if err := validEdge.Validate(); err != nil {
 		t.Fatalf("valid edge request rejected: %v", err)
+	}
+	oversizedEdge := validEdge
+	oversizedEdge.Parameters = make([]WorkflowParameter, WorkflowGraphDraftMaxFieldsPerEntity+1)
+	if err := oversizedEdge.Validate(); err == nil || !strings.Contains(err.Error(), "parameters") {
+		t.Fatalf("oversized edge parameters error = %v", err)
 	}
 	selectedSourceEdge := validEdge
 	selectedSourceEdge.ContextMode = "continue_session"
 	selectedSourceEdge.ContextSource = WorkflowContextSource{Kind: "selected_node", NodeKey: "implement"}
 	if err := selectedSourceEdge.Validate(); err != nil {
 		t.Fatalf("valid selected context source rejected: %v", err)
+	}
+	previousTargetEdge := validEdge
+	previousTargetEdge.ContextMode = "continue_session"
+	previousTargetEdge.ContextSource = WorkflowContextSource{Kind: "previous_target"}
+	if err := previousTargetEdge.Validate(); err != nil {
+		t.Fatalf("valid previous-target context source rejected: %v", err)
+	}
+	invalidPreviousTargetEdge := previousTargetEdge
+	invalidPreviousTargetEdge.ContextSource = WorkflowContextSource{Kind: "previous_target", NodeKey: "implement"}
+	if err := invalidPreviousTargetEdge.Validate(); err == nil || !strings.Contains(err.Error(), "context_source.node_key") {
+		t.Fatalf("invalid previous-target context source error = %v", err)
 	}
 	invalidSourceEdge := selectedSourceEdge
 	invalidSourceEdge.ContextSource = WorkflowContextSource{Kind: "selected_node", NodeKey: "Bad-Key"}

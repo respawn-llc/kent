@@ -323,7 +323,7 @@ func prepareWorkflowGraphSave(workflowID workflow.WorkflowID, displayName string
 		edge.WorkflowID = defaultWorkflowID(edge.WorkflowID, workflowID)
 		edge.ContextSource = workflow.CanonicalContextSource(edge.ContextSource)
 		prepared.edges[i] = edge
-		def.Edges = append(def.Edges, workflow.Edge{WorkflowID: edge.WorkflowID, ID: edge.ID, Key: edge.Key, TransitionGroupID: edge.TransitionGroupID, TargetNodeID: edge.TargetNodeID, ContextMode: edge.ContextMode, ContextSource: edge.ContextSource, RequiresApproval: edge.RequiresApproval, InputBindings: edge.InputBindings, OutputRequirements: edge.OutputRequirements})
+		def.Edges = append(def.Edges, workflow.Edge{WorkflowID: edge.WorkflowID, ID: edge.ID, Key: edge.Key, TransitionGroupID: edge.TransitionGroupID, TargetNodeID: edge.TargetNodeID, ContextMode: edge.ContextMode, ContextSource: edge.ContextSource, RequiresApproval: edge.RequiresApproval, PromptTemplate: edge.PromptTemplate, Parameters: edge.Parameters, InputBindings: edge.InputBindings, OutputRequirements: edge.OutputRequirements})
 	}
 	return prepared, def, nil
 }
@@ -507,6 +507,8 @@ type comparableWorkflowGraphSaveEdge struct {
 	RequiresApproval   bool
 	ContextMode        workflow.ContextMode
 	ContextSource      workflow.ContextSource
+	PromptTemplate     string
+	Parameters         []workflow.Parameter
 	InputBindings      []workflow.InputBinding
 	OutputRequirements []workflow.OutputRequirement
 	SortOrder          int64
@@ -517,7 +519,7 @@ func comparableWorkflowGraphSaveNodesEqual(item comparableWorkflowGraphSaveNode,
 }
 
 func comparableWorkflowGraphSaveEdgesEqual(item comparableWorkflowGraphSaveEdge, other comparableWorkflowGraphSaveEdge) bool {
-	return item.ID == other.ID && item.WorkflowID == other.WorkflowID && item.TransitionGroupID == other.TransitionGroupID && item.Key == other.Key && item.TargetNodeID == other.TargetNodeID && item.RequiresApproval == other.RequiresApproval && item.ContextMode == other.ContextMode && item.ContextSource == other.ContextSource && item.SortOrder == other.SortOrder && slices.Equal(item.InputBindings, other.InputBindings) && slices.Equal(item.OutputRequirements, other.OutputRequirements)
+	return item.ID == other.ID && item.WorkflowID == other.WorkflowID && item.TransitionGroupID == other.TransitionGroupID && item.Key == other.Key && item.TargetNodeID == other.TargetNodeID && item.RequiresApproval == other.RequiresApproval && item.ContextMode == other.ContextMode && item.ContextSource == other.ContextSource && item.PromptTemplate == other.PromptTemplate && item.SortOrder == other.SortOrder && slices.Equal(item.Parameters, other.Parameters) && slices.Equal(item.InputBindings, other.InputBindings) && slices.Equal(item.OutputRequirements, other.OutputRequirements)
 }
 
 func workflowGraphSaveComparable(prepared preparedWorkflowGraphSave) comparableWorkflowGraphSave {
@@ -542,7 +544,7 @@ func workflowGraphSaveComparable(prepared preparedWorkflowGraphSave) comparableW
 	}
 	for index, edge := range prepared.edges {
 		contextSource := workflow.CanonicalContextSource(edge.ContextSource)
-		out.Edges = append(out.Edges, comparableWorkflowGraphSaveEdge{ID: edge.ID, WorkflowID: edge.WorkflowID, TransitionGroupID: edge.TransitionGroupID, Key: edge.Key, TargetNodeID: edge.TargetNodeID, RequiresApproval: edge.RequiresApproval, ContextMode: edge.ContextMode, ContextSource: contextSource, InputBindings: edge.InputBindings, OutputRequirements: edge.OutputRequirements, SortOrder: int64(index * 100)})
+		out.Edges = append(out.Edges, comparableWorkflowGraphSaveEdge{ID: edge.ID, WorkflowID: edge.WorkflowID, TransitionGroupID: edge.TransitionGroupID, Key: edge.Key, TargetNodeID: edge.TargetNodeID, RequiresApproval: edge.RequiresApproval, ContextMode: edge.ContextMode, ContextSource: contextSource, PromptTemplate: strings.TrimSpace(edge.PromptTemplate), Parameters: edge.Parameters, InputBindings: edge.InputBindings, OutputRequirements: edge.OutputRequirements, SortOrder: int64(index * 100)})
 	}
 	return out
 }
@@ -652,6 +654,10 @@ func upsertWorkflowTransitionGroup(ctx context.Context, tx *sql.Tx, group Transi
 
 func upsertWorkflowEdge(ctx context.Context, tx *sql.Tx, edge EdgeRecord, sortOrder int64) error {
 	contextSource := workflow.CanonicalContextSource(edge.ContextSource)
+	parameters, err := marshalJSONArray(edge.Parameters)
+	if err != nil {
+		return err
+	}
 	inputs, err := marshalJSON(edge.InputBindings)
 	if err != nil {
 		return err
@@ -669,6 +675,8 @@ func upsertWorkflowEdge(ctx context.Context, tx *sql.Tx, edge EdgeRecord, sortOr
 		string(edge.ContextMode),
 		string(contextSource.Kind),
 		string(contextSource.NodeKey),
+		strings.TrimSpace(edge.PromptTemplate),
+		parameters,
 		inputs,
 		requirements,
 		sortOrder,

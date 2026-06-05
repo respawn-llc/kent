@@ -80,6 +80,12 @@ func TestOpenCreatesWorkflowSchemaAndForeignKeys(t *testing.T) {
 	if columnExists(t, store.db, "workflow_edges", "workflow_id") {
 		t.Fatal("workflow_edges.workflow_id should not exist; workflow is derived from transition group source node")
 	}
+	if !columnExists(t, store.db, "workflow_edges", "prompt_template") {
+		t.Fatal("workflow_edges.prompt_template should exist")
+	}
+	if !columnExists(t, store.db, "workflow_edges", "parameters_json") {
+		t.Fatal("workflow_edges.parameters_json should exist")
+	}
 	for _, table := range []string{
 		"workflows",
 		"workflow_nodes",
@@ -243,6 +249,9 @@ func TestWorkflowSchemaConstraints(t *testing.T) {
 	assertSQLiteConstraint(t, store.db, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, input_bindings_json, output_requirements_json) VALUES ('edge-invalid-bool', 'group-start', 'bad_bool', 'node-agent', 2, 'new_session', '{}', '{}')`)
 	assertSQLiteConstraint(t, store.db, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key, input_bindings_json, output_requirements_json) VALUES ('edge-invalid-context-source-empty-key', 'group-start', 'bad_context_empty', 'node-agent', 0, 'continue_session', 'selected_node', '', '{}', '{}')`)
 	assertSQLiteConstraint(t, store.db, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key, input_bindings_json, output_requirements_json) VALUES ('edge-invalid-context-source-immediate-key', 'group-start', 'bad_context_key', 'node-agent', 0, 'continue_session', 'immediate_source', 'agent', '{}', '{}')`)
+	assertSQLiteConstraint(t, store.db, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, parameters_json, input_bindings_json, output_requirements_json) VALUES ('edge-invalid-parameters-json', 'group-start', 'bad_parameters_json', 'node-agent', 0, 'new_session', '{}', '{}', '{}')`)
+	execSeed(t, store.db, "previous target context source edge", `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key, input_bindings_json, output_requirements_json) VALUES ('edge-previous-target-context-source', 'group-start', 'previous_target_context', 'node-agent', 0, 'continue_session', 'previous_target', '', '{}', '{}')`)
+	assertSQLiteConstraint(t, store.db, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key, input_bindings_json, output_requirements_json) VALUES ('edge-invalid-context-source-previous-target-key', 'group-start', 'bad_previous_target_context_key', 'node-agent', 0, 'continue_session', 'previous_target', 'agent', '{}', '{}')`)
 	assertSQLiteConstraint(t, store.db, `INSERT INTO workflows (id, name, version, created_at_unix_ms, updated_at_unix_ms) VALUES ('workflow-bad-time', 'Bad', 1, -1, 1)`)
 	assertSQLiteConstraint(t, store.db, `INSERT INTO workflows (id, name, version, created_at_unix_ms, updated_at_unix_ms) VALUES ('workflow-bad-rev', 'Bad', 0, 1, 1)`)
 	assertSQLiteConstraint(t, store.db, `INSERT INTO task_runs (id, placement_id, workflow_revision_seen, final_answer_violation_count, invalid_completion_count, created_at_unix_ms, updated_at_unix_ms) VALUES ('run-bad-counter', 'placement-start', 1, -1, 0, 1, 1)`)

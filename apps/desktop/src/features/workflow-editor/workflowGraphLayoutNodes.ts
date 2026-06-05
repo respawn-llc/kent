@@ -8,7 +8,9 @@ import {
   graphNodeHeight,
   graphNodeWidth,
   type NodeLayoutOffset,
+  type WorkflowGraphEndpointPort,
   type WorkflowGraphNodeRect,
+  workflowGraphCreationHandleID,
   workflowJoinGroupGap,
   workflowJoinNodeSize,
   workflowNodeHeight,
@@ -32,6 +34,7 @@ export function layoutWorkflowGraphNodes(
   result: ElkNode,
   definition: WorkflowDefinition,
   errorMarkers: WorkflowGraphValidationMarkers,
+  endpointPortsByNodeID: ReadonlyMap<string, readonly WorkflowGraphEndpointPort[]> = new Map(),
 ): WorkflowGraphNodeLayout {
   const workflowNodesByID = new Map(
     definition.nodes.map((node) => [node.id, node]),
@@ -49,6 +52,7 @@ export function layoutWorkflowGraphNodes(
     }
     const renderedNode = workflowNode(layout, node, {
       errorMarkers,
+      endpointPorts: endpointPortsByNodeID.get(node.id) ?? [],
       offset: groupLayout.memberOffsetByNodeID.get(node.id),
       parentID: groupLayout.memberParentIDByNodeID.get(node.id),
     });
@@ -246,6 +250,7 @@ function workflowNode(
   layoutNode: ElkNode,
   node: WorkflowDefinition["nodes"][number],
   options: Readonly<{
+    endpointPorts: readonly WorkflowGraphEndpointPort[];
     errorMarkers: WorkflowGraphValidationMarkers;
     offset: NodeLayoutOffset | undefined;
     parentID: string | undefined;
@@ -265,6 +270,8 @@ function workflowNode(
       key: node.key,
       entityID: node.id,
       entityKind: "node",
+      endpointPorts: options.endpointPorts,
+      creationHandleID: node.kind === "terminal" ? undefined : workflowGraphCreationHandleID(node.id),
       groupID: node.groupID,
       label: node.name,
       role: node.subagentRole,

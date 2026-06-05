@@ -39,6 +39,7 @@ import {
   workflowPickerItemSchema,
   validationErrorSchema,
   workflowOutputFieldSchema,
+  workflowParameterSchema,
   workspaceSummarySchema,
 } from "./common";
 
@@ -328,6 +329,8 @@ const workflowEdgesSchema = z
         requires_approval: z.boolean(),
         context_mode: z.string(),
         context_source: workflowContextSourceSchema,
+        prompt_template: emptyString,
+        parameters: z.array(workflowParameterSchema).nullish().transform(emptyArray),
         input_bindings: workflowInputBindingsSchema,
         output_requirements: workflowOutputRequirementsSchema,
       })
@@ -340,6 +343,8 @@ const workflowEdgesSchema = z
         requiresApproval: value.requires_approval,
         contextMode: value.context_mode,
         contextSource: value.context_source,
+        promptTemplate: value.prompt_template,
+        parameters: value.parameters,
         inputBindings: value.input_bindings,
         outputRequirements: value.output_requirements,
       })),

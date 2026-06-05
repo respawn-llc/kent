@@ -58,7 +58,11 @@ func currentWorkflowGraphSavePrepared(ctx context.Context, q *sqlitegen.Queries,
 		prepared.transitionGroups = append(prepared.transitionGroups, TransitionGroupRecord{ID: workflow.TransitionGroupID(group.ID), WorkflowID: workflow.WorkflowID(group.WorkflowID), SourceNodeID: workflow.NodeID(group.SourceNodeID), TransitionID: workflow.TransitionID(group.TransitionID), DisplayName: group.DisplayName})
 	}
 	for _, edge := range edges {
+		parameters := []workflow.Parameter{}
 		inputs := []workflow.InputBinding{}
+		if err := unmarshalJSON(edge.ParametersJson, &parameters); err != nil {
+			return preparedWorkflowGraphSave{}, err
+		}
 		if err := unmarshalJSON(edge.InputBindingsJson, &inputs); err != nil {
 			return preparedWorkflowGraphSave{}, err
 		}
@@ -75,6 +79,8 @@ func currentWorkflowGraphSavePrepared(ctx context.Context, q *sqlitegen.Queries,
 			RequiresApproval:   edge.RequiresApproval != 0,
 			ContextMode:        workflow.ContextMode(edge.ContextMode),
 			ContextSource:      workflow.CanonicalContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(edge.ContextSourceKind), NodeKey: workflow.ModelKey(edge.ContextSourceNodeKey)}),
+			PromptTemplate:     edge.PromptTemplate,
+			Parameters:         parameters,
 			InputBindings:      inputs,
 			OutputRequirements: requirements,
 		})

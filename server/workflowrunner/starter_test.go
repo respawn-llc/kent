@@ -26,7 +26,7 @@ import (
 )
 
 func TestSchedulerRunsNewSessionWorkflowNodeWithStructuredOutput(t *testing.T) {
-	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"finished structured"}`))
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput, workflowtest.FinalAnswer(`{"commentary":"finished structured"}`))
 
 	task := fixture.createStartedTask(t)
 	scheduler := fixture.scheduler(t)
@@ -66,6 +66,13 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithStructuredOutput(t *testing.T) {
 		t.Fatalf("structured output schema missing in request: %+v", first)
 	}
 	assertPromptContains(t, first, []string{"ticket `RUN-1`", "Run workflow", "Implement the task.", "done (Done)", "workflow completion schema"})
+	promptText := requestPromptText(first)
+	if !strings.Contains(promptText, "The only available transition is inferred by the workflow runtime") {
+		t.Fatalf("single-transition inference guidance missing in prompt:\n%s", promptText)
+	}
+	if strings.Contains(promptText, "Several transitions are available") || strings.Contains(promptText, "Pick one transition") {
+		t.Fatalf("single-transition prompt should not ask the model to pick a transition:\n%s", promptText)
+	}
 	assertNoUserPrompt(t, first)
 	fixture.assertRunSessionUsesTaskWorktree(t, runs[0].SessionID)
 	if scheduler.ActiveCount() != 0 {
@@ -74,7 +81,7 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithStructuredOutput(t *testing.T) {
 }
 
 func TestSchedulerRunsNewSessionWorkflowNodeWithCompleteNodeTool(t *testing.T) {
-	input := json.RawMessage(`{"transition_id":"done","commentary":"finished tool"}`)
+	input := json.RawMessage(`{"commentary":"finished tool"}`)
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool, workflowtest.ToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: input}))
 
 	task := fixture.createStartedTask(t)
@@ -99,7 +106,7 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithCompleteNodeTool(t *testing.T) {
 }
 
 func TestWorkflowRuntimeAskQuestionWaitsAndResumesSameRunSession(t *testing.T) {
-	completeInput := json.RawMessage(`{"transition_id":"done","commentary":"answered and finished"}`)
+	completeInput := json.RawMessage(`{"commentary":"answered and finished"}`)
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeTool,
 		workflowtest.AskQuestion("call-ask", []byte(`{"question":"Need direction?","suggestions":["ship","stop"],"recommended_option_index":1}`)),
 		workflowtest.ToolBatch("complete", llm.ToolCall{ID: "call-complete", Name: "complete_node", Input: completeInput}),
@@ -222,7 +229,7 @@ func TestSchedulerRunsNextAgentWithBoundInputsAndTaskWorktreeContext(t *testing.
 	assertPromptContains(t, reqs[1], []string{"\nCWD: " + worktreeRoot + "\n"})
 }
 
-func TestBuildWorkflowTaskInstructionsRendersNodeOutputReferences(t *testing.T) {
+func TestBuildWorkflowTaskInstructionsRendersTransitionParameters(t *testing.T) {
 	instructions, err := BuildWorkflowTaskInstructions(workflowstore.RunStartContext{
 		Task: workflowstore.TaskRecord{
 			ID:         "task-1",
@@ -233,18 +240,18 @@ func TestBuildWorkflowTaskInstructionsRendersNodeOutputReferences(t *testing.T) 
 		},
 		Workflow: workflowstore.WorkflowRecord{ID: "workflow-1"},
 		Node: workflowstore.NodeRecord{
-			ID:             "node-review",
-			Key:            "review",
-			DisplayName:    "Review",
-			PromptTemplate: "Use {{.Inputs.direct}} and {{.Nodes.plan.summary}}.",
+			ID:          "node-review",
+			Key:         "review",
+			DisplayName: "Review",
 		},
-		InputValues:      map[string]string{"direct": "direct input"},
-		NodeOutputValues: map[string]map[string]string{"plan": {"summary": "plan output"}},
+		PromptTemplate:       "Use {{.Params.direct}} and {{.Params.plan.summary}}.",
+		ParameterValues:      map[string]string{"direct": "direct parameter"},
+		PriorParameterValues: map[string]map[string]string{"plan": {"summary": "plan parameter"}},
 	})
 	if err != nil {
 		t.Fatalf("BuildWorkflowTaskInstructions: %v", err)
 	}
-	if instructions.NodePrompt != "Use direct input and plan output." {
+	if instructions.NodePrompt != "Use direct parameter and plan parameter." {
 		t.Fatalf("node prompt = %q", instructions.NodePrompt)
 	}
 }
@@ -526,8 +533,8 @@ func newStarterFixture(t *testing.T, mode config.WorkflowCompletionMode, steps .
 func newChainedStarterFixture(t *testing.T) starterFixture {
 	t.Helper()
 	return newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
-		workflowtest.FinalAnswer(`{"transition_id":"next","commentary":"first comments","prior_summary":"first summary"}`),
-		workflowtest.FinalAnswer(`{"transition_id":"done","commentary":"second done"}`),
+		workflowtest.FinalAnswer(`{"commentary":"first comments","prior_summary":"first summary"}`),
+		workflowtest.FinalAnswer(`{"commentary":"second done"}`),
 	)
 }
 
@@ -778,13 +785,13 @@ func createStarterWorkflow(t *testing.T, store *workflowstore.Store) workflow.Wo
 	if _, err := store.AddTransitionGroup(ctx, workflowstore.TransitionGroupRecord{ID: workflow.TransitionGroupID("group-start-" + string(created.ID)), WorkflowID: created.ID, SourceNodeID: start.ID, TransitionID: "start", DisplayName: "Start"}); err != nil {
 		t.Fatalf("AddTransitionGroup start: %v", err)
 	}
-	if _, err := store.AddEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID("edge-start-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: workflow.TransitionGroupID("group-start-" + string(created.ID)), Key: "start", TargetNodeID: agentID, ContextMode: workflow.ContextModeNewSession}); err != nil {
+	if _, err := store.AddEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID("edge-start-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: workflow.TransitionGroupID("group-start-" + string(created.ID)), Key: "start", TargetNodeID: agentID, ContextMode: workflow.ContextModeNewSession, PromptTemplate: "Implement the task."}); err != nil {
 		t.Fatalf("AddEdge start: %v", err)
 	}
 	if _, err := store.AddTransitionGroup(ctx, workflowstore.TransitionGroupRecord{ID: workflow.TransitionGroupID("group-done-" + string(created.ID)), WorkflowID: created.ID, SourceNodeID: agentID, TransitionID: "done", DisplayName: "Done"}); err != nil {
 		t.Fatalf("AddTransitionGroup done: %v", err)
 	}
-	if _, err := store.AddEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID("edge-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(created.ID)), Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}}); err != nil {
+	if _, err := store.AddEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID("edge-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(created.ID)), Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession}); err != nil {
 		t.Fatalf("AddEdge done: %v", err)
 	}
 	return created.ID
@@ -831,9 +838,9 @@ func createChainedStarterWorkflowWithContextMode(t *testing.T, store *workflowst
 		}
 	}
 	for _, edge := range []workflowstore.EdgeRecord{
-		{ID: workflow.EdgeID("edge-start-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: startGroup, Key: "start", TargetNodeID: planID, ContextMode: workflow.ContextModeNewSession},
-		{ID: workflow.EdgeID("edge-next-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: nextGroup, Key: "next", TargetNodeID: implID, ContextMode: contextMode, InputBindings: []workflow.InputBinding{{Name: "prior_summary", Source: workflow.BindingSourceTransitionOutput, Field: "prior_summary"}}, OutputRequirements: []workflow.OutputRequirement{{FieldName: "prior_summary"}}},
-		{ID: workflow.EdgeID("edge-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: doneGroup, Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession, OutputRequirements: []workflow.OutputRequirement{{FieldName: "summary"}}},
+		{ID: workflow.EdgeID("edge-start-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: startGroup, Key: "start", TargetNodeID: planID, ContextMode: workflow.ContextModeNewSession, PromptTemplate: "Plan the task."},
+		{ID: workflow.EdgeID("edge-next-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: nextGroup, Key: "next", TargetNodeID: implID, ContextMode: contextMode, PromptTemplate: "Use {{.TaskTitle}} and {{.Params.prior_summary}}.", Parameters: []workflow.Parameter{{Key: "prior_summary", Description: "Prior summary."}}},
+		{ID: workflow.EdgeID("edge-done-" + string(created.ID)), WorkflowID: created.ID, TransitionGroupID: doneGroup, Key: "done", TargetNodeID: done.ID, ContextMode: workflow.ContextModeNewSession},
 	} {
 		if _, err := store.AddEdge(ctx, edge); err != nil {
 			t.Fatalf("AddEdge %s: %v", edge.Key, err)
@@ -855,17 +862,21 @@ func starterNodeByKind(t *testing.T, def workflow.Definition, kind workflow.Node
 
 func assertPromptContains(t *testing.T, req llm.Request, needles []string) {
 	t.Helper()
-	var haystack strings.Builder
-	for _, item := range req.Items {
-		haystack.WriteString(item.Content)
-		haystack.WriteString("\n")
-	}
-	text := haystack.String()
+	text := requestPromptText(req)
 	for _, needle := range needles {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("request prompt missing %q in:\n%s", needle, text)
 		}
 	}
+}
+
+func requestPromptText(req llm.Request) string {
+	var haystack strings.Builder
+	for _, item := range req.Items {
+		haystack.WriteString(item.Content)
+		haystack.WriteString("\n")
+	}
+	return haystack.String()
 }
 
 func assertNoUserPrompt(t *testing.T, req llm.Request) {

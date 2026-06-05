@@ -370,18 +370,23 @@ func (s *Store) StartTask(ctx context.Context, taskID workflow.TaskID) (StartTas
 	if err := q.InsertTaskNodePlacement(ctx, sqlitegen.InsertTaskNodePlacementParams{ID: targetPlacementID, TaskID: string(taskID), NodeID: string(prepared.target.ID), State: "active", CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
 		return StartTaskResult{}, err
 	}
-	if err := q.InsertTaskTransitionEdge(ctx, sqlitegen.InsertTaskTransitionEdgeParams{ID: prefixedID("transition-edge"), TaskTransitionID: transitionID, WorkflowEdgeID: sql.NullString{String: string(prepared.edge.ID), Valid: true}, EdgeKey: string(prepared.edge.Key), TargetNodeID: sql.NullString{String: string(prepared.target.ID), Valid: true}, TargetNodeKey: string(prepared.target.Key), TargetNodeDisplayName: prepared.target.DisplayName, TargetNodeKind: string(prepared.target.Kind), TargetPlacementID: sql.NullString{String: targetPlacementID, Valid: true}, State: "applied", ContextMode: string(prepared.edge.ContextMode), RequiresApproval: boolToInt64(prepared.edge.RequiresApproval), InputBindingsJson: mustInputBindingsJSON(prepared.edge.InputBindings), OutputRequirementsJson: mustOutputRequirementsJSON(prepared.edge.OutputRequirements), MetadataJson: "{}"}); err != nil {
-		return StartTaskResult{}, err
-	}
 	runSnapshot, err := newRunStartSnapshot(prepared.definition, prepared.workflow, prepared.target.ID)
 	if err != nil {
+		return StartTaskResult{}, err
+	}
+	startEdgeSnapshot := edgeSnapshotWithDerivedWiring(prepared.edge, prepared.start, prepared.target, workflow.DeriveWiring(prepared.definition))
+	if err := insertTransitionEdgeSnapshotWithMetadata(ctx, q, transitionID, startEdgeSnapshot, targetPlacementID, "applied", workflowRunMetadata{}); err != nil {
 		return StartTaskResult{}, err
 	}
 	runSnapshotJSON, err := marshalJSON(runSnapshot)
 	if err != nil {
 		return StartTaskResult{}, err
 	}
-	if err := q.InsertTaskRun(ctx, sqlitegen.InsertTaskRunParams{ID: runID, PlacementID: targetPlacementID, WorkflowRevisionSeen: prepared.workflow.Version, AutomationRequestedAtUnixMs: now, CreatedAtUnixMs: now, UpdatedAtUnixMs: now, InterruptionDetailJson: "{}", RunStartSnapshotJson: runSnapshotJSON, MetadataJson: "{}"}); err != nil {
+	runMetadataJSON, err := targetRunMetadata(startEdgeSnapshot, resolvedContextSourceRun{}, nil)
+	if err != nil {
+		return StartTaskResult{}, err
+	}
+	if err := q.InsertTaskRun(ctx, sqlitegen.InsertTaskRunParams{ID: runID, PlacementID: targetPlacementID, WorkflowRevisionSeen: prepared.workflow.Version, AutomationRequestedAtUnixMs: now, CreatedAtUnixMs: now, UpdatedAtUnixMs: now, InterruptionDetailJson: "{}", RunStartSnapshotJson: runSnapshotJSON, MetadataJson: runMetadataJSON}); err != nil {
 		return StartTaskResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -499,7 +504,7 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 	if !ok {
 		return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: "invalid_transition_id", Field: "transition_id", Message: fmt.Sprintf("transition %q is not available in run-start snapshot", selectedTransitionID)}}}
 	}
-	issues = append(issues, knownOutputIssues(snapshot.Node, req.OutputValues)...)
+	issues = append(issues, knownOutputIssues(group, req.OutputValues)...)
 	issues = append(issues, requiredOutputIssues(group, req.OutputValues)...)
 	if len(issues) > 0 {
 		return CompleteRunResult{}, CompletionValidationError{Issues: issues}
@@ -560,7 +565,7 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 	result := CompleteRunResult{TransitionID: workflow.TransitionID(transitionID), State: transitionState, RequiresApproval: requiresApproval}
 	for _, edge := range group.Edges {
 		if requiresApproval {
-			source, err := s.resolveContextSourceRun(ctx, tx, run.TaskID, now, &run, snapshot, edge)
+			source, err := s.resolveContextSourceRun(ctx, tx, run.TaskID, now, run.PlacementID, &run, snapshot, edge)
 			if err != nil {
 				return CompleteRunResult{}, err
 			}
@@ -577,11 +582,12 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 				if !foundSnapshot {
 					return CompleteRunResult{}, fmt.Errorf("target node %q missing from run-start snapshot", edge.TargetNode.ID)
 				}
-				nodeOutputValues, err := s.resolvePromptNodeOutputValues(ctx, tx, run.TaskID, now, targetSnapshot)
+				priorParameterValues, err := s.resolvePromptPriorParameterValues(ctx, tx, run.TaskID, now, run.PlacementID, edge)
 				if err != nil {
 					return CompleteRunResult{}, err
 				}
-				edgeMetadata.NodeOutputValues = nodeOutputValues
+				edgeMetadata.PriorParameterValues = priorParameterValues
+				edgeMetadata.TargetRunStartSnapshot = &targetSnapshot
 			}
 			if err := insertTransitionEdgeSnapshotWithMetadata(ctx, q, transitionID, edge, "", "pending", edgeMetadata); err != nil {
 				return CompleteRunResult{}, err
@@ -624,15 +630,15 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		source, err := s.resolveContextSourceRun(ctx, tx, run.TaskID, now, &run, snapshot, edge)
+		source, err := s.resolveContextSourceRun(ctx, tx, run.TaskID, now, run.PlacementID, &run, snapshot, edge)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		nodeOutputValues, err := s.resolvePromptNodeOutputValues(ctx, tx, run.TaskID, now, targetSnapshot)
+		priorParameterValues, err := s.resolvePromptPriorParameterValues(ctx, tx, run.TaskID, now, run.PlacementID, edge)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		targetMetadataJSON, err := targetRunMetadata(edge, source, nodeOutputValues)
+		targetMetadataJSON, err := targetRunMetadata(edge, source, priorParameterValues)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}

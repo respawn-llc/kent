@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { connectWorkflowGraphNodes, groupIDFromPoint, inspectNode } from "./workflowGraphCanvasInteractions";
+import {
+  connectWorkflowGraphNodes,
+  groupIDFromPoint,
+  inspectNode,
+  reconnectWorkflowGraphEdge,
+} from "./workflowGraphCanvasInteractions";
 
 describe("workflowGraphCanvasInteractions", () => {
   afterEach(() => {
@@ -35,6 +40,40 @@ describe("workflowGraphCanvasInteractions", () => {
     connectWorkflowGraphNodes({ source: "agent", target: "join" }, onConnectNodes);
 
     expect(onConnectNodes).toHaveBeenCalledWith("agent", "join");
+  });
+
+  it("forwards React Flow target reconnects to the workflow reconnect callback", () => {
+    const onReconnectEdge = vi.fn();
+
+    reconnectWorkflowGraphEdge(
+      workflowGraphEdge({ id: "edge-done", source: "agent", target: "done" }),
+      { source: "agent", target: "review" },
+      "target",
+      onReconnectEdge,
+    );
+
+    expect(onReconnectEdge).toHaveBeenCalledExactlyOnceWith({
+      edgeID: "edge-done",
+      endpoint: "target",
+      targetNodeID: "review",
+    });
+  });
+
+  it("forwards React Flow source reconnects to the workflow reconnect callback", () => {
+    const onReconnectEdge = vi.fn();
+
+    reconnectWorkflowGraphEdge(
+      workflowGraphEdge({ id: "edge-done", source: "agent", target: "done" }),
+      { source: "review", target: "done" },
+      "source",
+      onReconnectEdge,
+    );
+
+    expect(onReconnectEdge).toHaveBeenCalledExactlyOnceWith({
+      edgeID: "edge-done",
+      endpoint: "source",
+      sourceNodeID: "review",
+    });
   });
 
   it("opens inspectors for editable workflow node kinds", () => {
@@ -84,4 +123,13 @@ function rect(x: number, y: number, width: number, height: number): DOMRect {
     throw new Error("Expected test document to have a default window");
   }
   return new view.DOMRect(x, y, width, height);
+}
+
+function workflowGraphEdge(input: Readonly<{ id: string; source: string; target: string }>) {
+  return {
+    data: { entityID: input.id, entityKind: "edge" },
+    id: input.id,
+    source: input.source,
+    target: input.target,
+  };
 }

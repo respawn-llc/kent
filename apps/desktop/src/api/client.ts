@@ -678,18 +678,25 @@ function workflowGraphDraftPayload(graph: WorkflowGraphDraft): JsonObject {
       transition_id: group.transitionID,
       display_name: group.name,
     })),
-    edges: graph.edges.map((edge) => ({
-      id: edge.id,
-      transition_group_id: edge.transitionGroupID,
-      key: edge.key,
-      target_node_id: edge.targetNodeID,
-      requires_approval: edge.requiresApproval,
-      context_mode: edge.contextMode,
-      context_source: {
-        kind: edge.contextSource.kind,
-        node_key: edge.contextSource.nodeKey,
-      },
-    })),
+    edges: graph.edges.map((edge) =>
+      compactJsonObject({
+        id: edge.id,
+        transition_group_id: edge.transitionGroupID,
+        key: edge.key,
+        target_node_id: edge.targetNodeID,
+        requires_approval: edge.requiresApproval,
+        context_mode: edge.contextMode,
+        context_source: {
+          kind: edge.contextSource.kind,
+          node_key: edge.contextSource.nodeKey,
+        },
+        prompt_template: edge.promptTemplate.length > 0 ? edge.promptTemplate : undefined,
+        parameters: edge.parameters.map((parameter) => ({
+          key: parameter.key,
+          description: parameter.description,
+        })),
+      }),
+    ),
   };
 }
 

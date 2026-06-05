@@ -18,6 +18,7 @@ import {
   deleteWorkflowNodeGroup,
   editWorkflowEdgeRoute,
   extractWorkflowNodeFromGroup,
+  reconnectWorkflowEdge,
   removeWorkflowNodeFromGroup,
 } from "./workflowEditorGraphMutations";
 
@@ -248,6 +249,77 @@ describe("workflowEditorGraphMutations", () => {
       name: "Start work",
       transitionID: "start_work",
     });
+  });
+
+  it("reconnects a transition target while preserving transition identity and route config", () => {
+    const draft = draftDefinitionFromSource(configuredReviewTargetWorkflowDefinition());
+
+    const reconnected = reconnectWorkflowEdge(draft, {
+      edgeID: "edge-done",
+      endpoint: "target",
+      targetNodeID: "node-review",
+    });
+
+    expect(reconnected.draft.edges).toHaveLength(draft.edges.length);
+    expect(reconnected.draft.transitionGroups).toHaveLength(draft.transitionGroups.length);
+    expect(reconnected.draft.edges.find((edge) => edge.id === "edge-done")).toMatchObject({
+      contextMode: "continue_session",
+      contextSource: { kind: "selected_node", nodeKey: "implement" },
+      id: "edge-done",
+      key: "custom_done",
+      parameters: [{ description: "Review notes", key: "review_notes" }],
+      promptTemplate: "Review the implementation.",
+      requiresApproval: true,
+      targetNodeID: "node-review",
+      transitionGroupID: "group-done",
+    });
+    expect(reconnected.draft.transitionGroups.find((group) => group.id === "group-done")).toMatchObject({
+      name: "Done",
+      sourceNodeID: "node-agent",
+      transitionID: "done",
+    });
+    expect(reconnected.nextSelection).toEqual({ edgeID: "edge-done", kind: "edge" });
+    expect(reconnected.warnings).toEqual([]);
+  });
+
+  it("reconnects a single-branch transition source by moving its transition group", () => {
+    const draft = draftDefinitionFromSource(configuredReviewTargetWorkflowDefinition());
+
+    const reconnected = reconnectWorkflowEdge(draft, {
+      edgeID: "edge-done",
+      endpoint: "source",
+      sourceNodeID: "node-review",
+    });
+
+    expect(reconnected.draft.edges.find((edge) => edge.id === "edge-done")).toMatchObject({
+      contextMode: "continue_session",
+      contextSource: { kind: "selected_node", nodeKey: "implement" },
+      key: "custom_done",
+      parameters: [{ description: "Review notes", key: "review_notes" }],
+      promptTemplate: "Review the implementation.",
+      requiresApproval: true,
+      targetNodeID: "node-done",
+      transitionGroupID: "group-done",
+    });
+    expect(reconnected.draft.transitionGroups.find((group) => group.id === "group-done")).toMatchObject({
+      sourceNodeID: "node-review",
+      transitionID: "done",
+    });
+    expect(reconnected.nextSelection).toEqual({ edgeID: "edge-done", kind: "edge" });
+    expect(reconnected.warnings).toEqual([]);
+  });
+
+  it("rejects source reconnect for fan-out transition branches", () => {
+    const draft = inferredTwoBranchGroupDraft();
+
+    const reconnected = reconnectWorkflowEdge(draft, {
+      edgeID: "edge-start-review",
+      endpoint: "source",
+      sourceNodeID: "node-review",
+    });
+
+    expect(reconnected.draft).toBe(draft);
+    expect(reconnected.warnings).toEqual(["fan-out transition branches cannot reconnect their source"]);
   });
 
   it("creates node groups with a join and updates membership", () => {
@@ -496,6 +568,8 @@ describe("workflowEditorGraphMutations", () => {
           inputBindings: [],
           key: "extra",
           outputRequirements: [],
+          parameters: [],
+          promptTemplate: "",
           requiresApproval: false,
           targetNodeID: "node-done",
           transitionGroupID: "group-review-join",
@@ -810,6 +884,8 @@ function withSourceTransitionIDConflict(draft: ReturnType<typeof draftDefinition
         inputBindings: [],
         key: "review_conflict",
         outputRequirements: [],
+        parameters: [],
+        promptTemplate: "",
         requiresApproval: false,
         targetNodeID: "node-done",
         transitionGroupID: "group-source-review-conflict",
@@ -868,6 +944,8 @@ function duplicateFanoutEdge(id: string, key: string, targetNodeID: string) {
     inputBindings: [],
     key,
     outputRequirements: [],
+    parameters: [],
+    promptTemplate: "",
     requiresApproval: false,
     targetNodeID,
     transitionGroupID: "group-source-duplicate",
@@ -942,6 +1020,8 @@ function parallelBranchWorkflowDefinition(
         inputBindings: [],
         key: "custom_review_edge",
         outputRequirements: [],
+        parameters: [],
+        promptTemplate: "",
         requiresApproval: false,
         targetNodeID: "node-review",
         transitionGroupID: "group-source-review",
@@ -956,6 +1036,38 @@ function parallelBranchWorkflowDefinition(
         sourceNodeID: "node-source",
         transitionID: "review",
         workflowID: "workflow-1",
+      },
+    ],
+  };
+}
+
+function configuredReviewTargetWorkflowDefinition(): WorkflowDefinition {
+  const agent = workflowDefinition.nodes.find((node) => node.id === "node-agent");
+  if (agent === undefined) {
+    throw new Error("workflow fixture must include node-agent");
+  }
+  return {
+    ...workflowDefinition,
+    edges: workflowDefinition.edges.map((edge) =>
+      edge.id === "edge-done"
+        ? {
+            ...edge,
+            contextMode: "continue_session",
+            contextSource: { kind: "selected_node", nodeKey: "implement" },
+            key: "custom_done",
+            parameters: [{ description: "Review notes", key: "review_notes" }],
+            promptTemplate: "Review the implementation.",
+            requiresApproval: true,
+          }
+        : edge,
+    ),
+    nodes: [
+      ...workflowDefinition.nodes,
+      {
+        ...agent,
+        id: "node-review",
+        key: "review",
+        name: "Review",
       },
     ],
   };

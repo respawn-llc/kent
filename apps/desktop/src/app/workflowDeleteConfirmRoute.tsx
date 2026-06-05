@@ -15,6 +15,7 @@ const workflowDeleteConfirmSearchSchema = z.object({
   edgeCount: optionalSearchString,
   nodeCount: optionalSearchString,
   operation: optionalSearchString,
+  promptCount: optionalSearchString,
   requestID: optionalSearchString,
   transitionGroupCount: optionalSearchString,
 });

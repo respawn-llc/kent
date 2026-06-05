@@ -651,6 +651,50 @@ func TestManualMoveTargetsExcludeEdgesWithDerivedRequiredProvisionFields(t *test
 	}
 }
 
+func TestManualMoveTargetsExcludePriorRunContextSources(t *testing.T) {
+	def := serverapi.WorkflowDefinition{
+		Workflow: serverapi.WorkflowRecord{ID: "workflow-1", Name: "Workflow"},
+		Nodes: []serverapi.WorkflowNode{
+			{ID: "node-agent", WorkflowID: "workflow-1", Key: "agent", Kind: string(workflow.NodeKindAgent), DisplayName: "Agent"},
+			{ID: "node-selected", WorkflowID: "workflow-1", Key: "selected", Kind: string(workflow.NodeKindAgent), DisplayName: "Selected"},
+			{ID: "node-previous", WorkflowID: "workflow-1", Key: "previous", Kind: string(workflow.NodeKindAgent), DisplayName: "Previous"},
+			{ID: "node-done", WorkflowID: "workflow-1", Key: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done"},
+		},
+		TransitionGroups: []serverapi.WorkflowTransitionGroup{
+			{ID: "group-agent-selected", WorkflowID: "workflow-1", SourceNodeID: "node-agent", TransitionID: "selected", DisplayName: "Selected"},
+			{ID: "group-agent-previous", WorkflowID: "workflow-1", SourceNodeID: "node-agent", TransitionID: "previous", DisplayName: "Previous"},
+			{ID: "group-agent-done", WorkflowID: "workflow-1", SourceNodeID: "node-agent", TransitionID: "done", DisplayName: "Done"},
+		},
+		Edges: []serverapi.WorkflowEdge{
+			{ID: "edge-selected", WorkflowID: "workflow-1", TransitionGroupID: "group-agent-selected", Key: "selected", TargetNodeID: "node-selected", ContextMode: string(workflow.ContextModeContinueSession), ContextSource: serverapi.WorkflowContextSource{Kind: string(workflow.ContextSourceSelectedNode), NodeKey: "agent"}},
+			{ID: "edge-previous", WorkflowID: "workflow-1", TransitionGroupID: "group-agent-previous", Key: "previous", TargetNodeID: "node-previous", ContextMode: string(workflow.ContextModeContinueSession), ContextSource: serverapi.WorkflowContextSource{Kind: string(workflow.ContextSourcePreviousTarget)}},
+			{ID: "edge-done", WorkflowID: "workflow-1", TransitionGroupID: "group-agent-done", Key: "done", TargetNodeID: "node-done"},
+		},
+		DerivedWiring: serverapi.WorkflowDerivedWiring{
+			Edges: []serverapi.WorkflowDerivedEdgeWiring{
+				{EdgeID: "edge-selected"},
+				{EdgeID: "edge-previous"},
+				{EdgeID: "edge-done"},
+			},
+		},
+	}
+
+	targets := manualMoveTargetNodeIDs(
+		def,
+		[]sqlitegen.TaskNodePlacementRecord{{NodeID: "node-agent", State: "active"}},
+		map[string]workflow.NodeKind{
+			"node-agent":    workflow.NodeKindAgent,
+			"node-selected": workflow.NodeKindAgent,
+			"node-previous": workflow.NodeKindAgent,
+			"node-done":     workflow.NodeKindTerminal,
+		},
+	)
+
+	if len(targets) != 1 || targets[0] != "node-done" {
+		t.Fatalf("manual move targets = %+v, want only terminal target", targets)
+	}
+}
+
 func TestTaskDetailProjectsCancellationAndInterruptedRun(t *testing.T) {
 	ctx, _, workflowStore, binding, view := newWorkflowViewTestContextService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)

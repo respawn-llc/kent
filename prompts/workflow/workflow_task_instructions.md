@@ -16,9 +16,15 @@ Heads up: You're working on ticket `{{.TaskShortId}}` titled "{{.TaskTitle}}" as
 - Do not treat partial implementation, intent, elapsed effort, or unrelated passing tests as proof.
 {{.NodeCompletionInstructions}}
 
-{{- if .Transitions }}
+{{- if gt (len .Transitions) 1 }}
 ### Transitions
 Several transitions are available, so you decide what status to move this ticket to after your work. Pick one transition ID from the list that is the most appropriate:
+{{- range .Transitions }}
+- {{.ID}}{{if .DisplayName}} ({{.DisplayName}}){{end}}{{if .Description}}: {{.Description}}{{end}}
+{{- end }}
+{{- else if eq (len .Transitions) 1 }}
+### Transition
+The only available transition is inferred by the workflow runtime:
 {{- range .Transitions }}
 - {{.ID}}{{if .DisplayName}} ({{.DisplayName}}){{end}}{{if .Description}}: {{.Description}}{{end}}
 {{- end }}

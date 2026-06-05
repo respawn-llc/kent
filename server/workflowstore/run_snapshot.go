@@ -44,6 +44,8 @@ type edgeContractSnapshot struct {
 	ContextMode        workflow.ContextMode         `json:"context_mode"`
 	ContextSource      workflow.ContextSource       `json:"context_source"`
 	RequiresApproval   bool                         `json:"requires_approval"`
+	PromptTemplate     string                       `json:"prompt_template,omitempty"`
+	Parameters         []workflow.Parameter         `json:"parameters,omitempty"`
 	InputBindings      []workflow.InputBinding      `json:"input_bindings,omitempty"`
 	OutputRequirements []workflow.OutputRequirement `json:"output_requirements,omitempty"`
 }
@@ -81,7 +83,23 @@ func transitionOptionsFromSnapshot(snapshot runStartSnapshot) []TransitionOption
 		if id == "" {
 			continue
 		}
-		out = append(out, TransitionOption{ID: id, DisplayName: strings.TrimSpace(group.DisplayName)})
+		out = append(out, TransitionOption{ID: id, DisplayName: strings.TrimSpace(group.DisplayName), Parameters: transitionParametersFromSnapshot(group)})
+	}
+	return out
+}
+
+func transitionParametersFromSnapshot(group transitionContractSnapshot) []workflow.Parameter {
+	out := []workflow.Parameter{}
+	seen := map[string]bool{}
+	for _, edge := range group.Edges {
+		for _, parameter := range edge.Parameters {
+			key := strings.TrimSpace(parameter.Key)
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, workflow.Parameter{Key: key, Description: strings.TrimSpace(parameter.Description)})
+		}
 	}
 	return out
 }
@@ -128,21 +146,13 @@ func newRunStartSnapshot(def workflow.Definition, record WorkflowRecord, nodeID 
 	}
 	for _, group := range def.TransitionGroups {
 		groupSnapshot := transitionContractSnapshot{ID: group.ID, SourceNodeID: group.SourceNodeID, TransitionID: string(group.TransitionID), DisplayName: group.DisplayName}
+		source := nodes[group.SourceNodeID]
 		for _, edge := range edgesByGroup[group.ID] {
 			target, ok := nodes[edge.TargetNodeID]
 			if !ok {
 				return runStartSnapshot{}, fmt.Errorf("snapshot edge target %q missing", edge.TargetNodeID)
 			}
-			groupSnapshot.Edges = append(groupSnapshot.Edges, edgeContractSnapshot{
-				ID:                 edge.ID,
-				Key:                edge.Key,
-				TargetNode:         nodeSnapshotWithDerivedWiring(target, derived),
-				ContextMode:        edge.ContextMode,
-				ContextSource:      workflow.CanonicalContextSource(edge.ContextSource),
-				RequiresApproval:   edge.RequiresApproval,
-				InputBindings:      edgeInputBindingsSnapshot(edge, derived),
-				OutputRequirements: edgeOutputRequirementsSnapshot(edge, target, derived),
-			})
+			groupSnapshot.Edges = append(groupSnapshot.Edges, edgeSnapshotWithDerivedWiring(edge, source, target, derived))
 		}
 		snapshot.TransitionGroups = append(snapshot.TransitionGroups, groupSnapshot)
 	}
@@ -169,12 +179,62 @@ func nodeSnapshot(node workflow.Node) nodeContractSnapshot {
 	}
 }
 
-func edgeInputBindingsSnapshot(edge workflow.Edge, derived workflow.DerivedWiring) []workflow.InputBinding {
+func edgeSnapshotWithDerivedWiring(edge workflow.Edge, source workflow.Node, target workflow.Node, derived workflow.DerivedWiring) edgeContractSnapshot {
+	return edgeContractSnapshot{
+		ID:                 edge.ID,
+		Key:                edge.Key,
+		TargetNode:         nodeSnapshotWithDerivedWiring(target, derived),
+		ContextMode:        edge.ContextMode,
+		ContextSource:      workflow.CanonicalContextSource(edge.ContextSource),
+		RequiresApproval:   edge.RequiresApproval,
+		PromptTemplate:     strings.TrimSpace(edge.PromptTemplate),
+		Parameters:         edgeParametersSnapshot(edge, source, derived),
+		InputBindings:      edgeInputBindingsSnapshot(edge, source, derived),
+		OutputRequirements: edgeOutputRequirementsSnapshot(edge, source, target, derived),
+	}
+}
+
+func edgeParametersSnapshot(edge workflow.Edge, source workflow.Node, derived workflow.DerivedWiring) []workflow.Parameter {
+	if source.Kind == workflow.NodeKindJoin {
+		return parametersFromOutputFields(derived.JoinOutputFieldsForNode(source.ID))
+	}
+	return append([]workflow.Parameter(nil), edge.Parameters...)
+}
+
+func parametersFromOutputFields(fields []workflow.OutputField) []workflow.Parameter {
+	out := make([]workflow.Parameter, 0, len(fields))
+	for _, field := range fields {
+		key := strings.TrimSpace(field.Name)
+		if key != "" {
+			out = append(out, workflow.Parameter{Key: key, Description: strings.TrimSpace(field.Description)})
+		}
+	}
+	return out
+}
+
+func edgeInputBindingsSnapshot(edge workflow.Edge, source workflow.Node, derived workflow.DerivedWiring) []workflow.InputBinding {
+	if source.Kind == workflow.NodeKindJoin {
+		return inputBindingsForOutputFields(derived.JoinOutputFieldsForNode(source.ID))
+	}
 	return derived.InputBindingsForEdge(edge.ID)
 }
 
-func edgeOutputRequirementsSnapshot(edge workflow.Edge, target workflow.Node, derived workflow.DerivedWiring) []workflow.OutputRequirement {
+func inputBindingsForOutputFields(fields []workflow.OutputField) []workflow.InputBinding {
+	bindings := make([]workflow.InputBinding, 0, len(fields))
+	for _, field := range fields {
+		name := strings.TrimSpace(field.Name)
+		if name != "" {
+			bindings = append(bindings, workflow.InputBinding{Name: name, Source: workflow.BindingSourceJoin, Field: name})
+		}
+	}
+	return bindings
+}
+
+func edgeOutputRequirementsSnapshot(edge workflow.Edge, source workflow.Node, target workflow.Node, derived workflow.DerivedWiring) []workflow.OutputRequirement {
 	fields := derived.RequiredProvisionFieldsForEdge(edge.ID)
+	if source.Kind == workflow.NodeKindJoin {
+		fields = derived.JoinOutputFieldsForNode(source.ID)
+	}
 	if target.Kind == workflow.NodeKindJoin {
 		fields = derived.RequiredProviderFieldsForJoinEdge(edge.ID)
 	}
@@ -279,12 +339,14 @@ func requiredOutputIssues(group transitionContractSnapshot, values map[string]st
 	return issues
 }
 
-func knownOutputIssues(node nodeContractSnapshot, values map[string]string) []CompletionValidationIssue {
-	known := make(map[string]bool, len(node.OutputFields))
-	for _, field := range node.OutputFields {
-		name := strings.TrimSpace(field.Name)
-		if name != "" {
-			known[name] = true
+func knownOutputIssues(group transitionContractSnapshot, values map[string]string) []CompletionValidationIssue {
+	known := map[string]bool{}
+	for _, edge := range group.Edges {
+		for _, requirement := range edge.OutputRequirements {
+			name := strings.TrimSpace(requirement.FieldName)
+			if name != "" {
+				known[name] = true
+			}
 		}
 	}
 	issues := []CompletionValidationIssue{}

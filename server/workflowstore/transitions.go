@@ -200,12 +200,12 @@ WHERE id = ? AND state = 'pending'`, targetPlacementID, edge.ID); err != nil {
 			return CompleteRunResult{}, err
 		}
 		if !ok {
-			source, err = s.resolveContextSourceRun(ctx, tx, taskID, transitionCreatedAt, &sourceRun, sourceSnapshot, targetEdge)
+			source, err = s.resolveContextSourceRun(ctx, tx, taskID, transitionCreatedAt, sourceRun.PlacementID, &sourceRun, sourceSnapshot, targetEdge)
 			if err != nil {
 				return CompleteRunResult{}, err
 			}
 		}
-		targetMetadataJSON, err := targetRunMetadata(targetEdge, source, edgeMetadata.NodeOutputValues)
+		targetMetadataJSON, err := targetRunMetadata(targetEdge, source, edgeMetadata.PriorParameterValues)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
@@ -334,6 +334,8 @@ func edgeContractSnapshotFromTransitionEdge(edge sqlitegen.TaskTransitionEdgeRec
 		ContextMode:        workflow.ContextMode(edge.ContextMode),
 		ContextSource:      workflow.CanonicalContextSource(metadata.ContextSource),
 		RequiresApproval:   edge.RequiresApproval != 0,
+		PromptTemplate:     strings.TrimSpace(metadata.PromptTemplate),
+		Parameters:         append([]workflow.Parameter(nil), metadata.Parameters...),
 		InputBindings:      inputs,
 		OutputRequirements: requirements,
 	}, nil
@@ -359,6 +361,8 @@ func insertTransitionEdgeSnapshot(ctx context.Context, q *sqlitegen.Queries, tra
 
 func insertTransitionEdgeSnapshotWithMetadata(ctx context.Context, q *sqlitegen.Queries, transitionID string, edge edgeContractSnapshot, targetPlacementID string, state string, metadata workflowRunMetadata) error {
 	metadata.ContextSource = workflow.CanonicalContextSource(edge.ContextSource)
+	metadata.PromptTemplate = strings.TrimSpace(edge.PromptTemplate)
+	metadata.Parameters = append([]workflow.Parameter(nil), edge.Parameters...)
 	metadataJSON, err := marshalJSON(metadata)
 	if err != nil {
 		return err

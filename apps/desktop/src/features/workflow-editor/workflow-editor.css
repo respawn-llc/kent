@@ -45,6 +45,39 @@
   width: 10px;
 }
 
+.workflow-editor-creation-handle {
+  display: grid;
+  height: 14px;
+  place-items: center;
+  width: 14px;
+}
+
+.workflow-editor-creation-handle::after {
+  color: var(--color-on-island);
+  content: "+";
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.workflow-editor-target-connection-handle {
+  background: transparent;
+  border: 0;
+  height: 100%;
+  opacity: 0;
+  pointer-events: all;
+  width: 16px;
+}
+
+.workflow-editor-endpoint-handle {
+  background: transparent;
+  border: 0;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+}
+
 .workflow-editor-join-diamond {
   width: 30px;
   height: 30px;

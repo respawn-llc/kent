@@ -3,7 +3,7 @@ import { afterEach, beforeEach, vi } from "vitest";
 
 import { initializeI18n } from "../../i18n/setup";
 import { WorkflowGraphCanvas } from "./WorkflowGraphCanvas";
-import type { WorkflowGraphEdge, WorkflowGraphNode } from "./workflowGraphLayout";
+import type { WorkflowGraphEdge, WorkflowGraphNode, WorkflowGraphNodeData } from "./workflowGraphLayout";
 
 void initializeI18n();
 
@@ -61,6 +61,38 @@ describe("WorkflowGraphCanvas edge interactions", () => {
     expect(onNodeInspect).toHaveBeenLastCalledWith("agent");
     expect(onEdgeInspect).not.toHaveBeenCalled();
   });
+
+  it("shows a visible creation handle while keeping routed endpoint handles node-side invisible", () => {
+    render(
+      <WorkflowGraphCanvas
+        graph={{
+          edges: [],
+          nodes: [
+            workflowGraphNode({
+              endpointPorts: [
+                { id: "workflow-target-endpoint-edge-a", nodeID: "agent", side: "target", y: 23 },
+                { id: "workflow-source-endpoint-edge-a", nodeID: "agent", side: "source", y: 69 },
+              ],
+              id: "agent",
+              kind: "agent",
+              label: "Agent",
+              x: 0,
+            }),
+          ],
+        }}
+        onEdgeInspect={() => undefined}
+        onGroupInspect={() => undefined}
+        onNodeInspect={() => undefined}
+        onWorkflowInspect={() => undefined}
+      />,
+    );
+
+    const agent = screen.getByTestId("workflow-graph-node-agent");
+    expect(within(agent).getByTestId("workflow-node-source-handle")).toBeInTheDocument();
+    expect(within(agent).getByTestId("workflow-node-connection-target-handle")).toBeInTheDocument();
+    expect(within(agent).queryAllByTestId("workflow-node-target-handle")).toHaveLength(0);
+    expect(within(agent).getAllByTestId("workflow-node-endpoint-handle")).toHaveLength(2);
+  });
 });
 
 class MockResizeObserver implements ResizeObserver {
@@ -78,11 +110,13 @@ class MockResizeObserver implements ResizeObserver {
 }
 
 function workflowGraphNode({
+  endpointPorts = [],
   id,
   kind,
   label,
   x,
 }: Readonly<{
+  endpointPorts?: WorkflowGraphNodeData["endpointPorts"];
   id: string;
   kind: string;
   label: string;
@@ -92,6 +126,7 @@ function workflowGraphNode({
     data: {
       entityID: id,
       entityKind: "node",
+      endpointPorts,
       groupID: "",
       hasError: false,
       key: id,

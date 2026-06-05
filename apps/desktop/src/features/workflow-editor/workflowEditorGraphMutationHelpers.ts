@@ -150,6 +150,8 @@ export function workflowEdge(input: Readonly<{
     inputBindings: [],
     key: input.key,
     outputRequirements: [],
+    parameters: [],
+    promptTemplate: "",
     requiresApproval: false,
     targetNodeID: input.targetNodeID,
     transitionGroupID: input.transitionGroupID,

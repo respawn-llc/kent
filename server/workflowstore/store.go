@@ -162,6 +162,8 @@ type EdgeRecord struct {
 	ContextMode        workflow.ContextMode
 	ContextSource      workflow.ContextSource
 	InputBindings      []workflow.InputBinding
+	PromptTemplate     string
+	Parameters         []workflow.Parameter
 	OutputRequirements []workflow.OutputRequirement
 }
 
@@ -239,28 +241,33 @@ type RunnableRunRecord struct {
 }
 
 type RunStartContext struct {
-	Run               RunRecord
-	Task              TaskRecord
-	Workflow          WorkflowRecord
-	Node              NodeRecord
-	ContextMode       workflow.ContextMode
-	SourceRunID       workflow.RunID
-	SourceSessionID   string
-	SourceNode        NodeRecord
-	TransitionIDs     []string
-	TransitionOptions []TransitionOption
-	InputValues       map[string]string
-	NodeOutputValues  map[string]map[string]string
-	WorkspaceID       string
-	WorkspaceRoot     string
-	WorktreeID        string
-	WorktreeRoot      string
+	Run                  RunRecord
+	Task                 TaskRecord
+	Workflow             WorkflowRecord
+	Node                 NodeRecord
+	ContextMode          workflow.ContextMode
+	SourceRunID          workflow.RunID
+	SourceSessionID      string
+	SourceNode           NodeRecord
+	TransitionIDs        []string
+	TransitionOptions    []TransitionOption
+	PromptTemplate       string
+	Parameters           []workflow.Parameter
+	ParameterValues      map[string]string
+	PriorParameterValues map[string]map[string]string
+	InputValues          map[string]string
+	NodeOutputValues     map[string]map[string]string
+	WorkspaceID          string
+	WorkspaceRoot        string
+	WorktreeID           string
+	WorktreeRoot         string
 }
 
 type TransitionOption struct {
 	ID          string
 	DisplayName string
 	Description string
+	Parameters  []workflow.Parameter
 }
 
 type TransitionRecord struct {
@@ -766,6 +773,10 @@ func (s *Store) UpdateTransitionGroup(ctx context.Context, group TransitionGroup
 
 func (s *Store) AddEdge(ctx context.Context, edge EdgeRecord) (int64, error) {
 	contextSource := workflow.CanonicalContextSource(edge.ContextSource)
+	parameters, err := marshalJSONArray(edge.Parameters)
+	if err != nil {
+		return 0, err
+	}
 	inputs, err := marshalJSON(edge.InputBindings)
 	if err != nil {
 		return 0, err
@@ -786,7 +797,7 @@ func (s *Store) AddEdge(ctx context.Context, edge EdgeRecord) (int64, error) {
 		if err := ensureWorkflowNodeID(ctx, q, string(edge.WorkflowID), edge.TargetNodeID); err != nil {
 			return err
 		}
-		if err := q.InsertWorkflowEdge(ctx, sqlitegen.InsertWorkflowEdgeParams{ID: string(edge.ID), TransitionGroupID: string(edge.TransitionGroupID), EdgeKey: string(edge.Key), TargetNodeID: string(edge.TargetNodeID), RequiresApproval: boolToInt64(edge.RequiresApproval), ContextMode: string(edge.ContextMode), ContextSourceKind: string(contextSource.Kind), ContextSourceNodeKey: string(contextSource.NodeKey), InputBindingsJson: inputs, OutputRequirementsJson: requirements, SortOrder: 100}); err != nil {
+		if err := q.InsertWorkflowEdge(ctx, sqlitegen.InsertWorkflowEdgeParams{ID: string(edge.ID), TransitionGroupID: string(edge.TransitionGroupID), EdgeKey: string(edge.Key), TargetNodeID: string(edge.TargetNodeID), RequiresApproval: boolToInt64(edge.RequiresApproval), ContextMode: string(edge.ContextMode), ContextSourceKind: string(contextSource.Kind), ContextSourceNodeKey: string(contextSource.NodeKey), PromptTemplate: strings.TrimSpace(edge.PromptTemplate), ParametersJson: parameters, InputBindingsJson: inputs, OutputRequirementsJson: requirements, SortOrder: 100}); err != nil {
 			return fmt.Errorf("insert workflow edge: %w", err)
 		}
 		return nil
@@ -801,6 +812,10 @@ func (s *Store) UpdateEdge(ctx context.Context, edge EdgeRecord) (int64, error) 
 		return 0, errors.New("workflow id is required")
 	}
 	contextSource := workflow.CanonicalContextSource(edge.ContextSource)
+	parameters, err := marshalJSONArray(edge.Parameters)
+	if err != nil {
+		return 0, err
+	}
 	inputs, err := marshalJSON(edge.InputBindings)
 	if err != nil {
 		return 0, err
@@ -826,6 +841,8 @@ func (s *Store) UpdateEdge(ctx context.Context, edge EdgeRecord) (int64, error) 
 			string(edge.ContextMode),
 			string(contextSource.Kind),
 			string(contextSource.NodeKey),
+			strings.TrimSpace(edge.PromptTemplate),
+			parameters,
 			inputs,
 			requirements,
 			string(edge.ID),
@@ -979,14 +996,18 @@ func (s *Store) GetDefinition(ctx context.Context, workflowID workflow.WorkflowI
 	}
 	for _, edge := range edges {
 		inputs := []workflow.InputBinding{}
+		parameters := []workflow.Parameter{}
 		requirements := []workflow.OutputRequirement{}
+		if err := unmarshalJSON(edge.ParametersJson, &parameters); err != nil {
+			return workflow.Definition{}, WorkflowRecord{}, err
+		}
 		if err := unmarshalJSON(edge.InputBindingsJson, &inputs); err != nil {
 			return workflow.Definition{}, WorkflowRecord{}, err
 		}
 		if err := unmarshalJSON(edge.OutputRequirementsJson, &requirements); err != nil {
 			return workflow.Definition{}, WorkflowRecord{}, err
 		}
-		def.Edges = append(def.Edges, workflow.Edge{WorkflowID: workflow.WorkflowID(edge.WorkflowID), ID: workflow.EdgeID(edge.ID), Key: workflow.ModelKey(edge.EdgeKey), TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID), TargetNodeID: workflow.NodeID(edge.TargetNodeID), RequiresApproval: edge.RequiresApproval != 0, ContextMode: workflow.ContextMode(edge.ContextMode), ContextSource: workflow.CanonicalContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(edge.ContextSourceKind), NodeKey: workflow.ModelKey(edge.ContextSourceNodeKey)}), InputBindings: inputs, OutputRequirements: requirements})
+		def.Edges = append(def.Edges, workflow.Edge{WorkflowID: workflow.WorkflowID(edge.WorkflowID), ID: workflow.EdgeID(edge.ID), Key: workflow.ModelKey(edge.EdgeKey), TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID), TargetNodeID: workflow.NodeID(edge.TargetNodeID), RequiresApproval: edge.RequiresApproval != 0, ContextMode: workflow.ContextMode(edge.ContextMode), ContextSource: workflow.CanonicalContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(edge.ContextSourceKind), NodeKey: workflow.ModelKey(edge.ContextSourceNodeKey)}), PromptTemplate: edge.PromptTemplate, Parameters: parameters, InputBindings: inputs, OutputRequirements: requirements})
 	}
 	return def, workflowRecordFromGetWorkflowRow(row), nil
 }
@@ -1092,6 +1113,13 @@ func boolToInt64(value bool) int64 {
 
 func marshalJSON(value any) (string, error) {
 	return workflowjson.MarshalString(value)
+}
+
+func marshalJSONArray[T any](value []T) (string, error) {
+	if value == nil {
+		value = []T{}
+	}
+	return marshalJSON(value)
 }
 
 func unmarshalJSON(raw string, target any) error {

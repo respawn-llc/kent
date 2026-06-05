@@ -327,9 +327,9 @@ func appendWorkflowCompactContinuation(store *session.Store, input workflowstore
 		"Source session: " + strings.TrimSpace(input.SourceSessionID),
 		"Target node: " + string(input.Node.Key),
 	}
-	if len(input.InputValues) > 0 {
-		lines = append(lines, "Bound transition inputs:")
-		for _, value := range workflowInputValues(input.InputValues) {
+	if len(input.ParameterValues) > 0 {
+		lines = append(lines, "Bound transition parameters:")
+		for _, value := range workflowInputValues(input.ParameterValues) {
 			lines = append(lines, "- "+value.Name+": "+value.Value)
 		}
 	}
@@ -382,13 +382,7 @@ func (s *Starter) run(ctx context.Context, req workflowscheduler.StartRunRequest
 		Sources:  plan.Source.Sources,
 		Client:   client,
 		WorkflowRun: &workflowruntime.Config{
-			Contract: workflowruntime.CompletionContract{
-				RunID:              req.RunID,
-				ExpectedGeneration: req.Generation,
-				RequireGeneration:  true,
-				OutputFields:       append([]workflow.OutputField(nil), input.Node.OutputFields...),
-				TransitionIDs:      append([]string(nil), input.TransitionIDs...),
-			},
+			Contract:                     workflowCompletionContract(req, input),
 			CompletionMode:               s.cfg.Settings.Workflow.CompletionMode,
 			MaxFinalAnswerViolations:     s.cfg.Settings.Workflow.MaxFinalAnswerViolations,
 			MaxInvalidCompletionAttempts: s.cfg.Settings.Workflow.MaxInvalidCompletionAttempts,
@@ -476,7 +470,7 @@ func (s *Starter) interrupt(ctx context.Context, runID workflow.RunID, generatio
 }
 
 func BuildWorkflowTaskInstructions(input workflowstore.RunStartContext) (workflowruntime.TaskInstructions, error) {
-	nodePrompt, err := renderInputPlaceholders(input.Node.PromptTemplate, input)
+	nodePrompt, err := renderTransitionPrompt(input.PromptTemplate, input)
 	if err != nil {
 		return workflowruntime.TaskInstructions{}, err
 	}
@@ -539,6 +533,41 @@ func workflowInstructionTransitions(options []workflowstore.TransitionOption, tr
 	return out
 }
 
+func workflowCompletionContract(req workflowscheduler.StartRunRequest, input workflowstore.RunStartContext) workflowruntime.CompletionContract {
+	return workflowruntime.CompletionContract{
+		RunID:              req.RunID,
+		ExpectedGeneration: req.Generation,
+		RequireGeneration:  true,
+		Transitions:        workflowCompletionTransitions(input.TransitionOptions, input.TransitionIDs),
+	}
+}
+
+func workflowCompletionTransitions(options []workflowstore.TransitionOption, transitionIDs []string) []workflowruntime.CompletionTransition {
+	out := make([]workflowruntime.CompletionTransition, 0, len(options))
+	if len(options) > 0 {
+		for _, option := range options {
+			id := strings.TrimSpace(option.ID)
+			if id == "" {
+				continue
+			}
+			out = append(out, workflowruntime.CompletionTransition{
+				ID:          id,
+				DisplayName: strings.TrimSpace(option.DisplayName),
+				Description: strings.TrimSpace(option.Description),
+				Parameters:  append([]workflow.Parameter(nil), option.Parameters...),
+			})
+		}
+		return out
+	}
+	for _, id := range transitionIDs {
+		trimmed := strings.TrimSpace(id)
+		if trimmed != "" {
+			out = append(out, workflowruntime.CompletionTransition{ID: trimmed})
+		}
+	}
+	return out
+}
+
 func workflowInputValues(values map[string]string) []prompts.WorkflowInputValue {
 	names := sortedInputValueNames(values)
 	out := make([]prompts.WorkflowInputValue, 0, len(names))
@@ -556,18 +585,25 @@ type nodePromptTemplateData struct {
 	NodeId          string
 	NodeKey         string
 	NodeDisplayName string
-	Inputs          map[string]string
-	Nodes           map[string]map[string]string
+	Params          map[string]promptParameterNamespace
 }
 
-func renderInputPlaceholders(templateText string, input workflowstore.RunStartContext) (string, error) {
+const currentParameterValueKey = "\x00current"
+
+type promptParameterNamespace map[string]string
+
+func (n promptParameterNamespace) String() string {
+	return n[currentParameterValueKey]
+}
+
+func renderTransitionPrompt(templateText string, input workflowstore.RunStartContext) (string, error) {
 	prompt := strings.TrimSpace(templateText)
 	if prompt == "" {
 		return "", nil
 	}
-	tmpl, err := template.New("workflow node prompt").Option("missingkey=error").Parse(prompt)
+	tmpl, err := template.New("workflow transition prompt").Option("missingkey=error").Parse(prompt)
 	if err != nil {
-		return "", fmt.Errorf("parse workflow node prompt template: %w", err)
+		return "", fmt.Errorf("parse workflow transition prompt template: %w", err)
 	}
 	var b strings.Builder
 	if err := tmpl.Execute(&b, nodePromptTemplateData{
@@ -578,12 +614,45 @@ func renderInputPlaceholders(templateText string, input workflowstore.RunStartCo
 		NodeId:          string(input.Node.ID),
 		NodeKey:         string(input.Node.Key),
 		NodeDisplayName: strings.TrimSpace(input.Node.DisplayName),
-		Inputs:          input.InputValues,
-		Nodes:           input.NodeOutputValues,
+		Params:          promptParameterData(input.ParameterValues, input.PriorParameterValues),
 	}); err != nil {
-		return "", fmt.Errorf("render workflow node prompt template: %w", err)
+		return "", fmt.Errorf("render workflow transition prompt template: %w", err)
 	}
 	return b.String(), nil
+}
+
+func promptParameterData(current map[string]string, prior map[string]map[string]string) map[string]promptParameterNamespace {
+	out := map[string]promptParameterNamespace{}
+	for transitionKey, values := range prior {
+		key := strings.TrimSpace(transitionKey)
+		if key == "" {
+			continue
+		}
+		namespace := out[key]
+		if namespace == nil {
+			namespace = promptParameterNamespace{}
+		}
+		for parameterKey, value := range values {
+			trimmedParameterKey := strings.TrimSpace(parameterKey)
+			if trimmedParameterKey != "" {
+				namespace[trimmedParameterKey] = value
+			}
+		}
+		out[key] = namespace
+	}
+	for parameterKey, value := range current {
+		key := strings.TrimSpace(parameterKey)
+		if key == "" {
+			continue
+		}
+		namespace := out[key]
+		if namespace == nil {
+			namespace = promptParameterNamespace{}
+		}
+		namespace[currentParameterValueKey] = value
+		out[key] = namespace
+	}
+	return out
 }
 
 func sortedInputValueNames(values map[string]string) []string {

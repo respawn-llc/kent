@@ -197,6 +197,8 @@ function workflowEdge(id: string, transitionGroupID: string, targetNodeID: strin
     inputBindings: [],
     key: id,
     outputRequirements: [],
+    parameters: [],
+    promptTemplate: "",
     requiresApproval: false,
     targetNodeID,
     transitionGroupID,

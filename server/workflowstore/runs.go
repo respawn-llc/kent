@@ -249,21 +249,31 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 			return RunStartContext{}, fmt.Errorf("resolve workflow run metadata: %w", err)
 		}
 	}
+	parameterValues := map[string]string{}
+	for key, value := range inputValues {
+		parameterValues[key] = value
+	}
+	priorParameterValues := clonePriorParameterValues(runMetadata.PriorParameterValues)
+	parameters := append([]workflow.Parameter(nil), runMetadata.Parameters...)
 	worktreeID := strings.TrimSpace(task.ManagedWorktreeID.String)
 	if worktreeID == "" {
 		return RunStartContext{
-			Run:               runRecordFromTaskRun(run),
-			Task:              taskRecordFromTask(task),
-			Workflow:          workflowRecord,
-			Node:              nodeRecordFromSnapshot(snapshot.Node, snapshot.WorkflowID),
-			ContextMode:       transitionContext.ContextMode,
-			SourceRunID:       transitionContext.SourceRunID,
-			SourceSessionID:   transitionContext.SourceSessionID,
-			SourceNode:        transitionContext.SourceNode,
-			TransitionIDs:     transitionIDsFromSnapshot(snapshot),
-			TransitionOptions: transitionOptionsFromSnapshot(snapshot),
-			InputValues:       inputValues,
-			NodeOutputValues:  runMetadata.NodeOutputValues,
+			Run:                  runRecordFromTaskRun(run),
+			Task:                 taskRecordFromTask(task),
+			Workflow:             workflowRecord,
+			Node:                 nodeRecordFromSnapshot(snapshot.Node, snapshot.WorkflowID),
+			ContextMode:          transitionContext.ContextMode,
+			SourceRunID:          transitionContext.SourceRunID,
+			SourceSessionID:      transitionContext.SourceSessionID,
+			SourceNode:           transitionContext.SourceNode,
+			TransitionIDs:        transitionIDsFromSnapshot(snapshot),
+			TransitionOptions:    transitionOptionsFromSnapshot(snapshot),
+			PromptTemplate:       strings.TrimSpace(runMetadata.PromptTemplate),
+			Parameters:           parameters,
+			ParameterValues:      parameterValues,
+			PriorParameterValues: priorParameterValues,
+			InputValues:          inputValues,
+			NodeOutputValues:     runMetadata.NodeOutputValues,
 		}, nil
 	}
 	worktree, err := s.metadata.GetWorktreeRecordByID(ctx, worktreeID)
@@ -275,22 +285,26 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 		return RunStartContext{}, err
 	}
 	return RunStartContext{
-		Run:               runRecordFromTaskRun(run),
-		Task:              taskRecordFromTask(task),
-		Workflow:          workflowRecord,
-		Node:              nodeRecordFromSnapshot(snapshot.Node, snapshot.WorkflowID),
-		ContextMode:       transitionContext.ContextMode,
-		SourceRunID:       transitionContext.SourceRunID,
-		SourceSessionID:   transitionContext.SourceSessionID,
-		SourceNode:        transitionContext.SourceNode,
-		TransitionIDs:     transitionIDsFromSnapshot(snapshot),
-		TransitionOptions: transitionOptionsFromSnapshot(snapshot),
-		InputValues:       inputValues,
-		NodeOutputValues:  runMetadata.NodeOutputValues,
-		WorkspaceID:       workspace.ID,
-		WorkspaceRoot:     workspace.CanonicalRootPath,
-		WorktreeID:        worktree.ID,
-		WorktreeRoot:      worktree.CanonicalRoot,
+		Run:                  runRecordFromTaskRun(run),
+		Task:                 taskRecordFromTask(task),
+		Workflow:             workflowRecord,
+		Node:                 nodeRecordFromSnapshot(snapshot.Node, snapshot.WorkflowID),
+		ContextMode:          transitionContext.ContextMode,
+		SourceRunID:          transitionContext.SourceRunID,
+		SourceSessionID:      transitionContext.SourceSessionID,
+		SourceNode:           transitionContext.SourceNode,
+		TransitionIDs:        transitionIDsFromSnapshot(snapshot),
+		TransitionOptions:    transitionOptionsFromSnapshot(snapshot),
+		PromptTemplate:       strings.TrimSpace(runMetadata.PromptTemplate),
+		Parameters:           parameters,
+		ParameterValues:      parameterValues,
+		PriorParameterValues: priorParameterValues,
+		InputValues:          inputValues,
+		NodeOutputValues:     runMetadata.NodeOutputValues,
+		WorkspaceID:          workspace.ID,
+		WorkspaceRoot:        workspace.CanonicalRootPath,
+		WorktreeID:           worktree.ID,
+		WorktreeRoot:         worktree.CanonicalRoot,
 	}, nil
 }
 

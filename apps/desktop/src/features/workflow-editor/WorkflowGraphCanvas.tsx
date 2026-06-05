@@ -19,8 +19,11 @@ import {
   inspectEdge,
   inspectNode,
   isFormTarget,
+  reconnectWorkflowGraphEdge,
   selectionFromEdge,
   selectionFromNode,
+  type WorkflowGraphReconnectEdgeInput,
+  type WorkflowGraphReconnectEndpoint,
   workflowGraphSelectionExists,
 } from "./workflowGraphCanvasInteractions";
 import { WorkflowGraphEdge as WorkflowGraphEdgeRenderer } from "./WorkflowGraphEdge";
@@ -57,6 +60,7 @@ export type WorkflowGraphCanvasProps = Readonly<{
   onCreateNodeGroup?: ((nodeID: string) => void) | undefined;
   onDeleteSelection?: ((selection: WorkflowGraphSelection) => void) | undefined;
   onExtractNodeFromGroup?: ((nodeID: string) => void) | undefined;
+  onReconnectEdge?: ((input: WorkflowGraphReconnectEdgeInput) => void) | undefined;
   onRemoveNodeFromGroup?: ((nodeID: string) => void) | undefined;
   onEdgeInspect: (edgeID: string) => void;
   onGroupInspect: (groupID: string) => void;
@@ -67,6 +71,11 @@ export type WorkflowGraphCanvasProps = Readonly<{
 type RenderNodesState = Readonly<{
   nodes: Node[];
   sourceNodes: readonly WorkflowGraphNode[];
+}>;
+
+type WorkflowGraphReconnectEndpointState = Readonly<{
+  edgeID: string;
+  endpoint: WorkflowGraphReconnectEndpoint;
 }>;
 
 export function WorkflowGraphCanvas({
@@ -80,6 +89,7 @@ export function WorkflowGraphCanvas({
   onCreateNodeGroup,
   onDeleteSelection,
   onExtractNodeFromGroup,
+  onReconnectEdge,
   onRemoveNodeFromGroup,
   onEdgeInspect,
   onGroupInspect,
@@ -97,6 +107,7 @@ export function WorkflowGraphCanvas({
           onCreateNodeGroup={onCreateNodeGroup}
           onDeleteSelection={onDeleteSelection}
           onExtractNodeFromGroup={onExtractNodeFromGroup}
+          onReconnectEdge={onReconnectEdge}
           onRemoveNodeFromGroup={onRemoveNodeFromGroup}
           onEdgeInspect={onEdgeInspect}
           onGroupInspect={onGroupInspect}
@@ -125,6 +136,7 @@ function WorkflowGraphCanvasInner({
   onExtractNodeFromGroup,
   onGroupInspect,
   onNodeInspect,
+  onReconnectEdge,
   onRemoveNodeFromGroup,
   onWorkflowInspect,
   nodes,
@@ -142,6 +154,7 @@ function WorkflowGraphCanvasInner({
   onExtractNodeFromGroup: ((nodeID: string) => void) | undefined;
   onGroupInspect: (groupID: string) => void;
   onNodeInspect: (nodeID: string) => void;
+  onReconnectEdge: ((input: WorkflowGraphReconnectEdgeInput) => void) | undefined;
   onRemoveNodeFromGroup: ((nodeID: string) => void) | undefined;
   onWorkflowInspect: () => void;
   nodes: readonly WorkflowGraphNode[];
@@ -149,6 +162,7 @@ function WorkflowGraphCanvasInner({
 }>) {
   const instance = useReactFlow();
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const reconnectEndpointRef = useRef<WorkflowGraphReconnectEndpointState | null>(null);
   const [selection, setSelection] = useState<WorkflowGraphSelection | null>(null);
   // React Flow owns the drag gesture, but workflow layout stays ELK/server-authored.
   // This transient snapshot lets cards move during drag without persisting canvas positions.
@@ -276,7 +290,7 @@ function WorkflowGraphCanvasInner({
         minZoom={0.15}
         nodeDragThreshold={6}
         nodes={dragAwareRenderNodes}
-        nodesConnectable={onConnectNodes !== undefined}
+        nodesConnectable={onConnectNodes !== undefined || onReconnectEdge !== undefined}
         nodesDraggable={false}
         nodeTypes={nodeTypes}
         onConnect={(connection) => {
@@ -336,9 +350,30 @@ function WorkflowGraphCanvasInner({
             return { nodes: applyNodeChanges(changes, currentNodes), sourceNodes: nodes };
           });
         }}
+        onReconnect={(edge, connection) => {
+          const reconnectEndpoint = reconnectEndpointRef.current;
+          const endpoint =
+            reconnectEndpoint !== null && reconnectEndpoint.edgeID === edge.id
+              ? reconnectEndpoint.endpoint
+              : null;
+          reconnectWorkflowGraphEdge(
+            edge,
+            connection,
+            endpoint,
+            onReconnectEdge,
+          );
+        }}
+        onReconnectEnd={() => {
+          reconnectEndpointRef.current = null;
+        }}
+        onReconnectStart={(_event, edge, handleType) => {
+          reconnectEndpointRef.current = { edgeID: edge.id, endpoint: handleType };
+        }}
         panOnScroll
         proOptions={{ hideAttribution: true }}
+        reconnectRadius={24}
         selectionOnDrag={false}
+        edgesReconnectable={onReconnectEdge !== undefined}
         zoomOnDoubleClick={false}
       >
         <Background

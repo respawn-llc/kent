@@ -35,15 +35,20 @@ export type Edge<Data extends Record<string, unknown> = Record<string, unknown>>
   id: string;
   source: string;
   target: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
   type?: string;
   data?: Data;
   markerEnd?: string | Readonly<{ color?: string; type: string }>;
+  reconnectable?: boolean;
   selected?: boolean;
 }>;
 
 export type Connection = Readonly<{
   source: string | null;
+  sourceHandle?: string | null;
   target: string | null;
+  targetHandle?: string | null;
 }>;
 
 export type NodeProps<NodeType extends Node = Node> = Readonly<{
@@ -89,8 +94,13 @@ export declare const ReactFlow: ComponentType<
     onNodeDragStart?: (event: MouseEvent, node: Node, nodes: readonly Node[]) => void;
     onNodeDragStop?: (event: MouseEvent, node: Node, nodes: readonly Node[]) => void;
     onNodesChange?: (changes: readonly NodeChange[]) => void;
+    onReconnect?: (edge: Edge, connection: Connection) => void;
+    onReconnectEnd?: () => void;
+    onReconnectStart?: (event: unknown, edge: Edge, handleType: "source" | "target") => void;
     panOnScroll?: boolean;
     proOptions?: Readonly<{ hideAttribution?: boolean }>;
+    edgesReconnectable?: boolean;
+    reconnectRadius?: number;
     selectionOnDrag?: boolean;
     zoomOnDoubleClick?: boolean;
   }>
@@ -103,11 +113,14 @@ export declare const BaseEdge: ComponentType<Readonly<{ "data-testid"?: string; 
 export declare const EdgeLabelRenderer: ComponentType<Readonly<{ children?: ReactNode }>>;
 export declare const Handle: ComponentType<
   Readonly<{
+    "aria-hidden"?: string;
     "aria-label"?: string;
     className?: string;
     "data-testid"?: string;
+    id?: string;
     onClick?: (event: MouseEvent) => void;
     position: PositionValue;
+    style?: CSSProperties;
     type: "source" | "target";
   }>
 >;

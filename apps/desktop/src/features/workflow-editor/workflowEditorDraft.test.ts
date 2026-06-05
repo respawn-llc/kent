@@ -57,21 +57,48 @@ describe("workflowEditorDraft", () => {
     expect(blocked.lastTopologyMutation?.warnings).toEqual(["node was not found"]);
   });
 
-  it("adds input fields at the top and serializes row ids away", () => {
-    const added = workflowEditorDraftReducer(initializeWorkflowEditorDraft(workflowDefinition), {
-      nodeID: "node-agent",
-      type: "addInputField",
+  it("edits edge prompts and serializes branch parameters", () => {
+    const prompted = workflowEditorDraftReducer(initializeWorkflowEditorDraft(workflowDefinition), {
+      edgeID: "edge-1",
+      promptTemplate: "Review {{.Params.plan}}.",
+      type: "editEdgePrompt",
     });
-    const rowID = added.draft.nodes[0]?.inputFields[0]?.rowID ?? "";
+    const added = workflowEditorDraftReducer(initializeWorkflowEditorDraft(workflowDefinition), {
+      edgeID: "edge-1",
+      type: "addEdgeParameter",
+    });
     const updated = workflowEditorDraftReducer(added, {
-      nodeID: "node-agent",
-      patch: { description: "Plan", name: "plan" },
-      rowID,
-      type: "updateInputField",
+      edgeID: "edge-1",
+      parameterIndex: 0,
+      patch: { description: "Plan", key: "plan" },
+      type: "updateEdgeParameter",
+    });
+    const addedSecond = workflowEditorDraftReducer(updated, {
+      edgeID: "edge-1",
+      type: "addEdgeParameter",
+    });
+    const updatedSecond = workflowEditorDraftReducer(addedSecond, {
+      edgeID: "edge-1",
+      parameterIndex: 0,
+      patch: { description: "Notes", key: "notes" },
+      type: "updateEdgeParameter",
+    });
+    const reordered = workflowEditorDraftReducer(updatedSecond, {
+      activeIndex: 1,
+      edgeID: "edge-1",
+      overIndex: 0,
+      type: "reorderEdgeParameter",
+    });
+    const deleted = workflowEditorDraftReducer(reordered, {
+      edgeID: "edge-1",
+      parameterIndex: 1,
+      type: "deleteEdgeParameter",
     });
 
-    const graph = workflowEditorDraftGraph(updated);
-    expect(graph.nodes[0]?.inputFields).toEqual([{ description: "Plan", name: "plan" }]);
+    expect(workflowEditorDraftGraph(prompted).edges[0]?.promptTemplate).toBe("Review {{.Params.plan}}.");
+    expect(workflowEditorDraftGraph(deleted).edges[0]?.parameters).toEqual([
+      { description: "Plan", key: "plan" },
+    ]);
   });
 
   it("edits fixed node identity without exposing execution fields", () => {
@@ -334,6 +361,8 @@ const workflowDefinition: WorkflowDefinition = {
       inputBindings: [],
       key: "done",
       outputRequirements: [],
+      parameters: [],
+      promptTemplate: "",
       requiresApproval: false,
       targetNodeID: "node-agent",
       transitionGroupID: "group-1",

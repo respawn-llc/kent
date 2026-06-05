@@ -3,17 +3,17 @@ import { describe, expect, it } from "vitest";
 import { workflowPromptTemplatePlaceholders } from "./workflowPromptTemplatePlaceholders";
 
 describe("workflowPromptTemplatePlaceholders", () => {
-  it("orders dynamic input placeholders before muted built-in placeholders", () => {
+  it("orders dynamic parameter placeholders before muted built-in placeholders", () => {
     expect(
       workflowPromptTemplatePlaceholders([
-        { name: "summary" },
-        { name: "INVALID" },
-        { name: "notes" },
-        { name: "summary" },
+        { key: "summary" },
+        { key: "INVALID" },
+        { key: "notes" },
+        { key: "summary" },
       ]),
     ).toEqual([
-      { label: ".Inputs.summary", tone: "primary", value: "{{.Inputs.summary}}" },
-      { label: ".Inputs.notes", tone: "primary", value: "{{.Inputs.notes}}" },
+      { label: ".Params.summary", tone: "primary", value: "{{.Params.summary}}" },
+      { label: ".Params.notes", tone: "primary", value: "{{.Params.notes}}" },
       { label: ".TaskId", tone: "muted", value: "{{.TaskId}}" },
       { label: ".TaskShortId", tone: "muted", value: "{{.TaskShortId}}" },
       { label: ".TaskTitle", tone: "muted", value: "{{.TaskTitle}}" },
