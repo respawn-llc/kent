@@ -1,6 +1,8 @@
 package app
 
 import (
+	"strings"
+
 	"builder/cli/tui"
 	"builder/shared/clientui"
 
@@ -138,7 +140,7 @@ func (m *uiModel) applyCommittedTranscriptSuffixAppend(suffix clientui.Committed
 		return nil
 	}
 	page := transcriptPageFromCommittedTranscriptSuffix(suffix)
-	page.Entries = m.suppressRenderedLocalEntryEchoesInChatEntries(page.Entries)
+	page = m.suppressLeadingRenderedLocalEntryEchoesInCommittedPage(page)
 	entries := transcriptEntriesFromPage(page)
 	expectedStart := committedTranscriptTailEnd(m)
 	if page.Offset > expectedStart && page.Offset <= loadedTranscriptTailEnd(m) {
@@ -231,6 +233,44 @@ func (m *uiModel) trackOngoingCommittedSuffixFlush(suffix clientui.CommittedTran
 		return m.requestRuntimeCommittedGapSync()
 	}
 	return nil
+}
+
+func (m *uiModel) suppressLeadingRenderedLocalEntryEchoesInCommittedPage(page clientui.TranscriptPage) clientui.TranscriptPage {
+	if m == nil || len(page.Entries) == 0 {
+		return page
+	}
+	suppressed := 0
+	for suppressed < len(page.Entries) {
+		noticeID := page.Entries[suppressed].NoticeID
+		if !m.shouldSuppressRenderedLocalEntryEcho(noticeID) {
+			break
+		}
+		m.markRenderedLocalEntryEchoCommitted(noticeID)
+		suppressed++
+	}
+	if suppressed == 0 {
+		return page
+	}
+	page.Offset += suppressed
+	page.Entries = append([]clientui.ChatEntry(nil), page.Entries[suppressed:]...)
+	return page
+}
+
+func (m *uiModel) markRenderedLocalEntryEchoCommitted(noticeID string) {
+	if m == nil {
+		return
+	}
+	noticeID = strings.TrimSpace(noticeID)
+	if noticeID == "" {
+		return
+	}
+	for index, entry := range m.transcriptEntries {
+		if strings.TrimSpace(entry.NoticeID) != noticeID {
+			continue
+		}
+		m.transcriptEntries[index].Committed = true
+		return
+	}
 }
 
 func (m *uiModel) trimCommittedTranscriptSuffixToDeliveryCursor(suffix clientui.CommittedTranscriptSuffix) clientui.CommittedTranscriptSuffix {

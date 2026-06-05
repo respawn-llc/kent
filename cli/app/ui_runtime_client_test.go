@@ -911,6 +911,48 @@ func TestCommittedSuffixAppendSuppressesAcknowledgedLocalEntryEcho(t *testing.T)
 	}
 }
 
+func TestCommittedSuffixAppendSuppressesLeadingEchoWithoutShiftingLaterEntries(t *testing.T) {
+	client := &runtimeControlFakeClient{}
+	m := newProjectedStaticUIModel()
+	m.engine = client
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(0, 1)
+
+	_ = m.appendLocalEntryWithNoticeID("system", "Fast mode enabled", "notice-1")
+	cmd := m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
+		Revision:            2,
+		CommittedEntryCount: 2,
+		StartEntryCount:     0,
+		NextEntryCount:      2,
+		Entries: []clientui.ChatEntry{
+			{Role: "system", Text: "Fast mode enabled", NoticeID: "notice-1"},
+			{Role: "assistant", Text: "authoritative answer", Phase: string(llm.MessagePhaseFinal)},
+		},
+	})
+	if cmd != nil {
+		_ = collectCmdMessages(t, cmd)
+	}
+
+	loaded := m.view.LoadedTranscriptEntries()
+	if len(loaded) != 2 {
+		t.Fatalf("expected local echo and assistant exactly once, got %+v", loaded)
+	}
+	if loaded[0].NoticeID != "notice-1" || loaded[0].Text != "Fast mode enabled" {
+		t.Fatalf("unexpected local echo entry: %+v", loaded[0])
+	}
+	if loaded[1].Role != "assistant" || loaded[1].Text != "authoritative answer" {
+		t.Fatalf("unexpected assistant suffix entry: %+v", loaded[1])
+	}
+	if got := m.ongoingCommittedDelivery.lastAppliedCommittedEntryCount; got != 2 {
+		t.Fatalf("delivery cursor applied count = %d, want 2", got)
+	}
+	if got := committedTranscriptTailEnd(m); got != 2 {
+		t.Fatalf("committed transcript tail = %d, want 2", got)
+	}
+}
+
 func TestCommittedSuffixAppendClearsStreamBeforeFinalAnswerAppend(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.windowSizeKnown = true
