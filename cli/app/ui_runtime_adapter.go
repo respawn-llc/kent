@@ -75,14 +75,15 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 	})
 	m.markActiveSubmitFlushed(evt)
 	m.applyRuntimeEventStatus(evt)
+	if !m.processList.isOpen() {
+		m.applyBackgroundProcessEventToCache(evt.Background)
+	}
 	cmds := make([]tea.Cmd, 0, 5)
 	cmds = append(cmds, a.applyRuntimeEventReduction(reduction))
-	a.reconcileInterruptFromRunState(evt)
+	cmds = append(cmds, a.reconcileInterruptFromRunState(evt))
 	transcriptMutated := false
 	awaitsHydration := false
-	if shouldInvalidateTransientTranscriptStateForSync(transcriptSync) {
-		m.invalidateTransientTranscriptState()
-	}
+	evt = m.suppressLocalEntryEchoesInEvent(evt)
 	if len(evt.TranscriptEntries) > 0 {
 		if shouldDeliverCommittedRuntimeEventFromSuffix(m, evt) {
 			m.observeNativeStreamingAssistantCommitCandidate(evt)
@@ -131,6 +132,7 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 			}
 			m.sawAssistantDelta = false
 			m.forwardToView(tui.ClearOngoingAssistantMsg{})
+			cmds = append(cmds, m.releaseDeferredRuntimeSyncs())
 		}
 	}
 	for _, streamCommand := range reduction.Reasoning.Stream {
@@ -144,6 +146,7 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 		case runtimestate.RuntimeReasoningStreamClear:
 			m.reasoningLiveDirty = false
 			m.forwardToView(tui.ClearStreamingReasoningMsg{})
+			cmds = append(cmds, m.releaseDeferredRuntimeSyncs())
 		}
 	}
 	if reduction.Notices.BackgroundNotice != nil {
@@ -157,21 +160,13 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 		cmds = append(cmds, m.recordPromptHistory(reduction.PendingInput.PromptHistoryCommand.Text))
 	}
 	if transcriptSync.IsSet() {
-		cmds = append(cmds, a.syncConversationFromRuntimeTranscriptCommand(transcriptSync))
-		awaitsHydration = awaitsHydration || shouldPauseRuntimeEventsForHydration(m)
+		syncDecision := a.syncConversationFromRuntimeTranscriptCommand(transcriptSync)
+		cmds = append(cmds, syncDecision.cmd)
+		awaitsHydration = awaitsHydration || syncDecision.awaitsHydration
 	} else if shouldRefreshDeferredCommittedTailOnRunEnd(m, evt) {
 		cmds = append(cmds, m.requestRuntimeCommittedConversationSync())
 	}
 	return runtimeEventApplyResult{cmd: batchCmds(cmds...), transcriptMutated: transcriptMutated, awaitsHydration: awaitsHydration}
-}
-
-func shouldInvalidateTransientTranscriptStateForSync(sync runtimestate.RuntimeTranscriptSyncCommand) bool {
-	switch sync.Reason {
-	case runtimestate.RuntimeTranscriptSyncRecovery, runtimestate.RuntimeTranscriptSyncStreamGap, runtimestate.RuntimeTranscriptSyncCommittedAdvance:
-		return true
-	default:
-		return false
-	}
 }
 
 func runtimeTranscriptSyncReasonLabel(sync runtimestate.RuntimeTranscriptSyncCommand) string {
@@ -181,23 +176,23 @@ func runtimeTranscriptSyncReasonLabel(sync runtimestate.RuntimeTranscriptSyncCom
 	return string(sync.Reason)
 }
 
-func (a uiRuntimeAdapter) syncConversationFromRuntimeTranscriptCommand(sync runtimestate.RuntimeTranscriptSyncCommand) tea.Cmd {
+func (a uiRuntimeAdapter) syncConversationFromRuntimeTranscriptCommand(sync runtimestate.RuntimeTranscriptSyncCommand) runtimeTranscriptSyncDecision {
 	switch sync.Reason {
 	case runtimestate.RuntimeTranscriptSyncRecovery, runtimestate.RuntimeTranscriptSyncStreamGap:
-		return a.model.requestRuntimeTranscriptSyncForContinuityLoss(sync.RecoveryCause)
+		return a.model.startRuntimeTranscriptPageRequestDecision(a.model.transcriptRequestForCurrentMode(), false, runtimeTranscriptSyncCauseContinuityRecovery, sync.RecoveryCause)
 	case runtimestate.RuntimeTranscriptSyncCommittedAdvance, runtimestate.RuntimeTranscriptSyncOngoingErrorUpdated:
 		return a.syncConversationFromEngine()
 	default:
-		return nil
+		return runtimeTranscriptSyncDecision{}
 	}
 }
 
-func (a uiRuntimeAdapter) syncConversationFromEngine() tea.Cmd {
+func (a uiRuntimeAdapter) syncConversationFromEngine() runtimeTranscriptSyncDecision {
 	m := a.model
 	if !m.hasRuntimeClient() {
-		return nil
+		return runtimeTranscriptSyncDecision{}
 	}
-	return m.requestRuntimeCommittedConversationSync()
+	return m.startRuntimeTranscriptPageRequestDecision(m.transcriptRequestForCurrentMode(), false, runtimeTranscriptSyncCauseCommittedConversation, clientui.TranscriptRecoveryCauseNone)
 }
 
 func waitAskEvent(ch <-chan askEvent) tea.Cmd {

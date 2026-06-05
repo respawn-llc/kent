@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"builder/cli/app/internal/submissionerror"
+	"builder/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -14,39 +15,75 @@ func (c uiInputController) startQueuedInjectionSubmission() tea.Cmd {
 	if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, ""); blocked {
 		return disconnectCmd
 	}
-	queuedRuntimeWork, err := m.hasQueuedRuntimeUserWork()
-	if err != nil {
-		c.restorePendingInjectedIntoInput()
-		if isInterruptedRuntimeError(err) {
+	if m.injectedQueueBlocksDrain() {
+		return nil
+	}
+	return c.queuedRuntimeWorkCheckCmd()
+}
+
+func (c uiInputController) queuedRuntimeWorkCheckCmd() tea.Cmd {
+	m := c.model
+	if m == nil {
+		return nil
+	}
+	client := m.runtimeClient()
+	if client == nil {
+		return nil
+	}
+	token := m.nextInjectedQueueToken()
+	return func() tea.Msg {
+		hasWork, err := client.HasQueuedUserWork()
+		return queuedRuntimeWorkCheckDoneMsg{token: token, hasWork: hasWork, err: err}
+	}
+}
+
+func (c uiInputController) handleQueuedRuntimeWorkCheckDone(msg queuedRuntimeWorkCheckDoneMsg) (tea.Model, tea.Cmd) {
+	m := c.model
+	if msg.token == 0 || msg.token != m.injectedQueueToken {
+		return m, nil
+	}
+	compactionOrigin := m.queuedRuntimeWorkCheckCompactionOrigin
+	m.queuedRuntimeWorkCheckCompactionOrigin = uiCompactionOriginNone
+	m.observeRuntimeRequestResult(msg.err)
+	if msg.err != nil {
+		restoreCmd := c.restorePendingInjectedIntoInput()
+		if isInterruptedRuntimeError(msg.err) {
 			m.activity = uiActivityInterrupted
 			m.logf("step.interrupted")
 			m.syncViewport()
-			return nil
+			return m, restoreCmd
 		}
-		detailErr := formatSubmissionError(err)
+		detailErr := formatSubmissionError(msg.err)
 		m.activity = uiActivityError
 		appendCmd := m.appendOperatorErrorFeedback(detailErr)
 		m.logf("queue_check.error err=%q", detailErr)
 		m.syncViewport()
-		return appendCmd
+		return m, tea.Batch(restoreCmd, appendCmd)
 	}
-	if !queuedRuntimeWork {
-		return nil
+	if !msg.hasWork || m.injectedQueueBlocksDrain() || m.isBusy() || m.isInputLocked() {
+		if !msg.hasWork {
+			c.notifyUserCompactionCompleted(compactionOrigin, true)
+		} else {
+			c.notifyUserCompactionCompleted(compactionOrigin, false)
+		}
+		return m, nil
 	}
+	c.notifyUserCompactionCompleted(compactionOrigin, false)
 	c.startBusyActivity(false)
 	m.logf("step.resume_queued_injected pending_injected=%d", len(m.pendingInjected))
 	m.syncViewport()
-	return tea.Batch(c.submitQueuedUserMessagesCmd(), c.model.ensureSpinnerTicking())
+	return m, tea.Batch(c.submitQueuedUserMessagesCmd(), c.model.ensureSpinnerTicking())
 }
 
 func (c uiInputController) submitQueuedUserMessagesCmd() tea.Cmd {
 	m := c.model
 	token := m.beginSubmitAttempt("", "")
+	client := m.runtimeClient()
 	return func() tea.Msg {
-		if !m.hasRuntimeClient() {
+		if client == nil {
 			return newSubmitDoneMsg(token, "", "", errors.New("runtime engine is not configured"))
 		}
-		msg, err := m.submitQueuedRuntimeUserMessages(context.Background())
+		msg, err := submitQueuedRuntimeUserMessages(context.Background(), client)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return newSubmitDoneMsg(token, "", "", submissionerror.ErrInterrupted)
@@ -55,4 +92,11 @@ func (c uiInputController) submitQueuedUserMessagesCmd() tea.Cmd {
 		}
 		return newSubmitDoneMsg(token, msg, "", nil)
 	}
+}
+
+func submitQueuedRuntimeUserMessages(ctx context.Context, client clientui.RuntimeClient) (string, error) {
+	if client == nil {
+		return "", errors.New("runtime engine is not configured")
+	}
+	return client.SubmitQueuedUserMessages(ctx)
 }

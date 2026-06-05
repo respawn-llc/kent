@@ -832,6 +832,47 @@ func TestLocalEntryAddedRemainsVisibleAfterHydrationSync(t *testing.T) {
 	}
 }
 
+func TestLocalFirstEntryHydrationAcknowledgesNoticeIDWithoutDroppingDistinctEntries(t *testing.T) {
+	client := &runtimeControlFakeClient{}
+	m := newProjectedStaticUIModel()
+	m.engine = client
+	m.termWidth = 100
+	m.termHeight = 20
+	m.windowSizeKnown = true
+
+	if cmd := m.appendLocalEntryWithNoticeID("system", "same feedback", "notice-1"); cmd == nil {
+		t.Fatal("expected local entry persistence command")
+	}
+	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
+		Kind:                clientui.EventLocalEntryAdded,
+		TranscriptRevision:  2,
+		CommittedEntryCount: 1,
+		TranscriptEntries:   []clientui.ChatEntry{{Role: "system", Text: "same feedback", NoticeID: "notice-1"}},
+	})
+
+	hydrated := clientui.TranscriptPage{
+		SessionID:    "session-1",
+		Revision:     2,
+		Offset:       0,
+		TotalEntries: 2,
+		Entries: []clientui.ChatEntry{
+			{Role: "system", Text: "same feedback", NoticeID: "notice-1"},
+			{Role: "system", Text: "same feedback", NoticeID: "notice-2"},
+		},
+	}
+	if cmd := m.runtimeAdapter().applyRuntimeTranscriptPage(clientui.TranscriptPageRequest{}, hydrated); cmd != nil {
+		_ = collectCmdMessages(t, cmd)
+	}
+
+	loaded := m.view.LoadedTranscriptEntries()
+	if len(loaded) != 2 {
+		t.Fatalf("expected two distinct NoticeID entries after hydration, got %+v", loaded)
+	}
+	if loaded[0].NoticeID != "notice-1" || loaded[1].NoticeID != "notice-2" {
+		t.Fatalf("unexpected hydrated NoticeIDs: %+v", loaded)
+	}
+}
+
 func TestHandleProjectedRuntimeEventAppendsCleanupAndBackgroundEntriesImmediately(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.forwardToView(tui.SetViewportSizeMsg{Lines: 20, Width: 80})

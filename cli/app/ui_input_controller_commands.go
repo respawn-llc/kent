@@ -113,7 +113,7 @@ func (c uiInputController) handleResumeCommand() (tea.Model, tea.Cmd) {
 
 func (c uiInputController) handleBackCommand() (tea.Model, tea.Cmd) {
 	m := c.model
-	status := m.runtimeStatus()
+	status := m.cachedRuntimeStatus()
 	if strings.TrimSpace(status.ParentSessionID) == "" {
 		return m, c.appendSystemFeedback("No parent session available")
 	}
@@ -128,19 +128,16 @@ func (m *uiModel) backTeleportInput() string {
 }
 
 func (m *uiModel) latestAssistantFinalAnswer() string {
-	return m.latestAssistantFinalAnswerFromStatus(true)
+	return m.latestAssistantFinalAnswerFromStatus()
 }
 
 func (m *uiModel) cachedLatestAssistantFinalAnswer() string {
-	return m.latestAssistantFinalAnswerFromStatus(false)
+	return m.latestAssistantFinalAnswerFromStatus()
 }
 
-func (m *uiModel) latestAssistantFinalAnswerFromStatus(refresh bool) string {
+func (m *uiModel) latestAssistantFinalAnswerFromStatus() string {
 	if m.hasRuntimeClient() {
 		status := m.cachedRuntimeStatus()
-		if refresh {
-			status = m.refreshRuntimeStatus()
-		}
 		if answer := strings.TrimSpace(status.LastCommittedAssistantFinalAnswer); answer != "" {
 			return status.LastCommittedAssistantFinalAnswer
 		}
@@ -164,10 +161,11 @@ func (c uiInputController) handleCopyCommand() (tea.Model, tea.Cmd) {
 
 func (c uiInputController) handleSessionNameCommand(sessionName string) (tea.Model, tea.Cmd) {
 	m := c.model
-	if err := m.setRuntimeSessionName(sessionName); err != nil {
-		return m, c.appendErrorFeedback(formatSubmissionError(err))
+	sessionName = strings.TrimSpace(sessionName)
+	if m.hasRuntimeClient() {
+		return m, m.runtimeControlCommand(runtimeControlSetSessionName, sessionName, false, "")
 	}
-	m.sessionName = strings.TrimSpace(sessionName)
+	m.sessionName = sessionName
 	return m, tea.SetWindowTitle(m.windowTitle())
 }
 
@@ -177,7 +175,7 @@ func (c uiInputController) handleThinkingLevelCommand(requested string) (tea.Mod
 	if requested == "" {
 		current := strings.TrimSpace(m.thinkingLevel)
 		if m.hasRuntimeClient() {
-			current = m.runtimeStatus().ThinkingLevel
+			current = m.cachedRuntimeStatus().ThinkingLevel
 		}
 		if current == "" {
 			current = "unknown"
@@ -190,12 +188,8 @@ func (c uiInputController) handleThinkingLevelCommand(requested string) (tea.Mod
 		errText := "invalid thinking level " + strconv.Quote(requested) + " (expected low|medium|high|xhigh)"
 		return m, c.appendErrorFeedback(errText)
 	}
-	if err := m.setRuntimeThinkingLevel(normalized); err != nil {
-		return m, c.appendErrorFeedback(formatSubmissionError(err))
-	}
 	if m.hasRuntimeClient() {
-		m.thinkingLevel = m.runtimeStatus().ThinkingLevel
-		return m, c.appendSystemFeedback("Thinking level set to " + m.thinkingLevel)
+		return m, m.runtimeControlCommand(runtimeControlSetThinkingLevel, normalized, false, "")
 	}
 	m.thinkingLevel = normalized
 	return m, c.appendSystemFeedback("Thinking level set to " + m.thinkingLevel)
@@ -204,6 +198,7 @@ func (c uiInputController) handleThinkingLevelCommand(requested string) (tea.Mod
 func (c uiInputController) handleFastModeCommand(requested string) (tea.Model, tea.Cmd) {
 	m := c.model
 	available, currentEnabled := m.fastModeState()
+	currentEnabled = m.runtimeControlPendingEnabled(runtimeControlSetFastMode, m.sessionID, currentEnabled)
 	if !available {
 		errText := "Fast mode is only available for OpenAI-based Responses providers"
 		return m, c.appendErrorFeedbackWithStatus(errText, c.showErrorStatus(errText))
@@ -236,13 +231,7 @@ func (c uiInputController) handleFastModeCommand(requested string) (tea.Model, t
 
 	changed := currentEnabled != targetEnabled
 	if m.hasRuntimeClient() {
-		var err error
-		changed, err = m.setRuntimeFastModeEnabled(targetEnabled)
-		if err != nil {
-			detailErr := formatSubmissionError(err)
-			return m, c.appendErrorFeedbackWithStatus(detailErr, c.showErrorStatus(detailErr))
-		}
-		m.fastModeEnabled = m.runtimeStatus().FastModeEnabled
+		return m, m.runtimeControlCommand(runtimeControlSetFastMode, "", targetEnabled, "")
 	} else {
 		m.fastModeEnabled = targetEnabled
 	}
@@ -255,6 +244,7 @@ func (c uiInputController) handleSupervisorModeCommand(requested string) (tea.Mo
 	m := c.model
 	requested = strings.ToLower(strings.TrimSpace(requested))
 	currentEnabled, currentMode := m.reviewerInvocationState()
+	currentEnabled = m.runtimeControlPendingEnabled(runtimeControlSetReviewer, m.sessionID, currentEnabled)
 	targetEnabled := currentEnabled
 	switch requested {
 	case "":
@@ -271,11 +261,7 @@ func (c uiInputController) handleSupervisorModeCommand(requested string) (tea.Mo
 	changed := false
 	nextMode := currentMode
 	if m.hasRuntimeClient() {
-		var err error
-		changed, nextMode, err = m.setRuntimeReviewerEnabled(targetEnabled)
-		if err != nil {
-			return m, c.appendErrorFeedback(formatSubmissionError(err))
-		}
+		return m, m.runtimeControlCommand(runtimeControlSetReviewer, "", targetEnabled, "")
 	} else {
 		nextMode = "off"
 		if targetEnabled {
@@ -293,9 +279,10 @@ func (c uiInputController) handleAutoCompactionCommand(requested string) (tea.Mo
 	m := c.model
 	requested = strings.ToLower(strings.TrimSpace(requested))
 	currentEnabled := m.autoCompactionState()
+	currentEnabled = m.runtimeControlPendingEnabled(runtimeControlSetAutoCompaction, m.sessionID, currentEnabled)
 	currentCompactionMode := "native"
 	if m.hasRuntimeClient() {
-		currentCompactionMode = m.runtimeStatus().CompactionMode
+		currentCompactionMode = m.cachedRuntimeStatus().CompactionMode
 	}
 	targetEnabled := currentEnabled
 	switch requested {
@@ -313,12 +300,7 @@ func (c uiInputController) handleAutoCompactionCommand(requested string) (tea.Mo
 	changed := false
 	nextEnabled := currentEnabled
 	if m.hasRuntimeClient() {
-		var err error
-		changed, nextEnabled, err = m.setRuntimeAutoCompactionEnabled(targetEnabled)
-		if err != nil {
-			errText := formatSubmissionError(err)
-			return m, c.appendErrorFeedbackWithStatus(errText, c.showTransientStatus(errText))
-		}
+		return m, m.runtimeControlCommand(runtimeControlSetAutoCompaction, "", targetEnabled, currentCompactionMode)
 	} else {
 		nextEnabled = targetEnabled
 		changed = currentEnabled != targetEnabled

@@ -66,12 +66,13 @@ func newUISessionTransitionFeatureState() uiSessionTransitionFeatureState {
 }
 
 func newUIStatusFeatureState() uiStatusFeatureState {
+	debug := envFlagEnabled("BUILDER_DEBUG")
 	return uiStatusFeatureState{
 		statusRepository:      newMemoryUIStatusRepository(),
 		clipboardImagePaster:  newSystemClipboardImagePaster(),
 		clipboardTextCopier:   newSystemClipboardTextCopier(),
 		debugKeys:             envFlagEnabled("BUILDER_DEBUG_KEYS"),
-		debugMode:             envFlagEnabled("BUILDER_DEBUG"),
+		debugMode:             debug,
 		transcriptDiagnostics: envFlagEnabled("BUILDER_TRANSCRIPT_DIAGNOSTICS"),
 	}
 }

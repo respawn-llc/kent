@@ -104,10 +104,14 @@ func TestPathReferenceStartupPrewarmQueuedForWorkspace(t *testing.T) {
 		WithUIStatusConfig(uiStatusConfig{WorkspaceRoot: "/tmp/workspace"}),
 	)
 
-	if len(m.startupCmds) != 1 || m.startupCmds[0] == nil {
-		t.Fatalf("expected one startup prewarm command, got %d", len(m.startupCmds))
+	if len(m.startupCmds) == 0 {
+		t.Fatal("expected startup prewarm command")
 	}
-	_ = m.startupCmds[0]()
+	for _, cmd := range m.startupCmds {
+		if cmd != nil {
+			_ = cmd()
+		}
+	}
 	if len(search.prewarmRoots) != 1 || search.prewarmRoots[0] != "/tmp/workspace" {
 		t.Fatalf("unexpected prewarm roots: %+v", search.prewarmRoots)
 	}

@@ -395,6 +395,8 @@ func (c *sessionRuntimeClient) refreshTranscriptPageSync(req clientui.Transcript
 		page.SessionID = c.sessionID
 	}
 	c.patchMainView(func(view *clientui.RuntimeMainView) {
+		view.Status.ConversationFreshness = page.ConversationFreshness
+		view.Session.ConversationFreshness = page.ConversationFreshness
 		view.Session.Transcript = clientui.TranscriptMetadata{
 			Revision:            page.Revision,
 			CommittedEntryCount: page.TotalEntries,
@@ -448,6 +450,8 @@ func (c *sessionRuntimeClient) refreshCommittedTranscriptSuffixSync(req clientui
 		suffix.SessionID = c.sessionID
 	}
 	c.patchMainView(func(view *clientui.RuntimeMainView) {
+		view.Status.ConversationFreshness = suffix.ConversationFreshness
+		view.Session.ConversationFreshness = suffix.ConversationFreshness
 		view.Session.Transcript = clientui.TranscriptMetadata{
 			Revision:            suffix.Revision,
 			CommittedEntryCount: suffix.CommittedEntryCount,

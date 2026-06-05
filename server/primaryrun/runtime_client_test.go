@@ -51,6 +51,9 @@ func (s *stubRuntimeClient) ResumeGoal() (*clientui.RuntimeGoal, error) {
 }
 func (s *stubRuntimeClient) ClearGoal() (*clientui.RuntimeGoal, error) { return nil, nil }
 func (s *stubRuntimeClient) AppendLocalEntry(string, string) error     { return nil }
+func (s *stubRuntimeClient) AppendLocalEntryWithNoticeID(string, string, string) error {
+	return nil
+}
 func (s *stubRuntimeClient) SubmitUserMessage(context.Context, string) (string, error) {
 	s.submitCalls++
 	return "ok", nil

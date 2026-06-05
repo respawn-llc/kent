@@ -7,7 +7,10 @@ import (
 )
 
 func (m *uiModel) reviewerInvocationState() (bool, string) {
-	mode := strings.ToLower(strings.TrimSpace(m.runtimeStatus().ReviewerFrequency))
+	mode := strings.ToLower(strings.TrimSpace(m.cachedRuntimeStatus().ReviewerFrequency))
+	if mode == "" {
+		mode = strings.ToLower(strings.TrimSpace(m.reviewerMode))
+	}
 	if mode == "" {
 		mode = "off"
 	}
@@ -15,11 +18,14 @@ func (m *uiModel) reviewerInvocationState() (bool, string) {
 }
 
 func (m *uiModel) autoCompactionState() bool {
-	return m.runtimeStatus().AutoCompactionEnabled
+	return m.cachedRuntimeStatus().AutoCompactionEnabled
 }
 
 func (m *uiModel) fastModeState() (bool, bool) {
-	status := m.runtimeStatus()
+	status := m.cachedRuntimeStatus()
+	if !status.FastModeAvailable && m.fastModeAvailable {
+		status.FastModeAvailable = true
+	}
 	return status.FastModeAvailable, status.FastModeEnabled
 }
 

@@ -407,6 +407,10 @@ func TestBusyQueuedFastAppliesToNextRuntimeRequestAfterTurnDrains(t *testing.T) 
 	if cmd == nil {
 		t.Fatal("expected queued /fast feedback command")
 	}
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
 	if !eng.FastModeEnabled() {
 		t.Fatal("expected queued /fast to enable runtime fast mode")
 	}

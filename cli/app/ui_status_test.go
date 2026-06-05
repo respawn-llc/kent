@@ -323,13 +323,19 @@ func TestStatusCommandProgressivelyLoadsSections(t *testing.T) {
 	m.windowSizeKnown = true
 	m.input = "/status"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	if cmd == nil {
+		t.Fatal("expected progressive status command")
+	}
 	plain := stripANSIAndTrimRight(updated.View())
-	for _, want := range []string{"Loading account...", "CWD: /tmp/workdir", "Model: gpt-5 high fast", "Loading git..."} {
+	for _, want := range []string{"Loading account...", "CWD: /tmp/workdir", "Model: <unset>", "Loading git..."} {
 		if !strings.Contains(plain, want) {
-			t.Fatalf("expected progressive base render to contain %q, got %q", want, plain)
+			t.Fatalf("expected pure status seed render to contain %q, got %q", want, plain)
 		}
+	}
+	if strings.Contains(plain, "gpt-5 high fast") {
+		t.Fatalf("did not expect custom collector base before command completion, got %q", plain)
 	}
 
 	next, _ = updated.Update(statusGitRefreshDoneMsg{token: updated.status.refreshToken, result: collector.gitResult})
@@ -339,6 +345,12 @@ func TestStatusCommandProgressivelyLoadsSections(t *testing.T) {
 		t.Fatalf("expected parallel git render before base snapshot, got %q", plain)
 	}
 
+	next, _ = updated.Update(statusBaseRefreshDoneMsg{token: updated.status.refreshToken, snapshot: collector.base})
+	updated = next.(*uiModel)
+	plain = stripANSIAndTrimRight(updated.View())
+	if !strings.Contains(plain, "Model: gpt-5 high fast") {
+		t.Fatalf("expected custom base snapshot after base completion, got %q", plain)
+	}
 }
 
 func TestStatusCommandRunsForegroundGitRefreshWhileStartupGitInFlight(t *testing.T) {
@@ -630,6 +642,42 @@ func TestStatusRepositorySeparatesOpaqueOAuthCacheByTokenFingerprint(t *testing.
 	}
 	if len(seedB.PendingSections) == 0 || seedB.PendingSections[0] != uiStatusSectionAuth {
 		t.Fatalf("expected opaque token B to require auth refresh, got %+v", seedB.PendingSections)
+	}
+}
+
+func TestStatusRepositoryDoesNotSeedPathBackedAuthCache(t *testing.T) {
+	repo := newMemoryUIStatusRepository()
+	req := newStatusRequestForTest(withStatusWorkspaceRoot("/tmp/workdir"))
+	req.AuthCacheIdentity = "auth:path:/tmp/builder-auth.json"
+	req.AuthCacheUnseedable = true
+	req.CacheKeys.Auth = statusAuthCacheKey(req)
+	base := uiStatusSnapshot{Workdir: "/tmp/workdir"}
+
+	repo.StoreAuth(req.CacheKeys.Auth, uiStatusAuthStageResult{
+		Auth:         uiStatusAuthInfo{Summary: "previous@example.com"},
+		Subscription: uiStatusSubscriptionInfo{Applicable: true, Summary: "Previous subscription"},
+	}, time.Now())
+
+	seed := repo.SeedSnapshot(req, base, time.Now())
+	if got := seed.Snapshot.Auth.Summary; got != "" {
+		t.Fatalf("expected path-backed auth cache not to seed stale auth, got %q", got)
+	}
+	if got := seed.Snapshot.Subscription.Summary; got != "" {
+		t.Fatalf("expected path-backed auth cache not to seed stale subscription, got %q", got)
+	}
+	if len(seed.PendingSections) == 0 || seed.PendingSections[0] != uiStatusSectionAuth {
+		t.Fatalf("expected auth refresh pending for unseedable auth cache, got %+v", seed.PendingSections)
+	}
+}
+
+func TestStatusRequestMarksAuthStatePathCacheUnseedable(t *testing.T) {
+	m := newProjectedStaticUIModel(
+		WithUIStatusConfig(uiStatusConfig{WorkspaceRoot: "/tmp/workdir", AuthStatePath: "/tmp/builder-auth.json"}),
+	)
+
+	req := m.newStatusRequest(time.Now())
+	if !req.AuthCacheUnseedable {
+		t.Fatal("expected auth-state-path status request to disable auth cache seeding")
 	}
 }
 

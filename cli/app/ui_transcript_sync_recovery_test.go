@@ -150,10 +150,10 @@ func TestDetailHydrationStillReadsSupervisorTerminalRowsFromSSOT(t *testing.T) {
 		t.Fatalf("mode = %q, want detail", m.view.Mode())
 	}
 
-	// The real workaround is an authoritative detail hydration. The dirty flag
-	// avoids the duplicate-page short-circuit because this repro intentionally
-	// starts from an already-primed detail tail.
-	m.runtimeTranscriptDirty = true
+	// The real workaround is an authoritative detail hydration. The live-dirty
+	// flag avoids the duplicate-page short-circuit because this repro
+	// intentionally starts from an already-primed detail tail.
+	m.transcriptLiveDirty = true
 	next, cmd = m.Update(detailTranscriptLoadMsg{})
 	m = next.(*uiModel)
 	msgs := collectCmdMessages(t, cmd)
@@ -331,11 +331,11 @@ func TestDeferredContinuityRefreshPreservesRecoveryCauseAcrossBusyHydration(t *t
 	if cmd := m.requestRuntimeTranscriptSyncForContinuityLoss(clientui.TranscriptRecoveryCauseStreamGap); cmd != nil {
 		t.Fatalf("expected no command while hydration is already in flight, got %T", cmd)
 	}
-	if !m.runtimeTranscriptDirty {
-		t.Fatal("expected dirty hydrate follow-up after deferred continuity refresh")
+	if !m.runtimeTranscriptPendingSet {
+		t.Fatal("expected pending hydrate follow-up after deferred continuity refresh")
 	}
-	if got := m.runtimeTranscriptDirtyRecoveryCause; got != clientui.TranscriptRecoveryCauseStreamGap {
-		t.Fatalf("dirty recovery cause = %q, want %q", got, clientui.TranscriptRecoveryCauseStreamGap)
+	if got := m.runtimeTranscriptPending.recoveryCause; got != clientui.TranscriptRecoveryCauseStreamGap {
+		t.Fatalf("pending recovery cause = %q, want %q", got, clientui.TranscriptRecoveryCauseStreamGap)
 	}
 
 	next, followCmd := m.Update(runtimeTranscriptRefreshedMsg{token: 7, transcript: clientui.TranscriptPage{SessionID: "session-1"}})
@@ -349,11 +349,11 @@ func TestDeferredContinuityRefreshPreservesRecoveryCauseAcrossBusyHydration(t *t
 	if followMsg.recoveryCause != clientui.TranscriptRecoveryCauseStreamGap {
 		t.Fatalf("follow-up recovery cause = %q, want %q", followMsg.recoveryCause, clientui.TranscriptRecoveryCauseStreamGap)
 	}
-	if followMsg.syncCause != runtimeTranscriptSyncCauseDirtyFollowUp {
-		t.Fatalf("follow-up sync cause = %q, want %q", followMsg.syncCause, runtimeTranscriptSyncCauseDirtyFollowUp)
+	if followMsg.syncCause != runtimeTranscriptSyncCauseContinuityRecovery {
+		t.Fatalf("follow-up sync cause = %q, want %q", followMsg.syncCause, runtimeTranscriptSyncCauseContinuityRecovery)
 	}
 	updated := next.(*uiModel)
-	if updated.runtimeTranscriptDirty {
-		t.Fatal("expected dirty hydrate flag cleared once follow-up request starts")
+	if updated.runtimeTranscriptPendingSet {
+		t.Fatal("expected pending hydrate cleared once follow-up request starts")
 	}
 }

@@ -30,7 +30,6 @@ func (l uiViewLayout) renderProcessList(width, height int, style uiStyles) []str
 	if height < 1 {
 		return []string{padRight("", width)}
 	}
-	m.refreshProcessEntries()
 	headerLines := []string{renderProcessListHeader(m.processList.entries, width, style)}
 	remainingHeight := height - len(headerLines)
 	if remainingHeight < 0 {
@@ -45,18 +44,25 @@ func (l uiViewLayout) renderProcessList(width, height int, style uiStyles) []str
 	content := make([]string, 0, max(0, contentHeight))
 	if contentHeight > 0 {
 		if len(m.processList.entries) == 0 {
-			content = append(content, style.meta.Render("○ No background processes."))
+			content = append(content, renderEmptyProcessListMessage(m.processList, style))
 		} else {
-			visibleRows := make([]string, 0, len(m.processList.entries)*processListEntryLines)
-			for idx, entry := range m.processList.entries {
+			start := processListStartRow(m.processList.selection, len(m.processList.entries), contentHeight)
+			startEntry := start / processListEntryLines
+			rowOffset := start % processListEntryLines
+			visibleEntries := (contentHeight + rowOffset + processListEntryLines - 1) / processListEntryLines
+			if startEntry+visibleEntries > len(m.processList.entries) {
+				visibleEntries = len(m.processList.entries) - startEntry
+			}
+			visibleRows := make([]string, 0, max(0, visibleEntries)*processListEntryLines)
+			for idx := startEntry; idx < startEntry+visibleEntries; idx++ {
+				entry := m.processList.entries[idx]
 				visibleRows = append(visibleRows, renderProcessListEntry(entry, idx == m.processList.selection, width, m.theme, m.spinnerFrame, style)...)
 			}
-			start := processListStartRow(m.processList.selection, len(m.processList.entries), contentHeight)
-			end := start + contentHeight
-			if end > len(visibleRows) {
-				end = len(visibleRows)
+			if rowOffset > 0 && rowOffset < len(visibleRows) {
+				visibleRows = visibleRows[rowOffset:]
 			}
-			content = append(content, visibleRows[start:end]...)
+			end := min(contentHeight, len(visibleRows))
+			content = append(content, visibleRows[:end]...)
 		}
 		for len(content) < contentHeight {
 			content = append(content, "")
@@ -67,6 +73,16 @@ func (l uiViewLayout) renderProcessList(width, height int, style uiStyles) []str
 	lines = append(lines, content...)
 	lines = append(lines, footerLines...)
 	return l.renderChatContentLines(lines, nil, width, style)
+}
+
+func renderEmptyProcessListMessage(state uiProcessListState, style uiStyles) string {
+	if state.loading {
+		return style.meta.Render("○ Loading background processes...")
+	}
+	if errText := strings.TrimSpace(state.errorText); errText != "" {
+		return style.meta.Render("○ Failed to load background processes: " + errText)
+	}
+	return style.meta.Render("○ No background processes.")
 }
 
 func renderProcessListHeader(entries []clientui.BackgroundProcess, width int, style uiStyles) string {

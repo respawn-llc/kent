@@ -31,14 +31,40 @@ type countingSessionViewClient struct {
 	suffixErr         error
 	pageForRequest    func(serverapi.SessionTranscriptPageRequest) clientui.TranscriptPage
 	count             atomic.Int32
+	mainViewCount     atomic.Int32
 	pageCount         atomic.Int32
 	suffixCount       atomic.Int32
 	lastTranscriptReq serverapi.SessionTranscriptPageRequest
 	lastSuffixReq     serverapi.SessionCommittedTranscriptSuffixRequest
 }
 
+type runtimeClientWithoutCachedMainView struct {
+	clientui.RuntimeClient
+	mainView      clientui.RuntimeMainView
+	mainViewCalls int
+	suffixReq     clientui.CommittedTranscriptSuffixRequest
+}
+
+func (c *runtimeClientWithoutCachedMainView) MainView() clientui.RuntimeMainView {
+	c.mainViewCalls++
+	return c.mainView
+}
+
+func (c *runtimeClientWithoutCachedMainView) RefreshCommittedTranscriptSuffix(req clientui.CommittedTranscriptSuffixRequest) (clientui.CommittedTranscriptSuffix, error) {
+	c.suffixReq = req
+	return clientui.CommittedTranscriptSuffix{
+		SessionID:             c.mainView.Session.SessionID,
+		Revision:              c.mainView.Session.Transcript.Revision,
+		CommittedEntryCount:   c.mainView.Session.Transcript.CommittedEntryCount,
+		StartEntryCount:       req.AfterEntryCount,
+		NextEntryCount:        c.mainView.Session.Transcript.CommittedEntryCount,
+		ConversationFreshness: c.mainView.Session.ConversationFreshness,
+	}, nil
+}
+
 func (c *countingSessionViewClient) GetSessionMainView(context.Context, serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error) {
 	c.count.Add(1)
+	c.mainViewCount.Add(1)
 	return serverapi.SessionMainViewResponse{MainView: c.view}, nil
 }
 
@@ -411,6 +437,7 @@ func TestWidthResizeReplayFetchesCommittedSuffixBeforeFullReplay(t *testing.T) {
 		NextEntryCount:      3,
 		Entries:             []clientui.ChatEntry{{Role: "assistant", Text: "fresh-0"}, {Role: "assistant", Text: "fresh-1"}, {Role: "assistant", Text: "fresh-2"}},
 	}
+	reads.mainViewCount.Store(0)
 
 	next, resizeCmd := model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	model = next.(*uiModel)
@@ -429,6 +456,9 @@ func TestWidthResizeReplayFetchesCommittedSuffixBeforeFullReplay(t *testing.T) {
 	}
 	if reads.lastSuffixReq.AfterEntryCount != 0 || reads.lastSuffixReq.Limit != clientui.MaxCommittedTranscriptSuffixLimit {
 		t.Fatalf("unexpected resize suffix request: %+v", reads.lastSuffixReq)
+	}
+	if got := reads.mainViewCount.Load(); got != 0 {
+		t.Fatalf("native resize requested main view %d time(s), want 0", got)
 	}
 	next, replayCmd := model.Update(refresh)
 	model = next.(*uiModel)
@@ -844,6 +874,85 @@ func TestCommittedSuffixAppendTrimsOverlappedRowsAlreadyDelivered(t *testing.T) 
 	}
 }
 
+func TestCommittedSuffixAppendSuppressesAcknowledgedLocalEntryEcho(t *testing.T) {
+	client := &runtimeControlFakeClient{}
+	m := newProjectedStaticUIModel()
+	m.engine = client
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(0, 1)
+
+	if cmd := m.appendLocalEntryWithNoticeID("system", "Fast mode enabled", "notice-1"); cmd == nil {
+		t.Fatal("expected local entry persistence command")
+	}
+	m.trackLocalEntryEcho("notice-1", uiLocalEntryEchoAcknowledged)
+
+	cmd := m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
+		Revision:            2,
+		CommittedEntryCount: 1,
+		StartEntryCount:     0,
+		NextEntryCount:      1,
+		Entries:             []clientui.ChatEntry{{Role: "system", Text: "Fast mode enabled", NoticeID: "notice-1"}},
+	})
+	if cmd != nil {
+		_ = collectCmdMessages(t, cmd)
+	}
+
+	loaded := m.view.LoadedTranscriptEntries()
+	if len(loaded) != 1 {
+		t.Fatalf("expected acknowledged local entry exactly once, got %+v", loaded)
+	}
+	if loaded[0].NoticeID != "notice-1" || loaded[0].Text != "Fast mode enabled" {
+		t.Fatalf("unexpected loaded transcript entry: %+v", loaded[0])
+	}
+	if got := m.ongoingCommittedDelivery.lastAppliedCommittedEntryCount; got != 1 {
+		t.Fatalf("delivery cursor applied count = %d, want 1", got)
+	}
+}
+
+func TestCommittedSuffixAppendSuppressesLeadingEchoWithoutShiftingLaterEntries(t *testing.T) {
+	client := &runtimeControlFakeClient{}
+	m := newProjectedStaticUIModel()
+	m.engine = client
+	m.windowSizeKnown = true
+	m.termWidth = 100
+	m.termHeight = 20
+	m.ongoingCommittedDelivery = newOngoingCommittedDeliveryCursor(0, 1)
+
+	_ = m.appendLocalEntryWithNoticeID("system", "Fast mode enabled", "notice-1")
+	cmd := m.applyCommittedTranscriptSuffixAppend(clientui.CommittedTranscriptSuffix{
+		Revision:            2,
+		CommittedEntryCount: 2,
+		StartEntryCount:     0,
+		NextEntryCount:      2,
+		Entries: []clientui.ChatEntry{
+			{Role: "system", Text: "Fast mode enabled", NoticeID: "notice-1"},
+			{Role: "assistant", Text: "authoritative answer", Phase: string(llm.MessagePhaseFinal)},
+		},
+	})
+	if cmd != nil {
+		_ = collectCmdMessages(t, cmd)
+	}
+
+	loaded := m.view.LoadedTranscriptEntries()
+	if len(loaded) != 2 {
+		t.Fatalf("expected local echo and assistant exactly once, got %+v", loaded)
+	}
+	if loaded[0].NoticeID != "notice-1" || loaded[0].Text != "Fast mode enabled" {
+		t.Fatalf("unexpected local echo entry: %+v", loaded[0])
+	}
+	if loaded[1].Role != "assistant" || loaded[1].Text != "authoritative answer" {
+		t.Fatalf("unexpected assistant suffix entry: %+v", loaded[1])
+	}
+	if got := m.ongoingCommittedDelivery.lastAppliedCommittedEntryCount; got != 2 {
+		t.Fatalf("delivery cursor applied count = %d, want 2", got)
+	}
+	if got := committedTranscriptTailEnd(m); got != 2 {
+		t.Fatalf("committed transcript tail = %d, want 2", got)
+	}
+}
+
 func TestCommittedSuffixAppendClearsStreamBeforeFinalAnswerAppend(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.windowSizeKnown = true
@@ -1091,6 +1200,44 @@ func TestCommittedSuffixMultiToolDetailRoundTripLeavesNoLiveSpinnerAfterFinalRes
 		if counts[key] != 1 {
 			t.Fatalf("committed transcript row count %s = %d, want 1; entries=%+v", key, counts[key], m.transcriptEntries)
 		}
+	}
+}
+
+func TestNativeResizeCommittedTranscriptSuffixFallsBackToMainViewWhenCacheUnavailable(t *testing.T) {
+	client := &runtimeClientWithoutCachedMainView{
+		RuntimeClient: &runtimeControlFakeClient{},
+		mainView: clientui.RuntimeMainView{Session: clientui.RuntimeSessionView{
+			SessionID: "session-1",
+			Transcript: clientui.TranscriptMetadata{
+				Revision:            9,
+				CommittedEntryCount: 900,
+			},
+		}},
+	}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	client.mainViewCalls = 0
+
+	cmd := m.requestNativeResizeCommittedTranscriptSuffix(3)
+	if cmd == nil {
+		t.Fatal("expected native resize suffix request command")
+	}
+	if client.mainViewCalls != 0 {
+		t.Fatalf("main view fallback happened during Update: %d calls", client.mainViewCalls)
+	}
+	raw := cmd()
+	msg, ok := raw.(nativeResizeTranscriptSuffixRefreshedMsg)
+	if !ok {
+		t.Fatalf("unexpected command message type %T", raw)
+	}
+	if msg.token != 3 || msg.err != nil {
+		t.Fatalf("unexpected resize suffix response: %+v", msg)
+	}
+	if client.mainViewCalls != 1 {
+		t.Fatalf("expected main view fallback in command, got %d calls", client.mainViewCalls)
+	}
+	wantAfter := 900 - clientui.MaxCommittedTranscriptSuffixLimit
+	if client.suffixReq.AfterEntryCount != wantAfter || client.suffixReq.Limit != clientui.MaxCommittedTranscriptSuffixLimit {
+		t.Fatalf("resize suffix request = %+v, want after=%d limit=%d", client.suffixReq, wantAfter, clientui.MaxCommittedTranscriptSuffixLimit)
 	}
 }
 

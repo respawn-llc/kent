@@ -126,14 +126,14 @@ func TestEmbeddedAppServerPrepareRuntimeWiresProcessControlForUIActions(t *testi
 	runtimePlan.Wiring.processControls = controls
 	processClient := newUIProcessClientWithReads(runtimePlan.Wiring.processViews, runtimePlan.Wiring.processControls)
 
-	preview, logPath, err := processClient.InlineOutput("proc-1", 12_000)
+	preview, logPath, err := processClient.InlineOutput(context.Background(), "proc-1", 12_000)
 	if err != nil {
 		t.Fatalf("InlineOutput: %v", err)
 	}
 	if preview != "remote preview" || logPath != "/tmp/remote.log" {
 		t.Fatalf("unexpected inline output payload preview=%q logPath=%q", preview, logPath)
 	}
-	if err := processClient.KillProcess("proc-1"); err != nil {
+	if err := processClient.KillProcess(context.Background(), "proc-1"); err != nil {
 		t.Fatalf("KillProcess: %v", err)
 	}
 	if len(controls.killed) != 1 || controls.killed[0] != "proc-1" {

@@ -354,6 +354,22 @@ func TestRuntimeAdapterBackgroundUpdateRefreshesOpenProcessListAndShowsNotice(t 
 		},
 	})
 
+	msgs := collectCmdMessages(t, cmd)
+	var refresh processListRefreshDoneMsg
+	foundRefresh := false
+	for _, msg := range msgs {
+		if typed, ok := msg.(processListRefreshDoneMsg); ok {
+			refresh = typed
+			foundRefresh = true
+			break
+		}
+	}
+	if !foundRefresh {
+		t.Fatalf("expected background update to schedule process refresh completion, got %+v", msgs)
+	}
+	next, _ := m.Update(refresh)
+	m = next.(*uiModel)
+
 	if len(m.processList.entries) != 1 || m.processList.entries[0].ID != "proc-1" {
 		t.Fatalf("process entries = %+v, want refreshed proc-1", m.processList.entries)
 	}
@@ -365,6 +381,29 @@ func TestRuntimeAdapterBackgroundUpdateRefreshesOpenProcessListAndShowsNotice(t 
 	}
 	if cmd == nil {
 		t.Fatal("expected notice clear command")
+	}
+}
+
+func TestRuntimeAdapterBackgroundUpdateCachesProcessStatusWithoutListRead(t *testing.T) {
+	processes := &countingProcessClient{}
+	m := newProjectedStaticUIModel(WithUIProcessClient(processes))
+
+	_ = m.runtimeAdapter().handleProjectedRuntimeEvent(clientui.Event{
+		Kind: clientui.EventBackgroundUpdated,
+		Background: &clientui.BackgroundShellEvent{
+			Type:    "started",
+			ID:      "proc-1",
+			State:   "running",
+			Command: "sleep 1",
+		},
+	})
+
+	if processes.listCalls != 0 {
+		t.Fatalf("expected background status cache update not to list processes, got %d calls", processes.listCalls)
+	}
+	status := stripANSIAndTrimRight(m.renderStatusLine(120, uiThemeStyles("dark")))
+	if !strings.Contains(status, "ps 1") {
+		t.Fatalf("expected cached process count in status line, got %q", status)
 	}
 }
 

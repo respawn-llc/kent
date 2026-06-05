@@ -16,6 +16,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+func refreshSlashCommandFilterForTest(t *testing.T, m *uiModel) {
+	t.Helper()
+	cmd := m.refreshSlashCommandFilterFromInput()
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ := m.Update(msg)
+		m = next.(*uiModel)
+	}
+}
+
 func TestSlashCommandEnterIgnoresWhitespaceImmediatelyAfterSlash(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.sessionName = "existing"
@@ -110,7 +119,7 @@ func TestSlashCommandPickerHighlightTracksFilteredVisibleCommands(t *testing.T) 
 			opts := append([]UIOption{WithUIHasOtherSessions(true, false)}, tc.opts...)
 			m := newProjectedStaticUIModel(opts...)
 			m.input = "/"
-			m.refreshSlashCommandFilterFromInput()
+			refreshSlashCommandFilterForTest(t, m)
 
 			state := m.slashCommandPicker()
 			for _, hidden := range tc.hidden {
@@ -260,6 +269,10 @@ func TestBusyEnterRunsExactFastCommandEvenWhenPickerHidesIt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected transient status command for busy /fast")
 	}
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
 	if len(updated.queued) != 0 {
 		t.Fatalf("expected no queued messages, got %+v", updated.queued)
 	}
@@ -316,7 +329,7 @@ func TestBusyTabBackWithoutParentShowsLocalErrorAndDoesNotQueue(t *testing.T) {
 func TestSlashCommandPickerHidesResumeWithoutOtherSessions(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIHasOtherSessions(true, false))
 	m.input = "/re"
-	m.refreshSlashCommandFilterFromInput()
+	refreshSlashCommandFilterForTest(t, m)
 
 	state := m.slashCommandPicker()
 	if slashPickerContainsCommand(state, "resume") {
@@ -327,7 +340,7 @@ func TestSlashCommandPickerHidesResumeWithoutOtherSessions(t *testing.T) {
 func TestSlashCommandPickerShowsResumeWhenOtherSessionAvailabilityIsUnknown(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUIHasOtherSessions(false, false))
 	m.input = "/re"
-	m.refreshSlashCommandFilterFromInput()
+	refreshSlashCommandFilterForTest(t, m)
 
 	state := m.slashCommandPicker()
 	if !slashPickerContainsCommand(state, "resume") {
@@ -394,11 +407,14 @@ func TestSlashCommandPickerShowsLoginWhenAuthIsMissingOrAPIKey(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newProjectedStaticUIModel(WithUIStatusConfig(uiStatusConfig{AuthManager: tc.manager}))
 			m.input = "/"
-			m.refreshSlashCommandFilterFromInput()
+			refreshSlashCommandFilterForTest(t, m)
 
 			state := m.slashCommandPicker()
 			if !slashPickerContainsCommand(state, "login") {
 				t.Fatalf("expected /login in slash picker, got %+v", slashPickerCommandNames(state))
+			}
+			if m.authSlashCommand != authSlashCommandLogin {
+				t.Fatalf("expected typed auth slash command login, got %v", m.authSlashCommand)
 			}
 			if slashPickerContainsCommand(state, "logout") {
 				t.Fatalf("did not expect /logout in slash picker, got %+v", slashPickerCommandNames(state))
@@ -469,11 +485,14 @@ func TestSlashCommandPickerShowsLogoutForOAuthAuth(t *testing.T) {
 	}), nil, nil)
 	m := newProjectedStaticUIModel(WithUIStatusConfig(uiStatusConfig{AuthManager: manager}))
 	m.input = "/"
-	m.refreshSlashCommandFilterFromInput()
+	refreshSlashCommandFilterForTest(t, m)
 
 	state := m.slashCommandPicker()
 	if !slashPickerContainsCommand(state, "logout") {
 		t.Fatalf("expected /logout in slash picker, got %+v", slashPickerCommandNames(state))
+	}
+	if m.authSlashCommand != authSlashCommandLogout {
+		t.Fatalf("expected typed auth slash command logout, got %v", m.authSlashCommand)
 	}
 	if slashPickerContainsCommand(state, "login") {
 		t.Fatalf("did not expect /login in slash picker, got %+v", slashPickerCommandNames(state))
@@ -484,7 +503,7 @@ func TestSlashCommandPickerHidesAuthCommandsWhenAuthStateCannotLoad(t *testing.T
 	manager := auth.NewManager(errorAuthStore{err: errors.New("permission denied")}, nil, nil)
 	m := newProjectedStaticUIModel(WithUIStatusConfig(uiStatusConfig{AuthManager: manager}))
 	m.input = "/"
-	m.refreshSlashCommandFilterFromInput()
+	refreshSlashCommandFilterForTest(t, m)
 
 	state := m.slashCommandPicker()
 	if slashPickerContainsCommand(state, "login") || slashPickerContainsCommand(state, "logout") {
@@ -492,6 +511,9 @@ func TestSlashCommandPickerHidesAuthCommandsWhenAuthStateCannotLoad(t *testing.T
 	}
 	if m.authSlashCommandErr == "" {
 		t.Fatal("expected auth slash command error to be recorded")
+	}
+	if m.authSlashCommand != authSlashCommandUnknown {
+		t.Fatalf("expected typed auth slash command unknown on load error, got %v", m.authSlashCommand)
 	}
 }
 
@@ -520,7 +542,7 @@ func TestSlashCommandPickerRefreshesAuthStateAfterModelInit(t *testing.T) {
 	}
 
 	m.input = "/"
-	m.refreshSlashCommandFilterFromInput()
+	refreshSlashCommandFilterForTest(t, m)
 	state := m.slashCommandPicker()
 	if !slashPickerContainsCommand(state, "logout") {
 		t.Fatalf("expected refreshed /logout in slash picker, got %+v", slashPickerCommandNames(state))
@@ -547,7 +569,7 @@ func TestSlashCommandPickerLoadsAuthStateOncePerSlashSession(t *testing.T) {
 
 	for _, input := range []string{"/", "/l", "/lo"} {
 		m.input = input
-		m.refreshSlashCommandFilterFromInput()
+		refreshSlashCommandFilterForTest(t, m)
 	}
 	if got := store.loads - loadsAfterInit; got != 1 {
 		t.Fatalf("expected one auth load while editing one slash session, got %d", got)
@@ -556,9 +578,89 @@ func TestSlashCommandPickerLoadsAuthStateOncePerSlashSession(t *testing.T) {
 	m.input = "ordinary prompt"
 	m.refreshSlashCommandFilterFromInput()
 	m.input = "/"
-	m.refreshSlashCommandFilterFromInput()
+	refreshSlashCommandFilterForTest(t, m)
 	if got := store.loads - loadsAfterInit; got != 2 {
 		t.Fatalf("expected auth load after starting a new slash session, got %d", got)
+	}
+}
+
+func TestSlashCommandPickerTypingSlashDefersAuthLoadToCommand(t *testing.T) {
+	store := &countingAuthStore{state: auth.State{
+		Scope: auth.ScopeGlobal,
+		Method: auth.Method{
+			Type: auth.MethodOAuth,
+			OAuth: &auth.OAuthMethod{
+				AccessToken: "access-token",
+				TokenType:   "Bearer",
+			},
+		},
+	}}
+	manager := auth.NewManager(store, nil, nil)
+	m := newProjectedStaticUIModel(WithUIStatusConfig(uiStatusConfig{AuthManager: manager}))
+	loadsAfterInit := store.loads
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	updated := next.(*uiModel)
+	if cmd == nil {
+		t.Fatal("expected auth slash refresh command")
+	}
+	if got := store.loads - loadsAfterInit; got != 0 {
+		t.Fatalf("expected no auth load during Update, got %d", got)
+	}
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
+	if got := store.loads - loadsAfterInit; got != 1 {
+		t.Fatalf("expected auth load after command executes, got %d", got)
+	}
+	if state := updated.slashCommandPicker(); !slashPickerContainsCommand(state, "logout") {
+		t.Fatalf("expected /logout after async auth refresh, got %+v", slashPickerCommandNames(state))
+	}
+}
+
+func TestSlashCommandPickerAuthRefreshSingleFlightsAfterScheduledCommand(t *testing.T) {
+	store := &countingAuthStore{state: auth.State{
+		Scope: auth.ScopeGlobal,
+		Method: auth.Method{
+			Type: auth.MethodOAuth,
+			OAuth: &auth.OAuthMethod{
+				AccessToken: "access-token",
+				TokenType:   "Bearer",
+			},
+		},
+	}}
+	manager := auth.NewManager(store, nil, nil)
+	m := newProjectedStaticUIModel(WithUIStatusConfig(uiStatusConfig{AuthManager: manager}))
+	m.replaceMainInput("/", -1)
+	if m.authSlashLoading {
+		t.Fatal("replaceMainInput must not mark an unscheduled auth refresh in flight")
+	}
+
+	cmd := m.refreshSlashCommandFilterFromInput()
+	if cmd == nil {
+		t.Fatal("expected auth slash refresh command after state-only input replacement")
+	}
+	if !m.authSlashLoading {
+		t.Fatal("expected scheduled auth slash refresh to be marked loading")
+	}
+	m.input = "/lo"
+	secondCmd := m.refreshSlashCommandFilterFromInput()
+	if secondCmd != nil {
+		t.Fatal("did not expect concurrent auth slash refresh while first is loading")
+	}
+	if store.loads != 0 {
+		t.Fatalf("expected no auth load before command executes, got %d", store.loads)
+	}
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ := m.Update(msg)
+		m = next.(*uiModel)
+	}
+	if store.loads != 1 {
+		t.Fatalf("expected one auth load after command executes, got %d", store.loads)
+	}
+	if state := m.slashCommandPicker(); !slashPickerContainsCommand(state, "logout") {
+		t.Fatalf("expected /logout after rescheduled auth refresh, got %+v", slashPickerCommandNames(state))
 	}
 }
 

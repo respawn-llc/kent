@@ -3,6 +3,8 @@ package app
 import (
 	"strings"
 	"unicode"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func WithUIPathReferenceSearch(search uiPathReferenceSearch) UIOption {
@@ -88,8 +90,14 @@ func applyPathReferenceCompletion(input string, cursor int, query uiPathReferenc
 	return string(updated), nextCursor, true
 }
 
-func (m *uiModel) refreshAutocompleteFromInput() {
-	m.refreshSlashCommandFilterFromInput()
+func (m *uiModel) refreshAutocompleteFromInput() tea.Cmd {
+	cmd := m.refreshSlashCommandFilterFromInput()
+	m.refreshPathReferenceFromInput()
+	return cmd
+}
+
+func (m *uiModel) refreshAutocompleteStateFromInput() {
+	m.refreshSlashCommandFilterStateFromInput()
 	m.refreshPathReferenceFromInput()
 }
 

@@ -701,8 +701,20 @@ func TestApprovalAskTabAllowsWithCommentary(t *testing.T) {
 
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ok but please keep it minimal")})
 	updated = next.(*uiModel)
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
+	if cmd == nil {
+		t.Fatal("expected approval commentary queue command")
+	}
+	select {
+	case <-reply:
+		t.Fatal("did not expect approval answer before commentary queue command completes")
+	default:
+	}
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, cmd = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
 
 	resp := <-reply
 	if resp.response.Approval == nil {
@@ -716,6 +728,99 @@ func TestApprovalAskTabAllowsWithCommentary(t *testing.T) {
 	}
 	if testActiveAsk(updated) != nil {
 		t.Fatal("expected ask to resolve after approval commentary submit")
+	}
+}
+
+func TestApprovalAskAnswersWhenCommentaryQueueFails(t *testing.T) {
+	client := &runtimeControlFakeClient{queueUserMessageErr: errors.New("queue create failed")}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+	m.setBusy(true)
+	reply := make(chan askReply, 1)
+	event := askEvent{req: clientui.PendingPromptEvent{Question: "Approve?", Approval: true, ApprovalOptions: []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: clientui.ApprovalDecisionDeny, Label: "Deny"}}}, reply: reply}
+
+	next, _ := m.Update(askEventMsg{event: event})
+	updated := next.(*uiModel)
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyTab})
+	updated = next.(*uiModel)
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("please be careful")})
+	updated = next.(*uiModel)
+	next, cmd := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated = next.(*uiModel)
+	if cmd == nil {
+		t.Fatal("expected approval commentary queue command")
+	}
+	select {
+	case <-reply:
+		t.Fatal("did not expect approval answer before failed queue completion")
+	default:
+	}
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, cmd = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
+
+	resp := <-reply
+	if resp.response.Approval == nil {
+		t.Fatal("expected approval answer after failed commentary queue")
+	}
+	if resp.response.Approval.Decision != clientui.ApprovalDecisionAllowOnce || resp.response.Approval.Commentary != "please be careful" {
+		t.Fatalf("unexpected approval response after failed queue: %+v", resp.response.Approval)
+	}
+	if updated.input != "please be careful" {
+		t.Fatalf("expected failed commentary restored into input, got %q", updated.input)
+	}
+	if len(updated.pendingInjected) != 0 || len(updated.injectedQueue) != 0 {
+		t.Fatalf("expected failed commentary queue removed, pending=%+v queue=%+v", updated.pendingInjected, updated.injectedQueue)
+	}
+	if testActiveAsk(updated) != nil {
+		t.Fatal("expected ask to resolve after failed approval commentary queue")
+	}
+}
+
+func TestApprovalAskIgnoresRepeatSubmitWhileCommentaryQueuePending(t *testing.T) {
+	client := &runtimeControlFakeClient{queueUserMessageID: "server-commentary-1"}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+	m.setBusy(true)
+	reply := make(chan askReply, 1)
+	event := askEvent{req: clientui.PendingPromptEvent{Question: "Approve?", Approval: true, ApprovalOptions: []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce, Label: "Allow once"}, {Decision: clientui.ApprovalDecisionDeny, Label: "Deny"}}}, reply: reply}
+
+	next, _ := m.Update(askEventMsg{event: event})
+	updated := next.(*uiModel)
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyTab})
+	updated = next.(*uiModel)
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("queue once")})
+	updated = next.(*uiModel)
+	next, cmd := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated = next.(*uiModel)
+	if cmd == nil {
+		t.Fatal("expected first approval commentary queue command")
+	}
+	if !updated.ask.answerPending {
+		t.Fatal("expected ask answer pending while commentary queues")
+	}
+	next, secondCmd := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated = next.(*uiModel)
+	if secondCmd != nil {
+		t.Fatal("did not expect repeat submit command while commentary queues")
+	}
+	if len(updated.injectedQueue) != 1 || len(updated.pendingInjected) != 1 {
+		t.Fatalf("expected one queued commentary item, pending=%+v queue=%+v", updated.pendingInjected, updated.injectedQueue)
+	}
+	select {
+	case <-reply:
+		t.Fatal("did not expect approval answer before first queue completes")
+	default:
+	}
+
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, cmd = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
+	resp := <-reply
+	if resp.response.Approval == nil || resp.response.Approval.Commentary != "queue once" {
+		t.Fatalf("unexpected approval response after queued commentary: %+v", resp.response.Approval)
 	}
 }
 

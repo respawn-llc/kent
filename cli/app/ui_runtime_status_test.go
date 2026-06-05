@@ -55,6 +55,68 @@ func TestRuntimeStatusUsesLocalFallbackWhenRuntimeClientMissing(t *testing.T) {
 	}
 }
 
+func TestCurrentConversationFreshnessAcceptsCachedFreshness(t *testing.T) {
+	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
+		ConversationFreshness: clientui.ConversationFreshnessFresh,
+	}}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.conversationFreshness = clientui.ConversationFreshnessEstablished
+
+	if got := m.currentConversationFreshness(); got != clientui.ConversationFreshnessFresh {
+		t.Fatalf("conversation freshness = %v, want fresh", got)
+	}
+	if m.conversationFreshness != clientui.ConversationFreshnessFresh {
+		t.Fatalf("cached freshness did not update model state: %v", m.conversationFreshness)
+	}
+}
+
+func TestCurrentConversationFreshnessDoesNotDowngradeLocalTurnFromCachedFresh(t *testing.T) {
+	client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{
+		ConversationFreshness: clientui.ConversationFreshnessFresh,
+	}}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.conversationFreshness = clientui.ConversationFreshnessEstablished
+	m.localConversationTurn = true
+
+	if got := m.currentConversationFreshness(); got != clientui.ConversationFreshnessEstablished {
+		t.Fatalf("conversation freshness = %v, want established", got)
+	}
+	if m.conversationFreshness != clientui.ConversationFreshnessEstablished {
+		t.Fatalf("cached stale freshness downgraded local turn state: %v", m.conversationFreshness)
+	}
+}
+
+func TestRuntimeBackedLocalEntryFallbackIsTransientUntilEcho(t *testing.T) {
+	m := newProjectedTestUIModel(&runtimeControlFakeClient{}, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+
+	_ = m.appendLocalEntry("developer_feedback", "local feedback")
+	if len(m.transcriptEntries) != 1 {
+		t.Fatalf("expected optimistic local entry, got %+v", m.transcriptEntries)
+	}
+	if !m.transcriptEntries[0].Transient {
+		t.Fatalf("expected runtime-backed optimistic entry to be transient, got %+v", m.transcriptEntries[0])
+	}
+	if committed := committedTranscriptEntriesForApp(m.transcriptEntries); len(committed) != 0 {
+		t.Fatalf("optimistic local entry advanced committed transcript entries: %+v", committed)
+	}
+}
+
+func TestStaticLocalEntryFallbackRemainsCommitted(t *testing.T) {
+	m := newProjectedStaticUIModel()
+
+	_ = m.appendLocalEntry("developer_feedback", "local feedback")
+	if len(m.transcriptEntries) != 1 {
+		t.Fatalf("expected local entry, got %+v", m.transcriptEntries)
+	}
+	if m.transcriptEntries[0].Transient {
+		t.Fatalf("expected static local entry to remain committed, got %+v", m.transcriptEntries[0])
+	}
+	if committed := committedTranscriptEntriesForApp(m.transcriptEntries); len(committed) != 1 {
+		t.Fatalf("expected static local entry in committed transcript entries, got %+v", committed)
+	}
+}
+
 func TestRuntimeStatusLineHidesGoalStatusText(t *testing.T) {
 	for _, goalStatus := range []clientui.RuntimeGoalStatus{clientui.RuntimeGoalStatusActive, clientui.RuntimeGoalStatusPaused, clientui.RuntimeGoalStatusComplete} {
 		client := &runtimeControlFakeClient{status: clientui.RuntimeStatus{

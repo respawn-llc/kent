@@ -1,28 +1,32 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"builder/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func (m *uiModel) refreshProcessEntries() {
+const (
+	uiProcessInlineMaxChars   = 12_000
+	uiProcessOperationTimeout = 5 * time.Second
+)
+
+func (m *uiModel) applyProcessEntries(entries []clientui.BackgroundProcess) {
 	selectedID := ""
 	if m.processList.selection >= 0 && m.processList.selection < len(m.processList.entries) {
 		selectedID = m.processList.entries[m.processList.selection].ID
 	}
-	if m.processClient == nil {
-		m.processList.entries = nil
-		m.processList.selection = 0
-		return
-	}
-	m.processList.entries = m.listProcesses()
+	m.processList.entries = append([]clientui.BackgroundProcess(nil), entries...)
+	m.processList.errorText = ""
+	m.processList.loading = false
 	if len(m.processList.entries) == 0 {
 		m.processList.selection = 0
 		return
@@ -43,22 +47,100 @@ func (m *uiModel) refreshProcessEntries() {
 	}
 }
 
-func (m *uiModel) refreshProcessEntriesIfOpen() {
-	if m == nil || !m.processList.isOpen() {
+func (m *uiModel) applyBackgroundProcessEventToCache(evt *clientui.BackgroundShellEvent) {
+	if m == nil || evt == nil {
 		return
 	}
-	m.refreshProcessEntries()
+	id := strings.TrimSpace(evt.ID)
+	if id == "" {
+		return
+	}
+	state := strings.TrimSpace(evt.State)
+	remove := strings.EqualFold(strings.TrimSpace(evt.Type), "removed") || strings.EqualFold(state, "removed")
+	if remove {
+		for idx, entry := range m.processList.entries {
+			if entry.ID == id {
+				m.processList.entries = append(m.processList.entries[:idx], m.processList.entries[idx+1:]...)
+				if m.processList.selection >= len(m.processList.entries) {
+					m.processList.selection = max(0, len(m.processList.entries)-1)
+				}
+				return
+			}
+		}
+		return
+	}
+	upsert := clientui.BackgroundProcess{
+		ID:              id,
+		State:           state,
+		Command:         strings.TrimSpace(evt.Command),
+		Workdir:         strings.TrimSpace(evt.Workdir),
+		LogPath:         strings.TrimSpace(evt.LogPath),
+		RecentOutput:    evt.Preview,
+		OutputAvailable: strings.TrimSpace(evt.Preview) != "",
+		ExitCode:        evt.ExitCode,
+		Running:         backgroundProcessEventRunning(evt),
+		Backgrounded:    true,
+	}
+	for idx, existing := range m.processList.entries {
+		if existing.ID != id {
+			continue
+		}
+		m.processList.entries[idx] = mergeBackgroundProcessCacheEntry(existing, upsert)
+		return
+	}
+	m.processList.entries = append([]clientui.BackgroundProcess{upsert}, m.processList.entries...)
+}
+
+func mergeBackgroundProcessCacheEntry(existing, update clientui.BackgroundProcess) clientui.BackgroundProcess {
+	next := existing
+	if update.State != "" {
+		next.State = update.State
+		next.Running = update.Running
+	}
+	if update.Command != "" {
+		next.Command = update.Command
+	}
+	if update.Workdir != "" {
+		next.Workdir = update.Workdir
+	}
+	if update.LogPath != "" {
+		next.LogPath = update.LogPath
+	}
+	if update.RecentOutput != "" {
+		next.RecentOutput = update.RecentOutput
+		next.OutputAvailable = update.OutputAvailable
+	}
+	if update.ExitCode != nil {
+		next.ExitCode = update.ExitCode
+	}
+	next.Backgrounded = next.Backgrounded || update.Backgrounded
+	return next
+}
+
+func backgroundProcessEventRunning(evt *clientui.BackgroundShellEvent) bool {
+	if evt == nil {
+		return false
+	}
+	state := strings.ToLower(strings.TrimSpace(evt.State))
+	switch state {
+	case "starting", "running":
+		return true
+	case "completed", "failed", "canceled", "cancelled", "done", "exited", "killed", "removed":
+		return false
+	}
+	eventType := strings.ToLower(strings.TrimSpace(evt.Type))
+	return eventType == "started" || eventType == "running" || eventType == "backgrounded"
 }
 
 func (m *uiModel) openProcessList() {
 	m.processList.open = true
+	m.processList.surfaceGeneration++
 	m.setInputMode(uiInputModeProcessList)
-	m.refreshProcessEntries()
 }
 
 func (m *uiModel) closeProcessList() {
 	m.processList.open = false
-	m.refreshProcessEntries()
+	m.processList.surfaceGeneration++
 	m.restorePrimaryInputMode()
 }
 
@@ -124,6 +206,89 @@ func (m *uiModel) selectedProcess() (clientui.BackgroundProcess, bool) {
 	return m.processList.entries[m.processList.selection], true
 }
 
+func (m *uiModel) nextProcessActionToken() uint64 {
+	m.processList.actionToken++
+	return m.processList.actionToken
+}
+
+func (m *uiModel) requestProcessListRefresh() tea.Cmd {
+	if m == nil || !m.processList.isOpen() {
+		return nil
+	}
+	if m.processClient == nil {
+		m.processList.entries = nil
+		m.processList.selection = 0
+		m.processList.loading = false
+		m.processList.errorText = "background process client is unavailable"
+		return nil
+	}
+	if m.processList.refreshInFlight {
+		m.processList.refreshDirty = true
+		return nil
+	}
+	m.processList.refreshToken++
+	token := m.processList.refreshToken
+	m.processList.refreshInFlight = true
+	m.processList.refreshDirty = false
+	m.processList.loading = true
+	client := m.processClient
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), uiProcessOperationTimeout)
+		defer cancel()
+		entries, err := client.ListProcesses(ctx)
+		return processListRefreshDoneMsg{token: token, entries: entries, err: err}
+	}
+}
+
+func (m *uiModel) processActionCmd(action, id, logPath string, inputDraftToken uint64) tea.Cmd {
+	if m == nil || m.processClient == nil {
+		return nil
+	}
+	if m.processList.actionInFlight {
+		return nil
+	}
+	token := m.nextProcessActionToken()
+	surfaceGeneration := m.processList.surfaceGeneration
+	client := m.processClient
+	action = strings.ToLower(strings.TrimSpace(action))
+	id = strings.TrimSpace(id)
+	logPath = strings.TrimSpace(logPath)
+	m.processList.actionInFlight = true
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), uiProcessOperationTimeout)
+		defer cancel()
+		msg := processActionDoneMsg{
+			token:             token,
+			surfaceGeneration: surfaceGeneration,
+			inputDraftToken:   inputDraftToken,
+			action:            action,
+			id:                id,
+			logPath:           logPath,
+		}
+		switch action {
+		case "kill":
+			msg.err = client.KillProcess(ctx, id)
+		case "inline":
+			msg.output, msg.logPath, msg.err = client.InlineOutput(ctx, id, uiProcessInlineMaxChars)
+		case "logs":
+			if msg.logPath == "" {
+				entries, err := client.ListProcesses(ctx)
+				if err != nil {
+					msg.err = err
+					return msg
+				}
+				msg.logPath, msg.err = processLogPath(entries, id)
+			}
+			if msg.err == nil {
+				msg.editorCmd, msg.err = openProcessLogPath(msg.logPath)
+			}
+		default:
+			msg.err = fmt.Errorf("unknown /ps action %q", action)
+		}
+		return msg
+	}
+}
+
 func (m *uiModel) processListHasRunningEntries() bool {
 	if m == nil || !m.processList.isOpen() {
 		return false
@@ -134,6 +299,64 @@ func (m *uiModel) processListHasRunningEntries() bool {
 		}
 	}
 	return false
+}
+
+func (m *uiModel) applyProcessActionDone(msg processActionDoneMsg) tea.Cmd {
+	if m == nil || msg.token != m.processList.actionToken {
+		return nil
+	}
+	m.processList.actionInFlight = false
+	if msg.err != nil {
+		statusCmd := m.setTransientStatusWithKind(msg.err.Error(), uiStatusNoticeError)
+		c := uiInputController{model: m}
+		switch msg.action {
+		case "kill", "logs":
+			return tea.Batch(statusCmd, c.resumeQueuedInputsAfterIdleRuntime())
+		default:
+			return tea.Batch(statusCmd, c.resumeQueuedInputsAfterIdleRuntime())
+		}
+	}
+	c := uiInputController{model: m}
+	switch msg.action {
+	case "kill":
+		status := fmt.Sprintf("sent terminate signal to %s", msg.id)
+		var refreshCmd tea.Cmd
+		if m.processList.isOpen() && msg.surfaceGeneration == m.processList.surfaceGeneration {
+			refreshCmd = m.requestProcessListRefresh()
+		}
+		return tea.Batch(m.setTransientStatus(status), refreshCmd, c.resumeQueuedInputsAfterIdleRuntime())
+	case "inline":
+		if msg.inputDraftToken != 0 && msg.inputDraftToken != m.mainInputDraftToken {
+			return c.resumeQueuedInputsAfterIdleRuntime()
+		}
+		preview := strings.TrimSpace(msg.output)
+		if preview == "" {
+			preview = "<no output yet>"
+		}
+		releaseCmd := c.releaseLockedInjectedInput(true)
+		m.appendProcessOutputToInput(msg.id, preview)
+		if m.processList.isOpen() && msg.surfaceGeneration == m.processList.surfaceGeneration {
+			return tea.Batch(releaseCmd, c.stopProcessListFlowCmd(), c.showTransientStatus("Pasted shell transcript"))
+		}
+		return tea.Batch(releaseCmd, c.showTransientStatus("Pasted shell transcript"))
+	case "logs":
+		statusCmd := c.showTransientStatus("Opened logs")
+		if msg.editorCmd != nil {
+			execCmd := tea.ExecProcess(msg.editorCmd, func(runErr error) tea.Msg {
+				return openProcessLogsDoneMsg{err: runErr}
+			})
+			if m.processList.isOpen() && msg.surfaceGeneration == m.processList.surfaceGeneration {
+				return tea.Batch(c.stopProcessListFlowCmd(), statusCmd, execCmd, c.resumeQueuedInputsAfterIdleRuntime())
+			}
+			return tea.Batch(statusCmd, execCmd, c.resumeQueuedInputsAfterIdleRuntime())
+		}
+		if m.processList.isOpen() && msg.surfaceGeneration == m.processList.surfaceGeneration {
+			return tea.Batch(c.stopProcessListFlowCmd(), statusCmd, c.resumeQueuedInputsAfterIdleRuntime())
+		}
+		return tea.Batch(statusCmd, c.resumeQueuedInputsAfterIdleRuntime())
+	default:
+		return nil
+	}
 }
 
 func (c uiInputController) handleProcessListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -167,8 +390,7 @@ func (c uiInputController) handleProcessListKey(msg tea.KeyMsg) (tea.Model, tea.
 		m.selectLastProcess()
 		return m, nil
 	case "r":
-		m.refreshProcessEntries()
-		return m, c.showTransientStatus(fmt.Sprintf("refreshed %d processes", len(m.processList.entries)))
+		return m, tea.Batch(m.requestProcessListRefresh(), c.showTransientStatus("refreshing processes"))
 	case "enter":
 		return c.runProcessListAction("inline")
 	case "k":
@@ -196,6 +418,9 @@ func (c uiInputController) runProcessAction(action, id string) (tea.Model, tea.C
 	if m.processClient == nil {
 		return m, c.showErrorStatus("background process client is unavailable")
 	}
+	if m.processList.actionInFlight {
+		return m, c.showTransientStatus("process action already in flight")
+	}
 	action = strings.ToLower(strings.TrimSpace(action))
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -203,42 +428,18 @@ func (c uiInputController) runProcessAction(action, id string) (tea.Model, tea.C
 	}
 	switch action {
 	case "kill":
-		if err := m.processClient.KillProcess(id); err != nil {
-			return m, c.showErrorStatus(err.Error())
-		}
-		m.refreshProcessEntries()
-		return m, c.showTransientStatus(fmt.Sprintf("sent terminate signal to %s", id))
+		return m, m.processActionCmd(action, id, "", 0)
 	case "inline":
-		preview, _, err := m.processClient.InlineOutput(id, 12_000)
-		if err != nil {
-			return m, c.showErrorStatus(err.Error())
-		}
-		preview = strings.TrimSpace(preview)
-		if preview == "" {
-			preview = "<no output yet>"
-		}
-		c.releaseLockedInjectedInput(true)
-		m.appendProcessOutputToInput(id, preview)
-		return m, tea.Batch(c.stopProcessListFlowCmd(), c.showTransientStatus("Pasted shell transcript"))
+		return m, m.processActionCmd(action, id, "", m.mainInputDraftToken)
 	case "logs":
-		path, err := processLogPath(m.listProcesses(), id)
-		if err != nil {
-			return m, c.showErrorStatus(err.Error())
+		path := ""
+		for _, entry := range m.processList.entries {
+			if entry.ID == id {
+				path = entry.LogPath
+				break
+			}
 		}
-		if err := openDefault(path); err == nil {
-			return m, tea.Batch(c.stopProcessListFlowCmd(), c.showTransientStatus("Opened logs"))
-		}
-		editorCmd, err := editorCommand(path)
-		if err != nil {
-			return m, c.showErrorStatus(err.Error())
-		}
-		return m, tea.Batch(
-			c.stopProcessListFlowCmd(),
-			c.showTransientStatus("Opened logs"),
-			tea.ExecProcess(editorCmd, func(runErr error) tea.Msg {
-				return openProcessLogsDoneMsg{err: runErr}
-			}),
-		)
+		return m, m.processActionCmd(action, id, path, 0)
 	default:
 		return m, c.showErrorStatus(fmt.Sprintf("unknown /ps action %q", action))
 	}
@@ -270,6 +471,19 @@ func processLogPath(entries []clientui.BackgroundProcess, id string) (string, er
 	return "", fmt.Errorf("unknown session_id %s", id)
 }
 
+var openDefault = func(path string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", path)
+	case "linux":
+		cmd = exec.Command("xdg-open", path)
+	default:
+		return fmt.Errorf("open is not supported on %s", runtime.GOOS)
+	}
+	return cmd.Start()
+}
+
 func editorCommand(path string) (*exec.Cmd, error) {
 	editor := strings.TrimSpace(os.Getenv("VISUAL"))
 	if editor == "" {
@@ -287,15 +501,9 @@ func editorCommand(path string) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
-var openDefault = func(path string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", path)
-	case "linux":
-		cmd = exec.Command("xdg-open", path)
-	default:
-		return fmt.Errorf("open is not supported on %s", runtime.GOOS)
+func openProcessLogPath(path string) (*exec.Cmd, error) {
+	if err := openDefault(path); err == nil {
+		return nil, nil
 	}
-	return cmd.Start()
+	return editorCommand(path)
 }

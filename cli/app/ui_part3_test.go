@@ -804,8 +804,20 @@ func TestApprovalAskTabCommentaryUsesCurrentSelection(t *testing.T) {
 	updated = next.(*uiModel)
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("session only")})
 	updated = next.(*uiModel)
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
+	if cmd == nil {
+		t.Fatal("expected approval commentary queue command")
+	}
+	select {
+	case <-reply:
+		t.Fatal("did not expect approval answer before commentary queue command completes")
+	default:
+	}
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, cmd = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
 
 	resp := <-reply
 	if resp.response.Approval == nil {

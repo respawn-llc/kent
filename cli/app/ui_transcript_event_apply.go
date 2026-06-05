@@ -11,6 +11,9 @@ import (
 
 func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, flushNativeHistory bool) (tea.Cmd, bool, bool) {
 	m := a.model
+	if len(evt.TranscriptEntries) == 0 {
+		return nil, false, false
+	}
 	incomingCount := len(evt.TranscriptEntries)
 	reduction := reduceProjectedTranscriptEvent(newProjectedTranscriptEventState(projectedTranscriptEventSnapshotFromModel(m)), evt)
 	if reduction.decision == projectedTranscriptDecisionSkip && reduction.duplicateToolStarts {
@@ -144,6 +147,22 @@ func (a uiRuntimeAdapter) applyProjectedTranscriptEntries(evt clientui.Event, fl
 	return m.syncNativeHistoryFromTranscript(), true, false
 }
 
+func (m *uiModel) suppressLocalEntryEchoesInEvent(evt clientui.Event) clientui.Event {
+	if m == nil || evt.Kind != clientui.EventLocalEntryAdded || len(evt.TranscriptEntries) == 0 {
+		return evt
+	}
+	filtered := evt.TranscriptEntries[:0]
+	for _, entry := range evt.TranscriptEntries {
+		if m.shouldSuppressLocalEntryEcho(entry.NoticeID) {
+			m.clearMirroredTransientStatusByNoticeID(entry.NoticeID)
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	evt.TranscriptEntries = filtered
+	return evt
+}
+
 func (m *uiModel) clearMirroredTransientStatus(entries []tui.TranscriptEntry) {
 	if m == nil || m.transientStatusNoticeID == "" {
 		return
@@ -157,6 +176,18 @@ func (m *uiModel) clearMirroredTransientStatus(entries []tui.TranscriptEntry) {
 		m.transientStatusNoticeID = ""
 		return
 	}
+}
+
+func (m *uiModel) clearMirroredTransientStatusByNoticeID(noticeID string) {
+	if m == nil || m.transientStatusNoticeID == "" || noticeID == "" {
+		return
+	}
+	if noticeID != m.transientStatusNoticeID {
+		return
+	}
+	m.transientStatus = ""
+	m.transientStatusKind = uiStatusNoticeNeutral
+	m.transientStatusNoticeID = ""
 }
 
 func (m *uiModel) observeDirectCommittedEventDelivery(evt clientui.Event) {

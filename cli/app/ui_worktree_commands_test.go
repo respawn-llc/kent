@@ -930,6 +930,124 @@ func TestWorktreeSwitchCommandPrefersDisplayNameMatchBeforeBranchMatch(t *testin
 	}
 }
 
+func TestWorktreeSwitchCommandsCoalesceWhileInFlight(t *testing.T) {
+	client := &worktreeCommandTestClient{
+		listResp:   testLinkedWorktreeListResponse(),
+		switchResp: serverapi.WorktreeSwitchResponse{Worktree: serverapi.WorktreeView{WorktreeID: "wt-main", DisplayName: "main"}},
+	}
+	m := newWorktreeTestModel(t, client)
+
+	next, firstCmd := m.inputController().handleWorktreeSwitchCommand("feature-a")
+	updated := next.(*uiModel)
+	if firstCmd == nil {
+		t.Fatal("expected first switch command")
+	}
+	next, secondCmd := updated.inputController().handleWorktreeSwitchCommand("main")
+	updated = next.(*uiModel)
+	if secondCmd != nil {
+		t.Fatal("did not expect second switch command while first is in flight")
+	}
+	if len(client.switchRequests) != 0 {
+		t.Fatalf("switch RPC started before command execution: %+v", client.switchRequests)
+	}
+
+	updated = applyWorktreeCmdMessages(t, updated, firstCmd)
+	if len(client.switchRequests) != 2 {
+		t.Fatalf("expected serialized first and follow-up switch RPCs, got %+v", client.switchRequests)
+	}
+	if client.switchRequests[0].WorktreeID != "wt-feature" || client.switchRequests[1].WorktreeID != "wt-main" {
+		t.Fatalf("unexpected switch request order: %+v", client.switchRequests)
+	}
+	if updated.worktrees.switchPending {
+		t.Fatal("expected switch pending cleared after serialized follow-up completion")
+	}
+}
+
+func TestWorktreeSwitchCompletionAppliesBeforeQueuedSwitchRuns(t *testing.T) {
+	client := &worktreeCommandTestClient{
+		listResp:   testLinkedWorktreeListResponse(),
+		switchResp: serverapi.WorktreeSwitchResponse{Worktree: serverapi.WorktreeView{WorktreeID: "wt-feature", DisplayName: "feature-a"}},
+	}
+	m := newWorktreeTestModel(t, client)
+
+	next, firstCmd := m.inputController().handleWorktreeSwitchCommand("feature-a")
+	updated := next.(*uiModel)
+	if firstCmd == nil {
+		t.Fatal("expected first switch command")
+	}
+	next, secondCmd := updated.inputController().handleWorktreeSwitchCommand("main")
+	updated = next.(*uiModel)
+	if secondCmd != nil {
+		t.Fatal("did not expect second switch command while first is in flight")
+	}
+
+	var firstDone worktreeSwitchDoneMsg
+	foundFirst := false
+	for _, msg := range collectCmdMessages(t, firstCmd) {
+		if typed, ok := msg.(worktreeSwitchDoneMsg); ok {
+			firstDone = typed
+			foundFirst = true
+		}
+	}
+	if !foundFirst {
+		t.Fatal("expected first worktree switch completion")
+	}
+	client.switchErr = errors.New("queued switch failed")
+	next, followCmd := updated.Update(firstDone)
+	updated = next.(*uiModel)
+	if updated.transientStatus != "Switched to feature-a" {
+		t.Fatalf("expected first switch success status before queued follow-up, got %q", updated.transientStatus)
+	}
+	msgs := collectCmdMessages(t, followCmd)
+	sawRefresh := false
+	sawQueuedSwitch := false
+	for _, msg := range msgs {
+		switch typed := msg.(type) {
+		case runtimeMainViewRefreshedMsg:
+			sawRefresh = true
+		case worktreeSwitchDoneMsg:
+			if typed.err != nil {
+				sawQueuedSwitch = true
+			}
+		}
+	}
+	if !sawRefresh {
+		t.Fatalf("expected first switch to schedule main-view refresh before queued failure, got %+v", msgs)
+	}
+	if !sawQueuedSwitch {
+		t.Fatalf("expected queued switch command to still run, got %+v", msgs)
+	}
+}
+
+func TestWorktreeSwitchCompletionUsesSwitchTokenNotMutationToken(t *testing.T) {
+	client := &worktreeCommandTestClient{
+		listResp:   testLinkedWorktreeListResponse(),
+		switchResp: serverapi.WorktreeSwitchResponse{Worktree: serverapi.WorktreeView{WorktreeID: "wt-feature", DisplayName: "feature-a"}},
+	}
+	m := newWorktreeTestModel(t, client)
+
+	next, switchCmd := m.inputController().handleWorktreeSwitchCommand("feature-a")
+	updated := next.(*uiModel)
+	if switchCmd == nil {
+		t.Fatal("expected switch command")
+	}
+	var switchDone worktreeSwitchDoneMsg
+	for _, msg := range collectCmdMessages(t, switchCmd) {
+		if typed, ok := msg.(worktreeSwitchDoneMsg); ok {
+			switchDone = typed
+		}
+	}
+	updated.worktrees.mutationToken++
+	next, _ = updated.Update(switchDone)
+	updated = next.(*uiModel)
+	if updated.worktrees.switchPending {
+		t.Fatal("expected switch completion to clear pending state despite unrelated mutation token change")
+	}
+	if updated.transientStatus != "Switched to feature-a" {
+		t.Fatalf("expected switch completion to apply, got status %q", updated.transientStatus)
+	}
+}
+
 func TestWorktreeDeleteTargetResolutionPrefersDisplayNameMatchBeforeBranchMatch(t *testing.T) {
 	resp := testMainWorktreeListResponse()
 	resp.Worktrees = append(resp.Worktrees,

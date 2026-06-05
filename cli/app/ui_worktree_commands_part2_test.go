@@ -192,7 +192,7 @@ func TestProjectedSessionMetadataAppliesExecutionTarget(t *testing.T) {
 
 func TestWorktreeSwitchDoneAppliesTargetAfterMainViewRefresh(t *testing.T) {
 	m := newWorktreeTestModel(t, &worktreeCommandTestClient{})
-	m.worktrees.mutationToken = 7
+	m.worktrees.switchToken = 7
 	m.worktrees.switchPending = true
 	m.statusConfig.WorkspaceRoot = "/repo"
 

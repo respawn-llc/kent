@@ -46,6 +46,7 @@ type Request struct {
 	Settings              config.Settings
 	Source                config.SourceReport
 	AuthCacheIdentity     string
+	AuthCacheUnseedable   bool
 	CacheKeys             CacheKeys
 	AuthStatus            client.AuthStatusClient
 	AuthStatePath         string
@@ -224,6 +225,9 @@ func (r *memoryRepository) SeedSnapshot(req Request, base Snapshot, now time.Tim
 	seed := SeedResult{Snapshot: base, Warnings: map[Section]string{}}
 
 	authEntry, authCached := r.authByKey[strings.TrimSpace(req.CacheKeys.Auth)]
+	if req.AuthCacheUnseedable {
+		authCached = false
+	}
 	if authCached {
 		seed.Snapshot.Auth = authEntry.result.Auth
 		seed.Snapshot.Subscription = authEntry.result.Subscription

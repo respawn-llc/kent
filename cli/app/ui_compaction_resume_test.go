@@ -32,14 +32,16 @@ func TestCompactDoneResumesQueuedSteeringAsNewTurn(t *testing.T) {
 	m.activity = uiActivityRunning
 	m.input = "steered message"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, createCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	updated = applyFirstInjectedQueueCreateDoneForTest(t, updated, createCmd)
 	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "steered message" {
 		t.Fatalf("expected pending injected steering before compaction completes, got %+v", updated.pendingInjected)
 	}
 
 	next, cmd := updated.Update(compactDoneMsg{})
 	updated = next.(*uiModel)
+	updated, cmd = applyQueuedRuntimeWorkCheckForTest(t, updated, cmd)
 	if cmd == nil {
 		t.Fatal("expected compaction completion to resume queued steering")
 	}
@@ -120,10 +122,12 @@ func TestInterruptedResumedQueuedSteeringRestoresInput(t *testing.T) {
 	m.activity = uiActivityRunning
 	m.input = "steered message"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, createCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	updated = applyFirstInjectedQueueCreateDoneForTest(t, updated, createCmd)
 	next, cmd := updated.Update(compactDoneMsg{})
 	updated = next.(*uiModel)
+	updated, cmd = applyQueuedRuntimeWorkCheckForTest(t, updated, cmd)
 	if cmd == nil {
 		t.Fatal("expected compaction completion to resume queued steering")
 	}
@@ -133,9 +137,10 @@ func TestInterruptedResumedQueuedSteeringRestoresInput(t *testing.T) {
 
 	next, interruptCmd := updated.Update(submitDoneMsg{err: submissionerror.ErrInterrupted})
 	updated = next.(*uiModel)
-	if interruptCmd != nil {
-		t.Fatal("did not expect follow-up command after interrupted resumed steering")
+	if interruptCmd == nil {
+		t.Fatal("expected queued runtime cleanup command after interrupted resumed steering")
 	}
+	_ = collectCmdMessages(t, interruptCmd)
 	if updated.isBusy() {
 		t.Fatal("expected busy=false after interrupted resumed steering")
 	}
@@ -147,6 +152,13 @@ func TestInterruptedResumedQueuedSteeringRestoresInput(t *testing.T) {
 	}
 	if len(updated.pendingInjected) != 0 {
 		t.Fatalf("expected pending injected cleared after restore, got %+v", updated.pendingInjected)
+	}
+	hasWork, err := updated.runtimeClient().HasQueuedUserWork()
+	if err != nil {
+		t.Fatalf("check queued user work: %v", err)
+	}
+	if hasWork {
+		t.Fatal("expected interrupted resumed steering cleanup to discard runtime queued work")
 	}
 	plain := stripANSIAndTrimRight(updated.View())
 	if strings.Contains(strings.ToLower(plain), "interrupted") {

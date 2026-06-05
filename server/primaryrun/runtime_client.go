@@ -62,6 +62,9 @@ func (c *gatedRuntimeClient) ClearGoal() (*clientui.RuntimeGoal, error)  { retur
 func (c *gatedRuntimeClient) AppendLocalEntry(role, text string) error {
 	return c.inner.AppendLocalEntry(role, text)
 }
+func (c *gatedRuntimeClient) AppendLocalEntryWithNoticeID(role, text, noticeID string) error {
+	return c.inner.AppendLocalEntryWithNoticeID(role, text, noticeID)
+}
 func (c *gatedRuntimeClient) SubmitUserMessage(ctx context.Context, text string) (string, error) {
 	lease, err := c.gate.AcquirePrimaryRun(c.sessionID)
 	if err != nil {

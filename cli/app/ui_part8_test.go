@@ -55,8 +55,12 @@ func TestBusySlashSupervisorOnAppliesToInFlightRunCompletion(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	m.input = "/supervisor on"
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
 	if !updated.reviewerEnabled || updated.reviewerMode != "edits" {
 		t.Fatalf("expected ui reviewer enabled in edits mode after /supervisor on, got enabled=%v mode=%q", updated.reviewerEnabled, updated.reviewerMode)
 	}
@@ -88,7 +92,11 @@ func TestSlashSupervisorWithEngineTogglesRuntimeReviewer(t *testing.T) {
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
 	if cmd == nil {
-		t.Fatal("expected transient status clear timer cmd")
+		t.Fatal("expected runtime control command")
+	}
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
 	}
 	if got := eng.ReviewerFrequency(); got != "edits" {
 		t.Fatalf("expected runtime reviewer mode edits, got %q", got)
@@ -101,8 +109,12 @@ func TestSlashSupervisorWithEngineTogglesRuntimeReviewer(t *testing.T) {
 	}
 
 	updated.input = "/supervisor off"
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
 	if got := eng.ReviewerFrequency(); got != "off" {
 		t.Fatalf("expected runtime reviewer mode off, got %q", got)
 	}
@@ -192,7 +204,11 @@ func TestSlashAutoCompactionWithEngineTogglesRuntime(t *testing.T) {
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
 	if cmd == nil {
-		t.Fatal("expected transient status clear timer cmd")
+		t.Fatal("expected runtime control command")
+	}
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
 	}
 	if got := eng.AutoCompactionEnabled(); got {
 		t.Fatalf("expected runtime auto-compaction disabled, got %v", got)
@@ -202,8 +218,12 @@ func TestSlashAutoCompactionWithEngineTogglesRuntime(t *testing.T) {
 	}
 
 	updated.input = "/autocompaction on"
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
 	if got := eng.AutoCompactionEnabled(); !got {
 		t.Fatalf("expected runtime auto-compaction enabled, got %v", got)
 	}
@@ -222,7 +242,11 @@ func TestSlashAutoCompactionKeepsPriorStateWhenRuntimeToggleFails(t *testing.T) 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
 	if cmd == nil {
-		t.Fatal("expected transient status clear timer cmd")
+		t.Fatal("expected runtime control command")
+	}
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
 	}
 	if !updated.autoCompactionEnabled {
 		t.Fatal("expected prior auto-compaction state preserved on toggle failure")
@@ -237,8 +261,12 @@ func TestSlashAutoCompactionShowsCompactionModeNoneNote(t *testing.T) {
 	m := newProjectedEngineUIModel(eng)
 	m.input = "/autocompaction on"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
 	if !strings.Contains(updated.transientStatus, "compaction_mode=none") {
 		t.Fatalf("expected compaction_mode=none note in status, got %q", updated.transientStatus)
 	}
@@ -536,7 +564,17 @@ func TestBlockDisconnectedSubmissionBlocksEvenWhenRuntimeAppendSucceeds(t *testi
 		t.Fatal("expected disconnected submission to block")
 	}
 	if cmd != nil {
-		t.Fatal("did not expect fallback transcript cmd when runtime append succeeds")
+		if client.appendedRole != "" || client.appendedText != "" {
+			t.Fatalf("did not expect runtime append during disconnected submission block, got role=%q text=%q", client.appendedRole, client.appendedText)
+		}
+		_ = collectCmdMessages(t, cmd)
+	}
+	if len(m.transcriptEntries) != 1 {
+		t.Fatalf("expected immediate fallback transcript entry, got %+v", m.transcriptEntries)
+	}
+	entry := m.transcriptEntries[0]
+	if entry.Role != tui.TranscriptRoleDeveloperErrorFeedback || entry.Text != runtimeDisconnectedStatusMessage {
+		t.Fatalf("unexpected fallback transcript entry: %+v", entry)
 	}
 	if m.activity != uiActivityError {
 		t.Fatalf("expected error activity while disconnected, got %v", m.activity)
@@ -559,7 +597,10 @@ func TestDisconnectedQueuedFlushRestoresHiddenQueuedDrafts(t *testing.T) {
 	updated := next.(*uiModel)
 
 	if cmd != nil {
-		t.Fatal("did not expect queued flush command while disconnected")
+		if client.appendedRole != "" || client.appendedText != "" {
+			t.Fatalf("did not expect runtime append during disconnected queued flush, got role=%q text=%q", client.appendedRole, client.appendedText)
+		}
+		_ = collectCmdMessages(t, cmd)
 	}
 	if updated.input != "first queued\n\nsecond queued" {
 		t.Fatalf("expected hidden queued drafts restored into input, got %q", updated.input)
@@ -596,7 +637,10 @@ func TestDisconnectedQueuedInjectionSubmissionRestoresHiddenInjectedDrafts(t *te
 
 	cmd := m.inputController().startQueuedInjectionSubmission()
 	if cmd != nil {
-		t.Fatal("did not expect queued injection submission command while disconnected")
+		if client.appendedRole != "" || client.appendedText != "" {
+			t.Fatalf("did not expect runtime append during disconnected queued injection submission, got role=%q text=%q", client.appendedRole, client.appendedText)
+		}
+		_ = collectCmdMessages(t, cmd)
 	}
 	if m.input != "hidden steering" {
 		t.Fatalf("expected hidden injected draft restored into input, got %q", m.input)

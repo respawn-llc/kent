@@ -5,6 +5,7 @@ import (
 
 	"builder/cli/app/internal/worktreemutation"
 	"builder/cli/app/internal/worktreeview"
+	"builder/shared/clientui"
 	"builder/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -53,24 +54,43 @@ func (c uiInputController) handleWorktreeCommand(args string) (tea.Model, tea.Cm
 
 func (c uiInputController) handleWorktreeSwitchCommand(token string) (tea.Model, tea.Cmd) {
 	m := c.model
-	resolved, err := m.resolveWorktreeToken(token)
-	if err != nil {
-		errText := formatSubmissionError(err)
-		return m, c.appendErrorFeedbackWithStatus(errText, c.showErrorStatus(errText))
+	target := strings.TrimSpace(token)
+	if m.worktrees.switchPending {
+		m.worktrees.queuedSwitch = uiWorktreeQueuedSwitch{TargetToken: target}
+		return m, nil
 	}
-	resp, err := m.worktreeMutationService().Switch(resolved.WorktreeID)
-	if err != nil {
-		errText := formatSubmissionError(err)
-		return m, c.appendErrorFeedbackWithStatus(errText, c.showErrorStatus(errText))
+	return m, m.worktreeSwitchCommandForTarget(target, "")
+}
+
+func (m *uiModel) worktreeSwitchCommandForTarget(targetToken, worktreeID string) tea.Cmd {
+	if m == nil {
+		return nil
 	}
-	status := "Switched to " + worktreeDisplayName(resp.Worktree)
-	return m, tea.Batch(c.showSuccessStatus(status), m.requestRuntimeMainViewRefresh())
+	service := m.worktreeMutationService()
+	m.worktrees.switchToken++
+	switchToken := m.worktrees.switchToken
+	m.worktrees.switchPending = true
+	targetToken = strings.TrimSpace(targetToken)
+	worktreeID = strings.TrimSpace(worktreeID)
+	return func() tea.Msg {
+		resolvedID := worktreeID
+		if resolvedID == "" {
+			resolved, err := service.ResolveToken(targetToken)
+			if err != nil {
+				return worktreeSwitchDoneMsg{token: switchToken, err: err}
+			}
+			resolvedID = resolved.WorktreeID
+		}
+		resp, err := service.Switch(resolvedID)
+		return worktreeSwitchDoneMsg{token: switchToken, resp: resp, err: err}
+	}
 }
 
 func (m *uiModel) listWorktreesForCurrentSession(includeDirtyCount bool) (serverapi.WorktreeListResponse, error) {
 	if m == nil {
 		return serverapi.WorktreeListResponse{}, worktreemutation.ErrClientUnavailable
 	}
+	m.checkTUIBlockingOperation("worktree service read", "list worktrees")
 	return m.worktreeMutationService().List(includeDirtyCount)
 }
 
@@ -78,6 +98,7 @@ func (m *uiModel) resolveWorktreeToken(token string) (serverapi.WorktreeView, er
 	if m == nil {
 		return serverapi.WorktreeView{}, worktreemutation.ErrClientUnavailable
 	}
+	m.checkTUIBlockingOperation("worktree service read", "resolve worktree")
 	return m.worktreeMutationService().ResolveToken(token)
 }
 
@@ -85,8 +106,12 @@ func (m *uiModel) suggestedWorktreeSessionName() string {
 	if trimmed := strings.TrimSpace(m.sessionName); trimmed != "" {
 		return trimmed
 	}
-	if client := m.runtimeClient(); client != nil {
-		return strings.TrimSpace(client.SessionView().SessionName)
+	if cached, ok := m.runtimeClient().(interface {
+		CachedMainView() (clientui.RuntimeMainView, bool)
+	}); ok {
+		if view, hasCached := cached.CachedMainView(); hasCached {
+			return strings.TrimSpace(view.Session.SessionName)
+		}
 	}
 	return ""
 }

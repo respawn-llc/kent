@@ -531,13 +531,17 @@ func (m *uiModel) copyClipboardTextCmd(text string) tea.Cmd {
 	copier := m.clipboardTextCopier
 	copyText := text
 	return func() tea.Msg {
-		if copier == nil {
-			return clipboardTextCopyDoneMsg{Err: &uiClipboardCopyError{Kind: uiClipboardCopyErrorUnsupported, Message: "Clipboard copy is unavailable"}}
-		}
 		ctx, cancel := context.WithTimeout(context.Background(), clipboardTextCopyTimeout)
 		defer cancel()
-		return clipboardTextCopyDoneMsg{Err: copier.CopyText(ctx, copyText)}
+		return clipboardTextCopyDoneMsg{Err: copyClipboardText(ctx, copier, copyText)}
 	}
+}
+
+func copyClipboardText(ctx context.Context, copier uiClipboardTextCopier, text string) error {
+	if copier == nil {
+		return &uiClipboardCopyError{Kind: uiClipboardCopyErrorUnsupported, Message: "Clipboard copy is unavailable"}
+	}
+	return copier.CopyText(ctx, text)
 }
 
 func (m *uiModel) handleClipboardTextCopyDone(msg clipboardTextCopyDoneMsg) tea.Cmd {

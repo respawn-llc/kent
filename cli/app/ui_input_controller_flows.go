@@ -84,12 +84,13 @@ func (c uiInputController) startRollbackFork(text string) (tea.Model, tea.Cmd) {
 func (c uiInputController) startProcessListFlowCmd() tea.Cmd {
 	m := c.model
 	m.openProcessList()
+	initialRefreshCmd := m.requestProcessListRefresh()
 	refreshCmd := waitProcessListRefresh()
 	spinnerCmd := m.ensureSpinnerTicking()
 	if overlayCmd := m.pushProcessOverlayIfNeeded(); overlayCmd != nil {
-		return tea.Batch(overlayCmd, refreshCmd, spinnerCmd)
+		return tea.Batch(overlayCmd, initialRefreshCmd, refreshCmd, spinnerCmd)
 	}
-	return tea.Batch(refreshCmd, spinnerCmd)
+	return tea.Batch(initialRefreshCmd, refreshCmd, spinnerCmd)
 }
 
 func (c uiInputController) stopProcessListFlowCmd() tea.Cmd {
@@ -97,10 +98,11 @@ func (c uiInputController) stopProcessListFlowCmd() tea.Cmd {
 	overlayCmd := m.popProcessOverlayIfNeeded()
 	m.closeProcessList()
 	spinnerCmd := m.ensureSpinnerTicking()
+	releaseCmd := m.releaseDeferredRuntimeSyncs()
 	if overlayCmd != nil {
-		return tea.Batch(overlayCmd, spinnerCmd)
+		return tea.Batch(overlayCmd, spinnerCmd, releaseCmd)
 	}
-	return spinnerCmd
+	return tea.Batch(spinnerCmd, releaseCmd)
 }
 
 func (c uiInputController) markPendingCSIShiftEnter() {

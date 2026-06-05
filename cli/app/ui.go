@@ -70,11 +70,9 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, runtimeEvents <-c
 	mainView := m.runtimeMainView()
 	status := mainView.Status
 	m.applyRuntimeMainViewState(mainView)
-	m.refreshAuthSlashCommandState()
 	if !m.hasRuntimeClient() {
 		m.reviewerEnabled = strings.TrimSpace(m.reviewerMode) != "" && strings.TrimSpace(m.reviewerMode) != "off"
 	}
-	m.refreshProcessEntries()
 	var startupNativeHistoryCmd tea.Cmd
 	if m.hasRuntimeClient() {
 		seedView := mainView.Session
@@ -269,6 +267,7 @@ func (m *uiModel) Init() tea.Cmd {
 }
 
 func (m *uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	defer m.enterUIMainThread("Update")()
 	if probe, ok := msg.(uiModelProbeMessage); ok {
 		probe.probeUIModel(m)
 		return m, nil
@@ -512,17 +511,7 @@ func (m *uiModel) startupUpdateNoticeCmd(status clientui.UpdateStatus) tea.Cmd {
 	if status.Checked {
 		return nil
 	}
-	client := m.runtimeClient()
-	if client == nil {
-		return nil
-	}
-	return func() tea.Msg {
-		refreshed, err := client.RefreshMainView()
-		if err != nil || !refreshed.Status.Update.Available || strings.TrimSpace(refreshed.Status.Update.LatestVersion) == "" {
-			return nil
-		}
-		return startupUpdateNoticeMsg{version: refreshed.Status.Update.LatestVersion}
-	}
+	return m.requestRuntimeMainViewRefreshForCause(runtimeMainViewRefreshCauseStartupUpdate)
 }
 
 func batchCmds(cmds ...tea.Cmd) tea.Cmd {

@@ -146,13 +146,16 @@ func TestCopySlashCommandDoesNotUseVisibleProjectionWhenRuntimeStatusIsStale(t *
 	next, cmd := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
 	if cmd == nil {
-		t.Fatal("expected transient-status command")
+		t.Fatal("expected transient-status clear command")
 	}
 	if copier.calls != 0 {
 		t.Fatalf("did not expect clipboard copy from visible projection, got %d", copier.calls)
 	}
 	if updated.transientStatus != "No final answer available to copy" {
 		t.Fatalf("expected no-answer status, got %q", updated.transientStatus)
+	}
+	if client.refreshMainViewCalls != 0 {
+		t.Fatalf("copy command refreshed runtime status %d times, want 0", client.refreshMainViewCalls)
 	}
 }
 

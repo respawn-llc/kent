@@ -2,6 +2,7 @@ package app
 
 import (
 	"builder/cli/app/internal/statuscollect"
+	"builder/server/auth"
 	"builder/server/sessionview"
 	"builder/shared/client"
 	"builder/shared/clientui"
@@ -177,6 +178,43 @@ func TestStatusRefreshCmdSchedulesBaseEnrichmentForProgressiveCollector(t *testi
 	if baseMsg.snapshot.ParentSessionName != "incident-root" {
 		t.Fatalf("parent session name = %q, want incident-root", baseMsg.snapshot.ParentSessionName)
 	}
+}
+
+func TestStatusRefreshDefersRuntimeAndAuthReadsToCommands(t *testing.T) {
+	store := &countingAuthStore{}
+	manager := auth.NewManager(store, nil, nil)
+	runtimeClient := &statusRefreshRuntimeClient{}
+	m := newProjectedStaticUIModel(WithUIStatusConfig(uiStatusConfig{AuthManager: manager}))
+	m.engine = runtimeClient
+
+	cmd := m.statusRefreshCmd()
+	if cmd == nil {
+		t.Fatal("expected status refresh command")
+	}
+	if runtimeClient.statusCalls != 0 {
+		t.Fatalf("expected no runtime status read before command executes, got %d", runtimeClient.statusCalls)
+	}
+	if store.loads != 0 {
+		t.Fatalf("expected no auth load before command executes, got %d", store.loads)
+	}
+
+	_ = collectCmdMessages(t, cmd)
+	if runtimeClient.statusCalls == 0 {
+		t.Fatal("expected runtime status read after command executes")
+	}
+	if store.loads == 0 {
+		t.Fatal("expected auth load after command executes")
+	}
+}
+
+type statusRefreshRuntimeClient struct {
+	runtimeControlFakeClient
+	statusCalls int
+}
+
+func (c *statusRefreshRuntimeClient) Status() clientui.RuntimeStatus {
+	c.statusCalls++
+	return clientui.RuntimeStatus{ParentSessionID: "parent-session"}
 }
 
 func TestStatusVisibleAuthSummarySuppressesGenericSubscriptionWhenPlanPresent(t *testing.T) {
