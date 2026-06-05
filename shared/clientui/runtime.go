@@ -163,6 +163,7 @@ type RuntimeClient interface {
 	ResumeGoal() (*RuntimeGoal, error)
 	ClearGoal() (*RuntimeGoal, error)
 	AppendLocalEntry(role, text string) error
+	AppendLocalEntryWithNoticeID(role, text, noticeID string) error
 	SubmitUserMessage(ctx context.Context, text string) (string, error)
 	SubmitUserShellCommand(ctx context.Context, command string) error
 	CompactContext(ctx context.Context, args string) error

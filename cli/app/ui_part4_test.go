@@ -123,6 +123,278 @@ func TestBusyEnterCanQueueMultipleSteeringMessages(t *testing.T) {
 	}
 }
 
+func TestBusyEnterQueuesInjectedInputWithoutRuntimeCreateDuringUpdate(t *testing.T) {
+	client := &runtimeControlFakeClient{queueUserMessageID: "server-queue-1"}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+	m.setBusy(true)
+	m.input = "please continue with tests"
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := next.(*uiModel)
+	if cmd == nil {
+		t.Fatal("expected async queue create command")
+	}
+	if client.queueUserMessageCalls != 0 {
+		t.Fatalf("QueueUserMessage called during Update: %d", client.queueUserMessageCalls)
+	}
+	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].ID == "server-queue-1" {
+		t.Fatalf("expected provisional pending injected item before command, got %+v", updated.pendingInjected)
+	}
+
+	msgs := collectCmdMessages(t, cmd)
+	if client.queueUserMessageCalls != 1 || client.queuedText != "please continue with tests" {
+		t.Fatalf("expected one command-time queue create, calls=%d text=%q", client.queueUserMessageCalls, client.queuedText)
+	}
+	var createDone injectedQueueCreateDoneMsg
+	for _, msg := range msgs {
+		if typed, ok := msg.(injectedQueueCreateDoneMsg); ok {
+			createDone = typed
+		}
+	}
+	if createDone.item.ID != "server-queue-1" {
+		t.Fatalf("expected server queue id in completion, got %+v", createDone)
+	}
+
+	next, _ = updated.Update(createDone)
+	updated = next.(*uiModel)
+	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].ID != "server-queue-1" {
+		t.Fatalf("expected pending injected item to adopt server id, got %+v", updated.pendingInjected)
+	}
+	if updated.injectedQueueBlocksDrain() {
+		t.Fatalf("did not expect enqueued item to block drain, state=%+v", updated.injectedQueue)
+	}
+}
+
+func TestPendingInjectedCreateCanceledBeforeCompletionDiscardsLateServerItem(t *testing.T) {
+	client := &runtimeControlFakeClient{queueUserMessageID: "server-queue-1", discardQueuedResult: true}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+	m.setBusy(true)
+	m.input = "restore this steering"
+
+	next, createCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := next.(*uiModel)
+	if createCmd == nil {
+		t.Fatal("expected async queue create command")
+	}
+	next, _ = updated.Update(submitDoneMsg{err: errors.New("network failure")})
+	updated = next.(*uiModel)
+	if updated.input != "restore this steering" {
+		t.Fatalf("expected pending injected text restored, got %q", updated.input)
+	}
+	if len(updated.pendingInjected) != 0 {
+		t.Fatalf("expected pending projection cleared before create completion, got %+v", updated.pendingInjected)
+	}
+	if client.discardQueuedCalls != 0 {
+		t.Fatalf("discard called before server id existed: %d", client.discardQueuedCalls)
+	}
+
+	msgs := collectCmdMessages(t, createCmd)
+	var createDone injectedQueueCreateDoneMsg
+	for _, msg := range msgs {
+		if typed, ok := msg.(injectedQueueCreateDoneMsg); ok {
+			createDone = typed
+		}
+	}
+	next, discardCmd := updated.Update(createDone)
+	updated = next.(*uiModel)
+	if discardCmd == nil {
+		t.Fatal("expected late create success to schedule discard")
+	}
+	if client.discardQueuedCalls != 0 {
+		t.Fatalf("discard called during create completion Update: %d", client.discardQueuedCalls)
+	}
+	discardMsgs := collectCmdMessages(t, discardCmd)
+	if client.discardQueuedCalls != 1 || client.discardQueuedID != "server-queue-1" {
+		t.Fatalf("expected command-time discard of late queue item, calls=%d id=%q", client.discardQueuedCalls, client.discardQueuedID)
+	}
+	var discardDone injectedQueueDiscardDoneMsg
+	for _, msg := range discardMsgs {
+		if typed, ok := msg.(injectedQueueDiscardDoneMsg); ok {
+			discardDone = typed
+		}
+	}
+	next, _ = updated.Update(discardDone)
+	updated = next.(*uiModel)
+	if len(updated.injectedQueue) != 0 {
+		t.Fatalf("expected late-created canceled item removed after discard, got %+v", updated.injectedQueue)
+	}
+}
+
+func TestDiscardFailedInjectedQueueBlocksRuntimeQueuedDrain(t *testing.T) {
+	client := &runtimeControlFakeClient{hasQueuedUserWork: true, queueUserMessageID: "server-queue-1"}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+	m.pendingInjected = []clientui.QueuedUserMessage{{ID: "server-queue-1", Text: "blocked steering"}}
+	m.injectedQueue = []injectedRuntimeQueueItem{{
+		LocalID:  "local-queue-1",
+		ServerID: "server-queue-1",
+		Text:     "blocked steering",
+		State:    injectedRuntimeQueueEnqueued,
+	}}
+
+	restoreCmd := m.inputController().restorePendingInjectedIntoInput()
+	if restoreCmd == nil {
+		t.Fatal("expected restore to schedule discard")
+	}
+	msgs := collectCmdMessages(t, restoreCmd)
+	var discardDone injectedQueueDiscardDoneMsg
+	for _, msg := range msgs {
+		if typed, ok := msg.(injectedQueueDiscardDoneMsg); ok {
+			discardDone = typed
+		}
+	}
+	next, _ := m.Update(discardDone)
+	updated := next.(*uiModel)
+	if !updated.injectedQueueBlocksDrain() {
+		t.Fatalf("expected discard failure to block drain, state=%+v", updated.injectedQueue)
+	}
+	if cmd := updated.inputController().startQueuedInjectionSubmission(); cmd != nil {
+		t.Fatal("did not expect queued runtime work check while discard failure blocks drain")
+	}
+	if client.hasQueuedUserWorkCalls != 0 || client.submitQueuedCalls != 0 {
+		t.Fatalf("expected no runtime queued-work calls while blocked, check=%d submit=%d", client.hasQueuedUserWorkCalls, client.submitQueuedCalls)
+	}
+}
+
+func TestPendingInjectedCreateFailureRestoresInputAndSurfacesError(t *testing.T) {
+	boom := errors.New("queue create failed")
+	client := &runtimeControlFakeClient{queueUserMessageErr: boom}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+	m.setBusy(true)
+	m.input = "restore failed create"
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := next.(*uiModel)
+	if cmd == nil {
+		t.Fatal("expected async queue create command")
+	}
+	msgs := collectCmdMessages(t, cmd)
+	var createDone injectedQueueCreateDoneMsg
+	for _, msg := range msgs {
+		if typed, ok := msg.(injectedQueueCreateDoneMsg); ok {
+			createDone = typed
+		}
+	}
+	next, persistCmd := updated.Update(createDone)
+	updated = next.(*uiModel)
+	if updated.input != "restore failed create" {
+		t.Fatalf("expected failed queue text restored, got %q", updated.input)
+	}
+	if len(updated.pendingInjected) != 0 || len(updated.injectedQueue) != 0 {
+		t.Fatalf("expected failed queue removed, pending=%+v state=%+v", updated.pendingInjected, updated.injectedQueue)
+	}
+	if updated.activity != uiActivityError {
+		t.Fatalf("expected error activity, got %v", updated.activity)
+	}
+	_ = collectCmdMessages(t, persistCmd)
+	if client.appendedRole != string(transcript.EntryRoleDeveloperErrorFeedback) || !strings.Contains(client.appendedText, "queue create failed") {
+		t.Fatalf("expected runtime-persisted queue create error, role=%q text=%q", client.appendedRole, client.appendedText)
+	}
+}
+
+func TestCompactionCompletionWaitsForPendingInjectedCreateBeforeResumingQueuedRuntimeWork(t *testing.T) {
+	client := &runtimeControlFakeClient{hasQueuedUserWork: true, queueUserMessageID: "server-queue-1", submitQueuedResult: "done"}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+	m.setBusy(true)
+	m.setCompacting(true)
+	m.activity = uiActivityRunning
+	m.input = "late steering"
+
+	next, createCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := next.(*uiModel)
+	next, compactCmd := updated.Update(compactDoneMsg{})
+	updated = next.(*uiModel)
+	if compactCmd != nil {
+		t.Fatalf("did not expect queued-work check while create is pending, got %T", compactCmd())
+	}
+	if client.hasQueuedUserWorkCalls != 0 || client.submitQueuedCalls != 0 {
+		t.Fatalf("runtime queue checked/submitted before create completion: check=%d submit=%d", client.hasQueuedUserWorkCalls, client.submitQueuedCalls)
+	}
+
+	msgs := collectCmdMessages(t, createCmd)
+	var createDone injectedQueueCreateDoneMsg
+	for _, msg := range msgs {
+		if typed, ok := msg.(injectedQueueCreateDoneMsg); ok {
+			createDone = typed
+		}
+	}
+	next, checkCmd := updated.Update(createDone)
+	updated = next.(*uiModel)
+	if checkCmd == nil {
+		t.Fatal("expected create completion to schedule queued-work check")
+	}
+	updated, submitCmd := applyQueuedRuntimeWorkCheckForTest(t, updated, checkCmd)
+	if client.hasQueuedUserWorkCalls != 1 {
+		t.Fatalf("HasQueuedUserWork calls = %d, want 1", client.hasQueuedUserWorkCalls)
+	}
+	if submitCmd == nil || !updated.isBusy() {
+		t.Fatalf("expected queued runtime work to resume after safe create, busy=%t cmd=%v", updated.isBusy(), submitCmd)
+	}
+	_ = collectCmdMessages(t, submitCmd)
+	if client.submitQueuedCalls != 1 {
+		t.Fatalf("SubmitQueuedUserMessages calls = %d, want 1", client.submitQueuedCalls)
+	}
+}
+
+func TestLateCreateDiscardFailureBlocksDrainUntilRetrySucceeds(t *testing.T) {
+	client := &runtimeControlFakeClient{hasQueuedUserWork: true, queueUserMessageID: "server-queue-1"}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+	m.setBusy(true)
+	m.input = "restore late create"
+
+	next, createCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := next.(*uiModel)
+	next, _ = updated.Update(submitDoneMsg{err: errors.New("network failure")})
+	updated = next.(*uiModel)
+	msgs := collectCmdMessages(t, createCmd)
+	var createDone injectedQueueCreateDoneMsg
+	for _, msg := range msgs {
+		if typed, ok := msg.(injectedQueueCreateDoneMsg); ok {
+			createDone = typed
+		}
+	}
+	next, discardCmd := updated.Update(createDone)
+	updated = next.(*uiModel)
+	discardMsgs := collectCmdMessages(t, discardCmd)
+	var discardDone injectedQueueDiscardDoneMsg
+	for _, msg := range discardMsgs {
+		if typed, ok := msg.(injectedQueueDiscardDoneMsg); ok {
+			discardDone = typed
+		}
+	}
+	next, _ = updated.Update(discardDone)
+	updated = next.(*uiModel)
+	if !updated.injectedQueueBlocksDrain() {
+		t.Fatalf("expected late-create discard failure to block drain, state=%+v", updated.injectedQueue)
+	}
+	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].ID != "server-queue-1" {
+		t.Fatalf("expected failed discard to re-adopt server item visibly, got %+v", updated.pendingInjected)
+	}
+
+	client.discardQueuedResult = true
+	retryCmd := updated.inputController().restorePendingInjectedIntoInput()
+	if retryCmd == nil {
+		t.Fatal("expected discard retry command")
+	}
+	retryMsgs := collectCmdMessages(t, retryCmd)
+	var retryDone injectedQueueDiscardDoneMsg
+	for _, msg := range retryMsgs {
+		if typed, ok := msg.(injectedQueueDiscardDoneMsg); ok {
+			retryDone = typed
+		}
+	}
+	next, _ = updated.Update(retryDone)
+	updated = next.(*uiModel)
+	if updated.injectedQueueBlocksDrain() || len(updated.injectedQueue) != 0 {
+		t.Fatalf("expected successful retry to unblock drain, state=%+v", updated.injectedQueue)
+	}
+}
+
 func TestBusySteeringBatchFlushPreservesPostTurnQueueOrder(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.setBusy(true)
@@ -272,7 +544,7 @@ func TestRuntimeClientDirectSubmitInterruptRestoresInputWithoutQueueing(t *testi
 	if updated.activeSubmit.text != "direct submit" {
 		t.Fatalf("active submit text = %q, want direct submit", updated.activeSubmit.text)
 	}
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	next, cmd := updated.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	updated = next.(*uiModel)
 	updated = applyInterruptedRunStateForTest(t, updated)
 
@@ -282,8 +554,12 @@ func TestRuntimeClientDirectSubmitInterruptRestoresInputWithoutQueueing(t *testi
 	if len(updated.queued) != 0 {
 		t.Fatalf("interrupted direct submit should not enter visible queue, got %+v", updated.queued)
 	}
+	if client.interruptCalls != 0 {
+		t.Fatalf("interrupt calls during Update = %d, want 0", client.interruptCalls)
+	}
+	_ = collectCmdMessages(t, cmd)
 	if client.interruptCalls != 1 {
-		t.Fatalf("interrupt calls = %d, want 1", client.interruptCalls)
+		t.Fatalf("interrupt calls after command = %d, want 1", client.interruptCalls)
 	}
 }
 
@@ -1062,11 +1338,19 @@ func TestCompactDoneSurfacesQueuedRuntimeWorkProbeFailure(t *testing.T) {
 	m.setCompacting(true)
 	m.activity = uiActivityRunning
 
-	next, _ := m.Update(compactDoneMsg{})
+	next, cmd := m.Update(compactDoneMsg{})
 	updated := next.(*uiModel)
+	updated, cmd = applyQueuedRuntimeWorkCheckForTest(t, updated, cmd)
 	if updated.activity != uiActivityError {
 		t.Fatalf("expected error activity after queued runtime work probe failure, got %v", updated.activity)
 	}
+	if len(updated.transcriptEntries) != 1 || updated.transcriptEntries[0].Role != tui.TranscriptRoleDeveloperErrorFeedback || !strings.Contains(updated.transcriptEntries[0].Text, "daemon stalled") {
+		t.Fatalf("expected local error entry with probe failure, got %+v", updated.transcriptEntries)
+	}
+	if client.appendedRole != "" || client.appendedText != "" {
+		t.Fatalf("did not expect runtime append during Update, got role=%q text=%q", client.appendedRole, client.appendedText)
+	}
+	_ = collectCmdMessages(t, cmd)
 	if client.appendedRole != string(transcript.EntryRoleDeveloperErrorFeedback) || !strings.Contains(client.appendedText, "daemon stalled") {
 		t.Fatalf("expected runtime error entry with probe failure, role=%q text=%q", client.appendedRole, client.appendedText)
 	}
@@ -1080,8 +1364,9 @@ func TestCompactDoneSuppressesQueuedRuntimeWorkProbeCancellation(t *testing.T) {
 	m.setCompacting(true)
 	m.activity = uiActivityRunning
 
-	next, _ := m.Update(compactDoneMsg{})
+	next, cmd := m.Update(compactDoneMsg{})
 	updated := next.(*uiModel)
+	updated, _ = applyQueuedRuntimeWorkCheckForTest(t, updated, cmd)
 	if updated.activity != uiActivityInterrupted {
 		t.Fatalf("expected interrupted activity after queued runtime work probe cancellation, got %v", updated.activity)
 	}

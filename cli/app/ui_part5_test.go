@@ -185,6 +185,7 @@ func TestPSOverlaySpinnerTickAnimatesRunningEntriesWhileIdle(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	updated = completeProcessRefreshForTest(t, updated)
 	before := updated.View()
 	token := updated.spinnerTickToken
 	if token == 0 {
@@ -225,6 +226,7 @@ func TestPSOverlayIgnoresStaleSpinnerTickTokens(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	updated = completeProcessRefreshForTest(t, updated)
 	currentToken := updated.spinnerTickToken
 	if currentToken == 0 {
 		t.Fatal("expected active spinner token for running /ps entries")
@@ -264,6 +266,7 @@ func TestPSOverlayIgnoresStaleSpinnerTickAfterRestart(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	updated = completeProcessRefreshForTest(t, updated)
 	oldToken := updated.spinnerTickToken
 	if oldToken == 0 {
 		t.Fatal("expected active spinner token for running /ps entries")
@@ -279,6 +282,7 @@ func TestPSOverlayIgnoresStaleSpinnerTickAfterRestart(t *testing.T) {
 	updated.input = "/ps"
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
+	updated = completeProcessRefreshForTest(t, updated)
 	newToken := updated.spinnerTickToken
 	if newToken == 0 {
 		t.Fatal("expected restarted spinner token for running /ps entries")

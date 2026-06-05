@@ -3,6 +3,7 @@ package app
 import "builder/shared/clientui"
 
 func (m *uiModel) runtimeSessionView() clientui.RuntimeSessionView {
+	m.checkTUIBlockingOperation("runtime session-view read", "SessionView/MainView")
 	return m.runtimeMainView().Session
 }
 

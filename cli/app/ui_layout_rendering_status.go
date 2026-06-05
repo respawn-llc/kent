@@ -35,7 +35,7 @@ func (l uiViewLayout) renderStatusLine(width int, style uiStyles) string {
 	if branchLabel := l.statusBranchLabel(); branchLabel != "" {
 		segments = append(segments, style.meta.Render(branchLabel))
 	}
-	if label := processCountLabel(m.listProcesses()); label != "" {
+	if label := processCountLabel(m.processList.entries); label != "" {
 		segments = append(segments, style.meta.Render(label))
 	}
 	if serverOwnershipSection := l.renderServerOwnershipSection(style); serverOwnershipSection != "" {

@@ -13,17 +13,77 @@ import (
 
 var uiRuntimeHydrationRetryDelay = 750 * time.Millisecond
 
+type runtimeSyncPolicyClass uint8
+
+const (
+	runtimeSyncPolicyClassRoutine runtimeSyncPolicyClass = iota + 1
+	runtimeSyncPolicyClassAllowed
+)
+
+type runtimeTranscriptSyncRequest struct {
+	page               clientui.TranscriptPageRequest
+	allowDuplicateSkip bool
+	syncCause          runtimeTranscriptSyncCause
+	recoveryCause      clientui.TranscriptRecoveryCause
+	class              runtimeSyncPolicyClass
+	priority           int
+}
+
+type runtimeTranscriptSyncDecision struct {
+	cmd             tea.Cmd
+	started         bool
+	deferred        bool
+	busyPending     bool
+	awaitsHydration bool
+}
+
+type runtimeMainViewRefreshRequest struct {
+	cause    runtimeMainViewRefreshCause
+	class    runtimeSyncPolicyClass
+	priority int
+}
+
+type runtimeMainViewRefreshDecision struct {
+	cmd         tea.Cmd
+	started     bool
+	deferred    bool
+	busyPending bool
+}
+
 func (m *uiModel) requestRuntimeMainViewRefresh() tea.Cmd {
+	return m.requestRuntimeMainViewRefreshForCause(runtimeMainViewRefreshCauseWorktreeMutation)
+}
+
+func (m *uiModel) requestRuntimeMainViewRefreshForCause(cause runtimeMainViewRefreshCause) tea.Cmd {
+	return m.startRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequestForCause(cause)).cmd
+}
+
+func (m *uiModel) startRuntimeMainViewRefreshRequest(request runtimeMainViewRefreshRequest) runtimeMainViewRefreshDecision {
 	if !m.hasRuntimeClient() {
-		return nil
+		return runtimeMainViewRefreshDecision{}
+	}
+	request = normalizeRuntimeMainViewRefreshRequest(request)
+	if m.shouldDeferRuntimeMainViewRefresh(request) {
+		m.mergePendingRuntimeMainViewRefresh(request)
+		m.logf("ui.runtime.main_view.defer cause=%s streaming=%t process_overlay=%t", request.cause, m.runtimeSyncBlockedByStreaming(), m.runtimeSyncBlockedByProcessOverlay())
+		return runtimeMainViewRefreshDecision{deferred: true}
+	}
+	if m.runtimeMainViewBusy {
+		m.mergePendingRuntimeMainViewRefresh(request)
+		m.logf("ui.runtime.main_view.busy_pending cause=%s", request.cause)
+		return runtimeMainViewRefreshDecision{busyPending: true}
 	}
 	m.runtimeMainViewToken++
 	token := m.runtimeMainViewToken
 	client := m.runtimeClient()
-	return func() tea.Msg {
+	m.runtimeMainViewBusy = true
+	m.runtimeMainViewActiveRequest = request
+	m.logf("ui.runtime.main_view.start token=%d cause=%s", token, request.cause)
+	cmd := func() tea.Msg {
 		view, err := client.RefreshMainView()
-		return runtimeMainViewRefreshedMsg{token: token, view: view, err: err}
+		return runtimeMainViewRefreshedMsg{token: token, req: request, view: view, err: err}
 	}
+	return runtimeMainViewRefreshDecision{cmd: cmd, started: true}
 }
 
 func (m *uiModel) requestRuntimeTranscriptPage(request clientui.TranscriptPageRequest) tea.Cmd {
@@ -84,37 +144,48 @@ func (m *uiModel) requestRuntimeTranscriptSyncForContinuityLoss(cause clientui.T
 	return m.startRuntimeTranscriptPageRequest(m.transcriptRequestForCurrentMode(), false, runtimeTranscriptSyncCauseContinuityRecovery, cause)
 }
 
-func (m *uiModel) requestRuntimeDirtyFollowUpTranscriptSync(cause clientui.TranscriptRecoveryCause) tea.Cmd {
-	if !m.hasRuntimeClient() {
-		return nil
-	}
-	return m.startRuntimeTranscriptPageRequest(m.transcriptRequestForCurrentMode(), false, runtimeTranscriptSyncCauseDirtyFollowUp, cause)
+func (m *uiModel) startRuntimeTranscriptPageRequest(request clientui.TranscriptPageRequest, allowDuplicateSkip bool, syncCause runtimeTranscriptSyncCause, recoveryCause clientui.TranscriptRecoveryCause) tea.Cmd {
+	return m.startRuntimeTranscriptPageRequestDecision(request, allowDuplicateSkip, syncCause, recoveryCause).cmd
 }
 
-func (m *uiModel) startRuntimeTranscriptPageRequest(request clientui.TranscriptPageRequest, allowDuplicateSkip bool, syncCause runtimeTranscriptSyncCause, recoveryCause clientui.TranscriptRecoveryCause) tea.Cmd {
-	fetchRequest := m.transcriptHydrationRequest(request, allowDuplicateSkip)
-	if m.runtimeTranscriptBusy {
-		m.runtimeTranscriptDirty = true
-		if recoveryCause != clientui.TranscriptRecoveryCauseNone {
-			m.runtimeTranscriptDirtyRecoveryCause = recoveryCause
-		}
-		m.logf("ui.runtime.transcript.mark_dirty sync_cause=%s recovery_cause=%s", syncCause, recoveryCause)
-		return nil
+func (m *uiModel) startRuntimeTranscriptPageRequestDecision(request clientui.TranscriptPageRequest, allowDuplicateSkip bool, syncCause runtimeTranscriptSyncCause, recoveryCause clientui.TranscriptRecoveryCause) runtimeTranscriptSyncDecision {
+	return m.startRuntimeTranscriptSyncRequest(runtimeTranscriptSyncRequestForPage(request, allowDuplicateSkip, syncCause, recoveryCause))
+}
+
+func (m *uiModel) startRuntimeTranscriptSyncRequest(syncRequest runtimeTranscriptSyncRequest) runtimeTranscriptSyncDecision {
+	syncRequest = m.normalizeRuntimeTranscriptSyncRequest(syncRequest)
+	if !m.hasRuntimeClient() {
+		return runtimeTranscriptSyncDecision{}
 	}
-	if allowDuplicateSkip && m.shouldSkipTranscriptPageRequest(request) {
-		m.logf("ui.runtime.transcript.skip_duplicate mode=%s offset=%d limit=%d window=%s sync_cause=%s", m.view.Mode(), request.Offset, request.Limit, request.Window, syncCause)
-		return nil
+	if syncRequest.allowDuplicateSkip && m.shouldSkipTranscriptPageRequest(syncRequest.page) {
+		request := syncRequest.page
+		m.logf("ui.runtime.transcript.skip_duplicate mode=%s offset=%d limit=%d window=%s sync_cause=%s", m.view.Mode(), request.Offset, request.Limit, request.Window, syncRequest.syncCause)
+		return runtimeTranscriptSyncDecision{}
+	}
+	if m.shouldDeferRuntimeTranscriptSync(syncRequest) {
+		m.mergePendingRuntimeTranscriptSync(syncRequest)
+		m.logRuntimeTranscriptPolicyDecision("defer", syncRequest)
+		return runtimeTranscriptSyncDecision{deferred: true}
+	}
+	if m.runtimeTranscriptBusy {
+		m.mergePendingRuntimeTranscriptSync(syncRequest)
+		m.logRuntimeTranscriptPolicyDecision("busy_pending", syncRequest)
+		return runtimeTranscriptSyncDecision{busyPending: true, awaitsHydration: true}
 	}
 	m.runtimeTranscriptBusy = true
-	m.runtimeTranscriptDirty = false
-	m.runtimeTranscriptDirtyRecoveryCause = clientui.TranscriptRecoveryCauseNone
+	m.runtimeTranscriptActiveRequest = syncRequest
 	m.runtimeTranscriptToken++
 	token := m.runtimeTranscriptToken
 	client := m.runtimeClient()
 	if client == nil {
 		m.runtimeTranscriptBusy = false
-		return nil
+		m.runtimeTranscriptActiveRequest = runtimeTranscriptSyncRequest{}
+		return runtimeTranscriptSyncDecision{}
 	}
+	syncCause := syncRequest.syncCause
+	recoveryCause := syncRequest.recoveryCause
+	fetchRequest := syncRequest.page
+	m.logRuntimeTranscriptPolicyDecision("start", syncRequest)
 	m.logf("ui.runtime.transcript.start token=%d sync_cause=%s", token, syncCause)
 	fields := map[string]string{
 		"session_id":            m.sessionID,
@@ -131,18 +202,216 @@ func (m *uiModel) startRuntimeTranscriptPageRequest(request clientui.TranscriptP
 		fields[key] = value
 	}
 	m.logTranscriptDiag(transcriptdiag.FormatLine("transcript.diag.client.hydrate_start", fields))
-	return func() tea.Msg {
+	cmd := func() tea.Msg {
 		var (
 			transcript clientui.TranscriptPage
 			err        error
 		)
-		if allowDuplicateSkip {
+		if syncRequest.allowDuplicateSkip {
 			transcript, err = client.LoadTranscriptPage(fetchRequest)
 		} else {
 			transcript, err = client.RefreshTranscriptPage(fetchRequest)
 		}
-		return runtimeTranscriptRefreshedMsg{token: token, req: fetchRequest, syncCause: syncCause, transcript: transcript, recoveryCause: recoveryCause, err: err}
+		return runtimeTranscriptRefreshedMsg{token: token, req: fetchRequest, syncRequest: syncRequest, syncCause: syncCause, transcript: transcript, recoveryCause: recoveryCause, err: err}
 	}
+	return runtimeTranscriptSyncDecision{cmd: cmd, started: true, awaitsHydration: true}
+}
+
+func runtimeTranscriptSyncRequestForPage(request clientui.TranscriptPageRequest, allowDuplicateSkip bool, syncCause runtimeTranscriptSyncCause, recoveryCause clientui.TranscriptRecoveryCause) runtimeTranscriptSyncRequest {
+	req := runtimeTranscriptSyncRequest{
+		page:               request,
+		allowDuplicateSkip: allowDuplicateSkip,
+		syncCause:          syncCause,
+		recoveryCause:      recoveryCause,
+		class:              runtimeSyncPolicyClassRoutine,
+		priority:           10,
+	}
+	switch syncCause {
+	case runtimeTranscriptSyncCauseContinuityRecovery:
+		req.class = runtimeSyncPolicyClassAllowed
+		req.priority = 100
+	case runtimeTranscriptSyncCauseCommittedGap:
+		req.class = runtimeSyncPolicyClassAllowed
+		req.priority = 90
+	case runtimeTranscriptSyncCauseQueuedDrain:
+		req.class = runtimeSyncPolicyClassAllowed
+		req.priority = 80
+	case runtimeTranscriptSyncCauseManualTranscriptRefresh:
+		req.class = runtimeSyncPolicyClassAllowed
+		req.priority = 70
+	case runtimeTranscriptSyncCauseBootstrap:
+		req.class = runtimeSyncPolicyClassAllowed
+		req.priority = 60
+	case runtimeTranscriptSyncCauseCommittedConversation, runtimeTranscriptSyncCauseDirtyFollowUp:
+		req.class = runtimeSyncPolicyClassRoutine
+		req.priority = 10
+	default:
+		if recoveryCause != clientui.TranscriptRecoveryCauseNone {
+			req.class = runtimeSyncPolicyClassAllowed
+			req.priority = 100
+		}
+	}
+	if recoveryCause != clientui.TranscriptRecoveryCauseNone {
+		req.class = runtimeSyncPolicyClassAllowed
+		req.priority = max(req.priority, 100)
+	}
+	return req
+}
+
+func normalizeRuntimeMainViewRefreshRequest(req runtimeMainViewRefreshRequest) runtimeMainViewRefreshRequest {
+	if req.cause == "" {
+		req.cause = runtimeMainViewRefreshCauseManual
+	}
+	if req.class == 0 {
+		req.class = runtimeSyncPolicyClassRoutine
+	}
+	if req.priority == 0 {
+		req.priority = 10
+	}
+	return req
+}
+
+func runtimeMainViewRefreshRequestForCause(cause runtimeMainViewRefreshCause) runtimeMainViewRefreshRequest {
+	priority := 10
+	if cause == runtimeMainViewRefreshCauseStartupUpdate {
+		priority = 20
+	}
+	return normalizeRuntimeMainViewRefreshRequest(runtimeMainViewRefreshRequest{
+		cause:    cause,
+		class:    runtimeSyncPolicyClassRoutine,
+		priority: priority,
+	})
+}
+
+func (m *uiModel) normalizeRuntimeTranscriptSyncRequest(req runtimeTranscriptSyncRequest) runtimeTranscriptSyncRequest {
+	req.page = m.transcriptHydrationRequest(req.page, req.allowDuplicateSkip)
+	if req.syncCause == "" {
+		req.syncCause = runtimeTranscriptSyncCauseCommittedConversation
+	}
+	if req.class == 0 || req.priority == 0 {
+		req = runtimeTranscriptSyncRequestForPage(req.page, req.allowDuplicateSkip, req.syncCause, req.recoveryCause)
+	}
+	return req
+}
+
+func (m *uiModel) runtimeSyncBlockedByProcessOverlay() bool {
+	return m != nil && m.processList.isOpen()
+}
+
+func (m *uiModel) runtimeSyncBlockedByStreaming() bool {
+	if m == nil {
+		return false
+	}
+	return strings.TrimSpace(m.view.OngoingStreamingText()) != "" ||
+		m.sawAssistantDelta ||
+		m.nativeStreamingActive ||
+		strings.TrimSpace(m.nativeStreamingText) != "" ||
+		m.isBusy() ||
+		m.isCompacting() ||
+		m.isReviewerRunning()
+}
+
+func (m *uiModel) shouldDeferRuntimeTranscriptSync(req runtimeTranscriptSyncRequest) bool {
+	if req.class != runtimeSyncPolicyClassRoutine {
+		return false
+	}
+	return m.runtimeSyncBlockedByProcessOverlay() || m.runtimeSyncBlockedByStreaming()
+}
+
+func (m *uiModel) shouldDeferRuntimeMainViewRefresh(req runtimeMainViewRefreshRequest) bool {
+	if req.class != runtimeSyncPolicyClassRoutine {
+		return false
+	}
+	return m.runtimeSyncBlockedByProcessOverlay() || m.runtimeSyncBlockedByStreaming()
+}
+
+func (m *uiModel) mergePendingRuntimeTranscriptSync(req runtimeTranscriptSyncRequest) {
+	if m == nil {
+		return
+	}
+	req = m.normalizeRuntimeTranscriptSyncRequest(req)
+	if !m.runtimeTranscriptPendingSet || shouldReplacePendingRuntimeTranscriptSync(m.runtimeTranscriptPending, req) {
+		m.runtimeTranscriptPending = req
+		m.runtimeTranscriptPendingSet = true
+	}
+}
+
+func shouldReplacePendingRuntimeTranscriptSync(current, next runtimeTranscriptSyncRequest) bool {
+	if next.priority != current.priority {
+		return next.priority > current.priority
+	}
+	if next.page.Window != current.page.Window {
+		return next.page.Window == clientui.TranscriptWindowOngoingTail
+	}
+	if next.page.Limit != current.page.Limit {
+		return next.page.Limit > current.page.Limit
+	}
+	return next.page.Offset >= current.page.Offset
+}
+
+func (m *uiModel) mergePendingRuntimeMainViewRefresh(req runtimeMainViewRefreshRequest) {
+	if m == nil {
+		return
+	}
+	req = normalizeRuntimeMainViewRefreshRequest(req)
+	if !m.runtimeMainViewPendingSet || req.priority >= m.runtimeMainViewPending.priority {
+		m.runtimeMainViewPending = req
+		m.runtimeMainViewPendingSet = true
+	}
+}
+
+func (m *uiModel) drainPendingRuntimeTranscriptSync() runtimeTranscriptSyncDecision {
+	if m == nil || !m.runtimeTranscriptPendingSet || m.runtimeTranscriptBusy {
+		return runtimeTranscriptSyncDecision{}
+	}
+	req := m.runtimeTranscriptPending
+	m.runtimeTranscriptPending = runtimeTranscriptSyncRequest{}
+	m.runtimeTranscriptPendingSet = false
+	decision := m.startRuntimeTranscriptSyncRequest(req)
+	if decision.deferred || decision.busyPending {
+		return decision
+	}
+	m.logRuntimeTranscriptPolicyDecision("release", req)
+	return decision
+}
+
+func (m *uiModel) drainPendingRuntimeMainViewRefresh() runtimeMainViewRefreshDecision {
+	if m == nil || !m.runtimeMainViewPendingSet || m.runtimeMainViewBusy {
+		return runtimeMainViewRefreshDecision{}
+	}
+	req := m.runtimeMainViewPending
+	m.runtimeMainViewPending = runtimeMainViewRefreshRequest{}
+	m.runtimeMainViewPendingSet = false
+	decision := m.startRuntimeMainViewRefreshRequest(req)
+	if decision.deferred || decision.busyPending {
+		return decision
+	}
+	m.logf("ui.runtime.main_view.release cause=%s", req.cause)
+	return decision
+}
+
+func (m *uiModel) releaseDeferredRuntimeSyncs() tea.Cmd {
+	transcript := m.drainPendingRuntimeTranscriptSync()
+	mainView := m.drainPendingRuntimeMainViewRefresh()
+	return tea.Batch(transcript.cmd, mainView.cmd)
+}
+
+func (m *uiModel) logRuntimeTranscriptPolicyDecision(outcome string, req runtimeTranscriptSyncRequest) {
+	if m == nil {
+		return
+	}
+	m.logf(
+		"ui.runtime.transcript.policy outcome=%s sync_cause=%s recovery_cause=%s priority=%d streaming=%t process_overlay=%t window=%s offset=%d limit=%d",
+		outcome,
+		req.syncCause,
+		req.recoveryCause,
+		req.priority,
+		m.runtimeSyncBlockedByStreaming(),
+		m.runtimeSyncBlockedByProcessOverlay(),
+		req.page.Window,
+		req.page.Offset,
+		req.page.Limit,
+	)
 }
 
 func (m *uiModel) transcriptHydrationRequest(request clientui.TranscriptPageRequest, allowDuplicateSkip bool) clientui.TranscriptPageRequest {
@@ -154,7 +423,7 @@ func (m *uiModel) transcriptHydrationRequest(request clientui.TranscriptPageRequ
 }
 
 func (m *uiModel) shouldSkipTranscriptPageRequest(req clientui.TranscriptPageRequest) bool {
-	if m.runtimeTranscriptDirty || m.transcriptLiveDirty || m.reasoningLiveDirty {
+	if m.runtimeTranscriptPendingSet || m.transcriptLiveDirty || m.reasoningLiveDirty {
 		return false
 	}
 	if m.view.Mode() != tui.ModeDetail {
@@ -170,26 +439,68 @@ func (m *uiModel) scheduleRuntimeTranscriptRetry(syncCause runtimeTranscriptSync
 	if !m.hasRuntimeClient() {
 		return nil
 	}
+	return m.scheduleRuntimeTranscriptRetryForRequest(runtimeTranscriptSyncRequestForPage(m.transcriptRequestForCurrentMode(), false, syncCause, cause))
+}
+
+func (m *uiModel) scheduleRuntimeTranscriptRetryForRequest(req runtimeTranscriptSyncRequest) tea.Cmd {
+	if !m.hasRuntimeClient() {
+		return nil
+	}
+	req = m.normalizeRuntimeTranscriptSyncRequest(req)
 	m.runtimeTranscriptRetry++
 	token := m.runtimeTranscriptRetry
-	m.logf("ui.runtime.transcript.retry_scheduled token=%d sync_cause=%s recovery_cause=%s delay=%s", token, syncCause, cause, uiRuntimeHydrationRetryDelay)
+	m.logf("ui.runtime.transcript.retry_scheduled token=%d sync_cause=%s recovery_cause=%s delay=%s", token, req.syncCause, req.recoveryCause, uiRuntimeHydrationRetryDelay)
 	return tea.Tick(uiRuntimeHydrationRetryDelay, func(time.Time) tea.Msg {
-		return runtimeTranscriptRetryMsg{token: token, syncCause: syncCause, recoveryCause: cause}
+		return runtimeTranscriptRetryMsg{token: token, syncCause: req.syncCause, recoveryCause: req.recoveryCause, req: req}
 	})
+}
+
+func (m *uiModel) resumeRuntimeEventsAfterHydrationIfUnowned() tea.Cmd {
+	if m == nil || !m.waitRuntimeEventAfterHydration {
+		return nil
+	}
+	m.waitRuntimeEventAfterHydration = false
+	return m.waitRuntimeEventCmd()
 }
 
 func (m *uiModel) handleRuntimeMainViewRefreshed(msg runtimeMainViewRefreshedMsg) tea.Cmd {
 	if msg.token != m.runtimeMainViewToken {
 		return nil
 	}
+	m.runtimeMainViewBusy = false
+	req := msg.req
+	if req == (runtimeMainViewRefreshRequest{}) {
+		req = m.runtimeMainViewActiveRequest
+	}
+	req = normalizeRuntimeMainViewRefreshRequest(req)
+	m.runtimeMainViewActiveRequest = runtimeMainViewRefreshRequest{}
+	if m.shouldDeferRuntimeMainViewRefresh(req) {
+		m.mergePendingRuntimeMainViewRefresh(req)
+		m.logf("ui.runtime.main_view.drop_response_blocked cause=%s streaming=%t process_overlay=%t", req.cause, m.runtimeSyncBlockedByStreaming(), m.runtimeSyncBlockedByProcessOverlay())
+		return m.drainPendingRuntimeMainViewRefresh().cmd
+	}
 	if msg.err != nil {
 		m.observeRuntimeRequestResult(msg.err)
 		m.logf("ui.runtime.main_view err=%q", msg.err.Error())
-		return nil
+		return m.drainPendingRuntimeMainViewRefresh().cmd
 	}
 	m.observeRuntimeRequestResult(nil)
 	m.applyRuntimeMainViewState(msg.view)
-	return m.runtimeAdapter().applyProjectedSessionMetadata(msg.view.Session)
+	noticeCmd := runtimeMainViewStartupUpdateNoticeCmd(req, msg.view)
+	return sequenceCmds(m.runtimeAdapter().applyProjectedSessionMetadata(msg.view.Session), noticeCmd, m.drainPendingRuntimeMainViewRefresh().cmd)
+}
+
+func runtimeMainViewStartupUpdateNoticeCmd(req runtimeMainViewRefreshRequest, view clientui.RuntimeMainView) tea.Cmd {
+	if req.cause != runtimeMainViewRefreshCauseStartupUpdate {
+		return nil
+	}
+	status := view.Status.Update
+	if !status.Available || strings.TrimSpace(status.LatestVersion) == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		return startupUpdateNoticeMsg{version: status.LatestVersion}
+	}
 }
 
 func (m *uiModel) handleRuntimeTranscriptRefreshed(msg runtimeTranscriptRefreshedMsg) tea.Cmd {
@@ -197,8 +508,29 @@ func (m *uiModel) handleRuntimeTranscriptRefreshed(msg runtimeTranscriptRefreshe
 		return nil
 	}
 	m.runtimeTranscriptBusy = false
+	activeReq := m.runtimeTranscriptActiveRequest
+	if msg.syncRequest != (runtimeTranscriptSyncRequest{}) {
+		activeReq = msg.syncRequest
+	}
+	if activeReq == (runtimeTranscriptSyncRequest{}) {
+		activeReq = runtimeTranscriptSyncRequestForPage(msg.req, false, msg.syncCause, msg.recoveryCause)
+	}
+	activeReq = m.normalizeRuntimeTranscriptSyncRequest(activeReq)
+	m.runtimeTranscriptActiveRequest = runtimeTranscriptSyncRequest{}
+	if m.shouldDeferRuntimeTranscriptSync(activeReq) {
+		m.mergePendingRuntimeTranscriptSync(activeReq)
+		m.logRuntimeTranscriptPolicyDecision("drop_response_blocked", activeReq)
+		resumeCmd := m.resumeRuntimeEventsAfterHydrationIfUnowned()
+		drain := m.drainPendingRuntimeTranscriptSync()
+		if drain.started {
+			if resumeCmd != nil {
+				m.waitRuntimeEventAfterHydration = true
+			}
+			return drain.cmd
+		}
+		return sequenceCmds(drain.cmd, resumeCmd)
+	}
 	if msg.err != nil {
-		m.invalidateTransientTranscriptState()
 		m.observeRuntimeRequestResult(msg.err)
 		m.logf("ui.runtime.transcript err=%q sync_cause=%s recovery_cause=%s", msg.err.Error(), msg.syncCause, msg.recoveryCause)
 		m.logTranscriptDiag(transcriptdiag.FormatLine("transcript.diag.client.hydrate_response", map[string]string{
@@ -210,12 +542,16 @@ func (m *uiModel) handleRuntimeTranscriptRefreshed(msg runtimeTranscriptRefreshe
 			"recovery_cause": string(msg.recoveryCause),
 			"err":            msg.err.Error(),
 		}))
-		resumeCmd := tea.Cmd(nil)
-		if m.waitRuntimeEventAfterHydration {
-			m.waitRuntimeEventAfterHydration = false
-			resumeCmd = m.waitRuntimeEventCmd()
+		retryCmd := m.scheduleRuntimeTranscriptRetryForRequest(activeReq)
+		resumeCmd := m.resumeRuntimeEventsAfterHydrationIfUnowned()
+		drain := m.drainPendingRuntimeTranscriptSync()
+		if drain.started {
+			if resumeCmd != nil {
+				m.waitRuntimeEventAfterHydration = true
+			}
+			return tea.Batch(retryCmd, drain.cmd)
 		}
-		return tea.Batch(m.scheduleRuntimeTranscriptRetry(msg.syncCause, msg.recoveryCause), resumeCmd)
+		return tea.Batch(retryCmd, drain.cmd, resumeCmd)
 	}
 	m.observeRuntimeRequestResult(nil)
 	m.logTranscriptPageDiag("transcript.diag.client.hydrate_response", msg.req, msg.transcript, map[string]string{
@@ -232,21 +568,18 @@ func (m *uiModel) handleRuntimeTranscriptRefreshed(msg runtimeTranscriptRefreshe
 		m.logf("ui.runtime.transcript.recovered token=%d", msg.token)
 	}
 	applyCmd := m.runtimeAdapter().applyRuntimeTranscriptPageWithRecovery(msg.req, msg.transcript, msg.recoveryCause)
-	if !m.runtimeTranscriptDirty {
-		if m.pendingQueuedDrainAfterHydration {
-			m.queuedDrainReadyAfterHydration = true
+	resumeCmd := m.resumeRuntimeEventsAfterHydrationIfUnowned()
+	drain := m.drainPendingRuntimeTranscriptSync()
+	if drain.started {
+		if resumeCmd != nil {
+			m.waitRuntimeEventAfterHydration = true
 		}
-		resumeCmd := tea.Cmd(nil)
-		if m.waitRuntimeEventAfterHydration {
-			m.waitRuntimeEventAfterHydration = false
-			resumeCmd = m.waitRuntimeEventCmd()
-		}
-		return sequenceCmds(applyCmd, m.flushQueuedInputsAfterHydration(), resumeCmd)
+		return sequenceCmds(applyCmd, drain.cmd)
 	}
-	m.runtimeTranscriptDirty = false
-	m.logf("ui.runtime.transcript.repeat_after_dirty token=%d sync_cause=%s", msg.token, runtimeTranscriptSyncCauseDirtyFollowUp)
-	followUpRecoveryCause := m.runtimeTranscriptDirtyRecoveryCause
-	return sequenceCmds(applyCmd, m.requestRuntimeDirtyFollowUpTranscriptSync(followUpRecoveryCause))
+	if m.pendingQueuedDrainAfterHydration {
+		m.queuedDrainReadyAfterHydration = true
+	}
+	return sequenceCmds(applyCmd, drain.cmd, m.flushQueuedInputsAfterHydration(), resumeCmd)
 }
 
 func (m *uiModel) handleRuntimeCommittedTranscriptSuffixRefreshed(msg runtimeCommittedTranscriptSuffixRefreshedMsg) tea.Cmd {
@@ -262,7 +595,7 @@ func (m *uiModel) handleRuntimeCommittedTranscriptSuffixRefreshed(msg runtimeCom
 		}
 		m.observeRuntimeRequestResult(msg.err)
 		m.logf("ui.runtime.committed_suffix err=%q after_entry_count=%d limit=%d", msg.err.Error(), msg.req.AfterEntryCount, msg.req.Limit)
-		return m.requestRuntimeCommittedConversationSync()
+		return m.requestRuntimeCommittedGapSync()
 	}
 	m.observeRuntimeRequestResult(nil)
 	if committedTranscriptSuffixStartsAfterDeliveryCursor(m, msg.suffix) {

@@ -143,8 +143,7 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		if m.isBusy() {
-			c.interruptBusyRuntime()
-			return m, nil
+			return m, c.interruptBusyRuntime()
 		}
 		m.exitAction = UIActionExit
 		return m, tea.Quit
@@ -192,9 +191,9 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.restoreCapturedPromptHistoryDraft(draftText, draftCursor, restoreDraft)
 				return m, nil
 			}
-			m.queueInjectedInput(text)
+			cmd := m.queueInjectedInput(text)
 			m.restoreCapturedPromptHistoryDraft(draftText, draftCursor, restoreDraft)
-			return m, nil
+			return m, cmd
 		}
 		if len(m.queued) > 0 {
 			m.queueInput(text)
@@ -301,7 +300,7 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.isInputLocked() {
 				return m, nil
 			}
-			m.insertInputRunes(msg.Runes)
+			return m, m.insertInputRunes(msg.Runes)
 		}
 		return m, nil
 	}

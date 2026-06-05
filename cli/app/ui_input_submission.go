@@ -77,11 +77,12 @@ func (c uiInputController) startSubmissionWithPromptHistoryAndQueuePositionAndID
 func (c uiInputController) submitCmd(text string, queuedID string) tea.Cmd {
 	m := c.model
 	token := m.beginSubmitAttempt(text, queuedID)
+	client := m.runtimeClient()
 	return func() tea.Msg {
-		if !m.hasRuntimeClient() {
+		if client == nil {
 			return newSubmitDoneMsg(token, "", text, errors.New("runtime engine is not configured"))
 		}
-		message, err := m.submitRuntimeUserMessage(context.Background(), text)
+		message, err := client.SubmitUserMessage(context.Background(), text)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return newSubmitDoneMsg(token, "", text, submissionerror.ErrInterrupted)
@@ -95,11 +96,12 @@ func (c uiInputController) submitCmd(text string, queuedID string) tea.Cmd {
 func (c uiInputController) submitUserShellCmd(originalText, command string) tea.Cmd {
 	m := c.model
 	token := m.beginSubmitAttempt(originalText, "")
+	client := m.runtimeClient()
 	return func() tea.Msg {
-		if !m.hasRuntimeClient() {
+		if client == nil {
 			return newSubmitDoneMsg(token, "", originalText, errors.New("runtime engine is not configured"))
 		}
-		err := m.submitRuntimeUserShellCommand(context.Background(), command)
+		err := client.SubmitUserShellCommand(context.Background(), command)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return newSubmitDoneMsg(token, "", originalText, submissionerror.ErrInterrupted)
@@ -189,11 +191,12 @@ func (c uiInputController) startCompactionWithOrigin(args string, origin uiCompa
 
 func (c uiInputController) compactCmd(args string) tea.Cmd {
 	m := c.model
+	client := m.runtimeClient()
 	return func() tea.Msg {
-		if !m.hasRuntimeClient() {
+		if client == nil {
 			return compactDoneMsg{err: errors.New("runtime engine is not configured")}
 		}
-		return compactDoneMsg{err: m.compactRuntimeContext(context.Background(), args)}
+		return compactDoneMsg{err: client.CompactContext(context.Background(), args)}
 	}
 }
 
@@ -237,6 +240,7 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 	if msg.token != 0 && msg.token != m.activeSubmit.token {
 		return m, nil
 	}
+	m.observeRuntimeRequestResult(msg.err)
 	restoreSubmittedText := true
 	if msg.token != 0 && m.activeSubmit.flushed {
 		restoreSubmittedText = false
@@ -249,8 +253,8 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 		if m.turnQueueHook != nil {
 			m.turnQueueHook.OnTurnQueueAborted()
 		}
-		c.unlockInputAfterSubmissionError()
-		c.restorePendingInjectedIntoInput()
+		unlockCmd := c.unlockInputAfterSubmissionError()
+		restoreInjectedCmd := c.restorePendingInjectedIntoInput()
 		if restoreSubmittedText {
 			c.restoreSubmittedTextIntoInput(msg.submittedText)
 		}
@@ -266,7 +270,7 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 		appendCmd := m.appendOperatorErrorFeedback(detailErr)
 		m.logf("step.error err=%q", detailErr)
 		m.syncViewport()
-		return m, appendCmd
+		return m, tea.Batch(unlockCmd, restoreInjectedCmd, appendCmd)
 	}
 
 	m.activity = uiActivityIdle
@@ -352,23 +356,24 @@ func (c uiInputController) handleCompactDone(msg compactDoneMsg) (tea.Model, tea
 	m := c.model
 	compactionOrigin := m.compactionOrigin
 	m.compactionOrigin = uiCompactionOriginNone
+	m.observeRuntimeRequestResult(msg.err)
 	c.finishBusyActivity(true)
-	c.releaseLockedInjectedInput(true)
+	releaseCmd := c.releaseLockedInjectedInput(true)
 	if msg.err != nil {
-		c.restorePendingInjectedIntoInput()
+		restoreInjectedCmd := c.restorePendingInjectedIntoInput()
 		c.restoreQueuedMessagesIntoInput()
 		if isInterruptedRuntimeError(msg.err) {
 			m.activity = uiActivityInterrupted
 			m.logf("step.interrupted")
 			m.syncViewport()
-			return m, nil
+			return m, tea.Batch(releaseCmd, restoreInjectedCmd)
 		}
 		detailErr := formatSubmissionError(msg.err)
 		m.activity = uiActivityError
 		appendCmd := m.appendOperatorErrorFeedback(detailErr)
 		m.logf("compaction.error err=%q", detailErr)
 		m.syncViewport()
-		return m, appendCmd
+		return m, tea.Batch(releaseCmd, restoreInjectedCmd, appendCmd)
 	}
 
 	m.activity = uiActivityIdle
@@ -377,31 +382,22 @@ func (c uiInputController) handleCompactDone(msg compactDoneMsg) (tea.Model, tea
 		c.notifyUserCompactionCompleted(compactionOrigin, false)
 		next, cmd := c.flushQueuedInputs(queueDrainAuto)
 		c.notifyTurnQueueDrainedIfIdle()
-		return next, cmd
+		return next, tea.Batch(releaseCmd, cmd)
 	}
-	queuedRuntimeWork, err := m.hasQueuedRuntimeUserWork()
-	if err != nil {
-		c.restorePendingInjectedIntoInput()
-		if isInterruptedRuntimeError(err) {
-			m.activity = uiActivityInterrupted
-			m.logf("step.interrupted")
-			m.syncViewport()
-			return m, nil
-		}
-		detailErr := formatSubmissionError(err)
-		m.activity = uiActivityError
-		appendCmd := m.appendOperatorErrorFeedback(detailErr)
-		m.logf("queue_check.error err=%q", detailErr)
-		m.syncViewport()
-		return m, appendCmd
-	}
-	if queuedRuntimeWork {
+	if m.injectedQueueBlocksDrain() {
 		c.notifyUserCompactionCompleted(compactionOrigin, false)
-		return m, c.startQueuedInjectionSubmission()
+		m.queuedRuntimeWorkCheckCompactionOrigin = compactionOrigin
+		m.syncViewport()
+		return m, releaseCmd
 	}
-	c.notifyUserCompactionCompleted(compactionOrigin, !m.pendingQueuedDrainAfterHydration)
+	if !m.hasRuntimeClient() {
+		c.notifyUserCompactionCompleted(compactionOrigin, !m.pendingQueuedDrainAfterHydration)
+		m.syncViewport()
+		return m, releaseCmd
+	}
+	m.queuedRuntimeWorkCheckCompactionOrigin = compactionOrigin
 	m.syncViewport()
-	return m, nil
+	return m, tea.Batch(releaseCmd, c.startQueuedInjectionSubmission())
 }
 
 func (c uiInputController) notifyUserCompactionCompleted(origin uiCompactionOrigin, queueDrained bool) {

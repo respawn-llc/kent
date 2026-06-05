@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"builder/shared/clientui"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func queuedUserMessagesForTest(texts ...string) []clientui.QueuedUserMessage {
@@ -39,4 +41,40 @@ func applyInterruptedRunStateForTest(t *testing.T, m *uiModel) *uiModel {
 		t.Fatalf("updated model = %T, want *uiModel", next)
 	}
 	return updated
+}
+
+func applyFirstInjectedQueueCreateDoneForTest(t *testing.T, m *uiModel, cmd tea.Cmd) *uiModel {
+	t.Helper()
+	if cmd == nil {
+		return m
+	}
+	for _, msg := range collectCmdMessages(t, cmd) {
+		if typed, ok := msg.(injectedQueueCreateDoneMsg); ok {
+			next, _ := m.Update(typed)
+			updated, ok := next.(*uiModel)
+			if !ok {
+				t.Fatalf("updated model = %T, want *uiModel", next)
+			}
+			return updated
+		}
+	}
+	return m
+}
+
+func applyQueuedRuntimeWorkCheckForTest(t *testing.T, m *uiModel, cmd tea.Cmd) (*uiModel, tea.Cmd) {
+	t.Helper()
+	if cmd == nil {
+		return m, nil
+	}
+	for _, msg := range collectCmdMessages(t, cmd) {
+		if typed, ok := msg.(queuedRuntimeWorkCheckDoneMsg); ok {
+			next, nextCmd := m.Update(typed)
+			updated, ok := next.(*uiModel)
+			if !ok {
+				t.Fatalf("updated model = %T, want *uiModel", next)
+			}
+			return updated, nextCmd
+		}
+	}
+	return m, cmd
 }

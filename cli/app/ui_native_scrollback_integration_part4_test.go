@@ -428,6 +428,10 @@ func (c *slashLocalEntryRuntimeClient) SetAutoCompactionEnabled(enabled bool) (b
 	return true, enabled, nil
 }
 
+func (c *slashLocalEntryRuntimeClient) CachedMainView() (clientui.RuntimeMainView, bool) {
+	return c.MainView(), true
+}
+
 func (c *slashLocalEntryRuntimeClient) AppendLocalEntry(role, text string) error {
 	return c.AppendLocalEntryWithNoticeID(role, text, "")
 }

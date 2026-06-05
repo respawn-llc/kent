@@ -9,6 +9,7 @@ import (
 	shelltool "builder/server/tools/shell"
 	"builder/shared/clientui"
 	"context"
+	"errors"
 	tea "github.com/charmbracelet/bubbletea"
 	"strings"
 	"testing"
@@ -160,6 +161,10 @@ func TestAutoDrainStopsAfterQueuedPSInlineAppendsToInput(t *testing.T) {
 	if updated.isBusy() {
 		t.Fatal("did not expect queued /ps inline to auto-submit the follow-up prompt")
 	}
+	if !updated.processList.actionInFlight {
+		t.Fatal("expected queued /ps inline action to remain in flight")
+	}
+	updated = applyProcessActionCommandForTest(t, updated, cmd)
 	if !strings.Contains(updated.input, "Output of bg shell "+res.SessionID+":") {
 		t.Fatalf("expected inline shell transcript pasted into input, got %q", updated.input)
 	}
@@ -172,6 +177,101 @@ func TestAutoDrainStopsAfterQueuedPSInlineAppendsToInput(t *testing.T) {
 	plain := stripANSIAndTrimRight(updated.view.OngoingSnapshot())
 	if strings.Contains(plain, "summarize this") {
 		t.Fatalf("did not expect follow-up prompt submitted without pasted transcript, got %q", plain)
+	}
+}
+
+func TestAutoDrainResumesAfterQueuedPSNonMutatingActions(t *testing.T) {
+	for _, action := range []string{"kill", "logs"} {
+		t.Run(action, func(t *testing.T) {
+			manager := newFastBackgroundTestManager(t)
+			workdir := t.TempDir()
+			res, err := manager.Start(context.Background(), shelltool.ExecRequest{
+				Command:        []string{"sh", "-c", "printf 'queued-action\n'; sleep 1"},
+				DisplayCommand: "queued-action",
+				Workdir:        workdir,
+				YieldTime:      fastBackgroundTestYield,
+			})
+			if err != nil {
+				t.Fatalf("start queued-action: %v", err)
+			}
+			if !res.Backgrounded {
+				t.Fatal("expected background process")
+			}
+			originalOpenDefault := openDefault
+			openDefault = func(string) error { return nil }
+			defer func() { openDefault = originalOpenDefault }()
+
+			m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
+			m.setBusy(true)
+			m.activity = uiActivityRunning
+			m.queued = queuedInputsForTest("/ps "+action+" "+res.SessionID, "summarize this")
+
+			next, cmd := m.Update(submitDoneMsg{})
+			updated := next.(*uiModel)
+			if cmd == nil {
+				t.Fatal("expected command batch from queued /ps action execution")
+			}
+			if !updated.processList.actionInFlight {
+				t.Fatal("expected queued /ps action to remain in flight")
+			}
+
+			updated = applyProcessActionCommandForTest(t, updated, cmd)
+			if !updated.isBusy() {
+				t.Fatal("expected follow-up prompt to start after non-mutating /ps action")
+			}
+			if updated.activeSubmit.text != "summarize this" {
+				t.Fatalf("expected follow-up prompt active, got %q", updated.activeSubmit.text)
+			}
+			if len(updated.queued) != 0 {
+				t.Fatalf("expected follow-up queue drained, got %+v", updated.queued)
+			}
+		})
+	}
+}
+
+type failingQueuedProcessClient struct {
+	err error
+}
+
+func (c failingQueuedProcessClient) ListProcesses(context.Context) ([]clientui.BackgroundProcess, error) {
+	return nil, c.err
+}
+
+func (c failingQueuedProcessClient) KillProcess(context.Context, string) error {
+	return c.err
+}
+
+func (c failingQueuedProcessClient) InlineOutput(context.Context, string, int) (string, string, error) {
+	return "", "", c.err
+}
+
+func TestAutoDrainResumesAfterQueuedPSNonMutatingActionError(t *testing.T) {
+	m := newProjectedStaticUIModel(WithUIProcessClient(failingQueuedProcessClient{err: errors.New("kill failed")}))
+	m.setBusy(true)
+	m.activity = uiActivityRunning
+	m.queued = queuedInputsForTest("/ps kill proc-1", "summarize this")
+
+	next, cmd := m.Update(submitDoneMsg{})
+	updated := next.(*uiModel)
+	if cmd == nil {
+		t.Fatal("expected command batch from queued /ps action execution")
+	}
+	if !updated.processList.actionInFlight {
+		t.Fatal("expected queued /ps action to remain in flight")
+	}
+
+	updated = applyProcessActionCommandForTest(t, updated, cmd)
+	if !strings.Contains(updated.transientStatus, "kill failed") {
+		t.Fatalf("expected process error status, got %q", updated.transientStatus)
+	}
+	if !updated.isBusy() {
+		t.Fatal("expected follow-up prompt to start after non-mutating /ps action error")
+	}
+	if updated.activeSubmit.text != "summarize this" {
+		t.Fatalf("expected follow-up prompt active, got %q", updated.activeSubmit.text)
+	}
+	if len(updated.queued) != 0 {
+		t.Fatalf("expected follow-up queue drained, got %+v", updated.queued)
 	}
 }
 
@@ -797,7 +897,11 @@ func TestSlashFastWithEngineTogglesRuntime(t *testing.T) {
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
 	if cmd == nil {
-		t.Fatal("expected transient status clear timer cmd")
+		t.Fatal("expected runtime control command")
+	}
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
 	}
 	if !eng.FastModeEnabled() {
 		t.Fatal("expected runtime fast mode enabled")
@@ -807,8 +911,12 @@ func TestSlashFastWithEngineTogglesRuntime(t *testing.T) {
 	}
 
 	updated.input = "/fast off"
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
 	if eng.FastModeEnabled() {
 		t.Fatal("expected runtime fast mode disabled")
 	}
@@ -930,8 +1038,12 @@ func TestBusySlashSupervisorOffAppliesToInFlightRunCompletion(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	m.input = "/supervisor off"
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, _ = updated.Update(msg)
+		updated = next.(*uiModel)
+	}
 	if updated.reviewerEnabled || updated.reviewerMode != "off" {
 		t.Fatalf("expected ui reviewer disabled after /supervisor off, got enabled=%v mode=%q", updated.reviewerEnabled, updated.reviewerMode)
 	}

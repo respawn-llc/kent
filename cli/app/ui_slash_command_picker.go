@@ -7,6 +7,8 @@ import (
 
 	"builder/cli/app/commands"
 	"builder/cli/app/internal/authcommand"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 const slashCommandPickerLines = 7
@@ -57,18 +59,21 @@ func normalizeSlashCommandToken(token string) string {
 	return strings.ToLower(strings.TrimSpace(token))
 }
 
-func (m *uiModel) refreshSlashCommandFilterFromInput() {
+func (m *uiModel) refreshSlashCommandFilterFromInput() tea.Cmd {
 	parsed := parseSlashCommandInput(m.input)
 	if !parsed.active || parsed.argumentMode {
 		m.authSlashSessionOpen = false
+		m.authSlashLoading = false
 		m.slashCommandFilter = ""
 		m.slashCommandFilterSet = false
 		m.slashCommandSelection = 0
-		return
+		return nil
 	}
+	cmd := tea.Cmd(nil)
 	if !m.authSlashSessionOpen {
-		m.refreshAuthSlashCommandState()
 		m.authSlashSessionOpen = true
+		m.authSlashGeneration = nextNonZeroToken(m.authSlashGeneration)
+		cmd = m.requestAuthSlashCommandRefresh()
 	}
 	normalized := normalizeSlashCommandToken(parsed.token)
 	if !m.slashCommandFilterSet || m.slashCommandFilter != normalized {
@@ -77,6 +82,7 @@ func (m *uiModel) refreshSlashCommandFilterFromInput() {
 	m.slashCommandFilter = normalized
 	m.slashCommandFilterSet = true
 	m.clampSlashCommandSelection()
+	return cmd
 }
 
 func (m *uiModel) currentSlashCommandQuery(token string) string {
@@ -139,21 +145,46 @@ func isAuthSlashCommand(name string) bool {
 	}
 }
 
-func (m *uiModel) refreshAuthSlashCommandState() {
-	name, err := m.resolveAuthSlashCommandName()
-	m.authSlashCommandName = name
-	if err != nil {
-		m.authSlashCommandErr = err.Error()
-		return
+func (m *uiModel) requestAuthSlashCommandRefresh() tea.Cmd {
+	if m == nil {
+		return nil
 	}
-	m.authSlashCommandErr = ""
+	if m.statusConfig.AuthManager == nil {
+		m.authSlashCommandName = "login"
+		m.authSlashCommandErr = ""
+		m.authSlashResolved = m.authSlashGeneration
+		m.authSlashLoading = false
+		return nil
+	}
+	if m.authSlashResolved == m.authSlashGeneration || m.authSlashLoading {
+		return nil
+	}
+	m.authSlashToken = nextNonZeroToken(m.authSlashToken)
+	token := m.authSlashToken
+	generation := m.authSlashGeneration
+	loader := m.statusConfig.AuthManager
+	m.authSlashLoading = true
+	return func() tea.Msg {
+		name, err := authcommand.SlashCommandName(context.Background(), loader)
+		return authSlashCommandRefreshedMsg{token: token, generation: generation, name: name, err: err}
+	}
 }
 
-func (m *uiModel) resolveAuthSlashCommandName() (string, error) {
-	if m == nil || m.statusConfig.AuthManager == nil {
-		return "login", nil
+func (m *uiModel) applyAuthSlashCommandRefreshed(msg authSlashCommandRefreshedMsg) {
+	if m == nil || msg.token != m.authSlashToken || msg.generation != m.authSlashGeneration {
+		return
 	}
-	return authcommand.SlashCommandName(context.Background(), m.statusConfig.AuthManager)
+	m.authSlashLoading = false
+	m.authSlashResolved = msg.generation
+	if msg.err != nil {
+		m.authSlashCommandName = ""
+		m.authSlashCommandErr = msg.err.Error()
+		m.clampSlashCommandSelection()
+		return
+	}
+	m.authSlashCommandName = strings.TrimSpace(msg.name)
+	m.authSlashCommandErr = ""
+	m.clampSlashCommandSelection()
 }
 
 func (m *uiModel) resumeCommandAvailable() bool {

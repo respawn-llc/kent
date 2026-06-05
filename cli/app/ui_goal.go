@@ -19,57 +19,13 @@ func (c uiInputController) handleGoalCommand(mode commands.GoalMode, objective s
 	case commands.GoalModeShow, "":
 		return m, c.startGoalFlowCmd()
 	case commands.GoalModeSet:
-		current, err := m.showRuntimeGoal()
-		if err != nil {
-			detailErr := formatSubmissionError(err)
-			return m, c.appendErrorFeedbackWithStatus(detailErr, c.showErrorStatus(detailErr))
-		}
-		if goalIsActive(current) {
-			m.openGoalConfirmOverlay("replace", current, objective, nil)
-			if overlayCmd := m.pushGoalOverlayIfNeeded(); overlayCmd != nil {
-				return m, overlayCmd
-			}
-			return m, nil
-		}
-		_, err = m.setRuntimeGoal(objective)
-		if err != nil {
-			detailErr := formatSubmissionError(err)
-			return m, c.appendErrorFeedbackWithStatus(detailErr, c.showErrorStatus(detailErr))
-		}
-		return m, c.appendGoalFeedback("Goal set")
+		return m, m.goalRuntimeCommand(goalRuntimeCheckSet, objective)
 	case commands.GoalModePause:
-		_, err := m.pauseRuntimeGoal()
-		if err != nil {
-			detailErr := formatSubmissionError(err)
-			return m, c.appendErrorFeedbackWithStatus(detailErr, c.showErrorStatus(detailErr))
-		}
-		return m, c.appendGoalFeedback("Goal paused")
+		return m, m.goalRuntimeCommand(goalRuntimePause, "")
 	case commands.GoalModeResume:
-		_, err := m.resumeRuntimeGoal()
-		if err != nil {
-			detailErr := formatSubmissionError(err)
-			return m, c.appendErrorFeedbackWithStatus(detailErr, c.showErrorStatus(detailErr))
-		}
-		return m, c.appendGoalFeedback("Goal resumed")
+		return m, m.goalRuntimeCommand(goalRuntimeResume, "")
 	case commands.GoalModeClear:
-		current, err := m.showRuntimeGoal()
-		if err != nil {
-			detailErr := formatSubmissionError(err)
-			return m, c.appendErrorFeedbackWithStatus(detailErr, c.showErrorStatus(detailErr))
-		}
-		if goalRequiresClearConfirmation(current) {
-			m.openGoalConfirmOverlay("clear", current, "", nil)
-			if overlayCmd := m.pushGoalOverlayIfNeeded(); overlayCmd != nil {
-				return m, overlayCmd
-			}
-			return m, nil
-		}
-		_, err = m.clearRuntimeGoal()
-		if err != nil {
-			detailErr := formatSubmissionError(err)
-			return m, c.appendErrorFeedbackWithStatus(detailErr, c.showErrorStatus(detailErr))
-		}
-		return m, c.appendGoalFeedback("Goal cleared")
+		return m, m.goalRuntimeCommand(goalRuntimeCheckClear, "")
 	default:
 		errText := "Usage: /goal [show|pause|resume|clear|<objective>]"
 		return m, c.appendErrorFeedbackWithStatus(errText, c.showErrorStatus(errText))
@@ -90,12 +46,8 @@ func (c uiInputController) appendGoalFeedback(text string) tea.Cmd {
 
 func (c uiInputController) startGoalFlowCmd() tea.Cmd {
 	m := c.model
-	goal, err := m.showRuntimeGoal()
-	m.openGoalOverlay(goal, err)
-	if overlayCmd := m.pushGoalOverlayIfNeeded(); overlayCmd != nil {
-		return overlayCmd
-	}
-	return nil
+	m.openGoalOverlay(nil, nil)
+	return tea.Batch(m.pushGoalOverlayIfNeeded(), m.goalRuntimeCommand(goalRuntimeShow, ""))
 }
 
 func (c uiInputController) stopGoalFlowCmd() tea.Cmd {
@@ -113,8 +65,7 @@ func (c uiInputController) handleGoalOverlayKey(msg tea.KeyMsg) (tea.Model, tea.
 	switch strings.ToLower(msg.String()) {
 	case "ctrl+c":
 		if m.isBusy() {
-			c.interruptBusyRuntime()
-			return m, nil
+			return m, c.interruptBusyRuntime()
 		}
 		m.exitAction = UIActionExit
 		if overlayCmd := m.popGoalOverlayIfNeeded(); overlayCmd != nil {
@@ -145,8 +96,7 @@ func (c uiInputController) handleGoalConfirmKey(msg tea.KeyMsg) (tea.Model, tea.
 	switch strings.ToLower(msg.String()) {
 	case "ctrl+c":
 		if m.isBusy() {
-			c.interruptBusyRuntime()
-			return m, nil
+			return m, c.interruptBusyRuntime()
 		}
 		m.exitAction = UIActionExit
 		if overlayCmd := m.popGoalOverlayIfNeeded(); overlayCmd != nil {
@@ -170,23 +120,109 @@ func (c uiInputController) handleGoalConfirmKey(msg tea.KeyMsg) (tea.Model, tea.
 		objective := m.goal.pendingObjective
 		switch mode {
 		case "replace":
-			_, err := m.setRuntimeGoal(objective)
-			if err != nil {
-				m.goal.error = err.Error()
-				return m, nil
-			}
-			overlayCmd := c.stopGoalFlowCmd()
-			return m, sequenceCmds(overlayCmd, c.appendGoalFeedback("Goal set"))
+			return m, m.goalRuntimeCommand(goalRuntimeSet, objective)
 		case "clear":
-			if _, err := m.clearRuntimeGoal(); err != nil {
-				m.goal.error = err.Error()
-				return m, nil
-			}
-			overlayCmd := c.stopGoalFlowCmd()
-			return m, sequenceCmds(overlayCmd, c.appendGoalFeedback("Goal cleared"))
+			return m, m.goalRuntimeCommand(goalRuntimeClear, "")
 		}
 	}
 	return m, nil
+}
+
+func (m *uiModel) nextGoalRuntimeToken() uint64 {
+	m.goalRuntimeToken++
+	if m.goalRuntimeToken == 0 {
+		m.goalRuntimeToken++
+	}
+	return m.goalRuntimeToken
+}
+
+func (m *uiModel) goalRuntimeCommand(operation goalRuntimeOperation, objective string) tea.Cmd {
+	if m == nil {
+		return nil
+	}
+	client := m.runtimeClient()
+	token := m.nextGoalRuntimeToken()
+	objective = strings.TrimSpace(objective)
+	if client == nil {
+		return func() tea.Msg {
+			return goalRuntimeDoneMsg{token: token, operation: operation, objective: objective}
+		}
+	}
+	sessionID := strings.TrimSpace(m.sessionID)
+	return func() tea.Msg {
+		msg := goalRuntimeDoneMsg{token: token, sessionID: sessionID, operation: operation, objective: objective}
+		switch operation {
+		case goalRuntimeShow, goalRuntimeCheckSet, goalRuntimeCheckClear:
+			msg.goal, msg.err = client.ShowGoal()
+		case goalRuntimeSet:
+			msg.goal, msg.err = client.SetGoal(objective)
+		case goalRuntimePause:
+			msg.goal, msg.err = client.PauseGoal()
+		case goalRuntimeResume:
+			msg.goal, msg.err = client.ResumeGoal()
+		case goalRuntimeClear:
+			msg.goal, msg.err = client.ClearGoal()
+		}
+		return msg
+	}
+}
+
+func (m *uiModel) applyGoalRuntimeDone(msg goalRuntimeDoneMsg) tea.Cmd {
+	if m == nil || msg.token != m.goalRuntimeToken {
+		return nil
+	}
+	if msg.sessionID != "" && strings.TrimSpace(m.sessionID) != "" && msg.sessionID != strings.TrimSpace(m.sessionID) {
+		return nil
+	}
+	m.observeRuntimeRequestResult(msg.err)
+	if msg.err != nil {
+		detailErr := formatSubmissionError(msg.err)
+		if m.goal.isOpen() {
+			m.goal.error = detailErr
+			return nil
+		}
+		return m.inputController().appendErrorFeedbackWithStatus(detailErr, m.inputController().showErrorStatus(detailErr))
+	}
+	switch msg.operation {
+	case goalRuntimeShow:
+		m.goal.goal = cloneRuntimeGoal(msg.goal)
+		m.goal.error = ""
+		return nil
+	case goalRuntimeCheckSet:
+		if goalIsActive(msg.goal) {
+			m.openGoalConfirmOverlay("replace", msg.goal, msg.objective, nil)
+			return m.pushGoalOverlayIfNeeded()
+		}
+		return m.goalRuntimeCommand(goalRuntimeSet, msg.objective)
+	case goalRuntimeCheckClear:
+		if goalRequiresClearConfirmation(msg.goal) {
+			m.openGoalConfirmOverlay("clear", msg.goal, "", nil)
+			return m.pushGoalOverlayIfNeeded()
+		}
+		return m.goalRuntimeCommand(goalRuntimeClear, "")
+	case goalRuntimeSet:
+		m.goal.goal = cloneRuntimeGoal(msg.goal)
+		overlayCmd := tea.Cmd(nil)
+		if m.goal.isOpen() && strings.TrimSpace(m.goal.confirmMode) != "" {
+			overlayCmd = m.inputController().stopGoalFlowCmd()
+		}
+		return sequenceCmds(overlayCmd, m.inputController().appendGoalFeedback("Goal set"))
+	case goalRuntimePause:
+		m.goal.goal = cloneRuntimeGoal(msg.goal)
+		return m.inputController().appendGoalFeedback("Goal paused")
+	case goalRuntimeResume:
+		m.goal.goal = cloneRuntimeGoal(msg.goal)
+		return m.inputController().appendGoalFeedback("Goal resumed")
+	case goalRuntimeClear:
+		m.goal.goal = nil
+		overlayCmd := tea.Cmd(nil)
+		if m.goal.isOpen() && strings.TrimSpace(m.goal.confirmMode) != "" {
+			overlayCmd = m.inputController().stopGoalFlowCmd()
+		}
+		return sequenceCmds(overlayCmd, m.inputController().appendGoalFeedback("Goal cleared"))
+	default:
+		return nil
+	}
 }
 
 func (m *uiModel) openGoalOverlay(goal *clientui.RuntimeGoal, err error) {

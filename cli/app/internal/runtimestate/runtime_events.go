@@ -124,6 +124,7 @@ type RuntimePendingInputReduction struct {
 	State                PendingInputState
 	DraftCommand         RuntimeDraftInputCommandKind
 	PromptHistoryCommand *RuntimePromptHistoryCommand
+	ConsumedQueueItemIDs []string
 }
 
 type RuntimeReasoningStreamCommandKind uint8
@@ -266,6 +267,7 @@ func ReduceRuntimePendingInputEvent(input PendingInputState, evt clientui.Event)
 		if len(consumed) > 0 {
 			reduction.State.PendingInjected = append([]clientui.QueuedUserMessage(nil), reduction.State.PendingInjected[len(consumed):]...)
 			reduction.PromptHistoryCommand = &RuntimePromptHistoryCommand{Text: evt.UserMessage}
+			reduction.ConsumedQueueItemIDs = append([]string(nil), evt.UserMessageBatchQueueItemIDs[:len(consumed)]...)
 		}
 		if reduction.State.Submission.IsLocked() && containsQueuedUserMessageID(consumed, reduction.State.LockedInjectID) {
 			if reduction.State.Input == reduction.State.LockedInjectText {

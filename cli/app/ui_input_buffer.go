@@ -1,6 +1,10 @@
 package app
 
-import tuiinput "builder/cli/tui/input"
+import (
+	tuiinput "builder/cli/tui/input"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 func (m *uiModel) cursorIndex() int {
 	return bufferCursorIndex(m.input, m.inputCursor)
@@ -31,15 +35,16 @@ func (m *uiModel) clearInput() {
 	m.resetPromptHistoryNavigation()
 }
 
-func (m *uiModel) insertInputRunes(chars []rune) {
+func (m *uiModel) insertInputRunes(chars []rune) tea.Cmd {
 	updated, nextCursor, ok := insertBufferRunes(m.input, m.inputCursor, chars)
 	if !ok {
-		return
+		return nil
 	}
+	m.invalidateMainInputDraftToken()
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.syncPromptHistorySelectionToInput()
-	m.refreshAutocompleteFromInput()
+	return m.refreshAutocompleteFromInput()
 }
 
 func (m *uiModel) backspaceInput() bool {
@@ -47,6 +52,7 @@ func (m *uiModel) backspaceInput() bool {
 	if !ok {
 		return false
 	}
+	m.invalidateMainInputDraftToken()
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.syncPromptHistorySelectionToInput()
@@ -59,6 +65,7 @@ func (m *uiModel) deleteForwardInput() bool {
 	if !ok {
 		return false
 	}
+	m.invalidateMainInputDraftToken()
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.syncPromptHistorySelectionToInput()
@@ -71,6 +78,7 @@ func (m *uiModel) deleteBackwardWordInput() bool {
 	if !ok {
 		return false
 	}
+	m.invalidateMainInputDraftToken()
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.inputKillBuffer = killBuffer
@@ -84,6 +92,7 @@ func (m *uiModel) deleteForwardWordInput() bool {
 	if !ok {
 		return false
 	}
+	m.invalidateMainInputDraftToken()
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.inputKillBuffer = killBuffer
@@ -97,6 +106,7 @@ func (m *uiModel) killInputToLineStart() bool {
 	if !ok {
 		return false
 	}
+	m.invalidateMainInputDraftToken()
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.inputKillBuffer = killBuffer
@@ -110,6 +120,7 @@ func (m *uiModel) killInputToLineEnd() bool {
 	if !ok {
 		return false
 	}
+	m.invalidateMainInputDraftToken()
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.inputKillBuffer = killBuffer
@@ -123,6 +134,7 @@ func (m *uiModel) yankInput() bool {
 	if !ok {
 		return false
 	}
+	m.invalidateMainInputDraftToken()
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.syncPromptHistorySelectionToInput()
@@ -179,6 +191,7 @@ func (m *uiModel) deleteCurrentInputLine() bool {
 	if !ok {
 		return false
 	}
+	m.invalidateMainInputDraftToken()
 	m.input = updated
 	m.inputCursor = nextCursor
 	m.syncPromptHistorySelectionToInput()

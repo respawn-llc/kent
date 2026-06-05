@@ -11,13 +11,29 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+func applyGoalCmdMessagesForTest(t *testing.T, model *uiModel, cmd tea.Cmd) *uiModel {
+	t.Helper()
+	for _, msg := range collectCmdMessages(t, cmd) {
+		next, nextCmd := model.Update(msg)
+		model = next.(*uiModel)
+		model = applyGoalCmdMessagesForTest(t, model, nextCmd)
+	}
+	return model
+}
+
+func updateGoalForTest(t *testing.T, model *uiModel, msg tea.Msg) *uiModel {
+	t.Helper()
+	next, cmd := model.Update(msg)
+	return applyGoalCmdMessagesForTest(t, next.(*uiModel), cmd)
+}
+
 func TestGoalCommandOpensGoalOverlay(t *testing.T) {
 	client := &runtimeControlFakeClient{goal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: "active"}}
 	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	m.input = "/goal"
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
+	updated := applyGoalCmdMessagesForTest(t, next.(*uiModel), cmd)
 	if !updated.goal.isOpen() {
 		t.Fatal("expected /goal to open goal overlay")
 	}
@@ -48,8 +64,7 @@ func TestGoalCommandOpensGoalOverlayWhileBusy(t *testing.T) {
 	m.activity = uiActivityRunning
 	m.input = "/goal"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
+	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if !updated.goal.isOpen() {
 		t.Fatal("expected /goal to open goal overlay while busy")
 	}
@@ -82,8 +97,7 @@ func TestGoalSetRendersCommittedGoalFeedbackBeforeLaterRuntimeEvents(t *testing.
 	m := newSizedProjectedRuntimeEventsUIModel(client, runtimeEvents, 100, 20)
 	m.input = "/goal ship feature"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
+	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if client.setGoalArg != "ship feature" {
 		t.Fatalf("set goal arg = %q, want ship feature", client.setGoalArg)
 	}
@@ -95,7 +109,7 @@ func TestGoalSetRendersCommittedGoalFeedbackBeforeLaterRuntimeEvents(t *testing.
 	if len(batch.events) != 1 || batch.events[0].AssistantDelta != "" {
 		t.Fatalf("expected first runtime batch to contain only goal feedback, got %+v", batch.events)
 	}
-	next, _ = updated.Update(batch)
+	next, _ := updated.Update(batch)
 	updated = next.(*uiModel)
 
 	if view := stripANSIAndTrimRight(updated.view.OngoingSnapshot()); !strings.Contains(view, `Goal set: "ship feature"`) {
@@ -153,10 +167,8 @@ func TestGoalLifecycleCommandsDoNotAppendDuplicateLocalFeedback(t *testing.T) {
 			initialGoal: &clientui.RuntimeGoal{ID: "goal-1", Objective: "ship feature", Status: "active"},
 			drive: func(t *testing.T, m *uiModel, client *runtimeControlFakeClient) *uiModel {
 				t.Helper()
-				next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-				updated := next.(*uiModel)
-				next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
-				return next.(*uiModel)
+				updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+				return updateGoalForTest(t, updated, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 			},
 			check: func(t *testing.T, client *runtimeControlFakeClient) {
 				t.Helper()
@@ -177,8 +189,7 @@ func TestGoalLifecycleCommandsDoNotAppendDuplicateLocalFeedback(t *testing.T) {
 			if tt.drive != nil {
 				updated = tt.drive(t, m, client)
 			} else {
-				next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-				updated = next.(*uiModel)
+				updated = updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 			}
 			tt.check(t, client)
 			if client.appendedRole != "" || client.appendedText != "" {
@@ -198,8 +209,7 @@ func TestGoalCommandWithoutGoalShowsLocalHint(t *testing.T) {
 	m := newSizedProjectedClosedUIModel(&runtimeControlFakeClient{}, 100, 20)
 	m.input = "/goal"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
+	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	plain := stripANSIAndTrimRight(updated.View())
 	if !strings.Contains(plain, noGoalHint) {
 		t.Fatalf("expected no-goal hint %q, got %q", noGoalHint, plain)
@@ -211,8 +221,7 @@ func TestGoalClearActiveGoalRequiresConfirmation(t *testing.T) {
 	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	m.input = "/goal clear"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
+	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if !updated.goal.isOpen() || updated.goal.confirmMode != "clear" {
 		t.Fatalf("expected clear confirmation overlay, got %+v", updated.goal)
 	}
@@ -223,8 +232,7 @@ func TestGoalClearActiveGoalRequiresConfirmation(t *testing.T) {
 		t.Fatalf("expected clear confirmation text, got %q", plain)
 	}
 
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
-	updated = next.(*uiModel)
+	updated = updateGoalForTest(t, updated, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	if updated.goal.isOpen() {
 		t.Fatal("expected goal overlay closed after confirm")
 	}
@@ -238,8 +246,7 @@ func TestGoalClearSuspendedActiveGoalSkipsConfirmation(t *testing.T) {
 	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	m.input = "/goal clear"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
+	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if updated.goal.isOpen() {
 		t.Fatalf("expected suspended active clear to skip confirmation, got %+v", updated.goal)
 	}
@@ -253,10 +260,8 @@ func TestGoalConfirmationEnterUsesSelectedAction(t *testing.T) {
 	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	m.input = "/goal clear"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated = next.(*uiModel)
+	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	updated = updateGoalForTest(t, updated, tea.KeyMsg{Type: tea.KeyEnter})
 	if updated.goal.isOpen() {
 		t.Fatal("expected default cancel selection to close overlay")
 	}
@@ -266,12 +271,9 @@ func TestGoalConfirmationEnterUsesSelectedAction(t *testing.T) {
 
 	m = newSizedProjectedClosedUIModel(client, 100, 20)
 	m.input = "/goal clear"
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated = next.(*uiModel)
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyTab})
-	updated = next.(*uiModel)
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated = next.(*uiModel)
+	updated = updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	updated = updateGoalForTest(t, updated, tea.KeyMsg{Type: tea.KeyTab})
+	updated = updateGoalForTest(t, updated, tea.KeyMsg{Type: tea.KeyEnter})
 	if updated.goal.isOpen() {
 		t.Fatal("expected confirm selection to close overlay")
 	}
@@ -287,8 +289,7 @@ func TestGoalSetWhileBusyCanReplaceActiveGoalWithConfirmation(t *testing.T) {
 	m.activity = uiActivityRunning
 	m.input = "/goal new goal"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
+	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if !updated.goal.isOpen() || updated.goal.confirmMode != "replace" || updated.goal.pendingObjective != "new goal" {
 		t.Fatalf("expected busy replace confirmation overlay, got %+v", updated.goal)
 	}
@@ -296,8 +297,7 @@ func TestGoalSetWhileBusyCanReplaceActiveGoalWithConfirmation(t *testing.T) {
 		t.Fatalf("set goal before confirm = %q, want empty", client.setGoalArg)
 	}
 
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
-	updated = next.(*uiModel)
+	updated = updateGoalForTest(t, updated, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	if updated.goal.isOpen() {
 		t.Fatal("expected goal overlay closed after confirm")
 	}
@@ -311,8 +311,7 @@ func TestGoalOverlayRendersObjectiveMarkdown(t *testing.T) {
 	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	m.input = "/goal"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
+	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	raw := updated.View()
 	plain := stripANSIAndTrimRight(raw)
 	if strings.Contains(plain, "**bold**") {
@@ -332,8 +331,7 @@ func TestGoalOverlayWrapsLongMarkdownObjective(t *testing.T) {
 	m := newSizedProjectedClosedUIModel(client, 32, 20)
 	m.input = "/goal"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
+	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	plain := stripANSIAndTrimRight(updated.View())
 	if !strings.Contains(plain, "visible after wrapping") {
 		t.Fatalf("expected long markdown objective tail to survive wrapping, got %q", plain)
@@ -346,8 +344,7 @@ func TestGoalOverlayWrapsLongMarkdownListItem(t *testing.T) {
 	m := newSizedProjectedClosedUIModel(client, 34, 20)
 	m.input = "/goal"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
+	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	plain := stripANSIAndTrimRight(updated.View())
 	if !strings.Contains(plain, "after wrapping") {
 		t.Fatalf("expected long markdown list item tail to survive wrapping, got %q", plain)
@@ -360,8 +357,7 @@ func TestGoalOverlayMarkdownCacheRewrapsAfterWidthChange(t *testing.T) {
 	m := newSizedProjectedClosedUIModel(client, 80, 20)
 	m.input = "/goal"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
+	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	wide := stripANSIAndTrimRight(updated.View())
 	if !strings.Contains(wide, "important goal objective must change wrapping") {
 		t.Fatalf("expected wide render to keep phrase on one line, got %q", wide)
@@ -382,8 +378,7 @@ func TestGoalReplaceActiveGoalRequiresConfirmation(t *testing.T) {
 	m := newSizedProjectedClosedUIModel(client, 100, 20)
 	m.input = "/goal new goal"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
+	updated := updateGoalForTest(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if !updated.goal.isOpen() || updated.goal.confirmMode != "replace" || updated.goal.pendingObjective != "new goal" {
 		t.Fatalf("expected replace confirmation overlay, got %+v", updated.goal)
 	}
@@ -394,8 +389,7 @@ func TestGoalReplaceActiveGoalRequiresConfirmation(t *testing.T) {
 		t.Fatalf("expected replace confirmation text, got %q", plain)
 	}
 
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
-	updated = next.(*uiModel)
+	updated = updateGoalForTest(t, updated, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	if updated.goal.isOpen() {
 		t.Fatal("expected goal overlay closed after confirm")
 	}

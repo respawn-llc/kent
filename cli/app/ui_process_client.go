@@ -27,24 +27,36 @@ func (m *uiModel) listProcesses() []clientui.BackgroundProcess {
 	if m == nil || m.processClient == nil {
 		return nil
 	}
-	return m.processClient.ListProcesses()
-}
-
-func (c backgroundUIProcessClient) ListProcesses() []clientui.BackgroundProcess {
-	if c.reads != nil {
-		resp, err := c.reads.ListProcesses(context.Background(), serverapi.ProcessListRequest{})
-		if err != nil {
-			return nil
-		}
-		return resp.Processes
+	entries, err := m.listProcessesWithError(context.Background())
+	if err != nil {
+		return nil
 	}
-	return nil
+	return entries
 }
 
-func (c backgroundUIProcessClient) KillProcess(id string) error {
+func (m *uiModel) listProcessesWithError(ctx context.Context) ([]clientui.BackgroundProcess, error) {
+	if m == nil || m.processClient == nil {
+		return nil, nil
+	}
+	m.checkTUIBlockingOperation("process list read", "")
+	return m.processClient.ListProcesses(ctx)
+}
+
+func (c backgroundUIProcessClient) ListProcesses(ctx context.Context) ([]clientui.BackgroundProcess, error) {
+	if c.reads != nil {
+		resp, err := c.reads.ListProcesses(ctx, serverapi.ProcessListRequest{})
+		if err != nil {
+			return nil, err
+		}
+		return resp.Processes, nil
+	}
+	return nil, nil
+}
+
+func (c backgroundUIProcessClient) KillProcess(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if c.control != nil {
-		_, err := c.control.KillProcess(context.Background(), serverapi.ProcessKillRequest{ClientRequestID: uuid.NewString(), ProcessID: id})
+		_, err := c.control.KillProcess(ctx, serverapi.ProcessKillRequest{ClientRequestID: uuid.NewString(), ProcessID: id})
 		if err != nil {
 			return err
 		}
@@ -53,10 +65,10 @@ func (c backgroundUIProcessClient) KillProcess(id string) error {
 	return errors.New("process control client is unavailable")
 }
 
-func (c backgroundUIProcessClient) InlineOutput(id string, maxChars int) (string, string, error) {
+func (c backgroundUIProcessClient) InlineOutput(ctx context.Context, id string, maxChars int) (string, string, error) {
 	id = strings.TrimSpace(id)
 	if c.control != nil {
-		resp, err := c.control.GetInlineOutput(context.Background(), serverapi.ProcessInlineOutputRequest{ProcessID: id, MaxChars: maxChars})
+		resp, err := c.control.GetInlineOutput(ctx, serverapi.ProcessInlineOutputRequest{ProcessID: id, MaxChars: maxChars})
 		if err != nil {
 			return "", "", err
 		}

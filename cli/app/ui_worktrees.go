@@ -202,8 +202,9 @@ func (m *uiModel) requestWorktreeListCmd() tea.Cmd {
 	includeDirtyCount := m.worktrees.intent.OpenDelete || m.worktrees.phase == uiWorktreeOverlayPhaseDeleteConfirm
 	m.worktrees.loading = true
 	m.worktrees.errorText = ""
+	service := m.worktreeMutationService()
 	return func() tea.Msg {
-		resp, err := m.listWorktreesForCurrentSession(includeDirtyCount)
+		resp, err := service.List(includeDirtyCount)
 		return worktreeListDoneMsg{token: token, resp: resp, err: err}
 	}
 }
@@ -318,8 +319,9 @@ func (m *uiModel) worktreeCreateCmd(req serverapi.WorktreeCreateRequest) tea.Cmd
 	token := m.worktrees.mutationToken
 	m.worktrees.create.errorText = ""
 	m.worktrees.create.submitting = true
+	service := m.worktreeMutationService()
 	return func() tea.Msg {
-		resp, err := m.worktreeMutationService().Create(req)
+		resp, err := service.Create(req)
 		return worktreeCreateDoneMsg{token: token, resp: resp, err: err}
 	}
 }
@@ -332,8 +334,9 @@ func (m *uiModel) worktreeSwitchCmd(target serverapi.WorktreeView) tea.Cmd {
 	m.worktrees.switchPending = true
 	token := m.worktrees.mutationToken
 	m.worktrees.errorText = ""
+	service := m.worktreeMutationService()
 	return func() tea.Msg {
-		resp, err := m.worktreeMutationService().Switch(target.WorktreeID)
+		resp, err := service.Switch(target.WorktreeID)
 		return worktreeSwitchDoneMsg{token: token, resp: resp, err: err}
 	}
 }
@@ -346,8 +349,9 @@ func (m *uiModel) worktreeDeleteCmd(target serverapi.WorktreeView, deleteBranch 
 	token := m.worktrees.mutationToken
 	m.worktrees.deleteConfirm.errorText = ""
 	m.worktrees.deleteConfirm.submitting = true
+	service := m.worktreeMutationService()
 	return func() tea.Msg {
-		resp, err := m.worktreeMutationService().Delete(target.WorktreeID, deleteBranch)
+		resp, err := service.Delete(target.WorktreeID, deleteBranch)
 		return worktreeDeleteDoneMsg{token: token, resp: resp, err: err}
 	}
 }

@@ -30,6 +30,7 @@ func (m *uiModel) applyRuntimeMainViewState(view clientui.RuntimeMainView) {
 }
 
 func (m *uiModel) runtimeMainView() clientui.RuntimeMainView {
+	m.checkTUIBlockingOperation("runtime main-view read", "MainView")
 	if client := m.runtimeClient(); client != nil {
 		return client.MainView()
 	}
@@ -40,6 +41,7 @@ func (m *uiModel) runtimeMainView() clientui.RuntimeMainView {
 }
 
 func (m *uiModel) refreshRuntimeMainView() clientui.RuntimeMainView {
+	m.checkTUIBlockingOperation("runtime main-view refresh", "RefreshMainView")
 	if client := m.runtimeClient(); client != nil {
 		view, err := client.RefreshMainView()
 		if err == nil {
@@ -56,6 +58,7 @@ func (m *uiModel) refreshRuntimeMainView() clientui.RuntimeMainView {
 }
 
 func (m *uiModel) runtimeStatus() clientui.RuntimeStatus {
+	m.checkTUIBlockingOperation("runtime status read", "Status/MainView")
 	view := m.runtimeMainView()
 	status := view.Status
 	if m.runtimeContextUsageAppliesTo(view.Session.SessionID) {
@@ -89,6 +92,7 @@ func (m *uiModel) cachedRuntimeStatus() clientui.RuntimeStatus {
 }
 
 func (m *uiModel) refreshRuntimeStatus() clientui.RuntimeStatus {
+	m.checkTUIBlockingOperation("runtime status refresh", "RefreshMainView")
 	view := m.refreshRuntimeMainView()
 	status := view.Status
 	if m.runtimeContextUsageAppliesTo(view.Session.SessionID) {
@@ -140,12 +144,20 @@ func (m *uiModel) currentRuntimeSessionID() string {
 		return sessionID
 	}
 	if client := m.runtimeClient(); client != nil {
-		return strings.TrimSpace(client.MainView().Session.SessionID)
+		if cached, ok := client.(interface {
+			CachedMainView() (clientui.RuntimeMainView, bool)
+		}); ok {
+			view, hasCached := cached.CachedMainView()
+			if hasCached {
+				return strings.TrimSpace(view.Session.SessionID)
+			}
+		}
 	}
 	return ""
 }
 
 func (m *uiModel) runtimeTranscript() clientui.TranscriptPage {
+	m.checkTUIBlockingOperation("runtime transcript read", "Transcript")
 	if client := m.runtimeClient(); client != nil {
 		return client.Transcript()
 	}

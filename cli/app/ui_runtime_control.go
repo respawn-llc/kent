@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"strings"
 
 	"builder/shared/clientui"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
 )
 
@@ -20,6 +22,7 @@ func (m *uiModel) hasRuntimeClient() bool {
 }
 
 func (m *uiModel) setRuntimeSessionName(name string) error {
+	m.checkTUIBlockingOperation("runtime control mutation", "set session name")
 	if client := m.runtimeClient(); client != nil {
 		err := client.SetSessionName(name)
 		m.observeRuntimeRequestResult(err)
@@ -29,6 +32,7 @@ func (m *uiModel) setRuntimeSessionName(name string) error {
 }
 
 func (m *uiModel) setRuntimeThinkingLevel(level string) error {
+	m.checkTUIBlockingOperation("runtime control mutation", "set thinking level")
 	if client := m.runtimeClient(); client != nil {
 		err := client.SetThinkingLevel(level)
 		m.observeRuntimeRequestResult(err)
@@ -38,6 +42,7 @@ func (m *uiModel) setRuntimeThinkingLevel(level string) error {
 }
 
 func (m *uiModel) setRuntimeFastModeEnabled(enabled bool) (bool, error) {
+	m.checkTUIBlockingOperation("runtime control mutation", "set fast mode")
 	if client := m.runtimeClient(); client != nil {
 		changed, err := client.SetFastModeEnabled(enabled)
 		m.observeRuntimeRequestResult(err)
@@ -47,6 +52,7 @@ func (m *uiModel) setRuntimeFastModeEnabled(enabled bool) (bool, error) {
 }
 
 func (m *uiModel) setRuntimeReviewerEnabled(enabled bool) (bool, string, error) {
+	m.checkTUIBlockingOperation("runtime control mutation", "set reviewer")
 	if client := m.runtimeClient(); client != nil {
 		changed, mode, err := client.SetReviewerEnabled(enabled)
 		m.observeRuntimeRequestResult(err)
@@ -56,6 +62,7 @@ func (m *uiModel) setRuntimeReviewerEnabled(enabled bool) (bool, string, error) 
 }
 
 func (m *uiModel) setRuntimeAutoCompactionEnabled(enabled bool) (bool, bool, error) {
+	m.checkTUIBlockingOperation("runtime control mutation", "set auto compaction")
 	if client := m.runtimeClient(); client != nil {
 		changed, nextEnabled, err := client.SetAutoCompactionEnabled(enabled)
 		m.observeRuntimeRequestResult(err)
@@ -65,6 +72,7 @@ func (m *uiModel) setRuntimeAutoCompactionEnabled(enabled bool) (bool, bool, err
 }
 
 func (m *uiModel) showRuntimeGoal() (*clientui.RuntimeGoal, error) {
+	m.checkTUIBlockingOperation("runtime control read", "show goal")
 	if client := m.runtimeClient(); client != nil {
 		goal, err := client.ShowGoal()
 		m.observeRuntimeRequestResult(err)
@@ -74,6 +82,7 @@ func (m *uiModel) showRuntimeGoal() (*clientui.RuntimeGoal, error) {
 }
 
 func (m *uiModel) setRuntimeGoal(objective string) (*clientui.RuntimeGoal, error) {
+	m.checkTUIBlockingOperation("runtime control mutation", "set goal")
 	if client := m.runtimeClient(); client != nil {
 		goal, err := client.SetGoal(objective)
 		m.observeRuntimeRequestResult(err)
@@ -83,6 +92,7 @@ func (m *uiModel) setRuntimeGoal(objective string) (*clientui.RuntimeGoal, error
 }
 
 func (m *uiModel) pauseRuntimeGoal() (*clientui.RuntimeGoal, error) {
+	m.checkTUIBlockingOperation("runtime control mutation", "pause goal")
 	if client := m.runtimeClient(); client != nil {
 		goal, err := client.PauseGoal()
 		m.observeRuntimeRequestResult(err)
@@ -92,6 +102,7 @@ func (m *uiModel) pauseRuntimeGoal() (*clientui.RuntimeGoal, error) {
 }
 
 func (m *uiModel) resumeRuntimeGoal() (*clientui.RuntimeGoal, error) {
+	m.checkTUIBlockingOperation("runtime control mutation", "resume goal")
 	if client := m.runtimeClient(); client != nil {
 		goal, err := client.ResumeGoal()
 		m.observeRuntimeRequestResult(err)
@@ -101,6 +112,7 @@ func (m *uiModel) resumeRuntimeGoal() (*clientui.RuntimeGoal, error) {
 }
 
 func (m *uiModel) clearRuntimeGoal() (*clientui.RuntimeGoal, error) {
+	m.checkTUIBlockingOperation("runtime control mutation", "clear goal")
 	if client := m.runtimeClient(); client != nil {
 		goal, err := client.ClearGoal()
 		m.observeRuntimeRequestResult(err)
@@ -115,14 +127,7 @@ func (m *uiModel) appendRuntimeLocalEntry(role, text string) error {
 
 func (m *uiModel) appendRuntimeLocalEntryWithNoticeID(role, text, noticeID string) error {
 	if client := m.runtimeClient(); client != nil {
-		if withNoticeID, ok := client.(interface {
-			AppendLocalEntryWithNoticeID(role, text, noticeID string) error
-		}); ok {
-			err := withNoticeID.AppendLocalEntryWithNoticeID(role, text, noticeID)
-			m.observeRuntimeRequestResult(err)
-			return err
-		}
-		err := client.AppendLocalEntry(role, text)
+		err := client.AppendLocalEntryWithNoticeID(role, text, noticeID)
 		m.observeRuntimeRequestResult(err)
 		return err
 	}
@@ -148,6 +153,7 @@ func (m *uiModel) submitRuntimeUserShellCommand(ctx context.Context, command str
 }
 
 func (m *uiModel) compactRuntimeContext(ctx context.Context, args string) error {
+	m.checkTUIBlockingOperation("runtime control mutation", "compact")
 	if client := m.runtimeClient(); client != nil {
 		err := client.CompactContext(ctx, args)
 		m.observeRuntimeRequestResult(err)
@@ -157,6 +163,7 @@ func (m *uiModel) compactRuntimeContext(ctx context.Context, args string) error 
 }
 
 func (m *uiModel) hasQueuedRuntimeUserWork() (bool, error) {
+	m.checkTUIBlockingOperation("runtime queue read", "has queued user work")
 	if client := m.runtimeClient(); client != nil {
 		hasWork, err := client.HasQueuedUserWork()
 		m.observeRuntimeRequestResult(err)
@@ -166,6 +173,7 @@ func (m *uiModel) hasQueuedRuntimeUserWork() (bool, error) {
 }
 
 func (m *uiModel) submitQueuedRuntimeUserMessages(ctx context.Context) (string, error) {
+	m.checkTUIBlockingOperation("runtime queue mutation", "submit queued user messages")
 	if client := m.runtimeClient(); client != nil {
 		message, err := client.SubmitQueuedUserMessages(ctx)
 		m.observeRuntimeRequestResult(err)
@@ -175,6 +183,7 @@ func (m *uiModel) submitQueuedRuntimeUserMessages(ctx context.Context) (string, 
 }
 
 func (m *uiModel) interruptRuntime() error {
+	m.checkTUIBlockingOperation("runtime control mutation", "interrupt")
 	if client := m.runtimeClient(); client != nil {
 		err := client.Interrupt()
 		m.observeRuntimeRequestResult(err)
@@ -184,6 +193,7 @@ func (m *uiModel) interruptRuntime() error {
 }
 
 func (m *uiModel) queueRuntimeUserMessage(text string) (clientui.QueuedUserMessage, error) {
+	m.checkTUIBlockingOperation("runtime queue mutation", "queue user message")
 	if client := m.runtimeClient(); client != nil {
 		return client.QueueUserMessage(text)
 	}
@@ -191,6 +201,7 @@ func (m *uiModel) queueRuntimeUserMessage(text string) (clientui.QueuedUserMessa
 }
 
 func (m *uiModel) discardQueuedRuntimeUserMessage(queueItemID string) bool {
+	m.checkTUIBlockingOperation("runtime queue mutation", "discard queued user message")
 	if client := m.runtimeClient(); client != nil {
 		return client.DiscardQueuedUserMessage(queueItemID)
 	}
@@ -198,10 +209,184 @@ func (m *uiModel) discardQueuedRuntimeUserMessage(queueItemID string) bool {
 }
 
 func (m *uiModel) recordRuntimePromptHistory(text string) error {
+	m.checkTUIBlockingOperation("runtime control mutation", "record prompt history")
 	if client := m.runtimeClient(); client != nil {
 		err := client.RecordPromptHistory(text)
 		m.observeRuntimeRequestResult(err)
 		return err
 	}
 	return nil
+}
+
+type runtimeControlPendingState struct {
+	sessionID       string
+	inFlight        bool
+	inFlightEnabled bool
+	desiredEnabled  bool
+	compactionMode  string
+}
+
+func (m *uiModel) nextRuntimeControlToken(operation runtimeControlOperation) uint64 {
+	m.runtimeControlToken++
+	if m.runtimeControlToken == 0 {
+		m.runtimeControlToken++
+	}
+	if m.runtimeControlTokens == nil {
+		m.runtimeControlTokens = make(map[runtimeControlOperation]uint64)
+	}
+	m.runtimeControlTokens[operation] = m.runtimeControlToken
+	return m.runtimeControlToken
+}
+
+func (m *uiModel) runtimeControlTokenFor(operation runtimeControlOperation) uint64 {
+	if m == nil || m.runtimeControlTokens == nil {
+		return 0
+	}
+	return m.runtimeControlTokens[operation]
+}
+
+func (m *uiModel) beginRuntimeControlMutation(operation runtimeControlOperation, sessionID string, enabled bool, compactionMode string) (uint64, bool) {
+	if m == nil {
+		return 0, false
+	}
+	if !runtimeControlOperationUsesEnabledTarget(operation) {
+		return m.nextRuntimeControlToken(operation), true
+	}
+	if m.runtimeControlPending == nil {
+		m.runtimeControlPending = make(map[runtimeControlOperation]runtimeControlPendingState)
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if pending, ok := m.runtimeControlPending[operation]; ok && pending.inFlight && pending.sessionID == sessionID {
+		pending.desiredEnabled = enabled
+		pending.compactionMode = strings.TrimSpace(compactionMode)
+		m.runtimeControlPending[operation] = pending
+		return 0, false
+	}
+	token := m.nextRuntimeControlToken(operation)
+	m.runtimeControlPending[operation] = runtimeControlPendingState{
+		sessionID:       sessionID,
+		inFlight:        true,
+		inFlightEnabled: enabled,
+		desiredEnabled:  enabled,
+		compactionMode:  strings.TrimSpace(compactionMode),
+	}
+	return token, true
+}
+
+func (m *uiModel) clearRuntimeControlPending(operation runtimeControlOperation) {
+	if m == nil || m.runtimeControlPending == nil {
+		return
+	}
+	delete(m.runtimeControlPending, operation)
+}
+
+func (m *uiModel) runtimeControlPendingEnabled(operation runtimeControlOperation, sessionID string, fallback bool) bool {
+	if m == nil || m.runtimeControlPending == nil {
+		return fallback
+	}
+	pending, ok := m.runtimeControlPending[operation]
+	if !ok {
+		return fallback
+	}
+	if pending.sessionID != strings.TrimSpace(sessionID) {
+		return fallback
+	}
+	return pending.desiredEnabled
+}
+
+func runtimeControlOperationUsesEnabledTarget(operation runtimeControlOperation) bool {
+	switch operation {
+	case runtimeControlSetFastMode, runtimeControlSetReviewer, runtimeControlSetAutoCompaction:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, text string, enabled bool, compactionMode string) tea.Cmd {
+	if m == nil {
+		return nil
+	}
+	client := m.runtimeClient()
+	if client == nil {
+		return nil
+	}
+	sessionID := strings.TrimSpace(m.sessionID)
+	token, shouldStart := m.beginRuntimeControlMutation(operation, sessionID, enabled, compactionMode)
+	if !shouldStart {
+		return nil
+	}
+	text = strings.TrimSpace(text)
+	return func() tea.Msg {
+		msg := runtimeControlDoneMsg{token: token, sessionID: sessionID, operation: operation, text: text, enabled: enabled, compactionMode: compactionMode}
+		switch operation {
+		case runtimeControlSetSessionName:
+			msg.err = client.SetSessionName(text)
+		case runtimeControlSetThinkingLevel:
+			msg.err = client.SetThinkingLevel(text)
+		case runtimeControlSetFastMode:
+			msg.changed, msg.err = client.SetFastModeEnabled(enabled)
+		case runtimeControlSetReviewer:
+			msg.changed, msg.mode, msg.err = client.SetReviewerEnabled(enabled)
+		case runtimeControlSetAutoCompaction:
+			msg.changed, msg.enabled, msg.err = client.SetAutoCompactionEnabled(enabled)
+		case runtimeControlInterrupt:
+			msg.err = client.Interrupt()
+		}
+		return msg
+	}
+}
+
+func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
+	if m == nil || msg.token != m.runtimeControlTokenFor(msg.operation) {
+		return nil
+	}
+	if msg.sessionID != "" && strings.TrimSpace(m.sessionID) != "" && msg.sessionID != strings.TrimSpace(m.sessionID) {
+		m.clearRuntimeControlPending(msg.operation)
+		return nil
+	}
+	m.observeRuntimeRequestResult(msg.err)
+	if msg.err != nil {
+		m.clearRuntimeControlPending(msg.operation)
+		errText := formatSubmissionError(msg.err)
+		return m.inputController().appendErrorFeedbackWithStatus(errText, m.setTransientStatusWithKind(errText, uiStatusNoticeError))
+	}
+	if runtimeControlOperationUsesEnabledTarget(msg.operation) {
+		pending := m.runtimeControlPending[msg.operation]
+		if pending.inFlight && pending.desiredEnabled != pending.inFlightEnabled {
+			pending.inFlight = false
+			m.runtimeControlPending[msg.operation] = pending
+			return m.runtimeControlCommand(msg.operation, "", pending.desiredEnabled, pending.compactionMode)
+		}
+		m.clearRuntimeControlPending(msg.operation)
+	}
+	switch msg.operation {
+	case runtimeControlSetSessionName:
+		m.sessionName = strings.TrimSpace(msg.text)
+		return tea.SetWindowTitle(m.windowTitle())
+	case runtimeControlSetThinkingLevel:
+		m.thinkingLevel = strings.TrimSpace(msg.text)
+		return m.inputController().appendSystemFeedback("Thinking level set to " + m.thinkingLevel)
+	case runtimeControlSetFastMode:
+		m.fastModeEnabled = msg.enabled
+		status := fastModeToggleStatusMessage(m.fastModeEnabled, msg.changed)
+		return m.inputController().appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeSuccess)
+	case runtimeControlSetReviewer:
+		nextMode := strings.TrimSpace(msg.mode)
+		if nextMode == "" {
+			nextMode = "off"
+		}
+		m.reviewerMode = nextMode
+		m.reviewerEnabled = nextMode != "off"
+		status := reviewerToggleStatusMessage(m.reviewerEnabled, nextMode, msg.changed)
+		return m.inputController().appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeNeutral)
+	case runtimeControlSetAutoCompaction:
+		m.autoCompactionEnabled = msg.enabled
+		status := autoCompactionToggleStatusMessage(msg.enabled, msg.changed, msg.compactionMode)
+		return m.inputController().appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeNeutral)
+	case runtimeControlInterrupt:
+		return nil
+	default:
+		return nil
+	}
 }

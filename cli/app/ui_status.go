@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"os"
 	"strings"
 	"time"
 
@@ -152,14 +151,13 @@ func WithUIStatusRepository(repository uiStatusRepository) UIOption {
 
 func (m *uiModel) newStatusRequest(now time.Time) uiStatusRequest {
 	request := uiStatusRequest{
-		Runtime:               m.engine,
 		WorkspaceRoot:         strings.TrimSpace(m.statusConfig.WorkspaceRoot),
 		PersistenceRoot:       strings.TrimSpace(m.statusConfig.PersistenceRoot),
 		ExecutionTarget:       m.statusConfig.ExecutionTarget,
 		SessionViews:          m.statusConfig.SessionViews,
 		Settings:              m.statusConfig.Settings,
 		Source:                m.statusConfig.Source,
-		AuthCacheIdentity:     statusAuthCacheIdentity(m.statusConfig.AuthManager),
+		AuthCacheIdentity:     m.cachedStatusAuthCacheIdentity(),
 		AuthStatus:            m.statusConfig.AuthStatus,
 		AuthStatePath:         strings.TrimSpace(m.statusConfig.AuthStatePath),
 		SessionName:           strings.TrimSpace(m.sessionName),
@@ -176,6 +174,28 @@ func (m *uiModel) newStatusRequest(now time.Time) uiStatusRequest {
 		CurrentTime:           now,
 	}
 	return populateStatusRequestCacheKeys(request)
+}
+
+func (m *uiModel) newStatusCollectorRequest(seed uiStatusRequest) uiStatusRequest {
+	request := seed
+	request.Runtime = m.engine
+	return request
+}
+
+func (m *uiModel) cachedStatusAuthCacheIdentity() string {
+	if m == nil {
+		return "auth:none"
+	}
+	if strings.TrimSpace(m.statusConfig.AuthStatePath) != "" {
+		return "auth:path:" + strings.TrimSpace(m.statusConfig.AuthStatePath)
+	}
+	if m.statusConfig.AuthStatus != nil {
+		return "auth:status-client"
+	}
+	if m.statusConfig.AuthManager != nil {
+		return "auth:configured"
+	}
+	return "auth:none"
 }
 
 func populateStatusRequestCacheKeys(req uiStatusRequest) uiStatusRequest {
@@ -350,26 +370,27 @@ func (m *uiModel) statusRefreshCmd() tea.Cmd {
 		collector = defaultUIStatusCollector{authManager: m.statusConfig.AuthManager}
 	}
 	if progressive, ok := collector.(uiStatusProgressiveCollector); ok {
-		base := progressive.CollectBase(request)
-		seed := uiStatusSeedResult{Snapshot: base}
+		seedBase := defaultUIStatusCollector{}.CollectBase(request)
+		seed := uiStatusSeedResult{Snapshot: seedBase}
 		if m.statusRepository != nil {
-			seed = m.statusRepository.SeedSnapshot(request, base, request.CurrentTime)
+			seed = m.statusRepository.SeedSnapshot(request, seedBase, request.CurrentTime)
 		}
+		collectorRequest := m.newStatusCollectorRequest(request)
 		m.status.snapshot = seed.Snapshot
 		m.status.error = ""
 		m.status.pendingSections = nil
 		m.status.sectionWarnings = seed.Warnings
 		m.startStatusSectionRefresh(append([]uiStatusSection{uiStatusSectionBase}, seed.PendingSections...)...)
 		cmds := make([]tea.Cmd, 0, len(seed.PendingSections)+1)
-		cmds = append(cmds, m.statusBaseRefreshCmd(token, request, base))
+		cmds = append(cmds, m.statusBaseRefreshCmd(token, collectorRequest, progressive))
 		for _, section := range seed.PendingSections {
 			switch section {
 			case uiStatusSectionAuth:
-				cmds = append(cmds, m.statusAuthRefreshCmd(token, request.CacheKeys.Auth, request, progressive, base))
+				cmds = append(cmds, m.statusAuthRefreshCmd(token, request.CacheKeys.Auth, collectorRequest, progressive, seedBase))
 			case uiStatusSectionGit:
-				cmds = append(cmds, m.statusGitRefreshCmd(token, request.CacheKeys.Git, request, progressive, base))
+				cmds = append(cmds, m.statusGitRefreshCmd(token, request.CacheKeys.Git, collectorRequest, progressive, seedBase))
 			case uiStatusSectionEnvironment:
-				cmds = append(cmds, m.statusEnvironmentRefreshCmd(token, request.CacheKeys.Environment, request, progressive, base))
+				cmds = append(cmds, m.statusEnvironmentRefreshCmd(token, request.CacheKeys.Environment, collectorRequest, progressive, seedBase))
 			}
 		}
 		if len(cmds) == 0 {
@@ -379,10 +400,11 @@ func (m *uiModel) statusRefreshCmd() tea.Cmd {
 		}
 		return tea.Batch(cmds...)
 	}
+	collectorRequest := m.newStatusCollectorRequest(request)
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), statusRefreshTimeout)
 		defer cancel()
-		snapshot, err := collector.Collect(ctx, request)
+		snapshot, err := collector.Collect(ctx, collectorRequest)
 		return statusRefreshDoneMsg{token: token, snapshot: snapshot, err: err}
 	}
 }
@@ -403,22 +425,21 @@ func (m *uiModel) statusLineGitRefreshCmd() tea.Cmd {
 	if !ok {
 		progressive = defaultUIStatusCollector{authManager: m.statusConfig.AuthManager}
 	}
-	base := progressive.CollectBase(request)
 	gitRoot := statusGitRoot(request)
-	if trimmedGitRoot := strings.TrimSpace(gitRoot); trimmedGitRoot == "" {
-		return nil
-	} else if info, err := os.Stat(trimmedGitRoot); err != nil || !info.IsDir() {
+	if strings.TrimSpace(gitRoot) == "" {
 		return nil
 	}
+	base := defaultUIStatusCollector{}.CollectBase(request)
 	cacheKey := statusGitCacheKey(gitRoot)
 	m.statusGitBackgroundInFlight = true
-	return m.statusGitRefreshCmd(token, cacheKey, request, progressive, base, true)
+	return m.statusGitRefreshCmd(token, cacheKey, m.newStatusCollectorRequest(request), progressive, base, true)
 }
 
-func (m *uiModel) statusBaseRefreshCmd(token uint64, request uiStatusRequest, base uiStatusSnapshot) tea.Cmd {
+func (m *uiModel) statusBaseRefreshCmd(token uint64, request uiStatusRequest, collector uiStatusProgressiveCollector) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), statusRefreshTimeout)
 		defer cancel()
+		base := collector.CollectBase(request)
 		return statusBaseRefreshDoneMsg{token: token, snapshot: enrichStatusBaseSnapshot(ctx, request, base)}
 	}
 }
@@ -473,8 +494,7 @@ func (c uiInputController) handleStatusOverlayKey(msg tea.KeyMsg) (tea.Model, te
 	switch strings.ToLower(msg.String()) {
 	case "ctrl+c":
 		if m.isBusy() {
-			c.interruptBusyRuntime()
-			return m, nil
+			return m, c.interruptBusyRuntime()
 		}
 		m.exitAction = UIActionExit
 		if overlayCmd := m.popStatusOverlayIfNeeded(); overlayCmd != nil {

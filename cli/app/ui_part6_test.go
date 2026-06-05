@@ -4,13 +4,11 @@ import (
 	"builder/cli/tui"
 	shelltool "builder/server/tools/shell"
 	"builder/shared/clientui"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -47,6 +45,7 @@ func TestPSOverlayInlineAppendsOutputToInputAndReturnsToOngoing(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	updated = completeProcessRefreshForTest(t, updated)
 	selected, ok := updated.selectedProcess()
 	if !ok {
 		t.Fatal("expected a selected background process")
@@ -65,8 +64,9 @@ func TestPSOverlayInlineAppendsOutputToInputAndReturnsToOngoing(t *testing.T) {
 		t.Fatalf("expected moved selection to reach %s, got %s", firstID, selected.ID)
 	}
 
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
+	updated = applyProcessActionCommandForTest(t, updated, cmd)
 	if testProcessListOpen(updated) {
 		t.Fatal("expected inline paste to close the process overlay")
 	}
@@ -114,9 +114,11 @@ func TestPSOverlayInlineUnlocksLockedInputBeforeAppending(t *testing.T) {
 	controller := uiInputController{model: m}
 	_ = controller.startProcessListFlowCmd()
 	updated := m
+	updated = completeProcessRefreshForTest(t, updated)
 	var next tea.Model
-	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
+	updated = applyProcessActionCommandForTest(t, updated, cmd)
 
 	if updated.isInputSubmitLocked() {
 		t.Fatal("expected inline paste to unlock the input box")
@@ -158,8 +160,9 @@ func TestDirectPSInlineCommandPastesTranscriptIntoInput(t *testing.T) {
 	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
 	m.input = "/ps inline " + res.SessionID
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	updated = applyProcessActionCommandForTest(t, updated, cmd)
 
 	if updated.isBusy() {
 		t.Fatal("did not expect /ps inline to start a normal run")
@@ -175,6 +178,38 @@ func TestDirectPSInlineCommandPastesTranscriptIntoInput(t *testing.T) {
 	}
 	if !strings.Contains(stripANSIAndTrimRight(updated.renderStatusLine(120, uiThemeStyles("dark"))), "Pasted shell transcript") {
 		t.Fatal("expected direct /ps inline to show pasted shell transcript notice")
+	}
+}
+
+func TestDirectPSInlineCompletionDoesNotPasteIntoEditedDraft(t *testing.T) {
+	manager := newFastBackgroundTestManager(t)
+
+	workdir := t.TempDir()
+	res, err := manager.Start(context.Background(), shelltool.ExecRequest{
+		Command:        []string{"sh", "-c", "printf 'stale-inline\n'; sleep 1"},
+		DisplayCommand: "stale-inline",
+		Workdir:        workdir,
+		YieldTime:      fastBackgroundTestYield,
+	})
+	if err != nil {
+		t.Fatalf("start stale-inline: %v", err)
+	}
+	if !res.Backgrounded {
+		t.Fatal("expected background process")
+	}
+
+	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
+	m.input = "/ps inline " + res.SessionID
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := next.(*uiModel)
+	updated.insertInputRunes([]rune("typed while inline pending"))
+	updated = applyProcessActionCommandForTest(t, updated, cmd)
+
+	if strings.Contains(updated.input, "Output of bg shell "+res.SessionID+":") || strings.Contains(updated.input, "stale-inline") {
+		t.Fatalf("did not expect stale inline completion to paste into edited draft, got %q", updated.input)
+	}
+	if !strings.Contains(updated.input, "typed while inline pending") {
+		t.Fatalf("expected edited draft preserved, got %q", updated.input)
 	}
 }
 
@@ -206,8 +241,9 @@ func TestDirectPSLogsCommandUsesDefaultOpenSuccess(t *testing.T) {
 	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
 	m.input = "/ps logs " + res.SessionID
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	updated = applyProcessActionCommandForTest(t, updated, cmd)
 
 	if openedPath != res.OutputPath {
 		t.Fatalf("expected direct /ps logs to open %q, got %q", res.OutputPath, openedPath)
@@ -240,8 +276,9 @@ func TestDirectPSKillCommandSignalsBackgroundProcess(t *testing.T) {
 	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
 	m.input = "/ps kill " + res.SessionID
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	updated = applyProcessActionCommandForTest(t, updated, cmd)
 
 	if !strings.Contains(stripANSIAndTrimRight(updated.renderStatusLine(120, uiThemeStyles("dark"))), "sent terminate signal to "+res.SessionID) {
 		t.Fatalf("expected direct /ps kill to show kill notice, got %q", stripANSIAndTrimRight(updated.renderStatusLine(120, uiThemeStyles("dark"))))
@@ -302,6 +339,7 @@ func TestPSOverlayRefreshTickUpdatesEntriesWhileOpen(t *testing.T) {
 
 	next, cmd := updated.Update(processListRefreshTickMsg{})
 	updated = next.(*uiModel)
+	updated = completeProcessRefreshForTest(t, updated)
 	if got := len(updated.processList.entries); got != 1 {
 		t.Fatalf("expected refresh tick to pull new process entry, got %d", got)
 	}
@@ -337,7 +375,7 @@ func TestPSOverlayRefreshPreservesSelectionByProcessID(t *testing.T) {
 	}
 
 	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
-	m.refreshProcessEntries()
+	refreshProcessEntriesForTest(t, m)
 	if len(m.processList.entries) != 2 {
 		t.Fatalf("expected two process entries, got %d", len(m.processList.entries))
 	}
@@ -362,9 +400,43 @@ func TestPSOverlayRefreshPreservesSelectionByProcessID(t *testing.T) {
 		t.Fatalf("start third job: %v", err)
 	}
 
-	m.refreshProcessEntries()
+	refreshProcessEntriesForTest(t, m)
 	if m.processList.entries[m.processList.selection].ID != selectedID {
 		t.Fatalf("expected selection to remain on process %s, got %s", selectedID, m.processList.entries[m.processList.selection].ID)
+	}
+}
+
+func TestOpenLogsReportsErrorWhenDefaultOpenFails(t *testing.T) {
+	manager := newFastBackgroundTestManager(t)
+
+	workdir := t.TempDir()
+	res, err := manager.Start(context.Background(), shelltool.ExecRequest{
+		Command:        []string{"sh", "-c", "printf 'log-job\n'; sleep 1"},
+		DisplayCommand: "log-job",
+		Workdir:        workdir,
+		YieldTime:      fastBackgroundTestYield,
+	})
+	if err != nil {
+		t.Fatalf("start log-job: %v", err)
+	}
+	if !res.Backgrounded {
+		t.Fatal("expected log-job to move to background")
+	}
+
+	originalOpenDefault := openDefault
+	openDefault = func(string) error { return errors.New("forced open failure") }
+	defer func() { openDefault = originalOpenDefault }()
+	t.Setenv("VISUAL", "")
+	t.Setenv("EDITOR", "")
+
+	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
+	m.input = "/ps logs " + res.SessionID
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := next.(*uiModel)
+	updated = applyProcessActionCommandForTest(t, updated, cmd)
+	status := stripANSIAndTrimRight(updated.renderStatusLine(120, uiThemeStyles("dark")))
+	if !strings.Contains(status, "open logs failed") {
+		t.Fatalf("expected open failure status, got %q", status)
 	}
 }
 
@@ -388,73 +460,35 @@ func TestOpenLogsFallsBackToEditorCommandWhenDefaultOpenFails(t *testing.T) {
 	originalOpenDefault := openDefault
 	openDefault = func(string) error { return errors.New("forced open failure") }
 	defer func() { openDefault = originalOpenDefault }()
+	marker := t.TempDir() + "/editor-opened"
+	t.Setenv("VISUAL", "touch "+marker)
+	t.Setenv("EDITOR", "")
+	t.Setenv("SHELL", "/bin/sh")
 
-	marker := filepath.Join(t.TempDir(), "editor-opened")
-	oldVisual, hadVisual := os.LookupEnv("VISUAL")
-	oldEditor, hadEditor := os.LookupEnv("EDITOR")
-	oldShell, hadShell := os.LookupEnv("SHELL")
-	if err := os.Setenv("VISUAL", "touch "+marker); err != nil {
-		t.Fatalf("set VISUAL: %v", err)
-	}
-	if err := os.Unsetenv("EDITOR"); err != nil {
-		t.Fatalf("unset EDITOR: %v", err)
-	}
-	if err := os.Setenv("SHELL", "/bin/sh"); err != nil {
-		t.Fatalf("set SHELL: %v", err)
-	}
-	defer func() {
-		if hadVisual {
-			_ = os.Setenv("VISUAL", oldVisual)
-		} else {
-			_ = os.Unsetenv("VISUAL")
-		}
-		if hadEditor {
-			_ = os.Setenv("EDITOR", oldEditor)
-		} else {
-			_ = os.Unsetenv("EDITOR")
-		}
-		if hadShell {
-			_ = os.Setenv("SHELL", oldShell)
-		} else {
-			_ = os.Unsetenv("SHELL")
-		}
-	}()
-
-	out := &bytes.Buffer{}
-	model := newProjectedTestUIModel(nil, closedProjectedRuntimeEvents(), closedAskEvents(), withUIBackgroundManagerForTest(manager))
-	model.input = "/ps"
-	program := tea.NewProgram(model, tea.WithInput(strings.NewReader("")), tea.WithOutput(out), tea.WithoutSignals())
-	done := make(chan error, 1)
-	go func() {
-		_, runErr := program.Run()
-		done <- runErr
-	}()
-	time.Sleep(40 * time.Millisecond)
-	program.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
-	time.Sleep(20 * time.Millisecond)
-	program.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	time.Sleep(20 * time.Millisecond)
-	program.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
-
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if _, statErr := os.Stat(marker); statErr == nil {
+	m := newProjectedStaticUIModel(withUIBackgroundManagerForTest(manager))
+	m.input = "/ps logs " + res.SessionID
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msgs := collectCmdMessages(t, cmd)
+	var done processActionDoneMsg
+	found := false
+	for _, msg := range msgs {
+		if typed, ok := msg.(processActionDoneMsg); ok {
+			done = typed
+			found = true
 			break
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("expected editor fallback to execute via tea.ExecProcess")
-		}
-		time.Sleep(20 * time.Millisecond)
 	}
-
-	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	select {
-	case runErr := <-done:
-		if runErr != nil {
-			t.Fatalf("program run failed: %v", runErr)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("program did not terminate")
+	if !found {
+		t.Fatalf("expected process action completion, got %+v", msgs)
+	}
+	if done.editorCmd == nil {
+		t.Fatal("expected editor fallback command")
+	}
+	if err := done.editorCmd.Run(); err != nil {
+		t.Fatalf("run editor fallback: %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("expected editor fallback to create marker: %v", err)
 	}
 }
 
@@ -716,8 +750,8 @@ func TestSubmitDoneWithQueuedWorkWaitsForInFlightTranscriptCatchUp(t *testing.T)
 	if !ok {
 		t.Fatalf("expected runtimeTranscriptRefreshedMsg from follow-up hydration command, got %T", applyCmd())
 	}
-	if refreshAgain.syncCause != runtimeTranscriptSyncCauseDirtyFollowUp {
-		t.Fatalf("follow-up sync cause = %q, want %q", refreshAgain.syncCause, runtimeTranscriptSyncCauseDirtyFollowUp)
+	if refreshAgain.syncCause != runtimeTranscriptSyncCauseQueuedDrain {
+		t.Fatalf("follow-up sync cause = %q, want %q", refreshAgain.syncCause, runtimeTranscriptSyncCauseQueuedDrain)
 	}
 
 	next, finalCmd := updated.Update(refreshAgain)

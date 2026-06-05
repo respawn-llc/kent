@@ -311,55 +311,35 @@ func TestConversationUpdateHydrationFencesLaterRuntimeEvents(t *testing.T) {
 
 	next, cmd := m.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventConversationUpdated, CommittedTranscriptChanged: true}})
 	updated := next.(*uiModel)
-	if !updated.waitRuntimeEventAfterHydration {
-		t.Fatal("expected conversation update to arm hydration fence")
+	if updated.waitRuntimeEventAfterHydration {
+		t.Fatal("deferred routine conversation update must not arm hydration fence")
 	}
-	if updated.sawAssistantDelta {
-		t.Fatal("expected conversation update committed-advance sync to clear assistant delta state before hydration")
+	if !updated.runtimeTranscriptPendingSet {
+		t.Fatal("expected routine conversation update to defer transcript sync while streaming")
 	}
-	if updated.reasoningLiveDirty {
-		t.Fatal("expected conversation update committed-advance sync to clear reasoning live state before hydration")
+	if !updated.sawAssistantDelta {
+		t.Fatal("expected deferred conversation update to preserve assistant delta state")
 	}
-	if got := updated.view.OngoingStreamingText(); got != "" {
-		t.Fatalf("expected conversation update committed-advance sync to clear stale ongoing text before hydration, got %q", got)
+	if !updated.reasoningLiveDirty {
+		t.Fatal("expected deferred conversation update to preserve reasoning live state")
 	}
-	if len(runtimeEvents) != 1 {
-		t.Fatalf("expected later runtime event to remain unread until hydration completes, remaining=%d", len(runtimeEvents))
+	if got := updated.view.OngoingStreamingText(); got != "stale stream" {
+		t.Fatalf("expected deferred conversation update to preserve stale ongoing text, got %q", got)
 	}
 	msgs := collectCmdMessages(t, cmd)
-	var refresh runtimeTranscriptRefreshedMsg
-	refreshFound := false
+	resumed := false
 	for _, msg := range msgs {
 		switch typed := msg.(type) {
 		case runtimeTranscriptRefreshedMsg:
-			refresh = typed
-			refreshFound = true
+			t.Fatalf("did not expect routine refresh while streaming, got %+v", typed)
 		case runtimeEventBatchMsg:
-			t.Fatalf("did not expect runtime stream to resume before hydration completes, got %+v", typed)
-		}
-	}
-	if !refreshFound {
-		t.Fatalf("expected authoritative transcript refresh for conversation update, got %+v", msgs)
-	}
-
-	next, followCmd := updated.Update(refresh)
-	updated = next.(*uiModel)
-	if updated.waitRuntimeEventAfterHydration {
-		t.Fatal("expected hydration fence cleared after transcript refresh applies")
-	}
-	followMsgs := collectCmdMessages(t, followCmd)
-	resumed := false
-	for _, msg := range followMsgs {
-		batch, ok := msg.(runtimeEventBatchMsg)
-		if !ok {
-			continue
-		}
-		if len(batch.events) == 1 && batch.events[0].AssistantDelta == "later" {
-			resumed = true
+			if len(typed.events) == 1 && typed.events[0].AssistantDelta == "later" {
+				resumed = true
+			}
 		}
 	}
 	if !resumed {
-		t.Fatalf("expected runtime stream to resume after hydration, got %+v", followMsgs)
+		t.Fatalf("expected runtime stream to continue without hydration fence, got %+v", msgs)
 	}
 }
 
@@ -382,16 +362,16 @@ func TestStreamGapInvalidatesTransientStateBeforeHydrationFence(t *testing.T) {
 	next, cmd := m.Update(runtimeEventMsg{event: clientui.Event{Kind: clientui.EventStreamGap, RecoveryCause: clientui.TranscriptRecoveryCauseStreamGap}})
 	updated := next.(*uiModel)
 	if !updated.waitRuntimeEventAfterHydration {
-		t.Fatal("expected stream gap to arm hydration fence after transient state invalidation")
+		t.Fatal("expected stream gap recovery to arm hydration fence")
 	}
-	if updated.sawAssistantDelta {
-		t.Fatal("expected stream gap to clear assistant delta state before hydration")
+	if !updated.sawAssistantDelta {
+		t.Fatal("expected stream gap recovery to preserve assistant delta state before hydrate applies")
 	}
-	if updated.reasoningLiveDirty {
-		t.Fatal("expected stream gap to clear reasoning live state before hydration")
+	if !updated.reasoningLiveDirty {
+		t.Fatal("expected stream gap recovery to preserve reasoning live state before hydrate applies")
 	}
-	if got := updated.view.OngoingStreamingText(); got != "" {
-		t.Fatalf("expected stream gap to clear stale ongoing text before hydration, got %q", got)
+	if got := updated.view.OngoingStreamingText(); got != "stale stream" {
+		t.Fatalf("expected stream gap recovery to preserve stale ongoing text before hydrate applies, got %q", got)
 	}
 	if len(runtimeEvents) != 1 {
 		t.Fatalf("expected later runtime event to remain unread until hydration completes, remaining=%d", len(runtimeEvents))
@@ -803,13 +783,7 @@ func TestRuntimeModelRefreshesOngoingErrorOnDedicatedUpdateEvent(t *testing.T) {
 	msg := runtimeEventBatchFromCmd(t, m.waitRuntimeEventCmd(), "runtime wait")
 	next, cmd := m.Update(msg)
 	updated := next.(*uiModel)
-	if cmd == nil {
-		t.Fatal("expected refresh command for ongoing error update")
-	}
-	refresh, ok := cmd().(runtimeTranscriptRefreshedMsg)
-	if !ok {
-		t.Fatalf("expected runtimeTranscriptRefreshedMsg, got %T", cmd())
-	}
+	refresh := runtimeTranscriptRefreshOrReleaseDeferredForTest(t, updated, cmd)
 	next, _ = updated.Update(refresh)
 	updated = next.(*uiModel)
 	if got := updated.view.OngoingErrorText(); got != "background continuation failed" {
@@ -850,13 +824,7 @@ func TestRuntimeModelOngoingErrorUpdatedSetsAndClearsBannerLifecycle(t *testing.
 	firstMsg := runtimeEventBatchFromCmd(t, m.waitRuntimeEventCmd(), "runtime wait command for ongoing error set")
 	next, cmd := m.Update(firstMsg)
 	updated := next.(*uiModel)
-	if cmd == nil {
-		t.Fatal("expected refresh command for ongoing error set")
-	}
-	refresh, ok := cmd().(runtimeTranscriptRefreshedMsg)
-	if !ok {
-		t.Fatalf("expected runtimeTranscriptRefreshedMsg, got %T", cmd())
-	}
+	refresh := runtimeTranscriptRefreshOrReleaseDeferredForTest(t, updated, cmd)
 	next, _ = updated.Update(refresh)
 	updated = next.(*uiModel)
 	if got := updated.view.OngoingErrorText(); got != "background continuation failed" {
@@ -866,13 +834,7 @@ func TestRuntimeModelOngoingErrorUpdatedSetsAndClearsBannerLifecycle(t *testing.
 	secondMsg := runtimeEventBatchFromCmd(t, updated.waitRuntimeEventCmd(), "runtime wait command for ongoing error clear")
 	next, cmd = updated.Update(secondMsg)
 	updated = next.(*uiModel)
-	if cmd == nil {
-		t.Fatal("expected refresh command for ongoing error clear")
-	}
-	refresh, ok = cmd().(runtimeTranscriptRefreshedMsg)
-	if !ok {
-		t.Fatalf("expected runtimeTranscriptRefreshedMsg, got %T", cmd())
-	}
+	refresh = runtimeTranscriptRefreshOrReleaseDeferredForTest(t, updated, cmd)
 	next, _ = updated.Update(refresh)
 	updated = next.(*uiModel)
 	if got := updated.view.OngoingErrorText(); got != "" {

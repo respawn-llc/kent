@@ -37,9 +37,17 @@ type uiAskState struct {
 }
 
 type uiProcessListState struct {
-	open      bool
-	selection int
-	entries   []clientui.BackgroundProcess
+	open              bool
+	selection         int
+	entries           []clientui.BackgroundProcess
+	loading           bool
+	errorText         string
+	refreshToken      uint64
+	refreshInFlight   bool
+	refreshDirty      bool
+	actionToken       uint64
+	actionInFlight    bool
+	surfaceGeneration uint64
 }
 
 type uiRollbackPhase string

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os/exec"
 	"strings"
 	"time"
 
@@ -30,6 +31,82 @@ type promptHistoryPersistErrMsg struct {
 	err error
 }
 
+type localEntryPersistDoneMsg struct {
+	noticeID string
+	err      error
+}
+
+type authSlashCommandRefreshedMsg struct {
+	token      uint64
+	generation uint64
+	name       string
+	err        error
+}
+
+type goalRuntimeOperation string
+
+const (
+	goalRuntimeShow       goalRuntimeOperation = "show"
+	goalRuntimeCheckSet   goalRuntimeOperation = "check_set"
+	goalRuntimeCheckClear goalRuntimeOperation = "check_clear"
+	goalRuntimeSet        goalRuntimeOperation = "set"
+	goalRuntimePause      goalRuntimeOperation = "pause"
+	goalRuntimeResume     goalRuntimeOperation = "resume"
+	goalRuntimeClear      goalRuntimeOperation = "clear"
+)
+
+type goalRuntimeDoneMsg struct {
+	token     uint64
+	sessionID string
+	operation goalRuntimeOperation
+	objective string
+	goal      *clientui.RuntimeGoal
+	err       error
+}
+
+type runtimeControlOperation string
+
+const (
+	runtimeControlSetSessionName    runtimeControlOperation = "set_session_name"
+	runtimeControlSetThinkingLevel  runtimeControlOperation = "set_thinking_level"
+	runtimeControlSetFastMode       runtimeControlOperation = "set_fast_mode"
+	runtimeControlSetReviewer       runtimeControlOperation = "set_reviewer"
+	runtimeControlSetAutoCompaction runtimeControlOperation = "set_auto_compaction"
+	runtimeControlInterrupt         runtimeControlOperation = "interrupt"
+)
+
+type runtimeControlDoneMsg struct {
+	token          uint64
+	sessionID      string
+	operation      runtimeControlOperation
+	text           string
+	enabled        bool
+	changed        bool
+	mode           string
+	compactionMode string
+	err            error
+}
+
+type injectedQueueCreateDoneMsg struct {
+	token   uint64
+	localID string
+	item    clientui.QueuedUserMessage
+	err     error
+}
+
+type injectedQueueDiscardDoneMsg struct {
+	token     uint64
+	localID   string
+	serverID  string
+	discarded bool
+}
+
+type queuedRuntimeWorkCheckDoneMsg struct {
+	token   uint64
+	hasWork bool
+	err     error
+}
+
 type compactDoneMsg struct {
 	err error
 }
@@ -51,6 +128,24 @@ type spinnerTickMsg struct {
 }
 
 type processListRefreshTickMsg struct{}
+
+type processListRefreshDoneMsg struct {
+	token   uint64
+	entries []clientui.BackgroundProcess
+	err     error
+}
+
+type processActionDoneMsg struct {
+	token             uint64
+	surfaceGeneration uint64
+	inputDraftToken   uint64
+	action            string
+	id                string
+	output            string
+	logPath           string
+	editorCmd         *exec.Cmd
+	err               error
+}
 
 type openProcessLogsDoneMsg struct {
 	err error
@@ -103,6 +198,7 @@ type runtimeLeaseRecoveryWarningMsg struct {
 
 type runtimeMainViewRefreshedMsg struct {
 	token uint64
+	req   runtimeMainViewRefreshRequest
 	view  clientui.RuntimeMainView
 	err   error
 }
@@ -110,6 +206,7 @@ type runtimeMainViewRefreshedMsg struct {
 type runtimeTranscriptRefreshedMsg struct {
 	token         uint64
 	req           clientui.TranscriptPageRequest
+	syncRequest   runtimeTranscriptSyncRequest
 	syncCause     runtimeTranscriptSyncCause
 	transcript    clientui.TranscriptPage
 	recoveryCause clientui.TranscriptRecoveryCause
@@ -133,6 +230,7 @@ type runtimeTranscriptRetryMsg struct {
 	syncCause     runtimeTranscriptSyncCause
 	token         uint64
 	recoveryCause clientui.TranscriptRecoveryCause
+	req           runtimeTranscriptSyncRequest
 }
 
 type runtimeTranscriptSyncCause string
@@ -145,6 +243,14 @@ const (
 	runtimeTranscriptSyncCauseDirtyFollowUp           runtimeTranscriptSyncCause = "dirty_follow_up"
 	runtimeTranscriptSyncCauseContinuityRecovery      runtimeTranscriptSyncCause = "continuity_recovery"
 	runtimeTranscriptSyncCauseManualTranscriptRefresh runtimeTranscriptSyncCause = "manual_transcript_refresh"
+)
+
+type runtimeMainViewRefreshCause string
+
+const (
+	runtimeMainViewRefreshCauseWorktreeMutation runtimeMainViewRefreshCause = "worktree_mutation"
+	runtimeMainViewRefreshCauseManual           runtimeMainViewRefreshCause = "manual"
+	runtimeMainViewRefreshCauseStartupUpdate    runtimeMainViewRefreshCause = "startup_update"
 )
 
 type detailTranscriptLoadMsg struct{}

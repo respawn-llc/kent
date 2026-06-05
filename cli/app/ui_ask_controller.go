@@ -142,8 +142,9 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		hasNext := c.answer(clientui.PromptAnswer{}, errors.New("interrupted"))
+		interruptCmd := tea.Cmd(nil)
 		if m.isBusy() {
-			_ = m.interruptRuntime()
+			interruptCmd = m.inputController().interruptBusyRuntime()
 			m.setBusy(false)
 		}
 		if hasNext {
@@ -151,7 +152,7 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.activity = uiActivityInterrupted
 		}
-		return m, nil
+		return m, interruptCmd
 	case tea.KeyEsc:
 		hasNext := c.answer(clientui.PromptAnswer{}, errors.New("question canceled"))
 		if hasNext {
@@ -191,10 +192,15 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					if !ok {
 						return m, nil
 					}
-					if commentary != "" {
-						m.enqueueInjectedInput(commentary)
-					}
+					queueCmd := m.enqueueInjectedInput(commentary)
 					resp = clientui.PromptAnswer{Approval: &clientui.ApprovalPromptAnswer{Decision: decision, Commentary: commentary}}
+					hasNext := c.answer(resp, nil)
+					if hasNext {
+						m.activity = uiActivityQuestion
+					} else {
+						m.activity = uiActivityRunning
+					}
+					return m, queueCmd
 				}
 			}
 			hasNext := c.answer(resp, nil)

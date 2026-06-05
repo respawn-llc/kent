@@ -138,6 +138,7 @@ func (m *uiModel) applyCommittedTranscriptSuffixAppend(suffix clientui.Committed
 		return nil
 	}
 	page := transcriptPageFromCommittedTranscriptSuffix(suffix)
+	page.Entries = m.suppressRenderedLocalEntryEchoesInChatEntries(page.Entries)
 	entries := transcriptEntriesFromPage(page)
 	expectedStart := committedTranscriptTailEnd(m)
 	if page.Offset > expectedStart && page.Offset <= loadedTranscriptTailEnd(m) {
@@ -158,6 +159,17 @@ func (m *uiModel) applyCommittedTranscriptSuffixAppend(suffix clientui.Committed
 			})
 		}
 		return m.syncNativeHistoryFromTranscript()
+	}
+	if len(entries) == 0 && suffix.NextEntryCount > suffix.StartEntryCount {
+		m.transcriptRevision = max(m.transcriptRevision, suffix.Revision)
+		m.transcriptTotalEntries = max(m.transcriptTotalEntries, suffix.CommittedEntryCount)
+		m.transcriptLiveDirty = true
+		m.ongoingCommittedDelivery.markApplied(max(committedOngoingLocalFrontierEnd(m), suffix.NextEntryCount), suffix.Revision)
+		m.refreshRollbackCandidates()
+		if m.view.Mode() == tui.ModeDetail {
+			m.detailTranscript.apply(page)
+		}
+		return nil
 	}
 	m.truncatePendingOngoingTailBeforeSuffix(expectedStart)
 	if shouldClearAssistantStreamForCommittedTranscriptEntries(entries, m.view.OngoingStreamingText()) {

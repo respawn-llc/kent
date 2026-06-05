@@ -111,8 +111,9 @@ func (m *uiModel) worktreeCreateTargetResolveCmd(query string, token uint64) tea
 	if m == nil || m.worktreeClient == nil {
 		return nil
 	}
+	service := m.worktreeMutationService()
 	return func() tea.Msg {
-		resp, err := m.worktreeMutationService().ResolveCreateTarget(query)
+		resp, err := service.ResolveCreateTarget(query)
 		return worktreeCreateTargetResolveDoneMsg{token: token, query: query, resp: resp, err: err}
 	}
 }

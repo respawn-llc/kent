@@ -63,7 +63,21 @@ func WithUITranscriptDiagnostics(enabled bool) UIOption {
 func WithUIDebug(enabled bool) UIOption {
 	return func(m *uiModel) {
 		m.debugMode = enabled
+		if enabled && !m.tuiStrictIOModeExplicit {
+			m.tuiStrictIOMode = tuiStrictIOModePanic
+		}
 		m.updateTranscriptDiagnosticsMode()
+	}
+}
+
+func WithUITUIStrictIO(mode string) UIOption {
+	return func(m *uiModel) {
+		parsed, ok := parseTUIStrictIOMode(mode)
+		if !ok {
+			return
+		}
+		m.tuiStrictIOMode = parsed
+		m.tuiStrictIOModeExplicit = true
 	}
 }
 

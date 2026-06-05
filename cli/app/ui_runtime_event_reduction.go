@@ -67,6 +67,7 @@ func (a uiRuntimeAdapter) applyRuntimeEventReduction(reduction runtimestate.Runt
 	m.conversationFreshness = reduction.Conversation.State.Freshness
 	m.reasoningStatusHeader = reduction.Reasoning.State.StatusHeader
 	m.pendingInjected = reduction.PendingInput.State.PendingInjected
+	m.removeInjectedQueueItemsByIDs(reduction.PendingInput.ConsumedQueueItemIDs)
 	m.lockedInjectText = reduction.PendingInput.State.LockedInjectText
 	m.lockedInjectID = reduction.PendingInput.State.LockedInjectID
 	m.setInputSubmitLocked(reduction.PendingInput.State.Submission.IsLocked())
@@ -79,23 +80,27 @@ func (a uiRuntimeAdapter) applyRuntimeEventReduction(reduction runtimestate.Runt
 		m.activity = uiActivityRunning
 	case runtimestate.RuntimeActivityIdle:
 		m.activity = uiActivityIdle
+		cmd = tea.Batch(cmd, m.releaseDeferredRuntimeSyncs())
 	}
 	switch reduction.BackgroundProcesses.Command {
 	case runtimestate.RuntimeBackgroundProcessRefresh:
-		m.refreshProcessEntriesIfOpen()
+		if m.processList.isOpen() {
+			cmd = tea.Batch(cmd, m.requestProcessListRefresh())
+		}
 	}
 	return cmd
 }
 
-func (a uiRuntimeAdapter) reconcileInterruptFromRunState(evt clientui.Event) {
+func (a uiRuntimeAdapter) reconcileInterruptFromRunState(evt clientui.Event) tea.Cmd {
 	m := a.model
 	if m == nil || evt.Kind != clientui.EventRunStateChanged || evt.RunState == nil || evt.RunState.Lifecycle.IsRunning() {
-		return
+		return nil
 	}
 	if evt.RunState.Status != clientui.RunStatusInterrupted {
 		m.setPendingInterrupt(false)
-		return
+		return nil
 	}
+	var cmd tea.Cmd
 	if m.hasPendingInterrupt() {
 		if m.activeSubmit.restoreOnInterrupt && !m.activeSubmit.flushed {
 			c := uiInputController{model: m}
@@ -103,13 +108,13 @@ func (a uiRuntimeAdapter) reconcileInterruptFromRunState(evt clientui.Event) {
 		}
 		m.activeSubmit = activeSubmitState{}
 		c := uiInputController{model: m}
-		c.releaseLockedInjectedInput(true)
-		c.restorePendingInjectedIntoInput()
+		cmd = tea.Batch(c.releaseLockedInjectedInput(true), c.restorePendingInjectedIntoInput())
 		c.restoreQueuedMessagesIntoInput()
 		m.setPendingInterrupt(false)
 	}
 	m.activity = uiActivityInterrupted
 	m.clearReviewerState()
+	return cmd
 }
 
 func (a uiRuntimeAdapter) effectiveRuntimeTranscriptSync(evt clientui.Event, proposed runtimestate.RuntimeTranscriptSyncCommand) runtimestate.RuntimeTranscriptSyncCommand {

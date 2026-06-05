@@ -60,16 +60,22 @@ type uiInputFeatureState struct {
 	reviewerMode             string
 	autoCompactionEnabled    bool
 	conversationFreshness    clientui.ConversationFreshness
+	runtimeControlToken      uint64
+	runtimeControlTokens     map[runtimeControlOperation]uint64
+	runtimeControlPending    map[runtimeControlOperation]runtimeControlPendingState
 
 	// UI-side post-turn input queue. It may contain slash commands, shell
 	// commands, and other client-only actions; server queues only runtime
 	// injected user work.
-	queued           []queuedInputItem
-	compactionOrigin uiCompactionOrigin
-	submitToken      uint64
-	activeSubmit     activeSubmitState
+	queued                                 []queuedInputItem
+	compactionOrigin                       uiCompactionOrigin
+	queuedRuntimeWorkCheckCompactionOrigin uiCompactionOrigin
+	submitToken                            uint64
+	activeSubmit                           activeSubmitState
 
 	pendingInjected    []clientui.QueuedUserMessage
+	injectedQueue      []injectedRuntimeQueueItem
+	injectedQueueToken uint64
 	lockedInjectText   string
 	lockedInjectID     string
 	inputSubmission    runtimestate.InputSubmissionLifecycle
@@ -92,6 +98,10 @@ type uiInputFeatureState struct {
 	authSlashCommandName  string
 	authSlashCommandErr   string
 	authSlashSessionOpen  bool
+	authSlashLoading      bool
+	authSlashToken        uint64
+	authSlashGeneration   uint64
+	authSlashResolved     uint64
 	slashCommandFilter    string
 	slashCommandFilterSet bool
 	slashCommandSelection int
@@ -110,6 +120,7 @@ type uiPresentationFeatureState struct {
 	windowSizeKnown bool
 	helpVisible     bool
 	startupCmds     []tea.Cmd
+	uiMainThread    uiMainThreadState
 }
 
 type uiConversationFeatureState struct {
@@ -140,6 +151,7 @@ type uiStatusFeatureState struct {
 	statusRepository            uiStatusRepository
 	status                      uiStatusOverlayState
 	goal                        uiGoalOverlayState
+	goalRuntimeToken            uint64
 	statusGitBackgroundInFlight bool
 	clipboardImagePaster        uiClipboardImagePaster
 	clipboardTextCopier         uiClipboardTextCopier
@@ -150,36 +162,44 @@ type uiStatusFeatureState struct {
 	transientStatusToken    uint64
 	transientStatusQueue    []uiStatusNotice
 	localNoticeSequence     uint64
+	localEntryEcho          uiLocalEntryEchoState
 	startupUpdateNotice     bool
 	startupUpdateShown      bool
 	debugKeys               bool
 	debugMode               bool
 	transcriptDiagnostics   bool
+	tuiStrictIOMode         tuiStrictIOMode
+	tuiStrictIOModeExplicit bool
 }
 
 type uiTranscriptFeatureState struct {
-	sawAssistantDelta                   bool
-	lastCommittedAssistantStepID        string
-	transcriptEntries                   []tui.TranscriptEntry
-	transcriptBaseOffset                int
-	transcriptTotalEntries              int
-	transcriptRevision                  int64
-	ongoingCommittedDelivery            ongoingCommittedDeliveryCursor
-	deferredCommittedTail               []deferredProjectedTranscriptTail
-	runtimeConnection                   clientui.RuntimeConnectionLifecycle
-	transcriptLiveDirty                 bool
-	reasoningLiveDirty                  bool
-	detailTranscript                    uiDetailTranscriptWindow
-	runtimeMainViewToken                uint64
-	runtimeTranscriptToken              uint64
-	runtimeCommittedSuffixToken         uint64
-	runtimeTranscriptRetry              uint64
-	runtimeTranscriptBusy               bool
-	runtimeTranscriptDirty              bool
-	runtimeTranscriptDirtyRecoveryCause clientui.TranscriptRecoveryCause
-	pendingQueuedDrainAfterHydration    bool
-	queuedDrainReadyAfterHydration      bool
-	waitRuntimeEventAfterHydration      bool
+	sawAssistantDelta                bool
+	lastCommittedAssistantStepID     string
+	transcriptEntries                []tui.TranscriptEntry
+	transcriptBaseOffset             int
+	transcriptTotalEntries           int
+	transcriptRevision               int64
+	ongoingCommittedDelivery         ongoingCommittedDeliveryCursor
+	deferredCommittedTail            []deferredProjectedTranscriptTail
+	runtimeConnection                clientui.RuntimeConnectionLifecycle
+	transcriptLiveDirty              bool
+	reasoningLiveDirty               bool
+	detailTranscript                 uiDetailTranscriptWindow
+	runtimeMainViewToken             uint64
+	runtimeMainViewBusy              bool
+	runtimeMainViewActiveRequest     runtimeMainViewRefreshRequest
+	runtimeMainViewPendingSet        bool
+	runtimeMainViewPending           runtimeMainViewRefreshRequest
+	runtimeTranscriptToken           uint64
+	runtimeCommittedSuffixToken      uint64
+	runtimeTranscriptRetry           uint64
+	runtimeTranscriptBusy            bool
+	runtimeTranscriptActiveRequest   runtimeTranscriptSyncRequest
+	runtimeTranscriptPendingSet      bool
+	runtimeTranscriptPending         runtimeTranscriptSyncRequest
+	pendingQueuedDrainAfterHydration bool
+	queuedDrainReadyAfterHydration   bool
+	waitRuntimeEventAfterHydration   bool
 }
 
 type uiNativeHistoryFeatureState struct {

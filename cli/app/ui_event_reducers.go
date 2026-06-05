@@ -119,11 +119,46 @@ func (m *uiModel) inputAsyncReducer() uiInputAsyncFeatureReducer {
 func (r uiInputAsyncFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 	m := r.model
 	switch msg := msg.(type) {
+	case authSlashCommandRefreshedMsg:
+		m.applyAuthSlashCommandRefreshed(msg)
+		m.syncViewport()
+		return handledUIFeatureUpdate(m, nil)
 	case promptHistoryPersistErrMsg:
+		m.observeRuntimeRequestResult(msg.err)
 		if msg.err == nil {
 			return handledUIFeatureUpdate(m, nil)
 		}
 		return handledUIFeatureUpdate(m, m.setTransientStatusWithKind("prompt history persistence failed: "+msg.err.Error(), uiStatusNoticeError))
+	case localEntryPersistDoneMsg:
+		m.observeRuntimeRequestResult(msg.err)
+		if msg.err == nil {
+			return handledUIFeatureUpdate(m, nil)
+		}
+		m.logf("local_entry.persist_error notice_id=%q err=%q", msg.noticeID, msg.err.Error())
+		return handledUIFeatureUpdate(m, nil)
+	case runtimeControlDoneMsg:
+		cmd := m.applyRuntimeControlDone(msg)
+		m.syncViewport()
+		return handledUIFeatureUpdate(m, cmd)
+	case goalRuntimeDoneMsg:
+		cmd := m.applyGoalRuntimeDone(msg)
+		m.syncViewport()
+		return handledUIFeatureUpdate(m, cmd)
+	case injectedQueueCreateDoneMsg:
+		next, cmd := m.inputController().handleInjectedQueueCreateDone(msg)
+		nextModel := next.(*uiModel)
+		nextModel.syncViewport()
+		return handledUIFeatureUpdate(nextModel, cmd)
+	case injectedQueueDiscardDoneMsg:
+		next, cmd := m.inputController().handleInjectedQueueDiscardDone(msg)
+		nextModel := next.(*uiModel)
+		nextModel.syncViewport()
+		return handledUIFeatureUpdate(nextModel, cmd)
+	case queuedRuntimeWorkCheckDoneMsg:
+		next, cmd := m.inputController().handleQueuedRuntimeWorkCheckDone(msg)
+		nextModel := next.(*uiModel)
+		nextModel.syncViewport()
+		return handledUIFeatureUpdate(nextModel, cmd)
 	case submitDoneMsg:
 		next, cmd := m.inputController().handleSubmitDone(msg)
 		nextModel := next.(*uiModel)
@@ -159,9 +194,32 @@ func (r uiProcessFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 			m.syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
-		m.refreshProcessEntries()
+		refreshCmd := m.requestProcessListRefresh()
 		m.syncViewport()
-		return handledUIFeatureUpdate(m, tea.Batch(waitProcessListRefresh(), m.ensureSpinnerTicking()))
+		return handledUIFeatureUpdate(m, tea.Batch(refreshCmd, waitProcessListRefresh(), m.ensureSpinnerTicking()))
+	case processListRefreshDoneMsg:
+		if msg.token != m.processList.refreshToken {
+			m.syncViewport()
+			return handledUIFeatureUpdate(m, nil)
+		}
+		m.processList.refreshInFlight = false
+		m.processList.loading = false
+		if msg.err != nil {
+			m.processList.errorText = msg.err.Error()
+		} else {
+			m.applyProcessEntries(msg.entries)
+		}
+		var refreshCmd tea.Cmd
+		if m.processList.refreshDirty && m.processList.isOpen() {
+			m.processList.refreshDirty = false
+			refreshCmd = m.requestProcessListRefresh()
+		}
+		m.syncViewport()
+		return handledUIFeatureUpdate(m, tea.Batch(refreshCmd, m.ensureSpinnerTicking()))
+	case processActionDoneMsg:
+		cmd := m.applyProcessActionDone(msg)
+		m.syncViewport()
+		return handledUIFeatureUpdate(m, cmd)
 	case openProcessLogsDoneMsg:
 		m.syncViewport()
 		if msg.err != nil {
@@ -210,7 +268,7 @@ func (r uiNativeFlushFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 		return handledUIFeatureUpdate(m, m.handleNativeHistoryFlush(msg))
 	case nativeStreamingStableFlushAckMsg:
 		m.ackNativeStreamingStableFlush(msg.Sequence)
-		return handledUIFeatureUpdate(m, nil)
+		return handledUIFeatureUpdate(m, m.releaseDeferredRuntimeSyncs())
 	}
 	return uiFeatureUpdateResult{}
 }

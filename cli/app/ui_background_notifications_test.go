@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -16,18 +17,20 @@ type blockingProcessClient struct {
 	release     chan struct{}
 }
 
-func (c *blockingProcessClient) ListProcesses() []clientui.BackgroundProcess {
+func (c *blockingProcessClient) ListProcesses(context.Context) ([]clientui.BackgroundProcess, error) {
 	select {
 	case c.listStarted <- struct{}{}:
 	default:
 	}
 	<-c.release
-	return nil
+	return nil, nil
 }
 
-func (c *blockingProcessClient) KillProcess(string) error { return errors.New("not implemented") }
+func (c *blockingProcessClient) KillProcess(context.Context, string) error {
+	return errors.New("not implemented")
+}
 
-func (c *blockingProcessClient) InlineOutput(string, int) (string, string, error) {
+func (c *blockingProcessClient) InlineOutput(context.Context, string, int) (string, string, error) {
 	return "", "", errors.New("not implemented")
 }
 

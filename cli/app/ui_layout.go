@@ -39,6 +39,7 @@ type nativeLiveRegionState struct {
 }
 
 func (m *uiModel) View() string {
+	defer m.enterUIMainThread("View")()
 	return m.layout().render()
 }
 

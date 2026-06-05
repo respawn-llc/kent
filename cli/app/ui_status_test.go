@@ -323,13 +323,19 @@ func TestStatusCommandProgressivelyLoadsSections(t *testing.T) {
 	m.windowSizeKnown = true
 	m.input = "/status"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	if cmd == nil {
+		t.Fatal("expected progressive status command")
+	}
 	plain := stripANSIAndTrimRight(updated.View())
-	for _, want := range []string{"Loading account...", "CWD: /tmp/workdir", "Model: gpt-5 high fast", "Loading git..."} {
+	for _, want := range []string{"Loading account...", "CWD: /tmp/workdir", "Model: <unset>", "Loading git..."} {
 		if !strings.Contains(plain, want) {
-			t.Fatalf("expected progressive base render to contain %q, got %q", want, plain)
+			t.Fatalf("expected pure status seed render to contain %q, got %q", want, plain)
 		}
+	}
+	if strings.Contains(plain, "gpt-5 high fast") {
+		t.Fatalf("did not expect custom collector base before command completion, got %q", plain)
 	}
 
 	next, _ = updated.Update(statusGitRefreshDoneMsg{token: updated.status.refreshToken, result: collector.gitResult})
@@ -339,6 +345,12 @@ func TestStatusCommandProgressivelyLoadsSections(t *testing.T) {
 		t.Fatalf("expected parallel git render before base snapshot, got %q", plain)
 	}
 
+	next, _ = updated.Update(statusBaseRefreshDoneMsg{token: updated.status.refreshToken, snapshot: collector.base})
+	updated = next.(*uiModel)
+	plain = stripANSIAndTrimRight(updated.View())
+	if !strings.Contains(plain, "Model: gpt-5 high fast") {
+		t.Fatalf("expected custom base snapshot after base completion, got %q", plain)
+	}
 }
 
 func TestStatusCommandRunsForegroundGitRefreshWhileStartupGitInFlight(t *testing.T) {

@@ -1,6 +1,9 @@
 package clientui
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 type BackgroundProcess struct {
 	ID                      string
@@ -26,7 +29,7 @@ type BackgroundProcess struct {
 }
 
 type ProcessClient interface {
-	ListProcesses() []BackgroundProcess
-	KillProcess(id string) error
-	InlineOutput(id string, maxChars int) (string, string, error)
+	ListProcesses(ctx context.Context) ([]BackgroundProcess, error)
+	KillProcess(ctx context.Context, id string) error
+	InlineOutput(ctx context.Context, id string, maxChars int) (string, string, error)
 }

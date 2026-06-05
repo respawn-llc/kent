@@ -174,8 +174,9 @@ func TestManualCompactRingsWhenIdleAfterCompaction(t *testing.T) {
 		t.Fatalf("expected compactDoneMsg, got %+v", msgs)
 	}
 
-	next, _ = updated.Update(done)
+	next, cmd = updated.Update(done)
 	updated = next.(*uiModel)
+	updated, _ = applyQueuedRuntimeWorkCheckForTest(t, updated, cmd)
 	if updated.isBusy() || updated.isCompacting() {
 		t.Fatalf("expected idle after manual compaction, busy=%t compacting=%t", updated.isBusy(), updated.isCompacting())
 	}
@@ -220,8 +221,9 @@ func TestQueuedCompactRingsAfterCompactionWhenQueueIsDrained(t *testing.T) {
 		t.Fatalf("expected compactDoneMsg from queued compact, got %+v", msgs)
 	}
 
-	next, _ = updated.Update(done)
+	next, cmd = updated.Update(done)
 	updated = next.(*uiModel)
+	updated, _ = applyQueuedRuntimeWorkCheckForTest(t, updated, cmd)
 	if updated.isBusy() || updated.isCompacting() {
 		t.Fatalf("expected idle after queued compaction, busy=%t compacting=%t", updated.isBusy(), updated.isCompacting())
 	}
@@ -330,13 +332,15 @@ func TestManualCompactWithQueuedSteeringDoesNotRing(t *testing.T) {
 	m.compactionOrigin = uiCompactionOriginManual
 	m.input = "steer after compact"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, createCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	updated = applyFirstInjectedQueueCreateDoneForTest(t, updated, createCmd)
 	if len(updated.pendingInjected) != 1 {
 		t.Fatalf("expected queued steering, got %+v", updated.pendingInjected)
 	}
 	next, cmd := updated.Update(compactDoneMsg{})
 	updated = next.(*uiModel)
+	updated, cmd = applyQueuedRuntimeWorkCheckForTest(t, updated, cmd)
 	if cmd == nil {
 		t.Fatal("expected queued steering to resume after compact")
 	}

@@ -112,11 +112,40 @@ func (m *uiModel) requestNativeResizeCommittedTranscriptSuffix(token uint64) tea
 	if !ok {
 		return nil
 	}
-	req := m.startupCommittedTranscriptSuffixRequest()
+	req := m.nativeResizeCommittedTranscriptSuffixRequest()
 	return func() tea.Msg {
 		suffix, err := client.RefreshCommittedTranscriptSuffix(req)
 		return nativeResizeTranscriptSuffixRefreshedMsg{token: token, suffix: suffix, err: err}
 	}
+}
+
+func (m *uiModel) nativeResizeCommittedTranscriptSuffixRequest() clientui.CommittedTranscriptSuffixRequest {
+	committedCount := m.cachedServerCommittedTranscriptEntryCount()
+	limit := clientui.MaxCommittedTranscriptSuffixLimit
+	after := committedCount - limit
+	if after < 0 {
+		after = 0
+	}
+	return clientui.CommittedTranscriptSuffixRequest{AfterEntryCount: after, Limit: limit}
+}
+
+func (m *uiModel) cachedServerCommittedTranscriptEntryCount() int {
+	if m == nil {
+		return 0
+	}
+	committedCount := 0
+	if m.ongoingCommittedDelivery.initialized {
+		committedCount = max(committedCount, m.ongoingCommittedDelivery.lastAppliedCommittedEntryCount)
+		committedCount = max(committedCount, m.ongoingCommittedDelivery.lastEmittedCommittedEntryCount)
+	}
+	if cached, ok := m.runtimeClient().(interface {
+		CachedMainView() (clientui.RuntimeMainView, bool)
+	}); ok {
+		if view, hasCached := cached.CachedMainView(); hasCached {
+			committedCount = max(committedCount, view.Session.Transcript.CommittedEntryCount)
+		}
+	}
+	return committedCount
 }
 
 func (m *uiModel) applyCommittedTranscriptSuffixForNativeReplay(suffix clientui.CommittedTranscriptSuffix) tea.Cmd {

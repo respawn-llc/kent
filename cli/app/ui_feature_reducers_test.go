@@ -45,11 +45,61 @@ func TestUIUpdateRoutesProcessRefreshThroughReducer(t *testing.T) {
 	next, cmd := m.Update(processListRefreshTickMsg{})
 	updated := next.(*uiModel)
 
+	if len(updated.processList.entries) != 0 {
+		t.Fatalf("expected process refresh tick to defer entries until command completion, got %#v", updated.processList.entries)
+	}
+	msgs := collectCmdMessages(t, cmd)
+	var refresh processListRefreshDoneMsg
+	foundRefresh := false
+	for _, msg := range msgs {
+		if typed, ok := msg.(processListRefreshDoneMsg); ok {
+			refresh = typed
+			foundRefresh = true
+			break
+		}
+	}
+	if !foundRefresh {
+		t.Fatalf("expected process refresh command to produce completion, got %+v", msgs)
+	}
+	next, _ = updated.Update(refresh)
+	updated = next.(*uiModel)
+
 	if len(updated.processList.entries) != 1 || updated.processList.entries[0].ID != "proc-1" {
 		t.Fatalf("expected process refresh reducer to update entries, got %#v", updated.processList.entries)
 	}
-	if cmd == nil {
-		t.Fatal("expected process refresh reducer to schedule follow-up refresh")
+}
+
+func TestProcessRefreshSingleFlightSchedulesOneDirtyFollowUp(t *testing.T) {
+	m := newProjectedStaticUIModel(WithUIProcessClient(fixedUIProcessClient{
+		entries: []clientui.BackgroundProcess{{ID: "proc-1", Command: "sleep 1"}},
+	}))
+	m.processList.open = true
+
+	first := m.requestProcessListRefresh()
+	if first == nil {
+		t.Fatal("expected first refresh command")
+	}
+	second := m.requestProcessListRefresh()
+	if second != nil {
+		t.Fatal("expected in-flight refresh to coalesce instead of starting another command")
+	}
+	if !m.processList.refreshDirty {
+		t.Fatal("expected in-flight refresh to mark dirty follow-up")
+	}
+
+	next, followUp := m.Update(processListRefreshDoneMsg{
+		token:   m.processList.refreshToken,
+		entries: []clientui.BackgroundProcess{{ID: "proc-1", Command: "sleep 1"}},
+	})
+	updated := next.(*uiModel)
+	if !updated.processList.refreshInFlight {
+		t.Fatal("expected dirty follow-up refresh to start after first completion")
+	}
+	if updated.processList.refreshDirty {
+		t.Fatal("expected dirty flag cleared after scheduling follow-up")
+	}
+	if followUp == nil {
+		t.Fatal("expected follow-up refresh command")
 	}
 }
 

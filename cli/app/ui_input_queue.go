@@ -22,6 +22,26 @@ type queuedInputItem struct {
 	Text string
 }
 
+type injectedRuntimeQueueState string
+
+const (
+	injectedRuntimeQueuePendingCreate        injectedRuntimeQueueState = "pendingCreate"
+	injectedRuntimeQueueEnqueued             injectedRuntimeQueueState = "enqueued"
+	injectedRuntimeQueueDiscardPending       injectedRuntimeQueueState = "discardPending"
+	injectedRuntimeQueueCanceledBeforeCreate injectedRuntimeQueueState = "canceledBeforeCreate"
+	injectedRuntimeQueueCreateFailed         injectedRuntimeQueueState = "createFailed"
+	injectedRuntimeQueueDiscardFailed        injectedRuntimeQueueState = "discardFailed"
+)
+
+type injectedRuntimeQueueItem struct {
+	LocalID      string
+	ServerID     string
+	Text         string
+	State        injectedRuntimeQueueState
+	CreateToken  uint64
+	DiscardToken uint64
+}
+
 func (m *uiModel) queueInput(text string) {
 	m.queued = append(m.queued, newQueuedInputItem(text))
 	m.clearInput()
@@ -31,25 +51,40 @@ func newQueuedInputItem(text string) queuedInputItem {
 	return queuedInputItem{ID: uuid.NewString(), Text: text}
 }
 
-func (m *uiModel) enqueueInjectedInput(text string) bool {
+func (m *uiModel) enqueueInjectedInput(text string) tea.Cmd {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
-		return false
+		return nil
 	}
-	item, err := m.queueRuntimeUserMessage(trimmed)
-	if err != nil {
-		m.observeRuntimeRequestResult(err)
-		return false
+	localID := uuid.NewString()
+	if !m.hasRuntimeClient() {
+		item := clientui.QueuedUserMessage{ID: localID, Text: trimmed}
+		m.pendingInjected = append(m.pendingInjected, item)
+		m.injectedQueue = append(m.injectedQueue, injectedRuntimeQueueItem{LocalID: localID, ServerID: localID, Text: trimmed, State: injectedRuntimeQueueEnqueued})
+		return nil
 	}
-	m.pendingInjected = append(m.pendingInjected, item)
-	return true
+	token := m.nextInjectedQueueToken()
+	m.pendingInjected = append(m.pendingInjected, clientui.QueuedUserMessage{ID: localID, Text: trimmed})
+	m.injectedQueue = append(m.injectedQueue, injectedRuntimeQueueItem{
+		LocalID:     localID,
+		Text:        trimmed,
+		State:       injectedRuntimeQueuePendingCreate,
+		CreateToken: token,
+	})
+	client := m.runtimeClient()
+	return func() tea.Msg {
+		item, err := client.QueueUserMessage(trimmed)
+		return injectedQueueCreateDoneMsg{token: token, localID: localID, item: item, err: err}
+	}
 }
 
-func (m *uiModel) queueInjectedInput(text string) {
-	if !m.enqueueInjectedInput(text) {
-		return
+func (m *uiModel) queueInjectedInput(text string) tea.Cmd {
+	cmd := m.enqueueInjectedInput(text)
+	if strings.TrimSpace(text) == "" {
+		return nil
 	}
 	m.clearInput()
+	return cmd
 }
 
 func (c uiInputController) queueOrStartSubmission(text string) (tea.Model, tea.Cmd) {
@@ -90,9 +125,12 @@ func (c uiInputController) blockDisconnectedSubmission(restoreHidden bool, submi
 		return false, nil
 	}
 	if restoreHidden {
-		c.restorePendingInjectedIntoInput()
+		restoreCmd := c.restorePendingInjectedIntoInput()
 		c.restoreSubmittedTextIntoInput(submittedText)
 		c.restoreQueuedMessagesIntoInput()
+		m.activity = uiActivityError
+		m.syncViewport()
+		return true, tea.Batch(restoreCmd, m.appendOperatorErrorFeedback(runtimeDisconnectedStatusMessage))
 	}
 	m.activity = uiActivityError
 	m.syncViewport()
@@ -128,15 +166,16 @@ func (c uiInputController) restoreSubmittedTextIntoInput(text string) {
 	m.replaceMainInput(newInput, -1)
 }
 
-func (c uiInputController) restorePendingInjectedIntoInput() {
+func (c uiInputController) restorePendingInjectedIntoInput() tea.Cmd {
 	m := c.model
 	if len(m.pendingInjected) == 0 {
-		return
+		return nil
 	}
 	pending := append([]clientui.QueuedUserMessage(nil), m.pendingInjected...)
-	if m.hasRuntimeClient() {
-		for _, item := range pending {
-			m.discardQueuedRuntimeUserMessage(item.ID)
+	cmds := make([]tea.Cmd, 0, len(pending))
+	for _, item := range pending {
+		if cmd := m.markInjectedQueueDiscardRequested(item.ID); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 	}
 	joined := strings.Join(queuedUserMessageTexts(pending), "\n\n")
@@ -148,18 +187,20 @@ func (c uiInputController) restorePendingInjectedIntoInput() {
 		newInput = strings.TrimRight(m.input, "\n") + "\n\n" + joined
 	}
 	m.replaceMainInput(newInput, -1)
+	return tea.Batch(cmds...)
 }
 
-func (c uiInputController) unlockInputAfterSubmissionError() {
-	c.releaseLockedInjectedInput(true)
+func (c uiInputController) unlockInputAfterSubmissionError() tea.Cmd {
+	return c.releaseLockedInjectedInput(true)
 }
 
-func (c uiInputController) releaseLockedInjectedInput(discardEngineQueue bool) {
+func (c uiInputController) releaseLockedInjectedInput(discardEngineQueue bool) tea.Cmd {
 	m := c.model
 	if !m.isInputSubmitLocked() {
-		return
+		return nil
 	}
 	lockedID := strings.TrimSpace(m.lockedInjectID)
+	var discardCmd tea.Cmd
 	if lockedID != "" {
 		filtered := m.pendingInjected[:0]
 		for _, pending := range m.pendingInjected {
@@ -169,13 +210,14 @@ func (c uiInputController) releaseLockedInjectedInput(discardEngineQueue bool) {
 			filtered = append(filtered, pending)
 		}
 		m.pendingInjected = filtered
-		if discardEngineQueue && m.hasRuntimeClient() {
-			m.discardQueuedRuntimeUserMessage(lockedID)
+		if discardEngineQueue {
+			discardCmd = m.markInjectedQueueDiscardRequested(lockedID)
 		}
 	}
 	m.setInputSubmitLocked(false)
 	m.lockedInjectText = ""
 	m.lockedInjectID = ""
+	return discardCmd
 }
 
 func (c uiInputController) flushQueuedInputs(mode queueDrainMode) (tea.Model, tea.Cmd) {
@@ -201,7 +243,7 @@ func (c uiInputController) flushQueuedInputs(mode queueDrainMode) (tea.Model, te
 
 func (c uiInputController) resumeQueuedInputsAfterIdleRuntime() tea.Cmd {
 	m := c.model
-	if m == nil || m.isBusy() || m.ask.hasCurrent() || len(m.queued) == 0 || m.isInputLocked() || m.pendingQueuedDrainAfterHydration {
+	if m == nil || m.isBusy() || m.ask.hasCurrent() || len(m.queued) == 0 || m.isInputLocked() || m.pendingQueuedDrainAfterHydration || m.processList.actionInFlight {
 		return nil
 	}
 	if m.hasRuntimeClient() && c.queuedDrainRequiresHydration() {
@@ -233,7 +275,7 @@ func (c uiInputController) dispatchQueuedInput(item queuedInputItem) tea.Cmd {
 }
 
 func (m *uiModel) shouldContinueQueuedInputAutoDrain() bool {
-	if len(m.queued) == 0 || m.isBusy() || m.isInputLocked() || m.exitAction != UIActionNone || m.ask.hasCurrent() {
+	if len(m.queued) == 0 || m.isBusy() || m.isInputLocked() || m.exitAction != UIActionNone || m.ask.hasCurrent() || m.processList.actionInFlight {
 		return false
 	}
 	if m.inputMode() != uiInputModeMain {
@@ -279,4 +321,266 @@ func queuedUserMessageTexts(messages []clientui.QueuedUserMessage) []string {
 		texts = append(texts, message.Text)
 	}
 	return texts
+}
+
+func (m *uiModel) nextInjectedQueueToken() uint64 {
+	m.injectedQueueToken++
+	if m.injectedQueueToken == 0 {
+		m.injectedQueueToken++
+	}
+	return m.injectedQueueToken
+}
+
+func (m *uiModel) markInjectedQueueDiscardRequested(id string) tea.Cmd {
+	if m == nil || strings.TrimSpace(id) == "" {
+		return nil
+	}
+	index := m.injectedQueueIndexByAnyID(id)
+	if index < 0 {
+		if !m.hasRuntimeClient() {
+			return nil
+		}
+		return m.discardInjectedRuntimeQueueCommand("", id, m.nextInjectedQueueToken(), m.runtimeClient())
+	}
+	item := m.injectedQueue[index]
+	switch item.State {
+	case injectedRuntimeQueuePendingCreate:
+		item.State = injectedRuntimeQueueCanceledBeforeCreate
+		m.injectedQueue[index] = item
+		return nil
+	case injectedRuntimeQueueCanceledBeforeCreate, injectedRuntimeQueueDiscardPending:
+		return nil
+	case injectedRuntimeQueueEnqueued, injectedRuntimeQueueDiscardFailed:
+		serverID := strings.TrimSpace(item.ServerID)
+		if serverID == "" {
+			serverID = strings.TrimSpace(item.LocalID)
+		}
+		token := m.nextInjectedQueueToken()
+		item.State = injectedRuntimeQueueDiscardPending
+		item.DiscardToken = token
+		m.injectedQueue[index] = item
+		return m.discardInjectedRuntimeQueueCommand(item.LocalID, serverID, token, m.runtimeClient())
+	default:
+		return nil
+	}
+}
+
+func (m *uiModel) discardInjectedRuntimeQueueCommand(localID, serverID string, token uint64, client clientui.RuntimeClient) tea.Cmd {
+	if client == nil || strings.TrimSpace(serverID) == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		return injectedQueueDiscardDoneMsg{
+			token:     token,
+			localID:   localID,
+			serverID:  serverID,
+			discarded: client.DiscardQueuedUserMessage(serverID),
+		}
+	}
+}
+
+func (m *uiModel) injectedQueueIndexByAnyID(id string) int {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return -1
+	}
+	for index, item := range m.injectedQueue {
+		if item.LocalID == id || item.ServerID == id {
+			return index
+		}
+	}
+	return -1
+}
+
+func (m *uiModel) injectedQueueBlocksDrain() bool {
+	if m == nil {
+		return false
+	}
+	for _, item := range m.injectedQueue {
+		switch item.State {
+		case injectedRuntimeQueuePendingCreate, injectedRuntimeQueueCanceledBeforeCreate, injectedRuntimeQueueDiscardPending, injectedRuntimeQueueDiscardFailed:
+			return true
+		}
+	}
+	return false
+}
+
+func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreateDoneMsg) (tea.Model, tea.Cmd) {
+	m := c.model
+	index := m.injectedQueueIndexByAnyID(msg.localID)
+	if index < 0 {
+		return m, nil
+	}
+	item := m.injectedQueue[index]
+	if item.CreateToken != msg.token {
+		return m, nil
+	}
+	m.observeRuntimeRequestResult(msg.err)
+	if msg.err != nil {
+		m.injectedQueue[index].State = injectedRuntimeQueueCreateFailed
+		m.removePendingInjectedByID(item.LocalID)
+		if item.State == injectedRuntimeQueuePendingCreate {
+			c.restoreInjectedTextIntoInput(item.Text)
+			detailErr := formatSubmissionError(msg.err)
+			m.activity = uiActivityError
+			appendCmd := m.appendOperatorErrorFeedback(detailErr)
+			m.logf("queue_create.error err=%q", detailErr)
+			m.removeInjectedQueueItemAt(index)
+			m.syncViewport()
+			return m, appendCmd
+		}
+		m.removeInjectedQueueItemAt(index)
+		return m, nil
+	}
+	serverID := strings.TrimSpace(msg.item.ID)
+	if serverID == "" {
+		serverID = item.LocalID
+	}
+	serverText := strings.TrimSpace(msg.item.Text)
+	if serverText == "" {
+		serverText = item.Text
+	}
+	item.ServerID = serverID
+	item.Text = serverText
+	switch item.State {
+	case injectedRuntimeQueuePendingCreate:
+		item.State = injectedRuntimeQueueEnqueued
+		m.injectedQueue[index] = item
+		m.replacePendingInjectedID(item.LocalID, clientui.QueuedUserMessage{ID: serverID, Text: serverText})
+		if !m.isBusy() && !m.isInputLocked() && !m.injectedQueueBlocksDrain() {
+			return m, c.startQueuedInjectionSubmission()
+		}
+	case injectedRuntimeQueueCanceledBeforeCreate:
+		token := m.nextInjectedQueueToken()
+		item.State = injectedRuntimeQueueDiscardPending
+		item.DiscardToken = token
+		m.injectedQueue[index] = item
+		return m, m.discardInjectedRuntimeQueueCommand(item.LocalID, serverID, token, m.runtimeClient())
+	default:
+		m.injectedQueue[index] = item
+	}
+	return m, nil
+}
+
+func (c uiInputController) handleInjectedQueueDiscardDone(msg injectedQueueDiscardDoneMsg) (tea.Model, tea.Cmd) {
+	m := c.model
+	id := strings.TrimSpace(msg.localID)
+	if id == "" {
+		id = strings.TrimSpace(msg.serverID)
+	}
+	index := m.injectedQueueIndexByAnyID(id)
+	if index < 0 {
+		return m, nil
+	}
+	item := m.injectedQueue[index]
+	if item.DiscardToken != msg.token {
+		return m, nil
+	}
+	if msg.discarded {
+		m.removePendingInjectedByID(item.LocalID)
+		m.removePendingInjectedByID(item.ServerID)
+		m.removeInjectedQueueItemAt(index)
+		if !m.isBusy() && !m.isInputLocked() && !m.injectedQueueBlocksDrain() {
+			return m, c.startQueuedInjectionSubmission()
+		}
+		return m, nil
+	}
+	item.State = injectedRuntimeQueueDiscardFailed
+	m.injectedQueue[index] = item
+	m.ensurePendingInjectedVisible(item)
+	detailErr := "failed to discard queued runtime user message"
+	m.activity = uiActivityError
+	appendCmd := m.appendOperatorErrorFeedback(detailErr)
+	m.logf("queue_discard.error queue_item_id=%q", item.ServerID)
+	return m, appendCmd
+}
+
+func (c uiInputController) restoreInjectedTextIntoInput(text string) {
+	m := c.model
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return
+	}
+	if strings.TrimSpace(m.input) == "" {
+		m.replaceMainInput(trimmed, -1)
+		return
+	}
+	m.replaceMainInput(strings.TrimRight(m.input, "\n")+"\n\n"+trimmed, -1)
+}
+
+func (m *uiModel) replacePendingInjectedID(oldID string, next clientui.QueuedUserMessage) {
+	oldID = strings.TrimSpace(oldID)
+	for index, item := range m.pendingInjected {
+		if item.ID != oldID {
+			continue
+		}
+		m.pendingInjected[index] = next
+		return
+	}
+	m.pendingInjected = append(m.pendingInjected, next)
+}
+
+func (m *uiModel) removePendingInjectedByID(id string) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return
+	}
+	filtered := m.pendingInjected[:0]
+	for _, item := range m.pendingInjected {
+		if item.ID == id {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	m.pendingInjected = filtered
+}
+
+func (m *uiModel) removeInjectedQueueItemAt(index int) {
+	if index < 0 || index >= len(m.injectedQueue) {
+		return
+	}
+	m.injectedQueue = append(m.injectedQueue[:index], m.injectedQueue[index+1:]...)
+}
+
+func (m *uiModel) ensurePendingInjectedVisible(item injectedRuntimeQueueItem) {
+	id := strings.TrimSpace(item.ServerID)
+	if id == "" {
+		id = strings.TrimSpace(item.LocalID)
+	}
+	if id == "" {
+		return
+	}
+	for _, pending := range m.pendingInjected {
+		if pending.ID == id {
+			return
+		}
+	}
+	m.pendingInjected = append(m.pendingInjected, clientui.QueuedUserMessage{ID: id, Text: item.Text})
+}
+
+func (m *uiModel) removeInjectedQueueItemsByIDs(ids []string) {
+	if len(ids) == 0 || len(m.injectedQueue) == 0 {
+		return
+	}
+	filtered := m.injectedQueue[:0]
+	for _, item := range m.injectedQueue {
+		if containsInjectedQueueID(ids, item.ServerID) || containsInjectedQueueID(ids, item.LocalID) {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	m.injectedQueue = filtered
+}
+
+func containsInjectedQueueID(values []string, target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return false
+	}
+	for _, value := range values {
+		if strings.TrimSpace(value) == target {
+			return true
+		}
+	}
+	return false
 }

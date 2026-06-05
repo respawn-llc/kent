@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"strings"
 	"testing"
 
 	"builder/cli/tui"
@@ -23,6 +24,7 @@ type runtimeControlFakeClient struct {
 	setSessionNameArg      string
 	setThinkingLevelArg    string
 	setFastModeArg         bool
+	setFastModeCalls       int
 	setReviewerArg         bool
 	setAutoCompactArg      bool
 	goal                   *clientui.RuntimeGoal
@@ -40,13 +42,22 @@ type runtimeControlFakeClient struct {
 	submitShellCommand     string
 	compactArgs            string
 	hasQueuedUserWork      bool
+	hasQueuedUserWorkCalls int
 	submitQueuedResult     string
+	submitQueuedCalls      int
 	interruptCalls         int
 	queuedText             string
+	queueUserMessageCalls  int
+	queueUserMessageErr    error
+	queueUserMessageID     string
 	discardQueuedID        string
+	discardQueuedCalls     int
+	discardQueuedResult    bool
 	discardQueuedCount     int
 	recordedPromptHistory  string
 	refreshMainViewCalls   int
+	refreshTranscriptCalls int
+	loadTranscriptCalls    int
 	err                    error
 	appendErr              error
 	shouldCompactErr       error
@@ -89,10 +100,12 @@ func (f *runtimeControlFakeClient) RefreshTranscript() (clientui.TranscriptPage,
 	return f.Transcript(), f.err
 }
 func (f *runtimeControlFakeClient) RefreshTranscriptPage(req clientui.TranscriptPageRequest) (clientui.TranscriptPage, error) {
+	f.refreshTranscriptCalls++
 	return f.LoadTranscriptPage(req)
 }
 func (f *runtimeControlFakeClient) LoadTranscriptPage(req clientui.TranscriptPageRequest) (clientui.TranscriptPage, error) {
 	_ = req
+	f.loadTranscriptCalls++
 	return f.Transcript(), f.err
 }
 func (f *runtimeControlFakeClient) Status() clientui.RuntimeStatus { return f.status }
@@ -109,6 +122,7 @@ func (f *runtimeControlFakeClient) SetThinkingLevel(level string) error {
 }
 func (f *runtimeControlFakeClient) SetFastModeEnabled(enabled bool) (bool, error) {
 	f.setFastModeArg = enabled
+	f.setFastModeCalls++
 	f.status.FastModeEnabled = enabled
 	return true, f.err
 }
@@ -150,6 +164,9 @@ func (f *runtimeControlFakeClient) ClearGoal() (*clientui.RuntimeGoal, error) {
 	return nil, f.err
 }
 func (f *runtimeControlFakeClient) AppendLocalEntry(role, text string) error {
+	return f.AppendLocalEntryWithNoticeID(role, text, "")
+}
+func (f *runtimeControlFakeClient) AppendLocalEntryWithNoticeID(role, text, noticeID string) error {
 	f.appendedRole = role
 	f.appendedText = text
 	if f.appendErr != nil {
@@ -194,12 +211,14 @@ func (f *runtimeControlFakeClient) CompactContextForPreSubmit(context.Context) e
 	return f.err
 }
 func (f *runtimeControlFakeClient) HasQueuedUserWork() (bool, error) {
+	f.hasQueuedUserWorkCalls++
 	if f.hasQueuedUserWorkErr != nil {
 		return f.hasQueuedUserWork, f.hasQueuedUserWorkErr
 	}
 	return f.hasQueuedUserWork, f.err
 }
 func (f *runtimeControlFakeClient) SubmitQueuedUserMessages(context.Context) (string, error) {
+	f.submitQueuedCalls++
 	if f.submitQueuedErr != nil {
 		return f.submitQueuedResult, f.submitQueuedErr
 	}
@@ -213,11 +232,23 @@ func (f *runtimeControlFakeClient) Interrupt() error {
 	return f.err
 }
 func (f *runtimeControlFakeClient) QueueUserMessage(text string) (clientui.QueuedUserMessage, error) {
+	f.queueUserMessageCalls++
 	f.queuedText = text
-	return clientui.QueuedUserMessage{ID: "queue-1", Text: text}, nil
+	if f.queueUserMessageErr != nil {
+		return clientui.QueuedUserMessage{}, f.queueUserMessageErr
+	}
+	id := strings.TrimSpace(f.queueUserMessageID)
+	if id == "" {
+		id = "queue-1"
+	}
+	return clientui.QueuedUserMessage{ID: id, Text: text}, nil
 }
 func (f *runtimeControlFakeClient) DiscardQueuedUserMessage(queueItemID string) bool {
+	f.discardQueuedCalls++
 	f.discardQueuedID = queueItemID
+	if f.discardQueuedResult {
+		return true
+	}
 	return f.discardQueuedCount > 0
 }
 func (f *runtimeControlFakeClient) RecordPromptHistory(text string) error {
@@ -325,6 +356,131 @@ func TestRuntimeControlHelpersDelegateToRuntimeClient(t *testing.T) {
 	}
 }
 
+func TestRuntimeControlCompletionsAreScopedPerOperation(t *testing.T) {
+	client := &runtimeControlFakeClient{}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+
+	sessionCmd := m.runtimeControlCommand(runtimeControlSetSessionName, "incident triage", false, "")
+	thinkingCmd := m.runtimeControlCommand(runtimeControlSetThinkingLevel, "high", false, "")
+	sessionMsgs := collectCmdMessages(t, sessionCmd)
+	thinkingMsgs := collectCmdMessages(t, thinkingCmd)
+
+	var sessionDone runtimeControlDoneMsg
+	for _, msg := range sessionMsgs {
+		if typed, ok := msg.(runtimeControlDoneMsg); ok {
+			sessionDone = typed
+		}
+	}
+	var thinkingDone runtimeControlDoneMsg
+	for _, msg := range thinkingMsgs {
+		if typed, ok := msg.(runtimeControlDoneMsg); ok {
+			thinkingDone = typed
+		}
+	}
+
+	next, _ := m.Update(thinkingDone)
+	updated := next.(*uiModel)
+	next, _ = updated.Update(sessionDone)
+	updated = next.(*uiModel)
+	if updated.thinkingLevel != "high" || updated.sessionName != "incident triage" {
+		t.Fatalf("expected independent completions to apply, session=%q thinking=%q", updated.sessionName, updated.thinkingLevel)
+	}
+}
+
+func TestRuntimeControlRapidFastToggleUsesPendingTargetAndIgnoresOlderCompletion(t *testing.T) {
+	client := &runtimeControlFakeClient{}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+	m.fastModeAvailable = true
+	m.fastModeEnabled = false
+
+	_, firstCmd := m.inputController().handleFastModeCommand("")
+	if firstCmd == nil {
+		t.Fatal("expected first fast toggle command")
+	}
+	_, secondCmd := m.inputController().handleFastModeCommand("")
+	if secondCmd != nil {
+		t.Fatal("did not expect second fast toggle command while first is in flight")
+	}
+
+	firstMsgs := collectCmdMessages(t, firstCmd)
+	if client.setFastModeCalls != 1 || client.setFastModeArg != true {
+		t.Fatalf("first fast target calls=%d arg=%t, want one true", client.setFastModeCalls, client.setFastModeArg)
+	}
+
+	var firstDone runtimeControlDoneMsg
+	for _, msg := range firstMsgs {
+		if typed, ok := msg.(runtimeControlDoneMsg); ok {
+			firstDone = typed
+		}
+	}
+	next, followUpCmd := m.Update(firstDone)
+	updated := next.(*uiModel)
+	if updated.fastModeEnabled {
+		t.Fatal("expected older fast toggle completion to be ignored")
+	}
+	if followUpCmd == nil {
+		t.Fatal("expected follow-up command for coalesced fast target")
+	}
+	followUpMsgs := collectCmdMessages(t, followUpCmd)
+	if client.setFastModeCalls != 2 || client.setFastModeArg != false {
+		t.Fatalf("follow-up fast target calls=%d arg=%t, want second false", client.setFastModeCalls, client.setFastModeArg)
+	}
+	var followUpDone runtimeControlDoneMsg
+	for _, msg := range followUpMsgs {
+		if typed, ok := msg.(runtimeControlDoneMsg); ok {
+			followUpDone = typed
+		}
+	}
+	next, _ = updated.Update(followUpDone)
+	updated = next.(*uiModel)
+	if updated.fastModeEnabled {
+		t.Fatal("expected rapid double-toggle to end disabled")
+	}
+}
+
+func TestRuntimeControlStaleSessionCompletionClearsPendingToggle(t *testing.T) {
+	client := &runtimeControlFakeClient{}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents())
+	m.startupCmds = nil
+	m.sessionID = "session-old"
+	m.fastModeAvailable = true
+
+	cmd := m.runtimeControlCommand(runtimeControlSetFastMode, "", true, "")
+	msgs := collectCmdMessages(t, cmd)
+	var done runtimeControlDoneMsg
+	for _, msg := range msgs {
+		if typed, ok := msg.(runtimeControlDoneMsg); ok {
+			done = typed
+		}
+	}
+
+	m.sessionID = "session-new"
+	_, blockedCmd := m.inputController().handleFastModeCommand("on")
+	if blockedCmd == nil {
+		t.Fatal("expected new-session fast toggle to start even while old-session command is in flight")
+	}
+	_ = collectCmdMessages(t, blockedCmd)
+	if client.setFastModeArg != true {
+		t.Fatalf("new-session bare fast toggle should target true from cached state, got %t", client.setFastModeArg)
+	}
+
+	next, _ := m.Update(done)
+	updated := next.(*uiModel)
+	pending, exists := updated.runtimeControlPending[runtimeControlSetFastMode]
+	if !exists || pending.sessionID != "session-new" {
+		t.Fatalf("expected stale-session completion to preserve new-session pending toggle, got %+v", updated.runtimeControlPending)
+	}
+	_, nextCmd := updated.inputController().handleFastModeCommand("off")
+	if nextCmd != nil {
+		t.Fatal("expected new-session follow-up target to coalesce without a concurrent command")
+	}
+	if pending := updated.runtimeControlPending[runtimeControlSetFastMode]; pending.desiredEnabled {
+		t.Fatalf("expected coalesced new-session desired target to be false, got %+v", pending)
+	}
+}
+
 func TestRuntimeControlHelpersFallbackWithoutRuntimeClient(t *testing.T) {
 	m := newProjectedStaticUIModel()
 
@@ -398,7 +554,7 @@ func TestSubmitErrorWithRuntimeClientAppendsActivePrimaryRunEntry(t *testing.T) 
 	m.engine = client
 	m.setBusy(true)
 
-	next, _ := m.Update(submitDoneMsg{err: primaryrun.ErrActivePrimaryRun})
+	next, cmd := m.Update(submitDoneMsg{err: primaryrun.ErrActivePrimaryRun})
 	updated := next.(*uiModel)
 	if updated.isBusy() {
 		t.Fatal("did not expect busy after active primary run error")
@@ -406,6 +562,17 @@ func TestSubmitErrorWithRuntimeClientAppendsActivePrimaryRunEntry(t *testing.T) 
 	if updated.activity != uiActivityError {
 		t.Fatalf("expected error activity, got %v", updated.activity)
 	}
+	if len(updated.transcriptEntries) != 1 {
+		t.Fatalf("expected one immediate local transcript entry, got %+v", updated.transcriptEntries)
+	}
+	entry := updated.transcriptEntries[0]
+	if entry.Role != tui.TranscriptRoleDeveloperErrorFeedback || entry.Text != primaryrun.ErrActivePrimaryRun.Error() {
+		t.Fatalf("unexpected immediate local transcript entry: %+v", entry)
+	}
+	if client.appendedRole != "" || client.appendedText != "" {
+		t.Fatalf("did not expect runtime append during Update, got role=%q text=%q", client.appendedRole, client.appendedText)
+	}
+	_ = collectCmdMessages(t, cmd)
 	if client.appendedRole != string(transcript.EntryRoleDeveloperErrorFeedback) || client.appendedText != primaryrun.ErrActivePrimaryRun.Error() {
 		t.Fatalf("unexpected runtime local entry: role=%q text=%q", client.appendedRole, client.appendedText)
 	}
@@ -417,12 +584,16 @@ func TestActiveSubmitErrorFallsBackToVisibleTranscriptWhenRuntimeAppendFails(t *
 	m.engine = client
 	m.setBusy(true)
 
-	next, _ := m.Update(submitDoneMsg{err: primaryrun.ErrActivePrimaryRun})
+	next, cmd := m.Update(submitDoneMsg{err: primaryrun.ErrActivePrimaryRun})
 	updated := next.(*uiModel)
 
 	if updated.activity != uiActivityError {
 		t.Fatalf("expected error activity, got %v", updated.activity)
 	}
+	if client.appendedRole != "" || client.appendedText != "" {
+		t.Fatalf("did not expect runtime append during Update, got role=%q text=%q", client.appendedRole, client.appendedText)
+	}
+	_ = collectCmdMessages(t, cmd)
 	if client.appendedRole != string(transcript.EntryRoleDeveloperErrorFeedback) || client.appendedText != primaryrun.ErrActivePrimaryRun.Error() {
 		t.Fatalf("unexpected runtime local entry attempt: role=%q text=%q", client.appendedRole, client.appendedText)
 	}

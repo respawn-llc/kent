@@ -32,14 +32,16 @@ func TestCompactDoneResumesQueuedSteeringAsNewTurn(t *testing.T) {
 	m.activity = uiActivityRunning
 	m.input = "steered message"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, createCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	updated = applyFirstInjectedQueueCreateDoneForTest(t, updated, createCmd)
 	if len(updated.pendingInjected) != 1 || updated.pendingInjected[0].Text != "steered message" {
 		t.Fatalf("expected pending injected steering before compaction completes, got %+v", updated.pendingInjected)
 	}
 
 	next, cmd := updated.Update(compactDoneMsg{})
 	updated = next.(*uiModel)
+	updated, cmd = applyQueuedRuntimeWorkCheckForTest(t, updated, cmd)
 	if cmd == nil {
 		t.Fatal("expected compaction completion to resume queued steering")
 	}
@@ -120,10 +122,12 @@ func TestInterruptedResumedQueuedSteeringRestoresInput(t *testing.T) {
 	m.activity = uiActivityRunning
 	m.input = "steered message"
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, createCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
+	updated = applyFirstInjectedQueueCreateDoneForTest(t, updated, createCmd)
 	next, cmd := updated.Update(compactDoneMsg{})
 	updated = next.(*uiModel)
+	updated, cmd = applyQueuedRuntimeWorkCheckForTest(t, updated, cmd)
 	if cmd == nil {
 		t.Fatal("expected compaction completion to resume queued steering")
 	}
