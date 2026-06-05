@@ -67,8 +67,8 @@ func (m *uiModel) worktreeSwitchCommandForTarget(targetToken, worktreeID string)
 		return nil
 	}
 	service := m.worktreeMutationService()
-	m.worktrees.mutationToken++
-	switchToken := m.worktrees.mutationToken
+	m.worktrees.switchToken++
+	switchToken := m.worktrees.switchToken
 	m.worktrees.switchPending = true
 	targetToken = strings.TrimSpace(targetToken)
 	worktreeID = strings.TrimSpace(worktreeID)

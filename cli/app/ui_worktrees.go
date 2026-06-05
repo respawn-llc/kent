@@ -92,6 +92,7 @@ type uiWorktreeOverlayState struct {
 	errorText     string
 	refreshToken  uint64
 	mutationToken uint64
+	switchToken   uint64
 	switchPending bool
 	queuedSwitch  uiWorktreeQueuedSwitch
 	selectedID    string

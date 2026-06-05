@@ -232,11 +232,11 @@ func (m *uiModel) appendLocalEntryWithNoticeID(role, text, noticeID string) tea.
 	if noticeID == "" {
 		noticeID = m.nextLocalNoticeID()
 	}
-	localCmd := m.appendLocalEntryFallbackWithNoticeID(role, text, noticeID)
 	if !m.hasRuntimeClient() {
-		return localCmd
+		return m.appendLocalEntryFallbackWithNoticeID(role, text, noticeID)
 	}
 	m.trackPendingLocalEntryEcho(noticeID)
+	localCmd := m.appendLocalEntryFallbackWithNoticeIDTransient(role, text, noticeID)
 	persistCmd := m.persistLocalEntryCmd(role, text, noticeID)
 	return sequenceCmds(localCmd, persistCmd)
 }
@@ -249,16 +249,24 @@ func (m *uiModel) appendLocalEntryFallbackWithNoticeID(role, text, noticeID stri
 	return m.appendLocalEntryFallbackWithNoticeIDAndVisibility(role, text, noticeID, transcript.EntryVisibilityAuto)
 }
 
+func (m *uiModel) appendLocalEntryFallbackWithNoticeIDTransient(role, text, noticeID string) tea.Cmd {
+	return m.appendLocalEntryFallbackWithNoticeIDAndVisibilityAndTransient(role, text, noticeID, transcript.EntryVisibilityAuto, true)
+}
+
 func (m *uiModel) appendLocalEntryFallbackWithNoticeIDAndVisibility(role, text, noticeID string, visibility transcript.EntryVisibility) tea.Cmd {
+	return m.appendLocalEntryFallbackWithNoticeIDAndVisibilityAndTransient(role, text, noticeID, visibility, false)
+}
+
+func (m *uiModel) appendLocalEntryFallbackWithNoticeIDAndVisibilityAndTransient(role, text, noticeID string, visibility transcript.EntryVisibility, transient bool) tea.Cmd {
 	if m == nil {
 		return nil
 	}
 	transcriptRole := tui.TranscriptRoleFromWire(role)
-	entry := tui.TranscriptEntry{Visibility: transcript.NormalizeEntryVisibility(visibility), Role: transcriptRole, Text: text, NoticeID: strings.TrimSpace(noticeID)}
+	entry := tui.TranscriptEntry{Visibility: transcript.NormalizeEntryVisibility(visibility), Transient: transient, Role: transcriptRole, Text: text, NoticeID: strings.TrimSpace(noticeID)}
 	m.transcriptEntries = append(m.transcriptEntries, entry)
 	m.transcriptTotalEntries = max(m.transcriptTotalEntries, m.transcriptBaseOffset+len(committedTranscriptEntriesForApp(m.transcriptEntries)))
 	m.refreshRollbackCandidates()
-	m.forwardToView(tui.AppendTranscriptMsg{Visibility: entry.Visibility, Role: transcriptRole, Text: text, NoticeID: entry.NoticeID})
+	m.forwardToView(tui.AppendTranscriptMsg{Visibility: entry.Visibility, Transient: entry.Transient, Role: transcriptRole, Text: text, NoticeID: entry.NoticeID})
 	return m.syncNativeHistoryFromTranscript()
 }
 

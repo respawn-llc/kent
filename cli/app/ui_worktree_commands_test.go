@@ -1019,6 +1019,35 @@ func TestWorktreeSwitchCompletionAppliesBeforeQueuedSwitchRuns(t *testing.T) {
 	}
 }
 
+func TestWorktreeSwitchCompletionUsesSwitchTokenNotMutationToken(t *testing.T) {
+	client := &worktreeCommandTestClient{
+		listResp:   testLinkedWorktreeListResponse(),
+		switchResp: serverapi.WorktreeSwitchResponse{Worktree: serverapi.WorktreeView{WorktreeID: "wt-feature", DisplayName: "feature-a"}},
+	}
+	m := newWorktreeTestModel(t, client)
+
+	next, switchCmd := m.inputController().handleWorktreeSwitchCommand("feature-a")
+	updated := next.(*uiModel)
+	if switchCmd == nil {
+		t.Fatal("expected switch command")
+	}
+	var switchDone worktreeSwitchDoneMsg
+	for _, msg := range collectCmdMessages(t, switchCmd) {
+		if typed, ok := msg.(worktreeSwitchDoneMsg); ok {
+			switchDone = typed
+		}
+	}
+	updated.worktrees.mutationToken++
+	next, _ = updated.Update(switchDone)
+	updated = next.(*uiModel)
+	if updated.worktrees.switchPending {
+		t.Fatal("expected switch completion to clear pending state despite unrelated mutation token change")
+	}
+	if updated.transientStatus != "Switched to feature-a" {
+		t.Fatalf("expected switch completion to apply, got status %q", updated.transientStatus)
+	}
+}
+
 func TestWorktreeDeleteTargetResolutionPrefersDisplayNameMatchBeforeBranchMatch(t *testing.T) {
 	resp := testMainWorktreeListResponse()
 	resp.Worktrees = append(resp.Worktrees,

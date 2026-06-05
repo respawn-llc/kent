@@ -119,6 +119,9 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !m.ask.hasCurrent() {
 		return m, nil
 	}
+	if m.ask.answerPending {
+		return m, nil
+	}
 	if msg.Type != tea.KeyEnter && msg.Type != keyTypeShiftEnterCSI {
 		m.inputController().clearPendingCSIShiftEnter()
 	}
@@ -194,6 +197,7 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					}
 					resp = clientui.PromptAnswer{Approval: &clientui.ApprovalPromptAnswer{Decision: decision, Commentary: commentary}}
 					if queueCmd := m.enqueueInjectedInputWithApprovalAnswer(commentary, &resp); queueCmd != nil {
+						m.ask.answerPending = true
 						return m, queueCmd
 					}
 					hasNext := c.answer(resp, nil)
@@ -428,6 +432,7 @@ func (c uiAskController) answer(resp clientui.PromptAnswer, err error) bool {
 	if !m.ask.hasCurrent() {
 		return false
 	}
+	m.ask.answerPending = false
 	if resp.PromptID == "" {
 		resp.PromptID = m.ask.current.req.PromptID
 	}
@@ -464,6 +469,7 @@ func (c uiAskController) setActiveAsk(evt askEvent) {
 	current := evt
 	m.ask.currentToken = nextNonZeroToken(m.ask.currentToken)
 	m.ask.current = &current
+	m.ask.answerPending = false
 	m.ask.cursor = 0
 	m.clearAskInput()
 	m.ask.freeform = askOptionCount(current.req) == 0

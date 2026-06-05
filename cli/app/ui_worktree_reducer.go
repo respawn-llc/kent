@@ -62,7 +62,7 @@ func (r uiWorktreeFeatureReducer) Update(msg tea.Msg) uiFeatureUpdateResult {
 		m.syncViewport()
 		return handledUIFeatureUpdate(m, tea.Batch(overlayCmd, feedbackCmd, m.requestRuntimeMainViewRefresh(), m.ensureSpinnerTicking()))
 	case worktreeSwitchDoneMsg:
-		if msg.token != m.worktrees.mutationToken {
+		if msg.token != m.worktrees.switchToken {
 			m.syncViewport()
 			return handledUIFeatureUpdate(m, nil)
 		}
