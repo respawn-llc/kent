@@ -8,6 +8,13 @@ import {
 } from "./workflowGraphLayoutGeometry";
 import type { WorkflowGraphNode, WorkflowGraphPoint } from "./workflowGraphLayout";
 
+type WorkflowGraphRouteEndpoints = Readonly<{
+  source: WorkflowGraphNodeRect;
+  sourcePort: WorkflowGraphEndpointPort;
+  target: WorkflowGraphNodeRect;
+  targetPort: WorkflowGraphEndpointPort;
+}>;
+
 export function layoutEdgeByID(root: ElkNode): ReadonlyMap<string, ElkExtendedEdge> {
   const out = new Map<string, ElkExtendedEdge>();
   function visit(node: ElkNode): void {
@@ -61,10 +68,11 @@ export function workflowGraphEdgeRoutePoints(
   }
   const sourceAligned = options.alignedJoinNodeIDs.has(model.sourceNodeID);
   const targetAligned = options.alignedJoinNodeIDs.has(model.targetNodeID);
+  const endpoints = { source, sourcePort: model.sourcePort, target, targetPort: model.targetPort };
   if (isBranchToAlignedJoin(source, target, targetAligned)) {
-    return branchJoinEdgeRoutePoints(source, target, options.groupNodeByGroupID);
+    return branchJoinEdgeRoutePoints(endpoints, options.groupNodeByGroupID);
   }
-  return adjustAlignedJoinEndpointRoutePoints(routedPoints, source, target, { sourceAligned, targetAligned });
+  return adjustAlignedJoinEndpointRoutePoints(routedPoints, endpoints, { sourceAligned, targetAligned });
 }
 
 function edgeRoutePoints(
@@ -95,22 +103,23 @@ function isBranchToAlignedJoin(
 }
 
 function branchJoinEdgeRoutePoints(
-  source: WorkflowGraphNodeRect,
-  target: WorkflowGraphNodeRect,
+  endpoints: WorkflowGraphRouteEndpoints,
   groupNodeByGroupID: ReadonlyMap<string, WorkflowGraphNode>,
 ): readonly WorkflowGraphPoint[] {
-  const start = centeredSourcePoint(source);
-  const end = joinCenterTargetPoint(target);
-  const groupNode = groupNodeByGroupID.get(target.groupID);
-  const groupRight = groupNode === undefined ? source.x + source.width : groupNode.position.x + graphNodeWidth(groupNode);
-  const busX = groupRight + Math.max(24, (target.x - groupRight) / 2);
+  const start = sourceHandlePoint(endpoints.source, endpoints.sourcePort);
+  const end = targetHandlePoint(endpoints.target, endpoints.targetPort);
+  const groupNode = groupNodeByGroupID.get(endpoints.target.groupID);
+  const groupRight =
+    groupNode === undefined
+      ? endpoints.source.x + endpoints.source.width
+      : groupNode.position.x + graphNodeWidth(groupNode);
+  const busX = groupRight + Math.max(24, (endpoints.target.x - groupRight) / 2);
   return compactRoutePoints([start, { x: busX, y: start.y }, { x: busX, y: end.y }, end]);
 }
 
 function adjustAlignedJoinEndpointRoutePoints(
   points: readonly WorkflowGraphPoint[],
-  source: WorkflowGraphNodeRect,
-  target: WorkflowGraphNodeRect,
+  endpoints: WorkflowGraphRouteEndpoints,
   flags: Readonly<{ sourceAligned: boolean; targetAligned: boolean }>,
 ): readonly WorkflowGraphPoint[] {
   if (points.length < 2 || (!flags.sourceAligned && !flags.targetAligned)) {
@@ -118,20 +127,20 @@ function adjustAlignedJoinEndpointRoutePoints(
   }
   const adjusted = [...points];
   if (flags.sourceAligned) {
-    adjusted[0] = centeredSourcePoint(source);
+    adjusted[0] = sourceHandlePoint(endpoints.source, endpoints.sourcePort);
   }
   if (flags.targetAligned) {
-    adjusted[adjusted.length - 1] = joinCenterTargetPoint(target);
+    adjusted[adjusted.length - 1] = targetHandlePoint(endpoints.target, endpoints.targetPort);
   }
   return compactRoutePoints(adjusted);
 }
 
-function centeredSourcePoint(rect: WorkflowGraphNodeRect): WorkflowGraphPoint {
-  return { x: rect.x + rect.width, y: rect.y + rect.height / 2 };
+function sourceHandlePoint(rect: WorkflowGraphNodeRect, port: WorkflowGraphEndpointPort): WorkflowGraphPoint {
+  return { x: rect.x + rect.width, y: rect.y + port.y };
 }
 
-function joinCenterTargetPoint(rect: WorkflowGraphNodeRect): WorkflowGraphPoint {
-  return { x: rect.x, y: rect.y + rect.height / 2 };
+function targetHandlePoint(rect: WorkflowGraphNodeRect, port: WorkflowGraphEndpointPort): WorkflowGraphPoint {
+  return { x: rect.x, y: rect.y + port.y };
 }
 
 function compactRoutePoints(points: readonly WorkflowGraphPoint[]): readonly WorkflowGraphPoint[] {

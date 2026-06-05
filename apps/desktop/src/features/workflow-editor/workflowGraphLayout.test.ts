@@ -155,11 +155,23 @@ describe("layoutWorkflowGraph", () => {
     const edge = requireEdge(graph.edges, "edge-source-target");
     const source = requireNode(graph.nodes, "node-source");
     const target = requireNode(graph.nodes, "node-target");
-    const sourcePort = endpointPort(source, "source");
-    const targetPort = endpointPort(target, "target");
 
-    assertEndpointHandle(edge, source, sourcePort, "source");
-    assertEndpointHandle(edge, target, targetPort, "target");
+    assertEndpointHandle(edge, source, "source", graph.nodes);
+    assertEndpointHandle(edge, target, "target", graph.nodes);
+  });
+
+  it("preserves endpoint slots for aligned join routes", async () => {
+    const graph = await layoutWorkflowGraph(alignedJoinWorkflow, emptyValidation);
+    const internalBranch = requireEdge(graph.edges, "edge-internal-join");
+    const externalBranch = requireEdge(graph.edges, "edge-external-join");
+    const joinBranch = requireEdge(graph.edges, "edge-join-synth");
+    const internal = requireNode(graph.nodes, "node-a");
+    const join = requireNode(graph.nodes, "join");
+
+    assertEndpointHandle(internalBranch, internal, "source", graph.nodes);
+    assertEndpointHandle(internalBranch, join, "target", graph.nodes);
+    assertEndpointHandle(externalBranch, join, "target", graph.nodes);
+    assertEndpointHandle(joinBranch, join, "source", graph.nodes);
   });
 });
 
@@ -198,7 +210,11 @@ function nodeCenterY(node: WorkflowGraphNode | undefined): number | undefined {
 function endpointPort(
   node: WorkflowGraphNode | undefined,
   side: "source" | "target",
+  handle: string | null | undefined,
 ): Readonly<{ id: string; side: "source" | "target"; y: number }> | undefined {
+  if (typeof handle !== "string") {
+    return undefined;
+  }
   if (node?.data.entityKind !== "node") {
     return undefined;
   }
@@ -206,22 +222,28 @@ function endpointPort(
   if (!Array.isArray(ports)) {
     return undefined;
   }
-  return ports.filter(isEndpointPort).find((port) => port.side === side);
+  return ports.filter(isEndpointPort).find((port) => port.side === side && port.id === handle);
 }
 
 function assertEndpointHandle(
   edge: WorkflowGraphEdge,
   node: WorkflowGraphNode,
-  port: EndpointPort | undefined,
   side: "source" | "target",
+  nodes: readonly WorkflowGraphNode[],
 ): void {
+  const handle = side === "source" ? edge.sourceHandle : edge.targetHandle;
+  const port = endpointPort(node, side, handle);
   if (port === undefined) {
     throw new Error(`Expected ${side} endpoint port for ${node.id}.`);
   }
   const point = edge.data?.routePoints.at(side === "source" ? 0 : -1);
-  const handle = side === "source" ? edge.sourceHandle : edge.targetHandle;
   expect(handle).toBe(port.id);
-  expect(point?.y).toBe(node.position.y + port.y);
+  expect(point?.y).toBe(absoluteNodeY(nodes, node) + port.y);
+}
+
+function absoluteNodeY(nodes: readonly WorkflowGraphNode[], node: WorkflowGraphNode): number {
+  const parent = node.parentId === undefined ? undefined : requireNode(nodes, node.parentId);
+  return node.position.y + (parent === undefined ? 0 : absoluteNodeY(nodes, parent));
 }
 
 type EndpointPort = Readonly<{ id: string; side: "source" | "target"; y: number }>;
@@ -381,6 +403,52 @@ const crossBoundaryWorkflow: WorkflowDefinition = {
       transitionGroupID: "tg-cross",
     }),
     workflowEdge({ id: "edge-exit", key: "exit", targetNodeID: "done", transitionGroupID: "tg-exit" }),
+  ],
+};
+
+const alignedJoinWorkflow: WorkflowDefinition = {
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
+  derivedWiring: emptyWorkflowDerivedWiring,
+  nodeGroups: [
+    {
+      id: "group-join",
+      workflowID: "workflow-1",
+      key: "core",
+      name: "Core",
+      sortOrder: 1,
+      nodeIDs: ["node-a", "join"],
+    },
+  ],
+  nodes: [
+    workflowNode("node-a", "A", "agent", "group-join"),
+    workflowNode("external", "External", "agent", ""),
+    workflowNode("join", "Join", "join", "group-join"),
+    workflowNode("synth", "Synthesize", "agent", ""),
+  ],
+  transitionGroups: [
+    workflowTransitionGroup("tg-internal-join", "node-a", "join", "Join"),
+    workflowTransitionGroup("tg-external-join", "external", "join", "Join"),
+    workflowTransitionGroup("tg-join-synth", "join", "synth", "Synthesize"),
+  ],
+  edges: [
+    workflowEdge({
+      id: "edge-internal-join",
+      key: "internal",
+      targetNodeID: "join",
+      transitionGroupID: "tg-internal-join",
+    }),
+    workflowEdge({
+      id: "edge-external-join",
+      key: "external",
+      targetNodeID: "join",
+      transitionGroupID: "tg-external-join",
+    }),
+    workflowEdge({
+      id: "edge-join-synth",
+      key: "synth",
+      targetNodeID: "synth",
+      transitionGroupID: "tg-join-synth",
+    }),
   ],
 };
 

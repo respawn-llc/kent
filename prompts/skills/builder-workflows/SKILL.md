@@ -55,7 +55,7 @@ Start every edit by inspecting the current graph:
 builder workflow inspect <workflow>
 ```
 
-The first section lists node IDs, keys, kinds, display names, and subagent roles. The `transition_groups` section maps source node IDs to transition IDs. The `edges` section maps transition groups to target node IDs and records prompts, context mode, and approval requirements.
+The first section lists node IDs, keys, kinds, display names, and subagent roles. The `transition_groups` section maps source node IDs to transition IDs. The `edges` section maps transition groups to target node IDs and records context mode and approval requirements.
 
 Update existing graph pieces by stable keys or emitted IDs:
 
