@@ -251,6 +251,7 @@ export type WorkflowTransitionGroup = Readonly<{
   sourceNodeID: string;
   transitionID: string;
   name: string;
+  description: string;
 }>;
 
 export type WorkflowEdge = Readonly<{
@@ -308,6 +309,7 @@ export type WorkflowGraphDraftTransitionGroup = Readonly<{
   sourceNodeID: string;
   transitionID: string;
   name: string;
+  description: string;
 }>;
 
 export type WorkflowGraphDraftEdge = Readonly<{

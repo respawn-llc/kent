@@ -95,6 +95,7 @@ const fanoutWorkflowDefinition: WorkflowDefinition = {
   ],
   transitionGroups: [
     {
+      description: "",
       id: "transition-fanout",
       name: "Review",
       sourceNodeID: "node-source",

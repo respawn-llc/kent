@@ -2,7 +2,8 @@ UPDATE workflow_transition_groups
 SET
     source_node_id = ?,
     transition_id = ?,
-    display_name = ?
+    display_name = ?,
+    description = ?
 WHERE id = ?
   AND EXISTS (
       SELECT 1

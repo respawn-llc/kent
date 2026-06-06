@@ -346,6 +346,7 @@ const workflowDefinition: WorkflowDefinition = {
   ],
   transitionGroups: [
     {
+      description: "",
       id: "group-1",
       name: "Done",
       sourceNodeID: "node-agent",

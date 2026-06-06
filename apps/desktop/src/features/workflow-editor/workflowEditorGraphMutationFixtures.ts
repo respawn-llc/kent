@@ -47,6 +47,7 @@ export const workflowDefinition: WorkflowDefinition = {
   ],
   transitionGroups: [
     {
+      description: "",
       id: "group-start",
       name: "Start",
       sourceNodeID: "node-start",
@@ -54,6 +55,7 @@ export const workflowDefinition: WorkflowDefinition = {
       workflowID: "workflow-1",
     },
     {
+      description: "",
       id: "group-done",
       name: "Done",
       sourceNodeID: "node-agent",
@@ -105,6 +107,7 @@ export const groupableWorkflowDefinition: WorkflowDefinition = {
   transitionGroups: [
     requiredItem(workflowDefinition.transitionGroups, 0),
     {
+      description: "",
       id: "group-source-agent",
       name: "Implement",
       sourceNodeID: "node-source",
@@ -177,6 +180,7 @@ export const joinWorkflowDefinition: WorkflowDefinition = {
   transitionGroups: [
     ...workflowDefinition.transitionGroups,
     {
+      description: "",
       id: "group-branch-a-join",
       name: "Join",
       sourceNodeID: "node-branch-a",
@@ -184,6 +188,7 @@ export const joinWorkflowDefinition: WorkflowDefinition = {
       workflowID: "workflow-1",
     },
     {
+      description: "",
       id: "group-branch-b-join",
       name: "Join",
       sourceNodeID: "node-branch-b",
@@ -191,6 +196,7 @@ export const joinWorkflowDefinition: WorkflowDefinition = {
       workflowID: "workflow-1",
     },
     {
+      description: "",
       id: "group-join-done",
       name: "Done",
       sourceNodeID: "node-join",

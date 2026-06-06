@@ -321,6 +321,7 @@ export function workflowEditorDraftGraph(state: WorkflowEditorDraftState): Workf
       subagentRole: node.subagentRole,
     })),
     transitionGroups: definition.transitionGroups.map((group) => ({
+      description: group.description,
       id: group.id,
       name: group.name,
       sourceNodeID: group.sourceNodeID,
@@ -509,7 +510,8 @@ function transitionGroupsEqual(
       a.id === b.id &&
       a.sourceNodeID === b.sourceNodeID &&
       a.transitionID === b.transitionID &&
-      a.name === b.name,
+      a.name === b.name &&
+      a.description === b.description,
   );
 }
 

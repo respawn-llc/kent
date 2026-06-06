@@ -672,12 +672,15 @@ function workflowGraphDraftPayload(graph: WorkflowGraphDraft): JsonObject {
         })),
       }),
     ),
-    transition_groups: graph.transitionGroups.map((group) => ({
-      id: group.id,
-      source_node_id: group.sourceNodeID,
-      transition_id: group.transitionID,
-      display_name: group.name,
-    })),
+    transition_groups: graph.transitionGroups.map((group) =>
+      compactJsonObject({
+        id: group.id,
+        source_node_id: group.sourceNodeID,
+        transition_id: group.transitionID,
+        display_name: group.name,
+        description: group.description.length > 0 ? group.description : undefined,
+      }),
+    ),
     edges: graph.edges.map((edge) =>
       compactJsonObject({
         id: edge.id,

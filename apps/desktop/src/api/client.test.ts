@@ -185,7 +185,14 @@ describe("BuilderApiClient", () => {
       },
       workflow: { id: "workflow-1", name: "Delivery", version: 9 },
       nodeGroups: [{ id: "group-1", key: "core", name: "Core", nodeIDs: [] }],
-      transitionGroups: [{ id: "tg-1", sourceNodeID: "node-1", transitionID: "done" }],
+      transitionGroups: [
+        {
+          description: "Choose this when implementation is complete.",
+          id: "tg-1",
+          sourceNodeID: "node-1",
+          transitionID: "done",
+        },
+      ],
       edges: [
         {
           contextSource: { kind: "selected_node", nodeKey: "implement" },
@@ -520,6 +527,7 @@ describe("BuilderApiClient", () => {
               source_node_id: "node-start",
               transition_id: "start",
               display_name: "Start",
+              description: "Start the workflow.",
             },
           ],
           edges: [
@@ -742,6 +750,7 @@ const workflowDefinitionResponse = {
         source_node_id: "node-1",
         transition_id: "done",
         display_name: "Done",
+        description: "Choose this when implementation is complete.",
       },
     ],
     edges: [
@@ -877,6 +886,7 @@ const workflowGraphDraft = {
       sourceNodeID: "node-start",
       transitionID: "start",
       name: "Start",
+      description: "Start the workflow.",
     },
   ],
   edges: [

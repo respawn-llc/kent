@@ -291,12 +291,14 @@ INSERT INTO workflow_transition_groups (
     source_node_id,
     transition_id,
     display_name,
+    description,
     sort_order
 ) VALUES (
     sqlc.arg(id),
     sqlc.arg(source_node_id),
     sqlc.arg(transition_id),
     sqlc.arg(display_name),
+    sqlc.arg(description),
     sqlc.arg(sort_order)
 );
 
@@ -307,6 +309,7 @@ SELECT
     tg.source_node_id,
     tg.transition_id,
     tg.display_name,
+    tg.description,
     tg.sort_order
 FROM workflow_transition_groups tg
 JOIN workflow_nodes source ON source.id = tg.source_node_id

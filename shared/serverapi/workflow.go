@@ -91,6 +91,7 @@ type WorkflowTransitionGroup struct {
 	SourceNodeID string `json:"source_node_id"`
 	TransitionID string `json:"transition_id"`
 	DisplayName  string `json:"display_name"`
+	Description  string `json:"description,omitempty"`
 }
 
 type WorkflowEdge struct {
@@ -215,6 +216,7 @@ type WorkflowGraphDraftTransitionGroup struct {
 	SourceNodeID string `json:"source_node_id"`
 	TransitionID string `json:"transition_id"`
 	DisplayName  string `json:"display_name"`
+	Description  string `json:"description,omitempty"`
 }
 
 type WorkflowGraphDraftEdge struct {
@@ -422,6 +424,7 @@ type WorkflowTransitionGroupAddRequest struct {
 	SourceNodeID string `json:"source_node_id"`
 	TransitionID string `json:"transition_id"`
 	DisplayName  string `json:"display_name,omitempty"`
+	Description  string `json:"description,omitempty"`
 }
 
 type WorkflowTransitionGroupAddResponse struct {
@@ -434,6 +437,7 @@ type WorkflowTransitionGroupUpdateRequest struct {
 	SourceNodeID string `json:"source_node_id"`
 	TransitionID string `json:"transition_id"`
 	DisplayName  string `json:"display_name,omitempty"`
+	Description  string `json:"description,omitempty"`
 }
 
 type WorkflowTransitionGroupUpdateResponse struct {
@@ -1202,17 +1206,17 @@ func (r WorkflowNodeGroupDeleteRequest) Validate() error {
 }
 
 func (r WorkflowTransitionGroupAddRequest) Validate() error {
-	return validateWorkflowTransitionGroupFields(r.WorkflowID, "", r.SourceNodeID, r.TransitionID, r.DisplayName)
+	return validateWorkflowTransitionGroupFields(r.WorkflowID, "", r.SourceNodeID, r.TransitionID, r.DisplayName, r.Description)
 }
 
 func (r WorkflowTransitionGroupUpdateRequest) Validate() error {
 	if err := validateRequired("group_id", r.GroupID); err != nil {
 		return err
 	}
-	return validateWorkflowTransitionGroupFields(r.WorkflowID, r.GroupID, r.SourceNodeID, r.TransitionID, r.DisplayName)
+	return validateWorkflowTransitionGroupFields(r.WorkflowID, r.GroupID, r.SourceNodeID, r.TransitionID, r.DisplayName, r.Description)
 }
 
-func validateWorkflowTransitionGroupFields(workflowID string, groupID string, sourceNodeID string, transitionID string, displayName string) error {
+func validateWorkflowTransitionGroupFields(workflowID string, groupID string, sourceNodeID string, transitionID string, displayName string, description string) error {
 	_ = groupID
 	if err := validateRequired("workflow_id", workflowID); err != nil {
 		return err
@@ -1225,6 +1229,9 @@ func validateWorkflowTransitionGroupFields(workflowID string, groupID string, so
 	}
 	if strings.TrimSpace(displayName) != "" {
 		return validateDisplayName(displayName)
+	}
+	if len([]rune(description)) > 1000 {
+		return workflowRequestError(WorkflowRequestErrorTooLong, "description", "description must be <= 1000 characters")
 	}
 	return nil
 }
@@ -1448,6 +1455,11 @@ func validateWorkflowGraphDraftEnvelope(graph WorkflowGraphDraft) error {
 	for _, edge := range graph.Edges {
 		if len(edge.Parameters) > WorkflowGraphDraftMaxFieldsPerEntity {
 			return workflowRequestError(WorkflowRequestErrorTooLong, "graph.edges.parameters", fmt.Sprintf("parameters must be <= %d", WorkflowGraphDraftMaxFieldsPerEntity))
+		}
+	}
+	for _, group := range graph.TransitionGroups {
+		if len([]rune(group.Description)) > 1000 {
+			return workflowRequestError(WorkflowRequestErrorTooLong, "graph.transition_groups.description", "description must be <= 1000 characters")
 		}
 	}
 	return nil

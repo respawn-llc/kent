@@ -47,6 +47,7 @@ export function connectWorkflowNodes(
       edgesForTransitionGroup(draft, input.transitionGroupID).map((edge) => edge.key),
     );
   const transitionGroup = {
+    description: input.transitionDescription ?? "",
     id: input.transitionGroupID,
     name: transitionName,
     sourceNodeID: input.sourceNodeID,
@@ -336,6 +337,7 @@ export function editWorkflowEdgeRoute(
         group.id === edge.transitionGroupID
           ? {
               ...group,
+              description: input.transitionDescription ?? group.description,
               name: input.transitionName ?? group.name,
               transitionID: input.transitionID ?? group.transitionID,
             }

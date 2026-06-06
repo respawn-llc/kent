@@ -503,7 +503,7 @@ function workflowNode(id: string, name: string, kind: string, groupID: string) {
 }
 
 function workflowTransitionGroup(id: string, sourceNodeID: string, transitionID: string, name: string) {
-  return { id, workflowID: "workflow-1", sourceNodeID, transitionID, name };
+  return { description: "", id, workflowID: "workflow-1", sourceNodeID, transitionID, name };
 }
 
 function workflowEdge({

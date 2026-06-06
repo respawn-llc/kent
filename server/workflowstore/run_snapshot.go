@@ -34,6 +34,7 @@ type transitionContractSnapshot struct {
 	SourceNodeID workflow.NodeID            `json:"source_node_id,omitempty"`
 	TransitionID string                     `json:"transition_id"`
 	DisplayName  string                     `json:"display_name"`
+	Description  string                     `json:"description,omitempty"`
 	Edges        []edgeContractSnapshot     `json:"edges"`
 }
 
@@ -83,7 +84,7 @@ func transitionOptionsFromSnapshot(snapshot runStartSnapshot) []TransitionOption
 		if id == "" {
 			continue
 		}
-		out = append(out, TransitionOption{ID: id, DisplayName: strings.TrimSpace(group.DisplayName), Parameters: transitionParametersFromSnapshot(group)})
+		out = append(out, TransitionOption{ID: id, DisplayName: strings.TrimSpace(group.DisplayName), Description: strings.TrimSpace(group.Description), Parameters: transitionParametersFromSnapshot(group)})
 	}
 	return out
 }
@@ -145,7 +146,7 @@ func newRunStartSnapshot(def workflow.Definition, record WorkflowRecord, nodeID 
 		snapshot.Nodes = append(snapshot.Nodes, nodeSnapshotWithDerivedWiring(defNode, derived))
 	}
 	for _, group := range def.TransitionGroups {
-		groupSnapshot := transitionContractSnapshot{ID: group.ID, SourceNodeID: group.SourceNodeID, TransitionID: string(group.TransitionID), DisplayName: group.DisplayName}
+		groupSnapshot := transitionContractSnapshot{ID: group.ID, SourceNodeID: group.SourceNodeID, TransitionID: string(group.TransitionID), DisplayName: group.DisplayName, Description: group.Description}
 		source := nodes[group.SourceNodeID]
 		for _, edge := range edgesByGroup[group.ID] {
 			target, ok := nodes[edge.TargetNodeID]

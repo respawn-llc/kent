@@ -36,6 +36,7 @@ export type ConnectWorkflowNodesInput = Readonly<{
   transitionGroupID: string;
   transitionID?: string | undefined;
   transitionName?: string | undefined;
+  transitionDescription?: string | undefined;
   edgeKey?: string | undefined;
 }>;
 
@@ -43,6 +44,7 @@ export type EditWorkflowEdgeRouteInput = Readonly<{
   edgeID: string;
   transitionID?: string | undefined;
   transitionName?: string | undefined;
+  transitionDescription?: string | undefined;
   edgeKey?: string | undefined;
   requiresApproval?: boolean | undefined;
   contextMode?: string | undefined;

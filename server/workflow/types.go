@@ -113,6 +113,7 @@ type TransitionGroup struct {
 	SourceNodeID NodeID
 	TransitionID TransitionID
 	DisplayName  string
+	Description  string
 }
 
 type Edge struct {

@@ -317,7 +317,7 @@ func prepareWorkflowGraphSave(workflowID workflow.WorkflowID, displayName string
 	for i, group := range prepared.transitionGroups {
 		group.WorkflowID = defaultWorkflowID(group.WorkflowID, workflowID)
 		prepared.transitionGroups[i] = group
-		def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{WorkflowID: group.WorkflowID, ID: group.ID, SourceNodeID: group.SourceNodeID, TransitionID: group.TransitionID, DisplayName: group.DisplayName})
+		def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{WorkflowID: group.WorkflowID, ID: group.ID, SourceNodeID: group.SourceNodeID, TransitionID: group.TransitionID, DisplayName: group.DisplayName, Description: group.Description})
 	}
 	for i, edge := range prepared.edges {
 		edge.WorkflowID = defaultWorkflowID(edge.WorkflowID, workflowID)
@@ -495,6 +495,7 @@ type comparableWorkflowGraphSaveTransitionGroup struct {
 	SourceNodeID workflow.NodeID
 	TransitionID workflow.TransitionID
 	DisplayName  string
+	Description  string
 	SortOrder    int64
 }
 
@@ -540,7 +541,7 @@ func workflowGraphSaveComparable(prepared preparedWorkflowGraphSave) comparableW
 		out.Nodes = append(out.Nodes, comparableWorkflowGraphSaveNode{ID: node.ID, WorkflowID: node.WorkflowID, Key: node.Key, Kind: node.Kind, DisplayName: strings.TrimSpace(node.DisplayName), GroupID: strings.TrimSpace(node.GroupID), SubagentRole: strings.TrimSpace(node.SubagentRole), PromptTemplate: strings.TrimSpace(node.PromptTemplate), InputFields: node.InputFields, JoinInputProviders: node.JoinInputProviders, OutputFields: node.OutputFields, SortOrder: int64(index * 100)})
 	}
 	for index, group := range prepared.transitionGroups {
-		out.TransitionGroups = append(out.TransitionGroups, comparableWorkflowGraphSaveTransitionGroup{ID: group.ID, WorkflowID: group.WorkflowID, SourceNodeID: group.SourceNodeID, TransitionID: workflow.TransitionID(strings.TrimSpace(string(group.TransitionID))), DisplayName: strings.TrimSpace(group.DisplayName), SortOrder: int64(index * 100)})
+		out.TransitionGroups = append(out.TransitionGroups, comparableWorkflowGraphSaveTransitionGroup{ID: group.ID, WorkflowID: group.WorkflowID, SourceNodeID: group.SourceNodeID, TransitionID: workflow.TransitionID(strings.TrimSpace(string(group.TransitionID))), DisplayName: strings.TrimSpace(group.DisplayName), Description: strings.TrimSpace(group.Description), SortOrder: int64(index * 100)})
 	}
 	for index, edge := range prepared.edges {
 		contextSource := workflow.CanonicalContextSource(edge.ContextSource)
@@ -646,6 +647,7 @@ func upsertWorkflowTransitionGroup(ctx context.Context, tx *sql.Tx, group Transi
 		string(group.SourceNodeID),
 		strings.TrimSpace(string(group.TransitionID)),
 		strings.TrimSpace(group.DisplayName),
+		strings.TrimSpace(group.Description),
 		sortOrder,
 		string(group.WorkflowID),
 	)

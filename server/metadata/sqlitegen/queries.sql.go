@@ -2454,13 +2454,15 @@ INSERT INTO workflow_transition_groups (
     source_node_id,
     transition_id,
     display_name,
+    description,
     sort_order
 ) VALUES (
     ?1,
     ?2,
     ?3,
     ?4,
-    ?5
+    ?5,
+    ?6
 )
 `
 
@@ -2469,6 +2471,7 @@ type InsertWorkflowTransitionGroupParams struct {
 	SourceNodeID string
 	TransitionID string
 	DisplayName  string
+	Description  string
 	SortOrder    int64
 }
 
@@ -2478,6 +2481,7 @@ func (q *Queries) InsertWorkflowTransitionGroup(ctx context.Context, arg InsertW
 		arg.SourceNodeID,
 		arg.TransitionID,
 		arg.DisplayName,
+		arg.Description,
 		arg.SortOrder,
 	)
 	return err
@@ -4278,6 +4282,7 @@ SELECT
     tg.source_node_id,
     tg.transition_id,
     tg.display_name,
+    tg.description,
     tg.sort_order
 FROM workflow_transition_groups tg
 JOIN workflow_nodes source ON source.id = tg.source_node_id
@@ -4291,6 +4296,7 @@ type ListWorkflowTransitionGroupsRow struct {
 	SourceNodeID string
 	TransitionID string
 	DisplayName  string
+	Description  string
 	SortOrder    int64
 }
 
@@ -4309,6 +4315,7 @@ func (q *Queries) ListWorkflowTransitionGroups(ctx context.Context, workflowID s
 			&i.SourceNodeID,
 			&i.TransitionID,
 			&i.DisplayName,
+			&i.Description,
 			&i.SortOrder,
 		); err != nil {
 			return nil, err

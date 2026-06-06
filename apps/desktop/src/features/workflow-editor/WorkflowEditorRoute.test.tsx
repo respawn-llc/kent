@@ -1562,8 +1562,11 @@ describe("WorkflowEditorRoute", () => {
       expect(copied).toEqual(["edge-2"]);
     });
 
-    fireEvent.change(within(inspector).getByRole("textbox", { name: "Transition text" }), {
+    fireEvent.change(within(inspector).getByRole("textbox", { name: "Label" }), {
       target: { value: "Review" },
+    });
+    fireEvent.change(within(inspector).getByRole("textbox", { name: "Model-facing description" }), {
+      target: { value: "Choose this when implementation needs review." },
     });
     fireEvent.change(within(inspector).getByRole("textbox", { name: "Key" }), {
       target: { value: "review" },
@@ -1575,7 +1578,8 @@ describe("WorkflowEditorRoute", () => {
     if (routeSection === undefined) {
       throw new Error("Expected a merged edge route section.");
     }
-    expect(within(routeSection).getByRole("textbox", { name: "Transition text" })).toBeInTheDocument();
+    expect(within(routeSection).getByRole("textbox", { name: "Label" })).toBeInTheDocument();
+    expect(within(routeSection).getByRole("textbox", { name: "Model-facing description" })).toBeInTheDocument();
     expect(within(routeSection).getByRole("textbox", { name: "Key" })).toBeInTheDocument();
     expect(within(routeSection).queryByRole("textbox", { name: "Branch key" })).not.toBeInTheDocument();
     expect(
@@ -1608,6 +1612,7 @@ describe("WorkflowEditorRoute", () => {
       const expectedTransitionGroups: unknown = expect.arrayContaining([
         expect.objectContaining({
           id: "tg-2",
+          description: "Choose this when implementation needs review.",
           transition_id: "review",
           display_name: "Review",
         }),
@@ -1752,7 +1757,7 @@ describe("WorkflowEditorRoute", () => {
     const contextSource = within(routeSection).getByRole("button", { name: "Context source" });
     expect(contextSource).toBeDisabled();
     expect(within(routeSection).getByText("Immediate source")).toBeInTheDocument();
-    fireEvent.change(within(routeSection).getByRole("textbox", { name: "Transition text" }), {
+    fireEvent.change(within(routeSection).getByRole("textbox", { name: "Label" }), {
       target: { value: "Review updated" },
     });
 

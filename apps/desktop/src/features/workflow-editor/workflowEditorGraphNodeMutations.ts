@@ -383,6 +383,7 @@ function rehomeExtractedBranchFanoutEdge(
     return { kind: "blocked" };
   }
   const transitionGroup = {
+    description: "",
     id: rehomedTransitionGroupID,
     name: node.name,
     sourceNodeID: fanoutGroup.sourceNodeID,

@@ -312,6 +312,7 @@ type WorkflowTransitionGroup struct {
 	TransitionID string
 	DisplayName  string
 	SortOrder    int64
+	Description  string
 }
 
 type Workspace struct {

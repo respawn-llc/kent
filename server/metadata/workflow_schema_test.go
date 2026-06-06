@@ -86,6 +86,9 @@ func TestOpenCreatesWorkflowSchemaAndForeignKeys(t *testing.T) {
 	if !columnExists(t, store.db, "workflow_edges", "parameters_json") {
 		t.Fatal("workflow_edges.parameters_json should exist")
 	}
+	if !columnExists(t, store.db, "workflow_transition_groups", "description") {
+		t.Fatal("workflow_transition_groups.description should exist")
+	}
 	for _, table := range []string{
 		"workflows",
 		"workflow_nodes",

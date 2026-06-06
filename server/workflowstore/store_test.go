@@ -795,8 +795,8 @@ func TestTransitionParameterDerivesOutputRequirement(t *testing.T) {
 	if len(sourceContext.Node.OutputFields) != 1 || sourceContext.Node.OutputFields[0].Name != "summary" || sourceContext.Node.OutputFields[0].Description != "Plan summary." {
 		t.Fatalf("source output fields = %+v, want prompt-derived summary description", sourceContext.Node.OutputFields)
 	}
-	if len(sourceContext.TransitionOptions) != 1 || sourceContext.TransitionOptions[0].ID != "next" || len(sourceContext.TransitionOptions[0].Parameters) != 1 || sourceContext.TransitionOptions[0].Parameters[0].Key != "summary" || sourceContext.TransitionOptions[0].Parameters[0].Description != "Plan summary." {
-		t.Fatalf("source transition options = %+v, want next summary parameter", sourceContext.TransitionOptions)
+	if len(sourceContext.TransitionOptions) != 1 || sourceContext.TransitionOptions[0].ID != "next" || sourceContext.TransitionOptions[0].Description != "Continue after planning is complete." || len(sourceContext.TransitionOptions[0].Parameters) != 1 || sourceContext.TransitionOptions[0].Parameters[0].Key != "summary" || sourceContext.TransitionOptions[0].Parameters[0].Description != "Plan summary." {
+		t.Fatalf("source transition options = %+v, want next description and summary parameter", sourceContext.TransitionOptions)
 	}
 
 	_, err = store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "next"})
@@ -4479,7 +4479,7 @@ func createChainedContextModeWorkflow(t *testing.T, ctx context.Context, store *
 	doneGroup := workflow.TransitionGroupID("group-done-" + string(created.ID))
 	for _, group := range []TransitionGroupRecord{
 		{ID: startGroup, WorkflowID: created.ID, SourceNodeID: start.ID, TransitionID: "start", DisplayName: "Start"},
-		{ID: nextGroup, WorkflowID: created.ID, SourceNodeID: planID, TransitionID: "next", DisplayName: "Next"},
+		{ID: nextGroup, WorkflowID: created.ID, SourceNodeID: planID, TransitionID: "next", DisplayName: "Next", Description: "Continue after planning is complete."},
 		{ID: doneGroup, WorkflowID: created.ID, SourceNodeID: implID, TransitionID: "done", DisplayName: "Done"},
 	} {
 		if _, err := store.AddTransitionGroup(ctx, group); err != nil {
@@ -4528,7 +4528,7 @@ func createPromptNodeReferenceWorkflow(t *testing.T, ctx context.Context, store 
 	doneGroup := workflow.TransitionGroupID("group-done-" + string(created.ID))
 	for _, group := range []TransitionGroupRecord{
 		{ID: startGroup, WorkflowID: created.ID, SourceNodeID: start.ID, TransitionID: "start", DisplayName: "Start"},
-		{ID: nextGroup, WorkflowID: created.ID, SourceNodeID: planID, TransitionID: "next", DisplayName: "Next"},
+		{ID: nextGroup, WorkflowID: created.ID, SourceNodeID: planID, TransitionID: "next", DisplayName: "Next", Description: "Continue after planning is complete."},
 		{ID: auditGroup, WorkflowID: created.ID, SourceNodeID: reviewID, TransitionID: "audit", DisplayName: "Audit"},
 		{ID: doneGroup, WorkflowID: created.ID, SourceNodeID: auditID, TransitionID: "done", DisplayName: "Done"},
 	} {

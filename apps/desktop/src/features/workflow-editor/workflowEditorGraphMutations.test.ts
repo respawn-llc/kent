@@ -895,6 +895,7 @@ function withSourceTransitionIDConflict(draft: ReturnType<typeof draftDefinition
     transitionGroups: [
       ...draft.transitionGroups,
       {
+        description: "",
         id: "group-source-review-conflict",
         name: "Review conflict",
         sourceNodeID: "node-source",
@@ -917,6 +918,7 @@ function withDuplicateExactBranchFanout(draft: ReturnType<typeof draftDefinition
     transitionGroups: [
       ...draft.transitionGroups,
       {
+        description: "",
         id: "group-source-duplicate",
         name: "Duplicate fan-out",
         sourceNodeID: "node-source",
@@ -1031,6 +1033,7 @@ function parallelBranchWorkflowDefinition(
     transitionGroups: [
       ...base.transitionGroups,
       {
+        description: "",
         id: "group-source-review",
         name: "Review",
         sourceNodeID: "node-source",

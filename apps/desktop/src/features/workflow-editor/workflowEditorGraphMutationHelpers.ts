@@ -121,6 +121,7 @@ export function edgesForTransitionGroup(
 }
 
 export function workflowTransitionGroup(input: Readonly<{
+  description?: string | undefined;
   id: string;
   name: string;
   sourceNodeID: string;
@@ -128,6 +129,7 @@ export function workflowTransitionGroup(input: Readonly<{
   workflowID: string;
 }>) {
   return {
+    description: input.description ?? "",
     id: input.id,
     name: input.name,
     sourceNodeID: input.sourceNodeID,

@@ -259,6 +259,16 @@ function EdgeDraftDetails({
           }}
           value={transitionGroup?.name ?? ""}
         />
+        <TextArea
+          label={t("workflowEditor.transitionDescription")}
+          onChange={(event) => {
+            controller.dispatch({
+              input: { edgeID: edge.id, transitionDescription: event.target.value },
+              type: "editEdgeRoute",
+            });
+          }}
+          value={transitionGroup?.description ?? ""}
+        />
         <TextInput
           {...identifierInputAttributes}
           label={t("workflowEditor.key")}
@@ -1069,7 +1079,13 @@ function EdgeDetails({
       >
         <DetailRow label={t("workflowEditor.key")} mono value={details.transitionID} />
         {fanOutTransition ? <DetailRow label={t("workflowEditor.branchKey")} mono value={edge.key} /> : null}
-        <DetailRow label={t("workflowEditor.transitionGroup")} value={details.transitionGroupLabel} />
+        <DetailRow label={t("workflowEditor.transitionText")} value={details.transitionGroupLabel} />
+        {details.transitionDescription.length > 0 ? (
+          <DetailRow
+            label={t("workflowEditor.transitionDescription")}
+            value={details.transitionDescription}
+          />
+        ) : null}
         {targetAgent ? (
           <>
             <DetailRow
@@ -1452,6 +1468,7 @@ function edgeEndpointDetails(source: WorkflowNode | undefined, target: WorkflowN
 function edgeTransitionDetails(group: WorkflowTransitionGroup | undefined) {
   return {
     transitionGroupLabel: fallbackLabel("", group?.name, group?.id),
+    transitionDescription: group?.description ?? "",
     transitionID: group?.transitionID ?? "",
   };
 }

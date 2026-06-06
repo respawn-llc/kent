@@ -150,6 +150,7 @@ type TransitionGroupRecord struct {
 	SourceNodeID workflow.NodeID
 	TransitionID workflow.TransitionID
 	DisplayName  string
+	Description  string
 }
 
 type EdgeRecord struct {
@@ -730,7 +731,7 @@ func (s *Store) AddTransitionGroup(ctx context.Context, group TransitionGroupRec
 		if err := ensureWorkflowNodeID(ctx, q, string(group.WorkflowID), group.SourceNodeID); err != nil {
 			return err
 		}
-		if err := q.InsertWorkflowTransitionGroup(ctx, sqlitegen.InsertWorkflowTransitionGroupParams{ID: string(group.ID), SourceNodeID: string(group.SourceNodeID), TransitionID: strings.TrimSpace(string(group.TransitionID)), DisplayName: strings.TrimSpace(group.DisplayName), SortOrder: 100}); err != nil {
+		if err := q.InsertWorkflowTransitionGroup(ctx, sqlitegen.InsertWorkflowTransitionGroupParams{ID: string(group.ID), SourceNodeID: string(group.SourceNodeID), TransitionID: strings.TrimSpace(string(group.TransitionID)), DisplayName: strings.TrimSpace(group.DisplayName), Description: strings.TrimSpace(group.Description), SortOrder: 100}); err != nil {
 			return fmt.Errorf("insert transition group: %w", err)
 		}
 		return nil
@@ -754,6 +755,7 @@ func (s *Store) UpdateTransitionGroup(ctx context.Context, group TransitionGroup
 			string(group.SourceNodeID),
 			strings.TrimSpace(string(group.TransitionID)),
 			strings.TrimSpace(group.DisplayName),
+			strings.TrimSpace(group.Description),
 			string(group.ID),
 			string(group.WorkflowID),
 		)
@@ -992,7 +994,7 @@ func (s *Store) GetDefinition(ctx context.Context, workflowID workflow.WorkflowI
 		def.NodeGroups[index].MemberNodeIDs = groupMemberIDs[def.NodeGroups[index].ID]
 	}
 	for _, group := range groups {
-		def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{WorkflowID: workflow.WorkflowID(group.WorkflowID), ID: workflow.TransitionGroupID(group.ID), SourceNodeID: workflow.NodeID(group.SourceNodeID), TransitionID: workflow.TransitionID(group.TransitionID), DisplayName: group.DisplayName})
+		def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{WorkflowID: workflow.WorkflowID(group.WorkflowID), ID: workflow.TransitionGroupID(group.ID), SourceNodeID: workflow.NodeID(group.SourceNodeID), TransitionID: workflow.TransitionID(group.TransitionID), DisplayName: group.DisplayName, Description: group.Description})
 	}
 	for _, edge := range edges {
 		inputs := []workflow.InputBinding{}

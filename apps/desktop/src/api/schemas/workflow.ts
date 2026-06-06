@@ -202,6 +202,7 @@ const workflowTransitionGroupsSchema = z
         source_node_id: z.string(),
         transition_id: z.string(),
         display_name: z.string(),
+        description: emptyString,
       })
       .transform((value) => ({
         id: value.id,
@@ -209,6 +210,7 @@ const workflowTransitionGroupsSchema = z
         sourceNodeID: value.source_node_id,
         transitionID: value.transition_id,
         name: value.display_name,
+        description: value.description,
       })),
   )
   .nullish()
