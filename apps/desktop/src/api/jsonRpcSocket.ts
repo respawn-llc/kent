@@ -1,13 +1,14 @@
 import { z } from "zod";
 
 import protocolVersionDefinition from "../../../../shared/protocol/version.json";
-import { RpcError, TransportError } from "./errors";
+import { ProtocolMismatchError, RpcError, TransportError } from "./errors";
 import type { JsonValue } from "./json";
 import type { RpcEventHandler } from "./transport";
 
 export const protocolVersion = protocolVersionDefinition.version;
 export const jsonRpcVersion = "2.0";
 export const handshakeMethod = "protocol.handshake";
+export const protocolVersionMismatchErrorCode = -32025;
 
 export const responseSchema = z.object({
   jsonrpc: z.literal(jsonRpcVersion),
@@ -108,9 +109,7 @@ export async function sendSocketRequest(
       }
       cleanup();
       if (response.data.error !== undefined) {
-        reject(
-          new RpcError({ code: response.data.error.code, message: response.data.error.message, method }),
-        );
+        reject(socketRequestError(method, response.data.error));
         return;
       }
       resolve(response.data.result);
@@ -130,6 +129,16 @@ export async function sendSocketRequest(
       fail(cause instanceof Error ? cause : new TransportError(`${method} request failed to send.`));
     }
   });
+}
+
+export function socketRequestError(
+  method: string,
+  error: Readonly<{ code: number; message: string }>,
+): Error {
+  if (method === handshakeMethod && error.code === protocolVersionMismatchErrorCode) {
+    return new ProtocolMismatchError(error.message);
+  }
+  return new RpcError({ code: error.code, message: error.message, method });
 }
 
 export async function waitForSubscriptionEnd(socket: WebSocket, signal: AbortSignal): Promise<void> {

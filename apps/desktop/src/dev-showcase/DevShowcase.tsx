@@ -14,6 +14,8 @@ import { Badge, Button, showStatusToast, Toaster } from "../ui";
 import { HomeProjectBoard, HoverMenuBoard, KanbanBoard, PrimitiveBoard } from "./ShowcaseBoards";
 import { TaskDetailBoard } from "./TaskDetailShowcase";
 import { inventoryCards, mockNotices, mockWorkspaces } from "./mockData";
+import { WorkflowGraphCanvas } from "../features/workflow-editor/WorkflowGraphCanvas";
+import type { WorkflowGraphLayout } from "../features/workflow-editor/workflowGraphLayout";
 
 void initializeI18n();
 
@@ -81,29 +83,36 @@ function DevShowcaseBoard() {
           <PrimitiveBoard dialogOpen={dialogOpen} onDialogOpenChange={setDialogOpen} />
         </ShowcaseSection>
         <ShowcaseSection
-          description="Project list rows, inbox rows, workspace cards, project edit status, unlink dialog."
+          description="Static workflow graph with regular and join-node creation handles for browser visual QA."
           eyebrow="02"
+          title="Workflow Graph"
+        >
+          <WorkflowGraphPreview />
+        </ShowcaseSection>
+        <ShowcaseSection
+          description="Project list rows, inbox rows, workspace cards, project edit status, unlink dialog."
+          eyebrow="03"
           title="Home And Project Layouts"
         >
           <HomeProjectBoard unlinkWorkspace={unlinkWorkspace} onUnlinkWorkspaceChange={setUnlinkWorkspace} />
         </ShowcaseSection>
         <ShowcaseSection
           description="Real Kanban columns/cards with backlog, running, waiting, interrupted, done, load-more state."
-          eyebrow="03"
+          eyebrow="04"
           title="Kanban Board"
         >
           <KanbanBoard />
         </ShowcaseSection>
         <ShowcaseSection
           description="Real board hover menu. Hover/focus expands with workflow linking in the header."
-          eyebrow="04"
+          eyebrow="05"
           title="Hover Menu States"
         >
           <HoverMenuBoard />
         </ShowcaseSection>
         <ShowcaseSection
           description="Description editor, inbox question/approval/cancel flows, comments, activity, and runs."
-          eyebrow="05"
+          eyebrow="06"
           title="Task Detail"
         >
           <TaskDetailBoard cancelExpanded={cancelExpanded} onCancelExpandedChange={setCancelExpanded} />
@@ -111,6 +120,101 @@ function DevShowcaseBoard() {
       </div>
     </main>
   );
+}
+
+function WorkflowGraphPreview() {
+  return (
+    <section
+      className="island-glass h-[420px] overflow-hidden rounded-[var(--radius-xl)] p-[var(--space-3)]"
+      data-testid="dev-showcase-workflow-graph"
+    >
+      <WorkflowGraphCanvas
+        graph={workflowGraphPreviewLayout}
+        keyboardScope="focused"
+        onConnectNodes={() => undefined}
+        onEdgeInspect={() => undefined}
+        onGroupInspect={() => undefined}
+        onNodeInspect={() => undefined}
+        onWorkflowInspect={() => undefined}
+        toolbarPositionStrategy="absolute"
+      />
+    </section>
+  );
+}
+
+const workflowGraphPreviewLayout = {
+  edges: [],
+  nodes: [
+    workflowGraphPreviewNode({
+      id: "showcase-start",
+      kind: "start",
+      label: "Backlog",
+      role: "",
+      x: 0,
+    }),
+    workflowGraphPreviewNode({
+      id: "showcase-agent",
+      kind: "agent",
+      label: "Agent",
+      role: "builder",
+      x: 280,
+    }),
+    workflowGraphPreviewNode({
+      id: "showcase-join",
+      kind: "join",
+      label: "Join",
+      role: "",
+      type: "workflowJoin",
+      x: 560,
+      y: 21,
+      size: 50,
+    }),
+    workflowGraphPreviewNode({
+      id: "showcase-done",
+      kind: "terminal",
+      label: "Done",
+      role: "",
+      x: 760,
+    }),
+  ],
+} satisfies WorkflowGraphLayout;
+
+function workflowGraphPreviewNode({
+  id,
+  kind,
+  label,
+  role,
+  size,
+  type = "workflowNode",
+  x,
+  y = 0,
+}: Readonly<{
+  id: string;
+  kind: string;
+  label: string;
+  role: string;
+  size?: number | undefined;
+  type?: string;
+  x: number;
+  y?: number | undefined;
+}>): WorkflowGraphLayout["nodes"][number] {
+  return {
+    data: {
+      entityID: id,
+      entityKind: "node",
+      groupID: "",
+      hasError: false,
+      key: id,
+      kind,
+      label,
+      role,
+    },
+    draggable: kind === "agent",
+    id,
+    position: { x, y },
+    style: size === undefined ? { height: 92, width: 220 } : { height: size, width: size },
+    type,
+  };
 }
 
 function HeroSection({

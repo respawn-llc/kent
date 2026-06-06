@@ -1151,6 +1151,84 @@ describe("WorkflowEditorRoute", () => {
     expect(prompt.selectionStart).toBe("Review{{.Params.summary}} the task.{{.TaskTitle}}".length);
   });
 
+  it("keeps edited branch prompts after saving from the server-returned graph", async () => {
+    const user = userEvent.setup();
+    const savedPrompt = "Persist this edge prompt.";
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.get", result: workflowDefinitionResponseWithReviewBranch },
+      { method: "workflow.validate", result: { valid: true, errors: [] } },
+      { method: "workflow.graph.validateDraft", result: validGraphValidationResponse },
+      {
+        method: "workflow.graph.savePreview",
+        result: {
+          current_version: 1,
+          validation_results: validGraphValidationResponse.results,
+          impact: graphSaveImpactResponse,
+          blockers: [],
+          can_save: true,
+          confirmation_required: false,
+        },
+      },
+      {
+        method: "workflow.graph.save",
+        handler(params) {
+          const expectedEdges: unknown = expect.arrayContaining([
+            expect.objectContaining({
+              id: "edge-review",
+              prompt_template: savedPrompt,
+            }),
+          ]);
+          expect(params).toMatchObject({
+            graph: {
+              edges: expectedEdges,
+            },
+          });
+          return {
+            saved: true,
+            definition: workflowDefinitionResponseWithEdgePrompt("edge-review", savedPrompt, 2).definition,
+            current_version: 2,
+            validation_results: validGraphValidationResponse.results,
+            impact: graphSaveImpactResponse,
+            blockers: [],
+            can_save: true,
+            confirmation_required: false,
+          };
+        },
+      },
+    ]);
+    render(
+      <AppProviders services={services}>
+        <SidebarProvider>
+          <WorkflowEditorDraftBridgeProvider>
+            <WorkflowEditorRoute projectID="" workflowID="workflow-1" />
+            <OpenEdgeInspectorButton edgeID="edge-review" />
+            <SidebarHost />
+          </WorkflowEditorDraftBridgeProvider>
+        </SidebarProvider>
+      </AppProviders>,
+    );
+
+    expect(
+      await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open edge inspector" }));
+    const inspector = await screen.findByRole("complementary", { name: "Inspect branch" });
+    const prompt = within(inspector).getByRole("textbox", { name: "Prompt" });
+
+    await user.clear(prompt);
+    await user.type(prompt, savedPrompt);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(prompt).toHaveValue(savedPrompt);
+    });
+    expect(services.transport.calls.some((call) => call.method === "workflow.graph.save")).toBe(true);
+  });
+
   it("edits Start node display name and key from the normal node inspector", async () => {
     window.history.pushState(null, "", "/workflows/workflow-1/editor");
     const services = createTestServices([
@@ -1487,11 +1565,8 @@ describe("WorkflowEditorRoute", () => {
     fireEvent.change(within(inspector).getByRole("textbox", { name: "Transition text" }), {
       target: { value: "Review" },
     });
-    fireEvent.change(within(inspector).getByRole("textbox", { name: "Transition ID" }), {
-      target: { value: "review" },
-    });
     fireEvent.change(within(inspector).getByRole("textbox", { name: "Key" }), {
-      target: { value: "review_edge" },
+      target: { value: "review" },
     });
 
     fireEvent.pointerDown(within(inspector).getByRole("button", { name: "Context mode" }));
@@ -1511,8 +1586,8 @@ describe("WorkflowEditorRoute", () => {
       throw new Error("Expected a merged edge route section.");
     }
     expect(within(routeSection).getByRole("textbox", { name: "Transition text" })).toBeInTheDocument();
-    expect(within(routeSection).getByRole("textbox", { name: "Transition ID" })).toBeInTheDocument();
     expect(within(routeSection).getByRole("textbox", { name: "Key" })).toBeInTheDocument();
+    expect(within(routeSection).queryByRole("textbox", { name: "Branch key" })).not.toBeInTheDocument();
     expect(
       within(inspector).queryByRole("region", { name: "Derived parameter bindings" }),
     ).not.toBeInTheDocument();
@@ -1548,7 +1623,7 @@ describe("WorkflowEditorRoute", () => {
       const expectedEdges: unknown = expect.arrayContaining([
         expect.objectContaining({
           id: "edge-2",
-          key: "review_edge",
+          key: "done",
           requires_approval: false,
           context_mode: "new_session",
           context_source: { kind: "immediate_source", node_key: "" },
@@ -1561,6 +1636,36 @@ describe("WorkflowEditorRoute", () => {
         },
       });
     });
+  });
+
+  it("shows branch key only for fan-out transition branches", async () => {
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.get", result: workflowDefinitionResponseWithValidGroupedBranches },
+      { method: "workflow.validate", result: { valid: true, errors: [] } },
+      { method: "workflow.graph.validateDraft", result: validGraphValidationResponse },
+    ]);
+    window.history.pushState(null, "", "/workflows/workflow-1/editor");
+    render(
+      <AppProviders services={services}>
+        <SidebarProvider>
+          <WorkflowEditorDraftBridgeProvider>
+            <WorkflowEditorRoute projectID="" workflowID="workflow-1" />
+            <OpenEdgeInspectorButton edgeID="edge-plan-implement" />
+            <SidebarHost />
+          </WorkflowEditorDraftBridgeProvider>
+        </SidebarProvider>
+      </AppProviders>,
+    );
+
+    await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
+    fireEvent.click(screen.getByRole("button", { name: "Open edge inspector" }));
+    const inspector = await screen.findByRole("complementary", { name: "Inspect branch" });
+    const routeSection = within(inspector).getByRole("region", { name: "Route" });
+
+    expect(within(routeSection).queryByRole("textbox", { name: "Transition ID" })).not.toBeInTheDocument();
+    expect(within(routeSection).getByRole("textbox", { name: "Key" })).toHaveValue("new_agent");
+    expect(within(routeSection).getByRole("textbox", { name: "Branch key" })).toHaveValue("implement");
   });
 
   it("disables context source for new-session edges and saves immediate source", async () => {
@@ -2145,6 +2250,9 @@ describe("WorkflowEditorRoute", () => {
     );
 
     expect(await screen.findByRole("region", { name: "Route" })).toBeInTheDocument();
+    expect(screen.getByText("Key")).toBeInTheDocument();
+    expect(screen.queryByText("Transition ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("Branch key")).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Derived parameter bindings" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Derived provision requirements" })).not.toBeInTheDocument();
   });
@@ -3483,6 +3591,21 @@ function workflowDefinitionResponseWithEdgeApproval(
       },
       edges: workflowDefinitionResponse.definition.edges.map((edge) =>
         edge.id === edgeID ? { ...edge, requires_approval: requiresApproval } : edge,
+      ),
+    },
+  };
+}
+
+function workflowDefinitionResponseWithEdgePrompt(edgeID: string, promptTemplate: string, version: number) {
+  return {
+    definition: {
+      ...workflowDefinitionResponseWithReviewBranch.definition,
+      workflow: {
+        ...workflowDefinitionResponseWithReviewBranch.definition.workflow,
+        version: version,
+      },
+      edges: workflowDefinitionResponseWithReviewBranch.definition.edges.map((edge) =>
+        edge.id === edgeID ? { ...edge, prompt_template: promptTemplate } : edge,
       ),
     },
   };

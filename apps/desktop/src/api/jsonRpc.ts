@@ -1,5 +1,5 @@
 import { ConnectionStore } from "./connectionStore";
-import { RpcError, TransportError } from "./errors";
+import { TransportError } from "./errors";
 import type { JsonValue } from "./json";
 import {
   delay,
@@ -12,6 +12,7 @@ import {
   protocolVersion,
   responseSchema,
   sendSocketRequest,
+  socketRequestError,
   waitForSubscriptionEnd,
 } from "./jsonRpcSocket";
 import type { RpcEventHandler, RpcSubscription, RpcTransport } from "./transport";
@@ -143,7 +144,7 @@ class JsonRpcWebSocketTransport implements RpcTransport {
     this.#pending.delete(id);
     clearTimeout(pending.timeout);
     if (error !== undefined) {
-      pending.reject(new RpcError({ code: error.code, message: error.message, method: pending.method }));
+      pending.reject(socketRequestError(pending.method, error));
       return;
     }
     pending.resolve(result);

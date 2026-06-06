@@ -1,4 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Plus } from "lucide-react";
 import { memo, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -226,7 +227,7 @@ export const WorkflowJoinNode = memo(function WorkflowJoinNode({
   const nodeCard = (
     <div
       className={cx(
-        "workflow-editor-join-node nopan grid h-full w-full place-items-center",
+        "workflow-editor-join-node nopan relative grid h-full w-full place-items-center",
         data.hasError ? "workflow-editor-node-error" : undefined,
       )}
       style={workflowNodeOutlineStyle(data.kind, data.hasError)}
@@ -281,17 +282,27 @@ function WorkflowCreationHandle({
     return null;
   }
   return (
-    <Handle
-      aria-label="Create outgoing transition"
-      className="workflow-editor-handle workflow-editor-creation-handle"
-      data-testid="workflow-node-source-handle"
-      id={data.creationHandleID ?? workflowGraphCreationHandleID(data.entityID)}
-      onClick={(event) => {
-        inspectEditableNodeFromHandle(event, data, onInspectNode);
-      }}
-      position={Position.Right}
-      type="source"
-    />
+    <>
+      <Handle
+        aria-label="Create outgoing transition"
+        className="workflow-editor-handle workflow-editor-creation-handle"
+        data-testid="workflow-node-source-handle"
+        id={data.creationHandleID ?? workflowGraphCreationHandleID(data.entityID)}
+        onClick={(event) => {
+          inspectEditableNodeFromHandle(event, data, onInspectNode);
+        }}
+        position={Position.Right}
+        type="source"
+      />
+      <Plus
+        aria-hidden="true"
+        className="workflow-editor-creation-handle-icon"
+        data-testid="workflow-node-source-handle-icon"
+        data-workflow-node-id={data.entityID}
+        size={14}
+        strokeWidth={2}
+      />
+    </>
   );
 }
 

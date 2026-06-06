@@ -105,7 +105,8 @@ describe("StartupGate", () => {
     });
   });
 
-  it("blocks feature surfaces when server protocol does not match desktop protocol", async () => {
+  it("resets to startup when server protocol does not match desktop protocol", async () => {
+    window.history.pushState(null, "", "/workflows/workflow-1/editor");
     render(
       <App
         services={createTestServices([
@@ -126,6 +127,12 @@ describe("StartupGate", () => {
     );
 
     expect(await screen.findByTestId("error-state")).toBeInTheDocument();
+    expect(
+      screen.getByText("Client protocol 7. Server protocol 1. Update Builder CLI/service and desktop app from the same build."),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/");
+    });
     expect(screen.queryByTestId("home-route-root")).not.toBeInTheDocument();
   });
 });

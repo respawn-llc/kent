@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { queryKeys } from "../../app/queryKeys";
 import { useAppServices } from "../../app/useAppServices";
 import type { ServerReadiness } from "../../api";
-import { StartupConfigurationError, errorMessage } from "../../api/errors";
+import { ProtocolMismatchError, StartupConfigurationError, errorMessage } from "../../api/errors";
 import { protocolVersion } from "../../api/jsonRpcSocket";
 
 export type StartupViewModel =
@@ -23,6 +23,16 @@ export function useStartup(): StartupViewModel {
     return { kind: "loading" };
   }
   if (readiness.isError) {
+    if (readiness.error instanceof ProtocolMismatchError) {
+      return startupError(
+        "startup.updateBuilderTitle",
+        errorMessage(readiness.error),
+        t("startup.unknownFailure"),
+        () => {
+          void readiness.refetch();
+        },
+      );
+    }
     return startupError(
       readiness.error instanceof StartupConfigurationError
         ? "startup.errorTitle"

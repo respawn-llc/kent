@@ -1,4 +1,6 @@
 import { createJsonRpcTransport } from "./jsonRpc";
+import { ProtocolMismatchError } from "./errors";
+import { protocolVersionMismatchErrorCode } from "./jsonRpcSocket";
 
 type SentFrame = Readonly<{
   id: string;
@@ -78,6 +80,20 @@ describe("JsonRpcWebSocketTransport", () => {
     expect(firstSocket.sent).toHaveLength(2);
   });
 
+  it("rejects control calls on handshake protocol mismatch before sending the requested method", async () => {
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const readiness = transport.call("server.readiness.get", {});
+    const socket = sockets[0] ?? failTest("control socket missing");
+
+    socket.open();
+    await waitForSent(socket, 1);
+    errorAck(socket, 0, protocolVersionMismatchErrorCode, "unsupported protocol version");
+
+    await expect(readiness).rejects.toBeInstanceOf(ProtocolMismatchError);
+    expect(socket.sent).toHaveLength(1);
+    expect(frame(socket, 0)).toMatchObject({ method: "protocol.handshake" });
+  });
+
   it("installs subscription event listener before subscribe ack can race with first event", async () => {
     const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
     const events: string[] = [];
@@ -121,6 +137,38 @@ describe("JsonRpcWebSocketTransport", () => {
 
     expect(opens).toEqual(["open"]);
     expect(events).toEqual(["workflow.project"]);
+  });
+
+  it("rejects subscriptions on handshake protocol mismatch before sending the subscribe method", async () => {
+    const transport = createJsonRpcTransport("ws://127.0.0.1:53082/rpc");
+    const errors: Error[] = [];
+    const subscription = transport.subscribe(
+      "workflow.subscribeProject",
+      { project_id: "project-1" },
+      {
+        onEvent() {
+          return;
+        },
+        onComplete() {
+          return;
+        },
+        onError(error) {
+          errors.push(error);
+        },
+      },
+    );
+    const socket = sockets[0] ?? failTest("subscription socket missing");
+
+    socket.open();
+    await waitForSent(socket, 1);
+    errorAck(socket, 0, protocolVersionMismatchErrorCode, "unsupported protocol version");
+
+    await vi.waitFor(() => {
+      expect(errors[0]).toBeInstanceOf(ProtocolMismatchError);
+    });
+    expect(socket.sent).toHaveLength(1);
+    expect(frame(socket, 0)).toMatchObject({ method: "protocol.handshake" });
+    subscription.close();
   });
 
   it("reopens subscription socket after unexpected close", async () => {
@@ -169,6 +217,11 @@ describe("JsonRpcWebSocketTransport", () => {
 function ack(socket: MockWebSocket, sentIndex: number): void {
   const sent = frame(socket, sentIndex);
   socket.receive(JSON.stringify({ jsonrpc: "2.0", id: sent.id, result: {} }));
+}
+
+function errorAck(socket: MockWebSocket, sentIndex: number, code: number, message: string): void {
+  const sent = frame(socket, sentIndex);
+  socket.receive(JSON.stringify({ jsonrpc: "2.0", id: sent.id, error: { code, message } }));
 }
 
 function frame(socket: MockWebSocket, sentIndex: number): SentFrame {

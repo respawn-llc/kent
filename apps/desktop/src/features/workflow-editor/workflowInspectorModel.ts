@@ -15,6 +15,10 @@ export function nodeByID(definition: WorkflowDefinition, nodeID: string): Workfl
   return definition.nodes.find((node) => node.id === nodeID);
 }
 
+export function transitionGroupIsFanOut(definition: WorkflowDefinition, transitionGroupID: string): boolean {
+  return definition.edges.filter((edge) => edge.transitionGroupID === transitionGroupID).length > 1;
+}
+
 export function nodeInputFieldsDisabled(definition: WorkflowDefinition, nodeID: string): boolean {
   return definition.edges.some((edge) => {
     if (edge.targetNodeID !== nodeID) {

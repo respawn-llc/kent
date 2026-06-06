@@ -59,6 +59,7 @@ import {
   fallbackLabel,
   nodeByID,
   transitionGroupByID,
+  transitionGroupIsFanOut,
 } from "./workflowInspectorModel";
 import { workflowDefinitionFromDraft, type DraftWorkflowNode } from "./workflowEditorDraft";
 import {
@@ -226,6 +227,7 @@ function EdgeDraftDetails({
   const details = edgeDetails(definition, edge, validation);
   const derivedEdge = derivedEdgeWiring(definition, edge.id);
   const transitionGroup = transitionGroupByID(definition, edge.transitionGroupID);
+  const fanOutTransition = transitionGroupIsFanOut(definition, edge.transitionGroupID);
   const startEdge = details.sourceKind === "start";
   const continuationAvailable = details.sourceKind === "agent" || details.targetKind === "agent";
   const disabledReason = t("workflowEditor.edgeControlNotApplicable");
@@ -258,7 +260,7 @@ function EdgeDraftDetails({
         />
         <TextInput
           {...identifierInputAttributes}
-          label={t("workflowEditor.transitionID")}
+          label={t("workflowEditor.key")}
           onChange={(event) => {
             controller.dispatch({
               input: { edgeID: edge.id, transitionID: event.target.value.replaceAll("\n", " ") },
@@ -267,17 +269,19 @@ function EdgeDraftDetails({
           }}
           value={details.transitionID}
         />
-        <TextInput
-          {...identifierInputAttributes}
-          label={t("workflowEditor.key")}
-          onChange={(event) => {
-            controller.dispatch({
-              input: { edgeID: edge.id, edgeKey: event.target.value.replaceAll("\n", " ") },
-              type: "editEdgeRoute",
-            });
-          }}
-          value={edge.key}
-        />
+        {fanOutTransition ? (
+          <TextInput
+            {...identifierInputAttributes}
+            label={t("workflowEditor.branchKey")}
+            onChange={(event) => {
+              controller.dispatch({
+                input: { edgeID: edge.id, edgeKey: event.target.value.replaceAll("\n", " ") },
+                type: "editEdgeRoute",
+              });
+            }}
+            value={edge.key}
+          />
+        ) : null}
         <TooltipProvider delayDuration={0}>
           <DisabledInteractionGuard disabled={contextModeDisabled} reason={disabledReason}>
             <SelectField
@@ -1042,6 +1046,7 @@ function EdgeDetails({
   const details = edgeDetails(definition, edge, validation);
   const derivedEdge = derivedEdgeWiring(definition, edge.id);
   const promptParameters = edgePromptPlaceholderParameters(definition, edge);
+  const fanOutTransition = transitionGroupIsFanOut(definition, edge.transitionGroupID);
   return (
     <InspectorStack>
       <DetailSection
@@ -1056,8 +1061,8 @@ function EdgeDetails({
         }
         title={t("workflowEditor.route")}
       >
-        <DetailRow label={t("workflowEditor.key")} mono value={edge.key} />
-        <DetailRow label={t("workflowEditor.transitionID")} mono value={details.transitionID} />
+        <DetailRow label={t("workflowEditor.key")} mono value={details.transitionID} />
+        {fanOutTransition ? <DetailRow label={t("workflowEditor.branchKey")} mono value={edge.key} /> : null}
         <DetailRow label={t("workflowEditor.transitionGroup")} value={details.transitionGroupLabel} />
         <DetailRow
           label={t("workflowEditor.contextMode")}

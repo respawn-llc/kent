@@ -46,18 +46,28 @@
 }
 
 .workflow-editor-creation-handle {
-  display: grid;
-  height: 14px;
-  place-items: center;
-  width: 14px;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--color-on-island);
+  display: flex;
+  height: 18px;
+  justify-content: center;
+  right: 0;
+  top: 50%;
+  transform: translate(50%, -50%);
+  width: 18px;
 }
 
-.workflow-editor-creation-handle::after {
+.workflow-editor-creation-handle-icon {
   color: var(--color-on-island);
-  content: "+";
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
+  display: block;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translate(50%, -50%);
+  z-index: 1;
 }
 
 .workflow-editor-target-connection-handle {

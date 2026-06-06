@@ -30,6 +30,13 @@ export class ContractError extends Error {
   }
 }
 
+export class ProtocolMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProtocolMismatchError";
+  }
+}
+
 export class StartupConfigurationError extends Error {
   constructor(message: string) {
     super(message);

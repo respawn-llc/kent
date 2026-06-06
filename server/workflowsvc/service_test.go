@@ -974,6 +974,7 @@ func TestServiceWorkflowGraphValidatePreviewAndSave(t *testing.T) {
 	}
 
 	renamedGraph := renameWorkflowGraphDraftNode(graph, "node-agent-"+workflowID, "Preview Agent")
+	renamedGraph = setWorkflowGraphDraftEdgePrompt(renamedGraph, "edge-start-"+workflowID, "Saved edge prompt.")
 	preview, err := service.PreviewWorkflowGraphSave(ctx, serverapi.WorkflowGraphSavePreviewRequest{
 		WorkflowID:      workflowID,
 		ExpectedVersion: source.Definition.Workflow.Version,
@@ -1021,6 +1022,9 @@ func TestServiceWorkflowGraphValidatePreviewAndSave(t *testing.T) {
 	}
 	if saved.Definition.Workflow.Name != "Saved Workflow" || saved.Definition.Workflow.Description != "Saved metadata" {
 		t.Fatalf("saved workflow metadata = %+v, want combined metadata persisted", saved.Definition.Workflow)
+	}
+	if workflowServiceEdgeByID(t, *saved.Definition, "edge-start-"+workflowID).PromptTemplate != "Saved edge prompt." {
+		t.Fatalf("saved response edge prompt = %q, want edited edge prompt", workflowServiceEdgeByID(t, *saved.Definition, "edge-start-"+workflowID).PromptTemplate)
 	}
 	for _, event := range waitWorkflowProjectActions(t, sub, "workflow", "graph_saved") {
 		if event.ProjectID != binding.ProjectID || event.WorkflowID != workflowID {
@@ -1245,6 +1249,17 @@ func workflowServiceNodeByID(t *testing.T, def serverapi.WorkflowDefinition, nod
 	return serverapi.WorkflowNode{}
 }
 
+func workflowServiceEdgeByID(t *testing.T, def serverapi.WorkflowDefinition, edgeID string) serverapi.WorkflowEdge {
+	t.Helper()
+	for _, edge := range def.Edges {
+		if edge.ID == edgeID {
+			return edge
+		}
+	}
+	t.Fatalf("missing edge %q in %+v", edgeID, def.Edges)
+	return serverapi.WorkflowEdge{}
+}
+
 func workflowGraphDraftFromDefinition(def serverapi.WorkflowDefinition) serverapi.WorkflowGraphDraft {
 	graph := serverapi.WorkflowGraphDraft{
 		NodeGroups:       make([]serverapi.WorkflowGraphDraftNodeGroup, 0, len(def.NodeGroups)),
@@ -1277,6 +1292,18 @@ func renameWorkflowGraphDraftNode(graph serverapi.WorkflowGraphDraft, nodeID str
 		renamed.Nodes = append(renamed.Nodes, node)
 	}
 	return renamed
+}
+
+func setWorkflowGraphDraftEdgePrompt(graph serverapi.WorkflowGraphDraft, edgeID string, promptTemplate string) serverapi.WorkflowGraphDraft {
+	updated := graph
+	updated.Edges = make([]serverapi.WorkflowGraphDraftEdge, 0, len(graph.Edges))
+	for _, edge := range graph.Edges {
+		if edge.ID == edgeID {
+			edge.PromptTemplate = promptTemplate
+		}
+		updated.Edges = append(updated.Edges, edge)
+	}
+	return updated
 }
 
 func workflowServiceNodeIDByKey(t *testing.T, def serverapi.WorkflowDefinition, key string) string {

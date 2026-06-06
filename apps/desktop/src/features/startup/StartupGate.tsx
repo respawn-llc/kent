@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useStatusController } from "../../app/useStatusController";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
@@ -14,8 +15,11 @@ export type StartupGateProps = Readonly<{
 export function StartupGate({ children }: StartupGateProps): ReactElement {
   const startup = useStartup();
   const connection = useConnectionSnapshot();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { dismiss, push } = useStatusController();
   const { t } = useTranslation();
+  const startupTitleKey = startup.kind === "error" ? startup.titleKey : "";
 
   useEffect(() => {
     if (connection.phase !== "disconnected") {
@@ -30,6 +34,16 @@ export function StartupGate({ children }: StartupGateProps): ReactElement {
       dismissible: false,
     });
   }, [connection.phase, dismiss, push, t]);
+
+  useEffect(() => {
+    if (startupTitleKey !== "startup.updateBuilderTitle") {
+      return;
+    }
+    if (location.pathname === "/") {
+      return;
+    }
+    void navigate({ to: "/", replace: true });
+  }, [location.pathname, navigate, startupTitleKey]);
 
   if (startup.kind === "loading") {
     return <LoadingState body={t("startup.loadingBody")} chromePadding reveal={false} title={t("startup.loadingTitle")} />;

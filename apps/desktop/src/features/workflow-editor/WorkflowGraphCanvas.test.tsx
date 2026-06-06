@@ -166,6 +166,38 @@ describe("WorkflowGraphCanvas", () => {
     expect(within(screen.getByTestId("workflow-graph-node-terminal")).queryAllByTestId("workflow-node-source-handle")).toHaveLength(0);
   });
 
+  it("renders real plus icons for non-terminal creation handles on workflow and join nodes", () => {
+    render(
+      <WorkflowGraphCanvas
+        graph={{
+          edges: [],
+          nodes: [
+            workflowGraphNode({ hasError: false, id: "agent", kind: "agent", label: "Agent", x: 0 }),
+            workflowGraphNode({
+              hasError: false,
+              id: "join",
+              kind: "join",
+              label: "Join",
+              type: "workflowJoin",
+              x: 160,
+            }),
+            workflowGraphNode({ hasError: false, id: "terminal", kind: "terminal", label: "Done", x: 320 }),
+          ],
+        }}
+        onEdgeInspect={() => undefined}
+        onGroupInspect={() => undefined}
+        onNodeInspect={() => undefined}
+        onWorkflowInspect={() => undefined}
+      />,
+    );
+
+    const creationHandleIcons = screen.getAllByTestId("workflow-node-source-handle-icon");
+    expect(creationHandleIcons).toHaveLength(2);
+    expect(creationHandleIcons.map((icon) => icon.dataset.workflowNodeId)).toEqual(["agent", "join"]);
+    expect(creationHandleIcons.every((icon) => icon.tagName.toLowerCase() === "svg")).toBe(true);
+    expect(screen.getAllByTestId("workflow-node-source-handle")).toHaveLength(2);
+  });
+
   it("creates node groups from context menu and drag-drops nodes onto groups", async () => {
     const onAddNodeToGroup = vi.fn();
     const onCreateNodeGroup = vi.fn();

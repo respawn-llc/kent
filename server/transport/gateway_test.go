@@ -565,7 +565,7 @@ func TestGatewayHandshakeRejectsProtocolVersionMismatch(t *testing.T) {
 	defer func() { _ = conn.Close() }()
 
 	respErr := callGatewayExpectError(t, conn, "1", protocol.MethodHandshake, protocol.HandshakeRequest{ProtocolVersion: "1"})
-	if respErr.Code != protocol.ErrCodeInvalidRequest ||
+	if respErr.Code != protocol.ErrCodeProtocolVersionMismatch ||
 		!strings.Contains(respErr.Message, "unsupported protocol version") ||
 		!strings.Contains(respErr.Message, "server requires "+strconv.Quote(protocol.Version)) ||
 		!strings.Contains(respErr.Message, "upgrade the older Builder process") {

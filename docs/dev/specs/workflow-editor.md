@@ -51,9 +51,9 @@
 - If a workflow references a legacy role no longer configured, the legacy role remains visible/selectable instead of forcing the placeholder state.
 - Node inspectors are identity-focused. Transition configuration is edited by selecting transition visuals.
 - Transition inspectors edit label, key, prompt when the target is an agent, parameters when the source is an agent, approval, context-preservation mode, context source, routing, and validation issues.
-- Transition display labels are separate from transition keys and derive from keys until manually edited. Internal transition IDs are hidden from the editor.
+- Transition display labels are separate from transition keys and derive from keys until manually edited. The transition inspector labels the model-facing `transition_id` as `Key`; it does not expose a separate `Transition ID` label.
 - Selecting a normal transition opens its transition inspector. Selecting a fan-out branch opens the branch invocation editor and includes compact fan-out parent metadata. The fan-out parent owns source-choice label/key and approval; branches own target prompt, parameters, context, and routing.
-- Normal transitions hide the generated branch key. Fan-out branch keys are generated from target node keys, editable in the branch editor, must use workflow model-key format, and are unique within the parent fan-out transition.
+- Normal transitions hide the generated branch key. Fan-out branch inspectors expose `Branch key` for the concrete edge key; fan-out branch keys are generated from target node keys, editable in the branch editor, must use workflow model-key format, and are unique within the parent fan-out transition.
 - Parameter fields contain a stable key and `Model-facing description`. Parameters are string-only and required when declared.
 - Parameter keys cannot be `transition` or `commentary`.
 - Fan-out branch parameters are unioned into one source result contract. Matching branch parameter keys share one produced value only when their trimmed descriptions are identical; the merged parameter uses that trimmed description. Different descriptions for the same key are validation errors.
@@ -96,6 +96,7 @@
 - Save preview returns draft validation, execution validation, active-task blockers, destructive/removal impact, and confirmation requirement.
 - Destructive graph saves are confirmed inside the bottom-right workflow-editor status island. The editor does not open a modal or sidebar for graph-save confirmation.
 - Save recomputes validation and impact transactionally, rejects stale workflow versions, rejects active blockers, rejects unconfirmed or changed destructive impact, applies metadata and graph changes atomically, increments workflow version once, publishes linked-project events, and returns the saved definition plus validations.
+- Desktop and server protocol versions gate workflow graph contract compatibility before the editor can communicate with the service.
 - Workflow definitions use one monotonic `version` over persisted definition changes. Metadata-only changes and graph changes each increment it once; combined metadata+graph saves also increment it once; no-op saves increment neither.
 - If a subscription event changes the same workflow while the local draft is dirty, keep the local draft and show a conflict banner.
 - Conflict banner actions are Reload remote and Keep editing.

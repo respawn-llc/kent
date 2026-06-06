@@ -1,10 +1,17 @@
 import { render, screen } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach, beforeEach } from "vitest";
 
 import { DevShowcaseApp } from "./DevShowcase";
 
 describe("DevShowcaseApp", () => {
+  const originalResizeObserver = globalThis.ResizeObserver;
+
+  beforeEach(() => {
+    globalThis.ResizeObserver = MockResizeObserver;
+  });
+
   afterEach(() => {
+    globalThis.ResizeObserver = originalResizeObserver;
     document.documentElement.removeAttribute("data-builder-theme");
   });
 
@@ -22,3 +29,17 @@ describe("DevShowcaseApp", () => {
     expect(screen.queryAllByTestId("dev-showcase-toast-example")).toHaveLength(0);
   });
 });
+
+class MockResizeObserver implements ResizeObserver {
+  observe(): void {
+    return;
+  }
+
+  unobserve(): void {
+    return;
+  }
+
+  disconnect(): void {
+    return;
+  }
+}
