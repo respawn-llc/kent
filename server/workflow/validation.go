@@ -457,7 +457,7 @@ func (s *validationState) validateEdgeInvocationContract(edge Edge, ref Validati
 	source, sourceExists := s.edgeSource(edge)
 	prompt := strings.TrimSpace(edge.PromptTemplate)
 	if targetExists && target.Kind == NodeKindAgent {
-		if prompt == "" {
+		if prompt == "" && s.context != ValidationContextDraft {
 			s.addHard(CodeTransitionPromptRequired, "transition into an agent node requires a prompt", ref)
 		}
 	} else if prompt != "" {

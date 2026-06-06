@@ -1096,6 +1096,41 @@ func TestServiceWorkflowGraphSaveDescriptionOnlyFeedsRuntimeTransitions(t *testi
 	}
 }
 
+func TestServiceWorkflowGraphSaveAllowsEmptyPromptButTaskStartRejects(t *testing.T) {
+	ctx, service, binding := newWorkflowServiceTestContext(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
+	source, err := service.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: workflowID})
+	if err != nil {
+		t.Fatalf("GetWorkflow source: %v", err)
+	}
+	graph := workflowGraphDraftFromDefinition(source.Definition)
+	graph = setWorkflowGraphDraftEdgePrompt(graph, "edge-start-"+workflowID, "")
+
+	saved, err := service.SaveWorkflowGraph(ctx, serverapi.WorkflowGraphSaveRequest{
+		WorkflowID:      workflowID,
+		ExpectedVersion: source.Definition.Workflow.Version,
+		Graph:           graph,
+	})
+	if err != nil {
+		t.Fatalf("SaveWorkflowGraph empty prompt: %v", err)
+	}
+	if !saved.Saved || saved.CurrentVersion != source.Definition.Workflow.Version+1 || len(saved.Blockers) != 0 {
+		t.Fatalf("empty-prompt save = %+v, want saved without blockers", saved)
+	}
+	if saved.ValidationResults[serverapi.WorkflowValidationModeDraft].Valid != true {
+		t.Fatalf("empty-prompt draft validation = %+v, want valid", saved.ValidationResults[serverapi.WorkflowValidationModeDraft])
+	}
+	if saved.ValidationResults[serverapi.WorkflowValidationModeExecution].Valid {
+		t.Fatalf("empty-prompt execution validation = %+v, want invalid", saved.ValidationResults[serverapi.WorkflowValidationModeExecution])
+	}
+
+	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
+	if _, err := service.StartWorkflowTask(ctx, serverapi.WorkflowTaskStartRequest{TaskID: task.Task.ID}); err == nil || !strings.Contains(err.Error(), string(workflow.CodeTransitionPromptRequired)) {
+		t.Fatalf("StartWorkflowTask empty prompt error = %v, want transition prompt required", err)
+	}
+}
+
 func TestWorkflowValidationResponsePreservesWorkflowIDFallback(t *testing.T) {
 	resp := workflowValidationResponse("workflow-1", workflow.ValidationResult{Errors: []workflow.ValidationError{{
 		Code:    workflow.CodeInvalidNodeKey,

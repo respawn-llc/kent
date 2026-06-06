@@ -61,7 +61,7 @@
 - Transition prompt built-in field placeholders are exactly `.TaskId`, `.TaskShortId`, `.TaskTitle`, `.TaskBody`, `.NodeId`, `.NodeKey`, and `.NodeDisplayName`. Unsupported top-level prompt field references are validation errors.
 - Prompts can reference previous transition parameters with `.Params.<transition_key>.<parameter_key>`. Previous-transition references are typed manually and validate only against guaranteed-prior transitions. A transition is guaranteed-prior when every path from Start to the prompt-owning branch source passes through the referenced transition. Inside a parallel batch, previous-transition lookup is scoped to the same batch.
 - `.Nodes.<node_key>.<field>` prompt references are not a user-authored workflow editor concept.
-- Transition prompts into agent nodes are required. Transitions into non-agent nodes cannot have prompts.
+- Transition prompts into agent nodes are required for task start/execution. Drafts may be saved with empty agent-target prompts. Transitions into non-agent nodes cannot have prompts.
 - Start transitions can have prompts for their first agent target and cannot declare parameters. Start transition prompts can use built-in prompt fields but show no parameter chips.
 - Join inspectors show the read-only aggregated parameter set and same-key collision errors. Join outgoing transitions do not declare parameters. Join-to-agent prompts can reference aggregate parameters through `.Params.<parameter_key>`. A same-key parameter shared by branches of one fan-out transition de-duplicates at the join because it has one producing transition result; same-key parameters from different producing transitions collide.
 - Inspector validation sections keep their section header and render errors as plain bullet lists without card containers or code chips.
@@ -88,7 +88,7 @@
 - The status island owns unsaved state, validation issues, save blockers, remote conflict state, and save errors.
 - Draft validation and execution validation are shown separately. Draft validation blocks graph-dirty saves when it has blocking errors.
 - Execution validation errors remain visible but do not block metadata-only saves.
-- Draft validation blocks empty prompts into agent targets, prompts into non-agent targets, duplicate transition keys, invalid or duplicate fan-out branch keys, invalid parameter keys/descriptions, invalid previous-parameter references, and join aggregate key collisions.
+- Draft validation blocks prompts into non-agent targets, duplicate transition keys, invalid or duplicate fan-out branch keys, invalid parameter keys/descriptions, invalid previous-parameter references, and join aggregate key collisions. Task start/execution validation blocks empty prompts into agent targets.
 - Definitions do not fall back from legacy node-owned prompt/contract fields. Legacy-authored contracts must be reauthored as transition prompts and parameters.
 - Legacy node-owned contract fields are round-tripped as inert metadata. Validation and runtime ignore them for execution. Active-work edit blockers continue to apply; blocked legacy definitions cannot become runnable through fallback behavior.
 - Metadata-only and no-op saves bypass graph edit policy and active-work blockers.

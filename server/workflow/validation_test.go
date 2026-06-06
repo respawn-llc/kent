@@ -502,6 +502,15 @@ func TestTransitionInvocationContractsContextAndRoles(t *testing.T) {
 		assertNoCode(t, result, workflow.CodeTransitionPromptRequired)
 	})
 
+	t.Run("draft validation allows empty agent transition prompt", func(t *testing.T) {
+		def := validWorkflow()
+		edgeByIDForValidationTest(t, &def, "edge_start").PromptTemplate = ""
+
+		result := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextDraft, RoleResolver: workflow.StaticRoleResolver{"coder": true}})
+
+		assertNoCode(t, result, workflow.CodeTransitionPromptRequired)
+	})
+
 	t.Run("valid start prompt built-ins pass", func(t *testing.T) {
 		def := validWorkflow()
 		edgeByIDForValidationTest(t, &def, "edge_start").PromptTemplate = "Start {{.TaskId}} {{.TaskShortId}} {{.TaskTitle}} {{.TaskBody}} for {{.NodeId}} {{.NodeKey}} {{.NodeDisplayName}}."
