@@ -34,6 +34,7 @@ type WorkflowGraphEdgeModelInput = Readonly<{
   edgeID: string;
   hasError: boolean;
   label: string;
+  preservesModelDirection: boolean;
   sourceNodeID: string;
   targetNodeID: string;
   transitionGroupID: string;
@@ -45,16 +46,20 @@ export function visibleWorkflowGraphEdgeModels(
   errorMarkers: WorkflowGraphEdgeErrorMarkers,
 ): readonly WorkflowGraphEdgeModel[] {
   const inputs: WorkflowGraphEdgeModelInput[] = [];
+  const nodeOrderByID = new Map(definition.nodes.map((node, index) => [node.id, index]));
   for (const edge of definition.edges) {
     const group = transitionGroupsByID.get(edge.transitionGroupID);
     if (group === undefined) {
       continue;
     }
+    const sourceOrder = nodeOrderByID.get(group.sourceNodeID) ?? 0;
+    const targetOrder = nodeOrderByID.get(edge.targetNodeID) ?? sourceOrder;
     inputs.push({
       contextMode: edge.contextMode,
       edgeID: edge.id,
       hasError: edgeHasError(edge, group, errorMarkers),
       label: edgeLabel(edge.key, group, definition.edges),
+      preservesModelDirection: sourceOrder <= targetOrder,
       sourceNodeID: group.sourceNodeID,
       targetNodeID: edge.targetNodeID,
       transitionGroupID: group.id,
@@ -89,10 +94,25 @@ function workflowGraphEdgeModel(
     transitionGroupID: input.transitionGroupID,
     elk: {
       id: input.edgeID,
+      layoutOptions: workflowEdgeLayoutOptions(input.preservesModelDirection),
       sources: [input.sourcePort.id],
       targets: [input.targetPort.id],
     },
   };
+}
+
+function workflowEdgeLayoutOptions(preservesModelDirection: boolean): Record<string, string> {
+  return preservesModelDirection
+    ? {
+        "elk.layered.priority.direction": "100",
+        "elk.layered.priority.shortness": "20",
+        "elk.layered.priority.straightness": "20",
+      }
+    : {
+        "elk.layered.priority.direction": "0",
+        "elk.layered.priority.shortness": "0",
+        "elk.layered.priority.straightness": "0",
+      };
 }
 
 function edgeHasError(
