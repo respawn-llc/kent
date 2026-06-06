@@ -23,6 +23,7 @@ export type WorkflowGraphEndpointPort = Readonly<{
 export const workflowNodeWidth = 220;
 export const workflowNodeHeight = 92;
 export const workflowJoinNodeSize = 56;
+export const workflowJoinOutgoingRouteJog = workflowJoinNodeSize / 2;
 export const workflowJoinGroupGap = 80;
 export const emptyGroupWidth = 260;
 export const emptyGroupHeight = 140;

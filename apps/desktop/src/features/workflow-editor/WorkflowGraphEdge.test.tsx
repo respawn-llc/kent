@@ -20,6 +20,43 @@ vi.mock("@xyflow/react", async (importOriginal) => {
 });
 
 describe("WorkflowGraphEdge", () => {
+  it("renders routed edges as rounded orthogonal polylines", () => {
+    render(
+      <svg>
+        <WorkflowGraphEdge
+          data={{
+            contextMode: "new_session",
+            entityID: "edge-1",
+            entityKind: "edge",
+            hasError: false,
+            label: "",
+            routePoints: [
+              { x: 0, y: 0 },
+              { x: 50, y: 0 },
+              { x: 50, y: 40 },
+              { x: 100, y: 40 },
+            ],
+            transitionGroupID: "tg-1",
+          }}
+          id="edge-1"
+          onInspect={() => undefined}
+          source="join"
+          sourceX={0}
+          sourceY={0}
+          target="done"
+          targetX={100}
+          targetY={40}
+          type="workflow"
+        />
+      </svg>,
+    );
+
+    expect(screen.getByTestId("workflow-edge-path")).toHaveAttribute(
+      "d",
+      "M 0 0 L 36 0 Q 50 0 50 14 L 50 26 Q 50 40 64 40 L 100 40",
+    );
+  });
+
   it("inspects an edge from the visible path without bubbling to the React Flow wrapper", () => {
     const onInspect = vi.fn();
     const onWrapperClick = vi.fn();

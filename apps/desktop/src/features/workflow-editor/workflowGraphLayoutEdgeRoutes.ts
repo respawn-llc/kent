@@ -5,6 +5,7 @@ import {
   type NodeLayoutOffset,
   type WorkflowGraphEndpointPort,
   type WorkflowGraphNodeRect,
+  workflowJoinOutgoingRouteJog,
 } from "./workflowGraphLayoutGeometry";
 import type { WorkflowGraphNode, WorkflowGraphPoint } from "./workflowGraphLayout";
 
@@ -14,8 +15,6 @@ type WorkflowGraphRouteEndpoints = Readonly<{
   target: WorkflowGraphNodeRect;
   targetPort: WorkflowGraphEndpointPort;
 }>;
-
-const joinOutgoingRouteJog = 28;
 
 export function layoutEdgeByID(root: ElkNode): ReadonlyMap<string, ElkExtendedEdge> {
   const out = new Map<string, ElkExtendedEdge>();
@@ -152,7 +151,7 @@ function joinOutgoingEdgeRoutePoints(
   const end = targetHandlePoint(endpoints.target, endpoints.targetPort);
   const midX = start.x + (end.x - start.x) / 2;
   if (start.y === end.y) {
-    const jogY = start.y + joinOutgoingRouteJog;
+    const jogY = start.y + workflowJoinOutgoingRouteJog;
     return compactRoutePoints([start, { x: midX, y: start.y }, { x: midX, y: jogY }, { x: end.x, y: jogY }, end]);
   }
   return compactRoutePoints([start, { x: midX, y: start.y }, { x: midX, y: end.y }, end]);
