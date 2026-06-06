@@ -11,65 +11,75 @@
 - Workflow Library is definition management only. It lists/opens/creates/deletes workflows and manages project links. It does not create tasks or act as an aggregate task board.
 - Task creation remains project-originated because tasks require project, workspace, and project-workflow-link context.
 - Project-workflow pairing is visible in UI. A task derives project/workflow execution context through `project_workflow_link_id -> project_workflow_links`.
+- Workflow editor UI uses transition language for graph connections. Edge terminology is internal to graph/persistence adapters.
 - Do not use transfer-to-project semantics unless explicitly reintroduced. Workflows are reusable definitions and project association is link/unlink.
 
-## Implemented Editor Scope
+## Editor Scope
 
-- The current editor is an input-first workflow definition editor with a graph canvas, route-local draft state, sidebar edit forms, validation, conflict handling, and atomic Save/Discard.
+- The editor is a workflow definition editor with a graph canvas, route-local draft state, sidebar edit forms, validation, conflict handling, and atomic Save/Discard.
 - The editor route accepts project context when opened from a board and also supports global workflow-definition context for Workflow Library usage.
 - A project-scoped editor route is project-link gated. Direct project-context route with an unlinked workflow shows a blocker rather than displaying the workflow.
 - Runtime/task state remains in Kanban and task detail. The editor edits workflow definitions, not live task execution.
 - The canvas renders start/backlog, agent, join, terminal/done, disconnected nodes, and node groups.
 - Join nodes are inspectable internal merge plumbing. Board/Kanban read models still omit join columns.
-- GUI-authored node groups are execution-shaped parallel groups. A saved node group contains branch nodes and one join; its fan-out is represented by one transition group with multiple outgoing edges.
+- GUI-authored node groups are execution-shaped parallel groups. A saved node group contains branch nodes and one join; its fan-out is represented by one fan-out transition.
 - One-node node groups may exist only as unsaved invalid drafts while the operator is building the parallel group.
 - Agent nodes show name plus assignee role. Non-agent/no-role nodes have blank role line.
 - Node kind color communicates kind: start primary/blue, agent neutral/gray, join secondary/yellow, terminal success/green.
-- Edge color communicates context-preservation mode: `new_session` primary/blue, `continue_session` neutral/gray, and `compact_and_continue_session` secondary/yellow.
+- Each visible transition branch color communicates its context-preservation mode: `new_session` primary/blue, `continue_session` neutral/gray, and `compact_and_continue_session` secondary/yellow.
 - Validation-error red is reserved for invalid graph entities and overrides normal semantic colors.
-- Edge labels show transition group display name if present, otherwise `transition_id`; fan-out multi-edge groups append edge key only when needed to disambiguate.
-- Node groups render visually as labeled branch islands. The owned Join renders outside the island to the right, vertically centered with the island, while remaining owned by the node group. Branch-to-Join edge routes are normalized into root canvas coordinates before rendering. Empty node groups are not a saved workflow concept.
+- Transition labels show the transition label or key. Fan-out branch labels show the branch key.
+- Node groups render visually as labeled branch islands. The owned Join renders outside the island to the right, vertically centered with the island, while remaining owned by the node group. Branch-to-Join routes are normalized into root canvas coordinates before rendering. Empty node groups are not a saved workflow concept.
 - Canvas layout is deterministic client-side ELK layout from graph structure. Coordinates are not persisted.
 - Layout orientation is left-to-right.
-- Canvas layering keeps group backgrounds below edge paths and edge labels, while workflow node cards and handles stay above edge paths and labels.
-- Initial viewport fits the whole graph on first open. Live refetch preserves pan/zoom, clears stale selection through current React Flow state, and shows workflow-updated feedback.
+- Canvas layering keeps group backgrounds below transition paths and labels, while workflow node cards and handles stay above transition paths and labels.
+- Initial viewport fits the whole graph on first open. Live refetch preserves pan/zoom, clears stale selection through React Flow state, and shows workflow-updated feedback.
 - Canvas controls are inspect workflow, zoom in/out, fit-to-view, and reset zoom in a top-left floating island. There is no minimap.
 - The canvas legend starts collapsed in the bottom-left corner and uses a help/question-mark affordance when collapsed.
 - The canvas add-node affordance uses a plain plus icon. Zoom controls use zoom-specific icons or a visually separate zoom control so `+` consistently means add.
 - Keyboard shortcuts are zoom in/out, reset, fit-to-view, and delete selected editable graph entities.
-- Expected scale is optimized for 5-50 nodes and 5-100 edges, with graceful behavior up to roughly 200 nodes.
+- Expected scale is optimized for 5-50 nodes and 5-100 transitions, with graceful behavior up to roughly 200 nodes.
 
 ## Draft Editing
 
 - Editing uses GUI route-local draft state. Server mutations apply only on Save.
-- Draft state owns workflow metadata, agent-node editable fields, required inputs, join provider selections, dirty state, remote conflicts, and draft version counters.
+- Draft state owns workflow metadata, node identity fields, transition invocation fields, join aggregate diagnostics, dirty state, remote conflicts, and draft version counters.
 - Workflow metadata editing includes workflow name and description through the workflow inspector/settings sidebar.
-- Agent node editing includes display name, key, assignee role, prompt template, and required input fields.
-- Agent prompt editing shows placeholder chips directly below the prompt field. Required input placeholders appear first in declaration order and use the primary color; built-in task/node placeholders follow and use muted outline styling. Clicking a chip inserts the exact Go-template placeholder at the prompt cursor, or at the end when the prompt field is not focused.
-- Start/backlog and terminal node editing includes display name and key. Their kind, execution config, and required inputs stay fixed by domain validation.
-- Required input fields are consuming-node-owned, draggable sidebar islands.
-- New required inputs insert at the top of the node input list.
-- Required input names render as bold ellipsized inline titles that become compact inputs when clicked.
-- Required input descriptions use the placeholder-only `Model-facing description` input.
-- Required input deletion uses a red title-row trash icon.
+- Agent node editing includes display name, key, and assignee role. Agent prompts and parameters are edited on transitions.
+- Start/backlog and terminal node editing includes display name and key. Their kind and execution config stay fixed by domain validation.
 - The assignee dropdown is sourced from server readiness `subagent_roles`.
-- If a workflow references a legacy role no longer configured, the current legacy role remains visible/selectable instead of forcing the placeholder state.
-- Join editing shows downstream required inputs derived by the server and stores one provider selection per input.
-- Join provider selection points to an actual incoming edge into that join.
-- Source-node output fields define reusable outputs that prompt templates can reference through `.Nodes.<node_key>.<output_name>`. Edge input bindings and edge output requirements are not user-authored editor concepts. The server derives them from consuming-node required inputs, prompt node-output references, graph topology, and join provider selections.
-- Agent node inspectors show read-only `Provides` summaries so operators can understand what the server will ask an agent to produce.
+- If a workflow references a legacy role no longer configured, the legacy role remains visible/selectable instead of forcing the placeholder state.
+- Node inspectors are identity-focused. Transition configuration is edited by selecting transition visuals.
+- Transition inspectors edit label, key, prompt when the target is an agent, parameters when the source is an agent, approval, context-preservation mode, context source, routing, and validation issues.
+- Transition display labels are separate from transition keys and derive from keys until manually edited. Internal transition IDs are hidden from the editor.
+- Selecting a normal transition opens its transition inspector. Selecting a fan-out branch opens the branch invocation editor and includes compact fan-out parent metadata. The fan-out parent owns source-choice label/key and approval; branches own target prompt, parameters, context, and routing.
+- Normal transitions hide the generated branch key. Fan-out branch keys are generated from target node keys, editable in the branch editor, must use workflow model-key format, and are unique within the parent fan-out transition.
+- Parameter fields contain a stable key and `Model-facing description`. Parameters are string-only and required when declared.
+- Parameter keys cannot be `transition` or `commentary`.
+- Fan-out branch parameters are unioned into one source result contract. Matching branch parameter keys share one produced value only when their trimmed descriptions are identical; the merged parameter uses that trimmed description. Different descriptions for the same key are validation errors.
+- Prompt editing for transitions shows invocation-parameter placeholder chips below the prompt field. Clicking a chip inserts `.Params.<parameter_key>` at the prompt cursor, or at the end when the prompt field is not focused.
+- Transition prompt built-in field placeholders are exactly `.TaskId`, `.TaskShortId`, `.TaskTitle`, `.TaskBody`, `.NodeId`, `.NodeKey`, and `.NodeDisplayName`. Unsupported top-level prompt field references are validation errors.
+- Prompts can reference previous transition parameters with `.Params.<transition_key>.<parameter_key>`. Previous-transition references are typed manually and validate only against guaranteed-prior transitions. A transition is guaranteed-prior when every path from Start to the prompt-owning branch source passes through the referenced transition. Inside a parallel batch, previous-transition lookup is scoped to the same batch.
+- `.Nodes.<node_key>.<field>` prompt references are not a user-authored workflow editor concept.
+- Transition prompts into agent nodes are required. Transitions into non-agent nodes cannot have prompts.
+- Start transitions can have prompts for their first agent target and cannot declare parameters. Start transition prompts can use built-in prompt fields but show no parameter chips.
+- Join inspectors show the read-only aggregated parameter set and same-key collision errors. Join outgoing transitions do not declare parameters. Join-to-agent prompts can reference aggregate parameters through `.Params.<parameter_key>`. A same-key parameter shared by branches of one fan-out transition de-duplicates at the join because it has one producing transition result; same-key parameters from different producing transitions collide.
 - Inspector validation sections keep their section header and render errors as plain bullet lists without card containers or code chips.
-- Edge inspectors show the source-to-target node relationship as an equal-width route graphic at the top of the route/config island, plus read-only derived input bindings, derived provision requirements, provider requirements, and validation issues.
-- Edge inspectors edit route/config facts: transition group display name, transition ID, edge key, approval flag, context-preservation mode, and context source. Context source remains visible but disabled for `new_session` edges. Context mode, context source, and approval remain visible but disabled for the edge emitted by the Start node. Disabled route controls explain that they are not applicable for the current edge configuration. Edge targets are assigned through canvas connections instead of inspector dropdowns.
+- Context source remains visible but disabled for `new_session` transitions. `Previous run of this target` is visible for continuation modes and disabled unless the target is an agent node that dominates the transition source, meaning every path from Start to the source passes through the target. Runtime resolves the latest completed run of that target before the transition event, scoped to the same parallel batch when applicable, and fails without fallback when no matching run exists.
+- Transition targets are assigned through canvas connections instead of inspector dropdowns.
+- Editable non-terminal nodes show one always-visible `+` creation handle in a reserved right-side interaction rail. Routed transition endpoints use layout ports that do not occupy the creation-handle slot.
+- Reconnect handles appear on transition hover. Operators reconnect by dragging a transition endpoint onto a node body or side; the editor does not show node-side target connection handles.
+- Reconnecting preserves transition prompt, parameters, context, approval, and key. Invalid preserved configuration remains in the draft with validation errors unless the topology itself is impossible.
+- Source-tail reconnect is unavailable for fan-out branches because branch source changes alter fan-out membership.
 - Unsupported graph entities use read-only sidebar inspection with clear unavailable-editing behavior.
-- Topology editing includes adding and deleting agent/terminal nodes, node groups, and edges, drag-connecting edges on the canvas, editing edge route/config facts, and creating/removing node group membership.
-- Add node is a canvas action, not a right-sidebar form. It creates unconnected agent or terminal nodes; draft/execution validation explains unreachable or incomplete graph states until the operator wires them.
-- Drag-connecting from a source node to a target node creates a new transition group by default, with one edge to the target node.
-- When the target is an agent branch inside a node group and the source already has one unambiguous fan-out transition group into sibling branches of that group, drag-connect reuses that transition group so the group remains execution-shaped.
-- Other fan-out edits that add edges to an existing transition group are explicit fan-out/group actions, not the default drag-connect behavior.
-- Node deletion cascades incident edge deletion and removes transition groups that become empty from that deletion.
-- Deleting the final edge in a transition group removes that transition group.
+- Topology editing includes adding and deleting agent/terminal nodes, node groups, and transitions, drag-connecting transitions on the canvas, reconnecting transition endpoints, editing transition route/config facts, and creating/removing node group membership.
+- Add node is a canvas action, not a right-sidebar form. It creates unconnected agent or terminal nodes; validation explains unreachable or incomplete graph states until the operator wires them.
+- Drag-connecting from a source node to a target node creates a new normal transition by default.
+- When the target is an agent branch inside a node group and the source already has one unambiguous fan-out transition into sibling branches of that group, drag-connect reuses that fan-out transition so the group remains execution-shaped.
+- Other fan-out edits that add branches to an existing fan-out transition are explicit fan-out/group actions, not the default drag-connect behavior.
+- Node deletion cascades incident transition deletion and removes transitions that have no remaining branches.
 - Deletion is available through keyboard delete/backspace, context menu actions, and inspector trash actions where the selected entity is editable.
+- Deleting a transition with prompt text confirms immediately. Deleting only parameters does not confirm. Cascading node/group deletion confirms immediately when prompt-bearing transitions would be removed.
 - Direct join creation is not exposed as generic node creation. Joins are created through node group/parallelism editing.
 
 ## Save, Validation, And Conflicts
@@ -78,6 +88,9 @@
 - The status island owns unsaved state, validation issues, save blockers, remote conflict state, and save errors.
 - Draft validation and execution validation are shown separately. Draft validation blocks graph-dirty saves when it has blocking errors.
 - Execution validation errors remain visible but do not block metadata-only saves.
+- Draft validation blocks empty prompts into agent targets, prompts into non-agent targets, duplicate transition keys, invalid or duplicate fan-out branch keys, invalid parameter keys/descriptions, invalid previous-parameter references, and join aggregate key collisions.
+- Definitions do not fall back from legacy node-owned prompt/contract fields. Legacy-authored contracts must be reauthored as transition prompts and parameters.
+- Legacy node-owned contract fields are round-tripped as inert metadata. Validation and runtime ignore them for execution. Active-work edit blockers continue to apply; blocked legacy definitions cannot become runnable through fallback behavior.
 - Metadata-only and no-op saves bypass graph edit policy and active-work blockers.
 - Actual graph changes run save preview before save.
 - Save preview returns draft validation, execution validation, active-task blockers, destructive/removal impact, and confirmation requirement.
@@ -97,7 +110,7 @@
 - Project-originated `New workflow` uses default policy `if_project_has_none`: it becomes the project default only when the project has no default workflow yet. It does not replace an existing default workflow.
 - `New workflow` from global Workflow Library creates a global workflow definition without implicit project linkage unless the user explicitly links it later.
 - Workflow editor/library routes may be global workflow-definition routes, but project-originated task/board routes remain project-scoped.
-- The editor may own current-workflow settings/delete actions. Workflow Library/sidebar owns create/copy/link entry points.
+- The editor may own selected-workflow settings/delete actions. Workflow Library/sidebar owns create/copy/link entry points.
 - Workflow settings include name/description and actions to link/unlink workflow to projects.
 - Project selection for workflow settings/linking is paginated and minimal, hosted inside the sidebar rather than a native blocking window.
 - The workflow editor toolbar Add node control opens its node-kind popup on hover or focus. Clicking the toolbar button itself does not create a node or toggle the popup.
@@ -107,7 +120,7 @@
 - Workflow intermediary, picker, settings, and entity-edit flows use a global right-side sidebar island.
 - Do not use Tauri native blocking windows for workflow UX.
 - Sidebar stretches from the right side of the screen and is reusable from board/editor/other pages.
-- Sidebar supports typed destinations, local sidebar navigation, and returning result/cancel to opener/current screen.
+- Sidebar supports typed destinations, local sidebar navigation, and returning result/cancel to opener screen.
 - Opening another main destination or navigating back/forward closes the sidebar and rejects/returns canceled for pending opener promises.
 - Sidebar visual treatment: fixed right overlay, glass island, full-height below titlebar, left rounded corners, adaptive width around 420-560px and max `calc(100vw - margins)`.
 - Sidebar destinations should be terminal enough to avoid stacked blocking surfaces. Child picker destinations may return results to previous sidebar screen.
@@ -119,17 +132,18 @@
 - Editing is allowed only when existing tasks are all backlog or done.
 - Active means any task whose active/waiting placement is not start/backlog or terminal/done, any pending approval, any non-completed/non-interrupted run needing runtime ownership, or any other non-terminal automation state.
 - Backlog/start deletion is out of scope. Blocked graph deletes surface as toast feedback. Hide `start` from add/kind-change controls. Existing Backlog can be renamed where safe, but kind stays fixed.
-- Start node outgoing edges may be edited in drafts, but execution validation requires exactly one start transition group with exactly one edge targeting an agent node.
+- Start node outgoing transitions may be edited in drafts, but execution validation requires exactly one start transition with exactly one branch targeting an agent node.
 - Start/Backlog cannot be the fan-out source for a node group. Use a split agent after Start/Backlog, fan out from that agent into the grouped branches, then join the branches.
 - Done/terminal deletion is allowed only when at least one other terminal node remains; otherwise block with toast.
 - Saved node groups must be execution-shaped parallel groups. A node group without enough branch nodes or without exactly one owned join blocks save validation.
 - Dragging a node in the workflow editor changes node group membership, not persisted canvas position. The real node remains in its derived layout position and a drag ghost follows the pointer. Canvas layout remains derived from the graph.
-- Node group drag/drop is validated as a membership operation. If the editor cannot safely infer the source node or transition group needed for fan-out wiring, the membership is preserved and validation explains the incomplete wiring before save.
+- Node group drag/drop is validated as a membership operation. If the editor cannot safely infer the source node or fan-out transition needed for fan-out wiring, the membership is preserved and validation explains the incomplete wiring before save.
 - Destructive delete impact is evaluated on Save, not at draft edit time.
 - Save runs server-side impact check for pending graph diff.
 - If active tasks would be affected, Save is blocked.
-- If only backlog/done tasks would be orphaned/deleted by removed nodes or edges, show confirmation listing affected nodes/tasks before applying.
-- Requested destructive wording pattern: `XXX tasks will be **gone forever** along with the node. Proceed?`
+- If only backlog/done tasks would lose graph references due to removed nodes or transitions, show confirmation listing affected nodes/tasks before applying.
+- Manual task moves are blocked for selected prior-node and `Previous run of this target` continuation context sources.
+- Requested destructive wording pattern: `XXX task references will be detached from the removed graph entity. Proceed?`
 - Workflow graph saves never delete or move tasks; whole-workflow deletion is the task-deleting path.
 
 ## Q/A Decisions Preserved
@@ -139,9 +153,9 @@
 - Q: Should workflow library create tasks? A: No; it is definition management only.
 - Q: Is task-link normalization compatible? A: No compatibility shim; hard cutover.
 - Q: Should project-originated `New workflow` replace an existing project default? A: No; link it and open the editor, but set it as default only when the project has no default.
-- Q: Where do workflow-level management actions belong? A: Editor may own current-workflow settings/delete, while create/copy/link remain in Workflow Library/sidebar.
-- Q: What does drag-connecting an edge from a node with existing outgoing transitions do? A: It creates a new transition group by default. Fan-out into an existing transition group is explicit.
-- Q: Should add-node create an incoming edge automatically? A: No. New nodes are unconnected until the operator wires them.
+- Q: Where do workflow-level management actions belong? A: Editor may own selected-workflow settings/delete, while create/copy/link remain in Workflow Library/sidebar.
+- Q: What does drag-connecting a transition from a node with existing outgoing transitions do? A: It creates a new normal transition by default. Fan-out into an existing fan-out transition is explicit.
+- Q: Should add-node create an incoming transition automatically? A: No. New nodes are unconnected until the operator wires them.
 - Q: Which node kinds does generic add-node expose? A: Agent and terminal. Start is fixed, and join is created through node group/parallelism editing.
 - Q: Where is destructive graph-save confirmation shown? A: In the workflow-editor status island.
 - Q: What does dragging a node mean in the workflow editor? A: Node group membership DnD, not canvas repositioning.

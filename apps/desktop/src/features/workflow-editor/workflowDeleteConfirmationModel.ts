@@ -3,6 +3,7 @@ import type { WorkflowEditorCascadeSummary } from "./workflowEditorGraphMutation
 export type WorkflowDeleteConfirmationCounts = Readonly<{
   nodeCount: number;
   edgeCount: number;
+  promptCount: number;
   transitionGroupCount: number;
 }>;
 
@@ -14,13 +15,46 @@ export type WorkflowDeleteConfirmationWindowTarget = Readonly<{
   requestID: string;
 }>;
 
+export type WorkflowDeleteConfirmationTextKeys = Readonly<{
+  bodyKey: string;
+  confirmKey: string;
+  titleKey: string;
+}>;
+
 export function workflowDeleteConfirmationCountsFromSummary(
   summary: WorkflowEditorCascadeSummary,
+  promptCount = 0,
 ): WorkflowDeleteConfirmationCounts {
   return {
     edgeCount: summary.removedEdgeIDs.length,
     nodeCount: summary.removedNodeIDs.length,
+    promptCount,
     transitionGroupCount: summary.removedTransitionGroupIDs.length,
+  };
+}
+
+export function workflowDeleteConfirmationTextKeys(
+  counts: WorkflowDeleteConfirmationCounts,
+  operation: WorkflowGraphCascadeConfirmationOperation,
+): WorkflowDeleteConfirmationTextKeys {
+  if (operation === "extract") {
+    return {
+      bodyKey: "workflowEditor.extractNodeCascadeBody",
+      confirmKey: "workflowEditor.extractNodeCascadeConfirm",
+      titleKey: "workflowEditor.extractNodeCascadeTitle",
+    };
+  }
+  if (counts.nodeCount === 0 && counts.edgeCount > 0) {
+    return {
+      bodyKey: "workflowEditor.deleteBranchCascadeBody",
+      confirmKey: "workflowEditor.deleteBranchCascadeConfirm",
+      titleKey: "workflowEditor.deleteBranchCascadeTitle",
+    };
+  }
+  return {
+    bodyKey: "workflowEditor.deleteCascadeBody",
+    confirmKey: "workflowEditor.deleteCascadeConfirm",
+    titleKey: "workflowEditor.deleteCascadeTitle",
   };
 }
 
@@ -38,6 +72,7 @@ export function workflowDeleteConfirmationWindowOptions({
       edgeCount: counts.edgeCount.toString(),
       nodeCount: counts.nodeCount.toString(),
       operation,
+      promptCount: counts.promptCount.toString(),
       requestID,
       transitionGroupCount: counts.transitionGroupCount.toString(),
     },
@@ -50,6 +85,7 @@ export function workflowDeleteConfirmationWindowTargetFromSearch(search: Readonl
   edgeCount: string;
   nodeCount: string;
   operation?: string | undefined;
+  promptCount?: string | undefined;
   requestID: string;
   transitionGroupCount: string;
 }>): WorkflowDeleteConfirmationWindowTarget {
@@ -57,6 +93,7 @@ export function workflowDeleteConfirmationWindowTargetFromSearch(search: Readonl
     counts: {
       edgeCount: parseSearchCount(search.edgeCount),
       nodeCount: parseSearchCount(search.nodeCount),
+      promptCount: parseSearchCount(search.promptCount ?? ""),
       transitionGroupCount: parseSearchCount(search.transitionGroupCount),
     },
     operation: parseOperation(search.operation),

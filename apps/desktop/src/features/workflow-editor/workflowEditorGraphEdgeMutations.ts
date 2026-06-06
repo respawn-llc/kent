@@ -11,6 +11,7 @@ import {
   workflowEditorGraphMutationWarnings,
   type ConnectWorkflowNodesInput,
   type EditWorkflowEdgeRouteInput,
+  type ReconnectWorkflowEdgeInput,
   type WorkflowEditorCascadeSummary,
   type WorkflowEditorGraphMutationResult,
   workflowSelection,
@@ -59,6 +60,8 @@ export function connectWorkflowNodes(
     inputBindings: [],
     key: edgeKey,
     outputRequirements: [],
+    parameters: [],
+    promptTemplate: "",
     requiresApproval: false,
     targetNodeID: input.targetNodeID,
     transitionGroupID: input.transitionGroupID,
@@ -233,6 +236,8 @@ function connectNodeGroupFanoutBranch(
     inputBindings: [],
     key: edgeKey,
     outputRequirements: [],
+    parameters: [],
+    promptTemplate: "",
     requiresApproval: false,
     targetNodeID: input.targetNodeID,
     transitionGroupID: connection.transitionGroupID,
@@ -291,6 +296,20 @@ export function deleteWorkflowEdge(
   return removeEdges(draft, [edgeID], workflowSelection);
 }
 
+export function reconnectWorkflowEdge(
+  draft: DraftWorkflowDefinition,
+  input: ReconnectWorkflowEdgeInput,
+): WorkflowEditorGraphMutationResult {
+  const edge = draft.edges.find((item) => item.id === input.edgeID);
+  if (edge === undefined) {
+    return unchanged(draft, workflowEditorGraphMutationWarnings.edgeNotFound);
+  }
+  if (input.endpoint === "target") {
+    return reconnectWorkflowEdgeTarget(draft, edge, input.targetNodeID);
+  }
+  return reconnectWorkflowEdgeSource(draft, edge, input.sourceNodeID);
+}
+
 export function editWorkflowEdgeRoute(
   draft: DraftWorkflowDefinition,
   input: EditWorkflowEdgeRouteInput,
@@ -326,5 +345,81 @@ export function editWorkflowEdgeRoute(
     nextSelection: { edgeID: input.edgeID, kind: "edge" },
     summary: emptySummary,
     warnings: [],
+  };
+}
+
+function reconnectWorkflowEdgeTarget(
+  draft: DraftWorkflowDefinition,
+  edge: WorkflowEdge,
+  targetNodeID: string,
+): WorkflowEditorGraphMutationResult {
+  const target = draft.nodes.find((node) => node.id === targetNodeID);
+  if (target === undefined) {
+    return unchangedEdge(draft, edge.id, workflowEditorGraphMutationWarnings.missingConnectNodes);
+  }
+  if (target.kind === "start") {
+    return unchangedEdge(draft, edge.id, workflowEditorGraphMutationWarnings.startIncomingEdge);
+  }
+  if (edge.targetNodeID === target.id) {
+    return unchangedEdge(draft, edge.id);
+  }
+  return {
+    draft: {
+      ...draft,
+      edges: draft.edges.map((item) =>
+        item.id === edge.id ? { ...item, targetNodeID: target.id } : item,
+      ),
+    },
+    nextSelection: { edgeID: edge.id, kind: "edge" },
+    summary: emptySummary,
+    warnings: [],
+  };
+}
+
+function reconnectWorkflowEdgeSource(
+  draft: DraftWorkflowDefinition,
+  edge: WorkflowEdge,
+  sourceNodeID: string,
+): WorkflowEditorGraphMutationResult {
+  const source = draft.nodes.find((node) => node.id === sourceNodeID);
+  if (source === undefined) {
+    return unchangedEdge(draft, edge.id, workflowEditorGraphMutationWarnings.missingConnectNodes);
+  }
+  if (source.kind === "terminal") {
+    return unchangedEdge(draft, edge.id, workflowEditorGraphMutationWarnings.terminalOutgoingEdge);
+  }
+  const transitionGroup = draft.transitionGroups.find((group) => group.id === edge.transitionGroupID);
+  if (transitionGroup === undefined) {
+    return unchangedEdge(draft, edge.id, workflowEditorGraphMutationWarnings.transitionGroupNotFound);
+  }
+  if (edgesForTransitionGroup(draft, transitionGroup.id).length > 1) {
+    return unchangedEdge(draft, edge.id, workflowEditorGraphMutationWarnings.fanoutSourceReconnectUnsupported);
+  }
+  if (transitionGroup.sourceNodeID === source.id) {
+    return unchangedEdge(draft, edge.id);
+  }
+  return {
+    draft: {
+      ...draft,
+      transitionGroups: draft.transitionGroups.map((group) =>
+        group.id === transitionGroup.id ? { ...group, sourceNodeID: source.id } : group,
+      ),
+    },
+    nextSelection: { edgeID: edge.id, kind: "edge" },
+    summary: emptySummary,
+    warnings: [],
+  };
+}
+
+function unchangedEdge(
+  draft: DraftWorkflowDefinition,
+  edgeID: string,
+  warning?: string,
+): WorkflowEditorGraphMutationResult {
+  return {
+    draft,
+    nextSelection: { edgeID, kind: "edge" },
+    summary: emptySummary,
+    warnings: warning === undefined ? [] : [warning],
   };
 }

@@ -17,6 +17,9 @@ type workflowRunMetadata struct {
 	SourceRunID            string                       `json:"source_run_id,omitempty"`
 	SourceSessionID        string                       `json:"source_session_id,omitempty"`
 	NodeOutputValues       map[string]map[string]string `json:"node_output_values,omitempty"`
+	PromptTemplate         string                       `json:"prompt_template,omitempty"`
+	Parameters             []workflow.Parameter         `json:"parameters,omitempty"`
+	PriorParameterValues   map[string]map[string]string `json:"prior_parameter_values,omitempty"`
 	TargetRunStartSnapshot *runStartSnapshot            `json:"target_run_start_snapshot,omitempty"`
 }
 
@@ -41,7 +44,7 @@ func resolvedContextSourceRunFromMetadata(ctx context.Context, tx *sql.Tx, metad
 	return resolvedContextSourceRun{runID: runID, sessionID: sessionID}, true, nil
 }
 
-func (s *Store) resolveContextSourceRun(ctx context.Context, tx *sql.Tx, taskID string, beforeUnixMs int64, immediate *sqlitegen.TaskRunRecord, snapshot runStartSnapshot, edge edgeContractSnapshot) (resolvedContextSourceRun, error) {
+func (s *Store) resolveContextSourceRun(ctx context.Context, tx *sql.Tx, taskID string, beforeUnixMs int64, sourcePlacementID string, immediate *sqlitegen.TaskRunRecord, snapshot runStartSnapshot, edge edgeContractSnapshot) (resolvedContextSourceRun, error) {
 	source := workflow.CanonicalContextSource(edge.ContextSource)
 	switch source.Kind {
 	case workflow.ContextSourceImmediateSource:
@@ -67,47 +70,111 @@ func (s *Store) resolveContextSourceRun(ctx context.Context, tx *sql.Tx, taskID 
 			return resolvedContextSourceRun{}, err
 		}
 		return resolvedContextSourceRun{runID: run.ID, sessionID: strings.TrimSpace(run.SessionID.String)}, nil
+	case workflow.ContextSourcePreviousTarget:
+		targetID := strings.TrimSpace(string(edge.TargetNode.ID))
+		if targetID == "" {
+			return resolvedContextSourceRun{}, errors.New("previous target context source target node missing from run snapshot")
+		}
+		batchID, batchScoped, err := contextSourceBatchScope(ctx, tx, sourcePlacementID)
+		if err != nil {
+			return resolvedContextSourceRun{}, err
+		}
+		var runID string
+		err = queryLatestCompletedContextSourceRun(ctx, tx, taskID, targetID, beforeUnixMs, batchID, batchScoped).Scan(&runID)
+		if errors.Is(err, sql.ErrNoRows) {
+			targetKey := strings.TrimSpace(string(edge.TargetNode.Key))
+			if targetKey == "" {
+				targetKey = targetID
+			}
+			return resolvedContextSourceRun{}, fmt.Errorf("previous target context source node %q has no completed run for task", targetKey)
+		}
+		if err != nil {
+			return resolvedContextSourceRun{}, err
+		}
+		run, err := sqlitegen.New(tx).GetTaskRun(ctx, runID)
+		if err != nil {
+			return resolvedContextSourceRun{}, err
+		}
+		return resolvedContextSourceRun{runID: run.ID, sessionID: strings.TrimSpace(run.SessionID.String)}, nil
 	default:
 		return resolvedContextSourceRun{}, fmt.Errorf("context source kind %q is invalid", source.Kind)
 	}
 }
 
-func (s *Store) resolvePromptNodeOutputValues(ctx context.Context, tx *sql.Tx, taskID string, beforeUnixMs int64, snapshot runStartSnapshot) (map[string]map[string]string, error) {
-	refs, err := workflow.ExtractPromptTemplateReferences(snapshot.Node.PromptTemplate)
+func contextSourceBatchScope(ctx context.Context, tx *sql.Tx, sourcePlacementID string) (string, bool, error) {
+	placementID := strings.TrimSpace(sourcePlacementID)
+	if placementID == "" {
+		return "", false, nil
+	}
+	var batchID sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT parallel_batch_transition_id FROM task_node_placements WHERE id = ?`, placementID).Scan(&batchID); err != nil {
+		return "", false, err
+	}
+	trimmed := strings.TrimSpace(batchID.String)
+	return trimmed, batchID.Valid && trimmed != "", nil
+}
+
+func queryLatestCompletedContextSourceRun(ctx context.Context, tx *sql.Tx, taskID string, nodeID string, beforeUnixMs int64, batchID string, batchScoped bool) *sql.Row {
+	if !batchScoped {
+		return tx.QueryRowContext(ctx, workflowStoreQuery(resolveContextSourceRunQuery), taskID, nodeID, beforeUnixMs)
+	}
+	return tx.QueryRowContext(ctx, `
+SELECT r.id
+FROM task_runs r
+JOIN task_node_placements p ON p.id = r.placement_id
+WHERE p.task_id = ?
+  AND p.node_id = ?
+  AND p.parallel_batch_transition_id = ?
+  AND r.completed_at_unix_ms > 0
+  AND r.completed_at_unix_ms <= ?
+ORDER BY r.completed_at_unix_ms DESC, r.rowid DESC
+LIMIT 1`, taskID, nodeID, batchID, beforeUnixMs)
+}
+
+func (s *Store) resolvePromptPriorParameterValues(ctx context.Context, tx *sql.Tx, taskID string, beforeUnixMs int64, sourcePlacementID string, edge edgeContractSnapshot) (map[string]map[string]string, error) {
+	refs, err := workflow.ExtractPromptTemplateReferences(edge.PromptTemplate)
 	if err != nil {
-		return nil, fmt.Errorf("parse prompt node references: %w", err)
+		return nil, fmt.Errorf("parse transition prompt references: %w", err)
 	}
 	if len(refs.Invalid) > 0 {
-		return nil, fmt.Errorf("prompt node references are invalid: %s", refs.Invalid[0].Message)
+		return nil, fmt.Errorf("transition prompt references are invalid: %s", refs.Invalid[0].Message)
 	}
-	if len(refs.NodeOutputs) == 0 {
+	if len(refs.PriorParams) == 0 {
 		return nil, nil
 	}
+	batchID, batchScoped, err := contextSourceBatchScope(ctx, tx, sourcePlacementID)
+	if err != nil {
+		return nil, err
+	}
 	out := map[string]map[string]string{}
-	for _, ref := range refs.NodeOutputs {
-		source, ok := snapshot.nodeByKey(ref.NodeKey)
-		if !ok {
-			return nil, fmt.Errorf("prompt node reference %s missing from run snapshot", workflow.PromptReferenceDescription(ref))
+	seen := map[string]map[string]bool{}
+	for _, ref := range refs.PriorParams {
+		transitionKey := strings.TrimSpace(string(ref.TransitionKey))
+		parameterKey := strings.TrimSpace(ref.ParameterKey)
+		if transitionKey == "" || parameterKey == "" {
+			return nil, fmt.Errorf("transition prompt prior parameter reference %q is invalid", ref.Placeholder)
 		}
-		value, err := latestNodeOutputValue(ctx, tx, taskID, string(source.ID), strings.TrimSpace(ref.FieldName), beforeUnixMs)
+		if seen[transitionKey] != nil && seen[transitionKey][parameterKey] {
+			continue
+		}
+		if seen[transitionKey] == nil {
+			seen[transitionKey] = map[string]bool{}
+		}
+		seen[transitionKey][parameterKey] = true
+		value, err := latestTransitionParameterValue(ctx, tx, taskID, transitionKey, parameterKey, beforeUnixMs, batchID, batchScoped)
 		if err != nil {
 			return nil, err
 		}
-		nodeKey := strings.TrimSpace(string(ref.NodeKey))
-		if out[nodeKey] == nil {
-			out[nodeKey] = map[string]string{}
+		if out[transitionKey] == nil {
+			out[transitionKey] = map[string]string{}
 		}
-		out[nodeKey][strings.TrimSpace(ref.FieldName)] = value
+		out[transitionKey][parameterKey] = value
 	}
 	return out, nil
 }
 
-func latestNodeOutputValue(ctx context.Context, tx *sql.Tx, taskID string, nodeID string, fieldName string, beforeUnixMs int64) (string, error) {
-	var outputValuesJSON string
-	err := tx.QueryRowContext(ctx, workflowStoreQuery(latestNodeOutputValueQuery), taskID, nodeID, beforeUnixMs).Scan(&outputValuesJSON)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", fmt.Errorf("prompt node reference source node %q has no completed output for task", nodeID)
-	}
+func latestTransitionParameterValue(ctx context.Context, tx *sql.Tx, taskID string, transitionKey string, parameterKey string, beforeUnixMs int64, batchID string, batchScoped bool) (string, error) {
+	outputValuesJSON, err := latestTransitionOutputValuesJSON(ctx, tx, taskID, transitionKey, beforeUnixMs, batchID, batchScoped)
 	if err != nil {
 		return "", err
 	}
@@ -115,19 +182,71 @@ func latestNodeOutputValue(ctx context.Context, tx *sql.Tx, taskID string, nodeI
 	if err := unmarshalJSON(outputValuesJSON, &outputValues); err != nil {
 		return "", err
 	}
-	value := outputValues[fieldName]
+	value := outputValues[parameterKey]
 	if strings.TrimSpace(value) == "" {
-		return "", fmt.Errorf("prompt node reference source node %q missing output %q", nodeID, fieldName)
+		return "", fmt.Errorf("prior transition %q missing parameter %q", transitionKey, parameterKey)
 	}
 	return value, nil
 }
 
-func targetRunMetadata(edge edgeContractSnapshot, source resolvedContextSourceRun, nodeOutputValues map[string]map[string]string) (string, error) {
+func latestTransitionOutputValuesJSON(ctx context.Context, tx *sql.Tx, taskID string, transitionKey string, beforeUnixMs int64, batchID string, batchScoped bool) (string, error) {
+	if batchScoped {
+		var scopedOutputValuesJSON string
+		err := tx.QueryRowContext(ctx, `
+SELECT tr.output_values_json
+FROM task_transitions tr
+JOIN task_node_placements p ON p.id = tr.source_placement_id
+WHERE tr.task_id = ?
+  AND tr.transition_id = ?
+  AND p.parallel_batch_transition_id = ?
+  AND tr.applied_at_unix_ms > 0
+  AND tr.applied_at_unix_ms <= ?
+  AND tr.state != 'rejected'
+ORDER BY tr.applied_at_unix_ms DESC, tr.created_at_unix_ms DESC, tr.rowid DESC
+LIMIT 1`, taskID, transitionKey, batchID, beforeUnixMs).Scan(&scopedOutputValuesJSON)
+		if err == nil {
+			return scopedOutputValuesJSON, nil
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+	}
+	var outputValuesJSON string
+	err := tx.QueryRowContext(ctx, workflowStoreQuery(latestTransitionOutputValuesQuery), taskID, transitionKey, beforeUnixMs).Scan(&outputValuesJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("prior transition %q has no completed output for task", transitionKey)
+	}
+	if err != nil {
+		return "", err
+	}
+	return outputValuesJSON, nil
+}
+
+func targetRunMetadata(edge edgeContractSnapshot, source resolvedContextSourceRun, priorParameterValues map[string]map[string]string) (string, error) {
 	return marshalJSON(workflowRunMetadata{
-		ContextMode:      string(edge.ContextMode),
-		ContextSource:    workflow.CanonicalContextSource(edge.ContextSource),
-		SourceRunID:      source.runID,
-		SourceSessionID:  source.sessionID,
-		NodeOutputValues: nodeOutputValues,
+		ContextMode:          string(edge.ContextMode),
+		ContextSource:        workflow.CanonicalContextSource(edge.ContextSource),
+		SourceRunID:          source.runID,
+		SourceSessionID:      source.sessionID,
+		PromptTemplate:       strings.TrimSpace(edge.PromptTemplate),
+		Parameters:           append([]workflow.Parameter(nil), edge.Parameters...),
+		PriorParameterValues: clonePriorParameterValues(priorParameterValues),
 	})
+}
+
+func clonePriorParameterValues(values map[string]map[string]string) map[string]map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]string, len(values))
+	for transitionKey, params := range values {
+		if len(params) == 0 {
+			continue
+		}
+		out[transitionKey] = make(map[string]string, len(params))
+		for parameterKey, value := range params {
+			out[transitionKey][parameterKey] = value
+		}
+	}
+	return out
 }

@@ -293,6 +293,7 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	contextMode := fs.String("context", "", "context mode: new_session|continue_session|compact_and_continue_session")
 	contextSource := fs.String("context-source", "", "context source: immediate_source|node:<node-key>")
 	requiresApproval := fs.Bool("requires-approval", false, "require approval before target runs")
+	prompt := fs.String("prompt", "", "branch prompt template for agent targets")
 	workflowRef, flagArgs := takeLeadingPositionals(args, 1)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
 		return exitCode
@@ -352,7 +353,7 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	}
 	edgeID := "edge-" + uuid.NewString()
 	ctx, cancel := workflowRPCContext(context.Background())
-	resp, err := remote.AddWorkflowEdge(ctx, serverapi.WorkflowEdgeAddRequest{WorkflowID: def.Workflow.ID, EdgeID: edgeID, TransitionGroupID: groupID, Key: *edgeKey, TargetNodeID: target.ID, ContextMode: *contextMode, ContextSource: parsedContextSource, RequiresApproval: *requiresApproval})
+	resp, err := remote.AddWorkflowEdge(ctx, serverapi.WorkflowEdgeAddRequest{WorkflowID: def.Workflow.ID, EdgeID: edgeID, TransitionGroupID: groupID, Key: *edgeKey, TargetNodeID: target.ID, ContextMode: *contextMode, ContextSource: parsedContextSource, RequiresApproval: *requiresApproval, PromptTemplate: *prompt})
 	cancel()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -370,6 +371,7 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	toKey := fs.String("to", "", "target node key")
 	contextMode := fs.String("context", "", "context mode: new_session|continue_session|compact_and_continue_session")
 	contextSource := fs.String("context-source", "", "context source: immediate_source|node:<node-key>")
+	prompt := fs.String("prompt", "", "branch prompt template for agent targets")
 	positionals, flagArgs := takeLeadingPositionals(args, 2)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
 		return exitCode
@@ -442,9 +444,12 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		}
 		updatedEdge.ContextSource = parsedContextSource
 	}
+	if flagWasProvided(fs, "prompt") {
+		updatedEdge.PromptTemplate = *prompt
+	}
 	ctx, cancel := workflowRPCContext(context.Background())
 	defer cancel()
-	resp, err := remote.UpdateWorkflowEdge(ctx, serverapi.WorkflowEdgeUpdateRequest{WorkflowID: def.Workflow.ID, EdgeID: updatedEdge.ID, TransitionGroupID: updatedEdge.TransitionGroupID, Key: updatedEdge.Key, TargetNodeID: updatedEdge.TargetNodeID, ContextMode: updatedEdge.ContextMode, ContextSource: updatedEdge.ContextSource, RequiresApproval: updatedEdge.RequiresApproval})
+	resp, err := remote.UpdateWorkflowEdge(ctx, serverapi.WorkflowEdgeUpdateRequest{WorkflowID: def.Workflow.ID, EdgeID: updatedEdge.ID, TransitionGroupID: updatedEdge.TransitionGroupID, Key: updatedEdge.Key, TargetNodeID: updatedEdge.TargetNodeID, ContextMode: updatedEdge.ContextMode, ContextSource: updatedEdge.ContextSource, RequiresApproval: updatedEdge.RequiresApproval, PromptTemplate: updatedEdge.PromptTemplate, Parameters: updatedEdge.Parameters})
 	if err != nil {
 		if updatedGroup != group {
 			rollbackCtx, rollbackCancel := workflowRPCContext(context.Background())

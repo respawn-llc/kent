@@ -2,6 +2,7 @@ export {
   connectWorkflowNodes,
   deleteWorkflowEdge,
   editWorkflowEdgeRoute,
+  reconnectWorkflowEdge,
 } from "./workflowEditorGraphEdgeMutations";
 export {
   addWorkflowNode,
@@ -21,6 +22,7 @@ export {
   type EditWorkflowEdgeRouteInput,
   type ExtractWorkflowNodeFromGroupInput,
   type InferredNodeGroupTopologyIDs,
+  type ReconnectWorkflowEdgeInput,
   type WorkflowEditorCascadeSummary,
   type WorkflowEditorGraphMutationResult,
   type WorkflowEditorSelection,

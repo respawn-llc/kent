@@ -16,6 +16,11 @@ import { cx } from "../../ui/classes";
 import { WorkflowNodeInfoTooltipContent, type CopyText } from "./WorkflowGraphNodeMetadata";
 import { isInspectableWorkflowNodeKind } from "./workflowGraphNodeKinds";
 import type { WorkflowGraphSelection } from "./workflowGraphSelection";
+import {
+  workflowGraphCreationHandleID,
+  workflowGraphTargetConnectionHandleID,
+  type WorkflowGraphEndpointPort,
+} from "./workflowGraphLayoutGeometry";
 import type {
   WorkflowGraphGroupNode,
   WorkflowGraphNodeData,
@@ -142,30 +147,9 @@ export const WorkflowNode = memo(function WorkflowNode({
       style={workflowNodeOutlineStyle(data.kind, data.hasError)}
       title={data.kind === "agent" ? t("workflowEditor.dragNodeToGroup") : undefined}
     >
-      {data.kind === "start" ? null : (
-        <Handle
-          aria-label="Incoming transitions"
-          className="workflow-editor-handle"
-          data-testid="workflow-node-target-handle"
-          onClick={(event) => {
-            inspectEditableNodeFromHandle(event, data, onInspectNode);
-          }}
-          position={Position.Left}
-          type="target"
-        />
-      )}
-      {data.kind === "terminal" ? null : (
-        <Handle
-          aria-label="Outgoing transitions"
-          className="workflow-editor-handle"
-          data-testid="workflow-node-source-handle"
-          onClick={(event) => {
-            inspectEditableNodeFromHandle(event, data, onInspectNode);
-          }}
-          position={Position.Right}
-          type="source"
-        />
-      )}
+      <WorkflowTargetConnectionHandle data={data} />
+      <WorkflowEndpointHandles endpointPorts={data.endpointPorts ?? []} />
+      <WorkflowCreationHandle data={data} onInspectNode={onInspectNode} />
       <strong className="line-clamp-2 min-w-0 text-[0.95rem] leading-snug text-[var(--color-on-island)]">
         {data.label}
       </strong>
@@ -248,26 +232,9 @@ export const WorkflowJoinNode = memo(function WorkflowJoinNode({
       style={workflowNodeOutlineStyle(data.kind, data.hasError)}
       title={data.label}
     >
-      <Handle
-        aria-label="Incoming transitions"
-        className="workflow-editor-handle"
-        data-testid="workflow-node-target-handle"
-        onClick={(event) => {
-          inspectEditableNodeFromHandle(event, data, onInspectNode);
-        }}
-        position={Position.Left}
-        type="target"
-      />
-      <Handle
-        aria-label="Outgoing transitions"
-        className="workflow-editor-handle"
-        data-testid="workflow-node-source-handle"
-        onClick={(event) => {
-          inspectEditableNodeFromHandle(event, data, onInspectNode);
-        }}
-        position={Position.Right}
-        type="source"
-      />
+      <WorkflowTargetConnectionHandle data={data} />
+      <WorkflowEndpointHandles endpointPorts={data.endpointPorts ?? []} />
+      <WorkflowCreationHandle data={data} onInspectNode={onInspectNode} />
       <IslandSurface
         as="div"
         className={cx(
@@ -305,6 +272,69 @@ export const WorkflowJoinNode = memo(function WorkflowJoinNode({
     </WorkflowNodeContextMenuShell>
   );
 });
+
+function WorkflowCreationHandle({
+  data,
+  onInspectNode,
+}: Readonly<{ data: WorkflowGraphNodeData; onInspectNode: (nodeID: string) => void }>) {
+  if (data.kind === "terminal") {
+    return null;
+  }
+  return (
+    <Handle
+      aria-label="Create outgoing transition"
+      className="workflow-editor-handle workflow-editor-creation-handle"
+      data-testid="workflow-node-source-handle"
+      id={data.creationHandleID ?? workflowGraphCreationHandleID(data.entityID)}
+      onClick={(event) => {
+        inspectEditableNodeFromHandle(event, data, onInspectNode);
+      }}
+      position={Position.Right}
+      type="source"
+    />
+  );
+}
+
+function WorkflowTargetConnectionHandle({ data }: Readonly<{ data: WorkflowGraphNodeData }>) {
+  if (data.kind === "start") {
+    return null;
+  }
+  return (
+    <Handle
+      aria-hidden="true"
+      className="workflow-editor-target-connection-handle"
+      data-testid="workflow-node-connection-target-handle"
+      id={workflowGraphTargetConnectionHandleID(data.entityID)}
+      position={Position.Left}
+      type="target"
+    />
+  );
+}
+
+function WorkflowEndpointHandles({
+  endpointPorts,
+}: Readonly<{ endpointPorts: readonly WorkflowGraphEndpointPort[] }>) {
+  return (
+    <>
+      {endpointPorts.map((port) => (
+        <Handle
+          aria-hidden="true"
+          className="workflow-editor-endpoint-handle"
+          data-testid="workflow-node-endpoint-handle"
+          id={port.id}
+          key={port.id}
+          position={port.side === "source" ? Position.Right : Position.Left}
+          style={workflowEndpointHandleStyle(port)}
+          type={port.side}
+        />
+      ))}
+    </>
+  );
+}
+
+function workflowEndpointHandleStyle(port: WorkflowGraphEndpointPort): CSSProperties {
+  return { top: port.y };
+}
 
 type WorkflowNodeOutlineStyle = CSSProperties & Readonly<Record<"--workflow-editor-node-outline-color", string>>;
 

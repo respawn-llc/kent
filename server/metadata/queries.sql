@@ -323,6 +323,8 @@ INSERT INTO workflow_edges (
     context_mode,
     context_source_kind,
     context_source_node_key,
+    prompt_template,
+    parameters_json,
     input_bindings_json,
     output_requirements_json,
     sort_order
@@ -335,6 +337,8 @@ INSERT INTO workflow_edges (
     sqlc.arg(context_mode),
     sqlc.arg(context_source_kind),
     sqlc.arg(context_source_node_key),
+    sqlc.arg(prompt_template),
+    sqlc.arg(parameters_json),
     sqlc.arg(input_bindings_json),
     sqlc.arg(output_requirements_json),
     sqlc.arg(sort_order)
@@ -351,6 +355,8 @@ SELECT
     e.context_mode,
     e.context_source_kind,
     e.context_source_node_key,
+    e.prompt_template,
+    e.parameters_json,
     e.input_bindings_json,
     e.output_requirements_json,
     e.sort_order
@@ -371,6 +377,8 @@ SELECT
     e.context_mode,
     e.context_source_kind,
     e.context_source_node_key,
+    e.prompt_template,
+    e.parameters_json,
     e.input_bindings_json,
     e.output_requirements_json,
     e.sort_order

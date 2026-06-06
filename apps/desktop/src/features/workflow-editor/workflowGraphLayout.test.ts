@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { emptyWorkflowDerivedWiring, type WorkflowDefinition, type WorkflowValidation } from "../../api";
 import type { WorkflowGraphEdge, WorkflowGraphNode } from "./workflowGraphLayout";
 import { layoutWorkflowGraph } from "./workflowGraphLayout";
+import { workflowGraphEndpointPoint } from "./workflowGraphLayoutTestHelpers";
 
 describe("layoutWorkflowGraph", () => {
   it("builds grouped workflow graph nodes and labeled edges", async () => {
@@ -128,6 +129,51 @@ describe("layoutWorkflowGraph", () => {
       type: "workflow",
     });
   });
+
+  it("routes transition endpoints away from the reserved creation handle slot", async () => {
+    const graph = await layoutWorkflowGraph(singleTransitionWorkflow, emptyValidation);
+    const edge = edgeByID(graph.edges, "edge-source-target");
+    const source = nodeByID(graph.nodes, "node-source");
+    const target = nodeByID(graph.nodes, "node-target");
+
+    expect(edge?.data?.routePoints.at(0)?.y).not.toBe(nodeCenterY(source));
+    expect(edge?.data?.routePoints.at(-1)?.y).not.toBe(nodeCenterY(target));
+  });
+
+  it("uses deterministic separate endpoint slots for multiple outgoing transitions", async () => {
+    const graph = await layoutWorkflowGraph(twoOutgoingTransitionWorkflow, emptyValidation);
+    const source = nodeByID(graph.nodes, "node-source");
+    const firstStart = edgeByID(graph.edges, "edge-source-a")?.data?.routePoints.at(0);
+    const secondStart = edgeByID(graph.edges, "edge-source-b")?.data?.routePoints.at(0);
+
+    expect(firstStart?.y).not.toBe(nodeCenterY(source));
+    expect(secondStart?.y).not.toBe(nodeCenterY(source));
+    expect(firstStart?.y).not.toBe(secondStart?.y);
+  });
+
+  it("exposes matching React Flow handles for routed transition endpoint slots", async () => {
+    const graph = await layoutWorkflowGraph(singleTransitionWorkflow, emptyValidation);
+    const edge = requireEdge(graph.edges, "edge-source-target");
+    const source = requireNode(graph.nodes, "node-source");
+    const target = requireNode(graph.nodes, "node-target");
+
+    assertEndpointHandle(edge, source, "source", graph.nodes);
+    assertEndpointHandle(edge, target, "target", graph.nodes);
+  });
+
+  it("preserves endpoint slots for aligned join routes", async () => {
+    const graph = await layoutWorkflowGraph(alignedJoinWorkflow, emptyValidation);
+    const internalBranch = requireEdge(graph.edges, "edge-internal-join");
+    const externalBranch = requireEdge(graph.edges, "edge-external-join");
+    const joinBranch = requireEdge(graph.edges, "edge-join-synth");
+    const internal = requireNode(graph.nodes, "node-a");
+    const join = requireNode(graph.nodes, "join");
+
+    assertEndpointHandle(internalBranch, internal, "source", graph.nodes);
+    assertEndpointHandle(internalBranch, join, "target", graph.nodes);
+    assertEndpointHandle(externalBranch, join, "target", graph.nodes);
+    assertEndpointHandle(joinBranch, join, "source", graph.nodes);
+  });
 });
 
 function nodeByID(nodes: readonly WorkflowGraphNode[], id: string): WorkflowGraphNode | undefined {
@@ -136,6 +182,41 @@ function nodeByID(nodes: readonly WorkflowGraphNode[], id: string): WorkflowGrap
 
 function edgeByID(edges: readonly WorkflowGraphEdge[], id: string): WorkflowGraphEdge | undefined {
   return edges.find((edge) => edge.id === id);
+}
+
+function requireNode(nodes: readonly WorkflowGraphNode[], id: string): WorkflowGraphNode {
+  const node = nodeByID(nodes, id);
+  if (node === undefined) {
+    throw new Error(`Expected graph node ${id}.`);
+  }
+  return node;
+}
+
+function requireEdge(edges: readonly WorkflowGraphEdge[], id: string): WorkflowGraphEdge {
+  const edge = edgeByID(edges, id);
+  if (edge === undefined) {
+    throw new Error(`Expected graph edge ${id}.`);
+  }
+  return edge;
+}
+
+function nodeCenterY(node: WorkflowGraphNode | undefined): number | undefined {
+  if (node === undefined) {
+    return undefined;
+  }
+  const height = typeof node.style?.height === "number" ? node.style.height : Number(node.style?.height);
+  return node.position.y + height / 2;
+}
+
+function assertEndpointHandle(
+  edge: WorkflowGraphEdge,
+  node: WorkflowGraphNode,
+  side: "source" | "target",
+  nodes: readonly WorkflowGraphNode[],
+): void {
+  const handle = side === "source" ? edge.sourceHandle : edge.targetHandle;
+  const point = edge.data?.routePoints.at(side === "source" ? 0 : -1);
+  expect(point?.y).toBe(workflowGraphEndpointPoint(node, handle, side, nodes).y);
 }
 
 const emptyValidation: WorkflowValidation = { valid: true, errors: [] };
@@ -170,6 +251,8 @@ const groupedWorkflow: WorkflowDefinition = {
       contextSource: { kind: "immediate_source", nodeKey: "" },
       inputBindings: [],
       outputRequirements: [],
+      parameters: [],
+      promptTemplate: "",
     },
   ],
 };
@@ -187,6 +270,54 @@ const fanoutWorkflow: WorkflowDefinition = {
   edges: [
     workflowEdge({ id: "edge-a", key: "a", targetNodeID: "node-a", transitionGroupID: "tg-split" }),
     workflowEdge({ id: "edge-b", key: "b", targetNodeID: "node-b", transitionGroupID: "tg-split" }),
+  ],
+};
+
+const singleTransitionWorkflow: WorkflowDefinition = {
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
+  derivedWiring: emptyWorkflowDerivedWiring,
+  nodeGroups: [],
+  nodes: [
+    workflowNode("node-source", "Source", "agent", ""),
+    workflowNode("node-target", "Target", "agent", ""),
+  ],
+  transitionGroups: [workflowTransitionGroup("tg-source-target", "node-source", "target", "Target")],
+  edges: [
+    workflowEdge({
+      id: "edge-source-target",
+      key: "target",
+      targetNodeID: "node-target",
+      transitionGroupID: "tg-source-target",
+    }),
+  ],
+};
+
+const twoOutgoingTransitionWorkflow: WorkflowDefinition = {
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
+  derivedWiring: emptyWorkflowDerivedWiring,
+  nodeGroups: [],
+  nodes: [
+    workflowNode("node-source", "Source", "agent", ""),
+    workflowNode("node-a", "A", "agent", ""),
+    workflowNode("node-b", "B", "agent", ""),
+  ],
+  transitionGroups: [
+    workflowTransitionGroup("tg-source-a", "node-source", "a", "A"),
+    workflowTransitionGroup("tg-source-b", "node-source", "b", "B"),
+  ],
+  edges: [
+    workflowEdge({
+      id: "edge-source-a",
+      key: "a",
+      targetNodeID: "node-a",
+      transitionGroupID: "tg-source-a",
+    }),
+    workflowEdge({
+      id: "edge-source-b",
+      key: "b",
+      targetNodeID: "node-b",
+      transitionGroupID: "tg-source-b",
+    }),
   ],
 };
 
@@ -228,6 +359,52 @@ const crossBoundaryWorkflow: WorkflowDefinition = {
       transitionGroupID: "tg-cross",
     }),
     workflowEdge({ id: "edge-exit", key: "exit", targetNodeID: "done", transitionGroupID: "tg-exit" }),
+  ],
+};
+
+const alignedJoinWorkflow: WorkflowDefinition = {
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
+  derivedWiring: emptyWorkflowDerivedWiring,
+  nodeGroups: [
+    {
+      id: "group-join",
+      workflowID: "workflow-1",
+      key: "core",
+      name: "Core",
+      sortOrder: 1,
+      nodeIDs: ["node-a", "join"],
+    },
+  ],
+  nodes: [
+    workflowNode("node-a", "A", "agent", "group-join"),
+    workflowNode("external", "External", "agent", ""),
+    workflowNode("join", "Join", "join", "group-join"),
+    workflowNode("synth", "Synthesize", "agent", ""),
+  ],
+  transitionGroups: [
+    workflowTransitionGroup("tg-internal-join", "node-a", "join", "Join"),
+    workflowTransitionGroup("tg-external-join", "external", "join", "Join"),
+    workflowTransitionGroup("tg-join-synth", "join", "synth", "Synthesize"),
+  ],
+  edges: [
+    workflowEdge({
+      id: "edge-internal-join",
+      key: "internal",
+      targetNodeID: "join",
+      transitionGroupID: "tg-internal-join",
+    }),
+    workflowEdge({
+      id: "edge-external-join",
+      key: "external",
+      targetNodeID: "join",
+      transitionGroupID: "tg-external-join",
+    }),
+    workflowEdge({
+      id: "edge-join-synth",
+      key: "synth",
+      targetNodeID: "synth",
+      transitionGroupID: "tg-join-synth",
+    }),
   ],
 };
 
@@ -353,5 +530,7 @@ function workflowEdge({
     contextSource: { kind: "immediate_source", nodeKey: "" },
     inputBindings: [],
     outputRequirements: [],
+    parameters: [],
+    promptTemplate: "",
   };
 }

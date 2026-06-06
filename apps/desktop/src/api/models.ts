@@ -152,6 +152,11 @@ export type WorkflowInputField = Readonly<{
   description: string;
 }>;
 
+export type WorkflowParameter = Readonly<{
+  key: string;
+  description: string;
+}>;
+
 export type WorkflowJoinInputProvider = Readonly<{
   inputName: string;
   providerEdgeID: string;
@@ -257,6 +262,8 @@ export type WorkflowEdge = Readonly<{
   requiresApproval: boolean;
   contextMode: string;
   contextSource: WorkflowContextSource;
+  promptTemplate: string;
+  parameters: readonly WorkflowParameter[];
   inputBindings: readonly WorkflowInputBinding[];
   outputRequirements: readonly WorkflowOutputRequirement[];
 }>;
@@ -311,6 +318,8 @@ export type WorkflowGraphDraftEdge = Readonly<{
   requiresApproval: boolean;
   contextMode: string;
   contextSource: WorkflowContextSource;
+  promptTemplate: string;
+  parameters: readonly WorkflowParameter[];
 }>;
 
 export type WorkflowGraphDraft = Readonly<{

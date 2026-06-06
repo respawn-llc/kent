@@ -60,7 +60,7 @@ describe("ValidationDetails", () => {
     const item = within(within(section).getByRole("list")).getByRole("listitem");
 
     expect(within(item).getByText("Join input provider is invalid.")).toBeInTheDocument();
-    expect(within(item).getByText("Input: summary · Provider edge: edge-provider")).toBeInTheDocument();
+    expect(within(item).getByText("Parameter: summary · Provider branch: edge-provider")).toBeInTheDocument();
     expect(screen.queryByText("workflow.validation.invalid_join_input_provider")).not.toBeInTheDocument();
   });
 });

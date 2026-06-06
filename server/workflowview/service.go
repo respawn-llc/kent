@@ -689,14 +689,18 @@ func (s *Service) definition(ctx context.Context, workflowID string) (serverapi.
 	}
 	for _, edge := range edges {
 		inputs := []serverapi.WorkflowInputBinding{}
+		parameters := []serverapi.WorkflowParameter{}
 		requirements := []serverapi.WorkflowOutputRequirement{}
+		if err := workflowjson.UnmarshalString(edge.ParametersJson, &parameters); err != nil {
+			return serverapi.WorkflowDefinition{}, nil, err
+		}
 		if err := workflowjson.UnmarshalString(edge.InputBindingsJson, &inputs); err != nil {
 			return serverapi.WorkflowDefinition{}, nil, err
 		}
 		if err := workflowjson.UnmarshalString(edge.OutputRequirementsJson, &requirements); err != nil {
 			return serverapi.WorkflowDefinition{}, nil, err
 		}
-		def.Edges = append(def.Edges, serverapi.WorkflowEdge{ID: edge.ID, WorkflowID: edge.WorkflowID, TransitionGroupID: edge.TransitionGroupID, Key: edge.EdgeKey, TargetNodeID: edge.TargetNodeID, RequiresApproval: edge.RequiresApproval != 0, ContextMode: edge.ContextMode, ContextSource: apiContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(edge.ContextSourceKind), NodeKey: workflow.ModelKey(edge.ContextSourceNodeKey)}), InputBindings: inputs, OutputRequirements: requirements})
+		def.Edges = append(def.Edges, serverapi.WorkflowEdge{ID: edge.ID, WorkflowID: edge.WorkflowID, TransitionGroupID: edge.TransitionGroupID, Key: edge.EdgeKey, TargetNodeID: edge.TargetNodeID, RequiresApproval: edge.RequiresApproval != 0, ContextMode: edge.ContextMode, ContextSource: apiContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(edge.ContextSourceKind), NodeKey: workflow.ModelKey(edge.ContextSourceNodeKey)}), PromptTemplate: edge.PromptTemplate, Parameters: parameters, InputBindings: inputs, OutputRequirements: requirements})
 	}
 	def.DerivedWiring = workflowapi.DerivedWiring(definitionForValidation(def))
 	return def, nodeKinds, nil
@@ -1551,6 +1555,10 @@ func definitionForValidation(def serverapi.WorkflowDefinition) workflow.Definiti
 		out.TransitionGroups = append(out.TransitionGroups, workflow.TransitionGroup{WorkflowID: workflow.WorkflowID(group.WorkflowID), ID: workflow.TransitionGroupID(group.ID), SourceNodeID: workflow.NodeID(group.SourceNodeID), TransitionID: workflow.TransitionID(group.TransitionID), DisplayName: group.DisplayName})
 	}
 	for _, edge := range def.Edges {
+		parameters := make([]workflow.Parameter, 0, len(edge.Parameters))
+		for _, parameter := range edge.Parameters {
+			parameters = append(parameters, workflow.Parameter{Key: parameter.Key, Description: parameter.Description})
+		}
 		inputs := make([]workflow.InputBinding, 0, len(edge.InputBindings))
 		for _, input := range edge.InputBindings {
 			inputs = append(inputs, workflow.InputBinding{Name: input.Name, Source: workflow.BindingSource(input.Source), Field: input.Field})
@@ -1559,7 +1567,7 @@ func definitionForValidation(def serverapi.WorkflowDefinition) workflow.Definiti
 		for _, requirement := range edge.OutputRequirements {
 			requirements = append(requirements, workflow.OutputRequirement{FieldName: requirement.FieldName})
 		}
-		out.Edges = append(out.Edges, workflow.Edge{WorkflowID: workflow.WorkflowID(edge.WorkflowID), ID: workflow.EdgeID(edge.ID), Key: workflow.ModelKey(edge.Key), TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID), TargetNodeID: workflow.NodeID(edge.TargetNodeID), RequiresApproval: edge.RequiresApproval, ContextMode: workflow.ContextMode(edge.ContextMode), ContextSource: workflow.CanonicalContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(edge.ContextSource.Kind), NodeKey: workflow.ModelKey(edge.ContextSource.NodeKey)}), InputBindings: inputs, OutputRequirements: requirements})
+		out.Edges = append(out.Edges, workflow.Edge{WorkflowID: workflow.WorkflowID(edge.WorkflowID), ID: workflow.EdgeID(edge.ID), Key: workflow.ModelKey(edge.Key), TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID), TargetNodeID: workflow.NodeID(edge.TargetNodeID), RequiresApproval: edge.RequiresApproval, ContextMode: workflow.ContextMode(edge.ContextMode), ContextSource: workflow.CanonicalContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(edge.ContextSource.Kind), NodeKey: workflow.ModelKey(edge.ContextSource.NodeKey)}), PromptTemplate: edge.PromptTemplate, Parameters: parameters, InputBindings: inputs, OutputRequirements: requirements})
 	}
 	return out
 }
@@ -1607,7 +1615,8 @@ func boardGroups(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardGrou
 
 func boardColumns(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardColumn {
 	columns := make([]serverapi.WorkflowBoardColumn, 0, len(def.Nodes))
-	derivedNodes := workflowDerivedNodeWiringByID(def.DerivedWiring)
+	domainDef := definitionForValidation(def)
+	derived := workflow.DeriveWiring(domainDef)
 	for index, node := range def.Nodes {
 		if !boardVisibleNodeKind(node.Kind) {
 			continue
@@ -1620,8 +1629,8 @@ func boardColumns(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardCol
 				DisplayName:            node.DisplayName,
 				AssigneeRole:           node.SubagentRole,
 				SortOrder:              index,
-				OutputFields:           derivedNodes[node.ID].PossibleProvisionFields,
-				TransitionOutputFields: boardTransitionOutputFields(node),
+				OutputFields:           workflowapi.OutputFields(derived.PossibleProvisionFieldsForNode(workflow.NodeID(node.ID))),
+				TransitionOutputFields: workflowapi.OutputFields(workflow.TransitionOutputFieldsForTargetNode(domainDef, derived, workflow.NodeID(node.ID))),
 			},
 			GroupID:   node.GroupID,
 			SortOrder: index,
@@ -1634,28 +1643,6 @@ func boardColumns(def serverapi.WorkflowDefinition) []serverapi.WorkflowBoardCol
 
 func boardVisibleNodeKind(kind string) bool {
 	return workflow.NodeKind(kind) != workflow.NodeKindJoin
-}
-
-func workflowDerivedNodeWiringByID(derived serverapi.WorkflowDerivedWiring) map[string]serverapi.WorkflowDerivedNodeWiring {
-	byID := make(map[string]serverapi.WorkflowDerivedNodeWiring, len(derived.Nodes))
-	for _, node := range derived.Nodes {
-		byID[node.NodeID] = node
-	}
-	return byID
-}
-
-func boardTransitionOutputFields(node serverapi.WorkflowNode) []serverapi.WorkflowOutputField {
-	fields := make([]serverapi.WorkflowOutputField, 0, len(node.InputFields))
-	seen := map[string]bool{}
-	for _, input := range node.InputFields {
-		name := strings.TrimSpace(input.Name)
-		if name == "" || seen[name] {
-			continue
-		}
-		seen[name] = true
-		fields = append(fields, serverapi.WorkflowOutputField{Name: name, Description: strings.TrimSpace(input.Description)})
-	}
-	return fields
 }
 
 func (s *Service) taskCard(ctx context.Context, task sqlitegen.TaskRecord, placements []sqlitegen.TaskNodePlacementRecord, def serverapi.WorkflowDefinition, nodeKinds map[string]workflow.NodeKind, sourceWorkspace serverapi.ProjectWorkspaceSummary) (serverapi.WorkflowBoardTaskCard, bool, error) {
@@ -1790,7 +1777,8 @@ func manualMoveTargetNodeIDs(def serverapi.WorkflowDefinition, placements []sqli
 		}
 	}
 	for _, edge := range def.Edges {
-		if !groupIDs[edge.TransitionGroupID] || edge.RequiresApproval || len(derivedEdges[edge.ID].RequiredProvisionFields) > 0 {
+		contextSource := workflow.CanonicalContextSource(workflow.ContextSource{Kind: workflow.ContextSourceKind(edge.ContextSource.Kind), NodeKey: workflow.ModelKey(edge.ContextSource.NodeKey)})
+		if !groupIDs[edge.TransitionGroupID] || edge.RequiresApproval || len(derivedEdges[edge.ID].RequiredProvisionFields) > 0 || contextSource.Kind == workflow.ContextSourceSelectedNode || contextSource.Kind == workflow.ContextSourcePreviousTarget {
 			continue
 		}
 		if !seen[edge.TargetNodeID] {

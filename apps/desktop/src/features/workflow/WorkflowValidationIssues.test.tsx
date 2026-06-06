@@ -17,7 +17,7 @@ describe("WorkflowValidationIssues", () => {
             details: {
               fieldName: "summary",
               inputName: "summary",
-              placeholder: ".Inputs.summary",
+              placeholder: ".Params.summary",
               providerEdgeID: "edge-provider",
             },
             edgeID: "",

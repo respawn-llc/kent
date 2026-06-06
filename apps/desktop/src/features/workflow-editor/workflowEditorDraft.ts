@@ -8,6 +8,7 @@ import type {
   WorkflowInputField,
   WorkflowNode,
   WorkflowNodeGroup,
+  WorkflowParameter,
   WorkflowTransitionGroup,
 } from "../../api";
 import {
@@ -20,6 +21,7 @@ import {
   deleteWorkflowNodeGroup,
   editWorkflowEdgeRoute,
   extractWorkflowNodeFromGroup,
+  reconnectWorkflowEdge,
   removeWorkflowNodeFromGroup,
   type AddWorkflowNodeInput,
   type AddWorkflowNodeToGroupInput,
@@ -27,6 +29,7 @@ import {
   type CreateWorkflowNodeGroupInput,
   type EditWorkflowEdgeRouteInput,
   type ExtractWorkflowNodeFromGroupInput,
+  type ReconnectWorkflowEdgeInput,
   type WorkflowEditorCascadeSummary,
   type WorkflowEditorGraphMutationResult,
   type WorkflowEditorSelection,
@@ -90,9 +93,20 @@ export type WorkflowEditorDraftAction =
   | Readonly<{ type: "deleteInputField"; nodeID: string; rowID: string }>
   | Readonly<{ type: "reorderInputField"; nodeID: string; activeRowID: string; overRowID: string }>
   | Readonly<{ type: "assignJoinInputProvider"; nodeID: string; inputName: string; providerEdgeID: string }>
+  | Readonly<{ type: "editEdgePrompt"; edgeID: string; promptTemplate: string }>
+  | Readonly<{ type: "addEdgeParameter"; edgeID: string }>
+  | Readonly<{
+      type: "updateEdgeParameter";
+      edgeID: string;
+      parameterIndex: number;
+      patch: Partial<WorkflowParameter>;
+    }>
+  | Readonly<{ type: "deleteEdgeParameter"; edgeID: string; parameterIndex: number }>
+  | Readonly<{ type: "reorderEdgeParameter"; edgeID: string; activeIndex: number; overIndex: number }>
   | Readonly<{ type: "addNode"; input: AddWorkflowNodeInput }>
   | Readonly<{ type: "deleteNode"; nodeID: string }>
   | Readonly<{ type: "connectNodes"; input: ConnectWorkflowNodesInput }>
+  | Readonly<{ type: "reconnectEdge"; input: ReconnectWorkflowEdgeInput }>
   | Readonly<{ type: "deleteEdge"; edgeID: string }>
   | Readonly<{ type: "editEdgeRoute"; input: EditWorkflowEdgeRouteInput }>
   | Readonly<{ type: "createNodeGroupFromNode"; input: CreateWorkflowNodeGroupInput }>
@@ -195,12 +209,41 @@ export function workflowEditorDraftReducer(
         ...node,
         joinInputProviders: assignJoinInputProvider(node.joinInputProviders, action.inputName, action.providerEdgeID),
       }));
+    case "editEdgePrompt":
+      return editDraftEdge(state, action.edgeID, (edge) => ({
+        ...edge,
+        promptTemplate: action.promptTemplate,
+      }));
+    case "addEdgeParameter":
+      return editDraftEdge(state, action.edgeID, (edge) => ({
+        ...edge,
+        parameters: [{ description: "", key: "" }, ...edge.parameters],
+      }));
+    case "updateEdgeParameter":
+      return editDraftEdge(state, action.edgeID, (edge) => ({
+        ...edge,
+        parameters: edge.parameters.map((parameter, index) =>
+          index === action.parameterIndex ? { ...parameter, ...action.patch } : parameter,
+        ),
+      }));
+    case "deleteEdgeParameter":
+      return editDraftEdge(state, action.edgeID, (edge) => ({
+        ...edge,
+        parameters: edge.parameters.filter((_parameter, index) => index !== action.parameterIndex),
+      }));
+    case "reorderEdgeParameter":
+      return editDraftEdge(state, action.edgeID, (edge) => ({
+        ...edge,
+        parameters: reorderIndex(edge.parameters, action.activeIndex, action.overIndex),
+      }));
     case "addNode":
       return applyTopologyMutation(state, addWorkflowNode(state.draft, action.input));
     case "deleteNode":
       return applyTopologyMutation(state, deleteWorkflowNode(state.draft, action.nodeID));
     case "connectNodes":
       return applyTopologyMutation(state, connectWorkflowNodes(state.draft, action.input));
+    case "reconnectEdge":
+      return applyTopologyMutation(state, reconnectWorkflowEdge(state.draft, action.input));
     case "deleteEdge":
       return applyTopologyMutation(state, deleteWorkflowEdge(state.draft, action.edgeID));
     case "editEdgeRoute":
@@ -258,6 +301,8 @@ export function workflowEditorDraftGraph(state: WorkflowEditorDraftState): Workf
       contextSource: edge.contextSource,
       id: edge.id,
       key: edge.key,
+      parameters: edge.parameters,
+      promptTemplate: edge.promptTemplate,
       requiresApproval: edge.requiresApproval,
       targetNodeID: edge.targetNodeID,
       transitionGroupID: edge.transitionGroupID,
@@ -345,6 +390,21 @@ function editDraftNode(
   return nextDraftState(state, { ...state.draft, edges: nextEdges, nodes });
 }
 
+function editDraftEdge(
+  state: WorkflowEditorDraftState,
+  edgeID: string,
+  edit: (edge: WorkflowEdge, edges: readonly WorkflowEdge[]) => WorkflowEdge,
+): WorkflowEditorDraftState {
+  const edgeIndex = state.draft.edges.findIndex((edge) => edge.id === edgeID);
+  if (edgeIndex < 0) {
+    return state;
+  }
+  const edges = state.draft.edges.map((edge, index) =>
+    index === edgeIndex ? edit(edge, state.draft.edges) : edge,
+  );
+  return nextDraftState(state, { ...state.draft, edges });
+}
+
 type SelectedNodeCascadeRequest = Readonly<{
   edges: readonly WorkflowEdge[];
   nodeID: string;
@@ -356,7 +416,8 @@ type SelectedNodeCascadeRequest = Readonly<{
 function selectedNodeCascadeEdges(req: SelectedNodeCascadeRequest): readonly WorkflowEdge[] {
   const { edges, nodeID, oldKey, newKey, nodes } = req;
   const oldKeyOwners = nodes.filter((item) => item.key === oldKey);
-  if (oldKeyOwners.length !== 1 || oldKeyOwners[0]?.id !== nodeID) {
+  const oldKeyOwner = oldKeyOwners.at(0);
+  if (oldKeyOwners.length !== 1 || oldKeyOwner?.id !== nodeID) {
     return edges;
   }
   return edges.map((edge) =>
@@ -374,6 +435,27 @@ function reorderRow<T extends Readonly<{ rowID: string }>>(
   const activeIndex = rows.findIndex((row) => row.rowID === activeRowID);
   const overIndex = rows.findIndex((row) => row.rowID === overRowID);
   if (activeIndex < 0 || overIndex < 0 || activeIndex === overIndex) {
+    return rows;
+  }
+  const next = [...rows];
+  const [item] = next.splice(activeIndex, 1);
+  if (item === undefined) {
+    return rows;
+  }
+  next.splice(overIndex, 0, item);
+  return next;
+}
+
+function reorderIndex<T>(rows: readonly T[], activeIndex: number, overIndex: number): readonly T[] {
+  if (
+    !Number.isInteger(activeIndex) ||
+    !Number.isInteger(overIndex) ||
+    activeIndex < 0 ||
+    overIndex < 0 ||
+    activeIndex >= rows.length ||
+    overIndex >= rows.length ||
+    activeIndex === overIndex
+  ) {
     return rows;
   }
   const next = [...rows];
@@ -442,7 +524,9 @@ function edgesEqual(left: readonly WorkflowEdge[], right: readonly WorkflowEdge[
       a.targetNodeID === b.targetNodeID &&
       a.requiresApproval === b.requiresApproval &&
       a.contextMode === b.contextMode &&
-      contextSourceEqual(a.contextSource, b.contextSource),
+      contextSourceEqual(a.contextSource, b.contextSource) &&
+      a.promptTemplate === b.promptTemplate &&
+      parametersEqual(a.parameters, b.parameters),
   );
 }
 
@@ -451,6 +535,13 @@ function inputFieldsEqual(
   right: readonly WorkflowDefinition["nodes"][number]["inputFields"][number][],
 ): boolean {
   return sameLengthAndEvery(left, right, (a, b) => a.name === b.name && a.description === b.description);
+}
+
+function parametersEqual(
+  left: readonly WorkflowDefinition["edges"][number]["parameters"][number][],
+  right: readonly WorkflowDefinition["edges"][number]["parameters"][number][],
+): boolean {
+  return sameLengthAndEvery(left, right, (a, b) => a.key === b.key && a.description === b.description);
 }
 
 function assignJoinInputProvider(

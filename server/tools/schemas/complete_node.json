@@ -2,9 +2,9 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "transition_id": {
+    "transition": {
       "type": "string",
-      "description": "Transition ID to take. Required when multiple outgoing transitions are available."
+      "description": "Transition to take. Required when multiple outgoing transitions are available."
     },
     "commentary": {
       "type": "string",

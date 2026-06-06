@@ -1,4 +1,4 @@
-import type { DraftInputField } from "./workflowEditorDraft";
+import type { WorkflowParameter } from "../../api";
 import { isWorkflowModelKeyValid } from "./workflowEditorGraphKeys";
 
 export type PromptTemplatePlaceholderTone = "muted" | "primary";
@@ -21,23 +21,23 @@ export const builtInPromptTemplatePlaceholderNames = [
 ] as const;
 
 export function workflowPromptTemplatePlaceholders(
-  inputFields: readonly Pick<DraftInputField, "name">[],
+  parameters: readonly Pick<WorkflowParameter, "key">[],
 ): readonly PromptTemplatePlaceholder[] {
   const seen = new Set<string>();
-  const inputPlaceholders = inputFields.flatMap((field) => {
-    const inputName = field.name.trim();
-    if (!isWorkflowModelKeyValid(inputName)) {
+  const parameterPlaceholders = parameters.flatMap((parameter) => {
+    const parameterKey = parameter.key.trim();
+    if (!isWorkflowModelKeyValid(parameterKey)) {
       return [];
     }
-    const value = `{{.Inputs.${inputName}}}`;
+    const value = `{{.Params.${parameterKey}}}`;
     if (seen.has(value)) {
       return [];
     }
     seen.add(value);
-    return [{ label: `.Inputs.${inputName}`, tone: "primary" as const, value }];
+    return [{ label: `.Params.${parameterKey}`, tone: "primary" as const, value }];
   });
   return [
-    ...inputPlaceholders,
+    ...parameterPlaceholders,
     ...builtInPromptTemplatePlaceholderNames.map((name) => ({
       label: `.${name}`,
       tone: "muted" as const,

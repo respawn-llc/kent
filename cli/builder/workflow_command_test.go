@@ -84,7 +84,7 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 		t.Fatalf("node output = %q, want node id", nodeOut)
 	}
 
-	runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "implement", "--context", "new_session")
+	runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "implement", "--context", "new_session", "--prompt", "Do work")
 	edgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "implement", "--transition", "done", "--edge-key", "done", "--to", "done", "--context", "new_session")
 	if labeledOutputValue(t, edgeOut, "edge_id") == "" || labeledOutputValue(t, edgeOut, "group_id") == "" {
 		t.Fatalf("edge output = %q, want edge and group ids", edgeOut)
@@ -191,8 +191,12 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 	if workflowID == "" {
 		t.Fatalf("workflow create output = %q, want workflow id", workflowOut)
 	}
-	runWorkflowRootCommandOK(t, "workflow", "node", "add", workflowID, "--key", "triaging", "--kind", "agent", "--display-name", "Triaging", "--agent", "fast", "--prompt", "Triage.")
-	runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "new_session")
+	runWorkflowRootCommandOK(t, "workflow", "node", "add", workflowID, "--key", "triaging", "--kind", "agent", "--display-name", "Triaging", "--agent", "workflow-test", "--prompt", "Triage.")
+	startEdgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "new_session", "--prompt", "Triage.")
+	startEdgeID := labeledOutputValue(t, startEdgeOut, "edge_id")
+	if startEdgeID == "" {
+		t.Fatalf("start edge output = %q, want edge id", startEdgeOut)
+	}
 	edgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "triaging", "--transition", "done", "--edge-key", "done", "--to", "done", "--context", "continue_session", "--context-source", "node:triaging")
 	edgeID := labeledOutputValue(t, edgeOut, "edge_id")
 	if edgeID == "" {
@@ -202,6 +206,12 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 	updateNodeOut, _ := runWorkflowRootCommandOK(t, "workflow", "node", "update", workflowID, "triaging", "--prompt", "Decide whether the ticket is actionable.")
 	if !strings.Contains(updateNodeOut, "triaging") {
 		t.Fatalf("node update output = %q, want node key", updateNodeOut)
+	}
+
+	runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, startEdgeID, "--transition", "start_review")
+	validateOut, _ := runWorkflowRootCommandOK(t, "workflow", "validate", workflowID)
+	if !strings.Contains(validateOut, "valid\ttrue") {
+		t.Fatalf("validate output = %q, want start branch prompt preserved", validateOut)
 	}
 
 	updateEdgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--transition", "not_actionable", "--edge-key", "not_actionable")
@@ -214,6 +224,38 @@ func TestWorkflowEditCommandsUpdateNodeAndEdgeMetadata(t *testing.T) {
 		if !strings.Contains(inspectOut, want) {
 			t.Fatalf("inspect output = %q, want %q", inspectOut, want)
 		}
+	}
+}
+
+func TestWorkflowEdgeUpdatePreservesPromptAndParameters(t *testing.T) {
+	cfg, _, remote := newWorkflowCommandLoopback(t)
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	workflowOut, _ := runWorkflowRootCommandOK(t, "workflow", "create", "Parameter Preservation Workflow")
+	workflowID := labeledOutputValue(t, workflowOut, "workflow_id")
+	runWorkflowRootCommandOK(t, "workflow", "node", "add", workflowID, "--key", "triaging", "--kind", "agent", "--display-name", "Triaging", "--agent", "workflow-test", "--prompt", "Triage.")
+	edgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "new_session", "--prompt", "Triage.")
+	edgeID := labeledOutputValue(t, edgeOut, "edge_id")
+	if edgeID == "" {
+		t.Fatalf("edge output = %q, want edge id", edgeOut)
+	}
+
+	ctx := context.Background()
+	edge := workflowCommandStoredEdgeByID(t, ctx, remote.store, workflowID, edgeID)
+	edge.Parameters = []workflow.Parameter{{Key: "summary", Description: "Summary."}}
+	if _, err := remote.store.UpdateEdge(ctx, workflowCommandEdgeRecord(edge)); err != nil {
+		t.Fatalf("UpdateEdge seed parameters: %v", err)
+	}
+
+	runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--transition-display-name", "Start Review")
+
+	updated := workflowCommandStoredEdgeByID(t, ctx, remote.store, workflowID, edgeID)
+	if updated.PromptTemplate != "Triage." {
+		t.Fatalf("edge prompt = %q, want preserved prompt", updated.PromptTemplate)
+	}
+	if len(updated.Parameters) != 1 || updated.Parameters[0].Key != "summary" || updated.Parameters[0].Description != "Summary." {
+		t.Fatalf("edge parameters = %+v, want preserved summary parameter", updated.Parameters)
 	}
 }
 
@@ -344,7 +386,7 @@ func TestWorkflowEdgeUpdateRollsBackTransitionGroupWhenEdgeUpdateFails(t *testin
 	if _, nodeErr, code := runWorkflowRootCommand("workflow", "node", "add", workflowID, "--key", "triaging", "--kind", "agent", "--display-name", "Triaging", "--agent", "workflow-test", "--prompt", "Triage."); code != 0 {
 		t.Fatalf("workflow node add exit=%d stderr=%q", code, nodeErr)
 	}
-	edgeOut, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "new_session")
+	edgeOut, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "new_session", "--prompt", "Triage.")
 	if code != 0 {
 		t.Fatalf("workflow edge add exit=%d stderr=%q", code, edgeErr)
 	}
@@ -425,7 +467,7 @@ func TestTaskSafeActionsRemainAvailableInsideBuilderSession(t *testing.T) {
 	if _, nodeErr, code := runWorkflowRootCommand("workflow", "node", "add", workflowID, "--key", "implement", "--kind", "agent", "--agent", "workflow-test", "--prompt", "Do work"); code != 0 {
 		t.Fatalf("workflow node add exit=%d stderr=%q", code, nodeErr)
 	}
-	if _, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "implement", "--context", "new_session"); code != 0 {
+	if _, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "implement", "--context", "new_session", "--prompt", "Do work"); code != 0 {
 		t.Fatalf("workflow start edge add exit=%d stderr=%q", code, edgeErr)
 	}
 	if _, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "implement", "--transition", "done", "--edge-key", "done", "--to", "done", "--context", "new_session"); code != 0 {
@@ -670,7 +712,7 @@ func createRunnableWorkflowForCommandTest(t *testing.T, name string) string {
 	if _, nodeErr, code := runWorkflowRootCommand("workflow", "node", "add", workflowID, "--key", "implement", "--kind", "agent", "--agent", "workflow-test", "--prompt", "Do work"); code != 0 {
 		t.Fatalf("workflow node add exit=%d stderr=%q", code, nodeErr)
 	}
-	if _, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "implement", "--context", "new_session"); code != 0 {
+	if _, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "implement", "--context", "new_session", "--prompt", "Do work"); code != 0 {
 		t.Fatalf("workflow start edge add exit=%d stderr=%q", code, edgeErr)
 	}
 	if _, edgeErr, code := runWorkflowRootCommand("workflow", "edge", "add", workflowID, "--from", "implement", "--transition", "done", "--edge-key", "done", "--to", "done", "--context", "new_session"); code != 0 {
@@ -852,6 +894,38 @@ func labeledOutputValue(t *testing.T, output string, label string) string {
 		t.Fatalf("label %q not found in empty output", label)
 	}
 	return ""
+}
+
+func workflowCommandStoredEdgeByID(t *testing.T, ctx context.Context, store *workflowstore.Store, workflowID string, edgeID string) workflow.Edge {
+	t.Helper()
+	def, _, err := store.GetDefinition(ctx, workflow.WorkflowID(workflowID))
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	for _, edge := range def.Edges {
+		if string(edge.ID) == edgeID {
+			return edge
+		}
+	}
+	t.Fatalf("missing edge %s in %+v", edgeID, def.Edges)
+	return workflow.Edge{}
+}
+
+func workflowCommandEdgeRecord(edge workflow.Edge) workflowstore.EdgeRecord {
+	return workflowstore.EdgeRecord{
+		ID:                 edge.ID,
+		WorkflowID:         edge.WorkflowID,
+		TransitionGroupID:  edge.TransitionGroupID,
+		Key:                edge.Key,
+		TargetNodeID:       edge.TargetNodeID,
+		RequiresApproval:   edge.RequiresApproval,
+		ContextMode:        edge.ContextMode,
+		ContextSource:      edge.ContextSource,
+		InputBindings:      edge.InputBindings,
+		PromptTemplate:     edge.PromptTemplate,
+		Parameters:         edge.Parameters,
+		OutputRequirements: edge.OutputRequirements,
+	}
 }
 
 func TestWorkflowListAndResolutionFetchAllWorkflowPages(t *testing.T) {

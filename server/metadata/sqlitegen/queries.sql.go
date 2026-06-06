@@ -1337,6 +1337,8 @@ SELECT
     e.context_mode,
     e.context_source_kind,
     e.context_source_node_key,
+    e.prompt_template,
+    e.parameters_json,
     e.input_bindings_json,
     e.output_requirements_json,
     e.sort_order
@@ -1357,6 +1359,8 @@ type GetWorkflowEdgeRow struct {
 	ContextMode            string
 	ContextSourceKind      string
 	ContextSourceNodeKey   string
+	PromptTemplate         string
+	ParametersJson         string
 	InputBindingsJson      string
 	OutputRequirementsJson string
 	SortOrder              int64
@@ -1375,6 +1379,8 @@ func (q *Queries) GetWorkflowEdge(ctx context.Context, id string) (GetWorkflowEd
 		&i.ContextMode,
 		&i.ContextSourceKind,
 		&i.ContextSourceNodeKey,
+		&i.PromptTemplate,
+		&i.ParametersJson,
 		&i.InputBindingsJson,
 		&i.OutputRequirementsJson,
 		&i.SortOrder,
@@ -2287,6 +2293,8 @@ INSERT INTO workflow_edges (
     context_mode,
     context_source_kind,
     context_source_node_key,
+    prompt_template,
+    parameters_json,
     input_bindings_json,
     output_requirements_json,
     sort_order
@@ -2301,7 +2309,9 @@ INSERT INTO workflow_edges (
     ?8,
     ?9,
     ?10,
-    ?11
+    ?11,
+    ?12,
+    ?13
 )
 `
 
@@ -2314,6 +2324,8 @@ type InsertWorkflowEdgeParams struct {
 	ContextMode            string
 	ContextSourceKind      string
 	ContextSourceNodeKey   string
+	PromptTemplate         string
+	ParametersJson         string
 	InputBindingsJson      string
 	OutputRequirementsJson string
 	SortOrder              int64
@@ -2329,6 +2341,8 @@ func (q *Queries) InsertWorkflowEdge(ctx context.Context, arg InsertWorkflowEdge
 		arg.ContextMode,
 		arg.ContextSourceKind,
 		arg.ContextSourceNodeKey,
+		arg.PromptTemplate,
+		arg.ParametersJson,
 		arg.InputBindingsJson,
 		arg.OutputRequirementsJson,
 		arg.SortOrder,
@@ -4079,6 +4093,8 @@ SELECT
     e.context_mode,
     e.context_source_kind,
     e.context_source_node_key,
+    e.prompt_template,
+    e.parameters_json,
     e.input_bindings_json,
     e.output_requirements_json,
     e.sort_order
@@ -4099,6 +4115,8 @@ type ListWorkflowEdgesRow struct {
 	ContextMode            string
 	ContextSourceKind      string
 	ContextSourceNodeKey   string
+	PromptTemplate         string
+	ParametersJson         string
 	InputBindingsJson      string
 	OutputRequirementsJson string
 	SortOrder              int64
@@ -4123,6 +4141,8 @@ func (q *Queries) ListWorkflowEdges(ctx context.Context, workflowID string) ([]L
 			&i.ContextMode,
 			&i.ContextSourceKind,
 			&i.ContextSourceNodeKey,
+			&i.PromptTemplate,
+			&i.ParametersJson,
 			&i.InputBindingsJson,
 			&i.OutputRequirementsJson,
 			&i.SortOrder,

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { emptyWorkflowDerivedWiring, type WorkflowDefinition, type WorkflowValidation } from "../../api";
 import type { WorkflowGraphEdge, WorkflowGraphNode, WorkflowGraphPoint } from "./workflowGraphLayout";
 import { layoutWorkflowGraph } from "./workflowGraphLayout";
+import { workflowGraphAbsoluteNodeRect, workflowGraphEndpointPoint } from "./workflowGraphLayoutTestHelpers";
 
 describe("layoutWorkflowGraph node group bounds", () => {
   it("keeps unrelated nodes outside populated node group bounds", async () => {
@@ -29,21 +30,21 @@ describe("layoutWorkflowGraph node group bounds", () => {
     expect(rectsOverlap(group, join)).toBe(false);
   });
 
-  it("routes group branch Edges into the centered Join instead of stale in-group coordinates", async () => {
+  it("routes group branch endpoints through deterministic Join ports instead of stale in-group coordinates", async () => {
     const graph = await layoutWorkflowGraph(threeBranchGroupJoinWorkflow, emptyValidation);
     const group = requiredNodeByID(graph.nodes, "workflow-group-group-1");
     const branch = requiredNodeByID(graph.nodes, "node-a");
     const join = requiredNodeByID(graph.nodes, "join");
     const edge = requiredEdgeByID(graph.edges, "edge-a-join");
     const outgoingEdge = requiredEdgeByID(graph.edges, "edge-join-done");
-    const branchRect = absoluteNodeRect(branch, graph.nodes);
-    const joinRect = absoluteNodeRect(join, graph.nodes);
+    const branchRect = workflowGraphAbsoluteNodeRect(branch, graph.nodes);
+    const joinRect = workflowGraphAbsoluteNodeRect(join, graph.nodes);
     const points = requiredRoutePoints(edge);
     const outgoingPoints = requiredRoutePoints(outgoingEdge);
 
-    expectPointCloseTo(points[0], { x: branchRect.x + branchRect.width, y: rectCenterY(branchRect) });
-    expectPointCloseTo(points[points.length - 1], { x: joinRect.x, y: rectCenterY(joinRect) });
-    expectPointCloseTo(outgoingPoints[0], { x: joinRect.x + joinRect.width, y: rectCenterY(joinRect) });
+    expectPointCloseTo(points[0], workflowGraphEndpointPoint(branch, edge.sourceHandle, "source", graph.nodes));
+    expectPointCloseTo(points[points.length - 1], workflowGraphEndpointPoint(join, edge.targetHandle, "target", graph.nodes));
+    expectPointCloseTo(outgoingPoints[0], workflowGraphEndpointPoint(join, outgoingEdge.sourceHandle, "source", graph.nodes));
     expect(points.some((point) => point.x > rectRight(group) && point.x < joinRect.x)).toBe(true);
     expect(points.every((point) => point.x >= branchRect.x + branchRect.width)).toBe(true);
   });
@@ -86,19 +87,6 @@ function rectsOverlap(left: WorkflowGraphNode, right: WorkflowGraphNode): boolea
   );
 }
 
-function absoluteNodeRect(
-  node: WorkflowGraphNode,
-  nodes: readonly WorkflowGraphNode[],
-): Readonly<{ height: number; width: number; x: number; y: number }> {
-  const parent = node.parentId === undefined ? undefined : requiredNodeByID(nodes, node.parentId);
-  return {
-    height: rectHeight(node),
-    width: rectWidth(node),
-    x: (parent?.position.x ?? 0) + node.position.x,
-    y: (parent?.position.y ?? 0) + node.position.y,
-  };
-}
-
 function rectRight(rect: Readonly<{ position: Readonly<{ x: number }>; style?: WorkflowGraphNode["style"] }>): number {
   return rect.position.x + Number(rect.style?.width ?? 0);
 }
@@ -107,14 +95,6 @@ function rectCenterY(
   rect: Readonly<{ height?: number; position?: Readonly<{ y: number }>; style?: WorkflowGraphNode["style"]; y?: number }>,
 ): number {
   return (rect.position?.y ?? rect.y ?? 0) + (rect.height ?? Number(rect.style?.height ?? 0)) / 2;
-}
-
-function rectWidth(node: WorkflowGraphNode): number {
-  return Number(node.style?.width ?? 0);
-}
-
-function rectHeight(node: WorkflowGraphNode): number {
-  return Number(node.style?.height ?? 0);
 }
 
 function expectPointCloseTo(actual: WorkflowGraphPoint | undefined, expected: WorkflowGraphPoint): void {
@@ -197,6 +177,8 @@ function workflowEdge(id: string, transitionGroupID: string, targetNodeID: strin
     inputBindings: [],
     key: id,
     outputRequirements: [],
+    parameters: [],
+    promptTemplate: "",
     requiresApproval: false,
     targetNodeID,
     transitionGroupID,

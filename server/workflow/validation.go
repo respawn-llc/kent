@@ -7,9 +7,9 @@ import (
 	"builder/shared/workflowkey"
 )
 
-var reservedOutputFieldNames = map[string]bool{
-	"commentary":    true,
-	"transition_id": true,
+var reservedParameterKeys = map[string]bool{
+	"commentary": true,
+	"transition": true,
 }
 
 func ValidateDefinition(def Definition, opts ValidationOptions) ValidationResult {
@@ -217,8 +217,6 @@ func (s *validationState) validateNodes() {
 				s.addHard(CodeInvalidNodeGroup, "node references a missing node group", ref)
 			}
 		}
-		s.validateOutputFields(node)
-		s.validateInputFields(node)
 	}
 	if len(s.startNodes) == 0 {
 		s.addHard(CodeMissingStartNode, "workflow must contain exactly one start node", ValidationError{WorkflowID: s.def.ID})
@@ -450,53 +448,64 @@ func (s *validationState) validateEdges() {
 		if !validContextMode(edge.ContextMode) {
 			s.addHard(CodeInvalidContextMode, "edge context mode is invalid", ref)
 		}
+		s.validateEdgeInvocationContract(edge, ref)
 	}
 }
 
-func (s *validationState) validateOutputFields(node Node) {
-	seen := map[string]bool{}
-	for index, field := range node.OutputFields {
-		ordinal := index + 1
-		name := strings.TrimSpace(field.Name)
-		ref := ValidationError{WorkflowID: s.def.ID, NodeID: node.ID, FieldName: name}
-		if name == "" || !validModelKey(name) || len(name) > MaxOutputFieldNameChars || reservedOutputFieldNames[name] {
-			s.addHard(CodeInvalidOutputField, nodeFieldMessage(node, "output", ordinal, "field name is invalid"), ref)
+func (s *validationState) validateEdgeInvocationContract(edge Edge, ref ValidationError) {
+	target, targetExists := s.nodesByID[edge.TargetNodeID]
+	source, sourceExists := s.edgeSource(edge)
+	prompt := strings.TrimSpace(edge.PromptTemplate)
+	if targetExists && target.Kind == NodeKindAgent {
+		if prompt == "" {
+			s.addHard(CodeTransitionPromptRequired, "transition into an agent node requires a prompt", ref)
 		}
-		if seen[name] {
-			s.addHard(CodeDuplicateOutputField, nodeFieldMessage(node, "output", ordinal, "field name must be unique per node"), ref)
-		}
-		seen[name] = true
-		description := strings.TrimSpace(field.Description)
-		if description == "" {
-			s.addHard(CodeOutputFieldDescriptionRequired, nodeFieldMessage(node, "output", ordinal, "description is required"), ref)
-		} else if len(description) > MaxOutputFieldDescriptionChars {
-			s.addHard(CodeOutputSchemaTooLarge, nodeFieldMessage(node, "output", ordinal, "description is too large"), ref)
+	} else if prompt != "" {
+		s.addHard(CodeTransitionPromptForbidden, "transition into a non-agent node cannot have a prompt", ref)
+	}
+	if sourceExists {
+		switch source.Kind {
+		case NodeKindStart:
+			if len(edge.Parameters) > 0 {
+				s.addHard(CodeInvalidParameter, "start transitions cannot declare parameters", ref)
+			}
+		case NodeKindJoin:
+			if len(edge.Parameters) > 0 {
+				s.addHard(CodeInvalidParameter, "join outgoing transitions cannot declare parameters", ref)
+			}
 		}
 	}
+	s.validateParameters(edge, ref)
 }
 
-func (s *validationState) validateInputFields(node Node) {
-	if len(node.InputFields) > 0 && node.Kind != NodeKindAgent {
-		s.addHard(CodeInvalidInputField, fmt.Sprintf("%s cannot declare input fields; only agent nodes can", nodeMessageSubject(node)), ValidationError{WorkflowID: s.def.ID, NodeID: node.ID})
-		return
+func (s *validationState) edgeSource(edge Edge) (Node, bool) {
+	group, groupExists := s.groupsByID[edge.TransitionGroupID]
+	if !groupExists {
+		return Node{}, false
 	}
+	source, sourceExists := s.nodesByID[group.SourceNodeID]
+	return source, sourceExists
+}
+
+func (s *validationState) validateParameters(edge Edge, ref ValidationError) {
 	seen := map[string]bool{}
-	for index, field := range node.InputFields {
+	for index, parameter := range edge.Parameters {
 		ordinal := index + 1
-		name := strings.TrimSpace(field.Name)
-		ref := ValidationError{WorkflowID: s.def.ID, NodeID: node.ID, InputName: name}
-		if name == "" || !validModelKey(name) || len(name) > MaxInputFieldNameChars || reservedOutputFieldNames[name] {
-			s.addHard(CodeInvalidInputField, nodeFieldMessage(node, "input", ordinal, "field name is invalid"), ref)
+		key := strings.TrimSpace(parameter.Key)
+		parameterRef := ref
+		parameterRef.FieldName = key
+		if key == "" || !validModelKey(key) || len(key) > MaxParameterKeyChars || reservedParameterKeys[key] {
+			s.addHard(CodeInvalidParameter, edgeParameterMessage(edge, ordinal, "key is invalid"), parameterRef)
 		}
-		if seen[name] {
-			s.addHard(CodeDuplicateInputField, nodeFieldMessage(node, "input", ordinal, "field name must be unique per node"), ref)
+		if seen[key] {
+			s.addHard(CodeDuplicateParameter, edgeParameterMessage(edge, ordinal, "key must be unique per transition branch"), parameterRef)
 		}
-		seen[name] = true
-		description := strings.TrimSpace(field.Description)
+		seen[key] = true
+		description := strings.TrimSpace(parameter.Description)
 		if description == "" {
-			s.addHard(CodeInputFieldDescriptionRequired, nodeFieldMessage(node, "input", ordinal, "description is required"), ref)
-		} else if len(description) > MaxInputFieldDescriptionChars {
-			s.addHard(CodeInputSchemaTooLarge, nodeFieldMessage(node, "input", ordinal, "description is too large"), ref)
+			s.addHard(CodeParameterDescriptionRequired, edgeParameterMessage(edge, ordinal, "description is required"), parameterRef)
+		} else if len(description) > MaxParameterDescriptionChars {
+			s.addHard(CodeParameterSchemaTooLarge, edgeParameterMessage(edge, ordinal, "description is too large"), parameterRef)
 		}
 	}
 }
@@ -527,7 +536,7 @@ func (s *validationState) validateKindConstraints() {
 		outgoingGroups := s.groupsBySource[node.ID]
 		switch node.Kind {
 		case NodeKindStart:
-			if strings.TrimSpace(node.SubagentRole) != "" || strings.TrimSpace(node.PromptTemplate) != "" || len(node.OutputFields) > 0 || incoming > 0 {
+			if strings.TrimSpace(node.SubagentRole) != "" || incoming > 0 {
 				s.addHard(CodeInvalidStartNode, "start node must be non-executable and have no inputs", ref)
 			}
 		case NodeKindAgent:
@@ -537,27 +546,21 @@ func (s *validationState) validateKindConstraints() {
 				s.addSemantic(CodeAgentRoleMissing, "agent node references a missing subagent role", ref)
 			}
 		case NodeKindJoin:
-			if strings.TrimSpace(node.SubagentRole) != "" || strings.TrimSpace(node.PromptTemplate) != "" {
+			if strings.TrimSpace(node.SubagentRole) != "" {
 				s.addHard(CodeJoinIsExecutable, "join node must be non-executable", ref)
 			}
 			if incoming < 2 {
 				s.addHard(CodeInvalidJoinNode, "join node must have at least two incoming branches", ref)
 			}
-			if len(node.OutputFields) > 0 {
-				s.addHard(CodeInvalidJoinNode, "join node cannot define agent output fields", ref)
-			}
 			if len(outgoingGroups) != 1 {
 				s.addSemantic(CodeInvalidJoinOutgoingShape, "join node must have exactly one outgoing transition group", ref)
 			}
 		case NodeKindTerminal:
-			if strings.TrimSpace(node.SubagentRole) != "" || strings.TrimSpace(node.PromptTemplate) != "" {
+			if strings.TrimSpace(node.SubagentRole) != "" {
 				s.addHard(CodeTerminalIsExecutable, "terminal node must be non-executable", ref)
 			}
 			if len(outgoingGroups) > 0 {
 				s.addHard(CodeTerminalHasOutgoingEdge, "terminal node cannot have outgoing edges", ref)
-			}
-			if len(node.OutputFields) > 0 {
-				s.addHard(CodeTerminalIsExecutable, "terminal node cannot define agent output fields", ref)
 			}
 		}
 	}
@@ -581,7 +584,7 @@ func (s *validationState) validateRuntimeSupport() {
 		}
 		contextSource, contextSourceValid := s.validateContextSource(edge, source, sourceExists, target, targetExists, ref)
 		if edge.ContextMode == ContextModeContinueSession && contextSourceValid {
-			selectedSource, ok := s.contextSourceNode(contextSource, source, sourceExists)
+			selectedSource, ok := s.contextSourceNode(contextSource, source, sourceExists, target, targetExists)
 			if ok && targetExists && selectedSource.Kind == NodeKindAgent && target.Kind == NodeKindAgent && strings.TrimSpace(selectedSource.SubagentRole) != strings.TrimSpace(target.SubagentRole) {
 				s.addSemantic(CodeInvalidContinueSessionRole, "continue_session requires source and target agent nodes to use the same subagent role", ref)
 			}
@@ -633,13 +636,33 @@ func (s *validationState) validateContextSource(edge Edge, source Node, sourceEx
 			return contextSource, false
 		}
 		return contextSource, true
+	case ContextSourcePreviousTarget:
+		if edge.ContextMode == ContextModeNewSession {
+			s.addSemantic(CodeInvalidContextSource, "previous target context source requires a continuation context mode", ref)
+			return contextSource, false
+		}
+		if !targetExists {
+			return contextSource, true
+		}
+		if target.Kind != NodeKindAgent {
+			s.addSemantic(CodeInvalidContextSource, "previous target context source requires an agent target node", ref)
+			return contextSource, false
+		}
+		if !sourceExists || len(s.startNodes) != 1 {
+			return contextSource, true
+		}
+		if target.ID != source.ID && !s.nodeDominates(target.ID, source.ID) {
+			s.addSemantic(CodeInvalidContextSource, "previous target context source requires the target node to be guaranteed before the edge source", ref)
+			return contextSource, false
+		}
+		return contextSource, true
 	default:
 		s.addSemantic(CodeInvalidContextSource, "context source kind is invalid", ref)
 		return contextSource, false
 	}
 }
 
-func (s *validationState) contextSourceNode(contextSource ContextSource, immediate Node, immediateExists bool) (Node, bool) {
+func (s *validationState) contextSourceNode(contextSource ContextSource, immediate Node, immediateExists bool, target Node, targetExists bool) (Node, bool) {
 	switch contextSource.Kind {
 	case ContextSourceImmediateSource:
 		return immediate, immediateExists
@@ -650,6 +673,8 @@ func (s *validationState) contextSourceNode(contextSource ContextSource, immedia
 		}
 		node, exists := s.nodesByID[nodeID]
 		return node, exists
+	case ContextSourcePreviousTarget:
+		return target, targetExists
 	default:
 		return Node{}, false
 	}
@@ -677,62 +702,139 @@ func (s *validationState) validateStartOutgoingShape() {
 }
 
 func (s *validationState) validatePromptPlaceholders() {
-	for _, node := range s.def.Nodes {
-		if node.Kind != NodeKindAgent {
+	derived := DeriveWiring(s.def)
+	for _, edge := range s.def.Edges {
+		prompt := strings.TrimSpace(edge.PromptTemplate)
+		if prompt == "" {
 			continue
 		}
-		inputs := map[string]bool{}
-		for _, field := range node.InputFields {
-			inputs[strings.TrimSpace(field.Name)] = true
-		}
-		refs, err := ExtractPromptTemplateReferences(node.PromptTemplate)
+		ref := ValidationError{WorkflowID: s.def.ID, EdgeID: edge.ID, TransitionGroupID: edge.TransitionGroupID, NodeID: edge.TargetNodeID}
+		refs, err := ExtractPromptTemplateReferences(prompt)
 		if err != nil {
-			s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template syntax is invalid", ValidationError{WorkflowID: s.def.ID, NodeID: node.ID})
+			s.addHard(CodeInvalidTemplatePlaceholder, "prompt template syntax is invalid", ref)
 			continue
 		}
 		for _, invalid := range refs.Invalid {
-			s.addSemantic(CodeInvalidTemplatePlaceholder, invalid.Message, ValidationError{WorkflowID: s.def.ID, NodeID: node.ID, Placeholder: invalid.Placeholder})
+			invalidRef := ref
+			invalidRef.Placeholder = invalid.Placeholder
+			s.addHard(CodeInvalidTemplatePlaceholder, invalid.Message, invalidRef)
 		}
-		for _, ref := range refs.Inputs {
-			if !validModelKey(ref.Name) || !inputs[ref.Name] {
-				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references an unknown node input", ValidationError{WorkflowID: s.def.ID, NodeID: node.ID, InputName: ref.Name, Placeholder: ref.Placeholder})
+		currentParams := edgeParameterNameSet(edge)
+		source, sourceExists := s.edgeSource(edge)
+		if sourceExists && source.Kind == NodeKindJoin {
+			currentParams = outputFieldNameSet(derived.JoinOutputFieldsForNode(source.ID))
+		}
+		for _, param := range refs.Params {
+			name := strings.TrimSpace(param.Name)
+			paramRef := ref
+			paramRef.InputName = name
+			paramRef.Placeholder = param.Placeholder
+			if name == "" || !validModelKey(name) || !currentParams[name] {
+				s.addHard(CodeInvalidTemplatePlaceholder, "prompt template references an unknown transition parameter", paramRef)
 			}
 		}
-		for _, ref := range refs.NodeOutputs {
-			nodeKey := strings.TrimSpace(string(ref.NodeKey))
-			fieldName := strings.TrimSpace(ref.FieldName)
-			errRef := ValidationError{WorkflowID: s.def.ID, NodeID: node.ID, FieldName: fieldName, Placeholder: ref.Placeholder}
-			if nodeKey == "" || !validModelKey(nodeKey) {
-				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references an invalid node key", errRef)
-				continue
-			}
-			if fieldName == "" || !validModelKey(fieldName) {
-				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references an invalid node output field", errRef)
-				continue
-			}
-			sourceID, exists := s.nodeKeys[ref.NodeKey]
-			if !exists {
-				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references an unknown node", errRef)
-				continue
-			}
-			source := s.nodesByID[sourceID]
-			if source.Kind != NodeKindAgent {
-				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references a non-agent node output", errRef)
-				continue
-			}
-			if source.ID == node.ID {
-				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template cannot reference the current node output", errRef)
-				continue
-			}
-			if !nodeOutputFieldSet(source)[fieldName] {
-				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template references an unknown node output", errRef)
-				continue
-			}
-			if len(s.startNodes) == 1 && !s.nodeDominates(source.ID, node.ID) {
-				s.addSemantic(CodeInvalidTemplatePlaceholder, "prompt template node reference must be guaranteed before the consuming node", errRef)
+		for _, priorParam := range refs.PriorParams {
+			s.validatePriorParameterReference(edge, priorParam, ref)
+		}
+	}
+}
+
+func edgeParameterNameSet(edge Edge) map[string]bool {
+	out := map[string]bool{}
+	for _, parameter := range edge.Parameters {
+		key := strings.TrimSpace(parameter.Key)
+		if key != "" {
+			out[key] = true
+		}
+	}
+	return out
+}
+
+func outputFieldNameSet(fields []OutputField) map[string]bool {
+	out := map[string]bool{}
+	for _, field := range fields {
+		name := strings.TrimSpace(field.Name)
+		if name != "" {
+			out[name] = true
+		}
+	}
+	return out
+}
+
+func (s *validationState) validatePriorParameterReference(edge Edge, param PromptPriorParameterReference, baseRef ValidationError) {
+	transitionKey := strings.TrimSpace(string(param.TransitionKey))
+	parameterKey := strings.TrimSpace(param.ParameterKey)
+	ref := baseRef
+	ref.FieldName = parameterKey
+	ref.Placeholder = param.Placeholder
+	if transitionKey == "" || !validModelKey(transitionKey) || parameterKey == "" || !validModelKey(parameterKey) {
+		s.addHard(CodeInvalidTemplatePlaceholder, "prompt template previous parameter reference is invalid", ref)
+		return
+	}
+	source, sourceExists := s.edgeSource(edge)
+	if !sourceExists || len(s.startNodes) != 1 {
+		return
+	}
+	matches := []TransitionGroup{}
+	for _, group := range s.def.TransitionGroups {
+		if strings.TrimSpace(string(group.TransitionID)) != transitionKey {
+			continue
+		}
+		if s.transitionGroupDominates(group.ID, source.ID) {
+			matches = append(matches, group)
+		}
+	}
+	if len(matches) != 1 {
+		s.addHard(CodeInvalidTemplatePlaceholder, "prompt template previous parameter reference must name exactly one guaranteed-prior transition", ref)
+		return
+	}
+	if !s.transitionGroupParameterSet(matches[0].ID)[parameterKey] {
+		s.addHard(CodeInvalidTemplatePlaceholder, "prompt template references an unknown previous transition parameter", ref)
+	}
+}
+
+func (s *validationState) transitionGroupParameterSet(groupID TransitionGroupID) map[string]bool {
+	out := map[string]bool{}
+	for _, edge := range s.edgesByGroup[groupID] {
+		for _, parameter := range edge.Parameters {
+			key := strings.TrimSpace(parameter.Key)
+			if key != "" {
+				out[key] = true
 			}
 		}
 	}
+	return out
+}
+
+func (s *validationState) transitionGroupDominates(groupID TransitionGroupID, target NodeID) bool {
+	if len(s.startNodes) != 1 {
+		return false
+	}
+	if !s.reachableFrom(s.startNodes[0].ID)[target] {
+		return false
+	}
+	visited := map[NodeID]bool{}
+	stack := []NodeID{s.startNodes[0].ID}
+	for len(stack) > 0 {
+		nodeID := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if visited[nodeID] {
+			continue
+		}
+		if nodeID == target {
+			return false
+		}
+		visited[nodeID] = true
+		for _, edge := range s.outgoingByNode[nodeID] {
+			if edge.TransitionGroupID == groupID {
+				continue
+			}
+			if !visited[edge.TargetNodeID] {
+				stack = append(stack, edge.TargetNodeID)
+			}
+		}
+	}
+	return true
 }
 
 func (s *validationState) nodeDominates(candidate NodeID, target NodeID) bool {
@@ -931,8 +1033,18 @@ func (s *validationState) addSemantic(code ValidationErrorCode, message string, 
 	s.errors = append(s.errors, ref)
 }
 
-func nodeFieldMessage(node Node, fieldKind string, ordinal int, message string) string {
-	return fmt.Sprintf("%s: %s field #%d %s", nodeMessageSubject(node), fieldKind, ordinal, message)
+func edgeParameterMessage(edge Edge, ordinal int, message string) string {
+	return fmt.Sprintf("%s: parameter #%d %s", edgeMessageSubject(edge), ordinal, message)
+}
+
+func edgeMessageSubject(edge Edge) string {
+	if key := strings.TrimSpace(string(edge.Key)); key != "" {
+		return fmt.Sprintf("Transition branch %s", key)
+	}
+	if id := strings.TrimSpace(string(edge.ID)); id != "" {
+		return fmt.Sprintf("Transition branch %s", id)
+	}
+	return "Transition branch unknown"
 }
 
 func nodeMessageSubject(node Node) string {
@@ -968,17 +1080,6 @@ func validContextMode(value ContextMode) bool {
 	default:
 		return false
 	}
-}
-
-func nodeOutputFieldSet(node Node) map[string]bool {
-	out := map[string]bool{}
-	for _, field := range node.OutputFields {
-		name := strings.TrimSpace(field.Name)
-		if name != "" {
-			out[name] = true
-		}
-	}
-	return out
 }
 
 func cloneBoolMap(in map[NodeID]bool) map[NodeID]bool {

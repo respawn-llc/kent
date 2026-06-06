@@ -102,6 +102,8 @@ type WorkflowEdge struct {
 	RequiresApproval   bool                        `json:"requires_approval"`
 	ContextMode        string                      `json:"context_mode"`
 	ContextSource      WorkflowContextSource       `json:"context_source"`
+	PromptTemplate     string                      `json:"prompt_template,omitempty"`
+	Parameters         []WorkflowParameter         `json:"parameters,omitempty"`
 	InputBindings      []WorkflowInputBinding      `json:"input_bindings,omitempty"`
 	OutputRequirements []WorkflowOutputRequirement `json:"output_requirements,omitempty"`
 }
@@ -121,6 +123,11 @@ type WorkflowOutputField struct {
 
 type WorkflowInputField struct {
 	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type WorkflowParameter struct {
+	Key         string `json:"key"`
 	Description string `json:"description"`
 }
 
@@ -218,6 +225,8 @@ type WorkflowGraphDraftEdge struct {
 	RequiresApproval  bool                  `json:"requires_approval"`
 	ContextMode       string                `json:"context_mode"`
 	ContextSource     WorkflowContextSource `json:"context_source"`
+	PromptTemplate    string                `json:"prompt_template,omitempty"`
+	Parameters        []WorkflowParameter   `json:"parameters,omitempty"`
 }
 
 type WorkflowGraphValidateDraftRequest struct {
@@ -440,6 +449,8 @@ type WorkflowEdgeAddRequest struct {
 	ContextMode       string                `json:"context_mode"`
 	ContextSource     WorkflowContextSource `json:"context_source"`
 	RequiresApproval  bool                  `json:"requires_approval"`
+	PromptTemplate    string                `json:"prompt_template,omitempty"`
+	Parameters        []WorkflowParameter   `json:"parameters,omitempty"`
 }
 
 type WorkflowEdgeAddResponse struct {
@@ -455,6 +466,8 @@ type WorkflowEdgeUpdateRequest struct {
 	ContextMode       string                `json:"context_mode"`
 	ContextSource     WorkflowContextSource `json:"context_source"`
 	RequiresApproval  bool                  `json:"requires_approval"`
+	PromptTemplate    string                `json:"prompt_template,omitempty"`
+	Parameters        []WorkflowParameter   `json:"parameters,omitempty"`
 }
 
 type WorkflowEdgeUpdateResponse struct {
@@ -1217,17 +1230,17 @@ func validateWorkflowTransitionGroupFields(workflowID string, groupID string, so
 }
 
 func (r WorkflowEdgeAddRequest) Validate() error {
-	return validateWorkflowEdgeFields(r.WorkflowID, "", r.TransitionGroupID, r.Key, r.TargetNodeID, r.ContextMode, r.ContextSource)
+	return validateWorkflowEdgeFields(r.WorkflowID, "", r.TransitionGroupID, r.Key, r.TargetNodeID, r.ContextMode, r.ContextSource, r.Parameters)
 }
 
 func (r WorkflowEdgeUpdateRequest) Validate() error {
 	if err := validateRequired("edge_id", r.EdgeID); err != nil {
 		return err
 	}
-	return validateWorkflowEdgeFields(r.WorkflowID, r.EdgeID, r.TransitionGroupID, r.Key, r.TargetNodeID, r.ContextMode, r.ContextSource)
+	return validateWorkflowEdgeFields(r.WorkflowID, r.EdgeID, r.TransitionGroupID, r.Key, r.TargetNodeID, r.ContextMode, r.ContextSource, r.Parameters)
 }
 
-func validateWorkflowEdgeFields(workflowID string, edgeID string, transitionGroupID string, key string, targetNodeID string, contextMode string, contextSource WorkflowContextSource) error {
+func validateWorkflowEdgeFields(workflowID string, edgeID string, transitionGroupID string, key string, targetNodeID string, contextMode string, contextSource WorkflowContextSource, parameters []WorkflowParameter) error {
 	_ = edgeID
 	for _, field := range []struct{ name, value string }{{"workflow_id", workflowID}, {"transition_group_id", transitionGroupID}, {"target_node_id", targetNodeID}, {"context_mode", contextMode}} {
 		if err := validateRequired(field.name, field.value); err != nil {
@@ -1239,6 +1252,9 @@ func validateWorkflowEdgeFields(workflowID string, edgeID string, transitionGrou
 	}
 	if err := validateWorkflowContextSource(contextSource); err != nil {
 		return err
+	}
+	if len(parameters) > WorkflowGraphDraftMaxFieldsPerEntity {
+		return workflowRequestError(WorkflowRequestErrorTooLong, "parameters", fmt.Sprintf("parameters must be <= %d", WorkflowGraphDraftMaxFieldsPerEntity))
 	}
 	return nil
 }
@@ -1253,6 +1269,11 @@ func validateWorkflowContextSource(source WorkflowContextSource) error {
 	case "selected_node":
 		if err := validateModelKey("context_source.node_key", source.NodeKey); err != nil {
 			return err
+		}
+		return nil
+	case "previous_target":
+		if strings.TrimSpace(source.NodeKey) != "" {
+			return workflowRequestError(WorkflowRequestErrorInvalidValue, "context_source.node_key", "context_source.node_key must be empty for previous_target")
 		}
 		return nil
 	default:
@@ -1422,6 +1443,11 @@ func validateWorkflowGraphDraftEnvelope(graph WorkflowGraphDraft) error {
 		}
 		if len(node.JoinInputProviders) > WorkflowGraphDraftMaxFieldsPerEntity {
 			return workflowRequestError(WorkflowRequestErrorTooLong, "graph.nodes.join_input_providers", fmt.Sprintf("join_input_providers must be <= %d", WorkflowGraphDraftMaxFieldsPerEntity))
+		}
+	}
+	for _, edge := range graph.Edges {
+		if len(edge.Parameters) > WorkflowGraphDraftMaxFieldsPerEntity {
+			return workflowRequestError(WorkflowRequestErrorTooLong, "graph.edges.parameters", fmt.Sprintf("parameters must be <= %d", WorkflowGraphDraftMaxFieldsPerEntity))
 		}
 	}
 	return nil

@@ -141,7 +141,7 @@ var catalogEntries = []CatalogEntry{
 			formatGenericToolResult,
 		),
 		// Runtime requests replace this fallback with the current workflow
-		// run contract, including valid transition IDs and node output fields.
+		// run contract, including valid transitions and parameters.
 		Schema: mustToolSchema("complete_node.json"),
 	},
 	{

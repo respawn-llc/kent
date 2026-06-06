@@ -10,6 +10,12 @@ import type {
 } from "./workflowGraphLayout";
 import { isInspectableWorkflowNodeKind } from "./workflowGraphNodeKinds";
 
+export type WorkflowGraphReconnectEndpoint = "source" | "target";
+
+export type WorkflowGraphReconnectEdgeInput =
+  | Readonly<{ edgeID: string; endpoint: "source"; sourceNodeID: string }>
+  | Readonly<{ edgeID: string; endpoint: "target"; targetNodeID: string }>;
+
 export function connectWorkflowGraphNodes(
   connection: Connection,
   onConnectNodes: ((sourceNodeID: string, targetNodeID: string) => void) | undefined,
@@ -18,6 +24,33 @@ export function connectWorkflowGraphNodes(
     return;
   }
   onConnectNodes?.(connection.source, connection.target);
+}
+
+export function reconnectWorkflowGraphEdge(
+  edge: Edge,
+  connection: Connection,
+  endpoint: WorkflowGraphReconnectEndpoint | null | undefined,
+  onReconnectEdge: ((input: WorkflowGraphReconnectEdgeInput) => void) | undefined,
+): void {
+  if (onReconnectEdge === undefined) {
+    return;
+  }
+  const edgeID = workflowGraphEdgeID(edge);
+  const resolvedEndpoint = endpoint ?? inferReconnectEndpoint(edge, connection);
+  if (edgeID === null || resolvedEndpoint === null) {
+    return;
+  }
+  if (resolvedEndpoint === "source") {
+    if (connection.source === null) {
+      return;
+    }
+    onReconnectEdge({ edgeID, endpoint: "source", sourceNodeID: connection.source });
+    return;
+  }
+  if (connection.target === null) {
+    return;
+  }
+  onReconnectEdge({ edgeID, endpoint: "target", targetNodeID: connection.target });
 }
 
 export function selectionFromNode(node: Node): WorkflowGraphSelection | null {
@@ -102,6 +135,23 @@ function isWorkflowGraphGroupData(data: Node["data"]): data is WorkflowGraphGrou
 
 function isWorkflowGraphEdgeData(data: Edge["data"]): data is WorkflowGraphEdgeData {
   return data?.entityKind === "edge" && typeof data.entityID === "string";
+}
+
+function workflowGraphEdgeID(edge: Edge): string | null {
+  return isWorkflowGraphEdgeData(edge.data) ? edge.data.entityID : edge.id;
+}
+
+function inferReconnectEndpoint(
+  edge: Edge,
+  connection: Connection,
+): WorkflowGraphReconnectEndpoint | null {
+  if (connection.source !== null && connection.source !== edge.source) {
+    return "source";
+  }
+  if (connection.target !== null && connection.target !== edge.target) {
+    return "target";
+  }
+  return null;
 }
 
 function groupIDFromElement(element: Element | null): string | null {

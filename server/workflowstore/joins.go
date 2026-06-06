@@ -112,15 +112,15 @@ LIMIT 1`, taskID, string(joinEdge.TargetNode.ID), batchID.String).Scan(&existing
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		source, err := s.resolveContextSourceRun(ctx, tx, taskID, now, nil, joinSnapshot, outEdge)
+		source, err := s.resolveContextSourceRun(ctx, tx, taskID, now, joinPlacementID, nil, joinSnapshot, outEdge)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		nodeOutputValues, err := s.resolvePromptNodeOutputValues(ctx, tx, taskID, now, targetSnapshot)
+		priorParameterValues, err := s.resolvePromptPriorParameterValues(ctx, tx, taskID, now, joinPlacementID, outEdge)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
-		targetMetadataJSON, err := targetRunMetadata(outEdge, source, nodeOutputValues)
+		targetMetadataJSON, err := targetRunMetadata(outEdge, source, priorParameterValues)
 		if err != nil {
 			return CompleteRunResult{}, err
 		}
@@ -188,37 +188,24 @@ func joinArrivals(ctx context.Context, tx *sql.Tx, batchID string, joinNodeID wo
 }
 
 func selectedJoinOutputValues(join nodeContractSnapshot, outEdge edgeContractSnapshot, arrivals []joinArrival) (map[string]string, bool, error) {
-	arrivalByJoinEdgeID := make(map[workflow.EdgeID]joinArrival, len(arrivals))
-	for _, arrival := range arrivals {
-		arrivalByJoinEdgeID[arrival.JoinEdgeID] = arrival
-	}
-	providerByInput := make(map[string]workflow.JoinInputProvider, len(join.JoinInputProviders))
-	for _, provider := range join.JoinInputProviders {
-		inputName := strings.TrimSpace(provider.InputName)
-		if inputName == "" {
-			continue
-		}
-		providerByInput[inputName] = provider
-	}
 	out := map[string]string{}
 	for _, requirement := range outEdge.OutputRequirements {
-		inputName := strings.TrimSpace(requirement.FieldName)
-		if inputName == "" {
+		parameterKey := strings.TrimSpace(requirement.FieldName)
+		if parameterKey == "" {
 			continue
 		}
-		provider, ok := providerByInput[inputName]
-		if !ok {
-			return nil, false, fmt.Errorf("join node %q missing provider for input %q", join.ID, inputName)
+		value := ""
+		for _, arrival := range arrivals {
+			candidate := arrival.OutputValues[parameterKey]
+			if strings.TrimSpace(candidate) != "" {
+				value = candidate
+				break
+			}
 		}
-		arrival, ok := arrivalByJoinEdgeID[provider.ProviderEdgeID]
-		if !ok {
-			return nil, false, nil
-		}
-		value := arrival.OutputValues[inputName]
 		if strings.TrimSpace(value) == "" {
-			return nil, false, fmt.Errorf("join node %q provider edge %q missing output %q", join.ID, provider.ProviderEdgeID, inputName)
+			return nil, false, fmt.Errorf("join node %q missing aggregate parameter %q", join.ID, parameterKey)
 		}
-		out[inputName] = value
+		out[parameterKey] = value
 	}
 	return out, true, nil
 }

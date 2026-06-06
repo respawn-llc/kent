@@ -4,7 +4,7 @@ import type { ElkNode } from "elkjs/lib/elk-api";
 
 import type { WorkflowDefinition, WorkflowValidation } from "../../api";
 import { workflowEdgeColor } from "./workflowGraphColors";
-import { visibleWorkflowGraphEdgeModels } from "./workflowGraphEdges";
+import { visibleWorkflowGraphEdgeModels, type WorkflowGraphEdgeModel } from "./workflowGraphEdges";
 import {
   absoluteLayoutOffsetByID,
   layoutEdgeByID,
@@ -13,6 +13,8 @@ import {
 import {
   emptyGroupHeight,
   emptyGroupWidth,
+  workflowEndpointPortSize,
+  type WorkflowGraphEndpointPort,
   workflowJoinNodeSize,
   workflowNodeHeight,
   workflowNodeWidth,
@@ -24,6 +26,8 @@ export type WorkflowGraphNodeData = Readonly<{
   entityID: string;
   entityKind: "node";
   groupID: string;
+  endpointPorts?: readonly WorkflowGraphEndpointPort[] | undefined;
+  creationHandleID?: string | undefined;
   key: string;
   kind: string;
   label: string;
@@ -58,6 +62,15 @@ type WorkflowGraphRenderClassName = Readonly<{
   className?: string | undefined;
 }>;
 
+type WorkflowGraphElkPort = Readonly<{
+  id: string;
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+  layoutOptions: Record<string, string>;
+}>;
+
 export type WorkflowGraphNode = Node<WorkflowGraphNodeData | WorkflowGraphGroupData> &
   WorkflowGraphRenderClassName;
 export type WorkflowGraphWorkflowNode = Node<WorkflowGraphNodeData> & WorkflowGraphRenderClassName;
@@ -84,11 +97,14 @@ export async function layoutWorkflowGraph(
     visibleNodes.filter(isWorkflowGroupIslandMember).map((node) => node.groupID),
   );
   const emptyGroups = definition.nodeGroups.filter((group) => !populatedGroupIDs.has(group.id));
+  const endpointPortsByNodeID = workflowGraphEndpointPortsByNodeID(edgeModels);
   const children: ElkNode[] = [
-    ...visibleNodes.filter((node) => !groupedNodeIDs.has(node.id)).map((node) => elkWorkflowNode(node)),
+    ...visibleNodes
+      .filter((node) => !groupedNodeIDs.has(node.id))
+      .map((node) => elkWorkflowNode(node, endpointPortsByNodeID.get(node.id) ?? [])),
     ...definition.nodeGroups
       .filter((group) => populatedGroupIDs.has(group.id))
-      .map((group) => elkWorkflowGroupNode(group, visibleNodes)),
+      .map((group) => elkWorkflowGroupNode(group, visibleNodes, endpointPortsByNodeID)),
     ...emptyGroups.map((group) => ({
       id: groupNodeID(group.id),
       width: emptyGroupWidth,
@@ -113,15 +129,18 @@ export async function layoutWorkflowGraph(
     },
   };
   const result = await elk.layout(graph);
-  const nodeLayout = layoutWorkflowGraphNodes(result, definition, errorMarkers);
+  const nodeLayout = layoutWorkflowGraphNodes(result, definition, errorMarkers, endpointPortsByNodeID);
   const edgeLayoutByID = layoutEdgeByID(result);
   const containerOffsetByID = absoluteLayoutOffsetByID(result);
   const edges = edgeModels.map(
     (model): WorkflowGraphEdge => ({
       id: model.id,
       source: model.sourceNodeID,
+      sourceHandle: model.sourcePort.id,
       target: model.targetNodeID,
+      targetHandle: model.targetPort.id,
       type: "workflow",
+      reconnectable: true,
       markerEnd: { color: workflowEdgeColor(model.contextMode, model.hasError), type: MarkerType.ArrowClosed },
       data: {
         label: model.label,
@@ -142,23 +161,35 @@ export async function layoutWorkflowGraph(
   return { nodes: nodeLayout.nodes, edges };
 }
 
-function elkWorkflowNode(node: WorkflowDefinition["nodes"][number]): ElkNode {
+function elkWorkflowNode(
+  node: WorkflowDefinition["nodes"][number],
+  endpointPorts: readonly WorkflowGraphEndpointPort[],
+): ElkNode {
+  const width = node.kind === "join" ? workflowJoinNodeSize : workflowNodeWidth;
+  const height = node.kind === "join" ? workflowJoinNodeSize : workflowNodeHeight;
   return {
     id: node.id,
-    width: node.kind === "join" ? workflowJoinNodeSize : workflowNodeWidth,
-    height: node.kind === "join" ? workflowJoinNodeSize : workflowNodeHeight,
+    width,
+    height,
+    ...(endpointPorts.length === 0
+      ? {}
+      : {
+          layoutOptions: { "elk.portConstraints": "FIXED_POS" },
+          ports: endpointPorts.map((port) => elkEndpointPort(port, width)),
+        }),
   };
 }
 
 function elkWorkflowGroupNode(
   group: WorkflowDefinition["nodeGroups"][number],
   nodes: readonly WorkflowDefinition["nodes"][number][],
+  endpointPortsByNodeID: ReadonlyMap<string, readonly WorkflowGraphEndpointPort[]>,
 ): ElkNode {
   return {
     id: groupNodeID(group.id),
     children: nodes
       .filter((node) => node.groupID === group.id && isWorkflowGroupIslandMember(node))
-      .map((node) => elkWorkflowNode(node)),
+      .map((node) => elkWorkflowNode(node, endpointPortsByNodeID.get(node.id) ?? [])),
     layoutOptions: {
       "elk.algorithm": "layered",
       "elk.direction": "RIGHT",
@@ -168,6 +199,43 @@ function elkWorkflowGroupNode(
       "elk.layered.spacing.nodeNodeBetweenLayers": "120",
     },
   };
+}
+
+function elkEndpointPort(port: WorkflowGraphEndpointPort, nodeWidth: number): WorkflowGraphElkPort {
+  return {
+    id: port.id,
+    width: workflowEndpointPortSize,
+    height: workflowEndpointPortSize,
+    x:
+      port.side === "source"
+        ? nodeWidth - workflowEndpointPortSize / 2
+        : -workflowEndpointPortSize / 2,
+    y: port.y - workflowEndpointPortSize / 2,
+    layoutOptions: { "elk.port.side": port.side === "source" ? "EAST" : "WEST" },
+  };
+}
+
+function workflowGraphEndpointPortsByNodeID(
+  edgeModels: readonly WorkflowGraphEdgeModel[],
+): ReadonlyMap<string, readonly WorkflowGraphEndpointPort[]> {
+  const portsByNodeID = new Map<string, WorkflowGraphEndpointPort[]>();
+  for (const edge of edgeModels) {
+    appendEndpointPort(portsByNodeID, edge.sourcePort);
+    appendEndpointPort(portsByNodeID, edge.targetPort);
+  }
+  return portsByNodeID;
+}
+
+function appendEndpointPort(
+  portsByNodeID: Map<string, WorkflowGraphEndpointPort[]>,
+  port: WorkflowGraphEndpointPort,
+): void {
+  const ports = portsByNodeID.get(port.nodeID);
+  if (ports === undefined) {
+    portsByNodeID.set(port.nodeID, [port]);
+    return;
+  }
+  ports.push(port);
 }
 
 function groupNodeID(id: string): string {

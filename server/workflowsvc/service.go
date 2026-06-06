@@ -279,7 +279,7 @@ func (s *Service) AddWorkflowEdge(ctx context.Context, req serverapi.WorkflowEdg
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowEdgeAddResponse{}, err
 	}
-	revision, err := s.store.AddEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID(req.EdgeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), TransitionGroupID: workflow.TransitionGroupID(req.TransitionGroupID), Key: workflow.ModelKey(req.Key), TargetNodeID: workflow.NodeID(req.TargetNodeID), RequiresApproval: req.RequiresApproval, ContextMode: workflow.ContextMode(req.ContextMode), ContextSource: domainContextSource(req.ContextSource)})
+	revision, err := s.store.AddEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID(req.EdgeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), TransitionGroupID: workflow.TransitionGroupID(req.TransitionGroupID), Key: workflow.ModelKey(req.Key), TargetNodeID: workflow.NodeID(req.TargetNodeID), RequiresApproval: req.RequiresApproval, ContextMode: workflow.ContextMode(req.ContextMode), ContextSource: domainContextSource(req.ContextSource), PromptTemplate: req.PromptTemplate, Parameters: domainParameters(req.Parameters)})
 	if err != nil {
 		return serverapi.WorkflowEdgeAddResponse{}, err
 	}
@@ -291,7 +291,7 @@ func (s *Service) UpdateWorkflowEdge(ctx context.Context, req serverapi.Workflow
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowEdgeUpdateResponse{}, err
 	}
-	revision, err := s.store.UpdateEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID(req.EdgeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), TransitionGroupID: workflow.TransitionGroupID(req.TransitionGroupID), Key: workflow.ModelKey(req.Key), TargetNodeID: workflow.NodeID(req.TargetNodeID), RequiresApproval: req.RequiresApproval, ContextMode: workflow.ContextMode(req.ContextMode), ContextSource: domainContextSource(req.ContextSource)})
+	revision, err := s.store.UpdateEdge(ctx, workflowstore.EdgeRecord{ID: workflow.EdgeID(req.EdgeID), WorkflowID: workflow.WorkflowID(req.WorkflowID), TransitionGroupID: workflow.TransitionGroupID(req.TransitionGroupID), Key: workflow.ModelKey(req.Key), TargetNodeID: workflow.NodeID(req.TargetNodeID), RequiresApproval: req.RequiresApproval, ContextMode: workflow.ContextMode(req.ContextMode), ContextSource: domainContextSource(req.ContextSource), PromptTemplate: req.PromptTemplate, Parameters: domainParameters(req.Parameters)})
 	if err != nil {
 		return serverapi.WorkflowEdgeUpdateResponse{}, err
 	}
@@ -959,6 +959,8 @@ func (s *Service) workflowGraphDraftDefinition(ctx context.Context, workflowID s
 			ContextMode:       workflow.ContextMode(edge.ContextMode),
 			ContextSource:     domainContextSource(edge.ContextSource),
 			RequiresApproval:  edge.RequiresApproval,
+			PromptTemplate:    edge.PromptTemplate,
+			Parameters:        domainParameters(edge.Parameters),
 		})
 	}
 	return def, nil
@@ -997,7 +999,7 @@ func workflowGraphStoreSaveRequest(workflowID string, expectedVersion int64, met
 		req.TransitionGroups = append(req.TransitionGroups, workflowstore.TransitionGroupRecord{ID: workflow.TransitionGroupID(group.ID), WorkflowID: workflow.WorkflowID(workflowID), SourceNodeID: workflow.NodeID(group.SourceNodeID), TransitionID: workflow.TransitionID(group.TransitionID), DisplayName: group.DisplayName})
 	}
 	for _, edge := range graph.Edges {
-		req.Edges = append(req.Edges, workflowstore.EdgeRecord{ID: workflow.EdgeID(edge.ID), WorkflowID: workflow.WorkflowID(workflowID), TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID), Key: workflow.ModelKey(edge.Key), TargetNodeID: workflow.NodeID(edge.TargetNodeID), RequiresApproval: edge.RequiresApproval, ContextMode: workflow.ContextMode(edge.ContextMode), ContextSource: domainContextSource(edge.ContextSource)})
+		req.Edges = append(req.Edges, workflowstore.EdgeRecord{ID: workflow.EdgeID(edge.ID), WorkflowID: workflow.WorkflowID(workflowID), TransitionGroupID: workflow.TransitionGroupID(edge.TransitionGroupID), Key: workflow.ModelKey(edge.Key), TargetNodeID: workflow.NodeID(edge.TargetNodeID), RequiresApproval: edge.RequiresApproval, ContextMode: workflow.ContextMode(edge.ContextMode), ContextSource: domainContextSource(edge.ContextSource), PromptTemplate: edge.PromptTemplate, Parameters: domainParameters(edge.Parameters)})
 	}
 	return req
 }
@@ -1070,6 +1072,14 @@ func joinInputProviders(in []serverapi.WorkflowJoinInputProvider) []workflow.Joi
 	out := make([]workflow.JoinInputProvider, 0, len(in))
 	for _, provider := range in {
 		out = append(out, workflow.JoinInputProvider{InputName: provider.InputName, ProviderEdgeID: workflow.EdgeID(provider.ProviderEdgeID)})
+	}
+	return out
+}
+
+func domainParameters(in []serverapi.WorkflowParameter) []workflow.Parameter {
+	out := make([]workflow.Parameter, 0, len(in))
+	for _, parameter := range in {
+		out = append(out, workflow.Parameter{Key: parameter.Key, Description: parameter.Description})
 	}
 	return out
 }

@@ -49,6 +49,10 @@ export type EditWorkflowEdgeRouteInput = Readonly<{
   contextSource?: WorkflowContextSource | undefined;
 }>;
 
+export type ReconnectWorkflowEdgeInput =
+  | Readonly<{ edgeID: string; endpoint: "source"; sourceNodeID: string }>
+  | Readonly<{ edgeID: string; endpoint: "target"; targetNodeID: string }>;
+
 export type CreateWorkflowNodeGroupInput = Readonly<{
   groupID: string;
   joinNodeID: string;
@@ -84,6 +88,7 @@ export const emptySummary: WorkflowEditorCascadeSummary = {
 
 export const workflowEditorGraphMutationWarnings = {
   edgeNotFound: "edge was not found",
+  fanoutSourceReconnectUnsupported: "fan-out transition branches cannot reconnect their source",
   lastTerminalDelete: "last terminal node cannot be deleted",
   missingConnectNodes: "source and target nodes are required",
   nodeNotFound: "node was not found",
@@ -96,6 +101,7 @@ export const workflowEditorGraphMutationWarnings = {
   startIncomingEdge: "start nodes cannot have incoming edges",
   startNodeDelete: "start node cannot be deleted",
   terminalOutgoingEdge: "terminal nodes cannot have outgoing edges",
+  transitionGroupNotFound: "transition group was not found",
 } as const;
 
 export const workflowSelection: WorkflowEditorSelection = { kind: "workflow" };

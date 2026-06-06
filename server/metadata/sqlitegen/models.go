@@ -279,6 +279,8 @@ type WorkflowEdge struct {
 	SortOrder              int64
 	ContextSourceKind      string
 	ContextSourceNodeKey   string
+	PromptTemplate         string
+	ParametersJson         string
 }
 
 type WorkflowNode struct {

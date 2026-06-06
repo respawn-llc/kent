@@ -3,8 +3,8 @@ Usage of builder workflow:
   builder workflow list
   builder workflow node add <workflow> --key <node-key> --kind start|agent|join|terminal [--display-name <name>] [--prompt <text>] [--agent <role>]
   builder workflow node update <workflow> <node-key> [--key <node-key>] [--kind start|agent|join|terminal] [--display-name <name>] [--prompt <text>] [--agent <role>]
-  builder workflow edge add <workflow> --from <source-node-key> --transition <transition-id> --edge-key <edge-key> --to <target-node-key> --context <mode>
-  builder workflow edge update <workflow> <edge-id> [--transition <transition-id>] [--transition-display-name <name>] [--edge-key <edge-key>] [--to <target-node-key>] [--context <mode>]
+  builder workflow edge add <workflow> --from <source-node-key> --transition <transition-id> --edge-key <edge-key> --to <target-node-key> --context <mode> [--prompt <text>]
+  builder workflow edge update <workflow> <edge-id> [--transition <transition-id>] [--transition-display-name <name>] [--edge-key <edge-key>] [--to <target-node-key>] [--context <mode>] [--prompt <text>]
   builder workflow link <project> <workflow> [--default]
   builder workflow unlink <project> <workflow>
   builder workflow default <project> <workflow>
@@ -16,4 +16,3 @@ What This Does:
   Workflows describe durable agent pipelines: tasks start at a start node, agent nodes execute Builder runs, and terminal nodes mark completion.
   Use `workflow create`, add nodes/edges, link a workflow to a project, then create/start tasks with `builder task`.
   Workflow references may be exact workflow ids or exact workflow names.
-

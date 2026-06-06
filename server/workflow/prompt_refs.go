@@ -1,26 +1,25 @@
 package workflow
 
 import (
-	"fmt"
 	"strings"
 	"text/template"
 	"text/template/parse"
 )
 
-type PromptInputReference struct {
+type PromptParameterReference struct {
 	Name        string
 	Placeholder string
 }
 
-type PromptNodeOutputReference struct {
-	NodeKey     ModelKey
-	FieldName   string
-	Placeholder string
+type PromptPriorParameterReference struct {
+	TransitionKey ModelKey
+	ParameterKey  string
+	Placeholder   string
 }
 
 type PromptTemplateReferences struct {
-	Inputs      []PromptInputReference
-	NodeOutputs []PromptNodeOutputReference
+	Params      []PromptParameterReference
+	PriorParams []PromptPriorParameterReference
 	Invalid     []PromptReferenceIssue
 }
 
@@ -84,7 +83,7 @@ func walkTemplateNode(node parse.Node, refs *PromptTemplateReferences) {
 		}
 	case *parse.ChainNode:
 		walkTemplateNode(typed.Node, refs)
-		if len(typed.Field) > 0 && (typed.Field[0] == "Inputs" || typed.Field[0] == "Nodes") {
+		if len(typed.Field) > 0 && promptNamespace(typed.Field[0]) {
 			refs.Invalid = append(refs.Invalid, PromptReferenceIssue{Placeholder: "." + strings.Join(typed.Field, "."), Message: "prompt reference shape is unsupported"})
 		}
 	case *parse.FieldNode:
@@ -102,7 +101,7 @@ func indexCommandTouchesPromptNamespace(args []parse.Node) bool {
 	}
 	if _, ok := args[0].(*parse.DotNode); ok {
 		for _, arg := range args[1:] {
-			if typed, ok := arg.(*parse.StringNode); ok && (typed.Text == "Inputs" || typed.Text == "Nodes") {
+			if typed, ok := arg.(*parse.StringNode); ok && promptNamespace(typed.Text) {
 				return true
 			}
 		}
@@ -110,11 +109,11 @@ func indexCommandTouchesPromptNamespace(args []parse.Node) bool {
 	for _, arg := range args {
 		switch typed := arg.(type) {
 		case *parse.FieldNode:
-			if len(typed.Ident) > 0 && (typed.Ident[0] == "Inputs" || typed.Ident[0] == "Nodes") {
+			if len(typed.Ident) > 0 && promptNamespace(typed.Ident[0]) {
 				return true
 			}
 		case *parse.ChainNode:
-			if len(typed.Field) > 0 && (typed.Field[0] == "Inputs" || typed.Field[0] == "Nodes") {
+			if len(typed.Field) > 0 && promptNamespace(typed.Field[0]) {
 				return true
 			}
 			if indexCommandTouchesPromptNamespace([]parse.Node{typed.Node}) {
@@ -125,7 +124,7 @@ func indexCommandTouchesPromptNamespace(args []parse.Node) bool {
 				return true
 			}
 		case *parse.StringNode:
-			if typed.Text == "Inputs" || typed.Text == "Nodes" {
+			if promptNamespace(typed.Text) {
 				return true
 			}
 		}
@@ -135,7 +134,7 @@ func indexCommandTouchesPromptNamespace(args []parse.Node) bool {
 
 func variableTouchesPromptNamespace(ident []string) bool {
 	for _, part := range ident {
-		if part == "$Inputs" || part == "$Nodes" || part == "Inputs" || part == "Nodes" {
+		if part == "$Inputs" || part == "$Nodes" || part == "$Params" || promptNamespace(part) {
 			return true
 		}
 	}
@@ -158,20 +157,38 @@ func recordPromptFieldReference(ident []string, refs *PromptTemplateReferences) 
 	placeholder := "." + strings.Join(ident, ".")
 	switch ident[0] {
 	case "Inputs":
-		if len(ident) != 2 {
-			refs.Invalid = append(refs.Invalid, PromptReferenceIssue{Placeholder: placeholder, Message: ".Inputs references must use .Inputs.<name>"})
-			return
-		}
-		refs.Inputs = append(refs.Inputs, PromptInputReference{Name: ident[1], Placeholder: placeholder})
+		refs.Invalid = append(refs.Invalid, PromptReferenceIssue{Placeholder: placeholder, Message: ".Inputs prompt references are not supported; use .Params.<parameter_key>"})
 	case "Nodes":
-		if len(ident) != 3 {
-			refs.Invalid = append(refs.Invalid, PromptReferenceIssue{Placeholder: placeholder, Message: ".Nodes references must use .Nodes.<node_key>.<output_name>"})
+		refs.Invalid = append(refs.Invalid, PromptReferenceIssue{Placeholder: placeholder, Message: ".Nodes prompt references are not supported; use .Params.<transition_key>.<parameter_key>"})
+	case "Params":
+		switch len(ident) {
+		case 2:
+			refs.Params = append(refs.Params, PromptParameterReference{Name: ident[1], Placeholder: placeholder})
+		case 3:
+			refs.PriorParams = append(refs.PriorParams, PromptPriorParameterReference{TransitionKey: ModelKey(ident[1]), ParameterKey: ident[2], Placeholder: placeholder})
+		default:
+			refs.Invalid = append(refs.Invalid, PromptReferenceIssue{Placeholder: placeholder, Message: ".Params references must use .Params.<parameter_key> or .Params.<transition_key>.<parameter_key>"})
+		}
+	default:
+		if promptBuiltin(ident[0]) {
+			if len(ident) != 1 {
+				refs.Invalid = append(refs.Invalid, PromptReferenceIssue{Placeholder: placeholder, Message: "prompt built-in references must not be chained"})
+			}
 			return
 		}
-		refs.NodeOutputs = append(refs.NodeOutputs, PromptNodeOutputReference{NodeKey: ModelKey(ident[1]), FieldName: ident[2], Placeholder: placeholder})
+		refs.Invalid = append(refs.Invalid, PromptReferenceIssue{Placeholder: placeholder, Message: "prompt field reference is unsupported"})
 	}
 }
 
-func PromptReferenceDescription(ref PromptNodeOutputReference) string {
-	return fmt.Sprintf("%s.%s", ref.NodeKey, ref.FieldName)
+func promptNamespace(value string) bool {
+	return value == "Inputs" || value == "Nodes" || value == "Params"
+}
+
+func promptBuiltin(value string) bool {
+	switch value {
+	case "TaskId", "TaskShortId", "TaskTitle", "TaskBody", "NodeId", "NodeKey", "NodeDisplayName":
+		return true
+	default:
+		return false
+	}
 }

@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Sidebar keeps read-only and draft-backed workflow inspector paths together for now. */
-import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useId, useRef, useSyncExternalStore } from "react";
 import {
   closestCenter,
   DndContext,
@@ -26,6 +26,8 @@ import type {
   WorkflowEdge,
   WorkflowNode,
   WorkflowNodeGroup,
+  WorkflowParameter,
+  WorkflowTransitionGroup,
   WorkflowValidation,
 } from "../../api";
 import { queryKeys } from "../../app/queryKeys";
@@ -45,7 +47,6 @@ import {
 } from "../../ui";
 import { cx } from "../../ui/classes";
 import { fieldInputClassName } from "../../ui/Field";
-import { fieldLabelClassName } from "../../ui/fieldStyles";
 import {
   DetailRow,
   DetailSection,
@@ -57,7 +58,6 @@ import { WorkflowEdgeRouteGraphic } from "./WorkflowEdgeRouteGraphic";
 import {
   fallbackLabel,
   nodeByID,
-  nodeInputFieldsDisabled,
   transitionGroupByID,
 } from "./workflowInspectorModel";
 import { workflowDefinitionFromDraft, type DraftWorkflowNode } from "./workflowEditorDraft";
@@ -227,10 +227,10 @@ function EdgeDraftDetails({
   const derivedEdge = derivedEdgeWiring(definition, edge.id);
   const transitionGroup = transitionGroupByID(definition, edge.transitionGroupID);
   const startEdge = details.sourceKind === "start";
-  const sourceAllowsContinuation = details.sourceKind === "agent";
+  const continuationAvailable = details.sourceKind === "agent" || details.targetKind === "agent";
   const disabledReason = t("workflowEditor.edgeControlNotApplicable");
   const contextModeDisabled = startEdge;
-  const contextSourceDisabled = startEdge || edge.contextMode === "new_session" || !sourceAllowsContinuation;
+  const contextSourceDisabled = startEdge || edge.contextMode === "new_session" || !continuationAvailable;
   const requiresApprovalDisabled = startEdge;
   return (
     <InspectorStack>
@@ -284,7 +284,7 @@ function EdgeDraftDetails({
               disabled={contextModeDisabled}
               label={t("workflowEditor.contextMode")}
               onValueChange={(value) => {
-                if (value !== "new_session" && !sourceAllowsContinuation) {
+                if (value !== "new_session" && !continuationAvailable) {
                   return;
                 }
                 controller.dispatch({
@@ -296,7 +296,7 @@ function EdgeDraftDetails({
                   type: "editEdgeRoute",
                 });
               }}
-              options={contextModeOptions(t, !sourceAllowsContinuation)}
+              options={contextModeOptions(t, !continuationAvailable)}
               value={edge.contextMode}
             />
           </DisabledInteractionGuard>
@@ -326,6 +326,61 @@ function EdgeDraftDetails({
           </DisabledInteractionGuard>
         </TooltipProvider>
       </DetailSection>
+      <EdgeInvocationSections
+        controller={controller}
+        definition={definition}
+        edge={edge}
+        sourceKind={details.sourceKind}
+        targetKind={details.targetKind}
+      />
+      <DerivedEdgeSections derivedEdge={derivedEdge} />
+      <ValidationDetails errors={details.directErrors} title={t("workflowEditor.edgeErrors")} />
+      <ValidationDetails errors={details.groupErrors} title={t("workflowEditor.transitionGroupErrors")} />
+    </InspectorStack>
+  );
+}
+
+function EdgeInvocationSections({
+  controller,
+  definition,
+  edge,
+  sourceKind,
+  targetKind,
+}: Readonly<{
+  controller: WorkflowEditorDraftController;
+  definition: WorkflowDefinition;
+  edge: WorkflowEdge;
+  sourceKind: string;
+  targetKind: string;
+}>) {
+  const { t } = useTranslation();
+  const promptParameters = edgePromptPlaceholderParameters(definition, edge);
+  return (
+    <>
+      {targetKind === "agent" ? (
+        <PromptTemplateEditor
+          onPromptChange={(promptTemplate) => {
+            controller.dispatch({ edgeID: edge.id, promptTemplate, type: "editEdgePrompt" });
+          }}
+          parameters={promptParameters}
+          promptTemplate={edge.promptTemplate}
+        />
+      ) : null}
+      {sourceKind === "agent" ? <EditableEdgeParameters controller={controller} edge={edge} /> : null}
+      {sourceKind === "join" && targetKind === "agent" ? (
+        <FieldSummary
+          fields={parameterSummaryFields(promptParameters)}
+          title={t("workflowEditor.joinAggregateParameters")}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function DerivedEdgeSections({ derivedEdge }: Readonly<{ derivedEdge: ReturnType<typeof derivedEdgeWiring> }>) {
+  const { t } = useTranslation();
+  return (
+    <>
       {derivedEdge.inputBindings.length === 0 ? null : <Bindings bindings={derivedEdge.inputBindings} />}
       {derivedEdge.requiredProvisionFields.length === 0 ? null : (
         <FieldSummary
@@ -339,9 +394,7 @@ function EdgeDraftDetails({
           title={t("workflowEditor.providerRequirements")}
         />
       )}
-      <ValidationDetails errors={details.directErrors} title={t("workflowEditor.edgeErrors")} />
-      <ValidationDetails errors={details.groupErrors} title={t("workflowEditor.transitionGroupErrors")} />
-    </InspectorStack>
+    </>
   );
 }
 
@@ -445,9 +498,7 @@ function AgentNodeDraftDetails({
           placeholder={t("workflowEditor.selectAssignee")}
           value={node.subagentRole}
         />
-        <PromptTemplateEditor controller={controller} node={node} />
       </DetailSection>
-      <EditableInputFields controller={controller} definition={definition} node={node} />
       <FieldSummary
         fields={derivedNodeWiring(definition, node.id).possibleProvisionFields}
         title={t("workflowEditor.provides")}
@@ -458,34 +509,26 @@ function AgentNodeDraftDetails({
 }
 
 function PromptTemplateEditor({
-  controller,
-  node,
+  onPromptChange,
+  parameters,
+  promptTemplate,
 }: Readonly<{
-  controller: WorkflowEditorDraftController;
-  node: DraftWorkflowNode;
+  onPromptChange: (promptTemplate: string) => void;
+  parameters: readonly Pick<WorkflowParameter, "key">[];
+  promptTemplate: string;
 }>) {
   const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const promptInputId = useId();
-  const dispatchPromptTemplate = useCallback(
-    (promptTemplate: string) => {
-      controller.dispatch({
-        nodeID: node.id,
-        patch: { promptTemplate },
-        type: "editAgentNode",
-      });
-    },
-    [controller, node.id],
-  );
   const insertPlaceholder = useCallback(
     (placeholder: string) => {
       const textarea = textareaRef.current;
-      const currentValue = textarea?.value ?? node.promptTemplate;
+      const currentValue = textarea?.value ?? promptTemplate;
       const hasCursor = textarea !== null && document.activeElement === textarea;
       const insertAt = hasCursor ? textarea.selectionEnd : currentValue.length;
       const nextValue = `${currentValue.slice(0, insertAt)}${placeholder}${currentValue.slice(insertAt)}`;
       const nextCursor = insertAt + placeholder.length;
-      dispatchPromptTemplate(nextValue);
+      onPromptChange(nextValue);
       requestAnimationFrame(() => {
         textarea?.focus({ preventScroll: true });
         textarea?.setSelectionRange(nextCursor, nextCursor);
@@ -494,11 +537,11 @@ function PromptTemplateEditor({
         }
       });
     },
-    [dispatchPromptTemplate, node.promptTemplate],
+    [onPromptChange, promptTemplate],
   );
   return (
-    <div className="grid gap-[var(--space-3)]">
-      <label className={fieldLabelClassName} htmlFor={promptInputId}>
+    <DetailSection title={t("workflowEditor.prompt")}>
+      <label className="sr-only" htmlFor={promptInputId}>
         {t("workflowEditor.prompt")}
       </label>
       <div className="grid gap-[var(--space-1)]">
@@ -506,26 +549,26 @@ function PromptTemplateEditor({
           className={cx(fieldInputClassName, "min-h-24")}
           id={promptInputId}
           onChange={(event) => {
-            dispatchPromptTemplate(event.target.value);
+            onPromptChange(event.target.value);
           }}
           ref={textareaRef}
-          value={node.promptTemplate}
+          value={promptTemplate}
         />
-        <PromptPlaceholderChips node={node} onInsert={insertPlaceholder} />
+        <PromptPlaceholderChips onInsert={insertPlaceholder} parameters={parameters} />
       </div>
-    </div>
+    </DetailSection>
   );
 }
 
 function PromptPlaceholderChips({
-  node,
   onInsert,
+  parameters,
 }: Readonly<{
-  node: DraftWorkflowNode;
   onInsert: (placeholder: string) => void;
+  parameters: readonly Pick<WorkflowParameter, "key">[];
 }>) {
   const { t } = useTranslation();
-  const placeholders = workflowPromptTemplatePlaceholders(node.inputFields);
+  const placeholders = workflowPromptTemplatePlaceholders(parameters);
   return (
     <div
       aria-label={t("workflowEditor.promptPlaceholders")}
@@ -633,93 +676,77 @@ function JoinNodeDraftDetails({
   );
 }
 
-function EditableInputFields({
+function EditableEdgeParameters({
   controller,
-  definition,
-  node,
+  edge,
 }: Readonly<{
   controller: WorkflowEditorDraftController;
-  definition: WorkflowDefinition;
-  node: DraftWorkflowNode;
+  edge: WorkflowEdge;
 }>) {
   const { t } = useTranslation();
-  const disabled = nodeInputFieldsDisabled(definition, node.id);
-  const disabledReason = t("workflowEditor.nodeControlNotApplicable");
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   return (
-    <DetailSection title={t("workflowEditor.requiredInputs")}>
-      <TooltipProvider delayDuration={0}>
-        <DisabledInteractionGuard disabled={disabled} reason={disabledReason}>
-          <div className="grid gap-[var(--space-3)]">
-            <Button
-              disabled={disabled}
-              onClick={() => {
-                if (disabled) {
-                  return;
-                }
-                controller.dispatch({ nodeID: node.id, type: "addInputField" });
-              }}
-              variant="secondary"
-            >
-              {t("workflowEditor.addRequiredInput")}
-            </Button>
-            {node.inputFields.length === 0 ? (
-              <p className="m-0 text-sm text-[var(--color-muted)]">{t("workflowEditor.none")}</p>
-            ) : null}
-            <DndContext
-              collisionDetection={closestCenter}
-              onDragEnd={(event) => {
-                if (disabled) {
-                  return;
-                }
-                reorderInputField(controller, node.id, event);
-              }}
-              sensors={sensors}
-            >
-              <SortableContext
-                items={node.inputFields.map((field) => field.rowID)}
-                strategy={verticalListSortingStrategy}
-              >
-                <div className="grid gap-[var(--space-3)]">
-                  {node.inputFields.map((field) => (
-                    <SortableInputField
-                      controller={controller}
-                      disabled={disabled}
-                      field={field}
-                      key={field.rowID}
-                      nodeID={node.id}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
-          </div>
-        </DisabledInteractionGuard>
-      </TooltipProvider>
+    <DetailSection title={t("workflowEditor.parameters")}>
+      <div className="grid gap-[var(--space-3)]">
+        <Button
+          onClick={() => {
+            controller.dispatch({ edgeID: edge.id, type: "addEdgeParameter" });
+          }}
+          variant="secondary"
+        >
+          {t("workflowEditor.addParameter")}
+        </Button>
+        {edge.parameters.length === 0 ? (
+          <p className="m-0 text-sm text-[var(--color-muted)]">{t("workflowEditor.none")}</p>
+        ) : null}
+        <DndContext
+          collisionDetection={closestCenter}
+          onDragEnd={(event) => {
+            reorderEdgeParameter(controller, edge.id, event);
+          }}
+          sensors={sensors}
+        >
+          <SortableContext
+            items={edge.parameters.map((_parameter, index) => index)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="grid gap-[var(--space-3)]">
+              {edge.parameters.map((parameter, index) => (
+                <SortableEdgeParameter
+                  controller={controller}
+                  edgeID={edge.id}
+                  index={index}
+                  key={`${index.toString()}:${parameter.key}`}
+                  parameter={parameter}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      </div>
     </DetailSection>
   );
 }
 
-function SortableInputField({
+function SortableEdgeParameter({
   controller,
-  disabled,
-  field,
-  nodeID,
+  edgeID,
+  index,
+  parameter,
 }: Readonly<{
   controller: WorkflowEditorDraftController;
-  disabled: boolean;
-  field: DraftWorkflowNode["inputFields"][number];
-  nodeID: string;
+  edgeID: string;
+  index: number;
+  parameter: WorkflowParameter;
 }>) {
   const { t } = useTranslation();
-  const [isEditingName, setIsEditingName] = useState(field.name.length === 0);
+  const keyID = useId();
   const descriptionID = useId();
   const { attributes, listeners, setActivatorNodeRef, setNodeRef, transform, transition } = useSortable({
-    disabled,
-    id: field.rowID,
+    id: index,
   });
   const style = {
     transform:
@@ -731,23 +758,19 @@ function SortableInputField({
   return (
     <IslandSurface
       as="div"
-      className="workflow-editor-input-field relative grid gap-[var(--space-2)] rounded-[var(--radius-m)] p-[var(--space-3)]"
-      data-input-field-name={field.name}
-      data-testid="workflow-input-field"
+      className="workflow-editor-parameter relative grid gap-[var(--space-2)] rounded-[var(--radius-m)] p-[var(--space-3)]"
+      data-parameter-key={parameter.key}
+      data-testid="workflow-parameter"
       level={1}
       ref={setNodeRef}
       style={style}
     >
       <div
-        aria-label={t("workflowEditor.reorderInputField")}
-        className={cx(
-          "absolute inset-0 rounded-[inherit] outline-none focus-visible:ring-[3px] focus-visible:ring-[color-mix(in_srgb,var(--color-primary)_35%,transparent)]",
-          disabled ? "cursor-not-allowed" : "cursor-grab active:cursor-grabbing",
-        )}
+        aria-label={t("workflowEditor.reorderParameter")}
+        className="absolute inset-0 cursor-grab rounded-[inherit] outline-none focus-visible:ring-[3px] focus-visible:ring-[color-mix(in_srgb,var(--color-primary)_35%,transparent)] active:cursor-grabbing"
         ref={setActivatorNodeRef}
         {...attributes}
         {...listeners}
-        aria-disabled={disabled}
       />
       <div className="pointer-events-none relative grid gap-[var(--space-2)]">
         <div className="flex min-w-0 items-center gap-[var(--space-2)]">
@@ -757,60 +780,33 @@ function SortableInputField({
             size={18}
             strokeWidth={1.8}
           />
-          {isEditingName ? (
+          <div className="pointer-events-auto min-w-0 flex-1">
+            <label className="sr-only" htmlFor={keyID}>
+              {t("workflowEditor.parameterKey")}
+            </label>
             <input
               {...identifierInputAttributes}
-              aria-label={t("workflowEditor.inputFieldName")}
-              autoFocus
-              className="app-region-no-drag pointer-events-auto min-w-0 flex-1 rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] px-[var(--space-2)] py-[var(--space-1)] font-bold text-[var(--color-on-island)] outline-none focus:border-[var(--color-primary)]"
-              disabled={disabled}
-              onBlur={() => {
-                setIsEditingName(false);
-              }}
+              autoFocus={parameter.key.length === 0}
+              className="app-region-no-drag min-w-0 w-full rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] px-[var(--space-2)] py-[var(--space-1)] font-bold text-[var(--color-on-island)] outline-none focus:border-[var(--color-primary)]"
+              id={keyID}
               onChange={(event) => {
-                if (disabled) {
-                  return;
-                }
                 controller.dispatch({
-                  nodeID,
-                  patch: { name: event.target.value.replaceAll("\n", " ") },
-                  rowID: field.rowID,
-                  type: "updateInputField",
+                  edgeID,
+                  parameterIndex: index,
+                  patch: { key: event.target.value.replaceAll("\n", " ") },
+                  type: "updateEdgeParameter",
                 });
               }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === "Escape") {
-                  event.preventDefault();
-                  setIsEditingName(false);
-                }
-              }}
+              placeholder={t("workflowEditor.parameterKey")}
               type="text"
-              value={field.name}
+              value={parameter.key}
             />
-          ) : (
-            <button
-              className="pointer-events-auto min-w-0 flex-1 truncate rounded-[var(--radius-m)] border border-transparent bg-transparent px-0 py-[var(--space-1)] text-left font-bold text-[var(--color-on-island)] outline-none focus:border-[var(--color-outline)] focus:bg-[var(--color-island-1)] focus:px-[var(--space-2)]"
-              disabled={disabled}
-              onClick={() => {
-                if (disabled) {
-                  return;
-                }
-                setIsEditingName(true);
-              }}
-              type="button"
-            >
-              {field.name.length > 0 ? field.name : t("workflowEditor.inputFieldName")}
-            </button>
-          )}
+          </div>
           <Button
-            aria-label={t("workflowEditor.deleteField")}
+            aria-label={t("workflowEditor.deleteParameter")}
             className="pointer-events-auto grid h-8 w-8 shrink-0 place-items-center rounded-full !border-transparent !bg-transparent !p-0"
-            disabled={disabled}
             onClick={() => {
-              if (disabled) {
-                return;
-              }
-              controller.dispatch({ nodeID, rowID: field.rowID, type: "deleteInputField" });
+              controller.dispatch({ edgeID, parameterIndex: index, type: "deleteEdgeParameter" });
             }}
             variant="danger"
           >
@@ -819,25 +815,21 @@ function SortableInputField({
         </div>
         <div className="pointer-events-auto">
           <label className="sr-only" htmlFor={descriptionID}>
-            {t("workflowEditor.inputFieldDescription")}
+            {t("workflowEditor.parameterDescription")}
           </label>
           <input
             className={cx(fieldInputClassName, "px-[var(--space-2)] py-[var(--space-2)]")}
-            disabled={disabled}
             id={descriptionID}
             onChange={(event) => {
-              if (disabled) {
-                return;
-              }
               controller.dispatch({
-                nodeID,
+                edgeID,
+                parameterIndex: index,
                 patch: { description: event.target.value },
-                rowID: field.rowID,
-                type: "updateInputField",
+                type: "updateEdgeParameter",
               });
             }}
-            placeholder={t("workflowEditor.inputFieldDescription")}
-            value={field.description}
+            placeholder={t("workflowEditor.parameterDescription")}
+            value={parameter.description}
           />
         </div>
       </div>
@@ -845,20 +837,23 @@ function SortableInputField({
   );
 }
 
-function reorderInputField(
+function reorderEdgeParameter(
   controller: WorkflowEditorDraftController,
-  nodeID: string,
+  edgeID: string,
   event: DragEndEvent,
 ): void {
   const overID = event.over?.id;
   if (overID === undefined || event.active.id === overID) {
     return;
   }
+  if (typeof event.active.id !== "number" || typeof overID !== "number") {
+    return;
+  }
   controller.dispatch({
-    activeRowID: event.active.id.toString(),
-    nodeID,
-    overRowID: overID.toString(),
-    type: "reorderInputField",
+    activeIndex: event.active.id,
+    edgeID,
+    overIndex: overID,
+    type: "reorderEdgeParameter",
   });
 }
 
@@ -984,20 +979,14 @@ function NodeDetails({
       <DetailSection>
         <DetailRow label={t("workflowEditor.key")} mono value={node.key} />
         {node.kind === "agent" ? (
-          <>
-            <DetailRow
-              label={t("workflowEditor.assignee")}
-              value={fallbackLabel(t("workflowEditor.none"), node.subagentRole)}
-            />
-            <PromptPreview prompt={node.promptTemplate} />
-          </>
+          <DetailRow
+            label={t("workflowEditor.assignee")}
+            value={fallbackLabel(t("workflowEditor.none"), node.subagentRole)}
+          />
         ) : null}
       </DetailSection>
       {node.kind === "agent" ? (
-        <>
-          <FieldSummary fields={node.inputFields} title={t("workflowEditor.requiredInputs")} />
-          <FieldSummary fields={derivedNode.possibleProvisionFields} title={t("workflowEditor.provides")} />
-        </>
+        <FieldSummary fields={derivedNode.possibleProvisionFields} title={t("workflowEditor.provides")} />
       ) : null}
       {node.kind === "join" ? (
         <>
@@ -1052,6 +1041,7 @@ function EdgeDetails({
   const { t } = useTranslation();
   const details = edgeDetails(definition, edge, validation);
   const derivedEdge = derivedEdgeWiring(definition, edge.id);
+  const promptParameters = edgePromptPlaceholderParameters(definition, edge);
   return (
     <InspectorStack>
       <DetailSection
@@ -1079,6 +1069,16 @@ function EdgeDetails({
           value={edge.requiresApproval ? t("workflowEditor.required") : t("workflowEditor.none")}
         />
       </DetailSection>
+      {details.targetKind === "agent" ? <PromptPreview prompt={edge.promptTemplate} /> : null}
+      {details.sourceKind === "agent" ? (
+        <FieldSummary fields={parameterSummaryFields(edge.parameters)} title={t("workflowEditor.parameters")} />
+      ) : null}
+      {details.sourceKind === "join" && details.targetKind === "agent" ? (
+        <FieldSummary
+          fields={parameterSummaryFields(promptParameters)}
+          title={t("workflowEditor.joinAggregateParameters")}
+        />
+      ) : null}
       {derivedEdge.inputBindings.length === 0 ? null : <Bindings bindings={derivedEdge.inputBindings} />}
       {derivedEdge.requiredProvisionFields.length === 0 ? null : (
         <FieldSummary
@@ -1163,7 +1163,9 @@ function contextModeOptions(
 
 const immediateContextSourceOption = "__immediate_context_source__";
 const missingContextSourceOption = "__missing_context_source__";
+const previousTargetContextSourceOption = "__previous_target_context_source__";
 const immediateContextSource: WorkflowContextSource = { kind: "immediate_source", nodeKey: "" };
+const previousTargetContextSource: WorkflowContextSource = { kind: "previous_target", nodeKey: "" };
 
 function contextSourceOptions(
   definition: WorkflowDefinition,
@@ -1185,6 +1187,12 @@ function contextSourceOptions(
       textValue: translate("workflowEditor.contextSourceImmediate"),
       value: immediateContextSourceOption,
     },
+    {
+      disabled: !previousTargetContextSourceAvailable(definition, edge),
+      label: translate("workflowEditor.contextSourcePreviousTarget"),
+      textValue: translate("workflowEditor.contextSourcePreviousTarget"),
+      value: previousTargetContextSourceOption,
+    },
     ...nodeOptions,
   ];
   if (
@@ -1205,6 +1213,9 @@ function contextSourceOptions(
 }
 
 function contextSourceSelectValue(definition: WorkflowDefinition, edge: WorkflowEdge): string {
+  if (edge.contextSource.kind === "previous_target") {
+    return previousTargetContextSourceOption;
+  }
   if (edge.contextSource.kind !== "selected_node") {
     return immediateContextSourceOption;
   }
@@ -1221,8 +1232,24 @@ function contextSourceFromSelectValue(
   if (value === immediateContextSourceOption) {
     return immediateContextSource;
   }
+  if (value === previousTargetContextSourceOption) {
+    return previousTargetContextSource;
+  }
   const node = definition.nodes.find((item) => item.id === value);
   return { kind: "selected_node", nodeKey: node?.key ?? "" };
+}
+
+function previousTargetContextSourceAvailable(definition: WorkflowDefinition, edge: WorkflowEdge): boolean {
+  const target = nodeByID(definition, edge.targetNodeID);
+  if (target?.kind !== "agent") {
+    return false;
+  }
+  const sourceNodeID = transitionGroupByID(definition, edge.transitionGroupID)?.sourceNodeID;
+  const startNodes = definition.nodes.filter((node) => node.kind === "start");
+  if (sourceNodeID === undefined || startNodes.length !== 1) {
+    return true;
+  }
+  return nodeDominates(definition, target.id, sourceNodeID);
 }
 
 function validContextSourceNodes(definition: WorkflowDefinition, edge: WorkflowEdge): WorkflowDefinition["nodes"] {
@@ -1380,21 +1407,46 @@ function PromptPreview({ prompt }: Readonly<{ prompt: string }>) {
 
 function edgeDetails(definition: WorkflowDefinition, edge: WorkflowEdge, validation: WorkflowValidation) {
   const group = transitionGroupByID(definition, edge.transitionGroupID);
-  const source = group === undefined ? undefined : nodeByID(definition, group.sourceNodeID);
+  const source = sourceNodeForTransition(definition, group);
   const target = nodeByID(definition, edge.targetNodeID);
-  const directErrors = validation.errors.filter((error) => error.edgeID === edge.id);
-  const groupErrors = validation.errors.filter(
-    (error) => error.edgeID !== edge.id && error.transitionGroupID === edge.transitionGroupID,
-  );
+  const errors = edgeValidationGroups(validation, edge);
   return {
-    directErrors,
-    groupErrors,
-    hasErrors: directErrors.length + groupErrors.length > 0,
+    ...edgeEndpointDetails(source, target),
+    ...edgeTransitionDetails(group),
+    ...errors,
+    hasErrors: errors.directErrors.length + errors.groupErrors.length > 0,
+  };
+}
+
+function sourceNodeForTransition(
+  definition: WorkflowDefinition,
+  group: WorkflowTransitionGroup | undefined,
+): WorkflowNode | undefined {
+  return group === undefined ? undefined : nodeByID(definition, group.sourceNodeID);
+}
+
+function edgeEndpointDetails(source: WorkflowNode | undefined, target: WorkflowNode | undefined) {
+  return {
     sourceKind: source?.kind ?? "",
     sourceLabel: fallbackLabel("", source?.name, source?.key),
+    targetKind: target?.kind ?? "",
     targetLabel: fallbackLabel("", target?.name, target?.key),
+  };
+}
+
+function edgeTransitionDetails(group: WorkflowTransitionGroup | undefined) {
+  return {
     transitionGroupLabel: fallbackLabel("", group?.name, group?.id),
     transitionID: group?.transitionID ?? "",
+  };
+}
+
+function edgeValidationGroups(validation: WorkflowValidation, edge: WorkflowEdge) {
+  return {
+    directErrors: validation.errors.filter((error) => error.edgeID === edge.id),
+    groupErrors: validation.errors.filter(
+      (error) => error.edgeID !== edge.id && error.transitionGroupID === edge.transitionGroupID,
+    ),
   };
 }
 
@@ -1417,6 +1469,31 @@ function derivedEdgeWiring(definition: WorkflowDefinition, edgeID: string) {
       requiredProvisionFields: [],
     }
   );
+}
+
+function edgePromptPlaceholderParameters(
+  definition: WorkflowDefinition,
+  edge: WorkflowEdge,
+): readonly WorkflowParameter[] {
+  const source = edgeSourceNode(definition, edge);
+  if (source?.kind === "join") {
+    return derivedNodeWiring(definition, source.id).joinOutputFields.map((field) => ({
+      description: field.description,
+      key: field.name,
+    }));
+  }
+  return edge.parameters;
+}
+
+function parameterSummaryFields(
+  parameters: readonly WorkflowParameter[],
+): readonly { name: string; description: string }[] {
+  return parameters.map((parameter) => ({ description: parameter.description, name: parameter.key }));
+}
+
+function edgeSourceNode(definition: WorkflowDefinition, edge: WorkflowEdge): WorkflowNode | undefined {
+  const group = transitionGroupByID(definition, edge.transitionGroupID);
+  return group === undefined ? undefined : nodeByID(definition, group.sourceNodeID);
 }
 
 function joinProviderOptions(
@@ -1474,6 +1551,9 @@ function formatContextSourceLabel(edge: WorkflowEdge, translate: Translate): str
     return edge.contextSource.nodeKey.length > 0
       ? translate("workflowEditor.contextSourceNode", { nodeKey: edge.contextSource.nodeKey })
       : translate("workflowEditor.contextSourceSelected");
+  }
+  if (edge.contextSource.kind === "previous_target") {
+    return translate("workflowEditor.contextSourcePreviousTarget");
   }
   return translate("workflowEditor.contextSourceImmediate");
 }

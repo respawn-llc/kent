@@ -4,12 +4,12 @@ description: How to use Builder CLI to manage workflows, tasks, nodes, and task 
 ---
 
 ## Workflow Concepts
-- A workflow is a graph of node (status) transitions connected by edges (input-output and condition pairs).
+- A workflow is a graph of node states connected by transition branches.
 - A task is the durable user-facing unit of work moving through one workflow.
 - A node is a visible workflow state. `start` is where tasks are created, `agent` runs Builder automation, `join` waits for parallel branches, and `terminal` is a sink where automation stops.
 - An edge connects a transition group to a target node. A transition group is selected by a `transition_id`; if the group has multiple edges, it fans out to parallel target nodes.
 - A graph revision increments when graph-affecting edits are made.
-- Model-facing keys such as node keys, edge keys, transition IDs, output field names, and binding names must be stable lower-case keys matching Builder's model-key rules. Prefer `implement`, `review`, `done`, `needs_changes` over display labels with spaces.
+- Model-facing keys such as node keys, edge keys, transition IDs, and parameter keys must be stable lower-case keys matching Builder's model-key rules. Prefer `implement`, `review`, `done`, `needs_changes` over display labels with spaces.
 
 Authoritative command details are the live CLI:
 
@@ -25,11 +25,11 @@ The CLI authoring path is: create a workflow, add or update nodes, add or update
 builder workflow create --description "Implement and review changes" "Implementation Review"
 builder workflow inspect "Implementation Review"
 
-builder workflow node add "Implementation Review" --key implement --kind agent --agent <implementer-role> --prompt "Implement the task." --output summary="Implementation summary"
-builder workflow node add "Implementation Review" --key review --kind agent --agent <reviewer-role> --prompt "Review the implementation."
+builder workflow node add "Implementation Review" --key implement --kind agent --agent <implementer-role>
+builder workflow node add "Implementation Review" --key review --kind agent --agent <reviewer-role>
 
-builder workflow edge add "Implementation Review" --from backlog --transition start --edge-key start --to implement --context new_session
-builder workflow edge add "Implementation Review" --from implement --transition review --edge-key review --to review --context new_session --require-output summary --input implementation_summary=transition_output:summary
+builder workflow edge add "Implementation Review" --from backlog --transition start --edge-key start --to implement --context new_session --prompt "Implement the task."
+builder workflow edge add "Implementation Review" --from implement --transition review --edge-key review --to review --context new_session --prompt "Review the implementation."
 builder workflow edge add "Implementation Review" --from review --transition done --edge-key done --to done --context new_session
 
 builder workflow link . "Implementation Review" --default
@@ -43,8 +43,8 @@ Important CLI behavior:
 - Agent roles are stored exactly as provided. Replace role placeholders with configured subagent role names instead of assuming `default` is normalized.
 - `workflow node add` returns a generated `node_id`. Edges are authored with node keys via `--from` and `--to`.
 - `workflow edge add` creates or reuses the transition group for the given source node and transition ID, then adds an edge to that group.
-- Node output fields use `--output name=description`; repeat it for multiple fields. Updating a node with any `--output` flag replaces the node's output field list.
-- Edge input bindings use `--input name=source:field`, where common sources are `task`, `transition_output`, and `join`. Edge output requirements use `--require-output <field>` and must reference an output field declared on the source node. Updating an edge with any `--input` or `--require-output` flag replaces that list.
+- Agent-targeting edges require `--prompt <text>`. Omit `--prompt` for edges targeting `start`, `join`, or `terminal` nodes.
+- The workflow CLI does not define `--output`, `--input`, or `--require-output`; use the live CLI help before adding graph-edit flags.
 - `workflow validate` returns exit code 1 for invalid workflows and still prints `valid false` plus validation rows. Treat that as actionable validation output, not a shell failure to ignore.
 - Draft workflows can be saved and linked while semantic validation fails. Validate before task creation as a best practice; workflow automation requires execution validation before it starts.
 
@@ -55,7 +55,7 @@ Start every edit by inspecting the current graph:
 builder workflow inspect <workflow>
 ```
 
-The first section lists node IDs, keys, kinds, display names, subagent roles, and any `output_field` rows. The `transition_groups` section maps source node IDs to transition IDs. The `edges` section maps transition groups to target node IDs and records context mode, approval requirements, `input_binding` rows, and `output_requirement` rows.
+The first section lists node IDs, keys, kinds, display names, and subagent roles. The `transition_groups` section maps source node IDs to transition IDs. The `edges` section maps transition groups to target node IDs and records context mode and approval requirements.
 
 Update existing graph pieces by stable keys or emitted IDs:
 
@@ -64,11 +64,11 @@ Update existing graph pieces by stable keys or emitted IDs:
 - Link, unlink, and set project defaults with `builder workflow link`, `builder workflow unlink`, and `builder workflow default`.
 
 ```bash
-builder workflow node update "Implementation Review" implement --prompt "Implement the task and include risk notes." --output summary="Implementation summary" --output risks="Known risks"
-builder workflow edge update "Implementation Review" edge-abc123 --transition needs_review --transition-display-name "Needs Review" --edge-key review --to review --context compact_and_continue_session --require-output summary --input implementation_summary=transition_output:summary
+builder workflow node update "Implementation Review" implement --agent <implementer-role>
+builder workflow edge update "Implementation Review" edge-abc123 --transition needs_review --transition-display-name "Needs Review" --edge-key review --to review --context compact_and_continue_session --prompt "Review the implementation."
 ```
 
-Node update flags are partial except for repeated list flags: omitted scalar fields keep current values, while provided `--prompt` or `--agent` can intentionally set an empty value, and provided `--output` replaces the output fields list. Edge update flags are also partial; provided `--input` and `--require-output` replace their lists.
+Node update flags are partial: omitted scalar fields keep current values. Edge update flags are partial; provided `--prompt` replaces the branch prompt.
 
 Validate after each meaningful graph change:
 

@@ -34,6 +34,7 @@ type ContextSourceKind string
 const (
 	ContextSourceImmediateSource ContextSourceKind = "immediate_source"
 	ContextSourceSelectedNode    ContextSourceKind = "selected_node"
+	ContextSourcePreviousTarget  ContextSourceKind = "previous_target"
 )
 
 type ContextSource struct {
@@ -46,6 +47,9 @@ func CanonicalContextSource(source ContextSource) ContextSource {
 	nodeKey := ModelKey(strings.TrimSpace(string(source.NodeKey)))
 	if kind == "" || kind == ContextSourceImmediateSource {
 		return ContextSource{Kind: ContextSourceImmediateSource}
+	}
+	if kind == ContextSourcePreviousTarget {
+		return ContextSource{Kind: ContextSourcePreviousTarget}
 	}
 	return ContextSource{Kind: kind, NodeKey: nodeKey}
 }
@@ -65,6 +69,8 @@ const (
 	MaxOutputFieldDescriptionChars = 1000
 	MaxInputFieldNameChars         = MaxOutputFieldNameChars
 	MaxInputFieldDescriptionChars  = MaxOutputFieldDescriptionChars
+	MaxParameterKeyChars           = MaxOutputFieldNameChars
+	MaxParameterDescriptionChars   = MaxOutputFieldDescriptionChars
 	MaxOutputValueBytes            = 64 * 1024
 	MaxCommentaryBytes             = 64 * 1024
 	MaxTaskCommentBytes            = 256 * 1024
@@ -118,8 +124,15 @@ type Edge struct {
 	ContextMode        ContextMode
 	ContextSource      ContextSource
 	RequiresApproval   bool
+	PromptTemplate     string
+	Parameters         []Parameter
 	InputBindings      []InputBinding
 	OutputRequirements []OutputRequirement
+}
+
+type Parameter struct {
+	Key         string `json:"key"`
+	Description string `json:"description"`
 }
 
 type OutputField struct {
@@ -223,6 +236,12 @@ const (
 	CodeDuplicateInputField            ValidationErrorCode = "workflow.validation.duplicate_input_field"
 	CodeInputFieldDescriptionRequired  ValidationErrorCode = "workflow.validation.input_field_description_required"
 	CodeInputSchemaTooLarge            ValidationErrorCode = "workflow.validation.input_schema_too_large"
+	CodeInvalidParameter               ValidationErrorCode = "workflow.validation.invalid_parameter"
+	CodeDuplicateParameter             ValidationErrorCode = "workflow.validation.duplicate_parameter"
+	CodeParameterDescriptionRequired   ValidationErrorCode = "workflow.validation.parameter_description_required"
+	CodeParameterSchemaTooLarge        ValidationErrorCode = "workflow.validation.parameter_schema_too_large"
+	CodeTransitionPromptRequired       ValidationErrorCode = "workflow.validation.transition_prompt_required"
+	CodeTransitionPromptForbidden      ValidationErrorCode = "workflow.validation.transition_prompt_forbidden"
 	CodeUnknownOutputRequirement       ValidationErrorCode = "workflow.validation.unknown_output_requirement"
 	CodeInvalidInputBinding            ValidationErrorCode = "workflow.validation.invalid_input_binding"
 	CodeInvalidTemplatePlaceholder     ValidationErrorCode = "workflow.validation.invalid_template_placeholder"

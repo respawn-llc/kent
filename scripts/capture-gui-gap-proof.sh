@@ -82,7 +82,7 @@ seed_fixture() {
 
 	valid_workflow_id="$(run_builder workflow create --description 'Valid fast proof workflow' 'Fast Delivery' | labeled_value workflow_id)"
 	run_builder workflow node add "$valid_workflow_id" --key implement --kind agent --display-name Implement --agent fast --prompt 'Summarize proof task.' >/dev/null
-	run_builder workflow edge add "$valid_workflow_id" --from backlog --transition start --edge-key start --to implement --context new_session >/dev/null
+	run_builder workflow edge add "$valid_workflow_id" --from backlog --transition start --edge-key start --to implement --context new_session --prompt 'Summarize proof task.' >/dev/null
 	run_builder workflow edge add "$valid_workflow_id" --from implement --transition "done" --edge-key "done" --to "done" --context new_session --requires-approval >/dev/null
 	run_builder workflow link "$project_id" "$valid_workflow_id" --default >/dev/null
 

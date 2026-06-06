@@ -190,6 +190,8 @@ describe("BuilderApiClient", () => {
         {
           contextSource: { kind: "selected_node", nodeKey: "implement" },
           id: "edge-1",
+          parameters: [{ description: "Summary", key: "summary" }],
+          promptTemplate: "Summarize the implementation.",
           targetNodeID: "done",
           transitionGroupID: "tg-1",
         },
@@ -212,7 +214,7 @@ describe("BuilderApiClient", () => {
           details: {
             fieldName: "",
             inputName: "summary",
-            placeholder: ".Inputs.summary",
+            placeholder: ".Params.summary",
             providerEdgeID: "",
           },
           relatedIDs: ["edge-2"],
@@ -529,6 +531,8 @@ describe("BuilderApiClient", () => {
               requires_approval: false,
               context_mode: "new_session",
               context_source: { kind: "immediate_source", node_key: "" },
+              parameters: [{ description: "Brief", key: "brief" }],
+              prompt_template: "Start from {{.TaskTitle}}.",
             },
           ],
         },
@@ -753,6 +757,8 @@ const workflowDefinitionResponse = {
           kind: "selected_node",
           node_key: "implement",
         },
+        prompt_template: "Summarize the implementation.",
+        parameters: [{ key: "summary", description: "Summary" }],
         input_bindings: null,
         output_requirements: null,
       },
@@ -793,7 +799,7 @@ const workflowValidationResponse = {
       edge_id: "edge-1",
       details: {
         input_name: "summary",
-        placeholder: ".Inputs.summary",
+        placeholder: ".Params.summary",
       },
       related_ids: ["edge-2"],
       blocks_context: true,
@@ -882,6 +888,8 @@ const workflowGraphDraft = {
       requiresApproval: false,
       contextMode: "new_session",
       contextSource: { kind: "immediate_source", nodeKey: "" },
+      promptTemplate: "Start from {{.TaskTitle}}.",
+      parameters: [{ key: "brief", description: "Brief" }],
     },
   ],
 };

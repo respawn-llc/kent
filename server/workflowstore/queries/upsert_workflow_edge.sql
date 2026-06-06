@@ -1,5 +1,5 @@
-INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key, input_bindings_json, output_requirements_json, sort_order)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key, prompt_template, parameters_json, input_bindings_json, output_requirements_json, sort_order)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     transition_group_id = excluded.transition_group_id,
     edge_key = excluded.edge_key,
@@ -8,6 +8,8 @@ ON CONFLICT(id) DO UPDATE SET
     context_mode = excluded.context_mode,
     context_source_kind = excluded.context_source_kind,
     context_source_node_key = excluded.context_source_node_key,
+    prompt_template = excluded.prompt_template,
+    parameters_json = excluded.parameters_json,
     input_bindings_json = excluded.input_bindings_json,
     output_requirements_json = excluded.output_requirements_json,
     sort_order = excluded.sort_order

@@ -47,6 +47,7 @@ export type {
   WorkflowOutputField,
   WorkflowOutputRequirement,
   WorkflowPage,
+  WorkflowParameter,
   WorkflowPickerItem,
   WorkflowRecord,
   WorkflowTransitionGroup,

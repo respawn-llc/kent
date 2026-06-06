@@ -13,6 +13,7 @@ import type {
   TaskTransition,
   TransitionEdge,
   WorkflowOutputField,
+  WorkflowParameter,
   WorkflowPickerItem,
   WorkflowValidationError,
   WorkspaceSummary,
@@ -105,6 +106,13 @@ export const workflowOutputFieldSchema: z.ZodType<WorkflowOutputField> = z
     description: emptyString,
   })
   .transform((value) => ({ name: value.name, description: value.description }));
+
+export const workflowParameterSchema: z.ZodType<WorkflowParameter> = z
+  .object({
+    key: z.string(),
+    description: emptyString,
+  })
+  .transform((value) => ({ key: value.key, description: value.description }));
 
 export const workflowPickerItemSchema: z.ZodType<WorkflowPickerItem> = z
   .object({
