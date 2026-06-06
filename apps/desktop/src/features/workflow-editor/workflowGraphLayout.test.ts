@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { emptyWorkflowDerivedWiring, type WorkflowDefinition, type WorkflowValidation } from "../../api";
 import type { WorkflowGraphEdge, WorkflowGraphNode } from "./workflowGraphLayout";
 import { layoutWorkflowGraph } from "./workflowGraphLayout";
+import { workflowGraphEndpointPoint } from "./workflowGraphLayoutTestHelpers";
 
 describe("layoutWorkflowGraph", () => {
   it("builds grouped workflow graph nodes and labeled edges", async () => {
@@ -207,24 +208,6 @@ function nodeCenterY(node: WorkflowGraphNode | undefined): number | undefined {
   return node.position.y + height / 2;
 }
 
-function endpointPort(
-  node: WorkflowGraphNode | undefined,
-  side: "source" | "target",
-  handle: string | null | undefined,
-): Readonly<{ id: string; side: "source" | "target"; y: number }> | undefined {
-  if (typeof handle !== "string") {
-    return undefined;
-  }
-  if (node?.data.entityKind !== "node") {
-    return undefined;
-  }
-  const ports: unknown = node.data.endpointPorts;
-  if (!Array.isArray(ports)) {
-    return undefined;
-  }
-  return ports.filter(isEndpointPort).find((port) => port.side === side && port.id === handle);
-}
-
 function assertEndpointHandle(
   edge: WorkflowGraphEdge,
   node: WorkflowGraphNode,
@@ -232,35 +215,8 @@ function assertEndpointHandle(
   nodes: readonly WorkflowGraphNode[],
 ): void {
   const handle = side === "source" ? edge.sourceHandle : edge.targetHandle;
-  const port = endpointPort(node, side, handle);
-  if (port === undefined) {
-    throw new Error(`Expected ${side} endpoint port for ${node.id}.`);
-  }
   const point = edge.data?.routePoints.at(side === "source" ? 0 : -1);
-  expect(handle).toBe(port.id);
-  expect(point?.y).toBe(absoluteNodeY(nodes, node) + port.y);
-}
-
-function absoluteNodeY(nodes: readonly WorkflowGraphNode[], node: WorkflowGraphNode): number {
-  const parent = node.parentId === undefined ? undefined : requireNode(nodes, node.parentId);
-  return node.position.y + (parent === undefined ? 0 : absoluteNodeY(nodes, parent));
-}
-
-type EndpointPort = Readonly<{ id: string; side: "source" | "target"; y: number }>;
-
-function isEndpointPort(value: unknown): value is EndpointPort {
-  if (!isRecord(value)) {
-    return false;
-  }
-  return (
-    typeof value.id === "string" &&
-    (value.side === "source" || value.side === "target") &&
-    typeof value.y === "number"
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+  expect(point?.y).toBe(workflowGraphEndpointPoint(node, handle, side, nodes).y);
 }
 
 const emptyValidation: WorkflowValidation = { valid: true, errors: [] };

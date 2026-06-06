@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { emptyWorkflowDerivedWiring, type WorkflowDefinition, type WorkflowValidation } from "../../api";
 import type { WorkflowGraphEdge, WorkflowGraphNode, WorkflowGraphPoint } from "./workflowGraphLayout";
 import { layoutWorkflowGraph } from "./workflowGraphLayout";
+import { workflowGraphAbsoluteNodeRect, workflowGraphEndpointPoint } from "./workflowGraphLayoutTestHelpers";
 
 describe("layoutWorkflowGraph node group bounds", () => {
   it("keeps unrelated nodes outside populated node group bounds", async () => {
@@ -36,14 +37,14 @@ describe("layoutWorkflowGraph node group bounds", () => {
     const join = requiredNodeByID(graph.nodes, "join");
     const edge = requiredEdgeByID(graph.edges, "edge-a-join");
     const outgoingEdge = requiredEdgeByID(graph.edges, "edge-join-done");
-    const branchRect = absoluteNodeRect(branch, graph.nodes);
-    const joinRect = absoluteNodeRect(join, graph.nodes);
+    const branchRect = workflowGraphAbsoluteNodeRect(branch, graph.nodes);
+    const joinRect = workflowGraphAbsoluteNodeRect(join, graph.nodes);
     const points = requiredRoutePoints(edge);
     const outgoingPoints = requiredRoutePoints(outgoingEdge);
 
-    expectPointCloseTo(points[0], endpointPoint(branch, edge.sourceHandle, "source", graph.nodes));
-    expectPointCloseTo(points[points.length - 1], endpointPoint(join, edge.targetHandle, "target", graph.nodes));
-    expectPointCloseTo(outgoingPoints[0], endpointPoint(join, outgoingEdge.sourceHandle, "source", graph.nodes));
+    expectPointCloseTo(points[0], workflowGraphEndpointPoint(branch, edge.sourceHandle, "source", graph.nodes));
+    expectPointCloseTo(points[points.length - 1], workflowGraphEndpointPoint(join, edge.targetHandle, "target", graph.nodes));
+    expectPointCloseTo(outgoingPoints[0], workflowGraphEndpointPoint(join, outgoingEdge.sourceHandle, "source", graph.nodes));
     expect(points.some((point) => point.x > rectRight(group) && point.x < joinRect.x)).toBe(true);
     expect(points.every((point) => point.x >= branchRect.x + branchRect.width)).toBe(true);
   });
@@ -86,67 +87,6 @@ function rectsOverlap(left: WorkflowGraphNode, right: WorkflowGraphNode): boolea
   );
 }
 
-function absoluteNodeRect(
-  node: WorkflowGraphNode,
-  nodes: readonly WorkflowGraphNode[],
-): Readonly<{ height: number; width: number; x: number; y: number }> {
-  const parent = node.parentId === undefined ? undefined : requiredNodeByID(nodes, node.parentId);
-  return {
-    height: rectHeight(node),
-    width: rectWidth(node),
-    x: (parent?.position.x ?? 0) + node.position.x,
-    y: (parent?.position.y ?? 0) + node.position.y,
-  };
-}
-
-function endpointPoint(
-  node: WorkflowGraphNode,
-  handleID: string | null | undefined,
-  side: "source" | "target",
-  nodes: readonly WorkflowGraphNode[],
-): WorkflowGraphPoint {
-  const port = endpointPort(node, handleID, side);
-  const rect = absoluteNodeRect(node, nodes);
-  return {
-    x: side === "source" ? rect.x + rect.width : rect.x,
-    y: rect.y + port.y,
-  };
-}
-
-function endpointPort(
-  node: WorkflowGraphNode,
-  handleID: string | null | undefined,
-  side: "source" | "target",
-): Readonly<{ id: string; side: "source" | "target"; y: number }> {
-  if (typeof handleID !== "string" || node.data.entityKind !== "node") {
-    throw new Error(`Endpoint port ${handleID ?? ""} not found for ${node.id}`);
-  }
-  const ports: unknown = node.data.endpointPorts;
-  if (!Array.isArray(ports)) {
-    throw new Error(`Endpoint port ${handleID} not found for ${node.id}`);
-  }
-  const port = ports.filter(isEndpointPort).find((item) => item.id === handleID && item.side === side);
-  if (port === undefined) {
-    throw new Error(`Endpoint port ${handleID} not found for ${node.id}`);
-  }
-  return port;
-}
-
-function isEndpointPort(value: unknown): value is Readonly<{ id: string; side: "source" | "target"; y: number }> {
-  if (!isRecord(value)) {
-    return false;
-  }
-  return (
-    typeof value.id === "string" &&
-    (value.side === "source" || value.side === "target") &&
-    typeof value.y === "number"
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 function rectRight(rect: Readonly<{ position: Readonly<{ x: number }>; style?: WorkflowGraphNode["style"] }>): number {
   return rect.position.x + Number(rect.style?.width ?? 0);
 }
@@ -155,14 +95,6 @@ function rectCenterY(
   rect: Readonly<{ height?: number; position?: Readonly<{ y: number }>; style?: WorkflowGraphNode["style"]; y?: number }>,
 ): number {
   return (rect.position?.y ?? rect.y ?? 0) + (rect.height ?? Number(rect.style?.height ?? 0)) / 2;
-}
-
-function rectWidth(node: WorkflowGraphNode): number {
-  return Number(node.style?.width ?? 0);
-}
-
-function rectHeight(node: WorkflowGraphNode): number {
-  return Number(node.style?.height ?? 0);
 }
 
 function expectPointCloseTo(actual: WorkflowGraphPoint | undefined, expected: WorkflowGraphPoint): void {
