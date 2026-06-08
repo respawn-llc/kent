@@ -338,7 +338,7 @@ func (m *Model) navigateDetailSelection(delta int) {
 		return
 	}
 	if moved := m.scrollDetailLine(delta); moved {
-		m.focusCenterVisibleDetailEntry()
+		m.focusVisibleDetailEntry(m.viewportLines / 2)
 		return
 	}
 	m.moveDetailSelectionWithinViewport(delta)
@@ -573,7 +573,7 @@ func (m *Model) applyUpdateResult(result modelUpdateResult, wasAtOngoingBottom b
 		}
 		m.refreshDetailViewport()
 		if result.viewportChanged && m.compactDetail && m.detailBottomAnchor {
-			m.focusBottomVisibleDetailEntry()
+			m.focusVisibleDetailEntry(len(m.currentDetailViewport().Owners) - 1)
 		}
 	}
 }

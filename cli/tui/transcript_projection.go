@@ -987,7 +987,11 @@ func projectionFromOngoingBlocks(blocks []ongoingBlock) TranscriptProjection {
 func (m Model) projectionFromDetailBlockSpecs(specs []detailBlockSpec, applySelection bool) TranscriptProjection {
 	projection := TranscriptProjection{Blocks: make([]TranscriptProjectionBlock, 0, len(specs))}
 	for _, spec := range specs {
-		lines := spec.render(m, m.detailExpansionSymbolOverride(spec))
+		symbolOverride := ""
+		if m.compactDetail && m.mode == ModeDetail && spec.selectable && spec.expandable {
+			symbolOverride = m.detailExpansionSymbolOverrideForEntry(spec.role, spec.entryIndex, spec.expanded)
+		}
+		lines := spec.render(m, symbolOverride)
 		if applySelection {
 			lines = m.maybeSelectedUserBlock(spec.entryIndex, spec.role, lines)
 		}

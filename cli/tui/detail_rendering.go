@@ -214,13 +214,6 @@ func (m Model) detailCollapsedToolLinesWithSymbol(role RenderIntent, entry Trans
 	return m.detailWithTreeGuideWithSymbol(role, m.flattenEntryWithMetaAndSymbol(role, compact, true, entry.ToolCall, symbolOverride), false, symbolOverride)
 }
 
-func (m Model) detailToolResultExpandable(role RenderIntent, text string) bool {
-	if !m.compactDetail || m.detailRoleRendersFullWhenCollapsed(role) {
-		return false
-	}
-	return m.detailRenderedContentLineCount(role, text) > 1
-}
-
 func (m Model) detailToolCallExpandable(role RenderIntent, entry TranscriptEntry, resultSummary string, combined string, meta *transcript.ToolCallMeta, resultText string) bool {
 	if !m.compactDetail || m.detailRoleRendersFullWhenCollapsed(role) {
 		return false
@@ -233,16 +226,6 @@ func (m Model) detailToolCallExpandable(role RenderIntent, entry TranscriptEntry
 	}
 	compact := m.toolCallDisplayText(entry, role, transcriptBlockOptions{mode: transcriptBlockModeOngoing})
 	return strings.TrimSpace(compact) != strings.TrimSpace(combined)
-}
-
-func (m Model) detailAskQuestionExpandable(role RenderIntent, question string, suggestions []string, recommendedOptionIndex int, answer string, resultSummary string) bool {
-	if !m.compactDetail || m.detailRoleRendersFullWhenCollapsed(role) {
-		return false
-	}
-	return len(suggestions) > 0 ||
-		recommendedOptionIndex > 0 ||
-		(strings.TrimSpace(answer) != "" && strings.TrimSpace(answer) != strings.TrimSpace(resultSummary)) ||
-		m.detailRenderedContentLineCount(role, question) > 1
 }
 
 func (m Model) detailRenderedContentLineCount(role RenderIntent, text string) int {

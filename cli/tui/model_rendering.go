@@ -27,13 +27,17 @@ func (m Model) buildDetailBlockSpecs(includeStreaming bool) []detailBlockSpec {
 			blockRole := RenderIntentTool.BaseToolResultIntent(role)
 			text := entry.Text
 			absoluteIndex := m.absoluteTranscriptIndex(idx)
+			expandable := false
+			if m.compactDetail && !m.detailRoleRendersFullWhenCollapsed(blockRole) {
+				expandable = m.detailRenderedContentLineCount(blockRole, text) > 1
+			}
 			blocks = append(blocks, detailBlockSpec{
 				role:       blockRole,
 				entryIndex: absoluteIndex,
 				entryEnd:   absoluteIndex,
 				selectable: true,
 				expanded:   m.detailEntryExpanded(absoluteIndex),
-				expandable: m.detailToolResultExpandable(blockRole, text),
+				expandable: expandable,
 				render: func(model Model, symbolOverride string) []string {
 					if model.detailEntryExpanded(absoluteIndex) || blockRole == RenderIntentToolError {
 						return model.detailWithTreeGuideWithSymbol(blockRole, model.flattenEntryWithMetaAndSymbol(blockRole, text, false, nil, symbolOverride), true, symbolOverride)
@@ -301,13 +305,20 @@ func (m Model) detailAskQuestionSpec(entryIndex int, entry TranscriptEntry, cons
 		}
 	}
 	absoluteIndex := m.absoluteTranscriptIndex(entryIndex)
+	expandable := false
+	if m.compactDetail && !m.detailRoleRendersFullWhenCollapsed(blockRole) {
+		expandable = len(suggestions) > 0 ||
+			recommendedOptionIndex > 0 ||
+			(strings.TrimSpace(answer) != "" && strings.TrimSpace(answer) != strings.TrimSpace(resultSummary)) ||
+			m.detailRenderedContentLineCount(blockRole, question) > 1
+	}
 	return detailBlockSpec{
 		role:       blockRole,
 		entryIndex: absoluteIndex,
 		entryEnd:   absoluteIndex,
 		selectable: true,
 		expanded:   m.detailEntryExpanded(absoluteIndex),
-		expandable: m.detailAskQuestionExpandable(blockRole, question, suggestions, recommendedOptionIndex, answer, resultSummary),
+		expandable: expandable,
 		render: func(model Model, symbolOverride string) []string {
 			if model.detailEntryExpanded(absoluteIndex) {
 				return model.detailWithTreeGuideWithSymbol(blockRole, model.flattenAskQuestionEntryWithSymbol(blockRole, question, suggestions, recommendedOptionIndex, answer, true, symbolOverride), true, symbolOverride)
