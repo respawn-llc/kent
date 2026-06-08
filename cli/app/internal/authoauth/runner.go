@@ -42,46 +42,82 @@ type Runner struct {
 }
 
 func (r Runner) BrowserAuto(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions) (oauthadapter.Method, error) {
-	listener, err := r.startCallbackListener()()
+	startCallbackListener := r.StartCallbackListener
+	if startCallbackListener == nil {
+		startCallbackListener = func() (CallbackListener, error) {
+			return serverauth.StartOAuthCallbackListener()
+		}
+	}
+	listener, err := startCallbackListener()
 	if err != nil {
 		return oauthadapter.Method{}, err
 	}
 	defer func() {
 		_ = listener.Close()
 	}()
-	session, err := r.beginBrowserFlow()(opts, listener.RedirectURI())
+	beginBrowserFlow := r.BeginBrowserFlow
+	if beginBrowserFlow == nil {
+		beginBrowserFlow = serverauth.BeginOpenAIBrowserFlow
+	}
+	session, err := beginBrowserFlow(opts, listener.RedirectURI())
 	if err != nil {
 		return oauthadapter.Method{}, err
 	}
-	openErr := r.openBrowser()(session.AuthorizeURL)
+	openBrowser := r.OpenBrowser
+	if openBrowser == nil {
+		openBrowser = serverauth.OpenBrowser
+	}
+	openErr := openBrowser(session.AuthorizeURL)
 	if r.Presenter != nil {
 		r.Presenter.ShowBrowserAuto(session, openErr)
 	}
+	completeBrowserFlow := r.CompleteBrowserFlow
+	if completeBrowserFlow == nil {
+		completeBrowserFlow = serverauth.CompleteOpenAIBrowserFlow
+	}
 	if r.BrowserCallbackPage != nil {
-		return r.BrowserCallbackPage(ctx, opts, session, openErr, listener, r.completeBrowserFlow())
+		return r.BrowserCallbackPage(ctx, opts, session, openErr, listener, completeBrowserFlow)
 	}
 	callback, err := listener.Wait(ctx, opts.PollTimeout)
 	if err != nil {
 		return oauthadapter.Method{}, err
 	}
 	query := callbackQuery(callback)
-	return r.completeBrowserFlow()(ctx, opts, session, query.Encode())
+	return completeBrowserFlow(ctx, opts, session, query.Encode())
 }
 
 func (r Runner) BrowserPaste(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions) (oauthadapter.Method, error) {
-	session, err := r.beginBrowserFlow()(opts, "")
+	beginBrowserFlow := r.BeginBrowserFlow
+	if beginBrowserFlow == nil {
+		beginBrowserFlow = serverauth.BeginOpenAIBrowserFlow
+	}
+	session, err := beginBrowserFlow(opts, "")
 	if err != nil {
 		return oauthadapter.Method{}, err
 	}
-	openErr := r.openBrowser()(session.AuthorizeURL)
+	openBrowser := r.OpenBrowser
+	if openBrowser == nil {
+		openBrowser = serverauth.OpenBrowser
+	}
+	openErr := openBrowser(session.AuthorizeURL)
 	if r.Presenter != nil {
 		r.Presenter.ShowBrowserPaste(session, openErr)
 	}
-	callbackInput, err := r.prompt()("Paste callback URL or code: ")
+	prompt := r.Prompt
+	if prompt == nil {
+		prompt = func(string) (string, error) {
+			return "", errors.New("oauth prompt is required")
+		}
+	}
+	callbackInput, err := prompt("Paste callback URL or code: ")
 	if err != nil {
 		return oauthadapter.Method{}, err
 	}
-	return r.completeBrowserFlow()(ctx, opts, session, callbackInput)
+	completeBrowserFlow := r.CompleteBrowserFlow
+	if completeBrowserFlow == nil {
+		completeBrowserFlow = serverauth.CompleteOpenAIBrowserFlow
+	}
+	return completeBrowserFlow(ctx, opts, session, callbackInput)
 }
 
 func callbackQuery(callback oauthadapter.BrowserCallback) url.Values {
@@ -92,55 +128,13 @@ func callbackQuery(callback oauthadapter.BrowserCallback) url.Values {
 }
 
 func (r Runner) Device(ctx context.Context, opts oauthadapter.OpenAIOAuthOptions) (oauthadapter.Method, error) {
-	return r.runDeviceFlow()(ctx, opts, func(code oauthadapter.DeviceCode) {
+	runDeviceFlow := r.RunDeviceFlow
+	if runDeviceFlow == nil {
+		runDeviceFlow = serverauth.RunOpenAIDeviceCodeFlow
+	}
+	return runDeviceFlow(ctx, opts, func(code oauthadapter.DeviceCode) {
 		if r.Presenter != nil {
 			r.Presenter.ShowDeviceCode(code)
 		}
 	})
-}
-
-func (r Runner) beginBrowserFlow() BeginBrowserFlowFunc {
-	if r.BeginBrowserFlow != nil {
-		return r.BeginBrowserFlow
-	}
-	return serverauth.BeginOpenAIBrowserFlow
-}
-
-func (r Runner) completeBrowserFlow() CompleteBrowserFlowFunc {
-	if r.CompleteBrowserFlow != nil {
-		return r.CompleteBrowserFlow
-	}
-	return serverauth.CompleteOpenAIBrowserFlow
-}
-
-func (r Runner) openBrowser() OpenBrowserFunc {
-	if r.OpenBrowser != nil {
-		return r.OpenBrowser
-	}
-	return serverauth.OpenBrowser
-}
-
-func (r Runner) startCallbackListener() StartCallbackListenerFunc {
-	if r.StartCallbackListener != nil {
-		return r.StartCallbackListener
-	}
-	return func() (CallbackListener, error) {
-		return serverauth.StartOAuthCallbackListener()
-	}
-}
-
-func (r Runner) runDeviceFlow() RunDeviceFlowFunc {
-	if r.RunDeviceFlow != nil {
-		return r.RunDeviceFlow
-	}
-	return serverauth.RunOpenAIDeviceCodeFlow
-}
-
-func (r Runner) prompt() PromptFunc {
-	if r.Prompt != nil {
-		return r.Prompt
-	}
-	return func(string) (string, error) {
-		return "", errors.New("oauth prompt is required")
-	}
 }

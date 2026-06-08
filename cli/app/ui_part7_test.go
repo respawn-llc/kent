@@ -658,7 +658,7 @@ func TestUnknownSlashCommandIsSubmittedAsPrompt(t *testing.T) {
 
 func TestFileSlashCommandSubmitsInjectedUserPrompt(t *testing.T) {
 	r := commands.NewRegistry()
-	r.Register("prompt:review", "", func(string) commands.Result {
+	r.RegisterWithOptions("prompt:review", "", commands.RegisterOptions{PreservePromptHistoryDraft: true}, func(string) commands.Result {
 		return commands.Result{Handled: true, SubmitUser: true, User: "# review\nexact body\n"}
 	})
 	m := newProjectedStaticUIModel(

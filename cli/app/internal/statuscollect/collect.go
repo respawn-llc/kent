@@ -127,7 +127,10 @@ func (c Collector) ParentSessionName(ctx context.Context, sessionViews client.Se
 	}
 	readTimeout := c.ParentSessionReadTimeout
 	if readTimeout <= 0 {
-		readTimeout = c.timeout()
+		readTimeout = c.RequestTimeout
+		if readTimeout <= 0 {
+			readTimeout = 10 * time.Second
+		}
 	}
 	readCtx, cancel := context.WithTimeout(ctx, readTimeout)
 	defer cancel()
@@ -184,9 +187,17 @@ func (c Collector) CollectAuth(ctx context.Context, req appstatus.Request, _ app
 			}
 		}
 	}
+	usageFetcher := c.UsagePayloadFetcher
+	if usageFetcher == nil {
+		usageFetcher = FetchUsagePayload
+	}
+	usageBaseURL := strings.TrimSpace(c.UsageBaseURL)
+	if usageBaseURL == "" {
+		usageBaseURL = DefaultUsageBaseURL
+	}
 	result := appstatus.AuthStageResult{
 		Auth:         AuthInfo(state, req.Settings, authStateErr),
-		Subscription: c.CollectSubscription(ctx, req, state, authStateErr),
+		Subscription: CollectSubscriptionStatus(ctx, req, state, authStateErr, usageFetcher, usageBaseURL),
 	}
 	if authStateErr != nil {
 		result.Warning = "auth: " + authStateErr.Error()
@@ -195,7 +206,11 @@ func (c Collector) CollectAuth(ctx context.Context, req appstatus.Request, _ app
 }
 
 func (c Collector) CollectGit(ctx context.Context, req appstatus.Request, _ appstatus.Snapshot) appstatus.GitStageResult {
-	return appstatus.GitStageResult{Git: appstatus.CollectGitStatus(ctx, appstatus.GitRoot(req), c.gitTimeout(), c.EnvSanitizer)}
+	gitTimeout := c.GitTimeout
+	if gitTimeout <= 0 {
+		gitTimeout = 4 * time.Second
+	}
+	return appstatus.GitStageResult{Git: appstatus.CollectGitStatus(ctx, appstatus.GitRoot(req), gitTimeout, c.EnvSanitizer)}
 }
 
 func (Collector) CollectEnvironment(_ context.Context, req appstatus.Request, _ appstatus.Snapshot) appstatus.EnvironmentStageResult {
@@ -224,36 +239,4 @@ func (Collector) CollectEnvironment(_ context.Context, req appstatus.Request, _ 
 	}
 	result.CollectorWarning = strings.Join(warnings, " | ")
 	return result
-}
-
-func (c Collector) CollectSubscription(ctx context.Context, req appstatus.Request, state auth.State, authStateErr error) appstatus.SubscriptionInfo {
-	return CollectSubscriptionStatus(ctx, req, state, authStateErr, c.usageFetcher(), c.usageBaseURL())
-}
-
-func (c Collector) usageFetcher() UsagePayloadFetcher {
-	if c.UsagePayloadFetcher != nil {
-		return c.UsagePayloadFetcher
-	}
-	return FetchUsagePayload
-}
-
-func (c Collector) usageBaseURL() string {
-	if baseURL := strings.TrimSpace(c.UsageBaseURL); baseURL != "" {
-		return baseURL
-	}
-	return DefaultUsageBaseURL
-}
-
-func (c Collector) timeout() time.Duration {
-	if c.RequestTimeout > 0 {
-		return c.RequestTimeout
-	}
-	return 10 * time.Second
-}
-
-func (c Collector) gitTimeout() time.Duration {
-	if c.GitTimeout > 0 {
-		return c.GitTimeout
-	}
-	return 4 * time.Second
 }

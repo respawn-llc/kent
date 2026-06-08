@@ -141,7 +141,7 @@ func TestSlashCommandPickerHighlightTracksFilteredVisibleCommands(t *testing.T) 
 func newSlashPickerScrollTestModel() *uiModel {
 	r := commands.NewRegistry()
 	registerSlashPickerTestCommand := func(name string) {
-		r.Register(name, "test command "+name, func(string) commands.Result {
+		r.RegisterWithOptions(name, "test command "+name, commands.RegisterOptions{PreservePromptHistoryDraft: true}, func(string) commands.Result {
 			return commands.Result{Handled: true}
 		})
 	}

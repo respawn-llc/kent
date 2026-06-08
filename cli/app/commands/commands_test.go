@@ -229,7 +229,7 @@ func TestRegisterPanicsWhenNameContainsWhitespace(t *testing.T) {
 			t.Fatal("expected panic for command name with whitespace")
 		}
 	}()
-	r.Register("bad name", "", func(string) Result {
+	r.RegisterWithOptions("bad name", "", RegisterOptions{PreservePromptHistoryDraft: true}, func(string) Result {
 		return Result{}
 	})
 }
