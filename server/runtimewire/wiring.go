@@ -74,10 +74,14 @@ func NewRuntimeWiringWithBackground(store *session.Store, active config.Settings
 	if opts.Client != nil {
 		client = opts.Client
 	} else {
+		var mainAuth llm.AuthHeaderProvider
+		if mgr != nil && !strings.EqualFold(strings.TrimSpace(mainProvider.Auth), "none") {
+			mainAuth = mgr
+		}
 		client, err = llm.NewProviderClient(llm.ProviderClientOptions{
 			Provider:                     llm.Provider(strings.TrimSpace(mainProvider.ProviderOverride)),
 			Model:                        mainProvider.Model,
-			Auth:                         authProviderForPolicy(mainProvider.Auth, mgr),
+			Auth:                         mainAuth,
 			HTTPClient:                   llm.NewHTTPClient(time.Duration(active.Timeouts.ModelRequestSeconds) * time.Second),
 			OpenAIBaseURL:                mainProvider.OpenAIBaseURL,
 			ModelVerbosity:               string(mainProvider.ModelVerbosity),
@@ -92,10 +96,14 @@ func NewRuntimeWiringWithBackground(store *session.Store, active config.Settings
 
 	reviewerProvider := reviewerProviderRuntimeSettings(active)
 	newReviewerClient := func() (llm.Client, error) {
+		var reviewerAuth llm.AuthHeaderProvider
+		if mgr != nil && !strings.EqualFold(strings.TrimSpace(reviewerProvider.Auth), "none") {
+			reviewerAuth = mgr
+		}
 		return llm.NewProviderClient(llm.ProviderClientOptions{
 			Provider:                     llm.Provider(strings.TrimSpace(reviewerProvider.ProviderOverride)),
 			Model:                        reviewerProvider.Model,
-			Auth:                         authProviderForPolicy(reviewerProvider.Auth, mgr),
+			Auth:                         reviewerAuth,
 			HTTPClient:                   llm.NewHTTPClient(time.Duration(active.Reviewer.TimeoutSeconds) * time.Second),
 			OpenAIBaseURL:                reviewerProvider.OpenAIBaseURL,
 			ModelVerbosity:               string(reviewerProvider.ModelVerbosity),
@@ -265,13 +273,6 @@ func providerCapabilitiesOverridePtr(override config.ProviderCapabilitiesOverrid
 		return nil
 	}
 	return &caps
-}
-
-func authProviderForPolicy(policy string, mgr *auth.Manager) llm.AuthHeaderProvider {
-	if mgr == nil || strings.EqualFold(strings.TrimSpace(policy), "none") {
-		return nil
-	}
-	return mgr
 }
 
 func boolRef(v bool) *bool { return &v }

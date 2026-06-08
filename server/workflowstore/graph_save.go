@@ -669,12 +669,16 @@ func upsertWorkflowEdge(ctx context.Context, tx *sql.Tx, edge EdgeRecord, sortOr
 	if err != nil {
 		return err
 	}
+	requiresApproval := int64(0)
+	if edge.RequiresApproval {
+		requiresApproval = 1
+	}
 	result, err := tx.ExecContext(ctx, strings.TrimSuffix(upsertWorkflowEdgeQuery, "\n"),
 		string(edge.ID),
 		string(edge.TransitionGroupID),
 		string(edge.Key),
 		string(edge.TargetNodeID),
-		boolToInt64(edge.RequiresApproval),
+		requiresApproval,
 		string(edge.ContextMode),
 		string(contextSource.Kind),
 		string(contextSource.NodeKey),

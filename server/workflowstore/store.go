@@ -799,7 +799,11 @@ func (s *Store) AddEdge(ctx context.Context, edge EdgeRecord) (int64, error) {
 		if err := ensureWorkflowNodeID(ctx, q, string(edge.WorkflowID), edge.TargetNodeID); err != nil {
 			return err
 		}
-		if err := q.InsertWorkflowEdge(ctx, sqlitegen.InsertWorkflowEdgeParams{ID: string(edge.ID), TransitionGroupID: string(edge.TransitionGroupID), EdgeKey: string(edge.Key), TargetNodeID: string(edge.TargetNodeID), RequiresApproval: boolToInt64(edge.RequiresApproval), ContextMode: string(edge.ContextMode), ContextSourceKind: string(contextSource.Kind), ContextSourceNodeKey: string(contextSource.NodeKey), PromptTemplate: strings.TrimSpace(edge.PromptTemplate), ParametersJson: parameters, InputBindingsJson: inputs, OutputRequirementsJson: requirements, SortOrder: 100}); err != nil {
+		requiresApproval := int64(0)
+		if edge.RequiresApproval {
+			requiresApproval = 1
+		}
+		if err := q.InsertWorkflowEdge(ctx, sqlitegen.InsertWorkflowEdgeParams{ID: string(edge.ID), TransitionGroupID: string(edge.TransitionGroupID), EdgeKey: string(edge.Key), TargetNodeID: string(edge.TargetNodeID), RequiresApproval: requiresApproval, ContextMode: string(edge.ContextMode), ContextSourceKind: string(contextSource.Kind), ContextSourceNodeKey: string(contextSource.NodeKey), PromptTemplate: strings.TrimSpace(edge.PromptTemplate), ParametersJson: parameters, InputBindingsJson: inputs, OutputRequirementsJson: requirements, SortOrder: 100}); err != nil {
 			return fmt.Errorf("insert workflow edge: %w", err)
 		}
 		return nil
@@ -835,11 +839,15 @@ func (s *Store) UpdateEdge(ctx context.Context, edge EdgeRecord) (int64, error) 
 		if err := ensureWorkflowNodeID(ctx, q, string(edge.WorkflowID), edge.TargetNodeID); err != nil {
 			return err
 		}
+		requiresApproval := int64(0)
+		if edge.RequiresApproval {
+			requiresApproval = 1
+		}
 		updated, err := tx.ExecContext(ctx, strings.TrimSuffix(updateWorkflowEdgeQuery, "\n"),
 			string(edge.TransitionGroupID),
 			string(edge.Key),
 			string(edge.TargetNodeID),
-			boolToInt64(edge.RequiresApproval),
+			requiresApproval,
 			string(edge.ContextMode),
 			string(contextSource.Kind),
 			string(contextSource.NodeKey),
@@ -1100,13 +1108,6 @@ func prefixedID(prefix string) string {
 func nullableString(value string) sql.NullString {
 	trimmed := strings.TrimSpace(value)
 	return sql.NullString{String: trimmed, Valid: trimmed != ""}
-}
-
-func boolToInt64(value bool) int64 {
-	if value {
-		return 1
-	}
-	return 0
 }
 
 func marshalJSONArray[T any](value []T) (string, error) {

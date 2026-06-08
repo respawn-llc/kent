@@ -29,14 +29,18 @@ func (s *Store) RecordProtocolViolation(ctx context.Context, req RecordProtocolV
 	var count int64
 	var interruptedAt int64
 	var err error
+	requireGeneration := int64(0)
+	if req.RequireGeneration {
+		requireGeneration = 1
+	}
 	switch req.Kind {
 	case ProtocolViolationFinalAnswer:
 		err = s.db.QueryRowContext(ctx, strings.TrimSuffix(recordFinalAnswerProtocolViolationQuery, "\n"),
-			now, req.MaxCount, now, req.MaxCount, req.MaxCount, detail, string(req.RunID), boolToInt64(req.RequireGeneration), req.ExpectedGeneration,
+			now, req.MaxCount, now, req.MaxCount, req.MaxCount, detail, string(req.RunID), requireGeneration, req.ExpectedGeneration,
 		).Scan(&count, &interruptedAt)
 	case ProtocolViolationInvalidCompletion:
 		err = s.db.QueryRowContext(ctx, strings.TrimSuffix(recordInvalidCompletionProtocolViolationQuery, "\n"),
-			now, req.MaxCount, now, req.MaxCount, req.MaxCount, detail, string(req.RunID), boolToInt64(req.RequireGeneration), req.ExpectedGeneration,
+			now, req.MaxCount, now, req.MaxCount, req.MaxCount, detail, string(req.RunID), requireGeneration, req.ExpectedGeneration,
 		).Scan(&count, &interruptedAt)
 	default:
 		return RecordProtocolViolationResult{}, fmt.Errorf("unsupported protocol violation kind %q", req.Kind)

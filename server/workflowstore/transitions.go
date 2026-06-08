@@ -368,6 +368,10 @@ func insertTransitionEdgeSnapshotWithMetadata(ctx context.Context, q *sqlitegen.
 	if err != nil {
 		return err
 	}
+	requiresApproval := int64(0)
+	if edge.RequiresApproval {
+		requiresApproval = 1
+	}
 	if err := q.InsertTaskTransitionEdge(ctx, sqlitegen.InsertTaskTransitionEdgeParams{
 		ID:                     prefixedID("transition-edge"),
 		TaskTransitionID:       transitionID,
@@ -380,7 +384,7 @@ func insertTransitionEdgeSnapshotWithMetadata(ctx context.Context, q *sqlitegen.
 		TargetPlacementID:      sql.NullString{String: targetPlacementID, Valid: targetPlacementID != ""},
 		State:                  state,
 		ContextMode:            string(edge.ContextMode),
-		RequiresApproval:       boolToInt64(edge.RequiresApproval),
+		RequiresApproval:       requiresApproval,
 		InputBindingsJson:      mustInputBindingsJSON(edge.InputBindings),
 		OutputRequirementsJson: mustOutputRequirementsJSON(edge.OutputRequirements),
 		MetadataJson:           metadataJSON,
