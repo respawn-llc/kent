@@ -41,7 +41,11 @@ func SummarizeBackgroundEvent(evt Event, opts BackgroundNoticeOptions) Backgroun
 		detail = append(detail, fmt.Sprintf("Exit code: %d", *evt.Snapshot.ExitCode))
 	}
 	if strings.TrimSpace(evt.Snapshot.LogPath) != "" && lineCount > 0 {
-		detail = append(detail, fmt.Sprintf("Output file (%s): %s", formatOutputLineCount(lineCount), evt.Snapshot.LogPath))
+		lineCountText := fmt.Sprintf("%d lines", lineCount)
+		if lineCount == 1 {
+			lineCountText = "1 line"
+		}
+		detail = append(detail, fmt.Sprintf("Output file (%s): %s", lineCountText, evt.Snapshot.LogPath))
 	}
 	if mode != BackgroundOutputConcise {
 		if strings.TrimSpace(preview) == "" {
@@ -132,13 +136,6 @@ func readBackgroundSummaryFromFile(path string, maxChars int, mode BackgroundOut
 		}
 		return "", 0, false, readErr
 	}
-}
-
-func formatOutputLineCount(count int) string {
-	if count == 1 {
-		return "1 line"
-	}
-	return fmt.Sprintf("%d lines", count)
 }
 
 type backgroundPreviewBuilder struct {
@@ -308,18 +305,11 @@ func trailingIncompleteANSIStart(data []byte) (int, bool) {
 		return 0, false
 	}
 	for i := lastESC + 1; i < len(data); i++ {
-		if isANSITerminator(data[i]) {
+		if data[i] == 0x07 || data[i] >= 0x40 && data[i] <= 0x7e {
 			return 0, false
 		}
 	}
 	return lastESC, true
-}
-
-func isANSITerminator(v byte) bool {
-	if v == 0x07 {
-		return true
-	}
-	return v >= 0x40 && v <= 0x7e
 }
 
 func utf8EncodeRune(dst []byte, r rune) int {

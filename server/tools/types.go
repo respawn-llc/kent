@@ -68,7 +68,7 @@ func (r *Registry) Definitions() []Definition {
 	defer r.mu.RUnlock()
 	out := make([]Definition, 0, len(r.byName))
 	for _, id := range r.order {
-		def, _ := definitionFor(id)
+		def := definitions[id]
 		out = append(out, def)
 	}
 	return out
@@ -88,7 +88,7 @@ func (r *Registry) mustReplaceLocked(handlers []HandlerRegistration) {
 	order := make([]toolspec.ID, 0, len(handlers))
 	for _, h := range handlers {
 		id := h.ID
-		if _, ok := definitionFor(id); !ok {
+		if _, ok := definitions[id]; !ok {
 			panic(fmt.Sprintf("tool %q is missing centralized definition", id))
 		}
 		if h.Handler == nil {
