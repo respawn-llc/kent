@@ -123,7 +123,10 @@ func (a *responseStreamAccumulator) emitReasoningSummaryDelta(key string) {
 func (a *responseStreamAccumulator) Response() OpenAIResponse {
 	usage := Usage{WindowTokens: a.windowTokens}
 	streamText, streamPhase, streamOutputIndex, hasResolvedStream := a.assistantMessages.Resolve()
-	finalText := preferAssistantText(streamText, a.assistantText.String())
+	finalText := a.assistantText.String()
+	if strings.TrimSpace(streamText) != "" {
+		finalText = streamText
+	}
 	finalPhase := streamPhase
 	finalCalls := a.toolCalls.ToToolCalls()
 	finalReasoning := a.reasoning.Entries()
@@ -169,13 +172,6 @@ func (a *responseStreamAccumulator) Response() OpenAIResponse {
 		OutputItems:    finalOutputItems,
 		Usage:          usage,
 	}
-}
-
-func preferAssistantText(primary, fallback string) string {
-	if strings.TrimSpace(primary) != "" {
-		return primary
-	}
-	return fallback
 }
 
 func repairAssistantOutputItems(items []ResponseItem, text string, phase MessagePhase, outputIndex int64, hasResolvedStream bool) []ResponseItem {
