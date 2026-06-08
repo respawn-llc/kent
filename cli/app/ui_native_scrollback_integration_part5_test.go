@@ -96,14 +96,22 @@ func TestNativeStreamedFinalThenCommitAppearsOnceInScrollback(t *testing.T) {
 		Message:                    llm.Message{Role: llm.RoleAssistant, Content: "final answer", Phase: llm.MessagePhaseFinal},
 	}))
 	waitForTestCondition(t, 2*time.Second, "committed final rendered once", func() bool {
-		normalized := normalizedOutput(out.String())
-		return strings.Contains(normalized, "final answer")
+		return strings.TrimSpace(model.view.OngoingStreamingText()) == "" &&
+			!model.nativeStreamingActive &&
+			model.nativeFlushedSequence >= model.nativeFlushSequence &&
+			model.waitRuntimeEventAfterFlushSequence == 0 &&
+			len(model.nativePendingFlushes) == 0 &&
+			strings.Contains(normalizedOutput(replayTerminalPlainText(out.String())), "final answer")
 	})
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	program.Wait(2 * time.Second)
-	normalized := normalizedOutput(out.String())
-	if got := strings.Count(normalized, "final answer"); got != 1 {
-		t.Fatalf("expected streamed final plus commit to appear once, got %d in %q", got, normalized)
+	finalTerminal := normalizedOutput(replayTerminalPlainText(out.String()))
+	if got := strings.Count(finalTerminal, "final answer"); got != 1 {
+		t.Fatalf("expected streamed final plus commit to appear once in terminal, got %d in %q", got, finalTerminal)
+	}
+	committed := normalizedOutput(model.view.OngoingCommittedSnapshot())
+	if got := strings.Count(committed, "final answer"); got != 1 {
+		t.Fatalf("expected committed final once in rendered committed ongoing transcript, got %d in %q", got, committed)
 	}
 }
 
