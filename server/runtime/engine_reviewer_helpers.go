@@ -350,6 +350,10 @@ func formatReviewerDeveloperInstruction(suggestions []string) string {
 
 func reviewerStatusText(status ReviewerStatus, _ []string) string {
 	statusText := ""
+	suggestionCountLabel := "1 suggestion"
+	if status.SuggestionsCount > 1 {
+		suggestionCountLabel = fmt.Sprintf("%d suggestions", status.SuggestionsCount)
+	}
 	switch strings.TrimSpace(status.Outcome) {
 	case "failed":
 		if strings.TrimSpace(status.Error) == "" {
@@ -361,14 +365,14 @@ func reviewerStatusText(status ReviewerStatus, _ []string) string {
 		statusText = "Supervisor ran: no suggestions."
 	case "followup_failed":
 		if strings.TrimSpace(status.Error) == "" {
-			statusText = fmt.Sprintf("Supervisor ran: %s, but follow-up failed.", reviewerSuggestionCountLabel(status.SuggestionsCount))
+			statusText = fmt.Sprintf("Supervisor ran: %s, but follow-up failed.", suggestionCountLabel)
 			break
 		}
-		statusText = fmt.Sprintf("Supervisor ran: %s, but follow-up failed: %s", reviewerSuggestionCountLabel(status.SuggestionsCount), status.Error)
+		statusText = fmt.Sprintf("Supervisor ran: %s, but follow-up failed: %s", suggestionCountLabel, status.Error)
 	case "noop":
-		statusText = fmt.Sprintf("Supervisor ran: %s, no changes applied.", reviewerSuggestionCountLabel(status.SuggestionsCount))
+		statusText = fmt.Sprintf("Supervisor ran: %s, no changes applied.", suggestionCountLabel)
 	case "applied":
-		statusText = fmt.Sprintf("Supervisor ran: %s, applied.", reviewerSuggestionCountLabel(status.SuggestionsCount))
+		statusText = fmt.Sprintf("Supervisor ran: %s, applied.", suggestionCountLabel)
 	default:
 		statusText = "Supervisor ran."
 	}
@@ -393,13 +397,6 @@ func reviewerSuggestionsText(suggestions []string) string {
 		}
 	}
 	return b.String()
-}
-
-func reviewerSuggestionCountLabel(count int) string {
-	if count <= 1 {
-		return "1 suggestion"
-	}
-	return fmt.Sprintf("%d suggestions", count)
 }
 
 func reviewerSessionID(sessionID string) string {
