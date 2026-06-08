@@ -41,11 +41,3 @@ func openRegularSessionFile(path string, label string) (*os.File, error) {
 	}
 	return fp, nil
 }
-
-func ensureRegularSessionFile(path string, label string) error {
-	fp, err := openRegularSessionFile(path, label)
-	if err != nil {
-		return err
-	}
-	return fp.Close()
-}

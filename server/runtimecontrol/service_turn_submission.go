@@ -25,7 +25,10 @@ func (s *Service) SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmi
 		if err != nil {
 			return serverapi.RuntimeSubmitUserTurnResponse{}, err
 		}
-		runCtx := detachedRuntimeContext(ctx)
+		runCtx := context.Background()
+		if ctx != nil {
+			runCtx = context.WithoutCancel(ctx)
+		}
 		shouldCompact, err := engine.ShouldCompactBeforeUserMessage(runCtx, memoReq.Text)
 		if err != nil {
 			return serverapi.RuntimeSubmitUserTurnResponse{}, err

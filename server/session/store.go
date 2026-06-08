@@ -168,8 +168,11 @@ func hasSessionMeta(sessionDir string) bool {
 	if strings.TrimSpace(sessionDir) == "" {
 		return false
 	}
-	err := ensureRegularSessionFile(filepath.Join(sessionDir, sessionFile), "session meta")
-	return err == nil
+	fp, err := openRegularSessionFile(filepath.Join(sessionDir, sessionFile), "session meta")
+	if err != nil {
+		return false
+	}
+	return fp.Close() == nil
 }
 
 func ListSessions(workspaceContainerDir string) ([]Summary, error) {
@@ -423,10 +426,14 @@ func (s *Store) SetGoalStatusWithEventBuilder(status GoalStatus, actor GoalActor
 	previousStatus := goal.Status
 	goal.Status = normalizedStatus
 	goal.UpdatedAt = now
-	extraEvents, err := buildGoalStatusExtraEvents(buildExtraEvents, goal)
-	if err != nil {
-		s.mu.Unlock()
-		return GoalState{}, err
+	var extraEvents []EventInput
+	if buildExtraEvents != nil {
+		var err error
+		extraEvents, err = buildExtraEvents(goal)
+		if err != nil {
+			s.mu.Unlock()
+			return GoalState{}, err
+		}
 	}
 	events, err := s.buildGoalEventsLocked("goal_status_updated", GoalStatusUpdatedEvent{Goal: goal, Actor: normalizedActor, PreviousStatus: previousStatus}, extraEvents, now)
 	if err != nil {
@@ -440,13 +447,6 @@ func (s *Store) SetGoalStatusWithEventBuilder(status GoalStatus, actor GoalActor
 		return GoalState{}, err
 	}
 	return goal, nil
-}
-
-func buildGoalStatusExtraEvents(buildExtraEvents func(GoalState) ([]EventInput, error), goal GoalState) ([]EventInput, error) {
-	if buildExtraEvents == nil {
-		return nil, nil
-	}
-	return buildExtraEvents(goal)
 }
 
 func (s *Store) ClearGoal(actor GoalActor) (GoalState, error) {

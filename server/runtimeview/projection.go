@@ -32,6 +32,15 @@ func StatusFromRuntime(engine *runtime.Engine) clientui.RuntimeStatus {
 	}
 	usage := engine.ContextUsage()
 	goal := engine.Goal()
+	var goalView *clientui.RuntimeGoal
+	if goal != nil {
+		goalView = &clientui.RuntimeGoal{
+			ID:        strings.TrimSpace(goal.ID),
+			Objective: goal.Objective,
+			Status:    clientui.RuntimeGoalStatus(strings.TrimSpace(string(goal.Status))),
+			Suspended: engine.GoalLoopSuspended(),
+		}
+	}
 	return clientui.RuntimeStatus{
 		ReviewerFrequency:                 engine.ReviewerFrequency(),
 		ReviewerEnabled:                   engine.ReviewerEnabled(),
@@ -50,19 +59,7 @@ func StatusFromRuntime(engine *runtime.Engine) clientui.RuntimeStatus {
 			HasCacheHitPercentage: usage.HasCacheHitPercentage,
 		},
 		CompactionCount: engine.CompactionCount(),
-		Goal:            goalStatusFromRuntime(goal, engine.GoalLoopSuspended()),
-	}
-}
-
-func goalStatusFromRuntime(goal *session.GoalState, suspended bool) *clientui.RuntimeGoal {
-	if goal == nil {
-		return nil
-	}
-	return &clientui.RuntimeGoal{
-		ID:        strings.TrimSpace(goal.ID),
-		Objective: goal.Objective,
-		Status:    clientui.RuntimeGoalStatus(strings.TrimSpace(string(goal.Status))),
-		Suspended: suspended,
+		Goal:            goalView,
 	}
 }
 
@@ -202,22 +199,19 @@ func RunViewFromRuntime(sessionID string, snapshot *runtime.RunSnapshot) *client
 	if snapshot == nil {
 		return nil
 	}
+	mode := clientui.RunModeTurn
+	if snapshot.GoalLoop {
+		mode = clientui.RunModeGoalLoop
+	}
 	return &clientui.RunView{
 		RunID:      snapshot.RunID,
 		SessionID:  sessionID,
 		StepID:     snapshot.StepID,
 		Status:     clientui.RunStatus(snapshot.Status),
-		Lifecycle:  clientui.RunningRunLifecycle(runViewMode(snapshot.GoalLoop)),
+		Lifecycle:  clientui.RunningRunLifecycle(mode),
 		StartedAt:  snapshot.StartedAt,
 		FinishedAt: snapshot.FinishedAt,
 	}
-}
-
-func runViewMode(goalLoop bool) clientui.RunMode {
-	if goalLoop {
-		return clientui.RunModeGoalLoop
-	}
-	return clientui.RunModeTurn
 }
 
 func RunViewFromSessionRecord(sessionID string, record *session.RunRecord) *clientui.RunView {
