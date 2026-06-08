@@ -159,10 +159,14 @@ func (r opaqueProviderErrorReducer) reduceFromResponse(rawResp *http.Response) (
 		return nil, false
 	}
 	if rawResp.Body == nil {
+		code := UnifiedErrorCodeUnknown
+		if rawResp.StatusCode == 401 || rawResp.StatusCode == 403 {
+			code = UnifiedErrorCodeAuthentication
+		}
 		return &ProviderAPIError{
 			ProviderID: r.providerID,
 			StatusCode: rawResp.StatusCode,
-			Code:       classifyOpaqueUnifiedErrorCode(rawResp.StatusCode),
+			Code:       code,
 			Message:    http.StatusText(rawResp.StatusCode),
 			Raw:        "<empty error body>",
 		}, true
@@ -171,10 +175,14 @@ func (r opaqueProviderErrorReducer) reduceFromResponse(rawResp *http.Response) (
 	rawResp.Body.Close()
 	rawResp.Body = io.NopCloser(bytes.NewReader(body))
 	raw := truncateError(body)
+	code := UnifiedErrorCodeUnknown
+	if rawResp.StatusCode == 401 || rawResp.StatusCode == 403 {
+		code = UnifiedErrorCodeAuthentication
+	}
 	return &ProviderAPIError{
 		ProviderID: r.providerID,
 		StatusCode: rawResp.StatusCode,
-		Code:       classifyOpaqueUnifiedErrorCode(rawResp.StatusCode),
+		Code:       code,
 		Message:    raw,
 		Raw:        raw,
 	}, true
@@ -280,11 +288,4 @@ func classifyOpenAIUnifiedErrorCode(statusCode int, providerCode string) Unified
 	default:
 		return UnifiedErrorCodeUnknown
 	}
-}
-
-func classifyOpaqueUnifiedErrorCode(statusCode int) UnifiedErrorCode {
-	if statusCode == 401 || statusCode == 403 {
-		return UnifiedErrorCodeAuthentication
-	}
-	return UnifiedErrorCodeUnknown
 }

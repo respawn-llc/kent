@@ -268,23 +268,6 @@ func TestExtractAccountID(t *testing.T) {
 	}
 }
 
-func TestExtractEmail(t *testing.T) {
-	jwt := func(payload map[string]any) string {
-		raw, _ := json.Marshal(payload)
-		return "x." + encodeRawURL(raw) + ".y"
-	}
-
-	idToken := jwt(map[string]any{"email": "user@example.com"})
-	accessToken := jwt(map[string]any{"email": "other@example.com"})
-
-	if got := extractEmail(oauthTokenResponse{IDToken: idToken}); got != "" {
-		t.Fatalf("expected no email from unverified id token, got %q", got)
-	}
-	if got := extractEmail(oauthTokenResponse{AccessToken: accessToken}); got != "" {
-		t.Fatalf("expected no email from access token, got %q", got)
-	}
-}
-
 func encodeRawURL(b []byte) string {
 	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 	out := make([]byte, 0, (len(b)*4+2)/3)
