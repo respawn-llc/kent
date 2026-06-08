@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"strings"
 	"sync"
 
 	"builder/shared/clientui"
@@ -167,7 +169,10 @@ func (s *remoteSubscription[Wire, Event]) Next(ctx context.Context) (Event, erro
 		}
 		_ = s.Close()
 		var zero Event
-		return zero, streamCompleteError(params)
+		if params.Code == 0 && strings.TrimSpace(params.Message) == "" {
+			return zero, io.EOF
+		}
+		return zero, protocolError(&protocol.ResponseError{Code: params.Code, Message: params.Message})
 	default:
 		var zero Event
 		return zero, errors.Join(serverapi.ErrStreamFailed, fmt.Errorf("unexpected notification method %q", frame.Method))

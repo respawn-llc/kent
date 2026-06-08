@@ -234,17 +234,11 @@ func webSocketTLSConfig(endpoint Endpoint) *tls.Config {
 		config = config.Clone()
 	}
 	if config.ServerName == "" {
-		config.ServerName = tlsServerName(endpoint)
+		if serverURL, err := url.Parse(endpoint.ServerURL); err == nil {
+			config.ServerName = serverURL.Hostname()
+		}
 	}
 	return config
-}
-
-func tlsServerName(endpoint Endpoint) string {
-	serverURL, err := url.Parse(endpoint.ServerURL)
-	if err != nil {
-		return ""
-	}
-	return serverURL.Hostname()
 }
 
 func dialWebSocketClientContext(ctx context.Context, rawConn net.Conn, endpoint Endpoint, adapter *webSocketConn) (*gws.Conn, error) {
