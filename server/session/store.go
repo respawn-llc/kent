@@ -328,6 +328,17 @@ func (s *Store) SetInputDraft(inputDraft string) error {
 	return s.unlockAndObservePersistence(s.persistMetaLocked())
 }
 
+func (s *Store) SetHeadlessActive(active bool) error {
+	s.mu.Lock()
+	if s.meta.HeadlessActive == active && (!s.persisted || s.hasDurableMetadataLocked()) {
+		s.mu.Unlock()
+		return nil
+	}
+	s.meta.HeadlessActive = active
+	s.meta.UpdatedAt = time.Now().UTC()
+	return s.unlockAndObservePersistence(s.persistMetaLocked())
+}
+
 func (s *Store) SetCompactionSoonReminderIssued(issued bool) error {
 	s.mu.Lock()
 	if s.meta.CompactionSoonReminderIssued == issued && (!s.persisted || s.hasDurableMetadataLocked()) {

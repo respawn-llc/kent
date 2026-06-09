@@ -73,27 +73,6 @@ func (e *Engine) providerItemsForToolCompletion(r tools.Result) []llm.ResponseIt
 	}})
 }
 
-func shouldInjectHeadlessModePromptForState(active bool) bool {
-	return !active
-}
-
-func headlessModeActive(messages []llm.Message) bool {
-	active := false
-	for _, msg := range messages {
-		if msg.Role != llm.RoleDeveloper {
-			continue
-		}
-		if msg.MessageType == llm.MessageTypeHeadlessMode {
-			active = true
-			continue
-		}
-		if msg.MessageType == llm.MessageTypeHeadlessModeExit {
-			active = false
-		}
-	}
-	return active
-}
-
 func (e *Engine) steerPersistedDiagnosticEntry(stepID, diagnosticKey, role, text string) error {
 	diagnosticKey = strings.TrimSpace(diagnosticKey)
 	if diagnosticKey == "" {

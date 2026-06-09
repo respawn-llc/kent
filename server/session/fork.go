@@ -48,6 +48,7 @@ func ForkAtUserMessage(parent *Store, userMessageIndex int, forkName string) (*S
 
 	child.mu.Lock()
 	child.meta.Locked = cloneLockedContract(parentMeta.Locked)
+	child.meta.HeadlessActive = parentMeta.HeadlessActive
 	child.meta.CompactionSoonReminderIssued = reminderIssuedFromReplayEvents(replay)
 	child.meta.WorktreeReminder = forkedWorktreeReminderState(parentMeta.WorktreeReminder)
 	child.meta.UsageState = nil

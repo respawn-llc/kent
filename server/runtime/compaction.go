@@ -537,7 +537,6 @@ func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionM
 	if mode == compactionModeManual && includeManualCarryover {
 		manualCarryover = lastVisibleUserMessageSinceLatestCompaction(input)
 	}
-	wasHeadless := e.transcriptRuntimeState().HeadlessActive()
 	var result compactionResult
 	enginePlan := planner.enginePlan(planningSnapshot, caps)
 	if enginePlan.engineKind == compactionEngineRemote {
@@ -593,7 +592,7 @@ func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionM
 			return compactionResult{}, errors.Join(err, statusErr)
 		}
 	}
-	if err := e.appendPostCompactionMessages(stepID, e.postCompactionMessages(mode, manualCarryover, wasHeadless)); err != nil {
+	if err := e.appendPostCompactionMessages(stepID, e.postCompactionMessages(mode, manualCarryover, e.store.Meta().HeadlessActive)); err != nil {
 		statusErr := e.emitCompactionStatus(stepID, EventCompactionFailed, mode, result.engine, providerID, result.trimmedItemsCount, 0, err.Error())
 		return compactionResult{}, errors.Join(err, statusErr)
 	}

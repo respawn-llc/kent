@@ -1805,6 +1805,7 @@ func (s *Store) upsertSessionSnapshot(ctx context.Context, snapshot session.Pers
 	metadataJSON, err := marshalJSON(map[string]any{
 		"workspace_root":                     snapshot.Meta.WorkspaceRoot,
 		"workspace_container":                snapshot.Meta.WorkspaceContainer,
+		"headless_active":                    snapshot.Meta.HeadlessActive,
 		"compaction_soon_reminder_issued":    snapshot.Meta.CompactionSoonReminderIssued,
 		"generated_recovered_warning_issued": snapshot.Meta.GeneratedRecoveredWarningIssued,
 		"worktree_reminder":                  persistedWorktreeReminder,
@@ -1928,6 +1929,7 @@ func sessionMetaFromRecordRow(row sqlitegen.GetSessionRecordByIDRow) (session.Me
 	metadataPayload := struct {
 		WorkspaceRoot                   string                         `json:"workspace_root"`
 		WorkspaceContainer              string                         `json:"workspace_container"`
+		HeadlessActive                  bool                           `json:"headless_active"`
 		CompactionSoonReminderIssued    bool                           `json:"compaction_soon_reminder_issued"`
 		GeneratedRecoveredWarningIssued bool                           `json:"generated_recovered_warning_issued"`
 		WorktreeReminder                *session.WorktreeReminderState `json:"worktree_reminder"`
@@ -1981,6 +1983,7 @@ func sessionMetaFromRecordRow(row sqlitegen.GetSessionRecordByIDRow) (session.Me
 		LastSequence:                    row.LastSequence,
 		ModelRequestCount:               row.ModelRequestCount,
 		InFlightStep:                    row.InFlightStep != 0,
+		HeadlessActive:                  metadataPayload.HeadlessActive,
 		CompactionSoonReminderIssued:    metadataPayload.CompactionSoonReminderIssued,
 		GeneratedRecoveredWarningIssued: metadataPayload.GeneratedRecoveredWarningIssued,
 		WorktreeReminder:                metadataPayload.WorktreeReminder,

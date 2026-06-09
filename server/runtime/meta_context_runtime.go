@@ -68,30 +68,40 @@ func (e *Engine) steerBaseMetaContextIfNeeded(stepID string) error {
 	return nil
 }
 
+// steerHeadlessModeTransitionIfNeeded reconciles the launch mode with the
+// persisted headless state. cfg.HeadlessMode reflects how this process was
+// started (true on `--continue`, false on an interactive launch);
+// Meta.HeadlessActive reflects the mode the session was last in. A mismatch is
+// a real transition: entering headless appends the enter prompt once, returning
+// to interactive appends the exit prompt once, and matching states are a no-op
+// so repeated `--continue` launches do not duplicate the enter prompt.
+// Interactive is the default, so no reminder is injected while both are false.
 func (e *Engine) steerHeadlessModeTransitionIfNeeded(stepID string) error {
 	if e.workflowRunActive() {
 		return nil
 	}
+	if e.cfg.HeadlessMode == e.store.Meta().HeadlessActive {
+		return nil
+	}
 	builder := newMetaContextBuilder(e.store.Meta().WorkspaceRoot, e.cfg.Model, e.ThinkingLevel(), e.cfg.DisabledSkills, time.Now())
-	headlessActive := e.transcriptRuntimeState().HeadlessActive()
 	if e.cfg.HeadlessMode {
-		if !shouldInjectHeadlessModePromptForState(headlessActive) {
-			return nil
-		}
 		metaResult, err := builder.Build(metaContextBuildOptions{IncludeHeadless: true})
 		if err != nil {
 			return err
 		}
-		return e.steer(stepID, steerRuntimeContextMessagesIntent(metaResult.Headless))
-	}
-	if !headlessActive {
-		return nil
+		if err := e.steer(stepID, steerRuntimeContextMessagesIntent(metaResult.Headless)); err != nil {
+			return err
+		}
+		return e.store.SetHeadlessActive(true)
 	}
 	metaResult, err := builder.Build(metaContextBuildOptions{IncludeHeadlessExit: true})
 	if err != nil {
 		return err
 	}
-	return e.steer(stepID, steerRuntimeContextMessagesIntent(metaResult.HeadlessExit))
+	if err := e.steer(stepID, steerRuntimeContextMessagesIntent(metaResult.HeadlessExit)); err != nil {
+		return err
+	}
+	return e.store.SetHeadlessActive(false)
 }
 
 func (e *Engine) steerWorkflowModeIfNeeded(ctx context.Context, stepID string) error {

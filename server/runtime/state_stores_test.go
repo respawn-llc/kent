@@ -333,10 +333,6 @@ func TestTranscriptPersistenceCoordinatorOwnsChatMutationTransitions(t *testing.
 	state := newTranscriptRuntimeState("/workspace")
 	persistence := newTranscriptPersistenceCoordinator(state)
 	persistence.AppendMessage(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessMode, Content: "headless mode"})
-	if !state.HeadlessActive() {
-		t.Fatal("expected append message transition to update headless state")
-	}
-
 	persistence.AppendLocalEntryRecord(ChatEntry{Role: "notice", Text: "local note"})
 	snap := state.Snapshot()
 	if len(snap.Entries) != 2 || snap.Entries[1].Role != "notice" || snap.Entries[1].Text != "local note" {

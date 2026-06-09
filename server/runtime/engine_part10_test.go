@@ -515,43 +515,6 @@ func TestSubmitInjectsEnvironmentLineWithLabeledModelIdentifier(t *testing.T) {
 	}
 }
 
-func TestHeadlessModeTransitionDecisionsFollowLatestMarker(t *testing.T) {
-	if headlessModeActive(nil) {
-		t.Fatal("did not expect headless mode without history")
-	}
-	if headlessModeActive(nil) {
-		t.Fatal("expected enter prompt when no headless marker exists")
-	}
-	if headlessModeActive(nil) {
-		t.Fatal("did not expect exit prompt without an active headless phase")
-	}
-
-	headless := []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessMode, Content: "headless"}}
-	if !headlessModeActive(headless) {
-		t.Fatal("expected headless mode to be active after headless marker")
-	}
-	if shouldInjectHeadlessModePromptForState(headlessModeActive(headless)) {
-		t.Fatal("did not expect enter prompt during active headless phase")
-	}
-	if !headlessModeActive(headless) {
-		t.Fatal("expected exit prompt during active headless phase")
-	}
-
-	exited := []llm.Message{
-		{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessMode, Content: "headless"},
-		{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessModeExit, Content: "exit"},
-	}
-	if headlessModeActive(exited) {
-		t.Fatal("did not expect headless mode after exit marker")
-	}
-	if !shouldInjectHeadlessModePromptForState(headlessModeActive(exited)) {
-		t.Fatal("expected enter prompt after exit marker")
-	}
-	if headlessModeActive(exited) {
-		t.Fatal("did not expect exit prompt after exit marker")
-	}
-}
-
 func TestManualCompactionReinjectsHeadlessEnterOnlyWhileHeadlessRemainsActive(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{{
@@ -559,8 +522,8 @@ func TestManualCompactionReinjectsHeadlessEnterOnlyWhileHeadlessRemainsActive(t 
 		Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
 	}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessMode, Content: "headless mode instructions"})); err != nil {
-		t.Fatalf("append headless mode: %v", err)
+	if err := store.SetHeadlessActive(true); err != nil {
+		t.Fatalf("mark headless active: %v", err)
 	}
 	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "continue"})); err != nil {
 		t.Fatalf("append user message: %v", err)
