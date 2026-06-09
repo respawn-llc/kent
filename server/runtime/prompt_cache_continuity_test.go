@@ -270,7 +270,7 @@ func (f *promptCacheContinuityFixture) assertPersistedProjectionParity(t *testin
 
 func seedPromptCacheContinuityConversation(t *testing.T, engine *Engine) {
 	t.Helper()
-	if err := engine.injectAgentsIfNeeded("seed-meta"); err != nil {
+	if err := engine.steerBaseMetaContextIfNeeded("seed-meta"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
 	if err := engine.steer("turn-1", steerUserMessageIntent(llm.Message{Role: llm.RoleUser, Content: "Need a prompt cache continuity test that survives a server restart."})); err != nil {

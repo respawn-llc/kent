@@ -37,7 +37,7 @@ func (e *Engine) compactRemote(ctx context.Context, stepID string, input []llm.R
 	if err != nil {
 		return compactionResult{}, err
 	}
-	replacement := compactionSeedItems(sanitized)
+	replacement := llm.CloneResponseItems(sanitized)
 	return compactionResult{
 		engine:            "remote",
 		items:             replacement,
@@ -179,12 +179,13 @@ func (e *Engine) compactLocal(ctx context.Context, input []llm.ResponseItem, pro
 	if err != nil {
 		return compactionResult{}, err
 	}
-	replacement := compactionSeedItems([]llm.ResponseItem{{
+	replacement := llm.CloneResponseItems([]llm.ResponseItem{{
 		Type:        llm.ResponseItemTypeMessage,
 		Role:        llm.RoleDeveloper,
 		MessageType: llm.MessageTypeCompactionSummary,
 		Content:     strings.TrimSpace(summary),
 	}})
+
 	usageInputTokens := estimateItemsTokens(replacement)
 	if preciseInput, ok := e.inputTokensForItems(ctx, e.currentModel(), "", replacement); ok {
 		usageInputTokens = preciseInput

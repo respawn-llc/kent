@@ -301,10 +301,6 @@ func (m *defaultMessageLifecycle) HasPendingUserInjections() bool {
 	return m != nil && m.queue != nil && m.queue.HasPending()
 }
 
-func (m *defaultMessageLifecycle) InjectAgentsIfNeeded(stepID string) error {
-	return m.engine.steerBaseMetaContextIfNeeded(stepID)
-}
-
 func newActiveMetaContextBuilder(meta session.Meta, model, thinkingLevel string, disabledSkills map[string]bool, now time.Time) metaContextBuilder {
 	roots := activeMetaContextRootsForMeta(meta)
 	return newMetaContextBuilder(roots.discoveryRoot, model, thinkingLevel, disabledSkills, now).withEnvironmentCWD(roots.environmentCWD)

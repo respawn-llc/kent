@@ -255,10 +255,6 @@ func (e *Engine) flushPendingUserInjections(stepID string) (int, error) {
 	return e.messageFlow.FlushPendingUserInjections(stepID)
 }
 
-func (e *Engine) injectAgentsIfNeeded(stepID string) error {
-	e.ensureOrchestrationCollaborators()
-	return e.messageFlow.InjectAgentsIfNeeded(stepID)
-}
 
 func agentsInjectionPaths(workspaceRoot string) ([]string, error) {
 	home, err := os.UserHomeDir()

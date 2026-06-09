@@ -716,10 +716,6 @@ func withCompactionSummaryLabel(items []llm.ResponseItem, label string) []llm.Re
 	return out
 }
 
-func compactionSeedItems(prefix []llm.ResponseItem) []llm.ResponseItem {
-	return llm.CloneResponseItems(prefix)
-}
-
 func (e *Engine) compactionPlannerState() *compactionPlanner {
 	if e == nil || e.compactionPlanner == nil {
 		return newCompactionPlanner()

@@ -1111,7 +1111,7 @@ func TestReopenedSessionAfterTriggerHandoffUsesRotatedRequestSessionAndOmitsLing
 	// Without this seed, the first post-reopen SubmitUserMessage legitimately performs
 	// that one-time injection and can trigger an extra compaction turn under this
 	// tiny test window, which makes the test fail for the wrong reason.
-	if err := eng.injectAgentsIfNeeded("seed-meta"); err != nil {
+	if err := eng.steerBaseMetaContextIfNeeded("seed-meta"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
 	eng.setCompactionSoonReminderIssued(true)

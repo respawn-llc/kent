@@ -24,7 +24,7 @@ func TestCompactionCacheObservationRequestAppendsPromptToConversationReplica(t *
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
 		Model: "gpt-5",
 	})
-	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
+	if err := eng.steerBaseMetaContextIfNeeded("seed-step"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
 
@@ -121,7 +121,7 @@ func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndWarnsOnCacheBreak(t
 		Model:               "gpt-5",
 		ContextWindowTokens: 2500,
 	})
-	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
+	if err := eng.steerBaseMetaContextIfNeeded("seed-step"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
 
@@ -257,7 +257,7 @@ func TestRemoteCompactionDoesNotRepairUnsupportedViewImagePayload(t *testing.T) 
 		Model:               "gpt-5",
 		ContextWindowTokens: 2500,
 	})
-	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
+	if err := eng.steerBaseMetaContextIfNeeded("seed-step"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
 
@@ -326,7 +326,7 @@ func TestRemoteCompactionFailsFastWhenOverflowHasNoCollapsibleToolPayload(t *tes
 		Model:               "gpt-5",
 		ContextWindowTokens: 2500,
 	})
-	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
+	if err := eng.steerBaseMetaContextIfNeeded("seed-step"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
 	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: strings.Repeat("chat-heavy-history", 12_000)})); err != nil {
@@ -389,7 +389,7 @@ func TestCompactionTransientRetryObservesCacheLineageOnce(t *testing.T) {
 	}
 
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
-	if err := eng.injectAgentsIfNeeded("seed-step"); err != nil {
+	if err := eng.steerBaseMetaContextIfNeeded("seed-step"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
 	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
