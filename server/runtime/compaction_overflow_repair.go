@@ -8,9 +8,9 @@ import (
 	"builder/shared/toolspec"
 )
 
-const (
-	compactionOverflowCollapsedText = "<collapsed>"
-)
+const compactionOverflowCollapsedText = "<collapsed>"
+
+var compactionOverflowCollapsedJSON = json.RawMessage(`"<collapsed>"`)
 
 var compactionOverflowRepairTargetPercents = []int{10, 20, 40}
 
@@ -143,15 +143,15 @@ func isCompactionOverflowRepairShellOutputTool(toolID toolspec.ID) bool {
 }
 
 func collapsedCompactionOverflowShellOutput(output json.RawMessage) (json.RawMessage, int) {
-	before := (len(string(output)) + 3) / 4
+	before := estimateTokensFromBytes(len(output))
 	if outputTokens, ok := estimateStructuredOutputTokens(output); ok {
 		before = outputTokens
 	}
 	replacement, err := json.Marshal(compactionOverflowCollapsedText)
 	if err != nil {
-		replacement = json.RawMessage(`"<collapsed>"`)
+		replacement = compactionOverflowCollapsedJSON
 	}
-	after := (len(string(replacement)) + 3) / 4
+	after := estimateTokensFromBytes(len(replacement))
 	saved := before - after
 	if saved <= 0 {
 		return nil, 0
@@ -165,9 +165,9 @@ func isCollapsedCompactionOverflowShellOutput(output json.RawMessage) bool {
 }
 
 func collapsedCompactionOverflowPatchInput(input string) (string, int) {
-	before := (len(input) + 3) / 4
+	before := estimateTokensFromBytes(len(input))
 	replacement := compactionOverflowCollapsedText
-	after := (len(replacement) + 3) / 4
+	after := estimateTokensFromBytes(len(replacement))
 	saved := before - after
 	if saved <= 0 {
 		return "", 0
