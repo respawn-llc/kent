@@ -325,63 +325,80 @@ func TestWorkflowRuntimeContinueSessionKeepsLockedSetupAfterRoleConfigDrift(t *t
 	}
 }
 
-func TestWorkflowRuntimeCompactAndContinueCreatesFreshCrossRoleChildSession(t *testing.T) {
+func TestWorkflowRuntimeCompactAndContinueReusesSourceSessionWithRealCompaction(t *testing.T) {
+	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
+		workflowtest.FinalAnswer(`{"commentary":"first comments","prior_summary":"first summary"}`),
+		workflowtest.FinalAnswer("compacted prior work summary"),
+		workflowtest.FinalAnswer(`{"commentary":"second done"}`),
+	)
+	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeCompactAndContinueSession, "coder")
+	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow chained: %v", err)
+	}
+	task := fixture.createStartedTask(t)
+
+	if err := fixture.scheduler(t).Process(context.Background()); err != nil {
+		t.Fatalf("first Process: %v", err)
+	}
+	fixture.waitForRunCount(t, task.ID, 2)
+	if err := fixture.scheduler(t).Process(context.Background()); err != nil {
+		t.Fatalf("second Process: %v", err)
+	}
+	fixture.waitForAllRunsCompleted(t, task.ID, 2)
+
+	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("runs = %+v, want 2", runs)
+	}
+	if runs[1].SessionID == "" || runs[1].SessionID != runs[0].SessionID {
+		t.Fatalf("runs = %+v, want compact_and_continue_session to reuse the source session in place", runs)
+	}
+	events := fixture.sessionEventsText(t, runs[0].SessionID)
+	if strings.Contains(events, "Workflow compacted continuation context.") {
+		t.Fatalf("session events unexpectedly contain the removed compact-continuation stub: %q", events)
+	}
+	if !strings.Contains(events, "history_replaced") {
+		t.Fatalf("session events missing real compaction (history_replaced): %q", events)
+	}
+	// plan turn + real compaction summary + node turn = at least three model
+	// calls, proving compaction ran in place rather than fabricating a stub.
+	if reqs := fixture.client.Requests(); len(reqs) < 3 {
+		t.Fatalf("model request count = %d, want >=3 (plan, compaction, node turn)", len(reqs))
+	}
+}
+
+func TestWorkflowRuntimeCompactAndContinueRejectsCrossRole(t *testing.T) {
 	fixture := newChainedStarterFixture(t)
 	workflowID := createChainedStarterWorkflowWithContextMode(t, fixture.store, workflow.ContextModeCompactAndContinueSession, "reviewer")
 	if _, err := fixture.store.LinkWorkflow(context.Background(), fixture.projectID, workflowID, true); err != nil {
 		t.Fatalf("LinkWorkflow chained: %v", err)
 	}
 	task := fixture.createStartedTask(t)
-	firstScheduler := fixture.scheduler(t)
 
-	if err := firstScheduler.Process(context.Background()); err != nil {
+	if err := fixture.scheduler(t).Process(context.Background()); err != nil {
 		t.Fatalf("first Process: %v", err)
 	}
 	fixture.waitForRunCount(t, task.ID, 2)
+	secondErr := fixture.scheduler(t).Process(context.Background())
+	if secondErr == nil || !strings.Contains(secondErr.Error(), "requires same subagent role") {
+		t.Fatalf("second Process error = %v, want same-role rejection", secondErr)
+	}
+
 	runs, err := fixture.store.ListRuns(context.Background(), task.ID)
 	if err != nil {
-		t.Fatalf("ListRuns after first run: %v", err)
+		t.Fatalf("ListRuns: %v", err)
 	}
-	if len(runs) != 2 || strings.TrimSpace(runs[0].SessionID) == "" || runs[1].StartedAt != 0 {
-		t.Fatalf("runs after first process = %+v, want completed source and unstarted compact target", runs)
+	if len(runs) != 2 || runs[1].InterruptedAt == 0 {
+		t.Fatalf("runs = %+v, want cross-role compact_and_continue target interrupted", runs)
 	}
-	secondScheduler := fixture.scheduler(t)
-
-	if err := secondScheduler.Process(context.Background()); err != nil {
-		t.Fatalf("second Process: %v", err)
+	var detail string
+	_ = fixture.metadata.DB().QueryRowContext(context.Background(), `SELECT interruption_detail_json FROM task_runs WHERE id = ?`, string(runs[1].ID)).Scan(&detail)
+	if !strings.Contains(detail, "requires same subagent role") {
+		t.Fatalf("interruption detail = %s, want same-role rejection", detail)
 	}
-	fixture.waitForAllRunsCompleted(t, task.ID, 2)
-	runs, err = fixture.store.ListRuns(context.Background(), task.ID)
-	if err != nil {
-		t.Fatalf("ListRuns after second run: %v", err)
-	}
-	if runs[1].SessionID == "" || runs[1].SessionID == runs[0].SessionID {
-		t.Fatalf("runs = %+v, want compact_and_continue_session to use fresh target session", runs)
-	}
-	targetRecord, err := fixture.metadata.ResolvePersistedSession(context.Background(), runs[1].SessionID)
-	if err != nil {
-		t.Fatalf("ResolvePersistedSession target: %v", err)
-	}
-	if targetRecord.Meta == nil || targetRecord.Meta.ParentSessionID != runs[0].SessionID {
-		t.Fatalf("target session parent = %+v, want source session %q", targetRecord.Meta, runs[0].SessionID)
-	}
-	sourceEvents := fixture.sessionEventsText(t, runs[0].SessionID)
-	targetEvents := fixture.sessionEventsText(t, runs[1].SessionID)
-	compactMarker := "Workflow compacted continuation context."
-	if strings.Contains(sourceEvents, compactMarker) {
-		t.Fatalf("source session events unexpectedly contain compact continuation marker: %q", sourceEvents)
-	}
-	if !strings.Contains(targetEvents, compactMarker) || !strings.Contains(targetEvents, "Source session: "+runs[0].SessionID) {
-		t.Fatalf("target session events missing compact continuation context for source %q: %q", runs[0].SessionID, targetEvents)
-	}
-	reqs := fixture.client.Requests()
-	if len(reqs) < 2 {
-		t.Fatalf("fake model request count = %d, want 2", len(reqs))
-	}
-	if reqs[1].Model != "gpt-5.4-reviewer" {
-		t.Fatalf("second request model = %q, want reviewer role model", reqs[1].Model)
-	}
-	assertPromptContains(t, reqs[1], []string{"Source session:", "prior_summary: first summary", "Use Run workflow and first summary."})
 }
 
 func TestWorkflowRuntimeStartFailsWhenRoleDisappearedAfterTaskStart(t *testing.T) {

@@ -40,6 +40,29 @@ func ForkAtUserMessage(parent *Store, userMessageIndex int, forkName string) (*S
 		return nil, fmt.Errorf("user message index %d is out of range", userMessageIndex)
 	}
 
+	return newChildFromReplay(parent, parentMeta, replay, forkName)
+}
+
+// CloneSession creates a child session that replays the parent's entire
+// conversation history. Workflow compact-and-continue fan-out branches use this
+// so each parallel continuation compacts its own isolated copy of the source
+// conversation instead of mutating the shared source session.
+func CloneSession(parent *Store, forkName string) (*Store, error) {
+	if parent == nil {
+		return nil, fmt.Errorf("parent store is required")
+	}
+	parentMeta := parent.Meta()
+	replay := make([]ReplayEvent, 0)
+	if err := parent.WalkEvents(func(evt Event) error {
+		replay = append(replay, ReplayEvent{StepID: evt.StepID, Kind: evt.Kind, Payload: append([]byte(nil), evt.Payload...)})
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("read parent events: %w", err)
+	}
+	return newChildFromReplay(parent, parentMeta, replay, forkName)
+}
+
+func newChildFromReplay(parent *Store, parentMeta Meta, replay []ReplayEvent, forkName string) (*Store, error) {
 	containerDir := filepath.Dir(parent.Dir())
 	child, err := newLazyWithStoreOptions(containerDir, parentMeta.WorkspaceContainer, parentMeta.WorkspaceRoot, parent.options)
 	if err != nil {

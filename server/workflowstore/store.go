@@ -242,14 +242,18 @@ type RunnableRunRecord struct {
 }
 
 type RunStartContext struct {
-	Run                  RunRecord
-	Task                 TaskRecord
-	Workflow             WorkflowRecord
-	Node                 NodeRecord
-	ContextMode          workflow.ContextMode
-	SourceRunID          workflow.RunID
-	SourceSessionID      string
-	SourceNode           NodeRecord
+	Run             RunRecord
+	Task            TaskRecord
+	Workflow        WorkflowRecord
+	Node            NodeRecord
+	ContextMode     workflow.ContextMode
+	SourceRunID     workflow.RunID
+	SourceSessionID string
+	SourceNode      NodeRecord
+	// IsFanoutBranch is true when this run's placement is one branch of a
+	// parallel fan-out transition group. Continuation modes must isolate such
+	// runs (fork the source session) instead of sharing/mutating it.
+	IsFanoutBranch       bool
 	TransitionIDs        []string
 	TransitionOptions    []TransitionOption
 	PromptTemplate       string

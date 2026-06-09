@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 	"text/template"
@@ -20,6 +19,7 @@ import (
 	"builder/server/runtimeview"
 	"builder/server/runtimewire"
 	"builder/server/session"
+	"builder/server/sessionpath"
 	askquestion "builder/server/tools/askquestion"
 	shelltool "builder/server/tools/shell"
 	"builder/server/workflow"
@@ -289,7 +289,21 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 		if strings.TrimSpace(input.SourceSessionID) == "" {
 			return launch.SessionPlan{}, nil, errors.New("compact_and_continue_session requires a source session")
 		}
-		plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, ForceNewSession: true})
+		if strings.TrimSpace(input.SourceNode.SubagentRole) != strings.TrimSpace(input.Node.SubagentRole) {
+			return launch.SessionPlan{}, nil, fmt.Errorf("compact_and_continue_session requires same subagent role: source %q target %q", input.SourceNode.SubagentRole, input.Node.SubagentRole)
+		}
+		// In-place continuation reuses the source session; the runtime runs a real
+		// compaction before the node turn. A fan-out branch instead continues in an
+		// isolated full clone of the source so parallel branches never compact or
+		// mutate the shared source session concurrently.
+		continuationSessionID := input.SourceSessionID
+		if input.IsFanoutBranch {
+			continuationSessionID, err = s.cloneSourceSessionForFanout(containerDir, input.SourceSessionID)
+			if err != nil {
+				return launch.SessionPlan{}, nil, err
+			}
+		}
+		plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: continuationSessionID})
 	default:
 		return launch.SessionPlan{}, nil, fmt.Errorf("unsupported workflow context mode %q", input.ContextMode)
 	}
@@ -297,17 +311,9 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 		return launch.SessionPlan{}, nil, err
 	}
 	warnings := []string{}
-	if input.ContextMode == "" || input.ContextMode == workflow.ContextModeNewSession || input.ContextMode == workflow.ContextModeCompactAndContinueSession {
+	if input.ContextMode == "" || input.ContextMode == workflow.ContextModeNewSession {
 		plan, warnings, err = launch.ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: input.Node.SubagentRole}, auth.EmptyState())
 		if err != nil {
-			return launch.SessionPlan{}, nil, err
-		}
-	}
-	if input.ContextMode == workflow.ContextModeCompactAndContinueSession {
-		if err := plan.Store.SetParentSessionID(input.SourceSessionID); err != nil {
-			return launch.SessionPlan{}, nil, err
-		}
-		if err := appendWorkflowCompactContinuation(plan.Store, input); err != nil {
 			return launch.SessionPlan{}, nil, err
 		}
 	}
@@ -317,28 +323,23 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 	return plan, warnings, nil
 }
 
-func appendWorkflowCompactContinuation(store *session.Store, input workflowstore.RunStartContext) error {
-	if store == nil {
-		return errors.New("compact continuation session store is required")
+// cloneSourceSessionForFanout creates an isolated full clone of the source
+// session for a fan-out compact-and-continue branch and returns its session ID,
+// so the branch can be compacted/continued without touching the shared source.
+func (s *Starter) cloneSourceSessionForFanout(containerDir, sourceSessionID string) (string, error) {
+	sourceDir, err := sessionpath.ResolveScopedSessionDir(containerDir, sourceSessionID)
+	if err != nil {
+		return "", fmt.Errorf("resolve source session dir: %w", err)
 	}
-	lines := []string{
-		"Workflow compacted continuation context.",
-		"Source run: " + string(input.SourceRunID),
-		"Source session: " + strings.TrimSpace(input.SourceSessionID),
-		"Target node: " + string(input.Node.Key),
+	sourceStore, err := session.Open(sourceDir, s.storeOptions...)
+	if err != nil {
+		return "", fmt.Errorf("open source session: %w", err)
 	}
-	if len(input.ParameterValues) > 0 {
-		lines = append(lines, "Bound transition parameters:")
-		for _, value := range workflowInputValues(input.ParameterValues) {
-			lines = append(lines, "- "+value.Name+": "+value.Value)
-		}
+	cloned, err := session.CloneSession(sourceStore, "")
+	if err != nil {
+		return "", fmt.Errorf("clone source session: %w", err)
 	}
-	_, _, err := store.AppendEvent("workflow-compact-continuation", "message", llm.Message{
-		Role:        llm.RoleDeveloper,
-		MessageType: llm.MessageTypeCompactionSummary,
-		Content:     strings.Join(lines, "\n"),
-	})
-	return err
+	return cloned.Meta().SessionID, nil
 }
 
 func (s *Starter) validateRole(role string) error {
@@ -429,6 +430,16 @@ func (s *Starter) run(ctx context.Context, req workflowscheduler.StartRunRequest
 	}
 	registration := runtimewire.RegisterSessionRuntime(plan.Store.Meta().SessionID, wiring.Engine, runtimeRegistry, s.backgroundRouter)
 	defer registration.Close()
+	if input.ContextMode == workflow.ContextModeCompactAndContinueSession {
+		if err := wiring.Engine.CompactContext(ctx, ""); err != nil {
+			reason := ReasonRuntimeFailed
+			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+				reason = ReasonRuntimeCanceled
+			}
+			s.interrupt(context.Background(), req.RunID, req.Generation, reason, err)
+			return
+		}
+	}
 	if _, err := wiring.Engine.SubmitWorkflowTurn(ctx); err != nil {
 		reason := ReasonRuntimeFailed
 		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
@@ -568,15 +579,6 @@ func workflowCompletionTransitions(options []workflowstore.TransitionOption, tra
 	return out
 }
 
-func workflowInputValues(values map[string]string) []prompts.WorkflowInputValue {
-	names := sortedInputValueNames(values)
-	out := make([]prompts.WorkflowInputValue, 0, len(names))
-	for _, name := range names {
-		out = append(out, prompts.WorkflowInputValue{Name: name, Value: values[name]})
-	}
-	return out
-}
-
 type nodePromptTemplateData struct {
 	TaskId          string
 	TaskShortId     string
@@ -653,15 +655,6 @@ func promptParameterData(current map[string]string, prior map[string]map[string]
 		out[key] = namespace
 	}
 	return out
-}
-
-func sortedInputValueNames(values map[string]string) []string {
-	names := make([]string, 0, len(values))
-	for name := range values {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
 
 var _ workflowscheduler.RuntimeStarter = (*Starter)(nil)

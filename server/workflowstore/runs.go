@@ -244,6 +244,10 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 	if err != nil {
 		return RunStartContext{}, err
 	}
+	isFanoutBranch, err := s.placementIsFanoutBranch(ctx, run.TaskID, run.PlacementID)
+	if err != nil {
+		return RunStartContext{}, err
+	}
 	runMetadata := workflowRunMetadata{}
 	if strings.TrimSpace(run.MetadataJson) != "" {
 		if err := workflowjson.UnmarshalString(run.MetadataJson, &runMetadata); err != nil {
@@ -267,6 +271,7 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 			SourceRunID:          transitionContext.SourceRunID,
 			SourceSessionID:      transitionContext.SourceSessionID,
 			SourceNode:           transitionContext.SourceNode,
+			IsFanoutBranch:       isFanoutBranch,
 			TransitionIDs:        transitionIDsFromSnapshot(snapshot),
 			TransitionOptions:    transitionOptionsFromSnapshot(snapshot),
 			PromptTemplate:       strings.TrimSpace(runMetadata.PromptTemplate),
@@ -307,6 +312,27 @@ func (s *Store) GetRunStartContext(ctx context.Context, runID workflow.RunID) (R
 		WorktreeID:           worktree.ID,
 		WorktreeRoot:         worktree.CanonicalRoot,
 	}, nil
+}
+
+// placementIsFanoutBranch reports whether the run's placement was created as a
+// branch of a parallel fan-out transition group. The scheduler records this by
+// setting ParallelBranchEdgeID only on fan-out branch placements.
+func (s *Store) placementIsFanoutBranch(ctx context.Context, taskID, placementID string) (bool, error) {
+	placementID = strings.TrimSpace(placementID)
+	if placementID == "" {
+		return false, nil
+	}
+	placements, err := s.queries.ListTaskNodePlacements(ctx, taskID)
+	if err != nil {
+		return false, fmt.Errorf("list task node placements: %w", err)
+	}
+	for _, placement := range placements {
+		if placement.ID != placementID {
+			continue
+		}
+		return placement.ParallelBranchEdgeID.Valid && strings.TrimSpace(placement.ParallelBranchEdgeID.String) != "", nil
+	}
+	return false, nil
 }
 
 type runTransitionContext struct {
