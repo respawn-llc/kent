@@ -190,6 +190,15 @@ export function workflowGraphLayoutWithDraftProjection(
         if (model === undefined) {
           return [];
         }
+        // A draft change to group membership leaves the laid-out node's
+        // structural fields (parentId/extent and the position they imply)
+        // stale; we cannot recompute relative geometry without ELK. Drop the
+        // node until the next layout rather than rendering it in the wrong
+        // container, mirroring the deleted-entity drop above.
+        const expectedParentID = model.groupID ? groupNodeID(model.groupID) : undefined;
+        if (node.parentId !== expectedParentID) {
+          return [];
+        }
         return [
           {
             ...node,
@@ -228,9 +237,16 @@ export function workflowGraphLayoutWithDraftProjection(
       if (edge.data === undefined) {
         return [edge];
       }
+      // Reconnect endpoints from the draft model so a re-targeted edge attaches
+      // to the correct nodes/handles immediately; only the route geometry stays
+      // stale until ELK relayouts.
       return [
         {
           ...edge,
+          source: model.sourceNodeID,
+          sourceHandle: model.sourcePort.id,
+          target: model.targetNodeID,
+          targetHandle: model.targetPort.id,
           markerEnd: { color: workflowEdgeColor(model.contextMode, model.hasError), type: MarkerType.ArrowClosed },
           data: {
             ...edge.data,
