@@ -544,17 +544,6 @@ func (s *Store) SetContinuationContext(ctx ContinuationContext) error {
 	return s.unlockAndObservePersistence(s.persistMetaLocked())
 }
 
-func (s *Store) SetAgentsInjected(injected bool) error {
-	s.mu.Lock()
-	if s.meta.AgentsInjected == injected && (!s.persisted || s.hasDurableMetadataLocked()) {
-		s.mu.Unlock()
-		return nil
-	}
-	s.meta.AgentsInjected = injected
-	s.meta.UpdatedAt = time.Now().UTC()
-	return s.unlockAndObservePersistence(s.persistMetaLocked())
-}
-
 func (s *Store) MarkGeneratedRecoveredWarningIssued() error {
 	return s.mutateAndPersist(func() error {
 		s.meta.GeneratedRecoveredWarningIssued = true

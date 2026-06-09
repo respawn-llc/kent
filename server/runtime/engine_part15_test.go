@@ -717,9 +717,7 @@ func TestRequestRepairsMissingBaseContextAfterReplacementRestart(t *testing.T) {
 	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace)
 	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "after repair"}, Usage: llm.Usage{WindowTokens: 200000}}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
-	if err := store.SetAgentsInjected(true); err != nil {
-		t.Fatalf("seed injected flag: %v", err)
-	}
+	eng.baseMetaInjected = true
 	if err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary seed"}})); err != nil {
 		t.Fatalf("replace history: %v", err)
 	}
@@ -744,7 +742,7 @@ type failOnHistoryReplacementAgentResetObservation struct {
 }
 
 func (o *failOnHistoryReplacementAgentResetObservation) ObservePersistedStore(_ context.Context, snapshot session.PersistedStoreSnapshot) error {
-	if !o.failed && snapshot.Meta.LastSequence >= 2 && !snapshot.Meta.AgentsInjected {
+	if !o.failed && snapshot.Meta.LastSequence >= 2 {
 		o.failed = true
 		return errors.New("persist observer failed after history replacement append")
 	}
@@ -760,9 +758,7 @@ func TestRequestRepairsMissingBaseContextAfterHistoryReplacementAppendObserverFa
 	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "before replacement"})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	if err := store.SetAgentsInjected(true); err != nil {
-		t.Fatalf("seed injected flag: %v", err)
-	}
+	eng.baseMetaInjected = true
 
 	err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary seed"}}))
 	if err == nil {
@@ -811,9 +807,7 @@ func TestHistoryReplacementAppendObserverFailureUpdatesLiveActiveListForNextTurn
 	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "before replacement"})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	if err := store.SetAgentsInjected(true); err != nil {
-		t.Fatalf("seed injected flag: %v", err)
-	}
+	eng.baseMetaInjected = true
 
 	err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary seed"}}))
 	if err == nil {

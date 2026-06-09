@@ -684,9 +684,6 @@ func TestInitializeChildFromParentCopiesContextWithoutConversationState(t *testi
 	}); err != nil {
 		t.Fatalf("MarkModelDispatchLocked parent: %v", err)
 	}
-	if err := parent.SetAgentsInjected(true); err != nil {
-		t.Fatalf("MarkAgentsInjected parent: %v", err)
-	}
 	if err := parent.SetContinuationContext(ContinuationContext{OpenAIBaseURL: "http://parent.local/v1"}); err != nil {
 		t.Fatalf("SetContinuationContext parent: %v", err)
 	}
@@ -718,9 +715,6 @@ func TestInitializeChildFromParentCopiesContextWithoutConversationState(t *testi
 	}
 	if meta.WorkspaceRoot != "/tmp/work-parent" || meta.WorkspaceContainer != "workspace-parent" {
 		t.Fatalf("workspace context = root %q container %q, want parent", meta.WorkspaceRoot, meta.WorkspaceContainer)
-	}
-	if meta.AgentsInjected {
-		t.Fatal("expected fresh child to reinject developer context on its first turn")
 	}
 	if meta.Locked == nil || meta.Locked.Model != "locked-parent" || len(meta.Locked.EnabledTools) != 2 {
 		t.Fatalf("locked contract = %+v, want parent lock", meta.Locked)

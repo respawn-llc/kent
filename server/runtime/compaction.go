@@ -574,10 +574,7 @@ func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionM
 		statusErr := e.emitCompactionStatus(stepID, EventCompactionFailed, mode, result.engine, providerID, result.trimmedItemsCount, 0, err.Error())
 		return compactionResult{}, errors.Join(err, statusErr)
 	}
-	if err := e.store.SetAgentsInjected(true); err != nil {
-		statusErr := e.emitCompactionStatus(stepID, EventCompactionFailed, mode, result.engine, providerID, result.trimmedItemsCount, 0, err.Error())
-		return compactionResult{}, errors.Join(err, statusErr)
-	}
+	e.baseMetaInjected = true
 	if strings.TrimSpace(result.summary) != "" && result.engine != "local" {
 		summary := strings.TrimSpace(result.summary)
 		if err := e.steer(stepID, steerLocalEntryIntent(storedLocalEntry{Role: "compaction_summary", Text: summary})); err != nil {

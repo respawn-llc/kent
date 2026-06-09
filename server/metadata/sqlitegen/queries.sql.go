@@ -987,7 +987,6 @@ SELECT
     s.last_sequence,
     s.model_request_count,
     s.in_flight_step,
-    s.agents_injected,
     s.continuation_json,
     s.locked_json,
     s.usage_state_json,
@@ -1011,7 +1010,6 @@ type GetSessionRecordByIDRow struct {
 	LastSequence       int64
 	ModelRequestCount  int64
 	InFlightStep       int64
-	AgentsInjected     int64
 	ContinuationJson   string
 	LockedJson         string
 	UsageStateJson     string
@@ -1034,7 +1032,6 @@ func (q *Queries) GetSessionRecordByID(ctx context.Context, sessionID string) (G
 		&i.LastSequence,
 		&i.ModelRequestCount,
 		&i.InFlightStep,
-		&i.AgentsInjected,
 		&i.ContinuationJson,
 		&i.LockedJson,
 		&i.UsageStateJson,
@@ -4983,7 +4980,6 @@ INSERT INTO sessions (
     last_sequence,
     model_request_count,
     in_flight_step,
-    agents_injected,
     launch_visible,
     cwd_relpath,
     continuation_json,
@@ -5010,8 +5006,7 @@ INSERT INTO sessions (
     ?17,
     ?18,
     ?19,
-    ?20,
-    ?21
+    ?20
 )
 ON CONFLICT(id) DO UPDATE SET
     project_id = excluded.project_id,
@@ -5026,7 +5021,6 @@ ON CONFLICT(id) DO UPDATE SET
     last_sequence = excluded.last_sequence,
     model_request_count = excluded.model_request_count,
     in_flight_step = excluded.in_flight_step,
-    agents_injected = excluded.agents_injected,
     launch_visible = CASE
         WHEN sessions.launch_visible <> 0 OR excluded.launch_visible <> 0 THEN 1
         ELSE 0
@@ -5053,7 +5047,6 @@ type UpsertSessionParams struct {
 	LastSequence       int64
 	ModelRequestCount  int64
 	InFlightStep       int64
-	AgentsInjected     int64
 	LaunchVisible      int64
 	CwdRelpath         string
 	ContinuationJson   string
@@ -5078,7 +5071,6 @@ func (q *Queries) UpsertSession(ctx context.Context, arg UpsertSessionParams) er
 		arg.LastSequence,
 		arg.ModelRequestCount,
 		arg.InFlightStep,
-		arg.AgentsInjected,
 		arg.LaunchVisible,
 		arg.CwdRelpath,
 		arg.ContinuationJson,

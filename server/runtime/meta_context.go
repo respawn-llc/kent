@@ -710,32 +710,18 @@ func canonicalizeMetaContextMessage(message llm.Message, classification metaCont
 	return message
 }
 
-func missingBaseMetaContextMessages(desired, existing []llm.Message) []llm.Message {
-	seen := make(map[metaContextKind]map[string]bool)
-	for _, message := range existing {
+// baseMetaContextPresent reports whether the conversation already carries any
+// base meta context message (AGENTS.md, skills, subagents, environment). It is
+// the resume-time signal that gates the one-time base meta injection.
+func baseMetaContextPresent(messages []llm.Message) bool {
+	for _, message := range messages {
 		classification, ok := classifyMetaContextMessage(message)
 		if !ok || !isBaseMetaContextKind(classification.kind) || classification.key == "" {
 			continue
 		}
-		keys := seen[classification.kind]
-		if keys == nil {
-			keys = make(map[string]bool)
-			seen[classification.kind] = keys
-		}
-		keys[classification.key] = true
+		return true
 	}
-	missing := make([]llm.Message, 0, len(desired))
-	for _, message := range desired {
-		classification, ok := classifyMetaContextMessage(message)
-		if !ok || !isBaseMetaContextKind(classification.kind) || classification.key == "" {
-			continue
-		}
-		if seen[classification.kind][classification.key] {
-			continue
-		}
-		missing = append(missing, message)
-	}
-	return missing
+	return false
 }
 
 func isBaseMetaContextKind(kind metaContextKind) bool {

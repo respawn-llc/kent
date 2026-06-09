@@ -1703,7 +1703,6 @@ INSERT INTO sessions (
     last_sequence,
     model_request_count,
     in_flight_step,
-    agents_injected,
     launch_visible,
     cwd_relpath,
     continuation_json,
@@ -1725,7 +1724,6 @@ INSERT INTO sessions (
     sqlc.arg(last_sequence),
     sqlc.arg(model_request_count),
     sqlc.arg(in_flight_step),
-    sqlc.arg(agents_injected),
     sqlc.arg(launch_visible),
     sqlc.arg(cwd_relpath),
     sqlc.arg(continuation_json),
@@ -1746,7 +1744,6 @@ ON CONFLICT(id) DO UPDATE SET
     last_sequence = excluded.last_sequence,
     model_request_count = excluded.model_request_count,
     in_flight_step = excluded.in_flight_step,
-    agents_injected = excluded.agents_injected,
     launch_visible = CASE
         WHEN sessions.launch_visible <> 0 OR excluded.launch_visible <> 0 THEN 1
         ELSE 0
@@ -2037,7 +2034,6 @@ SELECT
     s.last_sequence,
     s.model_request_count,
     s.in_flight_step,
-    s.agents_injected,
     s.continuation_json,
     s.locked_json,
     s.usage_state_json,

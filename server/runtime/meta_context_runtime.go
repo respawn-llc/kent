@@ -29,9 +29,22 @@ func (e *Engine) ensureMetaContextForCompaction(ctx context.Context, stepID stri
 	return e.steerBaseMetaContextIfNeeded(stepID)
 }
 
+// steerBaseMetaContextIfNeeded injects base meta context (AGENTS.md, skills,
+// subagents, environment) exactly once per conversation. A resumed transcript
+// that already carries this context marks the guard during restore, so this is
+// a no-op on resume. Compaction reinjects base meta directly into the rebuilt
+// active list, so the guard stays set across compactions.
 func (e *Engine) steerBaseMetaContextIfNeeded(stepID string) error {
-	meta := e.store.Meta()
-	if meta.AgentsInjected {
+	if e.baseMetaInjected {
+		return nil
+	}
+	// The in-process guard is only a fast path; the active transcript is the
+	// source of truth. A resumed conversation (or any path that left the guard
+	// out of sync with persisted history) must never re-inject base meta on top
+	// of context the transcript already carries. Treat presence as already
+	// injected so duplication is structurally impossible across restarts.
+	if baseMetaContextPresent(e.snapshotMessages()) {
+		e.baseMetaInjected = true
 		return nil
 	}
 	builder := e.newActiveBaseMetaContextBuilder(e.cfg.Model, time.Now())
@@ -39,22 +52,20 @@ func (e *Engine) steerBaseMetaContextIfNeeded(stepID string) error {
 	if err != nil {
 		return err
 	}
-	missingMessages := missingBaseMetaContextMessages(metaResult.OrderedInjectionMessages(), e.snapshotMessages())
 	intents := make([]steeringIntent, 0, 2)
-	if len(missingMessages) > 0 {
-		if combined := strings.TrimSpace(strings.Join(metaResult.SkillWarnings, "\n")); combined != "" {
-			intents = append(intents, steerLocalEntryIntent(storedLocalEntry{
-				Visibility: transcript.EntryVisibilityAll,
-				Role:       "warning",
-				Text:       combined,
-			}))
-		}
-		intents = append(intents, steerRuntimeContextMessagesIntent(missingMessages))
+	if combined := strings.TrimSpace(strings.Join(metaResult.SkillWarnings, "\n")); combined != "" {
+		intents = append(intents, steerLocalEntryIntent(storedLocalEntry{
+			Visibility: transcript.EntryVisibilityAll,
+			Role:       "warning",
+			Text:       combined,
+		}))
 	}
+	intents = append(intents, steerRuntimeContextMessagesIntent(metaResult.OrderedInjectionMessages()))
 	if err := e.steer(stepID, intents...); err != nil {
 		return err
 	}
-	return e.store.SetAgentsInjected(true)
+	e.baseMetaInjected = true
+	return nil
 }
 
 func (e *Engine) steerHeadlessModeTransitionIfNeeded(stepID string) error {

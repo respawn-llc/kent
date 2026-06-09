@@ -150,9 +150,6 @@ func TestFreshChildSessionReinjectsDeveloperContextEvenWhenParentAlreadyInjected
 
 	storeRoot := t.TempDir()
 	parent := mustCreateNamedTestSessionAt(t, storeRoot, "parent", workspace)
-	if err := parent.SetAgentsInjected(true); err != nil {
-		t.Fatalf("mark parent agents injected: %v", err)
-	}
 	child, err := session.NewLazy(storeRoot, "child", workspace)
 	if err != nil {
 		t.Fatalf("create child: %v", err)

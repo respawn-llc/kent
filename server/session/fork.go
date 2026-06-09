@@ -48,7 +48,6 @@ func ForkAtUserMessage(parent *Store, userMessageIndex int, forkName string) (*S
 
 	child.mu.Lock()
 	child.meta.Locked = cloneLockedContract(parentMeta.Locked)
-	child.meta.AgentsInjected = parentMeta.AgentsInjected
 	child.meta.CompactionSoonReminderIssued = reminderIssuedFromReplayEvents(replay)
 	child.meta.WorktreeReminder = forkedWorktreeReminderState(parentMeta.WorktreeReminder)
 	child.meta.UsageState = nil
@@ -133,7 +132,6 @@ func InitializeChildFromParentWithOptions(child *Store, parent *Store, opts Chil
 	} else {
 		child.meta.Locked = nil
 	}
-	child.meta.AgentsInjected = false
 	child.meta.WorkspaceRoot = parentMeta.WorkspaceRoot
 	child.meta.WorkspaceContainer = parentMeta.WorkspaceContainer
 	child.meta.WorktreeReminder = forkedWorktreeReminderState(parentMeta.WorktreeReminder)

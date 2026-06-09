@@ -90,6 +90,10 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 	if err := e.store.SetCompactionSoonReminderIssued(reminderIssued); err != nil {
 		return err
 	}
+	// A resumed transcript that already carries base meta context must not have
+	// it injected again; the one-time boot injection only runs for fresh
+	// sessions whose active list lacks it.
+	e.baseMetaInjected = baseMetaContextPresent(e.snapshotMessages())
 	if futureMessage := recoveredHandoff.PendingFutureMessage(); futureMessage != "" {
 		e.queuePendingHandoffFutureMessage(futureMessage)
 	}

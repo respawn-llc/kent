@@ -129,7 +129,6 @@ type Meta struct {
 	LastSequence                    int64                  `json:"last_sequence"`
 	ModelRequestCount               int64                  `json:"model_request_count"`
 	InFlightStep                    bool                   `json:"in_flight_step"`
-	AgentsInjected                  bool                   `json:"agents_injected"`
 	CompactionSoonReminderIssued    bool                   `json:"compaction_soon_reminder_issued,omitempty"`
 	GeneratedRecoveredWarningIssued bool                   `json:"generated_recovered_warning_issued,omitempty"`
 	WorktreeReminder                *WorktreeReminderState `json:"worktree_reminder,omitempty"`

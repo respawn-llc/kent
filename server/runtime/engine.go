@@ -170,6 +170,13 @@ type Engine struct {
 
 	beforePersistMessage    func(llm.Message) error
 	beforePersistLocalEntry func(storedLocalEntry) error
+
+	// baseMetaInjected guards the single per-conversation injection of base meta
+	// context (AGENTS.md, skills, subagents, environment). It is set when a
+	// resumed transcript already carries that context, and after the one-time
+	// boot injection. It is process-local: the persisted transcript itself is the
+	// source of truth across restarts.
+	baseMetaInjected bool
 }
 
 type handoffRequest struct {

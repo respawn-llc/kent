@@ -617,9 +617,6 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	if err := parent.SetContinuationContext(session.ContinuationContext{OpenAIBaseURL: "http://parent.local/v1"}); err != nil {
 		t.Fatalf("SetContinuationContext parent: %v", err)
 	}
-	if err := parent.SetAgentsInjected(true); err != nil {
-		t.Fatalf("MarkAgentsInjected parent: %v", err)
-	}
 	if err := parent.MarkModelDispatchLocked(session.LockedContract{
 		Model:             "locked-parent-model",
 		EnabledTools:      []string{"shell"},
@@ -679,9 +676,6 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	childMeta := plan.Store.Meta()
 	if childMeta.ParentSessionID != parent.Meta().SessionID {
 		t.Fatalf("child parent session id = %q, want %q", childMeta.ParentSessionID, parent.Meta().SessionID)
-	}
-	if childMeta.AgentsInjected {
-		t.Fatal("expected fresh child to reinject developer context on its first turn")
 	}
 	if childMeta.Locked == nil || childMeta.Locked.Model != "locked-parent-model" {
 		t.Fatalf("child locked contract = %+v, want parent model lock", childMeta.Locked)

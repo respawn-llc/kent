@@ -33,7 +33,6 @@ func TestResolvePersistedSessionRejectsEscapingArtifactRelpath(t *testing.T) {
 		LastSequence:       0,
 		ModelRequestCount:  0,
 		InFlightStep:       0,
-		AgentsInjected:     0,
 		LaunchVisible:      0,
 		CwdRelpath:         ".",
 		ContinuationJson:   "{}",
