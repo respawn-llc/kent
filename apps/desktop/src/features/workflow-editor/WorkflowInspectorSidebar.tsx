@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Sidebar keeps read-only and draft-backed workflow inspector paths together for now. */
-import { useCallback, useEffect, useId, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import {
   closestCenter,
   DndContext,
@@ -542,7 +542,21 @@ function PromptTemplateEditor({
 }>) {
   const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const pendingSelectionRef = useRef<Readonly<{ cursor: number; scrollToEnd: boolean }> | null>(null);
   const promptInputId = useId();
+  useLayoutEffect(() => {
+    const pending = pendingSelectionRef.current;
+    const textarea = textareaRef.current;
+    if (pending === null || textarea === null) {
+      return;
+    }
+    pendingSelectionRef.current = null;
+    textarea.focus({ preventScroll: true });
+    textarea.setSelectionRange(pending.cursor, pending.cursor);
+    if (pending.scrollToEnd) {
+      textarea.scrollTop = textarea.scrollHeight;
+    }
+  }, [promptTemplate]);
   const insertPlaceholder = useCallback(
     (placeholder: string) => {
       const textarea = textareaRef.current;
@@ -551,14 +565,8 @@ function PromptTemplateEditor({
       const insertAt = hasCursor ? textarea.selectionEnd : currentValue.length;
       const nextValue = `${currentValue.slice(0, insertAt)}${placeholder}${currentValue.slice(insertAt)}`;
       const nextCursor = insertAt + placeholder.length;
+      pendingSelectionRef.current = { cursor: nextCursor, scrollToEnd: !hasCursor };
       onPromptChange(nextValue);
-      requestAnimationFrame(() => {
-        textarea?.focus({ preventScroll: true });
-        textarea?.setSelectionRange(nextCursor, nextCursor);
-        if (!hasCursor && textarea !== null) {
-          textarea.scrollTop = textarea.scrollHeight;
-        }
-      });
     },
     [onPromptChange, promptTemplate],
   );

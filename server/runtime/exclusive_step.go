@@ -58,7 +58,7 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 			if snapshot.GoalLoop {
 				mode = RunModeGoalLoop
 			}
-			s.engine.emit(Event{Kind: EventRunStateChanged, StepID: stepID, RunState: &RunState{
+			_ = s.engine.steerEvent(stepID, Event{Kind: EventRunStateChanged, StepID: stepID, RunState: &RunState{
 				Lifecycle: RunningRunLifecycle(mode),
 				RunID:     snapshot.RunID,
 				Status:    snapshot.Status,
@@ -88,7 +88,7 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 				state.StartedAt = snapshot.StartedAt
 				state.FinishedAt = snapshot.FinishedAt
 			}
-			s.engine.emit(Event{Kind: EventRunStateChanged, StepID: stepID, RunState: state})
+			_ = s.engine.steerEvent(stepID, Event{Kind: EventRunStateChanged, StepID: stepID, RunState: state})
 		}
 		if options.PersistRunLifecycle && snapshot != nil {
 			if _, persistErr := s.engine.store.AppendRunFinished(session.RunRecord{
@@ -103,7 +103,7 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 		}
 		if clearErr := s.engine.store.MarkInFlight(false); clearErr != nil {
 			wrapped := fmt.Errorf("mark in-flight false: %w", clearErr)
-			s.engine.emit(Event{Kind: EventInFlightClearFailed, StepID: stepID, Error: wrapped.Error()})
+			_ = s.engine.steerEvent(stepID, Event{Kind: EventInFlightClearFailed, StepID: stepID, Error: wrapped.Error()})
 			err = errors.Join(err, wrapped)
 		} else {
 			if s.background != nil {
@@ -132,7 +132,7 @@ func (s *defaultExclusiveStepLifecycle) Interrupt() error {
 		return nil
 	}
 	s.mu.Unlock()
-	if err := s.engine.appendMessage("", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeInterruption, Content: interruptMessage}); err != nil {
+	if err := s.engine.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeInterruption, Content: interruptMessage})); err != nil {
 		return err
 	}
 	if err := s.engine.store.MarkInFlight(false); err != nil {

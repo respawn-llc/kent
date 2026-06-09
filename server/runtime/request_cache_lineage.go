@@ -221,8 +221,9 @@ func (e *Engine) observePromptCacheResponse(stepID string, prepared preparedCach
 		return err
 	}
 	if warning != nil {
-		e.applyPersistedCacheWarning(*warning)
-		e.emit(Event{Kind: EventCacheWarning, StepID: stepID, CacheWarning: copyCacheWarning(warning), CacheWarningVisibility: cacheWarningEntryVisibility(e.cfg.CacheWarningMode), CommittedTranscriptChanged: true})
+		if err := e.steer(stepID, steerCacheWarningIntent(*warning, cacheWarningEntryVisibility(e.cfg.CacheWarningMode), true)); err != nil {
+			return err
+		}
 	}
 	e.modelRequests().RequestCache().RecordResponse(response)
 	return nil
@@ -270,24 +271,6 @@ func (e *Engine) restorePromptCacheResponse(payload []byte) error {
 		e.modelRequests().RequestCache().RecordResponse(response)
 	}
 	return nil
-}
-
-func applyPersistedCacheWarningToChat(chat *chatStore, payload []byte, mode config.CacheWarningMode) error {
-	var warning cachewarn.Warning
-	if err := json.Unmarshal(payload, &warning); err != nil {
-		return fmt.Errorf("decode %s event: %w", sessionEventCacheWarning, err)
-	}
-	if chat != nil {
-		chat.appendLocalEntryRecord(ChatEntry{Visibility: cacheWarningEntryVisibility(mode), Role: cacheWarningTranscriptRole, Text: cachewarn.Text(warning)})
-	}
-	return nil
-}
-
-func (e *Engine) applyPersistedCacheWarning(warning cachewarn.Warning) {
-	if e == nil {
-		return
-	}
-	e.transcriptPersistence().AppendLocalEntryWithVisibility(cacheWarningTranscriptRole, cachewarn.Text(warning), cacheWarningEntryVisibility(e.cfg.CacheWarningMode))
 }
 
 func copyCacheWarning(in *cachewarn.Warning) *cachewarn.Warning {

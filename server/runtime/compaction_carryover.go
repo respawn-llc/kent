@@ -86,11 +86,11 @@ func (c compactionCarryoverCoordinator) appendPostCompactionMessages(stepID stri
 		message := item.message
 		switch message.MessageType {
 		case llm.MessageTypeManualCompactionCarryover:
-			if err := e.appendMessageWithoutConversationUpdate(stepID, message); err != nil {
+			if err := e.steer(stepID, steerMessageWithoutDerivedEventIntent(message)); err != nil {
 				return err
 			}
 		default:
-			if err := e.appendMessage(stepID, message); err != nil {
+			if err := e.steer(stepID, steerMessageIntent(message)); err != nil {
 				if message.MessageType == llm.MessageTypeHandoffFutureMessage {
 					e.queuePendingHandoffFutureMessage(item.pendingHandoffFutureText)
 				}

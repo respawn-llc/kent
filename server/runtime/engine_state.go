@@ -132,9 +132,7 @@ func (e *Engine) appendLocalEntry(entry storedLocalEntry) {
 	if entry.Role == "" || entry.Text == "" {
 		return
 	}
-	e.transcriptPersistence().AppendLocalEntryRecord(*localEntryChatEntry(entry))
-	e.emit(Event{Kind: EventLocalEntryAdded, LocalEntry: localEntryChatEntry(entry)})
-	e.emitConversationUpdated("")
+	_ = e.steer("", steerTransientLocalEntryIntent(entry))
 }
 
 func (e *Engine) RecordPromptHistory(text string) error {
@@ -148,12 +146,12 @@ func (e *Engine) RecordPromptHistory(text string) error {
 
 func (e *Engine) SetOngoingError(text string) {
 	e.transcriptPersistence().SetOngoingError(text)
-	e.emit(Event{Kind: EventOngoingErrorUpdated})
+	_ = e.steerEvent("", Event{Kind: EventOngoingErrorUpdated})
 }
 
 func (e *Engine) ClearOngoingError() {
 	e.transcriptPersistence().ClearOngoingError()
-	e.emit(Event{Kind: EventOngoingErrorUpdated})
+	_ = e.steerEvent("", Event{Kind: EventOngoingErrorUpdated})
 }
 
 func (e *Engine) SetSessionName(name string) error {
@@ -561,6 +559,10 @@ func (e *Engine) modelRequests() *modelRequestRuntimeState {
 }
 
 func (e *Engine) emit(evt Event) {
+	_ = e.steerEvent(evt.StepID, evt)
+}
+
+func (e *Engine) emitRaw(evt Event) {
 	evt.TranscriptRevision = e.TranscriptRevision()
 	evt.CommittedEntryCount = e.CommittedTranscriptEntryCount()
 	if evt.ContextUsage == nil && eventShouldCarryContextUsage(evt) {
@@ -595,15 +597,15 @@ func eventShouldCarryContextUsage(evt Event) bool {
 }
 
 func (e *Engine) emitConversationUpdated(stepID string) {
-	e.emit(Event{Kind: EventConversationUpdated, StepID: stepID})
+	_ = e.steerConversationUpdated(stepID)
 }
 
 func (e *Engine) emitCommittedTranscriptAdvanced(stepID string) {
-	e.emit(Event{Kind: EventConversationUpdated, StepID: stepID, CommittedTranscriptChanged: true})
+	_ = e.steerCommittedTranscriptAdvanced(stepID)
 }
 
 func (e *Engine) emitCommittedMessageTranscriptAdvanced(stepID string, msg llm.Message) {
-	e.emit(Event{Kind: EventConversationUpdated, StepID: stepID, CommittedTranscriptChanged: true, Message: msg})
+	_ = e.steerCommittedMessageTranscriptAdvanced(stepID, msg)
 }
 
 func eventMayInferCommittedEntryStart(kind EventKind) bool {

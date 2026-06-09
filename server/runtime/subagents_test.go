@@ -187,9 +187,9 @@ func TestCompactionReinjectsSubagentsMetaContext(t *testing.T) {
 		SubagentCatalogSettings: settings,
 	})
 
-	messages, err := eng.compactionReinjectedBaseMessages()
+	messages, err := eng.compactionReinjectedMetaMessages(context.Background())
 	if err != nil {
-		t.Fatalf("compactionReinjectedBaseMessages: %v", err)
+		t.Fatalf("compactionReinjectedMetaMessages: %v", err)
 	}
 	if !hasSubagentCatalog(messages, "- `worker`: Callable helper.") {
 		t.Fatalf("expected compaction-reinjected subagent catalog, got %+v", messages)

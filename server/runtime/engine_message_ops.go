@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,7 +16,7 @@ import (
 	"builder/shared/transcript"
 )
 
-func (e *Engine) persistToolCompletion(stepID string, r tools.Result) error {
+func (e *Engine) persistToolCompletionRaw(stepID string, r tools.Result) error {
 	if sessionID, ok := harvestedBackgroundCompletionSessionID(r); ok {
 		e.ensureOrchestrationCollaborators()
 		e.backgroundFlow.ConsumePendingBackgroundNotice(sessionID)
@@ -38,6 +37,10 @@ func (e *Engine) persistToolCompletion(stepID string, r tools.Result) error {
 		e.transcriptPersistence().RecordStoredToolCompletion(payload)
 	}
 	return err
+}
+
+func (e *Engine) persistToolCompletion(stepID string, r tools.Result) error {
+	return e.steer(stepID, steerToolCompletionIntent(r))
 }
 
 func (e *Engine) providerItemsForToolCompletion(r tools.Result) []llm.ResponseItem {
@@ -76,69 +79,12 @@ func (e *Engine) providerItemsForToolCompletion(r tools.Result) []llm.ResponseIt
 
 func (e *Engine) appendUserMessage(stepID, text string) error {
 	msg := llm.Message{Role: llm.RoleUser, Content: text}
-	return e.appendMessage(stepID, msg)
+	return e.steer(stepID, steerUserMessageIntent(msg))
 }
 
 func (e *Engine) appendUserMessageWithoutConversationUpdate(stepID, text string) error {
 	msg := llm.Message{Role: llm.RoleUser, Content: text}
-	return e.appendMessageWithoutConversationUpdate(stepID, msg)
-}
-
-func (e *Engine) injectHeadlessModeTransitionPromptIfNeeded(stepID string) error {
-	if e.workflowRunActive() {
-		return nil
-	}
-	builder := newMetaContextBuilder(e.store.Meta().WorkspaceRoot, e.cfg.Model, e.ThinkingLevel(), e.cfg.DisabledSkills, time.Now())
-	headlessActive := e.transcriptRuntimeState().HeadlessActive()
-	if e.cfg.HeadlessMode {
-		if !shouldInjectHeadlessModePromptForState(headlessActive) {
-			return nil
-		}
-		metaResult, err := builder.Build(metaContextBuildOptions{IncludeHeadless: true})
-		if err != nil {
-			return err
-		}
-		if len(metaResult.Headless) == 0 {
-			return nil
-		}
-		return e.appendMessage(stepID, metaResult.Headless[0])
-	}
-	if !headlessActive {
-		return nil
-	}
-	metaResult, err := builder.Build(metaContextBuildOptions{IncludeHeadlessExit: true})
-	if err != nil {
-		return err
-	}
-	if len(metaResult.HeadlessExit) == 0 {
-		return nil
-	}
-	return e.appendMessage(stepID, metaResult.HeadlessExit[0])
-}
-
-func (e *Engine) injectWorkflowModePromptIfNeeded(ctx context.Context, stepID string) error {
-	if !e.workflowRunActive() {
-		return nil
-	}
-	runID := strings.TrimSpace(string(e.cfg.WorkflowRun.Contract.RunID))
-	for _, msg := range e.snapshotMessages() {
-		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeWorkflowMode && strings.TrimSpace(msg.SourcePath) == runID {
-			return nil
-		}
-	}
-	mode, err := e.workflowCompletionMode(ctx)
-	if err != nil {
-		return err
-	}
-	message, ok, renderErr := workflowModeMetaMessage(mode, e.cfg.WorkflowRun)
-	if renderErr != nil {
-		return renderErr
-	}
-	if !ok {
-		return nil
-	}
-	message.SourcePath = runID
-	return e.appendMessage(stepID, message)
+	return e.steer(stepID, steerUserMessageWithoutDerivedEventIntent(msg))
 }
 
 func shouldInjectHeadlessModePromptForState(active bool) bool {
@@ -163,12 +109,16 @@ func headlessModeActive(messages []llm.Message) bool {
 }
 
 func (e *Engine) appendAssistantMessage(stepID string, msg llm.Message) error {
-	return e.appendMessageWithoutConversationUpdate(stepID, msg)
+	return e.steer(stepID, steerMessageWithoutDerivedEventIntent(msg))
 }
 
-func (e *Engine) appendReasoningEntries(stepID string, entries []llm.ReasoningEntry) error {
+func (e *Engine) steerReasoningEntries(stepID string, entries []llm.ReasoningEntry) error {
 	for _, entry := range entries {
-		if err := e.appendPersistedLocalEntry(stepID, entry.Role, entry.Text); err != nil {
+		if err := e.steer(stepID, steerLocalEntryIntent(storedLocalEntry{
+			Visibility: transcript.EntryVisibilityAuto,
+			Role:       entry.Role,
+			Text:       entry.Text,
+		})); err != nil {
 			return err
 		}
 	}
@@ -188,10 +138,14 @@ func (e *Engine) appendPersistedLocalEntryWithOngoingText(stepID, role, text, on
 	})
 }
 
-func (e *Engine) appendPersistedDiagnosticEntry(stepID, diagnosticKey, role, text string) error {
+func (e *Engine) steerPersistedDiagnosticEntry(stepID, diagnosticKey, role, text string) error {
 	diagnosticKey = strings.TrimSpace(diagnosticKey)
 	if diagnosticKey == "" {
-		return e.appendPersistedLocalEntry(stepID, role, text)
+		return e.steer(stepID, steerLocalEntryIntent(storedLocalEntry{
+			Visibility: transcript.EntryVisibilityAuto,
+			Role:       role,
+			Text:       text,
+		}))
 	}
 	if !e.beginLocalDiagnostic(diagnosticKey) {
 		return nil
@@ -209,17 +163,22 @@ func (e *Engine) appendPersistedDiagnosticEntry(stepID, diagnosticKey, role, tex
 		e.clearLocalDiagnostic(diagnosticKey)
 		return nil
 	}
-	_, err := e.store.AppendEvent(stepID, "local_entry", entry)
-	if err != nil {
+	if err := e.steer(stepID, steerLocalEntryIntent(entry)); err != nil {
 		e.clearLocalDiagnostic(diagnosticKey)
 		return err
 	}
-	e.transcriptPersistence().AppendLocalEntryWithOngoingText(entry.Role, entry.Text, entry.OngoingText)
-	e.emit(Event{Kind: EventLocalEntryAdded, StepID: stepID, LocalEntry: localEntryChatEntry(entry), CommittedTranscriptChanged: true})
 	return nil
 }
 
+func (e *Engine) appendPersistedDiagnosticEntry(stepID, diagnosticKey, role, text string) error {
+	return e.steerPersistedDiagnosticEntry(stepID, diagnosticKey, role, text)
+}
+
 func (e *Engine) appendPersistedLocalEntryRecord(stepID string, entry storedLocalEntry) error {
+	return e.steer(stepID, steerLocalEntryIntent(entry))
+}
+
+func (e *Engine) appendPersistedLocalEntryRecordRaw(stepID string, entry storedLocalEntry) error {
 	entry.Role = strings.TrimSpace(entry.Role)
 	entry.Text = strings.TrimSpace(entry.Text)
 	entry.OngoingText = strings.TrimSpace(entry.OngoingText)
@@ -236,9 +195,23 @@ func (e *Engine) appendPersistedLocalEntryRecord(stepID string, entry storedLoca
 	_, err := e.store.AppendEvent(stepID, "local_entry", entry)
 	if err == nil {
 		e.transcriptPersistence().AppendLocalEntryRecord(*localEntryChatEntry(entry))
-		e.emit(Event{Kind: EventLocalEntryAdded, StepID: stepID, LocalEntry: localEntryChatEntry(entry), CommittedTranscriptChanged: true})
+		e.emitRaw(Event{Kind: EventLocalEntryAdded, StepID: stepID, LocalEntry: localEntryChatEntry(entry), CommittedTranscriptChanged: true})
 	}
 	return err
+}
+
+func (e *Engine) appendTransientLocalEntryRecordRaw(entry storedLocalEntry) {
+	entry.Role = strings.TrimSpace(entry.Role)
+	entry.Text = strings.TrimSpace(entry.Text)
+	entry.OngoingText = strings.TrimSpace(entry.OngoingText)
+	entry.DiagnosticKey = strings.TrimSpace(entry.DiagnosticKey)
+	entry.NoticeID = strings.TrimSpace(entry.NoticeID)
+	if entry.Role == "" || entry.Text == "" {
+		return
+	}
+	e.transcriptPersistence().AppendLocalEntryRecord(*localEntryChatEntry(entry))
+	e.emitRaw(Event{Kind: EventLocalEntryAdded, LocalEntry: localEntryChatEntry(entry)})
+	e.emitRaw(Event{Kind: EventConversationUpdated})
 }
 
 func localEntryChatEntry(entry storedLocalEntry) *ChatEntry {
@@ -284,6 +257,10 @@ func (e *Engine) diagnosticDedupeStore() *diagnosticDedupeStore {
 }
 
 func (e *Engine) appendMessage(stepID string, msg llm.Message) error {
+	return e.steer(stepID, steerMessageIntent(msg))
+}
+
+func (e *Engine) appendMessageRaw(stepID string, msg llm.Message, eventPolicy steeringMessageEventPolicy, persist bool) error {
 	msg = normalizeMessageForTranscript(msg, e.transcriptWorkingDir())
 	previousCommittedCount := e.CommittedTranscriptEntryCount()
 	if e.beforePersistMessage != nil {
@@ -297,38 +274,31 @@ func (e *Engine) appendMessage(stepID string, msg llm.Message) error {
 		e.markCurrentRequestShapeDirty()
 	}
 	e.transcriptPersistence().AppendMessage(msg)
-	_, err := e.store.AppendEvent(stepID, "message", msg)
-	if err == nil {
-		currentCommittedCount := e.CommittedTranscriptEntryCount()
-		if currentCommittedCount > previousCommittedCount && msg.Role == llm.RoleDeveloper && (msg.MessageType == llm.MessageTypeGoal || msg.MessageType == llm.MessageTypeWorktreeMode || msg.MessageType == llm.MessageTypeWorktreeModeExit) {
-			e.emitCommittedMessageTranscriptAdvanced(stepID, msg)
-		}
-	}
-	return err
-}
-
-func (e *Engine) appendMessageWithoutConversationUpdate(stepID string, msg llm.Message) error {
-	msg = normalizeMessageForTranscript(msg, e.transcriptWorkingDir())
-	if e.beforePersistMessage != nil {
-		if err := e.beforePersistMessage(msg); err != nil {
+	if persist {
+		if _, err := e.store.AppendEvent(stepID, "message", msg); err != nil {
 			return err
 		}
 	}
-	if mutation := tokenUsageMutationForMessage(msg); mutation == tokenUsageMutationSignificant {
-		e.markCurrentRequestShapeDirtyForSignificantMutation()
-	} else {
-		e.markCurrentRequestShapeDirty()
+	currentCommittedCount := e.CommittedTranscriptEntryCount()
+	if eventPolicy != steeringMessageEventNone && currentCommittedCount > previousCommittedCount && msg.Role == llm.RoleDeveloper && (msg.MessageType == llm.MessageTypeGoal || msg.MessageType == llm.MessageTypeWorktreeMode || msg.MessageType == llm.MessageTypeWorktreeModeExit) {
+		e.emitRaw(Event{Kind: EventConversationUpdated, StepID: stepID, CommittedTranscriptChanged: true, Message: msg})
 	}
-	e.transcriptPersistence().AppendMessage(msg)
-	_, err := e.store.AppendEvent(stepID, "message", msg)
-	return err
+	return nil
+}
+
+func (e *Engine) appendMessageWithoutConversationUpdate(stepID string, msg llm.Message) error {
+	return e.steer(stepID, steerMessageWithoutDerivedEventIntent(msg))
 }
 
 func (e *Engine) clearStreamingAssistantState(stepID string) {
+	_ = e.steer(stepID, steerClearStreamingStateIntent())
+}
+
+func (e *Engine) clearStreamingAssistantStateRaw(stepID string) {
 	e.transcriptPersistence().ClearStreamingAssistantState()
-	e.emitConversationUpdated(stepID)
-	e.emit(Event{Kind: EventAssistantDeltaReset, StepID: stepID})
-	e.emit(Event{Kind: EventReasoningDeltaReset, StepID: stepID})
+	e.emitRaw(Event{Kind: EventConversationUpdated, StepID: stepID})
+	e.emitRaw(Event{Kind: EventAssistantDeltaReset, StepID: stepID})
+	e.emitRaw(Event{Kind: EventReasoningDeltaReset, StepID: stepID})
 }
 
 func flushedUserMessageEvent(msg llm.Message, stepID string) *Event {

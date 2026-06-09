@@ -41,7 +41,7 @@ func TestChatStoreSnapshotPreservesVisibleEntryOrdering(t *testing.T) {
 			},
 		},
 		{
-			name: "history survives history replacement",
+			name: "detail transcript keeps pre-replacement history",
 			seed: func(s *chatStore) {
 				s.appendMessage(llm.Message{Role: llm.RoleUser, Content: "a"})
 				s.appendMessage(llm.Message{Role: llm.RoleAssistant, Content: "b"})

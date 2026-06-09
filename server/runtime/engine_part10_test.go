@@ -619,7 +619,7 @@ func TestManualCompactionDoesNotReinjectHeadlessEnterAfterExit(t *testing.T) {
 			t.Fatalf("did not expect headless enter reinjection after exit, got messages=%+v", messages)
 		}
 		if message.MessageType == llm.MessageTypeHeadlessModeExit {
-			t.Fatalf("did not expect historical headless exit to survive compaction, got messages=%+v", messages)
+			t.Fatalf("did not expect historical headless exit in the new compaction list, got messages=%+v", messages)
 		}
 	}
 }

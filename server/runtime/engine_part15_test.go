@@ -5,6 +5,7 @@ import (
 	"builder/server/llm"
 	"builder/server/session"
 	"builder/server/tools"
+	"builder/shared/config"
 	"builder/shared/toolspec"
 	"builder/shared/transcript"
 	"context"
@@ -610,6 +611,314 @@ func TestAutoCompactionRemoteDropsPreCompactionDeveloperContext(t *testing.T) {
 	if envCount != 1 {
 		t.Fatalf("expected remote compaction to reinject exactly one current environment context, got %d", envCount)
 	}
+}
+
+func TestRemoteCompactionReinjectsActiveWorkflowPrompt(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
+		OutputItems: []llm.ResponseItem{
+			{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "remote summary"},
+			{Type: llm.ResponseItemTypeCompaction, ID: "cmp_1", EncryptedContent: "enc_1"},
+		},
+		Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+	}}}
+	workflowCfg := testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool)
+	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{Model: "gpt-5"})
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+
+	if _, err := eng.compactNow(context.Background(), "step-1", compactionModeManual, "", false); err != nil {
+		t.Fatalf("compactNow: %v", err)
+	}
+
+	workflowMessages := workflowModeMessagesFromItems(eng.snapshotItems())
+	if len(workflowMessages) != 1 {
+		t.Fatalf("workflow prompt count after compaction = %d, want 1; items=%+v", len(workflowMessages), eng.snapshotItems())
+	}
+	workflowPrompt := workflowMessages[0]
+	if workflowPrompt.SourcePath != "run-1" {
+		t.Fatalf("workflow prompt source path = %q, want run-1", workflowPrompt.SourcePath)
+	}
+	for _, want := range []string{"ticket `BUI-1`", "Workflow task", "Do node work.", "complete_node"} {
+		if !strings.Contains(workflowPrompt.Content, want) {
+			t.Fatalf("workflow prompt missing %q:\n%s", want, workflowPrompt.Content)
+		}
+	}
+}
+
+func TestCompactionReplacementPayloadIsSeedAndRuntimeContextIsSteeredAfterward(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
+		OutputItems: []llm.ResponseItem{
+			{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "remote summary"},
+			{Type: llm.ResponseItemTypeCompaction, ID: "cmp_1", EncryptedContent: "enc_1"},
+		},
+		Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+	}}}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+
+	if _, err := eng.compactNow(context.Background(), "step-1", compactionModeManual, "", false); err != nil {
+		t.Fatalf("compactNow: %v", err)
+	}
+
+	events, err := store.ReadEvents()
+	if err != nil {
+		t.Fatalf("read events: %v", err)
+	}
+	historyIndex := -1
+	var replacement historyReplacementPayload
+	for idx, evt := range events {
+		if evt.Kind != "history_replaced" {
+			continue
+		}
+		historyIndex = idx
+		if err := json.Unmarshal(evt.Payload, &replacement); err != nil {
+			t.Fatalf("decode history replacement: %v", err)
+		}
+		break
+	}
+	if historyIndex < 0 {
+		t.Fatalf("expected history_replaced event, got %+v", events)
+	}
+	if len(replacement.Items) != 2 {
+		t.Fatalf("replacement seed item count = %d, want compacted summary and checkpoint: %+v", len(replacement.Items), replacement.Items)
+	}
+	for _, item := range replacement.Items {
+		if item.MessageType == llm.MessageTypeEnvironment || item.MessageType == llm.MessageTypeAgentsMD || item.MessageType == llm.MessageTypeSkills || item.MessageType == llm.MessageTypeWorkflowMode {
+			t.Fatalf("runtime context should be steered after replacement, not embedded in replacement payload: %+v", replacement.Items)
+		}
+	}
+	environmentSteeredAfterReplacement := false
+	for _, evt := range events[historyIndex+1:] {
+		if evt.Kind != "message" {
+			continue
+		}
+		var msg llm.Message
+		if err := json.Unmarshal(evt.Payload, &msg); err != nil {
+			t.Fatalf("decode message event: %v", err)
+		}
+		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeEnvironment {
+			environmentSteeredAfterReplacement = true
+			break
+		}
+	}
+	if !environmentSteeredAfterReplacement {
+		t.Fatalf("expected runtime context to be steered as message events after history replacement, events=%+v", events)
+	}
+}
+
+func TestRequestRepairsMissingBaseContextAfterReplacementRestart(t *testing.T) {
+	workspace := t.TempDir()
+	storeRoot := t.TempDir()
+	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace)
+	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "after repair"}, Usage: llm.Usage{WindowTokens: 200000}}}}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	if err := store.MarkAgentsInjected(); err != nil {
+		t.Fatalf("seed injected flag: %v", err)
+	}
+	if err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary seed"}})); err != nil {
+		t.Fatalf("replace history: %v", err)
+	}
+	if err := eng.Close(); err != nil {
+		t.Fatalf("close engine: %v", err)
+	}
+
+	reopenedStore := mustOpenTestSession(t, store.Dir())
+	reopenedClient := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done"}, Usage: llm.Usage{WindowTokens: 200000}}}}
+	reopened := mustNewTestEngine(t, reopenedStore, reopenedClient, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	if _, err := reopened.SubmitUserMessage(context.Background(), "continue"); err != nil {
+		t.Fatalf("submit after reopen: %v", err)
+	}
+	if len(reopenedClient.calls) != 1 {
+		t.Fatalf("model call count = %d, want 1", len(reopenedClient.calls))
+	}
+	assertRequestHasEnvironmentBeforeUser(t, reopenedClient.calls[0], "continue")
+}
+
+type failOnHistoryReplacementAgentResetObservation struct {
+	failed bool
+}
+
+func (o *failOnHistoryReplacementAgentResetObservation) ObservePersistedStore(_ context.Context, snapshot session.PersistedStoreSnapshot) error {
+	if !o.failed && snapshot.Meta.LastSequence >= 2 && !snapshot.Meta.AgentsInjected {
+		o.failed = true
+		return errors.New("persist observer failed after history replacement append")
+	}
+	return nil
+}
+
+func TestRequestRepairsMissingBaseContextAfterHistoryReplacementAppendObserverFailure(t *testing.T) {
+	workspace := t.TempDir()
+	storeRoot := t.TempDir()
+	observer := &failOnHistoryReplacementAgentResetObservation{}
+	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace, session.WithPersistenceObserver(observer))
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	if err := eng.appendMessage("step-1", llm.Message{Role: llm.RoleUser, Content: "before replacement"}); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+	if err := store.MarkAgentsInjected(); err != nil {
+		t.Fatalf("seed injected flag: %v", err)
+	}
+
+	err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary seed"}}))
+	if err == nil {
+		t.Fatal("expected replacement observer failure")
+	}
+	if !observer.failed {
+		t.Fatal("observer did not fail after history replacement append")
+	}
+	events, readErr := store.ReadEvents()
+	if readErr != nil {
+		t.Fatalf("read events: %v", readErr)
+	}
+	sawHistoryReplacement := false
+	for _, evt := range events {
+		if evt.Kind == "history_replaced" {
+			sawHistoryReplacement = true
+			break
+		}
+	}
+	if !sawHistoryReplacement {
+		t.Fatalf("expected durable history_replaced event after observer failure, got %+v", events)
+	}
+	if err := eng.Close(); err != nil {
+		t.Fatalf("close engine: %v", err)
+	}
+
+	reopenedStore := mustOpenTestSession(t, store.Dir())
+	reopenedClient := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done"}, Usage: llm.Usage{WindowTokens: 200000}}}}
+	reopened := mustNewTestEngine(t, reopenedStore, reopenedClient, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	if _, err := reopened.SubmitUserMessage(context.Background(), "continue"); err != nil {
+		t.Fatalf("submit after reopen: %v", err)
+	}
+	if len(reopenedClient.calls) != 1 {
+		t.Fatalf("model call count = %d, want 1", len(reopenedClient.calls))
+	}
+	assertRequestHasEnvironmentBeforeUser(t, reopenedClient.calls[0], "continue")
+}
+
+func TestHistoryReplacementAppendObserverFailureUpdatesLiveActiveListForNextTurn(t *testing.T) {
+	workspace := t.TempDir()
+	storeRoot := t.TempDir()
+	observer := &failOnHistoryReplacementAgentResetObservation{}
+	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace, session.WithPersistenceObserver(observer))
+	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: "done"}, Usage: llm.Usage{WindowTokens: 200000}}}}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	if err := eng.appendMessage("step-1", llm.Message{Role: llm.RoleUser, Content: "before replacement"}); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+	if err := store.MarkAgentsInjected(); err != nil {
+		t.Fatalf("seed injected flag: %v", err)
+	}
+
+	err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSummary, Content: "summary seed"}}))
+	if err == nil {
+		t.Fatal("expected replacement observer failure")
+	}
+	messages := eng.snapshotMessages()
+	if len(messages) != 1 || messages[0].MessageType != llm.MessageTypeCompactionSummary || messages[0].Content != "summary seed" {
+		t.Fatalf("live active list after committed replacement error = %+v, want compacted seed", messages)
+	}
+
+	if _, err := eng.SubmitUserMessage(context.Background(), "continue live"); err != nil {
+		t.Fatalf("submit after committed replacement error: %v", err)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("model call count = %d, want 1", len(client.calls))
+	}
+	assertRequestHasEnvironmentBeforeUser(t, client.calls[0], "continue live")
+	requestMessages := requestMessages(client.calls[0])
+	summarySeen := false
+	for _, msg := range requestMessages {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeCompactionSummary && msg.Content == "summary seed" {
+			summarySeen = true
+		}
+		if msg.Role == llm.RoleUser && msg.Content == "before replacement" {
+			t.Fatalf("request kept pre-replacement user message after committed replacement error: %+v", requestMessages)
+		}
+	}
+	if !summarySeen {
+		t.Fatalf("request missing compacted seed after committed replacement error: %+v", requestMessages)
+	}
+}
+
+func assertRequestHasEnvironmentBeforeUser(t *testing.T, request llm.Request, userText string) {
+	t.Helper()
+	messages := requestMessages(request)
+	environmentIndex := -1
+	userIndex := -1
+	for idx, msg := range messages {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType == llm.MessageTypeEnvironment {
+			environmentIndex = idx
+		}
+		if msg.Role == llm.RoleUser && msg.Content == userText {
+			userIndex = idx
+		}
+	}
+	if environmentIndex < 0 {
+		t.Fatalf("missing repaired environment context in request messages: %+v", messages)
+	}
+	if userIndex < 0 {
+		t.Fatalf("missing user message in request messages: %+v", messages)
+	}
+	if environmentIndex > userIndex {
+		t.Fatalf("environment context index %d should precede user index %d: %+v", environmentIndex, userIndex, messages)
+	}
+}
+
+func TestWorkflowRequestAfterCompactionDoesNotDuplicateReinjectedWorkflowPrompt(t *testing.T) {
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	client := &fakeCompactionClient{
+		compactionResponses: []llm.CompactionResponse{{
+			OutputItems: []llm.ResponseItem{
+				{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, MessageType: llm.MessageTypeCompactionSummary, Content: "remote summary"},
+				{Type: llm.ResponseItemTypeCompaction, ID: "cmp_1", EncryptedContent: "enc_1"},
+			},
+			Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+		}},
+	}
+	workflowCfg := testWorkflowConfig(controller, config.WorkflowCompletionModeTool)
+	eng := mustNewWorkflowTestEngine(t, store, client, workflowCfg, Config{Model: "gpt-5"})
+	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+	if _, err := eng.compactNow(context.Background(), "step-1", compactionModeManual, "", false); err != nil {
+		t.Fatalf("compactNow: %v", err)
+	}
+	client.responses = []llm.Response{commentaryResponse("complete",
+		completeNodeCall("call_complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`)),
+	)}
+
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("SubmitWorkflowTurn: %v", err)
+	}
+
+	if len(client.calls) != 1 {
+		t.Fatalf("model call count after compaction = %d, want 1", len(client.calls))
+	}
+	workflowMessages := workflowModeMessagesFromItems(client.calls[0].Items)
+	if len(workflowMessages) != 1 {
+		t.Fatalf("workflow prompt count in post-compaction request = %d, want 1; messages=%+v", len(workflowMessages), requestMessages(client.calls[0]))
+	}
+	if workflowMessages[0].SourcePath != "run-1" {
+		t.Fatalf("workflow prompt source path = %q, want run-1", workflowMessages[0].SourcePath)
+	}
+}
+
+func workflowModeMessagesFromItems(items []llm.ResponseItem) []llm.Message {
+	messages := llm.MessagesFromItems(items)
+	out := make([]llm.Message, 0, 1)
+	for _, message := range messages {
+		if message.Role == llm.RoleDeveloper && message.MessageType == llm.MessageTypeWorkflowMode {
+			out = append(out, message)
+		}
+	}
+	return out
 }
 
 func TestManualRemoteCompactionRebuildsCanonicalPrefixOrder(t *testing.T) {

@@ -164,6 +164,74 @@ export async function layoutWorkflowGraph(
   return { nodes: nodeLayout.nodes, edges };
 }
 
+export function workflowGraphLayoutWithDraftProjection(
+  layout: WorkflowGraphLayout,
+  definition: WorkflowDefinition,
+  validation: WorkflowValidation,
+): WorkflowGraphLayout {
+  const errorMarkers = validationMarkers(validation);
+  const nodesByID = new Map(definition.nodes.map((node) => [node.id, node]));
+  const groupsByGraphID = new Map(definition.nodeGroups.map((group) => [groupNodeID(group.id), group]));
+  const transitionGroupsByID = new Map(definition.transitionGroups.map((group) => [group.id, group]));
+  const edgeModelsByID = new Map(
+    visibleWorkflowGraphEdgeModels(definition, transitionGroupsByID, errorMarkers).map((model) => [
+      model.edgeID,
+      model,
+    ]),
+  );
+  return {
+    nodes: layout.nodes.map((node) => {
+      if (node.data.entityKind === "node") {
+        const model = nodesByID.get(node.data.entityID);
+        if (model === undefined) {
+          return node;
+        }
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            groupID: model.groupID,
+            hasError: errorMarkers.nodeIDs.has(model.id) || errorMarkers.relatedIDs.has(model.id),
+            key: model.key,
+            kind: model.kind,
+            label: model.name,
+            role: model.subagentRole,
+          },
+        };
+      }
+      const group = groupsByGraphID.get(node.id);
+      if (group === undefined) {
+        return node;
+      }
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          hasError: errorMarkers.relatedIDs.has(group.id),
+          label: group.name || group.key,
+        },
+      };
+    }),
+    edges: layout.edges.map((edge) => {
+      const model = edgeModelsByID.get(edge.id);
+      if (model === undefined || edge.data === undefined) {
+        return edge;
+      }
+      return {
+        ...edge,
+        markerEnd: { color: workflowEdgeColor(model.contextMode, model.hasError), type: MarkerType.ArrowClosed },
+        data: {
+          ...edge.data,
+          contextMode: model.contextMode,
+          hasError: model.hasError,
+          label: model.label,
+          transitionGroupID: model.transitionGroupID,
+        },
+      };
+    }),
+  };
+}
+
 function elkWorkflowNode(
   node: WorkflowDefinition["nodes"][number],
   endpointPorts: readonly WorkflowGraphEndpointPort[],

@@ -43,7 +43,7 @@ func (e *Engine) SetGoal(objective string, actor session.GoalActor) (session.Goa
 	if err != nil {
 		return session.GoalState{}, err
 	}
-	e.appendPersistedGoalDeveloperMessage("", msg)
+	e.steerPersistedGoalDeveloperMessage("", msg)
 	return goal, nil
 }
 
@@ -65,7 +65,7 @@ func (e *Engine) SetGoalStatus(status session.GoalStatus, actor session.GoalActo
 	if err != nil {
 		return session.GoalState{}, err
 	}
-	e.appendPersistedGoalDeveloperMessage("", msg)
+	e.steerPersistedGoalDeveloperMessage("", msg)
 	return goal, nil
 }
 
@@ -78,7 +78,7 @@ func (e *Engine) ClearGoal(actor session.GoalActor) (session.GoalState, error) {
 	if err != nil {
 		return session.GoalState{}, err
 	}
-	e.appendPersistedGoalDeveloperMessage("", msg)
+	e.steerPersistedGoalDeveloperMessage("", msg)
 	return goal, nil
 }
 
@@ -147,13 +147,7 @@ func (e *Engine) runGoalLoop(ctx context.Context, firstTurnAlreadyPrompted bool)
 func (e *Engine) runGoalTurn(ctx context.Context, appendNudge bool) (assistant llm.Message, err error) {
 	e.ensureOrchestrationCollaborators()
 	err = e.stepLifecycle.Run(ctx, exclusiveStepOptions{EmitRunState: true, PersistRunLifecycle: true, GoalLoop: true}, func(stepCtx context.Context, stepID string) error {
-		if err := e.injectAgentsIfNeeded(stepID); err != nil {
-			return err
-		}
-		if err := e.injectHeadlessModeTransitionPromptIfNeeded(stepID); err != nil {
-			return err
-		}
-		if err := e.injectWorkflowModePromptIfNeeded(stepCtx, stepID); err != nil {
+		if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 			return err
 		}
 		goal := e.Goal()
@@ -191,7 +185,11 @@ func (e *Engine) recordGoalLoopError(err error) {
 		return
 	}
 	message := "Goal loop stopped: " + err.Error()
-	if appendErr := e.appendPersistedLocalEntry("", string(transcript.EntryRoleDeveloperErrorFeedback), message); appendErr != nil {
+	if appendErr := e.steer("", steerLocalEntryIntent(storedLocalEntry{
+		Visibility: transcript.EntryVisibilityAuto,
+		Role:       string(transcript.EntryRoleDeveloperErrorFeedback),
+		Text:       message,
+	})); appendErr != nil {
 		e.SetOngoingError(message + " (also failed to persist error: " + appendErr.Error() + ")")
 		return
 	}
@@ -223,7 +221,7 @@ func (e *Engine) goalLoopState() *goalLoopState {
 }
 
 func (e *Engine) appendGoalDeveloperMessage(stepID string, content string, compact string) error {
-	return e.appendMessage(stepID, e.goalDeveloperMessage(content, compact))
+	return e.steer(stepID, steerMessageIntent(e.goalDeveloperMessage(content, compact)))
 }
 
 func (e *Engine) goalDeveloperMessage(content string, compact string) llm.Message {
@@ -235,14 +233,8 @@ func (e *Engine) goalDeveloperMessage(content string, compact string) llm.Messag
 	}, e.transcriptWorkingDir())
 }
 
-func (e *Engine) appendPersistedGoalDeveloperMessage(stepID string, msg llm.Message) {
-	previousCommittedCount := e.CommittedTranscriptEntryCount()
-	e.markCurrentRequestShapeDirty()
-	e.transcriptPersistence().AppendMessage(msg)
-	currentCommittedCount := e.CommittedTranscriptEntryCount()
-	if currentCommittedCount > previousCommittedCount && msg.Role == llm.RoleDeveloper && (msg.MessageType == llm.MessageTypeGoal || msg.MessageType == llm.MessageTypeWorktreeMode || msg.MessageType == llm.MessageTypeWorktreeModeExit) {
-		e.emitCommittedMessageTranscriptAdvanced(stepID, msg)
-	}
+func (e *Engine) steerPersistedGoalDeveloperMessage(stepID string, msg llm.Message) {
+	_ = e.steer(stepID, steerStoredMessageProjectionIntent(msg))
 }
 
 func (e *Engine) requireAskQuestionForActiveGoal() error {

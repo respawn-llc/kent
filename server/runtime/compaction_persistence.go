@@ -31,16 +31,22 @@ func (p compactionPersistence) replaceHistory(stepID, engine string, mode compac
 	reminderIssued := false
 	projectedStart := e.CommittedTranscriptEntryCount()
 	projectedEntries := transcriptEntriesFromHistoryReplacement(payload.Items)
-	if _, err := e.store.AppendEvent(stepID, "history_replaced", payload); err != nil {
+	if err := e.store.SetAgentsInjected(false); err != nil {
 		return err
+	}
+	_, committed, appendErr := e.store.AppendEventWithCommitStatus(stepID, "history_replaced", payload)
+	if appendErr != nil && !committed {
+		return appendErr
 	}
 	e.resetCurrentPreciseInputTracking()
 	e.resetLocalDiagnostics()
 	e.transcriptPersistence().ReplaceHistory(payload.Items)
 	e.setCompactionSoonReminderIssued(false)
 	p.emitProjectedHistoryReplacementEntries(stepID, projectedStart, projectedEntries)
-	e.emitConversationUpdated(stepID)
+	conversationErr := e.steerConversationUpdated(stepID)
 	return errors.Join(
+		appendErr,
+		conversationErr,
 		e.store.SetCompactionSoonReminderIssued(reminderIssued),
 		e.store.SetUsageState(nil),
 	)
@@ -59,7 +65,7 @@ func (p compactionPersistence) emitProjectedHistoryReplacementEntries(stepID str
 	}
 	for idx, entry := range entries {
 		copyEntry := clonePersistedChatEntry(entry)
-		e.emit(Event{
+		_ = e.steerEvent(stepID, Event{
 			Kind:                       EventLocalEntryAdded,
 			StepID:                     stepID,
 			LocalEntry:                 &copyEntry,
@@ -87,38 +93,35 @@ func (p compactionPersistence) emitStatus(stepID string, kind EventKind, mode co
 
 	switch kind {
 	case EventCompactionStarted:
-		e.emit(Event{
+		return e.steerEvent(stepID, Event{
 			Kind:       kind,
 			StepID:     stepID,
 			Compaction: status,
 		})
-		return nil
 	case EventCompactionCompleted:
-		e.emit(Event{
+		return e.steerEvent(stepID, Event{
 			Kind:       kind,
 			StepID:     stepID,
 			Compaction: status,
 		})
-		return nil
 	case EventCompactionFailed:
 		message := fmt.Sprintf("Context compaction failed (%s): %s", status.Mode, status.Error)
 		if strings.TrimSpace(status.Error) == "" {
 			message = fmt.Sprintf("Context compaction failed (%s).", status.Mode)
 		}
-		if err := e.appendPersistedLocalEntry(stepID, "error", message); err != nil {
-			e.emit(Event{
+		if err := e.steer(stepID, steerLocalEntryIntent(storedLocalEntry{Role: "error", Text: message})); err != nil {
+			_ = e.steerEvent(stepID, Event{
 				Kind:       kind,
 				StepID:     stepID,
 				Compaction: status,
 			})
 			return err
 		}
-		e.emit(Event{
+		return e.steerEvent(stepID, Event{
 			Kind:       kind,
 			StepID:     stepID,
 			Compaction: status,
 		})
-		return nil
 	default:
 		return nil
 	}

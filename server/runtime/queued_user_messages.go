@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"builder/server/llm"
 	"strings"
 	"sync"
 
@@ -9,7 +10,12 @@ import (
 
 type queuedUserMessageStore struct {
 	mu      sync.Mutex
-	pending []QueuedUserMessage
+	pending []queuedUserSteeringIntent
+}
+
+type queuedUserSteeringIntent struct {
+	message QueuedUserMessage
+	intent  steeringIntent
 }
 
 func newQueuedUserMessageStore() *queuedUserMessageStore {
@@ -18,8 +24,9 @@ func newQueuedUserMessageStore() *queuedUserMessageStore {
 
 func (s *queuedUserMessageStore) Queue(text string) QueuedUserMessage {
 	item := QueuedUserMessage{ID: uuid.NewString(), Text: text}
+	intent := steerUserMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleUser, Content: text})
 	s.mu.Lock()
-	s.pending = append(s.pending, item)
+	s.pending = append(s.pending, queuedUserSteeringIntent{message: item, intent: intent})
 	s.mu.Unlock()
 	return item
 }
@@ -34,7 +41,7 @@ func (s *queuedUserMessageStore) Discard(queueItemID string) bool {
 	filtered := s.pending[:0]
 	removed := false
 	for _, pending := range s.pending {
-		if pending.ID == id {
+		if pending.message.ID == id {
 			removed = true
 			continue
 		}
@@ -44,12 +51,12 @@ func (s *queuedUserMessageStore) Discard(queueItemID string) bool {
 	return removed
 }
 
-func (s *queuedUserMessageStore) Drain() []QueuedUserMessage {
+func (s *queuedUserMessageStore) Drain() []queuedUserSteeringIntent {
 	if s == nil {
 		return nil
 	}
 	s.mu.Lock()
-	pending := append([]QueuedUserMessage(nil), s.pending...)
+	pending := append([]queuedUserSteeringIntent(nil), s.pending...)
 	s.pending = nil
 	s.mu.Unlock()
 	return pending
@@ -70,5 +77,9 @@ func (s *queuedUserMessageStore) Snapshot() []QueuedUserMessage {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]QueuedUserMessage(nil), s.pending...)
+	out := make([]QueuedUserMessage, 0, len(s.pending))
+	for _, pending := range s.pending {
+		out = append(out, pending.message)
+	}
+	return out
 }

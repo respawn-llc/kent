@@ -272,6 +272,14 @@ func (s *Store) unlockAndObservePersistence(observation *persistenceObservation,
 	return s.observePersistence(observation)
 }
 
+func (s *Store) unlockAndObservePersistenceWithCommitStatus(observation *persistenceObservation, committed bool, err error) (bool, error) {
+	s.mu.Unlock()
+	if err != nil {
+		return committed, err
+	}
+	return committed, s.observePersistence(observation)
+}
+
 func (s *Store) EnsureDurable() error {
 	return s.mutateAndPersist(func() error { return nil })
 }
@@ -545,11 +553,18 @@ func (s *Store) SetContinuationContext(ctx ContinuationContext) error {
 }
 
 func (s *Store) MarkAgentsInjected() error {
-	return s.mutateAndPersist(func() error {
-		s.meta.AgentsInjected = true
-		s.meta.UpdatedAt = time.Now().UTC()
+	return s.SetAgentsInjected(true)
+}
+
+func (s *Store) SetAgentsInjected(injected bool) error {
+	s.mu.Lock()
+	if s.meta.AgentsInjected == injected && (!s.persisted || s.hasDurableMetadataLocked()) {
+		s.mu.Unlock()
 		return nil
-	})
+	}
+	s.meta.AgentsInjected = injected
+	s.meta.UpdatedAt = time.Now().UTC()
+	return s.unlockAndObservePersistence(s.persistMetaLocked())
 }
 
 func (s *Store) MarkGeneratedRecoveredWarningIssued() error {
@@ -639,17 +654,23 @@ func (s *Store) BackfillLockedReviewerPrompt(reviewerPrompt string) error {
 }
 
 func (s *Store) AppendEvent(stepID, kind string, payload any) (Event, error) {
+	evt, _, err := s.AppendEventWithCommitStatus(stepID, kind, payload)
+	return evt, err
+}
+
+func (s *Store) AppendEventWithCommitStatus(stepID, kind string, payload any) (Event, bool, error) {
 	s.mu.Lock()
 
 	evt, err := s.buildEventLocked(stepID, kind, payload, time.Now().UTC())
 	if err != nil {
 		s.mu.Unlock()
-		return Event{}, err
+		return Event{}, false, err
 	}
-	if err := s.appendObservedEventsLocked([]Event{evt}); err != nil {
-		return Event{}, err
+	committed, err := s.appendObservedEventsLockedWithCommitStatus([]Event{evt})
+	if err != nil {
+		return evt, committed, err
 	}
-	return evt, nil
+	return evt, committed, nil
 }
 
 func (s *Store) buildEventLocked(stepID, kind string, payload any, now time.Time) (Event, error) {
@@ -731,9 +752,15 @@ func (s *Store) AppendReplayEvents(events []ReplayEvent) ([]Event, error) {
 }
 
 func (s *Store) appendObservedEventsLocked(events []Event) error {
+	_, err := s.appendObservedEventsLockedWithCommitStatus(events)
+	return err
+}
+
+func (s *Store) appendObservedEventsLockedWithCommitStatus(events []Event) (bool, error) {
 	s.captureFirstPromptPreviewLocked(events)
 	s.advanceConversationFreshnessLocked(events)
-	return s.unlockAndObservePersistence(s.appendEventsAtomicLocked(events))
+	observation, committed, err := s.appendEventsAtomicLockedWithCommitStatus(events)
+	return s.unlockAndObservePersistenceWithCommitStatus(observation, committed, err)
 }
 
 type EventInput struct {
@@ -831,15 +858,20 @@ func (s *Store) hasDurableMetadataLocked() bool {
 }
 
 func (s *Store) appendEventsAtomicLocked(events []Event) (*persistenceObservation, error) {
+	observation, _, err := s.appendEventsAtomicLockedWithCommitStatus(events)
+	return observation, err
+}
+
+func (s *Store) appendEventsAtomicLockedWithCommitStatus(events []Event) (*persistenceObservation, bool, error) {
 	if err := s.ensurePersistedLocked(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := s.compactEventsIfNeededLocked(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	if _, err := s.appendEventsLogLocked(events); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	for _, e := range events {
 		s.meta.LastSequence = e.Seq
@@ -848,9 +880,9 @@ func (s *Store) appendEventsAtomicLocked(events []Event) (*persistenceObservatio
 	s.writesSinceCompaction++
 	snapshot, err := s.persistMetaLocked()
 	if err != nil {
-		return nil, err
+		return nil, true, err
 	}
-	return snapshot, nil
+	return snapshot, true, nil
 }
 
 func (s *Store) ensurePersistedLocked() error {

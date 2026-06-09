@@ -49,6 +49,7 @@ type metaContextBuildOptions struct {
 	IncludeHeadlessExit       bool
 	IncludeWorkflow           bool
 	WorkflowCompletionMode    workflowruntime.CompletionMode
+	WorkflowRun               *workflowruntime.Config
 	IncludeSkillWarnings      bool
 	PermissiveAgentsReadError bool
 }
@@ -208,11 +209,14 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 		}
 	}
 	if opts.IncludeWorkflow {
-		message, ok, err := workflowModeMetaMessage(opts.WorkflowCompletionMode, nil)
+		message, ok, err := workflowModeMetaMessage(opts.WorkflowCompletionMode, opts.WorkflowRun)
 		if err != nil {
 			return metaContextBuildResult{}, err
 		}
 		if ok {
+			if opts.WorkflowRun != nil {
+				message.SourcePath = strings.TrimSpace(string(opts.WorkflowRun.Contract.RunID))
+			}
 			collector.addMessages([]llm.Message{message})
 		}
 	}
@@ -708,6 +712,43 @@ func canonicalizeMetaContextMessage(message llm.Message, classification metaCont
 	message.Role = llm.RoleDeveloper
 	message.MessageType = classification.messageType
 	return message
+}
+
+func missingBaseMetaContextMessages(desired, existing []llm.Message) []llm.Message {
+	seen := make(map[metaContextKind]map[string]bool)
+	for _, message := range existing {
+		classification, ok := classifyMetaContextMessage(message)
+		if !ok || !isBaseMetaContextKind(classification.kind) || classification.key == "" {
+			continue
+		}
+		keys := seen[classification.kind]
+		if keys == nil {
+			keys = make(map[string]bool)
+			seen[classification.kind] = keys
+		}
+		keys[classification.key] = true
+	}
+	missing := make([]llm.Message, 0, len(desired))
+	for _, message := range desired {
+		classification, ok := classifyMetaContextMessage(message)
+		if !ok || !isBaseMetaContextKind(classification.kind) || classification.key == "" {
+			continue
+		}
+		if seen[classification.kind][classification.key] {
+			continue
+		}
+		missing = append(missing, message)
+	}
+	return missing
+}
+
+func isBaseMetaContextKind(kind metaContextKind) bool {
+	switch kind {
+	case metaContextKindAgents, metaContextKindSkills, metaContextKindSubagents, metaContextKindEnvironment:
+		return true
+	default:
+		return false
+	}
 }
 
 func agentSourceKey(path string) string {

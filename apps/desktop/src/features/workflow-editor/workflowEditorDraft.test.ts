@@ -38,7 +38,7 @@ describe("workflowEditorDraft", () => {
     });
     expect(workflowEditorDirtyState(graph)).toEqual({ dirty: true, graphDirty: true, metadataDirty: false });
     expect(graph.version).toBe(initial.version + 1);
-    expect(graph.graphVersion).toBe(initial.graphVersion + 1);
+    expect(graph.graphVersion).toBe(initial.graphVersion);
     expect(workflowDefinitionFromDraft(graph.draft).nodes[0]?.name).toBe("Edited agent");
     expect(workflowDefinitionFromDraft(graph.draft).nodes[0]?.outputFields).toEqual([
       { description: "Summary", name: "summary" },

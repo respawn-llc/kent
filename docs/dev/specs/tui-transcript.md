@@ -74,6 +74,7 @@
 ## Transcript Visibility
 
 - Transcript visibility is defined by one product matrix, not ad hoc filters.
+- Visibility is projection metadata from the runtime output stream, not a separate conversation mutation path.
 - Visibility values are `O` full ongoing+detail, `OC` collapsed/short ongoing plus full detail, `D` detail-only, and `X` hidden.
 - Unknown/malformed entries with recoverable text are `O`; empty unknown/malformed entries are `D` diagnostics.
 - Locked message-type visibility:
@@ -122,14 +123,14 @@
 - `InputField.Render(width)` owns rendered lines and cursor coordinates; callers must not splice unwrapped content into those lines.
 - Fallback to soft cursor is allowed only for verified cursor drift, wrap mismatch, or alt-screen corruption that cannot be solved in the renderer adapter.
 - Startup/onboarding/project/worktree input fields use `cli/tui/input.Editor` and `cli/tui/input.Field`, not Bubble `textinput.Model`, app-local wrappers, or additional text-input components.
-- In-turn user messaging supports both steering queueing and queued post-turn send.
+- In-turn user messaging queues typed steering intents for later safe-boundary delivery and supports queued post-turn send.
 - Queue/send hotkey is `Tab`; `Ctrl+Enter` is a compatibility alias.
 - Known `Ctrl+Enter` CSI encodings normalize to the same queue action.
 - Clipboard image paste hotkeys are `Ctrl+V` and `Ctrl+D`; they save clipboard images to temp PNG files and insert the path.
 - Mid-run steering is soft-insert only at safe boundaries after current tool completion.
 - Steering submissions never lock the input box; each `Enter` while busy queues another steering message.
 - Pending steering and pending user messages are strict FIFO.
-- Multiple steering messages flushed at one boundary coalesce into one user message separated by blank lines.
+- Multiple queued user steering messages flushed at one boundary coalesce into one user message separated by blank lines.
 - Pending queues are unbounded and in-memory only.
 - Injected mid-run messages persist only on delivery boundary.
 - Ctrl+C interrupt is turn-local: stop current model step and active tool process, keep app/session alive.
@@ -168,7 +169,7 @@
 - Create dialog auto-suggests target name only from sanitized session name. It does not fall back to current branch, main, or generic placeholder.
 - Create dialog has no explicit new/existing selector. Builder resolves typed `Branch or ref` asynchronously and shows `new branch`, `existing branch`, or `detached ref`.
 - `Branch or ref` appears before `Base ref`. `Base ref` defaults to `HEAD` and is required only for new branch creation.
-- Worktree transitions store latest pending typed developer-context reminder and materialize it through normal transcript path before next user/model turn.
+- Worktree transitions store the latest pending typed developer-context steering intent and materialize it at normal steering priority before the next user/model turn.
 - Worktree transitions do not append synthetic transcript notes.
 - Git remains source of truth for topology. Builder stores additive metadata and blocks deleting worktrees still targeted by another session.
 - Existing non-Builder git worktrees remain manageable and should be visually marked where feasible.

@@ -163,6 +163,22 @@ func TestRenderWorkflowTaskInstructionsUsesCompletionModeFragment(t *testing.T) 
 	}
 }
 
+func TestWorkflowFinalAnswerNudgePrompt(t *testing.T) {
+	rendered := strings.TrimSpace(WorkflowFinalAnswerNudgePrompt)
+	for _, want := range []string{
+		"Workflow mode",
+		"normal final answers do not complete this node",
+		"valid workflow completion output",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expected workflow final-answer nudge to contain %q, got %q", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "{{") {
+		t.Fatalf("expected workflow final-answer nudge not to contain placeholders, got %q", rendered)
+	}
+}
+
 func TestRenderGoalNudgePrompt(t *testing.T) {
 	rendered := RenderGoalNudgePrompt("ship /goal mode", "active")
 	for _, want := range []string{

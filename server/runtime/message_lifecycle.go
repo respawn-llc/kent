@@ -9,7 +9,6 @@ import (
 	"builder/server/llm"
 	"builder/server/session"
 	"builder/shared/toolspec"
-	"builder/shared/transcript"
 )
 
 type defaultMessageLifecycle struct {
@@ -216,10 +215,10 @@ func handoffRequestFromToolCall(call llm.ToolCall) (*handoffRequest, bool) {
 	}, true
 }
 
-func normalizeQueuedUserMessages(messages []QueuedUserMessage) []string {
+func normalizeQueuedUserMessages(messages []queuedUserSteeringIntent) []string {
 	out := make([]string, 0, len(messages))
 	for _, message := range messages {
-		trimmed := strings.TrimSpace(message.Text)
+		trimmed := queuedUserSteeringIntentText(message.intent)
 		if trimmed == "" {
 			continue
 		}
@@ -228,11 +227,26 @@ func normalizeQueuedUserMessages(messages []QueuedUserMessage) []string {
 	return out
 }
 
-func queuedUserMessageIDs(messages []QueuedUserMessage) []string {
+func queuedUserSteeringIntentText(intent steeringIntent) string {
+	parts := make([]string, 0, len(intent.items))
+	for _, item := range intent.items {
+		if item.message == nil || item.message.message.Role != llm.RoleUser {
+			continue
+		}
+		content := strings.TrimSpace(item.message.message.Content)
+		if content == "" {
+			continue
+		}
+		parts = append(parts, content)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func queuedUserMessageIDs(messages []queuedUserSteeringIntent) []string {
 	ids := make([]string, 0, len(messages))
 	for _, message := range messages {
-		id := strings.TrimSpace(message.ID)
-		if id == "" || strings.TrimSpace(message.Text) == "" {
+		id := strings.TrimSpace(message.message.ID)
+		if id == "" || queuedUserSteeringIntentText(message.intent) == "" {
 			continue
 		}
 		ids = append(ids, id)
@@ -244,7 +258,7 @@ func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string) (int
 	e := m.engine
 	pending := m.queue.Drain()
 	flushed := 0
-	pendingNotices := []llm.Message(nil)
+	pendingNotices := []steeringIntent(nil)
 	if m.background != nil {
 		pendingNotices = m.background.DrainPendingNotices()
 	}
@@ -252,14 +266,16 @@ func (m *defaultMessageLifecycle) FlushPendingUserInjections(stepID string) (int
 	queuedMessages := normalizeQueuedUserMessages(pending)
 	if len(queuedMessages) > 0 {
 		joined := strings.Join(queuedMessages, "\n\n")
-		if err := e.appendUserMessageWithoutConversationUpdate(stepID, joined); err != nil {
+		if err := e.steer(stepID,
+			steerUserMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleUser, Content: joined}),
+			steerEventIntent(Event{Kind: EventUserMessageFlushed, UserMessage: joined, UserMessageBatch: queuedMessages, UserMessageBatchQueueItemIDs: queuedUserMessageIDs(pending), CommittedTranscriptChanged: true}),
+		); err != nil {
 			return flushed, err
 		}
 		flushed++
-		e.emit(Event{Kind: EventUserMessageFlushed, StepID: stepID, UserMessage: joined, UserMessageBatch: queuedMessages, UserMessageBatchQueueItemIDs: queuedUserMessageIDs(pending), CommittedTranscriptChanged: true})
 	}
 	for _, notice := range pendingNotices {
-		if err := e.appendMessage(stepID, notice); err != nil {
+		if err := e.steer(stepID, notice); err != nil {
 			return flushed, err
 		}
 		flushed++
@@ -286,32 +302,7 @@ func (m *defaultMessageLifecycle) HasPendingUserInjections() bool {
 }
 
 func (m *defaultMessageLifecycle) InjectAgentsIfNeeded(stepID string) error {
-	e := m.engine
-	meta := e.store.Meta()
-	if meta.AgentsInjected {
-		return nil
-	}
-	builder := e.newActiveBaseMetaContextBuilder(e.cfg.Model, time.Now())
-	metaResult, err := builder.Build(baseMetaContextBuildOptions(true))
-	if err != nil {
-		return err
-	}
-	for _, warning := range metaResult.SkillWarnings {
-		if err := e.appendPersistedLocalEntryRecord(stepID, storedLocalEntry{
-			Visibility: transcript.EntryVisibilityAll,
-			Role:       "warning",
-			Text:       warning,
-		}); err != nil {
-			return err
-		}
-	}
-	for _, message := range metaResult.OrderedInjectionMessages() {
-		if err := e.appendMessage(stepID, message); err != nil {
-			return err
-		}
-	}
-
-	return e.store.MarkAgentsInjected()
+	return m.engine.steerBaseMetaContextIfNeeded(stepID)
 }
 
 func newActiveMetaContextBuilder(meta session.Meta, model, thinkingLevel string, disabledSkills map[string]bool, now time.Time) metaContextBuilder {

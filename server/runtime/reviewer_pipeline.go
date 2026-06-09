@@ -31,7 +31,7 @@ func (r *defaultReviewerPipeline) ShouldRunTurn(frequency string, reviewerClient
 
 func (r *defaultReviewerPipeline) RunFollowUp(ctx context.Context, stepID string, original llm.Message, originalCommittedStart int, originalCommittedStartSet bool, reviewerClient llm.Client) (reviewerFollowUpResult, error) {
 	e := r.engine
-	e.emit(Event{Kind: EventReviewerStarted, StepID: stepID})
+	_ = e.steerEvent(stepID, Event{Kind: EventReviewerStarted, StepID: stepID})
 	reviewerResult, err := r.RunSuggestions(ctx, stepID, reviewerClient)
 	if err != nil {
 		status := ReviewerStatus{
@@ -47,16 +47,11 @@ func (r *defaultReviewerPipeline) RunFollowUp(ctx context.Context, stepID string
 	}
 	if e.cfg.Reviewer.VerboseOutput {
 		suggestionsText := reviewerSuggestionsText(suggestions)
-		_ = e.appendPersistedLocalEntryWithOngoingText(
-			stepID,
-			"reviewer_suggestions",
-			suggestionsText,
-			suggestionsText,
-		)
+		_ = e.steer(stepID, steerLocalEntryIntent(storedLocalEntry{Role: "reviewer_suggestions", Text: suggestionsText, OngoingText: suggestionsText}))
 	}
 
 	instruction := formatReviewerDeveloperInstruction(suggestions)
-	if err := e.appendMessage(stepID, llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeReviewerFeedback, Content: instruction}); err != nil {
+	if err := e.steer(stepID, steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeReviewerFeedback, Content: instruction})); err != nil {
 		status := ReviewerStatus{
 			Outcome:               "followup_failed",
 			SuggestionsCount:      len(suggestions),
