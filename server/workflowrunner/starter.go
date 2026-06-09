@@ -147,28 +147,38 @@ func (s *Starter) StartWorkflowRun(ctx context.Context, req workflowscheduler.St
 	if err != nil {
 		return err
 	}
+	// When the plan reuses an existing session (resume, continue, or in-place
+	// compact-and-continue), it is the previous node's persisted session — never
+	// dispose of it on setup failure. Only freshly created run sessions
+	// (new-session and fan-out clones) are disposable.
+	cleanupSession := func() error {
+		if reusesExistingSession(input) {
+			return nil
+		}
+		return s.cleanupSession(ctx, plan.Store)
+	}
 	if err := plan.Store.SetWorktreeReminderState(&session.WorktreeReminderState{
 		Mode:          session.WorktreeReminderModeEnter,
 		WorktreePath:  input.WorktreeRoot,
 		WorkspaceRoot: input.WorkspaceRoot,
 		EffectiveCwd:  input.WorktreeRoot,
 	}); err != nil {
-		return errors.Join(err, s.cleanupSession(ctx, plan.Store))
+		return errors.Join(err, cleanupSession())
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	if !s.registerRun(req, cancel) {
 		cancel()
-		return errors.Join(errors.New("workflow runtime starter closed"), s.cleanupSession(ctx, plan.Store))
+		return errors.Join(errors.New("workflow runtime starter closed"), cleanupSession())
 	}
 	if err := s.metadata.UpdateSessionExecutionTargetByID(ctx, plan.Store.Meta().SessionID, input.WorkspaceID, input.WorktreeID, "."); err != nil {
 		cancel()
 		s.releaseRegisteredRun(req.RunID)
-		return errors.Join(err, s.cleanupSession(ctx, plan.Store))
+		return errors.Join(err, cleanupSession())
 	}
 	if err := s.store.AttachRunSession(ctx, req.RunID, req.Generation, plan.Store.Meta().SessionID); err != nil {
 		cancel()
 		s.releaseRegisteredRun(req.RunID)
-		return errors.Join(err, s.cleanupSession(ctx, plan.Store))
+		return errors.Join(err, cleanupSession())
 	}
 	go s.run(runCtx, req, input, plan, warnings)
 	return nil
@@ -244,6 +254,25 @@ func (s *Starter) CancelRun(ctx context.Context, runID workflow.RunID) error {
 		cancel()
 	}
 	return nil
+}
+
+// reusesExistingSession reports whether planSession reuses a pre-existing
+// session (resume of a started run, continue_session, or in-place
+// compact_and_continue_session) rather than creating a disposable one
+// (new_session or a fan-out clone). Reused sessions belong to a prior node and
+// must not be cleaned up on setup failure.
+func reusesExistingSession(input workflowstore.RunStartContext) bool {
+	if strings.TrimSpace(input.Run.SessionID) != "" {
+		return true
+	}
+	switch input.ContextMode {
+	case workflow.ContextModeContinueSession:
+		return true
+	case workflow.ContextModeCompactAndContinueSession:
+		return !input.IsFanoutBranch
+	default:
+		return false
+	}
 }
 
 func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartContext) (launch.SessionPlan, []string, error) {
@@ -430,7 +459,11 @@ func (s *Starter) run(ctx context.Context, req workflowscheduler.StartRunRequest
 	}
 	registration := runtimewire.RegisterSessionRuntime(plan.Store.Meta().SessionID, wiring.Engine, runtimeRegistry, s.backgroundRouter)
 	defer registration.Close()
-	if input.ContextMode == workflow.ContextModeCompactAndContinueSession {
+	// Only compact on a run's first execution. A resumed run already has a
+	// session (input.Run.SessionID set) whose history was compacted before the
+	// interruption; compacting again would add a model call and progressively
+	// collapse the carried-over source context on every retry.
+	if input.ContextMode == workflow.ContextModeCompactAndContinueSession && strings.TrimSpace(input.Run.SessionID) == "" {
 		if err := wiring.Engine.CompactContext(ctx, ""); err != nil {
 			reason := ReasonRuntimeFailed
 			if errors.Is(err, context.Canceled) || ctx.Err() != nil {

@@ -325,6 +325,32 @@ func TestWorkflowRuntimeContinueSessionKeepsLockedSetupAfterRoleConfigDrift(t *t
 	}
 }
 
+func TestReusesExistingSession(t *testing.T) {
+	mk := func(mode workflow.ContextMode, runSessionID string, fanout bool) workflowstore.RunStartContext {
+		return workflowstore.RunStartContext{
+			ContextMode:    mode,
+			IsFanoutBranch: fanout,
+			Run:            workflowstore.RunRecord{SessionID: runSessionID},
+		}
+	}
+	cases := []struct {
+		name string
+		in   workflowstore.RunStartContext
+		want bool
+	}{
+		{"new session is disposable", mk(workflow.ContextModeNewSession, "", false), false},
+		{"continue reuses source", mk(workflow.ContextModeContinueSession, "", false), true},
+		{"compact in-place reuses source", mk(workflow.ContextModeCompactAndContinueSession, "", false), true},
+		{"compact fan-out clones a disposable copy", mk(workflow.ContextModeCompactAndContinueSession, "", true), false},
+		{"resume reuses the run session", mk(workflow.ContextModeNewSession, "session-1", false), true},
+	}
+	for _, tc := range cases {
+		if got := reusesExistingSession(tc.in); got != tc.want {
+			t.Fatalf("%s: reusesExistingSession = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestWorkflowRuntimeCompactAndContinueReusesSourceSessionWithRealCompaction(t *testing.T) {
 	fixture := newStarterFixture(t, config.WorkflowCompletionModeStructuredOutput,
 		workflowtest.FinalAnswer(`{"commentary":"first comments","prior_summary":"first summary"}`),

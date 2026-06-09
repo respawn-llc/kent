@@ -1188,11 +1188,19 @@ function useWorkflowDraftDerivedWiringQuery(
   graphDirty: boolean,
 ) {
   const { api } = useAppServices();
+  // Keyed on the draft graph content, not graphVersion: wiring-relevant edits
+  // (node input fields, edge parameters) intentionally leave graphVersion
+  // unchanged, so a version key would serve stale wiring for exactly those
+  // edits. Only stringify while the query is enabled (graph dirty) to avoid the
+  // cost on every clean-state render. Derive-wiring is cheap (no validation),
+  // so refetching on graph content changes is acceptable.
+  const graphSignature =
+    draftState !== null && graphDirty ? JSON.stringify(workflowEditorDraftGraph(draftState)) : "";
   return useQuery({
     queryKey: queryKeys.workflowDraftDerivedWiring(
       workflowID,
       draftState?.source.workflow.version ?? 0,
-      draftState?.graphVersion ?? 0,
+      graphSignature,
     ),
     queryFn: async () => {
       if (draftState === null) {
@@ -1203,9 +1211,6 @@ function useWorkflowDraftDerivedWiringQuery(
         workflowID,
       });
     },
-    // Enabled only while the full validation query is disabled (graph dirty);
-    // keyed on graphVersion, which only bumps on real graph changes, so wiring
-    // refreshes per structural edit without running expensive validation.
     enabled: draftState !== null && graphDirty,
     staleTime: Infinity,
   });

@@ -26,11 +26,11 @@ export const queryKeys = {
     version: number,
     metadataSignature: string,
   ) => ["workflow-draft-validation", workflowID, sourceVersion, version, metadataSignature],
-  workflowDraftDerivedWiring: (workflowID: string, sourceVersion: number, version: number) => [
+  workflowDraftDerivedWiring: (workflowID: string, sourceVersion: number, graphSignature: string) => [
     "workflow-draft-derived-wiring",
     workflowID,
     sourceVersion,
-    version,
+    graphSignature,
   ],
   workflowValidation: (workflowID: string, mode: string) => ["workflow-validation", workflowID, mode],
   workflowGraphLayout: (
