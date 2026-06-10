@@ -14,6 +14,7 @@ import (
 	"builder/server/session"
 	"builder/server/tools"
 	"builder/shared/toolspec"
+	"builder/shared/transcript"
 )
 
 // This regression test guards prompt-cache continuity across restarts.
@@ -269,13 +270,13 @@ func (f *promptCacheContinuityFixture) assertPersistedProjectionParity(t *testin
 
 func seedPromptCacheContinuityConversation(t *testing.T, engine *Engine) {
 	t.Helper()
-	if err := engine.injectAgentsIfNeeded("seed-meta"); err != nil {
+	if err := engine.steerBaseMetaContextIfNeeded("seed-meta"); err != nil {
 		t.Fatalf("inject agents: %v", err)
 	}
-	if err := engine.appendUserMessage("turn-1", "Need a prompt cache continuity test that survives a server restart."); err != nil {
+	if err := engine.steer("turn-1", steerUserMessageIntent(llm.Message{Role: llm.RoleUser, Content: "Need a prompt cache continuity test that survives a server restart."})); err != nil {
 		t.Fatalf("append first user message: %v", err)
 	}
-	if err := engine.appendMessage("turn-1", llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseCommentary, Content: "I am reconstructing the live runtime state before comparing serialized OpenAI payloads."}); err != nil {
+	if err := engine.steer("turn-1", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseCommentary, Content: "I am reconstructing the live runtime state before comparing serialized OpenAI payloads."})); err != nil {
 		t.Fatalf("append assistant commentary: %v", err)
 	}
 	toolCall := llm.ToolCall{
@@ -286,7 +287,7 @@ func seedPromptCacheContinuityConversation(t *testing.T, engine *Engine) {
 			"workdir": ".",
 		}),
 	}
-	if err := engine.appendAssistantMessage("turn-1", llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{toolCall}}); err != nil {
+	if err := engine.steer("turn-1", steerMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseCommentary, ToolCalls: []llm.ToolCall{toolCall}})); err != nil {
 		t.Fatalf("append tool call: %v", err)
 	}
 	toolResult := tools.Result{
@@ -297,22 +298,27 @@ func seedPromptCacheContinuityConversation(t *testing.T, engine *Engine) {
 			"exit_code": 0,
 		}),
 	}
-	if err := engine.persistToolCompletion("turn-1", toolResult); err != nil {
+	if err := engine.steer("turn-1", steerToolCompletionIntent(toolResult)); err != nil {
 		t.Fatalf("persist tool completion: %v", err)
 	}
-	if err := engine.appendMessage("turn-1", llm.Message{Role: llm.RoleTool, ToolCallID: toolResult.CallID, Name: string(toolResult.Name), Content: string(toolResult.Output)}); err != nil {
+	if err := engine.steer("turn-1", steerMessageIntent(llm.Message{Role: llm.RoleTool, ToolCallID: toolResult.CallID, Name: string(toolResult.Name), Content: string(toolResult.Output)})); err != nil {
 		t.Fatalf("append tool result message: %v", err)
 	}
-	if err := engine.appendMessage("turn-1", llm.Message{Role: llm.RoleDeveloper, Content: "Keep the persisted transcript byte-stable across hydrate and restart before sending the next model request."}); err != nil {
+	if err := engine.steer("turn-1", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, Content: "Keep the persisted transcript byte-stable across hydrate and restart before sending the next model request."})); err != nil {
 		t.Fatalf("append developer entry: %v", err)
 	}
-	if err := engine.appendPersistedLocalEntryWithOngoingText("turn-1", "warning", "Prompt cache continuity probe is still running.", "Prompt cache continuity probe is still running."); err != nil {
+	if err := engine.steer("turn-1", steerLocalEntryIntent(storedLocalEntry{
+		Visibility:  transcript.EntryVisibilityAuto,
+		Role:        "warning",
+		Text:        "Prompt cache continuity probe is still running.",
+		OngoingText: "Prompt cache continuity probe is still running.",
+	})); err != nil {
 		t.Fatalf("append local entry: %v", err)
 	}
-	if err := engine.appendMessage("turn-1", llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "The runtime state is seeded. I only need the post-restart payload comparison now."}); err != nil {
+	if err := engine.steer("turn-1", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Phase: llm.MessagePhaseFinal, Content: "The runtime state is seeded. I only need the post-restart payload comparison now."})); err != nil {
 		t.Fatalf("append assistant final answer: %v", err)
 	}
-	if err := engine.appendUserMessage("turn-2", "Continue after restart and compare the exact OpenAI payload bytes."); err != nil {
+	if err := engine.steer("turn-2", steerUserMessageIntent(llm.Message{Role: llm.RoleUser, Content: "Continue after restart and compare the exact OpenAI payload bytes."})); err != nil {
 		t.Fatalf("append second user message: %v", err)
 	}
 }

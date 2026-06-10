@@ -69,7 +69,6 @@ type chatStore struct {
 	lastCommittedAssistantFinalAnswer string
 	messageCount                      int
 	transcriptEntryCount              int
-	headlessModeActive                bool
 
 	providerTokenEstimate      int
 	providerTokenEstimateDirty bool
@@ -131,7 +130,6 @@ func (s *chatStore) replaceHistory(items []llm.ResponseItem) {
 		CutoffLocalCount:   len(s.local),
 		Items:              llm.CloneResponseItems(preparedItems),
 	}
-	s.headlessModeActive = headlessModeActive(llm.MessagesFromItems(preparedItems))
 	s.providerTokenEstimateDirty = true
 }
 
@@ -264,12 +262,6 @@ func (s *chatStore) committedEntryCount() int {
 	return s.transcriptEntryCount
 }
 
-func (s *chatStore) headlessActive() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.headlessModeActive
-}
-
 func (s *chatStore) cachedLastCommittedAssistantFinalAnswer() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -380,7 +372,6 @@ func firstNonEmpty(values ...string) string {
 func (s *chatStore) applyMessageStatsLocked(msg llm.Message) {
 	s.messageCount++
 	s.applyLastCommittedAssistantFinalAnswerLocked(msg)
-	s.applyHeadlessStateLocked(msg)
 	delta := len(VisibleChatEntriesFromMessage(msg))
 	switch msg.Role {
 	case llm.RoleAssistant:
@@ -414,18 +405,6 @@ func (s *chatStore) applyMessageStatsLocked(msg llm.Message) {
 	s.transcriptEntryCount += delta
 	if s.transcriptEntryCount < 0 {
 		s.transcriptEntryCount = 0
-	}
-}
-
-func (s *chatStore) applyHeadlessStateLocked(msg llm.Message) {
-	if msg.Role != llm.RoleDeveloper {
-		return
-	}
-	switch msg.MessageType {
-	case llm.MessageTypeHeadlessMode:
-		s.headlessModeActive = true
-	case llm.MessageTypeHeadlessModeExit:
-		s.headlessModeActive = false
 	}
 }
 

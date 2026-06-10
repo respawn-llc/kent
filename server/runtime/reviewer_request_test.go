@@ -105,7 +105,7 @@ func TestBuildReviewerRequestPreservesTranscriptBytes(t *testing.T) {
 		Model:    "gpt-5",
 		Reviewer: ReviewerConfig{Model: "gpt-5"},
 	})
-	if err := eng.appendUserMessage("seed-step", seedContent); err != nil {
+	if err := eng.steer("seed-step", steerUserMessageIntent(llm.Message{Role: llm.RoleUser, Content: seedContent})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 
@@ -136,7 +136,7 @@ func TestReviewerSuggestions_ReopenKeepsPromptCachePrefixStable(t *testing.T) {
 	}
 	eng := mustNewTestEngine(t, store, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
 	t.Cleanup(func() { _ = eng.Close() })
-	if err := eng.appendUserMessage("prep-1", "first request"); err != nil {
+	if err := eng.steer("prep-1", steerUserMessageIntent(llm.Message{Role: llm.RoleUser, Content: "first request"})); err != nil {
 		t.Fatalf("append first message: %v", err)
 	}
 	if _, err := eng.runReviewerSuggestions(context.Background(), "step-1", reviewerClient); err != nil {
@@ -152,7 +152,7 @@ func TestReviewerSuggestions_ReopenKeepsPromptCachePrefixStable(t *testing.T) {
 	}
 	reopenedEng := mustNewTestEngine(t, reopened, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
 	t.Cleanup(func() { _ = reopenedEng.Close() })
-	if err := reopenedEng.appendUserMessage("prep-2", "second request"); err != nil {
+	if err := reopenedEng.steer("prep-2", steerUserMessageIntent(llm.Message{Role: llm.RoleUser, Content: "second request"})); err != nil {
 		t.Fatalf("append second message: %v", err)
 	}
 	if _, err := reopenedEng.runReviewerSuggestions(context.Background(), "step-2", reviewerClient); err != nil {

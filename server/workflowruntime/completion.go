@@ -42,6 +42,7 @@ type CompletionTransition struct {
 }
 
 type Config struct {
+	RunID                        workflow.RunID
 	Contract                     CompletionContract
 	CompletionMode               config.WorkflowCompletionMode
 	MaxFinalAnswerViolations     int

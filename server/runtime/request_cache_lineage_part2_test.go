@@ -29,10 +29,10 @@ func TestGenerateWithRetryClient_RestoreSkipsDigestVersionMismatch(t *testing.T)
 		HasCachedInputTokens: true,
 		CachedInputTokens:    42,
 	}
-	if _, err := store.AppendEvent("legacy-request", sessionEventCacheRequestObserved, legacyRequest); err != nil {
+	if _, _, err := store.AppendEvent("legacy-request", sessionEventCacheRequestObserved, legacyRequest); err != nil {
 		t.Fatalf("append legacy request: %v", err)
 	}
-	if _, err := store.AppendEvent("legacy-response", sessionEventCacheResponseObserved, legacyResponse); err != nil {
+	if _, _, err := store.AppendEvent("legacy-response", sessionEventCacheResponseObserved, legacyResponse); err != nil {
 		t.Fatalf("append legacy response: %v", err)
 	}
 
@@ -55,7 +55,7 @@ func TestGenerateWithRetryClient_RestoreSkipsDigestVersionMismatch(t *testing.T)
 
 func TestGenerateWithRetryClient_DoesNotInventCompactionCauseWithoutPriorLineageOnReopen(t *testing.T) {
 	store := mustCreateTestSession(t)
-	if _, err := store.AppendEvent("legacy-compact", "history_replaced", historyReplacementPayload{
+	if _, _, err := store.AppendEvent("legacy-compact", "history_replaced", historyReplacementPayload{
 		Engine: "local",
 		Mode:   string(compactionModeManual),
 		Items:  llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}),

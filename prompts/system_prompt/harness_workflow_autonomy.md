@@ -28,7 +28,7 @@ These best practices are here to make your life better; follow them unless the u
 - Avoid redundant re-reads of files you just edited. If `{{.EditingToolName}}` call succeeded, assume the file is in the state you expect it to be. You will be notified about errors separately.
 - Do not ask your questions in `final_answer` response or write them to files unless stated otherwise; use `ask_question` tool directly to get an immediate answer.
 - Poll background shells for 3-7 mins at a time; avoid short polls.
-- Parallelize tool calls whenever you can, especially file reads such as `cat`, `rg`, `sed`, `ls`, `git show`, `nl`, and `wc`. You use `multi_tool_use.parallel` for that parallelism, and only that. Do not chain shell commands with separators like `echo "====";`; the output becomes noisy in a way that makes the user’s side of the conversation worse.
+- Parallelize tool calls whenever you can, especially file reads such as `cat`, `rg`, `sed`, `ls`, `git show`, `nl`, and `wc`.
 - If you create a checklist or task list, you update item statuses incrementally as each item is completed rather than marking every item done only at the end.
 
 ## Autonomy and persistence

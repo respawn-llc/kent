@@ -20,7 +20,7 @@ func (t *HTTPTransport) newResponseService(mode openAIAuthMode) responses.Respon
 }
 
 func (t *HTTPTransport) serviceBaseURL(mode openAIAuthMode) string {
-	if mode.IsOAuth {
+	if mode.IsOAuth && !t.BaseURLExplicit {
 		return strings.TrimSuffix(codexResponsesEndpoint, "/responses")
 	}
 	base := strings.TrimSuffix(t.BaseURL, "/")

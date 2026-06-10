@@ -1432,10 +1432,10 @@ func TestRuntimeClientTranscriptDoesNotReadFromServer(t *testing.T) {
 
 func TestRuntimeClientFromEngineDoesNotSeedTranscriptAccessor(t *testing.T) {
 	store := createAppRuntimeSession(t)
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "a1", Phase: llm.MessagePhaseFinal}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "a1", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
 	eng := newAppRuntimeEngineWithStore(t, store, &runtimeClientFakeLLM{}, runtime.Config{})
@@ -1550,7 +1550,7 @@ func TestRuntimeClientMainViewFallsBackToLocalRuntimeProjectionOnReadError(t *te
 
 func TestRuntimeClientMainViewSnapshotDoesNotPopulateTranscriptEndpoint(t *testing.T) {
 	store := createAppRuntimeSession(t)
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "seeded from main view", Phase: llm.MessagePhaseFinal}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "seeded from main view", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
 	eng := newAppRuntimeEngineWithStore(t, store, &runtimeClientFakeLLM{}, runtime.Config{})

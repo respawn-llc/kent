@@ -164,6 +164,113 @@ export async function layoutWorkflowGraph(
   return { nodes: nodeLayout.nodes, edges };
 }
 
+export function workflowGraphLayoutWithDraftProjection(
+  layout: WorkflowGraphLayout,
+  definition: WorkflowDefinition,
+  validation: WorkflowValidation,
+): WorkflowGraphLayout {
+  const errorMarkers = validationMarkers(validation);
+  const nodesByID = new Map(definition.nodes.map((node) => [node.id, node]));
+  const groupsByGraphID = new Map(definition.nodeGroups.map((group) => [groupNodeID(group.id), group]));
+  const transitionGroupsByID = new Map(definition.transitionGroups.map((group) => [group.id, group]));
+  const edgeModelsByID = new Map(
+    visibleWorkflowGraphEdgeModels(definition, transitionGroupsByID, errorMarkers).map((model) => [
+      model.edgeID,
+      model,
+    ]),
+  );
+  return {
+    // Entities deleted in the draft no longer resolve to a model; drop them
+    // during projection instead of carrying the stale layout node/edge forward
+    // (otherwise a deleted node/group/edge stays visible and selectable until
+    // the next ELK layout result, or indefinitely if layout fails).
+    nodes: layout.nodes.flatMap<WorkflowGraphNode>((node) => {
+      if (node.data.entityKind === "node") {
+        const model = nodesByID.get(node.data.entityID);
+        if (model === undefined) {
+          return [];
+        }
+        // A draft change to group membership leaves the laid-out node's
+        // structural fields (parentId/extent and the position they imply)
+        // stale; we cannot recompute relative geometry without ELK. Drop the
+        // node until the next layout rather than rendering it in the wrong
+        // container, mirroring the deleted-entity drop above.
+        // Join nodes are positioned as root-level siblings of their group even
+        // when they carry a groupID, so their React Flow parentId is always undefined.
+        const expectedParentID =
+          model.groupID && model.kind !== "join" ? groupNodeID(model.groupID) : undefined;
+        if (node.parentId !== expectedParentID) {
+          return [];
+        }
+        return [
+          {
+            ...node,
+            data: {
+              ...node.data,
+              groupID: model.groupID,
+              hasError: errorMarkers.nodeIDs.has(model.id) || errorMarkers.relatedIDs.has(model.id),
+              key: model.key,
+              kind: model.kind,
+              label: model.name,
+              role: model.subagentRole,
+            },
+          },
+        ];
+      }
+      const group = groupsByGraphID.get(node.id);
+      if (group === undefined) {
+        return [];
+      }
+      return [
+        {
+          ...node,
+          data: {
+            ...node.data,
+            hasError: errorMarkers.relatedIDs.has(group.id),
+            label: group.name || group.key,
+          },
+        },
+      ];
+    }),
+    edges: layout.edges.flatMap<WorkflowGraphEdge>((edge) => {
+      const model = edgeModelsByID.get(edge.id);
+      if (model === undefined) {
+        return [];
+      }
+      if (edge.data === undefined) {
+        return [edge];
+      }
+      // Reconnect endpoints from the draft model so a re-targeted edge attaches
+      // to the correct nodes/handles immediately. Clear stale route points when
+      // endpoints changed — the old geometry no longer connects the new handles
+      // and would be used by workflowEdgePath until ELK relayouts.
+      const endpointsChanged =
+        edge.source !== model.sourceNodeID ||
+        edge.sourceHandle !== model.sourcePort.id ||
+        edge.target !== model.targetNodeID ||
+        edge.targetHandle !== model.targetPort.id;
+      return [
+        {
+          ...edge,
+          source: model.sourceNodeID,
+          sourceHandle: model.sourcePort.id,
+          target: model.targetNodeID,
+          targetHandle: model.targetPort.id,
+          markerEnd: { color: workflowEdgeColor(model.contextMode, model.hasError), type: MarkerType.ArrowClosed },
+          data: {
+            ...edge.data,
+            contextMode: model.contextMode,
+            hasError: model.hasError,
+            label: model.label,
+            transitionGroupID: model.transitionGroupID,
+            ...(endpointsChanged ? { routePoints: [] } : undefined),
+          },
+        },
+      ];
+    }),
+  };
+}
+
 function elkWorkflowNode(
   node: WorkflowDefinition["nodes"][number],
   endpointPorts: readonly WorkflowGraphEndpointPort[],

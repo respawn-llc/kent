@@ -350,10 +350,7 @@ func formatReviewerDeveloperInstruction(suggestions []string) string {
 
 func reviewerStatusText(status ReviewerStatus, _ []string) string {
 	statusText := ""
-	suggestionCountLabel := "1 suggestion"
-	if status.SuggestionsCount > 1 {
-		suggestionCountLabel = fmt.Sprintf("%d suggestions", status.SuggestionsCount)
-	}
+	suggestionCountLabel := pluralizeEnglish(status.SuggestionsCount, "suggestion", "suggestions")
 	switch strings.TrimSpace(status.Outcome) {
 	case "failed":
 		if strings.TrimSpace(status.Error) == "" {
@@ -438,4 +435,11 @@ func filterReviewerMetaMessages(messages []llm.Message) []llm.Message {
 		out = append(out, message)
 	}
 	return out
+}
+
+func pluralizeEnglish(count int, singular, plural string) string {
+	if count == 1 {
+		return fmt.Sprintf("%d %s", count, singular)
+	}
+	return fmt.Sprintf("%d %s", count, plural)
 }

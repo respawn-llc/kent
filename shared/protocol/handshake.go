@@ -52,6 +52,7 @@ const (
 	MethodWorkflowDelete                        = "workflow.delete"
 	MethodWorkflowValidate                      = "workflow.validate"
 	MethodWorkflowGraphValidateDraft            = "workflow.graph.validateDraft"
+	MethodWorkflowGraphDeriveWiring             = "workflow.graph.deriveWiring"
 	MethodWorkflowGraphSavePreview              = "workflow.graph.savePreview"
 	MethodWorkflowGraphSave                     = "workflow.graph.save"
 	MethodWorkflowTaskCreate                    = "workflow.task.create"

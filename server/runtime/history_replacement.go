@@ -11,9 +11,10 @@ import (
 const legacyHistoryReplacementEngineReviewerRollback = "reviewer_rollback"
 
 type historyReplacementEnvelope struct {
-	Engine string          `json:"engine"`
-	Mode   string          `json:"mode"`
-	Items  json.RawMessage `json:"items"`
+	Engine        string          `json:"engine"`
+	Mode          string          `json:"mode"`
+	WorkflowRunID string          `json:"workflow_run_id"`
+	Items         json.RawMessage `json:"items"`
 }
 
 func normalizeHistoryReplacementEngine(engine string) string {
@@ -34,8 +35,9 @@ func decodePersistedHistoryReplacementPayload(payload []byte) (historyReplacemen
 		return historyReplacementPayload{Engine: engine, Mode: strings.TrimSpace(envelope.Mode)}, true, nil
 	}
 	decoded := historyReplacementPayload{
-		Engine: engine,
-		Mode:   strings.TrimSpace(envelope.Mode),
+		Engine:        engine,
+		Mode:          strings.TrimSpace(envelope.Mode),
+		WorkflowRunID: strings.TrimSpace(envelope.WorkflowRunID),
 	}
 	trimmedItems := bytes.TrimSpace(envelope.Items)
 	if len(trimmedItems) == 0 || bytes.Equal(trimmedItems, []byte("null")) {

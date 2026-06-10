@@ -677,13 +677,13 @@ describe("WorkflowEditorRoute", () => {
 
     fireEvent.click(card);
     expect(within(toastSurface).getAllByText(warning)).toHaveLength(1);
-    expect(
-      await screen.findByText(
-        "Node Backlog cannot directly fan out into a node group yet; insert one split agent after it, fan out from that agent into the group, then join the branches",
-      ),
-    ).toBeInTheDocument();
 
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(workflowDraftValidationCallCount(services)).toBe(1);
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(workflowDraftValidationCallCount(services)).toBe(2);
+    });
     expect(services.transport.calls.map((call) => call.method)).not.toContain("workflow.graph.savePreview");
   });
 
@@ -1229,7 +1229,7 @@ describe("WorkflowEditorRoute", () => {
     expect(services.transport.calls.some((call) => call.method === "workflow.graph.save")).toBe(true);
   });
 
-  it("allows saving empty agent-target prompts while showing execution validation", async () => {
+  it("validates empty agent-target prompts at save boundary", async () => {
     const user = userEvent.setup();
     const services = createTestServices([
       ...startupRoutes,
@@ -1289,15 +1289,18 @@ describe("WorkflowEditorRoute", () => {
     expect(
       await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 }),
     ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(workflowDraftValidationCallCount(services)).toBe(1);
+    });
     fireEvent.click(screen.getByRole("button", { name: "Open edge inspector" }));
     const inspector = await screen.findByRole("complementary", { name: "Inspect branch" });
+    const validationCallsBeforeEdit = workflowDraftValidationCallCount(services);
 
     await user.clear(within(inspector).getByRole("textbox", { name: "Prompt" }));
+    expect(workflowDraftValidationCallCount(services)).toBe(validationCallsBeforeEdit);
+    const transportCallCountBeforeSave = services.transport.calls.length;
 
     const unsavedChanges = await screen.findByRole("complementary", { name: "Unsaved changes" });
-    expect(
-      await within(unsavedChanges).findByText("transition into an agent node requires a prompt"),
-    ).toBeInTheDocument();
     await waitFor(() => {
       expect(within(unsavedChanges).getByRole("button", { name: "Save" })).toBeEnabled();
     });
@@ -1307,6 +1310,17 @@ describe("WorkflowEditorRoute", () => {
     await waitFor(() => {
       expect(services.transport.calls.some((call) => call.method === "workflow.graph.save")).toBe(true);
     });
+    const relevantSaveCalls = services.transport.calls
+      .slice(transportCallCountBeforeSave)
+      .map((call) => call.method)
+      .filter((method) =>
+        ["workflow.graph.validateDraft", "workflow.graph.savePreview", "workflow.graph.save"].includes(method),
+      );
+    expect(relevantSaveCalls.slice(0, 3)).toEqual([
+      "workflow.graph.validateDraft",
+      "workflow.graph.savePreview",
+      "workflow.graph.save",
+    ]);
   });
 
   it("edits Start node display name and key from the normal node inspector", async () => {
@@ -1552,6 +1566,52 @@ describe("WorkflowEditorRoute", () => {
     });
     expect(parameterKeys(inspector)).toEqual(["summary"]);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps transition parameter name edits local without draft-validation RPC calls", async () => {
+    const user = userEvent.setup();
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.get", result: workflowDefinitionResponse },
+      { method: "workflow.validate", result: invalidValidationResponse },
+      { method: "workflow.graph.validateDraft", result: graphValidationResponse },
+    ]);
+    render(
+      <AppProviders services={services}>
+        <SidebarProvider>
+          <WorkflowEditorDraftBridgeProvider>
+            <WorkflowEditorRoute projectID="" workflowID="workflow-1" />
+            <OpenEdgeInspectorButton edgeID="edge-1" />
+            <SidebarHost />
+          </WorkflowEditorDraftBridgeProvider>
+        </SidebarProvider>
+      </AppProviders>,
+    );
+
+    expect(await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(workflowDraftValidationCallCount(services)).toBe(1);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Open edge inspector" }));
+    const inspector = await screen.findByRole("complementary", { name: "Inspect branch" });
+    const validationCallsBeforeEdit = workflowDraftValidationCallCount(services);
+
+    fireEvent.click(within(inspector).getByRole("button", { name: "Add parameter" }));
+    const newParameterKey = within(inspector).getAllByRole("textbox", { name: "Parameter key" })[0];
+    if (newParameterKey === undefined) {
+      throw new Error("Expected new parameter key field.");
+    }
+    newParameterKey.focus();
+    for (const character of "details") {
+      await user.keyboard(character);
+      expect(workflowDraftValidationCallCount(services)).toBe(validationCallsBeforeEdit);
+    }
+
+    expect(newParameterKey).toHaveValue("details");
+    expect(workflowDraftValidationCallCount(services)).toBe(validationCallsBeforeEdit);
+    const unsavedChanges = await screen.findByRole("complementary", { name: "Unsaved changes" });
+    expect(within(unsavedChanges).getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(within(unsavedChanges).queryByText("Done transition is invalid.")).not.toBeInTheDocument();
   });
 
   it("edits join provider selections from server-derived aggregate parameters", async () => {
@@ -2255,10 +2315,7 @@ describe("WorkflowEditorRoute", () => {
     expect(screen.getByTestId("workflow-editor-canvas")).toBe(canvas);
   });
 
-  it("does not apply saved execution validation markers while dirty draft validation is pending", async () => {
-    let resolvePendingDraftValidation:
-      | ((value: typeof validGraphValidationResponse) => void)
-      | undefined;
+  it("projects graph-backed node label edits locally without draft-validation RPC calls", async () => {
     window.history.pushState(null, "", "/workflows/workflow-1/editor");
     const services = createTestServices([
       ...startupRoutes,
@@ -2266,13 +2323,11 @@ describe("WorkflowEditorRoute", () => {
       { method: "workflow.validate", result: invalidValidationResponse },
       {
         method: "workflow.graph.validateDraft",
-        async handler(_params, callIndex): Promise<typeof validGraphValidationResponse> {
+        handler(_params, callIndex) {
           if (callIndex === 0) {
             return validGraphValidationResponse;
           }
-          return new Promise((resolve) => {
-            resolvePendingDraftValidation = resolve;
-          });
+          throw new Error("Draft validation must not run for node label typing.");
         },
       },
     ]);
@@ -2287,15 +2342,57 @@ describe("WorkflowEditorRoute", () => {
       target: { value: "Implement draft" },
     });
 
+    expect(await within(canvas).findByText("Implement draft")).toBeInTheDocument();
+    expect(workflowDraftValidationCallCount(services)).toBe(1);
+  });
+
+  it("keeps graph-backed node label edits local while draft validation is pending", async () => {
+    window.history.pushState(null, "", "/workflows/workflow-1/editor");
+    let resolvePendingDraftValidation:
+      | ((value: typeof validGraphValidationResponse) => void)
+      | undefined;
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.get", result: workflowDefinitionResponse },
+      { method: "workflow.validate", result: invalidValidationResponse },
+      {
+        method: "workflow.graph.validateDraft",
+        async handler(_params, callIndex) {
+          if (callIndex === 0) {
+            return new Promise<typeof validGraphValidationResponse>((resolve) => {
+              resolvePendingDraftValidation = resolve;
+            });
+          }
+          throw new Error("Draft validation must not run again while node label typing is dirty.");
+        },
+      },
+    ]);
+    render(<App services={services} />);
+
+    const canvas = await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
     await waitFor(() => {
       expect(resolvePendingDraftValidation).toBeDefined();
     });
-    expect(await within(canvas).findByText("Implement draft")).toBeInTheDocument();
+    fireEvent.click(within(canvas).getByTestId("workflow-graph-node-node-1"));
+    const inspector = await screen.findByRole("complementary", { name: "Inspect node" });
 
-    if (resolvePendingDraftValidation === undefined) {
-      throw new Error("Expected pending draft validation to be registered.");
+    fireEvent.change(within(inspector).getByLabelText("Display name"), {
+      target: { value: "Implement while pending" },
+    });
+
+    expect(await within(canvas).findByText("Implement while pending")).toBeInTheDocument();
+    const resolveDraftValidation = resolvePendingDraftValidation;
+    if (resolveDraftValidation === undefined) {
+      throw new Error("Expected pending draft validation resolver.");
     }
-    resolvePendingDraftValidation(validGraphValidationResponse);
+    await act(async () => {
+      resolveDraftValidation(validGraphValidationResponse);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("workflow-editor-canvas")).toBe(canvas);
+      expect(within(canvas).getByText("Implement while pending")).toBeInTheDocument();
+    });
+    expect(workflowDraftValidationCallCount(services)).toBe(1);
   });
 
   it("opens workflow inspectors with their own 35 percent screen-width default", async () => {
@@ -2737,6 +2834,10 @@ function parameterKeys(container: HTMLElement): readonly string[] {
   return within(container)
     .getAllByTestId("workflow-parameter")
     .map((field) => field.dataset.parameterKey ?? "");
+}
+
+function workflowDraftValidationCallCount(services: ReturnType<typeof createTestServices>): number {
+  return services.transport.calls.filter((call) => call.method === "workflow.graph.validateDraft").length;
 }
 
 function workflowGraphSaveEdges(params: unknown): readonly Readonly<Record<string, unknown>>[] {

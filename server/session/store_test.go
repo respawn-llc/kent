@@ -14,7 +14,7 @@ func TestNewLazyDoesNotPersistUntilFirstWrite(t *testing.T) {
 		t.Fatalf("expected no session dir before first write, stat err=%v", err)
 	}
 
-	if _, err := store.AppendEvent("step1", "message", map[string]any{"a": 1}); err != nil {
+	if _, _, err := store.AppendEvent("step1", "message", map[string]any{"a": 1}); err != nil {
 		t.Fatalf("append event: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(store.Dir(), sessionFile)); err != nil {
@@ -50,11 +50,11 @@ func TestBackfillLockedContextBudgetWithoutLockedContractDoesNotPersistLazyStore
 func TestAppendEventMonotonicSequence(t *testing.T) {
 	store := newSessionTestStore(t)
 
-	e1, err := store.AppendEvent("step1", "message", map[string]any{"a": 1})
+	e1, _, err := store.AppendEvent("step1", "message", map[string]any{"a": 1})
 	if err != nil {
 		t.Fatalf("append event1: %v", err)
 	}
-	e2, err := store.AppendEvent("step1", "message", map[string]any{"b": 2})
+	e2, _, err := store.AppendEvent("step1", "message", map[string]any{"b": 2})
 	if err != nil {
 		t.Fatalf("append event2: %v", err)
 	}
@@ -77,13 +77,13 @@ func TestAppendEventMonotonicSequence(t *testing.T) {
 
 func TestReadPromptHistoryFallsBackToVisibleUserMessages(t *testing.T) {
 	store := newSessionTestStore(t)
-	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "first\nline"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "first\nline"}); err != nil {
 		t.Fatalf("append first user message: %v", err)
 	}
-	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "assistant", "content": "ignored"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "assistant", "content": "ignored"}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
-	if _, err := store.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "second"}); err != nil {
+	if _, _, err := store.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "second"}); err != nil {
 		t.Fatalf("append second user message: %v", err)
 	}
 
@@ -101,13 +101,13 @@ func TestReadPromptHistoryFallsBackToVisibleUserMessages(t *testing.T) {
 
 func TestReadPromptHistoryUsesExplicitPromptHistoryEvents(t *testing.T) {
 	store := newSessionTestStore(t)
-	if _, err := store.AppendEvent("", "prompt_history", map[string]any{"text": "/resume"}); err != nil {
+	if _, _, err := store.AppendEvent("", "prompt_history", map[string]any{"text": "/resume"}); err != nil {
 		t.Fatalf("append slash command history: %v", err)
 	}
-	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "plain user message"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "plain user message"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if _, err := store.AppendEvent("", "prompt_history", map[string]any{"text": "plain user message"}); err != nil {
+	if _, _, err := store.AppendEvent("", "prompt_history", map[string]any{"text": "plain user message"}); err != nil {
 		t.Fatalf("append explicit user history: %v", err)
 	}
 
@@ -125,16 +125,16 @@ func TestReadPromptHistoryUsesExplicitPromptHistoryEvents(t *testing.T) {
 
 func TestReadPromptHistoryKeepsLegacyEntriesBeforeFirstExplicitEvent(t *testing.T) {
 	store := newSessionTestStore(t)
-	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "legacy one"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "legacy one"}); err != nil {
 		t.Fatalf("append legacy one: %v", err)
 	}
-	if _, err := store.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "legacy two"}); err != nil {
+	if _, _, err := store.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "legacy two"}); err != nil {
 		t.Fatalf("append legacy two: %v", err)
 	}
-	if _, err := store.AppendEvent("", "prompt_history", map[string]any{"text": "/resume"}); err != nil {
+	if _, _, err := store.AppendEvent("", "prompt_history", map[string]any{"text": "/resume"}); err != nil {
 		t.Fatalf("append explicit history: %v", err)
 	}
-	if _, err := store.AppendEvent("s3", "message", map[string]any{"role": "user", "content": "expanded later user message"}); err != nil {
+	if _, _, err := store.AppendEvent("s3", "message", map[string]any{"role": "user", "content": "expanded later user message"}); err != nil {
 		t.Fatalf("append post-upgrade user message: %v", err)
 	}
 
@@ -153,7 +153,7 @@ func TestReadPromptHistoryKeepsLegacyEntriesBeforeFirstExplicitEvent(t *testing.
 func TestReadPromptHistoryPreservesExactStoredText(t *testing.T) {
 	store := newSessionTestStore(t)
 	want := "  line one\nline two  "
-	if _, err := store.AppendEvent("", "prompt_history", map[string]any{"text": want}); err != nil {
+	if _, _, err := store.AppendEvent("", "prompt_history", map[string]any{"text": want}); err != nil {
 		t.Fatalf("append prompt history: %v", err)
 	}
 
@@ -230,12 +230,12 @@ func TestSetUsageStatePersistsAcrossReopen(t *testing.T) {
 func TestListSessionsSortedByUpdatedAt(t *testing.T) {
 	root := t.TempDir()
 	s1 := newSessionTestStoreAt(t, root)
-	if _, err := s1.AppendEvent("step1", "message", map[string]any{"a": 1}); err != nil {
+	if _, _, err := s1.AppendEvent("step1", "message", map[string]any{"a": 1}); err != nil {
 		t.Fatalf("append event1: %v", err)
 	}
 
 	s2 := newSessionTestStoreAt(t, root)
-	if _, err := s2.AppendEvent("step1", "message", map[string]any{"b": 2}); err != nil {
+	if _, _, err := s2.AppendEvent("step1", "message", map[string]any{"b": 2}); err != nil {
 		t.Fatalf("append event2: %v", err)
 	}
 
@@ -291,7 +291,7 @@ func TestReadEventsHandlesLargeJSONLines(t *testing.T) {
 
 	const payloadSize = 128 * 1024
 	large := strings.Repeat("x", payloadSize)
-	if _, err := store.AppendEvent("step1", "message", map[string]any{"blob": large}); err != nil {
+	if _, _, err := store.AppendEvent("step1", "message", map[string]any{"blob": large}); err != nil {
 		t.Fatalf("append large event: %v", err)
 	}
 
@@ -315,13 +315,13 @@ func TestReadEventsHandlesLargeJSONLines(t *testing.T) {
 func TestAppendEventPersistsFirstPromptPreview(t *testing.T) {
 	root := t.TempDir()
 	store := newSessionTestStoreAt(t, root)
-	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "assistant", "content": "hello"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "assistant", "content": "hello"}); err != nil {
 		t.Fatalf("append assistant event: %v", err)
 	}
 	if got := store.Meta().FirstPromptPreview; got != "" {
 		t.Fatalf("expected assistant event to leave preview empty, got %q", got)
 	}
-	if _, err := store.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "Investigate config load failures\nsecond line"}); err != nil {
+	if _, _, err := store.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "Investigate config load failures\nsecond line"}); err != nil {
 		t.Fatalf("append user event: %v", err)
 	}
 	if got := store.Meta().FirstPromptPreview; got != "Investigate config load failures" {
@@ -353,19 +353,19 @@ func TestConversationFreshnessAdvancesOnlyForVisibleUserMessages(t *testing.T) {
 	if got := store.ConversationFreshness(); got != ConversationFreshnessFresh {
 		t.Fatalf("freshness = %v, want fresh", got)
 	}
-	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "assistant", "content": "hello"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "assistant", "content": "hello"}); err != nil {
 		t.Fatalf("append assistant event: %v", err)
 	}
 	if got := store.ConversationFreshness(); got != ConversationFreshnessFresh {
 		t.Fatalf("freshness after assistant = %v, want fresh", got)
 	}
-	if _, err := store.AppendEvent("s2", "message", map[string]any{"role": "developer", "message_type": "compaction_summary", "content": "summary"}); err != nil {
+	if _, _, err := store.AppendEvent("s2", "message", map[string]any{"role": "developer", "message_type": "compaction_summary", "content": "summary"}); err != nil {
 		t.Fatalf("append compaction summary event: %v", err)
 	}
 	if got := store.ConversationFreshness(); got != ConversationFreshnessFresh {
 		t.Fatalf("freshness after compaction summary = %v, want fresh", got)
 	}
-	if _, err := store.AppendEvent("s3", "message", map[string]any{"role": "user", "content": "Investigate config load failures"}); err != nil {
+	if _, _, err := store.AppendEvent("s3", "message", map[string]any{"role": "user", "content": "Investigate config load failures"}); err != nil {
 		t.Fatalf("append user event: %v", err)
 	}
 	if got := store.ConversationFreshness(); got != ConversationFreshnessEstablished {
@@ -375,7 +375,7 @@ func TestConversationFreshnessAdvancesOnlyForVisibleUserMessages(t *testing.T) {
 
 func TestOpenRehydratesConversationFreshnessFromEvents(t *testing.T) {
 	store := newSessionTestStore(t)
-	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "Investigate config load failures"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "Investigate config load failures"}); err != nil {
 		t.Fatalf("append user event: %v", err)
 	}
 
@@ -390,13 +390,13 @@ func TestOpenRehydratesConversationFreshnessFromEvents(t *testing.T) {
 
 func TestFirstPromptPreviewSkipsCompactionSummaryMessages(t *testing.T) {
 	store := newSessionTestStore(t)
-	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "developer", "message_type": "compaction_summary", "content": "summary"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "developer", "message_type": "compaction_summary", "content": "summary"}); err != nil {
 		t.Fatalf("append compaction summary event: %v", err)
 	}
 	if got := store.Meta().FirstPromptPreview; got != "" {
 		t.Fatalf("expected compaction summary to be ignored, got %q", got)
 	}
-	if _, err := store.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "\n  Fix config registry boot path\nmore details"}); err != nil {
+	if _, _, err := store.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "\n  Fix config registry boot path\nmore details"}); err != nil {
 		t.Fatalf("append visible user event: %v", err)
 	}
 	if got := store.Meta().FirstPromptPreview; got != "Fix config registry boot path" {
@@ -417,7 +417,7 @@ func TestAppendTurnAtomicPersistsFirstPromptPreview(t *testing.T) {
 func TestListSessionsUsesPersistedFirstPromptPreviewOnly(t *testing.T) {
 	root := t.TempDir()
 	store := newSessionTestStoreAt(t, root)
-	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "Preview source\nsecond line"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "Preview source\nsecond line"}); err != nil {
 		t.Fatalf("append user event: %v", err)
 	}
 
@@ -474,16 +474,16 @@ func TestForkAtUserMessageCopiesPrefixBeforeSelectedMessage(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("MarkModelDispatchLocked parent: %v", err)
 	}
-	if _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
+	if _, _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 		t.Fatalf("append u1: %v", err)
 	}
-	if _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "assistant", "content": "a1"}); err != nil {
+	if _, _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "assistant", "content": "a1"}); err != nil {
 		t.Fatalf("append a1: %v", err)
 	}
-	if _, err := parent.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "u2"}); err != nil {
+	if _, _, err := parent.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "u2"}); err != nil {
 		t.Fatalf("append u2: %v", err)
 	}
-	if _, err := parent.AppendEvent("s2", "message", map[string]any{"role": "assistant", "content": "a2"}); err != nil {
+	if _, _, err := parent.AppendEvent("s2", "message", map[string]any{"role": "assistant", "content": "a2"}); err != nil {
 		t.Fatalf("append a2: %v", err)
 	}
 
@@ -531,16 +531,16 @@ func TestForkAtUserMessageDerivesReminderIssuedFromReplayedHistory(t *testing.T)
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
 	}
-	if _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
+	if _, _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 		t.Fatalf("append first user: %v", err)
 	}
-	if _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "developer", "message_type": "compaction_soon_reminder", "content": "compact soon"}); err != nil {
+	if _, _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "developer", "message_type": "compaction_soon_reminder", "content": "compact soon"}); err != nil {
 		t.Fatalf("append reminder: %v", err)
 	}
 	if err := parent.SetCompactionSoonReminderIssued(true); err != nil {
 		t.Fatalf("persist reminder state: %v", err)
 	}
-	if _, err := parent.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "u2"}); err != nil {
+	if _, _, err := parent.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "u2"}); err != nil {
 		t.Fatalf("append second user: %v", err)
 	}
 
@@ -565,10 +565,10 @@ func TestForkAtUserMessageDerivesReminderIssuedFromReplayedHistory(t *testing.T)
 		if err != nil {
 			t.Fatalf("create parent: %v", err)
 		}
-		if _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
+		if _, _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 			t.Fatalf("append first user: %v", err)
 		}
-		if _, err := parent.AppendEvent("s1", "history_replaced", map[string]any{
+		if _, _, err := parent.AppendEvent("s1", "history_replaced", map[string]any{
 			"engine": "reviewer_rollback",
 			"items": []map[string]any{{
 				"type":         "message",
@@ -579,7 +579,7 @@ func TestForkAtUserMessageDerivesReminderIssuedFromReplayedHistory(t *testing.T)
 		}); err != nil {
 			t.Fatalf("append reviewer rollback history replacement: %v", err)
 		}
-		if _, err := parent.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "u2"}); err != nil {
+		if _, _, err := parent.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "u2"}); err != nil {
 			t.Fatalf("append second user: %v", err)
 		}
 
@@ -597,19 +597,19 @@ func TestForkAtUserMessageDerivesReminderIssuedFromReplayedHistory(t *testing.T)
 		if err != nil {
 			t.Fatalf("create parent: %v", err)
 		}
-		if _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
+		if _, _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 			t.Fatalf("append first user: %v", err)
 		}
-		if _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "developer", "message_type": "compaction_soon_reminder", "content": "compact soon"}); err != nil {
+		if _, _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "developer", "message_type": "compaction_soon_reminder", "content": "compact soon"}); err != nil {
 			t.Fatalf("append reminder: %v", err)
 		}
-		if _, err := parent.AppendEvent("s1", "history_replaced", map[string]any{
+		if _, _, err := parent.AppendEvent("s1", "history_replaced", map[string]any{
 			"engine": "compaction",
 			"items":  []map[string]any{},
 		}); err != nil {
 			t.Fatalf("append compaction history replacement: %v", err)
 		}
-		if _, err := parent.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "u2"}); err != nil {
+		if _, _, err := parent.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "u2"}); err != nil {
 			t.Fatalf("append second user: %v", err)
 		}
 
@@ -628,7 +628,7 @@ func TestForkAtUserMessageResetsWorktreeReminderGenerationFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
 	}
-	if _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
+	if _, _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 		t.Fatalf("append first user: %v", err)
 	}
 	if err := parent.SetWorktreeReminderState(&WorktreeReminderState{
@@ -642,7 +642,7 @@ func TestForkAtUserMessageResetsWorktreeReminderGenerationFlags(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("persist worktree reminder state: %v", err)
 	}
-	if _, err := parent.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "u2"}); err != nil {
+	if _, _, err := parent.AppendEvent("s2", "message", map[string]any{"role": "user", "content": "u2"}); err != nil {
 		t.Fatalf("append second user: %v", err)
 	}
 
@@ -684,9 +684,6 @@ func TestInitializeChildFromParentCopiesContextWithoutConversationState(t *testi
 	}); err != nil {
 		t.Fatalf("MarkModelDispatchLocked parent: %v", err)
 	}
-	if err := parent.MarkAgentsInjected(); err != nil {
-		t.Fatalf("MarkAgentsInjected parent: %v", err)
-	}
 	if err := parent.SetContinuationContext(ContinuationContext{OpenAIBaseURL: "http://parent.local/v1"}); err != nil {
 		t.Fatalf("SetContinuationContext parent: %v", err)
 	}
@@ -718,9 +715,6 @@ func TestInitializeChildFromParentCopiesContextWithoutConversationState(t *testi
 	}
 	if meta.WorkspaceRoot != "/tmp/work-parent" || meta.WorkspaceContainer != "workspace-parent" {
 		t.Fatalf("workspace context = root %q container %q, want parent", meta.WorkspaceRoot, meta.WorkspaceContainer)
-	}
-	if meta.AgentsInjected {
-		t.Fatal("expected fresh child to reinject developer context on its first turn")
 	}
 	if meta.Locked == nil || meta.Locked.Model != "locked-parent" || len(meta.Locked.EnabledTools) != 2 {
 		t.Fatalf("locked contract = %+v, want parent lock", meta.Locked)
@@ -768,7 +762,7 @@ func TestSetContinuationContextStaysLazyUntilFirstWrite(t *testing.T) {
 	if _, err := os.Stat(store.Dir()); !os.IsNotExist(err) {
 		t.Fatalf("expected lazy session to remain unpersisted, stat err=%v", err)
 	}
-	if _, err := store.AppendEvent("step1", "message", map[string]any{"a": 1}); err != nil {
+	if _, _, err := store.AppendEvent("step1", "message", map[string]any{"a": 1}); err != nil {
 		t.Fatalf("append event: %v", err)
 	}
 	opened, err := Open(store.Dir())
@@ -818,5 +812,27 @@ func TestSessionMetadataDoesNotPersistModelVerbosityState(t *testing.T) {
 	}
 	if strings.Contains(string(reopenedMetaJSON), "model_verbosity") {
 		t.Fatal("expected reopened session metadata to remain free of model_verbosity")
+	}
+}
+
+func TestHeadlessActiveFromReplayEvents(t *testing.T) {
+	msg := func(messageType string) ReplayEvent {
+		return ReplayEvent{Kind: "message", Payload: []byte(`{"role":"developer","message_type":"` + messageType + `","content":"x"}`)}
+	}
+	cases := []struct {
+		name   string
+		events []ReplayEvent
+		want   bool
+	}{
+		{"empty", nil, false},
+		{"enter", []ReplayEvent{msg("headless_mode")}, true},
+		{"enter then exit", []ReplayEvent{msg("headless_mode"), msg("headless_mode_exit")}, false},
+		{"exit then enter", []ReplayEvent{msg("headless_mode_exit"), msg("headless_mode")}, true},
+		{"non-developer ignored", []ReplayEvent{{Kind: "message", Payload: []byte(`{"role":"user","message_type":"headless_mode","content":"x"}`)}}, false},
+	}
+	for _, tc := range cases {
+		if got := headlessActiveFromReplayEvents(tc.events); got != tc.want {
+			t.Fatalf("%s: headlessActiveFromReplayEvents = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

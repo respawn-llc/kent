@@ -27,7 +27,7 @@ type stubBackgroundNoticeScheduler struct {
 
 func (s *stubBackgroundNoticeScheduler) HandleBackgroundShellUpdate(BackgroundShellEvent, bool) {}
 func (s *stubBackgroundNoticeScheduler) QueueDeveloperNotice(llm.Message)                       {}
-func (s *stubBackgroundNoticeScheduler) DrainPendingNotices() []llm.Message                     { return nil }
+func (s *stubBackgroundNoticeScheduler) DrainPendingNotices() []steeringIntent                  { return nil }
 func (s *stubBackgroundNoticeScheduler) HasPendingNotices() bool                                { return false }
 func (s *stubBackgroundNoticeScheduler) ConsumePendingBackgroundNotice(string) bool             { return false }
 func (s *stubBackgroundNoticeScheduler) ScheduleIfIdle() {
@@ -533,7 +533,7 @@ func TestContextCompactorUsesExclusiveStepLifecycle(t *testing.T) {
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 

@@ -132,7 +132,7 @@ func TestAppendPersistedLocalEntryEmitsRealtimeLocalEntryEvent(t *testing.T) {
 		},
 	})
 
-	if err := eng.appendPersistedLocalEntryWithOngoingText("step-1", "reviewer_suggestions", "Supervisor suggested:\n1. Add verification notes.", "Supervisor made 1 suggestion."); err != nil {
+	if err := eng.steer("step-1", steerLocalEntryIntent(storedLocalEntry{Visibility: transcript.EntryVisibilityAuto, Role: "reviewer_suggestions", Text: "Supervisor suggested:\n1. Add verification notes.", OngoingText: "Supervisor made 1 suggestion."})); err != nil {
 		t.Fatalf("append persisted local entry: %v", err)
 	}
 	if got := len(events); got != 1 {
@@ -158,7 +158,7 @@ func TestRunReviewerFollowUpReturnsCompletionWhenReviewerInstructionAppendFails(
 		Model:    "gpt-5",
 		Reviewer: ReviewerConfig{Model: "gpt-5"},
 	})
-	if err := eng.appendUserMessage("prep-1", "first request"); err != nil {
+	if err := eng.steer("prep-1", steerUserMessageIntent(llm.Message{Role: llm.RoleUser, Content: "first request"})); err != nil {
 		t.Fatalf("append first message: %v", err)
 	}
 
@@ -242,7 +242,7 @@ func TestRunStepLoopFailsWhenReviewerStatusPersistenceFailsAfterReviewerInstruct
 		}
 		return nil
 	}
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "do task"}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "do task"})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 
@@ -346,14 +346,14 @@ func TestSubmitUserMessageFailsWhenReviewerStatusPersistenceFailsAfterAssistantE
 
 func TestRestoreMessagesKeepsStoredReviewerEntriesVerbatim(t *testing.T) {
 	store := mustCreateTestSession(t)
-	if _, err := store.AppendEvent("legacy-step", "local_entry", storedLocalEntry{
+	if _, _, err := store.AppendEvent("legacy-step", "local_entry", storedLocalEntry{
 		Role:        "reviewer_suggestions",
 		Text:        "Supervisor suggested:\n1. Add final verification notes.",
 		OngoingText: "Supervisor made 1 suggestion.",
 	}); err != nil {
 		t.Fatalf("append legacy reviewer_suggestions: %v", err)
 	}
-	if _, err := store.AppendEvent("legacy-step", "local_entry", storedLocalEntry{
+	if _, _, err := store.AppendEvent("legacy-step", "local_entry", storedLocalEntry{
 		Role: "reviewer_status",
 		Text: "Supervisor ran, applied 1 suggestion:\n1. Add final verification notes.",
 	}); err != nil {
@@ -375,7 +375,7 @@ func TestRestoreMessagesKeepsStoredReviewerEntriesVerbatim(t *testing.T) {
 
 func TestRestoreMessagesPreservesStoredLocalEntryNoticeID(t *testing.T) {
 	store := mustCreateTestSession(t)
-	if _, err := store.AppendEvent("legacy-step", "local_entry", storedLocalEntry{
+	if _, _, err := store.AppendEvent("legacy-step", "local_entry", storedLocalEntry{
 		Role:     "system",
 		Text:     "Mirrored notice",
 		NoticeID: "notice-1",
@@ -401,11 +401,12 @@ func TestAppendPersistedLocalEntryRecordDoesNotMutateChatOnAppendFailure(t *test
 		return localEntryErr
 	}
 
-	err := eng.appendPersistedLocalEntryRecord("step-1", storedLocalEntry{
+	err := eng.steer("step-1", steerLocalEntryIntent(storedLocalEntry{
 		Visibility: transcript.EntryVisibilityAll,
 		Role:       "reviewer_status",
 		Text:       "Supervisor ran, applied 1 suggestion.",
-	})
+	}))
+
 	if !errors.Is(err, localEntryErr) {
 		t.Fatalf("expected injected local entry failure, got %v", err)
 	}
@@ -441,7 +442,7 @@ func TestRestoreMessagesKeepsStoredToolCallPresentationPayload(t *testing.T) {
 		Command:        "pwd",
 		TimeoutLabel:   "",
 	})
-	if _, err := store.AppendEvent("legacy-step", "message", llm.Message{
+	if _, _, err := store.AppendEvent("legacy-step", "message", llm.Message{
 		Role:    llm.RoleAssistant,
 		Content: "working",
 		ToolCalls: []llm.ToolCall{{
@@ -493,7 +494,7 @@ func TestRestoreMessagesIgnoresLegacyReviewerRollbackHistoryReplacement(t *testi
 			Arguments:        json.RawMessage(`{"command":"pwd"}`),
 		},
 	}
-	if _, err := store.AppendEvent("legacy-step", "history_replaced", historyReplacementPayload{
+	if _, _, err := store.AppendEvent("legacy-step", "history_replaced", historyReplacementPayload{
 		Engine: "reviewer_rollback",
 		Mode:   "manual",
 		Items:  legacyItems,

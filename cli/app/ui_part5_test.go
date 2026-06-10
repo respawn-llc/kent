@@ -15,10 +15,10 @@ import (
 
 func TestViewDuringActiveWorkKeepsCommittedTranscriptVisible(t *testing.T) {
 	store := createAppRuntimeSession(t)
-	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "prior user"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "prior user"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleAssistant, Content: "prior assistant"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleAssistant, Content: "prior assistant"}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
 	eng := newAppRuntimeEngineWithStore(t, store, statusLineFakeClient{}, runtime.Config{})

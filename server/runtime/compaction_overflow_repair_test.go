@@ -178,22 +178,22 @@ func TestLocalCompactionCollapsesToolPayloadAfterOverflow(t *testing.T) {
 		}},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
 		ID:    "call-shell",
 		Name:  string(toolspec.ToolExecCommand),
 		Input: json.RawMessage(`{"cmd":"go test ./..."}`),
-	}}}); err != nil {
+	}}})); err != nil {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
-	if err := eng.appendMessage("", llm.Message{
+	if err := eng.steer("", steerMessageIntent(llm.Message{
 		Role:       llm.RoleTool,
 		ToolCallID: "call-shell",
 		Name:       string(toolspec.ToolExecCommand),
 		Content:    `{"output":"` + strings.Repeat("x", 120_000) + `"}`,
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("append tool output: %v", err)
 	}
 
@@ -240,13 +240,13 @@ func TestLocalCompactionFailsFastWhenOverflowHasNoCollapsibleToolPayload(t *test
 		}},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("chat-heavy-history", 12_000)}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: strings.Repeat("chat-heavy-history", 12_000)})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, ReasoningItems: []llm.ReasoningItem{{
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, ReasoningItems: []llm.ReasoningItem{{
 		ID:               "rs-heavy",
 		EncryptedContent: strings.Repeat("reasoning-heavy-history", 12_000),
-	}}}); err != nil {
+	}}})); err != nil {
 		t.Fatalf("append reasoning message: %v", err)
 	}
 
@@ -276,30 +276,30 @@ func TestLocalCompactionUsesTenTwentyFortyPercentRepairScheduleFromConfiguredCon
 		}},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local", ContextWindowTokens: 100_000})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, ReasoningItems: []llm.ReasoningItem{{
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, ReasoningItems: []llm.ReasoningItem{{
 		ID:               "rs-keep",
 		EncryptedContent: strings.Repeat("reasoning", 2_000),
-	}}}); err != nil {
+	}}})); err != nil {
 		t.Fatalf("append reasoning item: %v", err)
 	}
 	for idx := 0; idx < 5; idx++ {
 		callID := fmt.Sprintf("call-shell-%d", idx)
-		if err := eng.appendMessage("", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+		if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
 			ID:    callID,
 			Name:  string(toolspec.ToolExecCommand),
 			Input: json.RawMessage(`{"cmd":"echo hi"}`),
-		}}}); err != nil {
+		}}})); err != nil {
 			t.Fatalf("append assistant tool call %d: %v", idx, err)
 		}
-		if err := eng.appendMessage("", llm.Message{
+		if err := eng.steer("", steerMessageIntent(llm.Message{
 			Role:       llm.RoleTool,
 			ToolCallID: callID,
 			Name:       string(toolspec.ToolExecCommand),
 			Content:    `{"output":"` + strings.Repeat("x", 48_000) + `"}`,
-		}); err != nil {
+		})); err != nil {
 			t.Fatalf("append tool output %d: %v", idx, err)
 		}
 	}

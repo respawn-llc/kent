@@ -119,6 +119,7 @@ var (
 	WorkflowTaskInstructionsPrompt                 = mustPrompt("workflow/workflow_task_instructions.md")
 	WorkflowToolCompletionInstructionsPrompt       = mustPrompt("workflow/tool_completion_instructions.md")
 	WorkflowStructuredCompletionInstructionsPrompt = mustPrompt("workflow/structured_completion_instructions.md")
+	WorkflowFinalAnswerNudgePrompt                 = mustPrompt("workflow/final_answer_nudge.md")
 	WorkflowHumanOnlyTaskActionDeniedPrompt        = mustPrompt("workflow/human_only_task_action_denied.md")
 	WorktreeModePrompt                             = mustPrompt("worktree_mode_prompt.md")
 	WorktreeModeExitPrompt                         = mustPrompt("worktree_mode_exit_prompt.md")

@@ -43,7 +43,7 @@ func (e *Engine) SetGoal(objective string, actor session.GoalActor) (session.Goa
 	if err != nil {
 		return session.GoalState{}, err
 	}
-	e.appendPersistedGoalDeveloperMessage("", msg)
+	e.steer("", steerStoredMessageProjectionIntent(msg))
 	return goal, nil
 }
 
@@ -65,7 +65,7 @@ func (e *Engine) SetGoalStatus(status session.GoalStatus, actor session.GoalActo
 	if err != nil {
 		return session.GoalState{}, err
 	}
-	e.appendPersistedGoalDeveloperMessage("", msg)
+	e.steer("", steerStoredMessageProjectionIntent(msg))
 	return goal, nil
 }
 
@@ -78,7 +78,7 @@ func (e *Engine) ClearGoal(actor session.GoalActor) (session.GoalState, error) {
 	if err != nil {
 		return session.GoalState{}, err
 	}
-	e.appendPersistedGoalDeveloperMessage("", msg)
+	e.steer("", steerStoredMessageProjectionIntent(msg))
 	return goal, nil
 }
 
@@ -147,13 +147,7 @@ func (e *Engine) runGoalLoop(ctx context.Context, firstTurnAlreadyPrompted bool)
 func (e *Engine) runGoalTurn(ctx context.Context, appendNudge bool) (assistant llm.Message, err error) {
 	e.ensureOrchestrationCollaborators()
 	err = e.stepLifecycle.Run(ctx, exclusiveStepOptions{EmitRunState: true, PersistRunLifecycle: true, GoalLoop: true}, func(stepCtx context.Context, stepID string) error {
-		if err := e.injectAgentsIfNeeded(stepID); err != nil {
-			return err
-		}
-		if err := e.injectHeadlessModeTransitionPromptIfNeeded(stepID); err != nil {
-			return err
-		}
-		if err := e.injectWorkflowModePromptIfNeeded(stepCtx, stepID); err != nil {
+		if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 			return err
 		}
 		goal := e.Goal()
@@ -161,7 +155,7 @@ func (e *Engine) runGoalTurn(ctx context.Context, appendNudge bool) (assistant l
 			return errGoalLoopInactive
 		}
 		if appendNudge {
-			if err := e.appendGoalDeveloperMessage(stepID, prompts.RenderGoalNudgePrompt(goal.Objective, string(goal.Status)), goalNudgeCompactText(*goal)); err != nil {
+			if err := e.steer(stepID, steerMessageIntent(e.goalDeveloperMessage(prompts.RenderGoalNudgePrompt(goal.Objective, string(goal.Status)), goalNudgeCompactText(*goal)))); err != nil {
 				return err
 			}
 		}
@@ -191,9 +185,16 @@ func (e *Engine) recordGoalLoopError(err error) {
 		return
 	}
 	message := "Goal loop stopped: " + err.Error()
-	if appendErr := e.appendPersistedLocalEntry("", string(transcript.EntryRoleDeveloperErrorFeedback), message); appendErr != nil {
-		e.SetOngoingError(message + " (also failed to persist error: " + appendErr.Error() + ")")
-		return
+	if appendErr := e.steer("", steerLocalEntryIntent(storedLocalEntry{
+		Visibility: transcript.EntryVisibilityAuto,
+		Role:       string(transcript.EntryRoleDeveloperErrorFeedback),
+		Text:       message,
+	})); appendErr != nil {
+		_ = e.steer("", steerLocalEntryIntent(storedLocalEntry{
+			Visibility: transcript.EntryVisibilityAuto,
+			Role:       string(transcript.EntryRoleDeveloperErrorFeedback),
+			Text:       "Failed to persist goal loop error: " + appendErr.Error(),
+		}))
 	}
 	e.SetOngoingError(message)
 }
@@ -222,10 +223,6 @@ func (e *Engine) goalLoopState() *goalLoopState {
 	return e.goalLoop
 }
 
-func (e *Engine) appendGoalDeveloperMessage(stepID string, content string, compact string) error {
-	return e.appendMessage(stepID, e.goalDeveloperMessage(content, compact))
-}
-
 func (e *Engine) goalDeveloperMessage(content string, compact string) llm.Message {
 	return normalizeMessageForTranscript(llm.Message{
 		Role:           llm.RoleDeveloper,
@@ -233,16 +230,6 @@ func (e *Engine) goalDeveloperMessage(content string, compact string) llm.Messag
 		Content:        content,
 		CompactContent: compact,
 	}, e.transcriptWorkingDir())
-}
-
-func (e *Engine) appendPersistedGoalDeveloperMessage(stepID string, msg llm.Message) {
-	previousCommittedCount := e.CommittedTranscriptEntryCount()
-	e.markCurrentRequestShapeDirty()
-	e.transcriptPersistence().AppendMessage(msg)
-	currentCommittedCount := e.CommittedTranscriptEntryCount()
-	if currentCommittedCount > previousCommittedCount && msg.Role == llm.RoleDeveloper && (msg.MessageType == llm.MessageTypeGoal || msg.MessageType == llm.MessageTypeWorktreeMode || msg.MessageType == llm.MessageTypeWorktreeModeExit) {
-		e.emitCommittedMessageTranscriptAdvanced(stepID, msg)
-	}
 }
 
 func (e *Engine) requireAskQuestionForActiveGoal() error {

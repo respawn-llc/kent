@@ -287,7 +287,7 @@ func TestSubmitUserMessageSurfacesInFlightClearFailure(t *testing.T) {
 
 func TestNewNormalizesPersistedInFlightStepOnReopen(t *testing.T) {
 	store := mustCreateTestSession(t)
-	if _, err := store.AppendEvent("legacy-step", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
+	if _, _, err := store.AppendEvent("legacy-step", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 	if err := store.MarkInFlight(true); err != nil {
@@ -365,10 +365,10 @@ func testReopenCarriesInterruptedToolAttemptIntoNextModelRequest(t *testing.T, c
 	t.Helper()
 
 	store := mustCreateTestSession(t)
-	if _, err := store.AppendEvent("legacy-step", "message", llm.Message{Role: llm.RoleUser, Content: "do the thing"}); err != nil {
+	if _, _, err := store.AppendEvent("legacy-step", "message", llm.Message{Role: llm.RoleUser, Content: "do the thing"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if _, err := store.AppendEvent("legacy-step", "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}}); err != nil {
+	if _, _, err := store.AppendEvent("legacy-step", "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}}); err != nil {
 		t.Fatalf("append assistant tool call message: %v", err)
 	}
 	if err := store.MarkInFlight(true); err != nil {
@@ -451,14 +451,13 @@ func TestSubmitUserShellCommandPersistsDeveloperNoticeAndToolEntries(t *testing.
 	if len(messages) == 0 {
 		t.Fatal("expected persisted messages")
 	}
-	foundDeveloperNotice := false
 	foundAssistantToolCall := false
 	foundToolOutput := false
 	for _, msg := range messages {
 		switch msg.Role {
 		case llm.RoleDeveloper:
-			if strings.Contains(msg.Content, "User ran shell command directly:") && strings.Contains(msg.Content, "pwd") {
-				foundDeveloperNotice = true
+			if strings.Contains(msg.Content, "User ran shell command directly:") {
+				t.Fatalf("unexpected duplicate developer notice for user shell command, msg=%+v", msg)
 			}
 		case llm.RoleAssistant:
 			if len(msg.ToolCalls) == 1 && msg.ToolCalls[0].Name == string(toolspec.ToolExecCommand) {
@@ -469,9 +468,6 @@ func TestSubmitUserShellCommandPersistsDeveloperNoticeAndToolEntries(t *testing.
 				foundToolOutput = true
 			}
 		}
-	}
-	if !foundDeveloperNotice {
-		t.Fatalf("expected developer notice message in model context, messages=%+v", messages)
 	}
 	if !foundAssistantToolCall {
 		t.Fatalf("expected assistant shell tool call message, messages=%+v", messages)

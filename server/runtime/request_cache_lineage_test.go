@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-func TestApplyPersistedCacheWarningUsesCacheWarningModeVisibility(t *testing.T) {
+func TestCacheWarningSteeringUsesCacheWarningModeVisibility(t *testing.T) {
 	tests := []struct {
 		name string
 		mode config.CacheWarningMode
@@ -28,14 +28,29 @@ func TestApplyPersistedCacheWarningUsesCacheWarningModeVisibility(t *testing.T) 
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eng := &Engine{cfg: Config{CacheWarningMode: tt.mode}, transcriptState: newTranscriptRuntimeState("")}
-			eng.applyPersistedCacheWarning(cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonReuseDropped})
+			events := make([]Event, 0, 1)
+			store := mustCreateTestSession(t)
+			eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
+				CacheWarningMode: tt.mode,
+				OnEvent: func(evt Event) {
+					events = append(events, evt)
+				},
+			})
+			if err := eng.steer("cache-step", steerCacheWarningIntent(cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonReuseDropped}, cacheWarningEntryVisibility(tt.mode), true)); err != nil {
+				t.Fatalf("steer cache warning: %v", err)
+			}
 			snapshot := eng.ChatSnapshot()
 			if len(snapshot.Entries) != 1 {
 				t.Fatalf("expected one cache warning entry, got %d", len(snapshot.Entries))
 			}
 			if got := snapshot.Entries[0].Visibility; got != tt.want {
 				t.Fatalf("cache warning visibility = %q, want %q", got, tt.want)
+			}
+			if len(events) != 1 || events[0].Kind != EventCacheWarning {
+				t.Fatalf("events = %+v, want one cache warning event", events)
+			}
+			if events[0].CacheWarningVisibility != tt.want {
+				t.Fatalf("cache warning event visibility = %q, want %q", events[0].CacheWarningVisibility, tt.want)
 			}
 		})
 	}
@@ -259,7 +274,7 @@ func TestBuildRequest_RotatesPromptCacheKeyWithRequestSessionIDAfterCompaction(t
 
 func TestBuildRequest_RotatesPromptCacheKeyFromPersistedCompactionOnReopen(t *testing.T) {
 	store := mustCreateTestSession(t)
-	if _, err := store.AppendEvent("legacy-compact", "history_replaced", historyReplacementPayload{
+	if _, _, err := store.AppendEvent("legacy-compact", "history_replaced", historyReplacementPayload{
 		Engine: "local",
 		Mode:   string(compactionModeManual),
 		Items:  llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}),
@@ -372,7 +387,7 @@ func TestOpenAIResponsesPayload_UsesExpectedCacheKeyShapesAcrossConversationSupe
 		t.Fatalf("reviewer prompt_cache_key = %q, want %q", got, want)
 	}
 
-	if _, err := store.AppendEvent("legacy-compact", "history_replaced", historyReplacementPayload{
+	if _, _, err := store.AppendEvent("legacy-compact", "history_replaced", historyReplacementPayload{
 		Engine: "local",
 		Mode:   string(compactionModeManual),
 		Items:  llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}),
@@ -499,7 +514,7 @@ func TestOpenAITransport_UsesExpectedSessionHeadersAndPromptCacheKeysAcrossConve
 		t.Fatalf("reviewer after prompt_cache_key = %q, want %q", got, want)
 	}
 
-	if _, err := store.AppendEvent("legacy-compact", "history_replaced", historyReplacementPayload{
+	if _, _, err := store.AppendEvent("legacy-compact", "history_replaced", historyReplacementPayload{
 		Engine: "local",
 		Mode:   string(compactionModeManual),
 		Items:  llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}),
@@ -586,7 +601,7 @@ func TestReviewerSuggestions_UsesReviewerClientPromptCacheCapability(t *testing.
 
 func TestReviewerSuggestions_PromptCacheKeyStaysOnReviewerSessionAfterConversationCompaction(t *testing.T) {
 	store := mustCreateTestSession(t)
-	if _, err := store.AppendEvent("legacy-compact", "history_replaced", historyReplacementPayload{
+	if _, _, err := store.AppendEvent("legacy-compact", "history_replaced", historyReplacementPayload{
 		Engine: "local",
 		Mode:   string(compactionModeManual),
 		Items:  llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, MessageType: llm.MessageTypeCompactionSummary, Content: "summary"}}),
@@ -677,7 +692,7 @@ func TestGenerateWithRetryClient_CompactionRotatesConversationCacheKeyWithoutWar
 
 func TestGenerateWithRetryClient_RestoreIgnoresRequestObservationWithoutResponse(t *testing.T) {
 	store := mustCreateTestSession(t)
-	if _, err := store.AppendEvent("legacy-request", sessionEventCacheRequestObserved, persistedCacheRequestObserved{
+	if _, _, err := store.AppendEvent("legacy-request", sessionEventCacheRequestObserved, persistedCacheRequestObserved{
 		DigestVersion: requestCacheDigestVersion,
 		CacheKey:      "cache-key-1",
 		Scope:         cachewarn.ScopeConversation,

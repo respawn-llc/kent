@@ -105,10 +105,7 @@ func TestBackgroundNoticeSchedulerSchedulingRaceWithEngineCloseDoesNotPanic(t *t
 			scheduler.QueueDeveloperNotice(llm.Message{Role: llm.RoleDeveloper, Content: "queued background notice"})
 		})
 		runSafe(func() {
-			scheduler.mu.Lock()
-			scheduler.pending = append(scheduler.pending, llm.Message{Role: llm.RoleDeveloper, Content: "queued schedule-if-idle"})
-			scheduler.scheduled = false
-			scheduler.mu.Unlock()
+			scheduler.QueueDeveloperNotice(llm.Message{Role: llm.RoleDeveloper, Content: "queued schedule-if-idle"})
 			scheduler.ScheduleIfIdle()
 		})
 		runSafe(func() {

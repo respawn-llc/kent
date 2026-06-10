@@ -431,6 +431,19 @@ func (s *Service) ValidateWorkflowGraphDraft(ctx context.Context, req serverapi.
 	}, nil
 }
 
+func (s *Service) DeriveWorkflowGraphWiring(ctx context.Context, req serverapi.WorkflowGraphDeriveWiringRequest) (serverapi.WorkflowGraphDeriveWiringResponse, error) {
+	if err := req.Validate(); err != nil {
+		return serverapi.WorkflowGraphDeriveWiringResponse{}, err
+	}
+	def, err := s.workflowGraphDraftDefinition(ctx, req.WorkflowID, nil, req.Graph)
+	if err != nil {
+		return serverapi.WorkflowGraphDeriveWiringResponse{}, err
+	}
+	return serverapi.WorkflowGraphDeriveWiringResponse{
+		DerivedWiring: workflowapi.DerivedWiring(def),
+	}, nil
+}
+
 func (s *Service) PreviewWorkflowGraphSave(ctx context.Context, req serverapi.WorkflowGraphSavePreviewRequest) (serverapi.WorkflowGraphSavePreviewResponse, error) {
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowGraphSavePreviewResponse{}, err

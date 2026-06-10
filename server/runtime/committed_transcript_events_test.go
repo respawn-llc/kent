@@ -3,6 +3,7 @@ package runtime
 import (
 	"builder/shared/cachewarn"
 	"builder/shared/toolspec"
+	"builder/shared/transcript"
 	"context"
 	"encoding/json"
 	"testing"
@@ -32,11 +33,17 @@ func TestCommittedTranscriptChangedMarksOnlyDurableTranscriptMutations(t *testin
 	assertEventFlags(t, events[start:], []eventFlagExpectation{{kind: EventOngoingErrorUpdated, stepID: "", committedChanged: false}})
 
 	start = len(events)
-	eng.clearStreamingAssistantState("stream-step")
+	if err := eng.steer("stream-step", steerClearStreamingStateIntent()); err != nil {
+		t.Fatalf("clear streaming state: %v", err)
+	}
 	assertEventFlags(t, events[start:], []eventFlagExpectation{{kind: EventConversationUpdated, stepID: "stream-step", committedChanged: false}, {kind: EventAssistantDeltaReset, stepID: "stream-step", committedChanged: false}, {kind: EventReasoningDeltaReset, stepID: "stream-step", committedChanged: false}})
 
 	start = len(events)
-	if err := eng.appendPersistedLocalEntry("persist-step", "reviewer_status", "persisted local note"); err != nil {
+	if err := eng.steer("persist-step", steerLocalEntryIntent(storedLocalEntry{
+		Visibility: transcript.EntryVisibilityAuto,
+		Role:       "reviewer_status",
+		Text:       "persisted local note",
+	})); err != nil {
 		t.Fatalf("append persisted local entry: %v", err)
 	}
 	assertEventFlags(t, events[start:], []eventFlagExpectation{{kind: EventLocalEntryAdded, stepID: "persist-step", committedChanged: true}})
@@ -48,13 +55,13 @@ func TestCommittedTranscriptChangedMarksOnlyDurableTranscriptMutations(t *testin
 	assertEventFlags(t, events[start:], []eventFlagExpectation{{kind: EventLocalEntryAdded, stepID: "compact-step", committedChanged: true}, {kind: EventConversationUpdated, stepID: "compact-step", committedChanged: false}})
 
 	start = len(events)
-	if err := eng.appendMessage("message-step", llm.Message{Role: llm.RoleAssistant, Content: "persisted assistant", Phase: llm.MessagePhaseFinal}); err != nil {
+	if err := eng.steer("message-step", steerMessageIntent(llm.Message{Role: llm.RoleAssistant, Content: "persisted assistant", Phase: llm.MessagePhaseFinal})); err != nil {
 		t.Fatalf("append persisted message: %v", err)
 	}
 	assertEventFlags(t, events[start:], nil)
 
 	start = len(events)
-	if err := eng.appendGoalDeveloperMessage("goal-step", "Goal paused.", "Goal paused"); err != nil {
+	if err := eng.steer("goal-step", steerMessageIntent(eng.goalDeveloperMessage("Goal paused.", "Goal paused"))); err != nil {
 		t.Fatalf("append goal feedback: %v", err)
 	}
 	assertEventFlags(t, events[start:], []eventFlagExpectation{{kind: EventConversationUpdated, stepID: "goal-step", committedChanged: true}})
@@ -104,16 +111,16 @@ func TestToolResultMirrorMessageDoesNotEmitGenericCommittedAdvance(t *testing.T)
 	})
 
 	call := llm.ToolCall{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}
-	if err := eng.appendAssistantMessage("step-1", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}}); err != nil {
+	if err := eng.steer("step-1", steerMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}})); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
 	result := tools.Result{CallID: call.ID, Name: toolspec.ToolExecCommand, Output: json.RawMessage(`{"output":"/tmp","exit_code":0,"truncated":false}`)}
-	if err := eng.persistToolCompletion("step-1", result); err != nil {
+	if err := eng.steer("step-1", steerToolCompletionIntent(result)); err != nil {
 		t.Fatalf("persist tool completion: %v", err)
 	}
 
 	start := len(events)
-	if err := eng.appendMessage("step-1", llm.Message{Role: llm.RoleTool, ToolCallID: call.ID, Name: string(result.Name), Content: string(result.Output)}); err != nil {
+	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleTool, ToolCallID: call.ID, Name: string(result.Name), Content: string(result.Output)})); err != nil {
 		t.Fatalf("append tool mirror message: %v", err)
 	}
 	if got := events[start:]; len(got) != 0 {

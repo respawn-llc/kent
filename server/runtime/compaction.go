@@ -2,11 +2,12 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"builder/prompts"
 	"builder/server/llm"
@@ -101,7 +102,7 @@ func (c *defaultContextCompactor) TriggerHandoff(ctx context.Context, stepID str
 func (c *defaultContextCompactor) compactContext(ctx context.Context, mode compactionMode, args string, includeManualCarryover bool) error {
 	e := c.engine
 	return c.steps.Run(ctx, exclusiveStepOptions{}, func(stepCtx context.Context, stepID string) error {
-		if err := e.injectAgentsIfNeeded(stepID); err != nil {
+		if err := e.ensureMetaContextForCompaction(stepCtx, stepID); err != nil {
 			return err
 		}
 		_, err := e.compactNow(stepCtx, stepID, mode, args, includeManualCarryover)
@@ -324,7 +325,8 @@ func (e *Engine) requestInputTokensPreciselyTracked(ctx context.Context, req llm
 	}
 	cacheKey := ""
 	if payload, err := json.Marshal(req); err == nil {
-		cacheKey = string(payload)
+		sum := sha256.Sum256(payload)
+		cacheKey = hex.EncodeToString(sum[:])
 	}
 	if cacheKey != "" {
 		if cached, ok := e.lookupPreciseTokenCount(cacheKey, current); ok {
@@ -381,7 +383,7 @@ func (e *Engine) reportPreciseTokenCountSupportFailure(err error) {
 		message = "unknown exact token counting support failure"
 	}
 	entryText := fmt.Sprintf("Exact token counting availability check failed: %s. Falling back to a local token estimate.", message)
-	if persistErr := e.appendPersistedDiagnosticEntry(
+	if persistErr := e.steerPersistedDiagnosticEntry(
 		"",
 		preciseTokenCountSupportDiagnostic,
 		"error",
@@ -400,7 +402,7 @@ func (e *Engine) reportPreciseTokenCountFailure(err error) {
 		message = "unknown exact token counting failure"
 	}
 	entryText := fmt.Sprintf("Exact token counting failed: %s. Falling back to a local token estimate.", message)
-	if persistErr := e.appendPersistedDiagnosticEntry(
+	if persistErr := e.steerPersistedDiagnosticEntry(
 		"",
 		preciseTokenCountFailureDiagnostic,
 		"error",
@@ -535,7 +537,6 @@ func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionM
 	if mode == compactionModeManual && includeManualCarryover {
 		manualCarryover = lastVisibleUserMessageSinceLatestCompaction(input)
 	}
-	wasHeadless := e.transcriptRuntimeState().HeadlessActive()
 	var result compactionResult
 	enginePlan := planner.enginePlan(planningSnapshot, caps)
 	if enginePlan.engineKind == compactionEngineRemote {
@@ -559,37 +560,48 @@ func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionM
 
 	compactionNumber := e.compactionCountSnapshot() + 1
 	result.items = withCompactionSummaryLabel(result.items, CompactionNoticeText(compactionNumber))
-	if err := e.replaceHistory(stepID, result.engine, mode, result.items); err != nil {
+	postReplacementMeta, err := e.compactionReinjectedMetaMessages(ctx)
+	if err != nil {
+		statusErr := e.emitCompactionStatus(stepID, EventCompactionFailed, mode, result.engine, providerID, result.trimmedItemsCount, 0, err.Error())
+		return compactionResult{}, errors.Join(err, statusErr)
+	}
+	// Reinject base meta as part of the single history_replaced commit so the
+	// rebuilt active list is born with it atomically: a restart can never observe
+	// a compacted session that has a summary but no base meta, and the summary
+	// precedes the reinjected meta in both provider and transcript order.
+	replacementItems := append(llm.CloneResponseItems(result.items), llm.ItemsFromMessages(postReplacementMeta)...)
+	if err := e.replaceHistory(stepID, result.engine, mode, replacementItems); err != nil {
 		statusErr := e.emitCompactionStatus(stepID, EventCompactionFailed, mode, result.engine, providerID, result.trimmedItemsCount, 0, err.Error())
 		return compactionResult{}, errors.Join(err, statusErr)
 	}
 	if strings.TrimSpace(result.summary) != "" && result.engine != "local" {
 		summary := strings.TrimSpace(result.summary)
-		if err := e.appendPersistedLocalEntry(stepID, "compaction_summary", summary); err != nil {
+		if err := e.steer(stepID, steerLocalEntryIntent(storedLocalEntry{Role: "compaction_summary", Text: summary})); err != nil {
 			statusErr := e.emitCompactionStatus(stepID, EventCompactionFailed, mode, result.engine, providerID, result.trimmedItemsCount, 0, err.Error())
 			return compactionResult{}, errors.Join(err, statusErr)
 		}
 	}
 	if result.overflowRepair.Collapsed() {
-		if err := e.appendPersistedLocalEntry(stepID, string(transcript.EntryRoleDeveloperErrorFeedback), fmt.Sprintf(
+		if err := e.steer(stepID, steerLocalEntryIntent(storedLocalEntry{Role: string(transcript.EntryRoleDeveloperErrorFeedback), Text: fmt.Sprintf(
 			"Context compaction succeeded after collapsing tool payloads: %d shell outputs, %d patch inputs, ~%d tokens omitted. Full original tool payloads remain in pre-compaction transcript history but are omitted from the compacted model context.",
 			result.overflowRepair.ShellOutputsCollapsed,
 			result.overflowRepair.PatchInputsCollapsed,
 			result.overflowRepair.EstimatedSavedTokens,
-		)); err != nil {
+		)})); err != nil {
 			statusErr := e.emitCompactionStatus(stepID, EventCompactionFailed, mode, result.engine, providerID, result.trimmedItemsCount, 0, err.Error())
 			return compactionResult{}, errors.Join(err, statusErr)
 		}
 	}
-	if err := e.appendPostCompactionMessages(stepID, e.postCompactionMessages(mode, manualCarryover, wasHeadless)); err != nil {
-		return compactionResult{}, err
+	if err := e.appendPostCompactionMessages(stepID, e.postCompactionMessages(mode, manualCarryover, e.store.Meta().HeadlessActive)); err != nil {
+		statusErr := e.emitCompactionStatus(stepID, EventCompactionFailed, mode, result.engine, providerID, result.trimmedItemsCount, 0, err.Error())
+		return compactionResult{}, errors.Join(err, statusErr)
 	}
 	compactionNumber = e.nextCompactionCount()
 	windowTokens := result.usage.WindowTokens
 	if windowTokens <= 0 {
 		windowTokens = e.contextWindowTokens()
 	}
-	inputTokens := estimateItemsTokens(result.items)
+	inputTokens := estimateItemsTokens(e.snapshotItems())
 	if preciseInput, ok := e.currentInputTokensPrecisely(ctx); ok {
 		inputTokens = preciseInput
 	}
@@ -664,7 +676,7 @@ func (e *Engine) handoffRuntimeState() *handoffRuntimeState {
 
 func (e *Engine) applyPendingHandoffIfNeeded(ctx context.Context, stepID string) (bool, error) {
 	if futureMessage := e.pendingHandoffFutureMessageSnapshot(); futureMessage != "" {
-		if err := e.appendMessage(stepID, handoffFutureAgentMessage(futureMessage)); err != nil {
+		if err := e.steer(stepID, steerMessageIntent(handoffFutureAgentMessage(futureMessage))); err != nil {
 			return false, err
 		}
 		e.clearPendingHandoffFutureMessage()
@@ -698,26 +710,6 @@ func withCompactionSummaryLabel(items []llm.ResponseItem, label string) []llm.Re
 		return out
 	}
 	return out
-}
-
-func (e *Engine) buildCanonicalCompactionReplacement(prefix []llm.ResponseItem) ([]llm.ResponseItem, error) {
-	meta, err := e.compactionReinjectedBaseMessages()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]llm.ResponseItem, 0, len(prefix)+len(meta))
-	out = append(out, llm.CloneResponseItems(prefix)...)
-	out = append(out, llm.ItemsFromMessages(meta)...)
-	return out, nil
-}
-
-func (e *Engine) compactionReinjectedBaseMessages() ([]llm.Message, error) {
-	builder := e.newActiveBaseMetaContextBuilder(e.currentModel(), time.Now())
-	metaResult, err := builder.Build(baseMetaContextBuildOptions(false))
-	if err != nil {
-		return nil, err
-	}
-	return metaResult.OrderedBaseMessages(), nil
 }
 
 func (e *Engine) compactionPlannerState() *compactionPlanner {

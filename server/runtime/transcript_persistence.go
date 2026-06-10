@@ -111,3 +111,14 @@ func applyPersistedCacheWarningToTranscript(persistence transcriptPersistenceCoo
 	persistence.AppendLocalEntryWithVisibility(cacheWarningTranscriptRole, cachewarn.Text(warning), cacheWarningEntryVisibility(mode))
 	return nil
 }
+
+func applyPersistedCacheWarningToChat(chat *chatStore, payload []byte, mode config.CacheWarningMode) error {
+	var warning cachewarn.Warning
+	if err := json.Unmarshal(payload, &warning); err != nil {
+		return fmt.Errorf("decode %s event: %w", sessionEventCacheWarning, err)
+	}
+	if chat != nil {
+		chat.appendLocalEntryRecord(ChatEntry{Visibility: cacheWarningEntryVisibility(mode), Role: cacheWarningTranscriptRole, Text: cachewarn.Text(warning)})
+	}
+	return nil
+}

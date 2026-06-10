@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"builder/prompts"
 	"builder/server/llm"
 	"builder/server/tools"
 	"builder/server/workflow"
@@ -170,7 +171,7 @@ func TestWorkflowModePromptInjectedWithoutHeadlessOrUserPrompt(t *testing.T) {
 
 func TestWorkflowModePromptReinjectedForNewRunAfterExistingWorkflowPrompt(t *testing.T) {
 	store := mustCreateTestSession(t)
-	if _, err := store.AppendEvent("seed", "message", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorkflowMode, SourcePath: "run-old", Content: "old workflow instructions"}); err != nil {
+	if _, _, err := store.AppendEvent("seed", "message", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeWorkflowMode, SourcePath: "run-old", Content: "old workflow instructions"}); err != nil {
 		t.Fatalf("seed workflow message: %v", err)
 	}
 	controller := &fakeWorkflowController{}
@@ -390,6 +391,7 @@ func TestWorkflowFinalAnswerViolationsInterruptAtCap(t *testing.T) {
 	if got := controller.maxHits.Load(); got != 1 {
 		t.Fatalf("max hits = %d, want 1", got)
 	}
+	assertDeveloperErrorFeedbackAfterAssistantFinal(t, eng, "done 1", strings.TrimSpace(prompts.WorkflowFinalAnswerNudgePrompt))
 }
 
 func TestWorkflowEmptyFinalAnswerViolationsInterruptAtCap(t *testing.T) {
@@ -517,6 +519,26 @@ func assertSchemaRequiredFields(t *testing.T, schema json.RawMessage, expected [
 			t.Fatalf("schema required missing %s, required=%+v schema=%s", name, required, string(schema))
 		}
 	}
+}
+
+func assertDeveloperErrorFeedbackAfterAssistantFinal(t *testing.T, eng *Engine, assistantContent string, feedbackContent string) {
+	t.Helper()
+	messages := eng.snapshotMessages()
+	for index, message := range messages {
+		if message.Role != llm.RoleAssistant || message.Phase != llm.MessagePhaseFinal || message.Content != assistantContent {
+			continue
+		}
+		nextIndex := index + 1
+		if nextIndex >= len(messages) {
+			t.Fatalf("assistant final %q had no following message: %+v", assistantContent, messages)
+		}
+		next := messages[nextIndex]
+		if next.Role != llm.RoleDeveloper || next.MessageType != llm.MessageTypeErrorFeedback || next.Content != feedbackContent {
+			t.Fatalf("message after assistant final %q = %+v, want developer error feedback %q; messages=%+v", assistantContent, next, feedbackContent, messages)
+		}
+		return
+	}
+	t.Fatalf("assistant final %q not found in messages: %+v", assistantContent, messages)
 }
 
 func schemaRoot(t *testing.T, schema json.RawMessage) map[string]any {

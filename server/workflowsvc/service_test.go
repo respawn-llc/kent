@@ -209,7 +209,7 @@ func TestServiceAnswersTaskQuestionWithoutControllerLease(t *testing.T) {
 		t.Fatalf("ClaimRun: %v", err)
 	}
 	sessionID := "session-task-question"
-	if _, err := metadataStore.DB().ExecContext(ctx, `INSERT INTO sessions (id, project_id, workspace_id, artifact_relpath, name, first_prompt_preview, input_draft, parent_session_id, created_at_unix_ms, updated_at_unix_ms, last_sequence, model_request_count, in_flight_step, agents_injected, launch_visible, cwd_relpath, continuation_json, locked_json, usage_state_json, metadata_json) VALUES (?, ?, ?, ?, '', '', '', '', 1, 1, 0, 0, 0, 0, 1, '.', '{}', '{}', '{}', '{}')`, sessionID, binding.ProjectID, binding.WorkspaceID, "sessions/"+sessionID); err != nil {
+	if _, err := metadataStore.DB().ExecContext(ctx, `INSERT INTO sessions (id, project_id, workspace_id, artifact_relpath, name, first_prompt_preview, input_draft, parent_session_id, created_at_unix_ms, updated_at_unix_ms, last_sequence, model_request_count, in_flight_step, launch_visible, cwd_relpath, continuation_json, locked_json, usage_state_json, metadata_json) VALUES (?, ?, ?, ?, '', '', '', '', 1, 1, 0, 0, 0, 1, '.', '{}', '{}', '{}', '{}')`, sessionID, binding.ProjectID, binding.WorkspaceID, "sessions/"+sessionID); err != nil {
 		t.Fatalf("insert session: %v", err)
 	}
 	if err := service.store.AttachRunSession(ctx, workflow.RunID(started.RunID), claimed.Generation, sessionID); err != nil {
@@ -945,6 +945,27 @@ func TestServiceWorkflowGraphMutationsPublishInvalidations(t *testing.T) {
 		if event.ProjectID != binding.ProjectID || event.WorkflowID != created.Workflow.ID {
 			t.Fatalf("event = %+v, want linked project/workflow identity", event)
 		}
+	}
+}
+
+func TestServiceDeriveWorkflowGraphWiring(t *testing.T) {
+	ctx, service, binding := newWorkflowServiceTestContext(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
+	source, err := service.GetWorkflow(ctx, serverapi.WorkflowGetRequest{WorkflowID: workflowID})
+	if err != nil {
+		t.Fatalf("GetWorkflow source: %v", err)
+	}
+	graph := workflowGraphDraftFromDefinition(source.Definition)
+	derived, err := service.DeriveWorkflowGraphWiring(ctx, serverapi.WorkflowGraphDeriveWiringRequest{
+		WorkflowID: workflowID,
+		Graph:      graph,
+	})
+	if err != nil {
+		t.Fatalf("DeriveWorkflowGraphWiring: %v", err)
+	}
+	if len(derived.DerivedWiring.Edges) != len(graph.Edges) {
+		t.Fatalf("derived wiring edges = %+v, want one summary per draft edge", derived.DerivedWiring.Edges)
 	}
 }
 

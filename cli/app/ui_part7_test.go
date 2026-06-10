@@ -504,7 +504,7 @@ func TestQueuedReviewUsesEngineConversationFreshnessWhenUIDidNotReceiveRuntimeUp
 	if updated.conversationFreshness != clientui.ConversationFreshnessFresh {
 		t.Fatalf("expected UI freshness to remain fresh before runtime sync, got %v", updated.conversationFreshness)
 	}
-	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "first prompt"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "first prompt"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 	if got := eng.ConversationFreshness(); got != session.ConversationFreshnessEstablished {
@@ -575,7 +575,7 @@ func TestBackSlashCommandCopiesLatestAssistantOutputWhenAvailable(t *testing.T) 
 				t.Fatalf("set parent session id: %v", err)
 			}
 			for idx, message := range tt.transcript {
-				if _, err := store.AppendEvent("step-1", "message", message); err != nil {
+				if _, _, err := store.AppendEvent("step-1", "message", message); err != nil {
 					t.Fatalf("append transcript message %d: %v", idx, err)
 				}
 			}
@@ -612,7 +612,7 @@ func TestBackSlashCommandIgnoresRestoredPromptHistoryDraftInChildSession(t *test
 	if err := store.SetParentSessionID("parent-1"); err != nil {
 		t.Fatalf("set parent session id: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "latest reply", Phase: llm.MessagePhaseFinal}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "latest reply", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append assistant reply: %v", err)
 	}
 	eng := newAppRuntimeEngineWithStore(t, store, &runtimeAdapterFakeClient{}, runtime.Config{})

@@ -414,6 +414,14 @@ export const workflowGraphValidateDraftSchema: z.ZodType<WorkflowGraphValidateDr
   })
   .transform((value) => ({ ...value.results, derivedWiring: value.derived_wiring }));
 
+export const workflowGraphDeriveWiringSchema: z.ZodType<WorkflowDerivedWiring> = z
+  .object({
+    derived_wiring: workflowDerivedWiringSchema
+      .nullish()
+      .transform((value) => value ?? emptyWorkflowDerivedWiring),
+  })
+  .transform((value) => value.derived_wiring);
+
 const workflowGraphSaveImpactSchema: z.ZodType<WorkflowGraphSaveImpact> = z
   .object({
     removed_node_count: z.number(),

@@ -17,13 +17,7 @@ func (e *Engine) SubmitQueuedUserMessages(ctx context.Context) (assistant llm.Me
 	e.ensureOrchestrationCollaborators()
 	for {
 		err = e.stepLifecycle.Run(ctx, exclusiveStepOptions{EmitRunState: true, PersistRunLifecycle: true}, func(stepCtx context.Context, stepID string) error {
-			if err := e.injectAgentsIfNeeded(stepID); err != nil {
-				return err
-			}
-			if err := e.injectHeadlessModeTransitionPromptIfNeeded(stepID); err != nil {
-				return err
-			}
-			if err := e.injectWorkflowModePromptIfNeeded(stepCtx, stepID); err != nil {
+			if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 				return err
 			}
 			flushed, err := e.flushPendingUserInjections(stepID)

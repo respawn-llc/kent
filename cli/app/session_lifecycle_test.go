@@ -897,10 +897,10 @@ func TestReviewTeleportLifecyclePreservesParentWorktreeContext(t *testing.T) {
 func TestResolveSessionActionForkRollbackTeleportsToForkWithPrompt(t *testing.T) {
 	root := t.TempDir()
 	store := createAppRuntimeSessionAt(t, root, "workspace-x", "/tmp/work")
-	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleAssistant, Content: "a1"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleAssistant, Content: "a1"}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
 
@@ -938,10 +938,10 @@ func TestResolveSessionActionForkRollbackTeleportsToForkWithPrompt(t *testing.T)
 func TestForkRollbackLifecycleDoesNotPersistEditedPromptAsSourceDraft(t *testing.T) {
 	root := t.TempDir()
 	store := createAppRuntimeSessionAt(t, root, "workspace-x", "/tmp/work")
-	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleAssistant, Content: "a1"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleAssistant, Content: "a1"}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
 

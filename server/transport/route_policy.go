@@ -113,7 +113,13 @@ func (e routePolicyExecutor) requiresServerAuth(method string) bool {
 
 func (e routePolicyExecutor) serverAuthReady(ctx context.Context) (bool, error) {
 	g := e.gateway
-	if g == nil || g.deps == nil || g.deps.AuthManager() == nil {
+	if g == nil || g.deps == nil {
+		return false, nil
+	}
+	if !g.deps.ServerAuthRequired() {
+		return true, nil
+	}
+	if g.deps.AuthManager() == nil {
 		return false, nil
 	}
 	state, err := g.deps.AuthManager().Load(ctx)

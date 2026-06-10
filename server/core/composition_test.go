@@ -175,7 +175,7 @@ func TestComposedWorkflowTaskDetailResolvesPendingQuestionFromSessionTranscript(
 		t.Fatalf("session.Create: %v", err)
 	}
 	askInput := json.RawMessage(`{"question":"Question from composed session transcript?"}`)
-	if _, err := sessionStore.AppendEvent("step-ask", "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "ask-core", Name: string(toolspec.ToolAskQuestion), Input: askInput}}}); err != nil {
+	if _, _, err := sessionStore.AppendEvent("step-ask", "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "ask-core", Name: string(toolspec.ToolAskQuestion), Input: askInput}}}); err != nil {
 		t.Fatalf("AppendEvent: %v", err)
 	}
 	if err := workflowStore.AttachRunSession(ctx, started.RunID, claimed.Generation, sessionStore.Meta().SessionID); err != nil {

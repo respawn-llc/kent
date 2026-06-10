@@ -139,7 +139,7 @@ func TestForkAtUserMessagePreservesPersistenceOptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
 	}
-	if _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
+	if _, _, err := parent.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 	observer.called = false

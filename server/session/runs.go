@@ -35,7 +35,8 @@ func (s *Store) AppendRunStarted(run RunRecord) (Event, error) {
 	if started.StartedAt.IsZero() {
 		started.StartedAt = time.Now().UTC()
 	}
-	return s.AppendEvent(started.StepID, runStartedEventKind, started)
+	evt, _, err := s.AppendEvent(started.StepID, runStartedEventKind, started)
+	return evt, err
 }
 
 func (s *Store) AppendRunFinished(run RunRecord) (Event, error) {
@@ -46,7 +47,8 @@ func (s *Store) AppendRunFinished(run RunRecord) (Event, error) {
 	if finished.FinishedAt.IsZero() {
 		finished.FinishedAt = time.Now().UTC()
 	}
-	return s.AppendEvent(finished.StepID, runFinishedEventKind, finished)
+	evt, _, err := s.AppendEvent(finished.StepID, runFinishedEventKind, finished)
+	return evt, err
 }
 
 func (s *Store) ReadRuns() ([]RunRecord, error) {

@@ -44,11 +44,11 @@ func (c compactionReminderCoordinator) maybeAppend(ctx context.Context, stepID s
 	if e.compactionRuntimeState().SoonReminderIssued() {
 		return nil
 	}
-	if err := e.appendMessage(stepID, llm.Message{
+	if err := e.steer(stepID, steerMessageIntent(llm.Message{
 		Role:        llm.RoleDeveloper,
 		MessageType: llm.MessageTypeCompactionSoonReminder,
 		Content:     content,
-	}); err != nil {
+	})); err != nil {
 		return err
 	}
 	return e.persistCompactionSoonReminderIssued(true)

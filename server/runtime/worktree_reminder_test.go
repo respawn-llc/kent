@@ -225,7 +225,7 @@ func TestRunStepLoopCountsPendingWorktreeReminderBeforeAutoCompaction(t *testing
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "native",
 	})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
 		t.Fatalf("append seed: %v", err)
 	}
 	eng.setLastUsage(llm.Usage{InputTokens: 999, WindowTokens: 2_000})

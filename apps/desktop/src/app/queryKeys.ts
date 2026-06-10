@@ -20,11 +20,17 @@ export const queryKeys = {
   board: (projectID: string, workflowID: string) => ["board", projectID, workflowID],
   workflows: (query: string) => ["workflow", query],
   workflowDefinition: (workflowID: string) => ["workflow-definition", workflowID],
-  workflowDraftValidation: (workflowID: string, sourceVersion: number, version: number) => [
-    "workflow-draft-validation",
+  workflowDraftValidation: (
+    workflowID: string,
+    sourceVersion: number,
+    version: number,
+    metadataSignature: string,
+  ) => ["workflow-draft-validation", workflowID, sourceVersion, version, metadataSignature],
+  workflowDraftDerivedWiring: (workflowID: string, sourceVersion: number, graphSignature: string) => [
+    "workflow-draft-derived-wiring",
     workflowID,
     sourceVersion,
-    version,
+    graphSignature,
   ],
   workflowValidation: (workflowID: string, mode: string) => ["workflow-validation", workflowID, mode],
   workflowGraphLayout: (

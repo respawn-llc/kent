@@ -341,6 +341,13 @@ func (s *Core) AuthManager() *auth.Manager {
 	return s.safeBundles().Auth.support.AuthManager
 }
 
+func (s *Core) ServerAuthRequired() bool {
+	if s == nil {
+		return true
+	}
+	return s.safeBundles().Auth.authRequired
+}
+
 func (s *Core) FastModeState() *runtime.FastModeState {
 	if s == nil {
 		return nil

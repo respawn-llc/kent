@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { emptyWorkflowDerivedWiring, type WorkflowDefinition, type WorkflowValidation } from "../../api";
 import type { WorkflowGraphEdge, WorkflowGraphNode } from "./workflowGraphLayout";
-import { layoutWorkflowGraph } from "./workflowGraphLayout";
+import { layoutWorkflowGraph, workflowGraphLayoutWithDraftProjection } from "./workflowGraphLayout";
 import { workflowGraphAbsoluteNodeRect, workflowGraphEndpointPoint } from "./workflowGraphLayoutTestHelpers";
 
 describe("layoutWorkflowGraph", () => {
@@ -218,6 +218,53 @@ describe("layoutWorkflowGraph", () => {
   });
 });
 
+describe("workflowGraphLayoutWithDraftProjection", () => {
+  it("keeps a node whose draft group membership is unchanged", async () => {
+    const layout = await layoutWorkflowGraph(groupedWorkflow, emptyValidation);
+
+    const projected = workflowGraphLayoutWithDraftProjection(layout, groupedWorkflow, emptyValidation);
+
+    expect(nodeByID(projected.nodes, "node-1")).toBeDefined();
+  });
+
+  it("drops a node whose draft group membership changed until the next layout", async () => {
+    const layout = await layoutWorkflowGraph(groupedWorkflow, emptyValidation);
+    expect(nodeByID(layout.nodes, "node-1")?.parentId).toBe("workflow-group-group-1");
+    const draft: WorkflowDefinition = {
+      ...groupedWorkflow,
+      nodeGroups: groupedWorkflow.nodeGroups.map((group) => ({ ...group, nodeIDs: [] })),
+      nodes: [workflowNode("node-1", "Implement", "agent", ""), workflowNode("done", "Done", "terminal", "")],
+    };
+
+    const projected = workflowGraphLayoutWithDraftProjection(layout, draft, emptyValidation);
+
+    expect(nodeByID(projected.nodes, "node-1")).toBeUndefined();
+  });
+
+  it("reconnects a re-targeted edge to the draft endpoints before the next layout", async () => {
+    const layout = await layoutWorkflowGraph(reconnectWorkflow, emptyValidation);
+    expect(edgeByID(layout.edges, "edge-x")).toMatchObject({ source: "node-source", target: "node-a" });
+    const draft: WorkflowDefinition = {
+      ...reconnectWorkflow,
+      edges: [
+        workflowEdge({ id: "edge-x", key: "a", targetNodeID: "node-b", transitionGroupID: "tg-source" }),
+      ],
+    };
+
+    const projected = workflowGraphLayoutWithDraftProjection(layout, draft, emptyValidation);
+
+    expect(edgeByID(projected.edges, "edge-x")).toMatchObject({ source: "node-source", target: "node-b" });
+  });
+
+  it("keeps a grouped join node whose draft group membership is unchanged", async () => {
+    const layout = await layoutWorkflowGraph(alignedJoinWorkflow, emptyValidation);
+
+    const projected = workflowGraphLayoutWithDraftProjection(layout, alignedJoinWorkflow, emptyValidation);
+
+    expect(nodeByID(projected.nodes, "join")).toBeDefined();
+  });
+});
+
 function nodeByID(nodes: readonly WorkflowGraphNode[], id: string): WorkflowGraphNode | undefined {
   return nodes.find((node) => node.id === id);
 }
@@ -410,6 +457,19 @@ const twoOutgoingTransitionWorkflow: WorkflowDefinition = {
       transitionGroupID: "tg-source-b",
     }),
   ],
+};
+
+const reconnectWorkflow: WorkflowDefinition = {
+  workflow: { id: "workflow-1", name: "Delivery", description: "", version: 1 },
+  derivedWiring: emptyWorkflowDerivedWiring,
+  nodeGroups: [],
+  nodes: [
+    workflowNode("node-source", "Source", "agent", ""),
+    workflowNode("node-a", "A", "agent", ""),
+    workflowNode("node-b", "B", "agent", ""),
+  ],
+  transitionGroups: [workflowTransitionGroup("tg-source", "node-source", "a", "A")],
+  edges: [workflowEdge({ id: "edge-x", key: "a", targetNodeID: "node-a", transitionGroupID: "tg-source" })],
 };
 
 const crossBoundaryWorkflow: WorkflowDefinition = {

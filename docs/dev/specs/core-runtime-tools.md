@@ -43,6 +43,18 @@
 - Experimental agent-only `trigger_handoff` is config-gated under `[tools]`, defaults to `false`, and is always declared for a session when enabled instead of dynamically shown/hidden.
 - Goal management is CLI/runtime-owned. Builder must not add model-callable goal tools.
 
+## Runtime Output Boundary
+
+- Runtime owns one active conversation list/stateflow per session runtime.
+- Runtime producers materialize conversation-facing output through `steer`.
+- Runtime producers store delayed conversation-facing output through `queue`; queues store typed steering intents and flush through `steer`.
+- A steering intent may contain one item or an ordered pack of items. Item order inside the pack is preserved.
+- Steering items cover model-visible messages, runtime context, reminders, tool completions, local transcript entries, streaming/progress projection updates, and runtime status events.
+- Ordering, transcript visibility, ongoing/detail presentation, model visibility, dedupe, derived events, and post-persist state updates are steering policy, not separate append paths.
+- Queued user text may coalesce at flush into one user message separated by blank lines; the coalesced message is a normal steering intent.
+- Runtime events that do not create model-history items still route through the output boundary.
+- History replacement is an output mutation owned by the same boundary. Normal additions after replacement use `steer`.
+
 ## Command Execution
 
 - `exec_command` is the only shell-command execution surface. The legacy `shell` tool is removed from future design decisions.
@@ -174,6 +186,8 @@
 ## Compaction
 
 - Auto-compaction is enabled near context limits.
+- Compaction starts a new active conversation list from compacting output seed items. Full persisted session events remain in the durable session log.
+- Runtime context needed after compaction, including workflow prompts and reminders, is steered into the new active list after replacement.
 - Builder may compact before submitting a queued user prompt when current context usage is within the runway reserve.
 - Pre-submit compaction uses `context_compaction_threshold_tokens - pre_submit_compaction_lead_tokens`, with default lead `35000`.
 - Startup rejects compaction settings that begin normal or pre-submit compaction below 50% of `model_context_window`.
@@ -181,15 +195,15 @@
 - `compaction_mode=none` disables manual and automatic compaction.
 - Manual `/compact` is available while idle; arguments are appended as guidance.
 - Human-facing UX says `compact`; agent-facing prompt/tool language says `handoff`.
-- Successful manual `/compact` appends a hidden developer carryover message containing the last visible user prompt.
-- Agent-triggered handoff uses its own internal compaction mode and may append a detail-only future-agent developer message; it does not reuse manual carryover semantics.
+- Successful manual `/compact` steers a hidden developer carryover message containing the last visible user prompt.
+- Agent-triggered handoff uses its own internal compaction mode and may steer a detail-only future-agent developer message; it does not reuse manual carryover semantics.
 - Main-agent OpenAI `session_id` remains the persisted Builder session ID for the conversation lifetime.
 - Prompt-cache lineage rotates by compaction generation: base `<session_id>`, then `<session_id>/compact-N`.
 - Supervisor/reviewer cache lineage uses `<session_id>/supervisor` with the same compaction generation counter.
 - Local compaction instructions are final `developer` messages. Runtime rejects any tool calls returned by local compaction.
 - Local compaction summary generation reuses the normal main-agent request envelope and changes only request items by appending compaction instructions.
 - If native or local compaction exceeds provider context length, Builder retries by collapsing supported historical tool payloads in the compaction request only. The four total attempts are the original request, then cumulative collapse targets of 10%, 20%, and 40% of the model context window. Shell outputs, including `exec_command` and `write_stdin` outputs, and patch inputs collapse to exact text `<collapsed>`; tool calls and call/output relationships remain present. Reasoning items and unsupported tool payloads are not removed or collapsed. Successful repaired compaction persists an operator-visible diagnostic with collapse counts and estimated omitted tokens.
-- Compaction lifecycle emits and persists started/completed/failed events.
+- Compaction lifecycle status is emitted through runtime output mutation. Durable replacement uses the `history_replaced` session event.
 - Completed compaction creates no UI-only transcript row. Transcript-visible compaction summaries come from server-owned transcript items.
 
 ## Model Defaults

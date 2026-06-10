@@ -23,24 +23,40 @@ func (e *Engine) replaceHistory(stepID, engine string, mode compactionMode, item
 func (p compactionPersistence) replaceHistory(stepID, engine string, mode compactionMode, items []llm.ResponseItem) error {
 	e := p.engine
 	preparedItems := llm.PrepareOpenAIInputItems(items)
+	workflowRunID := ""
+	if e.cfg.WorkflowRun != nil {
+		workflowRunID = strings.TrimSpace(string(e.cfg.WorkflowRun.RunID))
+	}
 	payload := historyReplacementPayload{
-		Engine: normalizeHistoryReplacementEngine(engine),
-		Mode:   string(mode),
-		Items:  llm.CloneResponseItems(preparedItems),
+		Engine:        normalizeHistoryReplacementEngine(engine),
+		Mode:          string(mode),
+		WorkflowRunID: workflowRunID,
+		Items:         llm.CloneResponseItems(preparedItems),
 	}
 	reminderIssued := false
 	projectedStart := e.CommittedTranscriptEntryCount()
 	projectedEntries := transcriptEntriesFromHistoryReplacement(payload.Items)
-	if _, err := e.store.AppendEvent(stepID, "history_replaced", payload); err != nil {
-		return err
+	// Compaction reinjects base meta into the same replacement payload, so a
+	// non-empty replacement active list is born already carrying it. Mirror the
+	// restore-time length signal here rather than scanning the items.
+	e.baseMetaInjected = len(preparedItems) > 0
+	_, committed, appendErr := e.store.AppendEvent(stepID, "history_replaced", payload)
+	if appendErr != nil && !committed {
+		return appendErr
 	}
+	// The committed event is the single durable record of this compaction's
+	// provenance; mirror it into runtime state so an in-process gate sees it
+	// without re-reading the transcript, matching what restore reconstructs.
+	e.setLastCompactionWorkflowRunID(workflowRunID)
 	e.resetCurrentPreciseInputTracking()
 	e.resetLocalDiagnostics()
 	e.transcriptPersistence().ReplaceHistory(payload.Items)
 	e.setCompactionSoonReminderIssued(false)
 	p.emitProjectedHistoryReplacementEntries(stepID, projectedStart, projectedEntries)
-	e.emitConversationUpdated(stepID)
+	conversationErr := e.steerEvent(stepID, Event{Kind: EventConversationUpdated, StepID: stepID})
 	return errors.Join(
+		appendErr,
+		conversationErr,
 		e.store.SetCompactionSoonReminderIssued(reminderIssued),
 		e.store.SetUsageState(nil),
 	)
@@ -59,7 +75,7 @@ func (p compactionPersistence) emitProjectedHistoryReplacementEntries(stepID str
 	}
 	for idx, entry := range entries {
 		copyEntry := clonePersistedChatEntry(entry)
-		e.emit(Event{
+		_ = e.steerEvent(stepID, Event{
 			Kind:                       EventLocalEntryAdded,
 			StepID:                     stepID,
 			LocalEntry:                 &copyEntry,
@@ -87,38 +103,35 @@ func (p compactionPersistence) emitStatus(stepID string, kind EventKind, mode co
 
 	switch kind {
 	case EventCompactionStarted:
-		e.emit(Event{
+		return e.steerEvent(stepID, Event{
 			Kind:       kind,
 			StepID:     stepID,
 			Compaction: status,
 		})
-		return nil
 	case EventCompactionCompleted:
-		e.emit(Event{
+		return e.steerEvent(stepID, Event{
 			Kind:       kind,
 			StepID:     stepID,
 			Compaction: status,
 		})
-		return nil
 	case EventCompactionFailed:
 		message := fmt.Sprintf("Context compaction failed (%s): %s", status.Mode, status.Error)
 		if strings.TrimSpace(status.Error) == "" {
 			message = fmt.Sprintf("Context compaction failed (%s).", status.Mode)
 		}
-		if err := e.appendPersistedLocalEntry(stepID, "error", message); err != nil {
-			e.emit(Event{
+		if err := e.steer(stepID, steerLocalEntryIntent(storedLocalEntry{Role: "error", Text: message})); err != nil {
+			_ = e.steerEvent(stepID, Event{
 				Kind:       kind,
 				StepID:     stepID,
 				Compaction: status,
 			})
 			return err
 		}
-		e.emit(Event{
+		return e.steerEvent(stepID, Event{
 			Kind:       kind,
 			StepID:     stepID,
 			Compaction: status,
 		})
-		return nil
 	default:
 		return nil
 	}

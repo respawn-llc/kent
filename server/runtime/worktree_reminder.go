@@ -37,7 +37,7 @@ func (e *Engine) materializePendingWorktreeReminderWithOptions(stepID string, op
 		state.IssuedCompactionCount = compactionCount
 		return e.store.SetWorktreeReminderState(state)
 	}
-	if err := e.appendMessage(stepID, message); err != nil {
+	if err := e.steer(stepID, steerMessageIntent(message)); err != nil {
 		return err
 	}
 	state.HasIssuedInGeneration = true

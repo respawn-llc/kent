@@ -55,6 +55,28 @@ func TestSubmitQueuedUserMessagesStartsTurnFromQueuedInjection(t *testing.T) {
 	}
 }
 
+func TestQueuedUserMessagesCoalesceFromStoredSteeringIntents(t *testing.T) {
+	pending := []queuedUserSteeringIntent{
+		{
+			message: QueuedUserMessage{ID: "queue-1", Text: "stale metadata"},
+			intent:  steerUserMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleUser, Content: "intent text"}),
+		},
+		{
+			message: QueuedUserMessage{ID: "queue-2"},
+			intent:  steerUserMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleUser, Content: "second intent"}),
+		},
+	}
+
+	messages := normalizeQueuedUserMessages(pending)
+	if len(messages) != 2 || messages[0] != "intent text" || messages[1] != "second intent" {
+		t.Fatalf("queued messages = %+v, want stored intent content", messages)
+	}
+	ids := queuedUserMessageIDs(pending)
+	if len(ids) != 2 || ids[0] != "queue-1" || ids[1] != "queue-2" {
+		t.Fatalf("queued message ids = %+v, want ids for non-empty stored intents", ids)
+	}
+}
+
 func TestSubmitQueuedUserMessagesRetriesTransientBusyErrors(t *testing.T) {
 	store := mustCreateTestSession(t)
 

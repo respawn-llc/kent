@@ -776,7 +776,7 @@ func formatOutputDefault(raw json.RawMessage) string {
 	if !ok {
 		formatted, err := json.Marshal(payload)
 		if err != nil {
-			return ""
+			return strings.TrimSpace(string(raw))
 		}
 		return string(formatted)
 	}
@@ -803,7 +803,7 @@ func formatOutputDefault(raw json.RawMessage) string {
 	}
 	formatted, err := json.Marshal(payload)
 	if err != nil {
-		return ""
+		return strings.TrimSpace(string(raw))
 	}
 	return string(formatted)
 }

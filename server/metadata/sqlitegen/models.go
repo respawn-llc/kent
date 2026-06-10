@@ -59,7 +59,6 @@ type Session struct {
 	LastSequence       int64
 	ModelRequestCount  int64
 	InFlightStep       int64
-	AgentsInjected     int64
 	LaunchVisible      int64
 	CwdRelpath         string
 	ContinuationJson   string

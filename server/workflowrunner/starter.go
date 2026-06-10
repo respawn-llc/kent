@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 	"text/template"
@@ -20,6 +19,7 @@ import (
 	"builder/server/runtimeview"
 	"builder/server/runtimewire"
 	"builder/server/session"
+	"builder/server/sessionpath"
 	askquestion "builder/server/tools/askquestion"
 	shelltool "builder/server/tools/shell"
 	"builder/server/workflow"
@@ -147,28 +147,48 @@ func (s *Starter) StartWorkflowRun(ctx context.Context, req workflowscheduler.St
 	if err != nil {
 		return err
 	}
+	// When the plan reuses an existing session (resume, continue, or in-place
+	// compact-and-continue), it is the previous node's persisted session — never
+	// dispose of it on setup failure. Only freshly created run sessions
+	// (new-session and fan-out clones) are disposable.
+	//
+	// For reused sessions, snapshot the previous reminder state so SetWorktreeReminderState
+	// mutations can be rolled back if any later setup step fails.
+	var prevReminderState *session.WorktreeReminderState
+	if reusesExistingSession(input) {
+		if wr := plan.Store.Meta().WorktreeReminder; wr != nil {
+			snap := *wr
+			prevReminderState = &snap
+		}
+	}
+	cleanupSession := func() error {
+		if reusesExistingSession(input) {
+			return plan.Store.SetWorktreeReminderState(prevReminderState)
+		}
+		return s.cleanupSession(ctx, plan.Store)
+	}
 	if err := plan.Store.SetWorktreeReminderState(&session.WorktreeReminderState{
 		Mode:          session.WorktreeReminderModeEnter,
 		WorktreePath:  input.WorktreeRoot,
 		WorkspaceRoot: input.WorkspaceRoot,
 		EffectiveCwd:  input.WorktreeRoot,
 	}); err != nil {
-		return errors.Join(err, s.cleanupSession(ctx, plan.Store))
+		return errors.Join(err, cleanupSession())
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	if !s.registerRun(req, cancel) {
 		cancel()
-		return errors.Join(errors.New("workflow runtime starter closed"), s.cleanupSession(ctx, plan.Store))
+		return errors.Join(errors.New("workflow runtime starter closed"), cleanupSession())
 	}
 	if err := s.metadata.UpdateSessionExecutionTargetByID(ctx, plan.Store.Meta().SessionID, input.WorkspaceID, input.WorktreeID, "."); err != nil {
 		cancel()
 		s.releaseRegisteredRun(req.RunID)
-		return errors.Join(err, s.cleanupSession(ctx, plan.Store))
+		return errors.Join(err, cleanupSession())
 	}
 	if err := s.store.AttachRunSession(ctx, req.RunID, req.Generation, plan.Store.Meta().SessionID); err != nil {
 		cancel()
 		s.releaseRegisteredRun(req.RunID)
-		return errors.Join(err, s.cleanupSession(ctx, plan.Store))
+		return errors.Join(err, cleanupSession())
 	}
 	go s.run(runCtx, req, input, plan, warnings)
 	return nil
@@ -246,6 +266,25 @@ func (s *Starter) CancelRun(ctx context.Context, runID workflow.RunID) error {
 	return nil
 }
 
+// reusesExistingSession reports whether planSession reuses a pre-existing
+// session (resume of a started run, continue_session, or in-place
+// compact_and_continue_session) rather than creating a disposable one
+// (new_session or a fan-out clone). Reused sessions belong to a prior node and
+// must not be cleaned up on setup failure.
+func reusesExistingSession(input workflowstore.RunStartContext) bool {
+	if strings.TrimSpace(input.Run.SessionID) != "" {
+		return true
+	}
+	switch input.ContextMode {
+	case workflow.ContextModeContinueSession:
+		return true
+	case workflow.ContextModeCompactAndContinueSession:
+		return !input.IsFanoutBranch
+	default:
+		return false
+	}
+}
+
 func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartContext) (launch.SessionPlan, []string, error) {
 	cfg := s.cfg
 	cfg.WorkspaceRoot = strings.TrimSpace(input.WorkspaceRoot)
@@ -262,6 +301,17 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 			return s.metadata, nil
 		},
 	}
+	// A fan-out branch creates a brand-new disposable clone before the rest of
+	// planning runs. If any later planning step fails, StartWorkflowRun's cleanup
+	// hook never sees it, so remove the clone here on failure to avoid orphaning
+	// an unattached session directory.
+	disposableCloneID := ""
+	planSucceeded := false
+	defer func() {
+		if !planSucceeded && disposableCloneID != "" {
+			s.removeFanoutClone(ctx, containerDir, disposableCloneID)
+		}
+	}()
 	if strings.TrimSpace(input.Run.SessionID) != "" {
 		plan, err := planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: input.Run.SessionID})
 		if err != nil {
@@ -289,7 +339,22 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 		if strings.TrimSpace(input.SourceSessionID) == "" {
 			return launch.SessionPlan{}, nil, errors.New("compact_and_continue_session requires a source session")
 		}
-		plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, ForceNewSession: true})
+		if strings.TrimSpace(input.SourceNode.SubagentRole) != strings.TrimSpace(input.Node.SubagentRole) {
+			return launch.SessionPlan{}, nil, fmt.Errorf("compact_and_continue_session requires same subagent role: source %q target %q", input.SourceNode.SubagentRole, input.Node.SubagentRole)
+		}
+		// In-place continuation reuses the source session; the runtime runs a real
+		// compaction before the node turn. A fan-out branch instead continues in an
+		// isolated full clone of the source so parallel branches never compact or
+		// mutate the shared source session concurrently.
+		continuationSessionID := input.SourceSessionID
+		if input.IsFanoutBranch {
+			continuationSessionID, err = s.cloneSourceSessionForFanout(containerDir, input.SourceSessionID)
+			if err != nil {
+				return launch.SessionPlan{}, nil, err
+			}
+			disposableCloneID = continuationSessionID
+		}
+		plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: continuationSessionID})
 	default:
 		return launch.SessionPlan{}, nil, fmt.Errorf("unsupported workflow context mode %q", input.ContextMode)
 	}
@@ -297,48 +362,52 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 		return launch.SessionPlan{}, nil, err
 	}
 	warnings := []string{}
-	if input.ContextMode == "" || input.ContextMode == workflow.ContextModeNewSession || input.ContextMode == workflow.ContextModeCompactAndContinueSession {
+	if input.ContextMode == "" || input.ContextMode == workflow.ContextModeNewSession {
 		plan, warnings, err = launch.ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: input.Node.SubagentRole}, auth.EmptyState())
 		if err != nil {
-			return launch.SessionPlan{}, nil, err
-		}
-	}
-	if input.ContextMode == workflow.ContextModeCompactAndContinueSession {
-		if err := plan.Store.SetParentSessionID(input.SourceSessionID); err != nil {
-			return launch.SessionPlan{}, nil, err
-		}
-		if err := appendWorkflowCompactContinuation(plan.Store, input); err != nil {
 			return launch.SessionPlan{}, nil, err
 		}
 	}
 	if err := plan.Store.EnsureDurable(); err != nil {
 		return launch.SessionPlan{}, nil, err
 	}
+	planSucceeded = true
 	return plan, warnings, nil
 }
 
-func appendWorkflowCompactContinuation(store *session.Store, input workflowstore.RunStartContext) error {
-	if store == nil {
-		return errors.New("compact continuation session store is required")
+// cloneSourceSessionForFanout creates an isolated full clone of the source
+// session for a fan-out compact-and-continue branch and returns its session ID,
+// so the branch can be compacted/continued without touching the shared source.
+func (s *Starter) cloneSourceSessionForFanout(containerDir, sourceSessionID string) (string, error) {
+	sourceDir, err := sessionpath.ResolveScopedSessionDir(containerDir, sourceSessionID)
+	if err != nil {
+		return "", fmt.Errorf("resolve source session dir: %w", err)
 	}
-	lines := []string{
-		"Workflow compacted continuation context.",
-		"Source run: " + string(input.SourceRunID),
-		"Source session: " + strings.TrimSpace(input.SourceSessionID),
-		"Target node: " + string(input.Node.Key),
+	sourceStore, err := session.Open(sourceDir, s.storeOptions...)
+	if err != nil {
+		return "", fmt.Errorf("open source session: %w", err)
 	}
-	if len(input.ParameterValues) > 0 {
-		lines = append(lines, "Bound transition parameters:")
-		for _, value := range workflowInputValues(input.ParameterValues) {
-			lines = append(lines, "- "+value.Name+": "+value.Value)
+	cloned, err := session.CloneSession(sourceStore, "")
+	if err != nil {
+		return "", fmt.Errorf("clone source session: %w", err)
+	}
+	return cloned.Meta().SessionID, nil
+}
+
+// removeFanoutClone deletes a disposable fan-out clone that was created but never
+// attached to a started run because planning failed afterward. Best-effort: it
+// removes the on-disk session and any metadata record, leaving nothing orphaned.
+func (s *Starter) removeFanoutClone(ctx context.Context, containerDir, sessionID string) {
+	if strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	cleanupCtx := context.WithoutCancel(ctx)
+	if dir, err := sessionpath.ResolveScopedSessionDir(containerDir, sessionID); err == nil {
+		if store, err := session.Open(dir, s.storeOptions...); err == nil {
+			_ = store.RemoveDurable()
 		}
 	}
-	_, err := store.AppendEvent("workflow-compact-continuation", "message", llm.Message{
-		Role:        llm.RoleDeveloper,
-		MessageType: llm.MessageTypeCompactionSummary,
-		Content:     strings.Join(lines, "\n"),
-	})
-	return err
+	_ = s.metadata.DeleteSessionRecordByID(cleanupCtx, sessionID)
 }
 
 func (s *Starter) validateRole(role string) error {
@@ -382,6 +451,7 @@ func (s *Starter) run(ctx context.Context, req workflowscheduler.StartRunRequest
 		Sources:  plan.Source.Sources,
 		Client:   client,
 		WorkflowRun: &workflowruntime.Config{
+			RunID:                        req.RunID,
 			Contract:                     workflowCompletionContract(req, input),
 			CompletionMode:               s.cfg.Settings.Workflow.CompletionMode,
 			MaxFinalAnswerViolations:     s.cfg.Settings.Workflow.MaxFinalAnswerViolations,
@@ -429,6 +499,27 @@ func (s *Starter) run(ctx context.Context, req workflowscheduler.StartRunRequest
 	}
 	registration := runtimewire.RegisterSessionRuntime(plan.Store.Meta().SessionID, wiring.Engine, runtimeRegistry, s.backgroundRouter)
 	defer registration.Close()
+	// Compact exactly once per compact_and_continue handoff. The compaction's
+	// provenance is recorded atomically in its history_replaced event and rebuilt
+	// on restore, so the engine reports which run last compacted this session.
+	// Gating on a populated input.Run.SessionID is wrong because AttachRunSession
+	// persists the reused source session before CompactContext commits, so a run
+	// interrupted mid compaction would skip it on resume and continue from
+	// un-compacted history. Keying on the recorded run ID instead: a resumed run
+	// (same ID) whose compaction committed skips; one interrupted before commit
+	// recompacts; a later in-place handoff (new run ID, same session) compacts
+	// again because its continuation compaction is always the run's first action.
+	if input.ContextMode == workflow.ContextModeCompactAndContinueSession &&
+		wiring.Engine.LastCompactionWorkflowRunID() != string(req.RunID) {
+		if err := wiring.Engine.CompactContext(ctx, ""); err != nil {
+			reason := ReasonRuntimeFailed
+			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+				reason = ReasonRuntimeCanceled
+			}
+			s.interrupt(context.Background(), req.RunID, req.Generation, reason, err)
+			return
+		}
+	}
 	if _, err := wiring.Engine.SubmitWorkflowTurn(ctx); err != nil {
 		reason := ReasonRuntimeFailed
 		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
@@ -568,15 +659,6 @@ func workflowCompletionTransitions(options []workflowstore.TransitionOption, tra
 	return out
 }
 
-func workflowInputValues(values map[string]string) []prompts.WorkflowInputValue {
-	names := sortedInputValueNames(values)
-	out := make([]prompts.WorkflowInputValue, 0, len(names))
-	for _, name := range names {
-		out = append(out, prompts.WorkflowInputValue{Name: name, Value: values[name]})
-	}
-	return out
-}
-
 type nodePromptTemplateData struct {
 	TaskId          string
 	TaskShortId     string
@@ -653,15 +735,6 @@ func promptParameterData(current map[string]string, prior map[string]map[string]
 		out[key] = namespace
 	}
 	return out
-}
-
-func sortedInputValueNames(values map[string]string) []string {
-	names := make([]string, 0, len(values))
-	for name := range values {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
 
 var _ workflowscheduler.RuntimeStarter = (*Starter)(nil)

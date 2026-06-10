@@ -46,6 +46,7 @@ type GatewayAuthDependencies interface {
 	AuthManager() *auth.Manager
 	AuthBootstrapClient() client.AuthBootstrapClient
 	AuthStatusClient() client.AuthStatusClient
+	ServerAuthRequired() bool
 }
 
 type GatewayProjectDependencies interface {

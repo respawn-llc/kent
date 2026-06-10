@@ -128,9 +128,3 @@ func (s *transcriptRuntimeState) ToolCompletionCount() int {
 	return 0
 }
 
-func (s *transcriptRuntimeState) HeadlessActive() bool {
-	if chat := s.chatProjection(); chat != nil {
-		return chat.headlessActive()
-	}
-	return false
-}

@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-func TestInjectsGlobalAndWorkspaceAgentsAfterExistingMessagesAndBeforeFirstUserMessage(t *testing.T) {
+func TestInjectsGlobalAndWorkspaceAgentsBeforeFirstUserMessage(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -36,12 +36,6 @@ func TestInjectsGlobalAndWorkspaceAgentsAfterExistingMessagesAndBeforeFirstUserM
 
 	storeRoot := t.TempDir()
 	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace)
-	if _, err := store.AppendEvent("prior-step", "message", llm.Message{
-		Role:    llm.RoleDeveloper,
-		Content: "existing context",
-	}); err != nil {
-		t.Fatalf("append existing message: %v", err)
-	}
 
 	client := &fakeClient{responses: []llm.Response{
 		{
@@ -67,30 +61,27 @@ func TestInjectsGlobalAndWorkspaceAgentsAfterExistingMessagesAndBeforeFirstUserM
 	}
 
 	firstReq := client.calls[0]
-	if len(requestMessages(firstReq)) < 5 {
-		t.Fatalf("expected at least 5 messages in first request, got %d", len(requestMessages(firstReq)))
+	if len(requestMessages(firstReq)) < 4 {
+		t.Fatalf("expected at least 4 messages in first request, got %d", len(requestMessages(firstReq)))
 	}
-	if requestMessages(firstReq)[0].Role != llm.RoleDeveloper || requestMessages(firstReq)[0].Content != "existing context" {
-		t.Fatalf("expected first message to be existing context, got %+v", requestMessages(firstReq)[0])
-	}
-	envMsg := requestMessages(firstReq)[1]
+	envMsg := requestMessages(firstReq)[0]
 	if envMsg.Role != llm.RoleDeveloper || !strings.Contains(envMsg.Content, environmentInjectedHeader) {
-		t.Fatalf("expected second message to be environment developer injection, got %+v", envMsg)
+		t.Fatalf("expected first message to be environment developer injection, got %+v", envMsg)
 	}
 	if envMsg.MessageType != llm.MessageTypeEnvironment {
 		t.Fatalf("expected environment message type, got %+v", envMsg)
 	}
-	if requestMessages(firstReq)[2].Role != llm.RoleDeveloper || !strings.Contains(requestMessages(firstReq)[2].Content, "source: "+globalPath) {
-		t.Fatalf("expected third message to be global developer AGENTS injection, got %+v", requestMessages(firstReq)[2])
+	if requestMessages(firstReq)[1].Role != llm.RoleDeveloper || !strings.Contains(requestMessages(firstReq)[1].Content, "source: "+globalPath) {
+		t.Fatalf("expected second message to be global developer AGENTS injection, got %+v", requestMessages(firstReq)[1])
+	}
+	if requestMessages(firstReq)[1].MessageType != llm.MessageTypeAgentsMD {
+		t.Fatalf("expected global AGENTS message type, got %+v", requestMessages(firstReq)[1])
+	}
+	if requestMessages(firstReq)[2].Role != llm.RoleDeveloper || !strings.Contains(requestMessages(firstReq)[2].Content, "source: "+workspacePath) {
+		t.Fatalf("expected third message to be workspace developer AGENTS injection, got %+v", requestMessages(firstReq)[2])
 	}
 	if requestMessages(firstReq)[2].MessageType != llm.MessageTypeAgentsMD {
-		t.Fatalf("expected global AGENTS message type, got %+v", requestMessages(firstReq)[2])
-	}
-	if requestMessages(firstReq)[3].Role != llm.RoleDeveloper || !strings.Contains(requestMessages(firstReq)[3].Content, "source: "+workspacePath) {
-		t.Fatalf("expected fourth message to be workspace developer AGENTS injection, got %+v", requestMessages(firstReq)[3])
-	}
-	if requestMessages(firstReq)[3].MessageType != llm.MessageTypeAgentsMD {
-		t.Fatalf("expected workspace AGENTS message type, got %+v", requestMessages(firstReq)[3])
+		t.Fatalf("expected workspace AGENTS message type, got %+v", requestMessages(firstReq)[2])
 	}
 	for _, required := range []string{
 		"\nYour model: gpt-5\n",
@@ -105,8 +96,8 @@ func TestInjectsGlobalAndWorkspaceAgentsAfterExistingMessagesAndBeforeFirstUserM
 			t.Fatalf("expected environment message to contain %q, got %q", required, envMsg.Content)
 		}
 	}
-	if requestMessages(firstReq)[4].Role != llm.RoleUser || requestMessages(firstReq)[4].Content != "first" {
-		t.Fatalf("expected user message after injections, got %+v", requestMessages(firstReq)[4])
+	if requestMessages(firstReq)[3].Role != llm.RoleUser || requestMessages(firstReq)[3].Content != "first" {
+		t.Fatalf("expected user message after injections, got %+v", requestMessages(firstReq)[3])
 	}
 
 	secondReq := client.calls[1]
@@ -150,9 +141,6 @@ func TestFreshChildSessionReinjectsDeveloperContextEvenWhenParentAlreadyInjected
 
 	storeRoot := t.TempDir()
 	parent := mustCreateNamedTestSessionAt(t, storeRoot, "parent", workspace)
-	if err := parent.MarkAgentsInjected(); err != nil {
-		t.Fatalf("mark parent agents injected: %v", err)
-	}
 	child, err := session.NewLazy(storeRoot, "child", workspace)
 	if err != nil {
 		t.Fatalf("create child: %v", err)
@@ -518,43 +506,6 @@ func TestSubmitInjectsEnvironmentLineWithLabeledModelIdentifier(t *testing.T) {
 	}
 }
 
-func TestHeadlessModeTransitionDecisionsFollowLatestMarker(t *testing.T) {
-	if headlessModeActive(nil) {
-		t.Fatal("did not expect headless mode without history")
-	}
-	if headlessModeActive(nil) {
-		t.Fatal("expected enter prompt when no headless marker exists")
-	}
-	if headlessModeActive(nil) {
-		t.Fatal("did not expect exit prompt without an active headless phase")
-	}
-
-	headless := []llm.Message{{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessMode, Content: "headless"}}
-	if !headlessModeActive(headless) {
-		t.Fatal("expected headless mode to be active after headless marker")
-	}
-	if shouldInjectHeadlessModePromptForState(headlessModeActive(headless)) {
-		t.Fatal("did not expect enter prompt during active headless phase")
-	}
-	if !headlessModeActive(headless) {
-		t.Fatal("expected exit prompt during active headless phase")
-	}
-
-	exited := []llm.Message{
-		{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessMode, Content: "headless"},
-		{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessModeExit, Content: "exit"},
-	}
-	if headlessModeActive(exited) {
-		t.Fatal("did not expect headless mode after exit marker")
-	}
-	if !shouldInjectHeadlessModePromptForState(headlessModeActive(exited)) {
-		t.Fatal("expected enter prompt after exit marker")
-	}
-	if headlessModeActive(exited) {
-		t.Fatal("did not expect exit prompt after exit marker")
-	}
-}
-
 func TestManualCompactionReinjectsHeadlessEnterOnlyWhileHeadlessRemainsActive(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{{
@@ -562,10 +513,10 @@ func TestManualCompactionReinjectsHeadlessEnterOnlyWhileHeadlessRemainsActive(t 
 		Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
 	}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessMode, Content: "headless mode instructions"}); err != nil {
-		t.Fatalf("append headless mode: %v", err)
+	if err := store.SetHeadlessActive(true); err != nil {
+		t.Fatalf("mark headless active: %v", err)
 	}
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "continue"}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "continue"})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 
@@ -592,6 +543,26 @@ func TestManualCompactionReinjectsHeadlessEnterOnlyWhileHeadlessRemainsActive(t 
 	}
 }
 
+func TestRestoreSeedsHeadlessActiveFromTranscript(t *testing.T) {
+	store := mustCreateTestSession(t)
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessMode, Content: "headless mode instructions"})); err != nil {
+		t.Fatalf("append headless marker: %v", err)
+	}
+	if err := eng.Close(); err != nil {
+		t.Fatalf("close engine: %v", err)
+	}
+
+	reopenedStore := mustOpenTestSession(t, store.Dir())
+	// Reopening (which runs restore) must seed the persisted headless flag from
+	// the trailing headless marker, even though the prior session never wrote an
+	// explicit headless_active flag (the pre-flag migration case).
+	_ = mustNewTestEngine(t, reopenedStore, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"})
+	if !reopenedStore.Meta().HeadlessActive {
+		t.Fatal("expected restore to seed HeadlessActive from the trailing headless marker")
+	}
+}
+
 func TestManualCompactionDoesNotReinjectHeadlessEnterAfterExit(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{{
@@ -599,13 +570,13 @@ func TestManualCompactionDoesNotReinjectHeadlessEnterAfterExit(t *testing.T) {
 		Usage:     llm.Usage{InputTokens: 200, WindowTokens: 2_000},
 	}}}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", CompactionMode: "local"})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessMode, Content: "headless mode instructions"}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessMode, Content: "headless mode instructions"})); err != nil {
 		t.Fatalf("append headless mode: %v", err)
 	}
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessModeExit, Content: "interactive mode instructions"}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeHeadlessModeExit, Content: "interactive mode instructions"})); err != nil {
 		t.Fatalf("append headless exit: %v", err)
 	}
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "continue"}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "continue"})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 
@@ -619,7 +590,7 @@ func TestManualCompactionDoesNotReinjectHeadlessEnterAfterExit(t *testing.T) {
 			t.Fatalf("did not expect headless enter reinjection after exit, got messages=%+v", messages)
 		}
 		if message.MessageType == llm.MessageTypeHeadlessModeExit {
-			t.Fatalf("did not expect historical headless exit to survive compaction, got messages=%+v", messages)
+			t.Fatalf("did not expect historical headless exit in the new compaction list, got messages=%+v", messages)
 		}
 	}
 }

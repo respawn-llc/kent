@@ -930,8 +930,23 @@ func countDirectShellCommandMessages(t *testing.T, store *session.Store, command
 		if err := json.Unmarshal(evt.Payload, &msg); err != nil {
 			t.Fatalf("decode message event: %v", err)
 		}
-		if msg.Role == llm.RoleDeveloper && msg.Content == "User ran shell command directly:\n"+command {
-			count++
+		if msg.Role != llm.RoleAssistant {
+			continue
+		}
+		for _, call := range msg.ToolCalls {
+			if call.Name != string(toolspec.ToolExecCommand) {
+				continue
+			}
+			var in struct {
+				Cmd           string `json:"cmd"`
+				UserInitiated bool   `json:"user_initiated"`
+			}
+			if err := json.Unmarshal(call.Input, &in); err != nil {
+				continue
+			}
+			if in.UserInitiated && in.Cmd == command {
+				count++
+			}
 		}
 	}
 	return count

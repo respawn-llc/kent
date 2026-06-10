@@ -46,7 +46,7 @@ func TestBackTeleportLifecycleSeedsParentDraftWithoutAutoSubmit(t *testing.T) {
 			}
 
 			for idx, message := range tt.childMessages {
-				if _, err := childStore.AppendEvent("step-1", "message", message); err != nil {
+				if _, _, err := childStore.AppendEvent("step-1", "message", message); err != nil {
 					t.Fatalf("append child transcript message %d: %v", idx, err)
 				}
 			}
@@ -108,16 +108,16 @@ func TestBackTeleportLifecycleSeedsParentDraftWithoutAutoSubmit(t *testing.T) {
 func TestForkRollbackNativeStartupReplayUsesForkedHistory(t *testing.T) {
 	root := t.TempDir()
 	store := createAppRuntimeSessionAt(t, root, "workspace-x", "/tmp/work")
-	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
 		t.Fatalf("append u1: %v", err)
 	}
-	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleAssistant, Content: "a1"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleAssistant, Content: "a1"}); err != nil {
 		t.Fatalf("append a1: %v", err)
 	}
-	if _, err := store.AppendEvent("s2", "message", llm.Message{Role: llm.RoleUser, Content: "u2"}); err != nil {
+	if _, _, err := store.AppendEvent("s2", "message", llm.Message{Role: llm.RoleUser, Content: "u2"}); err != nil {
 		t.Fatalf("append u2: %v", err)
 	}
-	if _, err := store.AppendEvent("s2", "message", llm.Message{Role: llm.RoleAssistant, Content: "a2"}); err != nil {
+	if _, _, err := store.AppendEvent("s2", "message", llm.Message{Role: llm.RoleAssistant, Content: "a2"}); err != nil {
 		t.Fatalf("append a2: %v", err)
 	}
 

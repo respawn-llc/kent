@@ -49,6 +49,7 @@ type metaContextBuildOptions struct {
 	IncludeHeadlessExit       bool
 	IncludeWorkflow           bool
 	WorkflowCompletionMode    workflowruntime.CompletionMode
+	WorkflowRun               *workflowruntime.Config
 	IncludeSkillWarnings      bool
 	PermissiveAgentsReadError bool
 }
@@ -181,11 +182,7 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 	}
 
 	if opts.IncludeEnvironment {
-		timestamp := b.now
-		if timestamp.IsZero() {
-			timestamp = time.Now()
-		}
-		environmentMessage, err := environmentContextMessage(b.environmentCWD, b.model, timestamp)
+		environmentMessage, err := environmentContextMessage(b.environmentCWD, b.model, b.now)
 		if err != nil {
 			return metaContextBuildResult{}, err
 		}
@@ -208,11 +205,14 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 		}
 	}
 	if opts.IncludeWorkflow {
-		message, ok, err := workflowModeMetaMessage(opts.WorkflowCompletionMode, nil)
+		message, ok, err := workflowModeMetaMessage(opts.WorkflowCompletionMode, opts.WorkflowRun)
 		if err != nil {
 			return metaContextBuildResult{}, err
 		}
 		if ok {
+			if opts.WorkflowRun != nil {
+				message.SourcePath = strings.TrimSpace(string(opts.WorkflowRun.Contract.RunID))
+			}
 			collector.addMessages([]llm.Message{message})
 		}
 	}

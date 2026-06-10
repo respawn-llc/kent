@@ -174,23 +174,34 @@ func formatOutputTypeCounts(counts map[string]int) string {
 	return strings.Join(parts, ",")
 }
 
+// estimateTokensFromBytes approximates the token cost of a UTF-8 string of the
+// given byte length using the ~4-bytes-per-token rule of thumb that the GPT-4
+// family follows in practice. Used everywhere we need a deterministic estimate
+// without calling the provider's tokenizer.
+func estimateTokensFromBytes(byteLen int) int {
+	if byteLen <= 0 {
+		return 0
+	}
+	return (byteLen + 3) / 4
+}
+
 func estimateItemsTokens(items []llm.ResponseItem) int {
 	totalTokens := 0
 	for _, item := range items {
-		totalTokens += (len(item.Content) + 3) / 4
-		totalTokens += (len(item.ID) + 3) / 4
-		totalTokens += (len(item.Name) + 3) / 4
-		totalTokens += (len(item.CallID) + 3) / 4
-		totalTokens += (len(item.EncryptedContent) + 3) / 4
-		totalTokens += (len(string(item.Arguments)) + 3) / 4
+		totalTokens += estimateTokensFromBytes(len(item.Content))
+		totalTokens += estimateTokensFromBytes(len(item.ID))
+		totalTokens += estimateTokensFromBytes(len(item.Name))
+		totalTokens += estimateTokensFromBytes(len(item.CallID))
+		totalTokens += estimateTokensFromBytes(len(item.EncryptedContent))
+		totalTokens += estimateTokensFromBytes(len(item.Arguments))
 		if outputTokens, ok := estimateStructuredOutputTokens(item.Output); ok {
 			totalTokens += outputTokens
 		} else {
-			totalTokens += (len(string(item.Output)) + 3) / 4
+			totalTokens += estimateTokensFromBytes(len(item.Output))
 		}
 		for _, summary := range item.ReasoningSummary {
-			totalTokens += (len(summary.Role) + 3) / 4
-			totalTokens += (len(summary.Text) + 3) / 4
+			totalTokens += estimateTokensFromBytes(len(summary.Role))
+			totalTokens += estimateTokensFromBytes(len(summary.Text))
 		}
 	}
 	if totalTokens <= 0 {
@@ -226,18 +237,18 @@ func estimateStructuredOutputTokens(raw json.RawMessage) (int, bool) {
 	for _, item := range items {
 		switch strings.ToLower(strings.TrimSpace(item.Type)) {
 		case "input_text":
-			total += (len(item.Text) + 3) / 4
+			total += estimateTokensFromBytes(len(item.Text))
 		case "input_image":
 			total += estimatedInlineImagePayloadTokens
 			total += estimateReferenceTokens(item.ImageURL)
 			total += estimateReferenceTokens(item.FileID)
-			total += (len(item.Detail) + 3) / 4
+			total += estimateTokensFromBytes(len(item.Detail))
 		case "input_file":
 			total += estimatedInlineFilePayloadTokens
 			total += estimateReferenceTokens(item.FileData)
 			total += estimateReferenceTokens(item.FileID)
 			total += estimateReferenceTokens(item.FileURL)
-			total += (len(item.Filename) + 3) / 4
+			total += estimateTokensFromBytes(len(item.Filename))
 		default:
 			return 0, false
 		}
@@ -253,5 +264,5 @@ func estimateReferenceTokens(value string) int {
 	if strings.HasPrefix(strings.ToLower(trimmed), "data:") {
 		return 0
 	}
-	return (len(trimmed) + 3) / 4
+	return estimateTokensFromBytes(len(trimmed))
 }

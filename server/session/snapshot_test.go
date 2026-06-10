@@ -24,7 +24,7 @@ func TestSnapshotFromDirReturnsDurableSessionState(t *testing.T) {
 	if err := store.SetName("incident triage"); err != nil {
 		t.Fatalf("set name: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 	startedAt := time.Now().UTC().Add(-time.Minute)
@@ -57,7 +57,7 @@ func TestSnapshotFromDirRejectsSymlinkedEventsFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create target store: %v", err)
 	}
-	if _, err := targetStore.AppendEvent("target-step", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
+	if _, _, err := targetStore.AppendEvent("target-step", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append target event: %v", err)
 	}
 

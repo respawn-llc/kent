@@ -229,7 +229,7 @@ func TestRequestMessagesPreserveANSIEscapes(t *testing.T) {
 
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{})
 
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: seedContent}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: seedContent})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 
@@ -379,7 +379,7 @@ func TestContextUsageUsesLastUsageWhenAvailable(t *testing.T) {
 
 func TestContextUsageFallsBackToEstimatedTokens(t *testing.T) {
 	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{ContextWindowTokens: 410_000})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "estimate me"}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "estimate me"})); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
 
@@ -415,7 +415,7 @@ func TestContextUsageTracksWeightedCacheHitPercentageFromModelUsage(t *testing.T
 func TestContextUsageUsesEstimatedTokensWhenLastUsageIsStale(t *testing.T) {
 	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{ContextWindowTokens: 410_000})
 	eng.setLastUsage(llm.Usage{InputTokens: 100, OutputTokens: 0, WindowTokens: 410_000})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("x", 1600)}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: strings.Repeat("x", 1600)})); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
 
@@ -433,12 +433,12 @@ func TestContextUsageUsesEstimatedTokensWhenLastUsageIsStale(t *testing.T) {
 
 func TestContextUsageAddsOnlyPostCheckpointEstimateDelta(t *testing.T) {
 	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{ContextWindowTokens: 410_000})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("seed-", 100)}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: strings.Repeat("seed-", 100)})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	checkpointEstimate := estimateItemsTokens(eng.snapshotItems())
 	eng.setLastUsage(llm.Usage{InputTokens: 900, OutputTokens: 120, WindowTokens: 410_000})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("delta-", 40)}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: strings.Repeat("delta-", 40)})); err != nil {
 		t.Fatalf("append delta message: %v", err)
 	}
 
@@ -458,14 +458,14 @@ func TestContextUsageAddsOnlyPostCheckpointEstimateDelta(t *testing.T) {
 func TestReopenedSessionRestoresUsageCheckpointDeltaAccounting(t *testing.T) {
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{ContextWindowTokens: 410_000})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("seed-", 100)}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: strings.Repeat("seed-", 100)})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 	checkpointEstimate := estimateItemsTokens(eng.snapshotItems())
 	if err := eng.recordLastUsage(llm.Usage{InputTokens: 900, OutputTokens: 120, WindowTokens: 410_000, CachedInputTokens: 45, HasCachedInputTokens: true}); err != nil {
 		t.Fatalf("record last usage: %v", err)
 	}
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("delta-", 40)}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: strings.Repeat("delta-", 40)})); err != nil {
 		t.Fatalf("append delta message: %v", err)
 	}
 
@@ -490,13 +490,13 @@ func TestReopenedSessionRestoresUsageCheckpointDeltaAccounting(t *testing.T) {
 func TestHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{ContextWindowTokens: 410_000})
-	if err := eng.appendPersistedDiagnosticEntry("step-1", preciseTokenCountFailureDiagnostic, "error", "first fallback"); err != nil {
+	if err := eng.steerPersistedDiagnosticEntry("step-1", preciseTokenCountFailureDiagnostic, "error", "first fallback"); err != nil {
 		t.Fatalf("append first diagnostic: %v", err)
 	}
 	if err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, Content: "summary"}})); err != nil {
 		t.Fatalf("replace history: %v", err)
 	}
-	if err := eng.appendPersistedDiagnosticEntry("step-2", preciseTokenCountFailureDiagnostic, "error", "second fallback"); err != nil {
+	if err := eng.steerPersistedDiagnosticEntry("step-2", preciseTokenCountFailureDiagnostic, "error", "second fallback"); err != nil {
 		t.Fatalf("append second diagnostic: %v", err)
 	}
 
@@ -525,7 +525,7 @@ func TestHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 func TestReopenedSessionHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{ContextWindowTokens: 410_000})
-	if err := eng.appendPersistedDiagnosticEntry("step-1", preciseTokenCountFailureDiagnostic, "error", "first fallback"); err != nil {
+	if err := eng.steerPersistedDiagnosticEntry("step-1", preciseTokenCountFailureDiagnostic, "error", "first fallback"); err != nil {
 		t.Fatalf("append first diagnostic: %v", err)
 	}
 	if err := eng.replaceHistory("step-compact", "local", compactionModeManual, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleAssistant, Content: "summary"}})); err != nil {
@@ -534,7 +534,7 @@ func TestReopenedSessionHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 
 	reopenedStore := mustOpenTestSession(t, store.Dir())
 	restored := mustNewTestEngine(t, reopenedStore, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{ContextWindowTokens: 410_000})
-	if err := restored.appendPersistedDiagnosticEntry("step-2", preciseTokenCountFailureDiagnostic, "error", "second fallback"); err != nil {
+	if err := restored.steerPersistedDiagnosticEntry("step-2", preciseTokenCountFailureDiagnostic, "error", "second fallback"); err != nil {
 		t.Fatalf("append second diagnostic after reopen: %v", err)
 	}
 
@@ -584,12 +584,12 @@ func TestContextUsageDoesNotInflateInlineImagePayloadByBase64Length(t *testing.T
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
 	eng.setLastUsage(llm.Usage{InputTokens: 100, OutputTokens: 0, WindowTokens: 410_000})
-	if err := eng.appendMessage("", llm.Message{
+	if err := eng.steer("", steerMessageIntent(llm.Message{
 		Role:       llm.RoleTool,
 		ToolCallID: "call-1",
 		Name:       string(toolspec.ToolViewImage),
 		Content:    `[{"type":"input_image","image_url":"data:image/png;base64,` + strings.Repeat("A", 24_000) + `"}]`,
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("append tool message: %v", err)
 	}
 
@@ -611,7 +611,7 @@ func TestShouldAutoCompactAccountsForMessagesAppendedAfterLastUsage(t *testing.T
 		AutoCompactTokenLimit: 300,
 	})
 	eng.setLastUsage(llm.Usage{InputTokens: 120, OutputTokens: 0, WindowTokens: 410_000})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("stale-usage-gap-", 120)}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: strings.Repeat("stale-usage-gap-", 120)})); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
 
@@ -629,7 +629,7 @@ func TestShouldAutoCompactUsesPreciseRequestInputTokenCountWhenAvailable(t *test
 		ContextWindowTokens:   400_000,
 		AutoCompactTokenLimit: 900,
 	})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: "short"}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "short"})); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
 
@@ -687,7 +687,7 @@ func TestShouldCompactBeforeUserMessageUsesPromptGrowthBelowPreSubmitBand(t *tes
 		ContextWindowTokens:           1000,
 		PreSubmitCompactionLeadTokens: 50,
 	})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("a", 3400)}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: strings.Repeat("a", 3400)})); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
 
@@ -714,7 +714,7 @@ func TestShouldCompactBeforeUserMessageFallsBackWhenExactCountUnsupported(t *tes
 		ContextWindowTokens:           1000,
 		PreSubmitCompactionLeadTokens: 50,
 	})
-	if err := eng.appendMessage("", llm.Message{Role: llm.RoleUser, Content: strings.Repeat("a", 3400)}); err != nil {
+	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: strings.Repeat("a", 3400)})); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
 

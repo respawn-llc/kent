@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"builder/prompts"
 	"builder/server/llm"
 	"builder/server/tools"
 	"builder/server/workflowruntime"
@@ -13,9 +14,10 @@ import (
 )
 
 const (
-	workflowFinalAnswerNudge = "Workflow mode: normal final answers do not complete this node. Produce valid workflow completion output instead."
-	workflowInvalidNudge     = "Workflow completion was rejected. Retry with valid workflow completion output only."
+	workflowInvalidNudge = "Workflow completion was rejected. Retry with valid workflow completion output only."
 )
+
+var workflowFinalAnswerNudge = strings.TrimSpace(prompts.WorkflowFinalAnswerNudgePrompt)
 
 func (e *Engine) workflowCompletionRejectedResult(ctx context.Context, result tools.Result, completionErr error) tools.Result {
 	record, err := e.recordWorkflowProtocolViolation(ctx, workflowruntime.ViolationKindInvalidCompletion, completionErr.Error())

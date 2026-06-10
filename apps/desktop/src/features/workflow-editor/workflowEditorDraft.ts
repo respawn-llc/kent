@@ -171,21 +171,21 @@ export function workflowEditorDraftReducer(
         false,
       );
     case "editNodeIdentity":
-      return editDraftNode(state, action.nodeID, (node) => {
+      return editDraftNode(state, action.nodeID, false, (node) => {
         if (node.kind !== "start" && node.kind !== "terminal" && node.kind !== "agent") {
           return node;
         }
         return { ...node, ...action.patch };
       });
     case "editAgentNode":
-      return editDraftNode(state, action.nodeID, (node) => {
+      return editDraftNode(state, action.nodeID, false, (node) => {
         if (node.kind !== "agent") {
           return node;
         }
         return { ...node, ...action.patch };
       });
     case "addInputField":
-      return editDraftNode(state, action.nodeID, (node) => ({
+      return editDraftNode(state, action.nodeID, false, (node) => ({
         ...node,
         inputFields: [
           {
@@ -199,34 +199,34 @@ export function workflowEditorDraftReducer(
         ],
       }));
     case "updateInputField":
-      return editDraftNode(state, action.nodeID, (node) => ({
+      return editDraftNode(state, action.nodeID, false, (node) => ({
         ...node,
         inputFields: node.inputFields.map((field) =>
           field.rowID === action.rowID ? { ...field, ...action.patch } : field,
         ),
       }));
     case "deleteInputField":
-      return editDraftNode(state, action.nodeID, (node) => ({
+      return editDraftNode(state, action.nodeID, false, (node) => ({
         ...node,
         inputFields: node.inputFields.filter((field) => field.rowID !== action.rowID),
       }));
     case "reorderInputField":
-      return editDraftNode(state, action.nodeID, (node) => ({
+      return editDraftNode(state, action.nodeID, false, (node) => ({
         ...node,
         inputFields: reorderRow(node.inputFields, action.activeRowID, action.overRowID),
       }));
     case "assignJoinInputProvider":
-      return editDraftNode(state, action.nodeID, (node) => ({
+      return editDraftNode(state, action.nodeID, false, (node) => ({
         ...node,
         joinInputProviders: assignJoinInputProvider(node.joinInputProviders, action.inputName, action.providerEdgeID),
       }));
     case "editEdgePrompt":
-      return editDraftEdge(state, action.edgeID, (edge) => ({
+      return editDraftEdge(state, action.edgeID, false, (edge) => ({
         ...edge,
         promptTemplate: action.promptTemplate,
       }));
     case "addEdgeParameter":
-      return editDraftEdge(state, action.edgeID, (edge) => ({
+      return editDraftEdge(state, action.edgeID, false, (edge) => ({
         ...edge,
         parameters: [
           {
@@ -240,19 +240,19 @@ export function workflowEditorDraftReducer(
         ],
       }));
     case "updateEdgeParameter":
-      return editDraftEdge(state, action.edgeID, (edge) => ({
+      return editDraftEdge(state, action.edgeID, false, (edge) => ({
         ...edge,
         parameters: edge.parameters.map((parameter) =>
           parameter.rowID === action.parameterRowID ? { ...parameter, ...action.patch } : parameter,
         ),
       }));
     case "deleteEdgeParameter":
-      return editDraftEdge(state, action.edgeID, (edge) => ({
+      return editDraftEdge(state, action.edgeID, false, (edge) => ({
         ...edge,
         parameters: edge.parameters.filter((parameter) => parameter.rowID !== action.parameterRowID),
       }));
     case "reorderEdgeParameter":
-      return editDraftEdge(state, action.edgeID, (edge) => ({
+      return editDraftEdge(state, action.edgeID, false, (edge) => ({
         ...edge,
         parameters: reorderParameterRows(edge.parameters, action.activeRowID, action.overRowID),
       }));
@@ -267,7 +267,7 @@ export function workflowEditorDraftReducer(
     case "deleteEdge":
       return applyTopologyMutation(state, deleteWorkflowEdge(state.draft, action.edgeID));
     case "editEdgeRoute":
-      return applyTopologyMutation(state, editWorkflowEdgeRoute(state.draft, action.input));
+      return applyTopologyMutation(state, editWorkflowEdgeRoute(state.draft, action.input), false);
     case "createNodeGroupFromNode":
       return applyTopologyMutation(state, createWorkflowNodeGroupFromNode(state.draft, action.input));
     case "addNodeToGroup":
@@ -377,6 +377,7 @@ function nextDraftState(
 function applyTopologyMutation(
   state: WorkflowEditorDraftState,
   mutation: WorkflowEditorGraphMutationResult,
+  graphChanged = true,
 ): WorkflowEditorDraftState {
   const lastTopologyMutation = {
     nextSelection: mutation.nextSelection,
@@ -386,7 +387,7 @@ function applyTopologyMutation(
   if (mutation.draft === state.draft) {
     return { ...state, lastTopologyMutation };
   }
-  return nextDraftState(state, draftDefinitionFromSource(mutation.draft), true, {
+  return nextDraftState(state, draftDefinitionFromSource(mutation.draft), graphChanged, {
     ...lastTopologyMutation,
   });
 }
@@ -394,6 +395,7 @@ function applyTopologyMutation(
 function editDraftNode(
   state: WorkflowEditorDraftState,
   nodeID: string,
+  graphChanged: boolean,
   edit: (node: DraftWorkflowNode, nodes: readonly DraftWorkflowNode[]) => DraftWorkflowNode,
 ): WorkflowEditorDraftState {
   let nextEdges = state.draft.edges;
@@ -413,12 +415,13 @@ function editDraftNode(
     }
     return edited;
   });
-  return nextDraftState(state, { ...state.draft, edges: nextEdges, nodes });
+  return nextDraftState(state, { ...state.draft, edges: nextEdges, nodes }, graphChanged);
 }
 
 function editDraftEdge(
   state: WorkflowEditorDraftState,
   edgeID: string,
+  graphChanged: boolean,
   edit: (edge: DraftWorkflowEdge, edges: readonly DraftWorkflowEdge[]) => DraftWorkflowEdge,
 ): WorkflowEditorDraftState {
   const edgeIndex = state.draft.edges.findIndex((edge) => edge.id === edgeID);
@@ -428,7 +431,7 @@ function editDraftEdge(
   const edges = state.draft.edges.map((edge, index) =>
     index === edgeIndex ? draftEdgeWithParameterRowIDs(edit(edge, state.draft.edges)) : edge,
   );
-  return nextDraftState(state, { ...state.draft, edges });
+  return nextDraftState(state, { ...state.draft, edges }, graphChanged);
 }
 
 function draftEdgeWithParameterRowIDs(edge: WorkflowEdge): DraftWorkflowEdge {

@@ -83,6 +83,7 @@ If user asks you to fix a github issue and you commit the fix, use 'closes #xx' 
 ## Important rules:
 - All business logic covered by tests. Production code is written to be unit-testable.
 - Use red/green TDD when developing new features.
+- Never write tests that assert literal prompt strings, log lines, colors, styles, or other textual/visual content. Such tests check the wording of an artifact rather than its behavior, break on every copy edit, and provide no signal — the prompt/log itself is the source of truth. Test behavior, parsing, structure, or invariants instead.
 - Before handing off to the user after Go code changes, rebuild via `./scripts/build.sh --output ./bin/builder`. Don't ask for confirmation to run/write tests and run checks.
 - Run tests via `./scripts/test.sh` passing normal go test arguments. With no package args this also runs GUI frontend tests.
 - Releases are driven by `VERSION`; keep Homebrew release plumbing in sync with `scripts/update-brew-tap.sh` and the tap formula. Tap formula lives in a separate repo.
@@ -94,6 +95,7 @@ If user asks you to fix a github issue and you commit the fix, use 'closes #xx' 
 - Model request assembly must preserve persisted conversation items in order for provider prompt-cache continuity. Do not add request-time filters that remove or replace historical reminders/context messages to keep only the latest state; append new model-visible context or rotate cache keys at explicit boundaries instead.
 - Do not add request-time sanitizers over persisted conversation/tool items. ANSI stripping and command-output cleanup belong in shell post-processing before tool results are persisted, not in model request assembly.
 - Do not add provider-adapter history shapers in model request serialization. Provider-specific input payload shape must be materialized at transcript/persistence projection boundaries; provider adapters serialize prepared items and fail invalid unprepared items instead of silently dropping, promoting, prefixing, stringifying, or normalizing historical items.
+- Runtime output mutations belong behind the `server/runtime` steer/queue boundary. Do not add ad-hoc appenders, prompt injectors, direct runtime event emitters, or bespoke queue flush paths for model-visible context, transcript rows, tool completions, local diagnostics, or runtime status events. Build typed steering intents; queues store those intents; compaction starts a new active list from compacting output and then steers runtime context into it.
 
 
 - Keep this AGENTS.md file up-to-date and comprehensive. Avoid adding info that can become outdated, otherwise keep this as project guidelines, rules, and learnings for future team members. Persist info that should be preserved here.

@@ -421,6 +421,9 @@ func protocolError(resp *protocol.ResponseError) error {
 	case protocol.ErrCodeMethodNotFound:
 		return errors.Join(serverapi.ErrMethodNotFound, errors.New(message))
 	case protocol.ErrCodeAuthRequired:
+		if message == serverapi.ErrServerAuthRequired.Error() {
+			return serverapi.ErrServerAuthRequired
+		}
 		return errors.Join(serverapi.ErrServerAuthRequired, errors.New(message))
 	case protocol.ErrCodeStreamGap:
 		return errors.Join(serverapi.ErrStreamGap, errors.New(message))

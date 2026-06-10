@@ -148,7 +148,7 @@ func (s *Service) appendRecoveredWarningIfNeeded(store *session.Store) error {
 	if store.Meta().GeneratedRecoveredWarningIssued {
 		return nil
 	}
-	_, appendErr := store.AppendEvent("", "local_entry", recoveredWarningEntry{
+	_, _, appendErr := store.AppendEvent("", "local_entry", recoveredWarningEntry{
 		Visibility: transcript.EntryVisibilityAll,
 		Role:       "warning",
 		Text:       warning,

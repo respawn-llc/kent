@@ -239,7 +239,7 @@ func TestOpenInitializesMissingEventsFileFromSessionMetadata(t *testing.T) {
 
 func TestReadEventsIgnoresTrailingTruncatedEOFLine(t *testing.T) {
 	store := newSessionTestStore(t)
-	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 		t.Fatalf("append event: %v", err)
 	}
 
@@ -269,7 +269,7 @@ func TestReadEventsIgnoresTrailingTruncatedEOFLine(t *testing.T) {
 
 func TestAppendEventRepairsTruncatedTailBeforeAppend(t *testing.T) {
 	store := newSessionTestStore(t)
-	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 		t.Fatalf("append event 1: %v", err)
 	}
 
@@ -285,7 +285,7 @@ func TestAppendEventRepairsTruncatedTailBeforeAppend(t *testing.T) {
 		t.Fatalf("close events file: %v", err)
 	}
 
-	e2, err := store.AppendEvent("s2", "message", map[string]any{"role": "assistant", "content": "a2"})
+	e2, _, err := store.AppendEvent("s2", "message", map[string]any{"role": "assistant", "content": "a2"})
 	if err != nil {
 		t.Fatalf("append event 2: %v", err)
 	}
@@ -307,10 +307,10 @@ func TestAppendEventRepairsTruncatedTailBeforeAppend(t *testing.T) {
 
 func TestOpenReconcilesMetaLastSequenceFromEventLog(t *testing.T) {
 	store := newSessionTestStore(t)
-	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 		t.Fatalf("append event 1: %v", err)
 	}
-	if _, err := store.AppendEvent("s2", "message", map[string]any{"role": "assistant", "content": "a1"}); err != nil {
+	if _, _, err := store.AppendEvent("s2", "message", map[string]any{"role": "assistant", "content": "a1"}); err != nil {
 		t.Fatalf("append event 2: %v", err)
 	}
 
@@ -339,7 +339,7 @@ func TestOpenReconcilesMetaLastSequenceFromEventLog(t *testing.T) {
 	if reopened.Meta().LastSequence != 2 {
 		t.Fatalf("expected reconciled last sequence 2, got %d", reopened.Meta().LastSequence)
 	}
-	next, err := reopened.AppendEvent("s3", "message", map[string]any{"role": "user", "content": "u2"})
+	next, _, err := reopened.AppendEvent("s3", "message", map[string]any{"role": "user", "content": "u2"})
 	if err != nil {
 		t.Fatalf("append event after reconcile: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestPeriodicCompactionRewritesCanonicalEventsLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "u1"}); err != nil {
 		t.Fatalf("append event 1: %v", err)
 	}
 
@@ -376,7 +376,7 @@ func TestPeriodicCompactionRewritesCanonicalEventsLog(t *testing.T) {
 		t.Fatalf("close events file: %v", err)
 	}
 
-	if _, err := store.AppendEvent("s2", "message", map[string]any{"role": "assistant", "content": "a1"}); err != nil {
+	if _, _, err := store.AppendEvent("s2", "message", map[string]any{"role": "assistant", "content": "a1"}); err != nil {
 		t.Fatalf("append event 2: %v", err)
 	}
 

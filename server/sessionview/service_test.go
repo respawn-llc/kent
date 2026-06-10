@@ -151,10 +151,10 @@ func TestServiceGetSessionMainViewFallsBackToDurableSessionState(t *testing.T) {
 	if err := store.SetParentSessionID("parent-1"); err != nil {
 		t.Fatalf("set parent session id: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "final answer", Phase: llm.MessagePhaseFinal}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "final answer", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
 	startedAt := time.Now().UTC().Add(-time.Minute)
@@ -236,10 +236,10 @@ func TestServiceGetSessionTranscriptPageUsesLiveRuntimeWhenAttached(t *testing.T
 	if err := store.SetName("incident triage"); err != nil {
 		t.Fatalf("set name: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "one", Phase: llm.MessagePhaseFinal}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "one", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
 	eng, err := runtime.New(store, &serviceFakeLLM{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
@@ -274,7 +274,7 @@ func TestServiceGetSessionTranscriptPageUsesIncrementalOngoingTailForDormantSess
 		t.Fatalf("create store: %v", err)
 	}
 	for i := 0; i < 600; i++ {
-		if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("reply-%03d", i), Phase: llm.MessagePhaseFinal}); err != nil {
+		if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("reply-%03d", i), Phase: llm.MessagePhaseFinal}); err != nil {
 			t.Fatalf("append message %d: %v", i, err)
 		}
 	}
@@ -306,7 +306,7 @@ func TestServiceGetSessionTranscriptPageUsesConfiguredCacheWarningModeForDormant
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "cache_warning", cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonNonPostfix}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "cache_warning", cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonNonPostfix}); err != nil {
 		t.Fatalf("append cache warning: %v", err)
 	}
 
@@ -341,7 +341,7 @@ func TestServiceWithCacheWarningModeInvalidatesDormantCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "cache_warning", cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonNonPostfix}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "cache_warning", cachewarn.Warning{Scope: cachewarn.ScopeConversation, Reason: cachewarn.ReasonNonPostfix}); err != nil {
 		t.Fatalf("append cache warning: %v", err)
 	}
 	svc := NewService(NewStaticSessionResolver(store), nil, nil)
@@ -383,7 +383,7 @@ func TestServiceGetSessionTranscriptPageSupportsPagination(t *testing.T) {
 		{Role: llm.RoleAssistant, Content: "a2", Phase: llm.MessagePhaseFinal},
 	}
 	for i, entry := range entries {
-		if _, err := store.AppendEvent("step-1", "message", entry); err != nil {
+		if _, _, err := store.AppendEvent("step-1", "message", entry); err != nil {
 			t.Fatalf("append message %d: %v", i, err)
 		}
 	}
@@ -457,7 +457,7 @@ func TestServiceGetSessionTranscriptPageDormantPageCacheInvalidatesOnRevisionBou
 		t.Fatalf("first total entries = %d, want 510", got)
 	}
 
-	if _, err := store.AppendEvent("step-extra", "message", llm.Message{Role: llm.RoleAssistant, Content: "line 510", Phase: llm.MessagePhaseFinal}); err != nil {
+	if _, _, err := store.AppendEvent("step-extra", "message", llm.Message{Role: llm.RoleAssistant, Content: "line 510", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append revision boundary message: %v", err)
 	}
 	second, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: store.Meta().SessionID, Offset: 0, Limit: 1})
@@ -474,7 +474,7 @@ func TestServiceGetSessionTranscriptPageDormantPageCacheInvalidatesOnRevisionBou
 
 func appendDormantTranscriptMessages(store *session.Store, count int) error {
 	for i := 0; i < count; i++ {
-		if _, err := store.AppendEvent("step-seed", "message", llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("line %d", i), Phase: llm.MessagePhaseFinal}); err != nil {
+		if _, _, err := store.AppendEvent("step-seed", "message", llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("line %d", i), Phase: llm.MessagePhaseFinal}); err != nil {
 			return err
 		}
 	}
@@ -489,7 +489,7 @@ func TestServiceGetSessionTranscriptPageUsesDormantOngoingTailByDefault(t *testi
 	}
 	for i := 0; i < runtimeview.OngoingTailEntryLimit+20; i++ {
 		entry := llm.Message{Role: llm.RoleUser, Content: "u" + strconv.Itoa(i)}
-		if _, err := store.AppendEvent("step-1", "message", entry); err != nil {
+		if _, _, err := store.AppendEvent("step-1", "message", entry); err != nil {
 			t.Fatalf("append message %d: %v", i, err)
 		}
 	}
@@ -525,16 +525,16 @@ func TestServiceDormantReviewerRollbackIsIgnoredOnRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u1"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "rolled back final", Phase: llm.MessagePhaseFinal}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "rolled back final", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append assistant final: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u2"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u2"}); err != nil {
 		t.Fatalf("append second user message: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "history_replaced", map[string]any{
+	if _, _, err := store.AppendEvent("step-1", "history_replaced", map[string]any{
 		"engine": "reviewer_rollback",
 		"items":  llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: "u1"}}),
 	}); err != nil {
@@ -585,20 +585,20 @@ func TestServiceGetSessionTranscriptPageKeepsDormantCompactionSummaryAndCarryove
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "before compaction"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "before compaction"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "history_replaced", map[string]any{
+	if _, _, err := store.AppendEvent("step-1", "history_replaced", map[string]any{
 		"engine": "local",
 		"mode":   "manual",
 		"items":  llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: "condensed provider summary", MessageType: llm.MessageTypeCompactionSummary}}),
 	}); err != nil {
 		t.Fatalf("append history replacement: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "local_entry", map[string]any{"role": "compaction_summary", "text": "condensed summary"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "local_entry", map[string]any{"role": "compaction_summary", "text": "condensed summary"}); err != nil {
 		t.Fatalf("append compaction summary entry: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeManualCompactionCarryover, Content: "Last user message before handoff\n\ncarry this forward"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeManualCompactionCarryover, Content: "Last user message before handoff\n\ncarry this forward"}); err != nil {
 		t.Fatalf("append manual carryover: %v", err)
 	}
 	svc := NewService(NewStaticSessionResolver(store), nil, nil)
@@ -627,17 +627,17 @@ func TestServiceGetSessionTranscriptPagePreservesHistoryAcrossActiveCompaction(t
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "before compaction"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "before compaction"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "history_replaced", map[string]any{
+	if _, _, err := store.AppendEvent("step-1", "history_replaced", map[string]any{
 		"engine": "local",
 		"mode":   "manual",
 		"items":  llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: "condensed provider summary", MessageType: llm.MessageTypeCompactionSummary}}),
 	}); err != nil {
 		t.Fatalf("append history replacement: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "local_entry", map[string]any{"role": "compaction_notice", "text": "after replace notice"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "local_entry", map[string]any{"role": "compaction_notice", "text": "after replace notice"}); err != nil {
 		t.Fatalf("append compaction notice entry: %v", err)
 	}
 	eng, err := runtime.New(store, &serviceFakeLLM{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
@@ -674,20 +674,20 @@ func TestServiceGetSessionTranscriptPagePaginatesBeforeActiveCompactionBoundary(
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "before-1"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "before-1"}); err != nil {
 		t.Fatalf("append first user message: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "before-2", Phase: llm.MessagePhaseFinal}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "before-2", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "history_replaced", map[string]any{
+	if _, _, err := store.AppendEvent("step-1", "history_replaced", map[string]any{
 		"engine": "local",
 		"mode":   "manual",
 		"items":  llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: "condensed provider summary", MessageType: llm.MessageTypeCompactionSummary}}),
 	}); err != nil {
 		t.Fatalf("append history replacement: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "local_entry", map[string]any{"role": "compaction_notice", "text": "after replace notice"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "local_entry", map[string]any{"role": "compaction_notice", "text": "after replace notice"}); err != nil {
 		t.Fatalf("append compaction notice entry: %v", err)
 	}
 	eng, err := runtime.New(store, &serviceFakeLLM{}, tools.NewRegistry(), runtime.Config{Model: "gpt-5"})
@@ -722,7 +722,7 @@ func TestServiceGetSessionTranscriptPageUsesDormantOngoingTailWindow(t *testing.
 		t.Fatalf("create store: %v", err)
 	}
 	for i := 0; i < runtimeview.OngoingTailEntryLimit+20; i++ {
-		if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u" + strconv.Itoa(i)}); err != nil {
+		if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "u" + strconv.Itoa(i)}); err != nil {
 			t.Fatalf("append message %d: %v", i, err)
 		}
 	}
@@ -783,7 +783,7 @@ func TestServiceGetSessionMainViewDoesNotMutatePersistedSessionFiles(t *testing.
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 	startedAt := time.Now().UTC().Add(-time.Minute)

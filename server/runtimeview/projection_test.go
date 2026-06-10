@@ -73,7 +73,7 @@ func newRuntimeViewEngine(t *testing.T, store *session.Store, client llm.Client,
 func appendRuntimeViewMessages(t *testing.T, store *session.Store, count int, text func(int) string) {
 	t.Helper()
 	for i := range count {
-		if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: text(i), Phase: llm.MessagePhaseFinal}); err != nil {
+		if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: text(i), Phase: llm.MessagePhaseFinal}); err != nil {
 			t.Fatalf("append message %d: %v", i, err)
 		}
 	}
@@ -259,7 +259,7 @@ func TestMainViewFromRuntimeBundlesStatusAndSession(t *testing.T) {
 	if err := store.SetParentSessionID("parent-123"); err != nil {
 		t.Fatalf("set parent session id: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "final answer", Phase: llm.MessagePhaseFinal}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "final answer", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append assistant message: %v", err)
 	}
 	eng := newRuntimeViewEngine(t, store, projectionFastClient{}, runtime.Config{Model: "gpt-5", ContextWindowTokens: 400_000})
@@ -298,13 +298,13 @@ func TestMainViewFromRuntimeBundlesStatusAndSession(t *testing.T) {
 
 func TestSessionViewFromRuntimeUsesCommittedEntryMetadata(t *testing.T) {
 	store := newRuntimeViewStore(t)
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "local_entry", map[string]any{"role": "system", "text": "local note", "ongoing_text": ""}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "local_entry", map[string]any{"role": "system", "text": "local note", "ongoing_text": ""}); err != nil {
 		t.Fatalf("append local entry: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeErrorFeedback, Content: "warn"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeErrorFeedback, Content: "warn"}); err != nil {
 		t.Fatalf("append warning message: %v", err)
 	}
 	eng := newRuntimeViewEngine(t, store, projectionFastClient{})

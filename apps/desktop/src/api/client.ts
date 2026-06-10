@@ -22,6 +22,7 @@ import type {
   WorkflowDeleteImpact,
   WorkflowDeleteResponse,
   WorkflowDefinition,
+  WorkflowDerivedWiring,
   WorkflowGraphDraft,
   WorkflowGraphSaveConfirmation,
   WorkflowGraphMetadata,
@@ -63,6 +64,7 @@ import {
   workflowDeletePreviewSchema,
   workflowDeleteResponseSchema,
   workflowDefinitionSchema,
+  workflowGraphDeriveWiringSchema,
   workflowGraphSavePreviewSchema,
   workflowGraphSaveSchema,
   workflowGraphValidateDraftSchema,
@@ -300,6 +302,20 @@ export class BuilderApiClient {
           metadata: workflowGraphMetadataPayload(input.metadata),
           graph: workflowGraphDraftPayload(input.graph),
           modes: input.modes,
+        }),
+      ),
+    );
+  }
+
+  async deriveWorkflowGraphWiring(input: WorkflowGraphDeriveWiringInput): Promise<WorkflowDerivedWiring> {
+    return parse(
+      "workflow.graph.deriveWiring",
+      workflowGraphDeriveWiringSchema,
+      await this.transport.call(
+        "workflow.graph.deriveWiring",
+        compactJsonObject({
+          workflow_id: input.workflowID,
+          graph: workflowGraphDraftPayload(input.graph),
         }),
       ),
     );
@@ -599,6 +615,11 @@ export type WorkflowGraphValidateDraftInput = Readonly<{
   metadata?: WorkflowGraphMetadata | undefined;
   graph: WorkflowGraphDraft;
   modes: readonly WorkflowValidationMode[];
+}>;
+
+export type WorkflowGraphDeriveWiringInput = Readonly<{
+  workflowID: string;
+  graph: WorkflowGraphDraft;
 }>;
 
 export type WorkflowGraphSavePreviewInput = Readonly<{

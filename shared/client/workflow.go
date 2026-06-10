@@ -104,6 +104,10 @@ func (c *loopbackWorkflowClient) ValidateWorkflowGraphDraft(ctx context.Context,
 	return callLoopbackClient(c, "workflow service is required", ctx, req, servicecontract.WorkflowService.ValidateWorkflowGraphDraft)
 }
 
+func (c *loopbackWorkflowClient) DeriveWorkflowGraphWiring(ctx context.Context, req serverapi.WorkflowGraphDeriveWiringRequest) (serverapi.WorkflowGraphDeriveWiringResponse, error) {
+	return callLoopbackClient(c, "workflow service is required", ctx, req, servicecontract.WorkflowService.DeriveWorkflowGraphWiring)
+}
+
 func (c *loopbackWorkflowClient) PreviewWorkflowGraphSave(ctx context.Context, req serverapi.WorkflowGraphSavePreviewRequest) (serverapi.WorkflowGraphSavePreviewResponse, error) {
 	return callLoopbackClient(c, "workflow service is required", ctx, req, servicecontract.WorkflowService.PreviewWorkflowGraphSave)
 }

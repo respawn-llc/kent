@@ -243,6 +243,19 @@ type WorkflowGraphValidateDraftResponse struct {
 	DerivedWiring WorkflowDerivedWiring                               `json:"derived_wiring"`
 }
 
+// WorkflowGraphDeriveWiringRequest asks only for the derived wiring of a draft
+// graph, skipping the expensive validation modes, so editor inspectors can keep
+// wiring suggestions fresh during the dirty period without paying for full
+// validation on every keystroke.
+type WorkflowGraphDeriveWiringRequest struct {
+	WorkflowID string             `json:"workflow_id"`
+	Graph      WorkflowGraphDraft `json:"graph"`
+}
+
+type WorkflowGraphDeriveWiringResponse struct {
+	DerivedWiring WorkflowDerivedWiring `json:"derived_wiring"`
+}
+
 type WorkflowGraphSavePreviewRequest struct {
 	WorkflowID      string                 `json:"workflow_id"`
 	ExpectedVersion int64                  `json:"expected_version"`
@@ -1355,6 +1368,13 @@ func (r WorkflowGraphValidateDraftRequest) Validate() error {
 		return err
 	}
 	if err := validateWorkflowGraphValidationModes(r.Modes); err != nil {
+		return err
+	}
+	return validateWorkflowGraphDraftEnvelope(r.Graph)
+}
+
+func (r WorkflowGraphDeriveWiringRequest) Validate() error {
+	if err := validateRequired("workflow_id", r.WorkflowID); err != nil {
 		return err
 	}
 	return validateWorkflowGraphDraftEnvelope(r.Graph)

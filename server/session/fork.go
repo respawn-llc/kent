@@ -40,6 +40,29 @@ func ForkAtUserMessage(parent *Store, userMessageIndex int, forkName string) (*S
 		return nil, fmt.Errorf("user message index %d is out of range", userMessageIndex)
 	}
 
+	return newChildFromReplay(parent, parentMeta, replay, forkName)
+}
+
+// CloneSession creates a child session that replays the parent's entire
+// conversation history. Workflow compact-and-continue fan-out branches use this
+// so each parallel continuation compacts its own isolated copy of the source
+// conversation instead of mutating the shared source session.
+func CloneSession(parent *Store, forkName string) (*Store, error) {
+	if parent == nil {
+		return nil, fmt.Errorf("parent store is required")
+	}
+	parentMeta := parent.Meta()
+	replay := make([]ReplayEvent, 0)
+	if err := parent.WalkEvents(func(evt Event) error {
+		replay = append(replay, ReplayEvent{StepID: evt.StepID, Kind: evt.Kind, Payload: append([]byte(nil), evt.Payload...)})
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("read parent events: %w", err)
+	}
+	return newChildFromReplay(parent, parentMeta, replay, forkName)
+}
+
+func newChildFromReplay(parent *Store, parentMeta Meta, replay []ReplayEvent, forkName string) (*Store, error) {
 	containerDir := filepath.Dir(parent.Dir())
 	child, err := newLazyWithStoreOptions(containerDir, parentMeta.WorkspaceContainer, parentMeta.WorkspaceRoot, parent.options)
 	if err != nil {
@@ -48,7 +71,11 @@ func ForkAtUserMessage(parent *Store, userMessageIndex int, forkName string) (*S
 
 	child.mu.Lock()
 	child.meta.Locked = cloneLockedContract(parentMeta.Locked)
-	child.meta.AgentsInjected = parentMeta.AgentsInjected
+	// Derive headless state from the replayed events rather than copying the
+	// parent's current flag: a fork at an earlier user message only replays
+	// events before the boundary, where the headless state may differ from the
+	// parent's latest.
+	child.meta.HeadlessActive = headlessActiveFromReplayEvents(replay)
 	child.meta.CompactionSoonReminderIssued = reminderIssuedFromReplayEvents(replay)
 	child.meta.WorktreeReminder = forkedWorktreeReminderState(parentMeta.WorktreeReminder)
 	child.meta.UsageState = nil
@@ -133,7 +160,6 @@ func InitializeChildFromParentWithOptions(child *Store, parent *Store, opts Chil
 	} else {
 		child.meta.Locked = nil
 	}
-	child.meta.AgentsInjected = false
 	child.meta.WorkspaceRoot = parentMeta.WorkspaceRoot
 	child.meta.WorkspaceContainer = parentMeta.WorkspaceContainer
 	child.meta.WorktreeReminder = forkedWorktreeReminderState(parentMeta.WorktreeReminder)
@@ -165,6 +191,29 @@ func forkedWorktreeReminderState(in *WorktreeReminderState) *WorktreeReminderSta
 	copyState.HasIssuedInGeneration = false
 	copyState.IssuedCompactionCount = 0
 	return copyState
+}
+
+func headlessActiveFromReplayEvents(events []ReplayEvent) bool {
+	active := false
+	for _, evt := range events {
+		if evt.Kind != "message" {
+			continue
+		}
+		var msg reminderEventMessage
+		if err := json.Unmarshal(evt.Payload, &msg); err != nil {
+			continue
+		}
+		if strings.TrimSpace(msg.Role) != "developer" {
+			continue
+		}
+		switch strings.TrimSpace(msg.MessageType) {
+		case "headless_mode":
+			active = true
+		case "headless_mode_exit":
+			active = false
+		}
+	}
+	return active
 }
 
 func reminderIssuedFromReplayEvents(events []ReplayEvent) bool {

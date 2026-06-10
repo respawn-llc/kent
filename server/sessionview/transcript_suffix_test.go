@@ -20,7 +20,7 @@ func TestGetSessionCommittedTranscriptSuffixReturnsRuntimeViewSuffix(t *testing.
 		t.Fatalf("create store: %v", err)
 	}
 	for i := 0; i < 4; i++ {
-		if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("reply-%03d", i), Phase: llm.MessagePhaseFinal}); err != nil {
+		if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("reply-%03d", i), Phase: llm.MessagePhaseFinal}); err != nil {
 			t.Fatalf("append message %d: %v", i, err)
 		}
 	}
@@ -56,7 +56,7 @@ func TestGetSessionCommittedTranscriptSuffixReturnsDormantSuffix(t *testing.T) {
 		t.Fatalf("create store: %v", err)
 	}
 	for i := 0; i < 4; i++ {
-		if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("reply-%03d", i), Phase: llm.MessagePhaseFinal}); err != nil {
+		if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("reply-%03d", i), Phase: llm.MessagePhaseFinal}); err != nil {
 			t.Fatalf("append message %d: %v", i, err)
 		}
 	}

@@ -39,7 +39,11 @@ import {
   workflowDeletionConfirmationCounts,
 } from "./workflowDeleteConfirmationPolicy";
 import { useWorkflowGraphDeleteConfirmationListener } from "./useWorkflowGraphDeleteConfirmationListener";
-import { layoutWorkflowGraph, type WorkflowGraphLayout } from "./workflowGraphLayout";
+import {
+  layoutWorkflowGraph,
+  workflowGraphLayoutWithDraftProjection,
+  type WorkflowGraphLayout,
+} from "./workflowGraphLayout";
 import { useWorkflowEditorData, type WorkflowEditorData } from "./useWorkflowEditorData";
 import {
   initializeWorkflowEditorDraft,
@@ -88,6 +92,7 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
       ? { dirty: false, graphDirty: false, metadataDirty: false }
       : workflowEditorDirtyState(draftState);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [saveError, setSaveError] = useState("");
   const [saveBlockers, setSaveBlockers] = useState<readonly string[]>([]);
   const [saveConfirmationPreviewEntry, setSaveConfirmationPreviewEntry] =
@@ -108,22 +113,63 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
     useState<WorkflowEditorEmbeddedInspectorSelection | null>(null);
   const pendingGraphMutationRef = useRef<PendingGraphMutation | null>(null);
   const deleteRequestIndexRef = useRef(0);
-  const draftDefinition =
-    draftState === null ? data.workflowQuery.data : workflowDefinitionFromDraft(draftState.draft);
-  const draftValidationQuery = useWorkflowDraftValidationQuery(workflowID, draftState);
-  const draftValidation = draftValidationQuery.data?.draft ?? null;
+  const [layoutSnapshot, setLayoutSnapshot] = useState<WorkflowLayoutSnapshot>({
+    graphVersion: 0,
+    layout: undefined,
+    validation: null,
+  });
+  const draftDefinition = useMemo(
+    () => (draftState === null ? data.workflowQuery.data : workflowDefinitionFromDraft(draftState.draft)),
+    [data.workflowQuery.data, draftState],
+  );
+  const draftValidationQuery = useWorkflowDraftValidationQuery(workflowID, draftState, dirty.graphDirty);
+  const draftDerivedWiringQuery = useWorkflowDraftDerivedWiringQuery(workflowID, draftState, dirty.graphDirty);
+  const cachedDraftValidation = draftValidationQuery.data?.draft ?? null;
+  const cachedExecutionValidation = draftValidationQuery.data?.execution ?? data.validationQuery.data ?? null;
+  // Memoized so the merged object keeps a stable identity across renders: it
+  // feeds workflowLayoutSnapshotAfterRender, which compares validation by
+  // reference, and a fresh object every render would loop render-time setState.
+  const cleanLayoutValidation = useMemo(
+    () => mergeWorkflowValidations(cachedDraftValidation, cachedExecutionValidation),
+    [cachedDraftValidation, cachedExecutionValidation],
+  );
+  const cleanGraphVersion = draftState?.graphVersion ?? 0;
+  const topologyDirty =
+    dirty.graphDirty && draftState !== null && draftState.graphVersion !== layoutSnapshot.graphVersion;
+  const draftValidation = dirty.graphDirty ? null : cachedDraftValidation;
+  // While the graph is dirty the full draft validation (which also carries
+  // derived wiring) is disabled, so a dedicated cheap derive-wiring query keeps
+  // inspector wiring suggestions current; when clean, the validation result's
+  // wiring is authoritative.
   const draftDerivedWiring =
-    draftValidationQuery.data?.derivedWiring ?? draftDefinition?.derivedWiring ?? emptyWorkflowDerivedWiring;
-  const executionValidation = draftValidationQuery.data?.execution ?? data.validationQuery.data ?? null;
+    (dirty.graphDirty
+      ? draftDerivedWiringQuery.data ?? draftValidationQuery.data?.derivedWiring
+      : draftValidationQuery.data?.derivedWiring) ??
+    draftDefinition?.derivedWiring ??
+    emptyWorkflowDerivedWiring;
+  const executionValidation = dirty.graphDirty ? emptyWorkflowValidation : cachedExecutionValidation;
+  const layoutValidation = dirty.graphDirty
+    ? topologyDirty
+      ? emptyWorkflowValidation
+      : layoutSnapshot.validation ?? emptyWorkflowValidation
+    : cleanLayoutValidation;
   const graphValidation = dirty.graphDirty
-    ? draftValidation ?? emptyWorkflowValidation
-    : draftValidation ?? executionValidation;
+    ? emptyWorkflowValidation
+    : cleanLayoutValidation ?? emptyWorkflowValidation;
   const layoutQuery = useWorkflowGraphLayoutQuery(
     workflowID,
     draftDefinition,
     draftState?.graphVersion ?? 0,
-    graphValidation,
+    layoutValidation,
   );
+  const nextLayoutSnapshot = workflowLayoutSnapshotAfterRender(layoutSnapshot, {
+    cleanGraphVersion,
+    cleanValidation: dirty.graphDirty ? null : cleanLayoutValidation,
+    layout: layoutQuery.data,
+  });
+  if (nextLayoutSnapshot !== layoutSnapshot) {
+    setLayoutSnapshot(nextLayoutSnapshot);
+  }
   useWindowChromeTitle(workflow === undefined ? t("workflowEditor.title") : workflow.name, surface === "route");
 
   const inspectWorkflowGraphItem = useCallback(
@@ -202,7 +248,7 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
       draftValidation,
       executionValidation: dirty.graphDirty && draftValidation === null ? emptyWorkflowValidation : executionValidation,
       save() {
-        if (draftState === null || saving) {
+        if (draftState === null || savingRef.current) {
           return;
         }
         void saveWorkflowDraft();
@@ -327,7 +373,13 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
     ),
   });
 
-  const viewState = workflowEditorViewState(data, layoutQuery);
+  const projectedGraph = useMemo(() => {
+    const layout = layoutQuery.data ?? (dirty.graphDirty ? layoutSnapshot.layout : undefined);
+    return layout === undefined || draftDefinition === undefined
+      ? layout
+      : workflowGraphLayoutWithDraftProjection(layout, draftDefinition, graphValidation);
+  }, [dirty.graphDirty, draftDefinition, graphValidation, layoutQuery.data, layoutSnapshot.layout]);
+  const viewState = workflowEditorViewState(data, layoutQuery, projectedGraph);
   const activeEmbeddedInspectorSelection =
     surface === "sidebar" && embeddedInspectorSelection?.workflowID === workflowID
       ? embeddedInspectorSelection.selection
@@ -572,20 +624,29 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
   return surface === "route" ? createPortal(editorRoute, document.body) : editorRoute;
 
   async function saveWorkflowDraft(confirmedPreview?: WorkflowGraphSavePreview): Promise<void> {
-    if (draftState === null) {
+    if (draftState === null || savingRef.current) {
       return;
     }
+    savingRef.current = true;
     const latestDirty = workflowEditorDirtyState(draftState);
-    if (latestDirty.graphDirty && draftValidation !== null && !draftValidation.valid) {
-      setSaveBlockers([t("workflowEditor.draftValidationBlocksSave")]);
-      return;
-    }
     setSaving(true);
     setSaveError("");
     setSaveBlockers([]);
     try {
       const metadata = latestDirty.metadataDirty ? workflowEditorDraftMetadata(draftState) : undefined;
       const graph = workflowEditorDraftGraph(draftState);
+      if (latestDirty.graphDirty) {
+        const validation = await api.validateWorkflowGraphDraft({
+          graph,
+          metadata: workflowEditorDraftMetadata(draftState),
+          modes: ["draft", "execution"],
+          workflowID,
+        });
+        if (validation.draft?.valid !== true) {
+          setSaveBlockers([t("workflowEditor.draftValidationBlocksSave")]);
+          return;
+        }
+      }
       const preview =
         confirmedPreview ??
         (await api.previewWorkflowGraphSave({
@@ -635,9 +696,26 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
     } catch (error) {
       setSaveError(errorMessage(error));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
+}
+
+function mergeWorkflowValidations(
+  draft: WorkflowValidation | null,
+  execution: WorkflowValidation | null,
+): WorkflowValidation | null {
+  if (draft === null) {
+    return execution;
+  }
+  if (execution === null) {
+    return draft;
+  }
+  return {
+    valid: draft.valid && execution.valid,
+    errors: [...draft.errors, ...execution.errors],
+  };
 }
 
 function WorkflowEditorTopChromeBlur() {
@@ -674,6 +752,12 @@ type PendingGraphMutation = Readonly<{
   counts: WorkflowDeleteConfirmationCounts;
   requestID: string;
   summary: WorkflowEditorCascadeSummary;
+}>;
+
+type WorkflowLayoutSnapshot = Readonly<{
+  graphVersion: number;
+  layout: WorkflowGraphLayout | undefined;
+  validation: WorkflowValidation | null;
 }>;
 
 type WorkflowEditorEmbeddedInspectorSelection = Readonly<{
@@ -1048,13 +1132,39 @@ function workflowSaveConfirmationPreviewKey(state: WorkflowEditorDraftState): st
   ].join(":");
 }
 
-function useWorkflowDraftValidationQuery(workflowID: string, draftState: WorkflowEditorDraftState | null) {
+function workflowLayoutSnapshotAfterRender(
+  current: WorkflowLayoutSnapshot,
+  update: Readonly<{
+    cleanGraphVersion: number;
+    cleanValidation: WorkflowValidation | null;
+    layout: WorkflowGraphLayout | undefined;
+  }>,
+): WorkflowLayoutSnapshot {
+  const graphVersion =
+    update.cleanValidation === null ? current.graphVersion : update.cleanGraphVersion;
+  const validation = update.cleanValidation ?? current.validation;
+  const layout = update.layout ?? current.layout;
+  return graphVersion === current.graphVersion && validation === current.validation && layout === current.layout
+    ? current
+    : { graphVersion, layout, validation };
+}
+
+function useWorkflowDraftValidationQuery(
+  workflowID: string,
+  draftState: WorkflowEditorDraftState | null,
+  graphDirty: boolean,
+) {
   const { api } = useAppServices();
+  // Metadata-only edits (display name/description) do not bump graphVersion, so
+  // the server's draft validation of the workflow name would keep reusing the
+  // stale staleTime:Infinity result. Vary the key by the draft metadata too.
+  const metadataSignature = draftState === null ? "" : JSON.stringify(workflowEditorDraftMetadata(draftState));
   return useQuery({
     queryKey: queryKeys.workflowDraftValidation(
       workflowID,
       draftState?.source.workflow.version ?? 0,
-      draftState?.version ?? 0,
+      draftState?.graphVersion ?? 0,
+      metadataSignature,
     ),
     queryFn: async () => {
       if (draftState === null) {
@@ -1067,7 +1177,42 @@ function useWorkflowDraftValidationQuery(workflowID: string, draftState: Workflo
         workflowID,
       });
     },
-    enabled: draftState !== null,
+    enabled: draftState !== null && !graphDirty,
+    staleTime: Infinity,
+  });
+}
+
+function useWorkflowDraftDerivedWiringQuery(
+  workflowID: string,
+  draftState: WorkflowEditorDraftState | null,
+  graphDirty: boolean,
+) {
+  const { api } = useAppServices();
+  // Keyed on the draft graph content, not graphVersion: wiring-relevant edits
+  // (node input fields, edge parameters) intentionally leave graphVersion
+  // unchanged, so a version key would serve stale wiring for exactly those
+  // edits. Only stringify while the query is enabled (graph dirty) to avoid the
+  // cost on every clean-state render. Derive-wiring is cheap (no validation),
+  // so refetching on graph content changes is acceptable.
+  const graphSignature =
+    draftState !== null && graphDirty ? JSON.stringify(workflowEditorDraftGraph(draftState)) : "";
+  return useQuery({
+    queryKey: queryKeys.workflowDraftDerivedWiring(
+      workflowID,
+      draftState?.source.workflow.version ?? 0,
+      graphSignature,
+    ),
+    queryFn: async () => {
+      if (draftState === null) {
+        throw new Error("Workflow draft derived wiring requested before draft is initialized.");
+      }
+      return api.deriveWorkflowGraphWiring({
+        graph: workflowEditorDraftGraph(draftState),
+        workflowID,
+      });
+    },
+    enabled: draftState !== null && graphDirty,
+    staleTime: Infinity,
   });
 }
 
@@ -1271,6 +1416,7 @@ type WorkflowEditorViewState =
 function workflowEditorViewState(
   data: WorkflowEditorData,
   layoutQuery: UseQueryResult<WorkflowGraphLayout>,
+  projectedGraph: WorkflowGraphLayout | undefined,
 ): WorkflowEditorViewState {
   if (isLinkGateLoading(data)) {
     return { kind: "loading" };
@@ -1288,10 +1434,10 @@ function workflowEditorViewState(
   if (loadError !== null) {
     return { error: loadError, kind: "loadError" };
   }
-  if (layoutQuery.data === undefined || data.validationQuery.data === undefined) {
+  if (projectedGraph === undefined || data.validationQuery.data === undefined) {
     return { kind: "loading" };
   }
-  return { graph: layoutQuery.data, kind: "ready", validation: data.validationQuery.data };
+  return { graph: projectedGraph, kind: "ready", validation: data.validationQuery.data };
 }
 
 function isLinkGateLoading(data: WorkflowEditorData): boolean {

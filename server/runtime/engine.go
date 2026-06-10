@@ -170,6 +170,13 @@ type Engine struct {
 
 	beforePersistMessage    func(llm.Message) error
 	beforePersistLocalEntry func(storedLocalEntry) error
+
+	// baseMetaInjected guards the single per-conversation injection of base meta
+	// context (AGENTS.md, skills, subagents, environment). It is set when a
+	// resumed transcript already carries that context, and after the one-time
+	// boot injection. It is process-local: the persisted transcript itself is the
+	// source of truth across restarts.
+	baseMetaInjected bool
 }
 
 type handoffRequest struct {
@@ -296,7 +303,7 @@ func New(store *session.Store, client llm.Client, registry *tools.Registry, cfg 
 	}
 	eng.restorePersistedUsageState(meta.UsageState)
 	if meta.InFlightStep {
-		if err := eng.appendMessage("", llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeInterruption, Content: interruptMessage}); err != nil {
+		if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeInterruption, Content: interruptMessage})); err != nil {
 			return nil, err
 		}
 		if err := store.MarkInFlight(false); err != nil {
@@ -388,26 +395,19 @@ func (e *Engine) SubmitUserMessage(ctx context.Context, text string) (assistant 
 	e.goalLoopState().Resume()
 	err = e.stepLifecycle.Run(ctx, exclusiveStepOptions{EmitRunState: true, PersistRunLifecycle: true}, func(stepCtx context.Context, stepID string) error {
 		hasQueuedInjected := e.messageFlow.HasPendingUserInjections()
-		if err := e.injectAgentsIfNeeded(stepID); err != nil {
+		if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 			return err
 		}
-		if err := e.injectHeadlessModeTransitionPromptIfNeeded(stepID); err != nil {
-			return err
-		}
-		if err := e.injectWorkflowModePromptIfNeeded(stepCtx, stepID); err != nil {
-			return err
-		}
-		if err := e.materializePendingWorktreeReminder(stepID); err != nil {
-			return err
-		}
+		userMessage := llm.Message{Role: llm.RoleUser, Content: text}
 		if !hasQueuedInjected {
-			if err := e.appendUserMessageWithoutConversationUpdate(stepID, text); err != nil {
+			intents := []steeringIntent{steerUserMessageWithoutDerivedEventIntent(userMessage)}
+			if flushed := flushedUserMessageEvent(userMessage, stepID); flushed != nil {
+				intents = append(intents, steerEventIntent(*flushed))
+			}
+			if err := e.steer(stepID, intents...); err != nil {
 				return err
 			}
-			if flushed := flushedUserMessageEvent(llm.Message{Role: llm.RoleUser, Content: text}, stepID); flushed != nil {
-				e.emit(*flushed)
-			}
-		} else if err := e.appendUserMessage(stepID, text); err != nil {
+		} else if err := e.steer(stepID, steerUserMessageIntent(userMessage)); err != nil {
 			return err
 		}
 		msg, runErr := e.runStepLoop(stepCtx, stepID)
@@ -424,13 +424,7 @@ func (e *Engine) SubmitWorkflowTurn(ctx context.Context) (assistant llm.Message,
 
 	e.ensureOrchestrationCollaborators()
 	err = e.stepLifecycle.Run(ctx, exclusiveStepOptions{EmitRunState: true, PersistRunLifecycle: true}, func(stepCtx context.Context, stepID string) error {
-		if err := e.injectAgentsIfNeeded(stepID); err != nil {
-			return err
-		}
-		if err := e.injectWorkflowModePromptIfNeeded(stepCtx, stepID); err != nil {
-			return err
-		}
-		if err := e.materializePendingWorktreeReminder(stepID); err != nil {
+		if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 			return err
 		}
 		msg, runErr := e.runStepLoop(stepCtx, stepID)
@@ -448,10 +442,7 @@ func (e *Engine) SubmitUserShellCommand(ctx context.Context, command string) (re
 
 	e.ensureOrchestrationCollaborators()
 	err = e.stepLifecycle.Run(ctx, exclusiveStepOptions{EmitRunState: true, PersistRunLifecycle: true}, func(stepCtx context.Context, stepID string) error {
-		if err := e.injectAgentsIfNeeded(stepID); err != nil {
-			return err
-		}
-		if err := e.appendMessage(stepID, llm.Message{Role: llm.RoleDeveloper, Content: fmt.Sprintf("User ran shell command directly:\n%s", command)}); err != nil {
+		if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 			return err
 		}
 
@@ -463,19 +454,17 @@ func (e *Engine) SubmitUserShellCommand(ctx context.Context, command string) (re
 				"user_initiated": true,
 			}),
 		}
-		if err := e.appendAssistantMessage(stepID, llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}}); err != nil {
+		if err := e.steer(stepID, steerMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}})); err != nil {
 			return err
 		}
 		if _, ok := e.registry.Get(toolspec.ToolExecCommand); !ok {
 			transcriptCall := normalizeToolCallForTranscript(call, e.transcriptWorkingDir())
-			e.emit(Event{Kind: EventToolCallStarted, StepID: stepID, ToolCall: &transcriptCall, CommittedTranscriptChanged: true})
+			_ = e.steerEvent(stepID, Event{Kind: EventToolCallStarted, StepID: stepID, ToolCall: &transcriptCall, CommittedTranscriptChanged: true})
 			result = tools.Result{CallID: call.ID, Name: toolspec.ToolExecCommand, IsError: true, Output: mustJSON(map[string]any{"error": "unknown tool"}), Summary: "unknown tool"}
-			if err := e.persistToolCompletion(stepID, result); err != nil {
+			if err := e.steer(stepID, steerToolCompletionIntent(result)); err != nil {
 				return fmt.Errorf("persist tool completion (call_id=%s tool=%s): %w", call.ID, result.Name, err)
 			}
-			toolResult := result
-			e.emit(Event{Kind: EventToolCallCompleted, StepID: stepID, ToolResult: &toolResult, CommittedTranscriptChanged: true})
-			if appendErr := e.appendMessage(stepID, llm.Message{Role: llm.RoleTool, Content: string(result.Output), ToolCallID: result.CallID, Name: string(result.Name)}); appendErr != nil {
+			if appendErr := e.steer(stepID, steerMessageIntent(llm.Message{Role: llm.RoleTool, Content: string(result.Output), ToolCallID: result.CallID, Name: string(result.Name)})); appendErr != nil {
 				return appendErr
 			}
 			return errors.New("unknown tool")
@@ -486,7 +475,7 @@ func (e *Engine) SubmitUserShellCommand(ctx context.Context, command string) (re
 			return errors.New("shell tool execution returned no result")
 		}
 		result = results[0]
-		if appendErr := e.appendMessage(stepID, llm.Message{Role: llm.RoleTool, Content: string(result.Output), ToolCallID: result.CallID, Name: string(result.Name)}); appendErr != nil {
+		if appendErr := e.steer(stepID, steerMessageIntent(llm.Message{Role: llm.RoleTool, Content: string(result.Output), ToolCallID: result.CallID, Name: string(result.Name)})); appendErr != nil {
 			return errors.Join(execErr, appendErr)
 		}
 		return execErr

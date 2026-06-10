@@ -1507,7 +1507,7 @@ func TestCalcChatLinesUsesFullHeightInDetailMode(t *testing.T) {
 
 func TestCalcChatLinesRemainsViewportBasedDuringActiveWork(t *testing.T) {
 	store := createAppRuntimeSession(t)
-	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 	eng := newAppRuntimeEngineWithStore(t, store, statusLineFakeClient{}, runtime.Config{})

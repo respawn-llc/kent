@@ -62,7 +62,7 @@ type skillRoot struct {
 }
 
 func skillsContextMessageWithDisabled(workspaceRoot string, disabledSkills map[string]bool) (string, bool, error) {
-	builder := newMetaContextBuilder(workspaceRoot, "", "", disabledSkills, time.Time{})
+	builder := newMetaContextBuilder(workspaceRoot, "", "", disabledSkills, time.Now())
 	metaResult, err := builder.Build(metaContextBuildOptions{IncludeSkills: true})
 	if err != nil {
 		return "", false, err

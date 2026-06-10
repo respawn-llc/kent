@@ -20,7 +20,7 @@ func TestDormantTranscriptCacheReusesEntryForUnchangedRevision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}
 
@@ -63,7 +63,7 @@ func TestDormantTranscriptCacheInvalidatesOnRevisionAdvance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
 		t.Fatalf("append first message: %v", err)
 	}
 
@@ -81,7 +81,7 @@ func TestDormantTranscriptCacheInvalidatesOnRevisionAdvance(t *testing.T) {
 	if _, err := cache.get(context.Background(), store); err != nil {
 		t.Fatalf("cache get: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: "done", Phase: llm.MessagePhaseFinal}); err != nil {
 		t.Fatalf("append second message: %v", err)
 	}
 	if _, err := cache.get(context.Background(), store); err != nil {
@@ -207,7 +207,7 @@ func TestServiceUsesDormantCacheForMainViewAndTailCoveredPages(t *testing.T) {
 	if err := store.SetName("incident triage"); err != nil {
 		t.Fatalf("set name: %v", err)
 	}
-	if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
+	if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleUser, Content: "seed"}); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 

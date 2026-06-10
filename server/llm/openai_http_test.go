@@ -617,15 +617,26 @@ func TestBuildResponsesInput_CanonicalNonViewImageToolOutputKeepsStructuredInput
 
 func TestServiceBaseURL_UsesCodexEndpointBaseForOAuth(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
-	transport.BaseURL = "https://attacker.example/v1"
+	transport.BaseURL = "https://other.example/v1"
 
 	got := transport.serviceBaseURL(openAIAuthMode{IsOAuth: true})
 	if got != strings.TrimSuffix(codexResponsesEndpoint, "/responses") {
 		t.Fatalf("expected oauth base endpoint %q, got %q", strings.TrimSuffix(codexResponsesEndpoint, "/responses"), got)
 	}
 	standard := transport.serviceBaseURL(openAIAuthMode{})
-	if standard != "https://attacker.example/v1" {
+	if standard != "https://other.example/v1" {
 		t.Fatalf("expected standard base endpoint, got %q", standard)
+	}
+}
+
+func TestServiceBaseURL_ExplicitBaseURLOverridesOAuthEndpoint(t *testing.T) {
+	transport := NewHTTPTransport(staticAuth{})
+	transport.BaseURL = "http://localhost:8001/v1"
+	transport.BaseURLExplicit = true
+
+	got := transport.serviceBaseURL(openAIAuthMode{IsOAuth: true})
+	if got != "http://localhost:8001/v1" {
+		t.Fatalf("expected explicit base url to override oauth endpoint, got %q", got)
 	}
 }
 

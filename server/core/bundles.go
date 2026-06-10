@@ -6,6 +6,7 @@ import (
 	"builder/server/approvalview"
 	"builder/server/askview"
 	"builder/server/authbootstrap"
+	"builder/server/authpolicy"
 	"builder/server/authstatus"
 	serverbootstrap "builder/server/bootstrap"
 	"builder/server/metadata"
@@ -53,6 +54,7 @@ type AuthBundle struct {
 	authBootstrap client.AuthBootstrapClient
 	authStatus    client.AuthStatusClient
 	serverStatus  client.ServerStatusClient
+	authRequired  bool
 }
 
 type PersistenceBundle struct {
@@ -206,7 +208,7 @@ type bundleCompositionInput struct {
 
 func composeBundles(in bundleCompositionInput) *Bundles {
 	return &Bundles{
-		Auth: newAuthBundle(in.authSupport, in.authBootstrapService, in.authStatusService, in.serverStatusService),
+		Auth: newAuthBundle(in.authSupport, in.authBootstrapService, in.authStatusService, in.serverStatusService, authpolicy.RequiresStartupAuth(in.cfg.Settings)),
 		cleanup: []lifecycleResource{
 			{name: "persistence root lock", close: in.rootLease.Close},
 			{name: "metadata store", close: in.metadataStore.Close},
@@ -236,12 +238,13 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 	}
 }
 
-func newAuthBundle(authSupport serverbootstrap.AuthSupport, bootstrapService *authbootstrap.Service, statusService *authstatus.Service, serverStatusService *serverstatus.Service) *AuthBundle {
+func newAuthBundle(authSupport serverbootstrap.AuthSupport, bootstrapService *authbootstrap.Service, statusService *authstatus.Service, serverStatusService *serverstatus.Service, authRequired bool) *AuthBundle {
 	return &AuthBundle{
 		support:       authSupport,
 		authBootstrap: client.NewLoopbackAuthBootstrapClient(bootstrapService),
 		authStatus:    client.NewLoopbackAuthStatusClient(statusService),
 		serverStatus:  client.NewLoopbackServerStatusClient(serverStatusService),
+		authRequired:  authRequired,
 	}
 }
 

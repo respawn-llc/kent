@@ -478,14 +478,14 @@ func TestScenarioHarnessRestartAndSessionResumeKeepsTranscriptVisible(t *testing
 func TestScenarioSessionResumeNormalizesLegacyReviewerEntriesInOngoingMode(t *testing.T) {
 	workspace := t.TempDir()
 	store := createAppRuntimeSessionAt(t, workspace, "ws", workspace)
-	if _, err := store.AppendEvent("legacy-step", "local_entry", map[string]any{
+	if _, _, err := store.AppendEvent("legacy-step", "local_entry", map[string]any{
 		"role":         "reviewer_suggestions",
 		"text":         "Supervisor suggested:\n1. Add final verification notes.",
 		"ongoing_text": "Supervisor made 1 suggestion.",
 	}); err != nil {
 		t.Fatalf("append legacy reviewer_suggestions: %v", err)
 	}
-	if _, err := store.AppendEvent("legacy-step", "local_entry", map[string]any{
+	if _, _, err := store.AppendEvent("legacy-step", "local_entry", map[string]any{
 		"role": "reviewer_status",
 		"text": "Supervisor ran, applied 1 suggestion:\n1. Add final verification notes.",
 	}); err != nil {
@@ -724,7 +724,7 @@ func startupCmdMessage[T tea.Msg](cmds []tea.Cmd) (T, bool) {
 
 func appendTranscriptMessage(t *testing.T, store *session.Store, role llm.Role, text string) {
 	t.Helper()
-	if _, err := store.AppendEvent("s1", "message", llm.Message{Role: role, Content: text}); err != nil {
+	if _, _, err := store.AppendEvent("s1", "message", llm.Message{Role: role, Content: text}); err != nil {
 		t.Fatalf("append %s message: %v", role, err)
 	}
 }

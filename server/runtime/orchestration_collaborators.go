@@ -23,7 +23,7 @@ type exclusiveStepLifecycle interface {
 type backgroundNoticeScheduler interface {
 	HandleBackgroundShellUpdate(evt BackgroundShellEvent, queueNotice bool)
 	QueueDeveloperNotice(msg llm.Message)
-	DrainPendingNotices() []llm.Message
+	DrainPendingNotices() []steeringIntent
 	HasPendingNotices() bool
 	ConsumePendingBackgroundNotice(sessionID string) bool
 	ScheduleIfIdle()
@@ -66,7 +66,6 @@ type toolExecutor interface {
 
 type messageLifecycle interface {
 	RestoreMessages() error
-	InjectAgentsIfNeeded(stepID string) error
 	FlushPendingUserInjections(stepID string) (int, error)
 	QueueUserMessage(text string) QueuedUserMessage
 	DiscardQueuedUserMessage(queueItemID string) bool

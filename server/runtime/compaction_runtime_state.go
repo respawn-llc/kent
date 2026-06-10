@@ -6,6 +6,7 @@ type compactionRuntimeState struct {
 	mu                 sync.Mutex
 	count              int
 	soonReminderIssued bool
+	lastWorkflowRunID  string
 }
 
 func newCompactionRuntimeState() *compactionRuntimeState {
@@ -40,6 +41,24 @@ func (s *compactionRuntimeState) SetCount(count int) {
 	}
 	s.mu.Lock()
 	s.count = count
+	s.mu.Unlock()
+}
+
+func (s *compactionRuntimeState) LastWorkflowRunID() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastWorkflowRunID
+}
+
+func (s *compactionRuntimeState) SetLastWorkflowRunID(runID string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.lastWorkflowRunID = runID
 	s.mu.Unlock()
 }
 

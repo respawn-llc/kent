@@ -137,7 +137,7 @@ func newRuntimeViewTranscriptSuffixEngine(t *testing.T, count int) *runtime.Engi
 		t.Fatalf("create store: %v", err)
 	}
 	for i := 0; i < count; i++ {
-		if _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("reply-%03d", i), Phase: llm.MessagePhaseFinal}); err != nil {
+		if _, _, err := store.AppendEvent("step-1", "message", llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("reply-%03d", i), Phase: llm.MessagePhaseFinal}); err != nil {
 			t.Fatalf("append message %d: %v", i, err)
 		}
 	}

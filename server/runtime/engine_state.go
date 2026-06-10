@@ -132,9 +132,7 @@ func (e *Engine) appendLocalEntry(entry storedLocalEntry) {
 	if entry.Role == "" || entry.Text == "" {
 		return
 	}
-	e.transcriptPersistence().AppendLocalEntryRecord(*localEntryChatEntry(entry))
-	e.emit(Event{Kind: EventLocalEntryAdded, LocalEntry: localEntryChatEntry(entry)})
-	e.emitConversationUpdated("")
+	_ = e.steer("", steerTransientLocalEntryIntent(entry))
 }
 
 func (e *Engine) RecordPromptHistory(text string) error {
@@ -142,18 +140,18 @@ func (e *Engine) RecordPromptHistory(text string) error {
 	if text == "" {
 		return nil
 	}
-	_, err := e.store.AppendEvent("", "prompt_history", map[string]any{"text": text})
+	_, _, err := e.store.AppendEvent("", "prompt_history", map[string]any{"text": text})
 	return err
 }
 
 func (e *Engine) SetOngoingError(text string) {
 	e.transcriptPersistence().SetOngoingError(text)
-	e.emit(Event{Kind: EventOngoingErrorUpdated})
+	_ = e.steerEvent("", Event{Kind: EventOngoingErrorUpdated})
 }
 
 func (e *Engine) ClearOngoingError() {
 	e.transcriptPersistence().ClearOngoingError()
-	e.emit(Event{Kind: EventOngoingErrorUpdated})
+	_ = e.steerEvent("", Event{Kind: EventOngoingErrorUpdated})
 }
 
 func (e *Engine) SetSessionName(name string) error {
@@ -417,9 +415,14 @@ type storedLocalEntry struct {
 }
 
 type historyReplacementPayload struct {
-	Engine string             `json:"engine"`
-	Mode   string             `json:"mode"`
-	Items  []llm.ResponseItem `json:"items"`
+	Engine string `json:"engine"`
+	Mode   string `json:"mode"`
+	// WorkflowRunID records the workflow run whose runtime committed this history
+	// replacement, when the engine runs under a workflow run. It is the durable,
+	// single-write provenance of a compaction: resume reconstructs it from this
+	// event so a workflow run never recompacts a continuation it already committed.
+	WorkflowRunID string             `json:"workflow_run_id,omitempty"`
+	Items         []llm.ResponseItem `json:"items"`
 }
 
 func toToolNames(ids []toolspec.ID) []string {
@@ -560,7 +563,7 @@ func (e *Engine) modelRequests() *modelRequestRuntimeState {
 	return e.modelRequestsState
 }
 
-func (e *Engine) emit(evt Event) {
+func (e *Engine) emitRaw(evt Event) {
 	evt.TranscriptRevision = e.TranscriptRevision()
 	evt.CommittedEntryCount = e.CommittedTranscriptEntryCount()
 	if evt.ContextUsage == nil && eventShouldCarryContextUsage(evt) {
@@ -592,18 +595,6 @@ func eventShouldCarryContextUsage(evt Event) bool {
 	default:
 		return false
 	}
-}
-
-func (e *Engine) emitConversationUpdated(stepID string) {
-	e.emit(Event{Kind: EventConversationUpdated, StepID: stepID})
-}
-
-func (e *Engine) emitCommittedTranscriptAdvanced(stepID string) {
-	e.emit(Event{Kind: EventConversationUpdated, StepID: stepID, CommittedTranscriptChanged: true})
-}
-
-func (e *Engine) emitCommittedMessageTranscriptAdvanced(stepID string, msg llm.Message) {
-	e.emit(Event{Kind: EventConversationUpdated, StepID: stepID, CommittedTranscriptChanged: true, Message: msg})
 }
 
 func eventMayInferCommittedEntryStart(kind EventKind) bool {
@@ -647,6 +638,18 @@ func (e *Engine) pendingToolCallStartStore() *pendingToolCallStartStore {
 
 func (e *Engine) nextCompactionCount() int {
 	return e.compactionRuntimeState().IncrementCount()
+}
+
+// LastCompactionWorkflowRunID reports the workflow run that committed the most
+// recent history replacement in this session, reconstructed from the
+// history_replaced event on restore. Empty when no compaction has run under a
+// workflow run. Workflow continuation gating reads this to compact exactly once.
+func (e *Engine) LastCompactionWorkflowRunID() string {
+	return e.compactionRuntimeState().LastWorkflowRunID()
+}
+
+func (e *Engine) setLastCompactionWorkflowRunID(runID string) {
+	e.compactionRuntimeState().SetLastWorkflowRunID(runID)
 }
 
 func (e *Engine) compactionRuntimeState() *compactionRuntimeState {

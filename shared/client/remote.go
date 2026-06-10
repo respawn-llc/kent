@@ -273,6 +273,10 @@ func (c *Remote) ValidateWorkflowGraphDraft(ctx context.Context, req serverapi.W
 	return callUnscopedRPC[serverapi.WorkflowGraphValidateDraftRequest, serverapi.WorkflowGraphValidateDraftResponse](c, ctx, protocol.MethodWorkflowGraphValidateDraft, req)
 }
 
+func (c *Remote) DeriveWorkflowGraphWiring(ctx context.Context, req serverapi.WorkflowGraphDeriveWiringRequest) (serverapi.WorkflowGraphDeriveWiringResponse, error) {
+	return callUnscopedRPC[serverapi.WorkflowGraphDeriveWiringRequest, serverapi.WorkflowGraphDeriveWiringResponse](c, ctx, protocol.MethodWorkflowGraphDeriveWiring, req)
+}
+
 func (c *Remote) PreviewWorkflowGraphSave(ctx context.Context, req serverapi.WorkflowGraphSavePreviewRequest) (serverapi.WorkflowGraphSavePreviewResponse, error) {
 	return callUnscopedRPC[serverapi.WorkflowGraphSavePreviewRequest, serverapi.WorkflowGraphSavePreviewResponse](c, ctx, protocol.MethodWorkflowGraphSavePreview, req)
 }
