@@ -151,9 +151,19 @@ func (s *Starter) StartWorkflowRun(ctx context.Context, req workflowscheduler.St
 	// compact-and-continue), it is the previous node's persisted session — never
 	// dispose of it on setup failure. Only freshly created run sessions
 	// (new-session and fan-out clones) are disposable.
+	//
+	// For reused sessions, snapshot the previous reminder state so SetWorktreeReminderState
+	// mutations can be rolled back if any later setup step fails.
+	var prevReminderState *session.WorktreeReminderState
+	if reusesExistingSession(input) {
+		if wr := plan.Store.Meta().WorktreeReminder; wr != nil {
+			snap := *wr
+			prevReminderState = &snap
+		}
+	}
 	cleanupSession := func() error {
 		if reusesExistingSession(input) {
-			return nil
+			return plan.Store.SetWorktreeReminderState(prevReminderState)
 		}
 		return s.cleanupSession(ctx, plan.Store)
 	}

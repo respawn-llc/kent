@@ -255,6 +255,14 @@ describe("workflowGraphLayoutWithDraftProjection", () => {
 
     expect(edgeByID(projected.edges, "edge-x")).toMatchObject({ source: "node-source", target: "node-b" });
   });
+
+  it("keeps a grouped join node whose draft group membership is unchanged", async () => {
+    const layout = await layoutWorkflowGraph(alignedJoinWorkflow, emptyValidation);
+
+    const projected = workflowGraphLayoutWithDraftProjection(layout, alignedJoinWorkflow, emptyValidation);
+
+    expect(nodeByID(projected.nodes, "join")).toBeDefined();
+  });
 });
 
 function nodeByID(nodes: readonly WorkflowGraphNode[], id: string): WorkflowGraphNode | undefined {

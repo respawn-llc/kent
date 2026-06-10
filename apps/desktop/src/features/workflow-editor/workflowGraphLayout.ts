@@ -195,7 +195,10 @@ export function workflowGraphLayoutWithDraftProjection(
         // stale; we cannot recompute relative geometry without ELK. Drop the
         // node until the next layout rather than rendering it in the wrong
         // container, mirroring the deleted-entity drop above.
-        const expectedParentID = model.groupID ? groupNodeID(model.groupID) : undefined;
+        // Join nodes are positioned as root-level siblings of their group even
+        // when they carry a groupID, so their React Flow parentId is always undefined.
+        const expectedParentID =
+          model.groupID && model.kind !== "join" ? groupNodeID(model.groupID) : undefined;
         if (node.parentId !== expectedParentID) {
           return [];
         }
@@ -238,8 +241,14 @@ export function workflowGraphLayoutWithDraftProjection(
         return [edge];
       }
       // Reconnect endpoints from the draft model so a re-targeted edge attaches
-      // to the correct nodes/handles immediately; only the route geometry stays
-      // stale until ELK relayouts.
+      // to the correct nodes/handles immediately. Clear stale route points when
+      // endpoints changed — the old geometry no longer connects the new handles
+      // and would be used by workflowEdgePath until ELK relayouts.
+      const endpointsChanged =
+        edge.source !== model.sourceNodeID ||
+        edge.sourceHandle !== model.sourcePort.id ||
+        edge.target !== model.targetNodeID ||
+        edge.targetHandle !== model.targetPort.id;
       return [
         {
           ...edge,
@@ -254,6 +263,7 @@ export function workflowGraphLayoutWithDraftProjection(
             hasError: model.hasError,
             label: model.label,
             transitionGroupID: model.transitionGroupID,
+            ...(endpointsChanged ? { routePoints: [] } : undefined),
           },
         },
       ];
