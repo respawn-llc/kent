@@ -31,8 +31,8 @@ func TestReduceRuntimeEvent_UserMessageFlushedProducesPendingInputAndConversatio
 	if update.PendingInput.DraftCommand != RuntimePendingInputClearDraft {
 		t.Fatal("expected locked injected input to clear the draft input")
 	}
-	if update.PendingInput.State.Submission == InputSubmissionLocked {
-		t.Fatal("expected input submit lock cleared")
+	if update.PendingInput.State.Submission != InputSubmissionUnlocked {
+		t.Fatalf("expected input submit lock cleared to %q, got %q", InputSubmissionUnlocked, update.PendingInput.State.Submission)
 	}
 	if update.PendingInput.State.LockedInjectText != "" {
 		t.Fatalf("expected locked inject text cleared, got %q", update.PendingInput.State.LockedInjectText)

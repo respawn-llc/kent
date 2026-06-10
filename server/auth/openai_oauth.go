@@ -323,7 +323,7 @@ func exchangeOpenAIAuthorizationCode(ctx context.Context, opts OpenAIOAuthOption
 			TokenType:    tokenType,
 			Expiry:       expiresAt,
 			AccountID:    extractAccountID(parsed),
-			Email:        "",
+			Email:        extractEmail(parsed),
 		},
 	}, nil
 }
@@ -390,6 +390,9 @@ func RefreshOpenAIAuthToken(ctx context.Context, opts OpenAIOAuthOptions, method
 	}
 	if accountID := extractAccountID(parsed); strings.TrimSpace(accountID) != "" {
 		updated.OAuth.AccountID = accountID
+	}
+	if email := extractEmail(parsed); strings.TrimSpace(email) != "" {
+		updated.OAuth.Email = email
 	}
 	if parsed.ExpiresIn > 0 {
 		updated.OAuth.Expiry = time.Now().UTC().Add(time.Duration(parsed.ExpiresIn) * time.Second)
@@ -479,6 +482,22 @@ func extractAccountIDFromClaims(claims idTokenClaims) string {
 	}
 	if len(claims.Organizations) > 0 {
 		return strings.TrimSpace(claims.Organizations[0].ID)
+	}
+	return ""
+}
+
+func extractEmail(tokens oauthTokenResponse) string {
+	if strings.TrimSpace(tokens.IDToken) != "" {
+		if claims, err := parseJWTClaims(tokens.IDToken); err == nil {
+			if email := strings.TrimSpace(claims.Email); email != "" {
+				return email
+			}
+		}
+	}
+	if strings.TrimSpace(tokens.AccessToken) != "" {
+		if claims, err := parseJWTClaims(tokens.AccessToken); err == nil {
+			return strings.TrimSpace(claims.Email)
+		}
 	}
 	return ""
 }
