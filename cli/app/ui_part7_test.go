@@ -398,8 +398,8 @@ func TestBusyQueuedReviewSlashCommandStartsFreshSessionAfterTurn(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected quit cmd for queued /review handoff")
 	}
-	if updated.Action() != UIActionNewSession {
-		t.Fatalf("expected UIActionNewSession, got %q", updated.Action())
+	if updated.exitAction != UIActionNewSession {
+		t.Fatalf("expected UIActionNewSession, got %q", updated.exitAction)
 	}
 	if strings.TrimSpace(updated.nextSessionInitialPrompt) == "" {
 		t.Fatal("expected queued /review to populate the next-session prompt")
@@ -540,8 +540,8 @@ func TestQueuedReviewUsesEngineConversationFreshnessWhenUIDidNotReceiveRuntimeUp
 	if followCmd == nil {
 		t.Fatal("expected queued /review drain after hydration")
 	}
-	if updated.Action() != UIActionNewSession {
-		t.Fatalf("expected UIActionNewSession, got %q", updated.Action())
+	if updated.exitAction != UIActionNewSession {
+		t.Fatalf("expected UIActionNewSession, got %q", updated.exitAction)
 	}
 	if strings.TrimSpace(updated.nextSessionInitialPrompt) == "" {
 		t.Fatal("expected queued /review to populate the next-session prompt")
@@ -594,8 +594,8 @@ func TestBackSlashCommandCopiesLatestAssistantOutputWhenAvailable(t *testing.T) 
 			if cmd == nil {
 				t.Fatal("expected quit cmd for /back teleport")
 			}
-			if updated.Action() != UIActionOpenSession {
-				t.Fatalf("expected UIActionOpenSession, got %q", updated.Action())
+			if updated.exitAction != UIActionOpenSession {
+				t.Fatalf("expected UIActionOpenSession, got %q", updated.exitAction)
 			}
 			if updated.nextSessionID != "parent-1" {
 				t.Fatalf("expected parent target session, got %q", updated.nextSessionID)
@@ -630,8 +630,8 @@ func TestBackSlashCommandIgnoresRestoredPromptHistoryDraftInChildSession(t *test
 	if cmd == nil {
 		t.Fatal("expected quit cmd for /back teleport")
 	}
-	if updated.Action() != UIActionOpenSession {
-		t.Fatalf("expected UIActionOpenSession, got %q", updated.Action())
+	if updated.exitAction != UIActionOpenSession {
+		t.Fatalf("expected UIActionOpenSession, got %q", updated.exitAction)
 	}
 	if updated.input != "parked child draft" {
 		t.Fatalf("expected parked child draft restored locally, got %q", updated.input)
@@ -658,7 +658,7 @@ func TestUnknownSlashCommandIsSubmittedAsPrompt(t *testing.T) {
 
 func TestFileSlashCommandSubmitsInjectedUserPrompt(t *testing.T) {
 	r := commands.NewRegistry()
-	r.Register("prompt:review", "", func(string) commands.Result {
+	r.RegisterWithOptions("prompt:review", "", commands.RegisterOptions{PreservePromptHistoryDraft: true}, func(string) commands.Result {
 		return commands.Result{Handled: true, SubmitUser: true, User: "# review\nexact body\n"}
 	})
 	m := newProjectedStaticUIModel(
@@ -695,8 +695,8 @@ func TestBuiltInReviewSlashCommandSubmitsInjectedUserPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected submission cmd for /review")
 	}
-	if updated.Action() != UIActionNone {
-		t.Fatalf("expected no session transition for empty-session /review, got %q", updated.Action())
+	if updated.exitAction != UIActionNone {
+		t.Fatalf("expected no session transition for empty-session /review, got %q", updated.exitAction)
 	}
 	if !updated.isBusy() {
 		t.Fatal("expected /review to submit in place for an empty session")
@@ -715,8 +715,8 @@ func TestBuiltInInitSlashCommandSubmitsInjectedUserPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected submission cmd for /init")
 	}
-	if updated.Action() != UIActionNone {
-		t.Fatalf("expected no session transition for empty-session /init, got %q", updated.Action())
+	if updated.exitAction != UIActionNone {
+		t.Fatalf("expected no session transition for empty-session /init, got %q", updated.exitAction)
 	}
 	if !updated.isBusy() {
 		t.Fatal("expected /init to submit in place for an empty session")
@@ -740,8 +740,8 @@ func TestBuiltInReviewSlashCommandStartsFreshSessionWhenCurrentSessionHasVisible
 	if cmd == nil {
 		t.Fatal("expected quit cmd for non-empty-session /review handoff")
 	}
-	if updated.Action() != UIActionNewSession {
-		t.Fatalf("expected UIActionNewSession, got %q", updated.Action())
+	if updated.exitAction != UIActionNewSession {
+		t.Fatalf("expected UIActionNewSession, got %q", updated.exitAction)
 	}
 	if updated.nextSessionInitialPrompt != expected.User {
 		t.Fatalf("expected handoff payload to match /review command output\nwant: %q\n got: %q", expected.User, updated.nextSessionInitialPrompt)
@@ -762,8 +762,8 @@ func TestBuiltInInitSlashCommandStartsFreshSessionWhenCurrentSessionHasVisibleUs
 	if cmd == nil {
 		t.Fatal("expected quit cmd for non-empty-session /init handoff")
 	}
-	if updated.Action() != UIActionNewSession {
-		t.Fatalf("expected UIActionNewSession, got %q", updated.Action())
+	if updated.exitAction != UIActionNewSession {
+		t.Fatalf("expected UIActionNewSession, got %q", updated.exitAction)
 	}
 	if updated.nextSessionInitialPrompt != expected.User {
 		t.Fatalf("expected handoff payload to match /init command output\nwant: %q\n got: %q", expected.User, updated.nextSessionInitialPrompt)

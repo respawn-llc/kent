@@ -1523,8 +1523,12 @@ describe("WorkflowEditorRoute", () => {
     expect(within(inspector).getAllByRole("button", { name: "Reorder parameter" })).toHaveLength(2);
     expect(within(inspector).getAllByTestId("workflow-parameter")).toHaveLength(2);
 
-    fireEvent.change(newParameterKey, { target: { value: "details" } });
-    fireEvent.change(newParameterDescription, { target: { value: "Implementation details" } });
+    newParameterKey.focus();
+    for (const character of "details") {
+      await user.keyboard(character);
+      expect(newParameterKey).toHaveFocus();
+    }
+    await user.type(newParameterDescription, "Implementation details");
     expect(within(inspector).getAllByRole("textbox", { name: "Parameter key" })[0]).toHaveValue("details");
     expect(parameterKeys(inspector)).toEqual(["details", "summary"]);
 

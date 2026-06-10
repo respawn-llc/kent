@@ -134,7 +134,9 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 	seen := map[string]bool{}
 	linkByWorkflowID := map[string]sqlitegen.ProjectWorkflowLinkRecord{}
 	for _, link := range links {
-		linkByWorkflowID[link.WorkflowID] = preferredProjectWorkflowLink(linkByWorkflowID[link.WorkflowID], link)
+		if linkByWorkflowID[link.WorkflowID].ID == "" {
+			linkByWorkflowID[link.WorkflowID] = link
+		}
 		if !seen[link.WorkflowID] {
 			workflowIDs = append(workflowIDs, link.WorkflowID)
 			seen[link.WorkflowID] = true
@@ -415,7 +417,9 @@ func (s *Service) GetTask(ctx context.Context, taskID string) (serverapi.Workflo
 		return serverapi.WorkflowTaskDetail{}, err
 	}
 	for _, link := range links {
-		linkByWorkflowID[link.WorkflowID] = preferredProjectWorkflowLink(linkByWorkflowID[link.WorkflowID], link)
+		if linkByWorkflowID[link.WorkflowID].ID == "" {
+			linkByWorkflowID[link.WorkflowID] = link
+		}
 	}
 	nodeByID := workflowNodeByID(def)
 	summary := taskSummary(task, placements, nodeKinds)
@@ -433,7 +437,12 @@ func (s *Service) GetTask(ctx context.Context, taskID string) (serverapi.Workflo
 	if err != nil {
 		return serverapi.WorkflowTaskDetail{}, err
 	}
-	sortAttentionItems(attention)
+	sort.SliceStable(attention, func(i, j int) bool {
+		if attention[i].OccurredAtUnixMs != attention[j].OccurredAtUnixMs {
+			return attention[i].OccurredAtUnixMs > attention[j].OccurredAtUnixMs
+		}
+		return attention[i].ID > attention[j].ID
+	})
 	detail.Attention = attention
 	for _, placement := range placements {
 		detail.Placements = append(detail.Placements, placementDTO(placement, nodeByID))
@@ -582,7 +591,12 @@ func (s *Service) ListAttention(ctx context.Context, req serverapi.WorkflowAtten
 	if err != nil {
 		return serverapi.WorkflowAttentionListResponse{}, err
 	}
-	sortAttentionItems(items)
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].OccurredAtUnixMs != items[j].OccurredAtUnixMs {
+			return items[i].OccurredAtUnixMs > items[j].OccurredAtUnixMs
+		}
+		return items[i].ID > items[j].ID
+	})
 	nextPageToken := ""
 	if len(items) > offset+pageSize {
 		nextPageToken = strconv.Itoa(offset + pageSize)
@@ -603,7 +617,12 @@ func (s *Service) ListTaskAttention(ctx context.Context, req serverapi.WorkflowT
 	if err != nil {
 		return serverapi.WorkflowTaskAttentionListResponse{}, err
 	}
-	sortAttentionItems(items)
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].OccurredAtUnixMs != items[j].OccurredAtUnixMs {
+			return items[i].OccurredAtUnixMs > items[j].OccurredAtUnixMs
+		}
+		return items[i].ID > items[j].ID
+	})
 	return serverapi.WorkflowTaskAttentionListResponse{Items: items, GeneratedAtUnixMs: time.Now().UTC().UnixMilli()}, nil
 }
 
@@ -753,13 +772,6 @@ func workflowPickerItem(def serverapi.WorkflowDefinition, link sqlitegen.Project
 		item.ValidationErrors = workflowapi.ValidationErrors(def.Workflow.ID, validation.Errors)
 	}
 	return item
-}
-
-func preferredProjectWorkflowLink(current sqlitegen.ProjectWorkflowLinkRecord, next sqlitegen.ProjectWorkflowLinkRecord) sqlitegen.ProjectWorkflowLinkRecord {
-	if current.ID == "" {
-		return next
-	}
-	return current
 }
 
 func worktreeView(row sqlitegen.GetWorktreeByIDRow) serverapi.WorktreeView {
@@ -1423,15 +1435,6 @@ func (s *Service) validationAttentionItems(ctx context.Context, projectID string
 		items = append(items, serverapi.WorkflowAttentionItem{ID: "validation_blocker:" + link.projectID + ":" + link.workflowID, Kind: "validation_blocker", ProjectID: link.projectID, WorkflowID: link.workflowID, Message: fmt.Sprintf("Workflow %q is invalid for task start", def.Workflow.Name), OccurredAtUnixMs: link.occurredAt})
 	}
 	return items, nil
-}
-
-func sortAttentionItems(items []serverapi.WorkflowAttentionItem) {
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].OccurredAtUnixMs != items[j].OccurredAtUnixMs {
-			return items[i].OccurredAtUnixMs > items[j].OccurredAtUnixMs
-		}
-		return items[i].ID > items[j].ID
-	})
 }
 
 func pageAttentionItems(items []serverapi.WorkflowAttentionItem, offset int, pageSize int) []serverapi.WorkflowAttentionItem {

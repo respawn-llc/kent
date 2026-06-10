@@ -8,25 +8,25 @@ import (
 
 func TestUIModelTracksTerminalFocus(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	if m.TerminalFocusKnown() {
+	if m.terminalFocus.Known() {
 		t.Fatal("expected terminal focus to start unknown")
 	}
-	if m.TerminalFocused() {
+	if m.terminalFocus.FocusedForAttention() {
 		t.Fatal("expected unknown terminal focus to require attention")
 	}
 
 	next, _ := m.Update(tea.BlurMsg{})
 	updated := next.(*uiModel)
-	if !updated.TerminalFocusKnown() {
+	if !updated.terminalFocus.Known() {
 		t.Fatal("expected terminal blur to mark focus known")
 	}
-	if updated.TerminalFocused() {
+	if updated.terminalFocus.FocusedForAttention() {
 		t.Fatal("expected terminal blur to mark model unfocused")
 	}
 
 	next, _ = updated.Update(tea.FocusMsg{})
 	updated = next.(*uiModel)
-	if !updated.TerminalFocused() {
+	if !updated.terminalFocus.FocusedForAttention() {
 		t.Fatal("expected terminal focus to mark model focused")
 	}
 }

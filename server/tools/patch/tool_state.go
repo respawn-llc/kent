@@ -30,14 +30,9 @@ func newApplyState(tool *Tool, ctx context.Context) *applyState {
 	}
 }
 
-func (s *applyState) hasDeleteTarget(path string) bool {
-	_, ok := s.deleteTargets[path]
-	return ok
-}
-
 func (s *applyState) hasDeletedAncestor(path string) bool {
 	for current := filepath.Dir(path); current != "" && current != path; current = filepath.Dir(current) {
-		if s.hasDeleteTarget(current) {
+		if _, ok := s.deleteTargets[current]; ok {
 			return true
 		}
 		next := filepath.Dir(current)
@@ -113,7 +108,7 @@ func (s *applyState) addFile(op patchformat.AddFile) error {
 	if _, exists := s.state[target]; exists {
 		return targetExistsFailure(op.Path, "patch already referenced this path earlier in the same patch")
 	}
-	allowReplacement := s.hasDeleteTarget(target)
+	_, allowReplacement := s.deleteTargets[target]
 	allowBlockedAncestor := s.hasDeletedAncestor(target)
 	if _, err := os.Stat(target); err == nil {
 		if !allowReplacement {
@@ -157,7 +152,7 @@ func (s *applyState) updateFile(op patchformat.UpdateFile) error {
 	if err != nil {
 		return err
 	}
-	if s.hasDeleteTarget(resolved) {
+	if _, ok := s.deleteTargets[resolved]; ok {
 		return malformedFailure(fmt.Sprintf("update target already marked for deletion: %s", op.Path))
 	}
 	fileState, err := s.getState(op.Path)
@@ -185,7 +180,7 @@ func (s *applyState) updateFile(op patchformat.UpdateFile) error {
 	if _, ok := s.state[moveTarget]; ok {
 		return targetExistsFailure(op.MoveTo, "patch already referenced the move destination earlier in the same patch")
 	}
-	allowReplacement := s.hasDeleteTarget(moveTarget)
+	_, allowReplacement := s.deleteTargets[moveTarget]
 	allowBlockedAncestor := s.hasDeletedAncestor(moveTarget)
 	if _, err := os.Stat(moveTarget); err == nil {
 		if !allowReplacement {

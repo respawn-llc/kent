@@ -285,13 +285,6 @@ func (m *defaultMessageLifecycle) HasPendingUserInjections() bool {
 	return m != nil && m.queue != nil && m.queue.HasPending()
 }
 
-func (m *defaultMessageLifecycle) queuedUserMessagesSnapshot() []QueuedUserMessage {
-	if m == nil || m.queue == nil {
-		return nil
-	}
-	return m.queue.Snapshot()
-}
-
 func (m *defaultMessageLifecycle) InjectAgentsIfNeeded(stepID string) error {
 	e := m.engine
 	meta := e.store.Meta()

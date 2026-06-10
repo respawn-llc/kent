@@ -38,9 +38,6 @@ func TestEnsureCursorVisibleScrollsAndCompactsOffset(t *testing.T) {
 }
 
 func TestProjectRowMappingWithCreateRow(t *testing.T) {
-	if got := ItemCount(2, true); got != 3 {
-		t.Fatalf("item count = %d, want 3", got)
-	}
 	if index, ok := ProjectIndexForRow(0, 2, true); ok || index != 0 {
 		t.Fatalf("create row should not map to project, got index=%d ok=%v", index, ok)
 	}
@@ -53,12 +50,6 @@ func TestProjectRowMappingWithCreateRow(t *testing.T) {
 }
 
 func TestEmptyProjectListWithAndWithoutCreateRow(t *testing.T) {
-	if got := ItemCount(0, true); got != 1 {
-		t.Fatalf("empty with create = %d, want 1", got)
-	}
-	if got := ItemCount(0, false); got != 0 {
-		t.Fatalf("empty without create = %d, want 0", got)
-	}
 	if got := MoveCursor(3, 1, 0); got != 3 {
 		t.Fatalf("empty cursor = %d, want unchanged", got)
 	}

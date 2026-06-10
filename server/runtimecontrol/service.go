@@ -146,13 +146,6 @@ func (s *Service) requireControllerLease(ctx context.Context, sessionID string, 
 	return s.control.RequireControllerLease(ctx, sessionID, leaseID)
 }
 
-func detachedRuntimeContext(ctx context.Context) context.Context {
-	if ctx == nil {
-		return context.Background()
-	}
-	return context.WithoutCancel(ctx)
-}
-
 func (s *Service) resolve(ctx context.Context, sessionID string) (*runtime.Engine, error) {
 	if s == nil || s.runtimes == nil {
 		return nil, fmt.Errorf("runtime resolver is required")
@@ -343,7 +336,11 @@ func (s *Service) SubmitUserMessage(ctx context.Context, req serverapi.RuntimeSu
 		if err != nil {
 			return serverapi.RuntimeSubmitUserMessageResponse{}, err
 		}
-		msg, err := engine.SubmitUserMessage(detachedRuntimeContext(ctx), memoReq.Text)
+		runCtx := context.Background()
+		if ctx != nil {
+			runCtx = context.WithoutCancel(ctx)
+		}
+		msg, err := engine.SubmitUserMessage(runCtx, memoReq.Text)
 		if err != nil {
 			return serverapi.RuntimeSubmitUserMessageResponse{}, err
 		}
@@ -369,7 +366,11 @@ func (s *Service) SubmitUserShellCommand(ctx context.Context, req serverapi.Runt
 		if err != nil {
 			return struct{}{}, err
 		}
-		_, err = engine.SubmitUserShellCommand(detachedRuntimeContext(ctx), memoReq.Command)
+		runCtx := context.Background()
+		if ctx != nil {
+			runCtx = context.WithoutCancel(ctx)
+		}
+		_, err = engine.SubmitUserShellCommand(runCtx, memoReq.Command)
 		return struct{}{}, err
 	})
 	return err
@@ -388,7 +389,11 @@ func (s *Service) CompactContext(ctx context.Context, req serverapi.RuntimeCompa
 		if err != nil {
 			return struct{}{}, err
 		}
-		return struct{}{}, engine.CompactContext(detachedRuntimeContext(ctx), req.Args)
+		runCtx := context.Background()
+		if ctx != nil {
+			runCtx = context.WithoutCancel(ctx)
+		}
+		return struct{}{}, engine.CompactContext(runCtx, req.Args)
 	})
 	return err
 }
@@ -406,7 +411,11 @@ func (s *Service) CompactContextForPreSubmit(ctx context.Context, req serverapi.
 		if err != nil {
 			return struct{}{}, err
 		}
-		return struct{}{}, engine.CompactContextForPreSubmit(detachedRuntimeContext(ctx))
+		runCtx := context.Background()
+		if ctx != nil {
+			runCtx = context.WithoutCancel(ctx)
+		}
+		return struct{}{}, engine.CompactContextForPreSubmit(runCtx)
 	})
 	return err
 }
@@ -440,7 +449,11 @@ func (s *Service) SubmitQueuedUserMessages(ctx context.Context, req serverapi.Ru
 		if err != nil {
 			return serverapi.RuntimeSubmitQueuedUserMessagesResponse{}, err
 		}
-		msg, err := engine.SubmitQueuedUserMessages(detachedRuntimeContext(ctx))
+		runCtx := context.Background()
+		if ctx != nil {
+			runCtx = context.WithoutCancel(ctx)
+		}
+		msg, err := engine.SubmitQueuedUserMessages(runCtx)
 		if err != nil {
 			return serverapi.RuntimeSubmitQueuedUserMessagesResponse{}, err
 		}
@@ -527,7 +540,18 @@ func (s *Service) ShowGoal(ctx context.Context, req serverapi.RuntimeGoalShowReq
 	if err != nil {
 		return serverapi.RuntimeGoalShowResponse{}, err
 	}
-	return goalResponse(engine.Goal(), engine.GoalLoopSuspended()), nil
+	goal := engine.Goal()
+	if goal == nil {
+		return serverapi.RuntimeGoalShowResponse{}, nil
+	}
+	return serverapi.RuntimeGoalShowResponse{Goal: &serverapi.RuntimeGoal{
+		ID:        strings.TrimSpace(goal.ID),
+		Objective: goal.Objective,
+		Status:    strings.TrimSpace(string(goal.Status)),
+		Suspended: engine.GoalLoopSuspended(),
+		CreatedAt: goal.CreatedAt,
+		UpdatedAt: goal.UpdatedAt,
+	}}, nil
 }
 
 func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetRequest) (serverapi.RuntimeGoalShowResponse, error) {
@@ -547,7 +571,7 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 		if strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) {
 			currentGoal := engine.Goal()
 			if goalBlocksAgentSet(currentGoal) {
-				return serverapi.RuntimeGoalShowResponse{}, goalAgentOverwriteDeniedError(*currentGoal)
+				return serverapi.RuntimeGoalShowResponse{}, errors.New(strings.TrimSpace(prompts.RenderGoalAgentDuplicateSetDeniedPrompt(currentGoal.Objective, string(currentGoal.Status))))
 			}
 		}
 		if err := engine.RequireGoalLoopStartAllowed(); err != nil {
@@ -557,23 +581,26 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 		if err != nil {
 			var blocked session.GoalAgentOverwriteBlockedError
 			if errors.As(err, &blocked) {
-				return serverapi.RuntimeGoalShowResponse{}, goalAgentOverwriteDeniedError(blocked.Goal)
+				return serverapi.RuntimeGoalShowResponse{}, errors.New(strings.TrimSpace(prompts.RenderGoalAgentDuplicateSetDeniedPrompt(blocked.Goal.Objective, string(blocked.Goal.Status))))
 			}
 			return serverapi.RuntimeGoalShowResponse{}, err
 		}
 		if err := engine.StartGoalLoop(); err != nil {
 			return serverapi.RuntimeGoalShowResponse{}, err
 		}
-		return goalResponse(&goal, false), nil
+		return serverapi.RuntimeGoalShowResponse{Goal: &serverapi.RuntimeGoal{
+			ID:        strings.TrimSpace(goal.ID),
+			Objective: goal.Objective,
+			Status:    strings.TrimSpace(string(goal.Status)),
+			Suspended: false,
+			CreatedAt: goal.CreatedAt,
+			UpdatedAt: goal.UpdatedAt,
+		}}, nil
 	})
 }
 
 func goalBlocksAgentSet(goal *session.GoalState) bool {
 	return goal != nil && goal.Status != session.GoalStatusComplete
-}
-
-func goalAgentOverwriteDeniedError(goal session.GoalState) error {
-	return errors.New(strings.TrimSpace(prompts.RenderGoalAgentDuplicateSetDeniedPrompt(goal.Objective, string(goal.Status))))
 }
 
 func (s *Service) PauseGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {
@@ -604,7 +631,14 @@ func (s *Service) setGoalStatus(ctx context.Context, req serverapi.RuntimeGoalSt
 		if status == session.GoalStatusComplete {
 			current := engine.Goal()
 			if current != nil && current.Status == session.GoalStatusComplete {
-				return goalResponse(current, false), nil
+				return serverapi.RuntimeGoalShowResponse{Goal: &serverapi.RuntimeGoal{
+					ID:        strings.TrimSpace(current.ID),
+					Objective: current.Objective,
+					Status:    strings.TrimSpace(string(current.Status)),
+					Suspended: false,
+					CreatedAt: current.CreatedAt,
+					UpdatedAt: current.UpdatedAt,
+				}}, nil
 			}
 		}
 		if status == session.GoalStatusActive {
@@ -621,7 +655,14 @@ func (s *Service) setGoalStatus(ctx context.Context, req serverapi.RuntimeGoalSt
 				return serverapi.RuntimeGoalShowResponse{}, err
 			}
 		}
-		return goalResponse(&goal, false), nil
+		return serverapi.RuntimeGoalShowResponse{Goal: &serverapi.RuntimeGoal{
+			ID:        strings.TrimSpace(goal.ID),
+			Objective: goal.Objective,
+			Status:    strings.TrimSpace(string(goal.Status)),
+			Suspended: false,
+			CreatedAt: goal.CreatedAt,
+			UpdatedAt: goal.UpdatedAt,
+		}}, nil
 	})
 }
 
@@ -650,20 +691,6 @@ func (s *Service) requireOptionalControllerLease(ctx context.Context, sessionID 
 		return nil
 	}
 	return s.requireControllerLease(ctx, sessionID, leaseID)
-}
-
-func goalResponse(goal *session.GoalState, suspended bool) serverapi.RuntimeGoalShowResponse {
-	if goal == nil {
-		return serverapi.RuntimeGoalShowResponse{}
-	}
-	return serverapi.RuntimeGoalShowResponse{Goal: &serverapi.RuntimeGoal{
-		ID:        strings.TrimSpace(goal.ID),
-		Objective: goal.Objective,
-		Status:    strings.TrimSpace(string(goal.Status)),
-		Suspended: suspended,
-		CreatedAt: goal.CreatedAt,
-		UpdatedAt: goal.UpdatedAt,
-	}}
 }
 
 func (s *Service) acquirePrimaryRun(sessionID string) (primaryrun.Lease, error) {

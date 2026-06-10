@@ -25,22 +25,11 @@ type VisibleRowsRequest struct {
 	ShowGroup  func(index int, groupRendered bool) bool
 }
 
-func ItemCount(projectCount int, allowCreate bool) int {
-	if allowCreate {
-		return projectCount + 1
-	}
-	return projectCount
-}
-
-func FirstProjectRowIndex(allowCreate bool) int {
-	if allowCreate {
-		return 1
-	}
-	return 0
-}
-
 func ProjectIndexForRow(rowIndex int, projectCount int, allowCreate bool) (int, bool) {
-	projectIndex := rowIndex - FirstProjectRowIndex(allowCreate)
+	projectIndex := rowIndex
+	if allowCreate {
+		projectIndex--
+	}
 	if projectIndex < 0 || projectIndex >= projectCount {
 		return 0, false
 	}

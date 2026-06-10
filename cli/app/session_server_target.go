@@ -6,7 +6,6 @@ import (
 	"builder/cli/app/internal/daemonlaunch"
 	"builder/cli/app/internal/remoteattach"
 	"builder/cli/app/internal/serverattach"
-	"builder/cli/app/internal/sessiontarget"
 	"builder/cli/app/internal/startupconfig"
 	"builder/shared/client"
 	"builder/shared/config"
@@ -65,7 +64,7 @@ func shouldBypassRemoteStartupForInteractiveOnboardingWithConfig(cfg config.App,
 	if !interactive {
 		return false
 	}
-	return sessiontarget.ShouldBypassRemoteForFirstRun(interactive, cfg.Source.SettingsFileExists)
+	return !cfg.Source.SettingsFileExists
 }
 
 func startLocalInteractiveSessionDaemon(ctx context.Context, opts Options) (*client.Remote, func() error, bool, error) {

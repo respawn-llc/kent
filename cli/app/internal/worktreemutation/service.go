@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"builder/cli/app/internal/worktreeview"
 	"builder/shared/client"
 	"builder/shared/serverapi"
 
@@ -47,28 +46,20 @@ func (s Service) List(includeDirtyCount bool) (serverapi.WorktreeListResponse, e
 		return serverapi.WorktreeListResponse{}, err
 	}
 	defer cancel()
-	return s.client().ListWorktrees(ctx, serverapi.WorktreeListRequest{
+	return s.Client.ListWorktrees(ctx, serverapi.WorktreeListRequest{
 		SessionID:         s.SessionID,
 		ControllerLeaseID: leaseID,
 		IncludeDirtyCount: includeDirtyCount,
 	})
 }
 
-func (s Service) ResolveToken(token string) (serverapi.WorktreeView, error) {
-	resp, err := s.List(false)
-	if err != nil {
-		return serverapi.WorktreeView{}, err
-	}
-	return worktreeview.ResolveToken(resp.Worktrees, token)
-}
-
 func (s Service) ResolveCreateTarget(target string) (serverapi.WorktreeCreateTargetResolveResponse, error) {
-	if s.client() == nil {
+	if s.Client == nil {
 		return serverapi.WorktreeCreateTargetResolveResponse{}, ErrClientUnavailable
 	}
 	ctx, cancel := s.resolveContext()
 	defer cancel()
-	return s.client().ResolveWorktreeCreateTarget(ctx, serverapi.WorktreeCreateTargetResolveRequest{
+	return s.Client.ResolveWorktreeCreateTarget(ctx, serverapi.WorktreeCreateTargetResolveRequest{
 		SessionID: strings.TrimSpace(s.SessionID),
 		Target:    target,
 	})
@@ -79,13 +70,13 @@ func (s Service) Create(req serverapi.WorktreeCreateRequest) (serverapi.Worktree
 		req.ClientRequestID = s.clientRequestID()
 		req.SessionID = s.SessionID
 		req.ControllerLeaseID = leaseID
-		return s.client().CreateWorktree(ctx, req)
+		return s.Client.CreateWorktree(ctx, req)
 	})
 }
 
 func (s Service) Switch(worktreeID string) (serverapi.WorktreeSwitchResponse, error) {
 	return runMutation(s, func(ctx context.Context, leaseID string) (serverapi.WorktreeSwitchResponse, error) {
-		return s.client().SwitchWorktree(ctx, serverapi.WorktreeSwitchRequest{
+		return s.Client.SwitchWorktree(ctx, serverapi.WorktreeSwitchRequest{
 			ClientRequestID:   s.clientRequestID(),
 			SessionID:         s.SessionID,
 			ControllerLeaseID: leaseID,
@@ -96,7 +87,7 @@ func (s Service) Switch(worktreeID string) (serverapi.WorktreeSwitchResponse, er
 
 func (s Service) Delete(worktreeID string, deleteBranch bool) (serverapi.WorktreeDeleteResponse, error) {
 	return runMutation(s, func(ctx context.Context, leaseID string) (serverapi.WorktreeDeleteResponse, error) {
-		return s.client().DeleteWorktree(ctx, serverapi.WorktreeDeleteRequest{
+		return s.Client.DeleteWorktree(ctx, serverapi.WorktreeDeleteRequest{
 			ClientRequestID:   s.clientRequestID(),
 			SessionID:         s.SessionID,
 			ControllerLeaseID: leaseID,
@@ -122,7 +113,7 @@ func runMutation[T any](s Service, call func(context.Context, string) (T, error)
 }
 
 func (s Service) controlContextWithLease() (context.Context, context.CancelFunc, string, error) {
-	if s.client() == nil {
+	if s.Client == nil {
 		return nil, nil, "", ErrClientUnavailable
 	}
 	if s.Runtime.Context == nil || s.Runtime.CurrentLeaseID == nil || s.Runtime.RecoverLease == nil {
@@ -147,10 +138,6 @@ func (s Service) resolveContext() (context.Context, context.CancelFunc) {
 		}
 	}
 	return context.WithTimeout(context.Background(), defaultResolveTimeout)
-}
-
-func (s Service) client() client.WorktreeClient {
-	return s.Client
 }
 
 func (s Service) clientRequestID() string {

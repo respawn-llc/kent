@@ -190,7 +190,8 @@ func TestBuildRequestMapsStartupOptionsAndLookupEnv(t *testing.T) {
 
 func TestLookupEnvFallsBackToProcessEnvWhenHandlerMissing(t *testing.T) {
 	t.Setenv("BUILDER_LOOKUP_ENV_FALLBACK", "fallback-value")
-	if got := lookupEnv(nil)("BUILDER_LOOKUP_ENV_FALLBACK"); got != "fallback-value" {
+	req := buildRequest(Request{}, nil)
+	if got := req.LookupEnv("BUILDER_LOOKUP_ENV_FALLBACK"); got != "fallback-value" {
 		t.Fatalf("lookup env fallback = %q, want fallback-value", got)
 	}
 }

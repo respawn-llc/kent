@@ -45,17 +45,11 @@ func (e *Engine) materializePendingWorktreeReminderWithOptions(stepID string, op
 	return e.store.SetWorktreeReminderState(state)
 }
 
-func isWorktreeReminderResponseItem(item llm.ResponseItem) bool {
-	if item.Type != llm.ResponseItemTypeMessage {
-		return false
-	}
-	return item.MessageType == llm.MessageTypeWorktreeMode || item.MessageType == llm.MessageTypeWorktreeModeExit
-}
-
 func latestMaterializedWorktreeReminderMatches(items []llm.ResponseItem, message llm.Message) bool {
 	for idx := len(items) - 1; idx >= 0; idx-- {
 		item := items[idx]
-		if !isWorktreeReminderResponseItem(item) {
+		if item.Type != llm.ResponseItemTypeMessage ||
+			(item.MessageType != llm.MessageTypeWorktreeMode && item.MessageType != llm.MessageTypeWorktreeModeExit) {
 			continue
 		}
 		return item.Role == message.Role &&

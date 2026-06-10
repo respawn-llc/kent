@@ -207,8 +207,8 @@ func TestCompactionPlannerAppliesFallbacksAndDisableModes(t *testing.T) {
 	if got := planner.effectiveContextTokenLimit(snapshot); got != 1_900 {
 		t.Fatalf("effectiveContextTokenLimit()=%d, want fallback 95%% limit", got)
 	}
-	if got := planner.preSubmitRunwayTokens(snapshot); got != compaction.DefaultPreSubmitRunwayTokens {
-		t.Fatalf("preSubmitRunwayTokens()=%d, want default %d", got, compaction.DefaultPreSubmitRunwayTokens)
+	if got := planner.preSubmitTokenLimit(snapshot); got != compaction.EffectivePreSubmitThresholdTokens(1_900, compaction.DefaultPreSubmitRunwayTokens) {
+		t.Fatalf("preSubmitTokenLimit()=%d, want default runway threshold", got)
 	}
 	if got := planner.soonReminderLimit(compactionPlanningSnapshot{autoCompactTokenLimit: 1}); got != 1 {
 		t.Fatalf("soonReminderLimit()=%d, want minimum 1", got)

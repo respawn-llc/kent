@@ -54,8 +54,12 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 					return persistErr
 				}
 			}
+			mode := RunModeTurn
+			if snapshot.GoalLoop {
+				mode = RunModeGoalLoop
+			}
 			s.engine.emit(Event{Kind: EventRunStateChanged, StepID: stepID, RunState: &RunState{
-				Lifecycle: RunningRunLifecycle(runModeFromGoalLoop(snapshot.GoalLoop)),
+				Lifecycle: RunningRunLifecycle(mode),
 				RunID:     snapshot.RunID,
 				Status:    snapshot.Status,
 				StartedAt: snapshot.StartedAt,
@@ -74,7 +78,11 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 		if options.EmitRunState {
 			state := &RunState{Lifecycle: IdleRunLifecycle()}
 			if snapshot != nil {
-				state.Lifecycle = FinishedRunLifecycle(runModeFromGoalLoop(snapshot.GoalLoop))
+				mode := RunModeTurn
+				if snapshot.GoalLoop {
+					mode = RunModeGoalLoop
+				}
+				state.Lifecycle = FinishedRunLifecycle(mode)
 				state.RunID = snapshot.RunID
 				state.Status = snapshot.Status
 				state.StartedAt = snapshot.StartedAt
@@ -107,13 +115,6 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 		}
 	}()
 	return fn(stepCtx, stepID)
-}
-
-func runModeFromGoalLoop(goalLoop bool) RunMode {
-	if goalLoop {
-		return RunModeGoalLoop
-	}
-	return RunModeTurn
 }
 
 func (s *defaultExclusiveStepLifecycle) Interrupt() error {
@@ -163,9 +164,13 @@ func (s *defaultExclusiveStepLifecycle) begin(ctx context.Context, options exclu
 	runID := uuid.NewString()
 	stepID := uuid.NewString()
 	startedAt := time.Now().UTC()
+	mode := RunModeTurn
+	if options.GoalLoop {
+		mode = RunModeGoalLoop
+	}
 	s.active = &exclusiveRunState{
 		sequence:  s.runSeq,
-		mode:      runModeFromGoalLoop(options.GoalLoop),
+		mode:      mode,
 		cancel:    cancel,
 		runID:     runID,
 		stepID:    stepID,

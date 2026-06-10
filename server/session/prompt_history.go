@@ -11,13 +11,6 @@ type promptHistoryEnvelope struct {
 	Text string `json:"text"`
 }
 
-func normalizePromptHistoryText(text string) string {
-	if strings.TrimSpace(text) == "" {
-		return ""
-	}
-	return text
-}
-
 func (s *Store) ReadPromptHistory() ([]string, error) {
 	legacy := make([]string, 0)
 	history := make([]string, 0)
@@ -33,8 +26,8 @@ func (s *Store) ReadPromptHistory() ([]string, error) {
 			if err := json.Unmarshal(evt.Payload, &entry); err != nil {
 				return nil
 			}
-			if text := normalizePromptHistoryText(entry.Text); text != "" {
-				history = append(history, text)
+			if strings.TrimSpace(entry.Text) != "" {
+				history = append(history, entry.Text)
 			}
 			return nil
 		}
@@ -48,8 +41,8 @@ func (s *Store) ReadPromptHistory() ([]string, error) {
 		if !isVisibleUserMessage(msg) {
 			return nil
 		}
-		if text := normalizePromptHistoryText(msg.Content); text != "" {
-			legacy = append(legacy, text)
+		if strings.TrimSpace(msg.Content) != "" {
+			legacy = append(legacy, msg.Content)
 		}
 		return nil
 	}); err != nil {

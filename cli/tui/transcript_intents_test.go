@@ -27,7 +27,7 @@ func TestTranscriptRoleWireRoundTrip(t *testing.T) {
 			if got == TranscriptRoleUnknown {
 				return
 			}
-			if roundTrip := TranscriptRoleFromWire(TranscriptRoleToWire(got)); roundTrip != got {
+			if roundTrip := TranscriptRoleFromWire(string(got)); roundTrip != got {
 				t.Fatalf("round trip = %q, want %q", roundTrip, got)
 			}
 		})

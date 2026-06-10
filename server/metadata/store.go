@@ -337,12 +337,20 @@ func (s *Store) UpsertWorktreeRecord(ctx context.Context, record WorktreeRecord)
 	if err != nil {
 		return err
 	}
+	builderManaged := int64(0)
+	if record.BuilderManaged {
+		builderManaged = 1
+	}
+	createdBranch := int64(0)
+	if record.CreatedBranch {
+		createdBranch = 1
+	}
 	if err := s.queries.UpsertWorktree(ctx, sqlitegen.UpsertWorktreeParams{
 		ID:                strings.TrimSpace(record.ID),
 		WorkspaceID:       strings.TrimSpace(record.WorkspaceID),
 		CanonicalRootPath: canonicalRoot,
-		BuilderManaged:    boolToInt64(record.BuilderManaged),
-		CreatedBranch:     boolToInt64(record.CreatedBranch),
+		BuilderManaged:    builderManaged,
+		CreatedBranch:     createdBranch,
 		OriginSessionID:   strings.TrimSpace(record.OriginSessionID),
 		GitMetadataJson:   defaultJSONObject(record.GitMetadataJSON),
 		CreatedAtUnixMs:   createdAt.UnixMilli(),
@@ -1805,6 +1813,18 @@ func (s *Store) upsertSessionSnapshot(ctx context.Context, snapshot session.Pers
 	if err != nil {
 		return err
 	}
+	inFlightStep := int64(0)
+	if snapshot.Meta.InFlightStep {
+		inFlightStep = 1
+	}
+	agentsInjected := int64(0)
+	if snapshot.Meta.AgentsInjected {
+		agentsInjected = 1
+	}
+	launchVisible := int64(0)
+	if sessionLaunchVisible(snapshot.Meta) {
+		launchVisible = 1
+	}
 	return s.queries.UpsertSession(ctx, sqlitegen.UpsertSessionParams{
 		ID:                 snapshot.Meta.SessionID,
 		ProjectID:          binding.ProjectID,
@@ -1819,9 +1839,9 @@ func (s *Store) upsertSessionSnapshot(ctx context.Context, snapshot session.Pers
 		UpdatedAtUnixMs:    snapshot.Meta.UpdatedAt.UTC().UnixMilli(),
 		LastSequence:       snapshot.Meta.LastSequence,
 		ModelRequestCount:  snapshot.Meta.ModelRequestCount,
-		InFlightStep:       boolToInt64(snapshot.Meta.InFlightStep),
-		AgentsInjected:     boolToInt64(snapshot.Meta.AgentsInjected),
-		LaunchVisible:      boolToInt64(sessionLaunchVisible(snapshot.Meta)),
+		InFlightStep:       inFlightStep,
+		AgentsInjected:     agentsInjected,
+		LaunchVisible:      launchVisible,
 		CwdRelpath:         cwdRelpath,
 		ContinuationJson:   continuationJSON,
 		LockedJson:         lockedJSON,
@@ -1858,13 +1878,6 @@ func displayNameForPath(path string) string {
 		return ""
 	}
 	return base
-}
-
-func boolToInt64(v bool) int64 {
-	if v {
-		return 1
-	}
-	return 0
 }
 
 func sessionLaunchVisible(meta session.Meta) bool {

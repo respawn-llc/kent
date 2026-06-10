@@ -39,7 +39,8 @@ func (t *defaultToolExecutor) ExecuteToolCalls(ctx context.Context, stepID strin
 		if call.Custom && knownTool {
 			executableCall.Input = executorInputForCustomTool(toolID, call.CustomInput)
 		}
-		started := Event{Kind: EventToolCallStarted, StepID: stepID, ToolCall: copiedToolCall(normalizeToolCallForTranscript(executableCall, e.transcriptWorkingDir())), CommittedTranscriptChanged: true}
+		transcriptCall := normalizeToolCallForTranscript(executableCall, e.transcriptWorkingDir())
+		started := Event{Kind: EventToolCallStarted, StepID: stepID, ToolCall: &transcriptCall, CommittedTranscriptChanged: true}
 		if start, ok := e.pendingToolCallStart(call.ID); ok {
 			started.CommittedEntryStart = start
 			started.CommittedEntryStartSet = true
@@ -57,7 +58,8 @@ func (t *defaultToolExecutor) ExecuteToolCalls(ctx context.Context, stepID strin
 				if err := e.persistToolCompletion(stepID, results[idx]); err != nil {
 					callErrs[idx] = fmt.Errorf("persist tool completion (call_id=%s tool=%s): %w", tc.ID, results[idx].Name, err)
 				} else {
-					e.emit(Event{Kind: EventToolCallCompleted, StepID: stepID, ToolResult: copiedToolResult(results[idx]), CommittedTranscriptChanged: true})
+					toolResult := results[idx]
+					e.emit(Event{Kind: EventToolCallCompleted, StepID: stepID, ToolResult: &toolResult, CommittedTranscriptChanged: true})
 				}
 				return
 			}
@@ -66,7 +68,8 @@ func (t *defaultToolExecutor) ExecuteToolCalls(ctx context.Context, stepID strin
 				if err := e.persistToolCompletion(stepID, results[idx]); err != nil {
 					callErrs[idx] = fmt.Errorf("persist tool completion (call_id=%s tool=%s): %w", tc.ID, results[idx].Name, err)
 				} else {
-					e.emit(Event{Kind: EventToolCallCompleted, StepID: stepID, ToolResult: copiedToolResult(results[idx]), CommittedTranscriptChanged: true})
+					toolResult := results[idx]
+					e.emit(Event{Kind: EventToolCallCompleted, StepID: stepID, ToolResult: &toolResult, CommittedTranscriptChanged: true})
 				}
 				return
 			}
@@ -77,7 +80,8 @@ func (t *defaultToolExecutor) ExecuteToolCalls(ctx context.Context, stepID strin
 					if err := e.persistToolCompletion(stepID, results[idx]); err != nil {
 						callErrs[idx] = fmt.Errorf("persist tool completion (call_id=%s tool=%s): %w", tc.ID, results[idx].Name, err)
 					} else {
-						e.emit(Event{Kind: EventToolCallCompleted, StepID: stepID, ToolResult: copiedToolResult(results[idx]), CommittedTranscriptChanged: true})
+						toolResult := results[idx]
+						e.emit(Event{Kind: EventToolCallCompleted, StepID: stepID, ToolResult: &toolResult, CommittedTranscriptChanged: true})
 					}
 					return
 				}
@@ -87,7 +91,8 @@ func (t *defaultToolExecutor) ExecuteToolCalls(ctx context.Context, stepID strin
 				if err := e.persistToolCompletion(stepID, results[idx]); err != nil {
 					callErrs[idx] = fmt.Errorf("persist tool completion (call_id=%s tool=%s): %w", tc.ID, results[idx].Name, err)
 				} else {
-					e.emit(Event{Kind: EventToolCallCompleted, StepID: stepID, ToolResult: copiedToolResult(results[idx]), CommittedTranscriptChanged: true})
+					toolResult := results[idx]
+					e.emit(Event{Kind: EventToolCallCompleted, StepID: stepID, ToolResult: &toolResult, CommittedTranscriptChanged: true})
 				}
 				return
 			}
@@ -105,7 +110,8 @@ func (t *defaultToolExecutor) ExecuteToolCalls(ctx context.Context, stepID strin
 				callErrs[idx] = errors.Join(callErr, persistErr)
 				return
 			}
-			e.emit(Event{Kind: EventToolCallCompleted, StepID: stepID, ToolResult: copiedToolResult(res), CommittedTranscriptChanged: true})
+			toolResult := res
+			e.emit(Event{Kind: EventToolCallCompleted, StepID: stepID, ToolResult: &toolResult, CommittedTranscriptChanged: true})
 			callErrs[idx] = callErr
 		}(executableCall, toolID, knownTool)
 	}
@@ -174,14 +180,4 @@ func activeRunIDForStep(engine *Engine, stepID string) string {
 		return ""
 	}
 	return snapshot.RunID
-}
-
-func copiedToolCall(call llm.ToolCall) *llm.ToolCall {
-	copy := call
-	return &copy
-}
-
-func copiedToolResult(result tools.Result) *tools.Result {
-	copy := result
-	return &copy
 }

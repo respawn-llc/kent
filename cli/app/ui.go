@@ -290,20 +290,6 @@ func (m *uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, m.maybeRequestDetailTranscriptPage()
 }
 
-func (m *uiModel) TerminalFocused() bool {
-	if m == nil {
-		return false
-	}
-	return m.terminalFocus.FocusedForAttention()
-}
-
-func (m *uiModel) TerminalFocusKnown() bool {
-	if m == nil {
-		return false
-	}
-	return m.terminalFocus.Known()
-}
-
 func (m *uiModel) setDebugKeyTransientStatus(raw tea.Msg, normalized tea.KeyMsg, source string) {
 	rawString := ""
 	if stringer, ok := raw.(fmt.Stringer); ok {
@@ -342,10 +328,6 @@ func (m *uiModel) forwardToView(msg tea.Msg) {
 			m.view = castedDetail
 		}
 	}
-}
-
-func (m *uiModel) Action() UIAction {
-	return m.exitAction
 }
 
 func (m *uiModel) Close() {

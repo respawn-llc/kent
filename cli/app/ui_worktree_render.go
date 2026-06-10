@@ -3,7 +3,6 @@ package app
 import (
 	"strings"
 
-	"builder/cli/app/internal/worktreecreateform"
 	"builder/cli/app/internal/worktreedelete"
 	"builder/cli/app/internal/worktreeview"
 	"builder/cli/app/internal/worktreeviewport"
@@ -257,7 +256,8 @@ func (l uiViewLayout) renderWorktreeCreateDialog(width, height int, style uiStyl
 		style.brand.Render(truncateQueuedMessageLine("New worktree", width)),
 	})
 	addSection(uiWorktreeCreateFieldBranchTarget, true, l.renderWorktreeCreateTargetField(width, dialog))
-	addSection(uiWorktreeCreateFieldBaseRef, worktreecreateform.UsesBaseRef(dialog.resolution.Kind), l.renderWorktreeCreateField(width, style, "Base ref", "Used when creating a new branch.", dialog.baseRef, dialog.focus == uiWorktreeCreateFieldBaseRef, worktreecreateform.UsesBaseRef(dialog.resolution.Kind)))
+	usesBaseRef := dialog.resolution.Kind == serverapi.WorktreeCreateTargetResolutionKindNewBranch
+	addSection(uiWorktreeCreateFieldBaseRef, usesBaseRef, l.renderWorktreeCreateField(width, style, "Base ref", "Used when creating a new branch.", dialog.baseRef, dialog.focus == uiWorktreeCreateFieldBaseRef, usesBaseRef))
 	addSection(uiWorktreeCreateFieldActions, true, renderWorktreeCreateActionGroup(width, m.theme, dialog, dialog.focus == uiWorktreeCreateFieldActions))
 	footer := make([]string, 0, 3)
 	if dialog.submitting {

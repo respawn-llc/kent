@@ -53,7 +53,9 @@ func (c *dormantTranscriptCache) get(ctx context.Context, store *session.Store) 
 	key := dormantTranscriptCacheKey(store.Dir(), meta.SessionID)
 	c.mu.Lock()
 	entry, ok := c.entries[key]
-	if ok && entry.matchesStore(store, meta) {
+	if ok && strings.TrimSpace(entry.sessionDir) == strings.TrimSpace(store.Dir()) &&
+		strings.TrimSpace(entry.sessionID) == strings.TrimSpace(meta.SessionID) &&
+		entry.revision == meta.LastSequence {
 		entry.lastUsed = c.nextStampLocked()
 		c.entries[key] = entry
 		c.mu.Unlock()
@@ -65,7 +67,10 @@ func (c *dormantTranscriptCache) get(ctx context.Context, store *session.Store) 
 		return dormantTranscriptCacheEntry{}, err
 	}
 	c.mu.Lock()
-	if existing, ok := c.entries[key]; ok && existing.matchesStore(store, meta) {
+	if existing, ok := c.entries[key]; ok &&
+		strings.TrimSpace(existing.sessionDir) == strings.TrimSpace(store.Dir()) &&
+		strings.TrimSpace(existing.sessionID) == strings.TrimSpace(meta.SessionID) &&
+		existing.revision == meta.LastSequence {
 		existing.lastUsed = c.nextStampLocked()
 		c.entries[key] = existing
 		c.mu.Unlock()
@@ -112,15 +117,6 @@ func (c *dormantTranscriptCache) evictIfNeededLocked() {
 
 func dormantTranscriptCacheKey(sessionDir, sessionID string) string {
 	return strings.TrimSpace(sessionDir) + "::" + strings.TrimSpace(sessionID)
-}
-
-func (e dormantTranscriptCacheEntry) matchesStore(store *session.Store, meta session.Meta) bool {
-	if store == nil {
-		return false
-	}
-	return strings.TrimSpace(e.sessionDir) == strings.TrimSpace(store.Dir()) &&
-		strings.TrimSpace(e.sessionID) == strings.TrimSpace(meta.SessionID) &&
-		e.revision == meta.LastSequence
 }
 
 func buildDormantTranscriptCacheEntry(ctx context.Context, store *session.Store) (dormantTranscriptCacheEntry, error) {

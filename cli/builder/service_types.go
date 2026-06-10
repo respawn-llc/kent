@@ -69,10 +69,6 @@ type serviceCommandResult struct {
 	Code   int
 }
 
-func (r serviceCommandResult) Text() string {
-	return strings.TrimSpace(strings.Join([]string{r.Stdout, r.Stderr}, "\n"))
-}
-
 type serviceCommandError struct {
 	Name   string
 	Args   []string
@@ -80,7 +76,7 @@ type serviceCommandError struct {
 }
 
 func (e serviceCommandError) Error() string {
-	detail := e.Result.Text()
+	detail := strings.TrimSpace(strings.Join([]string{e.Result.Stdout, e.Result.Stderr}, "\n"))
 	if detail == "" {
 		detail = fmt.Sprintf("exit code %d", e.Result.Code)
 	}

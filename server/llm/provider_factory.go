@@ -285,7 +285,7 @@ func NewProviderClient(opts ProviderClientOptions) (Client, error) {
 			opts.ContextWindowTokens = meta.ContextWindowTokens
 		}
 	}
-	contract, ok := lookupProviderContract(provider)
+	contract, ok := globalProviderRegistry.contractsByProvider[provider]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedProvider, provider)
 	}

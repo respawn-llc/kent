@@ -73,7 +73,11 @@ func configureDatabase(db *sql.DB) error {
 
 func runMigrations(db *sql.DB) error {
 	goose.SetBaseFS(migrationsFS)
-	goose.SetLogger(newMetadataMigrationLogger(metadataMigrationLogWriter, metadataMigrationDebugLogs))
+	var logger goose.Logger = goose.NopLogger()
+	if metadataMigrationDebugLogs && metadataMigrationLogWriter != nil {
+		logger = &metadataMigrationLogger{out: metadataMigrationLogWriter, debug: metadataMigrationDebugLogs}
+	}
+	goose.SetLogger(logger)
 	if err := goose.SetDialect("sqlite3"); err != nil {
 		return fmt.Errorf("set metadata migration dialect: %w", err)
 	}
@@ -86,13 +90,6 @@ func runMigrations(db *sql.DB) error {
 type metadataMigrationLogger struct {
 	out   io.Writer
 	debug bool
-}
-
-func newMetadataMigrationLogger(out io.Writer, debug bool) goose.Logger {
-	if !debug || out == nil {
-		return goose.NopLogger()
-	}
-	return &metadataMigrationLogger{out: out, debug: debug}
 }
 
 func (l *metadataMigrationLogger) Fatalf(format string, v ...any) {

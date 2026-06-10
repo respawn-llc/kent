@@ -430,7 +430,18 @@ func (p Planner) initializeChildSessionContext(ctx context.Context, child *sessi
 		return err
 	}
 	if parent != nil {
-		if err := session.InitializeChildFromParentWithOptions(child, parent, childContextOptionsForMode(mode)); err != nil {
+		childContextOptions := session.ChildContextOptions{
+			InheritLockedContract: true,
+			InheritContinuation:   true,
+		}
+		if mode == ModeHeadless {
+			// Headless children are subagent launches: they keep parent workspace
+			// and worktree targeting, but their model/tools/prompts/base URL come
+			// from the selected role and current config rather than the parent
+			// session.
+			childContextOptions = session.ChildContextOptions{}
+		}
+		if err := session.InitializeChildFromParentWithOptions(child, parent, childContextOptions); err != nil {
 			return err
 		}
 	}
@@ -451,21 +462,6 @@ func (p Planner) initializeChildSessionContext(ctx context.Context, child *sessi
 		return errors.Join(err, p.rollbackChildSession(child))
 	}
 	return nil
-}
-
-func childContextOptionsForMode(mode Mode) session.ChildContextOptions {
-	if mode == ModeHeadless {
-		// Headless children are subagent launches: they keep parent workspace and
-		// worktree targeting, but their model/tools/prompts/base URL come from
-		// the selected role and current config rather than the parent session.
-		return session.ChildContextOptions{}
-	}
-	// Interactive children are user-facing continuations/forks and preserve the
-	// parent's execution context so resumed conversation prefixes stay coherent.
-	return session.ChildContextOptions{
-		InheritLockedContract: true,
-		InheritContinuation:   true,
-	}
 }
 
 func (p Planner) openParentSession(parentSessionID string) (*session.Store, error) {
@@ -583,7 +579,7 @@ func ActiveToolIDsForPlan(settings config.Settings, source config.SourceReport, 
 	}
 	enabled := cloneEnabledToolSet(settings.EnabledTools)
 	if bothEditToolSourcesDefault(source) {
-		if prefersPatchTool(settings) {
+		if settings.ProviderCapabilities.IsOpenAIFirstParty || strings.HasPrefix(strings.ToLower(strings.TrimSpace(settings.Model)), "gpt-") {
 			enabled[toolspec.ToolPatch] = true
 			enabled[toolspec.ToolEdit] = false
 		} else {
@@ -599,13 +595,6 @@ func ActiveToolIDsForPlan(settings config.Settings, source config.SourceReport, 
 
 func bothEditToolSourcesDefault(source config.SourceReport) bool {
 	return strings.TrimSpace(source.Sources["tools.patch"]) == "default" && strings.TrimSpace(source.Sources["tools.edit"]) == "default"
-}
-
-func prefersPatchTool(settings config.Settings) bool {
-	if settings.ProviderCapabilities.IsOpenAIFirstParty {
-		return true
-	}
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(settings.Model)), "gpt-")
 }
 
 func enabledToolIDs(enabled map[toolspec.ID]bool) []toolspec.ID {

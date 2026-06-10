@@ -94,19 +94,16 @@ func (p *compactionPlanner) autoCompactTokenLimit(snapshot compactionPlanningSna
 	return limit
 }
 
-func (p *compactionPlanner) preSubmitRunwayTokens(snapshot compactionPlanningSnapshot) int {
-	if snapshot.preSubmitCompactionLeadTokens > 0 {
-		return snapshot.preSubmitCompactionLeadTokens
-	}
-	return compaction.DefaultPreSubmitRunwayTokens
-}
-
 func (p *compactionPlanner) preSubmitTokenLimit(snapshot compactionPlanningSnapshot) int {
 	limit := p.autoCompactTokenLimit(snapshot)
 	if limit <= 0 {
 		return 0
 	}
-	return compaction.EffectivePreSubmitThresholdTokens(limit, p.preSubmitRunwayTokens(snapshot))
+	runwayTokens := compaction.DefaultPreSubmitRunwayTokens
+	if snapshot.preSubmitCompactionLeadTokens > 0 {
+		runwayTokens = snapshot.preSubmitCompactionLeadTokens
+	}
+	return compaction.EffectivePreSubmitThresholdTokens(limit, runwayTokens)
 }
 
 func (p *compactionPlanner) soonReminderLimit(snapshot compactionPlanningSnapshot) int {

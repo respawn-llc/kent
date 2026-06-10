@@ -112,11 +112,11 @@ func askQuestionToolCallMeta(toolID toolspec.ID) func(ToolCallContext, json.RawM
 
 func webSearchToolCallMeta(toolID toolspec.ID) func(ToolCallContext, json.RawMessage) transcript.ToolCallMeta {
 	return func(ctx ToolCallContext, raw json.RawMessage) transcript.ToolCallMeta {
-		query, ok := parseWebSearchToolCall(raw)
-		if !ok {
+		in, err := ParseWebSearchInput(raw)
+		if err != nil {
 			return defaultToolCallMeta(toolID)(ctx, raw)
 		}
-		display := FormatWebSearchDisplayText(query)
+		display := FormatWebSearchDisplayText(in.Query)
 		return transcript.ToolCallMeta{
 			ToolName:    string(toolID),
 			Command:     display,
@@ -420,14 +420,6 @@ func normalizeAskQuestionSuggestions(in []string) []string {
 	return out
 }
 
-func parseWebSearchToolCall(raw json.RawMessage) (string, bool) {
-	in, err := ParseWebSearchInput(raw)
-	if err != nil {
-		return "", false
-	}
-	return in.Query, true
-}
-
 func parseTriggerHandoffToolCall(raw json.RawMessage) (string, string, bool) {
 	var in struct {
 		SummarizerPrompt   string `json:"summarizer_prompt,omitempty"`
@@ -717,7 +709,12 @@ func formatToolInput(toolID toolspec.ID, raw json.RawMessage) (string, string) {
 		chars, _ := asString(obj["chars"])
 		if strings.TrimSpace(chars) == "" {
 			if yieldTimeMS, ok := asInt(obj["yield_time_ms"]); ok && yieldTimeMS > 0 {
-				return fmt.Sprintf("Polled session %d for %s", sessionID, formatWriteStdinPollDuration(time.Duration(yieldTimeMS)*time.Millisecond)), ""
+				pollDuration := time.Duration(yieldTimeMS) * time.Millisecond
+				pollDurationText := "0s"
+				if pollDuration > 0 {
+					pollDurationText = pollDuration.String()
+				}
+				return fmt.Sprintf("Polled session %d for %s", sessionID, pollDurationText), ""
 			}
 			return fmt.Sprintf("poll session %d", sessionID), ""
 		}
@@ -777,7 +774,11 @@ func formatOutputDefault(raw json.RawMessage) string {
 	}
 	obj, ok := payload.(map[string]any)
 	if !ok {
-		return compactJSONPayload(payload)
+		formatted, err := json.Marshal(payload)
+		if err != nil {
+			return ""
+		}
+		return string(formatted)
 	}
 
 	if msg, ok := asString(obj["error"]); ok {
@@ -800,7 +801,11 @@ func formatOutputDefault(raw json.RawMessage) string {
 	if answer, ok := asString(obj["answer"]); ok {
 		return answer
 	}
-	return compactJSONPayload(payload)
+	formatted, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(formatted)
 }
 
 func formatViewImageOutput(raw json.RawMessage) (string, bool) {
@@ -855,14 +860,6 @@ func formatRawJSON(raw json.RawMessage) string {
 	return string(formatted)
 }
 
-func compactJSONPayload(payload any) string {
-	formatted, err := json.Marshal(payload)
-	if err != nil {
-		return ""
-	}
-	return string(formatted)
-}
-
 func mustJSON(v any) json.RawMessage {
 	raw, err := json.Marshal(v)
 	if err != nil {
@@ -894,13 +891,6 @@ func formatDurationShort(d time.Duration) string {
 		return "0s"
 	}
 	return strings.Join(parts, "")
-}
-
-func formatWriteStdinPollDuration(d time.Duration) string {
-	if d <= 0 {
-		return "0s"
-	}
-	return d.String()
 }
 
 func renderPlain(v any) string {

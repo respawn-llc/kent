@@ -452,10 +452,3 @@ func protocolError(resp *protocol.ResponseError) error {
 		return errors.New(message)
 	}
 }
-
-func streamCompleteError(params protocol.StreamCompleteParams) error {
-	if params.Code == 0 && strings.TrimSpace(params.Message) == "" {
-		return io.EOF
-	}
-	return protocolError(&protocol.ResponseError{Code: params.Code, Message: params.Message})
-}

@@ -59,11 +59,11 @@ func ParseName(fallbackName, contents string) (string, bool) {
 	if err := yaml.Unmarshal([]byte(raw), &parsed); err != nil {
 		return "", false
 	}
-	name := onboardingimportskills.SanitizeName(parsed.Name)
+	name := strings.Join(strings.Fields(parsed.Name), " ")
 	if name == "" {
-		name = onboardingimportskills.SanitizeName(fallbackName)
+		name = strings.Join(strings.Fields(fallbackName), " ")
 	}
-	if name == "" || onboardingimportskills.SanitizeName(parsed.Description) == "" {
+	if name == "" || strings.Join(strings.Fields(parsed.Description), " ") == "" {
 		return "", false
 	}
 	return name, true

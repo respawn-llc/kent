@@ -542,7 +542,10 @@ func TestNativeRollbackEditAnchorsToSelectedConversationPoint(t *testing.T) {
 	if !testRollbackEditing(m) || m.view.Mode() != tui.ModeOngoing {
 		t.Fatalf("expected rollback editing in ongoing mode, mode=%q editing=%t", m.view.Mode(), testRollbackEditing(m))
 	}
-	expected := tui.RenderCommittedOngoingSnapshot(m.transcriptEntries[:target+1], m.theme, m.nativeReplayRenderWidth())
+	expected := ""
+	if len(m.transcriptEntries[:target+1]) > 0 {
+		expected = tui.ProjectCommittedOngoingTranscript(m.transcriptEntries[:target+1], m.theme, m.nativeReplayRenderWidth()).Render(tui.TranscriptDivider)
+	}
 	if m.nativeRenderedSnapshot != expected {
 		t.Fatalf("expected native rendered snapshot anchored through selected entry")
 	}

@@ -1,7 +1,6 @@
 package sessiontarget
 
 import (
-	"context"
 	"errors"
 
 	"builder/cli/app/internal/targetstartup"
@@ -42,15 +41,4 @@ func WrapDaemon[S Server, D any](daemon targetstartup.DaemonTarget[D], req WrapD
 	}
 	server := req.NewRemote(daemon.Value, cfg, daemon.Close)
 	return Remote(server), nil
-}
-
-func ShouldBypassRemoteForFirstRun(interactive bool, settingsFileExists bool) bool {
-	return interactive && !settingsFileExists
-}
-
-func Validate[S Server](ctx context.Context, source targetstartup.Source, target S, reauthenticate func(context.Context, S) error) error {
-	if source == targetstartup.SourceEmbedded || reauthenticate == nil {
-		return nil
-	}
-	return reauthenticate(ctx, target)
 }

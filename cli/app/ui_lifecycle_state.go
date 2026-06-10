@@ -103,14 +103,18 @@ func (m *uiModel) setReviewerBlocking(blocking bool) {
 }
 
 func (m *uiModel) isInputSubmitLocked() bool {
-	return m != nil && m.inputSubmission.IsLocked()
+	return m != nil && m.inputSubmission == runtimestate.InputSubmissionLocked
 }
 
 func (m *uiModel) setInputSubmitLocked(locked bool) {
 	if m == nil {
 		return
 	}
-	m.inputSubmission = runtimestate.NewInputSubmissionLifecycle(locked)
+	if locked {
+		m.inputSubmission = runtimestate.InputSubmissionLocked
+		return
+	}
+	m.inputSubmission = runtimestate.InputSubmissionUnlocked
 }
 
 func (m *uiModel) hasPendingInterrupt() bool {

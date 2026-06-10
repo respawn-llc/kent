@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"builder/cli/app/internal/worktreemutation"
+	"builder/cli/app/internal/worktreeview"
 	"builder/shared/clientui"
 	"builder/shared/serverapi"
 
@@ -76,7 +77,11 @@ func (m *uiModel) worktreeSwitchCommandForTarget(targetToken, worktreeID string)
 	return func() tea.Msg {
 		resolvedID := worktreeID
 		if resolvedID == "" {
-			resolved, err := service.ResolveToken(targetToken)
+			list, err := service.List(false)
+			if err != nil {
+				return worktreeSwitchDoneMsg{token: switchToken, err: err}
+			}
+			resolved, err := worktreeview.ResolveToken(list.Worktrees, targetToken)
 			if err != nil {
 				return worktreeSwitchDoneMsg{token: switchToken, err: err}
 			}
@@ -100,7 +105,11 @@ func (m *uiModel) resolveWorktreeToken(token string) (serverapi.WorktreeView, er
 		return serverapi.WorktreeView{}, worktreemutation.ErrClientUnavailable
 	}
 	m.checkTUIBlockingOperation("worktree service read", "resolve worktree")
-	return m.worktreeMutationService().ResolveToken(token)
+	list, err := m.worktreeMutationService().List(false)
+	if err != nil {
+		return serverapi.WorktreeView{}, err
+	}
+	return worktreeview.ResolveToken(list.Worktrees, token)
 }
 
 func (m *uiModel) suggestedWorktreeSessionName() string {

@@ -54,7 +54,7 @@ func writePendingToolSpinnerSeed(hasher interface{ Write([]byte) (int, error) },
 		return
 	}
 	writePendingToolSpinnerSeedPart(hasher, "tool_call_fallback")
-	writePendingToolSpinnerSeedPart(hasher, tui.TranscriptRoleToWire(entry.Role))
+	writePendingToolSpinnerSeedPart(hasher, string(entry.Role))
 	writePendingToolSpinnerSeedPart(hasher, strings.TrimSpace(entry.Text))
 	writePendingToolSpinnerSeedPart(hasher, strings.TrimSpace(entry.SourcePath))
 	writePendingToolSpinnerSeedPart(hasher, strings.TrimSpace(entry.CompactLabel))

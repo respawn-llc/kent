@@ -81,16 +81,9 @@ func MoveAction(target serverapi.WorktreeView, selected Action, delta int) Actio
 	return actions[index]
 }
 
-func WillDeleteBranch(target serverapi.WorktreeView, selected Action) bool {
-	if strings.TrimSpace(target.BranchName) == "" {
-		return false
-	}
-	return selected == ActionDeleteBranch
-}
-
 func PreviewLines(target serverapi.WorktreeView, selected Action) []PreviewLine {
 	items := make([]PreviewLine, 0, 5)
-	if WillDeleteBranch(target, selected) {
+	if strings.TrimSpace(target.BranchName) != "" && selected == ActionDeleteBranch {
 		items = append(items, PreviewLine{Kind: PreviewLineKindBullet, Text: "• Local branch " + strings.TrimSpace(target.BranchName)})
 	}
 	if root := strings.TrimSpace(target.CanonicalRoot); root != "" {

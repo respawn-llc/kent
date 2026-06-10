@@ -345,7 +345,6 @@ func TestWorkflowRuntimeCompactAndContinueCreatesFreshCrossRoleChildSession(t *t
 	if len(runs) != 2 || strings.TrimSpace(runs[0].SessionID) == "" || runs[1].StartedAt != 0 {
 		t.Fatalf("runs after first process = %+v, want completed source and unstarted compact target", runs)
 	}
-	sourceEventSize := fixture.sessionEventsFileSize(t, runs[0].SessionID)
 	secondScheduler := fixture.scheduler(t)
 
 	if err := secondScheduler.Process(context.Background()); err != nil {
@@ -366,8 +365,14 @@ func TestWorkflowRuntimeCompactAndContinueCreatesFreshCrossRoleChildSession(t *t
 	if targetRecord.Meta == nil || targetRecord.Meta.ParentSessionID != runs[0].SessionID {
 		t.Fatalf("target session parent = %+v, want source session %q", targetRecord.Meta, runs[0].SessionID)
 	}
-	if got := fixture.sessionEventsFileSize(t, runs[0].SessionID); got != sourceEventSize {
-		t.Fatalf("source session events size = %d, want unchanged %d after compact continuation", got, sourceEventSize)
+	sourceEvents := fixture.sessionEventsText(t, runs[0].SessionID)
+	targetEvents := fixture.sessionEventsText(t, runs[1].SessionID)
+	compactMarker := "Workflow compacted continuation context."
+	if strings.Contains(sourceEvents, compactMarker) {
+		t.Fatalf("source session events unexpectedly contain compact continuation marker: %q", sourceEvents)
+	}
+	if !strings.Contains(targetEvents, compactMarker) || !strings.Contains(targetEvents, "Source session: "+runs[0].SessionID) {
+		t.Fatalf("target session events missing compact continuation context for source %q: %q", runs[0].SessionID, targetEvents)
 	}
 	reqs := fixture.client.Requests()
 	if len(reqs) < 2 {
@@ -706,17 +711,17 @@ func (f starterFixture) assertRunSessionUsesTaskWorktree(t *testing.T, sessionID
 	return target.EffectiveWorkdir
 }
 
-func (f starterFixture) sessionEventsFileSize(t *testing.T, sessionID string) int64 {
+func (f starterFixture) sessionEventsText(t *testing.T, sessionID string) string {
 	t.Helper()
 	record, err := f.metadata.ResolvePersistedSession(context.Background(), sessionID)
 	if err != nil {
 		t.Fatalf("ResolvePersistedSession: %v", err)
 	}
-	info, err := os.Stat(filepath.Join(record.SessionDir, "events.jsonl"))
+	data, err := os.ReadFile(filepath.Join(record.SessionDir, "events.jsonl"))
 	if err != nil {
-		t.Fatalf("stat events.jsonl: %v", err)
+		t.Fatalf("read events.jsonl: %v", err)
 	}
-	return info.Size()
+	return string(data)
 }
 
 type metadataTaskWorktrees struct {

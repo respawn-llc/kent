@@ -263,7 +263,9 @@ func prepareWorkflowGraphSave(workflowID workflow.WorkflowID, displayName string
 	groupsByKey := map[workflow.ModelKey]string{}
 	groupsByID := map[string]bool{}
 	for i, group := range prepared.nodeGroups {
-		group.WorkflowID = defaultWorkflowID(group.WorkflowID, workflowID)
+		if strings.TrimSpace(string(group.WorkflowID)) == "" {
+			group.WorkflowID = workflowID
+		}
 		group.ID = strings.TrimSpace(group.ID)
 		if group.ID == "" {
 			return preparedWorkflowGraphSave{}, workflow.Definition{}, errors.New("workflow node group id is required")
@@ -293,7 +295,9 @@ func prepareWorkflowGraphSave(workflowID workflow.WorkflowID, displayName string
 	def := workflow.Definition{ID: workflowID, DisplayName: displayName}
 	groupNodeIDs := map[string][]workflow.NodeID{}
 	for i, node := range prepared.nodes {
-		node.WorkflowID = defaultWorkflowID(node.WorkflowID, workflowID)
+		if strings.TrimSpace(string(node.WorkflowID)) == "" {
+			node.WorkflowID = workflowID
+		}
 		node.GroupID = strings.TrimSpace(node.GroupID)
 		node.GroupKey = strings.TrimSpace(node.GroupKey)
 		if node.GroupID == "" && node.GroupKey != "" {
@@ -316,24 +320,21 @@ func prepareWorkflowGraphSave(workflowID workflow.WorkflowID, displayName string
 		def.NodeGroups = append(def.NodeGroups, workflow.NodeGroup{WorkflowID: group.WorkflowID, ID: group.ID, Key: group.Key, DisplayName: group.DisplayName, MemberNodeIDs: groupNodeIDs[group.ID]})
 	}
 	for i, group := range prepared.transitionGroups {
-		group.WorkflowID = defaultWorkflowID(group.WorkflowID, workflowID)
+		if strings.TrimSpace(string(group.WorkflowID)) == "" {
+			group.WorkflowID = workflowID
+		}
 		prepared.transitionGroups[i] = group
 		def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{WorkflowID: group.WorkflowID, ID: group.ID, SourceNodeID: group.SourceNodeID, TransitionID: group.TransitionID, DisplayName: group.DisplayName, Description: group.Description})
 	}
 	for i, edge := range prepared.edges {
-		edge.WorkflowID = defaultWorkflowID(edge.WorkflowID, workflowID)
+		if strings.TrimSpace(string(edge.WorkflowID)) == "" {
+			edge.WorkflowID = workflowID
+		}
 		edge.ContextSource = workflow.CanonicalContextSource(edge.ContextSource)
 		prepared.edges[i] = edge
 		def.Edges = append(def.Edges, workflow.Edge{WorkflowID: edge.WorkflowID, ID: edge.ID, Key: edge.Key, TransitionGroupID: edge.TransitionGroupID, TargetNodeID: edge.TargetNodeID, ContextMode: edge.ContextMode, ContextSource: edge.ContextSource, RequiresApproval: edge.RequiresApproval, PromptTemplate: edge.PromptTemplate, Parameters: edge.Parameters, InputBindings: edge.InputBindings, OutputRequirements: edge.OutputRequirements})
 	}
 	return prepared, def, nil
-}
-
-func defaultWorkflowID(actual workflow.WorkflowID, fallback workflow.WorkflowID) workflow.WorkflowID {
-	if strings.TrimSpace(string(actual)) == "" {
-		return fallback
-	}
-	return actual
 }
 
 func workflowGraphSaveImpact(ctx context.Context, q *sqlitegen.Queries, workflowID workflow.WorkflowID, prepared preparedWorkflowGraphSave) (WorkflowGraphSaveImpact, removedWorkflowGraphRows, error) {
@@ -669,12 +670,16 @@ func upsertWorkflowEdge(ctx context.Context, tx *sql.Tx, edge EdgeRecord, sortOr
 	if err != nil {
 		return err
 	}
+	requiresApproval := int64(0)
+	if edge.RequiresApproval {
+		requiresApproval = 1
+	}
 	result, err := tx.ExecContext(ctx, strings.TrimSuffix(upsertWorkflowEdgeQuery, "\n"),
 		string(edge.ID),
 		string(edge.TransitionGroupID),
 		string(edge.Key),
 		string(edge.TargetNodeID),
-		boolToInt64(edge.RequiresApproval),
+		requiresApproval,
 		string(edge.ContextMode),
 		string(contextSource.Kind),
 		string(contextSource.NodeKey),

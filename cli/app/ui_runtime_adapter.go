@@ -61,7 +61,7 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 	m.logTranscriptEventDiag("transcript.diag.client.apply_event", evt, map[string]string{
 		"path":                  "live_event",
 		"recovery_cause":        string(evt.RecoveryCause),
-		"sync_session_view":     strconv.FormatBool(transcriptSync.IsSet()),
+		"sync_session_view":     strconv.FormatBool(transcriptSync.Reason != runtimestate.RuntimeTranscriptSyncNone),
 		"sync_reason":           runtimeTranscriptSyncReasonLabel(transcriptSync),
 		"record_prompt_history": strconv.FormatBool(reduction.PendingInput.PromptHistoryCommand != nil),
 	})
@@ -151,7 +151,7 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 	if reduction.PendingInput.PromptHistoryCommand != nil && strings.TrimSpace(reduction.PendingInput.PromptHistoryCommand.Text) != "" {
 		cmds = append(cmds, m.recordPromptHistory(reduction.PendingInput.PromptHistoryCommand.Text))
 	}
-	if transcriptSync.IsSet() {
+	if transcriptSync.Reason != runtimestate.RuntimeTranscriptSyncNone {
 		syncDecision := a.syncConversationFromRuntimeTranscriptCommand(transcriptSync)
 		cmds = append(cmds, syncDecision.cmd)
 		awaitsHydration = awaitsHydration || syncDecision.awaitsHydration
@@ -162,7 +162,7 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 }
 
 func runtimeTranscriptSyncReasonLabel(sync runtimestate.RuntimeTranscriptSyncCommand) string {
-	if !sync.IsSet() {
+	if sync.Reason == runtimestate.RuntimeTranscriptSyncNone {
 		return ""
 	}
 	return string(sync.Reason)

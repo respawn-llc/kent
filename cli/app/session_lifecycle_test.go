@@ -853,8 +853,8 @@ func TestReviewTeleportLifecyclePreservesParentWorktreeContext(t *testing.T) {
 		t.Fatal("expected /review to quit into a new session transition")
 	}
 	updated := next.(*uiModel)
-	if updated.Action() != UIActionNewSession {
-		t.Fatalf("action = %q, want %q", updated.Action(), UIActionNewSession)
+	if updated.exitAction != UIActionNewSession {
+		t.Fatalf("action = %q, want %q", updated.exitAction, UIActionNewSession)
 	}
 
 	server := &testEmbeddedServer{cfg: cfg}

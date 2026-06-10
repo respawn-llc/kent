@@ -80,14 +80,22 @@ func commitStagedFiles(states []*patchFileState, deleteTargets map[string]struct
 		}
 		before, err := captureSnapshot(path)
 		if err != nil {
-			return withRollback(fmt.Errorf("snapshot %s %s: %w", label, path, err), rollback())
+			primary := fmt.Errorf("snapshot %s %s: %w", label, path, err)
+			if rollbackErr := rollback(); rollbackErr != nil {
+				return errors.Join(primary, fmt.Errorf("rollback failed: %w", rollbackErr))
+			}
+			return primary
 		}
 		removedPaths[path] = struct{}{}
 		if !before.Exists {
 			return nil
 		}
 		if err := os.Remove(path); err != nil {
-			return withRollback(fmt.Errorf("remove %s %s: %w", label, path, err), rollback())
+			primary := fmt.Errorf("remove %s %s: %w", label, path, err)
+			if rollbackErr := rollback(); rollbackErr != nil {
+				return errors.Join(primary, fmt.Errorf("rollback failed: %w", rollbackErr))
+			}
+			return primary
 		}
 		removed = append(removed, removedSource{Path: path, Before: before})
 		return nil
@@ -114,14 +122,26 @@ func commitStagedFiles(states []*patchFileState, deleteTargets map[string]struct
 
 	for _, s := range states {
 		if err := os.MkdirAll(filepath.Dir(s.NewPath), 0o755); err != nil {
-			return withRollback(fmt.Errorf("create parent dir for %s: %w", s.NewPath, err), rollback())
+			primary := fmt.Errorf("create parent dir for %s: %w", s.NewPath, err)
+			if rollbackErr := rollback(); rollbackErr != nil {
+				return errors.Join(primary, fmt.Errorf("rollback failed: %w", rollbackErr))
+			}
+			return primary
 		}
 		before, err := captureSnapshot(s.NewPath)
 		if err != nil {
-			return withRollback(fmt.Errorf("snapshot target %s: %w", s.NewPath, err), rollback())
+			primary := fmt.Errorf("snapshot target %s: %w", s.NewPath, err)
+			if rollbackErr := rollback(); rollbackErr != nil {
+				return errors.Join(primary, fmt.Errorf("rollback failed: %w", rollbackErr))
+			}
+			return primary
 		}
 		if err := os.Rename(s.StagedPath, s.NewPath); err != nil {
-			return withRollback(fmt.Errorf("commit write %s: %w", s.NewPath, err), rollback())
+			primary := fmt.Errorf("commit write %s: %w", s.NewPath, err)
+			if rollbackErr := rollback(); rollbackErr != nil {
+				return errors.Join(primary, fmt.Errorf("rollback failed: %w", rollbackErr))
+			}
+			return primary
 		}
 		committed = append(committed, committedWrite{Path: s.NewPath, Before: before})
 	}
@@ -216,11 +236,4 @@ func restoreSnapshot(path string, snapshot fileSnapshot) error {
 		return err
 	}
 	return nil
-}
-
-func withRollback(primary, rollbackErr error) error {
-	if rollbackErr == nil {
-		return primary
-	}
-	return errors.Join(primary, fmt.Errorf("rollback failed: %w", rollbackErr))
 }

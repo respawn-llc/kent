@@ -473,11 +473,6 @@ func extractAccountID(tokens oauthTokenResponse) string {
 	return ""
 }
 
-func extractEmail(tokens oauthTokenResponse) string {
-	_ = tokens
-	return ""
-}
-
 func extractAccountIDFromClaims(claims idTokenClaims) string {
 	if v := strings.TrimSpace(claims.ChatGPTAccountID); v != "" {
 		return v
@@ -487,6 +482,22 @@ func extractAccountIDFromClaims(claims idTokenClaims) string {
 	}
 	if len(claims.Organizations) > 0 {
 		return strings.TrimSpace(claims.Organizations[0].ID)
+	}
+	return ""
+}
+
+func extractEmail(tokens oauthTokenResponse) string {
+	if strings.TrimSpace(tokens.IDToken) != "" {
+		if claims, err := parseJWTClaims(tokens.IDToken); err == nil {
+			if email := strings.TrimSpace(claims.Email); email != "" {
+				return email
+			}
+		}
+	}
+	if strings.TrimSpace(tokens.AccessToken) != "" {
+		if claims, err := parseJWTClaims(tokens.AccessToken); err == nil {
+			return strings.TrimSpace(claims.Email)
+		}
 	}
 	return ""
 }

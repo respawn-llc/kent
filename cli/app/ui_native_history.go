@@ -241,7 +241,8 @@ func (m *uiModel) finalizeNativeStreamingCommit(projection tui.TranscriptProject
 		return m.emitCurrentNativeScrollbackState(true), true
 	}
 	hadCommittedHistory := previousCommittedCount > 0
-	finalUpdate := m.nativeStreamingController.FinalizeSource(committedEntries[streamedAssistantIndex].Text)
+	m.nativeStreamingController.source = committedEntries[streamedAssistantIndex].Text
+	finalUpdate := m.nativeStreamingController.Finalize()
 	flushTailText := renderStyledNativeProjectionLines(m.nativeStreamingFinalizeLines(finalUpdate.stable, hadCommittedHistory), m.theme, m.nativeReplayRenderWidth())
 	postAssistantText := m.nativeProjectionTextForEntryRangeExcluding(projection, previousCommittedCount, committedCount, streamedAssistantIndex)
 	var flushTail tea.Cmd

@@ -5,7 +5,6 @@ import (
 	"builder/server/tools"
 	"builder/shared/transcript"
 	"builder/shared/transcript/toolcodec"
-	"encoding/json"
 	"os"
 	goruntime "runtime"
 	"strings"
@@ -45,20 +44,16 @@ func transcriptToolCallMeta(call llm.ToolCall, workingDir string) *transcript.To
 	if meta := decodeToolCallMeta(call); meta != nil {
 		return meta
 	}
-	input := transcriptToolCallInput(call)
+	input := call.Input
+	if call.Custom && strings.TrimSpace(call.CustomInput) != "" {
+		input = normalizeRuntimeToolInput(call.CustomInput)
+	}
 	built := tools.BuildCallTranscriptMeta(call.Name, tools.ToolCallContext{
 		WorkingDir:       workingDir,
 		DefaultShellPath: currentTranscriptDefaultShellPath(),
 		GOOS:             goruntime.GOOS,
 	}, input)
 	return &built
-}
-
-func transcriptToolCallInput(call llm.ToolCall) json.RawMessage {
-	if call.Custom && strings.TrimSpace(call.CustomInput) != "" {
-		return normalizeRuntimeToolInput(call.CustomInput)
-	}
-	return call.Input
 }
 
 func currentTranscriptDefaultShellPath() string {

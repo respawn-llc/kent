@@ -155,25 +155,11 @@ func discoverExistingOnboardingSkillNamesInRoot(root string) (map[string]bool, e
 		if !ok {
 			continue
 		}
-		if normalized := onboardingimportskills.NormalizeName(meta.Name); normalized != "" {
+		if normalized := strings.ToLower(strings.Join(strings.Fields(meta.Name), " ")); normalized != "" {
 			names[normalized] = true
 		}
 	}
 	return names, nil
-}
-
-func (d onboardingImportDiscovery) hasSkillCandidates() bool {
-	if d.skipSkills {
-		return false
-	}
-	return hasImportProviderItems(d.skillSymlinkItems)
-}
-
-func (d onboardingImportDiscovery) hasCommandCandidates() bool {
-	if d.skipCommands {
-		return false
-	}
-	return hasImportProviderItems(d.commandSymlinkItems)
 }
 
 func hasImportProviderItems[T any](byProvider map[onboardingImportProviderID][]T) bool {
@@ -266,7 +252,11 @@ func buildSkillSelectionScreen(state *onboardingFlowState) onboardingScreen {
 	body := "Pick skills to keep enabled for now. Builder will write config toggles for the unchecked skills."
 	options := make([]onboardingOption, 0, len(items))
 	if len(items) > 2 {
-		options = append(options, onboardingOption{ID: onboardingToggleAllOptionID, Title: onboardingimportskills.ToggleAllTitle(items, selection)})
+		title := "Enable all"
+		if onboardingimportskills.AllSelected(items, selection) {
+			title = "Disable all"
+		}
+		options = append(options, onboardingOption{ID: onboardingToggleAllOptionID, Title: title})
 	}
 	for _, item := range items {
 		warning := ""

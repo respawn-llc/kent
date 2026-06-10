@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
-	"builder/server/tools/shell/postprocess"
 )
 
 const (
@@ -43,13 +41,6 @@ func cancellationMessage(err error) string {
 		return pollErr.Error()
 	}
 	return "Canceled by user"
-}
-
-func formatCapturedOutput(s string, preserveRaw bool) string {
-	if preserveRaw {
-		return s
-	}
-	return postprocess.SanitizeOutput(s)
 }
 
 func truncateWithTemplate(s string, maxLen int, bannerTemplate string) (string, bool, int) {

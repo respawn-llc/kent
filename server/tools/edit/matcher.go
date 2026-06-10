@@ -31,7 +31,11 @@ func selectReplacement(content string, in input) (replacementSelection, error) {
 	if in.ReplaceAll {
 		selected = exactOccurrences(content, matches[0].actual, false)
 	}
-	newText := convertReplacementLineEndings(in.NewString, dominantLineEnding(matches[0].actual))
+	lineEnding := "\n"
+	if strings.Contains(matches[0].actual, "\r\n") {
+		lineEnding = "\r\n"
+	}
+	newText := convertReplacementLineEndings(in.NewString, lineEnding)
 	if matches[0].quoteNormalized {
 		newText = preserveCurlyQuotes(matches[0].actual, newText)
 	}
@@ -331,13 +335,6 @@ func uniqueRanges(matches []rangeMatch) []rangeMatch {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].start < out[j].start })
 	return out
-}
-
-func dominantLineEnding(text string) string {
-	if strings.Contains(text, "\r\n") {
-		return "\r\n"
-	}
-	return "\n"
 }
 
 func convertReplacementLineEndings(text, ending string) string {

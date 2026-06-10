@@ -28,7 +28,7 @@ func (m *uiModel) moveWorktreeSelection(delta int) {
 	if m == nil {
 		return
 	}
-	m.worktrees.selection = worktreeselection.Move(m.worktrees.selection, m.worktrees.entries, delta)
+	m.worktrees.selection = worktreeselection.Clamp(m.worktrees.selection+delta, m.worktrees.entries)
 }
 
 func (m *uiModel) moveWorktreeSelectionPage(deltaPages int) {

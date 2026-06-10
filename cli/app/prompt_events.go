@@ -28,13 +28,6 @@ func newPromptEventEmitter(size int) *promptEventEmitter {
 	return &promptEventEmitter{out: make(chan askEvent, size)}
 }
 
-func (e *promptEventEmitter) channel() <-chan askEvent {
-	if e == nil {
-		return nil
-	}
-	return e.out
-}
-
 func (e *promptEventEmitter) emit(ctx context.Context, evt askEvent) bool {
 	if e == nil {
 		return false
@@ -67,7 +60,7 @@ func (e *promptEventEmitter) close() {
 
 func startPendingPromptEvents(ctx context.Context, sub serverapi.PromptActivitySubscription, subscribe promptActivitySubscriber, control client.PromptControlClient, leaseManager *controllerLeaseManager) (<-chan askEvent, func()) {
 	emitter := newPromptEventEmitter(16)
-	out := emitter.channel()
+	out := (<-chan askEvent)(emitter.out)
 	if sub == nil || subscribe == nil || control == nil {
 		emitter.close()
 		return out, func() {}
@@ -256,7 +249,11 @@ func pendingPromptEvent(ctx context.Context, item clientui.PendingPromptEvent, l
 			}
 		}
 		if item.Approval {
-			answerReq := serverapi.ApprovalAnswerRequest{ClientRequestID: uuid.NewString(), SessionID: item.SessionID, ControllerLeaseID: currentControllerLeaseID(leaseManager), ApprovalID: item.PromptID}
+			controllerLeaseID := ""
+			if leaseManager != nil {
+				controllerLeaseID = leaseManager.Value()
+			}
+			answerReq := serverapi.ApprovalAnswerRequest{ClientRequestID: uuid.NewString(), SessionID: item.SessionID, ControllerLeaseID: controllerLeaseID, ApprovalID: item.PromptID}
 			if result.err != nil {
 				answerReq.ErrorMessage = result.err.Error()
 			} else if result.response.Approval != nil {
@@ -272,7 +269,11 @@ func pendingPromptEvent(ctx context.Context, item clientui.PendingPromptEvent, l
 			}
 			return
 		}
-		answerReq := serverapi.AskAnswerRequest{ClientRequestID: uuid.NewString(), SessionID: item.SessionID, ControllerLeaseID: currentControllerLeaseID(leaseManager), AskID: item.PromptID}
+		controllerLeaseID := ""
+		if leaseManager != nil {
+			controllerLeaseID = leaseManager.Value()
+		}
+		answerReq := serverapi.AskAnswerRequest{ClientRequestID: uuid.NewString(), SessionID: item.SessionID, ControllerLeaseID: controllerLeaseID, AskID: item.PromptID}
 		if result.err != nil {
 			answerReq.ErrorMessage = result.err.Error()
 		} else {
@@ -301,7 +302,7 @@ func answerPromptAsk(ctx context.Context, control client.PromptControlClient, le
 		return recoverErr
 	}
 	req.ClientRequestID = uuid.NewString()
-	req.ControllerLeaseID = currentControllerLeaseID(leaseManager)
+	req.ControllerLeaseID = leaseManager.Value()
 	return control.AnswerAsk(ctx, req)
 }
 
@@ -317,7 +318,7 @@ func answerPromptApproval(ctx context.Context, control client.PromptControlClien
 		return recoverErr
 	}
 	req.ClientRequestID = uuid.NewString()
-	req.ControllerLeaseID = currentControllerLeaseID(leaseManager)
+	req.ControllerLeaseID = leaseManager.Value()
 	return control.AnswerApproval(ctx, req)
 }
 
@@ -333,11 +334,4 @@ func shouldRetryPromptAnswerError(err error) bool {
 		return false
 	}
 	return true
-}
-
-func currentControllerLeaseID(manager *controllerLeaseManager) string {
-	if manager == nil {
-		return ""
-	}
-	return manager.Value()
 }

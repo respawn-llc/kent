@@ -607,8 +607,8 @@ func TestSlashCommandEnterExecutesSelectedPartialMatch(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected quit cmd for selected /exit partial match")
 	}
-	if updated.Action() != UIActionExit {
-		t.Fatalf("expected UIActionExit, got %q", updated.Action())
+	if updated.exitAction != UIActionExit {
+		t.Fatalf("expected UIActionExit, got %q", updated.exitAction)
 	}
 	if updated.input != "" {
 		t.Fatalf("expected input cleared after slash command execution, got %q", updated.input)

@@ -45,19 +45,6 @@ func TestAnnotateDuplicateSourcesUsesProviderOrSourceDir(t *testing.T) {
 	}
 }
 
-func TestToggleAllTitle(t *testing.T) {
-	items := []Item{{ID: "a"}, {ID: "b"}}
-	if got := ToggleAllTitle(items, map[string]bool{"a": true, "b": true}); got != "Disable all" {
-		t.Fatalf("title = %q", got)
-	}
-	if got := ToggleAllTitle(items, map[string]bool{"a": true}); got != "Enable all" {
-		t.Fatalf("title = %q", got)
-	}
-	if got := ToggleAllTitle(nil, nil); got != "Enable all" {
-		t.Fatalf("empty title = %q", got)
-	}
-}
-
 func ids(items []Item) []string {
 	out := make([]string, 0, len(items))
 	for _, item := range items {

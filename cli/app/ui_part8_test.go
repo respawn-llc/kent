@@ -321,8 +321,8 @@ func TestSlashCommandSetsExitAction(t *testing.T) {
 		t.Fatal("expected quit cmd for /exit")
 	}
 	updated := next.(*uiModel)
-	if updated.Action() != UIActionExit {
-		t.Fatalf("expected UIActionExit, got %q", updated.Action())
+	if updated.exitAction != UIActionExit {
+		t.Fatalf("expected UIActionExit, got %q", updated.exitAction)
 	}
 }
 
@@ -335,8 +335,8 @@ func TestSlashCommandSetsResumeAction(t *testing.T) {
 		t.Fatal("expected quit cmd for /resume")
 	}
 	updated := next.(*uiModel)
-	if updated.Action() != UIActionResume {
-		t.Fatalf("expected UIActionResume, got %q", updated.Action())
+	if updated.exitAction != UIActionResume {
+		t.Fatalf("expected UIActionResume, got %q", updated.exitAction)
 	}
 }
 

@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"sync"
+
+	"builder/server/tools/shell/postprocess"
 )
 
 type outputSubscription struct {
@@ -96,7 +98,11 @@ func (s *outputSubscription) readNextChunk() (OutputChunk, bool, error) {
 			ProcessID:       s.processID,
 			OffsetBytes:     s.offset,
 			NextOffsetBytes: nextOffset,
-			Text:            formatCapturedOutput(string(data), preserveOutput),
+		}
+		if preserveOutput {
+			chunk.Text = string(data)
+		} else {
+			chunk.Text = postprocess.SanitizeOutput(string(data))
 		}
 		s.offset = nextOffset
 		return chunk, false, nil

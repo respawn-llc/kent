@@ -138,13 +138,9 @@ func normalizeAskQuestionQuestion(question string) string {
 	return trimmed
 }
 
-func (m Model) flattenAskQuestionEntry(role RenderIntent, question string, suggestions []string, recommendedOptionIndex int, answer string, includeSuggestions bool) []string {
-	return m.flattenAskQuestionEntryWithSymbol(role, question, suggestions, recommendedOptionIndex, answer, includeSuggestions, "")
-}
-
 func (m Model) flattenAskQuestionEntryWithSymbol(role RenderIntent, question string, suggestions []string, recommendedOptionIndex int, answer string, includeSuggestions bool, symbolOverride string) []string {
 	renderWidth := m.entryRenderWidth(role, symbolOverride)
-	continuationPrefix := m.entryContinuationPrefix(role, symbolOverride)
+	continuationPrefix := strings.Repeat(" ", max(0, lipgloss.Width(m.entryPrefix(role, symbolOverride))))
 
 	type askQuestionLine struct {
 		text string
@@ -271,11 +267,6 @@ func toolCallDisplayText(meta *transcript.ToolCallMeta, text string) string {
 		return command
 	}
 	return command + transcript.InlineMetaSeparator + inlineMeta
-}
-
-func isShellToolCall(meta *transcript.ToolCallMeta, text string) bool {
-	_ = text
-	return meta != nil && meta.UsesShellRendering()
 }
 
 func isPatchToolCall(meta *transcript.ToolCallMeta) bool {

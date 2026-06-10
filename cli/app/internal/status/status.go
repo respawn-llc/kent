@@ -322,10 +322,6 @@ func GitCacheKey(workdir string) string {
 	return path.Clean(normalized)
 }
 
-func EnvironmentCacheKey(req Request) string {
-	return strings.TrimSpace(req.WorkspaceRoot)
-}
-
 func ExecutionTarget(req Request) clientui.SessionExecutionTarget {
 	if !clientui.SessionExecutionTargetIsZero(req.ExecutionTarget) {
 		return req.ExecutionTarget

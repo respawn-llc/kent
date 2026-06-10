@@ -61,22 +61,6 @@ func (c *nativeAssistantStreamController) Finalize() nativeAssistantStreamUpdate
 	return update
 }
 
-func (c *nativeAssistantStreamController) FinalizeSource(source string) nativeAssistantStreamUpdate {
-	c.source = source
-	return c.Finalize()
-}
-
-func (c *nativeAssistantStreamController) Resize(width int) {
-	c.Configure(c.theme, width)
-}
-
-func (c nativeAssistantStreamController) Tail() []tui.TranscriptProjectionLine {
-	if c.invalidatedByResize {
-		return cloneNativeStreamProjectionLines(c.rendered)
-	}
-	return cloneNativeStreamProjectionLines(c.rendered[c.enqueuedStableLineCount:])
-}
-
 func (c *nativeAssistantStreamController) Configure(theme string, width int) {
 	width = normalizedNativeStreamWidth(width)
 	if theme == "" {
@@ -101,7 +85,10 @@ func (c *nativeAssistantStreamController) updateForStableTarget(stableTarget int
 	stableTarget = clampNativeStreamLineCount(stableTarget, c.enqueuedStableLineCount, len(c.rendered))
 	stable := cloneNativeStreamProjectionLines(c.rendered[c.enqueuedStableLineCount:stableTarget])
 	c.enqueuedStableLineCount = stableTarget
-	tail := c.Tail()
+	tail := cloneNativeStreamProjectionLines(c.rendered[c.enqueuedStableLineCount:])
+	if c.invalidatedByResize {
+		tail = cloneNativeStreamProjectionLines(c.rendered)
+	}
 	if done {
 		tail = nil
 	}

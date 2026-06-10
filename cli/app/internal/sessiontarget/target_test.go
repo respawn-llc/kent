@@ -1,7 +1,6 @@
 package sessiontarget
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -103,47 +102,6 @@ func TestWrapDaemonRequiresRemoteFactory(t *testing.T) {
 	})
 	if !errors.Is(err, ErrRemoteFactoryRequired) {
 		t.Fatalf("error = %v, want ErrRemoteFactoryRequired", err)
-	}
-}
-
-func TestShouldBypassRemoteForFirstRunRequiresInteractiveMissingSettings(t *testing.T) {
-	if !ShouldBypassRemoteForFirstRun(true, false) {
-		t.Fatal("interactive first run should bypass remote")
-	}
-	if ShouldBypassRemoteForFirstRun(false, false) {
-		t.Fatal("non-interactive run should not bypass remote")
-	}
-	if ShouldBypassRemoteForFirstRun(true, true) {
-		t.Fatal("existing settings should not bypass remote")
-	}
-}
-
-func TestValidateSkipsEmbeddedAndReauthenticatesRemote(t *testing.T) {
-	calls := 0
-	server := &testServer{}
-	if err := Validate(context.Background(), targetstartup.SourceEmbedded, server, func(context.Context, *testServer) error {
-		calls++
-		return nil
-	}); err != nil {
-		t.Fatalf("embedded Validate: %v", err)
-	}
-	if calls != 0 {
-		t.Fatalf("embedded reauth calls = %d, want 0", calls)
-	}
-	if err := Validate(context.Background(), targetstartup.SourceRemote, server, func(context.Context, *testServer) error {
-		calls++
-		return nil
-	}); err != nil {
-		t.Fatalf("remote Validate: %v", err)
-	}
-	if calls != 1 {
-		t.Fatalf("remote reauth calls = %d, want 1", calls)
-	}
-}
-
-func TestValidateAllowsMissingReauthCallback(t *testing.T) {
-	if err := Validate(context.Background(), targetstartup.SourceRemote, &testServer{}, nil); err != nil {
-		t.Fatalf("Validate without reauth callback: %v", err)
 	}
 }
 

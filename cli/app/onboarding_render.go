@@ -297,7 +297,11 @@ func (m *onboardingModel) renderReviewSummary(width int) []string {
 		row := m.styles.body.Render("- "+label+": ") + style.Render(value)
 		lines = append(lines, wrapANSIText(row, width)...)
 	}
-	appendRow("Theme", onboardingThemeSummary(m.state.settings.Theme), m.styles.valueNeutral)
+	themeSummary := sharedtheme.Auto + " (" + sharedtheme.Resolve(m.state.settings.Theme) + ")"
+	if sharedtheme.IsExplicit(m.state.settings.Theme) {
+		themeSummary = sharedtheme.Resolve(m.state.settings.Theme)
+	}
+	appendRow("Theme", themeSummary, m.styles.valueNeutral)
 	appendRow("Model", m.state.settings.Model, m.styles.valueNeutral)
 	if meta, ok := llm.LookupModelMetadata(m.state.settings.Model); ok && meta.ContextWindowTokens > 0 {
 		contextValue := formatTokenWindow(m.state.settings.ModelContextWindow)
@@ -312,7 +316,10 @@ func (m *onboardingModel) renderReviewSummary(width int) []string {
 	} else {
 		appendRow("Thinking", thinking, m.styles.valueNeutral)
 	}
-	verbosity := valueOrFallback(string(m.state.settings.ModelVerbosity), "off")
+	verbosity := string(m.state.settings.ModelVerbosity)
+	if strings.TrimSpace(verbosity) == "" {
+		verbosity = "off"
+	}
 	verbosityStyle := m.styles.valueNeutral
 	if verbosity == "off" {
 		verbosityStyle = m.styles.valueOff
@@ -323,7 +330,10 @@ func (m *onboardingModel) renderReviewSummary(width int) []string {
 	} else {
 		appendRow("Questions", "off", m.styles.valueOff)
 	}
-	reviewer := valueOrFallback(m.state.settings.Reviewer.Frequency, "off")
+	reviewer := m.state.settings.Reviewer.Frequency
+	if strings.TrimSpace(reviewer) == "" {
+		reviewer = "off"
+	}
 	reviewerStyle := m.styles.valueOn
 	if reviewer == "off" {
 		reviewerStyle = m.styles.valueOff

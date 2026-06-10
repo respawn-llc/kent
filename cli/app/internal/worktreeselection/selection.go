@@ -26,10 +26,6 @@ func Clamp(selection int, entries []serverapi.WorktreeView) int {
 	return selection
 }
 
-func Move(selection int, entries []serverapi.WorktreeView, delta int) int {
-	return Clamp(selection+delta, entries)
-}
-
 func SelectedWorktree(entries []serverapi.WorktreeView, selection int) (serverapi.WorktreeView, bool) {
 	if selection <= 0 {
 		return serverapi.WorktreeView{}, false

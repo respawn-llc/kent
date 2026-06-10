@@ -67,9 +67,13 @@ describe("workflowEditorDraft", () => {
       edgeID: "edge-1",
       type: "addEdgeParameter",
     });
+    const addedParameterRowID = expectDefined(
+      added.draft.edges[0]?.parameters[0]?.rowID,
+      "Expected added parameter row ID.",
+    );
     const updated = workflowEditorDraftReducer(added, {
       edgeID: "edge-1",
-      parameterIndex: 0,
+      parameterRowID: addedParameterRowID,
       patch: { description: "Plan", key: "plan" },
       type: "updateEdgeParameter",
     });
@@ -77,21 +81,25 @@ describe("workflowEditorDraft", () => {
       edgeID: "edge-1",
       type: "addEdgeParameter",
     });
+    const secondParameterRowID = expectDefined(
+      addedSecond.draft.edges[0]?.parameters[0]?.rowID,
+      "Expected second added parameter row ID.",
+    );
     const updatedSecond = workflowEditorDraftReducer(addedSecond, {
       edgeID: "edge-1",
-      parameterIndex: 0,
+      parameterRowID: secondParameterRowID,
       patch: { description: "Notes", key: "notes" },
       type: "updateEdgeParameter",
     });
     const reordered = workflowEditorDraftReducer(updatedSecond, {
-      activeIndex: 1,
+      activeRowID: addedParameterRowID,
       edgeID: "edge-1",
-      overIndex: 0,
+      overRowID: secondParameterRowID,
       type: "reorderEdgeParameter",
     });
     const deleted = workflowEditorDraftReducer(reordered, {
       edgeID: "edge-1",
-      parameterIndex: 1,
+      parameterRowID: secondParameterRowID,
       type: "deleteEdgeParameter",
     });
 
@@ -99,6 +107,15 @@ describe("workflowEditorDraft", () => {
     expect(workflowEditorDraftGraph(deleted).edges[0]?.parameters).toEqual([
       { description: "Plan", key: "plan" },
     ]);
+    expect(deleted.draft.edges[0]?.parameters[0]?.rowID).toBe(addedParameterRowID);
+    expect(workflowDefinitionFromDraft(deleted.draft).edges[0]?.parameters[0]).toEqual({
+      description: "Plan",
+      key: "plan",
+    });
+    expect(workflowEditorDraftGraph(deleted).edges[0]?.parameters[0]).toEqual({
+      description: "Plan",
+      key: "plan",
+    });
   });
 
   it("edits fixed node identity without exposing execution fields", () => {
@@ -318,6 +335,13 @@ function fixedWorkflowNode(id: string, key: string, name: string, kind: "start" 
   const source = workflowDefinition.nodes[0];
   if (source === undefined) throw new Error("Expected workflow fixture to include a node.");
   return { ...source, id, inputFields: [], key, kind, name, outputFields: [], promptTemplate: "", subagentRole: "" };
+}
+
+function expectDefined<T>(value: T | undefined, message: string): T {
+  if (value === undefined) {
+    throw new Error(message);
+  }
+  return value;
 }
 
 const workflowDefinition: WorkflowDefinition = {

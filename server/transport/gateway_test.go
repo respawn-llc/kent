@@ -626,7 +626,7 @@ func TestGatewaySubscriptionHandlersCoverRouteContract(t *testing.T) {
 		if _, ok := gatewaySubscriptionHandlers[route.Method]; !ok {
 			t.Fatalf("subscription route %q missing gateway handler", route.Method)
 		}
-		if !isSubscriptionMethod(route.Method) {
+		if _, ok := gatewaySubscriptionMethods[route.Method]; !ok {
 			t.Fatalf("subscription route %q not classified as subscription", route.Method)
 		}
 	}

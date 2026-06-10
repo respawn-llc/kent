@@ -20,7 +20,7 @@ func registerPromptCommands(r *Registry, specs []promptCommandSpec) {
 		commandDescription := spec.Description
 		commandPrompt := spec.Prompt
 		freshSession := spec.FreshSession
-		r.Register(commandName, commandDescription, func(args string) Result {
+		r.RegisterWithOptions(commandName, commandDescription, RegisterOptions{PreservePromptHistoryDraft: true}, func(args string) Result {
 			return Result{
 				Handled:           true,
 				Action:            ActionNone,

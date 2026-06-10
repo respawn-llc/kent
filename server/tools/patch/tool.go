@@ -62,18 +62,18 @@ func (t *Tool) Call(ctx context.Context, c tools.Call) (tools.Result, error) {
 	doc, err := patchformat.Parse(in.Patch)
 	if err != nil {
 		patchErr := malformedFailure(err.Error())
-		return tools.ErrorResultWith(c, errorMessage(patchErr), func(any) (json.RawMessage, error) {
+		return tools.ErrorResultWith(c, patchErr.Error(), func(any) (json.RawMessage, error) {
 			return json.Marshal(errorPayload(patchErr))
 		}), nil
 	}
 	if len(doc.Hunks) == 0 {
 		patchErr := malformedFailure("No files were modified.")
-		return tools.ErrorResultWith(c, errorMessage(patchErr), func(any) (json.RawMessage, error) {
+		return tools.ErrorResultWith(c, patchErr.Error(), func(any) (json.RawMessage, error) {
 			return json.Marshal(errorPayload(patchErr))
 		}), nil
 	}
 	if err := t.apply(ctx, doc); err != nil {
-		return tools.ErrorResultWith(c, errorMessage(err), func(any) (json.RawMessage, error) {
+		return tools.ErrorResultWith(c, err.Error(), func(any) (json.RawMessage, error) {
 			return json.Marshal(errorPayload(err))
 		}), nil
 	}

@@ -88,15 +88,3 @@ func TestFormat(t *testing.T) {
 		})
 	}
 }
-
-func TestIsInterrupted(t *testing.T) {
-	if !IsInterrupted(ErrInterrupted) {
-		t.Fatal("expected local interrupt sentinel to be interrupted")
-	}
-	if !IsInterrupted(context.Canceled) {
-		t.Fatal("expected context cancellation to be interrupted")
-	}
-	if IsInterrupted(fmt.Errorf("boom")) {
-		t.Fatal("did not expect generic error to be interrupted")
-	}
-}

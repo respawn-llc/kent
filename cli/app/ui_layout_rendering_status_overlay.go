@@ -133,8 +133,16 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 	appendSectionTitle("Context")
 	appendWrapped(fmt.Sprintf("%s (%s) left of %s", statusPercent(snapshot.Context.AvailableTokens, snapshot.Context.WindowTokens), statusTokenShort(snapshot.Context.AvailableTokens), statusTokenShort(snapshot.Context.WindowTokens)), boldStyle)
 	appendWrapped(fmt.Sprintf("Compaction at %s (%s).", statusTokenShort(snapshot.Context.ThresholdTokens), statusPercent(snapshot.Context.ThresholdTokens, snapshot.Context.WindowTokens)), lipgloss.Style{})
-	appendWrapped("auto-compaction "+statusOnOff(snapshot.Config.AutoCompaction), lipgloss.Style{})
-	appendWrapped("debug "+statusOnOff(snapshot.Config.Debug), lipgloss.Style{})
+	autoCompaction := "off"
+	if snapshot.Config.AutoCompaction {
+		autoCompaction = "on"
+	}
+	debug := "off"
+	if snapshot.Config.Debug {
+		debug = "on"
+	}
+	appendWrapped("auto-compaction "+autoCompaction, lipgloss.Style{})
+	appendWrapped("debug "+debug, lipgloss.Style{})
 	appendWrapped(fmt.Sprintf("%d compactions", snapshot.CompactionCount), lipgloss.Style{})
 
 	authSummary := statusVisibleAuthSummary(snapshot.Auth, snapshot.Subscription)

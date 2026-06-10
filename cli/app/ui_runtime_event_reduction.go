@@ -42,12 +42,16 @@ func (a uiRuntimeAdapter) runtimeReasoningState() runtimestate.RuntimeReasoningS
 
 func (a uiRuntimeAdapter) pendingInputState() runtimestate.PendingInputState {
 	m := a.model
+	submission := runtimestate.InputSubmissionUnlocked
+	if m.isInputSubmitLocked() {
+		submission = runtimestate.InputSubmissionLocked
+	}
 	return runtimestate.PendingInputState{
 		Input:            m.input,
 		PendingInjected:  m.pendingInjected,
 		LockedInjectText: m.lockedInjectText,
 		LockedInjectID:   m.lockedInjectID,
-		Submission:       runtimestate.NewInputSubmissionLifecycle(m.isInputSubmitLocked()),
+		Submission:       submission,
 	}
 }
 
@@ -70,7 +74,7 @@ func (a uiRuntimeAdapter) applyRuntimeEventReduction(reduction runtimestate.Runt
 	m.removeInjectedQueueItemsByIDs(reduction.PendingInput.ConsumedQueueItemIDs)
 	m.lockedInjectText = reduction.PendingInput.State.LockedInjectText
 	m.lockedInjectID = reduction.PendingInput.State.LockedInjectID
-	m.setInputSubmitLocked(reduction.PendingInput.State.Submission.IsLocked())
+	m.setInputSubmitLocked(reduction.PendingInput.State.Submission == runtimestate.InputSubmissionLocked)
 	switch reduction.PendingInput.DraftCommand {
 	case runtimestate.RuntimePendingInputClearDraft:
 		m.clearInput()
@@ -124,7 +128,7 @@ func (a uiRuntimeAdapter) effectiveRuntimeTranscriptSync(evt clientui.Event, pro
 	if !shouldRecoverCommittedTranscriptFromConversationUpdate(a.model, evt) {
 		return runtimestate.RuntimeTranscriptSyncCommand{}
 	}
-	if proposed.IsSet() {
+	if proposed.Reason != runtimestate.RuntimeTranscriptSyncNone {
 		return proposed
 	}
 	return runtimestate.RuntimeTranscriptSyncCommand{Reason: runtimestate.RuntimeTranscriptSyncCommittedAdvance}

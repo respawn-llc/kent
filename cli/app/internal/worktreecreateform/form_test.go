@@ -17,20 +17,6 @@ func TestOrderedFieldsIncludesBaseRefOnlyForNewBranch(t *testing.T) {
 	}
 }
 
-func TestClampFieldMovesBaseRefToTargetWhenBaseRefUnused(t *testing.T) {
-	got := ClampField(FieldBaseRef, serverapi.WorktreeCreateTargetResolutionKindExistingBranch)
-	if got != FieldBranchTarget {
-		t.Fatalf("field = %v, want FieldBranchTarget", got)
-	}
-}
-
-func TestClampFieldKeepsActionsWhenBaseRefDisappears(t *testing.T) {
-	got := ClampField(FieldActions, serverapi.WorktreeCreateTargetResolutionKindExistingBranch)
-	if got != FieldActions {
-		t.Fatalf("field = %v, want FieldActions", got)
-	}
-}
-
 func TestMoveFieldSkipsDisabledBaseRef(t *testing.T) {
 	got := MoveField(FieldBranchTarget, serverapi.WorktreeCreateTargetResolutionKindExistingBranch, 1)
 	if got != FieldActions {

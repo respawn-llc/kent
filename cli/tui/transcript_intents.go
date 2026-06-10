@@ -82,18 +82,7 @@ func TranscriptRoleFromWire(role string) TranscriptRole {
 	return TranscriptRole(normalized)
 }
 
-func TranscriptRoleToWire(role TranscriptRole) string {
-	return role.WireString()
-}
-
 func (r TranscriptRole) String() string {
-	return string(r)
-}
-
-func (r TranscriptRole) WireString() string {
-	if r == "" {
-		return ""
-	}
 	return string(r)
 }
 
@@ -219,10 +208,6 @@ func (i RenderIntent) IsShellPreview() bool {
 	default:
 		return false
 	}
-}
-
-func (i RenderIntent) IsCompaction() bool {
-	return TranscriptRole(i).IsCompaction()
 }
 
 func (i RenderIntent) BaseToolResultIntent(resultRole TranscriptRole) RenderIntent {

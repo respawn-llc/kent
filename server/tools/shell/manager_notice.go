@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode"
 
+	"builder/server/tools/shell/postprocess"
 	xansi "github.com/charmbracelet/x/ansi"
 )
 
@@ -26,7 +27,10 @@ func NormalizeBackgroundOutputMode(raw string) BackgroundOutputMode {
 }
 
 func SummarizeBackgroundEvent(evt Event, opts BackgroundNoticeOptions) BackgroundNoticeSummary {
-	maxChars := normalizeOutputChars(opts.MaxChars)
+	maxChars := opts.MaxChars
+	if maxChars <= 0 {
+		maxChars = defaultOutputTokenCap * 4
+	}
 	mode := effectiveBackgroundOutputMode(evt.Snapshot.ExitCode, opts.SuccessOutputMode)
 	preview, lineCount, truncated := backgroundNoticePreview(evt, maxChars, mode)
 	state := strings.TrimSpace(evt.Snapshot.State)
@@ -41,7 +45,11 @@ func SummarizeBackgroundEvent(evt Event, opts BackgroundNoticeOptions) Backgroun
 		detail = append(detail, fmt.Sprintf("Exit code: %d", *evt.Snapshot.ExitCode))
 	}
 	if strings.TrimSpace(evt.Snapshot.LogPath) != "" && lineCount > 0 {
-		detail = append(detail, fmt.Sprintf("Output file (%s): %s", formatOutputLineCount(lineCount), evt.Snapshot.LogPath))
+		lineCountText := fmt.Sprintf("%d lines", lineCount)
+		if lineCount == 1 {
+			lineCountText = "1 line"
+		}
+		detail = append(detail, fmt.Sprintf("Output file (%s): %s", lineCountText, evt.Snapshot.LogPath))
 	}
 	if mode != BackgroundOutputConcise {
 		if strings.TrimSpace(preview) == "" {
@@ -102,7 +110,10 @@ func backgroundNoticePreview(evt Event, maxChars int, mode BackgroundOutputMode)
 	if mode == BackgroundOutputConcise {
 		return "", 0, false
 	}
-	preview := formatCapturedOutput(evt.Preview, evt.Snapshot.RawOutput)
+	preview := evt.Preview
+	if !evt.Snapshot.RawOutput {
+		preview = postprocess.SanitizeOutput(preview)
+	}
 	truncated := evt.Removed > 0
 	if strings.TrimSpace(preview) == "" {
 		return "", 0, truncated
@@ -134,13 +145,6 @@ func readBackgroundSummaryFromFile(path string, maxChars int, mode BackgroundOut
 	}
 }
 
-func formatOutputLineCount(count int) string {
-	if count == 1 {
-		return "1 line"
-	}
-	return fmt.Sprintf("%d lines", count)
-}
-
 type backgroundPreviewBuilder struct {
 	maxChars    int
 	mode        BackgroundOutputMode
@@ -158,7 +162,9 @@ type backgroundPreviewBuilder struct {
 }
 
 func newBackgroundPreviewBuilder(maxChars int, mode BackgroundOutputMode, sanitize bool) *backgroundPreviewBuilder {
-	maxChars = normalizeOutputChars(maxChars)
+	if maxChars <= 0 {
+		maxChars = defaultOutputTokenCap * 4
+	}
 	mode = NormalizeBackgroundOutputMode(string(mode))
 	return &backgroundPreviewBuilder{
 		maxChars: maxChars,
@@ -308,18 +314,11 @@ func trailingIncompleteANSIStart(data []byte) (int, bool) {
 		return 0, false
 	}
 	for i := lastESC + 1; i < len(data); i++ {
-		if isANSITerminator(data[i]) {
+		if data[i] == 0x07 || data[i] >= 0x40 && data[i] <= 0x7e {
 			return 0, false
 		}
 	}
 	return lastESC, true
-}
-
-func isANSITerminator(v byte) bool {
-	if v == 0x07 {
-		return true
-	}
-	return v >= 0x40 && v <= 0x7e
 }
 
 func utf8EncodeRune(dst []byte, r rune) int {

@@ -17,24 +17,13 @@ const (
 	ActionCancel
 )
 
-func UsesBaseRef(kind serverapi.WorktreeCreateTargetResolutionKind) bool {
-	return kind == serverapi.WorktreeCreateTargetResolutionKindNewBranch
-}
-
 func OrderedFields(kind serverapi.WorktreeCreateTargetResolutionKind) []Field {
 	fields := []Field{FieldBranchTarget}
-	if UsesBaseRef(kind) {
+	if kind == serverapi.WorktreeCreateTargetResolutionKindNewBranch {
 		fields = append(fields, FieldBaseRef)
 	}
 	fields = append(fields, FieldActions)
 	return fields
-}
-
-func ClampField(field Field, kind serverapi.WorktreeCreateTargetResolutionKind) Field {
-	if !UsesBaseRef(kind) && field == FieldBaseRef {
-		return FieldBranchTarget
-	}
-	return field
 }
 
 func MoveField(field Field, kind serverapi.WorktreeCreateTargetResolutionKind, delta int) Field {

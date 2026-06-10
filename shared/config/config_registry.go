@@ -304,7 +304,12 @@ func newSettingsRegistry() settingsRegistry {
 			func(state *settingsState, value int) { state.Settings.Timeouts.ModelRequestSeconds = value },
 			func(state settingsState) int { return state.Settings.Timeouts.ModelRequestSeconds },
 			"BUILDER_TIMEOUTS_MODEL_REQUEST_SECONDS",
-			func(opts LoadOptions) (int, bool, error) { return positiveCLIInt(opts.ModelTimeoutSeconds) },
+			func(opts LoadOptions) (int, bool, error) {
+				if opts.ModelTimeoutSeconds <= 0 {
+					return 0, false, nil
+				}
+				return opts.ModelTimeoutSeconds, true, nil
+			},
 			settingDocOptions{}),
 		newIntSetting("shell_output_max_chars", defaultShellOutputMaxChars,
 			func(state *settingsState, value int) { state.Settings.ShellOutputMaxChars = value },
@@ -784,11 +789,11 @@ func newBoolSetting(
 		decodeFile:   lookupFileBool,
 		envName:      envName,
 		decodeEnv: func(raw string, envName string) (bool, error) {
-			parsed, err := parseBoolString(raw, envName)
+			parsed, err := strconv.ParseBool(raw)
 			if err != nil {
-				return false, err
+				return false, fmt.Errorf("invalid %s: %q", envName, raw)
 			}
-			return *parsed, nil
+			return parsed, nil
 		},
 		doc: doc,
 	}
@@ -1397,13 +1402,6 @@ func trimmedCLIString(raw string) (string, bool, error) {
 		return "", false, nil
 	}
 	return trimmed, true, nil
-}
-
-func positiveCLIInt(raw int) (int, bool, error) {
-	if raw <= 0 {
-		return 0, false, nil
-	}
-	return raw, true, nil
 }
 
 func renderTOMLValue(value any) string {

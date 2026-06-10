@@ -187,7 +187,11 @@ func attachFailureReasonContext(err error, context string) error {
 }
 
 func errorPayload(err error) failurePayload {
-	payload := failurePayload{Error: errorMessage(err)}
+	message := "Patch failed."
+	if err != nil {
+		message = err.Error()
+	}
+	payload := failurePayload{Error: message}
 	var f *failure
 	if !errors.As(err, &f) || f == nil {
 		return payload
@@ -199,11 +203,4 @@ func errorPayload(err error) failurePayload {
 	payload.Reason = strings.TrimSpace(f.Reason)
 	payload.Commentary = strings.TrimSpace(f.Commentary)
 	return payload
-}
-
-func errorMessage(err error) string {
-	if err == nil {
-		return "Patch failed."
-	}
-	return err.Error()
 }

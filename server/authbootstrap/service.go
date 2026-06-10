@@ -113,26 +113,18 @@ func (s *Service) authReady(ctx context.Context) (bool, error) {
 	return auth.EvaluateStartupGate(state).Ready, nil
 }
 
-func methodAccountID(method auth.Method) string {
-	if method.Type == auth.MethodOAuth && method.OAuth != nil {
-		return strings.TrimSpace(method.OAuth.AccountID)
-	}
-	return ""
-}
-
-func methodEmail(method auth.Method) string {
-	if method.Type == auth.MethodOAuth && method.OAuth != nil {
-		return strings.TrimSpace(method.OAuth.Email)
-	}
-	return ""
-}
-
 func (s *Service) bootstrapResponseFromState(state auth.State) serverapi.AuthCompleteBootstrapResponse {
+	accountID := ""
+	email := ""
+	if state.Method.Type == auth.MethodOAuth && state.Method.OAuth != nil {
+		accountID = strings.TrimSpace(state.Method.OAuth.AccountID)
+		email = strings.TrimSpace(state.Method.OAuth.Email)
+	}
 	return serverapi.AuthCompleteBootstrapResponse{
 		AuthReady:  !s.authRequired || auth.EvaluateStartupGate(state).Ready,
 		MethodType: strings.TrimSpace(string(state.Method.Type)),
-		AccountID:  methodAccountID(state.Method),
-		Email:      methodEmail(state.Method),
+		AccountID:  accountID,
+		Email:      email,
 	}
 }
 

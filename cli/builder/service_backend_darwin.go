@@ -424,9 +424,9 @@ func launchdDomain() string {
 func launchdLoaded(ctx context.Context) (bool, string) {
 	result, err := runServiceCommand(ctx, "launchctl", "print", launchdDomain()+"/"+serviceLaunchdLabel)
 	if err != nil {
-		return false, result.Text()
+		return false, strings.TrimSpace(strings.Join([]string{result.Stdout, result.Stderr}, "\n"))
 	}
-	return true, result.Text()
+	return true, strings.TrimSpace(strings.Join([]string{result.Stdout, result.Stderr}, "\n"))
 }
 
 func launchdPID(output string) int {

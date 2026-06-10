@@ -112,7 +112,10 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 		return ExecResult{}, errors.New("workdir is required")
 	}
 	yieldTime := m.normalizeExecYieldTime(req.YieldTime)
-	maxOutputChars := normalizeOutputChars(req.MaxOutputChars)
+	maxOutputChars := req.MaxOutputChars
+	if maxOutputChars <= 0 {
+		maxOutputChars = defaultOutputTokenCap * 4
+	}
 
 	id, logPath, err := m.allocateProcessSlot()
 	if err != nil {
@@ -269,7 +272,10 @@ func (m *Manager) WriteStdin(ctx context.Context, req WriteRequest) (ExecResult,
 	defer entry.interactMu.Unlock()
 
 	yieldTime := normalizeWriteYieldTime(req.YieldTime, defaultWriteYieldTime)
-	maxOutputChars := normalizeOutputChars(req.MaxOutputChars)
+	maxOutputChars := req.MaxOutputChars
+	if maxOutputChars <= 0 {
+		maxOutputChars = defaultOutputTokenCap * 4
+	}
 	if req.Input != "" {
 		entry.mu.Lock()
 		stdin := entry.stdin
@@ -361,7 +367,10 @@ func (m *Manager) InlineOutput(id string, maxChars int) (string, string, error) 
 	if err != nil {
 		return "", "", err
 	}
-	maxOutputChars := normalizeOutputChars(maxChars)
+	maxOutputChars := maxChars
+	if maxOutputChars <= 0 {
+		maxOutputChars = defaultOutputTokenCap * 4
+	}
 	deadline := time.Now().Add(2 * logWriterFlushDelay)
 	for {
 		snapshot := entry.snapshot()

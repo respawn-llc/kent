@@ -167,13 +167,6 @@ func forkedWorktreeReminderState(in *WorktreeReminderState) *WorktreeReminderSta
 	return copyState
 }
 
-func worktreeReminderStatesEqual(a, b *WorktreeReminderState) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return *a == *b
-}
-
 func reminderIssuedFromReplayEvents(events []ReplayEvent) bool {
 	issued := false
 	for _, evt := range events {

@@ -198,7 +198,7 @@ func populateStatusRequestCacheKeys(req uiStatusRequest) uiStatusRequest {
 		req.CacheKeys.Git = appstatus.GitCacheKey(appstatus.GitRoot(req))
 	}
 	if strings.TrimSpace(req.CacheKeys.Environment) == "" {
-		req.CacheKeys.Environment = appstatus.EnvironmentCacheKey(req)
+		req.CacheKeys.Environment = strings.TrimSpace(req.WorkspaceRoot)
 	}
 	return req
 }
@@ -231,13 +231,6 @@ func (c defaultUIStatusCollector) adapter() statuscollect.Collector {
 		ParentSessionReadTimeout: uiRuntimeReadTimeout,
 		EnvSanitizer:             sanitizedGitEnv,
 	}
-}
-
-func statusOnOff(value bool) string {
-	if value {
-		return "on"
-	}
-	return "off"
 }
 
 func (m *uiModel) openStatusOverlay() {

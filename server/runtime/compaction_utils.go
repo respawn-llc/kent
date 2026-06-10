@@ -177,20 +177,20 @@ func formatOutputTypeCounts(counts map[string]int) string {
 func estimateItemsTokens(items []llm.ResponseItem) int {
 	totalTokens := 0
 	for _, item := range items {
-		totalTokens += estimateTextTokens(item.Content)
-		totalTokens += estimateTextTokens(item.ID)
-		totalTokens += estimateTextTokens(item.Name)
-		totalTokens += estimateTextTokens(item.CallID)
-		totalTokens += estimateTextTokens(item.EncryptedContent)
-		totalTokens += estimateTextTokens(string(item.Arguments))
+		totalTokens += (len(item.Content) + 3) / 4
+		totalTokens += (len(item.ID) + 3) / 4
+		totalTokens += (len(item.Name) + 3) / 4
+		totalTokens += (len(item.CallID) + 3) / 4
+		totalTokens += (len(item.EncryptedContent) + 3) / 4
+		totalTokens += (len(string(item.Arguments)) + 3) / 4
 		if outputTokens, ok := estimateStructuredOutputTokens(item.Output); ok {
 			totalTokens += outputTokens
 		} else {
-			totalTokens += estimateTextTokens(string(item.Output))
+			totalTokens += (len(string(item.Output)) + 3) / 4
 		}
 		for _, summary := range item.ReasoningSummary {
-			totalTokens += estimateTextTokens(summary.Role)
-			totalTokens += estimateTextTokens(summary.Text)
+			totalTokens += (len(summary.Role) + 3) / 4
+			totalTokens += (len(summary.Text) + 3) / 4
 		}
 	}
 	if totalTokens <= 0 {
@@ -226,18 +226,18 @@ func estimateStructuredOutputTokens(raw json.RawMessage) (int, bool) {
 	for _, item := range items {
 		switch strings.ToLower(strings.TrimSpace(item.Type)) {
 		case "input_text":
-			total += estimateTextTokens(item.Text)
+			total += (len(item.Text) + 3) / 4
 		case "input_image":
 			total += estimatedInlineImagePayloadTokens
 			total += estimateReferenceTokens(item.ImageURL)
 			total += estimateReferenceTokens(item.FileID)
-			total += estimateTextTokens(item.Detail)
+			total += (len(item.Detail) + 3) / 4
 		case "input_file":
 			total += estimatedInlineFilePayloadTokens
 			total += estimateReferenceTokens(item.FileData)
 			total += estimateReferenceTokens(item.FileID)
 			total += estimateReferenceTokens(item.FileURL)
-			total += estimateTextTokens(item.Filename)
+			total += (len(item.Filename) + 3) / 4
 		default:
 			return 0, false
 		}
@@ -253,12 +253,5 @@ func estimateReferenceTokens(value string) int {
 	if strings.HasPrefix(strings.ToLower(trimmed), "data:") {
 		return 0
 	}
-	return estimateTextTokens(trimmed)
-}
-
-func estimateTextTokens(value string) int {
-	if value == "" {
-		return 0
-	}
-	return (len(value) + 3) / 4
+	return (len(trimmed) + 3) / 4
 }

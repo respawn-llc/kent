@@ -72,7 +72,7 @@ func (m *projectNamePromptModel) View() string {
 	var out strings.Builder
 	out.WriteString(m.renderHeader())
 	out.WriteString("\n\n")
-	out.WriteString(tui.ApplyThemeDefaultForeground("Enter a project name. Press Enter to create the project.", m.theme))
+	out.WriteString(tui.ApplyThemeStyleIntents("Enter a project name. Press Enter to create the project.", m.theme, tui.ThemeForeground))
 	out.WriteString("\n\n")
 	out.WriteString(renderStartupEditorField(m.width, m.height, m.theme, m.input, "› ", m.terminalCursor == nil, 0, ""))
 	if trimmed := strings.TrimSpace(m.error); trimmed != "" {
@@ -106,7 +106,7 @@ func (m *projectNamePromptModel) renderHeader() string {
 	if m.headerMD != nil {
 		rendered, err := m.headerMD.Render(projectNamePromptHeaderMarkdown)
 		if err == nil {
-			return tui.ApplyThemeDefaultForeground(trimRenderedHeaderInset(rendered), m.theme)
+			return tui.ApplyThemeStyleIntents(trimRenderedHeaderInset(rendered), m.theme, tui.ThemeForeground)
 		}
 	}
 	return lipgloss.NewStyle().Foreground(uiPalette(m.theme).primary).Bold(true).Render(projectNamePromptHeaderFallback)

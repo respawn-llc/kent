@@ -1,9 +1,9 @@
 package worktreecreateresolve
 
 import (
+	"errors"
 	"strings"
 
-	"builder/cli/app/internal/worktreecreate"
 	"builder/shared/serverapi"
 )
 
@@ -36,7 +36,8 @@ type BeginSubmitOutcome struct {
 }
 
 func BeginSubmit(state State, query string) (State, BeginSubmitOutcome, error) {
-	if err := worktreecreate.ValidateTarget(query); err != nil {
+	if strings.TrimSpace(query) == "" {
+		err := errors.New("Branch or ref is required")
 		state.ErrorText = err.Error()
 		return state, BeginSubmitOutcome{}, err
 	}

@@ -262,7 +262,9 @@ func (w *responseItemMessageWalker) Apply(item llm.ResponseItem) {
 			Custom:       llm.ResponseItemTypeIsCustomToolCall(item.Type),
 			CustomInput:  item.CustomInput,
 		}
-		call.Input = transcriptToolCallInput(call)
+		if call.Custom && strings.TrimSpace(call.CustomInput) != "" {
+			call.Input = normalizeRuntimeToolInput(call.CustomInput)
+		}
 		assistant.ToolCalls = append(assistant.ToolCalls, call)
 	case llm.ResponseItemTypeFunctionCallOutput, llm.ResponseItemTypeCustomToolOutput:
 		w.flushAssistant()

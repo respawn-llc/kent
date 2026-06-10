@@ -170,9 +170,13 @@ func persistedTranscriptToolCallMeta(call llm.ToolCall) *transcript.ToolCallMeta
 	if meta, ok := toolcodec.DecodeToolCallMeta(call.Presentation); ok {
 		return meta
 	}
+	input := call.Input
+	if call.Custom && strings.TrimSpace(call.CustomInput) != "" {
+		input = normalizeRuntimeToolInput(call.CustomInput)
+	}
 	built := tools.BuildCallTranscriptMeta(call.Name, tools.ToolCallContext{
 		DefaultShellPath: currentTranscriptDefaultShellPath(),
 		GOOS:             goruntime.GOOS,
-	}, transcriptToolCallInput(call))
+	}, input)
 	return &built
 }

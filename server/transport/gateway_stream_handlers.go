@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync/atomic"
 
@@ -42,7 +43,11 @@ func (g *Gateway) serveRunPrompt(conn rpcwire.Conn, ctx context.Context, state *
 		if progressBroken.Load() {
 			return
 		}
-		if err := sendNotification(runCtx, conn, route.EventMethod, update); err != nil {
+		data, err := json.Marshal(update)
+		if err == nil {
+			err = conn.Send(runCtx, rpcwire.FrameFromRequest(protocol.Request{JSONRPC: protocol.JSONRPCVersion, Method: route.EventMethod, Params: data}))
+		}
+		if err != nil {
 			if progressBroken.CompareAndSwap(false, true) {
 				cancel()
 			}
@@ -124,10 +129,16 @@ func serveGatewaySubscription[Req interface{ Validate() error }, Event any, Wire
 	for {
 		evt, err := sub.Next(ctx)
 		if err != nil {
-			_ = sendNotification(ctx, conn, route.CompleteMethod, streamCompleteParams(err))
+			if data, marshalErr := json.Marshal(streamCompleteParams(err)); marshalErr == nil {
+				_ = conn.Send(ctx, rpcwire.FrameFromRequest(protocol.Request{JSONRPC: protocol.JSONRPCVersion, Method: route.CompleteMethod, Params: data}))
+			}
 			return
 		}
-		if err := sendNotification(ctx, conn, route.EventMethod, wire(evt)); err != nil {
+		data, err := json.Marshal(wire(evt))
+		if err == nil {
+			err = conn.Send(ctx, rpcwire.FrameFromRequest(protocol.Request{JSONRPC: protocol.JSONRPCVersion, Method: route.EventMethod, Params: data}))
+		}
+		if err != nil {
 			return
 		}
 	}

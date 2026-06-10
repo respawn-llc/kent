@@ -21,10 +21,6 @@ type ansiStyleTransform struct {
 	ForceFaint          bool
 }
 
-func ApplyThemeDefaultForeground(text, theme string) string {
-	return ApplyThemeStyleIntents(text, theme, ThemeForeground)
-}
-
 func applyANSIStyleTransform(text string, transform ansiStyleTransform) string {
 	if text == "" {
 		return text

@@ -24,7 +24,7 @@ func entryVisibility(entry TranscriptEntry) transcript.EntryVisibility {
 	if explicit := transcript.NormalizeEntryVisibility(entry.Visibility); explicit != transcript.EntryVisibilityAuto {
 		return explicit
 	}
-	return defaultEntryVisibilityForRole(TranscriptRoleFromWire(TranscriptRoleToWire(entry.Role)))
+	return defaultEntryVisibilityForRole(TranscriptRoleFromWire(string(entry.Role)))
 }
 
 func defaultEntryVisibilityForRole(role TranscriptRole) transcript.EntryVisibility {
@@ -40,7 +40,7 @@ func defaultEntryVisibilityForRole(role TranscriptRole) transcript.EntryVisibili
 }
 
 func isStyledMetaRole(role RenderIntent) bool {
-	return role.IsCompaction() || transcriptMessageStyleForIntent(role) != transcriptMessageStyleNone || role == RenderIntentDeveloperContext || role == RenderIntentDeveloperFeedback || role == RenderIntentInterruption
+	return TranscriptRole(role).IsCompaction() || transcriptMessageStyleForIntent(role) != transcriptMessageStyleNone || role == RenderIntentDeveloperContext || role == RenderIntentDeveloperFeedback || role == RenderIntentInterruption
 }
 
 func transcriptDisplayText(role RenderIntent, text string) string {

@@ -45,11 +45,15 @@ func EntriesDigest(entries []clientui.ChatEntry) string {
 	}
 	parts := make([]string, 0, len(entries))
 	for _, entry := range entries {
+		toolName := ""
+		if entry.ToolCall != nil {
+			toolName = entry.ToolCall.ToolName
+		}
 		parts = append(parts, strings.Join([]string{
 			entry.Role,
 			entry.Phase,
 			entry.ToolCallID,
-			toolName(entry.ToolCall),
+			toolName,
 			entry.Text,
 			entry.OngoingText,
 		}, "\x1f"))
@@ -164,13 +168,6 @@ func FormatLine(name string, fields map[string]string) string {
 		}
 	}
 	return strings.Join(parts, " ")
-}
-
-func toolName(meta *clientui.ToolCallMeta) string {
-	if meta == nil {
-		return ""
-	}
-	return meta.ToolName
 }
 
 func digest(parts []string) string {

@@ -82,22 +82,22 @@ func NewRegistry() *Registry {
 
 func NewDefaultRegistry() *Registry {
 	r := NewRegistry()
-	r.Register("exit", "Exit builder", func(string) Result {
+	r.RegisterWithOptions("exit", "Exit builder", RegisterOptions{PreservePromptHistoryDraft: true}, func(string) Result {
 		return Result{Handled: true, Action: ActionExit}
 	})
-	r.Register("new", "Create a new session", func(string) Result {
+	r.RegisterWithOptions("new", "Create a new session", RegisterOptions{PreservePromptHistoryDraft: true}, func(string) Result {
 		return Result{Handled: true, Action: ActionNew}
 	})
-	r.Register("resume", "Go to startup screen (session picker)", func(string) Result {
+	r.RegisterWithOptions("resume", "Go to startup screen (session picker)", RegisterOptions{PreservePromptHistoryDraft: true}, func(string) Result {
 		return Result{Handled: true, Action: ActionResume}
 	})
-	r.Register("logout", "Open auth options", func(string) Result {
+	r.RegisterWithOptions("logout", "Open auth options", RegisterOptions{PreservePromptHistoryDraft: true}, func(string) Result {
 		return Result{Handled: true, Action: ActionLogout}
 	})
-	r.Register("login", "Open auth options", func(string) Result {
+	r.RegisterWithOptions("login", "Open auth options", RegisterOptions{PreservePromptHistoryDraft: true}, func(string) Result {
 		return Result{Handled: true, Action: ActionLogout}
 	})
-	r.Register("compact", "Compact the current context (optional: /compact <instructions>)", func(args string) Result {
+	r.RegisterWithOptions("compact", "Compact the current context (optional: /compact <instructions>)", RegisterOptions{PreservePromptHistoryDraft: true}, func(args string) Result {
 		return Result{Handled: true, Action: ActionCompact, Args: strings.TrimSpace(args)}
 	})
 	r.RegisterWithOptions("name", "Set session title and terminal title (usage: /name <title>; empty resets)", RegisterOptions{RunWhileBusy: true, PreservePromptHistoryDraft: true}, func(args string) Result {
@@ -151,7 +151,7 @@ func NewDefaultRegistry() *Registry {
 	r.RegisterWithOptions("copy", "Copy the last model final answer to the system clipboard", RegisterOptions{RunWhileBusy: true, PreservePromptHistoryDraft: true}, func(string) Result {
 		return Result{Handled: true, Action: ActionCopy}
 	})
-	r.Register("back", "Jump to parent session if current session was spawned from another", func(string) Result {
+	r.RegisterWithOptions("back", "Jump to parent session if current session was spawned from another", RegisterOptions{PreservePromptHistoryDraft: true}, func(string) Result {
 		return Result{Handled: true, Action: ActionBack}
 	})
 	registerPromptCommands(r, []promptCommandSpec{
@@ -174,10 +174,6 @@ func NewDefaultRegistry() *Registry {
 type RegisterOptions struct {
 	RunWhileBusy               bool
 	PreservePromptHistoryDraft bool
-}
-
-func (r *Registry) Register(name string, description string, h Handler) {
-	r.RegisterWithOptions(name, description, RegisterOptions{PreservePromptHistoryDraft: true}, h)
 }
 
 func (r *Registry) RegisterWithOptions(name string, description string, options RegisterOptions, h Handler) {

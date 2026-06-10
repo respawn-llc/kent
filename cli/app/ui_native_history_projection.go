@@ -237,7 +237,11 @@ func (m *uiModel) ackNativeStreamingStableFlush(sequence uint64) {
 		return
 	}
 	m.nativeStreamingStableFlushSequence = 0
-	m.nativeStreamingTail = m.nativeStreamingController.Tail()
+	if m.nativeStreamingController.invalidatedByResize {
+		m.nativeStreamingTail = cloneNativeStreamProjectionLines(m.nativeStreamingController.rendered)
+	} else {
+		m.nativeStreamingTail = cloneNativeStreamProjectionLines(m.nativeStreamingController.rendered[m.nativeStreamingController.enqueuedStableLineCount:])
+	}
 }
 
 func splitNativeScrollbackChunks(rendered string, maxBytes int) []string {

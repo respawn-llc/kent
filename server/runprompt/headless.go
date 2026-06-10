@@ -9,6 +9,7 @@ import (
 	"builder/server/auth"
 	"builder/server/launch"
 	"builder/server/primaryrun"
+	"builder/server/requestmemo"
 	"builder/server/runtime"
 	"builder/server/runtimeview"
 	"builder/server/runtimewire"
@@ -37,7 +38,13 @@ type HeadlessBootstrap struct {
 
 func NewLoopbackRunPromptClient(boot HeadlessBootstrap) client.RunPromptClient {
 	launcher := &headlessPromptLauncher{boot: boot}
-	service := newMemoizingPromptService(primaryrun.NewGuardingPromptService(boot.RuntimeRegistry, NewPromptService(launcher)))
+	service := primaryrun.NewGuardingPromptService(boot.RuntimeRegistry, NewPromptService(launcher))
+	if service != nil {
+		service = &memoizingPromptService{
+			inner: service,
+			runs:  requestmemo.New[runPromptMemoRequest, serverapi.RunPromptResponse](),
+		}
+	}
 	return client.NewLoopbackRunPromptClient(service)
 }
 

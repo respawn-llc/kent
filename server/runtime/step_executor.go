@@ -337,7 +337,7 @@ func (s *defaultStepExecutor) executeLocalToolCallsAndAppendResults(ctx context.
 	terminal := hasWorkflowTerminalResult(results)
 	customToolCalls := customToolCallIDs(localToolCalls)
 	for _, result := range results {
-		if isSuccessfulFileEditResult(result) {
+		if !result.IsError && (result.Name == toolspec.ToolPatch || result.Name == toolspec.ToolEdit) {
 			patchEditsApplied = true
 		}
 		msg := llm.Message{Role: llm.RoleTool, Content: string(result.Output), ToolCallID: result.CallID, Name: string(result.Name)}
@@ -423,13 +423,6 @@ func (s *defaultStepExecutor) appendWorkflowInvalidCompletionNudge(ctx context.C
 		content += "\n\n" + err.Error()
 	}
 	return false, e.appendMessage(stepID, llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeErrorFeedback, Content: content})
-}
-
-func isSuccessfulFileEditResult(result tools.Result) bool {
-	if result.IsError {
-		return false
-	}
-	return result.Name == toolspec.ToolPatch || result.Name == toolspec.ToolEdit
 }
 
 func customToolCallIDs(calls []llm.ToolCall) map[string]bool {

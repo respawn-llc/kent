@@ -121,7 +121,7 @@ func TestNativeAssistantStreamControllerResizeInvalidatesFurtherPromotion(t *tes
 	controller := newNativeAssistantStreamController("dark", 72)
 	controller.Append("stable line\n\n")
 
-	controller.Resize(24)
+	controller.Configure(controller.theme, 24)
 	update := controller.Append("new stable line\n")
 	if got := len(update.stable); got != 0 {
 		t.Fatalf("expected resize-invalidated stream to stop promotion, got %#v", update.stable)

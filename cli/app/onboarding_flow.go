@@ -164,10 +164,14 @@ func applyContextWindowChoice(state *onboardingFlowState, choiceID string) {
 }
 
 func reviewSummaryLines(state *onboardingFlowState) []string {
+	themeSummary := theme.Auto + " (" + theme.Resolve(state.settings.Theme) + ")"
+	if theme.IsExplicit(state.settings.Theme) {
+		themeSummary = theme.Resolve(state.settings.Theme)
+	}
 	lines := []string{
 		"Review your first-time setup choices.",
 		"",
-		"- Theme: `" + onboardingThemeSummary(state.settings.Theme) + "`",
+		"- Theme: `" + themeSummary + "`",
 		"- Model: `" + state.settings.Model + "`",
 	}
 	if meta, ok := llm.LookupModelMetadata(state.settings.Model); ok && meta.ContextWindowTokens > 0 {
@@ -181,11 +185,23 @@ func reviewSummaryLines(state *onboardingFlowState) []string {
 	if thinking == "" {
 		thinking = "off"
 	}
+	verbosity := string(state.settings.ModelVerbosity)
+	if strings.TrimSpace(verbosity) == "" {
+		verbosity = "off"
+	}
+	questions := "off"
+	if state.settings.EnabledTools[toolspec.ToolAskQuestion] {
+		questions = "on"
+	}
+	supervisor := state.settings.Reviewer.Frequency
+	if strings.TrimSpace(supervisor) == "" {
+		supervisor = "off"
+	}
 	lines = append(lines,
 		"- Thinking: `"+thinking+"`",
-		"- Verbosity: `"+valueOrFallback(string(state.settings.ModelVerbosity), "off")+"`",
-		"- Questions: `"+onOff(state.settings.EnabledTools[toolspec.ToolAskQuestion])+"`",
-		"- Supervisor: `"+valueOrFallback(state.settings.Reviewer.Frequency, "off")+"`",
+		"- Verbosity: `"+verbosity+"`",
+		"- Questions: `"+questions+"`",
+		"- Supervisor: `"+supervisor+"`",
 		"- Compaction: `"+string(state.settings.CompactionMode)+"`",
 	)
 	if reviewerEnabled(state) {
@@ -208,13 +224,6 @@ func reviewSummaryLines(state *onboardingFlowState) []string {
 		lines = append(lines, "- Slash commands: `"+summary+"`")
 	}
 	return lines
-}
-
-func onboardingThemeSummary(value string) string {
-	if theme.IsExplicit(value) {
-		return theme.Resolve(value)
-	}
-	return theme.Auto + " (" + theme.Resolve(value) + ")"
 }
 
 func titleCaseASCII(value string) string {
@@ -254,20 +263,6 @@ func titleCaseThinking(level string) string {
 	default:
 		return strings.Title(strings.ToLower(strings.TrimSpace(level)))
 	}
-}
-
-func valueOrFallback(value, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return value
-}
-
-func onOff(value bool) string {
-	if value {
-		return "on"
-	}
-	return "off"
 }
 
 func formatTokenWindow(tokens int) string {

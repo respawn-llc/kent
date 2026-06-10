@@ -226,16 +226,6 @@ func DefaultEnabledToolIDs() []toolspec.ID {
 	return out
 }
 
-func parseCatalogID(v string) (toolspec.ID, bool) {
-	id, ok := parseAliases[v]
-	return id, ok
-}
-
-func definitionFor(id toolspec.ID) (Definition, bool) {
-	def, ok := definitions[id]
-	return def, ok
-}
-
 func validateCatalogEntry(entry CatalogEntry) {
 	if entry.Contract.Runtime.Availability == "" {
 		panic("tool contract is missing runtime availability for " + string(entry.ID))

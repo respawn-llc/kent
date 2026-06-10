@@ -163,7 +163,7 @@ func transcriptPayloadFromTUIEntry(entry tui.TranscriptEntry) transcript.EntryPa
 	return transcript.EntryPayload{
 		Visibility:        entry.Visibility,
 		RollbackTargetID:  entry.RollbackTargetID,
-		Role:              tui.TranscriptRoleToWire(entry.Role),
+		Role:              string(entry.Role),
 		Text:              entry.Text,
 		OngoingText:       entry.OngoingText,
 		Phase:             string(entry.Phase),

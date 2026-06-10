@@ -161,15 +161,17 @@ func (d Definition) EnablesNativeWebSearch(mode string) bool {
 }
 
 func DefinitionFor(id toolspec.ID) (Definition, bool) {
-	return definitionFor(id)
+	def, ok := definitions[id]
+	return def, ok
 }
 
 func definitionForToolName(toolName string) (Definition, bool) {
-	id, ok := parseCatalogID(strings.TrimSpace(toolName))
+	id, ok := parseAliases[strings.TrimSpace(toolName)]
 	if !ok {
 		return Definition{}, false
 	}
-	return definitionFor(id)
+	def, ok := definitions[id]
+	return def, ok
 }
 
 func fallbackToolCallMeta(toolName string, raw json.RawMessage) transcript.ToolCallMeta {
@@ -217,7 +219,7 @@ func DefinitionsFor(ids []toolspec.ID) []Definition {
 			continue
 		}
 		seen[id] = struct{}{}
-		def, ok := definitionFor(id)
+		def, ok := definitions[id]
 		if !ok {
 			continue
 		}

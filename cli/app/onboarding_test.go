@@ -5,7 +5,6 @@ import (
 
 	"builder/cli/app/internal/onboardingimportfs"
 	"builder/cli/app/internal/onboardingimportproviders"
-	"builder/cli/app/internal/onboardingimportskills"
 	"builder/prompts"
 	"builder/server/generated"
 	"builder/server/runtime"
@@ -640,7 +639,7 @@ func TestDiscoverOnboardingImportsHidesGeneratedSkillsShadowedByWorkspaceSkills(
 		t.Fatalf("discover onboarding imports: %v", discovery.err)
 	}
 	for _, item := range skillSelectionCandidates(&onboardingFlowState{imports: discovery}) {
-		if onboardingimportskills.NormalizeName(item.SkillName) == "builder-dogfooding" {
+		if strings.ToLower(strings.Join(strings.Fields(item.SkillName), " ")) == "builder-dogfooding" {
 			t.Fatalf("expected workspace skill to shadow generated builder-dogfooding, got %+v", item)
 		}
 	}

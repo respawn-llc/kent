@@ -41,12 +41,6 @@ func TestBuildToolRegistryAllowsHostedWebSearchWithoutLocalRuntimeBuilder(t *tes
 	}
 }
 
-func TestAuthProviderForPolicyReturnsNilForNilManager(t *testing.T) {
-	if got := authProviderForPolicy("inherit", nil); got != nil {
-		t.Fatalf("auth provider = %T, want nil", got)
-	}
-}
-
 func TestBuildToolRegistryViewImageApprovedOutsidePathIsLogged(t *testing.T) {
 	workspace := t.TempDir()
 	outsideFile := filepath.Join(outsideNonTempDir(t), "doc.pdf")
@@ -397,7 +391,7 @@ func TestRuntimeProviderClientUsesProviderCapabilitiesOverride(t *testing.T) {
 		Model:         "local-reviewer",
 		Provider:      llm.Provider("openai"),
 		OpenAIBaseURL: "http://127.0.0.1:11434/v1",
-		Auth:          authProviderForPolicy("none", nil),
+		Auth:          nil,
 		ProviderCapabilitiesOverride: &llm.ProviderCapabilities{
 			ProviderID:             "local-reviewer",
 			SupportsResponsesAPI:   true,
@@ -444,19 +438,11 @@ func TestReviewerAuthNoneDoesNotSendGlobalAuthToLocalEndpoint(t *testing.T) {
 	}))
 	defer server.Close()
 
-	authMgr := auth.NewManager(auth.NewMemoryStore(auth.State{
-		Scope: auth.ScopeGlobal,
-		Method: auth.Method{
-			Type:   auth.MethodAPIKey,
-			APIKey: &auth.APIKeyMethod{Key: "global-key"},
-		},
-	}), nil, time.Now)
-
 	client, err := llm.NewProviderClient(llm.ProviderClientOptions{
 		Model:               "local-reviewer",
 		Provider:            llm.Provider("openai"),
 		OpenAIBaseURL:       server.URL + "/v1",
-		Auth:                authProviderForPolicy("none", authMgr),
+		Auth:                nil,
 		HTTPClient:          server.Client(),
 		ModelVerbosity:      string(config.ModelVerbosityLow),
 		ContextWindowTokens: 64000,

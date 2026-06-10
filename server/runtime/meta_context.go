@@ -181,7 +181,11 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 	}
 
 	if opts.IncludeEnvironment {
-		environmentMessage, err := environmentContextMessage(b.environmentCWD, b.model, b.timestamp())
+		timestamp := b.now
+		if timestamp.IsZero() {
+			timestamp = time.Now()
+		}
+		environmentMessage, err := environmentContextMessage(b.environmentCWD, b.model, timestamp)
 		if err != nil {
 			return metaContextBuildResult{}, err
 		}
@@ -214,13 +218,6 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 	}
 
 	return collector.result(), nil
-}
-
-func (b metaContextBuilder) timestamp() time.Time {
-	if !b.now.IsZero() {
-		return b.now
-	}
-	return time.Now()
 }
 
 func (b metaContextBuilder) agentPathRanks() (map[string]int, error) {

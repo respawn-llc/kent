@@ -352,7 +352,11 @@ func TestDiscardQueuedUserMessageRemovesExactQueuedEntry(t *testing.T) {
 		t.Fatal("expected duplicate queued item removed")
 	}
 
-	messages := eng.messageFlow.(*defaultMessageLifecycle).queuedUserMessagesSnapshot()
+	messageFlow := eng.messageFlow.(*defaultMessageLifecycle)
+	var messages []QueuedUserMessage
+	if messageFlow != nil && messageFlow.queue != nil {
+		messages = messageFlow.queue.Snapshot()
+	}
 	if len(messages) != 2 || messages[0].ID != first.ID || messages[0].Text != "same" || messages[1].Text != "other" {
 		t.Fatalf("unexpected pending queue after discard: %+v", messages)
 	}

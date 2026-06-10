@@ -467,12 +467,14 @@ func (e *Engine) SubmitUserShellCommand(ctx context.Context, command string) (re
 			return err
 		}
 		if _, ok := e.registry.Get(toolspec.ToolExecCommand); !ok {
-			e.emit(Event{Kind: EventToolCallStarted, StepID: stepID, ToolCall: copiedToolCall(normalizeToolCallForTranscript(call, e.transcriptWorkingDir())), CommittedTranscriptChanged: true})
+			transcriptCall := normalizeToolCallForTranscript(call, e.transcriptWorkingDir())
+			e.emit(Event{Kind: EventToolCallStarted, StepID: stepID, ToolCall: &transcriptCall, CommittedTranscriptChanged: true})
 			result = tools.Result{CallID: call.ID, Name: toolspec.ToolExecCommand, IsError: true, Output: mustJSON(map[string]any{"error": "unknown tool"}), Summary: "unknown tool"}
 			if err := e.persistToolCompletion(stepID, result); err != nil {
 				return fmt.Errorf("persist tool completion (call_id=%s tool=%s): %w", call.ID, result.Name, err)
 			}
-			e.emit(Event{Kind: EventToolCallCompleted, StepID: stepID, ToolResult: copiedToolResult(result), CommittedTranscriptChanged: true})
+			toolResult := result
+			e.emit(Event{Kind: EventToolCallCompleted, StepID: stepID, ToolResult: &toolResult, CommittedTranscriptChanged: true})
 			if appendErr := e.appendMessage(stepID, llm.Message{Role: llm.RoleTool, Content: string(result.Output), ToolCallID: result.CallID, Name: string(result.Name)}); appendErr != nil {
 				return appendErr
 			}

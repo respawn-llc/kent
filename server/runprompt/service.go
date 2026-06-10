@@ -22,16 +22,6 @@ type memoizingPromptService struct {
 	runs  *requestmemo.Memo[runPromptMemoRequest, serverapi.RunPromptResponse]
 }
 
-func newMemoizingPromptService(inner servicecontract.RunPromptService) servicecontract.RunPromptService {
-	if inner == nil {
-		return nil
-	}
-	return &memoizingPromptService{
-		inner: inner,
-		runs:  requestmemo.New[runPromptMemoRequest, serverapi.RunPromptResponse](),
-	}
-}
-
 func (s *memoizingPromptService) RunPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (serverapi.RunPromptResponse, error) {
 	memoReq := runPromptMemoRequest{
 		SelectedSessionID: strings.TrimSpace(req.SelectedSessionID),

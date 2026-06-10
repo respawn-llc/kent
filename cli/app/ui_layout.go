@@ -366,7 +366,7 @@ func (l uiViewLayout) renderNativePendingLines(width int) []string {
 	rendered := renderNativePendingToolSnapshot(l.model.transcriptEntries, l.model.theme, width, l.model.spinnerFrame)
 	pendingEntries := tui.PendingOngoingEntries(l.model.transcriptEntries)
 	for _, entry := range pendingEntries {
-		if isNativePendingToolRole(tui.TranscriptRoleToWire(entry.Role)) {
+		if isNativePendingToolRole(string(entry.Role)) {
 			continue
 		}
 		rendered = renderNativePendingOngoingSnapshot(pendingEntries, l.model.theme, width, l.model.spinnerFrame)

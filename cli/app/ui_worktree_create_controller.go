@@ -28,7 +28,9 @@ func (d *uiWorktreeCreateDialogState) syncFocus() {
 	if d == nil {
 		return
 	}
-	d.focus = worktreecreateform.ClampField(d.focus, d.resolution.Kind)
+	if d.resolution.Kind != serverapi.WorktreeCreateTargetResolutionKindNewBranch && d.focus == uiWorktreeCreateFieldBaseRef {
+		d.focus = uiWorktreeCreateFieldBranchTarget
+	}
 }
 
 func (d *uiWorktreeCreateDialogState) moveFocus(delta int) {

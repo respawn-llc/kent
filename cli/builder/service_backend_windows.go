@@ -189,9 +189,9 @@ func parseWindowsCommandLine(value string) []string {
 func windowsScheduledTaskInstalled(ctx context.Context) (bool, string) {
 	result, err := runServiceCommand(ctx, "schtasks", "/Query", "/TN", serviceWindowsTaskName, "/V", "/FO", "LIST")
 	if err != nil {
-		return false, result.Text()
+		return false, strings.TrimSpace(strings.Join([]string{result.Stdout, result.Stderr}, "\n"))
 	}
-	return true, result.Text()
+	return true, strings.TrimSpace(strings.Join([]string{result.Stdout, result.Stderr}, "\n"))
 }
 
 func windowsStartupItemInstalled() bool {

@@ -19,7 +19,7 @@ func buildToolResultIndex(entries []TranscriptEntry) toolResultIndex {
 		cursors: make(map[string]int),
 	}
 	for idx, entry := range entries {
-		if !TranscriptRoleFromWire(TranscriptRoleToWire(entry.Role)).IsToolResult() {
+		if !TranscriptRoleFromWire(string(entry.Role)).IsToolResult() {
 			continue
 		}
 		callID := strings.TrimSpace(entry.ToolCallID)
@@ -38,7 +38,7 @@ func (index toolResultIndex) findMatchingToolResultIndex(entries []TranscriptEnt
 	callID := strings.TrimSpace(entries[callIdx].ToolCallID)
 	nextIdx := callIdx + 1
 	if nextIdx < len(entries) {
-		if _, used := consumed[nextIdx]; !used && TranscriptRoleFromWire(TranscriptRoleToWire(entries[nextIdx].Role)).IsToolResult() {
+		if _, used := consumed[nextIdx]; !used && TranscriptRoleFromWire(string(entries[nextIdx].Role)).IsToolResult() {
 			nextCallID := strings.TrimSpace(entries[nextIdx].ToolCallID)
 			if callID == nextCallID {
 				return nextIdx
@@ -81,7 +81,7 @@ func (m Model) roleSymbol(role RenderIntent) string {
 	case RenderIntentDeveloperContext, RenderIntentDeveloperFeedback, RenderIntentInterruption, RenderIntentGoalFeedback:
 		return renderRoleSymbol(prefix, roleSymbolStyle(role, p))
 	default:
-		if role.IsCompaction() {
+		if TranscriptRole(role).IsCompaction() {
 			return renderRoleSymbol(prefix, roleSymbolStyle(role, p))
 		}
 		return prefix
@@ -94,7 +94,7 @@ type roleSymbolColorStyle struct {
 }
 
 func roleSymbolStyle(role RenderIntent, p palette) roleSymbolColorStyle {
-	if role.IsCompaction() {
+	if TranscriptRole(role).IsCompaction() {
 		return roleSymbolColorStyle{color: p.compactionColor}
 	}
 	switch transcriptMessageStyleForIntent(role) {
@@ -131,7 +131,7 @@ func renderRoleSymbol(prefix string, style roleSymbolColorStyle) string {
 }
 
 func rolePrefix(role RenderIntent) string {
-	if role.IsCompaction() {
+	if TranscriptRole(role).IsCompaction() {
 		return "@"
 	}
 	if symbol := transcriptMessageStyleSymbol(transcriptMessageStyleForIntent(role)); symbol != "" {
@@ -166,7 +166,7 @@ func rolePrefix(role RenderIntent) string {
 }
 
 func styleForRole(role RenderIntent, p palette) lipgloss.Style {
-	if role.IsCompaction() {
+	if TranscriptRole(role).IsCompaction() {
 		return p.compaction
 	}
 	switch transcriptMessageStyleForIntent(role) {

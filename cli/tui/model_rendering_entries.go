@@ -10,14 +10,6 @@ import (
 	xansi "github.com/charmbracelet/x/ansi"
 )
 
-func (m Model) flattenEntry(role RenderIntent, text string) []string {
-	return m.flattenEntryWithMeta(role, text, false, nil)
-}
-
-func (m Model) flattenEntryWithMeta(role RenderIntent, text string, muteText bool, toolMeta *transcript.ToolCallMeta) []string {
-	return m.flattenEntryWithMetaAndSymbol(role, text, muteText, toolMeta, "")
-}
-
 func (m Model) entryPrefix(role RenderIntent, symbolOverride string) string {
 	if symbolOverride != "" {
 		return symbolOverride
@@ -60,27 +52,16 @@ func (m Model) detailExpansionSymbolStyle(role RenderIntent) roleSymbolColorStyl
 	}
 }
 
-func (m Model) entryPrefixWidth(role RenderIntent, symbolOverride string) int {
-	return lipgloss.Width(m.entryPrefix(role, symbolOverride))
-}
-
-func (m Model) entryContinuationPrefix(role RenderIntent, symbolOverride string) string {
-	return strings.Repeat(" ", max(0, m.entryPrefixWidth(role, symbolOverride)))
-}
-
 func (m Model) entryRenderWidth(role RenderIntent, symbolOverride string) int {
-	renderWidth := m.viewportWidth - m.entryPrefixWidth(role, symbolOverride) - m.detailViewportRailWidth()
+	railWidth := 0
+	if m.compactDetail && m.mode == ModeDetail {
+		railWidth = max(lipgloss.Width(uiglyphs.SelectionRailBlank), lipgloss.Width(uiglyphs.SelectionRailGlyph))
+	}
+	renderWidth := m.viewportWidth - lipgloss.Width(m.entryPrefix(role, symbolOverride)) - railWidth
 	if renderWidth < 1 {
 		return 1
 	}
 	return renderWidth
-}
-
-func (m Model) detailViewportRailWidth() int {
-	if !m.compactDetail || m.mode != ModeDetail {
-		return 0
-	}
-	return max(lipgloss.Width(uiglyphs.SelectionRailBlank), lipgloss.Width(uiglyphs.SelectionRailGlyph))
 }
 
 func (m Model) flattenEntryWithMetaAndSymbol(role RenderIntent, text string, muteText bool, toolMeta *transcript.ToolCallMeta, symbolOverride string) []string {
@@ -261,7 +242,7 @@ func (m Model) wrapEntryContentStage(content transcriptRenderContent, width int)
 	}
 	out := transcriptRenderContent{WrapMode: transcriptRenderWrapModePreserved, Lines: make([]transcriptRenderLine, 0, len(content.Lines))}
 	for _, line := range content.Lines {
-		wrapped := splitLines(m.wrapRenderedEntryContent(line.Text, width))
+		wrapped := splitLines(wrapTextForViewport(line.Text, width))
 		if len(wrapped) == 0 {
 			wrapped = []string{""}
 		}
@@ -277,7 +258,7 @@ func (m Model) wrapEntryContentStage(content transcriptRenderContent, width int)
 
 func (m Model) layoutEntryContentStage(role RenderIntent, content transcriptRenderContent, symbolOverride string) []transcriptLayoutLine {
 	hasRoleSymbol := rolePrefix(role) != ""
-	continuationPrefix := m.entryContinuationPrefix(role, symbolOverride)
+	continuationPrefix := strings.Repeat(" ", max(0, lipgloss.Width(m.entryPrefix(role, symbolOverride))))
 	out := make([]transcriptLayoutLine, 0, len(content.Lines))
 	for idx, line := range content.Lines {
 		layoutLine := transcriptLayoutLine{Text: line.Text, Intents: line.Intents, PatchSummary: line.PatchSummary}
@@ -478,7 +459,7 @@ func (m Model) flattenEntryPlain(role RenderIntent, text string) []string {
 		chunks = []string{""}
 	}
 	prefix := m.entryPrefix(role, "")
-	continuationPrefix := m.entryContinuationPrefix(role, "")
+	continuationPrefix := strings.Repeat(" ", max(0, lipgloss.Width(m.entryPrefix(role, ""))))
 	out := make([]string, 0, len(chunks))
 	for i, chunk := range chunks {
 		if i == 0 {
@@ -517,7 +498,7 @@ func (m Model) selectedUserTranscriptEntry() (int, bool) {
 	if !ok {
 		return -1, false
 	}
-	if TranscriptRoleFromWire(TranscriptRoleToWire(m.transcriptInput.Entries[localIndex].Role)) != TranscriptRoleUser {
+	if TranscriptRoleFromWire(string(m.transcriptInput.Entries[localIndex].Role)) != TranscriptRoleUser {
 		return -1, false
 	}
 	return m.selectedTranscriptEntry, true
@@ -566,7 +547,7 @@ func (m Model) renderDetailViewportLine(line string, selected bool) string {
 	originalWidth := lipgloss.Width(line)
 	rail := uiglyphs.SelectionRailBlank
 	if selected {
-		rail = m.renderSelectedDetailRail()
+		rail = renderRoleSymbol(uiglyphs.SelectionRailGlyph, roleSymbolColorStyle{color: m.palette().primaryColor})
 	}
 	line = rail + line
 	if originalWidth <= m.viewportWidth {
@@ -590,13 +571,9 @@ func (m Model) renderDetailSelectionSpacerLine() string {
 	if !m.compactDetail {
 		return m.renderSelectedTranscriptLine("")
 	}
-	line := m.renderSelectedDetailRail()
+	line := renderRoleSymbol(uiglyphs.SelectionRailGlyph, roleSymbolColorStyle{color: m.palette().primaryColor})
 	background := rgbColorFromHex(theme.ResolvePalette(m.theme).App.ModeBg.TrueColor)
 	return applyANSIStyleTransform(padRenderedLineToWidth(line, m.viewportWidth), ansiStyleTransform{DefaultBackground: &background, PreserveBackground: true})
-}
-
-func (m Model) renderSelectedDetailRail() string {
-	return renderRoleSymbol(uiglyphs.SelectionRailGlyph, roleSymbolColorStyle{color: m.palette().primaryColor})
 }
 
 func padRenderedLineToWidth(line string, width int) string {
@@ -640,10 +617,6 @@ func (m Model) renderEntryTextStage(role RenderIntent, text string, width int, t
 	return rendered, ThemeForeground, transcriptRenderWrapModeViewport
 }
 
-func (m Model) wrapRenderedEntryContent(text string, width int) string {
-	return wrapTextForViewport(text, width)
-}
-
 func shouldUseMutedToolForeground(role RenderIntent, toolMeta *transcript.ToolCallMeta, muteText bool) bool {
 	return muteText &&
 		role.IsShellPreview() &&
@@ -670,7 +643,7 @@ func (m Model) defaultEntryStyleIntents(role RenderIntent, muteText bool) StyleI
 	case RenderIntentInterruption:
 		return ErrorForeground
 	default:
-		if role.IsCompaction() {
+		if TranscriptRole(role).IsCompaction() {
 			return 0
 		}
 		return ThemeForeground

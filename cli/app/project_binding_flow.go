@@ -92,8 +92,12 @@ func (m *projectBindingPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key.Height > 0 {
 			m.height = key.Height
 		}
+		itemCount := len(m.projects)
+		if m.options.AllowCreate {
+			itemCount++
+		}
 		m.offset = projectpicker.EnsureCursorVisible(m.cursor, m.offset, projectpicker.VisibleRowsRequest{
-			ItemCount:  projectpicker.ItemCount(len(m.projects), m.options.AllowCreate),
+			ItemCount:  itemCount,
 			LineBudget: m.visibleLineBudget(),
 			HasPreview: m.hasPreview,
 			ShowGroup:  m.shouldShowGroupHeader,
@@ -149,11 +153,15 @@ func (m *projectBindingPickerModel) View() string {
 	var out strings.Builder
 	out.WriteString(m.renderHeader())
 	out.WriteString("\n\n")
-	out.WriteString(tui.ApplyThemeDefaultForeground(truncateQueuedMessageLine(m.options.NoticeText, m.width), m.theme))
+	out.WriteString(tui.ApplyThemeStyleIntents(truncateQueuedMessageLine(m.options.NoticeText, m.width), m.theme, tui.ThemeForeground))
 	out.WriteString("\n\n")
+	itemCount := len(m.projects)
+	if m.options.AllowCreate {
+		itemCount++
+	}
 	visible := projectpicker.VisibleRows(projectpicker.VisibleRowsRequest{
 		Offset:     m.offset,
-		ItemCount:  projectpicker.ItemCount(len(m.projects), m.options.AllowCreate),
+		ItemCount:  itemCount,
 		LineBudget: m.visibleLineBudget(),
 		HasPreview: m.hasPreview,
 		ShowGroup:  m.shouldShowGroupHeader,
@@ -183,9 +191,13 @@ func (m *projectBindingPickerModel) visibleLineBudget() int {
 }
 
 func (m *projectBindingPickerModel) moveCursor(delta int) {
-	m.cursor = projectpicker.MoveCursor(m.cursor, delta, projectpicker.ItemCount(len(m.projects), m.options.AllowCreate))
+	itemCount := len(m.projects)
+	if m.options.AllowCreate {
+		itemCount++
+	}
+	m.cursor = projectpicker.MoveCursor(m.cursor, delta, itemCount)
 	m.offset = projectpicker.EnsureCursorVisible(m.cursor, m.offset, projectpicker.VisibleRowsRequest{
-		ItemCount:  projectpicker.ItemCount(len(m.projects), m.options.AllowCreate),
+		ItemCount:  itemCount,
 		LineBudget: m.visibleLineBudget(),
 		HasPreview: m.hasPreview,
 		ShowGroup:  m.shouldShowGroupHeader,
@@ -196,7 +208,7 @@ func (m *projectBindingPickerModel) renderHeader() string {
 	if m.headerMD != nil {
 		rendered, err := m.headerMD.Render(m.options.HeaderMarkdown)
 		if err == nil {
-			return tui.ApplyThemeDefaultForeground(trimRenderedHeaderInset(rendered), m.theme)
+			return tui.ApplyThemeStyleIntents(trimRenderedHeaderInset(rendered), m.theme, tui.ThemeForeground)
 		}
 	}
 	return m.styles.headerFallback.Render(m.options.HeaderFallback)
@@ -268,7 +280,10 @@ func (m *projectBindingPickerModel) shouldShowGroupHeader(index int, groupRender
 	if groupRendered || strings.TrimSpace(m.options.GroupLabel) == "" || len(m.projects) == 0 {
 		return false
 	}
-	return index == projectpicker.FirstProjectRowIndex(m.options.AllowCreate)
+	if m.options.AllowCreate {
+		return index == 1
+	}
+	return index == 0
 }
 
 func projectBindingHomeDir() string {
@@ -386,7 +401,7 @@ func (m *projectWorkspacePickerModel) View() string {
 	var out strings.Builder
 	out.WriteString(m.renderHeader())
 	out.WriteString("\n\n")
-	out.WriteString(tui.ApplyThemeDefaultForeground(truncateQueuedMessageLine(projectWorkspacePickerNoticeText, m.width), m.theme))
+	out.WriteString(tui.ApplyThemeStyleIntents(truncateQueuedMessageLine(projectWorkspacePickerNoticeText, m.width), m.theme, tui.ThemeForeground))
 	out.WriteString("\n\n")
 	for idx, row := range projectpicker.VisibleRows(projectpicker.VisibleRowsRequest{
 		Offset:     m.offset,
@@ -423,7 +438,7 @@ func (m *projectWorkspacePickerModel) renderHeader() string {
 	if m.headerMD != nil {
 		rendered, err := m.headerMD.Render(projectWorkspacePickerHeaderMarkdown)
 		if err == nil {
-			return tui.ApplyThemeDefaultForeground(trimRenderedHeaderInset(rendered), m.theme)
+			return tui.ApplyThemeStyleIntents(trimRenderedHeaderInset(rendered), m.theme, tui.ThemeForeground)
 		}
 	}
 	return m.styles.headerFallback.Render(projectWorkspacePickerHeaderFallback)

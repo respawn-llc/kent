@@ -47,7 +47,7 @@ func (c uiInputController) handleQueuedRuntimeWorkCheckDone(msg queuedRuntimeWor
 	m.observeRuntimeRequestResult(msg.err)
 	if msg.err != nil {
 		restoreCmd := c.restorePendingInjectedIntoInput()
-		if submissionerror.IsInterrupted(msg.err) {
+		if errors.Is(msg.err, submissionerror.ErrInterrupted) || errors.Is(msg.err, context.Canceled) {
 			m.activity = uiActivityInterrupted
 			m.logf("step.interrupted")
 			m.syncViewport()

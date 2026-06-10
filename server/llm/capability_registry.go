@@ -26,11 +26,6 @@ type ModelCapabilityContract struct {
 	SupportsVisionInputs      bool
 }
 
-func lookupProviderContract(provider Provider) (ProviderContract, bool) {
-	contract, ok := globalProviderRegistry.contractsByProvider[provider]
-	return contract, ok
-}
-
 func lookupProviderVariantContract(providerID string) (providerVariantRegistration, bool) {
 	key := strings.ToLower(strings.TrimSpace(providerID))
 	if key == "" {
@@ -61,7 +56,7 @@ func LookupProviderCapabilityContract(providerID string) (ProviderCapabilities, 
 }
 
 func resolveProviderTransportVariant(provider Provider, baseURL string, mode openAIAuthMode) (ProviderVariantContract, error) {
-	contract, ok := lookupProviderContract(provider)
+	contract, ok := globalProviderRegistry.contractsByProvider[provider]
 	if !ok {
 		return ProviderVariantContract{}, fmt.Errorf("%w: %s", ErrUnsupportedProvider, provider)
 	}
@@ -222,22 +217,15 @@ func ProviderCapabilitiesFromLocked(locked *session.LockedContract) (ProviderCap
 }
 
 func LockedContractSupportsReasoningEffort(locked *session.LockedContract, model string) bool {
-	if hasLockedCapabilitySnapshot(locked) {
+	if locked != nil && (locked.ModelCapabilities.SupportsReasoningEffort || locked.ModelCapabilities.SupportsVisionInputs) {
 		return locked.ModelCapabilities.SupportsReasoningEffort
 	}
 	return SupportsReasoningEffortModel(model)
 }
 
 func LockedContractSupportsVisionInputs(locked *session.LockedContract, model string) bool {
-	if hasLockedCapabilitySnapshot(locked) {
+	if locked != nil && (locked.ModelCapabilities.SupportsReasoningEffort || locked.ModelCapabilities.SupportsVisionInputs) {
 		return locked.ModelCapabilities.SupportsVisionInputs
 	}
 	return SupportsVisionInputsModel(model)
-}
-
-func hasLockedCapabilitySnapshot(locked *session.LockedContract) bool {
-	if locked == nil {
-		return false
-	}
-	return locked.ModelCapabilities.SupportsReasoningEffort || locked.ModelCapabilities.SupportsVisionInputs
 }

@@ -141,7 +141,7 @@ func TestSlashCommandPickerHighlightTracksFilteredVisibleCommands(t *testing.T) 
 func newSlashPickerScrollTestModel() *uiModel {
 	r := commands.NewRegistry()
 	registerSlashPickerTestCommand := func(name string) {
-		r.Register(name, "test command "+name, func(string) commands.Result {
+		r.RegisterWithOptions(name, "test command "+name, commands.RegisterOptions{PreservePromptHistoryDraft: true}, func(string) commands.Result {
 			return commands.Result{Handled: true}
 		})
 	}
@@ -234,8 +234,8 @@ func TestBuiltInReviewSlashCommandWithWhitespaceAfterSlashDoesNotDuplicateArgs(t
 	if cmd == nil {
 		t.Fatal("expected submission cmd for whitespace-prefixed /review")
 	}
-	if updated.Action() != UIActionNone {
-		t.Fatalf("expected no session transition for empty-session /review, got %q", updated.Action())
+	if updated.exitAction != UIActionNone {
+		t.Fatalf("expected no session transition for empty-session /review, got %q", updated.exitAction)
 	}
 	if !updated.isBusy() {
 		t.Fatal("expected /review to submit in place for an empty session")
@@ -357,8 +357,8 @@ func TestResumeSlashCommandShowsErrorWithoutOtherSessions(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected transient status cmd for unavailable /resume")
 	}
-	if updated.Action() != UIActionNone {
-		t.Fatalf("did not expect session transition action, got %q", updated.Action())
+	if updated.exitAction != UIActionNone {
+		t.Fatalf("did not expect session transition action, got %q", updated.exitAction)
 	}
 	if updated.input != "" {
 		t.Fatalf("expected input cleared for unavailable /resume, got %q", updated.input)
@@ -381,8 +381,8 @@ func TestResumeSlashCommandAllowsUnknownOtherSessionAvailability(t *testing.T) {
 		t.Fatal("expected quit cmd for /resume when availability is unknown")
 	}
 	updated := next.(*uiModel)
-	if updated.Action() != UIActionResume {
-		t.Fatalf("expected UIActionResume, got %q", updated.Action())
+	if updated.exitAction != UIActionResume {
+		t.Fatalf("expected UIActionResume, got %q", updated.exitAction)
 	}
 }
 
@@ -465,8 +465,8 @@ func TestExactHiddenAuthSlashCommandsStillExecute(t *testing.T) {
 			if cmd == nil {
 				t.Fatalf("expected %s to execute", tc.input)
 			}
-			if updated.Action() != UIActionLogout {
-				t.Fatalf("expected %s to execute logout/login transition, got %q", tc.input, updated.Action())
+			if updated.exitAction != UIActionLogout {
+				t.Fatalf("expected %s to execute logout/login transition, got %q", tc.input, updated.exitAction)
 			}
 		})
 	}
@@ -796,8 +796,8 @@ func TestRollbackEditRejectsUnknownSlashInputWithoutSubmittingPrompt(t *testing.
 	if len(updated.queued) != 0 {
 		t.Fatalf("did not expect queued messages, got %+v", updated.queued)
 	}
-	if updated.Action() != UIActionNone {
-		t.Fatalf("did not expect session transition action, got %q", updated.Action())
+	if updated.exitAction != UIActionNone {
+		t.Fatalf("did not expect session transition action, got %q", updated.exitAction)
 	}
 	if updated.input != "/nope" {
 		t.Fatalf("expected blocked unknown slash to remain editable, got %q", updated.input)

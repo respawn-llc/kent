@@ -81,7 +81,7 @@ func (m *uiModel) currentDetailTailPage() clientui.TranscriptPage {
 	for _, entry := range committedTranscriptEntriesForApp(m.transcriptEntries) {
 		page.Entries = append(page.Entries, clientui.ChatEntry{
 			Visibility:        entry.Visibility,
-			Role:              tui.TranscriptRoleToWire(entry.Role),
+			Role:              string(entry.Role),
 			Text:              entry.Text,
 			OngoingText:       entry.OngoingText,
 			Phase:             string(entry.Phase),

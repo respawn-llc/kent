@@ -299,18 +299,12 @@ func (e *Engine) appendMessage(stepID string, msg llm.Message) error {
 	e.transcriptPersistence().AppendMessage(msg)
 	_, err := e.store.AppendEvent(stepID, "message", msg)
 	if err == nil {
-		if shouldEmitCommittedTranscriptAdvancedForAppendedMessage(msg, previousCommittedCount, e.CommittedTranscriptEntryCount()) {
+		currentCommittedCount := e.CommittedTranscriptEntryCount()
+		if currentCommittedCount > previousCommittedCount && msg.Role == llm.RoleDeveloper && (msg.MessageType == llm.MessageTypeGoal || msg.MessageType == llm.MessageTypeWorktreeMode || msg.MessageType == llm.MessageTypeWorktreeModeExit) {
 			e.emitCommittedMessageTranscriptAdvanced(stepID, msg)
 		}
 	}
 	return err
-}
-
-func shouldEmitCommittedTranscriptAdvancedForAppendedMessage(msg llm.Message, previousCommittedCount int, currentCommittedCount int) bool {
-	if currentCommittedCount <= previousCommittedCount {
-		return false
-	}
-	return msg.Role == llm.RoleDeveloper && (msg.MessageType == llm.MessageTypeGoal || msg.MessageType == llm.MessageTypeWorktreeMode || msg.MessageType == llm.MessageTypeWorktreeModeExit)
 }
 
 func (e *Engine) appendMessageWithoutConversationUpdate(stepID string, msg llm.Message) error {

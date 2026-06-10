@@ -284,14 +284,6 @@ func DisabledSkillToggles(settings Settings) map[string]bool {
 	return disabled
 }
 
-func parseBoolString(raw string, envName string) (*bool, error) {
-	parsed, err := strconv.ParseBool(raw)
-	if err != nil {
-		return nil, fmt.Errorf("invalid %s: %q", envName, raw)
-	}
-	return &parsed, nil
-}
-
 func parsePositiveIntString(raw string, envName string) (*int, error) {
 	parsed, err := strconv.Atoi(raw)
 	if err != nil || parsed <= 0 {

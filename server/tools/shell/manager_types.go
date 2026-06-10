@@ -195,6 +195,10 @@ func (p *processEntry) signal() {
 }
 
 func (p *processEntry) snapshotLocked() Snapshot {
+	recentOutput := string(p.recentOutput)
+	if !p.preserveOutput {
+		recentOutput = postprocess.SanitizeOutput(recentOutput)
+	}
 	return Snapshot{
 		ID:                      p.id,
 		OwnerSessionID:          p.ownerSessionID,
@@ -207,7 +211,7 @@ func (p *processEntry) snapshotLocked() Snapshot {
 		FinishedAt:              p.finishedAt,
 		ExitCode:                postprocess.CloneIntPtr(p.exitCode),
 		LogPath:                 p.logPath,
-		RecentOutput:            formatCapturedOutput(string(p.recentOutput), p.preserveOutput),
+		RecentOutput:            recentOutput,
 		OutputAvailable:         p.logPath != "",
 		OutputRetainedFromBytes: 0,
 		OutputRetainedToBytes:   p.outputBytes,
@@ -366,13 +370,6 @@ func (w *outputWriter) Write(p []byte) (int, error) {
 		return 0, err
 	}
 	return len(p), nil
-}
-
-func normalizeOutputChars(maxChars int) int {
-	if maxChars <= 0 {
-		return defaultOutputTokenCap * 4
-	}
-	return maxChars
 }
 
 func normalizeWriteYieldTime(value time.Duration, fallback time.Duration) time.Duration {

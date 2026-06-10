@@ -94,11 +94,17 @@ func (i *headlessAuthInteractor) LookupEnv(key string) string {
 }
 
 func (i *headlessAuthInteractor) NeedsInteraction(req authInteraction) bool {
-	return authinteraction.HeadlessNeedsInteraction(req)
+	return req.AuthRequired && !req.Gate.Ready
 }
 
 func (i *interactiveAuthInteractor) NeedsInteraction(req authInteraction) bool {
-	return authinteraction.InteractiveNeedsInteraction(req)
+	if !req.AuthRequired && !req.PromptOptional {
+		return authinteraction.NeedsEnvConflictResolution(req)
+	}
+	if req.Gate.Ready {
+		return authinteraction.NeedsEnvConflictResolution(req)
+	}
+	return req.AuthRequired || !req.State.IsNoAuthSelected() || authinteraction.NeedsEnvConflictResolution(req)
 }
 
 func (i *headlessAuthInteractor) Interact(ctx context.Context, req authInteraction) (authflowadapter.InteractionOutcome, error) {

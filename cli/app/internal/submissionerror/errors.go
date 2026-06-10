@@ -16,7 +16,7 @@ func Format(err error) string {
 	if err == nil {
 		return ""
 	}
-	if IsInterrupted(err) {
+	if errors.Is(err, ErrInterrupted) || errors.Is(err, context.Canceled) {
 		return ""
 	}
 	if errors.Is(err, serverapi.ErrSessionAlreadyControlled) {
@@ -37,11 +37,4 @@ func Format(err error) string {
 		return fmt.Sprintf("openai status %d\nresponse body:\n%s", statusErr.StatusCode, body)
 	}
 	return err.Error()
-}
-
-func IsInterrupted(err error) bool {
-	if err == nil {
-		return false
-	}
-	return errors.Is(err, ErrInterrupted) || errors.Is(err, context.Canceled)
 }

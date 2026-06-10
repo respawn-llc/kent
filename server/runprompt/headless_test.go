@@ -17,6 +17,7 @@ import (
 	"builder/server/launch"
 	"builder/server/primaryrun"
 	"builder/server/registry"
+	"builder/server/requestmemo"
 	"builder/server/session"
 	"builder/server/sessionlaunch"
 	"builder/shared/config"
@@ -129,7 +130,10 @@ func TestMemoizingPromptServiceDedupesSuccessfulRetry(t *testing.T) {
 	inner := &stubRunPromptService{run: func(_ context.Context, req serverapi.RunPromptRequest, _ serverapi.RunPromptProgressSink) (serverapi.RunPromptResponse, error) {
 		return serverapi.RunPromptResponse{SessionID: req.SelectedSessionID, Result: "ok"}, nil
 	}}
-	service := newMemoizingPromptService(inner)
+	service := &memoizingPromptService{
+		inner: inner,
+		runs:  requestmemo.New[runPromptMemoRequest, serverapi.RunPromptResponse](),
+	}
 	req := serverapi.RunPromptRequest{ClientRequestID: "req-1", SelectedSessionID: "session-1", Prompt: "hello"}
 
 	first, err := service.RunPrompt(context.Background(), req, nil)
@@ -152,7 +156,10 @@ func TestMemoizingPromptServiceRejectsClientRequestIDPayloadMismatch(t *testing.
 	inner := &stubRunPromptService{run: func(_ context.Context, req serverapi.RunPromptRequest, _ serverapi.RunPromptProgressSink) (serverapi.RunPromptResponse, error) {
 		return serverapi.RunPromptResponse{SessionID: req.SelectedSessionID, Result: "ok"}, nil
 	}}
-	service := newMemoizingPromptService(inner)
+	service := &memoizingPromptService{
+		inner: inner,
+		runs:  requestmemo.New[runPromptMemoRequest, serverapi.RunPromptResponse](),
+	}
 	first := serverapi.RunPromptRequest{ClientRequestID: "req-1", SelectedSessionID: "session-1", Prompt: "hello"}
 	if _, err := service.RunPrompt(context.Background(), first, nil); err != nil {
 		t.Fatalf("RunPrompt first: %v", err)

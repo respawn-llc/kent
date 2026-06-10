@@ -25,24 +25,17 @@ func Candidates(imported []Item, generated []Item, existingSkillNames map[string
 	shadowingNames := cloneBoolMap(existingSkillNames)
 	items = append(items, imported...)
 	for _, item := range imported {
-		if normalized := NormalizeName(item.SkillName); normalized != "" {
+		if normalized := strings.ToLower(strings.Join(strings.Fields(item.SkillName), " ")); normalized != "" {
 			shadowingNames[normalized] = true
 		}
 	}
 	for _, item := range generated {
-		if shadowingNames[NormalizeName(item.SkillName)] {
+		if shadowingNames[strings.ToLower(strings.Join(strings.Fields(item.SkillName), " "))] {
 			continue
 		}
 		items = append(items, item)
 	}
 	return AnnotateDuplicateSources(items)
-}
-
-func ToggleAllTitle(items []Item, selection map[string]bool) string {
-	if AllSelected(items, selection) {
-		return "Disable all"
-	}
-	return "Enable all"
 }
 
 func AllSelected(items []Item, selection map[string]bool) bool {
@@ -86,14 +79,6 @@ func AnnotateDuplicateSources(items []Item) []Item {
 		}
 	}
 	return out
-}
-
-func SanitizeName(raw string) string {
-	return strings.Join(strings.Fields(raw), " ")
-}
-
-func NormalizeName(raw string) string {
-	return strings.ToLower(SanitizeName(raw))
 }
 
 func cloneBoolMap(values map[string]bool) map[string]bool {

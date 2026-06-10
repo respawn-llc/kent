@@ -215,7 +215,7 @@ func (g *Gateway) handleConn(ctx context.Context, conn rpcwire.Conn) {
 			}
 			continue
 		}
-		if isSubscriptionMethod(req.Method) {
+		if _, ok := gatewaySubscriptionMethods[strings.TrimSpace(req.Method)]; ok {
 			g.serveSubscription(conn, connCtx, state, req)
 			return
 		}
@@ -292,11 +292,6 @@ func decodeAndHandle[TReq any, TResp any](req protocol.Request, handler func(TRe
 	return protocol.NewSuccessResponse(req.ID, resp)
 }
 
-func isSubscriptionMethod(method string) bool {
-	_, ok := gatewaySubscriptionMethods[strings.TrimSpace(method)]
-	return ok
-}
-
 func receiveRequest(ctx context.Context, conn rpcwire.Conn) (protocol.Request, error) {
 	for {
 		select {
@@ -312,14 +307,6 @@ func receiveRequest(ctx context.Context, conn rpcwire.Conn) (protocol.Request, e
 			return event.Frame.Request(), nil
 		}
 	}
-}
-
-func sendNotification(ctx context.Context, conn rpcwire.Conn, method string, params any) error {
-	data, err := json.Marshal(params)
-	if err != nil {
-		return err
-	}
-	return conn.Send(ctx, rpcwire.FrameFromRequest(protocol.Request{JSONRPC: protocol.JSONRPCVersion, Method: method, Params: data}))
 }
 
 func sendResponse(ctx context.Context, conn rpcwire.Conn, resp protocol.Response) bool {

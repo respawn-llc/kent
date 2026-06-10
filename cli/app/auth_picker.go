@@ -194,7 +194,7 @@ func (m *startupPickerModel) renderHeader() string {
 	if m.headerMD != nil {
 		rendered, err := m.headerMD.Render(m.headerMarkdown)
 		if err == nil {
-			return tui.ApplyThemeDefaultForeground(strings.TrimRight(rendered, "\n"), m.theme)
+			return tui.ApplyThemeStyleIntents(strings.TrimRight(rendered, "\n"), m.theme, tui.ThemeForeground)
 		}
 	}
 	return m.styles.headerFallback.Render(m.headerFallback)

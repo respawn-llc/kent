@@ -322,7 +322,10 @@ func (e *Engine) requestInputTokensPreciselyTracked(ctx context.Context, req llm
 	if !e.preciseInputTokenCountSupported(ctx) {
 		return 0, false
 	}
-	cacheKey := requestTokenCountCacheKey(req)
+	cacheKey := ""
+	if payload, err := json.Marshal(req); err == nil {
+		cacheKey = string(payload)
+	}
 	if cacheKey != "" {
 		if cached, ok := e.lookupPreciseTokenCount(cacheKey, current); ok {
 			if current {
@@ -405,14 +408,6 @@ func (e *Engine) reportPreciseTokenCountFailure(err error) {
 	); persistErr != nil {
 		e.AppendLocalEntry("error", fmt.Sprintf("%s Diagnostic persistence failed: %v", entryText, persistErr))
 	}
-}
-
-func requestTokenCountCacheKey(req llm.Request) string {
-	payload, err := json.Marshal(req)
-	if err != nil {
-		return ""
-	}
-	return string(payload)
 }
 
 func (e *Engine) lookupPreciseTokenCount(cacheKey string, current bool) (int, bool) {

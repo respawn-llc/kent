@@ -22,7 +22,7 @@ func TestReduceRuntimeEvent_UserMessageFlushedProducesPendingInputAndConversatio
 		clientui.Event{Kind: clientui.EventUserMessageFlushed, UserMessage: "steered message", UserMessageBatchQueueItemIDs: []string{"queue-1"}},
 	)
 
-	if update.Transcript.Sync.IsSet() {
+	if update.Transcript.Sync.Reason != RuntimeTranscriptSyncNone {
 		t.Fatal("did not expect flushed user message to request session sync")
 	}
 	if update.PendingInput.PromptHistoryCommand == nil {
@@ -31,8 +31,8 @@ func TestReduceRuntimeEvent_UserMessageFlushedProducesPendingInputAndConversatio
 	if update.PendingInput.DraftCommand != RuntimePendingInputClearDraft {
 		t.Fatal("expected locked injected input to clear the draft input")
 	}
-	if update.PendingInput.State.Submission.IsLocked() {
-		t.Fatal("expected input submit lock cleared")
+	if update.PendingInput.State.Submission != InputSubmissionUnlocked {
+		t.Fatalf("expected input submit lock cleared to %q, got %q", InputSubmissionUnlocked, update.PendingInput.State.Submission)
 	}
 	if update.PendingInput.State.LockedInjectText != "" {
 		t.Fatalf("expected locked inject text cleared, got %q", update.PendingInput.State.LockedInjectText)
@@ -42,17 +42,6 @@ func TestReduceRuntimeEvent_UserMessageFlushedProducesPendingInputAndConversatio
 	}
 	if update.Conversation.State.Freshness != clientui.ConversationFreshnessEstablished {
 		t.Fatalf("conversation freshness = %v, want established", update.Conversation.State.Freshness)
-	}
-}
-
-func TestInputSubmissionLifecycleTracksLockedDraftSubmission(t *testing.T) {
-	input := NewInputSubmissionLifecycle(true)
-	if !input.IsLocked() {
-		t.Fatal("expected queued input drain to lock submission")
-	}
-	input = NewInputSubmissionLifecycle(false)
-	if input.IsLocked() {
-		t.Fatal("expected flushed queued input to unlock submission")
 	}
 }
 
@@ -96,7 +85,7 @@ func TestReduceRuntimeEvent_RunStateStartedDoesNotRequestTranscriptSync(t *testi
 	if update.RunState.Activity != RuntimeActivityRunning {
 		t.Fatal("expected started run to set running activity")
 	}
-	if update.Transcript.Sync.IsSet() {
+	if update.Transcript.Sync.Reason != RuntimeTranscriptSyncNone {
 		t.Fatal("did not expect started run to request transcript sync")
 	}
 }
@@ -136,7 +125,7 @@ func TestReduceRuntimeEvent_ConversationUpdatedRequiresExplicitCommittedAdvanceO
 		false,
 		clientui.Event{Kind: clientui.EventConversationUpdated},
 	)
-	if plain.Transcript.Sync.IsSet() {
+	if plain.Transcript.Sync.Reason != RuntimeTranscriptSyncNone {
 		t.Fatal("did not expect plain conversation_updated to request transcript sync")
 	}
 	committed := ReduceRuntimeEvent(
@@ -316,7 +305,7 @@ func TestReduceRuntimeEvent_CompactionCompletedClearsCompacting(t *testing.T) {
 	if update.RunState.State.Compaction.IsRunning() {
 		t.Fatal("expected compaction completed to clear compacting state")
 	}
-	if update.Transcript.Sync.IsSet() || len(update.Transcript.AssistantStream) != 0 {
+	if update.Transcript.Sync.Reason != RuntimeTranscriptSyncNone || len(update.Transcript.AssistantStream) != 0 {
 		t.Fatalf("expected compaction completed to leave transcript unchanged, got %+v", update.Transcript)
 	}
 }
@@ -339,15 +328,22 @@ func TestReduceRuntimeRunStateEventRejectsInvalidLifecycleAtReducerBoundary(t *t
 func TestDomainReducersIgnoreUnownedEventConcerns(t *testing.T) {
 	evt := clientui.Event{Kind: clientui.EventBackgroundUpdated, Background: &clientui.BackgroundShellEvent{Type: "completed", ID: "1000", State: "completed"}}
 
-	if transcript := ReduceRuntimeTranscriptEvent(evt); transcript.Sync.IsSet() || len(transcript.AssistantStream) != 0 {
+	if transcript := ReduceRuntimeTranscriptEvent(evt); transcript.Sync.Reason != RuntimeTranscriptSyncNone || len(transcript.AssistantStream) != 0 {
 		t.Fatalf("transcript reducer handled background event: %+v", transcript)
 	}
 	if reasoning := ReduceRuntimeReasoningEvent(RuntimeReasoningState{StatusHeader: "thinking"}, evt); reasoning.State.StatusHeader != "thinking" || len(reasoning.Stream) != 0 {
 		t.Fatalf("reasoning reducer handled background event: %+v", reasoning)
 	}
-	processes := ReduceRuntimeBackgroundProcessEvent(evt)
-	if processes.Command != RuntimeBackgroundProcessRefresh {
-		t.Fatalf("background process reducer did not own background refresh: %+v", processes)
+	background := ReduceRuntimeEvent(
+		RuntimeRunState{},
+		RuntimeConversationState{},
+		PendingInputState{},
+		RuntimeReasoningState{},
+		false,
+		evt,
+	).BackgroundProcesses
+	if background.Command != RuntimeBackgroundProcessRefresh {
+		t.Fatalf("background process reducer did not own background refresh: %+v", background)
 	}
 }
 

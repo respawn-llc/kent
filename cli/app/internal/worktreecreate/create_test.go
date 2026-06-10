@@ -36,8 +36,8 @@ func TestRequestForNewBranchRequiresBaseRef(t *testing.T) {
 	}
 }
 
-func TestValidateTargetRejectsBlankTarget(t *testing.T) {
-	if err := ValidateTarget(" "); err == nil || err.Error() != "Branch or ref is required" {
+func TestRequestRejectsBlankTarget(t *testing.T) {
+	if _, err := Request(" ", "HEAD", serverapi.WorktreeCreateTargetResolutionKindExistingBranch); err == nil || err.Error() != "Branch or ref is required" {
 		t.Fatalf("error = %v, want target required", err)
 	}
 }

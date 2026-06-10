@@ -459,7 +459,7 @@ func (m Model) OngoingSnapshot() string {
 }
 
 func (m Model) OngoingCommittedSnapshot() string {
-	return m.renderFlatCommittedOngoingTranscript()
+	return m.CommittedOngoingProjection().Render(TranscriptDivider)
 }
 
 func (m Model) OngoingStreamingText() string {
@@ -496,7 +496,7 @@ func (m Model) transitionMode(target Mode, skipDetailWarmup bool) Model {
 		}
 		m.refreshDetailViewport()
 		if m.compactDetail {
-			m.focusBottomVisibleDetailEntry()
+			m.focusVisibleDetailEntry(len(m.currentDetailViewport().Owners) - 1)
 		}
 	case ModeOngoing:
 		m.mode = ModeOngoing
@@ -520,7 +520,7 @@ func (m Model) scrollDetail(delta int) Model {
 		return m
 	}
 	if moved := m.scrollDetailLine(delta); moved {
-		m.focusCenterVisibleDetailEntry()
+		m.focusVisibleDetailEntry(m.viewportLines / 2)
 		return m
 	}
 	m.moveDetailSelectionWithinViewport(delta)
@@ -564,14 +564,6 @@ func (m *Model) ensureDetailSelection() {
 	}
 	m.detailSelectedEntry = -1
 	m.detailSelectedActive = false
-}
-
-func (m *Model) focusCenterVisibleDetailEntry() {
-	m.focusVisibleDetailEntry(m.viewportLines / 2)
-}
-
-func (m *Model) focusBottomVisibleDetailEntry() {
-	m.focusVisibleDetailEntry(len(m.currentDetailViewport().Owners) - 1)
 }
 
 func (m *Model) focusVisibleDetailEntry(anchor int) {
@@ -627,7 +619,7 @@ func (m *Model) moveDetailSelectionWithinViewport(delta int) bool {
 	}
 	first, last, ok := m.visibleDetailEntryLineRange(m.detailSelectedEntry)
 	if !m.detailSelectedActive || !ok {
-		m.focusCenterVisibleDetailEntry()
+		m.focusVisibleDetailEntry(m.viewportLines / 2)
 		return false
 	}
 	startLine := first - 1
@@ -786,7 +778,7 @@ func detailVisibleEntryIndex(entries []int, entryIndex int) int {
 }
 
 func (m Model) maxOngoingScroll() int {
-	lineCount := m.ongoingRenderedLineCount()
+	lineCount := m.ongoingLineParts().lineCount()
 	if lineCount <= m.viewportLines {
 		return 0
 	}
@@ -959,10 +951,6 @@ func (p ongoingLineParts) lineAt(index int) TranscriptProjectionLine {
 	return TranscriptProjectionLine{Kind: VisibleLineContent}
 }
 
-func (m Model) ongoingRenderedLineCount() int {
-	return m.ongoingLineParts().lineCount()
-}
-
 func (m Model) visibleOngoingLineKinds() []VisibleLineKind {
 	if m.viewportLines <= 0 {
 		return nil
@@ -1045,25 +1033,11 @@ func (m Model) shouldRenderDetailSelectionSpacer(lineIndex int, firstSelectedLin
 }
 
 func (m Model) shouldInsertDetailSelectionSpacerBefore(lineIndex int, firstSelectedLine int, owners []int, lookup detailProjectionLookup) bool {
-	return lineIndex == firstSelectedLine && m.detailAtTopEdgeForSelectionSpacer() && lookup.ownsSelectableEntry(firstSelectedLine-1, owners)
+	return lineIndex == firstSelectedLine && !m.detailBottomAnchor && m.detailScroll == 0 && lookup.ownsSelectableEntry(firstSelectedLine-1, owners)
 }
 
 func (m Model) shouldInsertDetailSelectionSpacerAfter(lineIndex int, lastSelectedLine int, owners []int, lookup detailProjectionLookup) bool {
-	return lineIndex == lastSelectedLine && m.detailAtBottomEdgeForSelectionSpacer() && lookup.ownsSelectableEntry(lastSelectedLine+1, owners)
-}
-
-func (m Model) detailAtTopEdgeForSelectionSpacer() bool {
-	if m.detailBottomAnchor {
-		return false
-	}
-	return m.detailScroll == 0
-}
-
-func (m Model) detailAtBottomEdgeForSelectionSpacer() bool {
-	if m.detailBottomAnchor {
-		return false
-	}
-	return m.detailScroll == m.maxDetailScroll()
+	return lineIndex == lastSelectedLine && !m.detailBottomAnchor && m.detailScroll == m.maxDetailScroll() && lookup.ownsSelectableEntry(lastSelectedLine+1, owners)
 }
 
 type detailExpansionSymbolState struct {
@@ -1090,13 +1064,6 @@ func (m Model) detailSelectedExpansionState() (detailExpansionSymbolState, bool)
 		return detailExpansionSymbolState{}, false
 	}
 	return detailExpansionSymbolState{role: block.Role, expanded: block.Expanded}, true
-}
-
-func (m Model) detailExpansionSymbolOverride(block detailBlockSpec) string {
-	if !m.compactDetail || m.mode != ModeDetail || !block.selectable || !block.expandable {
-		return ""
-	}
-	return m.detailExpansionSymbolOverrideForEntry(block.role, block.entryIndex, block.expanded)
 }
 
 func (m Model) detailExpansionSymbolOverrideForEntry(role RenderIntent, entryIndex int, expanded bool) string {

@@ -239,7 +239,8 @@ func (e *Engine) appendPersistedGoalDeveloperMessage(stepID string, msg llm.Mess
 	previousCommittedCount := e.CommittedTranscriptEntryCount()
 	e.markCurrentRequestShapeDirty()
 	e.transcriptPersistence().AppendMessage(msg)
-	if shouldEmitCommittedTranscriptAdvancedForAppendedMessage(msg, previousCommittedCount, e.CommittedTranscriptEntryCount()) {
+	currentCommittedCount := e.CommittedTranscriptEntryCount()
+	if currentCommittedCount > previousCommittedCount && msg.Role == llm.RoleDeveloper && (msg.MessageType == llm.MessageTypeGoal || msg.MessageType == llm.MessageTypeWorktreeMode || msg.MessageType == llm.MessageTypeWorktreeModeExit) {
 		e.emitCommittedMessageTranscriptAdvanced(stepID, msg)
 	}
 }

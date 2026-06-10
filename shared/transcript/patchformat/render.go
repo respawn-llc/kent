@@ -74,11 +74,15 @@ func Format(doc Document, cwd string) RenderedPatch {
 			FileIndex: 0,
 			Path:      file.RelPath,
 		}}
+		detailLinePath := file.RelPath
+		if strings.TrimSpace(file.AbsPath) != "" {
+			detailLinePath = file.AbsPath
+		}
 		rendered.DetailLines = append(rendered.DetailLines, RenderedLine{
 			Kind:      RenderedLineKindFile,
 			Text:      detailHeader(file),
 			FileIndex: 0,
-			Path:      detailPath(file),
+			Path:      detailLinePath,
 		})
 		for _, diff := range file.Diff {
 			rendered.DetailLines = append(rendered.DetailLines, RenderedLine{Kind: RenderedLineKindDiff, Text: diff, FileIndex: 0})
@@ -93,11 +97,15 @@ func Format(doc Document, cwd string) RenderedPatch {
 			FileIndex: idx,
 			Path:      file.RelPath,
 		})
+		detailLinePath := file.RelPath
+		if strings.TrimSpace(file.AbsPath) != "" {
+			detailLinePath = file.AbsPath
+		}
 		rendered.DetailLines = append(rendered.DetailLines, RenderedLine{
 			Kind:      RenderedLineKindFile,
 			Text:      detailHeader(file),
 			FileIndex: idx,
-			Path:      detailPath(file),
+			Path:      detailLinePath,
 		})
 		for _, diff := range file.Diff {
 			rendered.DetailLines = append(rendered.DetailLines, RenderedLine{Kind: RenderedLineKindDiff, Text: diff, FileIndex: idx})
@@ -196,13 +204,6 @@ func detailHeader(file RenderedFile) string {
 		line = file.RelPath
 	}
 	return line
-}
-
-func detailPath(file RenderedFile) string {
-	if strings.TrimSpace(file.AbsPath) != "" {
-		return file.AbsPath
-	}
-	return file.RelPath
 }
 
 func resolvePath(path, cwd string) (string, string) {

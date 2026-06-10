@@ -41,13 +41,24 @@ export type DraftInputField = Readonly<{
   description: string;
 }>;
 
+export type DraftWorkflowParameter = WorkflowParameter &
+  Readonly<{
+    rowID?: string;
+  }>;
+
 export type DraftWorkflowNode = Omit<WorkflowNode, "inputFields"> &
   Readonly<{
     inputFields: readonly DraftInputField[];
   }>;
 
-export type DraftWorkflowDefinition = Omit<WorkflowDefinition, "nodes"> &
+export type DraftWorkflowEdge = Omit<WorkflowEdge, "parameters"> &
   Readonly<{
+    parameters: readonly DraftWorkflowParameter[];
+  }>;
+
+export type DraftWorkflowDefinition = Omit<WorkflowDefinition, "edges" | "nodes"> &
+  Readonly<{
+    edges: readonly DraftWorkflowEdge[];
     nodes: readonly DraftWorkflowNode[];
   }>;
 
@@ -98,11 +109,11 @@ export type WorkflowEditorDraftAction =
   | Readonly<{
       type: "updateEdgeParameter";
       edgeID: string;
-      parameterIndex: number;
+      parameterRowID: string;
       patch: Partial<WorkflowParameter>;
     }>
-  | Readonly<{ type: "deleteEdgeParameter"; edgeID: string; parameterIndex: number }>
-  | Readonly<{ type: "reorderEdgeParameter"; edgeID: string; activeIndex: number; overIndex: number }>
+  | Readonly<{ type: "deleteEdgeParameter"; edgeID: string; parameterRowID: string }>
+  | Readonly<{ type: "reorderEdgeParameter"; edgeID: string; activeRowID: string; overRowID: string }>
   | Readonly<{ type: "addNode"; input: AddWorkflowNodeInput }>
   | Readonly<{ type: "deleteNode"; nodeID: string }>
   | Readonly<{ type: "connectNodes"; input: ConnectWorkflowNodesInput }>
@@ -217,24 +228,33 @@ export function workflowEditorDraftReducer(
     case "addEdgeParameter":
       return editDraftEdge(state, action.edgeID, (edge) => ({
         ...edge,
-        parameters: [{ description: "", key: "" }, ...edge.parameters],
+        parameters: [
+          {
+            description: "",
+            key: "",
+            rowID: [edge.id, "parameter", state.version.toString(), edge.parameters.length.toString()].join(
+              ":",
+            ),
+          },
+          ...edge.parameters,
+        ],
       }));
     case "updateEdgeParameter":
       return editDraftEdge(state, action.edgeID, (edge) => ({
         ...edge,
-        parameters: edge.parameters.map((parameter, index) =>
-          index === action.parameterIndex ? { ...parameter, ...action.patch } : parameter,
+        parameters: edge.parameters.map((parameter) =>
+          parameter.rowID === action.parameterRowID ? { ...parameter, ...action.patch } : parameter,
         ),
       }));
     case "deleteEdgeParameter":
       return editDraftEdge(state, action.edgeID, (edge) => ({
         ...edge,
-        parameters: edge.parameters.filter((_parameter, index) => index !== action.parameterIndex),
+        parameters: edge.parameters.filter((parameter) => parameter.rowID !== action.parameterRowID),
       }));
     case "reorderEdgeParameter":
       return editDraftEdge(state, action.edgeID, (edge) => ({
         ...edge,
-        parameters: reorderIndex(edge.parameters, action.activeIndex, action.overIndex),
+        parameters: reorderParameterRows(edge.parameters, action.activeRowID, action.overRowID),
       }));
     case "addNode":
       return applyTopologyMutation(state, addWorkflowNode(state.draft, action.input));
@@ -264,6 +284,7 @@ export function workflowEditorDraftReducer(
 export function draftDefinitionFromSource(source: WorkflowDefinition): DraftWorkflowDefinition {
   return {
     ...source,
+    edges: source.edges.map(draftEdgeWithParameterRowIDs),
     nodes: source.nodes.map((node) => ({
       ...node,
       inputFields: node.inputFields.map((field, index) => ({
@@ -277,6 +298,10 @@ export function draftDefinitionFromSource(source: WorkflowDefinition): DraftWork
 export function workflowDefinitionFromDraft(draft: DraftWorkflowDefinition): WorkflowDefinition {
   return {
     ...draft,
+    edges: draft.edges.map((edge) => ({
+      ...edge,
+      parameters: edge.parameters.map(({ description, key }) => ({ description, key })),
+    })),
     nodes: draft.nodes.map((node) => ({
       ...node,
       inputFields: node.inputFields.map(({ name, description }) => ({ name, description })),
@@ -301,7 +326,7 @@ export function workflowEditorDraftGraph(state: WorkflowEditorDraftState): Workf
       contextSource: edge.contextSource,
       id: edge.id,
       key: edge.key,
-      parameters: edge.parameters,
+      parameters: edge.parameters.map(({ description, key }) => ({ description, key })),
       promptTemplate: edge.promptTemplate,
       requiresApproval: edge.requiresApproval,
       targetNodeID: edge.targetNodeID,
@@ -361,7 +386,7 @@ function applyTopologyMutation(
   if (mutation.draft === state.draft) {
     return { ...state, lastTopologyMutation };
   }
-  return nextDraftState(state, mutation.draft, true, {
+  return nextDraftState(state, draftDefinitionFromSource(mutation.draft), true, {
     ...lastTopologyMutation,
   });
 }
@@ -394,27 +419,41 @@ function editDraftNode(
 function editDraftEdge(
   state: WorkflowEditorDraftState,
   edgeID: string,
-  edit: (edge: WorkflowEdge, edges: readonly WorkflowEdge[]) => WorkflowEdge,
+  edit: (edge: DraftWorkflowEdge, edges: readonly DraftWorkflowEdge[]) => DraftWorkflowEdge,
 ): WorkflowEditorDraftState {
   const edgeIndex = state.draft.edges.findIndex((edge) => edge.id === edgeID);
   if (edgeIndex < 0) {
     return state;
   }
   const edges = state.draft.edges.map((edge, index) =>
-    index === edgeIndex ? edit(edge, state.draft.edges) : edge,
+    index === edgeIndex ? draftEdgeWithParameterRowIDs(edit(edge, state.draft.edges)) : edge,
   );
   return nextDraftState(state, { ...state.draft, edges });
 }
 
+function draftEdgeWithParameterRowIDs(edge: WorkflowEdge): DraftWorkflowEdge {
+  return {
+    ...edge,
+    parameters: edge.parameters.map((parameter, index) => ({
+      ...parameter,
+      rowID: draftParameterRowID(parameter) ?? [edge.id, "parameter", index.toString()].join(":"),
+    })),
+  };
+}
+
+function draftParameterRowID(parameter: WorkflowParameter): string | undefined {
+  return "rowID" in parameter && typeof parameter.rowID === "string" ? parameter.rowID : undefined;
+}
+
 type SelectedNodeCascadeRequest = Readonly<{
-  edges: readonly WorkflowEdge[];
+  edges: readonly DraftWorkflowEdge[];
   nodeID: string;
   oldKey: string;
   newKey: string;
   nodes: readonly DraftWorkflowNode[];
 }>;
 
-function selectedNodeCascadeEdges(req: SelectedNodeCascadeRequest): readonly WorkflowEdge[] {
+function selectedNodeCascadeEdges(req: SelectedNodeCascadeRequest): readonly DraftWorkflowEdge[] {
   const { edges, nodeID, oldKey, newKey, nodes } = req;
   const oldKeyOwners = nodes.filter((item) => item.key === oldKey);
   const oldKeyOwner = oldKeyOwners.at(0);
@@ -447,16 +486,14 @@ function reorderRow<T extends Readonly<{ rowID: string }>>(
   return next;
 }
 
-function reorderIndex<T>(rows: readonly T[], activeIndex: number, overIndex: number): readonly T[] {
-  if (
-    !Number.isInteger(activeIndex) ||
-    !Number.isInteger(overIndex) ||
-    activeIndex < 0 ||
-    overIndex < 0 ||
-    activeIndex >= rows.length ||
-    overIndex >= rows.length ||
-    activeIndex === overIndex
-  ) {
+function reorderParameterRows(
+  rows: readonly DraftWorkflowParameter[],
+  activeRowID: string,
+  overRowID: string,
+): readonly DraftWorkflowParameter[] {
+  const activeIndex = rows.findIndex((row) => row.rowID === activeRowID);
+  const overIndex = rows.findIndex((row) => row.rowID === overRowID);
+  if (activeIndex < 0 || overIndex < 0 || activeIndex === overIndex) {
     return rows;
   }
   const next = [...rows];

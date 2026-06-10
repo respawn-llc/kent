@@ -92,7 +92,11 @@ func (t *requestCacheTracker) Prepare(req llm.Request) (preparedCacheRequestObse
 	if !ok {
 		return observation, nil
 	}
-	if normalizeRequestCacheDigestVersion(previous.request.DigestVersion) != requestCacheDigestVersion {
+	previousRequestDigestVersion := previous.request.DigestVersion
+	if previousRequestDigestVersion <= 0 {
+		previousRequestDigestVersion = requestCacheDigestVersion
+	}
+	if previousRequestDigestVersion != requestCacheDigestVersion {
 		return observation, nil
 	}
 	observation.previousHadReuse = previous.lastResponseHadReuse
@@ -146,7 +150,9 @@ func (t *requestCacheTracker) RecordResponse(response persistedCacheResponseObse
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	response.DigestVersion = normalizeRequestCacheDigestVersion(response.DigestVersion)
+	if response.DigestVersion <= 0 {
+		response.DigestVersion = requestCacheDigestVersion
+	}
 	state := t.lineage[cacheKey]
 	state.request = persistedCacheRequestObserved{
 		DigestVersion: response.DigestVersion,
@@ -220,13 +226,6 @@ func (e *Engine) observePromptCacheResponse(stepID string, prepared preparedCach
 	}
 	e.modelRequests().RequestCache().RecordResponse(response)
 	return nil
-}
-
-func normalizeRequestCacheDigestVersion(version int) int {
-	if version <= 0 {
-		return requestCacheDigestVersion
-	}
-	return version
 }
 
 func shouldWarnOnCacheReuseDrop(mode config.CacheWarningMode, prepared preparedCacheRequestObservation, usage llm.Usage) bool {
@@ -332,10 +331,19 @@ func summarizePromptCacheRequest(req llm.Request) (promptCacheRequestSummary, er
 }
 
 func promptCacheChunks(req llm.Request) ([][]byte, error) {
+	var structuredOutput *promptCacheStructuredOutput
+	if req.StructuredOutput != nil {
+		structuredOutput = &promptCacheStructuredOutput{
+			Name:        req.StructuredOutput.Name,
+			Description: req.StructuredOutput.Description,
+			Strict:      req.StructuredOutput.Strict,
+			Schema:      compactJSONRaw(req.StructuredOutput.Schema),
+		}
+	}
 	metadata, err := json.Marshal(promptCacheMetadata{
 		SystemPrompt:     req.SystemPrompt,
 		Tools:            promptCacheTools(req.Tools),
-		StructuredOutput: promptCacheStructuredOutputFrom(req.StructuredOutput),
+		StructuredOutput: structuredOutput,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal prompt cache metadata: %w", err)
@@ -403,18 +411,6 @@ func promptCacheTools(tools []llm.Tool) []promptCacheTool {
 		})
 	}
 	return out
-}
-
-func promptCacheStructuredOutputFrom(output *llm.StructuredOutput) *promptCacheStructuredOutput {
-	if output == nil {
-		return nil
-	}
-	return &promptCacheStructuredOutput{
-		Name:        output.Name,
-		Description: output.Description,
-		Strict:      output.Strict,
-		Schema:      compactJSONRaw(output.Schema),
-	}
 }
 
 func promptCacheItemFromResponse(item llm.ResponseItem) promptCacheItem {

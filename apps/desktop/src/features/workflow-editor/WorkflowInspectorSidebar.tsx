@@ -61,7 +61,11 @@ import {
   transitionGroupByID,
   transitionGroupIsFanOut,
 } from "./workflowInspectorModel";
-import { workflowDefinitionFromDraft, type DraftWorkflowNode } from "./workflowEditorDraft";
+import {
+  workflowDefinitionFromDraft,
+  type DraftWorkflowEdge,
+  type DraftWorkflowNode,
+} from "./workflowEditorDraft";
 import {
   useWorkflowEditorDraftController,
   type WorkflowEditorDraftController,
@@ -163,7 +167,7 @@ function WorkflowDraftInspectorContent({
       <GroupDetails definition={definition} group={group} validation={validation} />
     );
   }
-  const edge = definition.edges.find((item) => item.id === selection.edgeID);
+  const edge = controller.draft.edges.find((item) => item.id === selection.edgeID);
   return edge === undefined ? (
     <MissingEntity entityID={selection.edgeID} />
   ) : (
@@ -220,7 +224,7 @@ function EdgeDraftDetails({
 }: Readonly<{
   controller: WorkflowEditorDraftController;
   definition: WorkflowDefinition;
-  edge: WorkflowEdge;
+  edge: DraftWorkflowEdge;
   validation: WorkflowValidation;
 }>) {
   const { t } = useTranslation();
@@ -368,7 +372,7 @@ function EdgeInvocationSections({
 }: Readonly<{
   controller: WorkflowEditorDraftController;
   definition: WorkflowDefinition;
-  edge: WorkflowEdge;
+  edge: DraftWorkflowEdge;
   sourceKind: string;
   targetKind: string;
 }>) {
@@ -700,9 +704,13 @@ function EditableEdgeParameters({
   edge,
 }: Readonly<{
   controller: WorkflowEditorDraftController;
-  edge: WorkflowEdge;
+  edge: DraftWorkflowEdge;
 }>) {
   const { t } = useTranslation();
+  const parameters = edge.parameters.map((parameter, index) => ({
+    ...parameter,
+    rowID: parameter.rowID ?? [edge.id, "parameter", "fallback", index.toString()].join(":"),
+  }));
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -729,16 +737,15 @@ function EditableEdgeParameters({
           sensors={sensors}
         >
           <SortableContext
-            items={edge.parameters.map((_parameter, index) => index)}
+            items={parameters.map((parameter) => parameter.rowID)}
             strategy={verticalListSortingStrategy}
           >
             <div className="grid gap-[var(--space-3)]">
-              {edge.parameters.map((parameter, index) => (
+              {parameters.map((parameter) => (
                 <SortableEdgeParameter
                   controller={controller}
                   edgeID={edge.id}
-                  index={index}
-                  key={`${index.toString()}:${parameter.key}`}
+                  key={parameter.rowID}
                   parameter={parameter}
                 />
               ))}
@@ -753,19 +760,17 @@ function EditableEdgeParameters({
 function SortableEdgeParameter({
   controller,
   edgeID,
-  index,
   parameter,
 }: Readonly<{
   controller: WorkflowEditorDraftController;
   edgeID: string;
-  index: number;
-  parameter: WorkflowParameter;
+  parameter: WorkflowParameter & Readonly<{ rowID: string }>;
 }>) {
   const { t } = useTranslation();
   const keyID = useId();
   const descriptionID = useId();
   const { attributes, listeners, setActivatorNodeRef, setNodeRef, transform, transition } = useSortable({
-    id: index,
+    id: parameter.rowID,
   });
   const style = {
     transform:
@@ -811,7 +816,7 @@ function SortableEdgeParameter({
               onChange={(event) => {
                 controller.dispatch({
                   edgeID,
-                  parameterIndex: index,
+                  parameterRowID: parameter.rowID,
                   patch: { key: event.target.value.replaceAll("\n", " ") },
                   type: "updateEdgeParameter",
                 });
@@ -825,7 +830,7 @@ function SortableEdgeParameter({
             aria-label={t("workflowEditor.deleteParameter")}
             className="pointer-events-auto grid h-8 w-8 shrink-0 place-items-center rounded-full !border-transparent !bg-transparent !p-0"
             onClick={() => {
-              controller.dispatch({ edgeID, parameterIndex: index, type: "deleteEdgeParameter" });
+              controller.dispatch({ edgeID, parameterRowID: parameter.rowID, type: "deleteEdgeParameter" });
             }}
             variant="danger"
           >
@@ -842,7 +847,7 @@ function SortableEdgeParameter({
             onChange={(event) => {
               controller.dispatch({
                 edgeID,
-                parameterIndex: index,
+                parameterRowID: parameter.rowID,
                 patch: { description: event.target.value },
                 type: "updateEdgeParameter",
               });
@@ -865,13 +870,13 @@ function reorderEdgeParameter(
   if (overID === undefined || event.active.id === overID) {
     return;
   }
-  if (typeof event.active.id !== "number" || typeof overID !== "number") {
+  if (typeof event.active.id !== "string" || typeof overID !== "string") {
     return;
   }
   controller.dispatch({
-    activeIndex: event.active.id,
+    activeRowID: event.active.id,
     edgeID,
-    overIndex: overID,
+    overRowID: overID,
     type: "reorderEdgeParameter",
   });
 }

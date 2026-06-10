@@ -35,17 +35,6 @@ const (
 	InputSubmissionLocked   InputSubmissionLifecycle = "locked"
 )
 
-func NewInputSubmissionLifecycle(locked bool) InputSubmissionLifecycle {
-	if locked {
-		return InputSubmissionLocked
-	}
-	return InputSubmissionUnlocked
-}
-
-func (s InputSubmissionLifecycle) IsLocked() bool {
-	return s == InputSubmissionLocked
-}
-
 type BackgroundNoticeKind uint8
 
 const (
@@ -71,10 +60,6 @@ const (
 type RuntimeTranscriptSyncCommand struct {
 	Reason        RuntimeTranscriptSyncReason
 	RecoveryCause clientui.TranscriptRecoveryCause
-}
-
-func (c RuntimeTranscriptSyncCommand) IsSet() bool {
-	return c.Reason != RuntimeTranscriptSyncNone
 }
 
 type RuntimeAssistantStreamCommandKind uint8
@@ -181,13 +166,21 @@ func ReduceRuntimeEvent(
 	activityRunning bool,
 	evt clientui.Event,
 ) RuntimeEventReduction {
+	conversationReduction := RuntimeConversationReduction{State: conversationState}
+	if evt.Kind == clientui.EventUserMessageFlushed {
+		conversationReduction = RuntimeConversationReduction{State: RuntimeConversationState{Freshness: clientui.ConversationFreshnessEstablished}}
+	}
+	backgroundProcessReduction := RuntimeBackgroundProcessReduction{}
+	if evt.Kind == clientui.EventBackgroundUpdated {
+		backgroundProcessReduction = RuntimeBackgroundProcessReduction{Command: RuntimeBackgroundProcessRefresh}
+	}
 	return RuntimeEventReduction{
 		Transcript:          ReduceRuntimeTranscriptEvent(evt),
 		RunState:            ReduceRuntimeRunStateEvent(runState, activityRunning, evt),
-		Conversation:        ReduceRuntimeConversationEvent(conversationState, evt),
+		Conversation:        conversationReduction,
 		PendingInput:        ReduceRuntimePendingInputEvent(input, evt),
 		Reasoning:           ReduceRuntimeReasoningEvent(reasoningState, evt),
-		BackgroundProcesses: ReduceRuntimeBackgroundProcessEvent(evt),
+		BackgroundProcesses: backgroundProcessReduction,
 		Notices:             ReduceRuntimeNoticeEvent(evt),
 	}
 }
@@ -248,13 +241,6 @@ func ReduceRuntimeRunStateEvent(state RuntimeRunState, activityRunning bool, evt
 	return reduction
 }
 
-func ReduceRuntimeConversationEvent(state RuntimeConversationState, evt clientui.Event) RuntimeConversationReduction {
-	if evt.Kind == clientui.EventUserMessageFlushed {
-		return RuntimeConversationReduction{State: RuntimeConversationState{Freshness: clientui.ConversationFreshnessEstablished}}
-	}
-	return RuntimeConversationReduction{State: state}
-}
-
 func ReduceRuntimePendingInputEvent(input PendingInputState, evt clientui.Event) RuntimePendingInputReduction {
 	next := clonePendingInputState(input)
 	reduction := RuntimePendingInputReduction{
@@ -269,13 +255,13 @@ func ReduceRuntimePendingInputEvent(input PendingInputState, evt clientui.Event)
 			reduction.PromptHistoryCommand = &RuntimePromptHistoryCommand{Text: evt.UserMessage}
 			reduction.ConsumedQueueItemIDs = append([]string(nil), evt.UserMessageBatchQueueItemIDs[:len(consumed)]...)
 		}
-		if reduction.State.Submission.IsLocked() && containsQueuedUserMessageID(consumed, reduction.State.LockedInjectID) {
+		if reduction.State.Submission == InputSubmissionLocked && containsQueuedUserMessageID(consumed, reduction.State.LockedInjectID) {
 			if reduction.State.Input == reduction.State.LockedInjectText {
 				reduction.DraftCommand = RuntimePendingInputClearDraft
 			}
 			reduction.State.LockedInjectText = ""
 			reduction.State.LockedInjectID = ""
-			reduction.State.Submission = NewInputSubmissionLifecycle(false)
+			reduction.State.Submission = InputSubmissionUnlocked
 		}
 	}
 	return reduction
@@ -306,13 +292,6 @@ func ReduceRuntimeReasoningEvent(state RuntimeReasoningState, evt clientui.Event
 		}
 	}
 	return reduction
-}
-
-func ReduceRuntimeBackgroundProcessEvent(evt clientui.Event) RuntimeBackgroundProcessReduction {
-	if evt.Kind != clientui.EventBackgroundUpdated {
-		return RuntimeBackgroundProcessReduction{}
-	}
-	return RuntimeBackgroundProcessReduction{Command: RuntimeBackgroundProcessRefresh}
 }
 
 func ReduceRuntimeNoticeEvent(evt clientui.Event) RuntimeNoticeReduction {

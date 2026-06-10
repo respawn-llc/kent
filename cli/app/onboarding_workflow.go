@@ -207,13 +207,17 @@ func newOnboardingWorkflow(state *onboardingFlowState) onboardingWorkflow {
 				return reviewerEnabled(state)
 			},
 			build: func(state *onboardingFlowState) onboardingScreen {
+				reviewerModel := strings.TrimSpace(state.settings.Reviewer.Model)
+				if reviewerModel == "" {
+					reviewerModel = state.settings.Model
+				}
 				return onboardingScreen{
 					ID:         "reviewer_model",
 					Kind:       onboardingScreenInput,
 					Title:      "Choose a Supervisor model",
 					Body:       "By default, Supervisor uses the same model you chose above. Enter a different model only if you want a separate reviewer pass.",
 					Helper:     "Press Enter to continue.",
-					InputValue: valueOrFallback(strings.TrimSpace(state.settings.Reviewer.Model), state.settings.Model),
+					InputValue: reviewerModel,
 				}
 			},
 			apply: func(state *onboardingFlowState, value string) error {
@@ -315,7 +319,7 @@ func newOnboardingWorkflow(state *onboardingFlowState) onboardingWorkflow {
 		onboardingStepDefinition{
 			id: "skills_import",
 			visible: func(state *onboardingFlowState) bool {
-				return state.imports.pending || state.imports.err != nil || (!state.imports.skipSkills && state.imports.hasSkillCandidates())
+				return state.imports.pending || state.imports.err != nil || (!state.imports.skipSkills && hasImportProviderItems(state.imports.skillSymlinkItems))
 			},
 			build: func(state *onboardingFlowState) onboardingScreen { return buildSkillImportScreen(state) },
 			apply: func(state *onboardingFlowState, choiceID string) error {
@@ -335,7 +339,7 @@ func newOnboardingWorkflow(state *onboardingFlowState) onboardingWorkflow {
 		onboardingStepDefinition{
 			id: "commands_import",
 			visible: func(state *onboardingFlowState) bool {
-				return state.imports.pending || state.imports.err != nil || (!state.imports.skipCommands && state.imports.hasCommandCandidates())
+				return state.imports.pending || state.imports.err != nil || (!state.imports.skipCommands && hasImportProviderItems(state.imports.commandSymlinkItems))
 			},
 			build: func(state *onboardingFlowState) onboardingScreen {
 				return buildCommandImportScreen(state)

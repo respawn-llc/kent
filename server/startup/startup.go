@@ -123,7 +123,7 @@ func EnsureReady(ctx context.Context, state AuthState, authHandler AuthHandler) 
 		state.AuthManager(),
 		state.OAuthOptions(),
 		cfg.Settings.Theme,
-		lookupEnv(authHandler),
+		authHandler.LookupEnv,
 		authpolicy.RequiresStartupAuth(cfg.Settings),
 		true,
 		authHandler,
@@ -142,20 +142,17 @@ func buildRequest(req Request, authHandler AuthHandler) serverbootstrap.Request 
 			Tools:               req.Tools,
 		}
 	}
+	lookupEnv := os.Getenv
+	if authHandler != nil {
+		lookupEnv = authHandler.LookupEnv
+	}
 	return serverbootstrap.Request{
 		WorkspaceRoot:         req.WorkspaceRoot,
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
 		SessionID:             req.SessionID,
 		OpenAIBaseURL:         req.OpenAIBaseURL,
 		OpenAIBaseURLExplicit: req.OpenAIBaseURLExplicit,
-		LookupEnv:             lookupEnv(authHandler),
+		LookupEnv:             lookupEnv,
 		LoadOptions:           loadOptions,
 	}
-}
-
-func lookupEnv(authHandler AuthHandler) func(string) string {
-	if authHandler == nil {
-		return os.Getenv
-	}
-	return authHandler.LookupEnv
 }

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"builder/cli/app/internal/worktreecreateform"
 	"builder/cli/app/internal/worktreeview"
 	"builder/cli/tui"
 	sharedclient "builder/shared/client"
@@ -436,7 +435,7 @@ func TestWorktreeCreateDialogExistingBranchResolutionSkipsBaseRef(t *testing.T) 
 	next, _ = updated.Update(worktreeCreateTargetResolveDoneMsg{token: updated.worktrees.create.resolveToken, query: "main", resp: serverapi.WorktreeCreateTargetResolveResponse{Resolution: serverapi.WorktreeCreateTargetResolution{Input: "main", Kind: serverapi.WorktreeCreateTargetResolutionKindExistingBranch}}})
 	updated = next.(*uiModel)
 
-	if worktreecreateform.UsesBaseRef(updated.worktrees.create.resolution.Kind) {
+	if updated.worktrees.create.resolution.Kind == serverapi.WorktreeCreateTargetResolutionKindNewBranch {
 		t.Fatal("did not expect base ref for existing branch")
 	}
 	plain := stripANSIAndTrimRight(updated.View())
@@ -509,7 +508,7 @@ func TestWorktreeCreateDialogIgnoresStaleTargetResolutionResponses(t *testing.T)
 	if updated.worktrees.create.resolution.Kind != "" {
 		t.Fatalf("expected stale response ignored, got %+v", updated.worktrees.create.resolution)
 	}
-	if worktreecreateform.UsesBaseRef(updated.worktrees.create.resolution.Kind) {
+	if updated.worktrees.create.resolution.Kind == serverapi.WorktreeCreateTargetResolutionKindNewBranch {
 		t.Fatal("did not expect blank/loading state to enable base ref")
 	}
 
@@ -522,7 +521,7 @@ func TestWorktreeCreateDialogIgnoresStaleTargetResolutionResponses(t *testing.T)
 	if updated.worktrees.create.resolution.Kind != serverapi.WorktreeCreateTargetResolutionKindDetachedRef {
 		t.Fatalf("expected latest response applied, got %+v", updated.worktrees.create.resolution)
 	}
-	if worktreecreateform.UsesBaseRef(updated.worktrees.create.resolution.Kind) {
+	if updated.worktrees.create.resolution.Kind == serverapi.WorktreeCreateTargetResolutionKindNewBranch {
 		t.Fatal("did not expect base ref after detached-ref resolution")
 	}
 	plain := stripANSIAndTrimRight(updated.View())
