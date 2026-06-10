@@ -20,10 +20,12 @@ const (
 )
 
 type RuntimeRegistry struct {
-	directory  *runtimeDirectory
-	leases     *primaryRunLeaseStore
-	observerMu sync.Mutex
-	observer   func(sessionID string, reason RuntimeInterestReason)
+	directory       *runtimeDirectory
+	leases          *primaryRunLeaseStore
+	observerMu      sync.Mutex
+	observer        func(sessionID string, reason RuntimeInterestReason)
+	sleepObserverMu sync.Mutex
+	sleepObserver   func(sessionID string, running bool)
 }
 
 type RuntimeInterestReason int
@@ -58,6 +60,7 @@ func (r *RuntimeRegistry) Unregister(sessionID string, engine *runtime.Engine) {
 	}
 	r.leases.Clear(id)
 	closeRuntimeEntry(entry, io.EOF)
+	r.notifySleepObserver(id, false)
 }
 
 func (r *RuntimeRegistry) ResolveRuntime(_ context.Context, sessionID string) (*runtime.Engine, error) {
@@ -89,6 +92,9 @@ func (r *RuntimeRegistry) PublishRuntimeEvent(sessionID string, evt runtime.Even
 			reason = RuntimeInterestRunFinished
 		}
 		r.notifyInterestChanged(sessionID, reason)
+	}
+	if evt.Kind == runtime.EventRunStateChanged && evt.RunState != nil {
+		r.notifySleepObserver(sessionID, evt.RunState.Lifecycle.IsRunning())
 	}
 }
 
@@ -237,6 +243,15 @@ func (r *RuntimeRegistry) SetInterestObserver(observer func(sessionID string, re
 	r.observerMu.Unlock()
 }
 
+func (r *RuntimeRegistry) SetSleepObserver(observer func(sessionID string, running bool)) {
+	if r == nil {
+		return
+	}
+	r.sleepObserverMu.Lock()
+	r.sleepObserver = observer
+	r.sleepObserverMu.Unlock()
+}
+
 func (r *RuntimeRegistry) HasRuntimeSubscribers(sessionID string) bool {
 	if r == nil {
 		return false
@@ -261,6 +276,22 @@ func (r *RuntimeRegistry) notifyInterestChanged(sessionID string, reason Runtime
 	r.observerMu.Unlock()
 	if observer != nil {
 		observer(id, reason)
+	}
+}
+
+func (r *RuntimeRegistry) notifySleepObserver(sessionID string, running bool) {
+	if r == nil {
+		return
+	}
+	id := strings.TrimSpace(sessionID)
+	if id == "" {
+		return
+	}
+	r.sleepObserverMu.Lock()
+	observer := r.sleepObserver
+	r.sleepObserverMu.Unlock()
+	if observer != nil {
+		observer(id, running)
 	}
 }
 

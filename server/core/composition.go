@@ -27,6 +27,7 @@ import (
 	"builder/server/sessionlifecycle"
 	"builder/server/sessionruntime"
 	"builder/server/sessionview"
+	"builder/server/sleepguard"
 	"builder/server/updatestatus"
 	"builder/server/workflow"
 	"builder/server/workflowrunner"
@@ -78,6 +79,8 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	}
 	storeOptions := metadataStore.AuthoritativeSessionStoreOptions()
 	runtimeRegistry := registry.NewRuntimeRegistry()
+	sleepManager := sleepguard.NewManager(cfg.Settings.PreventSleep)
+	runtimeRegistry.SetSleepObserver(sleepManager.OnRunStateChanged)
 	sessionStoreRegistry := registry.NewSessionStoreRegistry()
 	projectService, err := projectview.NewMetadataService(metadataStore, "")
 	if err != nil {
@@ -115,6 +118,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	var workflowRuntimeStarter *workflowrunner.Starter
 	var workflowScheduler *workflowscheduler.Service
 	cleanupNewFailure := func() {
+		sleepManager.Close()
 		if workflowScheduler != nil {
 			_ = workflowScheduler.Close()
 		}
@@ -183,6 +187,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 		workflowScheduler:       workflowScheduler,
 		workflowRuntimeStarter:  workflowRuntimeStarter,
 		worktreeService:         worktreeService,
+		sleepManager:            sleepManager,
 	})}
 	if strings.TrimSpace(cfg.WorkspaceRoot) != "" {
 		binding, err := metadataStore.EnsureWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)

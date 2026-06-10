@@ -27,6 +27,7 @@ import (
 	"builder/server/sessionview"
 	shelltool "builder/server/tools/shell"
 	"builder/server/updatestatus"
+	"builder/server/sleepguard"
 	"builder/server/workflowrunner"
 	"builder/server/workflowscheduler"
 	"builder/server/workflowsvc"
@@ -204,6 +205,7 @@ type bundleCompositionInput struct {
 	workflowScheduler       *workflowscheduler.Service
 	workflowRuntimeStarter  *workflowrunner.Starter
 	worktreeService         *worktree.Service
+	sleepManager            *sleepguard.Manager
 }
 
 func composeBundles(in bundleCompositionInput) *Bundles {
@@ -224,6 +226,12 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 					return nil
 				}
 				return in.workflowScheduler.Close()
+			}},
+			{name: "sleep manager", close: func() error {
+				if in.sleepManager != nil {
+					in.sleepManager.Close()
+				}
+				return nil
 			}},
 		},
 		Persistence: newPersistenceBundle(in.rootLease, in.metadataStore, in.sessionStoreRegistry),
