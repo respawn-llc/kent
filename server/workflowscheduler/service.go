@@ -78,7 +78,7 @@ type Service struct {
 const (
 	defaultClaimRetries    = 3
 	defaultClaimBackoff    = 10 * time.Millisecond
-	defaultProcessInterval = 500 * time.Millisecond
+	defaultProcessInterval = 5000 * time.Millisecond
 	defaultWakeBuffer      = 1
 )
 
