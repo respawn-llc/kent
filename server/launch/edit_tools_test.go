@@ -163,7 +163,7 @@ func validLaunchSettings(model string) config.Settings {
 		ModelContextWindow:               272000,
 		ContextCompactionThresholdTokens: 258400,
 		PreSubmitCompactionLeadTokens:    35000,
-		PreventSleep: config.SleepPreventionModeNever,
+		PreventSleep:                     config.SleepPreventionModeNever,
 		EnabledTools: map[toolspec.ID]bool{
 			toolspec.ToolPatch: true,
 			toolspec.ToolEdit:  false,
