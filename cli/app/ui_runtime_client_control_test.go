@@ -29,6 +29,10 @@ func (c *runtimeControlStatusPatchClient) SetAutoCompactionEnabled(context.Conte
 	return c.autoCompactionResp, nil
 }
 
+func (c *runtimeControlStatusPatchClient) SetQuestionsEnabled(context.Context, serverapi.RuntimeSetQuestionsEnabledRequest) (serverapi.RuntimeSetQuestionsEnabledResponse, error) {
+	return serverapi.RuntimeSetQuestionsEnabledResponse{}, nil
+}
+
 func (c *runtimeControlStatusPatchClient) QueueUserMessage(context.Context, serverapi.RuntimeQueueUserMessageRequest) (serverapi.RuntimeQueueUserMessageResponse, error) {
 	if c.queueErr != nil {
 		return serverapi.RuntimeQueueUserMessageResponse{}, c.queueErr

@@ -63,6 +63,12 @@ func NewRuntimeWiringWithBackground(store *session.Store, active config.Settings
 		logger,
 		background,
 		func() triggerhandofftool.Controller { return eng },
+		func() bool {
+			if eng == nil {
+				return true
+			}
+			return eng.QuestionsEnabled()
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -151,6 +157,7 @@ func NewRuntimeWiringWithBackground(store *session.Store, active config.Settings
 		CompactionMode:                string(active.CompactionMode),
 		CacheWarningMode:              active.CacheWarningMode,
 		AutoCompactionEnabled:         boolRef(true),
+		QuestionsEnabled:              boolRef(true),
 		HeadlessMode:                  opts.Headless,
 		ToolPreambles:                 active.ToolPreambles,
 		WorkflowRun:                   opts.WorkflowRun,

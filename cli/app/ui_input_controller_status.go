@@ -56,6 +56,19 @@ func reviewerToggleStatusMessage(enabled bool, mode string, changed bool) string
 	return "Supervisor invocation already disabled"
 }
 
+func questionsToggleStatusMessage(enabled bool, changed bool) string {
+	if enabled {
+		if changed {
+			return "Questions enabled"
+		}
+		return "Questions already enabled"
+	}
+	if changed {
+		return "Questions disabled"
+	}
+	return "Questions already disabled"
+}
+
 func autoCompactionToggleStatusMessage(enabled bool, changed bool, compactionMode string) string {
 	modeNote := ""
 	if strings.EqualFold(strings.TrimSpace(compactionMode), "none") {

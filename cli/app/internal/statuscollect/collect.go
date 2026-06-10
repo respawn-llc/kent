@@ -92,6 +92,7 @@ func (c Collector) CollectBase(req appstatus.Request) appstatus.Snapshot {
 			OverrideSources: ConfigOverrideSources(req.Source),
 			Supervisor:      SupervisorLabel(req.ReviewerEnabled, strings.TrimSpace(req.ReviewerMode)),
 			AutoCompaction:  req.AutoCompactionEnabled,
+			Questions:       req.QuestionsEnabled,
 			Debug:           req.Settings.Debug,
 		},
 		CompactionCount: compactionCount,

@@ -42,6 +42,9 @@ func (transcriptDiagTestRuntimeControlClient) SetReviewerEnabled(context.Context
 func (transcriptDiagTestRuntimeControlClient) SetAutoCompactionEnabled(context.Context, serverapi.RuntimeSetAutoCompactionEnabledRequest) (serverapi.RuntimeSetAutoCompactionEnabledResponse, error) {
 	return serverapi.RuntimeSetAutoCompactionEnabledResponse{}, nil
 }
+func (transcriptDiagTestRuntimeControlClient) SetQuestionsEnabled(context.Context, serverapi.RuntimeSetQuestionsEnabledRequest) (serverapi.RuntimeSetQuestionsEnabledResponse, error) {
+	return serverapi.RuntimeSetQuestionsEnabledResponse{}, nil
+}
 func (transcriptDiagTestRuntimeControlClient) AppendLocalEntry(context.Context, serverapi.RuntimeAppendLocalEntryRequest) error {
 	return nil
 }

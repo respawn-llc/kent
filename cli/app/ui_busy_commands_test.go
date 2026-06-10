@@ -26,6 +26,7 @@ func TestDefaultRegistryBusyContract(t *testing.T) {
 		"fast":           true,
 		"supervisor":     true,
 		"autocompaction": true,
+		"questions":      true,
 		"status":         true,
 		"goal":           true,
 		"ps":             true,

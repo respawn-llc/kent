@@ -15,6 +15,7 @@ func TestSessionSnapshotCapabilitiesCoverReadModelFields(t *testing.T) {
 			"ReviewerFrequency",
 			"ReviewerEnabled",
 			"AutoCompactionEnabled",
+			"QuestionsEnabled",
 			"FastModeAvailable",
 			"FastModeEnabled",
 			"ConversationFreshness",

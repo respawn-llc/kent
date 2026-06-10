@@ -429,6 +429,11 @@ func (c *slashLocalEntryRuntimeClient) SetAutoCompactionEnabled(enabled bool) (b
 	return true, enabled, nil
 }
 
+func (c *slashLocalEntryRuntimeClient) SetQuestionsEnabled(enabled bool) (bool, error) {
+	c.view.Status.QuestionsEnabled = enabled
+	return true, nil
+}
+
 func (c *slashLocalEntryRuntimeClient) CachedMainView() (clientui.RuntimeMainView, bool) {
 	return c.MainView(), true
 }

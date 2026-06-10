@@ -210,6 +210,32 @@ func (e *Engine) SetAutoCompactionEnabled(enabled bool) (bool, bool) {
 	return true, enabled
 }
 
+func (e *Engine) QuestionsEnabled() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.cfg.QuestionsEnabled == nil {
+		return true
+	}
+	return *e.cfg.QuestionsEnabled
+}
+
+func (e *Engine) SetQuestionsEnabled(enabled bool) (bool, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	current := true
+	if e.cfg.QuestionsEnabled != nil {
+		current = *e.cfg.QuestionsEnabled
+	}
+	if current == enabled {
+		return false, current
+	}
+	if e.cfg.QuestionsEnabled == nil {
+		e.cfg.QuestionsEnabled = new(bool)
+	}
+	*e.cfg.QuestionsEnabled = enabled
+	return true, enabled
+}
+
 func (e *Engine) SetReviewerEnabled(enabled bool) (bool, string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

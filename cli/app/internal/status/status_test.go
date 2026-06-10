@@ -77,6 +77,10 @@ func (s stubRuntimeClient) SetAutoCompactionEnabled(bool) (bool, bool, error) {
 	return false, false, nil
 }
 
+func (s stubRuntimeClient) SetQuestionsEnabled(bool) (bool, error) {
+	return false, nil
+}
+
 func (s stubRuntimeClient) ShowGoal() (*clientui.RuntimeGoal, error) { return nil, nil }
 
 func (s stubRuntimeClient) SetGoal(string) (*clientui.RuntimeGoal, error) { return nil, nil }

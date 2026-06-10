@@ -15,6 +15,7 @@ func (m *uiModel) applyRuntimeMainViewState(view clientui.RuntimeMainView) {
 	m.reviewerMode = status.ReviewerFrequency
 	m.reviewerEnabled = status.ReviewerEnabled
 	m.autoCompactionEnabled = status.AutoCompactionEnabled
+	m.questionsEnabled = status.QuestionsEnabled
 	m.fastModeAvailable = status.FastModeAvailable
 	m.fastModeEnabled = status.FastModeEnabled
 	m.conversationFreshness = status.ConversationFreshness
@@ -215,6 +216,7 @@ func (m *uiModel) localRuntimeStatus() clientui.RuntimeStatus {
 		ReviewerFrequency:                 m.reviewerMode,
 		ReviewerEnabled:                   m.reviewerEnabled,
 		AutoCompactionEnabled:             m.autoCompactionEnabled,
+		QuestionsEnabled:                  m.questionsEnabled,
 		FastModeAvailable:                 m.fastModeAvailable,
 		FastModeEnabled:                   m.fastModeEnabled,
 		ConversationFreshness:             m.conversationFreshness,

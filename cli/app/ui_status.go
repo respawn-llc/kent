@@ -155,6 +155,7 @@ func (m *uiModel) newStatusRequest(now time.Time) uiStatusRequest {
 		ReviewerEnabled:       m.reviewerEnabled,
 		ReviewerMode:          strings.TrimSpace(m.reviewerMode),
 		AutoCompactionEnabled: m.autoCompactionEnabled,
+		QuestionsEnabled:      m.questionsEnabled,
 		OwnsServer:            m.statusConfig.OwnsServer,
 		CurrentTime:           now,
 	}

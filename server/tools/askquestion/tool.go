@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"builder/prompts"
 	"builder/server/tools"
 
 	"github.com/google/uuid"
@@ -364,14 +365,18 @@ func (r ToolRequest) request(callID string) Request {
 }
 
 type Tool struct {
-	broker *Broker
+	broker           *Broker
+	questionsEnabled func() bool
 }
 
-func NewTool(b *Broker) *Tool {
-	return &Tool{broker: b}
+func NewTool(b *Broker, questionsEnabled func() bool) *Tool {
+	return &Tool{broker: b, questionsEnabled: questionsEnabled}
 }
 
 func (t *Tool) Call(ctx context.Context, c tools.Call) (tools.Result, error) {
+	if t.questionsEnabled != nil && !t.questionsEnabled() {
+		return tools.ErrorResult(c, prompts.QuestionsDisabledPrompt), nil
+	}
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(c.Input, &raw); err != nil {
 		return tools.ErrorResult(c, fmt.Sprintf("invalid input: %v", err)), nil

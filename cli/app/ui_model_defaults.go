@@ -42,6 +42,7 @@ func newUIInputFeatureState() uiInputFeatureState {
 		commandRegistry:          commands.NewDefaultRegistry(),
 		reviewerMode:             "off",
 		autoCompactionEnabled:    true,
+		questionsEnabled:         true,
 		conversationFreshness:    clientui.ConversationFreshnessFresh,
 	}
 }

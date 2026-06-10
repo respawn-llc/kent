@@ -57,6 +57,18 @@ type RuntimeSetAutoCompactionEnabledResponse struct {
 	Enabled bool `json:"enabled"`
 }
 
+type RuntimeSetQuestionsEnabledRequest struct {
+	ClientRequestID   string `json:"client_request_id"`
+	SessionID         string `json:"session_id"`
+	ControllerLeaseID string `json:"controller_lease_id"`
+	Enabled           bool   `json:"enabled"`
+}
+
+type RuntimeSetQuestionsEnabledResponse struct {
+	Changed bool `json:"changed"`
+	Enabled bool `json:"enabled"`
+}
+
 type RuntimeAppendLocalEntryRequest struct {
 	ClientRequestID   string `json:"client_request_id"`
 	SessionID         string `json:"session_id"`
@@ -268,6 +280,9 @@ func (r RuntimeSetReviewerEnabledRequest) Validate() error {
 	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeSetAutoCompactionEnabledRequest) Validate() error {
+	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
+}
+func (r RuntimeSetQuestionsEnabledRequest) Validate() error {
 	return validateRuntimeControllerRequest(r.ClientRequestID, r.SessionID, r.ControllerLeaseID)
 }
 func (r RuntimeAppendLocalEntryRequest) Validate() error {

@@ -65,6 +65,7 @@ func TestRouteScopeAccessorKindsMatchRouteContract(t *testing.T) {
 		protocol.MethodRuntimeSetFastModeEnabled,
 		protocol.MethodRuntimeSetReviewerEnabled,
 		protocol.MethodRuntimeSetAutoCompactionEnabled,
+		protocol.MethodRuntimeSetQuestionsEnabled,
 		protocol.MethodRuntimeAppendLocalEntry,
 		protocol.MethodRuntimeShouldCompactBeforeUserMessage,
 		protocol.MethodRuntimeSubmitUserMessage,

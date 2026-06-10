@@ -302,7 +302,7 @@ func (m *uiModel) runtimeControlPendingEnabled(operation runtimeControlOperation
 
 func runtimeControlOperationUsesEnabledTarget(operation runtimeControlOperation) bool {
 	switch operation {
-	case runtimeControlSetFastMode, runtimeControlSetReviewer, runtimeControlSetAutoCompaction:
+	case runtimeControlSetFastMode, runtimeControlSetReviewer, runtimeControlSetAutoCompaction, runtimeControlSetQuestions:
 		return true
 	default:
 		return false
@@ -345,6 +345,8 @@ func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, text 
 			msg.changed, msg.mode, msg.err = client.SetReviewerEnabled(enabled)
 		case runtimeControlSetAutoCompaction:
 			msg.changed, msg.enabled, msg.err = client.SetAutoCompactionEnabled(enabled)
+		case runtimeControlSetQuestions:
+			msg.changed, msg.err = client.SetQuestionsEnabled(enabled)
 		case runtimeControlInterrupt:
 			msg.err = client.Interrupt()
 		}
@@ -413,6 +415,10 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 	case runtimeControlSetAutoCompaction:
 		m.autoCompactionEnabled = msg.enabled
 		status := autoCompactionToggleStatusMessage(msg.enabled, msg.changed, msg.compactionMode)
+		return sequenceCmds(m.inputController().appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeNeutral), followUpCmd)
+	case runtimeControlSetQuestions:
+		m.questionsEnabled = msg.enabled
+		status := questionsToggleStatusMessage(msg.enabled, msg.changed)
 		return sequenceCmds(m.inputController().appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeNeutral), followUpCmd)
 	case runtimeControlInterrupt:
 		return followUpCmd

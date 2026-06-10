@@ -21,6 +21,7 @@ const (
 	ActionSetFast           Action = "set_fast"
 	ActionSetSupervisor     Action = "set_supervisor"
 	ActionSetAutoCompaction Action = "set_auto_compaction"
+	ActionSetQuestions      Action = "set_questions"
 	ActionStatus            Action = "status"
 	ActionGoal              Action = "goal"
 	ActionProcesses         Action = "processes"
@@ -53,6 +54,7 @@ type Result struct {
 	FastMode           string
 	SupervisorMode     string
 	AutoCompactionMode string
+	QuestionsMode      string
 	GoalMode           GoalMode
 	GoalObjective      string
 }
@@ -114,6 +116,9 @@ func NewDefaultRegistry() *Registry {
 	})
 	r.RegisterWithOptions("autocompaction", "Toggle auto-compaction (usage: /autocompaction [on|off]; empty toggles)", RegisterOptions{RunWhileBusy: true}, func(args string) Result {
 		return Result{Handled: true, Action: ActionSetAutoCompaction, AutoCompactionMode: strings.ToLower(strings.TrimSpace(args))}
+	})
+	r.RegisterWithOptions("questions", "Toggle ask_question tool (usage: /questions [on|off]; empty toggles)", RegisterOptions{RunWhileBusy: true}, func(args string) Result {
+		return Result{Handled: true, Action: ActionSetQuestions, QuestionsMode: strings.ToLower(strings.TrimSpace(args))}
 	})
 	r.RegisterWithOptions("status", "Open a detailed status overlay for the current session/runtime", RegisterOptions{RunWhileBusy: true, PreservePromptHistoryDraft: true}, func(string) Result {
 		return Result{Handled: true, Action: ActionStatus}

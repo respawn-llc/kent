@@ -268,6 +268,8 @@ func routeSessionID(params any) (string, bool) {
 		return p.SessionID, true
 	case serverapi.RuntimeSetAutoCompactionEnabledRequest:
 		return p.SessionID, true
+	case serverapi.RuntimeSetQuestionsEnabledRequest:
+		return p.SessionID, true
 	case serverapi.RuntimeAppendLocalEntryRequest:
 		return p.SessionID, true
 	case serverapi.RuntimeShouldCompactBeforeUserMessageRequest:

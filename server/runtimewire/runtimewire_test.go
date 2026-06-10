@@ -113,6 +113,7 @@ func TestBuildToolRegistryMissingWorkspaceRootSuggestsRebind(t *testing.T) {
 				nil,
 				nil,
 				nil,
+				nil,
 			)
 			if err == nil {
 				t.Fatal("expected build tool registry error for missing workspace root")
@@ -158,6 +159,7 @@ func TestNewLocalToolRegistryBindingRejectsEmptyWorkspaceRoot(t *testing.T) {
 		16_000,
 		false,
 		true,
+		nil,
 		nil,
 		nil,
 		nil,
@@ -578,7 +580,7 @@ func newRuntimeWireToolRegistry(t *testing.T, workspace string, enabled ...tools
 
 func newRuntimeWireLoggedToolRegistry(t *testing.T, workspace string, logger Logger, enabled ...toolspec.ID) (*tools.Registry, *askquestion.Broker) {
 	t.Helper()
-	registry, broker, _, err := BuildToolRegistry(workspace, "", enabled, 15*time.Second, 16_000, false, true, logger, nil, nil)
+	registry, broker, _, err := BuildToolRegistry(workspace, "", enabled, 15*time.Second, 16_000, false, true, logger, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("build tool registry: %v", err)
 	}
@@ -587,7 +589,7 @@ func newRuntimeWireLoggedToolRegistry(t *testing.T, workspace string, logger Log
 
 func newRuntimeWireBinding(t *testing.T, workspace string, enabled ...toolspec.ID) *LocalToolRegistryBinding {
 	t.Helper()
-	binding, _, _, err := NewLocalToolRegistryBinding(workspace, "", enabled, 15*time.Second, 16_000, false, true, nil, nil, nil)
+	binding, _, _, err := NewLocalToolRegistryBinding(workspace, "", enabled, 15*time.Second, 16_000, false, true, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("new local tool registry binding: %v", err)
 	}

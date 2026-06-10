@@ -97,6 +97,24 @@ func (c *sessionRuntimeClient) SetAutoCompactionEnabled(enabled bool) (bool, boo
 	return resp.Changed, resp.Enabled, nil
 }
 
+func (c *sessionRuntimeClient) SetQuestionsEnabled(enabled bool) (bool, error) {
+	if err := c.ensureWritable(); err != nil {
+		return false, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
+	defer cancel()
+	resp, err := retryRuntimeControlCall(ctx, c.controllerLeaseIDValue, c.recoverControllerLeaseWithWarning, true, func(controllerLeaseID string) (serverapi.RuntimeSetQuestionsEnabledResponse, error) {
+		return c.controls.SetQuestionsEnabled(ctx, serverapi.RuntimeSetQuestionsEnabledRequest{ClientRequestID: uuid.NewString(), SessionID: c.sessionID, ControllerLeaseID: controllerLeaseID, Enabled: enabled})
+	})
+	if err != nil {
+		return false, err
+	}
+	c.patchMainView(func(view *clientui.RuntimeMainView) {
+		view.Status.QuestionsEnabled = resp.Enabled
+	})
+	return resp.Changed, nil
+}
+
 func (c *sessionRuntimeClient) ShowGoal() (*clientui.RuntimeGoal, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
 	defer cancel()

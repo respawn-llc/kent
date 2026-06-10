@@ -77,7 +77,7 @@ type WorkflowInputValue struct {
 	Value string
 }
 
-//go:embed *.md system_prompt/*.md goal/*.md workflow/*.md
+//go:embed *.md system_prompt/*.md goal/*.md workflow/*.md questions/*.md
 var promptFS embed.FS
 
 func mustPrompt(path string) string {
@@ -123,6 +123,7 @@ var (
 	WorkflowHumanOnlyTaskActionDeniedPrompt        = mustPrompt("workflow/human_only_task_action_denied.md")
 	WorktreeModePrompt                             = mustPrompt("worktree_mode_prompt.md")
 	WorktreeModeExitPrompt                         = mustPrompt("worktree_mode_exit_prompt.md")
+	QuestionsDisabledPrompt                        = mustPrompt("questions/disabled.md")
 )
 
 //go:embed skills/**

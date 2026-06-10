@@ -59,6 +59,7 @@ type uiInputFeatureState struct {
 	reviewerEnabled          bool
 	reviewerMode             string
 	autoCompactionEnabled    bool
+	questionsEnabled         bool
 	conversationFreshness    clientui.ConversationFreshness
 	localConversationTurn    bool
 	runtimeControlToken      uint64

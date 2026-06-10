@@ -73,6 +73,7 @@ const (
 	runtimeControlSetFastMode       runtimeControlOperation = "set_fast_mode"
 	runtimeControlSetReviewer       runtimeControlOperation = "set_reviewer"
 	runtimeControlSetAutoCompaction runtimeControlOperation = "set_auto_compaction"
+	runtimeControlSetQuestions      runtimeControlOperation = "set_questions"
 	runtimeControlInterrupt         runtimeControlOperation = "interrupt"
 )
 

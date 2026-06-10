@@ -103,6 +103,7 @@ type Config struct {
 	CompactionMode                string
 	CacheWarningMode              config.CacheWarningMode
 	AutoCompactionEnabled         *bool
+	QuestionsEnabled              *bool
 	Reviewer                      ReviewerConfig
 	HeadlessMode                  bool
 	ToolPreambles                 bool

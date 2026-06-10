@@ -43,6 +43,7 @@ type RuntimeStatus struct {
 	ReviewerFrequency                 string
 	ReviewerEnabled                   bool
 	AutoCompactionEnabled             bool
+	QuestionsEnabled                  bool
 	FastModeAvailable                 bool
 	FastModeEnabled                   bool
 	ConversationFreshness             ConversationFreshness
@@ -157,6 +158,7 @@ type RuntimeClient interface {
 	SetFastModeEnabled(enabled bool) (bool, error)
 	SetReviewerEnabled(enabled bool) (bool, string, error)
 	SetAutoCompactionEnabled(enabled bool) (bool, bool, error)
+	SetQuestionsEnabled(enabled bool) (bool, error)
 	ShowGoal() (*RuntimeGoal, error)
 	SetGoal(objective string) (*RuntimeGoal, error)
 	PauseGoal() (*RuntimeGoal, error)

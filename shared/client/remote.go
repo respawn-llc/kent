@@ -460,6 +460,10 @@ func (c *Remote) SetAutoCompactionEnabled(ctx context.Context, req serverapi.Run
 	return callControlRPC[serverapi.RuntimeSetAutoCompactionEnabledRequest, serverapi.RuntimeSetAutoCompactionEnabledResponse](c, ctx, protocol.MethodRuntimeSetAutoCompactionEnabled, req)
 }
 
+func (c *Remote) SetQuestionsEnabled(ctx context.Context, req serverapi.RuntimeSetQuestionsEnabledRequest) (serverapi.RuntimeSetQuestionsEnabledResponse, error) {
+	return callControlRPC[serverapi.RuntimeSetQuestionsEnabledRequest, serverapi.RuntimeSetQuestionsEnabledResponse](c, ctx, protocol.MethodRuntimeSetQuestionsEnabled, req)
+}
+
 func (c *Remote) AppendLocalEntry(ctx context.Context, req serverapi.RuntimeAppendLocalEntryRequest) error {
 	return c.call(ctx, protocol.MethodRuntimeAppendLocalEntry, req, nil)
 }

@@ -139,6 +139,9 @@ func (f *runtimeControlFakeClient) SetAutoCompactionEnabled(enabled bool) (bool,
 	f.setAutoCompactArg = enabled
 	return true, enabled, f.err
 }
+func (f *runtimeControlFakeClient) SetQuestionsEnabled(enabled bool) (bool, error) {
+	return true, f.err
+}
 func (f *runtimeControlFakeClient) ShowGoal() (*clientui.RuntimeGoal, error) {
 	return cloneRuntimeGoal(f.goal), f.err
 }

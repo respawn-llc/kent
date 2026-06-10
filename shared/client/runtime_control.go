@@ -36,6 +36,10 @@ func (c *loopbackRuntimeControlClient) SetAutoCompactionEnabled(ctx context.Cont
 	return callLoopbackClient(c, "runtime control service is required", ctx, req, servicecontract.RuntimeControlService.SetAutoCompactionEnabled)
 }
 
+func (c *loopbackRuntimeControlClient) SetQuestionsEnabled(ctx context.Context, req serverapi.RuntimeSetQuestionsEnabledRequest) (serverapi.RuntimeSetQuestionsEnabledResponse, error) {
+	return callLoopbackClient(c, "runtime control service is required", ctx, req, servicecontract.RuntimeControlService.SetQuestionsEnabled)
+}
+
 func (c *loopbackRuntimeControlClient) AppendLocalEntry(ctx context.Context, req serverapi.RuntimeAppendLocalEntryRequest) error {
 	return callLoopbackClientNoResponse(c, "runtime control service is required", ctx, req, servicecontract.RuntimeControlService.AppendLocalEntry)
 }

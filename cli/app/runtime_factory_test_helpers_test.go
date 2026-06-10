@@ -100,5 +100,6 @@ func buildToolRegistry(workspaceRoot string, ownerSessionID string, enabled []to
 		logger,
 		background,
 		nil,
+		nil,
 	)
 }

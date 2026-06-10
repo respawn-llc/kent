@@ -45,6 +45,7 @@ func StatusFromRuntime(engine *runtime.Engine) clientui.RuntimeStatus {
 		ReviewerFrequency:                 engine.ReviewerFrequency(),
 		ReviewerEnabled:                   engine.ReviewerEnabled(),
 		AutoCompactionEnabled:             engine.AutoCompactionEnabled(),
+		QuestionsEnabled:                  engine.QuestionsEnabled(),
 		FastModeAvailable:                 engine.FastModeAvailable(),
 		FastModeEnabled:                   engine.FastModeEnabled(),
 		ConversationFreshness:             ConversationFreshnessFromSession(engine.ConversationFreshness()),

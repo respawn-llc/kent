@@ -63,6 +63,9 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePosition(commandR
 	case commands.ActionSetAutoCompaction:
 		next, cmd := c.handleAutoCompactionCommand(commandResult.AutoCompactionMode)
 		return next, sequenceCmds(prefixCmd, cmd)
+	case commands.ActionSetQuestions:
+		next, cmd := c.handleQuestionsCommand(commandResult.QuestionsMode)
+		return next, sequenceCmds(prefixCmd, cmd)
 	case commands.ActionCompact:
 		return m, sequenceCmds(prefixCmd, c.startCompactionWithOrigin(commandResult.Args, uiCompactionOriginManual))
 	case commands.ActionStatus:
@@ -255,6 +258,36 @@ func (c uiInputController) handleSupervisorModeCommand(requested string) (tea.Mo
 	m.reviewerMode = nextMode
 	m.reviewerEnabled = nextMode != "off"
 	status := reviewerToggleStatusMessage(m.reviewerEnabled, nextMode, changed)
+	return m, c.appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeNeutral)
+}
+
+func (c uiInputController) handleQuestionsCommand(requested string) (tea.Model, tea.Cmd) {
+	m := c.model
+	requested = strings.ToLower(strings.TrimSpace(requested))
+	currentEnabled := m.cachedRuntimeStatus().QuestionsEnabled
+	currentEnabled = m.runtimeControlPendingEnabled(runtimeControlSetQuestions, m.sessionID, currentEnabled)
+	targetEnabled := currentEnabled
+	switch requested {
+	case "":
+		targetEnabled = !currentEnabled
+	case "on":
+		targetEnabled = true
+	case "off":
+		targetEnabled = false
+	default:
+		errText := "invalid questions mode " + strconv.Quote(requested) + " (expected on|off)"
+		return m, c.model.appendLocalEntryWithNoticeID("error", errText, "")
+	}
+	changed := false
+	nextEnabled := currentEnabled
+	if m.hasRuntimeClient() {
+		return m, m.runtimeControlCommand(runtimeControlSetQuestions, "", targetEnabled, "")
+	} else {
+		nextEnabled = targetEnabled
+		changed = currentEnabled != targetEnabled
+	}
+	m.questionsEnabled = nextEnabled
+	status := questionsToggleStatusMessage(nextEnabled, changed)
 	return m, c.appendSystemFeedbackWithMirroredStatus(status, uiStatusNoticeNeutral)
 }
 

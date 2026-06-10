@@ -101,6 +101,7 @@ const (
 	MethodRuntimeSetFastModeEnabled             = "runtime.setFastModeEnabled"
 	MethodRuntimeSetReviewerEnabled             = "runtime.setReviewerEnabled"
 	MethodRuntimeSetAutoCompactionEnabled       = "runtime.setAutoCompactionEnabled"
+	MethodRuntimeSetQuestionsEnabled            = "runtime.setQuestionsEnabled"
 	MethodRuntimeAppendLocalEntry               = "runtime.appendLocalEntry"
 	MethodRuntimeShouldCompactBeforeUserMessage = "runtime.shouldCompactBeforeUserMessage"
 	MethodRuntimeSubmitUserMessage              = "runtime.submitUserMessage"

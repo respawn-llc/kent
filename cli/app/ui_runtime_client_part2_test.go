@@ -107,6 +107,10 @@ func (c *leaseRetryRuntimeControlClient) SetAutoCompactionEnabled(context.Contex
 	return serverapi.RuntimeSetAutoCompactionEnabledResponse{}, nil
 }
 
+func (c *leaseRetryRuntimeControlClient) SetQuestionsEnabled(context.Context, serverapi.RuntimeSetQuestionsEnabledRequest) (serverapi.RuntimeSetQuestionsEnabledResponse, error) {
+	return serverapi.RuntimeSetQuestionsEnabledResponse{}, nil
+}
+
 func (c *leaseRetryRuntimeControlClient) AppendLocalEntry(_ context.Context, req serverapi.RuntimeAppendLocalEntryRequest) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

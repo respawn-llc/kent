@@ -182,6 +182,9 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 		appendWrapped("overrides: "+strings.Join(snapshot.Config.OverrideSources, ", "), lipgloss.Style{})
 	}
 	appendWrapped("supervisor "+snapshot.Config.Supervisor, lipgloss.Style{})
+	if !snapshot.Config.Questions {
+		appendWrapped("questions off", lipgloss.Style{})
+	}
 
 	loadedSkills, failedSkills := statusPartitionSkills(snapshot.Skills)
 	subheaderStyle := lipgloss.NewStyle().Foreground(palette.primary).Bold(true)

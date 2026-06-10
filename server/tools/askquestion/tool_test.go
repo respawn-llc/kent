@@ -403,7 +403,7 @@ func TestSubmitRejectsSecondCompletionForQueuedRequest(t *testing.T) {
 
 func TestToolCallBlocksUntilQueuedAnswerSubmitted(t *testing.T) {
 	b := NewBroker()
-	tl := NewTool(b)
+	tl := NewTool(b, nil)
 	type callResult struct {
 		result tools.Result
 		err    error
@@ -561,7 +561,7 @@ func waitForPendingRequests(t *testing.T, b *Broker, want int) []Request {
 
 func callAskQuestionTool(t *testing.T, b *Broker, id string, input string) tools.Result {
 	t.Helper()
-	result, err := NewTool(b).Call(context.Background(), tools.Call{
+	result, err := NewTool(b, nil).Call(context.Background(), tools.Call{
 		ID:    id,
 		Name:  toolspec.ToolAskQuestion,
 		Input: json.RawMessage(input),

@@ -60,6 +60,7 @@ type Request struct {
 	ReviewerEnabled       bool
 	ReviewerMode          string
 	AutoCompactionEnabled bool
+	QuestionsEnabled      bool
 	OwnsServer            bool
 	CurrentTime           time.Time
 }
@@ -127,6 +128,7 @@ type ConfigInfo struct {
 	OverrideSources []string
 	Supervisor      string
 	AutoCompaction  bool
+	Questions       bool
 	Debug           bool
 }
 
