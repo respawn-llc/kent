@@ -39,6 +39,7 @@ func validateSubagentRoleState(state settingsState, sources map[string]string) e
 		{enabled: hasExplicitSource(sources, "compaction_mode"), check: validateCompactionMode},
 		{enabled: hasExplicitPrefix(sources, "workflow."), check: validateWorkflowSettings},
 		{enabled: hasExplicitPrefix(sources, "reviewer."), check: validateReviewer},
+		{enabled: hasExplicitSource(sources, "prevent_sleep"), check: validateSleepPreventionMode},
 	}
 	for _, check := range checks {
 		if !check.enabled {
@@ -396,6 +397,15 @@ func hasConfiguredSource(sources map[string]string, key string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func validateSleepPreventionMode(state settingsState, _ map[string]string) error {
+	switch state.Settings.PreventSleep {
+	case SleepPreventionModeAlways, SleepPreventionModeActive, SleepPreventionModeNever:
+		return nil
+	default:
+		return fmt.Errorf("invalid prevent_sleep %q (expected always|active|never)", state.Settings.PreventSleep)
 	}
 }
 

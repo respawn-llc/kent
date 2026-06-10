@@ -22,6 +22,7 @@ type CacheWarningMode string
 type ModelVerbosity string
 type ShellPostprocessingMode string
 type WorkflowCompletionMode string
+type SleepPreventionMode string
 
 type WorktreeSettings struct {
 	BaseDir     string
@@ -60,6 +61,10 @@ const (
 	WorkflowCompletionModeAuto             WorkflowCompletionMode = "auto"
 	WorkflowCompletionModeStructuredOutput WorkflowCompletionMode = "structured_output"
 	WorkflowCompletionModeTool             WorkflowCompletionMode = "tool"
+
+	SleepPreventionModeAlways SleepPreventionMode = "always"
+	SleepPreventionModeActive SleepPreventionMode = "active"
+	SleepPreventionModeNever  SleepPreventionMode = "never"
 )
 
 type LoadOptions struct {
@@ -139,6 +144,7 @@ type Settings struct {
 	Workflow                         WorkflowSettings
 	Reviewer                         ReviewerSettings
 	Subagents                        map[string]SubagentRole
+	PreventSleep                     SleepPreventionMode
 }
 
 type ModelCapabilitiesOverride struct {

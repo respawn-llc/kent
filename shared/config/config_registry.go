@@ -595,6 +595,13 @@ func newSettingsRegistry() settingsRegistry {
 			"BUILDER_REVIEWER_VERBOSE_OUTPUT",
 			settingDocOptions{}),
 		subagentsSetting{},
+		newStringSetting("prevent_sleep", SleepPreventionMode(SleepPreventionModeActive),
+			func(state *settingsState, value SleepPreventionMode) { state.Settings.PreventSleep = value },
+			func(state settingsState) SleepPreventionMode { return state.Settings.PreventSleep },
+			"BUILDER_PREVENT_SLEEP",
+			nil,
+			nil,
+			settingDocOptions{}),
 		newStringSetting("persistence_root", DefaultPersistence,
 			func(state *settingsState, value string) { state.PersistenceRoot = value },
 			func(state settingsState) string { return state.PersistenceRoot },
@@ -628,6 +635,7 @@ func newSettingsRegistry() settingsRegistry {
 			validateCompactionMode,
 			validateReviewer,
 			validateWorkflowSettings,
+			validateSleepPreventionMode,
 		},
 	}
 
@@ -1421,6 +1429,8 @@ func renderTOMLValue(value any) string {
 	case BGShellsOutputMode:
 		return strconv.Quote(string(v))
 	case ShellPostprocessingMode:
+		return strconv.Quote(string(v))
+	case SleepPreventionMode:
 		return strconv.Quote(string(v))
 	default:
 		return strconv.Quote(fmt.Sprintf("%v", v))
