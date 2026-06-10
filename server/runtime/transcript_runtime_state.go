@@ -127,4 +127,3 @@ func (s *transcriptRuntimeState) ToolCompletionCount() int {
 	}
 	return 0
 }
-
