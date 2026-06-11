@@ -125,6 +125,35 @@ describe("TaskDetailDialog", () => {
     });
   });
 
+  it("preserves commentary when switching between task question options", async () => {
+    window.history.pushState(null, "", "/tasks/task-1");
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.task.get", result: taskDetailResponse },
+      { method: "workflow.task.activity.list", result: activityResponse },
+      { method: "ask.listPendingBySession", result: pendingAskResponse },
+      { method: "workflow.task.question.answer", result: {} },
+    ]);
+
+    render(<App services={services} />);
+
+    const question = await screen.findByRole("region", { name: "Question" });
+    const recommendedOption = await within(question).findByRole("radio", { name: /Use option A/u });
+    const commentary = within(question).getByRole("textbox", { name: "Commentary" });
+    fireEvent.change(commentary, { target: { value: "Keep the rationale." } });
+    fireEvent.click(within(question).getByRole("radio", { name: "Neither" }));
+    fireEvent.click(recommendedOption);
+    expect(commentary).toHaveValue("Keep the rationale.");
+
+    fireEvent.click(within(question).getByRole("button", { name: "Submit answer" }));
+
+    await waitFor(() => {
+      const params = callParams(services.transport.calls, "workflow.task.question.answer");
+      expect(params.freeform_answer).toBe("Keep the rationale.");
+      expect(params.selected_option_number).toBe(1);
+    });
+  });
+
   it("renders task question options from attention when pending asks are not available", async () => {
     window.history.pushState(null, "", "/tasks/task-1");
     const detailWithAttentionOptions = {
