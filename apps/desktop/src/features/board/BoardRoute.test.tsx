@@ -1536,6 +1536,99 @@ describe("BoardRoute", () => {
     });
   });
 
+  it("shows a toast when a run created by a card move is interrupted after refresh", async () => {
+    const visibility = installIntersectionObserverMock();
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const activeCard = {
+      ...firstBoardCard(),
+      active_node_ids: ["node-1"],
+      status: { ...firstBoardCard().status, kind: "active", label: "Active", node_ids: ["node-1"] },
+      actions: {
+        ...taskActions,
+        can_start: false,
+        manual_move_target_node_ids: ["done"],
+      },
+    };
+    const interruptedCard = {
+      ...activeCard,
+      active_node_ids: ["done"],
+      status: {
+        ...activeCard.status,
+        kind: "interrupted",
+        label: "Interrupted",
+        native_state: "interrupted",
+        node_ids: ["done"],
+        run_ids: ["run-move"],
+        attention_types: ["interrupted_run"],
+      },
+    };
+    const initialBoard = {
+      board: {
+        ...boardResponse.board,
+        columns: boardResponse.board.columns.map((column) =>
+          column.node.node_id === "node-1" ? { ...column, task_count: 1 } : column,
+        ),
+      },
+    };
+    const movedBoard = {
+      board: {
+        ...initialBoard.board,
+        columns: initialBoard.board.columns.map((column) => {
+          if (column.node.node_id === "node-1") {
+            return { ...column, task_count: 0 };
+          }
+          if (column.node.node_id === "done") {
+            return { ...column, task_count: 1 };
+          }
+          return column;
+        }),
+      },
+    };
+    let nodeCardsAfterMove = false;
+    const services = createTestServices([
+      ...startupRoutes,
+      {
+        method: "workflow.board.get",
+        handler: (_params, callIndex) => (callIndex === 0 ? initialBoard : movedBoard),
+      },
+      {
+        method: "workflow.board.nodeCards.list",
+        handler: (params: JsonValue) => {
+          const nodeID = isObject(params) && typeof params.node_id === "string" ? params.node_id : "";
+          if (nodeID === "node-1") {
+            return boardNodeCardsResponse(nodeID, nodeCardsAfterMove ? [] : [activeCard], "");
+          }
+          if (nodeID === "done") {
+            return boardNodeCardsResponse(nodeID, nodeCardsAfterMove ? [interruptedCard] : [], "");
+          }
+          return boardNodeCardsResponse(nodeID, [], "");
+        },
+      },
+      {
+        method: "workflow.task.move",
+        handler: () => {
+          nodeCardsAfterMove = true;
+          return { run_ids: ["run-move"], state: "approved", transition_id: "transition-move" };
+        },
+      },
+    ]);
+
+    render(<App services={services} />);
+
+    expect(await screen.findByRole("heading", { name: "Implement" })).toBeInTheDocument();
+    act(() => {
+      visibility.reveal("Implement");
+      visibility.reveal("Done");
+    });
+    const card = await screen.findByRole("article", { name: "Write focused tests" });
+    const dataTransfer = new TestDataTransfer();
+    fireEvent.dragStart(card, { dataTransfer });
+    fireEvent.drop(screen.getByRole("listitem", { name: "Done" }), { dataTransfer });
+
+    expect(await screen.findByText("Workflow run interrupted")).toBeInTheDocument();
+    expect(screen.getByText(/run-move/u)).toBeInTheDocument();
+  });
+
   it("does not keep stale node-card pages after workflow switch", async () => {
     window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
     const workflow2: BoardRouteWorkflow = { ...workflow, workflow_id: "workflow-2", display_name: "Ops" };

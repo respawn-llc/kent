@@ -34,6 +34,7 @@ import { registerCardElement } from "./BoardCardVisibilityRegistry";
 import { boardSections } from "./BoardModel";
 import { useBoardNodeCards } from "./useBoardData";
 import { useColumnVisibility } from "./useColumnVisibility";
+import { useObservedInterruptedRuns } from "./useObservedInterruptedRuns";
 
 type BoardColumnQuerySnapshot = Readonly<{
   cards: readonly KanbanCardVM[];
@@ -74,6 +75,7 @@ export type BoardRailMotionControllerProps = Readonly<{
   onDeleteTask: (taskID: string) => void;
   onDropTask: (event: DragEvent<HTMLElement>, column: BoardColumn) => void;
   onExpandColumn: (columnID: string) => void;
+  onInterruptedRunObserved: (input: Readonly<{ runID: string; taskID: string }>) => void;
   onInterruptTask: (taskID: string, runID: string) => void;
   onResumeTask: (taskID: string, runID: string) => void;
   scrollportRef: RefObject<HTMLDivElement | null>;
@@ -95,6 +97,7 @@ export function BoardRailMotionController({
   onDeleteTask,
   onDropTask,
   onExpandColumn,
+  onInterruptedRunObserved,
   onInterruptTask,
   onResumeTask,
   scrollportRef,
@@ -388,6 +391,7 @@ export function BoardRailMotionController({
                   onDeleteTask={onDeleteTask}
                   onDropTask={onDropTask}
                   onExpandColumn={onExpandColumn}
+                  onInterruptedRunObserved={onInterruptedRunObserved}
                   onInterruptTask={onInterruptTask}
                   onReportColumnSnapshot={reportColumnSnapshot}
                   onResumeTask={onResumeTask}
@@ -413,6 +417,7 @@ export function BoardRailMotionController({
               onDeleteTask={onDeleteTask}
               onDropTask={onDropTask}
               onExpandColumn={onExpandColumn}
+              onInterruptedRunObserved={onInterruptedRunObserved}
               onInterruptTask={onInterruptTask}
               onReportColumnSnapshot={reportColumnSnapshot}
               onResumeTask={onResumeTask}
@@ -441,6 +446,7 @@ function BoardColumnMotionBoundary({
   onDeleteTask,
   onDropTask,
   onExpandColumn,
+  onInterruptedRunObserved,
   onInterruptTask,
   onReportColumnSnapshot,
   onResumeTask,
@@ -461,6 +467,7 @@ function BoardColumnMotionBoundary({
   onDeleteTask: (taskID: string) => void;
   onDropTask: (event: DragEvent<HTMLElement>, column: BoardColumn) => void;
   onExpandColumn: (columnID: string) => void;
+  onInterruptedRunObserved: (input: Readonly<{ runID: string; taskID: string }>) => void;
   onInterruptTask: (taskID: string, runID: string) => void;
   onReportColumnSnapshot: (columnID: string, snapshot: BoardColumnQuerySnapshot) => void;
   onResumeTask: (taskID: string, runID: string) => void;
@@ -499,6 +506,8 @@ function BoardColumnMotionBoundary({
       taskCount: column.taskCount,
     });
   }, [cardVMs, cardsQuery.data, cardsQuery.isFetching, cardsQuery.isPending, column.id, column.taskCount, onReportColumnSnapshot, queryEnabled]);
+
+  useObservedInterruptedRuns(cardVMs, onInterruptedRunObserved);
 
   return (
     <KanbanColumn

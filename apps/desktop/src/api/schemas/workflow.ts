@@ -9,6 +9,7 @@ import type {
   BoardNodeCardsPage,
   PendingAsk,
   TaskDetail,
+  TaskMoveResponse,
   WorkflowBoard,
   WorkflowDerivedWiring,
   WorkflowDeleteImpact,
@@ -33,6 +34,7 @@ import {
   commentSchema,
   emptyString,
   runSchema,
+  stringList,
   taskActionsSchema,
   taskStatusSchema,
   transitionSchema,
@@ -556,11 +558,19 @@ export const workflowDeleteResponseSchema: z.ZodType<WorkflowDeleteResponse> = z
 
 export const taskMoveResponseSchema = z
   .object({
+    transition_id: emptyString,
+    state: emptyString,
+    placement_ids: stringList,
+    run_ids: stringList,
     approval_error: emptyString,
   })
   .transform((value) => ({
+    transitionID: value.transition_id,
+    state: value.state,
+    placementIDs: value.placement_ids,
+    runIDs: value.run_ids,
     approvalError: value.approval_error,
-  }));
+  })) satisfies z.ZodType<TaskMoveResponse>;
 
 export const projectWorkflowLinksSchema: z.ZodType<readonly ProjectWorkflowLink[]> = z
   .object({

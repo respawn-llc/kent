@@ -451,6 +451,14 @@ export type TaskActions = Readonly<{
   manualMoveTargetNodeIDs: readonly string[];
 }>;
 
+export type TaskMoveResponse = Readonly<{
+  transitionID: string;
+  state: string;
+  placementIDs: readonly string[];
+  runIDs: readonly string[];
+  approvalError: string;
+}>;
+
 export type BoardCard = Readonly<{
   id: string;
   shortID: string;

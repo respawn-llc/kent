@@ -136,6 +136,8 @@ export const englishResources = {
       navigationFailed: "Board navigation failed",
       startFailed: "Task start failed",
       moveFailed: "Task move failed",
+      moveRunInterrupted: "Workflow run interrupted",
+      moveRunInterruptedBody: "Run {{runID}} for task {{taskID}} stopped after the move. Open the task for details or resume it.",
       deleteTask: "Delete",
       deleteTaskTitle: "Delete task?",
       deleteTaskBody: "This will permanently delete this task and all associated task data.",

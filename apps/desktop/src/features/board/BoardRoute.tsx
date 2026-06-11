@@ -1,4 +1,4 @@
-import type { ChangeEvent, DragEvent, RefObject, SyntheticEvent } from "react";
+import type { DragEvent, SyntheticEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -14,6 +14,8 @@ import { useWindowChromeTitle } from "../../app/windowChromeTitle";
 import { Button, EmptyState, ErrorState, FloatingNoticeIsland, LoadingState } from "../../ui";
 import { WorkflowValidationIssues } from "../workflow/WorkflowValidationIssues";
 import { BoardHoverMenu } from "./BoardHoverMenu";
+import { BoardHorizontalScrollbar } from "./BoardHorizontalScrollbar";
+import { useBoardMoveRunFeedback } from "./BoardMoveRunFeedback";
 import { BoardRailMotionController } from "./BoardRailMotionController";
 import { TaskDeleteConfirmationFallbackDialog } from "./TaskDeleteConfirmation";
 import { taskDeleteWindowOptions, type TaskDeleteTarget } from "./taskDeleteConfirmationModel";
@@ -141,6 +143,7 @@ function BoardContent({
   const connection = useConnectionSnapshot();
   const actions = useBoardTaskActions(board.projectID, boardQueryWorkflowID, board.selectedWorkflow.id);
   const actionsDisabled = connection.phase !== "connected";
+  const moveRunFeedback = useBoardMoveRunFeedback();
   const taskDeleteDialog = useNativeDialogFallback<TaskDeleteTarget>({
     errorNoticeID: "task-delete-window-error",
     errorTitle: t("board.deleteTaskWindowError"),
@@ -246,7 +249,10 @@ function BoardContent({
           : { allowMissingEdge: dropAction.allowMissingEdge }),
         ...(dropAction.autoApprove === undefined ? {} : { autoApprove: dropAction.autoApprove }),
       };
-      void actions.move.mutateAsync(moveInput).catch(reportMoveError);
+      void actions.move
+        .mutateAsync(moveInput)
+        .then(moveRunFeedback.trackMoveRunIDs)
+        .catch(reportMoveError);
       return;
     }
     if (dropAction.kind === "confirmRollback") {
@@ -357,6 +363,7 @@ function BoardContent({
     setRollbackDrop(null);
     void actions.move
       .mutateAsync({ taskID: drop.taskID, targetNodeID: drop.targetColumn.id, autoApprove: true })
+      .then(moveRunFeedback.trackMoveRunIDs)
       .catch(reportMoveError);
   }
 
@@ -375,6 +382,7 @@ function BoardContent({
         allowMissingEdge: true,
         autoApprove: drop.targetColumn.kind === "agent",
       })
+      .then(moveRunFeedback.trackMoveRunIDs)
       .catch(reportMoveError);
   }
 
@@ -440,6 +448,7 @@ function BoardContent({
           onDeleteTask={deleteTask}
           onDropTask={dropTask}
           onExpandColumn={expandColumn}
+          onInterruptedRunObserved={moveRunFeedback.observeInterruptedRun}
           onInterruptTask={interruptTask}
           onResumeTask={resumeTask}
           scrollportRef={scrollportRef}
@@ -488,84 +497,6 @@ function BoardContent({
         onWorkflowSelect={selectWorkflow}
       />
     </div>
-  );
-}
-
-type HorizontalScrollMetrics = Readonly<{
-  max: number;
-  value: number;
-}>;
-
-function BoardHorizontalScrollbar({
-  scrollportRef,
-}: Readonly<{ scrollportRef: RefObject<HTMLDivElement | null> }>) {
-  const { t } = useTranslation();
-  const [metrics, setMetrics] = useState<HorizontalScrollMetrics>({ max: 0, value: 0 });
-
-  const syncMetrics = useCallback(() => {
-    const scrollport = scrollportRef.current;
-    if (scrollport === null) {
-      return;
-    }
-    const max = Math.max(0, scrollport.scrollWidth - scrollport.clientWidth);
-    const value = Math.min(scrollport.scrollLeft, max);
-    setMetrics((current) => (current.max === max && current.value === value ? current : { max, value }));
-  }, [scrollportRef]);
-
-  useEffect(() => {
-    const scrollport = scrollportRef.current;
-    if (scrollport === null) {
-      return undefined;
-    }
-
-    let frame = 0;
-    const scheduleSync = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(syncMetrics);
-    };
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleSync);
-    if (observer !== null) {
-      observer.observe(scrollport);
-      if (scrollport.firstElementChild instanceof Element) {
-        observer.observe(scrollport.firstElementChild);
-      }
-    }
-    scrollport.addEventListener("scroll", scheduleSync, { passive: true });
-    window.addEventListener("resize", scheduleSync);
-    syncMetrics();
-
-    return () => {
-      cancelAnimationFrame(frame);
-      observer?.disconnect();
-      scrollport.removeEventListener("scroll", scheduleSync);
-      window.removeEventListener("resize", scheduleSync);
-    };
-  }, [scrollportRef, syncMetrics]);
-
-  if (metrics.max <= 0) {
-    return null;
-  }
-
-  function scrollToValue(event: ChangeEvent<HTMLInputElement>): void {
-    const scrollport = scrollportRef.current;
-    if (scrollport === null) {
-      return;
-    }
-    const value = Number(event.target.value);
-    scrollport.scrollLeft = value;
-    setMetrics((current) => ({ ...current, value }));
-  }
-
-  return (
-    <input
-      aria-label={t("board.horizontalScroll")}
-      className="board-horizontal-scrollbar app-region-no-drag absolute inset-x-[var(--space-4)] bottom-[var(--space-2)] z-20"
-      max={metrics.max}
-      min={0}
-      onChange={scrollToValue}
-      type="range"
-      value={metrics.value}
-    />
   );
 }
 

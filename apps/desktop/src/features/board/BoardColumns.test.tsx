@@ -366,6 +366,7 @@ const card: KanbanCardVM = {
   shortID: "T-1",
   sourceWorkspaceName: "Main",
   statusKind: "backlog",
+  statusRunIDs: [],
   title: "Task",
   updatedAt: Date.UTC(2026, 0, 1),
 };

@@ -146,6 +146,7 @@ function cardContentEqual(left: KanbanCardVM, right: KanbanCardVM): boolean {
     left.bodyPreview === right.bodyPreview &&
     left.updatedAt === right.updatedAt &&
     left.statusKind === right.statusKind &&
+    arrayEqual(left.statusRunIDs, right.statusRunIDs) &&
     left.sourceWorkspaceName === right.sourceWorkspaceName &&
     arrayEqual(left.activeNodeIDs, right.activeNodeIDs)
   );

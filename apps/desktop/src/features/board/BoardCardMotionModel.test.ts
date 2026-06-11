@@ -98,6 +98,7 @@ function card(id: string): KanbanCardVM {
     shortID: id,
     sourceWorkspaceName: "Main",
     statusKind: "backlog",
+    statusRunIDs: [],
     title: "Task",
     updatedAt: 1,
   };
