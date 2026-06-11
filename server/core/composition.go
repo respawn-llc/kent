@@ -80,12 +80,15 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	}
 	storeOptions := metadataStore.AuthoritativeSessionStoreOptions()
 	runtimeRegistry := registry.NewRuntimeRegistry()
-	sleepManager, _ := sleepguard.NewManager(cfg.Settings.PreventSleep, func(err error) {
+	sleepManager, sleepErr := sleepguard.NewManager(cfg.Settings.PreventSleep, func(err error) {
 		runtimeRegistry.PublishRuntimeEventToAll(runtime.Event{
 			Kind:  runtime.EventSleepGuardFailed,
 			Error: err.Error(),
 		})
 	})
+	if sleepErr != nil {
+		fmt.Fprintf(os.Stderr, "sleepguard: always-mode acquire failed at startup: %v\n", sleepErr)
+	}
 	runtimeRegistry.SetSleepObserver(sleepManager.OnRunStateChanged)
 	sessionStoreRegistry := registry.NewSessionStoreRegistry()
 	projectService, err := projectview.NewMetadataService(metadataStore, "")

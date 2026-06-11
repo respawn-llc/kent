@@ -46,14 +46,11 @@ func (m *Manager) OnRunStateChanged(sessionID string, running bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if running {
-		wasEmpty := len(m.active) == 0
 		m.active[sessionID] = true
-		if wasEmpty {
-			if err := m.guard.Acquire(); err != nil {
-				log.Printf("sleepguard: active-mode acquire failed: %v", err)
-				if m.onError != nil {
-					m.onError(err)
-				}
+		if err := m.guard.Acquire(); err != nil {
+			log.Printf("sleepguard: active-mode acquire failed: %v", err)
+			if m.onError != nil {
+				m.onError(err)
 			}
 		}
 	} else {
