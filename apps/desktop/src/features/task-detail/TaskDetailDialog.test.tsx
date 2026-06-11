@@ -33,9 +33,11 @@ describe("TaskDetailDialog", () => {
     const question = await screen.findByRole("region", { name: "Question" });
     expect(screen.queryByRole("region", { name: "Inbox" })).not.toBeInTheDocument();
     expect(screen.queryByText("Answer")).not.toBeInTheDocument();
+    expect(within(question).queryByRole("heading", { name: "Question" })).not.toBeInTheDocument();
     const recommendedOption = await within(question).findByRole("radio", { name: /Use option A/u });
     expect(recommendedOption).toBeChecked();
     expect(within(question).getByRole("radio", { name: "Neither" })).toBeInTheDocument();
+    expect(within(question).getByRole("textbox", { name: "Commentary" })).toBeInTheDocument();
     expect(within(question).getByRole("button", { name: "Submit answer" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Submit answer" }));
 

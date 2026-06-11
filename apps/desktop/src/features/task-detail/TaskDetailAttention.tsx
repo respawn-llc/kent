@@ -78,14 +78,12 @@ function QuestionForm({
   const selectedOption = selection.userSelected ? selection.selectedOption : recommendedOption;
   const answer = selection.answer;
   const answerID = useId();
-  const neitherSelected = selectedOption === 0;
   const canSubmit = selectedOption === null ? false : selectedOption > 0 || answer.trim().length > 0;
   const interactionDisabled = disabled || answerQuestion.isPending || selection.submitted;
   const submitDisabled = interactionDisabled || !canSubmit;
   const radioValue = selectedOption === null ? "" : selectedOption.toString();
 
   async function submit(): Promise<void> {
-    const freeformAnswer = selectedOption === 0 ? answer : "";
     const selectedOptionNumber = selectedOption ?? 0;
     await answerQuestion.mutateAsync({
       clientRequestID: `gui-question-${attention.askID}-${Date.now().toString()}`,
@@ -93,7 +91,7 @@ function QuestionForm({
       runID: attention.runID,
       askID: attention.askID,
       selectedOptionNumber,
-      freeformAnswer,
+      freeformAnswer: answer,
     });
     setSelectionState({ answer: "", askID: attention.askID, selectedOption: null, submitted: true, userSelected: true });
   }
@@ -108,7 +106,6 @@ function QuestionForm({
         }
       }}
     >
-      <h3 className="m-0">{t("task.question")}</h3>
       {question !== undefined && question.length > 0 ? <p className="m-0">{question}</p> : null}
       <fieldset className="m-0 border-0 p-0">
         <legend className="sr-only">{t("task.optionNumber")}</legend>
@@ -118,7 +115,7 @@ function QuestionForm({
           onValueChange={(value) => {
             const nextOption = Number(value);
             setSelectionState({
-              answer: nextOption === 0 ? answer : "",
+              answer,
               askID: attention.askID,
               selectedOption: nextOption,
               submitted: false,
@@ -144,25 +141,24 @@ function QuestionForm({
           />
         </RadioGroup>
       </fieldset>
-      {neitherSelected ? (
-        <textarea
-          aria-label={t("task.commentary")}
-          className={cx(fieldInputClassName, "min-h-24")}
-          id={answerID}
-          onChange={(event) => {
-            setSelectionState({
-              answer: event.target.value,
-              askID: attention.askID,
-              selectedOption: 0,
-              submitted: false,
-              userSelected: true,
-            });
-          }}
-          placeholder={t("task.answerPlaceholder")}
-          rows={3}
-          value={answer}
-        />
-      ) : null}
+      <textarea
+        aria-label={t("task.commentary")}
+        className={cx(fieldInputClassName, "min-h-24")}
+        disabled={interactionDisabled}
+        id={answerID}
+        onChange={(event) => {
+          setSelectionState({
+            answer: event.target.value,
+            askID: attention.askID,
+            selectedOption,
+            submitted: false,
+            userSelected: selection.userSelected,
+          });
+        }}
+        placeholder={t("task.answerPlaceholder")}
+        rows={3}
+        value={answer}
+      />
       <Button disabled={submitDisabled} type="submit" variant="primary">
         {t("task.submitAnswer")}
       </Button>
