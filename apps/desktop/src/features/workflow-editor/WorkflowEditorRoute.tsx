@@ -456,7 +456,6 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
         chromePadding
         contentWidth="full"
         onRetry={() => {
-          void data.boardQuery.refetch();
           void data.workflowQuery.refetch();
           void data.validationQuery.refetch();
           void layoutQuery.refetch();
@@ -721,7 +720,9 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
         data.workflowQuery.refetch(),
         data.validationQuery.refetch(),
         queryClient.invalidateQueries({ queryKey: queryKeys.allWorkflows }),
-        projectID.length > 0 ? data.boardQuery.refetch() : Promise.resolve(),
+        data.projectContext
+          ? queryClient.invalidateQueries({ queryKey: queryKeys.board(projectID, workflowID) })
+          : Promise.resolve(),
       ]);
     } catch (error) {
       setSaveError(errorMessage(error));
@@ -1470,7 +1471,7 @@ function workflowEditorViewState(
 }
 
 function isLinkGateLoading(data: WorkflowEditorData): boolean {
-  return data.projectContext && (data.linksQuery.isPending || data.boardQuery.isPending);
+  return data.projectContext && data.linksQuery.isPending;
 }
 
 function isGraphLoading(data: WorkflowEditorData, layoutQuery: UseQueryResult<WorkflowGraphLayout>): boolean {
@@ -1482,7 +1483,6 @@ function workflowEditorLoadError(
   layoutQuery: UseQueryResult<WorkflowGraphLayout>,
 ): Error | null {
   return (
-    data.boardQuery.error ??
     data.workflowQuery.error ??
     data.validationQuery.error ??
     layoutQuery.error ??

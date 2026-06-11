@@ -115,6 +115,27 @@ describe("WorkflowEditorRoute", () => {
     expect(await screen.findByRole("complementary", { name: "Inspect node" })).toBeInTheDocument();
   });
 
+  it("does not issue project-scoped link-gate calls for a blank project context", async () => {
+    // A whitespace-only projectId is not a real project context (e.g. opened from the
+    // global workflow library). It must not trigger listProjectLinks/board.get, which the
+    // server rejects for an empty project_id and which would fatally block the editor.
+    window.history.pushState(null, "", "/workflows/workflow-1/editor?projectId=%20");
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.get", result: workflowDefinitionResponse },
+      { method: "workflow.validate", result: invalidValidationResponse },
+      { method: "workflow.graph.validateDraft", result: graphValidationResponse },
+    ]);
+
+    render(<App services={services} />);
+
+    await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
+
+    const calledMethods = services.transport.calls.map((call) => call.method);
+    expect(calledMethods).not.toContain("workflow.listProjectLinks");
+    expect(calledMethods).not.toContain("workflow.board.get");
+  });
+
   it("opens workflow delete confirmation in a native dialog window from workflow settings", async () => {
     const opened: NativeDialogWindowOptions[] = [];
     window.history.pushState(null, "", "/workflows/workflow-1/editor");

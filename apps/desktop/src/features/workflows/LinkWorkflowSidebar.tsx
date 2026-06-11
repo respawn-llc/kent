@@ -72,6 +72,7 @@ function LinkWorkflowPicker({
   const linksQuery = useQuery({
     queryKey: queryKeys.projectWorkflowLinks(projectID),
     queryFn: async () => api.listProjectWorkflowLinks(projectID),
+    enabled: projectID.trim().length > 0,
   });
   const workflows = useMemo(
     () => workflowsQuery.data?.pages.flatMap((page) => page.workflows) ?? [],

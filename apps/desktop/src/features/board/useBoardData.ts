@@ -10,7 +10,7 @@ export function useBoard(projectID: string, workflowID: string) {
   return useQuery({
     queryKey: queryKeys.board(projectID, workflowID),
     queryFn: async () => api.getBoard(projectID, workflowID),
-    enabled: projectID.length > 0,
+    enabled: projectID.trim().length > 0,
   });
 }
 
