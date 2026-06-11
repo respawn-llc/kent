@@ -80,11 +80,8 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	}
 	storeOptions := metadataStore.AuthoritativeSessionStoreOptions()
 	runtimeRegistry := registry.NewRuntimeRegistry()
-	sleepManager, _ := sleepguard.NewManager(cfg.Settings.PreventSleep, func(sessionID string, err error) {
-		if strings.TrimSpace(sessionID) == "" {
-			return
-		}
-		runtimeRegistry.PublishRuntimeEvent(sessionID, runtime.Event{
+	sleepManager, _ := sleepguard.NewManager(cfg.Settings.PreventSleep, func(err error) {
+		runtimeRegistry.PublishRuntimeEventToAll(runtime.Event{
 			Kind:  runtime.EventSleepGuardFailed,
 			Error: err.Error(),
 		})

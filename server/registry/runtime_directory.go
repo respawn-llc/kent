@@ -79,6 +79,19 @@ func (d *runtimeDirectory) Active(sessionID string) bool {
 	return d.Entry(sessionID) != nil
 }
 
+func (d *runtimeDirectory) IDs() []string {
+	if d == nil {
+		return nil
+	}
+	d.mu.RLock()
+	ids := make([]string, 0, len(d.entries))
+	for id := range d.entries {
+		ids = append(ids, id)
+	}
+	d.mu.RUnlock()
+	return ids
+}
+
 func (d *runtimeDirectory) Entry(sessionID string) *runtimeEntry {
 	if d == nil {
 		return nil

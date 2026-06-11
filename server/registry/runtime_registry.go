@@ -77,6 +77,15 @@ func (r *RuntimeRegistry) IsSessionRuntimeActive(sessionID string) bool {
 	return r.directory.Active(sessionID)
 }
 
+func (r *RuntimeRegistry) PublishRuntimeEventToAll(evt runtime.Event) {
+	if r == nil {
+		return
+	}
+	for _, id := range r.directory.IDs() {
+		r.PublishRuntimeEvent(id, evt)
+	}
+}
+
 func (r *RuntimeRegistry) PublishRuntimeEvent(sessionID string, evt runtime.Event) {
 	if r == nil {
 		return

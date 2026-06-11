@@ -13,14 +13,13 @@ type Manager struct {
 	guard   Guard
 	mu      sync.Mutex
 	active  map[string]bool
-	onError func(sessionID string, err error)
+	onError func(err error)
 }
 
-// NewManager creates a Manager. onError is called whenever guard acquisition fails;
-// sessionID is empty for "always" mode startup failures (no session context yet).
+// NewManager creates a Manager. onError is called whenever guard acquisition fails.
 // Returns a non-nil error when mode is "always" and the guard cannot be acquired at
 // startup — the manager is still returned and usable.
-func NewManager(mode config.SleepPreventionMode, onError func(sessionID string, err error)) (*Manager, error) {
+func NewManager(mode config.SleepPreventionMode, onError func(err error)) (*Manager, error) {
 	m := &Manager{
 		mode:    mode,
 		active:  make(map[string]bool),
@@ -30,7 +29,7 @@ func NewManager(mode config.SleepPreventionMode, onError func(sessionID string, 
 		if err := m.guard.Acquire(); err != nil {
 			log.Printf("sleepguard: always-mode acquire failed: %v", err)
 			if onError != nil {
-				onError("", err)
+				onError(err)
 			}
 			return m, err
 		}
@@ -53,7 +52,7 @@ func (m *Manager) OnRunStateChanged(sessionID string, running bool) {
 			if err := m.guard.Acquire(); err != nil {
 				log.Printf("sleepguard: active-mode acquire failed: %v", err)
 				if m.onError != nil {
-					m.onError(sessionID, err)
+					m.onError(err)
 				}
 			}
 		}
