@@ -19,6 +19,36 @@ async function expandBoardHoverMenu(): Promise<HTMLElement> {
   return menu;
 }
 
+type BoardColumnFixtureInput = Readonly<{
+  nodeID: string;
+  key: string;
+  kind: string;
+  displayName: string;
+  sortOrder: number;
+  assigneeRole?: string;
+  groupID?: string;
+  isBacklog?: boolean;
+  isDone?: boolean;
+  taskCount?: number;
+}>;
+
+function boardColumn(input: BoardColumnFixtureInput) {
+  return {
+    node: {
+      node_id: input.nodeID,
+      key: input.key,
+      kind: input.kind,
+      display_name: input.displayName,
+      assignee_role: input.assigneeRole ?? "",
+    },
+    group_id: input.groupID ?? "",
+    sort_order: input.sortOrder,
+    is_backlog: input.isBacklog ?? false,
+    is_done: input.isDone ?? false,
+    task_count: input.taskCount ?? 0,
+  };
+}
+
 describe("BoardRoute", () => {
   const originalUserAgent = window.navigator.userAgent;
 
@@ -75,6 +105,95 @@ describe("BoardRoute", () => {
       });
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("renders Main SWE groups after the Implementation column", async () => {
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const mainSWEWorkflow = { ...workflow, display_name: "Main SWE" };
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes(
+        {
+          board: {
+            ...boardResponse.board,
+            selected_workflow: mainSWEWorkflow,
+            workflows: [mainSWEWorkflow],
+            groups: [
+              {
+                group_id: "group-review",
+                key: "review",
+                display_name: "Review group",
+                sort_order: 1,
+                node_ids: ["review", "qa"],
+              },
+            ],
+            columns: [
+              boardColumn({
+                displayName: "Backlog",
+                isBacklog: true,
+                key: "backlog",
+                kind: "start",
+                nodeID: "backlog",
+                sortOrder: 0,
+                taskCount: 1,
+              }),
+              boardColumn({
+                assigneeRole: "coder",
+                displayName: "Implementation",
+                key: "implementation",
+                kind: "agent",
+                nodeID: "implementation",
+                sortOrder: 1,
+              }),
+              boardColumn({
+                assigneeRole: "reviewer",
+                displayName: "Review",
+                groupID: "group-review",
+                key: "review",
+                kind: "agent",
+                nodeID: "review",
+                sortOrder: 2,
+              }),
+              boardColumn({
+                assigneeRole: "qa",
+                displayName: "QA",
+                groupID: "group-review",
+                key: "qa",
+                kind: "agent",
+                nodeID: "qa",
+                sortOrder: 3,
+              }),
+              boardColumn({
+                displayName: "Done",
+                isDone: true,
+                key: "done",
+                kind: "terminal",
+                nodeID: "done",
+                sortOrder: 99,
+              }),
+            ],
+          },
+        },
+        {
+          backlog: { cards: boardResponse.board.cards },
+          done: { cards: [] },
+          implementation: { cards: [] },
+          qa: { cards: [] },
+          review: { cards: [] },
+        },
+      ),
+    ]);
+
+    render(<App services={services} />);
+
+    const backlog = await screen.findByRole("heading", { name: "Backlog" });
+    const implementation = await screen.findByRole("heading", { name: "Implementation" });
+    const group = await screen.findByRole("heading", { name: "Review group" });
+    const done = await screen.findByRole("heading", { name: "Done" });
+
+    expect(backlog).toAppearBefore(implementation);
+    expect(implementation).toAppearBefore(group);
+    expect(group).toAppearBefore(done);
   });
 
   it("starts tasks from in-memory drag state after rerender when browser dataTransfer drops custom payloads", async () => {
