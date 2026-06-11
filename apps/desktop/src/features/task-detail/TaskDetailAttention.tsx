@@ -234,12 +234,24 @@ export function ApprovalBox({
     <Island aria-label={t("task.approval")} className="grid gap-[var(--space-3)]">
       {transition !== undefined ? (
         <div className="grid gap-[var(--space-3)]">
-          <WorkflowEdgeRouteGraphic
-            contextMode=""
-            neutralArrow
-            sourceLabel={transition.sourceNodeName}
-            targetLabel={transitionTargetLabel(transition, t)}
-          />
+          <div className="flex min-w-0 items-center gap-[var(--space-3)]">
+            <WorkflowEdgeRouteGraphic
+              contextMode=""
+              layout="compact"
+              neutralArrow
+              sourceLabel={transition.sourceNodeName}
+              targetLabel={transitionTargetLabel(transition, t)}
+            />
+            <span className="min-w-0 flex-1" />
+            <Button
+              className="shrink-0"
+              disabled={disabled || mutations.approve.isPending}
+              onClick={() => void mutations.approve.mutateAsync(attention.taskTransitionID)}
+              variant="primary"
+            >
+              {t("task.approve")}
+            </Button>
+          </div>
           {transition.commentary.length > 0 ? (
             <p className="m-0 whitespace-pre-wrap text-sm text-[var(--color-muted)]">{transition.commentary}</p>
           ) : null}
@@ -269,15 +281,17 @@ export function ApprovalBox({
           ) : null}
         </div>
       ) : (
-        <p>{t("task.unavailableSnapshot")}</p>
+        <>
+          <p>{t("task.unavailableSnapshot")}</p>
+          <Button
+            disabled={disabled || mutations.approve.isPending}
+            onClick={() => void mutations.approve.mutateAsync(attention.taskTransitionID)}
+            variant="primary"
+          >
+            {t("task.approve")}
+          </Button>
+        </>
       )}
-      <Button
-        disabled={disabled || mutations.approve.isPending}
-        onClick={() => void mutations.approve.mutateAsync(attention.taskTransitionID)}
-        variant="primary"
-      >
-        {t("task.approve")}
-      </Button>
     </Island>
   );
 }

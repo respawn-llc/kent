@@ -1,11 +1,13 @@
 import { ArrowRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { cx } from "../../ui/classes";
 import { workflowEdgeColor } from "./workflowGraphColors";
 
 export type WorkflowEdgeRouteGraphicProps = Readonly<{
   contextMode: string;
   hasError?: boolean | undefined;
+  layout?: "balanced" | "compact" | undefined;
   neutralArrow?: boolean | undefined;
   sourceLabel: string;
   targetLabel: string;
@@ -14,6 +16,7 @@ export type WorkflowEdgeRouteGraphicProps = Readonly<{
 export function WorkflowEdgeRouteGraphic({
   contextMode,
   hasError = false,
+  layout = "balanced",
   neutralArrow = false,
   sourceLabel,
   targetLabel,
@@ -22,7 +25,11 @@ export function WorkflowEdgeRouteGraphic({
   return (
     <div
       aria-label={t("workflowEditor.edgeRouteAriaLabel", { source: sourceLabel, target: targetLabel })}
-      className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-[var(--space-2)]"
+      className={cx(
+        "min-w-0 items-center gap-[var(--space-2)]",
+        layout === "balanced" && "grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]",
+        layout === "compact" && "inline-grid grid-cols-[minmax(0,max-content)_auto_minmax(0,max-content)]",
+      )}
       data-testid="workflow-edge-route-graphic"
       role="group"
     >
