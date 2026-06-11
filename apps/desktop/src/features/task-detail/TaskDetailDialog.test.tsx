@@ -201,8 +201,12 @@ describe("TaskDetailDialog", () => {
     expect(within(approval).queryByText("Approval snapshot")).not.toBeInTheDocument();
     expect(within(approval).queryByText("Version")).not.toBeInTheDocument();
     expect(within(approval).queryByText("Approve transition")).not.toBeInTheDocument();
-    expect(within(approval).getByTestId("workflow-edge-route-source")).toHaveTextContent("Implement");
-    expect(within(approval).getByTestId("workflow-edge-route-target")).toHaveTextContent("Ship");
+    const routeActionRow = within(approval).getByTestId("task-approval-route-action-row");
+    expect(within(routeActionRow).getByTestId("workflow-edge-route-source")).toHaveTextContent("Implement");
+    expect(within(routeActionRow).getByTestId("workflow-edge-route-target")).toHaveTextContent("Ship");
+    expect(within(routeActionRow).getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    expect(within(routeActionRow).queryByText("Looks good")).not.toBeInTheDocument();
+    expect(within(routeActionRow).queryByRole("button", { name: "ok" })).not.toBeInTheDocument();
     expect(within(approval).getByText("Looks good")).toBeInTheDocument();
 
     fireEvent.click(within(approval).getByRole("button", { name: "ok" }));

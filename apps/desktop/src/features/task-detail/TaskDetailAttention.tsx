@@ -234,7 +234,7 @@ export function ApprovalBox({
     <Island aria-label={t("task.approval")} className="grid gap-[var(--space-3)]">
       {transition !== undefined ? (
         <div className="grid gap-[var(--space-3)]">
-          <div className="flex min-w-0 items-center gap-[var(--space-3)]">
+          <div className="flex min-w-0 items-center gap-[var(--space-3)]" data-testid="task-approval-route-action-row">
             <WorkflowEdgeRouteGraphic
               contextMode=""
               layout="compact"
