@@ -283,7 +283,7 @@ function TaskCard({
               </span>
             </span>
             <strong data-testid="task-card-title">{card.title}</strong>
-            <span className="line-clamp-3 text-sm text-[var(--color-muted)]" data-testid="task-card-body">
+            <span className="task-card-body-preview text-sm text-[var(--color-muted)]" data-testid="task-card-body">
               {card.bodyPreview}
             </span>
           </div>
