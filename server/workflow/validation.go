@@ -764,29 +764,49 @@ func (s *validationState) validatePriorParameterReference(edge Edge, param Promp
 	ref.FieldName = parameterKey
 	ref.Placeholder = param.Placeholder
 	if transitionKey == "" || !workflowkey.Valid(transitionKey) || parameterKey == "" || !workflowkey.Valid(parameterKey) {
-		s.addHard(CodeInvalidTemplatePlaceholder, "prompt template previous parameter reference is invalid", ref)
+		s.addHard(CodeInvalidTemplatePlaceholder, fmt.Sprintf(
+			"prompt for %s has an invalid previous-parameter reference; use .Params.<transition_key>.<parameter_key> with valid keys.",
+			s.priorParameterConsumerName(edge)), ref)
 		return
 	}
 	source, sourceExists := s.edgeSource(edge)
 	if !sourceExists || len(s.startNodes) != 1 {
 		return
 	}
-	matches := []TransitionGroup{}
+	consumer := s.priorParameterConsumerName(edge)
+	guaranteed := []TransitionGroup{}
 	for _, group := range s.def.TransitionGroups {
 		if strings.TrimSpace(string(group.TransitionID)) != transitionKey {
 			continue
 		}
 		if s.transitionGroupDominates(group.ID, source.ID) {
-			matches = append(matches, group)
+			guaranteed = append(guaranteed, group)
 		}
 	}
-	if len(matches) != 1 {
-		s.addHard(CodeInvalidTemplatePlaceholder, "prompt template previous parameter reference must name exactly one guaranteed-prior transition", ref)
-		return
+	switch {
+	case len(guaranteed) == 0:
+		s.addHard(CodeInvalidTemplatePlaceholder, fmt.Sprintf(
+			"prompt for %s references parameter %q from transition %q, but %q is not guaranteed to run before %s: another branch can reach %s without it. Reference a parameter that every incoming branch provides, or remove the bypassing branch.",
+			consumer, parameterKey, transitionKey, transitionKey, consumer, consumer), ref)
+	case len(guaranteed) > 1:
+		s.addHard(CodeInvalidTemplatePlaceholder, fmt.Sprintf(
+			"prompt for %s references parameter %q from transition %q, but more than one %q transition can run before %s. Give the producing transitions distinct keys and reference one.",
+			consumer, parameterKey, transitionKey, transitionKey, consumer), ref)
+	case !s.transitionGroupParameterSet(guaranteed[0].ID)[parameterKey]:
+		s.addHard(CodeInvalidTemplatePlaceholder, fmt.Sprintf(
+			"prompt for %s references parameter %q from transition %q, but transition %q does not declare a %q parameter.",
+			consumer, parameterKey, transitionKey, transitionKey, parameterKey), ref)
 	}
-	if !s.transitionGroupParameterSet(matches[0].ID)[parameterKey] {
-		s.addHard(CodeInvalidTemplatePlaceholder, "prompt template references an unknown previous transition parameter", ref)
+}
+
+// priorParameterConsumerName names the node whose prompt carries a previous-parameter
+// reference for use in operator-facing validation messages. The prompt is rendered for
+// the edge's target node, so that node is the consumer.
+func (s *validationState) priorParameterConsumerName(edge Edge) string {
+	if target, exists := s.nodesByID[edge.TargetNodeID]; exists {
+		return nodeDisplayName(target)
 	}
+	return "the target node"
 }
 
 func (s *validationState) transitionGroupParameterSet(groupID TransitionGroupID) map[string]bool {
