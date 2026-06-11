@@ -3,6 +3,7 @@
 package sleepguard
 
 import (
+	"fmt"
 	"runtime"
 	"syscall"
 	"time"
@@ -18,8 +19,16 @@ var (
 	procSetThreadExecState = modKernel32.NewProc("SetThreadExecutionState")
 )
 
-func setThreadExecutionState(flags uint32) {
-	procSetThreadExecState.Call(uintptr(flags))
+// setThreadExecutionState returns an error if SetThreadExecutionState returns 0 (failure).
+func setThreadExecutionState(flags uint32) error {
+	r1, _, lastErr := procSetThreadExecState.Call(uintptr(flags))
+	if r1 == 0 {
+		if lastErr != syscall.Errno(0) {
+			return fmt.Errorf("SetThreadExecutionState(%#x): %w", flags, lastErr)
+		}
+		return fmt.Errorf("SetThreadExecutionState(%#x) failed", flags)
+	}
+	return nil
 }
 
 type platformGuardImpl struct {
@@ -27,21 +36,27 @@ type platformGuardImpl struct {
 }
 
 func (p *platformGuardImpl) start() error {
+	// Perform an initial synchronous check on this goroutine before launching
+	// the pinned goroutine so start() can return a meaningful error.
+	if err := setThreadExecutionState(esContinuous | esSystemRequired); err != nil {
+		return err
+	}
 	p.stopCh = make(chan struct{})
 	go func() {
 		// Pin this goroutine to one OS thread so SetThreadExecutionState's
 		// ES_CONTINUOUS state is owned by a stable thread for the inhibit lifetime.
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
-		setThreadExecutionState(esContinuous | esSystemRequired)
+		// Re-set on the pinned thread so ES_CONTINUOUS is owned here.
+		_ = setThreadExecutionState(esContinuous | esSystemRequired)
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				setThreadExecutionState(esContinuous | esSystemRequired)
+				_ = setThreadExecutionState(esContinuous | esSystemRequired)
 			case <-p.stopCh:
-				setThreadExecutionState(esContinuous)
+				_ = setThreadExecutionState(esContinuous)
 				return
 			}
 		}
