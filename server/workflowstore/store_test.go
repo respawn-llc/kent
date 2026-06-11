@@ -4951,8 +4951,17 @@ func insertCompletedRunForNodeInBatch(t *testing.T, ctx context.Context, store *
 
 func assertZeroTaskRows(t *testing.T, store *Store, table string, taskID string) {
 	t.Helper()
+	queries := map[string]string{
+		"task_node_placements": `SELECT COUNT(*) FROM task_node_placements WHERE task_id = ?`,
+		"task_transitions":     `SELECT COUNT(*) FROM task_transitions WHERE task_id = ?`,
+		"task_comments":        `SELECT COUNT(*) FROM task_comments WHERE task_id = ?`,
+	}
+	query, ok := queries[table]
+	if !ok {
+		t.Fatalf("assertZeroTaskRows: unsupported table %q", table)
+	}
 	var count int
-	if err := store.db.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE task_id = ?`, taskID).Scan(&count); err != nil {
+	if err := store.db.QueryRow(query, taskID).Scan(&count); err != nil {
 		t.Fatalf("count %s rows for task %s: %v", table, taskID, err)
 	}
 	if count != 0 {
