@@ -47,8 +47,8 @@ export function TaskDeleteWindowRoute({ taskID }: TaskDeleteTarget) {
     setActionError("");
     try {
       await api.deleteTask(taskID);
-      await nativeBridge.window.closeCurrent();
     } catch (error) {
+      // Deletion itself failed: allow the operator to retry.
       submittedRef.current = false;
       setPending(false);
       const message = errorMessage(error);
@@ -58,6 +58,19 @@ export function TaskDeleteWindowRoute({ taskID }: TaskDeleteTarget) {
         tone: "danger",
         title: t("board.deleteTaskWindowError"),
         body: message,
+      });
+      return;
+    }
+    try {
+      await nativeBridge.window.closeCurrent();
+    } catch (error) {
+      // Deletion already succeeded; surface the close failure without enabling a
+      // retry that would target the now-missing task.
+      push({
+        id: "task-delete-window-close-error",
+        tone: "danger",
+        title: t("board.deleteTaskWindowCloseError"),
+        body: errorMessage(error),
       });
     }
   }
