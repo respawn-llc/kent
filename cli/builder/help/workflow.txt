@@ -3,8 +3,8 @@ Usage of builder workflow:
   builder workflow list
   builder workflow node add <workflow> --key <node-key> --kind start|agent|join|terminal [--display-name <name>] [--prompt <text>] [--agent <role>]
   builder workflow node update <workflow> <node-key> [--key <node-key>] [--kind start|agent|join|terminal] [--display-name <name>] [--prompt <text>] [--agent <role>]
-  builder workflow edge add <workflow> --from <source-node-key> --transition <transition-id> --edge-key <edge-key> --to <target-node-key> --context <mode> [--prompt <text>]
-  builder workflow edge update <workflow> <edge-id> [--transition <transition-id>] [--transition-display-name <name>] [--edge-key <edge-key>] [--to <target-node-key>] [--context <mode>] [--prompt <text>]
+  builder workflow edge add <workflow> --from <source-node-key> --transition <transition-id> --edge-key <edge-key> --to <target-node-key> --context <mode> [--prompt <text>] [--transition-description <text>] [--param <key>=<description> ...]
+  builder workflow edge update <workflow> <edge-id> [--transition <transition-id>] [--transition-display-name <name>] [--transition-description <text>] [--edge-key <edge-key>] [--to <target-node-key>] [--context <mode>] [--prompt <text>] [--param <key>=<description> ...] [--clear-params]
   builder workflow link <project> <workflow> [--default]
   builder workflow unlink <project> <workflow>
   builder workflow default <project> <workflow>

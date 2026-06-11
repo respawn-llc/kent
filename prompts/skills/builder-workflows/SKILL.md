@@ -44,7 +44,9 @@ Important CLI behavior:
 - `workflow node add` returns a generated `node_id`. Edges are authored with node keys via `--from` and `--to`.
 - `workflow edge add` creates or reuses the transition group for the given source node and transition ID, then adds an edge to that group.
 - Agent-targeting edges require `--prompt <text>`. Omit `--prompt` for edges targeting `start`, `join`, or `terminal` nodes.
-- The workflow CLI does not define `--output`, `--input`, or `--require-output`; use the live CLI help before adding graph-edit flags.
+- `--transition-description <text>` sets the model-facing transition description on the edge's transition group. Use it to tell the agent when to pick this transition over its siblings.
+- `--param <key>=<description>` (repeatable on `edge add` and `edge update`) declares a transition parameter the source agent must produce when taking the transition. On `edge update`, passing `--param` replaces the full parameter set; `--clear-params` removes all parameters. Omitting both preserves existing parameters.
+- The workflow CLI does not define `--output`, `--input`, or `--require-output`; those legacy node-owned contract fields are inert. Author transition contracts with `--param` instead.
 - `workflow validate` returns exit code 1 for invalid workflows and still prints `valid false` plus validation rows. Treat that as actionable validation output, not a shell failure to ignore.
 - Draft workflows can be saved and linked while semantic validation fails. Validate before task creation as a best practice; workflow automation requires execution validation before it starts.
 
@@ -92,6 +94,28 @@ Use `new_session` as the default unless the workflow intentionally needs convers
 ```bash
 builder workflow edge add <workflow> --from implement --transition done --edge-key done --to done --context new_session --requires-approval
 ```
+
+## Transition Prompts And Parameters
+The transition prompt is the task the target agent runs; parameters are the typed outputs the source agent must produce to carry context across the edge.
+
+```bash
+builder workflow edge update "Implementation Review" edge-abc123 \
+  --transition-description "Implementation is complete; send for review." \
+  --param "plan_file_path=Path to the plan document the implementer followed." \
+  --prompt "Review the changes against the plan at {{.Params.plan_file_path}}."
+```
+
+Prompt placeholders are Go template fields:
+
+- Built-in task and node fields: `{{.TaskId}}`, `{{.TaskShortId}}`, `{{.TaskTitle}}`, `{{.TaskBody}}`, `{{.NodeId}}`, `{{.NodeKey}}`, `{{.NodeDisplayName}}`. Unsupported top-level fields are validation errors.
+- This transition's own parameters: `{{.Params.<parameter_key>}}`. Join-to-agent prompts read aggregated branch parameters the same way.
+- A guaranteed-prior transition's parameter: `{{.Params.<transition_id>.<parameter_key>}}`. A transition is guaranteed-prior only when every path from `start` to the prompt-owning edge's source passes through it. Use this to reference an earlier output instead of re-declaring the same parameter; the reference fails execution validation if the transition is not guaranteed-prior.
+
+Parameter rules enforced by validation:
+
+- Parameters are string-only and required once declared. Keys use workflow model-key format and cannot be `transition` or `commentary`.
+- Every parameter the source agent provides forms its provision contract: the same parameter key declared on more than one transition out of one source node, or on more than one branch of one fan-out transition, must use an identical description, otherwise the provision fields conflict.
+- Declare a parameter on the transition whose source agent can produce it. Prefer referencing a guaranteed-prior transition over re-threading the same value, but re-declare locally where the graph converges or loops and no single upstream transition dominates.
 
 ## Operate Tasks
 Create task records against a linked/default workflow and project, then inspect them:
