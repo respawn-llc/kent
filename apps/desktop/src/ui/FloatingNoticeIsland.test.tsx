@@ -90,19 +90,52 @@ describe("FloatingNoticeIsland", () => {
     expect(collapsedContent).toHaveAttribute("inert");
 
     act(() => {
-      vi.advanceTimersByTime(349);
-    });
-
-    expect(collapsedContent).toHaveAttribute("aria-hidden", "true");
-    expect(collapsedContent).toHaveAttribute("inert");
-
-    act(() => {
-      vi.advanceTimersByTime(1);
+      vi.advanceTimersByTime(1_000);
     });
 
     expect(screen.getByTestId("floating-notice-shell")).toHaveAttribute("data-state", "expanded");
     expect(collapsedContent).not.toHaveAttribute("aria-hidden", "true");
     expect(collapsedContent).not.toHaveAttribute("inert");
     expect(screen.getByText("Custom notice body")).toBeInTheDocument();
+  });
+
+  it("hides expanded content before the first collapse frame", () => {
+    vi.useFakeTimers();
+    const { rerender } = render(
+      <FloatingNoticeIsland
+        collapsed={false}
+        collapseLabel="Collapse"
+        expandLabel="Expand"
+        onCollapsedChange={vi.fn()}
+        title="Notice"
+      >
+        <p>Visible notice body</p>
+      </FloatingNoticeIsland>,
+    );
+    const content = screen.getByTestId("floating-notice-content");
+    expect(content).not.toHaveAttribute("aria-hidden", "true");
+    expect(content).not.toHaveAttribute("inert");
+
+    rerender(
+      <FloatingNoticeIsland
+        collapsed
+        collapseLabel="Collapse"
+        expandLabel="Expand"
+        onCollapsedChange={vi.fn()}
+        title="Notice"
+      >
+        <p>Visible notice body</p>
+      </FloatingNoticeIsland>,
+    );
+
+    expect(screen.getByTestId("floating-notice-shell")).toHaveAttribute("data-state", "collapsing");
+    expect(content).toHaveAttribute("aria-hidden", "true");
+    expect(content).toHaveAttribute("inert");
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+
+    expect(screen.getByTestId("floating-notice-shell")).toHaveAttribute("data-state", "collapsed");
   });
 });

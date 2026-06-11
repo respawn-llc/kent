@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Maximize2, Minus } from "lucide-react";
 
 import { cx } from "./classes";
@@ -24,8 +24,10 @@ export type FloatingNoticeIslandProps = Readonly<{
 
 type FloatingNoticePhase = "collapsed" | "collapsing" | "expanding" | "expanded";
 
-const floatingNoticeMorphMs = 350;
-const floatingNoticeFadeMs = 140;
+const motionMorphVarName = "--motion-morph";
+const motionFastVarName = "--motion-fast";
+const fallbackMotionMorphMs = 350;
+const fallbackMotionFastMs = 140;
 
 export function FloatingNoticeIsland({
   children,
@@ -45,12 +47,14 @@ export function FloatingNoticeIsland({
   const titleID = useId();
   const [phase, setPhase] = useState<FloatingNoticePhase>(() => (collapsed ? "collapsed" : "expanded"));
   const previousCollapsed = useRef(collapsed);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (previousCollapsed.current === collapsed) {
       return undefined;
     }
     previousCollapsed.current = collapsed;
-    const motionDelay = prefersReducedMotion() ? 0 : collapsed ? floatingNoticeFadeMs : floatingNoticeMorphMs;
+    const motionDelay = collapsed
+      ? motionDurationFromCSSVar(motionFastVarName, fallbackMotionFastMs)
+      : motionDurationFromCSSVar(motionMorphVarName, fallbackMotionMorphMs);
     setPhase(collapsed ? "collapsing" : "expanding");
     const timer = window.setTimeout(() => {
       setPhase(collapsed ? "collapsed" : "expanded");
@@ -135,11 +139,35 @@ export function FloatingNoticeIsland({
   );
 }
 
+function motionDurationFromCSSVar(name: string, fallbackMs: number): number {
+  if (prefersReducedMotion()) {
+    return 0;
+  }
+  const root = document.documentElement;
+  const raw = window.getComputedStyle(root).getPropertyValue(name);
+  return firstDurationMs(raw) ?? fallbackMs;
+}
+
+function firstDurationMs(value: string): number | null {
+  const token =
+    value
+      .trim()
+      .split(" ")
+      .find((part) => part.length > 0) ?? "";
+  if (token.endsWith("ms")) {
+    const parsed = Number.parseFloat(token.slice(0, -2));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (token.endsWith("s")) {
+    const parsed = Number.parseFloat(token.slice(0, -1));
+    return Number.isFinite(parsed) ? parsed * 1000 : null;
+  }
+  return null;
+}
+
 function prefersReducedMotion(): boolean {
   return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
 }
 
