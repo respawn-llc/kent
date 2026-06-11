@@ -125,6 +125,50 @@ describe("KanbanColumn", () => {
     expect(onCardClick).not.toHaveBeenCalled();
   });
 
+  it("shows an active run spinner only for running cards", () => {
+    render(
+      <I18nextProvider i18n={appI18n}>
+        <KanbanColumn
+          actionsDisabled={false}
+          cards={[
+            { ...card, id: "task-running", statusKind: "running", title: "Running task" },
+            { ...card, id: "task-approval", statusKind: "waiting_approval", title: "Approval task" },
+            { ...card, id: "task-interrupted", statusKind: "interrupted", title: "Interrupted task" },
+            { ...card, id: "task-canceled", statusKind: "canceled", title: "Canceled task" },
+          ]}
+          column={column}
+          dropState="idle"
+          hasMoreCards={false}
+          isFirstActive={false}
+          isLoadingMoreCards={false}
+          onCardClick={() => undefined}
+          onCardDragEnd={() => undefined}
+          onCardDragStart={() => undefined}
+          onDeleteTask={() => undefined}
+          onDropTask={() => undefined}
+          onInterruptTask={() => undefined}
+          onLoadMoreCards={() => undefined}
+          onResumeTask={() => undefined}
+        />
+      </I18nextProvider>,
+    );
+
+    expect(within(screen.getByRole("article", { name: "Running task" })).getByTestId("task-card-active-run-spinner")).toHaveClass(
+      "h-[14px]",
+      "w-[14px]",
+      "border-2",
+    );
+    expect(
+      within(screen.getByRole("article", { name: "Approval task" })).queryByTestId("task-card-active-run-spinner"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole("article", { name: "Interrupted task" })).queryByTestId("task-card-active-run-spinner"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole("article", { name: "Canceled task" })).queryByTestId("task-card-active-run-spinner"),
+    ).not.toBeInTheDocument();
+  });
+
   it("opens task detail when clicking any non-action area of the card", () => {
     const onCardClick = vi.fn();
 
