@@ -528,6 +528,8 @@ export type AttentionItem = Readonly<{
   askID: string;
   taskTransitionID: string;
   message: string;
+  suggestions: readonly string[];
+  recommendedOptionIndex: number;
   occurredAt: number;
 }>;
 

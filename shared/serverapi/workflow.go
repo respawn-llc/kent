@@ -738,19 +738,21 @@ type WorkflowTaskAttentionListResponse struct {
 }
 
 type WorkflowAttentionItem struct {
-	ID               string `json:"id"`
-	Kind             string `json:"kind"`
-	ProjectID        string `json:"project_id,omitempty"`
-	WorkflowID       string `json:"workflow_id,omitempty"`
-	TaskID           string `json:"task_id,omitempty"`
-	TaskShortID      string `json:"task_short_id,omitempty"`
-	TaskTitle        string `json:"task_title,omitempty"`
-	RunID            string `json:"run_id,omitempty"`
-	SessionID        string `json:"session_id,omitempty"`
-	AskID            string `json:"ask_id,omitempty"`
-	TaskTransitionID string `json:"task_transition_id,omitempty"`
-	Message          string `json:"message"`
-	OccurredAtUnixMs int64  `json:"occurred_at_unix_ms"`
+	ID                     string   `json:"id"`
+	Kind                   string   `json:"kind"`
+	ProjectID              string   `json:"project_id,omitempty"`
+	WorkflowID             string   `json:"workflow_id,omitempty"`
+	TaskID                 string   `json:"task_id,omitempty"`
+	TaskShortID            string   `json:"task_short_id,omitempty"`
+	TaskTitle              string   `json:"task_title,omitempty"`
+	RunID                  string   `json:"run_id,omitempty"`
+	SessionID              string   `json:"session_id,omitempty"`
+	AskID                  string   `json:"ask_id,omitempty"`
+	TaskTransitionID       string   `json:"task_transition_id,omitempty"`
+	Message                string   `json:"message"`
+	Suggestions            []string `json:"suggestions,omitempty"`
+	RecommendedOptionIndex int      `json:"recommended_option_index,omitempty"`
+	OccurredAtUnixMs       int64    `json:"occurred_at_unix_ms"`
 }
 
 type WorkflowTaskQuestionAnswerRequest struct {

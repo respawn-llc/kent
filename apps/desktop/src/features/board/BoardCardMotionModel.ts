@@ -193,13 +193,14 @@ function cardPositionEqual(left: CardPosition, right: CardPosition): boolean {
 }
 
 function uniqueCardPosition(positions: readonly CardPosition[]): UniqueCardPosition {
-  if (positions.length === 0) {
+  const position = positions[0];
+  if (position === undefined) {
     return { kind: "absent" };
   }
   if (positions.length > 1) {
     return { kind: "duplicate" };
   }
-  return { kind: "present", position: positions[0] };
+  return { kind: "present", position };
 }
 
 function cardMoved(oldPosition: UniqueCardPosition, newPosition: UniqueCardPosition): boolean {

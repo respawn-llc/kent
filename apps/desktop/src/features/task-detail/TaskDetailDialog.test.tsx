@@ -123,6 +123,38 @@ describe("TaskDetailDialog", () => {
     });
   });
 
+  it("renders task question options from attention when pending asks are not available", async () => {
+    window.history.pushState(null, "", "/tasks/task-1");
+    const detailWithAttentionOptions = {
+      task: {
+        ...taskDetailResponse.task,
+        attention: taskDetailResponse.task.attention.map((item) =>
+          item.kind === "question"
+            ? {
+                ...item,
+                message: "Choose snack",
+                recommended_option_index: 2,
+                suggestions: ["Trail mix", "Dark chocolate", "Pistachios"],
+              }
+            : item,
+        ),
+      },
+    };
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.task.get", result: detailWithAttentionOptions },
+      { method: "workflow.task.activity.list", result: activityResponse },
+      { method: "ask.listPendingBySession", result: { Asks: [] } },
+    ]);
+
+    render(<App services={services} />);
+
+    const question = await screen.findByRole("region", { name: "Question" });
+    expect(await within(question).findByRole("radio", { name: /Trail mix/u })).toBeInTheDocument();
+    expect(within(question).getByRole("radio", { name: /Dark chocolate/u })).toBeChecked();
+    expect(within(question).getByRole("radio", { name: /Pistachios/u })).toBeInTheDocument();
+  });
+
   it("confirms task cancellation in a popover without inline helper copy", async () => {
     window.history.pushState(null, "", "/tasks/task-1");
     const services = createTestServices([

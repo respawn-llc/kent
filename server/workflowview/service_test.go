@@ -915,7 +915,7 @@ func TestPendingApprovalTaskRemainsVisibleOnSourceBoardColumn(t *testing.T) {
 func TestTaskDetailProjectsWaitingAskRun(t *testing.T) {
 	ctx, store, workflowStore, binding := newWorkflowViewTestContextStore(t)
 	view, err := New(store, WithSessionTranscriptProvider(staticTranscriptProvider{pages: map[string]clientui.TranscriptPage{
-		"session-view-waiting-ask": transcriptPageWithAsk("ask-view-1", "Waiting ask?"),
+		"session-view-waiting-ask": transcriptPageWithAskOptions("ask-view-1", "Waiting ask?", []string{"Trail mix", "Dark chocolate", "Pistachios"}, 2),
 	}}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -953,6 +953,9 @@ func TestTaskDetailProjectsWaitingAskRun(t *testing.T) {
 	}
 	if len(detail.Runs) != 1 || detail.Runs[0].WaitingAskID != "ask-view-1" || detail.Runs[0].SessionID != sessionID {
 		t.Fatalf("runs do not project waiting ask: %+v", detail.Runs)
+	}
+	if len(detail.Attention) != 1 || detail.Attention[0].Message != "Waiting ask?" || len(detail.Attention[0].Suggestions) != 3 || detail.Attention[0].Suggestions[1] != "Dark chocolate" || detail.Attention[0].RecommendedOptionIndex != 2 {
+		t.Fatalf("attention question options = %+v", detail.Attention)
 	}
 }
 
@@ -1276,7 +1279,7 @@ func TestPendingQuestionResolverSearchesBeforeOngoingTail(t *testing.T) {
 	for i := 0; i < 650; i++ {
 		entry := clientui.ChatEntry{Role: "assistant", Text: "entry"}
 		if i == 20 {
-			entry = askTranscriptEntry("ask-old", "Question before tail?")
+			entry = askTranscriptEntry("ask-old", "Question before tail?", nil, 0)
 		}
 		entries = append(entries, entry)
 	}
@@ -1288,8 +1291,8 @@ func TestPendingQuestionResolverSearchesBeforeOngoingTail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Question: %v", err)
 	}
-	if question != "Question before tail?" {
-		t.Fatalf("question = %q", question)
+	if question.message != "Question before tail?" {
+		t.Fatalf("question = %+v", question)
 	}
 }
 
@@ -1562,13 +1565,17 @@ func (p staticTranscriptProvider) GetSessionTranscriptPage(_ context.Context, re
 }
 
 func transcriptPageWithAsk(askID string, question string) clientui.TranscriptPage {
-	return clientui.TranscriptPage{Entries: []clientui.ChatEntry{askTranscriptEntry(askID, question)}}
+	return clientui.TranscriptPage{Entries: []clientui.ChatEntry{askTranscriptEntry(askID, question, nil, 0)}}
 }
 
-func askTranscriptEntry(askID string, question string) clientui.ChatEntry {
+func transcriptPageWithAskOptions(askID string, question string, suggestions []string, recommended int) clientui.TranscriptPage {
+	return clientui.TranscriptPage{Entries: []clientui.ChatEntry{askTranscriptEntry(askID, question, suggestions, recommended)}}
+}
+
+func askTranscriptEntry(askID string, question string, suggestions []string, recommended int) clientui.ChatEntry {
 	return clientui.ChatEntry{
 		Role:       "tool_call",
 		ToolCallID: askID,
-		ToolCall:   &clientui.ToolCallMeta{ToolName: string(toolspec.ToolAskQuestion), Question: question},
+		ToolCall:   &clientui.ToolCallMeta{ToolName: string(toolspec.ToolAskQuestion), Question: question, Suggestions: suggestions, RecommendedOptionIndex: recommended},
 	}
 }

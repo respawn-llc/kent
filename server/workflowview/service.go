@@ -1288,9 +1288,9 @@ func (s *Service) questionAttentionItems(ctx context.Context, projectID string, 
 	for _, row := range rawRows {
 		question, err := questions.Question(ctx, row.sessionID, row.askID)
 		if err != nil {
-			question = pendingQuestionFallbackMessage
+			question = pendingQuestion{message: pendingQuestionFallbackMessage}
 		}
-		items = append(items, serverapi.WorkflowAttentionItem{ID: "question:" + row.runID + ":" + row.askID, Kind: "question", ProjectID: row.projectID, WorkflowID: row.workflowID, TaskID: row.taskID, TaskShortID: row.shortID, TaskTitle: row.title, RunID: row.runID, SessionID: row.sessionID, AskID: row.askID, Message: question, OccurredAtUnixMs: row.occurred})
+		items = append(items, serverapi.WorkflowAttentionItem{ID: "question:" + row.runID + ":" + row.askID, Kind: "question", ProjectID: row.projectID, WorkflowID: row.workflowID, TaskID: row.taskID, TaskShortID: row.shortID, TaskTitle: row.title, RunID: row.runID, SessionID: row.sessionID, AskID: row.askID, Message: question.message, Suggestions: question.suggestions, RecommendedOptionIndex: question.recommendedOptionIndex, OccurredAtUnixMs: row.occurred})
 	}
 	return items, nil
 }
@@ -1300,44 +1300,50 @@ const pendingQuestionFallbackMessage = "Question pending; open the task to answe
 
 type pendingQuestionResolver struct {
 	transcripts SessionTranscriptPageProvider
-	bySession   map[string]map[string]string
+	bySession   map[string]map[string]pendingQuestion
+}
+
+type pendingQuestion struct {
+	message                string
+	suggestions            []string
+	recommendedOptionIndex int
 }
 
 func newPendingQuestionResolver(transcripts SessionTranscriptPageProvider) *pendingQuestionResolver {
-	return &pendingQuestionResolver{transcripts: transcripts, bySession: map[string]map[string]string{}}
+	return &pendingQuestionResolver{transcripts: transcripts, bySession: map[string]map[string]pendingQuestion{}}
 }
 
-func (r *pendingQuestionResolver) Question(ctx context.Context, sessionID string, askID string) (string, error) {
+func (r *pendingQuestionResolver) Question(ctx context.Context, sessionID string, askID string) (pendingQuestion, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	askID = strings.TrimSpace(askID)
 	if r == nil || r.transcripts == nil {
-		return "", errors.New("session transcript provider is required to resolve pending question")
+		return pendingQuestion{}, errors.New("session transcript provider is required to resolve pending question")
 	}
 	if sessionID == "" || askID == "" {
-		return "", errors.New("session_id and ask_id are required to resolve pending question")
+		return pendingQuestion{}, errors.New("session_id and ask_id are required to resolve pending question")
 	}
 	questions, ok := r.bySession[sessionID]
 	if ok {
-		if question := strings.TrimSpace(questions[askID]); question != "" {
+		if question := questions[askID]; strings.TrimSpace(question.message) != "" {
 			return question, nil
 		}
 	} else {
-		r.bySession[sessionID] = map[string]string{}
+		r.bySession[sessionID] = map[string]pendingQuestion{}
 	}
 	question, err := r.findQuestion(ctx, sessionID, askID)
 	if err != nil {
-		return "", err
+		return pendingQuestion{}, err
 	}
 	r.bySession[sessionID][askID] = question
 	return question, nil
 }
 
-func (r *pendingQuestionResolver) findQuestion(ctx context.Context, sessionID string, askID string) (string, error) {
+func (r *pendingQuestionResolver) findQuestion(ctx context.Context, sessionID string, askID string) (pendingQuestion, error) {
 	resp, err := r.transcripts.GetSessionTranscriptPage(ctx, serverapi.SessionTranscriptPageRequest{SessionID: sessionID, Window: clientui.TranscriptWindowOngoingTail})
 	if err != nil {
-		return "", fmt.Errorf("load session %q transcript tail for pending question %q: %w", sessionID, askID, err)
+		return pendingQuestion{}, fmt.Errorf("load session %q transcript tail for pending question %q: %w", sessionID, askID, err)
 	}
-	if question := askQuestionFromTranscriptEntries(resp.Transcript.Entries, askID); question != "" {
+	if question := askQuestionFromTranscriptEntries(resp.Transcript.Entries, askID); strings.TrimSpace(question.message) != "" {
 		return question, nil
 	}
 	for nextEnd := resp.Transcript.Offset; nextEnd > 0; {
@@ -1347,17 +1353,17 @@ func (r *pendingQuestionResolver) findQuestion(ctx context.Context, sessionID st
 		}
 		page, err := r.transcripts.GetSessionTranscriptPage(ctx, serverapi.SessionTranscriptPageRequest{SessionID: sessionID, Offset: start, Limit: nextEnd - start})
 		if err != nil {
-			return "", fmt.Errorf("load session %q transcript page for pending question %q: %w", sessionID, askID, err)
+			return pendingQuestion{}, fmt.Errorf("load session %q transcript page for pending question %q: %w", sessionID, askID, err)
 		}
-		if question := askQuestionFromTranscriptEntries(page.Transcript.Entries, askID); question != "" {
+		if question := askQuestionFromTranscriptEntries(page.Transcript.Entries, askID); strings.TrimSpace(question.message) != "" {
 			return question, nil
 		}
 		nextEnd = start
 	}
-	return "", fmt.Errorf("pending question %q was not found in session %q transcript", askID, sessionID)
+	return pendingQuestion{}, fmt.Errorf("pending question %q was not found in session %q transcript", askID, sessionID)
 }
 
-func askQuestionFromTranscriptEntries(entries []clientui.ChatEntry, askID string) string {
+func askQuestionFromTranscriptEntries(entries []clientui.ChatEntry, askID string) pendingQuestion {
 	for _, entry := range entries {
 		entryAskID := strings.TrimSpace(entry.ToolCallID)
 		if strings.TrimSpace(entry.Role) != "tool_call" || entryAskID != askID || entry.ToolCall == nil {
@@ -1367,10 +1373,14 @@ func askQuestionFromTranscriptEntries(entries []clientui.ChatEntry, askID string
 			continue
 		}
 		if question := strings.TrimSpace(entry.ToolCall.Question); question != "" {
-			return question
+			return pendingQuestion{
+				message:                question,
+				suggestions:            append([]string(nil), entry.ToolCall.Suggestions...),
+				recommendedOptionIndex: entry.ToolCall.RecommendedOptionIndex,
+			}
 		}
 	}
-	return ""
+	return pendingQuestion{}
 }
 
 func (s *Service) interruptedRunAttentionItems(ctx context.Context, projectID string, taskID string) ([]serverapi.WorkflowAttentionItem, error) {

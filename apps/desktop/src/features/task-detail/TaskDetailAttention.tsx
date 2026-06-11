@@ -33,8 +33,10 @@ export function QuestionBox({
   const asks = usePendingAsks(attention.sessionID);
   const pendingAsk = asks.data?.find((ask) => ask.askID === attention.askID);
   const question = attention.message.length > 0 ? attention.message : pendingAsk?.question;
-  const suggestions = pendingAsk?.suggestions ?? emptySuggestions;
-  const recommendedOption = recommendedOptionNumber(suggestions, pendingAsk?.recommendedOptionIndex ?? 0);
+  const suggestions = attention.suggestions.length > 0 ? attention.suggestions : pendingAsk?.suggestions ?? emptySuggestions;
+  const recommendedOptionSource =
+    attention.suggestions.length > 0 ? attention.recommendedOptionIndex : pendingAsk?.recommendedOptionIndex ?? 0;
+  const recommendedOption = recommendedOptionNumber(suggestions, recommendedOptionSource);
 
   return (
     <Island aria-label={t("task.question")}>
