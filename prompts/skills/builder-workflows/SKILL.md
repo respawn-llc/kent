@@ -86,7 +86,7 @@ Use `draft` while authoring, `task_creation` before creating tasks, and `executi
 Each edge requires a context mode:
 
 - `new_session`: start a fresh Builder session and inject task metadata plus previous output.
-- `continue_session`: continue the previous Builder session. This requires compatible source/target session context and the same subagent role across direct agent continuation.
+- `continue_session`: continue the previous Builder session, applying the target node's subagent role context. The reused session stays authoritative only for immutable contract fields already snapshotted by prior model dispatch, so cross-role continuation is allowed.
 - `compact_and_continue_session`: ask the previous agent for a handoff, then continue with the next node prompt, handoff, and task metadata.
 
 Use `new_session` as the default unless the workflow intentionally needs conversational continuity across nodes. Use `--requires-approval` when a transition must pause before the target node starts:
