@@ -68,11 +68,12 @@ function LinkWorkflowPicker({
   const { t } = useTranslation();
   const { api } = useAppServices();
   const queryClient = useQueryClient();
+  const normalizedProjectID = projectID.trim();
   const workflowsQuery = useWorkflowPages();
   const linksQuery = useQuery({
-    queryKey: queryKeys.projectWorkflowLinks(projectID),
-    queryFn: async () => api.listProjectWorkflowLinks(projectID),
-    enabled: projectID.trim().length > 0,
+    queryKey: queryKeys.projectWorkflowLinks(normalizedProjectID),
+    queryFn: async () => api.listProjectWorkflowLinks(normalizedProjectID),
+    enabled: normalizedProjectID.length > 0,
   });
   const workflows = useMemo(
     () => workflowsQuery.data?.pages.flatMap((page) => page.workflows) ?? [],
@@ -83,7 +84,12 @@ function LinkWorkflowPicker({
     [linksQuery.data],
   );
   const linkMutation = useMutation({
-    mutationFn: async (workflowID: string) => api.linkWorkflowToProject({ projectID, workflowID }),
+    mutationFn: async (workflowID: string) => {
+      if (normalizedProjectID.length === 0) {
+        throw new Error("Cannot link a workflow without a project.");
+      }
+      return api.linkWorkflowToProject({ projectID: normalizedProjectID, workflowID });
+    },
     onSuccess: async (link) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.allProjectWorkflowLinks });
       await queryClient.invalidateQueries({ queryKey: queryKeys.allBoards });
