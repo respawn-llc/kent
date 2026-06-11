@@ -1323,6 +1323,57 @@ describe("WorkflowEditorRoute", () => {
     ]);
   });
 
+  it("surfaces structured draft validation issues when a dirty-graph save is blocked", async () => {
+    const user = userEvent.setup();
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.get", result: workflowDefinitionResponseWithReviewBranch },
+      { method: "workflow.validate", result: { valid: true, errors: [] } },
+      {
+        method: "workflow.graph.validateDraft",
+        handler(_params, callIndex) {
+          return callIndex === 0 ? validGraphValidationResponse : blockedDraftGraphValidationResponse;
+        },
+      },
+    ]);
+    window.history.pushState(null, "", "/workflows/workflow-1/editor");
+    render(
+      <AppProviders services={services}>
+        <SidebarProvider>
+          <WorkflowEditorDraftBridgeProvider>
+            <WorkflowEditorRoute projectID="" workflowID="workflow-1" />
+            <OpenEdgeInspectorButton edgeID="edge-review" />
+            <SidebarHost />
+          </WorkflowEditorDraftBridgeProvider>
+        </SidebarProvider>
+      </AppProviders>,
+    );
+
+    await screen.findByTestId("workflow-editor-canvas", undefined, { timeout: 5_000 });
+    await waitFor(() => {
+      expect(workflowDraftValidationCallCount(services)).toBe(1);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Open edge inspector" }));
+    const inspector = await screen.findByRole("complementary", { name: "Inspect branch" });
+    await user.clear(within(inspector).getByRole("textbox", { name: "Prompt" }));
+
+    const unsavedChanges = await screen.findByRole("complementary", { name: "Unsaved changes" });
+    fireEvent.click(within(unsavedChanges).getByRole("button", { name: "Save" }));
+
+    // The blocked save must surface the structured per-issue detail the
+    // validation returned, not just the generic blocker summary, even though
+    // the dirty graph disables the background validation query.
+    await within(unsavedChanges).findByText(blockedDraftValidationMessage);
+    expect(services.transport.calls.map((call) => call.method)).not.toContain("workflow.graph.savePreview");
+
+    // Editing the graph again drops the stale issue: it may reference rows the
+    // next edit removes, so the next save attempt re-validates from scratch.
+    await user.type(within(inspector).getByRole("textbox", { name: "Prompt" }), "Review the change.");
+    await waitFor(() => {
+      expect(within(unsavedChanges).queryByText(blockedDraftValidationMessage)).toBeNull();
+    });
+  });
+
   it("edits Start node display name and key from the normal node inspector", async () => {
     window.history.pushState(null, "", "/workflows/workflow-1/editor");
     const services = createTestServices([
@@ -3993,6 +4044,30 @@ const emptyAgentPromptExecutionValidationResponse = {
       blocks_context: true,
     },
   ],
+};
+
+const blockedDraftValidationMessage = "transition into an agent node requires a prompt";
+
+const blockedDraftGraphValidationResponse = {
+  derived_wiring: graphValidationResponse.derived_wiring,
+  results: {
+    draft: {
+      valid: false,
+      errors: [
+        {
+          code: "workflow.validation.transition_prompt_required",
+          message: blockedDraftValidationMessage,
+          workflow_id: "workflow-1",
+          node_id: "review",
+          transition_group_id: "tg-review",
+          edge_id: "edge-review",
+          related_ids: [],
+          blocks_context: true,
+        },
+      ],
+    },
+    execution: { errors: [], valid: true },
+  },
 };
 
 const emptyAgentPromptExecutionGraphValidationResponse = {

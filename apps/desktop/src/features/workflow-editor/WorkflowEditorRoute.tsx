@@ -20,6 +20,7 @@ import {
   type WorkflowGraphSaveConfirmation,
   type WorkflowGraphSaveImpact,
   type WorkflowGraphSavePreview,
+  type WorkflowGraphValidationResults,
   type WorkflowValidation,
 } from "../../api";
 import { errorMessage } from "../../api/errors";
@@ -104,6 +105,14 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
   const savingRef = useRef(false);
   const [saveError, setSaveError] = useState("");
   const [saveBlockers, setSaveBlockers] = useState<readonly string[]>([]);
+  // Structured draft/execution validation captured at the last save attempt,
+  // tagged with the draft version it was computed against. The background
+  // validation query is disabled while the graph is dirty, so without this a
+  // blocked save can only show the generic blocker summary with no per-issue
+  // detail. The draft version lets the controller drop it once the draft is
+  // edited (see below), so surfaced issues never reference stale rows.
+  const [saveValidation, setSaveValidation] =
+    useState<{ version: number; results: WorkflowGraphValidationResults } | null>(null);
   const [saveConfirmationPreviewEntry, setSaveConfirmationPreviewEntry] =
     useState<WorkflowSaveConfirmationPreviewEntry | null>(null);
   const saveConfirmationPreviewKey =
@@ -270,6 +279,13 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
       },
       saveBlockers,
       saveError,
+      // Drop the captured save validation once the draft moves past the version
+      // it was computed against: its errors may reference rows a later edit
+      // changed or removed, and the next save attempt re-validates fresh.
+      saveValidation:
+        saveValidation !== null && saveValidation.version === fallbackDraftState.version
+          ? saveValidation.results
+          : null,
       saving,
       state: fallbackDraftState,
       workflowID,
@@ -284,6 +300,7 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
       fallbackDraftState,
       saveBlockers,
       saveError,
+      saveValidation,
       saving,
       workflowID,
     ],
@@ -647,6 +664,7 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
     setSaving(true);
     setSaveError("");
     setSaveBlockers([]);
+    setSaveValidation(null);
     try {
       const metadata = latestDirty.metadataDirty ? workflowEditorDraftMetadata(draftState) : undefined;
       const graph = workflowEditorDraftGraph(draftState);
@@ -658,6 +676,7 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
           workflowID,
         });
         if (validation.draft?.valid !== true) {
+          setSaveValidation({ version: draftState.version, results: validation });
           setSaveBlockers([t("workflowEditor.draftValidationBlocksSave")]);
           return;
         }
@@ -1266,7 +1285,12 @@ function WorkflowEditorStatusIsland({
   const [collapsed, setCollapsed] = useState(false);
   const validationErrors = normalizeWorkflowValidationErrors(
     controller.dirty.graphDirty && controller.draftValidation === null
-      ? []
+      ? // Background validation is disabled while the graph is dirty; fall back
+        // to the structured result captured at the last blocked save attempt.
+        [
+          ...(controller.saveValidation?.draft?.errors ?? []),
+          ...(controller.saveValidation?.execution?.errors ?? []),
+        ]
       : [...(controller.draftValidation?.errors ?? []), ...(controller.executionValidation?.errors ?? [])],
   );
   const hasIssues =
