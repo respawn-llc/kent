@@ -21,6 +21,7 @@ import (
 	"builder/server/promptcontrol"
 	"builder/server/registry"
 	"builder/server/rootlock"
+	"builder/server/runtime"
 	"builder/server/runtimecontrol"
 	"builder/server/serverstatus"
 	"builder/server/sessionactivity"
@@ -79,7 +80,15 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	}
 	storeOptions := metadataStore.AuthoritativeSessionStoreOptions()
 	runtimeRegistry := registry.NewRuntimeRegistry()
-	sleepManager := sleepguard.NewManager(cfg.Settings.PreventSleep)
+	sleepManager, _ := sleepguard.NewManager(cfg.Settings.PreventSleep, func(sessionID string, err error) {
+		if strings.TrimSpace(sessionID) == "" {
+			return
+		}
+		runtimeRegistry.PublishRuntimeEvent(sessionID, runtime.Event{
+			Kind:  runtime.EventSleepGuardFailed,
+			Error: err.Error(),
+		})
+	})
 	runtimeRegistry.SetSleepObserver(sleepManager.OnRunStateChanged)
 	sessionStoreRegistry := registry.NewSessionStoreRegistry()
 	projectService, err := projectview.NewMetadataService(metadataStore, "")

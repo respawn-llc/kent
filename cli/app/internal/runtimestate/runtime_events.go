@@ -138,6 +138,7 @@ const (
 
 type RuntimeNoticeReduction struct {
 	BackgroundNotice *BackgroundNotice
+	DiagnosticNotice *BackgroundNotice
 }
 
 type RuntimeBackgroundProcessReduction struct {
@@ -295,14 +296,21 @@ func ReduceRuntimeReasoningEvent(state RuntimeReasoningState, evt clientui.Event
 }
 
 func ReduceRuntimeNoticeEvent(evt clientui.Event) RuntimeNoticeReduction {
-	if evt.Kind != clientui.EventBackgroundUpdated {
-		return RuntimeNoticeReduction{}
+	switch evt.Kind {
+	case clientui.EventBackgroundUpdated:
+		notice := backgroundNoticeFromEvent(evt.Background)
+		if notice == nil {
+			return RuntimeNoticeReduction{}
+		}
+		return RuntimeNoticeReduction{BackgroundNotice: notice}
+	case clientui.EventSleepGuardFailed:
+		msg := strings.TrimSpace(evt.Error)
+		if msg == "" {
+			return RuntimeNoticeReduction{}
+		}
+		return RuntimeNoticeReduction{DiagnosticNotice: &BackgroundNotice{Message: "sleep prevention failed: " + msg, Kind: BackgroundNoticeError}}
 	}
-	notice := backgroundNoticeFromEvent(evt.Background)
-	if notice == nil {
-		return RuntimeNoticeReduction{}
-	}
-	return RuntimeNoticeReduction{BackgroundNotice: notice}
+	return RuntimeNoticeReduction{}
 }
 
 func ExtractReasoningStatusHeader(text string) string {

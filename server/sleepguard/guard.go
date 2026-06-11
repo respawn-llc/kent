@@ -10,14 +10,17 @@ type Guard struct {
 	impl   platformGuardImpl
 }
 
-func (g *Guard) Acquire() {
+func (g *Guard) Acquire() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.active {
-		return
+		return nil
+	}
+	if err := g.impl.start(); err != nil {
+		return err
 	}
 	g.active = true
-	g.impl.start()
+	return nil
 }
 
 func (g *Guard) Release() {

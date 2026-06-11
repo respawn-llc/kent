@@ -32,6 +32,7 @@ const (
 	EventLocalEntryAdded     EventKind = "local_entry_added"
 	EventRunStateChanged     EventKind = "run_state_changed"
 	EventBackgroundUpdated   EventKind = "background_updated"
+	EventSleepGuardFailed    EventKind = "sleep_guard_failed"
 )
 
 type Event struct {
