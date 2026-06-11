@@ -41,7 +41,7 @@ export function FloatingNoticeIsland({
   const styles = noticeToneStyles[tone];
   const expandedClasses =
     expandedClassName ??
-    "floating-notice-expanded grid max-h-[min(400px,calc(100vh-32px))] w-[min(420px,calc(100vw-32px))] content-start gap-[var(--space-3)] overflow-y-auto overflow-x-hidden rounded-[var(--radius-xl)] p-[var(--space-3)]";
+    "floating-notice-expanded grid min-h-[123px] max-h-[min(400px,calc(100vh-32px))] w-[min(420px,calc(100vw-32px))] content-start gap-[var(--space-3)] overflow-y-auto overflow-x-hidden rounded-[var(--radius-xl)] p-[var(--space-3)]";
 
   return (
     <aside
