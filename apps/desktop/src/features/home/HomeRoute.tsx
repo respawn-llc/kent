@@ -191,6 +191,7 @@ type AttentionListProps = Readonly<{
 function AttentionList({ items, query }: AttentionListProps) {
   const { t } = useTranslation();
   const navigation = useAppNavigation();
+  const { openSidebar } = useSidebar();
   if (query.isPending) {
     return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} title={t("states.loading")} />;
   }
@@ -215,7 +216,7 @@ function AttentionList({ items, query }: AttentionListProps) {
       onLoadMore={() => void query.fetchNextPage()}
       paddingEnd={16}
       paddingStart={16}
-      renderItem={(item) => <AttentionRow item={item} navigation={navigation} />}
+      renderItem={(item) => <AttentionRow item={item} navigation={navigation} openSidebar={openSidebar} />}
     />
   );
 }
@@ -223,9 +224,11 @@ function AttentionList({ items, query }: AttentionListProps) {
 function AttentionRow({
   item,
   navigation,
+  openSidebar,
 }: Readonly<{
   item: AttentionItem;
   navigation: ReturnType<typeof useAppNavigation>;
+  openSidebar: ReturnType<typeof useSidebar>["openSidebar"];
 }>) {
   return (
     <button
@@ -233,7 +236,13 @@ function AttentionRow({
       data-testid="attention-row"
       onClick={() => {
         if (item.taskID.length > 0) {
-          openAttentionTask(item, navigation);
+          void openSidebar({
+            kind: "taskDetail",
+            mode: "overlay",
+            onMutated: undefined,
+            resumeRunID: "",
+            taskID: item.taskID,
+          });
           return;
         }
         if (item.workflowID.length > 0) {
@@ -260,14 +269,6 @@ function AttentionRow({
       <span className="text-sm text-[var(--color-muted)]">{formatRelativeTime(item.occurredAt)}</span>
     </button>
   );
-}
-
-function openAttentionTask(item: AttentionItem, navigation: ReturnType<typeof useAppNavigation>): void {
-  if (item.projectID.length > 0 && item.workflowID.length > 0) {
-    void navigation.openProjectTask(item.projectID, item.workflowID, item.taskID);
-    return;
-  }
-  void navigation.openTask(item.taskID);
 }
 
 function HomeInlineEmptyState({ body }: Readonly<{ body: string }>) {

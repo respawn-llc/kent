@@ -151,7 +151,7 @@ describe("HomeRoute", () => {
     expect(within(row).queryByText("question")).not.toBeInTheDocument();
   });
 
-  it("opens Inbox task cards in the project task sidebar", async () => {
+  it("opens Inbox task cards in the Home task sidebar without navigating away", async () => {
     const services = createTestServices([
       ...startupRoutes,
       {
@@ -162,7 +162,6 @@ describe("HomeRoute", () => {
           next_page_token: "",
         },
       },
-      { method: "workflow.board.get", result: boardResponse },
       { method: "workflow.task.get", result: taskDetailResponse },
       { method: "workflow.task.activity.list", result: emptyActivityResponse },
     ]);
@@ -171,13 +170,11 @@ describe("HomeRoute", () => {
 
     fireEvent.click(await screen.findByTestId("attention-row"));
 
-    await waitFor(() => {
-      expect(window.location.pathname).toBe("/projects/project-1");
-      expect(new URLSearchParams(window.location.search).get("workflowId")).toBe("workflow-1");
-      expect(new URLSearchParams(window.location.search).get("taskId")).toBe("task-1");
-    });
+    expect(window.location.pathname).toBe("/");
+    expect(window.location.search).toBe("");
     const sidebar = await screen.findByRole("complementary", { name: "Task" });
     expect(await within(sidebar).findByDisplayValue("Resolve blocker")).toBeInTheDocument();
+    expect(services.transport.calls.some((call) => call.method === "workflow.board.get")).toBe(false);
   });
 
   it("opens workflow-only Inbox cards in the workflow editor", async () => {
