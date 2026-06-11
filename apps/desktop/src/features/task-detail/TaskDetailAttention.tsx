@@ -12,6 +12,7 @@ type QuestionSelectionState = Readonly<{
   answer: string;
   askID: string;
   selectedOption: number | null;
+  submitted: boolean;
   userSelected: boolean;
 }>;
 
@@ -78,7 +79,8 @@ function QuestionForm({
   const answerID = useId();
   const neitherSelected = selectedOption === 0;
   const canSubmit = selectedOption === null ? false : selectedOption > 0 || answer.trim().length > 0;
-  const submitDisabled = disabled || answerQuestion.isPending || !canSubmit;
+  const interactionDisabled = disabled || answerQuestion.isPending || selection.submitted;
+  const submitDisabled = interactionDisabled || !canSubmit;
 
   async function submit(): Promise<void> {
     const freeformAnswer = selectedOption === 0 ? answer : "";
@@ -91,7 +93,7 @@ function QuestionForm({
       selectedOptionNumber,
       freeformAnswer,
     });
-    setSelectionState({ answer: "", askID: attention.askID, selectedOption: null, userSelected: true });
+    setSelectionState({ answer: "", askID: attention.askID, selectedOption: null, submitted: true, userSelected: true });
   }
 
   return (
@@ -99,7 +101,7 @@ function QuestionForm({
       className="grid gap-[var(--space-3)]"
       onSubmit={(event) => {
         event.preventDefault();
-        if (canSubmit) {
+        if (canSubmit && !interactionDisabled) {
           void submit();
         }
       }}
@@ -111,6 +113,7 @@ function QuestionForm({
         {suggestions.map((suggestion, optionIndex) => (
           <QuestionOption
             checked={selectedOption === optionIndex + 1}
+            disabled={interactionDisabled}
             key={`${optionIndex.toString()}:${suggestion}`}
             name={groupName}
             onChange={() => {
@@ -118,6 +121,7 @@ function QuestionForm({
                 answer: "",
                 askID: attention.askID,
                 selectedOption: optionIndex + 1,
+                submitted: false,
                 userSelected: true,
               });
             }}
@@ -127,12 +131,14 @@ function QuestionForm({
         ))}
         <QuestionOption
           checked={neitherSelected}
+          disabled={interactionDisabled}
           name={groupName}
           onChange={() => {
             setSelectionState({
               answer,
               askID: attention.askID,
               selectedOption: 0,
+              submitted: false,
               userSelected: true,
             });
           }}
@@ -150,6 +156,7 @@ function QuestionForm({
               answer: event.target.value,
               askID: attention.askID,
               selectedOption: 0,
+              submitted: false,
               userSelected: true,
             });
           }}
@@ -167,12 +174,14 @@ function QuestionForm({
 
 function QuestionOption({
   checked,
+  disabled,
   name,
   onChange,
   recommended,
   text,
 }: Readonly<{
   checked: boolean;
+  disabled: boolean;
   name: string;
   onChange: () => void;
   recommended: boolean;
@@ -184,9 +193,10 @@ function QuestionOption({
       className={cx(
         "flex items-start gap-[var(--space-2)] rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-2)] text-left text-[var(--color-on-island)]",
         checked && "border-[var(--color-primary)] bg-[color-mix(in_srgb,var(--color-primary)_10%,transparent)]",
+        disabled && "opacity-60",
       )}
     >
-      <input checked={checked} className="mt-1" name={name} onChange={onChange} type="radio" />
+      <input checked={checked} className="mt-1" disabled={disabled} name={name} onChange={onChange} type="radio" />
       <span className={cx("min-w-0", recommended && "font-bold text-[var(--color-primary)]")}>
         {text}
         {recommended ? <span className="ml-[var(--space-2)] text-xs font-bold">({t("task.recommended")})</span> : null}
@@ -200,7 +210,7 @@ function recommendedOptionNumber(suggestions: readonly string[], recommendedOpti
 }
 
 function emptyQuestionSelection(askID: string): QuestionSelectionState {
-  return { answer: "", askID, selectedOption: null, userSelected: false };
+  return { answer: "", askID, selectedOption: null, submitted: false, userSelected: false };
 }
 
 function selectionForAsk(selection: QuestionSelectionState, askID: string): QuestionSelectionState {

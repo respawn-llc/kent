@@ -48,6 +48,10 @@ describe("TaskDetailDialog", () => {
       expect(params.selected_option_number).toBe(1);
       expect(params.task_id).toBe("task-1");
     });
+    await waitFor(() => {
+      expect(within(question).getByRole("radio", { name: /Use option A/u })).toBeDisabled();
+      expect(within(question).getByRole("button", { name: "Submit answer" })).toBeDisabled();
+    });
 
     expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
