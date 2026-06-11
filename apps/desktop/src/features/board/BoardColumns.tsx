@@ -398,7 +398,7 @@ function TaskCardActions({
 }
 
 const waitingForAnswerCardStyle = {
-  borderColor: "var(--color-secondary)",
+  borderColor: "var(--color-primary)",
 } satisfies CSSProperties;
 
 function isWaitingForAnswer(statusKind: string): boolean {
