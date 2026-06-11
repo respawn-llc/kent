@@ -293,7 +293,7 @@ function TaskCard({
               data-testid="task-card-chips"
             >
               {card.statusKind === "running" ? (
-                <Spinner className="h-[14px] w-[14px] border-2" testID="task-card-active-run-spinner" />
+                <Spinner className="h-[21px] w-[21px]" testID="task-card-active-run-spinner" />
               ) : null}
               <span className="task-card-chip-slot inline-flex items-center" data-testid="task-card-chip-slot">
                 <Badge tone="neutral">{card.sourceWorkspaceName || t("board.workspace")}</Badge>

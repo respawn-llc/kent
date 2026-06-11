@@ -10,7 +10,7 @@ export function Spinner({ className, size = "md", testID = "spinner" }: SpinnerP
   return (
     <div
       className={cx(
-        "motion-safe:animate-spin rounded-full border-[3px] border-[var(--color-outline)] border-t-[var(--color-primary)]",
+        "rounded-full border-[3px] border-[var(--color-primary)] border-t-transparent motion-safe:animate-spin",
         size === "sm" ? "h-4 w-4" : "h-7 w-7",
         className,
       )}

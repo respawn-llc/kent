@@ -15,6 +15,7 @@ import {
   LoadingState,
   MarkdownText,
   SelectField,
+  Spinner,
   TextArea,
   TextInput,
   VirtualizedInfiniteList,
@@ -47,6 +48,15 @@ export function PrimitiveBoard({
           <Badge tone="success">Success</Badge>
           <Badge tone="warning">Warning</Badge>
           <Badge tone="danger">Danger</Badge>
+        </div>
+        <div
+          className="flex flex-wrap items-center gap-[var(--space-3)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]"
+          data-testid="dev-showcase-spinner-row"
+        >
+          <span className="text-sm text-[var(--color-muted)]">Spinners</span>
+          <Spinner size="sm" testID="dev-showcase-spinner-sm" />
+          <Spinner testID="dev-showcase-spinner-md" />
+          <Spinner className="h-[21px] w-[21px]" testID="dev-showcase-spinner-task-card" />
         </div>
         <div className="grid gap-[var(--space-3)] md:grid-cols-2">
           <TextInput
