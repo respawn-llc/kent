@@ -426,6 +426,10 @@
     color: inherit;
     text-decoration: none;
   }
+
+  html[data-builder-platform="macos"] :is(button, a, label, [role="button"], [role="link"], [role="menuitem"], [role="radio"], .cursor-pointer) {
+    cursor: default !important;
+  }
 }
 
 @utility app-region-drag {
