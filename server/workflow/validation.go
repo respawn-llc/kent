@@ -730,7 +730,7 @@ func (s *validationState) validatePromptPlaceholders() {
 			}
 		}
 		for _, priorParam := range refs.PriorParams {
-			s.validatePriorParameterReference(edge, priorParam, ref)
+			s.validatePriorParameterReference(edge, priorParam, ref, derived)
 		}
 	}
 }
@@ -757,7 +757,7 @@ func outputFieldNameSet(fields []OutputField) map[string]bool {
 	return out
 }
 
-func (s *validationState) validatePriorParameterReference(edge Edge, param PromptPriorParameterReference, baseRef ValidationError) {
+func (s *validationState) validatePriorParameterReference(edge Edge, param PromptPriorParameterReference, baseRef ValidationError, derived DerivedWiring) {
 	transitionKey := strings.TrimSpace(string(param.TransitionKey))
 	parameterKey := strings.TrimSpace(param.ParameterKey)
 	ref := baseRef
@@ -792,7 +792,7 @@ func (s *validationState) validatePriorParameterReference(edge Edge, param Promp
 		s.addHard(CodeInvalidTemplatePlaceholder, fmt.Sprintf(
 			"prompt for %s references parameter %q from transition %q, but more than one %q transition can run before %s. Give the producing transitions distinct keys and reference one.",
 			consumer, parameterKey, transitionKey, transitionKey, consumer), ref)
-	case !s.transitionGroupParameterSet(guaranteed[0].ID)[parameterKey]:
+	case !s.transitionGroupParameterSet(guaranteed[0].ID, derived)[parameterKey]:
 		s.addHard(CodeInvalidTemplatePlaceholder, fmt.Sprintf(
 			"prompt for %s references parameter %q from transition %q, but transition %q does not declare a %q parameter.",
 			consumer, parameterKey, transitionKey, transitionKey, parameterKey), ref)
@@ -809,8 +809,21 @@ func (s *validationState) priorParameterConsumerName(edge Edge) string {
 	return "the target node"
 }
 
-func (s *validationState) transitionGroupParameterSet(groupID TransitionGroupID) map[string]bool {
+func (s *validationState) transitionGroupParameterSet(groupID TransitionGroupID, derived DerivedWiring) map[string]bool {
 	out := map[string]bool{}
+	// Transitions leaving a join node declare no per-edge parameters; their
+	// effective parameters are the join's aggregated output fields, so resolve
+	// those when the group's source is a join.
+	if group, exists := s.groupsByID[groupID]; exists {
+		if source, sourceExists := s.nodesByID[group.SourceNodeID]; sourceExists && source.Kind == NodeKindJoin {
+			for _, field := range derived.JoinOutputFieldsForNode(source.ID) {
+				name := strings.TrimSpace(field.Name)
+				if name != "" {
+					out[name] = true
+				}
+			}
+		}
+	}
 	for _, edge := range s.edgesByGroup[groupID] {
 		for _, parameter := range edge.Parameters {
 			key := strings.TrimSpace(parameter.Key)

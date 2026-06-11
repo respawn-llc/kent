@@ -591,6 +591,27 @@ func TestTransitionInvocationContractsContextAndRoles(t *testing.T) {
 		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
 	})
 
+	t.Run("prior transition parameter from join aggregate passes", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow()
+		edgeByIDForValidationTest(t, &def, "edge_code_review_join").Parameters = []workflow.Parameter{{Key: "code_review_findings", Description: "Code review findings."}}
+		edgeByIDForValidationTest(t, &def, "edge_qa_test_join").Parameters = []workflow.Parameter{{Key: "qa_findings", Description: "QA findings."}}
+		edgeByIDForValidationTest(t, &def, "edge_accept_open_pr").PromptTemplate = "Open PR {{.Params.accept.qa_findings}} and {{.Params.accept.code_review_findings}}."
+
+		result := validateForTask(def)
+
+		assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
+	t.Run("missing prior transition parameter from join aggregate blocks task validation", func(t *testing.T) {
+		def := reviewAcceptanceWorkflow()
+		edgeByIDForValidationTest(t, &def, "edge_code_review_join").Parameters = []workflow.Parameter{{Key: "code_review_findings", Description: "Code review findings."}}
+		edgeByIDForValidationTest(t, &def, "edge_accept_open_pr").PromptTemplate = "Open PR {{.Params.accept.missing}}."
+
+		result := validateForTask(def)
+
+		assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+	})
+
 	t.Run("join aggregate collision from different producing transitions blocks task validation", func(t *testing.T) {
 		def := joinParameterWorkflow()
 		edgeByIDForValidationTest(t, &def, "edge_branch_b_join").Parameters = []workflow.Parameter{{Key: "plan", Description: "Implementation plan."}}
