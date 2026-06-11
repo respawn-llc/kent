@@ -26,7 +26,7 @@ type platformGuardImpl struct {
 	stopCh chan struct{}
 }
 
-func (p *platformGuardImpl) start() {
+func (p *platformGuardImpl) start() error {
 	p.stopCh = make(chan struct{})
 	go func() {
 		// Pin this goroutine to one OS thread so SetThreadExecutionState's
@@ -46,6 +46,7 @@ func (p *platformGuardImpl) start() {
 			}
 		}
 	}()
+	return nil
 }
 
 func (p *platformGuardImpl) stop() {

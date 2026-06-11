@@ -3,8 +3,8 @@
 package sleepguard
 
 import (
+	"fmt"
 	"io"
-	"log"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -15,15 +15,19 @@ var (
 	inhibitAvailable bool
 )
 
-func lookupInhibit() bool {
+func lookupInhibit() (bool, error) {
+	var lookupErr error
 	checkInhibitOnce.Do(func() {
 		_, err := exec.LookPath("systemd-inhibit")
 		inhibitAvailable = err == nil
 		if !inhibitAvailable {
-			log.Println("sleepguard: systemd-inhibit not found; sleep prevention disabled")
+			lookupErr = fmt.Errorf("systemd-inhibit not found: %w", err)
 		}
 	})
-	return inhibitAvailable
+	if !inhibitAvailable {
+		return false, fmt.Errorf("systemd-inhibit not available; sleep prevention disabled")
+	}
+	return true, lookupErr
 }
 
 type platformGuardImpl struct {
@@ -31,9 +35,9 @@ type platformGuardImpl struct {
 	stdin io.WriteCloser
 }
 
-func (p *platformGuardImpl) start() {
-	if !lookupInhibit() {
-		return
+func (p *platformGuardImpl) start() error {
+	if ok, err := lookupInhibit(); !ok {
+		return err
 	}
 	// --what=sleep only; idle and display sleep are unaffected
 	cmd := exec.Command("systemd-inhibit", "--what=sleep", "--mode=block", "--who=builder", "--why=agent running", "sleep", "infinity")
@@ -41,14 +45,15 @@ func (p *platformGuardImpl) start() {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return
+		return fmt.Errorf("systemd-inhibit stdin pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
-		return
+		return fmt.Errorf("systemd-inhibit start: %w", err)
 	}
 	p.cmd = cmd
 	p.stdin = stdin
+	return nil
 }
 
 func (p *platformGuardImpl) stop() {

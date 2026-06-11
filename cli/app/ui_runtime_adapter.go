@@ -148,6 +148,13 @@ func (a uiRuntimeAdapter) applyProjectedRuntimeEvent(evt clientui.Event, flushNa
 		}
 		cmds = append(cmds, m.sendTransientStatusWithNoticeID(reduction.Notices.BackgroundNotice.Message, kind, transientStatusDuration, uiStatusNoticeReplace, ""))
 	}
+	if reduction.Notices.DiagnosticNotice != nil {
+		kind := uiStatusNoticeNeutral
+		if reduction.Notices.DiagnosticNotice.Kind == runtimestate.BackgroundNoticeError {
+			kind = uiStatusNoticeError
+		}
+		cmds = append(cmds, m.inputController().appendSystemFeedbackWithMirroredStatus(reduction.Notices.DiagnosticNotice.Message, kind))
+	}
 	if reduction.PendingInput.PromptHistoryCommand != nil && strings.TrimSpace(reduction.PendingInput.PromptHistoryCommand.Text) != "" {
 		cmds = append(cmds, m.recordPromptHistory(reduction.PendingInput.PromptHistoryCommand.Text))
 	}

@@ -4,5 +4,5 @@ package sleepguard
 
 type platformGuardImpl struct{}
 
-func (p *platformGuardImpl) start() {}
-func (p *platformGuardImpl) stop()  {}
+func (p *platformGuardImpl) start() error { return nil }
+func (p *platformGuardImpl) stop()        {}
