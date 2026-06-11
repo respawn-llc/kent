@@ -125,6 +125,47 @@ describe("KanbanColumn", () => {
     expect(onCardClick).not.toHaveBeenCalled();
   });
 
+  it("treats question-waiting cards as answer-blocked instead of interruptible", () => {
+    render(
+      <I18nextProvider i18n={appI18n}>
+        <KanbanColumn
+          actionsDisabled={false}
+          cards={[
+            {
+              ...card,
+              actions: {
+                ...card.actions,
+                canInterrupt: true,
+                interruptRunID: "run-question",
+              },
+              statusKind: "waiting_question",
+              title: "Question task",
+            },
+          ]}
+          column={column}
+          dropState="idle"
+          hasMoreCards={false}
+          isFirstActive={false}
+          isLoadingMoreCards={false}
+          onCardClick={() => undefined}
+          onCardDragEnd={() => undefined}
+          onCardDragStart={() => undefined}
+          onDeleteTask={() => undefined}
+          onDropTask={() => undefined}
+          onInterruptTask={() => undefined}
+          onLoadMoreCards={() => undefined}
+          onResumeTask={() => undefined}
+        />
+      </I18nextProvider>,
+    );
+
+    const questionCard = screen.getByRole("article", { name: "Question task" });
+
+    expect(questionCard).toHaveAttribute("data-task-card-state", "waiting-answer");
+    expect(within(questionCard).queryByRole("button", { name: "Interrupt" })).not.toBeInTheDocument();
+    expect(within(questionCard).queryByTestId("task-card-active-run-spinner")).not.toBeInTheDocument();
+  });
+
   it("shows an active run spinner only for running cards", () => {
     render(
       <I18nextProvider i18n={appI18n}>
@@ -132,6 +173,7 @@ describe("KanbanColumn", () => {
           actionsDisabled={false}
           cards={[
             { ...card, id: "task-running", statusKind: "running", title: "Running task" },
+            { ...card, id: "task-question", statusKind: "waiting_question", title: "Question task" },
             { ...card, id: "task-approval", statusKind: "waiting_approval", title: "Approval task" },
             { ...card, id: "task-interrupted", statusKind: "interrupted", title: "Interrupted task" },
             { ...card, id: "task-canceled", statusKind: "canceled", title: "Canceled task" },
@@ -157,6 +199,9 @@ describe("KanbanColumn", () => {
       "h-[18px]",
       "w-[18px]",
     );
+    expect(
+      within(screen.getByRole("article", { name: "Question task" })).queryByTestId("task-card-active-run-spinner"),
+    ).not.toBeInTheDocument();
     expect(
       within(screen.getByRole("article", { name: "Approval task" })).queryByTestId("task-card-active-run-spinner"),
     ).not.toBeInTheDocument();

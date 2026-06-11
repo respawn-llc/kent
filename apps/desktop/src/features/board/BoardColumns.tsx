@@ -1,4 +1,4 @@
-import { useCallback, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Maximize2 } from "lucide-react";
 
@@ -237,6 +237,7 @@ function TaskCard({
     [card.id, registerMotionCard],
   );
   const canDrag = !actionsDisabled && card.statusKind !== "canceled";
+  const waitingForAnswer = isWaitingForAnswer(card.statusKind);
   const dragPayload = {
     taskID: card.id,
     canStart: card.actions.canStart,
@@ -253,6 +254,7 @@ function TaskCard({
             "mb-[var(--space-3)] grid cursor-pointer gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] outline-none focus-visible:border-[var(--color-primary)] focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_26%,transparent)]",
             cardClassName(card.id),
           )}
+          data-task-card-state={waitingForAnswer ? "waiting-answer" : card.statusKind}
           data-testid="task-card"
           draggable={canDrag}
           onClick={onClick}
@@ -272,7 +274,7 @@ function TaskCard({
             activateCardFromKeyboard(event, onClick);
           }}
           ref={registerCard}
-          style={cardStyle(card.id)}
+          style={{ ...cardStyle(card.id), ...(waitingForAnswer ? waitingForAnswerCardStyle : {}) }}
           tabIndex={0}
         >
           <div className="grid gap-[var(--space-1)] text-left text-[var(--color-on-island)]">
@@ -361,7 +363,8 @@ function TaskCardActions({
   onResume: (runID: string) => void;
 }>) {
   const { t } = useTranslation();
-  if (!card.actions.canInterrupt && !card.actions.canResume) {
+  const canInterrupt = card.actions.canInterrupt && !isWaitingForAnswer(card.statusKind);
+  if (!canInterrupt && !card.actions.canResume) {
     return null;
   }
   return (
@@ -378,7 +381,7 @@ function TaskCardActions({
           {t("board.resume")}
         </Button>
       ) : null}
-      {card.actions.canInterrupt ? (
+      {canInterrupt ? (
         <Button
           onClick={(event) => {
             event.stopPropagation();
@@ -392,4 +395,12 @@ function TaskCardActions({
       ) : null}
     </div>
   );
+}
+
+const waitingForAnswerCardStyle = {
+  borderColor: "var(--color-secondary)",
+} satisfies CSSProperties;
+
+function isWaitingForAnswer(statusKind: string): boolean {
+  return statusKind === "waiting_question";
 }
