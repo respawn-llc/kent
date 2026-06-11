@@ -147,6 +147,7 @@ export const englishResources = {
       workflowIssues: "Workflow issues",
       invalidWorkflowUnknown: "Workflow must be fixed before automation can run.",
       editWorkflow: "Edit workflow {{name}}",
+      horizontalScroll: "Board horizontal scroll",
     },
     workflowEditor: workflowEditorEnglish,
     workflowLibrary: {

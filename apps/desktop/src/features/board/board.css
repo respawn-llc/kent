@@ -7,6 +7,56 @@
   height: var(--task-card-action-row-height);
 }
 
+.board-horizontal-scrollbar {
+  height: 16px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.board-horizontal-scrollbar:focus-visible {
+  outline: none;
+}
+
+.board-horizontal-scrollbar::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-muted) 32%, transparent);
+}
+
+.board-horizontal-scrollbar::-webkit-slider-thumb {
+  width: 96px;
+  height: 8px;
+  margin-top: 0;
+  appearance: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-on-island) 72%, transparent);
+}
+
+.board-horizontal-scrollbar:focus-visible::-webkit-slider-runnable-track {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 55%, transparent);
+}
+
+.board-horizontal-scrollbar::-moz-range-track {
+  height: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-muted) 32%, transparent);
+}
+
+.board-horizontal-scrollbar::-moz-range-thumb {
+  width: 96px;
+  height: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-on-island) 72%, transparent);
+}
+
+.board-horizontal-scrollbar:focus-visible::-moz-range-track {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 55%, transparent);
+}
+
 .board-column-drop-allowed {
   --board-column-drop-color: color-mix(in srgb, var(--color-primary) 70%, var(--color-outline));
 
