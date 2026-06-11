@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { AttentionItem, TaskTransition } from "../../api";
+import { errorMessage } from "../../api/errors";
 import { useAppServices } from "../../app/useAppServices";
 import { Button, Island, RadioGroup, RadioGroupItem, showStatusToast } from "../../ui";
 import { fieldInputClassName } from "../../ui/Field";
@@ -252,6 +253,14 @@ export function ApprovalBox({
                 tone: "success",
               });
             }}
+            onCopyFailed={(name, error) => {
+              showStatusToast({
+                body: errorMessage(error),
+                id: `task-approval-output-copy-failed-${name}`,
+                title: t("task.outputValueCopyFailed", { name }),
+                tone: "danger",
+              });
+            }}
           />
           {stale ? (
             <p className="m-0 text-sm text-[var(--color-warning)]">
@@ -275,10 +284,12 @@ export function ApprovalBox({
 
 function ApprovalOutputValues({
   nativeBridge,
+  onCopyFailed,
   onCopied,
   outputValues,
 }: Readonly<{
   nativeBridge: ReturnType<typeof useAppServices>["nativeBridge"];
+  onCopyFailed: (name: string, error: unknown) => void;
   onCopied: (name: string) => void;
   outputValues: Readonly<Record<string, string>>;
 }>) {
@@ -296,9 +307,13 @@ function ApprovalOutputValues({
             <button
               className="min-w-0 whitespace-pre-wrap rounded-[var(--radius-m)] text-left text-sm text-[var(--color-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
               onClick={() => {
-                void copyText(value, nativeBridge).then(() => {
-                  onCopied(name);
-                });
+                void copyText(value, nativeBridge)
+                  .then(() => {
+                    onCopied(name);
+                  })
+                  .catch((error: unknown) => {
+                    onCopyFailed(name, error);
+                  });
               }}
               type="button"
             >
@@ -318,7 +333,7 @@ function ApprovalOutputValues({
 
 function transitionTargetLabel(transition: TaskTransition, fallback: ReturnType<typeof useTranslation>["t"]): string {
   const labels = transition.edges.map((edge) => edge.targetNodeName.trim()).filter((label) => label.length > 0);
-  return labels.join(", ") || transition.transitionName || transition.transitionID || fallback("app.none");
+  return labels.join(", ") || fallback("task.targetUnavailable");
 }
 
 async function copyText(

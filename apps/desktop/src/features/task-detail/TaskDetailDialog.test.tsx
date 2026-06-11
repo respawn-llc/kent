@@ -471,7 +471,16 @@ const taskDetailResponse = {
         state: "pending_approval",
         commentary: "Looks good",
         output_values: { result: "ok" },
-        edges: [],
+        edges: [
+          {
+            id: "transition-edge-1",
+            edge_key: "ship",
+            target_node_display_name: "Ship",
+            state: "pending",
+            requires_approval: true,
+            output_requirements: [],
+          },
+        ],
         workflow_revision_seen: 7,
         created_at_unix_ms: 2,
         applied_at_unix_ms: 0,

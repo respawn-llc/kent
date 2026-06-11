@@ -242,6 +242,8 @@ export const englishResources = {
       unavailableSnapshot: "Approval snapshot fields unavailable from server.",
       outputValues: "Output values",
       outputValueCopied: "Copied {{name}} to clipboard",
+      outputValueCopyFailed: "Could not copy {{name}}",
+      targetUnavailable: "Target unavailable",
       targetNodes: "Target nodes",
       commentary: "Commentary",
       staleApproval: "Stale",
