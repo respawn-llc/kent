@@ -70,6 +70,7 @@ describe("KanbanColumn", () => {
     expect(renderedColumn).toHaveAttribute("data-collapsed", "true");
     expect(screen.queryByTestId("kanban-column-task-count-backlog")).not.toBeInTheDocument();
     expect(screen.queryByTestId("kanban-column-scroll-backlog")).not.toBeInTheDocument();
+    expect(within(renderedColumn).queryByText("reviewer")).not.toBeInTheDocument();
 
     fireEvent.click(within(renderedColumn).getByRole("button", { name: "Expand Review" }));
 
