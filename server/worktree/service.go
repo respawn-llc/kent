@@ -329,9 +329,13 @@ func (s *Service) DeleteTaskWorktree(ctx context.Context, req DeleteTaskWorktree
 	} else if err := s.retargetActiveSessionsFromDeletedWorktree(ctx, record.WorkspaceID, workspaceRoot, record, ""); err != nil {
 		return DeleteTaskWorktreeResponse{}, err
 	}
-	branchDeleted, err := s.deleteTaskWorktreeBranch(ctx, workspaceRoot, record, target, found)
-	if err != nil {
-		return DeleteTaskWorktreeResponse{}, err
+	// The worktree itself is already removed by this point, so a branch-cleanup
+	// failure must not abort the remaining metadata cleanup; otherwise the record
+	// is left pointing at a removed worktree. Treat branch deletion as best-effort
+	// and report the outcome via BranchDeleted.
+	branchDeleted, branchErr := s.deleteTaskWorktreeBranch(ctx, workspaceRoot, record, target, found)
+	if branchErr != nil {
+		branchDeleted = false
 	}
 	if _, err := s.syncWorkspace(ctx, record.WorkspaceID, workspaceRoot, false); err != nil {
 		return DeleteTaskWorktreeResponse{}, err
