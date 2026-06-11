@@ -207,13 +207,13 @@ func CompletionJSONSchema(contract CompletionContract) (json.RawMessage, error) 
 	required = append(required, "commentary")
 	for _, parameter := range schemaParameters(transitions) {
 		name := strings.TrimSpace(parameter.Key)
-		properties[name] = map[string]any{
-			"type":        "string",
-			"description": strings.TrimSpace(parameter.Description),
-		}
 		if len(transitions) == 1 {
+			properties[name] = parameterProperty(parameter)
 			required = append(required, name)
+			continue
 		}
+		properties[name] = nullableParameterProperty(parameter)
+		required = append(required, name)
 	}
 	schema := map[string]any{
 		"type":                 "object",
@@ -221,44 +221,11 @@ func CompletionJSONSchema(contract CompletionContract) (json.RawMessage, error) 
 		"properties":           properties,
 		"required":             required,
 	}
-	if len(transitions) > 1 {
-		schema["oneOf"] = transitionBranchSchemas(transitions)
-	}
 	raw, err := json.Marshal(schema)
 	if err != nil {
 		return nil, err
 	}
 	return raw, nil
-}
-
-func transitionBranchSchemas(transitions []CompletionTransition) []any {
-	branches := make([]any, 0, len(transitions))
-	for _, transition := range transitions {
-		id := strings.TrimSpace(transition.ID)
-		if id == "" {
-			continue
-		}
-		properties := map[string]any{
-			"transition": transitionProperty([]string{id}),
-			"commentary": commentaryProperty(),
-		}
-		required := []string{"transition", "commentary"}
-		for _, parameter := range normalizedParameters(transition.Parameters) {
-			key := strings.TrimSpace(parameter.Key)
-			if key == "" {
-				continue
-			}
-			properties[key] = parameterProperty(parameter)
-			required = append(required, key)
-		}
-		branches = append(branches, map[string]any{
-			"type":                 "object",
-			"additionalProperties": false,
-			"properties":           properties,
-			"required":             required,
-		})
-	}
-	return branches
 }
 
 func transitionProperty(transitionIDs []string) map[string]any {
@@ -283,6 +250,19 @@ func parameterProperty(parameter workflow.Parameter) map[string]any {
 	return map[string]any{
 		"type":        "string",
 		"description": strings.TrimSpace(parameter.Description),
+	}
+}
+
+func nullableParameterProperty(parameter workflow.Parameter) map[string]any {
+	description := strings.TrimSpace(parameter.Description)
+	if description == "" {
+		description = "Set to a string only when this parameter belongs to the selected transition; otherwise set null."
+	} else {
+		description += " Set to null when this parameter does not belong to the selected transition."
+	}
+	return map[string]any{
+		"type":        []string{"string", "null"},
+		"description": description,
 	}
 }
 
@@ -369,6 +349,9 @@ func DecodeCompletion(raw json.RawMessage, contract CompletionContract) (ParsedC
 			}
 			if !knownParameters[field] {
 				issues = append(issues, ValidationIssue{Code: "unknown_parameter", Field: field, Message: "parameter is not declared by this workflow run"})
+				continue
+			}
+			if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 				continue
 			}
 			text, ok, issue := decodeStringValue(value, field)
