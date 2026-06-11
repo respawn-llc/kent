@@ -47,7 +47,7 @@ export function KanbanGroup({
         </p>
         <h2 className="m-0 text-[1rem]">{group.name}</h2>
       </header>
-      <div className="grid h-full min-h-0 grid-flow-col auto-cols-[min(480px,80vw)] gap-[var(--space-3)]">
+      <div className="flex h-full min-h-0 gap-[var(--space-2)]">
         {children}
       </div>
     </section>
