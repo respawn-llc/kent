@@ -1,1 +1,1 @@
-export const fieldLabelClassName = "text-[0.82rem] font-extrabold tracking-[0.1em] text-[var(--color-muted)]";
+export const fieldLabelClassName = "text-sm font-bold text-[var(--color-on-island)] opacity-70";

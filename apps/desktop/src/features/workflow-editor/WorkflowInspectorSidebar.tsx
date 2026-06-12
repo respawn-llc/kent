@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Sidebar keeps read-only and draft-backed workflow inspector paths together for now. */
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   closestCenter,
   DndContext,
@@ -42,7 +42,10 @@ import {
   SelectField,
   TextArea,
   TextInput,
+  Tooltip,
+  TooltipContent,
   TooltipProvider,
+  TooltipTrigger,
   type SelectFieldOption,
 } from "../../ui";
 import { cx } from "../../ui/classes";
@@ -71,6 +74,7 @@ import {
   type WorkflowEditorDraftController,
 } from "./workflowEditorDraftBridgeCore";
 import {
+  transitionKeyedParameterPlaceholderExample,
   workflowPromptTemplatePlaceholders,
   type PromptTemplatePlaceholder,
 } from "./workflowPromptTemplatePlaceholders";
@@ -524,7 +528,7 @@ function AgentNodeDraftDetails({
       </DetailSection>
       <FieldSummary
         fields={derivedNodeWiring(definition, node.id).possibleProvisionFields}
-        title={t("workflowEditor.provides")}
+        title={t("workflowEditor.outputs")}
       />
       <ValidationDetails errors={errors} />
     </InspectorStack>
@@ -575,7 +579,7 @@ function PromptTemplateEditor({
       <label className="sr-only" htmlFor={promptInputId}>
         {t("workflowEditor.prompt")}
       </label>
-      <div className="grid gap-[var(--space-1)]">
+      <div className="grid gap-[var(--space-2)]">
         <textarea
           className={cx(fieldInputClassName, "min-h-24")}
           id={promptInputId}
@@ -606,23 +610,90 @@ function PromptPlaceholderChips({
       className="flex flex-wrap gap-[var(--space-1)]"
       role="group"
     >
-      {placeholders.map((placeholder) => (
+      <TooltipProvider delayDuration={0}>
+        {placeholders.map((placeholder) => (
+          <PromptPlaceholderChip
+            key={placeholder.label}
+            onInsert={onInsert}
+            placeholder={placeholder}
+          />
+        ))}
+      </TooltipProvider>
+    </div>
+  );
+}
+
+function PromptPlaceholderChip({
+  onInsert,
+  placeholder,
+}: Readonly<{
+  onInsert: (placeholder: string) => void;
+  placeholder: PromptTemplatePlaceholder;
+}>) {
+  const { t } = useTranslation();
+  const [infoOpen, setInfoOpen] = useState(false);
+  const className = cx(promptPlaceholderChipBaseClassName, promptPlaceholderChipToneClassNames[placeholder.tone]);
+  if (placeholder.kind === "insert") {
+    return (
+      <button
+        className={className}
+        data-placeholder-tone={placeholder.tone}
+        onClick={() => {
+          onInsert(placeholder.value);
+        }}
+        onPointerDown={(event) => {
+          event.preventDefault();
+        }}
+        type="button"
+      >
+        {placeholder.label}
+      </button>
+    );
+  }
+  return (
+    <Tooltip onOpenChange={setInfoOpen} open={infoOpen}>
+      <TooltipTrigger asChild>
         <button
-          className={cx(promptPlaceholderChipBaseClassName, promptPlaceholderChipToneClassNames[placeholder.tone])}
+          aria-label={placeholder.label}
+          className={className}
           data-placeholder-tone={placeholder.tone}
-          key={placeholder.value}
+          onBlur={() => {
+            setInfoOpen(false);
+          }}
           onClick={() => {
-            onInsert(placeholder.value);
+            setInfoOpen(true);
+          }}
+          onFocus={() => {
+            setInfoOpen(true);
           }}
           onPointerDown={(event) => {
             event.preventDefault();
+          }}
+          onPointerEnter={() => {
+            setInfoOpen(true);
+          }}
+          onPointerLeave={() => {
+            setInfoOpen(false);
           }}
           type="button"
         >
           {placeholder.label}
         </button>
-      ))}
-    </div>
+      </TooltipTrigger>
+      <TooltipContent
+        className="grid max-w-[24rem] gap-[var(--space-1)] whitespace-normal text-left"
+        data-testid="transition-keyed-parameter-placeholder-help"
+        level={3}
+        side="top"
+        sideOffset={6}
+      >
+        <span>
+          {t("workflowEditor.promptTransitionScopedParameterHelpPrefix")}{" "}
+          <code>{transitionKeyedParameterPlaceholderExample}</code>.
+        </span>
+        <span>{t("workflowEditor.promptTransitionScopedParameterHelpSuffix")}</span>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -1018,7 +1089,7 @@ function NodeDetails({
         ) : null}
       </DetailSection>
       {node.kind === "agent" ? (
-        <FieldSummary fields={derivedNode.possibleProvisionFields} title={t("workflowEditor.provides")} />
+        <FieldSummary fields={derivedNode.possibleProvisionFields} title={t("workflowEditor.outputs")} />
       ) : null}
       {node.kind === "join" ? (
         <>
@@ -1439,7 +1510,7 @@ function PromptPreview({ prompt }: Readonly<{ prompt: string }>) {
   }
   return (
     <div className="grid gap-[var(--space-1)]">
-      <span className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-muted)]">
+      <span className="text-sm font-bold text-[var(--color-on-island)] opacity-70">
         {t("workflowEditor.prompt")}
       </span>
       <IslandSurface as="div" className="rounded-[var(--radius-m)] p-[var(--space-2)] text-sm" level={1}>

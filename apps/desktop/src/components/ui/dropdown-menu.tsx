@@ -161,7 +161,7 @@ function DropdownMenuLabel({
   return (
     <DropdownMenuPrimitive.Label
       className={cn(
-        "px-[var(--space-3)] py-[var(--space-2)] text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]",
+        "px-[var(--space-3)] py-[var(--space-2)] text-sm font-bold text-[var(--color-on-island)] opacity-70",
         inset && "pl-8",
         className,
       )}

@@ -73,6 +73,18 @@ export function WorkflowGraphEdge(
                 strokeWidth: props.selected ? 2.5 : 1.5,
               }}
             />
+            <circle
+              aria-hidden="true"
+              cx={edgePath.tailPoint.x}
+              cy={edgePath.tailPoint.y}
+              data-edge-id={props.id}
+              data-testid="workflow-edge-tail-marker"
+              r={4}
+              style={{
+                fill: color,
+                pointerEvents: "none",
+              }}
+            />
           </g>
         </ContextMenuTrigger>
         <ContextMenuContent level={3}>

@@ -323,7 +323,7 @@ function WorkflowEntityIDHeader({
   return (
     <button
       aria-label={copyLabel}
-      className="grid min-w-0 grid-cols-[minmax(0,1fr)] justify-items-end rounded-[var(--radius-s)] border border-transparent bg-transparent px-[var(--space-1)] py-[2px] font-mono text-xs text-[var(--color-muted)] outline-none hover:border-[var(--color-outline)] hover:bg-[var(--color-island-1)] focus-visible:border-[var(--color-primary)]"
+      className="inline-grid min-w-0 max-w-full justify-self-end rounded-[var(--radius-s)] border border-transparent bg-transparent px-[var(--space-1)] py-[2px] font-mono text-xs text-[var(--color-muted)] outline-none hover:border-[var(--color-outline)] hover:bg-[var(--color-island-1)] focus-visible:border-[var(--color-primary)]"
       onClick={() => {
         void copyWorkflowEntityID(entityID, nativeBridge)
           .then(() => {

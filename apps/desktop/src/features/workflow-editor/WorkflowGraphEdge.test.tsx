@@ -55,6 +55,9 @@ describe("WorkflowGraphEdge", () => {
       "d",
       "M 0 0 L 36 0 Q 50 0 50 14 L 50 26 Q 50 40 64 40 L 100 40",
     );
+    expect(screen.getByTestId("workflow-edge-tail-marker")).toHaveAttribute("cx", "0");
+    expect(screen.getByTestId("workflow-edge-tail-marker")).toHaveAttribute("cy", "0");
+    expect(screen.getByTestId("workflow-edge-tail-marker")).toHaveAttribute("r", "4");
   });
 
   it("inspects an edge from the visible path without bubbling to the React Flow wrapper", () => {

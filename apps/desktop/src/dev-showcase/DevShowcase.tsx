@@ -225,7 +225,7 @@ function HeroSection({
     <header className="island-glass grid gap-[var(--space-4)] rounded-[var(--radius-xl)] p-[var(--space-5)]">
       <div className="flex flex-wrap items-start justify-between gap-[var(--space-4)]">
         <div className="max-w-[960px]">
-          <p className="m-0 text-[0.75rem] font-extrabold uppercase tracking-[0.18em] text-[var(--color-primary)]">
+          <p className="m-0 text-sm font-bold text-[var(--color-primary)]">
             Dev-only browser preview
           </p>
           <h1 className="m-0 mt-[var(--space-2)] text-[clamp(2rem,6vw,5rem)] leading-none">

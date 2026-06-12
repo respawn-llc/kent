@@ -5,25 +5,29 @@ import type { WorkflowGraphEdge } from "./workflowGraphLayout";
 export function workflowEdgePath(props: EdgeProps<WorkflowGraphEdge>): Readonly<{
   labelPoint: Readonly<{ x: number; y: number }>;
   path: string;
+  tailPoint: Readonly<{ x: number; y: number }>;
 }> {
   const routedPath = routedEdgePath(props.data?.routePoints ?? []);
   if (routedPath !== null) {
     return routedPath;
   }
   const [path, labelX, labelY] = getBezierPath(props);
-  return { labelPoint: { x: labelX, y: labelY }, path };
+  return { labelPoint: { x: labelX, y: labelY }, path, tailPoint: { x: props.sourceX, y: props.sourceY } };
 }
 
 function routedEdgePath(points: readonly Readonly<{ x: number; y: number }>[]): Readonly<{
   labelPoint: Readonly<{ x: number; y: number }>;
   path: string;
+  tailPoint: Readonly<{ x: number; y: number }>;
 }> | null {
   if (points.length < 2) {
     return null;
   }
+  const tailPoint = points[0] ?? { x: 0, y: 0 };
   return {
     labelPoint: midpointOnPolyline(points),
     path: roundedPolylinePath(points, 14),
+    tailPoint,
   };
 }
 

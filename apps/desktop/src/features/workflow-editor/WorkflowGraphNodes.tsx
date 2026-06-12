@@ -199,7 +199,7 @@ export const WorkflowGroupNode = memo(function WorkflowGroupNode({
       level={1}
       style={workflowNodeOutlineStyle(data.kind, data.hasError)}
     >
-      <div className="font-mono text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-muted)]">
+      <div className="font-mono text-sm font-bold text-[var(--color-muted)]">
         {data.label}
       </div>
       {"empty" in data && data.empty ? (

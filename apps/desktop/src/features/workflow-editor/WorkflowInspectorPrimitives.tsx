@@ -42,7 +42,7 @@ export function DetailRow({
 }: Readonly<{ label: string; mono?: boolean; value: string }>) {
   return (
     <div className="grid gap-[2px]">
-      <span className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-muted)]">{label}</span>
+      <span className="text-sm font-bold text-[var(--color-on-island)] opacity-70">{label}</span>
       <span className={mono ? "break-all font-mono text-sm" : "text-sm"}>{value}</span>
     </div>
   );

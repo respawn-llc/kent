@@ -59,9 +59,7 @@ function CopyableNodeValue({
       }}
       type="button"
     >
-      <span className="text-[0.68rem] font-bold uppercase tracking-[0.14em] opacity-70">
-        {label}
-      </span>
+      <span className="text-sm font-bold opacity-70">{label}</span>
       <span className="min-w-0 break-all font-mono text-sm">{value}</span>
     </button>
   );

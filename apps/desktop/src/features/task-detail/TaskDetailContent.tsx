@@ -216,7 +216,7 @@ function TaskHeaderIsland({
             {t("task.save")}
           </Button>
         ) : null}
-        <span className="shrink-0 font-mono text-sm uppercase text-[var(--color-muted)]">
+        <span className="shrink-0 font-mono text-sm text-[var(--color-muted)]">
           {detail.shortID}
         </span>
       </form>
