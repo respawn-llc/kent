@@ -15,6 +15,7 @@ import (
 	"builder/shared/client"
 	"builder/shared/config"
 	"builder/shared/serverapi"
+	"builder/shared/workflowkey"
 
 	"github.com/google/uuid"
 )
@@ -772,6 +773,9 @@ func parseWorkflowParameters(raw []string) ([]serverapi.WorkflowParameter, error
 		description = strings.TrimSpace(description)
 		if !found || key == "" || description == "" {
 			return nil, fmt.Errorf("parameter %q must be key=description with a non-empty key and description", entry)
+		}
+		if !workflowkey.Valid(key) {
+			return nil, fmt.Errorf("parameter key %q is invalid; it must %s", key, workflowkey.Description)
 		}
 		parameters = append(parameters, serverapi.WorkflowParameter{Key: key, Description: description})
 	}
