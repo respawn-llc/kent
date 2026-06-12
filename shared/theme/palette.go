@@ -263,8 +263,8 @@ var defaultPalette = Palette{
 			Dark:  Color{ANSI: "1", ANSI256: "197", TrueColor: "#DC2E3C"},
 		},
 		Compaction: AdaptiveColor{
-			Light: Color{ANSI: "3", ANSI256: "166", TrueColor: "#F96824"},
-			Dark:  Color{ANSI: "3", ANSI256: "209", TrueColor: "#F96824"},
+			Light: Color{ANSI: "11", ANSI256: "220", TrueColor: "#FFE74C"},
+			Dark:  Color{ANSI: "3", ANSI256: "216", TrueColor: "#FFE74C"},
 		},
 		DiffAddBackground: AdaptiveColor{
 			Light: Color{ANSI: "2", ANSI256: "194", TrueColor: "#E6FFED"},

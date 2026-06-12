@@ -48,29 +48,40 @@
   --sl-color-gray-6: #1c1a18;
   --sl-color-black: #12100e;
 
-  --sl-color-accent-low: color-mix(in srgb, #3185fc 18%, transparent);
-  --sl-color-accent: #3185fc;
-  --sl-color-accent-high: color-mix(in srgb, #3185fc 85%, white);
+  --builder-color-primary: #3185fc;
+  --builder-color-primary-low: color-mix(in srgb, var(--builder-color-primary) 18%, transparent);
+  --builder-color-primary-high: color-mix(in srgb, var(--builder-color-primary) 85%, white);
+  --builder-color-secondary: #f96824;
+  --builder-color-secondary-low: color-mix(in srgb, var(--builder-color-secondary) 18%, transparent);
+  --builder-color-secondary-high: color-mix(in srgb, var(--builder-color-secondary) 85%, white);
+  --builder-color-success: #12ba85;
+  --builder-color-success-low: color-mix(in srgb, var(--builder-color-success) 18%, transparent);
+  --builder-color-success-high: color-mix(in srgb, var(--builder-color-success) 85%, white);
+  --builder-color-warning: #ffe74c;
+  --builder-color-warning-low: color-mix(in srgb, var(--builder-color-warning) 18%, transparent);
+  --builder-color-warning-high: color-mix(in srgb, var(--builder-color-warning) 70%, black);
+  --builder-color-error: #dc2e3c;
+  --builder-color-error-low: color-mix(in srgb, var(--builder-color-error) 18%, transparent);
+  --builder-color-error-high: color-mix(in srgb, var(--builder-color-error) 85%, white);
 
-  --sl-color-blue: #12ba85;
-  --sl-color-blue-low: color-mix(in srgb, #12ba85 18%, transparent);
-  --sl-color-blue-high: color-mix(in srgb, #12ba85 85%, white);
-
-  --sl-color-green: #12ba85;
-  --sl-color-green-low: color-mix(in srgb, #12ba85 18%, transparent);
-  --sl-color-green-high: color-mix(in srgb, #12ba85 85%, white);
-
-  --sl-color-orange: #ffe74c;
-  --sl-color-orange-low: color-mix(in srgb, #ffe74c 18%, transparent);
-  --sl-color-orange-high: color-mix(in srgb, #ffe74c 85%, white);
-
-  --sl-color-purple: #f96824;
-  --sl-color-purple-low: color-mix(in srgb, #f96824 18%, transparent);
-  --sl-color-purple-high: color-mix(in srgb, #f96824 70%, black);
-
-  --sl-color-red: #dc2e3c;
-  --sl-color-red-low: color-mix(in srgb, #dc2e3c 18%, transparent);
-  --sl-color-red-high: color-mix(in srgb, #dc2e3c 85%, white);
+  --sl-color-accent-low: var(--builder-color-primary-low);
+  --sl-color-accent: var(--builder-color-primary);
+  --sl-color-accent-high: var(--builder-color-primary-high);
+  --sl-color-blue: var(--builder-color-primary);
+  --sl-color-blue-low: var(--builder-color-primary-low);
+  --sl-color-blue-high: var(--builder-color-primary-high);
+  --sl-color-green: var(--builder-color-success);
+  --sl-color-green-low: var(--builder-color-success-low);
+  --sl-color-green-high: var(--builder-color-success-high);
+  --sl-color-orange: var(--builder-color-warning);
+  --sl-color-orange-low: var(--builder-color-warning-low);
+  --sl-color-orange-high: var(--builder-color-warning-high);
+  --sl-color-purple: var(--builder-color-secondary);
+  --sl-color-purple-low: var(--builder-color-secondary-low);
+  --sl-color-purple-high: var(--builder-color-secondary-high);
+  --sl-color-red: var(--builder-color-error);
+  --sl-color-red-low: var(--builder-color-error-low);
+  --sl-color-red-high: var(--builder-color-error-high);
 
   --sl-color-text: var(--sl-color-gray-2);
   --sl-color-text-accent: var(--sl-color-accent-high);
@@ -97,29 +108,40 @@
   --sl-color-gray-7: #f4f3f2;
   --sl-color-black: #faf9f7;
 
-  --sl-color-accent-low: color-mix(in srgb, #3185fc 14%, transparent);
-  --sl-color-accent: #3185fc;
-  --sl-color-accent-high: color-mix(in srgb, #3185fc 90%, black);
+  --builder-color-primary: #3185fc;
+  --builder-color-primary-low: color-mix(in srgb, var(--builder-color-primary) 14%, transparent);
+  --builder-color-primary-high: color-mix(in srgb, var(--builder-color-primary) 90%, black);
+  --builder-color-secondary: #f96824;
+  --builder-color-secondary-low: color-mix(in srgb, var(--builder-color-secondary) 14%, transparent);
+  --builder-color-secondary-high: color-mix(in srgb, var(--builder-color-secondary) 90%, black);
+  --builder-color-success: #12ba85;
+  --builder-color-success-low: color-mix(in srgb, var(--builder-color-success) 14%, transparent);
+  --builder-color-success-high: color-mix(in srgb, var(--builder-color-success) 90%, black);
+  --builder-color-warning: #ffe74c;
+  --builder-color-warning-low: color-mix(in srgb, var(--builder-color-warning) 30%, transparent);
+  --builder-color-warning-high: color-mix(in srgb, var(--builder-color-warning) 60%, black);
+  --builder-color-error: #dc2e3c;
+  --builder-color-error-low: color-mix(in srgb, var(--builder-color-error) 14%, transparent);
+  --builder-color-error-high: color-mix(in srgb, var(--builder-color-error) 90%, black);
 
-  --sl-color-blue: #12ba85;
-  --sl-color-blue-low: color-mix(in srgb, #12ba85 14%, transparent);
-  --sl-color-blue-high: color-mix(in srgb, #12ba85 90%, black);
-
-  --sl-color-green: #12ba85;
-  --sl-color-green-low: color-mix(in srgb, #12ba85 14%, transparent);
-  --sl-color-green-high: color-mix(in srgb, #12ba85 90%, black);
-
-  --sl-color-orange: #ffe74c;
-  --sl-color-orange-low: color-mix(in srgb, #ffe74c 14%, transparent);
-  --sl-color-orange-high: color-mix(in srgb, #ffe74c 90%, black);
-
-  --sl-color-purple: #f96824;
-  --sl-color-purple-low: color-mix(in srgb, #f96824 30%, transparent);
-  --sl-color-purple-high: color-mix(in srgb, #f96824 60%, black);
-
-  --sl-color-red: #dc2e3c;
-  --sl-color-red-low: color-mix(in srgb, #dc2e3c 14%, transparent);
-  --sl-color-red-high: color-mix(in srgb, #dc2e3c 90%, black);
+  --sl-color-accent-low: var(--builder-color-primary-low);
+  --sl-color-accent: var(--builder-color-primary);
+  --sl-color-accent-high: var(--builder-color-primary-high);
+  --sl-color-blue: var(--builder-color-primary);
+  --sl-color-blue-low: var(--builder-color-primary-low);
+  --sl-color-blue-high: var(--builder-color-primary-high);
+  --sl-color-green: var(--builder-color-success);
+  --sl-color-green-low: var(--builder-color-success-low);
+  --sl-color-green-high: var(--builder-color-success-high);
+  --sl-color-orange: var(--builder-color-warning);
+  --sl-color-orange-low: var(--builder-color-warning-low);
+  --sl-color-orange-high: var(--builder-color-warning-high);
+  --sl-color-purple: var(--builder-color-secondary);
+  --sl-color-purple-low: var(--builder-color-secondary-low);
+  --sl-color-purple-high: var(--builder-color-secondary-high);
+  --sl-color-red: var(--builder-color-error);
+  --sl-color-red-low: var(--builder-color-error-low);
+  --sl-color-red-high: var(--builder-color-error-high);
 
   --sl-color-text: #5a5651;
   --sl-color-text-accent: var(--sl-color-accent-high);
