@@ -2489,7 +2489,7 @@ describe("WorkflowEditorRoute", () => {
     expect(workflowDraftValidationCallCount(services)).toBe(1);
   });
 
-  it("opens workflow inspectors with their own 35 percent screen-width default", async () => {
+  it("opens sidebar destinations with their own typed default widths", async () => {
     const restoreWindowWidth = mockWindowWidth(1600);
     mockSidebarLayout(() => 1600);
     try {
@@ -2513,7 +2513,7 @@ describe("WorkflowEditorRoute", () => {
       fireEvent.keyDown(within(standardSidebar).getByRole("separator", { name: "Resize sidebar" }), {
         key: "Home",
       });
-      expect(sidebarWidthStyle(standardSidebar)).toBe("360px");
+      expect(sidebarWidthStyle(standardSidebar)).toBe("350px");
       fireEvent.click(within(standardSidebar).getByRole("button", { name: "Close" }));
       await waitFor(() => {
         expect(screen.queryByRole("complementary", { name: "Settings" })).not.toBeInTheDocument();
@@ -2521,11 +2521,11 @@ describe("WorkflowEditorRoute", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Inspect workflow" }));
       const workflowInspector = await screen.findByRole("complementary", { name: "Inspect workflow" });
-      expect(sidebarWidthStyle(workflowInspector)).toBe("560px");
+      expect(sidebarWidthStyle(workflowInspector)).toBe("550px");
       fireEvent.keyDown(within(workflowInspector).getByRole("separator", { name: "Resize sidebar" }), {
         key: "ArrowLeft",
       });
-      expect(sidebarWidthStyle(workflowInspector)).toBe("592px");
+      expect(sidebarWidthStyle(workflowInspector)).toBe("582px");
       fireEvent.click(within(workflowInspector).getByRole("button", { name: "Close" }));
       await waitFor(() => {
         expect(screen.queryByRole("complementary", { name: "Inspect workflow" })).not.toBeInTheDocument();
@@ -2533,7 +2533,7 @@ describe("WorkflowEditorRoute", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Open standard sidebar" }));
       const reopenedStandardSidebar = await screen.findByRole("complementary", { name: "Settings" });
-      expect(sidebarWidthStyle(reopenedStandardSidebar)).toBe("360px");
+      expect(sidebarWidthStyle(reopenedStandardSidebar)).toBe("350px");
       fireEvent.click(within(reopenedStandardSidebar).getByRole("button", { name: "Close" }));
       await waitFor(() => {
         expect(screen.queryByRole("complementary", { name: "Settings" })).not.toBeInTheDocument();
@@ -2541,7 +2541,7 @@ describe("WorkflowEditorRoute", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Inspect workflow" }));
       expect(sidebarWidthStyle(await screen.findByRole("complementary", { name: "Inspect workflow" }))).toBe(
-        "592px",
+        "582px",
       );
     } finally {
       restoreWindowWidth();

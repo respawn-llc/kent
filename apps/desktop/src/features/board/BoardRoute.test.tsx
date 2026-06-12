@@ -1146,7 +1146,7 @@ describe("BoardRoute", () => {
 
       const sidebar = await screen.findByTestId("app-sidebar-host");
       expect(screen.getByRole("complementary", { name: "Task" })).toHaveAttribute("data-mode", "overlay");
-      expect(sidebarWidthStyle(sidebar)).toBe("560px");
+      expect(sidebarWidthStyle(sidebar)).toBe("650px");
       expect(await within(sidebar).findByDisplayValue("Task detail title")).toBeInTheDocument();
       expect(methodCallCount(services.transport.calls, "workflow.task.get")).toBe(1);
       expect(methodCallCount(services.transport.calls, "workflow.task.activity.list")).toBe(1);
@@ -1163,7 +1163,7 @@ describe("BoardRoute", () => {
 
       const reopenedSidebar = await screen.findByTestId("app-sidebar-host");
       expect(screen.getByRole("complementary", { name: "Task" })).toHaveAttribute("data-mode", "overlay");
-      expect(sidebarWidthStyle(reopenedSidebar)).toBe("560px");
+      expect(sidebarWidthStyle(reopenedSidebar)).toBe("650px");
       expect(await within(reopenedSidebar).findByDisplayValue("Task detail title")).toBeInTheDocument();
       expect(new URLSearchParams(window.location.search).get("taskId")).toBe("task-1");
     } finally {
@@ -1172,7 +1172,7 @@ describe("BoardRoute", () => {
     }
   });
 
-  it("keeps resized sidebar width across board sidebar destinations", async () => {
+  it("keeps each board sidebar destination width independent and persisted", async () => {
     window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
     const services = createTestServices([
       ...startupRoutes,
@@ -1206,11 +1206,21 @@ describe("BoardRoute", () => {
       expect(screen.queryByRole("complementary", { name: "Create Backlog task" })).not.toBeInTheDocument();
     });
 
+    // Task detail uses its own typed default width, independent of the create-task resize.
     fireEvent.click(await screen.findByRole("article", { name: "Write focused tests" }));
-
     const taskDetailSidebar = await screen.findByRole("complementary", { name: "Task" });
-    expect(sidebarWidthStyle(taskDetailSidebar)).toBe(resizedWidth);
     expect(await within(taskDetailSidebar).findByDisplayValue("Task detail title")).toBeInTheDocument();
+    expect(sidebarWidthStyle(taskDetailSidebar)).toBe("650px");
+
+    fireEvent.click(within(taskDetailSidebar).getByRole("button", { name: "Close" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("complementary", { name: "Task" })).not.toBeInTheDocument();
+    });
+
+    // Reopening the create-task destination restores its own resized width.
+    fireEvent.click(await screen.findByRole("button", { name: "New Task" }));
+    const reopenedCreateTask = await screen.findByRole("complementary", { name: "Create Backlog task" });
+    expect(sidebarWidthStyle(reopenedCreateTask)).toBe(resizedWidth);
   });
 
   it("renders Create Task in a native dialog route and closes the native window after submit", async () => {
