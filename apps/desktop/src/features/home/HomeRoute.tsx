@@ -12,7 +12,7 @@ import { useAppServices } from "../../app/useAppServices";
 import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
 import { useStatusController } from "../../app/useStatusController";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
-import { ErrorState, LoadingState, VirtualizedInfiniteList } from "../../ui";
+import { ErrorState, homeListCardListMaxWidthClassName, LoadingState, VirtualizedInfiniteList } from "../../ui";
 import { HomePrimaryPane, type HomePrimaryTab } from "./HomePrimaryPane";
 import { ProjectCreateDialog, type ProjectDraft } from "./ProjectCreateForm";
 import {
@@ -23,8 +23,6 @@ import {
 } from "./useHomeData";
 
 const LOCAL_UNBOUND_PLAN_KIND = "local_unbound";
-const attentionPaneItemMaxWidthClassName = "[&>*]:max-w-[600px]";
-
 export function HomeRoute() {
   const { t } = useTranslation();
   const { api, nativeBridge } = useAppServices();
@@ -200,7 +198,7 @@ function AttentionList({ items, query }: AttentionListProps) {
   }
   return (
     <VirtualizedInfiniteList
-      className={`h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full ${attentionPaneItemMaxWidthClassName}`}
+      className={`h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full ${homeListCardListMaxWidthClassName}`}
       empty={<HomeInlineEmptyState body={t("home.noAttentionBody")} />}
       estimateSize={() => 144}
       getItemKey={(item) => item.id}

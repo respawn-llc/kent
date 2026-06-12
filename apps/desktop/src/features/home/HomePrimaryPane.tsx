@@ -5,13 +5,18 @@ import { useTranslation } from "react-i18next";
 import type { ProjectSummary } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useAppNavigation } from "../../app/navigation";
-import { EmptyState, ErrorState, IslandSurface, LoadingState, VirtualizedInfiniteList } from "../../ui";
+import {
+  EmptyState,
+  ErrorState,
+  homeListCardListMaxWidthClassName,
+  IslandSurface,
+  LoadingState,
+  VirtualizedInfiniteList,
+} from "../../ui";
 import { WorkflowCard } from "../workflows/WorkflowCard";
 import { useWorkflowPages } from "../workflows/WorkflowData";
 import { ProjectRow } from "./ProjectRow";
 import type { useProjectPages } from "./useHomeData";
-
-const homePaneItemMaxWidthClassName = "[&>*]:max-w-[600px]";
 
 export type HomePrimaryTab = "projects" | "workflows";
 
@@ -173,7 +178,7 @@ function ProjectList({
   }
   return (
     <VirtualizedInfiniteList
-      className={`h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full ${homePaneItemMaxWidthClassName}`}
+      className={`h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full ${homeListCardListMaxWidthClassName}`}
       empty={<HomeInlineEmptyState body={t("home.emptyBody")} />}
       estimateSize={() => 96}
       getItemKey={(project) => project.id}
@@ -211,7 +216,7 @@ function HomeWorkflowList({ controlsHeight }: Readonly<{ controlsHeight: number 
   }
   return (
     <VirtualizedInfiniteList
-      className={`h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full ${homePaneItemMaxWidthClassName}`}
+      className={`h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch] [&>*]:mx-auto [&>*]:w-full ${homeListCardListMaxWidthClassName}`}
       empty={
         <EmptyState
           body={t("workflowLibrary.emptyBody")}

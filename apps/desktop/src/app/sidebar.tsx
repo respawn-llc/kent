@@ -229,7 +229,7 @@ export function SidebarHost() {
         role="separator"
         tabIndex={0}
       />
-      <header className="grid grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-[var(--space-3)] border-b border-[var(--color-outline)] px-[var(--space-4)] py-[var(--space-3)]">
+      <header className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-[var(--space-3)] border-b border-[var(--color-outline)] px-[var(--space-4)] py-[var(--space-3)]">
         <Button
           aria-label={t("app.close")}
           onClick={() => {
@@ -240,7 +240,7 @@ export function SidebarHost() {
         >
           <X aria-hidden="true" size={18} strokeWidth={1.5} />
         </Button>
-        <h2 className="m-0 whitespace-nowrap text-[1.05rem] font-bold" id={titleId}>
+        <h2 className="m-0 min-w-0 truncate text-[1.05rem] font-bold" id={titleId}>
           {title}
         </h2>
         <SidebarHeaderAccessory destination={activeDestination} />

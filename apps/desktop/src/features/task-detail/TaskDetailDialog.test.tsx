@@ -26,6 +26,10 @@ describe("TaskDetailDialog", () => {
 
     render(<App services={services} />);
 
+    const description = await screen.findByRole("textbox", { name: "Description" });
+    expect(description).toHaveClass("island-surface");
+    expect(screen.queryByTestId("task-detail-description-island")).not.toBeInTheDocument();
+
     const question = await screen.findByRole("region", { name: "Question" });
     expect(screen.queryByRole("region", { name: "Inbox" })).not.toBeInTheDocument();
     expect(screen.queryByText("Answer")).not.toBeInTheDocument();

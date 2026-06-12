@@ -2,7 +2,8 @@ import { ChevronDown } from "lucide-react";
 import { forwardRef, type ComponentPropsWithoutRef } from "react";
 
 import { cx } from "./classes";
-import { fieldInputClassName, type FieldError } from "./Field";
+import type { FieldError } from "./Field";
+import { fieldInputClassName } from "./fieldInputStyles";
 import type { SelectFieldOption } from "./SelectField";
 import {
   DropdownMenuContent,

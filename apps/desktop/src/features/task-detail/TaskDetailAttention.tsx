@@ -5,7 +5,7 @@ import type { AttentionItem, TaskTransition } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useAppServices } from "../../app/useAppServices";
 import { Button, Island, RadioGroup, RadioGroupItem, showStatusToast } from "../../ui";
-import { fieldInputClassName } from "../../ui/Field";
+import { fieldInputClassName } from "../../ui/fieldInputStyles";
 import { cx } from "../../ui/classes";
 import { WorkflowEdgeRouteGraphic } from "../workflow-editor/WorkflowEdgeRouteGraphic";
 import { usePendingAsks } from "./useTaskDetailData";

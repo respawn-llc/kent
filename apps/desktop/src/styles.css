@@ -416,7 +416,16 @@
     font: inherit;
   }
 
-  textarea { field-sizing: content; resize: none; overflow: hidden; transition: all 0.3s ease !important; }
+  textarea {
+    field-sizing: content;
+    resize: none;
+    overflow: hidden;
+    transition:
+      height var(--motion-normal),
+      border-color var(--motion-fast),
+      box-shadow var(--motion-fast),
+      background-color var(--motion-fast);
+  }
 
   button {
     cursor: pointer;

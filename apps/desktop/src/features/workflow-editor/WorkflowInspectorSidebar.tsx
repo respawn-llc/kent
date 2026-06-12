@@ -49,7 +49,7 @@ import {
   type SelectFieldOption,
 } from "../../ui";
 import { cx } from "../../ui/classes";
-import { fieldInputClassName } from "../../ui/Field";
+import { fieldInputClassName } from "../../ui/fieldInputStyles";
 import {
   DetailRow,
   DetailSection,

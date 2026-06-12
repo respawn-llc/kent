@@ -187,6 +187,7 @@ export const englishResources = {
     },
     task: {
       title: "Task",
+      identifier: "ID",
       shortId: "Task {{id}}",
       body: "Details",
       description: "Description",

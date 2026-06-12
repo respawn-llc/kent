@@ -6,6 +6,7 @@ export { DisabledInteractionGuard } from "./DisabledInteractionGuard";
 export type { DisabledInteractionGuardProps } from "./DisabledInteractionGuard";
 export { Dialog } from "./Dialog";
 export { TextArea, TextInput } from "./Field";
+export { fieldInputClassName, fieldIslandInputClassName } from "./fieldInputStyles";
 export { fieldLabelClassName } from "./fieldStyles";
 export { identifierInputAttributes } from "./inputAttributes";
 export { SelectField } from "./SelectField";
@@ -19,7 +20,13 @@ export { IslandSurface } from "./IslandSurface";
 export type { IslandSurfaceProps } from "./IslandSurface";
 export { islandSurfaceClassName } from "./islandSurfaceStyles";
 export type { IslandLevel } from "./islandSurfaceStyles";
-export { HomeListCard, homeListCardButtonClassName, homeListCardShellClassName } from "./HomeListCard";
+export {
+  HomeListCard,
+  homeListCardButtonClassName,
+  homeListCardListMaxWidthClassName,
+  homeListCardMaxWidthClassName,
+  homeListCardShellClassName,
+} from "./HomeListCard";
 export { MarkdownText } from "./MarkdownText";
 export { NativeDialogWindow } from "./NativeDialogWindow";
 export { Spinner } from "./Spinner";

@@ -1,12 +1,12 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { Save } from "lucide-react";
 
 import type { TaskDetail, TaskRun } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { useAppServices } from "../../app/useAppServices";
 import {
-  Badge,
   Button,
   Island,
   Popover,
@@ -14,9 +14,8 @@ import {
   PopoverTrigger,
   showStatusToast,
 } from "../../ui";
-import { fieldInputClassName } from "../../ui/Field";
+import { fieldIslandInputClassName } from "../../ui/fieldInputStyles";
 import { cx } from "../../ui/classes";
-import { fieldLabelClassName } from "../../ui/fieldStyles";
 import { useUpdateTask } from "../tasks/useTaskMutations";
 import { ActivityFeed, Comments } from "./TaskDetailActivity";
 import { TaskInbox } from "./TaskDetailInbox";
@@ -178,7 +177,7 @@ function TaskHeaderIsland({
 
   return (
     <Island
-      className="grid gap-[var(--space-2)] px-[var(--space-4)] py-[var(--space-2)]"
+      className="grid gap-[var(--space-2)] py-[var(--space-2)] pr-[var(--space-2)] pl-[var(--space-4)]"
       data-testid="task-detail-title-island"
       unpadded
     >
@@ -207,18 +206,17 @@ function TaskHeaderIsland({
         />
         {dirty ? (
           <Button
+            aria-label={t("task.save")}
             className="shrink-0"
             data-testid="task-detail-save"
             disabled={disabled || title.trim().length === 0}
+            size="icon"
             type="submit"
             variant="primary"
           >
-            {t("task.save")}
+            <Save aria-hidden="true" size={16} strokeWidth={1.75} />
           </Button>
         ) : null}
-        <span className="shrink-0 font-mono text-sm text-[var(--color-muted)]">
-          {detail.shortID}
-        </span>
       </form>
     </Island>
   );
@@ -240,34 +238,26 @@ function DescriptionIsland({
   const descriptionErrorId = `${descriptionId}-error`;
   const descriptionError = error == null ? "" : errorMessage(error);
   return (
-    <Island
-      aria-label={t("task.description")}
-      className="grid min-w-0 grid-rows-[auto_auto_auto] gap-[var(--space-3)]"
-      data-testid="task-detail-description-island"
-    >
-      <label className={fieldLabelClassName} htmlFor={descriptionId}>
-        {t("task.description")}
-      </label>
-      <div className="grid min-h-0" data-testid="task-description-input-frame">
-        <textarea
-          aria-describedby={descriptionError.length > 0 ? descriptionErrorId : undefined}
-          aria-invalid={descriptionError.length > 0 ? true : undefined}
-          className={cx(fieldInputClassName, "col-start-1 row-start-1 block min-h-[220px] pb-0")}
-          disabled={disabled}
-          id={descriptionId}
-          onChange={(event) => {
-            onDraftChange({ ...draft, body: event.target.value });
-          }}
-          placeholder={t("task.bodyPlaceholder")}
-          value={draft.body}
-        />
-      </div>
+    <div className="grid min-h-0 min-w-0 gap-[var(--space-2)]" data-testid="task-description-input-frame">
+      <textarea
+        aria-describedby={descriptionError.length > 0 ? descriptionErrorId : undefined}
+        aria-invalid={descriptionError.length > 0 ? true : undefined}
+        aria-label={t("task.description")}
+        className={cx(fieldIslandInputClassName(0), "block min-h-[220px] resize-none p-[var(--space-4)]")}
+        disabled={disabled}
+        id={descriptionId}
+        onChange={(event) => {
+          onDraftChange({ ...draft, body: event.target.value });
+        }}
+        placeholder={t("task.bodyPlaceholder")}
+        value={draft.body}
+      />
       {descriptionError.length > 0 ? (
         <span className="text-[var(--color-error)]" id={descriptionErrorId}>
           {descriptionError}
         </span>
       ) : null}
-    </Island>
+    </div>
   );
 }
 
@@ -311,10 +301,11 @@ function PropertiesIsland({
 
   return (
     <Island aria-label={t("task.properties")} className="grid min-w-0 content-start gap-[var(--space-3)]">
+      <PropertyLine label={t("task.identifier", { defaultValue: "ID" })} value={<span className="font-mono">{detail.shortID}</span>} />
       <PropertyLine label={t("task.project")} value={detail.projectName} />
       <PropertyLine
         label={t("task.status")}
-        value={<Badge tone={taskStatusTone(detail.status)}>{detail.status.label}</Badge>}
+        value={<TaskStatusText label={detail.status.label} tone={taskStatusTone(detail.status)} />}
       />
       <PropertyLine label={t("task.workspace")} value={detail.sourceWorkspace.name} />
       <PropertyLine label={t("task.workflow")} value={detail.workflowName} />
@@ -384,6 +375,26 @@ function PropertiesIsland({
       ) : null}
     </Island>
   );
+}
+
+function TaskStatusText({ label, tone }: Readonly<{ label: string; tone: ReturnType<typeof taskStatusTone> }>) {
+  return <span className={cx("font-bold", taskStatusTextClassName(tone))}>{label}</span>;
+}
+
+function taskStatusTextClassName(tone: ReturnType<typeof taskStatusTone>): string {
+  if (tone === "info") {
+    return "text-[var(--color-primary)]";
+  }
+  if (tone === "success") {
+    return "text-[var(--color-success)]";
+  }
+  if (tone === "warning") {
+    return "text-[var(--color-warning)]";
+  }
+  if (tone === "danger") {
+    return "text-[var(--color-error)]";
+  }
+  return "text-[var(--color-muted)]";
 }
 
 function PropertyLine({ label, value }: Readonly<{ label: string; value: ReactNode }>) {

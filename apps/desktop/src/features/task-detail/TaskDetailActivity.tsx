@@ -6,8 +6,8 @@ import type { TaskComment } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { formatRelativeTime } from "../../app/formatters";
 import { useStatusController } from "../../app/useStatusController";
-import { Button, MarkdownText, Spinner } from "../../ui";
-import { fieldInputClassName } from "../../ui/Field";
+import { Button, homeListCardMaxWidthClassName, IslandSurface, MarkdownText, Spinner } from "../../ui";
+import { fieldInputClassName } from "../../ui/fieldInputStyles";
 import { cx } from "../../ui/classes";
 import { fieldLabelClassName } from "../../ui/fieldStyles";
 import type { useTaskMutations } from "./useTaskDetailData";
@@ -181,7 +181,7 @@ export function ActivityFeed({
   }, [hasNextPage, isFetchingNextPage, items.length, onLoadMore]);
 
   return (
-    <section className="grid gap-[var(--space-3)]" aria-label={t("task.activity")}>
+    <section className="grid justify-items-center gap-[var(--space-3)]" aria-label={t("task.activity")}>
       {items.length === 0 ? (
         <p className="m-0 text-[var(--color-muted)]">{t("task.noActivityTitle")}</p>
       ) : null}
@@ -208,9 +208,16 @@ export function ActivityFeed({
 
 function ActivityRow({ item }: Readonly<{ item: { id: string; summary: string; occurredAt: number } }>) {
   return (
-    <article className="grid gap-[var(--space-1)] rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]">
+    <IslandSurface
+      as="article"
+      className={cx(
+        "grid w-full gap-[var(--space-1)] rounded-[var(--radius-l)] p-[var(--space-3)]",
+        homeListCardMaxWidthClassName,
+      )}
+      level={1}
+    >
       <span>{item.summary}</span>
       <time className="text-sm text-[var(--color-muted)]">{formatRelativeTime(item.occurredAt)}</time>
-    </article>
+    </IslandSurface>
   );
 }

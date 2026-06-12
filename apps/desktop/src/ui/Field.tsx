@@ -1,6 +1,7 @@
 import { forwardRef, useId, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
 
 import { cx } from "./classes";
+import { fieldInputClassName } from "./fieldInputStyles";
 import { fieldLabelClassName } from "./fieldStyles";
 
 export type FieldError = string | readonly string[];
@@ -102,9 +103,6 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
     </FieldShell>
   );
 });
-
-export const fieldInputClassName =
-  "app-region-no-drag w-full rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] px-[14px] py-3 text-[var(--color-on-island)] outline-none transition-colors focus-visible:border-[var(--color-primary)]";
 
 function normalizeErrors(error: FieldError | undefined): readonly string[] {
   if (error === undefined) {

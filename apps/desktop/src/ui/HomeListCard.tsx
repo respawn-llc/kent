@@ -8,6 +8,10 @@ export const homeListCardShellClassName =
 export const homeListCardButtonClassName =
   "grid w-full gap-[var(--space-1)] p-[var(--space-3)] pr-14 text-left text-[var(--color-on-island)]";
 
+export const homeListCardMaxWidthClassName = "max-w-[600px]";
+
+export const homeListCardListMaxWidthClassName = "[&>*]:max-w-[600px]";
+
 export const HomeListCard = forwardRef<HTMLElement, HomeListCardProps>(function HomeListCard({
   action,
   ariaLabel,
