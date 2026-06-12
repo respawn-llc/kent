@@ -60,13 +60,13 @@
   --sl-color-green-low: color-mix(in srgb, #12ba85 18%, transparent);
   --sl-color-green-high: color-mix(in srgb, #12ba85 85%, white);
 
-  --sl-color-orange: #f96824;
-  --sl-color-orange-low: color-mix(in srgb, #f96824 18%, transparent);
-  --sl-color-orange-high: color-mix(in srgb, #f96824 85%, white);
+  --sl-color-orange: #ffe74c;
+  --sl-color-orange-low: color-mix(in srgb, #ffe74c 18%, transparent);
+  --sl-color-orange-high: color-mix(in srgb, #ffe74c 85%, white);
 
-  --sl-color-purple: #ffe74c;
-  --sl-color-purple-low: color-mix(in srgb, #ffe74c 18%, transparent);
-  --sl-color-purple-high: color-mix(in srgb, #ffe74c 70%, black);
+  --sl-color-purple: #f96824;
+  --sl-color-purple-low: color-mix(in srgb, #f96824 18%, transparent);
+  --sl-color-purple-high: color-mix(in srgb, #f96824 70%, black);
 
   --sl-color-red: #dc2e3c;
   --sl-color-red-low: color-mix(in srgb, #dc2e3c 18%, transparent);
@@ -109,13 +109,13 @@
   --sl-color-green-low: color-mix(in srgb, #12ba85 14%, transparent);
   --sl-color-green-high: color-mix(in srgb, #12ba85 90%, black);
 
-  --sl-color-orange: #f96824;
-  --sl-color-orange-low: color-mix(in srgb, #f96824 14%, transparent);
-  --sl-color-orange-high: color-mix(in srgb, #f96824 90%, black);
+  --sl-color-orange: #ffe74c;
+  --sl-color-orange-low: color-mix(in srgb, #ffe74c 14%, transparent);
+  --sl-color-orange-high: color-mix(in srgb, #ffe74c 90%, black);
 
-  --sl-color-purple: #ffe74c;
-  --sl-color-purple-low: color-mix(in srgb, #ffe74c 30%, transparent);
-  --sl-color-purple-high: color-mix(in srgb, #ffe74c 60%, black);
+  --sl-color-purple: #f96824;
+  --sl-color-purple-low: color-mix(in srgb, #f96824 30%, transparent);
+  --sl-color-purple-high: color-mix(in srgb, #f96824 60%, black);
 
   --sl-color-red: #dc2e3c;
   --sl-color-red-low: color-mix(in srgb, #dc2e3c 14%, transparent);

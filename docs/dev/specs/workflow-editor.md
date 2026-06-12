@@ -25,8 +25,8 @@
 - GUI-authored node groups are execution-shaped parallel groups. A saved node group contains branch nodes and one join; its fan-out is represented by one fan-out transition.
 - One-node node groups may exist only as unsaved invalid drafts while the operator is building the parallel group.
 - Agent nodes show name plus assignee role. Non-agent/no-role nodes have blank role line.
-- Node kind color communicates kind: start primary/blue, agent neutral/gray, join secondary/yellow, terminal success/green.
-- Each visible transition branch color communicates its context-preservation mode: `new_session` primary/blue, `continue_session` neutral/gray, and `compact_and_continue_session` secondary/yellow.
+- Node kind color communicates kind: start primary/blue, agent neutral/gray, join secondary/orange, terminal success/green.
+- Each visible transition branch color communicates its context-preservation mode: `new_session` primary/blue, `continue_session` neutral/gray, and `compact_and_continue_session` secondary/orange.
 - Validation-error red is reserved for invalid graph entities and overrides normal semantic colors.
 - Transition labels show the transition label or key. Fan-out branch labels show the branch key.
 - Node groups render visually as labeled branch islands. The owned Join renders outside the island to the right, vertically centered with the island, while remaining owned by the node group. Branch-to-Join routes are normalized into root canvas coordinates before rendering. Empty node groups are not a saved workflow concept.

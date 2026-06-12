@@ -177,8 +177,8 @@ var defaultPalette = Palette{
 			Dark:  Color{ANSI: "4", ANSI256: "33", TrueColor: "#3185FC"},
 		},
 		Secondary: AdaptiveColor{
-			Light: Color{ANSI: "11", ANSI256: "220", TrueColor: "#FFE74C"},
-			Dark:  Color{ANSI: "3", ANSI256: "216", TrueColor: "#FFE74C"},
+			Light: Color{ANSI: "3", ANSI256: "166", TrueColor: "#F96824"},
+			Dark:  Color{ANSI: "3", ANSI256: "209", TrueColor: "#F96824"},
 		},
 		Foreground: AdaptiveColor{
 			Light: Color{ANSI: "0", ANSI256: "235", TrueColor: "#12100E"},
@@ -255,16 +255,16 @@ var defaultPalette = Palette{
 			Dark:  Color{ANSI: "2", ANSI256: "85", TrueColor: "#12BA85"},
 		},
 		Warning: AdaptiveColor{
-			Light: Color{ANSI: "3", ANSI256: "166", TrueColor: "#F96824"},
-			Dark:  Color{ANSI: "3", ANSI256: "209", TrueColor: "#F96824"},
+			Light: Color{ANSI: "11", ANSI256: "220", TrueColor: "#FFE74C"},
+			Dark:  Color{ANSI: "3", ANSI256: "216", TrueColor: "#FFE74C"},
 		},
 		Error: AdaptiveColor{
 			Light: Color{ANSI: "1", ANSI256: "161", TrueColor: "#DC2E3C"},
 			Dark:  Color{ANSI: "1", ANSI256: "197", TrueColor: "#DC2E3C"},
 		},
 		Compaction: AdaptiveColor{
-			Light: Color{ANSI: "11", ANSI256: "220", TrueColor: "#FFE74C"},
-			Dark:  Color{ANSI: "3", ANSI256: "216", TrueColor: "#FFE74C"},
+			Light: Color{ANSI: "3", ANSI256: "166", TrueColor: "#F96824"},
+			Dark:  Color{ANSI: "3", ANSI256: "209", TrueColor: "#F96824"},
 		},
 		DiffAddBackground: AdaptiveColor{
 			Light: Color{ANSI: "2", ANSI256: "194", TrueColor: "#E6FFED"},
@@ -281,8 +281,8 @@ var defaultPalette = Palette{
 			Dark:  Color{ANSI: "2", ANSI256: "85", TrueColor: "#12BA85"},
 		},
 		Warning: AdaptiveColor{
-			Light: Color{ANSI: "3", ANSI256: "166", TrueColor: "#F96824"},
-			Dark:  Color{ANSI: "3", ANSI256: "209", TrueColor: "#F96824"},
+			Light: Color{ANSI: "11", ANSI256: "220", TrueColor: "#FFE74C"},
+			Dark:  Color{ANSI: "3", ANSI256: "216", TrueColor: "#FFE74C"},
 		},
 		Error: AdaptiveColor{
 			Light: Color{ANSI: "1", ANSI256: "161", TrueColor: "#DC2E3C"},

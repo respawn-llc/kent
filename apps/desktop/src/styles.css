@@ -162,9 +162,9 @@
   --color-muted: color-mix(in srgb, var(--color-on-background) 56%, transparent);
   --color-primary: #3185fc;
   --color-on-primary: var(--color-on-background);
-  --color-secondary: #ffe74c;
+  --color-secondary: #f96824;
   --color-on-secondary: #12100e;
-  --color-warning: #f96824;
+  --color-warning: #ffe74c;
   --color-on-warning: #12100e;
   --color-success: #12ba85;
   --color-on-success: var(--color-on-background);
