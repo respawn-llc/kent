@@ -45,6 +45,8 @@ var (
 	runsByIDQuery string
 	//go:embed queries/comments_by_id.sql
 	commentsByIDQuery string
+	//go:embed queries/attention_item_candidates.sql
+	attentionItemCandidatesQuery string
 	//go:embed queries/approval_attention_items.sql
 	approvalAttentionItemsQuery string
 	//go:embed queries/question_attention_items.sql
@@ -105,10 +107,6 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 	if pageSize == 0 {
 		pageSize = 100
 	}
-	offset, err := parseOffsetPageToken(req.PageToken)
-	if err != nil {
-		return serverapi.WorkflowBoard{}, err
-	}
 	donePreviewLimit := req.DonePreviewLimit
 	if donePreviewLimit == 0 {
 		donePreviewLimit = 20
@@ -117,7 +115,7 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 	if err != nil {
 		return serverapi.WorkflowBoard{}, err
 	}
-	tasks, err := s.queries.ListTasksByProject(ctx, projectID)
+	taskActivityRows, err := s.queries.ListProjectWorkflowTaskActivity(ctx, projectID)
 	if err != nil {
 		return serverapi.WorkflowBoard{}, err
 	}
@@ -126,11 +124,7 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 		return serverapi.WorkflowBoard{}, err
 	}
 	primaryWorkspace, workspacesByID := boardProjectWorkspaceSummaries(project)
-	placementsByTaskID, err := s.boardPlacementsByTask(ctx, tasks)
-	if err != nil {
-		return serverapi.WorkflowBoard{}, err
-	}
-	workflowIDs := make([]string, 0, len(links)+len(tasks))
+	workflowIDs := make([]string, 0, len(links)+len(taskActivityRows))
 	seen := map[string]bool{}
 	linkByWorkflowID := map[string]sqlitegen.ProjectWorkflowLinkRecord{}
 	for _, link := range links {
@@ -142,20 +136,16 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 			seen[link.WorkflowID] = true
 		}
 	}
-	for _, task := range tasks {
-		if !seen[task.WorkflowID] {
-			workflowIDs = append(workflowIDs, task.WorkflowID)
-			seen[task.WorkflowID] = true
+	activityByWorkflowID := map[string]int64{}
+	for _, activity := range taskActivityRows {
+		activityByWorkflowID[activity.WorkflowID] = activity.LatestUpdatedAtUnixMs
+		if !seen[activity.WorkflowID] {
+			workflowIDs = append(workflowIDs, activity.WorkflowID)
+			seen[activity.WorkflowID] = true
 		}
 	}
 	definitions := make(map[string]serverapi.WorkflowDefinition, len(workflowIDs))
 	nodeKindsByWorkflowID := make(map[string]map[string]workflow.NodeKind, len(workflowIDs))
-	activityByWorkflowID := map[string]int64{}
-	for _, task := range tasks {
-		if task.UpdatedAtUnixMs > activityByWorkflowID[task.WorkflowID] {
-			activityByWorkflowID[task.WorkflowID] = task.UpdatedAtUnixMs
-		}
-	}
 	picker := make([]serverapi.WorkflowPickerItem, 0, len(workflowIDs))
 	for _, workflowID := range workflowIDs {
 		def, nodeKinds, err := s.definition(ctx, workflowID)
@@ -185,40 +175,97 @@ func (s *Service) GetBoard(ctx context.Context, req serverapi.WorkflowBoardReque
 		}
 		return strings.ToLower(picker[i].DisplayName) < strings.ToLower(picker[j].DisplayName)
 	})
-	selected := selectWorkflow(picker, req.WorkflowID)
+	requestedWorkflowID := strings.TrimSpace(req.WorkflowID)
+	if requestedWorkflowID == "" && strings.TrimSpace(req.PageToken) != "" {
+		tokenWorkflowID, err := workflowBoardPageTokenWorkflowID(req.PageToken, projectID)
+		if err != nil {
+			return serverapi.WorkflowBoard{}, err
+		}
+		requestedWorkflowID = tokenWorkflowID
+	}
+	selected := selectWorkflow(picker, requestedWorkflowID)
 	if selected.WorkflowID == "" {
+		if strings.TrimSpace(req.PageToken) != "" {
+			return serverapi.WorkflowBoard{}, errors.New("page_token is invalid")
+		}
 		return serverapi.WorkflowBoard{ProjectID: projectID, Project: projectBoardProject(project), WorkflowPicker: picker, GeneratedAtUnixMs: time.Now().UTC().UnixMilli()}, nil
+	}
+	cursor, err := parseWorkflowBoardPageToken(req.PageToken, projectID, selected.WorkflowID)
+	if err != nil {
+		return serverapi.WorkflowBoard{}, err
 	}
 	def := definitions[selected.WorkflowID]
 	nodeKinds := nodeKindsByWorkflowID[selected.WorkflowID]
 	groups := boardGroups(def)
 	columns := boardColumns(def)
-	applyColumnTaskCountsFromPlacements(columns, tasks, placementsByTaskID, selected.WorkflowID, def, nodeKinds)
-	cards := make([]serverapi.WorkflowBoardTaskCard, 0)
-	doneCards := make([]serverapi.WorkflowBoardTaskCard, 0)
-	donePreview := make([]serverapi.WorkflowBoardTaskCard, 0)
-	for _, task := range tasks {
-		if task.WorkflowID != selected.WorkflowID {
-			continue
-		}
-		card, done, err := s.taskCard(ctx, task, effectiveBoardPlacementsForTask(task, placementsByTaskID[task.ID], def, nodeKinds), def, nodeKinds, sourceWorkspaceForTask(task, workspacesByID, primaryWorkspace))
+	if err := s.applyBoardColumnTaskCounts(ctx, columns, projectID, selected.WorkflowID, canceledBoardTerminalNodeID(def)); err != nil {
+		return serverapi.WorkflowBoard{}, err
+	}
+	cursorSet := int64(0)
+	if cursor.hasValue {
+		cursorSet = 1
+	}
+	openTasks, err := s.queries.ListBoardOpenTasks(ctx, sqlitegen.ListBoardOpenTasksParams{
+		ProjectID:              projectID,
+		WorkflowID:             selected.WorkflowID,
+		CursorSet:              cursorSet,
+		CursorUpdatedAtUnixMs:  cursor.updatedAtUnixMs,
+		CursorTaskID:           cursor.taskID,
+		CanceledTerminalNodeID: canceledBoardTerminalNodeID(def),
+		LimitRows:              int64(pageSize + 1),
+	})
+	if err != nil {
+		return serverapi.WorkflowBoard{}, err
+	}
+	candidates := openTasks
+	hasNext := len(candidates) > pageSize
+	if hasNext {
+		candidates = candidates[:pageSize]
+	}
+	pagePlacementsByTaskID, err := s.boardPlacementsByTask(ctx, candidates)
+	if err != nil {
+		return serverapi.WorkflowBoard{}, err
+	}
+	cards := make([]serverapi.WorkflowBoardTaskCard, 0, len(candidates))
+	for _, task := range candidates {
+		cardPlacements := pagePlacementsByTaskID[task.ID]
+		card, done, err := s.taskCard(ctx, task, effectiveBoardPlacementsForTask(task, cardPlacements, def, nodeKinds), def, nodeKinds, sourceWorkspaceForTask(task, workspacesByID, primaryWorkspace))
 		if err != nil {
 			return serverapi.WorkflowBoard{}, err
 		}
 		if done {
-			doneCards = append(doneCards, card)
-			if len(donePreview) < donePreviewLimit {
-				donePreview = append(donePreview, card)
-			}
 			continue
 		}
 		cards = append(cards, card)
 	}
 	nextPageToken := ""
-	if len(cards) > offset+pageSize {
-		nextPageToken = strconv.Itoa(offset + pageSize)
+	if hasNext && len(candidates) > 0 {
+		last := candidates[len(candidates)-1]
+		nextPageToken = workflowBoardPageToken(projectID, selected.WorkflowID, last)
 	}
-	cards = pageCards(cards, offset, pageSize)
+	doneTasks, err := s.queries.ListBoardDonePreviewTasks(ctx, sqlitegen.ListBoardDonePreviewTasksParams{
+		ProjectID:              projectID,
+		WorkflowID:             selected.WorkflowID,
+		CanceledTerminalNodeID: canceledBoardTerminalNodeID(def),
+		LimitRows:              int64(donePreviewLimit),
+	})
+	if err != nil {
+		return serverapi.WorkflowBoard{}, err
+	}
+	donePlacementsByTaskID, err := s.boardPlacementsByTask(ctx, doneTasks)
+	if err != nil {
+		return serverapi.WorkflowBoard{}, err
+	}
+	donePreview := make([]serverapi.WorkflowBoardTaskCard, 0, len(doneTasks))
+	for _, task := range doneTasks {
+		card, done, err := s.taskCard(ctx, task, effectiveBoardPlacementsForTask(task, donePlacementsByTaskID[task.ID], def, nodeKinds), def, nodeKinds, sourceWorkspaceForTask(task, workspacesByID, primaryWorkspace))
+		if err != nil {
+			return serverapi.WorkflowBoard{}, err
+		}
+		if done {
+			donePreview = append(donePreview, card)
+		}
+	}
 	board := serverapi.WorkflowBoard{
 		ProjectID:          projectID,
 		Project:            projectBoardProject(project),
@@ -394,7 +441,7 @@ func (s *Service) GetTask(ctx context.Context, taskID string) (serverapi.Workflo
 	if err != nil {
 		return serverapi.WorkflowTaskDetail{}, err
 	}
-	comments, err := s.queries.ListTaskComments(ctx, task.ID)
+	comments, err := s.queries.ListTaskComments(ctx, sqlitegen.ListTaskCommentsParams{TaskID: task.ID, OffsetRows: 0, LimitRows: -1})
 	if err != nil {
 		return serverapi.WorkflowTaskDetail{}, err
 	}
@@ -583,25 +630,14 @@ func (s *Service) ListAttention(ctx context.Context, req serverapi.WorkflowAtten
 	if pageSize == 0 {
 		pageSize = 50
 	}
-	offset, err := parseOffsetPageToken(req.PageToken)
+	cursor, err := parseAttentionPageToken(req.PageToken)
 	if err != nil {
 		return serverapi.WorkflowAttentionListResponse{}, err
 	}
-	items, err := s.attentionItems(ctx, strings.TrimSpace(req.ProjectID), "", roleResolver)
+	items, nextPageToken, err := s.attentionItemsPage(ctx, strings.TrimSpace(req.ProjectID), pageSize, cursor, roleResolver)
 	if err != nil {
 		return serverapi.WorkflowAttentionListResponse{}, err
 	}
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].OccurredAtUnixMs != items[j].OccurredAtUnixMs {
-			return items[i].OccurredAtUnixMs > items[j].OccurredAtUnixMs
-		}
-		return items[i].ID > items[j].ID
-	})
-	nextPageToken := ""
-	if len(items) > offset+pageSize {
-		nextPageToken = strconv.Itoa(offset + pageSize)
-	}
-	items = pageAttentionItems(items, offset, pageSize)
 	return serverapi.WorkflowAttentionListResponse{Items: items, NextPageToken: nextPageToken, GeneratedAtUnixMs: time.Now().UTC().UnixMilli()}, nil
 }
 
@@ -624,6 +660,108 @@ func (s *Service) ListTaskAttention(ctx context.Context, req serverapi.WorkflowT
 		return items[i].ID > items[j].ID
 	})
 	return serverapi.WorkflowTaskAttentionListResponse{Items: items, GeneratedAtUnixMs: time.Now().UTC().UnixMilli()}, nil
+}
+
+type attentionPageCursor struct {
+	occurredAtUnixMs int64
+	itemID           string
+	hasValue         bool
+}
+
+type attentionCandidateRow struct {
+	kind                   string
+	id                     string
+	projectID              string
+	workflowID             string
+	taskID                 string
+	shortID                string
+	title                  string
+	runID                  string
+	sessionID              string
+	askID                  string
+	taskTransitionID       string
+	interruptionReason     string
+	interruptionDetailJSON string
+	occurredAtUnixMs       int64
+}
+
+func (s *Service) attentionItemsPage(ctx context.Context, projectID string, pageSize int, cursor attentionPageCursor, roleResolver workflow.RoleResolver) ([]serverapi.WorkflowAttentionItem, string, error) {
+	candidates, err := s.attentionItemCandidates(ctx, projectID, "", cursor, pageSize+1)
+	if err != nil {
+		return nil, "", err
+	}
+	items := make([]serverapi.WorkflowAttentionItem, 0, pageSize)
+	questions := newPendingQuestionResolver(s.transcripts)
+	nextPageToken := ""
+	overflowedItems := false
+	for _, candidate := range candidates {
+		item, ok, err := s.attentionItemFromCandidate(ctx, candidate, roleResolver, questions)
+		if err != nil {
+			return nil, "", err
+		}
+		if !ok {
+			continue
+		}
+		if len(items) >= pageSize {
+			overflowedItems = true
+			nextPageToken = attentionPageToken(items[len(items)-1])
+			break
+		}
+		items = append(items, item)
+	}
+	if !overflowedItems && len(candidates) > pageSize {
+		last := candidates[len(candidates)-1]
+		nextPageToken = attentionCandidatePageToken(last)
+	}
+	return items, nextPageToken, nil
+}
+
+func (s *Service) attentionItemCandidates(ctx context.Context, projectID string, taskID string, cursor attentionPageCursor, limit int) ([]attentionCandidateRow, error) {
+	cursorSet := int64(0)
+	if cursor.hasValue {
+		cursorSet = 1
+	}
+	rows, err := s.metadata.DB().QueryContext(ctx, strings.TrimSuffix(attentionItemCandidatesQuery, "\n"), strings.TrimSpace(projectID), strings.TrimSpace(taskID), cursorSet, cursor.occurredAtUnixMs, cursor.itemID, int64(limit))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	items := []attentionCandidateRow{}
+	for rows.Next() {
+		var row attentionCandidateRow
+		if err := rows.Scan(&row.kind, &row.id, &row.projectID, &row.workflowID, &row.taskID, &row.shortID, &row.title, &row.runID, &row.sessionID, &row.askID, &row.taskTransitionID, &row.interruptionReason, &row.interruptionDetailJSON, &row.occurredAtUnixMs); err != nil {
+			return nil, err
+		}
+		items = append(items, row)
+	}
+	return items, rows.Err()
+}
+
+func (s *Service) attentionItemFromCandidate(ctx context.Context, row attentionCandidateRow, roleResolver workflow.RoleResolver, questions *pendingQuestionResolver) (serverapi.WorkflowAttentionItem, bool, error) {
+	switch row.kind {
+	case "approval":
+		return serverapi.WorkflowAttentionItem{ID: row.id, Kind: "approval", ProjectID: row.projectID, WorkflowID: row.workflowID, TaskID: row.taskID, TaskShortID: row.shortID, TaskTitle: row.title, TaskTransitionID: row.taskTransitionID, Message: "Approval required", OccurredAtUnixMs: row.occurredAtUnixMs}, true, nil
+	case "question":
+		question, err := questions.Question(ctx, row.sessionID, row.askID)
+		if err != nil {
+			question = pendingQuestion{message: pendingQuestionFallbackMessage}
+		}
+		return serverapi.WorkflowAttentionItem{ID: row.id, Kind: "question", ProjectID: row.projectID, WorkflowID: row.workflowID, TaskID: row.taskID, TaskShortID: row.shortID, TaskTitle: row.title, RunID: row.runID, SessionID: row.sessionID, AskID: row.askID, Message: question.message, Suggestions: question.suggestions, RecommendedOptionIndex: question.recommendedOptionIndex, OccurredAtUnixMs: row.occurredAtUnixMs}, true, nil
+	case attentionKindInterruptedRun:
+		return serverapi.WorkflowAttentionItem{ID: row.id, Kind: attentionKindInterruptedRun, ProjectID: row.projectID, WorkflowID: row.workflowID, TaskID: row.taskID, TaskShortID: row.shortID, TaskTitle: row.title, RunID: row.runID, SessionID: row.sessionID, Message: interruptedRunMessage(row.interruptionReason, row.interruptionDetailJSON), OccurredAtUnixMs: row.occurredAtUnixMs}, true, nil
+	case "validation_blocker":
+		def, _, err := s.definition(ctx, row.workflowID)
+		if err != nil {
+			return serverapi.WorkflowAttentionItem{}, false, err
+		}
+		validation := workflow.ValidateDefinition(definitionForValidation(def), workflow.ValidationOptions{Context: workflow.ValidationContextExecution, RoleResolver: roleResolver})
+		if validation.Valid() {
+			return serverapi.WorkflowAttentionItem{}, false, nil
+		}
+		return serverapi.WorkflowAttentionItem{ID: row.id, Kind: "validation_blocker", ProjectID: row.projectID, WorkflowID: row.workflowID, Message: fmt.Sprintf("Workflow %q is invalid for task start", def.Workflow.Name), OccurredAtUnixMs: row.occurredAtUnixMs}, true, nil
+	default:
+		return serverapi.WorkflowAttentionItem{}, false, fmt.Errorf("unknown attention item kind %q", row.kind)
+	}
 }
 
 func (s *Service) attentionItems(ctx context.Context, projectID string, taskID string, roleResolver workflow.RoleResolver) ([]serverapi.WorkflowAttentionItem, error) {
@@ -1240,6 +1378,34 @@ func activityPageToken(item serverapi.WorkflowTaskActivityItem) string {
 	return strconv.FormatInt(item.OccurredAtUnixMs, 10) + "|" + base64.RawURLEncoding.EncodeToString([]byte(item.ActivityID))
 }
 
+func parseAttentionPageToken(token string) (attentionPageCursor, error) {
+	trimmed := strings.TrimSpace(token)
+	if trimmed == "" {
+		return attentionPageCursor{}, nil
+	}
+	parts := strings.SplitN(trimmed, "|", 2)
+	if len(parts) != 2 {
+		return attentionPageCursor{}, errors.New("page_token is invalid")
+	}
+	occurredAt, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || occurredAt < 0 {
+		return attentionPageCursor{}, errors.New("page_token is invalid")
+	}
+	decodedID, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil || strings.TrimSpace(string(decodedID)) == "" {
+		return attentionPageCursor{}, errors.New("page_token is invalid")
+	}
+	return attentionPageCursor{occurredAtUnixMs: occurredAt, itemID: string(decodedID), hasValue: true}, nil
+}
+
+func attentionPageToken(item serverapi.WorkflowAttentionItem) string {
+	return strconv.FormatInt(item.OccurredAtUnixMs, 10) + "|" + base64.RawURLEncoding.EncodeToString([]byte(item.ID))
+}
+
+func attentionCandidatePageToken(item attentionCandidateRow) string {
+	return strconv.FormatInt(item.occurredAtUnixMs, 10) + "|" + base64.RawURLEncoding.EncodeToString([]byte(item.id))
+}
+
 func (s *Service) approvalAttentionItems(ctx context.Context, projectID string, taskID string) ([]serverapi.WorkflowAttentionItem, error) {
 	rows, err := s.metadata.DB().QueryContext(ctx, strings.TrimSuffix(approvalAttentionItemsQuery, "\n"), strings.TrimSpace(projectID), strings.TrimSpace(projectID), strings.TrimSpace(taskID), strings.TrimSpace(taskID))
 	if err != nil {
@@ -1466,17 +1632,6 @@ func (s *Service) validationAttentionItems(ctx context.Context, projectID string
 		items = append(items, serverapi.WorkflowAttentionItem{ID: "validation_blocker:" + link.projectID + ":" + link.workflowID, Kind: "validation_blocker", ProjectID: link.projectID, WorkflowID: link.workflowID, Message: fmt.Sprintf("Workflow %q is invalid for task start", def.Workflow.Name), OccurredAtUnixMs: link.occurredAt})
 	}
 	return items, nil
-}
-
-func pageAttentionItems(items []serverapi.WorkflowAttentionItem, offset int, pageSize int) []serverapi.WorkflowAttentionItem {
-	if offset >= len(items) {
-		return []serverapi.WorkflowAttentionItem{}
-	}
-	end := offset + pageSize
-	if end > len(items) {
-		end = len(items)
-	}
-	return items[offset:end]
 }
 
 func parseOffsetPageToken(token string) (int, error) {
@@ -1834,37 +1989,25 @@ func workflowDerivedEdgeWiringByID(derived serverapi.WorkflowDerivedWiring) map[
 	return byID
 }
 
-func pageCards(cards []serverapi.WorkflowBoardTaskCard, offset int, pageSize int) []serverapi.WorkflowBoardTaskCard {
-	if offset >= len(cards) {
-		return []serverapi.WorkflowBoardTaskCard{}
+func (s *Service) applyBoardColumnTaskCounts(ctx context.Context, columns []serverapi.WorkflowBoardColumn, projectID string, workflowID string, canceledTerminalNodeID string) error {
+	rows, err := s.queries.ListBoardColumnTaskCounts(ctx, sqlitegen.ListBoardColumnTaskCountsParams{
+		ProjectID:              projectID,
+		WorkflowID:             workflowID,
+		CanceledTerminalNodeID: canceledTerminalNodeID,
+	})
+	if err != nil {
+		return err
 	}
-	end := offset + pageSize
-	if end > len(cards) {
-		end = len(cards)
-	}
-	return cards[offset:end]
-}
-
-func applyColumnTaskCountsFromPlacements(columns []serverapi.WorkflowBoardColumn, tasks []sqlitegen.TaskRecord, placementsByTaskID map[string][]sqlitegen.TaskNodePlacementRecord, workflowID string, def serverapi.WorkflowDefinition, nodeKinds map[string]workflow.NodeKind) {
 	indexByNodeID := map[string]int{}
 	for index, column := range columns {
 		indexByNodeID[column.Node.NodeID] = index
 	}
-	for _, task := range tasks {
-		if task.WorkflowID != workflowID {
-			continue
-		}
-		countedNodeIDs := map[string]bool{}
-		for _, placement := range effectiveBoardPlacementsForTask(task, placementsByTaskID[task.ID], def, nodeKinds) {
-			if countedNodeIDs[placement.NodeID] {
-				continue
-			}
-			if index, ok := indexByNodeID[placement.NodeID]; ok {
-				columns[index].TaskCount++
-				countedNodeIDs[placement.NodeID] = true
-			}
+	for _, row := range rows {
+		if index, ok := indexByNodeID[row.NodeID]; ok {
+			columns[index].TaskCount = int(row.TaskCount)
 		}
 	}
+	return nil
 }
 
 func activeBoardPlacements(placements []sqlitegen.TaskNodePlacementRecord) []sqlitegen.TaskNodePlacementRecord {
@@ -1938,6 +2081,71 @@ type boardNodeCardsPageTokenPayload struct {
 	NodeID          string `json:"node_id"`
 	UpdatedAtUnixMs int64  `json:"updated_at_unix_ms"`
 	TaskID          string `json:"task_id"`
+}
+
+type workflowBoardPageCursor struct {
+	projectID       string
+	workflowID      string
+	updatedAtUnixMs int64
+	taskID          string
+	hasValue        bool
+}
+
+type workflowBoardPageTokenPayload struct {
+	Version         int    `json:"version"`
+	ProjectID       string `json:"project_id"`
+	WorkflowID      string `json:"workflow_id"`
+	UpdatedAtUnixMs int64  `json:"updated_at_unix_ms"`
+	TaskID          string `json:"task_id"`
+}
+
+func workflowBoardPageTokenWorkflowID(token string, projectID string) (string, error) {
+	payload, err := decodeWorkflowBoardPageToken(token)
+	if err != nil {
+		return "", err
+	}
+	if payload.ProjectID != projectID {
+		return "", errors.New("page_token is invalid")
+	}
+	return payload.WorkflowID, nil
+}
+
+func parseWorkflowBoardPageToken(token string, projectID string, workflowID string) (workflowBoardPageCursor, error) {
+	if strings.TrimSpace(token) == "" {
+		return workflowBoardPageCursor{}, nil
+	}
+	payload, err := decodeWorkflowBoardPageToken(token)
+	if err != nil {
+		return workflowBoardPageCursor{}, errors.New("page_token is invalid")
+	}
+	if payload.Version != 1 || payload.ProjectID != projectID || payload.WorkflowID != workflowID || strings.TrimSpace(payload.TaskID) == "" || payload.UpdatedAtUnixMs < 0 {
+		return workflowBoardPageCursor{}, errors.New("page_token is invalid")
+	}
+	return workflowBoardPageCursor{projectID: payload.ProjectID, workflowID: payload.WorkflowID, updatedAtUnixMs: payload.UpdatedAtUnixMs, taskID: payload.TaskID, hasValue: true}, nil
+}
+
+func decodeWorkflowBoardPageToken(token string) (workflowBoardPageTokenPayload, error) {
+	decoded, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return workflowBoardPageTokenPayload{}, errors.New("page_token is invalid")
+	}
+	var payload workflowBoardPageTokenPayload
+	if err := json.Unmarshal(decoded, &payload); err != nil {
+		return workflowBoardPageTokenPayload{}, errors.New("page_token is invalid")
+	}
+	if payload.Version != 1 || strings.TrimSpace(payload.WorkflowID) == "" || strings.TrimSpace(payload.TaskID) == "" || payload.UpdatedAtUnixMs < 0 {
+		return workflowBoardPageTokenPayload{}, errors.New("page_token is invalid")
+	}
+	return payload, nil
+}
+
+func workflowBoardPageToken(projectID string, workflowID string, task sqlitegen.TaskRecord) string {
+	payload := workflowBoardPageTokenPayload{Version: 1, ProjectID: projectID, WorkflowID: workflowID, UpdatedAtUnixMs: task.UpdatedAtUnixMs, TaskID: task.ID}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(encoded)
 }
 
 func parseBoardNodeCardsPageToken(token string, projectID string, workflowID string, nodeID string) (boardNodeCardsPageCursor, error) {

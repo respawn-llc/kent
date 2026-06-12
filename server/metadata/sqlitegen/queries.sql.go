@@ -2648,6 +2648,189 @@ func (q *Queries) InterruptWorkflowRun(ctx context.Context, arg InterruptWorkflo
 	return result.RowsAffected()
 }
 
+const listBoardColumnTaskCounts = `-- name: ListBoardColumnTaskCounts :many
+WITH effective_board_placements AS (
+    SELECT
+        t.id AS task_id,
+        p.node_id AS node_id
+    FROM task_node_placements p
+    JOIN task_records t ON t.id = p.task_id
+    JOIN workflow_nodes n ON n.id = p.node_id
+    WHERE p.state IN ('active', 'waiting_approval')
+      AND t.project_id = ?1
+      AND t.workflow_id = ?2
+      AND (
+          t.canceled_at_unix_ms = 0
+          OR n.kind = 'terminal'
+          OR trim(?3) = ''
+      )
+    UNION
+    SELECT
+        t.id AS task_id,
+        ?3 AS node_id
+    FROM task_records t
+    WHERE t.project_id = ?1
+      AND t.workflow_id = ?2
+      AND t.canceled_at_unix_ms != 0
+      AND trim(?3) != ''
+      AND NOT EXISTS (
+          SELECT 1
+          FROM task_node_placements p
+          JOIN workflow_nodes n ON n.id = p.node_id
+          WHERE p.task_id = t.id
+            AND p.state IN ('active', 'waiting_approval')
+            AND n.kind = 'terminal'
+      )
+    UNION
+    SELECT
+        t.id AS task_id,
+        tt.source_node_id AS node_id
+    FROM task_transition_records tt
+    JOIN task_records t ON t.id = tt.task_id
+    WHERE tt.state = 'pending_approval'
+      AND t.project_id = ?1
+      AND t.workflow_id = ?2
+      AND (
+          t.canceled_at_unix_ms = 0
+          OR trim(?3) = ''
+      )
+      AND trim(tt.source_node_id) != ''
+)
+SELECT
+    node_id,
+    CAST(COUNT(DISTINCT task_id) AS INTEGER) AS task_count
+FROM effective_board_placements
+GROUP BY node_id
+ORDER BY node_id ASC
+`
+
+type ListBoardColumnTaskCountsParams struct {
+	ProjectID              string
+	WorkflowID             string
+	CanceledTerminalNodeID string
+}
+
+type ListBoardColumnTaskCountsRow struct {
+	NodeID    string
+	TaskCount int64
+}
+
+func (q *Queries) ListBoardColumnTaskCounts(ctx context.Context, arg ListBoardColumnTaskCountsParams) ([]ListBoardColumnTaskCountsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listBoardColumnTaskCounts, arg.ProjectID, arg.WorkflowID, arg.CanceledTerminalNodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBoardColumnTaskCountsRow
+	for rows.Next() {
+		var i ListBoardColumnTaskCountsRow
+		if err := rows.Scan(&i.NodeID, &i.TaskCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBoardDonePreviewTasks = `-- name: ListBoardDonePreviewTasks :many
+SELECT
+    t.id,
+    t.project_id,
+    t.project_workflow_link_id,
+    t.workflow_id,
+    t.workflow_revision_seen,
+    t.task_seq,
+    t.short_id,
+    t.title,
+    t.body,
+    t.source_url,
+    t.source_workspace_id,
+    t.managed_worktree_id,
+    t.canceled_at_unix_ms,
+    t.cancellation_reason,
+    t.created_at_unix_ms,
+    t.updated_at_unix_ms,
+    t.metadata_json
+FROM task_records t
+WHERE t.project_id = ?1
+  AND t.workflow_id = ?2
+  AND (
+      EXISTS (
+          SELECT 1
+          FROM task_node_placements p
+          JOIN workflow_nodes n ON n.id = p.node_id
+          WHERE p.task_id = t.id
+            AND p.state IN ('active', 'waiting_approval')
+            AND n.kind = 'terminal'
+      )
+      OR (
+          t.canceled_at_unix_ms != 0
+          AND trim(?3) != ''
+      )
+  )
+ORDER BY t.updated_at_unix_ms DESC, t.id DESC
+LIMIT ?4
+`
+
+type ListBoardDonePreviewTasksParams struct {
+	ProjectID              string
+	WorkflowID             string
+	CanceledTerminalNodeID string
+	LimitRows              int64
+}
+
+func (q *Queries) ListBoardDonePreviewTasks(ctx context.Context, arg ListBoardDonePreviewTasksParams) ([]TaskRecord, error) {
+	rows, err := q.db.QueryContext(ctx, listBoardDonePreviewTasks,
+		arg.ProjectID,
+		arg.WorkflowID,
+		arg.CanceledTerminalNodeID,
+		arg.LimitRows,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TaskRecord
+	for rows.Next() {
+		var i TaskRecord
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.ProjectWorkflowLinkID,
+			&i.WorkflowID,
+			&i.WorkflowRevisionSeen,
+			&i.TaskSeq,
+			&i.ShortID,
+			&i.Title,
+			&i.Body,
+			&i.SourceUrl,
+			&i.SourceWorkspaceID,
+			&i.ManagedWorktreeID,
+			&i.CanceledAtUnixMs,
+			&i.CancellationReason,
+			&i.CreatedAtUnixMs,
+			&i.UpdatedAtUnixMs,
+			&i.MetadataJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBoardNodeTasks = `-- name: ListBoardNodeTasks :many
 WITH board_node_task_ids AS (
     SELECT
@@ -2746,6 +2929,135 @@ func (q *Queries) ListBoardNodeTasks(ctx context.Context, arg ListBoardNodeTasks
 		arg.CursorTaskID,
 		arg.LimitRows,
 		arg.NodeID,
+		arg.ProjectID,
+		arg.WorkflowID,
+		arg.CanceledTerminalNodeID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TaskRecord
+	for rows.Next() {
+		var i TaskRecord
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.ProjectWorkflowLinkID,
+			&i.WorkflowID,
+			&i.WorkflowRevisionSeen,
+			&i.TaskSeq,
+			&i.ShortID,
+			&i.Title,
+			&i.Body,
+			&i.SourceUrl,
+			&i.SourceWorkspaceID,
+			&i.ManagedWorktreeID,
+			&i.CanceledAtUnixMs,
+			&i.CancellationReason,
+			&i.CreatedAtUnixMs,
+			&i.UpdatedAtUnixMs,
+			&i.MetadataJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBoardOpenTasks = `-- name: ListBoardOpenTasks :many
+WITH board_open_task_ids AS (
+    SELECT
+        t.id
+    FROM task_node_placements p
+    JOIN task_records t ON t.id = p.task_id
+    JOIN workflow_nodes n ON n.id = p.node_id
+    WHERE p.state IN ('active', 'waiting_approval')
+      AND n.kind != 'terminal'
+      AND t.project_id = ?5
+      AND t.workflow_id = ?6
+      AND (
+          t.canceled_at_unix_ms = 0
+          OR trim(?7) = ''
+      )
+    UNION
+    SELECT
+        t.id
+    FROM task_transition_records tt
+    JOIN task_records t ON t.id = tt.task_id
+    JOIN workflow_nodes n ON n.id = tt.source_node_id
+    WHERE tt.state = 'pending_approval'
+      AND n.kind != 'terminal'
+      AND t.project_id = ?5
+      AND t.workflow_id = ?6
+      AND (
+          t.canceled_at_unix_ms = 0
+          OR trim(?7) = ''
+      )
+)
+SELECT
+    t.id,
+    t.project_id,
+    t.project_workflow_link_id,
+    t.workflow_id,
+    t.workflow_revision_seen,
+    t.task_seq,
+    t.short_id,
+    t.title,
+    t.body,
+    t.source_url,
+    t.source_workspace_id,
+    t.managed_worktree_id,
+    t.canceled_at_unix_ms,
+    t.cancellation_reason,
+    t.created_at_unix_ms,
+    t.updated_at_unix_ms,
+    t.metadata_json
+FROM task_records t
+WHERE t.id IN (SELECT id FROM board_open_task_ids)
+  AND NOT EXISTS (
+      SELECT 1
+      FROM task_node_placements terminal_placement
+      JOIN workflow_nodes terminal_node ON terminal_node.id = terminal_placement.node_id
+      WHERE terminal_placement.task_id = t.id
+        AND terminal_placement.state IN ('active', 'waiting_approval')
+        AND terminal_node.kind = 'terminal'
+  )
+  AND (
+    CAST(?1 AS INTEGER) = 0
+    OR t.updated_at_unix_ms < ?2
+    OR (
+        t.updated_at_unix_ms = ?2
+        AND t.id < ?3
+    )
+  )
+ORDER BY t.updated_at_unix_ms DESC, t.id DESC
+LIMIT ?4
+`
+
+type ListBoardOpenTasksParams struct {
+	CursorSet              int64
+	CursorUpdatedAtUnixMs  int64
+	CursorTaskID           string
+	LimitRows              int64
+	ProjectID              string
+	WorkflowID             string
+	CanceledTerminalNodeID string
+}
+
+func (q *Queries) ListBoardOpenTasks(ctx context.Context, arg ListBoardOpenTasksParams) ([]TaskRecord, error) {
+	rows, err := q.db.QueryContext(ctx, listBoardOpenTasks,
+		arg.CursorSet,
+		arg.CursorUpdatedAtUnixMs,
+		arg.CursorTaskID,
+		arg.LimitRows,
 		arg.ProjectID,
 		arg.WorkflowID,
 		arg.CanceledTerminalNodeID,
@@ -3175,6 +3487,44 @@ func (q *Queries) ListProjectWorkflowLinks(ctx context.Context, projectID string
 	return items, nil
 }
 
+const listProjectWorkflowTaskActivity = `-- name: ListProjectWorkflowTaskActivity :many
+SELECT
+    workflow_id,
+    CAST(MAX(updated_at_unix_ms) AS INTEGER) AS latest_updated_at_unix_ms
+FROM task_records
+WHERE project_id = ?1
+GROUP BY workflow_id
+ORDER BY latest_updated_at_unix_ms DESC, workflow_id ASC
+`
+
+type ListProjectWorkflowTaskActivityRow struct {
+	WorkflowID            string
+	LatestUpdatedAtUnixMs int64
+}
+
+func (q *Queries) ListProjectWorkflowTaskActivity(ctx context.Context, projectID string) ([]ListProjectWorkflowTaskActivityRow, error) {
+	rows, err := q.db.QueryContext(ctx, listProjectWorkflowTaskActivity, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProjectWorkflowTaskActivityRow
+	for rows.Next() {
+		var i ListProjectWorkflowTaskActivityRow
+		if err := rows.Scan(&i.WorkflowID, &i.LatestUpdatedAtUnixMs); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProjectWorkspaces = `-- name: ListProjectWorkspaces :many
 SELECT
     w.id,
@@ -3520,11 +3870,19 @@ SELECT
     updated_at_unix_ms
 FROM task_comments
 WHERE task_id = ?1
-ORDER BY updated_at_unix_ms DESC, rowid DESC
+ORDER BY created_at_unix_ms DESC, id DESC
+LIMIT ?3
+OFFSET ?2
 `
 
-func (q *Queries) ListTaskComments(ctx context.Context, taskID string) ([]TaskComment, error) {
-	rows, err := q.db.QueryContext(ctx, listTaskComments, taskID)
+type ListTaskCommentsParams struct {
+	TaskID     string
+	OffsetRows int64
+	LimitRows  int64
+}
+
+func (q *Queries) ListTaskComments(ctx context.Context, arg ListTaskCommentsParams) ([]TaskComment, error) {
+	rows, err := q.db.QueryContext(ctx, listTaskComments, arg.TaskID, arg.OffsetRows, arg.LimitRows)
 	if err != nil {
 		return nil, err
 	}

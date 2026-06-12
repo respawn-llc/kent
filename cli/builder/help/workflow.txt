@@ -1,6 +1,6 @@
 Usage of builder workflow:
   builder workflow create [--description <text>] <name>
-  builder workflow list
+  builder workflow list [--page-size <n>] [--page-token <token>]
   builder workflow node add <workflow> --key <node-key> --kind start|agent|join|terminal [--display-name <name>] [--prompt <text>] [--agent <role>]
   builder workflow node update <workflow> <node-key> [--key <node-key>] [--kind start|agent|join|terminal] [--display-name <name>] [--prompt <text>] [--agent <role>]
   builder workflow edge add <workflow> --from <source-node-key> --transition <transition-id> --edge-key <edge-key> --to <target-node-key> --context <mode> [--prompt <text>] [--transition-description <text>] [--param <key>=<description> ...]

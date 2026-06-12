@@ -806,6 +806,178 @@ ORDER BY updated_at_unix_ms DESC, (
     WHERE storage.id = task_records.id
 ) DESC;
 
+-- name: ListProjectWorkflowTaskActivity :many
+SELECT
+    workflow_id,
+    CAST(MAX(updated_at_unix_ms) AS INTEGER) AS latest_updated_at_unix_ms
+FROM task_records
+WHERE project_id = sqlc.arg(project_id)
+GROUP BY workflow_id
+ORDER BY latest_updated_at_unix_ms DESC, workflow_id ASC;
+
+-- name: ListBoardColumnTaskCounts :many
+WITH effective_board_placements AS (
+    SELECT
+        t.id AS task_id,
+        p.node_id AS node_id
+    FROM task_node_placements p
+    JOIN task_records t ON t.id = p.task_id
+    JOIN workflow_nodes n ON n.id = p.node_id
+    WHERE p.state IN ('active', 'waiting_approval')
+      AND t.project_id = sqlc.arg(project_id)
+      AND t.workflow_id = sqlc.arg(workflow_id)
+      AND (
+          t.canceled_at_unix_ms = 0
+          OR n.kind = 'terminal'
+          OR trim(sqlc.arg(canceled_terminal_node_id)) = ''
+      )
+    UNION
+    SELECT
+        t.id AS task_id,
+        sqlc.arg(canceled_terminal_node_id) AS node_id
+    FROM task_records t
+    WHERE t.project_id = sqlc.arg(project_id)
+      AND t.workflow_id = sqlc.arg(workflow_id)
+      AND t.canceled_at_unix_ms != 0
+      AND trim(sqlc.arg(canceled_terminal_node_id)) != ''
+      AND NOT EXISTS (
+          SELECT 1
+          FROM task_node_placements p
+          JOIN workflow_nodes n ON n.id = p.node_id
+          WHERE p.task_id = t.id
+            AND p.state IN ('active', 'waiting_approval')
+            AND n.kind = 'terminal'
+      )
+    UNION
+    SELECT
+        t.id AS task_id,
+        tt.source_node_id AS node_id
+    FROM task_transition_records tt
+    JOIN task_records t ON t.id = tt.task_id
+    WHERE tt.state = 'pending_approval'
+      AND t.project_id = sqlc.arg(project_id)
+      AND t.workflow_id = sqlc.arg(workflow_id)
+      AND (
+          t.canceled_at_unix_ms = 0
+          OR trim(sqlc.arg(canceled_terminal_node_id)) = ''
+      )
+      AND trim(tt.source_node_id) != ''
+)
+SELECT
+    node_id,
+    CAST(COUNT(DISTINCT task_id) AS INTEGER) AS task_count
+FROM effective_board_placements
+GROUP BY node_id
+ORDER BY node_id ASC;
+
+-- name: ListBoardOpenTasks :many
+WITH board_open_task_ids AS (
+    SELECT
+        t.id
+    FROM task_node_placements p
+    JOIN task_records t ON t.id = p.task_id
+    JOIN workflow_nodes n ON n.id = p.node_id
+    WHERE p.state IN ('active', 'waiting_approval')
+      AND n.kind != 'terminal'
+      AND t.project_id = sqlc.arg(project_id)
+      AND t.workflow_id = sqlc.arg(workflow_id)
+      AND (
+          t.canceled_at_unix_ms = 0
+          OR trim(sqlc.arg(canceled_terminal_node_id)) = ''
+      )
+    UNION
+    SELECT
+        t.id
+    FROM task_transition_records tt
+    JOIN task_records t ON t.id = tt.task_id
+    JOIN workflow_nodes n ON n.id = tt.source_node_id
+    WHERE tt.state = 'pending_approval'
+      AND n.kind != 'terminal'
+      AND t.project_id = sqlc.arg(project_id)
+      AND t.workflow_id = sqlc.arg(workflow_id)
+      AND (
+          t.canceled_at_unix_ms = 0
+          OR trim(sqlc.arg(canceled_terminal_node_id)) = ''
+      )
+)
+SELECT
+    t.id,
+    t.project_id,
+    t.project_workflow_link_id,
+    t.workflow_id,
+    t.workflow_revision_seen,
+    t.task_seq,
+    t.short_id,
+    t.title,
+    t.body,
+    t.source_url,
+    t.source_workspace_id,
+    t.managed_worktree_id,
+    t.canceled_at_unix_ms,
+    t.cancellation_reason,
+    t.created_at_unix_ms,
+    t.updated_at_unix_ms,
+    t.metadata_json
+FROM task_records t
+WHERE t.id IN (SELECT id FROM board_open_task_ids)
+  AND NOT EXISTS (
+      SELECT 1
+      FROM task_node_placements terminal_placement
+      JOIN workflow_nodes terminal_node ON terminal_node.id = terminal_placement.node_id
+      WHERE terminal_placement.task_id = t.id
+        AND terminal_placement.state IN ('active', 'waiting_approval')
+        AND terminal_node.kind = 'terminal'
+  )
+  AND (
+    CAST(sqlc.arg(cursor_set) AS INTEGER) = 0
+    OR t.updated_at_unix_ms < sqlc.arg(cursor_updated_at_unix_ms)
+    OR (
+        t.updated_at_unix_ms = sqlc.arg(cursor_updated_at_unix_ms)
+        AND t.id < sqlc.arg(cursor_task_id)
+    )
+  )
+ORDER BY t.updated_at_unix_ms DESC, t.id DESC
+LIMIT sqlc.arg(limit_rows);
+
+-- name: ListBoardDonePreviewTasks :many
+SELECT
+    t.id,
+    t.project_id,
+    t.project_workflow_link_id,
+    t.workflow_id,
+    t.workflow_revision_seen,
+    t.task_seq,
+    t.short_id,
+    t.title,
+    t.body,
+    t.source_url,
+    t.source_workspace_id,
+    t.managed_worktree_id,
+    t.canceled_at_unix_ms,
+    t.cancellation_reason,
+    t.created_at_unix_ms,
+    t.updated_at_unix_ms,
+    t.metadata_json
+FROM task_records t
+WHERE t.project_id = sqlc.arg(project_id)
+  AND t.workflow_id = sqlc.arg(workflow_id)
+  AND (
+      EXISTS (
+          SELECT 1
+          FROM task_node_placements p
+          JOIN workflow_nodes n ON n.id = p.node_id
+          WHERE p.task_id = t.id
+            AND p.state IN ('active', 'waiting_approval')
+            AND n.kind = 'terminal'
+      )
+      OR (
+          t.canceled_at_unix_ms != 0
+          AND trim(sqlc.arg(canceled_terminal_node_id)) != ''
+      )
+  )
+ORDER BY t.updated_at_unix_ms DESC, t.id DESC
+LIMIT sqlc.arg(limit_rows);
+
 -- name: ListBoardNodeTasks :many
 WITH board_node_task_ids AS (
     SELECT
@@ -1479,7 +1651,9 @@ SELECT
     updated_at_unix_ms
 FROM task_comments
 WHERE task_id = sqlc.arg(task_id)
-ORDER BY updated_at_unix_ms DESC, rowid DESC;
+ORDER BY created_at_unix_ms DESC, id DESC
+LIMIT sqlc.arg(limit_rows)
+OFFSET sqlc.arg(offset_rows);
 
 -- name: GetWorkspaceBindingByID :one
 SELECT

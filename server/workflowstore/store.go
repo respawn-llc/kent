@@ -3,9 +3,10 @@ package workflowstore
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -330,11 +331,24 @@ type ListWorkflowsRequest struct {
 	PageSize  int
 	PageToken string
 	Query     string
+	ExactName string
 }
 
 type ListWorkflowsResult struct {
 	Workflows     []WorkflowRecord
 	NextPageToken string
+}
+
+type workflowListPageCursor struct {
+	activityAtUnixMs int64
+	workflowID       string
+	hasValue         bool
+}
+
+type workflowListPageTokenPayload struct {
+	Version          int    `json:"version"`
+	ActivityAtUnixMs int64  `json:"activity_at_unix_ms"`
+	WorkflowID       string `json:"workflow_id"`
 }
 
 const (
@@ -430,43 +444,59 @@ func (s *Store) ListWorkflows(ctx context.Context, req ListWorkflowsRequest) (Li
 	if pageSize > maxWorkflowListPageSize {
 		pageSize = maxWorkflowListPageSize
 	}
-	offset := 0
-	if strings.TrimSpace(req.PageToken) != "" {
-		parsed, err := strconv.Atoi(req.PageToken)
-		if err != nil || parsed < 0 {
-			return ListWorkflowsResult{}, fmt.Errorf("invalid workflow list page token")
-		}
-		offset = parsed
+	cursor, err := parseWorkflowListPageToken(req.PageToken)
+	if err != nil {
+		return ListWorkflowsResult{}, err
 	}
 	query := strings.TrimSpace(req.Query)
+	exactName := strings.TrimSpace(req.ExactName)
 	args := []any{}
 	where := ""
+	clauses := []string{}
+	if exactName != "" {
+		clauses = append(clauses, "name = ?")
+		args = append(args, exactName)
+	}
 	if query != "" {
-		where = "WHERE lower(name) LIKE ? OR lower(description) LIKE ?"
+		clauses = append(clauses, "(lower(name) LIKE ? OR lower(description) LIKE ?)")
 		like := "%" + strings.ToLower(query) + "%"
 		args = append(args, like, like)
 	}
-	args = append(args, pageSize+1, offset)
-	rows, err := s.db.QueryContext(ctx, strings.Replace(strings.TrimSuffix(listWorkflowsQuery, "\n"), "{{clause}}", where, 1), args...)
+	if len(clauses) > 0 {
+		where = "WHERE " + strings.Join(clauses, " AND ")
+	}
+	cursorClause := ""
+	if cursor.hasValue {
+		cursorClause = "WHERE activity_at_unix_ms < ? OR (activity_at_unix_ms = ? AND id < ?)"
+		args = append(args, cursor.activityAtUnixMs, cursor.activityAtUnixMs, cursor.workflowID)
+	}
+	args = append(args, pageSize+1)
+	queryText := strings.Replace(strings.TrimSuffix(listWorkflowsQuery, "\n"), "{{clause}}", where, 1)
+	queryText = strings.Replace(queryText, "{{cursor_clause}}", cursorClause, 1)
+	rows, err := s.db.QueryContext(ctx, queryText, args...)
 	if err != nil {
 		return ListWorkflowsResult{}, err
 	}
 	defer func() { _ = rows.Close() }()
-	out := make([]WorkflowRecord, 0, pageSize)
+	rowsOut := make([]workflowRecordRow, 0, pageSize+1)
 	for rows.Next() {
 		var row workflowRecordRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Version, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Version, &row.CreatedAtUnixMs, &row.UpdatedAtUnixMs, &row.ActivityAtUnixMs); err != nil {
 			return ListWorkflowsResult{}, err
 		}
-		out = append(out, workflowRecordFromRow(row))
+		rowsOut = append(rowsOut, row)
 	}
 	if err := rows.Err(); err != nil {
 		return ListWorkflowsResult{}, err
 	}
 	nextPageToken := ""
-	if len(out) > pageSize {
-		out = out[:pageSize]
-		nextPageToken = strconv.Itoa(offset + pageSize)
+	if len(rowsOut) > pageSize {
+		nextPageToken = workflowListPageToken(rowsOut[pageSize-1])
+		rowsOut = rowsOut[:pageSize]
+	}
+	out := make([]WorkflowRecord, 0, len(rowsOut))
+	for _, row := range rowsOut {
+		out = append(out, workflowRecordFromRow(row))
 	}
 	return ListWorkflowsResult{Workflows: out, NextPageToken: nextPageToken}, nil
 }
@@ -1027,16 +1057,44 @@ func (s *Store) GetDefinition(ctx context.Context, workflowID workflow.WorkflowI
 }
 
 type workflowRecordRow struct {
-	ID              string
-	Name            string
-	Description     string
-	Version         int64
-	CreatedAtUnixMs int64
-	UpdatedAtUnixMs int64
+	ID               string
+	Name             string
+	Description      string
+	Version          int64
+	CreatedAtUnixMs  int64
+	UpdatedAtUnixMs  int64
+	ActivityAtUnixMs int64
 }
 
 func workflowRecordFromRow(row workflowRecordRow) WorkflowRecord {
 	return WorkflowRecord{ID: workflow.WorkflowID(row.ID), Name: row.Name, Description: row.Description, Version: row.Version}
+}
+
+func parseWorkflowListPageToken(token string) (workflowListPageCursor, error) {
+	if strings.TrimSpace(token) == "" {
+		return workflowListPageCursor{}, nil
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return workflowListPageCursor{}, fmt.Errorf("invalid workflow list page token")
+	}
+	var payload workflowListPageTokenPayload
+	if err := json.Unmarshal(decoded, &payload); err != nil {
+		return workflowListPageCursor{}, fmt.Errorf("invalid workflow list page token")
+	}
+	if payload.Version != 1 || payload.ActivityAtUnixMs < 0 || strings.TrimSpace(payload.WorkflowID) == "" {
+		return workflowListPageCursor{}, fmt.Errorf("invalid workflow list page token")
+	}
+	return workflowListPageCursor{activityAtUnixMs: payload.ActivityAtUnixMs, workflowID: payload.WorkflowID, hasValue: true}, nil
+}
+
+func workflowListPageToken(row workflowRecordRow) string {
+	payload := workflowListPageTokenPayload{Version: 1, ActivityAtUnixMs: row.ActivityAtUnixMs, WorkflowID: row.ID}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(encoded)
 }
 
 func resolveWorkflowNodeGroupID(ctx context.Context, q *sqlitegen.Queries, workflowID string, groupID string, groupKey string) (string, error) {

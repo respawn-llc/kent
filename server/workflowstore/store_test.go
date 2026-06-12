@@ -101,15 +101,18 @@ func TestWorkflowCreateUpdateReadAndGraphPersistence(t *testing.T) {
 	}
 }
 
-func TestWorkflowListPaginatesWithStableNameOrderAndQuery(t *testing.T) {
+func TestWorkflowListPaginatesWithMostRecentOrderAndFilters(t *testing.T) {
 	ctx, store, _ := newTestStoreContext(t)
 	created := map[string]workflow.WorkflowID{}
-	for _, name := range []string{"Gamma", "Alpha", "Beta", "Beta Searchable"} {
+	for index, name := range []string{"Gamma", "Alpha", "Beta", "Beta Searchable"} {
 		record, err := store.CreateWorkflow(ctx, CreateWorkflowRequest{Name: name, Description: "desc " + name})
 		if err != nil {
 			t.Fatalf("CreateWorkflow %q: %v", name, err)
 		}
 		created[name] = record.ID
+		if _, err := store.db.ExecContext(ctx, `UPDATE workflows SET updated_at_unix_ms = ? WHERE id = ?`, int64(index+1), string(record.ID)); err != nil {
+			t.Fatalf("force workflow timestamp: %v", err)
+		}
 	}
 
 	page1, err := store.ListWorkflows(ctx, ListWorkflowsRequest{PageSize: 2})
@@ -119,7 +122,7 @@ func TestWorkflowListPaginatesWithStableNameOrderAndQuery(t *testing.T) {
 	if len(page1.Workflows) != 2 || page1.NextPageToken == "" {
 		t.Fatalf("page1 = %+v, want two workflows and next token", page1)
 	}
-	if page1.Workflows[0].ID != created["Alpha"] || page1.Workflows[1].ID != created["Beta"] {
+	if page1.Workflows[0].ID != created["Beta Searchable"] || page1.Workflows[1].ID != created["Beta"] {
 		t.Fatalf("page1 order = %+v", page1.Workflows)
 	}
 	page2, err := store.ListWorkflows(ctx, ListWorkflowsRequest{PageSize: 2, PageToken: page1.NextPageToken})
@@ -129,7 +132,7 @@ func TestWorkflowListPaginatesWithStableNameOrderAndQuery(t *testing.T) {
 	if len(page2.Workflows) != 2 || page2.NextPageToken != "" {
 		t.Fatalf("page2 = %+v, want final two workflows", page2)
 	}
-	if page2.Workflows[0].ID != created["Beta Searchable"] || page2.Workflows[1].ID != created["Gamma"] {
+	if page2.Workflows[0].ID != created["Alpha"] || page2.Workflows[1].ID != created["Gamma"] {
 		t.Fatalf("page2 order = %+v", page2.Workflows)
 	}
 	filtered, err := store.ListWorkflows(ctx, ListWorkflowsRequest{PageSize: 10, Query: "search"})
@@ -138,6 +141,13 @@ func TestWorkflowListPaginatesWithStableNameOrderAndQuery(t *testing.T) {
 	}
 	if len(filtered.Workflows) != 1 || filtered.Workflows[0].ID != created["Beta Searchable"] {
 		t.Fatalf("filtered = %+v", filtered.Workflows)
+	}
+	exact, err := store.ListWorkflows(ctx, ListWorkflowsRequest{PageSize: 10, ExactName: "Beta"})
+	if err != nil {
+		t.Fatalf("ListWorkflows exact: %v", err)
+	}
+	if len(exact.Workflows) != 1 || exact.Workflows[0].ID != created["Beta"] {
+		t.Fatalf("exact = %+v", exact.Workflows)
 	}
 }
 

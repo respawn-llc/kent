@@ -356,6 +356,7 @@ type WorkflowListRequest struct {
 	PageSize  int    `json:"page_size,omitempty"`
 	PageToken string `json:"page_token,omitempty"`
 	Query     string `json:"query,omitempty"`
+	ExactName string `json:"exact_name,omitempty"`
 }
 
 type WorkflowListResponse struct {
@@ -778,11 +779,14 @@ type WorkflowTaskCommentAddResponse struct {
 }
 
 type WorkflowTaskCommentListRequest struct {
-	TaskID string `json:"task_id"`
+	TaskID    string `json:"task_id"`
+	PageSize  int    `json:"page_size,omitempty"`
+	PageToken string `json:"page_token,omitempty"`
 }
 
 type WorkflowTaskCommentListResponse struct {
-	Comments []WorkflowTaskComment `json:"comments"`
+	Comments      []WorkflowTaskComment `json:"comments"`
+	NextPageToken string                `json:"next_page_token,omitempty"`
 }
 
 type WorkflowTaskCommentReplaceRequest struct {
@@ -1536,6 +1540,9 @@ func (r WorkflowAttentionListRequest) Validate() error {
 	if r.PageSize < 0 {
 		return WorkflowRequestValidationError{Code: WorkflowRequestErrorInvalidMode, Field: "page_size", Message: "page_size must be non-negative"}
 	}
+	if strings.TrimSpace(r.PageToken) != r.PageToken {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "page_token", "page_token must not have leading or trailing whitespace")
+	}
 	return nil
 }
 
@@ -1572,7 +1579,16 @@ func (r WorkflowTaskCommentAddRequest) Validate() error {
 }
 
 func (r WorkflowTaskCommentListRequest) Validate() error {
-	return validateRequired("task_id", r.TaskID)
+	if err := validateRequired("task_id", r.TaskID); err != nil {
+		return err
+	}
+	if r.PageSize < 0 {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "page_size", "page_size must be non-negative")
+	}
+	if strings.TrimSpace(r.PageToken) != r.PageToken {
+		return workflowRequestError(WorkflowRequestErrorInvalidMode, "page_token", "page_token must not have leading or trailing whitespace")
+	}
+	return nil
 }
 
 func (r WorkflowTaskCommentReplaceRequest) Validate() error {

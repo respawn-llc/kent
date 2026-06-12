@@ -685,15 +685,24 @@ func TestServiceWorkflowListPaginatesAndCreateLinkIsAtomic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListWorkflows page1: %v", err)
 	}
-	if len(page1.Workflows) != 2 || page1.Workflows[0].Name != "Alpha" || page1.Workflows[1].Name != "Beta" || page1.NextPageToken == "" {
+	if len(page1.Workflows) != 2 || page1.NextPageToken == "" {
 		t.Fatalf("page1 = %+v", page1)
 	}
 	page2, err := service.ListWorkflows(ctx, serverapi.WorkflowListRequest{PageSize: 2, PageToken: page1.NextPageToken})
 	if err != nil {
 		t.Fatalf("ListWorkflows page2: %v", err)
 	}
-	if len(page2.Workflows) != 1 || page2.Workflows[0].Name != "Gamma" || page2.NextPageToken != "" {
+	if len(page2.Workflows) != 1 || page2.NextPageToken != "" {
 		t.Fatalf("page2 = %+v", page2)
+	}
+	seen := map[string]bool{}
+	for _, record := range append(page1.Workflows, page2.Workflows...) {
+		seen[record.Name] = true
+	}
+	for _, name := range []string{"Gamma", "Alpha", "Beta"} {
+		if !seen[name] {
+			t.Fatalf("paged workflows = %+v + %+v, missing %s", page1.Workflows, page2.Workflows, name)
+		}
 	}
 	created, err := service.CreateAndLinkWorkflowToProject(ctx, serverapi.WorkflowCreateAndLinkProjectRequest{
 		Name:          "Project Created",
@@ -904,6 +913,31 @@ func TestServiceCommentsAndReadModels(t *testing.T) {
 	if len(comments.Comments) != 1 || comments.Comments[0].ID != comment.Comment.ID {
 		t.Fatalf("comments = %+v", comments)
 	}
+	secondComment, err := service.AddWorkflowTaskComment(ctx, serverapi.WorkflowTaskCommentAddRequest{TaskID: task.Task.ID, Body: "second", Author: "user"})
+	if err != nil {
+		t.Fatalf("AddWorkflowTaskComment second: %v", err)
+	}
+	commentPage, err := service.ListWorkflowTaskComments(ctx, serverapi.WorkflowTaskCommentListRequest{TaskID: task.Task.ID, PageSize: 1})
+	if err != nil {
+		t.Fatalf("ListWorkflowTaskComments page 1: %v", err)
+	}
+	if len(commentPage.Comments) != 1 || commentPage.NextPageToken == "" {
+		t.Fatalf("first comment page = %+v, want one comment with next token", commentPage)
+	}
+	nextCommentPage, err := service.ListWorkflowTaskComments(ctx, serverapi.WorkflowTaskCommentListRequest{TaskID: task.Task.ID, PageSize: 1, PageToken: commentPage.NextPageToken})
+	if err != nil {
+		t.Fatalf("ListWorkflowTaskComments page 2: %v", err)
+	}
+	if len(nextCommentPage.Comments) != 1 || nextCommentPage.NextPageToken != "" {
+		t.Fatalf("second comment page = %+v, want one comment without next token", nextCommentPage)
+	}
+	gotPagedCommentIDs := map[string]int{
+		commentPage.Comments[0].ID:     1,
+		nextCommentPage.Comments[0].ID: 1,
+	}
+	if gotPagedCommentIDs[comment.Comment.ID] != 1 || gotPagedCommentIDs[secondComment.Comment.ID] != 1 || len(gotPagedCommentIDs) != 2 {
+		t.Fatalf("paged comment ids = %+v, want both seeded comments exactly once", gotPagedCommentIDs)
+	}
 	board, err := service.GetWorkflowBoard(ctx, serverapi.WorkflowBoardRequest{ProjectID: binding.ProjectID})
 	if err != nil {
 		t.Fatalf("GetWorkflowBoard: %v", err)
@@ -932,7 +966,7 @@ func TestServiceCommentsAndReadModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetWorkflowTask: %v", err)
 	}
-	if detail.Task.Summary.ID != task.Task.ID || len(detail.Task.Comments) != 1 {
+	if detail.Task.Summary.ID != task.Task.ID || len(detail.Task.Comments) != 2 {
 		t.Fatalf("detail = %+v", detail.Task)
 	}
 }

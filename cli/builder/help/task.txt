@@ -4,11 +4,11 @@ Usage of builder task:
   builder task resume <short-id-or-task-id>
   builder task approve <transition-id>
   builder task move <short-id-or-task-id> <target-node-id> [--output name=value]
-  builder task list [--project <project>]
-  builder task show <short-id-or-task-id>
+  builder task list [--project <project>] [--page-size <n>] [--page-token <token>] [--json]
+  builder task show <short-id-or-task-id> [--json]
   builder task cancel <short-id-or-task-id> [--reason <text>]
   builder task comment add <short-id-or-task-id> --body <text>
-  builder task comment list <short-id-or-task-id>
+  builder task comment list <short-id-or-task-id> [--page-size <n>] [--page-token <token>]
   builder task comment replace <comment-id> --body <text>
   builder task comment delete <comment-id>
 

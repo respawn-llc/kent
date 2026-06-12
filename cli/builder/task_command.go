@@ -3,17 +3,56 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
+	"time"
 
 	"builder/prompts"
 	"builder/shared/config"
 	"builder/shared/serverapi"
 	"builder/shared/sessionenv"
 )
+
+const (
+	taskListDefaultPageSize        = 100
+	taskCommentListDefaultPageSize = 100
+)
+
+type taskListOutput struct {
+	ProjectID     string         `json:"project_id"`
+	NextPageToken string         `json:"next_page_token,omitempty"`
+	Tasks         []taskListItem `json:"tasks"`
+}
+
+type taskListItem struct {
+	ShortID    string `json:"short_id"`
+	TaskID     string `json:"task_id"`
+	WorkflowID string `json:"workflow_id"`
+	Status     string `json:"status"`
+	Title      string `json:"title"`
+}
+
+type taskShowOutput struct {
+	Summary         serverapi.WorkflowTaskSummary     `json:"summary"`
+	Body            string                            `json:"body"`
+	SourceURL       string                            `json:"source_url,omitempty"`
+	Project         serverapi.ProjectBoardProject     `json:"project"`
+	Workflow        serverapi.WorkflowPickerItem      `json:"workflow"`
+	SourceWorkspace serverapi.ProjectWorkspaceSummary `json:"source_workspace"`
+	ManagedWorktree *serverapi.WorktreeView           `json:"managed_worktree,omitempty"`
+	Status          serverapi.WorkflowTaskStatus      `json:"status"`
+	Actions         serverapi.WorkflowTaskActions     `json:"actions"`
+	AttentionCount  int                               `json:"attention_count"`
+	PlacementCount  int                               `json:"placement_count"`
+	RunCount        int                               `json:"run_count"`
+	TransitionCount int                               `json:"transition_count"`
+	CommentCount    int                               `json:"comment_count"`
+}
 
 func taskSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	if stdout == nil {
@@ -140,11 +179,18 @@ func taskStartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet("builder task list", stderr, taskCommandUsage)
 	projectRef := fs.String("project", ".", "project id or path")
+	pageSize := fs.Int("page-size", taskListDefaultPageSize, "maximum tasks to print")
+	pageToken := fs.String("page-token", "", "page token from a previous task list response")
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
 	}
 	if len(fs.Args()) != 0 {
 		fmt.Fprintln(stderr, "task list does not accept positional arguments")
+		return 2
+	}
+	if *pageSize < 1 {
+		fmt.Fprintln(stderr, "task list requires --page-size to be positive")
 		return 2
 	}
 	cfg, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
@@ -153,20 +199,59 @@ func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 1
 	}
 	defer func() { _ = remote.Close() }()
-	tasks, _, err := workflowTasksForProject(context.Background(), cfg, remote, *projectRef)
+	tasks, projectID, nextPageToken, err := workflowTaskPageForProject(context.Background(), cfg, remote, *projectRef, *pageSize, *pageToken)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	for _, task := range tasks {
-		fmt.Fprintf(stdout, "%s\t%s\t%s\t%t\t%t\t%s\n", task.ShortID, task.ID, task.WorkflowID, task.Done, task.CanceledAt != 0, task.Title)
+	items := taskListItems(tasks)
+	if *jsonOut {
+		if err := json.NewEncoder(stdout).Encode(taskListOutput{ProjectID: projectID, NextPageToken: nextPageToken, Tasks: items}); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	}
+	for _, item := range items {
+		fmt.Fprintf(stdout, "%s: %s.\nStatus: %s\n", item.ShortID, item.Title, item.Status)
+	}
+	if strings.TrimSpace(nextPageToken) != "" {
+		fmt.Fprintf(stderr, "Next page token: `%s`\n", nextPageToken)
 	}
 	return 0
+}
+
+func taskListItems(tasks []serverapi.WorkflowTaskSummary) []taskListItem {
+	items := make([]taskListItem, 0, len(tasks))
+	for _, task := range tasks {
+		items = append(items, taskListItem{
+			ShortID:    task.ShortID,
+			TaskID:     task.ID,
+			WorkflowID: task.WorkflowID,
+			Status:     taskListStatus(task),
+			Title:      task.Title,
+		})
+	}
+	return items
+}
+
+func taskListStatus(task serverapi.WorkflowTaskSummary) string {
+	if task.CanceledAt != 0 {
+		return "canceled"
+	}
+	if task.Done {
+		return "done"
+	}
+	if len(task.ActiveNodeIDs) > 0 {
+		return "running"
+	}
+	return "open"
 }
 
 func taskShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet("builder task show", stderr, taskCommandUsage)
 	projectRef := fs.String("project", ".", "project id or path for short ids")
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
 		return exitCode
@@ -188,10 +273,36 @@ func taskShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 1
 	}
 	if requestedProjectID != "" && task.Summary.ProjectID != "" && task.Summary.ProjectID != requestedProjectID && task.Project.ProjectKey != "" {
-		fmt.Fprintf(stdout, "[Note: This task belongs to another project %s]\n", task.Project.ProjectKey)
+		fmt.Fprintf(stderr, "Note: This task belongs to another project %s\n", task.Project.ProjectKey)
+	}
+	if *jsonOut {
+		if err := json.NewEncoder(stdout).Encode(taskShowOutputFromDetail(task)); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
 	}
 	writeTaskDetail(stdout, task)
 	return 0
+}
+
+func taskShowOutputFromDetail(task serverapi.WorkflowTaskDetail) taskShowOutput {
+	return taskShowOutput{
+		Summary:         task.Summary,
+		Body:            task.Body,
+		SourceURL:       task.SourceURL,
+		Project:         task.Project,
+		Workflow:        task.Workflow,
+		SourceWorkspace: task.SourceWorkspace,
+		ManagedWorktree: task.ManagedWorktree,
+		Status:          task.Status,
+		Actions:         task.Actions,
+		AttentionCount:  len(task.Attention),
+		PlacementCount:  len(task.Placements),
+		RunCount:        len(task.Runs),
+		TransitionCount: len(task.Transitions),
+		CommentCount:    len(task.Comments),
+	}
 }
 
 func taskCancelSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -407,7 +518,7 @@ func taskCommentSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet("builder task comment add", stderr, taskCommandUsage)
 	body := fs.String("body", "", "comment body")
-	author := fs.String("author", "user", "comment author")
+	author := fs.String("author", "", "comment author")
 	projectRef := fs.String("project", ".", "project id or path for short ids")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
@@ -429,9 +540,10 @@ func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	commentAuthor := taskCommentAuthorForAdd(context.Background(), remote, taskID, *author, flagWasProvided(fs, "author"))
 	ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 	defer cancel()
-	resp, err := remote.AddWorkflowTaskComment(ctx, serverapi.WorkflowTaskCommentAddRequest{TaskID: taskID, Body: *body, Author: *author})
+	resp, err := remote.AddWorkflowTaskComment(ctx, serverapi.WorkflowTaskCommentAddRequest{TaskID: taskID, Body: *body, Author: commentAuthor.Kind, AuthorID: commentAuthor.ID})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -440,9 +552,143 @@ func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 	return 0
 }
 
+type taskCommentAuthor struct {
+	Kind string
+	ID   string
+}
+
+func taskCommentAuthorForAdd(ctx context.Context, remote workflowCommandRemote, taskID string, explicitAuthor string, explicit bool) taskCommentAuthor {
+	if explicit {
+		return taskCommentAuthor{Kind: strings.TrimSpace(explicitAuthor)}
+	}
+	sessionID, ok := sessionenv.LookupBuilderSessionID(os.LookupEnv)
+	if !ok {
+		return taskCommentAuthor{Kind: "user"}
+	}
+	detail, err := getWorkflowTaskByID(ctx, remote, taskID)
+	if err == nil {
+		if authorID := workflowTaskAgentAuthorID(detail, sessionID); authorID != "" {
+			return taskCommentAuthor{Kind: "agent", ID: authorID}
+		}
+	}
+	return taskCommentAuthor{Kind: "agent", ID: sessionAgentAuthorID(ctx, remote, sessionID)}
+}
+
+func workflowTaskAgentAuthorID(task serverapi.WorkflowTaskDetail, sessionID string) string {
+	trimmedSessionID := strings.TrimSpace(sessionID)
+	if trimmedSessionID == "" {
+		return ""
+	}
+	nodeKeyByID := map[string]string{}
+	for _, placement := range task.Placements {
+		if strings.TrimSpace(placement.NodeID) != "" && strings.TrimSpace(placement.NodeKey) != "" {
+			nodeKeyByID[placement.NodeID] = strings.TrimSpace(placement.NodeKey)
+		}
+	}
+	run, ok := workflowTaskAgentRun(task, trimmedSessionID)
+	if !ok {
+		return ""
+	}
+	if role := strings.TrimSpace(run.Role); role != "" {
+		return role
+	}
+	if nodeKey := nodeKeyByID[strings.TrimSpace(run.NodeID)]; nodeKey != "" {
+		return fmt.Sprintf("Node %s agent", nodeKey)
+	}
+	if nodeID := strings.TrimSpace(run.NodeID); nodeID != "" {
+		return fmt.Sprintf("Node %s agent", nodeID)
+	}
+	if sessionName := strings.TrimSpace(run.SessionName); sessionName != "" {
+		return fmt.Sprintf("Session %s agent", sessionName)
+	}
+	return fmt.Sprintf("Session %s agent", trimmedSessionID)
+}
+
+func workflowTaskAgentRun(task serverapi.WorkflowTaskDetail, sessionID string) (serverapi.WorkflowRun, bool) {
+	currentRunIDs := map[string]bool{}
+	for _, runID := range task.Status.RunIDs {
+		if strings.TrimSpace(runID) != "" {
+			currentRunIDs[strings.TrimSpace(runID)] = true
+		}
+	}
+	var selected serverapi.WorkflowRun
+	selectedScore := workflowTaskAgentRunScore{}
+	found := false
+	for _, run := range task.Runs {
+		if strings.TrimSpace(run.SessionID) != sessionID {
+			continue
+		}
+		score := workflowTaskAgentRunScore{
+			Current:       currentRunIDs[strings.TrimSpace(run.ID)],
+			Unfinished:    run.CompletedAtUnixMs == 0 && run.InterruptedAtUnixMs == 0,
+			StartedAt:     run.StartedAtUnixMs,
+			CompletedAt:   run.CompletedAtUnixMs,
+			InterruptedAt: run.InterruptedAtUnixMs,
+			Generation:    run.Generation,
+			ID:            strings.TrimSpace(run.ID),
+		}
+		if !found || score.betterThan(selectedScore) {
+			selected = run
+			selectedScore = score
+			found = true
+		}
+	}
+	return selected, found
+}
+
+type workflowTaskAgentRunScore struct {
+	Current       bool
+	Unfinished    bool
+	StartedAt     int64
+	CompletedAt   int64
+	InterruptedAt int64
+	Generation    int64
+	ID            string
+}
+
+func (s workflowTaskAgentRunScore) betterThan(other workflowTaskAgentRunScore) bool {
+	switch {
+	case s.Current != other.Current:
+		return s.Current
+	case s.Unfinished != other.Unfinished:
+		return s.Unfinished
+	case s.StartedAt != other.StartedAt:
+		return s.StartedAt > other.StartedAt
+	case s.CompletedAt != other.CompletedAt:
+		return s.CompletedAt > other.CompletedAt
+	case s.InterruptedAt != other.InterruptedAt:
+		return s.InterruptedAt > other.InterruptedAt
+	case s.Generation != other.Generation:
+		return s.Generation > other.Generation
+	default:
+		return s.ID > other.ID
+	}
+}
+
+type sessionMainViewGetter interface {
+	GetSessionMainView(ctx context.Context, req serverapi.SessionMainViewRequest) (serverapi.SessionMainViewResponse, error)
+}
+
+func sessionAgentAuthorID(ctx context.Context, remote workflowCommandRemote, sessionID string) string {
+	trimmedSessionID := strings.TrimSpace(sessionID)
+	if getter, ok := remote.(sessionMainViewGetter); ok {
+		rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
+		defer cancel()
+		resp, err := getter.GetSessionMainView(rpcCtx, serverapi.SessionMainViewRequest{SessionID: trimmedSessionID})
+		if err == nil {
+			if sessionName := strings.TrimSpace(resp.MainView.Session.SessionName); sessionName != "" {
+				return fmt.Sprintf("Session %s agent", sessionName)
+			}
+		}
+	}
+	return fmt.Sprintf("Session %s agent", trimmedSessionID)
+}
+
 func taskCommentListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet("builder task comment list", stderr, taskCommandUsage)
 	projectRef := fs.String("project", ".", "project id or path for short ids")
+	pageSize := fs.Int("page-size", taskCommentListDefaultPageSize, "maximum comments to print")
+	pageToken := fs.String("page-token", "", "page token from a previous task comment list response")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
 		return exitCode
@@ -450,6 +696,10 @@ func taskCommentListSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	positionals = append(positionals, fs.Args()...)
 	if len(positionals) != 1 {
 		fmt.Fprintln(stderr, "task comment list requires <short-id-or-task-id>")
+		return 2
+	}
+	if *pageSize < 1 {
+		fmt.Fprintln(stderr, "task comment list requires --page-size to be positive")
 		return 2
 	}
 	cfg, remote, err := workflowCommandRemoteOpener(context.Background(), ".")
@@ -465,15 +715,24 @@ func taskCommentListSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 	defer cancel()
-	resp, err := remote.ListWorkflowTaskComments(ctx, serverapi.WorkflowTaskCommentListRequest{TaskID: taskID})
+	resp, err := remote.ListWorkflowTaskComments(ctx, serverapi.WorkflowTaskCommentListRequest{TaskID: taskID, PageSize: *pageSize, PageToken: *pageToken})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	for _, comment := range resp.Comments {
-		fmt.Fprintf(stdout, "%s\t%s\t%s\n", comment.ID, comment.Author, comment.Body)
+	writeTaskCommentList(stdout, resp.Comments)
+	if strings.TrimSpace(resp.NextPageToken) != "" {
+		fmt.Fprintf(stderr, "Next page token: `%s`\n", resp.NextPageToken)
 	}
 	return 0
+}
+
+func writeTaskCommentList(stdout io.Writer, comments []serverapi.WorkflowTaskComment) {
+	if len(comments) == 0 {
+		return
+	}
+	fmt.Fprintf(stdout, "Comments (%d):\n", len(comments))
+	writeTaskCommentBlocks(stdout, comments)
 }
 
 func taskCommentReplaceSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -556,6 +815,39 @@ func workflowBoardForProject(ctx context.Context, cfg config.App, remote workflo
 	return resp.Board, nil
 }
 
+func workflowTaskPageForProject(ctx context.Context, cfg config.App, remote workflowCommandRemote, projectRef string, pageSize int, pageToken string) ([]serverapi.WorkflowTaskSummary, string, string, error) {
+	projectID, err := resolveWorkflowProjectID(ctx, cfg, remote, projectRef)
+	if err != nil {
+		return nil, "", "", err
+	}
+	rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
+	defer cancel()
+	resp, err := remote.GetWorkflowBoard(rpcCtx, serverapi.WorkflowBoardRequest{
+		ProjectID: projectID,
+		PageSize:  pageSize,
+		PageToken: pageToken,
+	})
+	if err != nil {
+		return nil, "", "", err
+	}
+	board := resp.Board
+	tasks := workflowTasksForListPage(board, pageSize)
+	return tasks, board.ProjectID, board.NextPageToken, nil
+}
+
+func workflowTasksForListPage(board serverapi.WorkflowBoard, pageSize int) []serverapi.WorkflowTaskSummary {
+	cards := append([]serverapi.WorkflowBoardTaskCard(nil), board.Cards...)
+	if strings.TrimSpace(board.NextPageToken) == "" && len(cards) < pageSize {
+		remaining := pageSize - len(cards)
+		donePreview := board.DonePreview
+		if len(donePreview) > remaining {
+			donePreview = donePreview[:remaining]
+		}
+		cards = append(cards, donePreview...)
+	}
+	return sortedWorkflowTasksFromCards(serverapi.WorkflowBoard{ProjectID: board.ProjectID}, cards)
+}
+
 func resolveWorkflowTaskID(ctx context.Context, cfg config.App, remote workflowCommandRemote, projectRef string, ref string) (string, error) {
 	trimmed := strings.TrimSpace(ref)
 	if trimmed == "" {
@@ -570,25 +862,18 @@ func resolveWorkflowTaskID(ctx context.Context, cfg config.App, remote workflowC
 		}
 		return resp.Task.Summary.ID, nil
 	}
-	tasks, projectID, err := workflowTasksForProject(ctx, cfg, remote, projectRef)
-	if err == nil {
-		matches := make([]serverapi.WorkflowTaskSummary, 0, 1)
-		for _, task := range tasks {
-			if task.ID == trimmed || task.ShortID == trimmed {
-				matches = append(matches, task)
-			}
-		}
-		if len(matches) == 1 {
-			return matches[0].ID, nil
-		}
-		if len(matches) > 1 {
-			return "", fmt.Errorf("task %q is ambiguous; use task id", trimmed)
-		}
-	}
+	projectID, err := resolveWorkflowProjectID(ctx, cfg, remote, projectRef)
 	if err != nil {
 		return "", err
 	}
-	return "", fmt.Errorf("task %q not found in project %s", trimmed, projectID)
+	detail, err := getWorkflowTaskByProjectShortID(ctx, remote, projectID, trimmed)
+	if err != nil {
+		if errors.Is(err, serverapi.ErrWorkflowTaskNotFound) || errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("task %q not found in project %s", trimmed, projectID)
+		}
+		return "", err
+	}
+	return detail.Summary.ID, nil
 }
 
 func getWorkflowTaskForShow(ctx context.Context, cfg config.App, remote workflowCommandRemote, projectRef string, ref string) (string, serverapi.WorkflowTaskDetail, error) {
@@ -663,21 +948,93 @@ func getWorkflowTaskByShortID(ctx context.Context, remote workflowCommandRemote,
 }
 
 func writeTaskDetail(stdout io.Writer, task serverapi.WorkflowTaskDetail) {
-	fmt.Fprintf(stdout, "task_id\t%s\nshort_id\t%s\nworkflow_id\t%s\ntitle\t%s\ndone\t%t\ncanceled\t%t\n", task.Summary.ID, task.Summary.ShortID, task.Summary.WorkflowID, task.Summary.Title, task.Summary.Done, task.Summary.CanceledAt != 0)
-	fmt.Fprintln(stdout, "placements")
-	for _, placement := range task.Placements {
-		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\n", placement.ID, placement.NodeID, placement.State, placement.ParallelBatchTransitionID, placement.ParallelBranchEdgeID)
+	fmt.Fprintf(stdout, "%s: %s\n", task.Summary.ShortID, task.Summary.Title)
+	fmt.Fprintln(stdout, "Body:")
+	fmt.Fprintln(stdout, "```md")
+	fmt.Fprintln(stdout, task.Body)
+	fmt.Fprintln(stdout, "```")
+	fmt.Fprintf(stdout, "Status: %s\n", taskDetailStatus(task))
+	fmt.Fprintf(stdout, "Project: %q (%s)\n", task.Project.DisplayName, task.Project.ProjectID)
+	fmt.Fprintf(stdout, "Workflow: %q (%s)\n", task.Workflow.DisplayName, task.Workflow.WorkflowID)
+	fmt.Fprintf(stdout, "Created at %s UTC\n", utcISO(task.Summary.CreatedAtUnixMs))
+	if len(task.Runs) > 0 {
+		fmt.Fprintf(stdout, "Total agent runs: %d\n", len(task.Runs))
 	}
-	fmt.Fprintln(stdout, "runs")
-	for _, run := range task.Runs {
-		fmt.Fprintf(stdout, "%s\t%s\t%s\t%d\t%d\n", run.ID, run.PlacementID, run.NodeID, run.CompletedAtUnixMs, run.InterruptedAtUnixMs)
+	if strings.TrimSpace(task.SourceWorkspace.RootPath) != "" {
+		fmt.Fprintf(stdout, "Main workspace: %s\n", task.SourceWorkspace.RootPath)
 	}
-	fmt.Fprintln(stdout, "transitions")
-	for _, transition := range task.Transitions {
-		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\n", transition.ID, transition.TransitionID, transition.State, transition.Commentary)
+	if task.ManagedWorktree != nil && strings.TrimSpace(task.ManagedWorktree.CanonicalRoot) != "" {
+		fmt.Fprintf(stdout, "Worktree: %s\n", task.ManagedWorktree.CanonicalRoot)
 	}
-	fmt.Fprintln(stdout, "comments")
-	for _, comment := range task.Comments {
-		fmt.Fprintf(stdout, "%s\t%s\t%s\n", comment.ID, comment.Author, comment.Body)
+	if strings.TrimSpace(task.SourceURL) != "" {
+		fmt.Fprintf(stdout, "Imported from: %s\n", task.SourceURL)
 	}
+	writeTaskDetailComments(stdout, task.Summary.ShortID, task.Comments)
+}
+
+func taskDetailStatus(task serverapi.WorkflowTaskDetail) string {
+	if task.Summary.CanceledAt != 0 || task.Status.Kind == "canceled" {
+		return "canceled"
+	}
+	if task.Summary.Done || task.Status.Kind == "done" {
+		return "done"
+	}
+	switch task.Status.Kind {
+	case "", "backlog", "open":
+		return "open"
+	default:
+		return "running"
+	}
+}
+
+func writeTaskDetailComments(stdout io.Writer, shortID string, comments []serverapi.WorkflowTaskComment) {
+	if len(comments) == 0 {
+		return
+	}
+	if len(comments) >= 10 {
+		fmt.Fprintf(stdout, "Comments under this task: %d. `builder task comment list %s` to show them.\n", len(comments), shortID)
+		return
+	}
+	sortedComments := sortedTaskCommentsByCreatedAt(comments)
+	fmt.Fprintf(stdout, "Comments (%d):\n", len(sortedComments))
+	writeTaskCommentBlocks(stdout, sortedComments)
+}
+
+func sortedTaskCommentsByCreatedAt(comments []serverapi.WorkflowTaskComment) []serverapi.WorkflowTaskComment {
+	sortedComments := append([]serverapi.WorkflowTaskComment(nil), comments...)
+	sort.SliceStable(sortedComments, func(i, j int) bool {
+		if sortedComments[i].CreatedAtUnixMs == sortedComments[j].CreatedAtUnixMs {
+			return sortedComments[i].ID > sortedComments[j].ID
+		}
+		return sortedComments[i].CreatedAtUnixMs > sortedComments[j].CreatedAtUnixMs
+	})
+	return sortedComments
+}
+
+func writeTaskCommentBlocks(stdout io.Writer, sortedComments []serverapi.WorkflowTaskComment) {
+	for i, comment := range sortedComments {
+		if i > 0 {
+			fmt.Fprintln(stdout, "---")
+		}
+		fmt.Fprintf(stdout, "%s at %s UTC:\n%s\n", readableTaskCommentAuthor(comment), utcISO(comment.CreatedAtUnixMs), comment.Body)
+	}
+}
+
+func readableTaskCommentAuthor(comment serverapi.WorkflowTaskComment) string {
+	author := strings.TrimSpace(comment.Author)
+	authorID := strings.TrimSpace(comment.AuthorID)
+	if strings.EqualFold(author, "user") {
+		return "User"
+	}
+	if authorID != "" {
+		return authorID
+	}
+	if author == "" {
+		return "Unknown"
+	}
+	return strings.ToUpper(author[:1]) + author[1:]
+}
+
+func utcISO(unixMs int64) string {
+	return time.UnixMilli(unixMs).UTC().Format(time.RFC3339)
 }

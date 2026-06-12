@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"builder/server/requestmemo"
@@ -182,7 +183,7 @@ func (s *Service) ListWorkflows(ctx context.Context, req serverapi.WorkflowListR
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowListResponse{}, err
 	}
-	rows, err := s.store.ListWorkflows(ctx, workflowstore.ListWorkflowsRequest{PageSize: req.PageSize, PageToken: req.PageToken, Query: req.Query})
+	rows, err := s.store.ListWorkflows(ctx, workflowstore.ListWorkflowsRequest{PageSize: req.PageSize, PageToken: req.PageToken, Query: req.Query, ExactName: req.ExactName})
 	if err != nil {
 		return serverapi.WorkflowListResponse{}, err
 	}
@@ -772,15 +773,40 @@ func (s *Service) ListWorkflowTaskComments(ctx context.Context, req serverapi.Wo
 	if err := req.Validate(); err != nil {
 		return serverapi.WorkflowTaskCommentListResponse{}, err
 	}
-	comments, err := s.store.ListComments(ctx, workflow.TaskID(req.TaskID))
+	pageSize := req.PageSize
+	if pageSize == 0 {
+		pageSize = 100
+	}
+	offset, err := parseCommentOffsetPageToken(req.PageToken)
 	if err != nil {
 		return serverapi.WorkflowTaskCommentListResponse{}, err
+	}
+	comments, err := s.store.ListCommentsPage(ctx, workflow.TaskID(req.TaskID), offset, pageSize+1)
+	if err != nil {
+		return serverapi.WorkflowTaskCommentListResponse{}, err
+	}
+	nextPageToken := ""
+	if len(comments) > pageSize {
+		comments = comments[:pageSize]
+		nextPageToken = strconv.Itoa(offset + pageSize)
 	}
 	out := make([]serverapi.WorkflowTaskComment, 0, len(comments))
 	for _, comment := range comments {
 		out = append(out, commentRecord(comment))
 	}
-	return serverapi.WorkflowTaskCommentListResponse{Comments: out}, nil
+	return serverapi.WorkflowTaskCommentListResponse{Comments: out, NextPageToken: nextPageToken}, nil
+}
+
+func parseCommentOffsetPageToken(token string) (int, error) {
+	trimmed := strings.TrimSpace(token)
+	if trimmed == "" {
+		return 0, nil
+	}
+	offset, err := strconv.Atoi(trimmed)
+	if err != nil || offset < 0 {
+		return 0, errors.New("page_token is invalid")
+	}
+	return offset, nil
 }
 
 func (s *Service) ReplaceWorkflowTaskComment(ctx context.Context, req serverapi.WorkflowTaskCommentReplaceRequest) error {

@@ -58,7 +58,21 @@ func (s *Store) TaskIdentityForComment(ctx context.Context, commentID string) (t
 }
 
 func (s *Store) ListComments(ctx context.Context, taskID workflow.TaskID) ([]CommentRecord, error) {
-	rows, err := s.queries.ListTaskComments(ctx, string(taskID))
+	return s.listComments(ctx, taskID, 0, -1)
+}
+
+func (s *Store) ListCommentsPage(ctx context.Context, taskID workflow.TaskID, offset int, limit int) ([]CommentRecord, error) {
+	if offset < 0 {
+		return nil, errors.New("comment offset must be non-negative")
+	}
+	if limit < 1 {
+		return nil, errors.New("comment limit must be positive")
+	}
+	return s.listComments(ctx, taskID, offset, limit)
+}
+
+func (s *Store) listComments(ctx context.Context, taskID workflow.TaskID, offset int, limit int) ([]CommentRecord, error) {
+	rows, err := s.queries.ListTaskComments(ctx, sqlitegen.ListTaskCommentsParams{TaskID: string(taskID), OffsetRows: int64(offset), LimitRows: int64(limit)})
 	if err != nil {
 		return nil, err
 	}

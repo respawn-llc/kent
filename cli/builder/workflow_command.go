@@ -108,7 +108,9 @@ func workflowCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 }
 
 func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder workflow list", stderr, workflowUsage)
+	fs := newCommandFlagSet("builder workflow list", stderr, workflowCommandUsage)
+	pageSize := fs.Int("page-size", workflowCommandWorkflowListPageSize, "maximum workflows to print")
+	pageToken := fs.String("page-token", "", "page token from a previous workflow list")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
 	}
@@ -122,13 +124,16 @@ func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		return 1
 	}
 	defer func() { _ = remote.Close() }()
-	workflows, err := listAllWorkflows(context.Background(), remote)
+	workflows, nextPageToken, err := listWorkflowPage(context.Background(), remote, serverapi.WorkflowListRequest{PageSize: *pageSize, PageToken: *pageToken})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	for _, workflow := range workflows {
 		fmt.Fprintf(stdout, "%s\t%s\t%d\n", workflow.ID, workflow.Name, workflow.Version)
+	}
+	if strings.TrimSpace(nextPageToken) != "" {
+		fmt.Fprintf(stderr, "Next page token: `%s`\n", nextPageToken)
 	}
 	return 0
 }
@@ -810,48 +815,39 @@ func resolveWorkflowDefinition(ctx context.Context, remote workflowCommandRemote
 	if trimmed == "" {
 		return serverapi.WorkflowDefinition{}, errors.New("workflow is required")
 	}
-	workflows, err := listAllWorkflows(ctx, remote)
-	if err != nil {
-		return serverapi.WorkflowDefinition{}, err
-	}
-	matches := make([]serverapi.WorkflowRecord, 0, 1)
-	for _, workflow := range workflows {
-		if workflow.ID == trimmed || workflow.Name == trimmed {
-			matches = append(matches, workflow)
-		}
-	}
-	if len(matches) == 0 {
-		return serverapi.WorkflowDefinition{}, fmt.Errorf("workflow %q not found", trimmed)
-	}
-	if len(matches) > 1 {
-		return serverapi.WorkflowDefinition{}, fmt.Errorf("workflow %q is ambiguous; use workflow id", trimmed)
-	}
 	getCtx, getCancel := context.WithTimeout(ctx, workflowCommandTimeout)
 	defer getCancel()
-	resp, err := remote.GetWorkflow(getCtx, serverapi.WorkflowGetRequest{WorkflowID: matches[0].ID})
+	resp, err := remote.GetWorkflow(getCtx, serverapi.WorkflowGetRequest{WorkflowID: trimmed})
+	if err == nil {
+		return resp.Definition, nil
+	}
+	nameMatches, _, listErr := listWorkflowPage(ctx, remote, serverapi.WorkflowListRequest{PageSize: 2, ExactName: trimmed})
+	if listErr != nil {
+		return serverapi.WorkflowDefinition{}, listErr
+	}
+	if len(nameMatches) == 0 {
+		return serverapi.WorkflowDefinition{}, fmt.Errorf("workflow %q not found", trimmed)
+	}
+	if len(nameMatches) > 1 {
+		return serverapi.WorkflowDefinition{}, fmt.Errorf("workflow %q is ambiguous; use workflow id", trimmed)
+	}
+	nameGetCtx, nameGetCancel := context.WithTimeout(ctx, workflowCommandTimeout)
+	defer nameGetCancel()
+	nameResp, err := remote.GetWorkflow(nameGetCtx, serverapi.WorkflowGetRequest{WorkflowID: nameMatches[0].ID})
 	if err != nil {
 		return serverapi.WorkflowDefinition{}, err
 	}
-	return resp.Definition, nil
+	return nameResp.Definition, nil
 }
 
-func listAllWorkflows(ctx context.Context, remote workflowCommandRemote) ([]serverapi.WorkflowRecord, error) {
-	workflows := make([]serverapi.WorkflowRecord, 0)
-	pageToken := ""
-	for {
-		rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
-		req := serverapi.WorkflowListRequest{PageSize: workflowCommandWorkflowListPageSize, PageToken: pageToken}
-		resp, err := remote.ListWorkflows(rpcCtx, req)
-		cancel()
-		if err != nil {
-			return nil, err
-		}
-		workflows = append(workflows, resp.Workflows...)
-		pageToken = strings.TrimSpace(resp.NextPageToken)
-		if pageToken == "" {
-			return workflows, nil
-		}
+func listWorkflowPage(ctx context.Context, remote workflowCommandRemote, req serverapi.WorkflowListRequest) ([]serverapi.WorkflowRecord, string, error) {
+	rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
+	defer cancel()
+	resp, err := remote.ListWorkflows(rpcCtx, req)
+	if err != nil {
+		return nil, "", err
 	}
+	return resp.Workflows, strings.TrimSpace(resp.NextPageToken), nil
 }
 
 func workflowNodeByKey(def serverapi.WorkflowDefinition, key string) (serverapi.WorkflowNode, error) {
@@ -975,29 +971,6 @@ func workflowDisplayNameFromKey(key string) string {
 		return strings.TrimSpace(key)
 	}
 	return display
-}
-
-func workflowTasksForProject(ctx context.Context, cfg config.App, remote workflowCommandRemote, projectRef string) ([]serverapi.WorkflowTaskSummary, string, error) {
-	board, err := workflowBoardForProject(ctx, cfg, remote, projectRef)
-	if err != nil {
-		return nil, "", err
-	}
-	for pageToken := strings.TrimSpace(board.NextPageToken); pageToken != ""; {
-		rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
-		resp, err := remote.GetWorkflowBoard(rpcCtx, serverapi.WorkflowBoardRequest{
-			ProjectID:  board.ProjectID,
-			WorkflowID: board.SelectedWorkflow.WorkflowID,
-			PageSize:   200,
-			PageToken:  pageToken,
-		})
-		cancel()
-		if err != nil {
-			return nil, "", err
-		}
-		board.Cards = append(board.Cards, resp.Board.Cards...)
-		pageToken = strings.TrimSpace(resp.Board.NextPageToken)
-	}
-	return sortedWorkflowTasksFromCards(board, nil), board.ProjectID, nil
 }
 
 func sortedWorkflowTasksFromCards(board serverapi.WorkflowBoard, cards []serverapi.WorkflowBoardTaskCard) []serverapi.WorkflowTaskSummary {
