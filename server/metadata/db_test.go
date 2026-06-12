@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
@@ -201,6 +202,44 @@ func TestOpenDropsPersistedWorkflowEvents(t *testing.T) {
 	if tableExists(t, store.db, "workflow_events") {
 		t.Fatal("workflow_events should have been dropped")
 	}
+}
+
+func TestOpenRemovesSystemTaskCommentAuthorKind(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "db", "main.sqlite3")
+	db, err := openDatabaseAtVersionForTest(t, root, dbPath, 32)
+	if err != nil {
+		t.Fatalf("open test database at version 32: %v", err)
+	}
+	now := time.Now().UTC().UnixMilli()
+	execSeed(t, db, "project", `INSERT INTO projects (id, display_name, created_at_unix_ms, updated_at_unix_ms) VALUES ('project-system-comment', 'Project', ?, ?)`, now, now)
+	seedWorkflowGraph(t, db, "project-system-comment", now)
+	execSeed(t, db, "workflow task", workflowSeedTaskSQL, "task-system-comment", "link-1", 1, "SYS-1", now, now)
+	execSeed(t, db, "workflow placement", workflowSeedPlacementSQL, "placement-system-comment", "task-system-comment", "node-start", now, now)
+	if _, err := db.Exec(`PRAGMA ignore_check_constraints = ON`); err != nil {
+		t.Fatalf("enable check constraint bypass: %v", err)
+	}
+	execSeed(t, db, "legacy system comment", `INSERT INTO task_comments (id, task_id, body, author_kind, author_id, created_at_unix_ms, updated_at_unix_ms) VALUES ('comment-system', 'task-system-comment', 'legacy system note', 'system', '', ?, ?)`, now, now)
+	if _, err := db.Exec(`PRAGMA ignore_check_constraints = OFF`); err != nil {
+		t.Fatalf("disable check constraint bypass: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close version 32 db: %v", err)
+	}
+
+	store, err := Open(root)
+	if err != nil {
+		t.Fatalf("open migrated store: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+	var authorKind, authorID string
+	if err := store.db.QueryRowContext(t.Context(), `SELECT author_kind, author_id FROM task_comments WHERE id = 'comment-system'`).Scan(&authorKind, &authorID); err != nil {
+		t.Fatalf("query migrated system comment: %v", err)
+	}
+	if authorKind != "agent" || authorID != "system" {
+		t.Fatalf("migrated system comment author = %q/%q, want agent/system", authorKind, authorID)
+	}
+	assertSQLiteConstraint(t, store.db, `INSERT INTO task_comments (id, task_id, body, author_kind, created_at_unix_ms, updated_at_unix_ms) VALUES ('comment-system-rejected', 'task-system-comment', 'bad', 'system', 1, 1)`)
 }
 
 func TestOpenRemovesRedundantIndexesAndArchiveMetadata(t *testing.T) {

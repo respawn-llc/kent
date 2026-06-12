@@ -676,6 +676,7 @@ type WorkflowTaskApproveRequest struct {
 
 type WorkflowTaskApproveResponse struct {
 	TransitionID string   `json:"transition_id"`
+	TaskID       string   `json:"task_id"`
 	State        string   `json:"state"`
 	PlacementIDs []string `json:"placement_ids,omitempty"`
 	RunIDs       []string `json:"run_ids,omitempty"`
@@ -1575,7 +1576,19 @@ func (r WorkflowTaskQuestionAnswerRequest) Validate() error {
 }
 
 func (r WorkflowTaskCommentAddRequest) Validate() error {
-	return validateRequiredFields(requiredField("task_id", r.TaskID), requiredField("body", r.Body), requiredField("author", r.Author))
+	if err := validateRequiredFields(requiredField("task_id", r.TaskID), requiredField("body", r.Body), requiredField("author", r.Author)); err != nil {
+		return err
+	}
+	return validateWorkflowTaskCommentAuthorKind(r.Author)
+}
+
+func validateWorkflowTaskCommentAuthorKind(author string) error {
+	switch strings.TrimSpace(author) {
+	case "user", "agent":
+		return nil
+	default:
+		return workflowRequestError(WorkflowRequestErrorInvalidValue, "author", "author must be user or agent")
+	}
 }
 
 func (r WorkflowTaskCommentListRequest) Validate() error {

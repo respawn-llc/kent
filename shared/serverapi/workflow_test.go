@@ -181,6 +181,12 @@ func TestWorkflowTaskAndCommentRequestValidation(t *testing.T) {
 	if err := (WorkflowTaskCommentAddRequest{TaskID: "task-1", Body: "comment", Author: "user"}).Validate(); err != nil {
 		t.Fatalf("valid comment add rejected: %v", err)
 	}
+	if err := (WorkflowTaskCommentAddRequest{TaskID: "task-1", Body: "comment", Author: "agent"}).Validate(); err != nil {
+		t.Fatalf("valid agent comment add rejected: %v", err)
+	}
+	if err := (WorkflowTaskCommentAddRequest{TaskID: "task-1", Body: "comment", Author: "system"}).Validate(); err == nil || !strings.Contains(err.Error(), "author") {
+		t.Fatalf("system comment author error = %v", err)
+	}
 	if err := (WorkflowTaskCommentAddRequest{TaskID: "task-1", Body: "", Author: "user"}).Validate(); err == nil || !strings.Contains(err.Error(), "body") {
 		t.Fatalf("empty comment body error = %v", err)
 	}

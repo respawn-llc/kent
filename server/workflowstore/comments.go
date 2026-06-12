@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 
 	"builder/server/metadata/sqlitegen"
@@ -15,12 +16,18 @@ func (s *Store) AddComment(ctx context.Context, taskID workflow.TaskID, body str
 	if trimmed == "" {
 		return CommentRecord{}, errors.New("comment body is required")
 	}
+	trimmedAuthorKind := strings.TrimSpace(authorKind)
+	switch trimmedAuthorKind {
+	case "user", "agent":
+	default:
+		return CommentRecord{}, fmt.Errorf("comment author kind must be user or agent")
+	}
 	now := s.now().UnixMilli()
 	id := prefixedID("comment")
-	if err := s.queries.InsertTaskComment(ctx, sqlitegen.InsertTaskCommentParams{ID: id, TaskID: string(taskID), Body: trimmed, AuthorKind: strings.TrimSpace(authorKind), AuthorID: strings.TrimSpace(authorID), CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
+	if err := s.queries.InsertTaskComment(ctx, sqlitegen.InsertTaskCommentParams{ID: id, TaskID: string(taskID), Body: trimmed, AuthorKind: trimmedAuthorKind, AuthorID: strings.TrimSpace(authorID), CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
 		return CommentRecord{}, err
 	}
-	return CommentRecord{ID: id, TaskID: taskID, Body: trimmed, Author: strings.TrimSpace(authorKind), AuthorID: strings.TrimSpace(authorID), CreatedAt: now, UpdatedAt: now}, nil
+	return CommentRecord{ID: id, TaskID: taskID, Body: trimmed, Author: trimmedAuthorKind, AuthorID: strings.TrimSpace(authorID), CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func (s *Store) ReplaceComment(ctx context.Context, commentID string, body string) error {

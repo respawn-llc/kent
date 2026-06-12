@@ -261,7 +261,7 @@ CREATE TABLE task_comments (
     id TEXT PRIMARY KEY,
     task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
     body TEXT NOT NULL CHECK (length(body) <= 262144),
-    author_kind TEXT NOT NULL CHECK (author_kind IN ('user', 'agent', 'system')),
+    author_kind TEXT NOT NULL CHECK (author_kind IN ('user', 'agent')),
     author_id TEXT NOT NULL DEFAULT '',
     source_run_id TEXT REFERENCES task_runs(id) ON DELETE SET NULL,
     created_at_unix_ms INTEGER NOT NULL CHECK (created_at_unix_ms >= 0),

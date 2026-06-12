@@ -23,6 +23,11 @@ const (
 	taskCommentListDefaultPageSize = 100
 )
 
+var (
+	taskStartSessionPollTimeout  = 7 * time.Second
+	taskStartSessionPollInterval = 200 * time.Millisecond
+)
+
 type taskListOutput struct {
 	ProjectID     string         `json:"project_id"`
 	NextPageToken string         `json:"next_page_token,omitempty"`
@@ -135,7 +140,12 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "task_id\t%s\nshort_id\t%s\nworkflow_id\t%s\n", resp.Task.ID, resp.Task.ShortID, resp.Task.WorkflowID)
+	task, err := getWorkflowTaskByID(context.Background(), remote, resp.Task.ID)
+	if err != nil {
+		fmt.Fprintf(stderr, "created task %s but failed to load task detail for output: %v\n", resp.Task.ID, err)
+		return 1
+	}
+	writeTaskDetail(stdout, task)
 	return 0
 }
 
@@ -172,7 +182,12 @@ func taskStartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "run_id\t%s\nplacement_id\t%s\ntransition_id\t%s\n", resp.RunID, resp.PlacementID, resp.TransitionID)
+	detail, err := waitForWorkflowTaskRunSession(context.Background(), remote, taskID, resp.RunID, taskStartSessionPollTimeout, taskStartSessionPollInterval)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	writeTaskStartResult(stdout, detail, resp)
 	return 0
 }
 
@@ -338,7 +353,12 @@ func taskCancelSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "canceled_task_id\t%s\n", taskID)
+	detail, err := getWorkflowTaskByID(context.Background(), remote, taskID)
+	if err != nil {
+		fmt.Fprintf(stderr, "canceled task %s but failed to load task detail for output: %v\n", taskID, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Canceled task %s.\n", taskDisplayID(detail))
 	return 0
 }
 
@@ -375,10 +395,12 @@ func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "run_id\t%s\nplacement_id\t%s\nnode_id\t%s\ngeneration\t%d\n", resp.RunID, resp.PlacementID, resp.NodeID, resp.Generation)
-	if strings.TrimSpace(resp.SessionID) != "" {
-		fmt.Fprintf(stdout, "session_id\t%s\n", resp.SessionID)
+	detail, err := getWorkflowTaskByID(context.Background(), remote, taskID)
+	if err != nil {
+		fmt.Fprintf(stderr, "resumed task %s but failed to load task detail for output: %v\n", taskID, err)
+		return 1
 	}
+	writeTaskResumeResult(stdout, detail, resp)
 	return 0
 }
 
@@ -409,13 +431,16 @@ func taskApproveSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "transition_id\t%s\nstate\t%s\n", resp.TransitionID, resp.State)
-	for _, placementID := range resp.PlacementIDs {
-		fmt.Fprintf(stdout, "placement_id\t%s\n", placementID)
+	if strings.TrimSpace(resp.TaskID) == "" {
+		fmt.Fprintf(stderr, "approved transition %s but response did not include task id for output\n", resp.TransitionID)
+		return 1
 	}
-	for _, runID := range resp.RunIDs {
-		fmt.Fprintf(stdout, "run_id\t%s\n", runID)
+	detail, err := getWorkflowTaskByID(context.Background(), remote, resp.TaskID)
+	if err != nil {
+		fmt.Fprintf(stderr, "approved transition %s but failed to load task detail for output: %v\n", resp.TransitionID, err)
+		return 1
 	}
+	writeTaskTransitionResult(stdout, "Approved transition of", detail, resp.TransitionID, resp.RunIDs)
 	return 0
 }
 
@@ -455,13 +480,12 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "transition_id\t%s\nstate\t%s\n", resp.TransitionID, resp.State)
-	for _, placementID := range resp.PlacementIDs {
-		fmt.Fprintf(stdout, "placement_id\t%s\n", placementID)
+	detail, err := getWorkflowTaskByID(context.Background(), remote, taskID)
+	if err != nil {
+		fmt.Fprintf(stderr, "moved task %s but failed to load task detail for output: %v\n", taskID, err)
+		return 1
 	}
-	for _, runID := range resp.RunIDs {
-		fmt.Fprintf(stdout, "run_id\t%s\n", runID)
-	}
+	writeTaskTransitionResult(stdout, "Moved task", detail, resp.TransitionID, resp.RunIDs)
 	return 0
 }
 
@@ -945,6 +969,185 @@ func getWorkflowTaskByShortID(ctx context.Context, remote workflowCommandRemote,
 		return serverapi.WorkflowTaskDetail{}, err
 	}
 	return resp.Task, nil
+}
+
+func waitForWorkflowTaskRunSession(ctx context.Context, remote workflowCommandRemote, taskID string, runID string, timeout time.Duration, interval time.Duration) (serverapi.WorkflowTaskDetail, error) {
+	if strings.TrimSpace(taskID) == "" {
+		return serverapi.WorkflowTaskDetail{}, errors.New("task id is required")
+	}
+	trimmedRunID := strings.TrimSpace(runID)
+	if trimmedRunID == "" {
+		return serverapi.WorkflowTaskDetail{}, errors.New("run id is required")
+	}
+	if interval <= 0 {
+		interval = taskStartSessionPollInterval
+	}
+	pollCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	for {
+		detail, err := getWorkflowTaskByID(pollCtx, remote, taskID)
+		if err != nil {
+			if pollCtx.Err() != nil {
+				return serverapi.WorkflowTaskDetail{}, fmt.Errorf("started task %s with run %s but session id was not assigned within %s", taskID, trimmedRunID, timeout)
+			}
+			return serverapi.WorkflowTaskDetail{}, fmt.Errorf("started task %s with run %s but failed to load task detail while waiting for session id: %w", taskID, trimmedRunID, err)
+		}
+		if run, ok := workflowTaskRunByID(detail, trimmedRunID); ok && strings.TrimSpace(run.SessionID) != "" {
+			return detail, nil
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-pollCtx.Done():
+			timer.Stop()
+			return serverapi.WorkflowTaskDetail{}, fmt.Errorf("started task %s with run %s but session id was not assigned within %s", taskDisplayID(detail), trimmedRunID, timeout)
+		case <-timer.C:
+		}
+	}
+}
+
+func writeTaskStartResult(stdout io.Writer, task serverapi.WorkflowTaskDetail, resp serverapi.WorkflowTaskStartResponse) {
+	run, _ := workflowTaskRunByID(task, resp.RunID)
+	sessionID := strings.TrimSpace(run.SessionID)
+	placement, _ := workflowTaskPlacementByID(task, resp.PlacementID)
+	nodeKey := placementDisplayKey(placement, run.NodeID)
+	fmt.Fprintf(stdout, "Started task %s in session %s using workflow %q (%s).\n", taskDisplayID(task), sessionID, task.Workflow.DisplayName, task.Workflow.WorkflowID)
+	fmt.Fprintf(stdout, "First node: %s\n", nodeKey)
+}
+
+func writeTaskResumeResult(stdout io.Writer, task serverapi.WorkflowTaskDetail, resp serverapi.WorkflowTaskResumeResponse) {
+	sessionID := strings.TrimSpace(resp.SessionID)
+	run, ok := workflowTaskRunByID(task, resp.RunID)
+	if sessionID == "" && ok {
+		sessionID = strings.TrimSpace(run.SessionID)
+	}
+	placement, _ := workflowTaskPlacementByID(task, resp.PlacementID)
+	nodeKey := placementDisplayKey(placement, resp.NodeID)
+	fmt.Fprintf(stdout, "Resumed task %s in session %s.\n", taskDisplayID(task), sessionID)
+	fmt.Fprintf(stdout, "Current node: %s\n", nodeKey)
+}
+
+func writeTaskTransitionResult(stdout io.Writer, action string, task serverapi.WorkflowTaskDetail, transitionID string, runIDs []string) {
+	transition, _ := workflowTaskTransitionByID(task, transitionID)
+	fmt.Fprintf(stdout, "%s %s from `%s` to `%s`.\n", action, taskDisplayID(task), transitionStartKey(transition, transitionID), transitionEndKey(transition, transitionID))
+	if nodeKey, sessionID, ok := transitionStartedRun(task, transition, runIDs); ok {
+		fmt.Fprintf(stdout, "Because of this, started node %s in session %s.\n", nodeKey, sessionID)
+	}
+}
+
+func workflowTaskTransitionByID(task serverapi.WorkflowTaskDetail, transitionID string) (serverapi.WorkflowTaskTransition, bool) {
+	trimmedTransitionID := strings.TrimSpace(transitionID)
+	for _, transition := range task.Transitions {
+		if strings.TrimSpace(transition.ID) == trimmedTransitionID {
+			return transition, true
+		}
+	}
+	return serverapi.WorkflowTaskTransition{}, false
+}
+
+func workflowTaskRunByID(task serverapi.WorkflowTaskDetail, runID string) (serverapi.WorkflowRun, bool) {
+	trimmedRunID := strings.TrimSpace(runID)
+	for _, run := range task.Runs {
+		if strings.TrimSpace(run.ID) == trimmedRunID {
+			return run, true
+		}
+	}
+	return serverapi.WorkflowRun{}, false
+}
+
+func workflowTaskPlacementByID(task serverapi.WorkflowTaskDetail, placementID string) (serverapi.WorkflowPlacement, bool) {
+	trimmedPlacementID := strings.TrimSpace(placementID)
+	for _, placement := range task.Placements {
+		if strings.TrimSpace(placement.ID) == trimmedPlacementID {
+			return placement, true
+		}
+	}
+	return serverapi.WorkflowPlacement{}, false
+}
+
+func taskDisplayID(task serverapi.WorkflowTaskDetail) string {
+	if shortID := strings.TrimSpace(task.Summary.ShortID); shortID != "" {
+		return shortID
+	}
+	return strings.TrimSpace(task.Summary.ID)
+}
+
+func placementDisplayKey(placement serverapi.WorkflowPlacement, fallbackNodeID string) string {
+	if nodeKey := strings.TrimSpace(placement.NodeKey); nodeKey != "" {
+		return nodeKey
+	}
+	if nodeID := strings.TrimSpace(placement.NodeID); nodeID != "" {
+		return nodeID
+	}
+	return strings.TrimSpace(fallbackNodeID)
+}
+
+func transitionStartKey(transition serverapi.WorkflowTaskTransition, fallback string) string {
+	if sourceKey := strings.TrimSpace(transition.SourceNodeKey); sourceKey != "" {
+		return sourceKey
+	}
+	if sourceID := strings.TrimSpace(transition.SourceNodeID); sourceID != "" {
+		return sourceID
+	}
+	if transitionID := strings.TrimSpace(transition.TransitionID); transitionID != "" {
+		return transitionID
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func transitionEndKey(transition serverapi.WorkflowTaskTransition, fallback string) string {
+	if edge, ok := transitionSelectedEdge(transition); ok {
+		if edgeKey := strings.TrimSpace(edge.EdgeKey); edgeKey != "" {
+			return edgeKey
+		}
+		if targetKey := strings.TrimSpace(edge.TargetNodeKey); targetKey != "" {
+			return targetKey
+		}
+		if targetID := strings.TrimSpace(edge.TargetNodeID); targetID != "" {
+			return targetID
+		}
+	}
+	if transitionID := strings.TrimSpace(transition.TransitionID); transitionID != "" {
+		return transitionID
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func transitionStartedRun(task serverapi.WorkflowTaskDetail, transition serverapi.WorkflowTaskTransition, runIDs []string) (string, string, bool) {
+	for _, runID := range runIDs {
+		run, ok := workflowTaskRunByID(task, runID)
+		if !ok || strings.TrimSpace(run.SessionID) == "" {
+			continue
+		}
+		placement, _ := workflowTaskPlacementByID(task, run.PlacementID)
+		nodeKey := placementDisplayKey(placement, run.NodeID)
+		if strings.TrimSpace(nodeKey) == "" {
+			nodeKey = transitionEndNodeKey(transition)
+		}
+		return nodeKey, strings.TrimSpace(run.SessionID), true
+	}
+	return "", "", false
+}
+
+func transitionEndNodeKey(transition serverapi.WorkflowTaskTransition) string {
+	if edge, ok := transitionSelectedEdge(transition); ok {
+		if targetKey := strings.TrimSpace(edge.TargetNodeKey); targetKey != "" {
+			return targetKey
+		}
+		return strings.TrimSpace(edge.TargetNodeID)
+	}
+	return ""
+}
+
+func transitionSelectedEdge(transition serverapi.WorkflowTaskTransition) (serverapi.WorkflowTransitionEdge, bool) {
+	for _, edge := range transition.Edges {
+		if strings.TrimSpace(edge.State) == "applied" {
+			return edge, true
+		}
+	}
+	if len(transition.Edges) > 0 {
+		return transition.Edges[0], true
+	}
+	return serverapi.WorkflowTransitionEdge{}, false
 }
 
 func writeTaskDetail(stdout io.Writer, task serverapi.WorkflowTaskDetail) {

@@ -335,6 +335,9 @@ func TestTaskCreateStartCancelAndComments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddComment: %v", err)
 	}
+	if _, err := store.AddComment(ctx, task.ID, "system note", "system", ""); err == nil || !strings.Contains(err.Error(), "author kind") {
+		t.Fatalf("system AddComment error = %v, want author kind validation", err)
+	}
 	if err := store.ReplaceComment(ctx, comment.ID, "updated"); err != nil {
 		t.Fatalf("ReplaceComment: %v", err)
 	}

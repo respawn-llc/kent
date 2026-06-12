@@ -609,6 +609,10 @@ func (s *Service) ApproveWorkflowTask(ctx context.Context, req serverapi.Workflo
 	if transitionID == "" {
 		transitionID = strings.TrimSpace(req.TransitionID)
 	}
+	taskID, projectID, workflowID, err := s.taskIdentityForTransition(ctx, transitionID)
+	if err != nil {
+		return serverapi.WorkflowTaskApproveResponse{}, err
+	}
 	approved, err := s.approve(ctx, workflow.TransitionID(transitionID))
 	if err != nil {
 		return serverapi.WorkflowTaskApproveResponse{}, err
@@ -616,10 +620,8 @@ func (s *Service) ApproveWorkflowTask(ctx context.Context, req serverapi.Workflo
 	if s.schedulerWake != nil {
 		s.schedulerWake.Notify()
 	}
-	if taskID, projectID, workflowID, detailErr := s.taskIdentityForTransition(ctx, transitionID); detailErr == nil {
-		s.publishWorkflowEvent(ctx, projectID, workflowID, "task", "approved", taskID, transitionID)
-	}
-	return serverapi.WorkflowTaskApproveResponse{TransitionID: string(approved.TransitionID), State: approved.State, PlacementIDs: placementIDs(approved.PlacementIDs), RunIDs: runIDs(approved.RunIDs)}, nil
+	s.publishWorkflowEvent(ctx, projectID, workflowID, "task", "approved", taskID, transitionID)
+	return serverapi.WorkflowTaskApproveResponse{TransitionID: string(approved.TransitionID), TaskID: taskID, State: approved.State, PlacementIDs: placementIDs(approved.PlacementIDs), RunIDs: runIDs(approved.RunIDs)}, nil
 }
 
 func (s *Service) MoveWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskMoveRequest) (serverapi.WorkflowTaskMoveResponse, error) {

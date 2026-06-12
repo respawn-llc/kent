@@ -258,6 +258,7 @@ func TestWorkflowSchemaConstraints(t *testing.T) {
 	assertSQLiteConstraint(t, store.db, `INSERT INTO workflows (id, name, version, created_at_unix_ms, updated_at_unix_ms) VALUES ('workflow-bad-time', 'Bad', 1, -1, 1)`)
 	assertSQLiteConstraint(t, store.db, `INSERT INTO workflows (id, name, version, created_at_unix_ms, updated_at_unix_ms) VALUES ('workflow-bad-rev', 'Bad', 0, 1, 1)`)
 	assertSQLiteConstraint(t, store.db, `INSERT INTO task_runs (id, placement_id, workflow_revision_seen, final_answer_violation_count, invalid_completion_count, created_at_unix_ms, updated_at_unix_ms) VALUES ('run-bad-counter', 'placement-start', 1, -1, 0, 1, 1)`)
+	assertSQLiteConstraint(t, store.db, `INSERT INTO task_comments (id, task_id, body, author_kind, created_at_unix_ms, updated_at_unix_ms) VALUES ('comment-system-author', 'task-1', 'system note', 'system', 1, 1)`)
 	assertSQLiteConstraint(t, store.db, `INSERT INTO task_comments (id, task_id, body, author_kind, created_at_unix_ms, updated_at_unix_ms) VALUES ('comment-too-large', 'task-1', ?, 'agent', 1, 1)`, strings.Repeat("a", 262145))
 }
 
