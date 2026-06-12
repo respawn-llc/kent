@@ -247,6 +247,13 @@ type taskWorktreeDeleter struct {
 	service *worktree.Service
 }
 
+func (d taskWorktreeDeleter) EnsureTaskWorktreeDeletable(ctx context.Context, taskID string) error {
+	if d.service == nil {
+		return nil
+	}
+	return d.service.EnsureTaskWorktreeDeletable(ctx, taskID)
+}
+
 func (d taskWorktreeDeleter) DeleteTaskWorktree(ctx context.Context, taskID string) error {
 	if d.service == nil {
 		return nil

@@ -35,6 +35,7 @@ type taskWorktreeEnsurer interface {
 }
 
 type taskWorktreeDeleter interface {
+	EnsureTaskWorktreeDeletable(ctx context.Context, taskID string) error
 	DeleteTaskWorktree(ctx context.Context, taskID string) error
 }
 
@@ -669,6 +670,15 @@ func (s *Service) CancelWorkflowTask(ctx context.Context, req serverapi.Workflow
 func (s *Service) DeleteWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskDeleteRequest) error {
 	if err := req.Validate(); err != nil {
 		return err
+	}
+	// Preflight blockers that canceling this task's runs cannot clear (e.g. a
+	// shared worktree still managed by another non-terminal task) before stopping
+	// any automation, so a delete that would fail does not leave the task stopped
+	// yet undeleted.
+	if s.taskWorktreeCleanup != nil {
+		if err := s.taskWorktreeCleanup.EnsureTaskWorktreeDeletable(ctx, req.TaskID); err != nil {
+			return err
+		}
 	}
 	if s.runtimeCancel != nil {
 		if err := s.runtimeCancel.CancelTaskRuns(ctx, workflow.TaskID(req.TaskID)); err != nil {

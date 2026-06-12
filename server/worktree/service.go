@@ -346,7 +346,44 @@ func (s *Service) DeleteTaskWorktree(ctx context.Context, req DeleteTaskWorktree
 	return DeleteTaskWorktreeResponse{Deleted: true, WorktreeID: worktreeID, BranchDeleted: branchDeleted}, nil
 }
 
-func (s *Service) ensureTaskWorktreeDeletionUnblocked(ctx context.Context, taskID string, record metadata.WorktreeRecord) (func(), error) {
+// EnsureTaskWorktreeDeletable preflights the blockers that canceling a task's own
+// runs cannot clear (another non-terminal task sharing the managed worktree), so
+// callers can refuse a delete before interrupting automation. It is read-only and
+// acquires no locks; DeleteTaskWorktree remains the authoritative, locked check.
+// A task with no managed worktree (or a missing record) is reported as deletable.
+func (s *Service) EnsureTaskWorktreeDeletable(ctx context.Context, taskID string) error {
+	if s == nil || s.metadata == nil {
+		return errors.New("worktree service dependencies are required")
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return errors.New("task_id is required")
+	}
+	task, err := s.metadata.Queries().GetTask(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	worktreeID := strings.TrimSpace(task.ManagedWorktreeID.String)
+	if !task.ManagedWorktreeID.Valid || worktreeID == "" {
+		return nil
+	}
+	record, err := s.metadata.GetWorktreeRecordByID(ctx, worktreeID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if record.IsMain {
+		return fmt.Errorf("cannot delete main workspace worktree: %w", serverapi.ErrWorktreeBlocked)
+	}
+	return s.ensureNoOtherNonTerminalTasksManageWorktree(ctx, taskID, record)
+}
+
+func (s *Service) ensureNoOtherNonTerminalTasksManageWorktree(ctx context.Context, taskID string, record metadata.WorktreeRecord) error {
 	var otherNonTerminalTasks int64
 	if err := s.metadata.DB().QueryRowContext(ctx, `
 SELECT COUNT(*)
@@ -363,10 +400,17 @@ WHERE t.managed_worktree_id = ?
       AND n.kind <> 'terminal'
   )
 `, strings.TrimSpace(record.ID), strings.TrimSpace(taskID)).Scan(&otherNonTerminalTasks); err != nil {
-		return func() {}, err
+		return err
 	}
 	if otherNonTerminalTasks > 0 {
-		return func() {}, errors.Join(serverapi.ErrWorktreeBlocked, fmt.Errorf("worktree is still managed by %d other non-terminal workflow task(s)", otherNonTerminalTasks))
+		return errors.Join(serverapi.ErrWorktreeBlocked, fmt.Errorf("worktree is still managed by %d other non-terminal workflow task(s)", otherNonTerminalTasks))
+	}
+	return nil
+}
+
+func (s *Service) ensureTaskWorktreeDeletionUnblocked(ctx context.Context, taskID string, record metadata.WorktreeRecord) (func(), error) {
+	if err := s.ensureNoOtherNonTerminalTasksManageWorktree(ctx, taskID, record); err != nil {
+		return func() {}, err
 	}
 	return s.ensureDeletionSessionAndProcessUnblocked(ctx, "", record.ID, record.CanonicalRoot)
 }
