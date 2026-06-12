@@ -89,7 +89,9 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 	if sleepErr != nil {
 		fmt.Fprintf(os.Stderr, "sleepguard: always-mode acquire failed at startup: %v\n", sleepErr)
 	}
-	runtimeRegistry.SetSleepObserver(sleepManager.OnRunStateChanged)
+	if observer := sleepManager.RuntimeActiveObserver(); observer != nil {
+		runtimeRegistry.SetSleepObserver(observer)
+	}
 	sessionStoreRegistry := registry.NewSessionStoreRegistry()
 	projectService, err := projectview.NewMetadataService(metadataStore, "")
 	if err != nil {

@@ -33,6 +33,11 @@ func lookupInhibit() (bool, error) {
 type platformGuardImpl struct {
 	cmd   *exec.Cmd
 	stdin io.WriteCloser
+	done  <-chan struct{}
+}
+
+func newPlatformGuardImpl() platformGuard {
+	return &platformGuardImpl{}
 }
 
 func (p *platformGuardImpl) start() error {
@@ -51,8 +56,14 @@ func (p *platformGuardImpl) start() error {
 		_ = stdin.Close()
 		return fmt.Errorf("systemd-inhibit start: %w", err)
 	}
+	done := make(chan struct{})
 	p.cmd = cmd
 	p.stdin = stdin
+	p.done = done
+	go func() {
+		_ = cmd.Wait()
+		close(done)
+	}()
 	return nil
 }
 
@@ -63,7 +74,26 @@ func (p *platformGuardImpl) stop() {
 	_ = p.stdin.Close()
 	// Kill the entire process group to avoid orphaning the sleep child
 	_ = syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL)
-	_ = p.cmd.Wait()
+	if p.done != nil {
+		<-p.done
+	}
 	p.cmd = nil
 	p.stdin = nil
+	p.done = nil
+}
+
+func (p *platformGuardImpl) running() bool {
+	if p.cmd == nil || p.done == nil {
+		return false
+	}
+	select {
+	case <-p.done:
+		return false
+	default:
+		return true
+	}
+}
+
+func (p *platformGuardImpl) exited() <-chan struct{} {
+	return p.done
 }

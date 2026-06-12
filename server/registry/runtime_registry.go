@@ -25,7 +25,9 @@ type RuntimeRegistry struct {
 	observerMu      sync.Mutex
 	observer        func(sessionID string, reason RuntimeInterestReason)
 	sleepObserverMu sync.Mutex
-	sleepObserver   func(sessionID string, running bool)
+	sleepObserver   func(active bool)
+	runStateMu      sync.Mutex
+	runningSessions map[string]bool
 }
 
 type RuntimeInterestReason int
@@ -37,8 +39,9 @@ const (
 
 func NewRuntimeRegistry() *RuntimeRegistry {
 	return &RuntimeRegistry{
-		directory: newRuntimeDirectory(),
-		leases:    newPrimaryRunLeaseStore(),
+		directory:       newRuntimeDirectory(),
+		leases:          newPrimaryRunLeaseStore(),
+		runningSessions: make(map[string]bool),
 	}
 }
 
@@ -48,6 +51,9 @@ func (r *RuntimeRegistry) Register(sessionID string, engine *runtime.Engine) {
 	}
 	previous := r.directory.Register(sessionID, engine)
 	closeRuntimeEntry(previous, io.EOF)
+	if previous != nil {
+		r.updateAggregateRunState(sessionID, false)
+	}
 }
 
 func (r *RuntimeRegistry) Unregister(sessionID string, engine *runtime.Engine) {
@@ -60,7 +66,7 @@ func (r *RuntimeRegistry) Unregister(sessionID string, engine *runtime.Engine) {
 	}
 	r.leases.Clear(id)
 	closeRuntimeEntry(entry, io.EOF)
-	r.notifySleepObserver(id, false)
+	r.updateAggregateRunState(id, false)
 }
 
 func (r *RuntimeRegistry) ResolveRuntime(_ context.Context, sessionID string) (*runtime.Engine, error) {
@@ -103,7 +109,7 @@ func (r *RuntimeRegistry) PublishRuntimeEvent(sessionID string, evt runtime.Even
 		r.notifyInterestChanged(sessionID, reason)
 	}
 	if evt.Kind == runtime.EventRunStateChanged && evt.RunState != nil {
-		r.notifySleepObserver(sessionID, evt.RunState.Lifecycle.IsRunning())
+		r.updateAggregateRunState(sessionID, evt.RunState.Lifecycle.IsRunning())
 	}
 }
 
@@ -252,7 +258,7 @@ func (r *RuntimeRegistry) SetInterestObserver(observer func(sessionID string, re
 	r.observerMu.Unlock()
 }
 
-func (r *RuntimeRegistry) SetSleepObserver(observer func(sessionID string, running bool)) {
+func (r *RuntimeRegistry) SetSleepObserver(observer func(active bool)) {
 	if r == nil {
 		return
 	}
@@ -288,7 +294,7 @@ func (r *RuntimeRegistry) notifyInterestChanged(sessionID string, reason Runtime
 	}
 }
 
-func (r *RuntimeRegistry) notifySleepObserver(sessionID string, running bool) {
+func (r *RuntimeRegistry) updateAggregateRunState(sessionID string, running bool) {
 	if r == nil {
 		return
 	}
@@ -296,11 +302,24 @@ func (r *RuntimeRegistry) notifySleepObserver(sessionID string, running bool) {
 	if id == "" {
 		return
 	}
+	r.runStateMu.Lock()
+	wasActive := len(r.runningSessions) > 0
+	if running {
+		r.runningSessions[id] = true
+	} else {
+		delete(r.runningSessions, id)
+	}
+	active := len(r.runningSessions) > 0
+	if wasActive == active {
+		r.runStateMu.Unlock()
+		return
+	}
 	r.sleepObserverMu.Lock()
 	observer := r.sleepObserver
-	r.sleepObserverMu.Unlock()
+	r.runStateMu.Unlock()
+	defer r.sleepObserverMu.Unlock()
 	if observer != nil {
-		observer(id, running)
+		observer(active)
 	}
 }
 

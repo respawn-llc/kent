@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -170,6 +171,275 @@ func TestRuntimeRegistryReportsRunFinishedInterestReason(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for interest observer")
 	}
+}
+
+func TestRuntimeRegistryNotifiesSleepObserverFromRunStateEvents(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	engine := &runtime.Engine{}
+	registry.Register("session-1", engine)
+	defer registry.Unregister("session-1", engine)
+
+	notifications := make(chan bool, 2)
+	registry.SetSleepObserver(func(active bool) {
+		notifications <- active
+	})
+
+	registry.PublishRuntimeEvent("session-1", runtime.Event{
+		Kind:     runtime.EventRunStateChanged,
+		StepID:   "step-1",
+		RunState: &runtime.RunState{Lifecycle: runtime.RunningRunLifecycle(runtime.RunModeTurn)},
+	})
+	registry.PublishRuntimeEvent("session-1", runtime.Event{
+		Kind:     runtime.EventRunStateChanged,
+		StepID:   "step-1",
+		RunState: &runtime.RunState{Lifecycle: runtime.FinishedRunLifecycle(runtime.RunModeTurn)},
+	})
+
+	if running := receiveSleepObserverState(t, notifications); !running {
+		t.Fatal("expected running sleep observer notification")
+	}
+	if running := receiveSleepObserverState(t, notifications); running {
+		t.Fatal("expected stopped sleep observer notification")
+	}
+}
+
+func TestRuntimeRegistryAggregatesSleepObserverAcrossSessions(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	engineA := &runtime.Engine{}
+	engineB := &runtime.Engine{}
+	registry.Register("session-a", engineA)
+	registry.Register("session-b", engineB)
+	defer registry.Unregister("session-a", engineA)
+	defer registry.Unregister("session-b", engineB)
+
+	notifications := make(chan bool, 4)
+	registry.SetSleepObserver(func(active bool) {
+		notifications <- active
+	})
+
+	publishRunState(registry, "session-a", true)
+	if active := receiveSleepObserverState(t, notifications); !active {
+		t.Fatal("expected aggregate active notification")
+	}
+	publishRunState(registry, "session-b", true)
+	publishRunState(registry, "session-a", false)
+	assertNoSleepObserverState(t, notifications)
+	publishRunState(registry, "session-b", false)
+
+	if active := receiveSleepObserverState(t, notifications); active {
+		t.Fatal("expected aggregate idle notification")
+	}
+	assertNoSleepObserverState(t, notifications)
+}
+
+func TestRuntimeRegistrySleepObserverDuplicateRunStateEventsAreIdempotent(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	engine := &runtime.Engine{}
+	registry.Register("session-1", engine)
+	defer registry.Unregister("session-1", engine)
+
+	notifications := make(chan bool, 4)
+	registry.SetSleepObserver(func(active bool) {
+		notifications <- active
+	})
+
+	publishRunState(registry, "session-1", true)
+	publishRunState(registry, "session-1", true)
+	publishRunState(registry, "session-1", false)
+	publishRunState(registry, "session-1", false)
+
+	if active := receiveSleepObserverState(t, notifications); !active {
+		t.Fatal("expected aggregate active notification")
+	}
+	if active := receiveSleepObserverState(t, notifications); active {
+		t.Fatal("expected aggregate idle notification")
+	}
+	assertNoSleepObserverState(t, notifications)
+}
+
+func TestRuntimeRegistrySleepObserverUnregisterLastRunningSessionReportsIdle(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	engine := &runtime.Engine{}
+	registry.Register("session-1", engine)
+
+	notifications := make(chan bool, 2)
+	registry.SetSleepObserver(func(active bool) {
+		notifications <- active
+	})
+
+	publishRunState(registry, "session-1", true)
+	registry.Unregister("session-1", engine)
+
+	if active := receiveSleepObserverState(t, notifications); !active {
+		t.Fatal("expected aggregate active notification")
+	}
+	if active := receiveSleepObserverState(t, notifications); active {
+		t.Fatal("expected aggregate idle notification after unregister")
+	}
+}
+
+func TestRuntimeRegistrySleepObserverReplacingRunningSessionReportsIdleOnce(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	first := &runtime.Engine{}
+	second := &runtime.Engine{}
+	registry.Register("session-1", first)
+	defer registry.Unregister("session-1", second)
+
+	notifications := make(chan bool, 4)
+	registry.SetSleepObserver(func(active bool) {
+		notifications <- active
+	})
+
+	publishRunState(registry, "session-1", true)
+	registry.Register("session-1", second)
+
+	if active := receiveSleepObserverState(t, notifications); !active {
+		t.Fatal("expected aggregate active notification")
+	}
+	if active := receiveSleepObserverState(t, notifications); active {
+		t.Fatal("expected aggregate idle notification after runtime replacement")
+	}
+	assertNoSleepObserverState(t, notifications)
+}
+
+func TestRuntimeRegistrySleepObserverReplacingOneOfMultipleRunningSessionsStaysActive(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	firstA := &runtime.Engine{}
+	secondA := &runtime.Engine{}
+	engineB := &runtime.Engine{}
+	registry.Register("session-a", firstA)
+	registry.Register("session-b", engineB)
+	defer registry.Unregister("session-a", secondA)
+	defer registry.Unregister("session-b", engineB)
+
+	notifications := make(chan bool, 4)
+	registry.SetSleepObserver(func(active bool) {
+		notifications <- active
+	})
+
+	publishRunState(registry, "session-a", true)
+	if active := receiveSleepObserverState(t, notifications); !active {
+		t.Fatal("expected aggregate active notification")
+	}
+	publishRunState(registry, "session-b", true)
+	registry.Register("session-a", secondA)
+
+	assertNoSleepObserverState(t, notifications)
+}
+
+func TestRuntimeRegistrySleepObserverConcurrentRunStateUpdates(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	for i := 0; i < 20; i++ {
+		id := fmt.Sprintf("session-%d", i)
+		registry.Register(id, &runtime.Engine{})
+	}
+
+	notifications := make(chan bool, 128)
+	registry.SetSleepObserver(func(active bool) {
+		notifications <- active
+	})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		id := fmt.Sprintf("session-%d", i)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			publishRunState(registry, id, true)
+			publishRunState(registry, id, false)
+		}()
+	}
+	wg.Wait()
+
+	registry.runStateMu.Lock()
+	runningCount := len(registry.runningSessions)
+	registry.runStateMu.Unlock()
+	if runningCount != 0 {
+		t.Fatalf("running session count = %d, want 0", runningCount)
+	}
+}
+
+func TestRuntimeRegistrySleepObserverNotificationsDoNotOvertakeAggregateUpdates(t *testing.T) {
+	registry := NewRuntimeRegistry()
+	engine := &runtime.Engine{}
+	registry.Register("session-1", engine)
+	defer registry.Unregister("session-1", engine)
+
+	firstEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	notifications := make(chan bool, 2)
+	var once sync.Once
+	registry.SetSleepObserver(func(active bool) {
+		if active {
+			once.Do(func() {
+				close(firstEntered)
+				<-releaseFirst
+			})
+		}
+		notifications <- active
+	})
+
+	startDone := make(chan struct{})
+	go func() {
+		defer close(startDone)
+		publishRunState(registry, "session-1", true)
+	}()
+	<-firstEntered
+
+	finishDone := make(chan struct{})
+	go func() {
+		defer close(finishDone)
+		publishRunState(registry, "session-1", false)
+	}()
+
+	select {
+	case active := <-notifications:
+		t.Fatalf("notification overtook blocked active observer: %v", active)
+	default:
+	}
+
+	close(releaseFirst)
+	<-startDone
+	<-finishDone
+
+	if active := receiveSleepObserverState(t, notifications); !active {
+		t.Fatal("expected active notification first")
+	}
+	if active := receiveSleepObserverState(t, notifications); active {
+		t.Fatal("expected idle notification second")
+	}
+}
+
+func receiveSleepObserverState(t *testing.T, notifications <-chan bool) bool {
+	t.Helper()
+	select {
+	case running := <-notifications:
+		return running
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for sleep observer notification")
+		return false
+	}
+}
+
+func assertNoSleepObserverState(t *testing.T, notifications <-chan bool) {
+	t.Helper()
+	select {
+	case active := <-notifications:
+		t.Fatalf("unexpected sleep observer notification: %v", active)
+	default:
+	}
+}
+
+func publishRunState(registry *RuntimeRegistry, sessionID string, running bool) {
+	lifecycle := runtime.FinishedRunLifecycle(runtime.RunModeTurn)
+	if running {
+		lifecycle = runtime.RunningRunLifecycle(runtime.RunModeTurn)
+	}
+	registry.PublishRuntimeEvent(sessionID, runtime.Event{
+		Kind:     runtime.EventRunStateChanged,
+		StepID:   "step-1",
+		RunState: &runtime.RunState{Lifecycle: lifecycle},
+	})
 }
 
 func TestRuntimeRegistryDeliversReplayBeforePostSubscribeLiveEvents(t *testing.T) {

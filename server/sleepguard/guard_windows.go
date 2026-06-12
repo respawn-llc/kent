@@ -33,34 +33,48 @@ func setThreadExecutionState(flags uint32) error {
 
 type platformGuardImpl struct {
 	stopCh chan struct{}
+	done   <-chan struct{}
+}
+
+func newPlatformGuardImpl() platformGuard {
+	return &platformGuardImpl{}
 }
 
 func (p *platformGuardImpl) start() error {
-	// Perform an initial synchronous check on this goroutine before launching
-	// the pinned goroutine so start() can return a meaningful error.
-	if err := setThreadExecutionState(esContinuous | esSystemRequired); err != nil {
-		return err
-	}
-	p.stopCh = make(chan struct{})
+	stopCh := make(chan struct{})
+	done := make(chan struct{})
+	started := make(chan error, 1)
 	go func() {
+		defer close(done)
 		// Pin this goroutine to one OS thread so SetThreadExecutionState's
 		// ES_CONTINUOUS state is owned by a stable thread for the inhibit lifetime.
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
-		// Re-set on the pinned thread so ES_CONTINUOUS is owned here.
-		_ = setThreadExecutionState(esContinuous | esSystemRequired)
+		if err := setThreadExecutionState(esContinuous | esSystemRequired); err != nil {
+			started <- err
+			return
+		}
+		started <- nil
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				_ = setThreadExecutionState(esContinuous | esSystemRequired)
-			case <-p.stopCh:
+				if err := setThreadExecutionState(esContinuous | esSystemRequired); err != nil {
+					return
+				}
+			case <-stopCh:
 				_ = setThreadExecutionState(esContinuous)
 				return
 			}
 		}
 	}()
+	if err := <-started; err != nil {
+		<-done
+		return err
+	}
+	p.stopCh = stopCh
+	p.done = done
 	return nil
 }
 
@@ -69,6 +83,26 @@ func (p *platformGuardImpl) stop() {
 		return
 	}
 	close(p.stopCh)
+	if p.done != nil {
+		<-p.done
+	}
 	p.stopCh = nil
+	p.done = nil
 	// ES_CONTINUOUS clear is issued from the pinned goroutine (in start) on stopCh close
+}
+
+func (p *platformGuardImpl) running() bool {
+	if p.stopCh == nil || p.done == nil {
+		return false
+	}
+	select {
+	case <-p.done:
+		return false
+	default:
+		return true
+	}
+}
+
+func (p *platformGuardImpl) exited() <-chan struct{} {
+	return p.done
 }

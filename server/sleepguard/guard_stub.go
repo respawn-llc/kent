@@ -2,7 +2,27 @@
 
 package sleepguard
 
-type platformGuardImpl struct{}
+type platformGuardImpl struct {
+	active bool
+}
 
-func (p *platformGuardImpl) start() error { return nil }
-func (p *platformGuardImpl) stop()        {}
+func newPlatformGuardImpl() platformGuard {
+	return &platformGuardImpl{}
+}
+
+func (p *platformGuardImpl) start() error {
+	p.active = true
+	return nil
+}
+
+func (p *platformGuardImpl) stop() {
+	p.active = false
+}
+
+func (p *platformGuardImpl) running() bool {
+	return p.active
+}
+
+func (p *platformGuardImpl) exited() <-chan struct{} {
+	return nil
+}
