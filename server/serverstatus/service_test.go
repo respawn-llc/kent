@@ -2,8 +2,10 @@ package serverstatus
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"builder/server/auth"
 	"builder/shared/config"
 	"builder/shared/serverapi"
 )
@@ -86,5 +88,38 @@ func TestGetServerReadinessBlockedWhenStartupAuthRequiredButMissing(t *testing.T
 	}
 	if len(readiness.Causes) == 0 {
 		t.Fatalf("Causes empty, want a startup blocker cause")
+	}
+}
+
+type failingAuthStore struct{}
+
+func (failingAuthStore) Load(context.Context) (auth.State, error) {
+	return auth.State{}, errors.New("auth store unavailable")
+}
+
+func (failingAuthStore) Save(context.Context, auth.State) error { return nil }
+
+func TestGetServerReadinessIgnoresAuthStoreWhenStartupAuthNotRequired(t *testing.T) {
+	manager := auth.NewManager(failingAuthStore{}, nil, nil)
+	service := NewService(manager, config.App{Settings: config.Settings{ProviderOverride: "anthropic"}})
+
+	readiness, err := service.GetServerReadiness(context.Background(), serverapi.ServerReadinessRequest{})
+	if err != nil {
+		t.Fatalf("GetServerReadiness should not fail on auth store when auth not required: %v", err)
+	}
+	if readiness.AuthRequired {
+		t.Fatalf("AuthRequired = true, want false for non-OpenAI provider")
+	}
+	if !readiness.Ready {
+		t.Fatalf("Ready = false, want true when startup auth is not required")
+	}
+}
+
+func TestGetServerReadinessSurfacesAuthStoreErrorWhenStartupAuthRequired(t *testing.T) {
+	manager := auth.NewManager(failingAuthStore{}, nil, nil)
+	service := NewService(manager, config.App{Settings: config.Settings{ProviderOverride: "openai"}})
+
+	if _, err := service.GetServerReadiness(context.Background(), serverapi.ServerReadinessRequest{}); err == nil {
+		t.Fatal("expected auth store error to surface when startup auth is required")
 	}
 }
