@@ -229,50 +229,6 @@ WHERE id = ? AND state = 'pending'`, targetPlacementID, edge.ID); err != nil {
 	return result, nil
 }
 
-func (s *Store) RejectTransition(ctx context.Context, transitionID workflow.TransitionID) (CompleteRunResult, error) {
-	id := strings.TrimSpace(string(transitionID))
-	if id == "" {
-		return CompleteRunResult{}, errors.New("transition id is required")
-	}
-	now := s.now().UnixMilli()
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return CompleteRunResult{}, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	result, err := tx.ExecContext(ctx, `
-UPDATE task_transitions
-SET state = 'rejected', applied_at_unix_ms = ?
-WHERE id = ? AND state = 'pending_approval'`, now, id)
-	if err != nil {
-		return CompleteRunResult{}, err
-	}
-	updated, err := result.RowsAffected()
-	if err != nil {
-		return CompleteRunResult{}, err
-	}
-	if updated == 0 {
-		var state string
-		if scanErr := tx.QueryRowContext(ctx, `SELECT state FROM task_transitions WHERE id = ?`, id).Scan(&state); scanErr != nil {
-			return CompleteRunResult{}, scanErr
-		}
-		if state != "rejected" {
-			return CompleteRunResult{}, fmt.Errorf("transition %s is not pending approval", id)
-		}
-		return CompleteRunResult{TransitionID: workflow.TransitionID(id), State: "rejected"}, tx.Commit()
-	}
-	if _, err := tx.ExecContext(ctx, `
-UPDATE task_transition_edges
-SET state = 'blocked'
-WHERE task_transition_id = ? AND state = 'pending'`, id); err != nil {
-		return CompleteRunResult{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return CompleteRunResult{}, err
-	}
-	return CompleteRunResult{TransitionID: workflow.TransitionID(id), State: "rejected"}, nil
-}
-
 func (s *Store) approvedTransitionResult(ctx context.Context, transitionID string, state string) (CompleteRunResult, error) {
 	edges, err := s.queries.ListTaskTransitionEdges(ctx, transitionID)
 	if err != nil {

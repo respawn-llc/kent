@@ -162,7 +162,7 @@ func NewWithContext(ctx context.Context, cfg config.App, authSupport serverboots
 		return nil, fmt.Errorf("workflow bundle: scheduler: %w", err)
 	}
 	workflowRuntimeStarter.SetRuntimeFinished(workflowScheduler.RuntimeFinished)
-	workflowService, err := workflowsvc.New(workflowStore, workflowViewService, workflowRoleResolver, workflowsvc.WithTaskWorktreeEnsurer(taskWorktreeEnsurer{service: worktreeService}), workflowsvc.WithTaskRuntimeCanceler(workflowRuntimeStarter), workflowsvc.WithSchedulerNotifier(workflowScheduler), workflowsvc.WithPromptResponder(runtimeRegistry))
+	workflowService, err := workflowsvc.New(workflowStore, workflowViewService, workflowRoleResolver, workflowsvc.WithTaskWorktreeEnsurer(taskWorktreeEnsurer{service: worktreeService}), workflowsvc.WithTaskWorktreeDeleter(taskWorktreeDeleter{service: worktreeService}), workflowsvc.WithTaskRuntimeCanceler(workflowRuntimeStarter), workflowsvc.WithSchedulerNotifier(workflowScheduler), workflowsvc.WithPromptResponder(runtimeRegistry))
 	if err != nil {
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: service: %w", err)
@@ -240,6 +240,25 @@ func (e taskWorktreeEnsurer) EnsureTaskWorktree(ctx context.Context, taskID stri
 		return nil
 	}
 	_, err := e.service.EnsureTaskWorktree(ctx, worktree.EnsureTaskWorktreeRequest{TaskID: taskID})
+	return err
+}
+
+type taskWorktreeDeleter struct {
+	service *worktree.Service
+}
+
+func (d taskWorktreeDeleter) EnsureTaskWorktreeDeletable(ctx context.Context, taskID string) error {
+	if d.service == nil {
+		return nil
+	}
+	return d.service.EnsureTaskWorktreeDeletable(ctx, taskID)
+}
+
+func (d taskWorktreeDeleter) DeleteTaskWorktree(ctx context.Context, taskID string) error {
+	if d.service == nil {
+		return nil
+	}
+	_, err := d.service.DeleteTaskWorktree(ctx, worktree.DeleteTaskWorktreeRequest{TaskID: taskID})
 	return err
 }
 

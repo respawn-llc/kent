@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { Badge } from "../../ui";
 import { cx } from "../../ui/classes";
 
 export type DetailTab = "comments" | "activity";
@@ -60,7 +59,7 @@ function TabButton({
       type="button"
     >
       {children}
-      {count !== undefined ? <Badge tone="neutral">{count}</Badge> : null}
+      {count !== undefined ? <span className="text-xs text-[var(--color-muted)]">{count}</span> : null}
     </button>
   );
 }

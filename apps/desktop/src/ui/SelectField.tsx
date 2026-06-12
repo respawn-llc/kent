@@ -1,5 +1,6 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
 
+import { DisabledInteractionGuard } from "./DisabledInteractionGuard";
 import { FieldShell, type FieldError } from "./Field";
 import { SelectOptionsList, SelectTrigger } from "./SelectFieldParts";
 import { DropdownMenu, DropdownMenuTrigger } from "../components/ui/dropdown-menu";
@@ -21,6 +22,7 @@ export type SelectFieldProps = Readonly<{
   hint?: ReactNode | undefined;
   placeholder?: string | undefined;
   disabled?: boolean | undefined;
+  disabledReason?: string | undefined;
   name?: string | undefined;
 }>;
 
@@ -34,6 +36,7 @@ export function SelectField({
   hint,
   placeholder,
   disabled = false,
+  disabledReason,
   name,
 }: SelectFieldProps) {
   const inputId = useId();
@@ -41,22 +44,32 @@ export function SelectField({
   const errorId = `${inputId}-error`;
   const controlMode = disabled || options.length === 0 ? "disabled" : "enabled";
 
+  const control = (
+    <SelectFieldControl
+      className={className}
+      disabled={disabled}
+      error={error}
+      errorId={errorId}
+      hintId={hintId}
+      inputId={inputId}
+      key={controlMode}
+      name={name}
+      onValueChange={onValueChange}
+      options={options}
+      placeholder={placeholder}
+      value={value}
+    />
+  );
+
   return (
     <FieldShell error={error} errorId={errorId} hint={hint} hintId={hintId} inputId={inputId} label={label}>
-      <SelectFieldControl
-        className={className}
-        disabled={disabled}
-        error={error}
-        errorId={errorId}
-        hintId={hintId}
-        inputId={inputId}
-        key={controlMode}
-        name={name}
-        onValueChange={onValueChange}
-        options={options}
-        placeholder={placeholder}
-        value={value}
-      />
+      {disabled && disabledReason !== undefined && disabledReason.length > 0 ? (
+        <DisabledInteractionGuard disabled reason={disabledReason}>
+          {control}
+        </DisabledInteractionGuard>
+      ) : (
+        control
+      )}
     </FieldShell>
   );
 }

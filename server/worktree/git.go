@@ -249,6 +249,14 @@ func (i *GitInspector) Prune(ctx context.Context, workspaceRoot string) error {
 }
 
 func (i *GitInspector) DeleteBranch(ctx context.Context, workspaceRoot string, branchName string) error {
+	return i.deleteBranch(ctx, workspaceRoot, branchName, false)
+}
+
+func (i *GitInspector) ForceDeleteBranch(ctx context.Context, workspaceRoot string, branchName string) error {
+	return i.deleteBranch(ctx, workspaceRoot, branchName, true)
+}
+
+func (i *GitInspector) deleteBranch(ctx context.Context, workspaceRoot string, branchName string, force bool) error {
 	if i == nil {
 		return fmt.Errorf("git inspector is required")
 	}
@@ -260,7 +268,11 @@ func (i *GitInspector) DeleteBranch(ctx context.Context, workspaceRoot string, b
 	if trimmedBranch == "" {
 		return fmt.Errorf("branch name is required")
 	}
-	_, err = i.runner.Output(ctx, canonicalWorkspaceRoot, "branch", "-d", trimmedBranch)
+	deleteArg := "-d"
+	if force {
+		deleteArg = "-D"
+	}
+	_, err = i.runner.Output(ctx, canonicalWorkspaceRoot, "branch", deleteArg, trimmedBranch)
 	return err
 }
 

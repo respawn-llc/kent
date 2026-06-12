@@ -173,6 +173,36 @@ func TestDeleteWorktreeAllowsTerminalTaskManagedWorktree(t *testing.T) {
 	}
 }
 
+func TestDeleteTaskWorktreeRemovesManagedWorktreeAndBranch(t *testing.T) {
+	env := newServiceTestEnv(t)
+	task, _ := createTaskWorktreeTestTask(t, env)
+	created, err := env.service.EnsureTaskWorktree(env.ctx, EnsureTaskWorktreeRequest{TaskID: string(task.ID)})
+	if err != nil {
+		t.Fatalf("EnsureTaskWorktree: %v", err)
+	}
+
+	resp, err := env.service.DeleteTaskWorktree(env.ctx, DeleteTaskWorktreeRequest{TaskID: string(task.ID)})
+	if err != nil {
+		t.Fatalf("DeleteTaskWorktree: %v", err)
+	}
+	if !resp.Deleted || resp.WorktreeID != created.Worktree.WorktreeID || !resp.BranchDeleted {
+		t.Fatalf("DeleteTaskWorktree response = %+v, want deleted worktree and branch", resp)
+	}
+	if _, err := os.Stat(created.Worktree.CanonicalRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected task worktree removed, stat err=%v", err)
+	}
+	if got := runGit(t, env.workspaceRoot, "branch", "--list", task.ShortID); strings.Contains(got, task.ShortID) {
+		t.Fatalf("branch list = %q, did not expect task branch %q", got, task.ShortID)
+	}
+	row, err := env.store.Queries().GetTask(env.ctx, string(task.ID))
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if row.ManagedWorktreeID.Valid {
+		t.Fatalf("task managed worktree id = %+v, want cleared after worktree record delete", row.ManagedWorktreeID)
+	}
+}
+
 func createTaskWorktreeTestTask(t *testing.T, env *serviceTestEnv) (workflowstore.TaskRecord, *workflowstore.Store) {
 	t.Helper()
 	return createTaskWorktreeTestTaskWithSource(t, env, "")

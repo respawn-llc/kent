@@ -493,6 +493,73 @@ func TestServiceCancelTaskCancelsActiveRuntime(t *testing.T) {
 	}
 }
 
+func TestServiceDeleteTaskCancelsRuntimeAndPublishesEvent(t *testing.T) {
+	ctx, service, binding := newWorkflowServiceTestContext(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
+	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
+	if _, err := service.StartTaskAutomation(ctx, task.Task.ID); err != nil {
+		t.Fatalf("StartTaskAutomation: %v", err)
+	}
+	sub, err := service.SubscribeWorkflowProject(ctx, serverapi.WorkflowProjectSubscribeRequest{ProjectID: binding.ProjectID})
+	if err != nil {
+		t.Fatalf("SubscribeWorkflowProject: %v", err)
+	}
+	defer func() { _ = sub.Close() }()
+	canceler := &recordingTaskRuntimeCanceler{}
+	service.runtimeCancel = canceler
+	worktreeCleanup := &recordingTaskWorktreeDeleter{}
+	service.taskWorktreeCleanup = worktreeCleanup
+
+	if err := service.DeleteWorkflowTask(ctx, serverapi.WorkflowTaskDeleteRequest{TaskID: task.Task.ID}); err != nil {
+		t.Fatalf("DeleteWorkflowTask: %v", err)
+	}
+	if len(canceler.taskIDs) != 1 || canceler.taskIDs[0] != workflow.TaskID(task.Task.ID) {
+		t.Fatalf("canceled tasks = %+v", canceler.taskIDs)
+	}
+	if len(worktreeCleanup.taskIDs) != 1 || worktreeCleanup.taskIDs[0] != task.Task.ID {
+		t.Fatalf("worktree cleanup tasks = %+v", worktreeCleanup.taskIDs)
+	}
+	event := nextWorkflowProjectEvent(t, sub)
+	if event.ProjectID != binding.ProjectID || event.WorkflowID != workflowID || event.Resource != "task" || event.Action != "deleted" || !sameStringSet(event.ChangedIDs, []string{task.Task.ID}) {
+		t.Fatalf("delete event = %+v, want task deleted event", event)
+	}
+	if _, err := service.GetWorkflowTask(ctx, serverapi.WorkflowTaskGetRequest{TaskID: task.Task.ID}); err == nil {
+		t.Fatalf("deleted workflow task should not remain readable")
+	}
+}
+
+func TestServiceDeleteTaskPreflightBlockedDoesNotCancelRuns(t *testing.T) {
+	ctx, service, binding := newWorkflowServiceTestContext(t)
+	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
+	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
+	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
+	if _, err := service.StartTaskAutomation(ctx, task.Task.ID); err != nil {
+		t.Fatalf("StartTaskAutomation: %v", err)
+	}
+	canceler := &recordingTaskRuntimeCanceler{}
+	service.runtimeCancel = canceler
+	worktreeCleanup := &recordingTaskWorktreeDeleter{preflightErr: serverapi.ErrWorktreeBlocked}
+	service.taskWorktreeCleanup = worktreeCleanup
+
+	err := service.DeleteWorkflowTask(ctx, serverapi.WorkflowTaskDeleteRequest{TaskID: task.Task.ID})
+	if !errors.Is(err, serverapi.ErrWorktreeBlocked) {
+		t.Fatalf("DeleteWorkflowTask error = %v, want ErrWorktreeBlocked", err)
+	}
+	if len(worktreeCleanup.preflightTaskIDs) != 1 || worktreeCleanup.preflightTaskIDs[0] != task.Task.ID {
+		t.Fatalf("preflight tasks = %+v, want one preflight for %s", worktreeCleanup.preflightTaskIDs, task.Task.ID)
+	}
+	if len(canceler.taskIDs) != 0 {
+		t.Fatalf("canceled tasks = %+v, want none when preflight blocks", canceler.taskIDs)
+	}
+	if len(worktreeCleanup.taskIDs) != 0 {
+		t.Fatalf("worktree delete tasks = %+v, want none when preflight blocks", worktreeCleanup.taskIDs)
+	}
+	if _, err := service.GetWorkflowTask(ctx, serverapi.WorkflowTaskGetRequest{TaskID: task.Task.ID}); err != nil {
+		t.Fatalf("blocked task should remain readable: %v", err)
+	}
+}
+
 func TestServiceResumeTaskRequeuesRunAndNotifiesScheduler(t *testing.T) {
 	ctx, service, binding := newWorkflowServiceTestContext(t)
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
@@ -547,6 +614,22 @@ func (c *recordingTaskRuntimeCanceler) CancelRun(_ context.Context, runID workfl
 type recordingTaskWorktreeEnsurer struct {
 	taskID string
 	hook   func(string)
+}
+
+type recordingTaskWorktreeDeleter struct {
+	taskIDs          []string
+	preflightTaskIDs []string
+	preflightErr     error
+}
+
+func (d *recordingTaskWorktreeDeleter) EnsureTaskWorktreeDeletable(_ context.Context, taskID string) error {
+	d.preflightTaskIDs = append(d.preflightTaskIDs, taskID)
+	return d.preflightErr
+}
+
+func (d *recordingTaskWorktreeDeleter) DeleteTaskWorktree(_ context.Context, taskID string) error {
+	d.taskIDs = append(d.taskIDs, taskID)
+	return nil
 }
 
 type recordingPromptResponder struct {

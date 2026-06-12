@@ -26,6 +26,7 @@ export { Spinner } from "./Spinner";
 export type { SpinnerProps } from "./Spinner";
 export { Switch } from "../components/ui/switch";
 export { Checkbox } from "../components/ui/checkbox";
+export { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
 export {
   ContextMenu,
   ContextMenuContent,

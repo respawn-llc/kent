@@ -148,6 +148,10 @@ func (c *loopbackWorkflowClient) CancelWorkflowTask(ctx context.Context, req ser
 	return callLoopbackClientNoResponse(c, "workflow service is required", ctx, req, servicecontract.WorkflowService.CancelWorkflowTask)
 }
 
+func (c *loopbackWorkflowClient) DeleteWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskDeleteRequest) error {
+	return callLoopbackClientNoResponse(c, "workflow service is required", ctx, req, servicecontract.WorkflowService.DeleteWorkflowTask)
+}
+
 func (c *loopbackWorkflowClient) ListWorkflowAttention(ctx context.Context, req serverapi.WorkflowAttentionListRequest) (serverapi.WorkflowAttentionListResponse, error) {
 	return callLoopbackClient(c, "workflow service is required", ctx, req, servicecontract.WorkflowService.ListWorkflowAttention)
 }

@@ -128,7 +128,9 @@ describe("StartupGate", () => {
 
     expect(await screen.findByTestId("error-state")).toBeInTheDocument();
     expect(
-      screen.getByText("Client protocol 8. Server protocol 1. Update Builder CLI/service and desktop app from the same build."),
+      screen.getByText(
+        `Client protocol ${protocolVersion}. Server protocol 1. Update Builder CLI/service and desktop app from the same build.`,
+      ),
     ).toBeInTheDocument();
     await waitFor(() => {
       expect(window.location.pathname).toBe("/");

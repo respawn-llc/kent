@@ -1,5 +1,14 @@
 /* eslint-disable complexity, max-lines -- The route coordinates data loading, draft lifecycle, save, and floating islands. */
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
@@ -11,6 +20,7 @@ import {
   type WorkflowGraphSaveConfirmation,
   type WorkflowGraphSaveImpact,
   type WorkflowGraphSavePreview,
+  type WorkflowGraphValidationResults,
   type WorkflowValidation,
 } from "../../api";
 import { errorMessage } from "../../api/errors";
@@ -95,6 +105,14 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
   const savingRef = useRef(false);
   const [saveError, setSaveError] = useState("");
   const [saveBlockers, setSaveBlockers] = useState<readonly string[]>([]);
+  // Structured draft/execution validation captured at the last save attempt,
+  // tagged with the draft version it was computed against. The background
+  // validation query is disabled while the graph is dirty, so without this a
+  // blocked save can only show the generic blocker summary with no per-issue
+  // detail. The draft version lets the controller drop it once the draft is
+  // edited (see below), so surfaced issues never reference stale rows.
+  const [saveValidation, setSaveValidation] =
+    useState<{ version: number; results: WorkflowGraphValidationResults } | null>(null);
   const [saveConfirmationPreviewEntry, setSaveConfirmationPreviewEntry] =
     useState<WorkflowSaveConfirmationPreviewEntry | null>(null);
   const saveConfirmationPreviewKey =
@@ -104,9 +122,7 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
       ? saveConfirmationPreviewEntry.preview
       : null;
   function setSaveConfirmationPreview(preview: WorkflowGraphSavePreview | null): void {
-    setSaveConfirmationPreviewEntry(
-      preview === null ? null : { key: saveConfirmationPreviewKey, preview },
-    );
+    setSaveConfirmationPreviewEntry(preview === null ? null : { key: saveConfirmationPreviewKey, preview });
   }
   const [pendingGraphMutation, setPendingGraphMutation] = useState<PendingGraphMutation | null>(null);
   const [embeddedInspectorSelection, setEmbeddedInspectorSelection] =
@@ -123,7 +139,11 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
     [data.workflowQuery.data, draftState],
   );
   const draftValidationQuery = useWorkflowDraftValidationQuery(workflowID, draftState, dirty.graphDirty);
-  const draftDerivedWiringQuery = useWorkflowDraftDerivedWiringQuery(workflowID, draftState, dirty.graphDirty);
+  const draftDerivedWiringQuery = useWorkflowDraftDerivedWiringQuery(
+    workflowID,
+    draftState,
+    dirty.graphDirty,
+  );
   const cachedDraftValidation = draftValidationQuery.data?.draft ?? null;
   const cachedExecutionValidation = draftValidationQuery.data?.execution ?? data.validationQuery.data ?? null;
   // Memoized so the merged object keeps a stable identity across renders: it
@@ -143,7 +163,7 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
   // wiring is authoritative.
   const draftDerivedWiring =
     (dirty.graphDirty
-      ? draftDerivedWiringQuery.data ?? draftValidationQuery.data?.derivedWiring
+      ? (draftDerivedWiringQuery.data ?? draftValidationQuery.data?.derivedWiring)
       : draftValidationQuery.data?.derivedWiring) ??
     draftDefinition?.derivedWiring ??
     emptyWorkflowDerivedWiring;
@@ -151,11 +171,11 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
   const layoutValidation = dirty.graphDirty
     ? topologyDirty
       ? emptyWorkflowValidation
-      : layoutSnapshot.validation ?? emptyWorkflowValidation
+      : (layoutSnapshot.validation ?? emptyWorkflowValidation)
     : cleanLayoutValidation;
   const graphValidation = dirty.graphDirty
     ? emptyWorkflowValidation
-    : cleanLayoutValidation ?? emptyWorkflowValidation;
+    : (cleanLayoutValidation ?? emptyWorkflowValidation);
   const layoutQuery = useWorkflowGraphLayoutQuery(
     workflowID,
     draftDefinition,
@@ -170,7 +190,10 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
   if (nextLayoutSnapshot !== layoutSnapshot) {
     setLayoutSnapshot(nextLayoutSnapshot);
   }
-  useWindowChromeTitle(workflow === undefined ? t("workflowEditor.title") : workflow.name, surface === "route");
+  useWindowChromeTitle(
+    workflow === undefined ? t("workflowEditor.title") : workflow.name,
+    surface === "route",
+  );
 
   const inspectWorkflowGraphItem = useCallback(
     (selection: WorkflowInspectorSelection) => {
@@ -246,7 +269,8 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
       draft: fallbackDraftState.draft,
       derivedWiring: draftDerivedWiring,
       draftValidation,
-      executionValidation: dirty.graphDirty && draftValidation === null ? emptyWorkflowValidation : executionValidation,
+      executionValidation:
+        dirty.graphDirty && draftValidation === null ? emptyWorkflowValidation : executionValidation,
       save() {
         if (draftState === null || savingRef.current) {
           return;
@@ -255,6 +279,13 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
       },
       saveBlockers,
       saveError,
+      // Drop the captured save validation once the draft moves past the version
+      // it was computed against: its errors may reference rows a later edit
+      // changed or removed, and the next save attempt re-validates fresh.
+      saveValidation:
+        saveValidation !== null && saveValidation.version === fallbackDraftState.version
+          ? saveValidation.results
+          : null,
       saving,
       state: fallbackDraftState,
       workflowID,
@@ -269,6 +300,7 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
       fallbackDraftState,
       saveBlockers,
       saveError,
+      saveValidation,
       saving,
       workflowID,
     ],
@@ -424,7 +456,6 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
         chromePadding
         contentWidth="full"
         onRetry={() => {
-          void data.boardQuery.refetch();
           void data.workflowQuery.refetch();
           void data.validationQuery.refetch();
           void layoutQuery.refetch();
@@ -632,6 +663,7 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
     setSaving(true);
     setSaveError("");
     setSaveBlockers([]);
+    setSaveValidation(null);
     try {
       const metadata = latestDirty.metadataDirty ? workflowEditorDraftMetadata(draftState) : undefined;
       const graph = workflowEditorDraftGraph(draftState);
@@ -643,6 +675,7 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
           workflowID,
         });
         if (validation.draft?.valid !== true) {
+          setSaveValidation({ version: draftState.version, results: validation });
           setSaveBlockers([t("workflowEditor.draftValidationBlocksSave")]);
           return;
         }
@@ -658,11 +691,7 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
       const actionableBlockers = preview.blockers.filter(
         (blocker) => blocker.code !== "confirmation_required",
       );
-      if (
-        confirmedPreview === undefined &&
-        preview.confirmationRequired &&
-        actionableBlockers.length === 0
-      ) {
+      if (confirmedPreview === undefined && preview.confirmationRequired && actionableBlockers.length === 0) {
         setSaveConfirmationPreview(preview);
         setSaveBlockers([]);
         return;
@@ -691,7 +720,9 @@ export function WorkflowEditorRoute({ projectID, surface = "route", workflowID }
         data.workflowQuery.refetch(),
         data.validationQuery.refetch(),
         queryClient.invalidateQueries({ queryKey: queryKeys.allWorkflows }),
-        projectID.length > 0 ? data.boardQuery.refetch() : Promise.resolve(),
+        data.projectContext
+          ? queryClient.invalidateQueries({ queryKey: queryKeys.board(projectID, workflowID) })
+          : Promise.resolve(),
       ]);
     } catch (error) {
       setSaveError(errorMessage(error));
@@ -809,7 +840,10 @@ function planPendingGraphMutation(
     return planGraphDeletion(state.draft, request.action.selection);
   }
   if (state.graphVersion !== request.action.graphVersion) {
-    return { kind: "blocked", warning: workflowEditorGraphMutationWarnings.nodeGroupExtractionTopologyFailed };
+    return {
+      kind: "blocked",
+      warning: workflowEditorGraphMutationWarnings.nodeGroupExtractionTopologyFailed,
+    };
   }
   return planGraphExtraction(state.draft, request.action.input);
 }
@@ -853,9 +887,7 @@ function dispatchGraphDeletion(
 
 function cascadeRowCount(summary: WorkflowEditorCascadeSummary): number {
   return (
-    summary.removedNodeIDs.length +
-    summary.removedEdgeIDs.length +
-    summary.removedTransitionGroupIDs.length
+    summary.removedNodeIDs.length + summary.removedEdgeIDs.length + summary.removedTransitionGroupIDs.length
   );
 }
 
@@ -942,12 +974,7 @@ function WorkflowEditorEmbeddedInspector({
       level={3}
     >
       <header className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-[var(--space-2)] border-b border-[var(--color-outline)] px-[var(--space-3)] py-[var(--space-2)]">
-        <Button
-          aria-label={t("app.close")}
-          onClick={onClose}
-          size="icon"
-          variant="ghost"
-        >
+        <Button aria-label={t("app.close")} onClick={onClose} size="icon" variant="ghost">
           <X aria-hidden="true" size={18} strokeWidth={1.5} />
         </Button>
         <h2 className="m-0 truncate text-[1rem] font-bold">{title}</h2>
@@ -988,7 +1015,7 @@ function WorkflowEditorLegendIsland({
     <FloatingNoticeIsland
       collapsed={collapsed}
       collapseLabel={t("app.collapse")}
-      expandedClassName="floating-notice-expanded grid h-[204px] w-[min(300px,calc(100vw-var(--space-2)*2))] gap-[6px] overflow-hidden rounded-[var(--radius-xl)] p-[var(--space-2)]"
+      expandedClassName="floating-notice-expanded grid h-[204px] w-[min(300px,calc(100vw-var(--space-2)*2))] gap-[6px] rounded-[var(--radius-xl)] p-[var(--space-2)]"
       expandLabel={t("app.expand")}
       icon={
         <CircleQuestionMark
@@ -1125,11 +1152,9 @@ type WorkflowSaveConfirmationPreviewEntry = Readonly<{
 }>;
 
 function workflowSaveConfirmationPreviewKey(state: WorkflowEditorDraftState): string {
-  return [
-    state.source.workflow.id,
-    state.source.workflow.version.toString(),
-    state.version.toString(),
-  ].join(":");
+  return [state.source.workflow.id, state.source.workflow.version.toString(), state.version.toString()].join(
+    ":",
+  );
 }
 
 function workflowLayoutSnapshotAfterRender(
@@ -1140,11 +1165,12 @@ function workflowLayoutSnapshotAfterRender(
     layout: WorkflowGraphLayout | undefined;
   }>,
 ): WorkflowLayoutSnapshot {
-  const graphVersion =
-    update.cleanValidation === null ? current.graphVersion : update.cleanGraphVersion;
+  const graphVersion = update.cleanValidation === null ? current.graphVersion : update.cleanGraphVersion;
   const validation = update.cleanValidation ?? current.validation;
   const layout = update.layout ?? current.layout;
-  return graphVersion === current.graphVersion && validation === current.validation && layout === current.layout
+  return graphVersion === current.graphVersion &&
+    validation === current.validation &&
+    layout === current.layout
     ? current
     : { graphVersion, layout, validation };
 }
@@ -1158,7 +1184,8 @@ function useWorkflowDraftValidationQuery(
   // Metadata-only edits (display name/description) do not bump graphVersion, so
   // the server's draft validation of the workflow name would keep reusing the
   // stale staleTime:Infinity result. Vary the key by the draft metadata too.
-  const metadataSignature = draftState === null ? "" : JSON.stringify(workflowEditorDraftMetadata(draftState));
+  const metadataSignature =
+    draftState === null ? "" : JSON.stringify(workflowEditorDraftMetadata(draftState));
   return useQuery({
     queryKey: queryKeys.workflowDraftValidation(
       workflowID,
@@ -1259,7 +1286,12 @@ function WorkflowEditorStatusIsland({
   const [collapsed, setCollapsed] = useState(false);
   const validationErrors = normalizeWorkflowValidationErrors(
     controller.dirty.graphDirty && controller.draftValidation === null
-      ? []
+      ? // Background validation is disabled while the graph is dirty; fall back
+        // to the structured result captured at the last blocked save attempt.
+        [
+          ...(controller.saveValidation?.draft?.errors ?? []),
+          ...(controller.saveValidation?.execution?.errors ?? []),
+        ]
       : [...(controller.draftValidation?.errors ?? []), ...(controller.executionValidation?.errors ?? [])],
   );
   const hasIssues =
@@ -1271,7 +1303,7 @@ function WorkflowEditorStatusIsland({
     <FloatingNoticeIsland
       collapsed={collapsed}
       collapseLabel={t("app.collapse")}
-      expandedClassName="floating-notice-expanded grid max-h-[min(400px,calc(100vh-32px))] w-[min(400px,calc(100vw-32px))] gap-[6px] overflow-y-auto overflow-x-hidden rounded-[var(--radius-xl)] p-[var(--space-3)]"
+      expandedClassName="floating-notice-expanded grid max-h-[min(400px,calc(100vh-32px))] w-[min(400px,calc(100vw-32px))] gap-[6px] rounded-[var(--radius-xl)] p-[var(--space-3)]"
       expandLabel={t("app.expand")}
       level={3}
       onCollapsedChange={setCollapsed}
@@ -1343,9 +1375,7 @@ function WorkflowEditorStatusIsland({
             ))}
           </ul>
         ) : null}
-        {validationErrors.length > 0 ? (
-          <WorkflowValidationIssues errors={validationErrors} />
-        ) : null}
+        {validationErrors.length > 0 ? <WorkflowValidationIssues errors={validationErrors} /> : null}
       </div>
     </FloatingNoticeIsland>
   );
@@ -1441,7 +1471,7 @@ function workflowEditorViewState(
 }
 
 function isLinkGateLoading(data: WorkflowEditorData): boolean {
-  return data.projectContext && (data.linksQuery.isPending || data.boardQuery.isPending);
+  return data.projectContext && data.linksQuery.isPending;
 }
 
 function isGraphLoading(data: WorkflowEditorData, layoutQuery: UseQueryResult<WorkflowGraphLayout>): boolean {
@@ -1453,7 +1483,6 @@ function workflowEditorLoadError(
   layoutQuery: UseQueryResult<WorkflowGraphLayout>,
 ): Error | null {
   return (
-    data.boardQuery.error ??
     data.workflowQuery.error ??
     data.validationQuery.error ??
     layoutQuery.error ??

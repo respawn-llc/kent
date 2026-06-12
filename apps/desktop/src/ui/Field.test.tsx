@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
 import { SelectField } from "./SelectField";
@@ -97,5 +98,26 @@ describe("Field", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     expect(submitted).toHaveBeenCalledWith({});
     expect(onValueChange).not.toHaveBeenCalled();
+  });
+
+  it("explains a disabled SelectField with a tooltip reason", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SelectField
+        disabled
+        disabledReason="Only one workspace is linked right now."
+        label="Source"
+        onValueChange={() => undefined}
+        options={[{ label: "Main", value: "workspace-1" }]}
+        value="workspace-1"
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Source" });
+    expect(trigger).toBeDisabled();
+    await user.hover(trigger);
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Only one workspace is linked right now.");
   });
 });

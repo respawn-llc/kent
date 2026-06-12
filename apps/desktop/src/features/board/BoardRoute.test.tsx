@@ -4,7 +4,6 @@ import {
   createTauriNativeBridge,
   type NativeBridge,
   type NativeDialogWindowOptions,
-  type NativeTaskDetailTarget,
 } from "@builder/desktop-native-bridge";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
@@ -12,11 +11,42 @@ import { afterEach, vi } from "vitest";
 import type { JsonValue } from "../../api/json";
 import { App } from "../../App";
 import { createTestServices, startupRoutes } from "../../testSupport/appServices";
+import { boardCardViewTransitionName } from "./BoardCardMotionModel";
 
 async function expandBoardHoverMenu(): Promise<HTMLElement> {
   const menu = await screen.findByRole("navigation");
   fireEvent.mouseEnter(menu);
   return menu;
+}
+
+type BoardColumnFixtureInput = Readonly<{
+  nodeID: string;
+  key: string;
+  kind: string;
+  displayName: string;
+  sortOrder: number;
+  assigneeRole?: string;
+  groupID?: string;
+  isBacklog?: boolean;
+  isDone?: boolean;
+  taskCount?: number;
+}>;
+
+function boardColumn(input: BoardColumnFixtureInput) {
+  return {
+    node: {
+      node_id: input.nodeID,
+      key: input.key,
+      kind: input.kind,
+      display_name: input.displayName,
+      assignee_role: input.assigneeRole ?? "",
+    },
+    group_id: input.groupID ?? "",
+    sort_order: input.sortOrder,
+    is_backlog: input.isBacklog ?? false,
+    is_done: input.isDone ?? false,
+    task_count: input.taskCount ?? 0,
+  };
 }
 
 describe("BoardRoute", () => {
@@ -75,6 +105,236 @@ describe("BoardRoute", () => {
       });
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("deletes a task from the card context menu", async () => {
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1&taskId=task-1");
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes(),
+      { method: "workflow.task.get", result: taskDetailResponseForCancel() },
+      { method: "workflow.task.activity.list", result: emptyActivityResponse },
+      { method: "workflow.task.delete", result: {} },
+    ]);
+
+    render(<App services={services} />);
+
+    fireEvent.contextMenu(await screen.findByRole("article", { name: "Write focused tests" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    expect(services.transport.calls.some((call) => call.method === "workflow.task.delete")).toBe(false);
+
+    const dialog = await screen.findByRole("dialog", { name: "Delete task?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(services.transport.calls).toContainEqual({
+        method: "workflow.task.delete",
+        params: { task_id: "task-1" },
+      });
+    });
+    await waitFor(() => {
+      expect(new URLSearchParams(window.location.search).get("taskId")).toBe("");
+    });
+  });
+
+  it("opens native confirmation before deleting a task when dialog windows are available", async () => {
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const opened: NativeDialogWindowOptions[] = [];
+    const services = createTestServices([...startupRoutes, ...boardRoutes()], nativeDialogBridge(opened));
+
+    render(<App services={services} />);
+
+    fireEvent.contextMenu(await screen.findByRole("article", { name: "Write focused tests" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(opened).toContainEqual(
+        expect.objectContaining({
+          params: { taskID: "task-1" },
+          route: "/native-dialog/task-delete",
+          title: "Delete task?",
+        }),
+      );
+    });
+    expect(services.transport.calls.some((call) => call.method === "workflow.task.delete")).toBe(false);
+  });
+
+  it("renders Main SWE groups after the Implementation column", async () => {
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const mainSWEWorkflow = { ...workflow, display_name: "Main SWE" };
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes(
+        {
+          board: {
+            ...boardResponse.board,
+            selected_workflow: mainSWEWorkflow,
+            workflows: [mainSWEWorkflow],
+            groups: [
+              {
+                group_id: "group-review",
+                key: "review",
+                display_name: "Review group",
+                sort_order: 1,
+                node_ids: ["review", "qa"],
+              },
+            ],
+            columns: [
+              boardColumn({
+                displayName: "Backlog",
+                isBacklog: true,
+                key: "backlog",
+                kind: "start",
+                nodeID: "backlog",
+                sortOrder: 0,
+                taskCount: 1,
+              }),
+              boardColumn({
+                assigneeRole: "coder",
+                displayName: "Implementation",
+                key: "implementation",
+                kind: "agent",
+                nodeID: "implementation",
+                sortOrder: 1,
+              }),
+              boardColumn({
+                assigneeRole: "reviewer",
+                displayName: "Review",
+                groupID: "group-review",
+                key: "review",
+                kind: "agent",
+                nodeID: "review",
+                sortOrder: 2,
+                taskCount: 1,
+              }),
+              boardColumn({
+                assigneeRole: "qa",
+                displayName: "QA",
+                groupID: "group-review",
+                key: "qa",
+                kind: "agent",
+                nodeID: "qa",
+                sortOrder: 3,
+              }),
+              boardColumn({
+                displayName: "Done",
+                isDone: true,
+                key: "done",
+                kind: "terminal",
+                nodeID: "done",
+                sortOrder: 99,
+              }),
+            ],
+          },
+        },
+        {
+          backlog: { cards: boardResponse.board.cards },
+          done: { cards: [] },
+          implementation: { cards: [] },
+          qa: { cards: [] },
+          review: { cards: [] },
+        },
+      ),
+    ]);
+
+    render(<App services={services} />);
+
+    const backlog = await screen.findByRole("heading", { name: "Backlog" });
+    const implementation = await screen.findByRole("heading", { name: "Implementation" });
+    const group = await screen.findByRole("heading", { name: "Review group" });
+    const done = await screen.findByRole("heading", { name: "Done" });
+
+    expect(backlog).toAppearBefore(implementation);
+    expect(implementation).toAppearBefore(group);
+    expect(group).toAppearBefore(done);
+  });
+
+  it("hides a group header while all grouped columns are collapsed", async () => {
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const mainSWEWorkflow = { ...workflow, display_name: "Main SWE" };
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes(
+        {
+          board: {
+            ...boardResponse.board,
+            selected_workflow: mainSWEWorkflow,
+            workflows: [mainSWEWorkflow],
+            groups: [
+              {
+                group_id: "group-review",
+                key: "review",
+                display_name: "Review group",
+                sort_order: 1,
+                node_ids: ["review", "qa"],
+              },
+            ],
+            columns: [
+              boardColumn({
+                displayName: "Backlog",
+                isBacklog: true,
+                key: "backlog",
+                kind: "start",
+                nodeID: "backlog",
+                sortOrder: 0,
+                taskCount: 1,
+              }),
+              boardColumn({
+                assigneeRole: "coder",
+                displayName: "Implementation",
+                key: "implementation",
+                kind: "agent",
+                nodeID: "implementation",
+                sortOrder: 1,
+              }),
+              boardColumn({
+                assigneeRole: "reviewer",
+                displayName: "Review",
+                groupID: "group-review",
+                key: "review",
+                kind: "agent",
+                nodeID: "review",
+                sortOrder: 2,
+              }),
+              boardColumn({
+                assigneeRole: "qa",
+                displayName: "QA",
+                groupID: "group-review",
+                key: "qa",
+                kind: "agent",
+                nodeID: "qa",
+                sortOrder: 3,
+              }),
+              boardColumn({
+                displayName: "Done",
+                isDone: true,
+                key: "done",
+                kind: "terminal",
+                nodeID: "done",
+                sortOrder: 99,
+                taskCount: 1,
+              }),
+            ],
+          },
+        },
+        {
+          backlog: { cards: boardResponse.board.cards },
+          done: { cards: [] },
+          implementation: { cards: [] },
+          qa: { cards: [] },
+          review: { cards: [] },
+        },
+      ),
+    ]);
+
+    render(<App services={services} />);
+
+    await screen.findByRole("heading", { hidden: true, name: "Review group" });
+    expect(screen.getByTestId("kanban-group-header-group-review")).toHaveAttribute("aria-hidden", "true");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Expand Review" }));
+
+    expect(screen.getByTestId("kanban-group-header-group-review")).not.toHaveAttribute("aria-hidden");
   });
 
   it("starts tasks from in-memory drag state after rerender when browser dataTransfer drops custom payloads", async () => {
@@ -142,7 +402,7 @@ describe("BoardRoute", () => {
       { method: "workflow.board.get", result: boardResponse },
       {
         method: "workflow.board.nodeCards.list",
-        handler: (params: JsonValue) => {
+        handler: async (params: JsonValue) => {
           const nodeID = isObject(params) && typeof params.node_id === "string" ? params.node_id : "";
           nodeCardCalls.push(nodeID);
           return boardNodeCardsResponse(nodeID, nodeID === "backlog" ? [firstBoardCard()] : [], "");
@@ -188,7 +448,7 @@ describe("BoardRoute", () => {
       },
       {
         method: "workflow.board.nodeCards.list",
-        handler: (params: JsonValue) => {
+        handler: async (params: JsonValue) => {
           const nodeID = isObject(params) && typeof params.node_id === "string" ? params.node_id : "";
           nodeCardCalls.push(nodeID);
           return boardNodeCardsResponse(nodeID, [], "");
@@ -205,6 +465,177 @@ describe("BoardRoute", () => {
     await waitFor(() => {
       expect(nodeCardCalls).toContain("done");
     });
+  });
+
+  it("collapses empty non-starting columns by default and skips card loading until expanded", async () => {
+    const visibility = installIntersectionObserverMock();
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const nodeCardCalls: string[] = [];
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.board.get", result: boardResponse },
+      {
+        method: "workflow.board.nodeCards.list",
+        handler: async (params: JsonValue) => {
+          const nodeID = isObject(params) && typeof params.node_id === "string" ? params.node_id : "";
+          nodeCardCalls.push(nodeID);
+          return boardNodeCardsResponse(nodeID, [], "");
+        },
+      },
+    ]);
+
+    render(<App services={services} />);
+
+    const startingColumn = await screen.findByRole("listitem", { name: "Implement" });
+    const emptyDoneColumn = screen.getByRole("listitem", { name: "Done" });
+
+    expect(startingColumn).toHaveAttribute("data-collapsed", "false");
+    expect(within(startingColumn).getByTestId("kanban-column-task-count-node-1")).toBeInTheDocument();
+    expect(emptyDoneColumn).toHaveAttribute("data-collapsed", "true");
+    expect(within(emptyDoneColumn).queryByTestId("kanban-column-task-count-done")).not.toBeInTheDocument();
+
+    act(() => {
+      visibility.reveal("Done");
+    });
+    expect(nodeCardCalls).toEqual([]);
+
+    fireEvent.click(within(emptyDoneColumn).getByRole("button", { name: "Expand Done" }));
+    expect(emptyDoneColumn).toHaveAttribute("data-collapsed", "false");
+
+    await waitFor(() => {
+      expect(nodeCardCalls).toEqual(["done"]);
+    });
+  });
+
+  it("waits for a count-dirty collapsed target column before animating a moved card", async () => {
+    const visibility = installIntersectionObserverMock();
+    const originalStartViewTransitionDescriptor = Object.getOwnPropertyDescriptor(document, "startViewTransition");
+    const startViewTransition = vi.fn((update: () => void | Promise<void>) => {
+      expect(screen.getByRole("article", { name: "Write focused tests" })).toHaveStyle({
+        viewTransitionName: boardCardViewTransitionName("task-1"),
+      });
+      const updateCallbackDone = Promise.resolve(update());
+      return {
+        finished: updateCallbackDone,
+        ready: Promise.resolve(),
+        updateCallbackDone,
+      };
+    });
+    Object.defineProperty(document, "startViewTransition", {
+      configurable: true,
+      value: startViewTransition,
+    });
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const movableCard = {
+      ...firstBoardCard(),
+      actions: {
+        ...firstBoardCard().actions,
+        can_start: false,
+        manual_move_target_node_ids: ["node-2"],
+      },
+    };
+    const reconCard = {
+      ...movableCard,
+      active_node_ids: ["node-2"],
+      status: {
+        ...movableCard.status,
+        kind: "running",
+        label: "Running",
+        native_state: "running",
+        node_ids: ["node-2"],
+      },
+    };
+    const reconColumn = {
+      node: {
+        node_id: "node-2",
+        key: "recon",
+        kind: "agent",
+        display_name: "Recon",
+        assignee_role: "analyst",
+      },
+      group_id: "group-1",
+      sort_order: 2,
+      is_backlog: false,
+      is_done: false,
+      task_count: 0,
+    };
+    const initialBoard = {
+      board: {
+        ...boardResponse.board,
+        cards: [movableCard],
+        columns: [boardColumnAt(0), boardColumnAt(1), reconColumn, boardColumnAt(2)],
+        groups: [{ ...firstBoardGroup(), node_ids: ["node-1", "node-2"] }],
+      },
+    };
+    const movedBoard = {
+      board: {
+        ...initialBoard.board,
+        columns: [
+          { ...boardColumnAt(0), task_count: 0 },
+          boardColumnAt(1),
+          { ...reconColumn, task_count: 1 },
+          boardColumnAt(2),
+        ],
+      },
+    };
+    const reconCards = deferredBoardCardsResponse();
+    let backlogCardCalls = 0;
+    const nodeCardCalls: string[] = [];
+    const services = createTestServices([
+      ...startupRoutes,
+      {
+        method: "workflow.board.get",
+        handler: (_params, callIndex) => (callIndex === 0 ? initialBoard : movedBoard),
+      },
+      {
+        method: "workflow.board.nodeCards.list",
+        handler: async (params: JsonValue) => {
+          const nodeID = isObject(params) && typeof params.node_id === "string" ? params.node_id : "";
+          nodeCardCalls.push(nodeID);
+          if (nodeID === "backlog") {
+            backlogCardCalls += 1;
+            return boardNodeCardsResponse(nodeID, backlogCardCalls === 1 ? [movableCard] : [], "");
+          }
+          if (nodeID === "node-2") {
+            return reconCards.promise;
+          }
+          return boardNodeCardsResponse(nodeID, [], "");
+        },
+      },
+      { method: "workflow.task.move", result: {} },
+    ]);
+
+    try {
+      render(<App services={services} />);
+
+      expect(await screen.findByRole("heading", { name: "Backlog" })).toBeInTheDocument();
+      act(() => {
+        visibility.reveal("Backlog");
+        visibility.reveal("Recon");
+      });
+      const card = await screen.findByRole("article", { name: "Write focused tests" });
+      act(() => {
+        visibility.reveal("Write focused tests");
+      });
+      startViewTransition.mockClear();
+
+      fireEvent.dragStart(card, { dataTransfer: new TestDataTransfer() });
+      fireEvent.drop(screen.getByRole("listitem", { name: "Recon" }), { dataTransfer: new TestDataTransfer() });
+
+      await waitFor(() => {
+        expect(nodeCardCalls).toContain("node-2");
+      });
+      expect(startViewTransition).not.toHaveBeenCalled();
+
+      await act(async () => {
+        reconCards.resolve(boardNodeCardsResponse("node-2", [reconCard], ""));
+      });
+      await waitFor(() => {
+        expect(startViewTransition).toHaveBeenCalledOnce();
+      });
+    } finally {
+      restoreStartViewTransition(originalStartViewTransitionDescriptor);
+    }
   });
 
   it("renders pending-approval tasks in their source node column", async () => {
@@ -237,9 +668,7 @@ describe("BoardRoute", () => {
           board: {
             ...boardResponse.board,
             columns: boardResponse.board.columns.map((column) =>
-              column.node.node_id === "node-1"
-                ? { ...column, task_count: 1 }
-                : { ...column, task_count: 0 },
+              column.node.node_id === "node-1" ? { ...column, task_count: 1 } : { ...column, task_count: 0 },
             ),
             cards: [],
           },
@@ -258,7 +687,9 @@ describe("BoardRoute", () => {
     act(() => {
       visibility.reveal("Implement");
     });
-    expect(await within(implementColumn).findByRole("article", { name: "Waiting on approval" })).toBeInTheDocument();
+    expect(
+      await within(implementColumn).findByRole("article", { name: "Waiting on approval" }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("article", { name: "Write focused tests" })).not.toBeInTheDocument();
   });
 
@@ -557,7 +988,9 @@ describe("BoardRoute", () => {
     const panel = screen.getByRole("complementary", { name: "Create Backlog task" });
     expect(panel).toHaveAttribute("data-mode", "overlay");
     expect(opened).toHaveLength(0);
-    await within(sidebar).findByDisplayValue("workspace-1");
+    await waitFor(() => {
+      expect(within(sidebar).getByRole("button", { name: "Source workspace" })).toHaveTextContent("Main");
+    });
     fireEvent.change(within(sidebar).getByLabelText("Title"), { target: { value: "Sidebar task" } });
     fireEvent.click(within(sidebar).getByRole("button", { name: "Create task" }));
 
@@ -672,7 +1105,9 @@ describe("BoardRoute", () => {
     const sidebar = await screen.findByRole("complementary", { name: "Create Backlog task" });
     expect(sidebar).toHaveAttribute("data-mode", "overlay");
     expect(opened).toHaveLength(0);
-    await within(sidebar).findByDisplayValue("workspace-1");
+    await waitFor(() => {
+      expect(within(sidebar).getByRole("button", { name: "Source workspace" })).toHaveTextContent("Main");
+    });
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Fallback task" } });
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
 
@@ -693,19 +1128,15 @@ describe("BoardRoute", () => {
     });
   });
 
-  it("opens board task detail in the global sidebar instead of a native task detail window", async () => {
+  it("opens board task detail in the global sidebar", async () => {
     const restoreWindowWidth = mockWindowWidth(1600);
     window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
-    const opened: NativeTaskDetailTarget[] = [];
-    const services = createTestServices(
-      [
-        ...startupRoutes,
-        ...boardRoutes(),
-        { method: "workflow.task.get", result: taskDetailResponseForCancel() },
-        { method: "workflow.task.activity.list", result: emptyActivityResponse },
-      ],
-      taskDetailWindowBridge(opened),
-    );
+    const services = createTestServices([
+      ...startupRoutes,
+      ...boardRoutes(),
+      { method: "workflow.task.get", result: taskDetailResponseForCancel() },
+      { method: "workflow.task.activity.list", result: emptyActivityResponse },
+    ]);
 
     const { unmount } = render(<App services={services} />);
 
@@ -719,7 +1150,6 @@ describe("BoardRoute", () => {
       expect(await within(sidebar).findByDisplayValue("Task detail title")).toBeInTheDocument();
       expect(methodCallCount(services.transport.calls, "workflow.task.get")).toBe(1);
       expect(methodCallCount(services.transport.calls, "workflow.task.activity.list")).toBe(1);
-      expect(opened).toEqual([]);
       expect(new URLSearchParams(window.location.search).get("taskId")).toBe("task-1");
 
       fireEvent.click(within(sidebar).getByRole("button", { name: "Close" }));
@@ -808,7 +1238,9 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     expect(await screen.findByRole("dialog", { name: "Create Backlog task" })).toBeInTheDocument();
-    await screen.findByDisplayValue("workspace-1");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Source workspace" })).toHaveTextContent("Main");
+    });
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Native task" } });
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
 
@@ -842,9 +1274,11 @@ describe("BoardRoute", () => {
     fireEvent.mouseEnter(menu);
 
     expect(screen.getByRole("heading", { name: "Workflows" })).toBeInTheDocument();
-    expect(within(screen.getByTestId("board-hover-menu-header")).getByRole("button", {
-      name: "Link workflow",
-    })).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("board-hover-menu-header")).getByRole("button", {
+        name: "Link workflow",
+      }),
+    ).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Delivery" })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Edit workflow Delivery" })).toBeInTheDocument();
 
@@ -1106,6 +1540,99 @@ describe("BoardRoute", () => {
     });
   });
 
+  it("shows a toast when a run created by a card move is interrupted after refresh", async () => {
+    const visibility = installIntersectionObserverMock();
+    window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
+    const activeCard = {
+      ...firstBoardCard(),
+      active_node_ids: ["node-1"],
+      status: { ...firstBoardCard().status, kind: "active", label: "Active", node_ids: ["node-1"] },
+      actions: {
+        ...taskActions,
+        can_start: false,
+        manual_move_target_node_ids: ["done"],
+      },
+    };
+    const interruptedCard = {
+      ...activeCard,
+      active_node_ids: ["done"],
+      status: {
+        ...activeCard.status,
+        kind: "interrupted",
+        label: "Interrupted",
+        native_state: "interrupted",
+        node_ids: ["done"],
+        run_ids: ["run-move"],
+        attention_types: ["interrupted_run"],
+      },
+    };
+    const initialBoard = {
+      board: {
+        ...boardResponse.board,
+        columns: boardResponse.board.columns.map((column) =>
+          column.node.node_id === "node-1" ? { ...column, task_count: 1 } : column,
+        ),
+      },
+    };
+    const movedBoard = {
+      board: {
+        ...initialBoard.board,
+        columns: initialBoard.board.columns.map((column) => {
+          if (column.node.node_id === "node-1") {
+            return { ...column, task_count: 0 };
+          }
+          if (column.node.node_id === "done") {
+            return { ...column, task_count: 1 };
+          }
+          return column;
+        }),
+      },
+    };
+    let nodeCardsAfterMove = false;
+    const services = createTestServices([
+      ...startupRoutes,
+      {
+        method: "workflow.board.get",
+        handler: (_params, callIndex) => (callIndex === 0 ? initialBoard : movedBoard),
+      },
+      {
+        method: "workflow.board.nodeCards.list",
+        handler: (params: JsonValue) => {
+          const nodeID = isObject(params) && typeof params.node_id === "string" ? params.node_id : "";
+          if (nodeID === "node-1") {
+            return boardNodeCardsResponse(nodeID, nodeCardsAfterMove ? [] : [activeCard], "");
+          }
+          if (nodeID === "done") {
+            return boardNodeCardsResponse(nodeID, nodeCardsAfterMove ? [interruptedCard] : [], "");
+          }
+          return boardNodeCardsResponse(nodeID, [], "");
+        },
+      },
+      {
+        method: "workflow.task.move",
+        handler: () => {
+          nodeCardsAfterMove = true;
+          return { run_ids: ["run-move"], state: "approved", transition_id: "transition-move" };
+        },
+      },
+    ]);
+
+    render(<App services={services} />);
+
+    expect(await screen.findByRole("heading", { name: "Implement" })).toBeInTheDocument();
+    act(() => {
+      visibility.reveal("Implement");
+      visibility.reveal("Done");
+    });
+    const card = await screen.findByRole("article", { name: "Write focused tests" });
+    const dataTransfer = new TestDataTransfer();
+    fireEvent.dragStart(card, { dataTransfer });
+    fireEvent.drop(screen.getByRole("listitem", { name: "Done" }), { dataTransfer });
+
+    expect(await screen.findByText("Workflow run interrupted")).toBeInTheDocument();
+    expect(screen.getByText(/run-move/u)).toBeInTheDocument();
+  });
+
   it("does not keep stale node-card pages after workflow switch", async () => {
     window.history.pushState(null, "", "/projects/project-1?workflowId=workflow-1");
     const workflow2: BoardRouteWorkflow = { ...workflow, workflow_id: "workflow-2", display_name: "Ops" };
@@ -1280,7 +1807,9 @@ describe("BoardRoute", () => {
     render(<App services={services} />);
 
     await screen.findByRole("heading", { name: "Core" });
-    expect(within(await expandBoardHoverMenu()).getByRole("button", { name: "Link workflow" })).toBeDisabled();
+    expect(
+      within(await expandBoardHoverMenu()).getByRole("button", { name: "Link workflow" }),
+    ).toBeDisabled();
   });
 
   it("creates reusable workflows from the board link sidebar and opens the project-context editor", async () => {
@@ -1854,6 +2383,25 @@ function boardNodeCardsResponse(
   };
 }
 
+function deferredBoardCardsResponse(): Readonly<{
+  promise: Promise<ReturnType<typeof boardNodeCardsResponse>>;
+  resolve: (response: ReturnType<typeof boardNodeCardsResponse>) => void;
+}> {
+  let resolve: (response: ReturnType<typeof boardNodeCardsResponse>) => void = () => undefined;
+  const promise = new Promise<ReturnType<typeof boardNodeCardsResponse>>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
+function restoreStartViewTransition(descriptor: PropertyDescriptor | undefined): void {
+  if (descriptor === undefined) {
+    Reflect.deleteProperty(document, "startViewTransition");
+    return;
+  }
+  Object.defineProperty(document, "startViewTransition", descriptor);
+}
+
 function taskDetailResponseForCancel() {
   return {
     task: {
@@ -2088,22 +2636,5 @@ function mockWindowWidth(width: number): () => void {
       return;
     }
     Object.defineProperty(window, "innerWidth", descriptor);
-  };
-}
-
-function taskDetailWindowBridge(opened: NativeTaskDetailTarget[]): NativeBridge {
-  const base = createBrowserNativeBridge();
-  return {
-    ...base,
-    capabilities: {
-      ...base.capabilities,
-      taskDetailWindow: true,
-    },
-    taskDetail: {
-      ...base.taskDetail,
-      async openWindow(target): Promise<void> {
-        opened.push(target);
-      },
-    },
   };
 }

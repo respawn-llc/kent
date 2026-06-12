@@ -18,6 +18,7 @@ import type {
   ServerReadiness,
   TaskComment,
   TaskDetail,
+  TaskMoveResponse,
   WorkflowBoard,
   WorkflowDeleteImpact,
   WorkflowDeleteResponse,
@@ -465,7 +466,7 @@ export class BuilderApiClient {
     await this.transport.call("workflow.task.start", { task_id: taskID });
   }
 
-  async moveTask(input: TaskMoveInput): Promise<void> {
+  async moveTask(input: TaskMoveInput): Promise<TaskMoveResponse> {
     const response = parse(
       "workflow.task.move",
       taskMoveResponseSchema,
@@ -483,6 +484,7 @@ export class BuilderApiClient {
     if (response.approvalError.length > 0) {
       throw new Error(response.approvalError);
     }
+    return response;
   }
 
   async interruptTask(taskID: string, runID: string): Promise<void> {
@@ -502,6 +504,10 @@ export class BuilderApiClient {
 
   async cancelTask(taskID: string): Promise<void> {
     await this.transport.call("workflow.task.cancel", { task_id: taskID });
+  }
+
+  async deleteTask(taskID: string): Promise<void> {
+    await this.transport.call("workflow.task.delete", { task_id: taskID });
   }
 
   async getTask(taskID: string): Promise<TaskDetail> {

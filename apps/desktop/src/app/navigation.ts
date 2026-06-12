@@ -39,6 +39,16 @@ export function useAppNavigation(): AppNavigation {
     },
     [logger],
   );
+  const runImmediateNavigation = useCallback(
+    async (action: () => Promise<void>): Promise<void> => {
+      try {
+        await action();
+      } catch (error) {
+        await logger.append("warn", "Navigation failed", { error: errorMessage(error) });
+      }
+    },
+    [logger],
+  );
   return useMemo(
     () => ({
       async back() {
@@ -85,7 +95,7 @@ export function useAppNavigation(): AppNavigation {
         });
       },
       async openProjectTask(projectID, workflowID, taskID) {
-        await runNavigation(async () => {
+        await runImmediateNavigation(async () => {
           await navigate({
             to: "/projects/$projectId",
             params: { projectId: projectID },
@@ -94,7 +104,7 @@ export function useAppNavigation(): AppNavigation {
         });
       },
       async closeProjectTask(projectID, workflowID) {
-        await runNavigation(async () => {
+        await runImmediateNavigation(async () => {
           await navigate({
             to: "/projects/$projectId",
             params: { projectId: projectID },
@@ -103,7 +113,7 @@ export function useAppNavigation(): AppNavigation {
         });
       },
     }),
-    [navigate, router.history, runNavigation],
+    [navigate, router.history, runImmediateNavigation, runNavigation],
   );
 }
 

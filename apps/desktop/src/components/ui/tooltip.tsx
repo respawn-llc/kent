@@ -33,7 +33,7 @@ function TooltipTrigger({
 function TooltipContent({
   className,
   level = 0,
-  showArrow = true,
+  showArrow = false,
   sideOffset = 0,
   children,
   ...props

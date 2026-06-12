@@ -509,6 +509,10 @@ WHERE t.workflow_id = sqlc.arg(workflow_id)
 DELETE FROM project_workflow_links
 WHERE id = sqlc.arg(id);
 
+-- name: DeleteTask :execrows
+DELETE FROM tasks
+WHERE id = sqlc.arg(id);
+
 -- name: CountTaskNodeReferences :one
 SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
 FROM (

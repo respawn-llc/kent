@@ -3,8 +3,6 @@ import {
   createTauriNativeBridge,
   taskDetailContentMaxWidthPx,
   taskDetailDialogHorizontalPaddingPx,
-  taskDetailNativeDialogWindowOptions,
-  taskDetailNativeWindowInitialWidthPx,
 } from "@builder/desktop-native-bridge";
 import { vi } from "vitest";
 
@@ -20,7 +18,6 @@ describe("native bridge capabilities", () => {
     expect(bridge.capabilities.links.openExternal).toBe(false);
     expect(bridge.capabilities.dialogWindows).toBe(false);
     expect(bridge.capabilities.projectCreationWindow).toBe(false);
-    expect(bridge.capabilities.taskDetailWindow).toBe(false);
     await expect(bridge.builder.resolvePlatform()).resolves.toBe("browser");
     await expect(createBrowserNativeBridge({ platform: "macos" }).builder.resolvePlatform()).resolves.toBe(
       "macos",
@@ -39,7 +36,6 @@ describe("native bridge capabilities", () => {
     expect(bridge.capabilities.windowDrag).toBe(true);
     expect(bridge.capabilities.dialogWindows).toBe(true);
     expect(bridge.capabilities.projectCreationWindow).toBe(true);
-    expect(bridge.capabilities.taskDetailWindow).toBe(true);
     expect(bridge.capabilities.notifications.basic).toBe(false);
     expect(bridge.capabilities.tray).toBe(false);
     expect(bridge.capabilities.appMenu).toBe(false);
@@ -71,17 +67,9 @@ describe("native bridge capabilities", () => {
     });
   });
 
-  it("uses the compact task detail native dialog default width", () => {
+  it("uses shared task detail content widths", () => {
     expect(taskDetailContentMaxWidthPx).toBe(1200);
     expect(taskDetailDialogHorizontalPaddingPx).toBe(16);
-    expect(taskDetailNativeWindowInitialWidthPx).toBe(840);
-    expect(taskDetailNativeDialogWindowOptions({ resumeRunId: "run-1", taskId: "task-1" })).toMatchObject({
-      initialHeight: 760,
-      initialWidth: 840,
-      params: { resumeRunId: "run-1", taskId: "task-1" },
-      route: "/native-dialog/task-detail",
-      title: "Task",
-    });
   });
 
   it("keeps browser workflow delete confirmation events as no-ops", async () => {

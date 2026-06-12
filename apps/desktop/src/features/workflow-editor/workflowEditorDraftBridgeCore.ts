@@ -1,6 +1,10 @@
 import { createContext, useContext, useEffect, useSyncExternalStore } from "react";
 
-import type { WorkflowDerivedWiring, WorkflowValidation } from "../../api";
+import type {
+  WorkflowDerivedWiring,
+  WorkflowGraphValidationResults,
+  WorkflowValidation,
+} from "../../api";
 import type {
   DraftWorkflowDefinition,
   WorkflowEditorDirtyState,
@@ -18,6 +22,9 @@ export type WorkflowEditorDraftController = Readonly<{
   saving: boolean;
   saveError: string;
   saveBlockers: readonly string[];
+  // Structured validation captured at the last blocked save attempt, surfaced
+  // as per-issue detail while the dirty graph disables background validation.
+  saveValidation: WorkflowGraphValidationResults | null;
   save(): void;
   state: WorkflowEditorDraftState;
   workflowID: string;

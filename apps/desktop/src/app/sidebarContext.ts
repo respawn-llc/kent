@@ -49,6 +49,7 @@ export type SidebarDestination =
   | Readonly<{
       kind: "taskDetail";
       mode?: SidebarMode;
+      initialFocus?: "firstQuestion" | undefined;
       taskID: string;
       resumeRunID: string;
       onMutated?: (() => void) | undefined;

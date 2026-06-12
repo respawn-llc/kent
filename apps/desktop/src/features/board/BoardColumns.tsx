@@ -1,8 +1,10 @@
-import type { DragEvent, KeyboardEvent, ReactNode } from "react";
+import { useCallback, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { Maximize2 } from "lucide-react";
 
 import { formatRelativeTime } from "../../app/formatters";
-import { Badge, Button, Spinner } from "../../ui";
+import { Badge, Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, Spinner } from "../../ui";
+import { cx } from "../../ui/classes";
 import {
   type BoardCardDragPayload,
   type BoardColumnDropState,
@@ -10,6 +12,7 @@ import {
   encodeBoardCardDragPayload,
 } from "./BoardDragTypes";
 import type { KanbanCardVM, KanbanColumnVM, KanbanGroupVM } from "./BoardColumnViewModel";
+import { useBoardCardMotion } from "./BoardCardMotionContext";
 
 export type KanbanColumnProps = Readonly<{
   cards: readonly KanbanCardVM[];
@@ -17,13 +20,16 @@ export type KanbanColumnProps = Readonly<{
   hasMoreCards: boolean;
   isLoadingMoreCards: boolean;
   isFirstActive: boolean;
+  isCollapsed?: boolean;
   dropState: BoardColumnDropState;
   actionsDisabled: boolean;
   columnRef?: (element: HTMLElement | null) => void;
   onCardClick: (taskID: string) => void;
   onCardDragEnd: () => void;
   onCardDragStart: (payload: BoardCardDragPayload) => void;
+  onDeleteTask: (taskID: string) => void;
   onDropTask: (event: DragEvent<HTMLElement>) => void;
+  onExpandColumn?: () => void;
   onInterruptTask: (taskID: string, runID: string) => void;
   onLoadMoreCards: () => void;
   onResumeTask: (taskID: string, runID: string) => void;
@@ -31,23 +37,29 @@ export type KanbanColumnProps = Readonly<{
 
 export function KanbanGroup({
   group,
+  hideHeader = false,
   children,
 }: Readonly<{
   group: KanbanGroupVM;
+  hideHeader?: boolean;
   children: ReactNode;
 }>) {
   return (
     <section
-      className="inline-grid h-full min-h-0 w-max grid-rows-[auto_minmax(0,1fr)] gap-[var(--space-3)] align-top"
+      className={cx(
+        "inline-grid h-full min-h-0 w-max align-top",
+        hideHeader ? "grid-rows-[0_minmax(0,1fr)] gap-0" : "grid-rows-[auto_minmax(0,1fr)] gap-[var(--space-2)]",
+      )}
       role="listitem"
     >
-      <header>
-        <p className="m-0 text-[0.72rem] font-extrabold uppercase tracking-[0.16em] text-[var(--color-muted)]">
-          {group.key}
-        </p>
-        <h2 className="m-0 text-[1rem]">{group.name}</h2>
+      <header
+        aria-hidden={hideHeader ? true : undefined}
+        className={hideHeader ? "invisible w-0 min-w-0 max-w-0 overflow-hidden" : undefined}
+        data-testid={`kanban-group-header-${group.id}`}
+      >
+        <h2 className="m-0 text-[1rem] font-bold">{group.name}</h2>
       </header>
-      <div className="grid h-full min-h-0 grid-flow-col auto-cols-[min(480px,80vw)] gap-[var(--space-3)]">
+      <div className="flex h-full min-h-0 gap-[var(--space-2)]">
         {children}
       </div>
     </section>
@@ -60,22 +72,29 @@ export function KanbanColumn({
   hasMoreCards,
   isLoadingMoreCards,
   isFirstActive,
+  isCollapsed = false,
   dropState,
   actionsDisabled,
   columnRef,
   onCardClick,
   onCardDragEnd,
   onCardDragStart,
+  onDeleteTask,
   onDropTask,
+  onExpandColumn,
   onInterruptTask,
   onLoadMoreCards,
   onResumeTask,
 }: KanbanColumnProps) {
   const { t } = useTranslation();
+  const columnClassName = isCollapsed
+    ? `island-glass board-column-morph board-column-collapsed board-column-drop-${dropState} flex h-full min-h-0 w-[64px] shrink-0 rounded-[var(--radius-xl)] p-[var(--space-2)] align-top`
+    : `island-glass board-column-morph board-column-drop-${dropState} grid h-full min-h-0 w-[min(420px,80vw)] shrink-0 grid-rows-[auto_auto_auto_minmax(0,1fr)] gap-[var(--space-3)] rounded-[var(--radius-xl)] p-[var(--space-3)] align-top`;
   return (
     <section
       aria-label={column.name}
-      className={`island-glass board-column-drop-${dropState} grid h-full min-h-0 w-[min(420px,80vw)] shrink-0 grid-rows-[auto_auto_auto_minmax(0,1fr)] gap-[var(--space-3)] rounded-[var(--radius-xl)] p-[var(--space-3)] align-top`}
+      className={columnClassName}
+      data-collapsed={isCollapsed ? "true" : "false"}
       data-drop-state={dropState}
       ref={columnRef}
       onDragOver={(event) => {
@@ -90,62 +109,98 @@ export function KanbanColumn({
       }}
       role="listitem"
     >
-      <header className="flex items-center justify-between gap-[var(--space-2)]">
-        <div>
-          <h2 className="m-0 text-[1rem]">{column.name}</h2>
-          {column.assigneeRole.length > 0 ? (
-            <p className="m-0 font-mono text-sm text-[var(--color-muted)]">{column.assigneeRole}</p>
+      {isCollapsed ? (
+        <CollapsedColumnHeader column={column} onExpand={onExpandColumn} />
+      ) : (
+        <>
+          <header className="flex items-center justify-between gap-[var(--space-2)]">
+            <div>
+              <h2 className="m-0 text-[1rem]">{column.name}</h2>
+              {column.assigneeRole.length > 0 ? (
+                <p className="m-0 font-mono text-sm text-[var(--color-muted)]">{column.assigneeRole}</p>
+              ) : null}
+            </div>
+            <Badge title={t("board.taskCount", { count: column.taskCount })} tone={isFirstActive ? "info" : "neutral"}>
+              <span data-testid={`kanban-column-task-count-${column.id}`}>
+                {t("board.taskCount", { count: column.taskCount })}
+              </span>
+            </Badge>
+          </header>
+          {isFirstActive ? (
+            <p className="m-0 rounded-[var(--radius-m)] border border-dashed border-[var(--color-outline)] p-[var(--space-2)] text-sm text-[var(--color-muted)]">
+              {t("board.dropToStart")}
+            </p>
           ) : null}
-        </div>
-        <Badge tone={isFirstActive ? "info" : "neutral"}>
-          {t("board.taskCount", { count: column.taskCount })}
-        </Badge>
-      </header>
-      {isFirstActive ? (
-        <p className="m-0 rounded-[var(--radius-m)] border border-dashed border-[var(--color-outline)] p-[var(--space-2)] text-sm text-[var(--color-muted)]">
-          {t("board.dropToStart")}
-        </p>
-      ) : null}
-      <div
-        className="min-h-0 overflow-y-auto pr-[var(--space-1)] hide-scrollbar"
-        data-testid={`kanban-column-scroll-${column.id}`}
-        onScroll={(event) => {
-          if (!hasMoreCards || isLoadingMoreCards || !isNearScrollEnd(event.currentTarget)) {
-            return;
-          }
-          onLoadMoreCards();
-        }}
-      >
-        {cards.map((card) => (
-          <TaskCard
-            card={card}
-            actionsDisabled={actionsDisabled}
-            key={card.id}
-            onClick={() => {
-              onCardClick(card.id);
-            }}
-            onDragEnd={onCardDragEnd}
-            onDragStart={onCardDragStart}
-            onInterrupt={(runID) => {
-              onInterruptTask(card.id, runID);
-            }}
-            onResume={(runID) => {
-              onResumeTask(card.id, runID);
-            }}
-          />
-        ))}
-        {isLoadingMoreCards ? (
           <div
-            aria-label={t("app.loadingMore")}
-            className="grid place-items-center py-[var(--space-3)]"
-            role="status"
+            className="min-h-0 overflow-y-auto pr-[var(--space-1)] hide-scrollbar"
+            data-testid={`kanban-column-scroll-${column.id}`}
+            onScroll={(event) => {
+              if (!hasMoreCards || isLoadingMoreCards || !isNearScrollEnd(event.currentTarget)) {
+                return;
+              }
+              onLoadMoreCards();
+            }}
           >
-            <Spinner size="sm" />
-            <span className="sr-only">{t("app.loadingMore")}</span>
+            {cards.map((card) => (
+              <TaskCard
+                card={card}
+                actionsDisabled={actionsDisabled}
+                key={card.id}
+                onClick={() => {
+                  onCardClick(card.id);
+                }}
+                onDragEnd={onCardDragEnd}
+                onDragStart={onCardDragStart}
+                onDelete={onDeleteTask}
+                onInterrupt={(runID) => {
+                  onInterruptTask(card.id, runID);
+                }}
+                onResume={(runID) => {
+                  onResumeTask(card.id, runID);
+                }}
+              />
+            ))}
+            {isLoadingMoreCards ? (
+              <div
+                aria-label={t("app.loadingMore")}
+                className="grid place-items-center py-[var(--space-3)]"
+                role="status"
+              >
+                <Spinner size="sm" />
+                <span className="sr-only">{t("app.loadingMore")}</span>
+              </div>
+            ) : null}
           </div>
-        ) : null}
-      </div>
+        </>
+      )}
     </section>
+  );
+}
+
+function CollapsedColumnHeader({
+  column,
+  onExpand,
+}: Readonly<{
+  column: KanbanColumnVM;
+  onExpand: (() => void) | undefined;
+}>) {
+  const { t } = useTranslation();
+  return (
+    <div className="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] justify-items-center gap-[var(--space-2)]">
+      <button
+        aria-label={t("board.expandColumn", { name: column.name })}
+        className="grid size-[28px] place-items-center rounded-full text-[var(--color-on-island)] opacity-60 outline-none transition-[background-color,box-shadow,opacity] duration-150 hover:bg-[var(--color-island-2)] hover:opacity-85 focus-visible:opacity-100 focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_26%,transparent)]"
+        onClick={onExpand}
+        type="button"
+      >
+        <Maximize2 aria-hidden="true" size={16} strokeWidth={1.7} />
+      </button>
+      <div className="relative min-h-0 w-full overflow-hidden">
+        <div className="board-column-collapsed-label flex items-center justify-start text-left">
+          <h2 className="m-0 max-w-[180px] truncate text-[1rem] leading-none">{column.name}</h2>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -160,6 +215,7 @@ function TaskCard({
   onClick,
   onDragEnd,
   onDragStart,
+  onDelete,
   onInterrupt,
   onResume,
 }: Readonly<{
@@ -168,11 +224,20 @@ function TaskCard({
   onClick: () => void;
   onDragEnd: () => void;
   onDragStart: (payload: BoardCardDragPayload) => void;
+  onDelete: (taskID: string) => void;
   onInterrupt: (runID: string) => void;
   onResume: (runID: string) => void;
 }>) {
   const { t } = useTranslation();
+  const { cardClassName, cardStyle, registerCard: registerMotionCard } = useBoardCardMotion();
+  const registerCard = useCallback(
+    (element: HTMLElement | null) => {
+      registerMotionCard(card.id, element);
+    },
+    [card.id, registerMotionCard],
+  );
   const canDrag = !actionsDisabled && card.statusKind !== "canceled";
+  const waitingForAnswer = isWaitingForAnswer(card.statusKind);
   const dragPayload = {
     taskID: card.id,
     canStart: card.actions.canStart,
@@ -181,58 +246,82 @@ function TaskCard({
     manualMoveTargetNodeIDs: card.actions.manualMoveTargetNodeIDs,
   };
   return (
-    <article
-      aria-label={card.title}
-      className="mb-[var(--space-3)] grid cursor-pointer gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] outline-none focus-visible:border-[var(--color-primary)] focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_26%,transparent)]"
-      data-testid="task-card"
-      draggable={canDrag}
-      onClick={onClick}
-      onDragEnd={onDragEnd}
-      onDragStart={(event) => {
-        if (!canDrag) {
-          event.preventDefault();
-          return;
-        }
-        event.dataTransfer.setData("text/task-id", card.id);
-        event.dataTransfer.setData("text/plain", card.id);
-        event.dataTransfer.setData(boardCardDragPayloadType, encodeBoardCardDragPayload(dragPayload));
-        event.dataTransfer.effectAllowed = "move";
-        onDragStart(dragPayload);
-      }}
-      onKeyDown={(event) => {
-        activateCardFromKeyboard(event, onClick);
-      }}
-      tabIndex={0}
-    >
-      <div className="grid gap-[var(--space-1)] text-left text-[var(--color-on-island)]">
-        <span className="flex min-w-0 items-center justify-between gap-[var(--space-2)]">
-          <span className="shrink-0 font-mono text-[0.78rem] text-[var(--color-muted)]">{card.shortID}</span>
-          <span className="min-w-0 truncate text-right text-sm text-[var(--color-muted)]">
-            {formatRelativeTime(card.updatedAt)}
-          </span>
-        </span>
-        <strong data-testid="task-card-title">{card.title}</strong>
-        <span className="line-clamp-3 text-sm text-[var(--color-muted)]" data-testid="task-card-body">
-          {card.bodyPreview}
-        </span>
-      </div>
-      <div className="flex items-start justify-between gap-[var(--space-2)]" data-testid="task-card-footer">
-        <div
-          className="task-card-chip-row flex min-w-0 flex-1 flex-wrap items-center gap-[var(--space-2)] text-sm text-[var(--color-muted)]"
-          data-testid="task-card-chips"
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <article
+          aria-label={card.title}
+          className={cx(
+            "mb-[var(--space-3)] grid cursor-pointer gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] outline-none focus-visible:border-[var(--color-primary)] focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_26%,transparent)]",
+            cardClassName(card.id),
+          )}
+          data-task-card-state={waitingForAnswer ? "waiting-answer" : card.statusKind}
+          data-testid="task-card"
+          draggable={canDrag}
+          onClick={onClick}
+          onDragEnd={onDragEnd}
+          onDragStart={(event) => {
+            if (!canDrag) {
+              event.preventDefault();
+              return;
+            }
+            event.dataTransfer.setData("text/task-id", card.id);
+            event.dataTransfer.setData("text/plain", card.id);
+            event.dataTransfer.setData(boardCardDragPayloadType, encodeBoardCardDragPayload(dragPayload));
+            event.dataTransfer.effectAllowed = "move";
+            onDragStart(dragPayload);
+          }}
+          onKeyDown={(event) => {
+            activateCardFromKeyboard(event, onClick);
+          }}
+          ref={registerCard}
+          style={{ ...cardStyle(card.id), ...(waitingForAnswer ? waitingForAnswerCardStyle : {}) }}
+          tabIndex={0}
         >
-          <span className="task-card-chip-slot inline-flex items-center" data-testid="task-card-chip-slot">
-            <Badge tone="neutral">{card.sourceWorkspaceName || t("board.workspace")}</Badge>
-          </span>
-        </div>
-        <TaskCardActions
-          actionsDisabled={actionsDisabled}
-          card={card}
-          onInterrupt={onInterrupt}
-          onResume={onResume}
-        />
-      </div>
-    </article>
+          <div className="grid gap-[var(--space-1)] text-left text-[var(--color-on-island)]">
+            <span className="flex min-w-0 items-center justify-between gap-[var(--space-2)]">
+              <span className="shrink-0 font-mono text-[0.78rem] text-[var(--color-muted)]">{card.shortID}</span>
+              <span className="min-w-0 truncate text-right text-sm text-[var(--color-muted)]">
+                {formatRelativeTime(card.updatedAt)}
+              </span>
+            </span>
+            <strong data-testid="task-card-title">{card.title}</strong>
+            <span className="task-card-body-preview text-sm text-[var(--color-muted)]" data-testid="task-card-body">
+              {card.bodyPreview}
+            </span>
+          </div>
+          <div className="flex items-start justify-between gap-[var(--space-2)]" data-testid="task-card-footer">
+            <div
+              className="task-card-chip-row flex min-w-0 flex-1 flex-wrap items-center gap-[var(--space-2)] text-sm text-[var(--color-muted)]"
+              data-testid="task-card-chips"
+            >
+              {card.statusKind === "running" ? (
+                <Spinner className="h-[18px] w-[18px]" strokeWidth={1.5} testID="task-card-active-run-spinner" />
+              ) : null}
+              <span className="task-card-chip-slot inline-flex items-center" data-testid="task-card-chip-slot">
+                <Badge tone="neutral">{card.sourceWorkspaceName || t("board.workspace")}</Badge>
+              </span>
+            </div>
+            <TaskCardActions
+              actionsDisabled={actionsDisabled}
+              card={card}
+              onInterrupt={onInterrupt}
+              onResume={onResume}
+            />
+          </div>
+        </article>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem
+          className="text-[var(--color-error)]"
+          disabled={actionsDisabled}
+          onSelect={() => {
+            onDelete(card.id);
+          }}
+        >
+          {t("board.deleteTask")}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -274,7 +363,8 @@ function TaskCardActions({
   onResume: (runID: string) => void;
 }>) {
   const { t } = useTranslation();
-  if (!card.actions.canInterrupt && !card.actions.canResume) {
+  const canInterrupt = card.actions.canInterrupt && !isWaitingForAnswer(card.statusKind);
+  if (!canInterrupt && !card.actions.canResume) {
     return null;
   }
   return (
@@ -291,7 +381,7 @@ function TaskCardActions({
           {t("board.resume")}
         </Button>
       ) : null}
-      {card.actions.canInterrupt ? (
+      {canInterrupt ? (
         <Button
           onClick={(event) => {
             event.stopPropagation();
@@ -305,4 +395,12 @@ function TaskCardActions({
       ) : null}
     </div>
   );
+}
+
+const waitingForAnswerCardStyle = {
+  borderColor: "var(--color-primary)",
+} satisfies CSSProperties;
+
+function isWaitingForAnswer(statusKind: string): boolean {
+  return statusKind === "waiting_question";
 }

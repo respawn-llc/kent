@@ -4,18 +4,20 @@
   "minimumReleaseAgeExclude": ["@types/node", "vite", "@rolldown/*"],
   "directDependencyAllowlist": {
     "@builder/apps": {
-      "devDependencies": ["prettier"]
+      "devDependencies": ["postcss", "prettier"]
     },
     "@builder/desktop": {
       "dependencies": [
         "@builder/desktop-native-bridge",
         "@dnd-kit/core",
         "@dnd-kit/sortable",
+        "@fontsource-variable/montserrat",
         "@hookform/resolvers",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-context-menu",
         "@radix-ui/react-dropdown-menu",
         "@radix-ui/react-popover",
+        "@radix-ui/react-radio-group",
         "@radix-ui/react-switch",
         "@radix-ui/react-tooltip",
         "@tanstack/react-query",

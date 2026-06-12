@@ -44,11 +44,18 @@ export function TaskDetailDialog({ taskId, open, resumeRunId, onClose, onMutated
 export type TaskDetailSurfaceProps = Readonly<{
   taskId: string;
   enabled: boolean;
+  initialFocus?: "firstQuestion" | undefined;
   resumeRunId: string;
   onMutated?: (() => void) | undefined;
 }>;
 
-export function TaskDetailSurface({ taskId, enabled, resumeRunId, onMutated }: TaskDetailSurfaceProps) {
+export function TaskDetailSurface({
+  taskId,
+  enabled,
+  initialFocus,
+  resumeRunId,
+  onMutated,
+}: TaskDetailSurfaceProps) {
   const { t } = useTranslation();
   const detail = useTaskDetail(taskId, enabled);
   const activity = useTaskActivity(taskId, enabled);
@@ -64,6 +71,7 @@ export function TaskDetailSurface({ taskId, enabled, resumeRunId, onMutated }: T
     <TaskDetailContent
       activity={activity}
       detail={detail.data}
+      initialFocus={initialFocus}
       onMutated={onMutated}
       openLink={openLink}
       resumeRunId={resumeRunId}

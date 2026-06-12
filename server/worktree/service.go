@@ -118,6 +118,16 @@ type EnsureTaskWorktreeResponse struct {
 	CreatedBranch bool
 }
 
+type DeleteTaskWorktreeRequest struct {
+	TaskID string
+}
+
+type DeleteTaskWorktreeResponse struct {
+	Deleted       bool
+	WorktreeID    string
+	BranchDeleted bool
+}
+
 func NewService(metadataStore *metadata.Store, gitInspector *GitInspector, gate primaryrun.Gate, runtime runtimeController, processes processSource, localNotes localEntryAppender, opts ServiceOptions) *Service {
 	if gitInspector == nil {
 		gitInspector = NewGitInspector(nil)
@@ -242,6 +252,191 @@ func (s *Service) EnsureTaskWorktree(ctx context.Context, req EnsureTaskWorktree
 	}
 	cleanup.active = false
 	return EnsureTaskWorktreeResponse{Worktree: worktreeViewFromSynced(created, clientui.SessionExecutionTarget{}), Created: true, CreatedBranch: createdBranch}, nil
+}
+
+func (s *Service) DeleteTaskWorktree(ctx context.Context, req DeleteTaskWorktreeRequest) (DeleteTaskWorktreeResponse, error) {
+	if s == nil || s.metadata == nil || s.git == nil {
+		return DeleteTaskWorktreeResponse{}, errors.New("worktree service dependencies are required")
+	}
+	taskID := strings.TrimSpace(req.TaskID)
+	if taskID == "" {
+		return DeleteTaskWorktreeResponse{}, errors.New("task_id is required")
+	}
+	task, err := s.metadata.Queries().GetTask(ctx, taskID)
+	if err != nil {
+		return DeleteTaskWorktreeResponse{}, err
+	}
+	worktreeID := strings.TrimSpace(task.ManagedWorktreeID.String)
+	if !task.ManagedWorktreeID.Valid || worktreeID == "" {
+		return DeleteTaskWorktreeResponse{}, nil
+	}
+	record, err := s.metadata.GetWorktreeRecordByID(ctx, worktreeID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return DeleteTaskWorktreeResponse{}, nil
+		}
+		return DeleteTaskWorktreeResponse{}, err
+	}
+	workspace, err := s.metadata.GetWorkspaceByID(ctx, record.WorkspaceID)
+	if err != nil {
+		return DeleteTaskWorktreeResponse{}, err
+	}
+	workspaceRoot := strings.TrimSpace(workspace.CanonicalRootPath)
+	if workspaceRoot == "" {
+		return DeleteTaskWorktreeResponse{}, fmt.Errorf("workspace %q has no root path", strings.TrimSpace(record.WorkspaceID))
+	}
+	release := s.acquireWorkspaceMutationLock(record.WorkspaceID)
+	defer release.Release()
+	task, err = s.metadata.Queries().GetTask(ctx, taskID)
+	if err != nil {
+		return DeleteTaskWorktreeResponse{}, err
+	}
+	if !task.ManagedWorktreeID.Valid || strings.TrimSpace(task.ManagedWorktreeID.String) != worktreeID {
+		return DeleteTaskWorktreeResponse{}, nil
+	}
+	record, err = s.metadata.GetWorktreeRecordByID(ctx, worktreeID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return DeleteTaskWorktreeResponse{}, nil
+		}
+		return DeleteTaskWorktreeResponse{}, err
+	}
+	if record.IsMain {
+		return DeleteTaskWorktreeResponse{}, fmt.Errorf("cannot delete main workspace worktree: %w", serverapi.ErrWorktreeBlocked)
+	}
+	releaseDeletionSessionLeases, err := s.ensureTaskWorktreeDeletionUnblocked(ctx, taskID, record)
+	if err != nil {
+		return DeleteTaskWorktreeResponse{}, err
+	}
+	defer releaseDeletionSessionLeases()
+	if err := s.git.Prune(ctx, workspaceRoot); err != nil {
+		return DeleteTaskWorktreeResponse{}, err
+	}
+	synced, err := s.syncWorkspace(ctx, record.WorkspaceID, workspaceRoot, false)
+	if err != nil {
+		return DeleteTaskWorktreeResponse{}, err
+	}
+	target, found := findSyncedWorktreeByID(synced, worktreeID)
+	if found {
+		if err := s.retargetActiveSessionsFromDeletedWorktree(ctx, record.WorkspaceID, workspaceRoot, target.record, ""); err != nil {
+			return DeleteTaskWorktreeResponse{}, err
+		}
+		dirtyCount, dirtyErr := s.git.DirtyFileCount(ctx, target.record.CanonicalRoot)
+		force := dirtyCount > 0 || dirtyErr != nil
+		if err := s.git.Remove(ctx, workspaceRoot, target.record.CanonicalRoot, force); err != nil {
+			return DeleteTaskWorktreeResponse{}, err
+		}
+	} else if err := s.retargetActiveSessionsFromDeletedWorktree(ctx, record.WorkspaceID, workspaceRoot, record, ""); err != nil {
+		return DeleteTaskWorktreeResponse{}, err
+	}
+	// The worktree itself is already removed by this point, so a branch-cleanup
+	// failure must not abort the remaining metadata cleanup; otherwise the record
+	// is left pointing at a removed worktree. Treat branch deletion as best-effort
+	// and report the outcome via BranchDeleted.
+	branchDeleted, branchErr := s.deleteTaskWorktreeBranch(ctx, workspaceRoot, record, target, found)
+	if branchErr != nil {
+		branchDeleted = false
+	}
+	if _, err := s.syncWorkspace(ctx, record.WorkspaceID, workspaceRoot, false); err != nil {
+		return DeleteTaskWorktreeResponse{}, err
+	}
+	if err := s.metadata.DeleteWorktreeRecordByID(ctx, worktreeID); err != nil {
+		return DeleteTaskWorktreeResponse{}, err
+	}
+	return DeleteTaskWorktreeResponse{Deleted: true, WorktreeID: worktreeID, BranchDeleted: branchDeleted}, nil
+}
+
+// EnsureTaskWorktreeDeletable preflights the blockers that canceling a task's own
+// runs cannot clear (another non-terminal task sharing the managed worktree), so
+// callers can refuse a delete before interrupting automation. It is read-only and
+// acquires no locks; DeleteTaskWorktree remains the authoritative, locked check.
+// A task with no managed worktree (or a missing record) is reported as deletable.
+func (s *Service) EnsureTaskWorktreeDeletable(ctx context.Context, taskID string) error {
+	if s == nil || s.metadata == nil {
+		return errors.New("worktree service dependencies are required")
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return errors.New("task_id is required")
+	}
+	task, err := s.metadata.Queries().GetTask(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	worktreeID := strings.TrimSpace(task.ManagedWorktreeID.String)
+	if !task.ManagedWorktreeID.Valid || worktreeID == "" {
+		return nil
+	}
+	record, err := s.metadata.GetWorktreeRecordByID(ctx, worktreeID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if record.IsMain {
+		return fmt.Errorf("cannot delete main workspace worktree: %w", serverapi.ErrWorktreeBlocked)
+	}
+	return s.ensureNoOtherNonTerminalTasksManageWorktree(ctx, taskID, record)
+}
+
+func (s *Service) ensureNoOtherNonTerminalTasksManageWorktree(ctx context.Context, taskID string, record metadata.WorktreeRecord) error {
+	var otherNonTerminalTasks int64
+	if err := s.metadata.DB().QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM tasks t
+WHERE t.managed_worktree_id = ?
+  AND t.id <> ?
+  AND t.canceled_at_unix_ms = 0
+  AND EXISTS (
+    SELECT 1
+    FROM task_node_placements p
+    JOIN workflow_nodes n ON n.id = p.node_id
+    WHERE p.task_id = t.id
+      AND p.state IN ('active', 'waiting_approval')
+      AND n.kind <> 'terminal'
+  )
+`, strings.TrimSpace(record.ID), strings.TrimSpace(taskID)).Scan(&otherNonTerminalTasks); err != nil {
+		return err
+	}
+	if otherNonTerminalTasks > 0 {
+		return errors.Join(serverapi.ErrWorktreeBlocked, fmt.Errorf("worktree is still managed by %d other non-terminal workflow task(s)", otherNonTerminalTasks))
+	}
+	return nil
+}
+
+func (s *Service) ensureTaskWorktreeDeletionUnblocked(ctx context.Context, taskID string, record metadata.WorktreeRecord) (func(), error) {
+	if err := s.ensureNoOtherNonTerminalTasksManageWorktree(ctx, taskID, record); err != nil {
+		return func() {}, err
+	}
+	return s.ensureDeletionSessionAndProcessUnblocked(ctx, "", record.ID, record.CanonicalRoot)
+}
+
+func (s *Service) deleteTaskWorktreeBranch(ctx context.Context, workspaceRoot string, record metadata.WorktreeRecord, target syncedWorktree, found bool) (bool, error) {
+	if !record.BuilderManaged || !record.CreatedBranch {
+		return false, nil
+	}
+	branchName := ""
+	if found {
+		branchName = strings.TrimSpace(target.git.BranchName)
+	}
+	if branchName == "" {
+		gitMetadata, err := worktreeGitMetadataFromRecord(record)
+		if err != nil {
+			return false, err
+		}
+		branchName = strings.TrimSpace(gitMetadata.BranchName)
+	}
+	if branchName == "" {
+		return false, nil
+	}
+	if err := s.git.ForceDeleteBranch(ctx, workspaceRoot, branchName); err != nil {
+		return false, fmt.Errorf("delete task worktree branch %q: %w", branchName, err)
+	}
+	return true, nil
 }
 
 type taskSourceWorkspace struct {
@@ -1004,6 +1199,10 @@ func (s *Service) ensureDeletionUnblocked(ctx context.Context, currentSessionID 
 	if taskBlockers > 0 {
 		return func() {}, errors.Join(serverapi.ErrWorktreeBlocked, fmt.Errorf("worktree is still managed by %d non-terminal workflow task(s)", taskBlockers))
 	}
+	return s.ensureDeletionSessionAndProcessUnblocked(ctx, currentSessionID, worktreeID, worktreeRoot)
+}
+
+func (s *Service) ensureDeletionSessionAndProcessUnblocked(ctx context.Context, currentSessionID string, worktreeID string, worktreeRoot string) (func(), error) {
 	blockers, err := s.metadata.ListSessionsTargetingWorktree(ctx, worktreeID)
 	if err != nil {
 		return func() {}, err

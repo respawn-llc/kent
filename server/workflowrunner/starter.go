@@ -74,6 +74,7 @@ type Starter struct {
 	mu     sync.Mutex
 	cancel map[workflow.RunID]context.CancelFunc
 	task   map[workflow.RunID]workflow.TaskID
+	done   map[workflow.RunID]chan struct{}
 	closed bool
 	wg     sync.WaitGroup
 }
@@ -106,6 +107,7 @@ func NewStarter(cfg config.App, metadataStore *metadata.Store, store RuntimeStor
 		worktrees:        opts.Worktrees,
 		cancel:           map[workflow.RunID]context.CancelFunc{},
 		task:             map[workflow.RunID]workflow.TaskID{},
+		done:             map[workflow.RunID]chan struct{}{},
 	}, nil
 }
 
@@ -202,15 +204,21 @@ func (s *Starter) registerRun(req workflowscheduler.StartRunRequest, cancel cont
 	}
 	s.cancel[req.RunID] = cancel
 	s.task[req.RunID] = req.TaskID
+	s.done[req.RunID] = make(chan struct{})
 	s.wg.Add(1)
 	return true
 }
 
 func (s *Starter) releaseRegisteredRun(runID workflow.RunID) {
 	s.mu.Lock()
+	done := s.done[runID]
 	delete(s.cancel, runID)
 	delete(s.task, runID)
+	delete(s.done, runID)
 	s.mu.Unlock()
+	if done != nil {
+		close(done)
+	}
 	s.wg.Done()
 }
 
@@ -244,14 +252,25 @@ func (s *Starter) Close() error {
 func (s *Starter) CancelTaskRuns(ctx context.Context, taskID workflow.TaskID) error {
 	s.mu.Lock()
 	cancels := []context.CancelFunc{}
+	done := []<-chan struct{}{}
 	for runID, cancel := range s.cancel {
 		if s.task[runID] == taskID && cancel != nil {
 			cancels = append(cancels, cancel)
+			if runDone := s.done[runID]; runDone != nil {
+				done = append(done, runDone)
+			}
 		}
 	}
 	s.mu.Unlock()
 	for _, cancel := range cancels {
 		cancel()
+	}
+	for _, runDone := range done {
+		select {
+		case <-runDone:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	return nil
 }
@@ -312,67 +331,66 @@ func (s *Starter) planSession(ctx context.Context, input workflowstore.RunStartC
 			s.removeFanoutClone(ctx, containerDir, disposableCloneID)
 		}
 	}()
+	var plan launch.SessionPlan
+	var err error
 	if strings.TrimSpace(input.Run.SessionID) != "" {
-		plan, err := planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: input.Run.SessionID})
+		plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: input.Run.SessionID})
 		if err != nil {
 			return launch.SessionPlan{}, nil, err
 		}
 		if err := plan.Store.EnsureDurable(); err != nil {
 			return launch.SessionPlan{}, nil, err
 		}
-		return plan, nil, nil
-	}
-	var plan launch.SessionPlan
-	var err error
-	switch input.ContextMode {
-	case "", workflow.ContextModeNewSession:
-		plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, ForceNewSession: true})
-	case workflow.ContextModeContinueSession:
-		if strings.TrimSpace(input.SourceSessionID) == "" {
-			return launch.SessionPlan{}, nil, errors.New("continue_session requires a source session")
-		}
-		if strings.TrimSpace(input.SourceNode.SubagentRole) != strings.TrimSpace(input.Node.SubagentRole) {
-			return launch.SessionPlan{}, nil, fmt.Errorf("continue_session requires same subagent role: source %q target %q", input.SourceNode.SubagentRole, input.Node.SubagentRole)
-		}
-		plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: input.SourceSessionID})
-	case workflow.ContextModeCompactAndContinueSession:
-		if strings.TrimSpace(input.SourceSessionID) == "" {
-			return launch.SessionPlan{}, nil, errors.New("compact_and_continue_session requires a source session")
-		}
-		if strings.TrimSpace(input.SourceNode.SubagentRole) != strings.TrimSpace(input.Node.SubagentRole) {
-			return launch.SessionPlan{}, nil, fmt.Errorf("compact_and_continue_session requires same subagent role: source %q target %q", input.SourceNode.SubagentRole, input.Node.SubagentRole)
-		}
-		// In-place continuation reuses the source session; the runtime runs a real
-		// compaction before the node turn. A fan-out branch instead continues in an
-		// isolated full clone of the source so parallel branches never compact or
-		// mutate the shared source session concurrently.
-		continuationSessionID := input.SourceSessionID
-		if input.IsFanoutBranch {
-			continuationSessionID, err = s.cloneSourceSessionForFanout(containerDir, input.SourceSessionID)
-			if err != nil {
-				return launch.SessionPlan{}, nil, err
+	} else {
+		switch input.ContextMode {
+		case "", workflow.ContextModeNewSession:
+			plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, ForceNewSession: true})
+		case workflow.ContextModeContinueSession:
+			if strings.TrimSpace(input.SourceSessionID) == "" {
+				return launch.SessionPlan{}, nil, errors.New("continue_session requires a source session")
 			}
-			disposableCloneID = continuationSessionID
+			plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: input.SourceSessionID})
+		case workflow.ContextModeCompactAndContinueSession:
+			if strings.TrimSpace(input.SourceSessionID) == "" {
+				return launch.SessionPlan{}, nil, errors.New("compact_and_continue_session requires a source session")
+			}
+			// In-place continuation reuses the source session; the runtime runs a real
+			// compaction before the node turn. A fan-out branch instead continues in an
+			// isolated full clone of the source so parallel branches never compact or
+			// mutate the shared source session concurrently.
+			continuationSessionID := input.SourceSessionID
+			if input.IsFanoutBranch {
+				continuationSessionID, err = s.cloneSourceSessionForFanout(containerDir, input.SourceSessionID)
+				if err != nil {
+					return launch.SessionPlan{}, nil, err
+				}
+				disposableCloneID = continuationSessionID
+			}
+			plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: continuationSessionID})
+		default:
+			return launch.SessionPlan{}, nil, fmt.Errorf("unsupported workflow context mode %q", input.ContextMode)
 		}
-		plan, err = planner.PlanSession(ctx, launch.SessionRequest{Mode: launch.ModeHeadless, SelectedSessionID: continuationSessionID})
-	default:
-		return launch.SessionPlan{}, nil, fmt.Errorf("unsupported workflow context mode %q", input.ContextMode)
-	}
-	if err != nil {
-		return launch.SessionPlan{}, nil, err
-	}
-	warnings := []string{}
-	if input.ContextMode == "" || input.ContextMode == workflow.ContextModeNewSession {
-		plan, warnings, err = launch.ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: input.Node.SubagentRole}, auth.EmptyState())
 		if err != nil {
 			return launch.SessionPlan{}, nil, err
 		}
+		if err := plan.Store.EnsureDurable(); err != nil {
+			return launch.SessionPlan{}, nil, err
+		}
 	}
-	if err := plan.Store.EnsureDurable(); err != nil {
+	warnings := []string{}
+	plan, warnings, err = launch.ApplyRunPromptOverrides(plan, workflowRunPromptOverrides(input.Node.SubagentRole), auth.EmptyState())
+	if err != nil {
 		return launch.SessionPlan{}, nil, err
 	}
 	planSucceeded = true
 	return plan, warnings, nil
+}
+
+func workflowRunPromptOverrides(role string) serverapi.RunPromptOverrides {
+	if workflow.IsDefaultAgentRole(role) {
+		return serverapi.RunPromptOverrides{AgentRoleSet: true}
+	}
+	return serverapi.RunPromptOverrides{AgentRole: role}
 }
 
 // cloneSourceSessionForFanout creates an isolated full clone of the source
@@ -531,10 +549,15 @@ func (s *Starter) run(ctx context.Context, req workflowscheduler.StartRunRequest
 
 func (s *Starter) finish(runID workflow.RunID, generation int64) {
 	s.mu.Lock()
+	done := s.done[runID]
 	delete(s.cancel, runID)
 	delete(s.task, runID)
+	delete(s.done, runID)
 	finished := s.finished
 	s.mu.Unlock()
+	if done != nil {
+		close(done)
+	}
 	if finished != nil {
 		finished(runID, generation)
 	}

@@ -1,19 +1,11 @@
 import { useTranslation } from "react-i18next";
 
 import { useAppNavigation } from "../../app/navigation";
-import { useAppServices } from "../../app/useAppServices";
-import { Button, NativeDialogWindow } from "../../ui";
+import { Button } from "../../ui";
 import { TaskDetailSurface } from "./TaskDetailDialog";
-import { taskDetailContentMaxWidth } from "./taskDetailLayout";
-import { useNativeTaskDetailTarget } from "./taskDetailNativeHooks";
 
 export type StandaloneTaskRouteProps = Readonly<{
   taskId: string;
-}>;
-
-export type TaskDetailWindowRouteProps = Readonly<{
-  taskId: string;
-  resumeRunId: string;
 }>;
 
 export function StandaloneTaskRoute({ taskId }: StandaloneTaskRouteProps) {
@@ -29,33 +21,5 @@ export function StandaloneTaskRoute({ taskId }: StandaloneTaskRouteProps) {
       </header>
       <TaskDetailSurface enabled resumeRunId="" taskId={taskId} />
     </section>
-  );
-}
-
-export function TaskDetailWindowRoute({ resumeRunId, taskId }: TaskDetailWindowRouteProps) {
-  const { t } = useTranslation();
-  const { nativeBridge } = useAppServices();
-  const target = useNativeTaskDetailTarget(taskId, resumeRunId);
-
-  return (
-    <NativeDialogWindow
-      contentMaxWidth={taskDetailContentMaxWidth}
-      contentPadding="chrome"
-      fitToContent={false}
-      showHeader={false}
-      surface="transparent"
-      title={t("task.title")}
-    >
-      <div className="min-h-full w-full min-w-0">
-        <TaskDetailSurface
-          enabled
-          onMutated={() => {
-            void nativeBridge.taskDetail.notifyChanged({ taskId: target.taskId });
-          }}
-          resumeRunId={target.resumeRunId}
-          taskId={target.taskId}
-        />
-      </div>
-    </NativeDialogWindow>
   );
 }

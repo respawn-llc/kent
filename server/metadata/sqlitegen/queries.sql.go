@@ -518,6 +518,19 @@ func (q *Queries) DeleteProjectWorkflowLink(ctx context.Context, id string) (int
 	return result.RowsAffected()
 }
 
+const deleteTask = `-- name: DeleteTask :execrows
+DELETE FROM tasks
+WHERE id = ?1
+`
+
+func (q *Queries) DeleteTask(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTask, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteTaskComment = `-- name: DeleteTaskComment :execrows
 DELETE FROM task_comments
 WHERE id = ?1

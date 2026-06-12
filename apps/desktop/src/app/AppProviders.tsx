@@ -10,7 +10,6 @@ import { createAppQueryClient } from "./queryClient";
 import type { AppServices } from "./services";
 import { AppServicesProvider } from "./servicesContext";
 import { StatusProvider } from "./statusStore";
-import { useTaskDetailMutationInvalidator } from "./taskDetailInvalidation";
 import { WindowChromeTitleProvider } from "./windowChromeTitle";
 
 void initializeI18n();
@@ -31,7 +30,6 @@ export function AppProviders({ services, children }: AppProvidersProps) {
             <StatusProvider>
               <ReconnectRefresh />
               <NativeWindowGlassTintSync nativeBridge={services.nativeBridge} />
-              <TaskDetailMutationInvalidator />
               {children}
             </StatusProvider>
           </WindowChromeTitleProvider>
@@ -43,11 +41,6 @@ export function AppProviders({ services, children }: AppProvidersProps) {
 
 function NativeWindowGlassTintSync({ nativeBridge }: Readonly<{ nativeBridge: AppServices["nativeBridge"] }>) {
   useNativeWindowGlassTintSync(nativeBridge);
-  return null;
-}
-
-function TaskDetailMutationInvalidator() {
-  useTaskDetailMutationInvalidator();
   return null;
 }
 

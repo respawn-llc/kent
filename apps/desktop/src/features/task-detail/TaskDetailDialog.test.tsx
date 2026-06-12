@@ -1,10 +1,5 @@
-import {
-  createBrowserNativeBridge,
-  type NativeBridge,
-  type NativeTaskDetailChanged,
-  type NativeTaskDetailTarget,
-} from "@builder/desktop-native-bridge";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createBrowserNativeBridge, type NativeBridge } from "@builder/desktop-native-bridge";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { App } from "../../App";
 import type { JsonObject, JsonValue } from "../../api/json";
@@ -30,9 +25,15 @@ describe("TaskDetailDialog", () => {
 
     render(<App services={services} />);
 
-    const recommendedOption = await screen.findByRole("radio", { name: /Use option A/u });
-    expect(recommendedOption).toBeInTheDocument();
-    fireEvent.click(recommendedOption);
+    const question = await screen.findByRole("region", { name: "Question" });
+    expect(screen.queryByRole("region", { name: "Inbox" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Answer")).not.toBeInTheDocument();
+    expect(within(question).queryByRole("heading", { name: "Question" })).not.toBeInTheDocument();
+    const recommendedOption = await within(question).findByRole("radio", { name: /Use option A/u });
+    expect(recommendedOption).toBeChecked();
+    expect(within(question).getByRole("radio", { name: "Neither" })).toBeInTheDocument();
+    expect(within(question).getByRole("textbox", { name: "Commentary" })).toBeInTheDocument();
+    expect(within(question).getByRole("button", { name: "Submit answer" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Submit answer" }));
 
     await waitFor(() => {
@@ -43,6 +44,10 @@ describe("TaskDetailDialog", () => {
       expect(params.run_id).toBe("run-1");
       expect(params.selected_option_number).toBe(1);
       expect(params.task_id).toBe("task-1");
+    });
+    await waitFor(() => {
+      expect(within(question).getByRole("radio", { name: /Use option A/u })).toBeDisabled();
+      expect(within(question).getByRole("button", { name: "Submit answer" })).toBeDisabled();
     });
 
     expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
@@ -82,6 +87,132 @@ describe("TaskDetailDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open in CLI" }));
     await waitFor(() => {
       expect(copied).toEqual(["builder --session=session-2"]);
+    });
+  });
+
+  it("requires commentary when answering a task question with Neither", async () => {
+    window.history.pushState(null, "", "/tasks/task-1");
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.task.get", result: taskDetailResponse },
+      { method: "workflow.task.activity.list", result: activityResponse },
+      { method: "ask.listPendingBySession", result: pendingAskResponse },
+      { method: "workflow.task.question.answer", result: {} },
+    ]);
+
+    render(<App services={services} />);
+
+    const question = await screen.findByRole("region", { name: "Question" });
+    expect(await within(question).findByRole("radio", { name: /Use option A/u })).toBeChecked();
+    fireEvent.click(within(question).getByRole("radio", { name: "Neither" }));
+    expect(within(question).getByRole("button", { name: "Submit answer" })).toBeDisabled();
+
+    fireEvent.change(within(question).getByRole("textbox", { name: "Commentary" }), {
+      target: { value: "Use a different path." },
+    });
+    fireEvent.click(within(question).getByRole("button", { name: "Submit answer" }));
+
+    await waitFor(() => {
+      const params = callParams(services.transport.calls, "workflow.task.question.answer");
+      expect(params.ask_id).toBe("ask-1");
+      expect(params.freeform_answer).toBe("Use a different path.");
+      expect(params.selected_option_number).toBeUndefined();
+    });
+  });
+
+  it("preserves commentary when switching between task question options", async () => {
+    window.history.pushState(null, "", "/tasks/task-1");
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.task.get", result: taskDetailResponse },
+      { method: "workflow.task.activity.list", result: activityResponse },
+      { method: "ask.listPendingBySession", result: pendingAskResponse },
+      { method: "workflow.task.question.answer", result: {} },
+    ]);
+
+    render(<App services={services} />);
+
+    const question = await screen.findByRole("region", { name: "Question" });
+    const recommendedOption = await within(question).findByRole("radio", { name: /Use option A/u });
+    const commentary = within(question).getByRole("textbox", { name: "Commentary" });
+    fireEvent.change(commentary, { target: { value: "Keep the rationale." } });
+    fireEvent.click(within(question).getByRole("radio", { name: "Neither" }));
+    fireEvent.click(recommendedOption);
+    expect(commentary).toHaveValue("Keep the rationale.");
+
+    fireEvent.click(within(question).getByRole("button", { name: "Submit answer" }));
+
+    await waitFor(() => {
+      const params = callParams(services.transport.calls, "workflow.task.question.answer");
+      expect(params.freeform_answer).toBe("Keep the rationale.");
+      expect(params.selected_option_number).toBe(1);
+    });
+  });
+
+  it("renders task question options from attention when pending asks are not available", async () => {
+    window.history.pushState(null, "", "/tasks/task-1");
+    const detailWithAttentionOptions = {
+      task: {
+        ...taskDetailResponse.task,
+        attention: taskDetailResponse.task.attention.map((item) =>
+          item.kind === "question"
+            ? {
+                ...item,
+                message: "Choose snack",
+                recommended_option_index: 2,
+                suggestions: ["Trail mix", "Dark chocolate", "Pistachios"],
+              }
+            : item,
+        ),
+      },
+    };
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.task.get", result: detailWithAttentionOptions },
+      { method: "workflow.task.activity.list", result: activityResponse },
+      { method: "ask.listPendingBySession", result: { Asks: [] } },
+    ]);
+
+    render(<App services={services} />);
+
+    const question = await screen.findByRole("region", { name: "Question" });
+    expect(await within(question).findByRole("radio", { name: /Trail mix/u })).toBeInTheDocument();
+    expect(within(question).getByRole("radio", { name: /Dark chocolate/u })).toBeChecked();
+    expect(within(question).getByRole("radio", { name: /Pistachios/u })).toBeInTheDocument();
+  });
+
+  it("renders approval snapshots as route, commentary, and copyable output values", async () => {
+    window.history.pushState(null, "", "/tasks/task-1");
+    const copied: string[] = [];
+    const services = createTestServices(
+      [
+        ...startupRoutes,
+        { method: "workflow.task.get", result: taskDetailResponse },
+        { method: "workflow.task.activity.list", result: activityResponse },
+        { method: "ask.listPendingBySession", result: pendingAskResponse },
+      ],
+      nativeBridgeWithClipboard(copied),
+    );
+
+    render(<App services={services} />);
+
+    const approval = await screen.findByRole("region", { name: "Approval" });
+    expect(within(approval).queryByRole("heading", { name: "Approval" })).not.toBeInTheDocument();
+    expect(within(approval).queryByText("Approval snapshot")).not.toBeInTheDocument();
+    expect(within(approval).queryByText("Version")).not.toBeInTheDocument();
+    expect(within(approval).queryByText("Approve transition")).not.toBeInTheDocument();
+    const routeActionRow = within(approval).getByTestId("task-approval-route-action-row");
+    expect(within(routeActionRow).getByTestId("workflow-edge-route-source")).toHaveTextContent("Implement");
+    expect(within(routeActionRow).getByTestId("workflow-edge-route-target")).toHaveTextContent("Ship");
+    expect(within(routeActionRow).getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    expect(within(routeActionRow).queryByText("Looks good")).not.toBeInTheDocument();
+    expect(within(routeActionRow).queryByRole("button", { name: "ok" })).not.toBeInTheDocument();
+    expect(within(approval).getByText("Looks good")).toBeInTheDocument();
+
+    fireEvent.click(within(approval).getByRole("button", { name: "ok" }));
+
+    await waitFor(() => {
+      expect(copied).toEqual(["ok"]);
     });
   });
 
@@ -144,13 +275,11 @@ describe("TaskDetailDialog", () => {
 
     expect(await screen.findByRole("textbox", { name: "Title" })).toHaveValue("Resolve blocker");
     expect(screen.queryByRole("region", { name: "Inbox" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("task-description-save")).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Renamed task" } });
-    expect(screen.getByRole("button", { name: "Save title" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Save title" }));
+    expect(screen.queryByRole("button", { name: "Save title" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => {
       expect(services.transport.calls).toContainEqual({
@@ -166,7 +295,7 @@ describe("TaskDetailDialog", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Description" }), {
       target: { value: "Updated details" },
     });
-    expect(screen.getByTestId("task-description-save")).toBeEnabled();
+    expect(screen.queryByTestId("task-description-save")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => {
@@ -181,72 +310,35 @@ describe("TaskDetailDialog", () => {
     });
   });
 
-  it("opens Home Inbox rows through native task detail window when available", async () => {
-    window.history.pushState(null, "", "/");
-    const opened: NativeTaskDetailTarget[] = [];
-    const services = createTestServices(
-      [
-        ...startupRoutes,
-        {
-          method: "workflow.attention.list",
-          result: {
-            items: [
-              {
-                ...attentionBase,
-                id: "attention-question",
-                kind: "question",
-                run_id: "run-1",
-                session_id: "session-1",
-                ask_id: "ask-1",
-                task_transition_id: "",
-                message: "Pick answer",
-              },
-            ],
-            next_page_token: "",
-            generated_at_unix_ms: 1,
-          },
-        },
-      ],
-      nativeBridgeWithTaskDetailWindow(opened),
-    );
+  it("saves description-only task edits through the shared save action", async () => {
+    window.history.pushState(null, "", "/tasks/task-1");
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.task.get", result: taskDetailNoInboxResponse },
+      { method: "workflow.task.activity.list", result: activityResponse },
+      { method: "workflow.task.update", result: taskUpdateResponse },
+    ]);
 
     render(<App services={services} />);
 
-    fireEvent.click(await screen.findByTestId("attention-row"));
-    await waitFor(() => {
-      expect(opened).toEqual([{ resumeRunId: "", taskId: "task-1" }]);
-    });
-  });
+    expect(await screen.findByRole("textbox", { name: "Title" })).toHaveValue("Resolve blocker");
+    expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
 
-  it("refreshes visible Home Inbox queries after native task detail mutations", async () => {
-    window.history.pushState(null, "", "/");
-    let onChanged: ((event: NativeTaskDetailChanged) => void) | null = null;
-    const services = createTestServices(
-      [
-        ...startupRoutes,
-        {
-          method: "workflow.attention.list",
-          handler: (_params, callIndex) => ({
-            items: callIndex === 0 ? [attentionResponseItem] : [],
-            next_page_token: "",
-            generated_at_unix_ms: callIndex + 1,
-          }),
+    fireEvent.change(screen.getByRole("textbox", { name: "Description" }), {
+      target: { value: "Updated description only" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(services.transport.calls).toContainEqual({
+        method: "workflow.task.update",
+        params: {
+          task_id: "task-1",
+          title: "Resolve blocker",
+          body: "Updated description only",
         },
-      ],
-      nativeBridgeWithTaskDetailChangeHandler((handler) => {
-        onChanged = handler;
-      }),
-    );
-
-    render(<App services={services} />);
-    expect(await screen.findByTestId("attention-row")).toBeInTheDocument();
-
-    act(() => {
-      onChanged?.({ taskId: "task-1" });
-    });
-
-    await waitFor(() => {
-      expect(screen.queryByTestId("attention-row")).not.toBeInTheDocument();
+      });
     });
   });
 
@@ -264,39 +356,6 @@ function nativeBridgeWithClipboard(copied: string[]): NativeBridge {
       ...base.clipboard,
       async writeText(value): Promise<void> {
         copied.push(value);
-      },
-    },
-  };
-}
-
-function nativeBridgeWithTaskDetailWindow(opened: NativeTaskDetailTarget[]): NativeBridge {
-  const base = createBrowserNativeBridge();
-  return {
-    ...base,
-    capabilities: {
-      ...base.capabilities,
-      taskDetailWindow: true,
-    },
-    taskDetail: {
-      ...base.taskDetail,
-      async openWindow(target): Promise<void> {
-        opened.push(target);
-      },
-    },
-  };
-}
-
-function nativeBridgeWithTaskDetailChangeHandler(
-  onRegistered: (handler: (event: NativeTaskDetailChanged) => void) => void,
-): NativeBridge {
-  const base = createBrowserNativeBridge();
-  return {
-    ...base,
-    taskDetail: {
-      ...base.taskDetail,
-      async onChanged(handler): Promise<() => void> {
-        onRegistered(handler);
-        return () => undefined;
       },
     },
   };
@@ -339,17 +398,6 @@ const attentionBase = {
   task_short_id: "T-1",
   task_title: "Resolve blocker",
   occurred_at_unix_ms: 1,
-};
-
-const attentionResponseItem = {
-  ...attentionBase,
-  id: "attention-question",
-  kind: "question",
-  run_id: "run-1",
-  session_id: "session-1",
-  ask_id: "ask-1",
-  task_transition_id: "",
-  message: "Pick answer",
 };
 
 const taskDetailResponse = {
@@ -427,7 +475,16 @@ const taskDetailResponse = {
         state: "pending_approval",
         commentary: "Looks good",
         output_values: { result: "ok" },
-        edges: [],
+        edges: [
+          {
+            id: "transition-edge-1",
+            edge_key: "ship",
+            target_node_display_name: "Ship",
+            state: "pending",
+            requires_approval: true,
+            output_requirements: [],
+          },
+        ],
         workflow_revision_seen: 7,
         created_at_unix_ms: 2,
         applied_at_unix_ms: 0,

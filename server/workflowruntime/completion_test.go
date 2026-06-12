@@ -16,12 +16,6 @@ type completionSchemaProperty struct {
 	Enum        []string `json:"enum,omitempty"`
 }
 
-type completionSchemaBranch struct {
-	AdditionalProperties bool                                `json:"additionalProperties"`
-	Required             []string                            `json:"required"`
-	Properties           map[string]completionSchemaProperty `json:"properties"`
-}
-
 func TestSelectCompletionMode(t *testing.T) {
 	supported := llm.ProviderCapabilities{SupportsResponsesAPI: true}
 	unsupported := llm.ProviderCapabilities{}
@@ -56,7 +50,7 @@ func TestSelectCompletionMode(t *testing.T) {
 	}
 }
 
-func TestCompletionJSONSchemaIncludesTransitionSpecificParameterBranches(t *testing.T) {
+func TestCompletionJSONSchemaUsesOpenAICompatibleNullableTransitionParameters(t *testing.T) {
 	raw, err := CompletionJSONSchema(CompletionContract{
 		Transitions: []CompletionTransition{
 			{ID: "done", Parameters: []workflow.Parameter{{Key: "summary", Description: "Summary of work."}}},
@@ -70,7 +64,7 @@ func TestCompletionJSONSchemaIncludesTransitionSpecificParameterBranches(t *test
 		AdditionalProperties bool                                `json:"additionalProperties"`
 		Required             []string                            `json:"required"`
 		Properties           map[string]completionSchemaProperty `json:"properties"`
-		OneOf                []completionSchemaBranch            `json:"oneOf"`
+		OneOf                []any                               `json:"oneOf"`
 	}
 	if err := json.Unmarshal(raw, &schema); err != nil {
 		t.Fatalf("decode schema: %v", err)
@@ -81,58 +75,28 @@ func TestCompletionJSONSchemaIncludesTransitionSpecificParameterBranches(t *test
 	if _, ok := schema.Properties["summary"]; !ok {
 		t.Fatalf("schema properties missing summary: %+v", schema.Properties)
 	}
-	if got := schema.Properties["summary"].Description; got != "Summary of work." {
-		t.Fatalf("summary description = %q", got)
-	}
 	if got := strings.Join(schema.Properties["transition"].Enum, ","); got != "blocked,done" {
 		t.Fatalf("transition enum = %q, want blocked,done", got)
 	}
-	wantRequired := []string{"transition", "commentary"}
+	if len(schema.OneOf) != 0 {
+		t.Fatalf("schema should not use oneOf: %s", string(raw))
+	}
+	assertNullableParameterProperty(t, schema.Properties["summary"])
+	assertNullableParameterProperty(t, schema.Properties["risk"])
+	wantRequired := []string{"transition", "commentary", "risk", "summary"}
 	if strings.Join(schema.Required, ",") != strings.Join(wantRequired, ",") {
 		t.Fatalf("required = %+v, want %+v", schema.Required, wantRequired)
 	}
-	if len(schema.OneOf) != 2 {
-		t.Fatalf("oneOf branch count = %d, want 2 in %s", len(schema.OneOf), string(raw))
-	}
-	branchesByTransition := map[string]completionSchemaBranch{}
-	for _, branch := range schema.OneOf {
-		if branch.AdditionalProperties {
-			t.Fatalf("branch allows additional properties: %+v", branch)
-		}
-		transitionEnum := branch.Properties["transition"].Enum
-		if len(transitionEnum) != 1 {
-			t.Fatalf("branch transition enum = %+v, want one value", transitionEnum)
-		}
-		branchesByTransition[transitionEnum[0]] = branch
-	}
-	assertBranchParameters(t, branchesByTransition["done"], []string{"summary"}, []string{"risk"})
-	assertBranchParameters(t, branchesByTransition["blocked"], []string{"risk"}, []string{"summary"})
 }
 
-func assertBranchParameters(t *testing.T, branch completionSchemaBranch, expected []string, forbidden []string) {
+func assertNullableParameterProperty(t *testing.T, property completionSchemaProperty) {
 	t.Helper()
-	if len(branch.Properties) == 0 {
-		t.Fatalf("branch missing properties")
+	values, ok := property.Type.([]any)
+	if !ok || len(values) != 2 {
+		t.Fatalf("property type = %+v, want nullable string", property.Type)
 	}
-	required := map[string]bool{}
-	for _, field := range branch.Required {
-		required[field] = true
-	}
-	for _, field := range expected {
-		if _, ok := branch.Properties[field]; !ok {
-			t.Fatalf("branch properties missing %s: %+v", field, branch.Properties)
-		}
-		if !required[field] {
-			t.Fatalf("branch required missing %s: %+v", field, branch.Required)
-		}
-	}
-	for _, field := range forbidden {
-		if _, ok := branch.Properties[field]; ok {
-			t.Fatalf("branch properties should not include %s: %+v", field, branch.Properties)
-		}
-		if required[field] {
-			t.Fatalf("branch required should not include %s: %+v", field, branch.Required)
-		}
+	if values[0] != "string" || values[1] != "null" {
+		t.Fatalf("property type = %+v, want [string null]", values)
 	}
 }
 
@@ -301,4 +265,22 @@ func TestDecodeCompletionRejectsParameterFromUnselectedTransition(t *testing.T) 
 		}
 	}
 	t.Fatalf("missing unexpected_parameter issue: %+v", validation.Issues)
+}
+
+func TestDecodeCompletionAcceptsNullForUnselectedTransitionParameter(t *testing.T) {
+	parsed, err := DecodeCompletion(json.RawMessage(`{"transition":"done","commentary":"done","summary":"done","risk":null}`), CompletionContract{
+		Transitions: []CompletionTransition{
+			{ID: "done", Parameters: []workflow.Parameter{{Key: "summary", Description: "Summary."}}},
+			{ID: "blocked", Parameters: []workflow.Parameter{{Key: "risk", Description: "Risk."}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("DecodeCompletion: %v", err)
+	}
+	if parsed.OutputValues["summary"] != "done" {
+		t.Fatalf("summary = %q", parsed.OutputValues["summary"])
+	}
+	if _, exists := parsed.OutputValues["risk"]; exists {
+		t.Fatalf("risk should be omitted after null input: %+v", parsed.OutputValues)
+	}
 }

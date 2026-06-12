@@ -7,11 +7,6 @@ import (
 	"builder/shared/workflowkey"
 )
 
-var reservedParameterKeys = map[string]bool{
-	"commentary": true,
-	"transition": true,
-}
-
 func ValidateDefinition(def Definition, opts ValidationOptions) ValidationResult {
 	context := opts.Context
 	if context == "" {
@@ -490,7 +485,7 @@ func (s *validationState) validateParameters(edge Edge, ref ValidationError) {
 		key := strings.TrimSpace(parameter.Key)
 		parameterRef := ref
 		parameterRef.FieldName = key
-		if key == "" || !workflowkey.Valid(key) || len(key) > MaxParameterKeyChars || reservedParameterKeys[key] {
+		if key == "" || !workflowkey.Valid(key) || len(key) > MaxParameterKeyChars || workflowkey.ReservedParameter(key) {
 			s.addHard(CodeInvalidParameter, fmt.Sprintf("%s: parameter #%d %s", edgeMessageSubject(edge), ordinal, "key is invalid"), parameterRef)
 		}
 		if seen[key] {
@@ -578,13 +573,7 @@ func (s *validationState) validateRuntimeSupport() {
 		if group, groupExists := s.groupsByID[edge.TransitionGroupID]; groupExists {
 			source, sourceExists = s.nodesByID[group.SourceNodeID]
 		}
-		contextSource, contextSourceValid := s.validateContextSource(edge, source, sourceExists, target, targetExists, ref)
-		if edge.ContextMode == ContextModeContinueSession && contextSourceValid {
-			selectedSource, ok := s.contextSourceNode(contextSource, source, sourceExists, target, targetExists)
-			if ok && targetExists && selectedSource.Kind == NodeKindAgent && target.Kind == NodeKindAgent && strings.TrimSpace(selectedSource.SubagentRole) != strings.TrimSpace(target.SubagentRole) {
-				s.addSemantic(CodeInvalidContinueSessionRole, "continue_session requires source and target agent nodes to use the same subagent role", ref)
-			}
-		}
+		s.validateContextSource(edge, source, sourceExists, target, targetExists, ref)
 		for _, issue := range UnsupportedRuntimeFeatures(RuntimeSupportEdge{ContextMode: edge.ContextMode, RequiresApproval: edge.RequiresApproval, TargetKind: targetKind, InputBindings: edge.InputBindings}) {
 			s.addSemantic(issue.Code, issue.Message, ref)
 		}
@@ -658,24 +647,6 @@ func (s *validationState) validateContextSource(edge Edge, source Node, sourceEx
 	}
 }
 
-func (s *validationState) contextSourceNode(contextSource ContextSource, immediate Node, immediateExists bool, target Node, targetExists bool) (Node, bool) {
-	switch contextSource.Kind {
-	case ContextSourceImmediateSource:
-		return immediate, immediateExists
-	case ContextSourceSelectedNode:
-		nodeID, exists := s.nodeKeys[contextSource.NodeKey]
-		if !exists {
-			return Node{}, false
-		}
-		node, exists := s.nodesByID[nodeID]
-		return node, exists
-	case ContextSourcePreviousTarget:
-		return target, targetExists
-	default:
-		return Node{}, false
-	}
-}
-
 func (s *validationState) validateStartOutgoingShape() {
 	start := s.startNodes[0]
 	groups := s.groupsBySource[start.ID]
@@ -730,7 +701,7 @@ func (s *validationState) validatePromptPlaceholders() {
 			}
 		}
 		for _, priorParam := range refs.PriorParams {
-			s.validatePriorParameterReference(edge, priorParam, ref)
+			s.validatePriorParameterReference(edge, priorParam, ref, derived)
 		}
 	}
 }
@@ -757,40 +728,79 @@ func outputFieldNameSet(fields []OutputField) map[string]bool {
 	return out
 }
 
-func (s *validationState) validatePriorParameterReference(edge Edge, param PromptPriorParameterReference, baseRef ValidationError) {
+func (s *validationState) validatePriorParameterReference(edge Edge, param PromptPriorParameterReference, baseRef ValidationError, derived DerivedWiring) {
 	transitionKey := strings.TrimSpace(string(param.TransitionKey))
 	parameterKey := strings.TrimSpace(param.ParameterKey)
 	ref := baseRef
 	ref.FieldName = parameterKey
 	ref.Placeholder = param.Placeholder
 	if transitionKey == "" || !workflowkey.Valid(transitionKey) || parameterKey == "" || !workflowkey.Valid(parameterKey) {
-		s.addHard(CodeInvalidTemplatePlaceholder, "prompt template previous parameter reference is invalid", ref)
+		s.addHard(CodeInvalidTemplatePlaceholder, fmt.Sprintf(
+			"prompt for %s has an invalid previous-parameter reference; use .Params.<transition_key>.<parameter_key> with valid keys.",
+			s.priorParameterConsumerName(edge)), ref)
 		return
 	}
 	source, sourceExists := s.edgeSource(edge)
 	if !sourceExists || len(s.startNodes) != 1 {
 		return
 	}
-	matches := []TransitionGroup{}
+	consumer := s.priorParameterConsumerName(edge)
+	matchedAny := false
+	guaranteed := []TransitionGroup{}
 	for _, group := range s.def.TransitionGroups {
 		if strings.TrimSpace(string(group.TransitionID)) != transitionKey {
 			continue
 		}
+		matchedAny = true
 		if s.transitionGroupDominates(group.ID, source.ID) {
-			matches = append(matches, group)
+			guaranteed = append(guaranteed, group)
 		}
 	}
-	if len(matches) != 1 {
-		s.addHard(CodeInvalidTemplatePlaceholder, "prompt template previous parameter reference must name exactly one guaranteed-prior transition", ref)
-		return
-	}
-	if !s.transitionGroupParameterSet(matches[0].ID)[parameterKey] {
-		s.addHard(CodeInvalidTemplatePlaceholder, "prompt template references an unknown previous transition parameter", ref)
+	switch {
+	case !matchedAny:
+		s.addHard(CodeInvalidTemplatePlaceholder, fmt.Sprintf(
+			"prompt for %s references parameter %q from transition %q, but no %q transition exists in this workflow. Check the transition key for a typo, or define the transition that produces it.",
+			consumer, parameterKey, transitionKey, transitionKey), ref)
+	case len(guaranteed) == 0:
+		s.addHard(CodeInvalidTemplatePlaceholder, fmt.Sprintf(
+			"prompt for %s references parameter %q from transition %q, but %q is not guaranteed to run before %s: another branch can reach %s without it. Reference a parameter that every incoming branch provides, or remove the bypassing branch.",
+			consumer, parameterKey, transitionKey, transitionKey, consumer, consumer), ref)
+	case len(guaranteed) > 1:
+		s.addHard(CodeInvalidTemplatePlaceholder, fmt.Sprintf(
+			"prompt for %s references parameter %q from transition %q, but more than one %q transition can run before %s. Give the producing transitions distinct keys and reference one.",
+			consumer, parameterKey, transitionKey, transitionKey, consumer), ref)
+	case !s.transitionGroupParameterSet(guaranteed[0].ID, derived)[parameterKey]:
+		s.addHard(CodeInvalidTemplatePlaceholder, fmt.Sprintf(
+			"prompt for %s references parameter %q from transition %q, but transition %q does not declare a %q parameter.",
+			consumer, parameterKey, transitionKey, transitionKey, parameterKey), ref)
 	}
 }
 
-func (s *validationState) transitionGroupParameterSet(groupID TransitionGroupID) map[string]bool {
+// priorParameterConsumerName names the node whose prompt carries a previous-parameter
+// reference for use in operator-facing validation messages. The prompt is rendered for
+// the edge's target node, so that node is the consumer.
+func (s *validationState) priorParameterConsumerName(edge Edge) string {
+	if target, exists := s.nodesByID[edge.TargetNodeID]; exists {
+		return nodeDisplayName(target)
+	}
+	return "the target node"
+}
+
+func (s *validationState) transitionGroupParameterSet(groupID TransitionGroupID, derived DerivedWiring) map[string]bool {
 	out := map[string]bool{}
+	// Transitions leaving a join node declare no per-edge parameters; their
+	// effective parameters are the join's aggregated output fields, so resolve
+	// those when the group's source is a join.
+	if group, exists := s.groupsByID[groupID]; exists {
+		if source, sourceExists := s.nodesByID[group.SourceNodeID]; sourceExists && source.Kind == NodeKindJoin {
+			for _, field := range derived.JoinOutputFieldsForNode(source.ID) {
+				name := strings.TrimSpace(field.Name)
+				if name != "" {
+					out[name] = true
+				}
+			}
+		}
+	}
 	for _, edge := range s.edgesByGroup[groupID] {
 		for _, parameter := range edge.Parameters {
 			key := strings.TrimSpace(parameter.Key)

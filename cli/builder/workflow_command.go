@@ -15,6 +15,7 @@ import (
 	"builder/shared/client"
 	"builder/shared/config"
 	"builder/shared/serverapi"
+	"builder/shared/workflowkey"
 
 	"github.com/google/uuid"
 )
@@ -298,6 +299,9 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	contextSource := fs.String("context-source", "", "context source: immediate_source|node:<node-key>")
 	requiresApproval := fs.Bool("requires-approval", false, "require approval before target runs")
 	prompt := fs.String("prompt", "", "branch prompt template for agent targets")
+	transitionDescription := fs.String("transition-description", "", "model-facing transition description explaining when to pick it")
+	var params repeatedStringFlag
+	fs.Var(&params, "param", "transition parameter as key=description (repeatable); declares a value the source agent must produce")
 	workflowRef, flagArgs := takeLeadingPositionals(args, 1)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
 		return exitCode
@@ -312,6 +316,11 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		return 2
 	}
 	parsedContextSource, err := parseWorkflowContextSourceSelector(*contextSource)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	parsedParameters, err := parseWorkflowParameters(params)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -338,16 +347,20 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		return 1
 	}
 	groupID := ""
-	for _, group := range def.TransitionGroups {
+	var existingGroup *serverapi.WorkflowTransitionGroup
+	for i := range def.TransitionGroups {
+		group := def.TransitionGroups[i]
 		if group.SourceNodeID == source.ID && group.TransitionID == strings.TrimSpace(*transitionID) {
 			groupID = group.ID
+			existingGroup = &group
 			break
 		}
 	}
+	trimmedDescription := strings.TrimSpace(*transitionDescription)
 	if groupID == "" {
 		groupID = "group-" + uuid.NewString()
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
-		resp, addErr := remote.AddWorkflowTransitionGroup(ctx, serverapi.WorkflowTransitionGroupAddRequest{WorkflowID: def.Workflow.ID, GroupID: groupID, SourceNodeID: source.ID, TransitionID: *transitionID, DisplayName: workflowDisplayNameFromKey(*transitionID)})
+		resp, addErr := remote.AddWorkflowTransitionGroup(ctx, serverapi.WorkflowTransitionGroupAddRequest{WorkflowID: def.Workflow.ID, GroupID: groupID, SourceNodeID: source.ID, TransitionID: *transitionID, DisplayName: workflowDisplayNameFromKey(*transitionID), Description: trimmedDescription})
 		cancel()
 		if addErr != nil {
 			fmt.Fprintln(stderr, addErr)
@@ -355,11 +368,34 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		}
 		_ = resp
 	}
+	descriptionRollback := func() {}
+	if groupID != "" && flagWasProvided(fs, "transition-description") && existingGroup != nil {
+		previousGroup := *existingGroup
+		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
+		resp, updateErr := remote.UpdateWorkflowTransitionGroup(ctx, serverapi.WorkflowTransitionGroupUpdateRequest{WorkflowID: def.Workflow.ID, GroupID: existingGroup.ID, SourceNodeID: existingGroup.SourceNodeID, TransitionID: existingGroup.TransitionID, DisplayName: existingGroup.DisplayName, Description: trimmedDescription})
+		cancel()
+		if updateErr != nil {
+			fmt.Fprintln(stderr, updateErr)
+			return 1
+		}
+		_ = resp
+		// Restore the prior description if a later step fails so a non-zero exit
+		// never leaves the transition group description partially mutated.
+		descriptionRollback = func() {
+			rbCtx, rbCancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
+			_, rbErr := remote.UpdateWorkflowTransitionGroup(rbCtx, serverapi.WorkflowTransitionGroupUpdateRequest{WorkflowID: def.Workflow.ID, GroupID: previousGroup.ID, SourceNodeID: previousGroup.SourceNodeID, TransitionID: previousGroup.TransitionID, DisplayName: previousGroup.DisplayName, Description: previousGroup.Description})
+			rbCancel()
+			if rbErr != nil {
+				fmt.Fprintf(stderr, "rollback transition group %s description failed: %v\n", previousGroup.ID, rbErr)
+			}
+		}
+	}
 	edgeID := "edge-" + uuid.NewString()
 	ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
-	resp, err := remote.AddWorkflowEdge(ctx, serverapi.WorkflowEdgeAddRequest{WorkflowID: def.Workflow.ID, EdgeID: edgeID, TransitionGroupID: groupID, Key: *edgeKey, TargetNodeID: target.ID, ContextMode: *contextMode, ContextSource: parsedContextSource, RequiresApproval: *requiresApproval, PromptTemplate: *prompt})
+	resp, err := remote.AddWorkflowEdge(ctx, serverapi.WorkflowEdgeAddRequest{WorkflowID: def.Workflow.ID, EdgeID: edgeID, TransitionGroupID: groupID, Key: *edgeKey, TargetNodeID: target.ID, ContextMode: *contextMode, ContextSource: parsedContextSource, RequiresApproval: *requiresApproval, PromptTemplate: *prompt, Parameters: parsedParameters})
 	cancel()
 	if err != nil {
+		descriptionRollback()
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -371,11 +407,15 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	fs := newCommandFlagSet("builder workflow edge update", stderr, workflowCommandUsage)
 	transitionID := fs.String("transition", "", "transition id for the edge's transition group")
 	transitionDisplayName := fs.String("transition-display-name", "", "transition display name")
+	transitionDescription := fs.String("transition-description", "", "model-facing transition description explaining when to pick it")
 	edgeKey := fs.String("edge-key", "", "edge key")
 	toKey := fs.String("to", "", "target node key")
 	contextMode := fs.String("context", "", "context mode: new_session|continue_session|compact_and_continue_session")
 	contextSource := fs.String("context-source", "", "context source: immediate_source|node:<node-key>")
 	prompt := fs.String("prompt", "", "branch prompt template for agent targets")
+	var params repeatedStringFlag
+	fs.Var(&params, "param", "transition parameter as key=description (repeatable); replaces all parameters when provided")
+	clearParams := fs.Bool("clear-params", false, "remove all transition parameters")
 	positionals, flagArgs := takeLeadingPositionals(args, 2)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
 		return exitCode
@@ -415,15 +455,8 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	} else if strings.TrimSpace(*transitionID) != "" {
 		updatedGroup.DisplayName = workflowDisplayNameFromKey(*transitionID)
 	}
-	if updatedGroup != group {
-		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
-		resp, updateErr := remote.UpdateWorkflowTransitionGroup(ctx, serverapi.WorkflowTransitionGroupUpdateRequest{WorkflowID: def.Workflow.ID, GroupID: updatedGroup.ID, SourceNodeID: updatedGroup.SourceNodeID, TransitionID: updatedGroup.TransitionID, DisplayName: updatedGroup.DisplayName})
-		cancel()
-		if updateErr != nil {
-			fmt.Fprintln(stderr, updateErr)
-			return 1
-		}
-		_ = resp
+	if flagWasProvided(fs, "transition-description") {
+		updatedGroup.Description = strings.TrimSpace(*transitionDescription)
 	}
 	updatedEdge := edge
 	if strings.TrimSpace(*edgeKey) != "" {
@@ -451,13 +484,40 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	if flagWasProvided(fs, "prompt") {
 		updatedEdge.PromptTemplate = *prompt
 	}
+	if *clearParams && flagWasProvided(fs, "param") {
+		fmt.Fprintln(stderr, "use either --param or --clear-params, not both")
+		return 2
+	}
+	if *clearParams {
+		updatedEdge.Parameters = nil
+	} else if flagWasProvided(fs, "param") {
+		parsedParameters, parseErr := parseWorkflowParameters(params)
+		if parseErr != nil {
+			fmt.Fprintln(stderr, parseErr)
+			return 2
+		}
+		updatedEdge.Parameters = parsedParameters
+	}
+	// Commit the transition group change only after every edge flag has parsed, so
+	// a malformed --param or --context-source can never leave the group mutated
+	// while the command exits non-zero before touching the edge.
+	if updatedGroup != group {
+		groupCtx, groupCancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
+		groupResp, updateErr := remote.UpdateWorkflowTransitionGroup(groupCtx, serverapi.WorkflowTransitionGroupUpdateRequest{WorkflowID: def.Workflow.ID, GroupID: updatedGroup.ID, SourceNodeID: updatedGroup.SourceNodeID, TransitionID: updatedGroup.TransitionID, DisplayName: updatedGroup.DisplayName, Description: updatedGroup.Description})
+		groupCancel()
+		if updateErr != nil {
+			fmt.Fprintln(stderr, updateErr)
+			return 1
+		}
+		_ = groupResp
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 	defer cancel()
 	resp, err := remote.UpdateWorkflowEdge(ctx, serverapi.WorkflowEdgeUpdateRequest{WorkflowID: def.Workflow.ID, EdgeID: updatedEdge.ID, TransitionGroupID: updatedEdge.TransitionGroupID, Key: updatedEdge.Key, TargetNodeID: updatedEdge.TargetNodeID, ContextMode: updatedEdge.ContextMode, ContextSource: updatedEdge.ContextSource, RequiresApproval: updatedEdge.RequiresApproval, PromptTemplate: updatedEdge.PromptTemplate, Parameters: updatedEdge.Parameters})
 	if err != nil {
 		if updatedGroup != group {
 			rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
-			_, rollbackErr := remote.UpdateWorkflowTransitionGroup(rollbackCtx, serverapi.WorkflowTransitionGroupUpdateRequest{WorkflowID: def.Workflow.ID, GroupID: group.ID, SourceNodeID: group.SourceNodeID, TransitionID: group.TransitionID, DisplayName: group.DisplayName})
+			_, rollbackErr := remote.UpdateWorkflowTransitionGroup(rollbackCtx, serverapi.WorkflowTransitionGroupUpdateRequest{WorkflowID: def.Workflow.ID, GroupID: group.ID, SourceNodeID: group.SourceNodeID, TransitionID: group.TransitionID, DisplayName: group.DisplayName, Description: group.Description})
 			rollbackCancel()
 			if rollbackErr != nil {
 				fmt.Fprintf(stderr, "%v; rollback transition group %s failed: %v\n", err, group.ID, rollbackErr)
@@ -689,6 +749,45 @@ func parseWorkflowContextSourceSelector(raw string) (serverapi.WorkflowContextSo
 		return serverapi.WorkflowContextSource{Kind: "selected_node", NodeKey: nodeKey}, nil
 	}
 	return serverapi.WorkflowContextSource{}, fmt.Errorf("context source selector must be immediate_source or node:<node-key>")
+}
+
+// repeatedStringFlag collects a flag that may be supplied multiple times.
+type repeatedStringFlag []string
+
+func (f *repeatedStringFlag) String() string { return strings.Join(*f, ",") }
+
+func (f *repeatedStringFlag) Set(value string) error {
+	*f = append(*f, value)
+	return nil
+}
+
+// parseWorkflowParameters converts repeated key=description entries into transition
+// parameters. The source agent of the transition must produce a value for each declared
+// key; transition prompts reference them as {{.Params.<key>}}, and downstream prompts
+// reference guaranteed-prior transitions as {{.Params.<transition_id>.<key>}}.
+func parseWorkflowParameters(raw []string) ([]serverapi.WorkflowParameter, error) {
+	parameters := make([]serverapi.WorkflowParameter, 0, len(raw))
+	seen := make(map[string]bool, len(raw))
+	for _, entry := range raw {
+		key, description, found := strings.Cut(entry, "=")
+		key = strings.TrimSpace(key)
+		description = strings.TrimSpace(description)
+		if !found || key == "" || description == "" {
+			return nil, fmt.Errorf("parameter %q must be key=description with a non-empty key and description", entry)
+		}
+		if !workflowkey.Valid(key) {
+			return nil, fmt.Errorf("parameter key %q is invalid; it must %s", key, workflowkey.Description)
+		}
+		if workflowkey.ReservedParameter(key) {
+			return nil, fmt.Errorf("parameter key %q is reserved and cannot be declared", key)
+		}
+		if seen[key] {
+			return nil, fmt.Errorf("parameter key %q is declared more than once", key)
+		}
+		seen[key] = true
+		parameters = append(parameters, serverapi.WorkflowParameter{Key: key, Description: description})
+	}
+	return parameters, nil
 }
 
 func canonicalAPIContextSource(source serverapi.WorkflowContextSource) serverapi.WorkflowContextSource {

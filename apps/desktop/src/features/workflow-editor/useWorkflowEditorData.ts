@@ -9,21 +9,21 @@ import { useStatusController } from "../../app/useStatusController";
 
 export type WorkflowEditorData = ReturnType<typeof useWorkflowEditorData>;
 
-export function useWorkflowEditorData(projectID: string, workflowID: string) {
+export function useWorkflowEditorData(rawProjectID: string, workflowID: string) {
   const { t } = useTranslation();
   const { api } = useAppServices();
   const connection = useConnectionSnapshot();
   const queryClient = useQueryClient();
   const { push } = useStatusController();
+  // A blank or whitespace-only project id is not a real project context (e.g. the
+  // editor opened from the global workflow library). Normalizing it here keeps every
+  // project-scoped query, subscription, and the link gate off, so the editor never
+  // issues a project-scoped RPC with an empty `project_id`.
+  const projectID = rawProjectID.trim();
   const linksQuery = useQuery({
     queryKey: queryKeys.projectWorkflowLinks(projectID),
     queryFn: async () => api.listProjectWorkflowLinks(projectID),
     enabled: projectID.length > 0,
-  });
-  const boardQuery = useQuery({
-    queryKey: queryKeys.board(projectID, workflowID),
-    queryFn: async () => api.getBoard(projectID, workflowID),
-    enabled: projectID.length > 0 && workflowID.length > 0,
   });
   const activeLink = linksQuery.data?.find(
     (link) => link.projectID === projectID && link.workflowID === workflowID,
@@ -107,7 +107,6 @@ export function useWorkflowEditorData(projectID: string, workflowID: string) {
 
   return {
     activeLink,
-    boardQuery,
     linked,
     linksQuery,
     projectContext,

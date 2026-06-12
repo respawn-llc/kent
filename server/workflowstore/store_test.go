@@ -476,6 +476,39 @@ func TestTaskUpdateEditsTitleAndBodyAfterAutomationStarts(t *testing.T) {
 	}
 }
 
+func TestDeleteTaskHardDeletesAssociatedRecords(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
+	task, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Delete me", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started := startTask(t, ctx, store, task.ID)
+	if _, err := store.AddComment(ctx, task.ID, "note", "user", "nek"); err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+
+	deleted, err := store.DeleteTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("DeleteTask: %v", err)
+	}
+	if deleted.ID != task.ID || deleted.ProjectID != binding.ProjectID {
+		t.Fatalf("deleted task identity = %+v, want task %q project %q", deleted, task.ID, binding.ProjectID)
+	}
+	if _, err := store.queries.GetTask(ctx, string(task.ID)); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetTask after DeleteTask = %v, want sql.ErrNoRows", err)
+	}
+	assertZeroTaskRows(t, store, "task_node_placements", string(task.ID))
+	assertZeroTaskRows(t, store, "task_transitions", string(task.ID))
+	assertZeroTaskRows(t, store, "task_comments", string(task.ID))
+	if _, err := store.queries.GetTaskRun(ctx, string(started.RunID)); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetTaskRun after DeleteTask = %v, want sql.ErrNoRows", err)
+	}
+	if _, err := store.DeleteTask(ctx, task.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("DeleteTask missing = %v, want sql.ErrNoRows", err)
+	}
+}
+
 func TestCompleteRunUsesRunStartSnapshotAfterGraphChanges(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
@@ -1558,40 +1591,6 @@ func TestApprovePendingJoinWaitsForAllBranchApprovals(t *testing.T) {
 	}
 }
 
-func TestRejectPendingApprovalTransitionMarksRejected(t *testing.T) {
-	ctx, store, binding := newTestStoreContext(t)
-	workflowID := createApprovalWorkflow(t, ctx, store)
-	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
-	task := createDefaultTask(t, ctx, store, binding.ProjectID)
-	started := startTask(t, ctx, store, task.ID)
-	completed := completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "done"})
-
-	rejected, err := store.RejectTransition(ctx, completed.TransitionID)
-	if err != nil {
-		t.Fatalf("RejectTransition: %v", err)
-	}
-	if rejected.State != "rejected" {
-		t.Fatalf("reject result = %+v, want rejected", rejected)
-	}
-	if _, err := store.ApproveTransition(ctx, completed.TransitionID); err == nil || !strings.Contains(err.Error(), "not pending approval") {
-		t.Fatalf("ApproveTransition rejected error = %v, want not pending", err)
-	}
-	transitions, err := store.ListTransitions(ctx, task.ID)
-	if err != nil {
-		t.Fatalf("ListTransitions: %v", err)
-	}
-	if len(transitions) != 2 || transitions[1].State != "rejected" {
-		t.Fatalf("transitions after rejection = %+v", transitions)
-	}
-	edges, err := store.ListTransitionEdges(ctx, completed.TransitionID)
-	if err != nil {
-		t.Fatalf("ListTransitionEdges: %v", err)
-	}
-	if len(edges) != 1 || edges[0].State != "blocked" || edges[0].TargetPlacementID != "" {
-		t.Fatalf("edges after rejection = %+v, want blocked without target", edges)
-	}
-}
-
 func TestApprovalTransitionGroupWaitsAsWholeWhenAnyEdgeRequiresApproval(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createApprovalWorkflow(t, ctx, store)
@@ -2397,7 +2396,7 @@ func TestManualMoveRejectsActiveParallelBatch(t *testing.T) {
 	}
 }
 
-func TestStartTaskRejectsCrossRoleContinueSessionContextMode(t *testing.T) {
+func TestStartTaskAllowsCrossRoleContinueSessionContextMode(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeContinueSession, "reviewer")
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
@@ -2406,8 +2405,8 @@ func TestStartTaskRejectsCrossRoleContinueSessionContextMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTask invalid workflow backlog: %v", err)
 	}
-	if _, err := store.StartTask(ctx, task.ID); err == nil || !strings.Contains(err.Error(), string(workflow.CodeInvalidContinueSessionRole)) {
-		t.Fatalf("StartTask error = %v, want %s", err, workflow.CodeInvalidContinueSessionRole)
+	if _, err := store.StartTask(ctx, task.ID); err != nil {
+		t.Fatalf("StartTask: %v", err)
 	}
 }
 
@@ -4948,6 +4947,26 @@ func insertCompletedRunForNodeInBatch(t *testing.T, ctx context.Context, store *
 		t.Fatalf("InsertTaskRun competing batch run: %v", err)
 	}
 	return workflow.RunID(runID)
+}
+
+func assertZeroTaskRows(t *testing.T, store *Store, table string, taskID string) {
+	t.Helper()
+	queries := map[string]string{
+		"task_node_placements": `SELECT COUNT(*) FROM task_node_placements WHERE task_id = ?`,
+		"task_transitions":     `SELECT COUNT(*) FROM task_transitions WHERE task_id = ?`,
+		"task_comments":        `SELECT COUNT(*) FROM task_comments WHERE task_id = ?`,
+	}
+	query, ok := queries[table]
+	if !ok {
+		t.Fatalf("assertZeroTaskRows: unsupported table %q", table)
+	}
+	var count int
+	if err := store.db.QueryRow(query, taskID).Scan(&count); err != nil {
+		t.Fatalf("count %s rows for task %s: %v", table, taskID, err)
+	}
+	if count != 0 {
+		t.Fatalf("%s rows for task %s = %d, want 0", table, taskID, count)
+	}
 }
 
 func taskTransitionIDOtherThan(t *testing.T, ctx context.Context, store *Store, taskID workflow.TaskID, excludedID string) workflow.TransitionID {

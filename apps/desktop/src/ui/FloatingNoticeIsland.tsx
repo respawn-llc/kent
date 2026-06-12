@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Maximize2, Minus } from "lucide-react";
 
 import { cx } from "./classes";
@@ -22,6 +22,13 @@ export type FloatingNoticeIslandProps = Readonly<{
   tone?: FloatingNoticeTone;
 }>;
 
+type FloatingNoticePhase = "collapsed" | "collapsing" | "expanding" | "expanded";
+
+const motionMorphVarName = "--motion-morph";
+const motionFastVarName = "--motion-fast";
+const fallbackMotionMorphMs = 350;
+const fallbackMotionFastMs = 140;
+
 export function FloatingNoticeIsland({
   children,
   className,
@@ -38,47 +45,59 @@ export function FloatingNoticeIsland({
   tone = "danger",
 }: FloatingNoticeIslandProps) {
   const titleID = useId();
+  const [phase, setPhase] = useState<FloatingNoticePhase>(() => (collapsed ? "collapsed" : "expanded"));
+  const previousCollapsed = useRef(collapsed);
+  useLayoutEffect(() => {
+    if (previousCollapsed.current === collapsed) {
+      return undefined;
+    }
+    previousCollapsed.current = collapsed;
+    const motionDelay = collapsed
+      ? motionDurationFromCSSVar(motionFastVarName, fallbackMotionFastMs)
+      : motionDurationFromCSSVar(motionMorphVarName, fallbackMotionMorphMs);
+    setPhase(collapsed ? "collapsing" : "expanding");
+    const timer = window.setTimeout(() => {
+      setPhase(collapsed ? "collapsed" : "expanded");
+    }, motionDelay);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [collapsed]);
   const styles = noticeToneStyles[tone];
   const expandedClasses =
     expandedClassName ??
-    "floating-notice-expanded grid h-[176px] w-[min(420px,calc(100vw-32px))] gap-[6px] overflow-hidden rounded-[var(--radius-xl)] p-[var(--space-3)]";
+    "floating-notice-expanded min-h-[123px] max-h-[min(400px,calc(100vh-32px))] w-[min(420px,calc(100vw-32px))] rounded-[var(--radius-xl)] p-[var(--space-3)]";
+  const shellCollapsed = phase === "collapsed";
+  const contentVisible = phase === "expanded";
+  const collapsedButtonVisible = phase === "collapsed";
+  const shellClassName = floatingNoticeShellClassName({
+    className,
+    collapsed: shellCollapsed,
+    expandedClasses,
+    level,
+    positionClassName,
+    positionStrategy,
+    styles,
+  });
 
   return (
     <aside
-      aria-label={collapsed ? title : undefined}
-      aria-labelledby={collapsed ? undefined : titleID}
-      className={cx(
-        "floating-notice-morph app-region-no-drag z-50",
-        positionStrategy,
-        islandSurfaceClassName(level),
-        collapsed
-          ? cx(
-            "floating-notice-collapsed grid h-12 w-12 place-items-center overflow-hidden rounded-[var(--radius-m)] p-0",
-            styles.collapsedTextClassName,
-          )
-          : expandedClasses,
-        positionClassName,
-        styles.borderClassName,
-        collapsed ? styles.collapsedClassName : undefined,
-        className,
-      )}
+      aria-label={shellCollapsed ? title : undefined}
+      aria-labelledby={shellCollapsed ? undefined : titleID}
+      className={shellClassName}
+      data-state={phase}
+      data-testid="floating-notice-shell"
     >
-      {collapsed ? (
-        <button
-          aria-label={expandLabel}
+      <div className="min-h-0 overflow-hidden">
+        <div
+          aria-hidden={!contentVisible}
           className={cx(
-            "grid h-full w-full place-items-center rounded-[var(--radius-m)] border border-transparent bg-transparent",
-            styles.collapsedTextClassName,
+            "floating-notice-content grid max-h-full min-h-0 min-w-0 content-start gap-[var(--space-3)] overflow-y-auto overflow-x-hidden",
+            contentVisible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
           )}
-          onClick={() => {
-            onCollapsedChange(false);
-          }}
-          type="button"
+          data-testid="floating-notice-content"
+          inert={!contentVisible}
         >
-          {icon ?? <Maximize2 aria-hidden="true" size={24} strokeWidth={1.7} />}
-        </button>
-      ) : (
-        <>
           <header
             className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-[var(--space-2)] leading-none"
             data-testid="floating-notice-header"
@@ -98,9 +117,93 @@ export function FloatingNoticeIsland({
             </button>
           </header>
           {children}
-        </>
-      )}
+        </div>
+      </div>
+      <button
+        aria-label={expandLabel}
+        className={cx(
+          "floating-notice-collapsed-button absolute inset-0 grid place-items-center rounded-[var(--radius-m)] border border-transparent bg-transparent",
+          collapsedButtonVisible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+          styles.collapsedTextClassName,
+        )}
+        data-testid="floating-notice-collapsed-button"
+        inert={!collapsedButtonVisible}
+        onClick={() => {
+          onCollapsedChange(false);
+        }}
+        type="button"
+      >
+        {icon ?? <Maximize2 aria-hidden="true" size={24} strokeWidth={1.7} />}
+      </button>
     </aside>
+  );
+}
+
+function motionDurationFromCSSVar(name: string, fallbackMs: number): number {
+  if (prefersReducedMotion()) {
+    return 0;
+  }
+  const root = document.documentElement;
+  const raw = window.getComputedStyle(root).getPropertyValue(name);
+  return firstDurationMs(raw) ?? fallbackMs;
+}
+
+function firstDurationMs(value: string): number | null {
+  const token =
+    value
+      .trim()
+      .split(" ")
+      .find((part) => part.length > 0) ?? "";
+  if (token.endsWith("ms")) {
+    const parsed = Number.parseFloat(token.slice(0, -2));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (token.endsWith("s")) {
+    const parsed = Number.parseFloat(token.slice(0, -1));
+    return Number.isFinite(parsed) ? parsed * 1000 : null;
+  }
+  return null;
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+function floatingNoticeShellClassName({
+  className,
+  collapsed,
+  expandedClasses,
+  level,
+  positionClassName,
+  positionStrategy,
+  styles,
+}: Readonly<{
+  className: string | undefined;
+  collapsed: boolean;
+  expandedClasses: string;
+  level: IslandLevel;
+  positionClassName: string;
+  positionStrategy: "absolute" | "fixed";
+  styles: (typeof noticeToneStyles)[FloatingNoticeTone];
+}>): string {
+  const sizeClassName = collapsed
+    ? cx(
+        "floating-notice-collapsed grid-rows-[0fr] h-12 w-12 rounded-[var(--radius-m)] p-0",
+        styles.collapsedTextClassName,
+      )
+    : cx("grid-rows-[1fr]", expandedClasses);
+  return cx(
+    "floating-notice-morph app-region-no-drag z-50 grid overflow-hidden",
+    positionStrategy,
+    islandSurfaceClassName(level),
+    sizeClassName,
+    positionClassName,
+    styles.borderClassName,
+    collapsed ? styles.collapsedClassName : undefined,
+    "overflow-hidden",
+    className,
   );
 }
 

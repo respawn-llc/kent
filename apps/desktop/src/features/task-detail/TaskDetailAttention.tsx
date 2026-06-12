@@ -2,10 +2,24 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { AttentionItem, TaskTransition } from "../../api";
-import { Button, TextArea } from "../../ui";
+import { errorMessage } from "../../api/errors";
+import { useAppServices } from "../../app/useAppServices";
+import { Button, Island, RadioGroup, RadioGroupItem, showStatusToast } from "../../ui";
+import { fieldInputClassName } from "../../ui/Field";
 import { cx } from "../../ui/classes";
+import { WorkflowEdgeRouteGraphic } from "../workflow-editor/WorkflowEdgeRouteGraphic";
 import { usePendingAsks } from "./useTaskDetailData";
 import type { useTaskMutations } from "./useTaskDetailData";
+
+type QuestionSelectionState = Readonly<{
+  answer: string;
+  askID: string;
+  selectedOption: number | null;
+  submitted: boolean;
+  userSelected: boolean;
+}>;
+
+const emptySuggestions: readonly string[] = [];
 
 export function QuestionBox({
   attention,
@@ -22,84 +36,184 @@ export function QuestionBox({
   const asks = usePendingAsks(attention.sessionID);
   const pendingAsk = asks.data?.find((ask) => ask.askID === attention.askID);
   const question = attention.message.length > 0 ? attention.message : pendingAsk?.question;
-  const [answer, setAnswer] = useState("");
-  const [selectedOption, setSelectedOption] = useState(0);
-  const groupName = useId();
+  const suggestions = attention.suggestions.length > 0 ? attention.suggestions : pendingAsk?.suggestions ?? emptySuggestions;
+  const recommendedOptionSource =
+    attention.suggestions.length > 0 ? attention.recommendedOptionIndex : pendingAsk?.recommendedOptionIndex ?? 0;
+  const recommendedOption = recommendedOptionNumber(suggestions, recommendedOptionSource);
+
+  return (
+    <Island aria-label={t("task.question")}>
+      <QuestionForm
+        answerQuestion={mutations.answerQuestion}
+        attention={attention}
+        disabled={disabled}
+        question={question}
+        recommendedOption={recommendedOption}
+        suggestions={suggestions}
+        taskId={taskId}
+      />
+    </Island>
+  );
+}
+
+function QuestionForm({
+  answerQuestion,
+  attention,
+  disabled,
+  question,
+  recommendedOption,
+  suggestions,
+  taskId,
+}: Readonly<{
+  answerQuestion: ReturnType<typeof useTaskMutations>["answerQuestion"];
+  attention: AttentionItem;
+  disabled: boolean;
+  question: string | undefined;
+  recommendedOption: number | null;
+  suggestions: readonly string[];
+  taskId: string;
+}>) {
+  const { t } = useTranslation();
+  const [selectionState, setSelectionState] = useState<QuestionSelectionState>(() =>
+    emptyQuestionSelection(attention.askID),
+  );
+  const selection = selectionForAsk(selectionState, attention.askID);
+  const selectedOption = selection.userSelected ? selection.selectedOption : recommendedOption;
+  const answer = selection.answer;
+  const answerID = useId();
+  // A real option (>0) can submit on its own; otherwise any typed freeform answer
+  // is submittable, including freeform-only asks where no option is ever selected
+  // (selectedOption stays null). submit() coerces a null/none selection to 0.
+  const canSubmit = (selectedOption !== null && selectedOption > 0) || answer.trim().length > 0;
+  const interactionDisabled = disabled || answerQuestion.isPending || selection.submitted;
+  const submitDisabled = interactionDisabled || !canSubmit;
+  const radioValue = selectedOption === null ? "" : selectedOption.toString();
 
   async function submit(): Promise<void> {
-    const freeformAnswer = selectedOption === 0 ? answer : "";
-    await mutations.answerQuestion.mutateAsync({
+    const selectedOptionNumber = selectedOption ?? 0;
+    await answerQuestion.mutateAsync({
       clientRequestID: `gui-question-${attention.askID}-${Date.now().toString()}`,
       taskID: taskId,
       runID: attention.runID,
       askID: attention.askID,
-      selectedOptionNumber: selectedOption,
-      freeformAnswer,
+      selectedOptionNumber,
+      freeformAnswer: answer,
     });
-    setAnswer("");
-    setSelectedOption(0);
+    setSelectionState({ answer: "", askID: attention.askID, selectedOption: null, submitted: true, userSelected: true });
   }
 
   return (
     <form
-      className="grid gap-[var(--space-3)] rounded-[var(--radius-l)] border border-[var(--color-warning)] bg-[color-mix(in_srgb,var(--color-warning)_12%,transparent)] p-[var(--space-3)]"
+      className="grid gap-[var(--space-3)]"
       onSubmit={(event) => {
         event.preventDefault();
-        void submit();
+        if (canSubmit && !interactionDisabled) {
+          void submit();
+        }
       }}
     >
-      <h3>{t("task.question")}</h3>
-      {question !== undefined && question.length > 0 ? <p>{question}</p> : null}
-      <fieldset className="m-0 grid gap-[var(--space-2)] border-0 p-0">
+      {question !== undefined && question.length > 0 ? <p className="m-0">{question}</p> : null}
+      <fieldset className="m-0 border-0 p-0">
         <legend className="sr-only">{t("task.optionNumber")}</legend>
-        {(pendingAsk?.suggestions ?? []).map((suggestion, optionIndex) => (
-          <label
-            className={cx(
-              "rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-2)] text-left text-[var(--color-on-island)]",
-              selectedOption === optionIndex + 1 &&
-                "border-[var(--color-primary)] bg-[color-mix(in_srgb,var(--color-primary)_14%,transparent)]",
-            )}
-            key={suggestion}
-          >
-            <input
-              checked={selectedOption === optionIndex + 1}
-              className="mr-[var(--space-2)]"
-              name={groupName}
-              onChange={() => {
-                setSelectedOption(optionIndex + 1);
-                setAnswer("");
-              }}
-              type="radio"
+        <RadioGroup
+          aria-label={t("task.optionNumber")}
+          disabled={interactionDisabled}
+          onValueChange={(value) => {
+            const nextOption = Number(value);
+            setSelectionState({
+              answer,
+              askID: attention.askID,
+              selectedOption: nextOption,
+              submitted: false,
+              userSelected: true,
+            });
+          }}
+          value={radioValue}
+        >
+          {suggestions.map((suggestion, optionIndex) => (
+            <QuestionOption
+              disabled={interactionDisabled}
+              key={`${optionIndex.toString()}:${suggestion}`}
+              recommended={recommendedOption === optionIndex + 1}
+              text={suggestion}
+              value={(optionIndex + 1).toString()}
             />
-            {suggestion} {pendingAsk?.recommendedOptionIndex === optionIndex + 1 ? t("task.recommended") : ""}
-          </label>
-        ))}
+          ))}
+          <QuestionOption
+            disabled={interactionDisabled}
+            recommended={false}
+            text={t("task.neitherOption")}
+            value="0"
+          />
+        </RadioGroup>
       </fieldset>
-      <TextArea
-        label={t("task.answer")}
+      <textarea
+        aria-label={t("task.commentary")}
+        className={cx(fieldInputClassName, "min-h-24")}
+        disabled={interactionDisabled}
+        id={answerID}
         onChange={(event) => {
-          setAnswer(event.target.value);
-          if (event.target.value.trim().length > 0) {
-            setSelectedOption(0);
-          }
+          setSelectionState({
+            answer: event.target.value,
+            askID: attention.askID,
+            selectedOption,
+            submitted: false,
+            userSelected: selection.userSelected,
+          });
         }}
         placeholder={t("task.answerPlaceholder")}
         rows={3}
         value={answer}
       />
-      <Button
-        disabled={
-          disabled ||
-          mutations.answerQuestion.isPending ||
-          (answer.trim().length === 0 && selectedOption === 0)
-        }
-        type="submit"
-        variant="primary"
-      >
+      <Button disabled={submitDisabled} type="submit" variant="primary">
         {t("task.submitAnswer")}
       </Button>
     </form>
   );
+}
+
+function QuestionOption({
+  disabled,
+  recommended,
+  text,
+  value,
+}: Readonly<{
+  disabled: boolean;
+  recommended: boolean;
+  text: string;
+  value: string;
+}>) {
+  const { t } = useTranslation();
+  const id = useId();
+  return (
+    <div
+      className={cx(
+        "flex items-start gap-[var(--space-2)] text-left text-[var(--color-on-island)]",
+        disabled && "opacity-60",
+      )}
+    >
+      <RadioGroupItem className="mt-1" disabled={disabled} id={id} value={value} />
+      <label
+        className={cx("min-w-0 flex-1 cursor-pointer", recommended && "font-bold text-[var(--color-primary)]")}
+        htmlFor={id}
+      >
+        {text}
+        {recommended ? <span className="ml-[var(--space-2)] text-xs font-bold">({t("task.recommended")})</span> : null}
+      </label>
+    </div>
+  );
+}
+
+function recommendedOptionNumber(suggestions: readonly string[], recommendedOptionIndex: number): number | null {
+  return recommendedOptionIndex >= 1 && recommendedOptionIndex <= suggestions.length ? recommendedOptionIndex : null;
+}
+
+function emptyQuestionSelection(askID: string): QuestionSelectionState {
+  return { answer: "", askID, selectedOption: null, submitted: false, userSelected: false };
+}
+
+function selectionForAsk(selection: QuestionSelectionState, askID: string): QuestionSelectionState {
+  return selection.askID === askID ? selection : emptyQuestionSelection(askID);
 }
 
 export function ApprovalBox({
@@ -116,55 +230,136 @@ export function ApprovalBox({
   transitions: readonly TaskTransition[];
 }>) {
   const { t } = useTranslation();
+  const { nativeBridge } = useAppServices();
   const transition = transitions.find((item) => item.id === attention.taskTransitionID);
   const stale = transition !== undefined && transition.version !== currentVersion;
   return (
-    <section className="grid gap-[var(--space-3)] rounded-[var(--radius-l)] border border-[var(--color-warning)] bg-[color-mix(in_srgb,var(--color-warning)_12%,transparent)] p-[var(--space-3)]">
-      <h3>{t("task.approval")}</h3>
-      <p>{attention.message}</p>
+    <Island aria-label={t("task.approval")} className="grid gap-[var(--space-3)]">
       {transition !== undefined ? (
-        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-[var(--space-3)] gap-y-[var(--space-2)]">
-          <dt>{t("task.approvalSnapshot")}</dt>
-          <dd>
-            {transition.sourceNodeName} · {transition.transitionName || transition.transitionID}
-          </dd>
-          {transition.edges.length > 0 ? (
-            <>
-              <dt>{t("task.targetNodes")}</dt>
-              <dd>{transition.edges.map((edge) => edge.targetNodeName).join(", ")}</dd>
-            </>
-          ) : null}
+        <div className="grid gap-[var(--space-3)]">
+          <div className="flex min-w-0 items-center gap-[var(--space-3)]" data-testid="task-approval-route-action-row">
+            <WorkflowEdgeRouteGraphic
+              contextMode=""
+              layout="compact"
+              neutralArrow
+              sourceLabel={transition.sourceNodeName}
+              targetLabel={transitionTargetLabel(transition, t)}
+            />
+            <span className="min-w-0 flex-1" />
+            <Button
+              className="shrink-0"
+              disabled={disabled || mutations.approve.isPending}
+              onClick={() => void mutations.approve.mutateAsync(attention.taskTransitionID)}
+              variant="primary"
+            >
+              {t("task.approve")}
+            </Button>
+          </div>
           {transition.commentary.length > 0 ? (
-            <>
-              <dt>{t("task.commentary")}</dt>
-              <dd>{transition.commentary}</dd>
-            </>
+            <p className="m-0 whitespace-pre-wrap text-sm text-[var(--color-muted)]">{transition.commentary}</p>
           ) : null}
-          <dt>{t("task.outputValues")}</dt>
-          <dd>
-            {Object.entries(transition.outputValues)
-              .map(([key, value]) => `${key}: ${value}`)
-              .join("\n") || t("app.none")}
-          </dd>
-          <dt>{t("app.version")}</dt>
-          <dd>{transition.version}</dd>
+          <ApprovalOutputValues
+            nativeBridge={nativeBridge}
+            outputValues={transition.outputValues}
+            onCopied={(name) => {
+              showStatusToast({
+                id: `task-approval-output-copied-${name}`,
+                title: t("task.outputValueCopied", { name }),
+                tone: "success",
+              });
+            }}
+            onCopyFailed={(name, error) => {
+              showStatusToast({
+                body: errorMessage(error),
+                id: `task-approval-output-copy-failed-${name}`,
+                title: t("task.outputValueCopyFailed", { name }),
+                tone: "danger",
+              });
+            }}
+          />
           {stale ? (
-            <>
-              <dt>{t("task.staleApproval")}</dt>
-              <dd>{t("task.staleApprovalBody")}</dd>
-            </>
+            <p className="m-0 text-sm text-[var(--color-warning)]">
+              <strong>{t("task.staleApproval")}</strong> {t("task.staleApprovalBody")}
+            </p>
           ) : null}
-        </dl>
+        </div>
       ) : (
-        <p>{t("task.unavailableSnapshot")}</p>
+        <>
+          <p>{t("task.unavailableSnapshot")}</p>
+          <Button
+            disabled={disabled || mutations.approve.isPending}
+            onClick={() => void mutations.approve.mutateAsync(attention.taskTransitionID)}
+            variant="primary"
+          >
+            {t("task.approve")}
+          </Button>
+        </>
       )}
-      <Button
-        disabled={disabled || mutations.approve.isPending}
-        onClick={() => void mutations.approve.mutateAsync(attention.taskTransitionID)}
-        variant="primary"
-      >
-        {t("task.approve")}
-      </Button>
-    </section>
+    </Island>
   );
+}
+
+function ApprovalOutputValues({
+  nativeBridge,
+  onCopyFailed,
+  onCopied,
+  outputValues,
+}: Readonly<{
+  nativeBridge: ReturnType<typeof useAppServices>["nativeBridge"];
+  onCopyFailed: (name: string, error: unknown) => void;
+  onCopied: (name: string) => void;
+  outputValues: Readonly<Record<string, string>>;
+}>) {
+  const { t } = useTranslation();
+  const entries = Object.entries(outputValues);
+  if (entries.length === 0) {
+    return <p className="m-0 text-sm text-[var(--color-muted)]">{t("app.none")}</p>;
+  }
+  return (
+    <div className="grid gap-[var(--space-2)]">
+      {entries.map(([name, value], index) => (
+        <div className="grid gap-[var(--space-2)]" key={name}>
+          <div className="grid gap-[var(--space-1)]">
+            <strong className="text-sm">{name}</strong>
+            <button
+              className="min-w-0 whitespace-pre-wrap rounded-[var(--radius-m)] px-[var(--space-1)] py-[var(--space-1)] text-left text-sm text-[var(--color-muted)] transition-colors hover:bg-[var(--color-island-2)] hover:text-[var(--color-on-island)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
+              onClick={() => {
+                void copyText(value, nativeBridge)
+                  .then(() => {
+                    onCopied(name);
+                  })
+                  .catch((error: unknown) => {
+                    onCopyFailed(name, error);
+                  });
+              }}
+              type="button"
+            >
+              {value}
+            </button>
+          </div>
+          {index < entries.length - 1 ? (
+            <div className="px-[var(--space-2)]">
+              <div className="h-px w-full bg-[var(--color-outline)]" />
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function transitionTargetLabel(transition: TaskTransition, fallback: ReturnType<typeof useTranslation>["t"]): string {
+  const labels = transition.edges.map((edge) => edge.targetNodeName.trim()).filter((label) => label.length > 0);
+  return labels.join(", ") || fallback("task.targetUnavailable");
+}
+
+async function copyText(
+  value: string,
+  nativeBridge: ReturnType<typeof useAppServices>["nativeBridge"],
+): Promise<void> {
+  if (nativeBridge.capabilities.clipboard.writeText) {
+    await nativeBridge.clipboard.writeText(value);
+    return;
+  }
+  await navigator.clipboard.writeText(value);
 }

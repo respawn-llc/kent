@@ -12,8 +12,7 @@ import { useAppServices } from "../../app/useAppServices";
 import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
 import { useStatusController } from "../../app/useStatusController";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
-import { Badge, ErrorState, LoadingState, VirtualizedInfiniteList } from "../../ui";
-import { useOpenTaskDetail } from "../task-detail/useOpenTaskDetail";
+import { ErrorState, LoadingState, VirtualizedInfiniteList } from "../../ui";
 import { HomePrimaryPane, type HomePrimaryTab } from "./HomePrimaryPane";
 import { ProjectCreateDialog, type ProjectDraft } from "./ProjectCreateForm";
 import {
@@ -191,7 +190,8 @@ type AttentionListProps = Readonly<{
 
 function AttentionList({ items, query }: AttentionListProps) {
   const { t } = useTranslation();
-  const openTaskDetail = useOpenTaskDetail();
+  const navigation = useAppNavigation();
+  const { openSidebar } = useSidebar();
   if (query.isPending) {
     return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} title={t("states.loading")} />;
   }
@@ -216,17 +216,19 @@ function AttentionList({ items, query }: AttentionListProps) {
       onLoadMore={() => void query.fetchNextPage()}
       paddingEnd={16}
       paddingStart={16}
-      renderItem={(item) => <AttentionRow item={item} openTaskDetail={openTaskDetail} />}
+      renderItem={(item) => <AttentionRow item={item} navigation={navigation} openSidebar={openSidebar} />}
     />
   );
 }
 
 function AttentionRow({
   item,
-  openTaskDetail,
+  navigation,
+  openSidebar,
 }: Readonly<{
   item: AttentionItem;
-  openTaskDetail: ReturnType<typeof useOpenTaskDetail>;
+  navigation: ReturnType<typeof useAppNavigation>;
+  openSidebar: ReturnType<typeof useSidebar>["openSidebar"];
 }>) {
   return (
     <button
@@ -234,7 +236,21 @@ function AttentionRow({
       data-testid="attention-row"
       onClick={() => {
         if (item.taskID.length > 0) {
-          openTaskDetail(item.taskID);
+          void openSidebar({
+            kind: "taskDetail",
+            initialFocus: item.kind === "question" ? "firstQuestion" : undefined,
+            mode: "overlay",
+            onMutated: undefined,
+            resumeRunID: "",
+            taskID: item.taskID,
+          });
+          return;
+        }
+        if (item.workflowID.length > 0) {
+          void navigation.openWorkflowEditor({
+            projectID: item.projectID.length > 0 ? item.projectID : undefined,
+            workflowID: item.workflowID,
+          });
         }
       }}
       type="button"
@@ -243,7 +259,6 @@ function AttentionRow({
         className="flex min-w-0 flex-wrap items-center gap-[var(--space-2)]"
         data-testid="attention-row-meta"
       >
-        <Badge tone="warning">{item.kind}</Badge>
         {item.taskShortID.length > 0 ? (
           <span className="min-w-0 truncate font-mono text-sm text-[var(--color-muted)]">
             {item.taskShortID}

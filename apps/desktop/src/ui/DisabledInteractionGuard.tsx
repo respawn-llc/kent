@@ -4,6 +4,7 @@ import { cx } from "./classes";
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip";
 
@@ -41,10 +42,12 @@ export function DisabledInteractionGuard({
     return trigger;
   }
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-      <TooltipContent level={3}>{reason}</TooltipContent>
-    </Tooltip>
+    <TooltipProvider delayDuration={0}>
+      <Tooltip>
+        <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+        <TooltipContent level={3}>{reason}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 

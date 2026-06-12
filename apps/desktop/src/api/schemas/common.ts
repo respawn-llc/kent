@@ -273,6 +273,8 @@ export const attentionItemSchema: z.ZodType<AttentionItem> = z
     ask_id: emptyString,
     task_transition_id: emptyString,
     message: z.string(),
+    suggestions: stringList,
+    recommended_option_index: z.number().optional().default(0),
     occurred_at_unix_ms: z.number(),
   })
   .transform((value) => ({
@@ -288,6 +290,8 @@ export const attentionItemSchema: z.ZodType<AttentionItem> = z
     askID: value.ask_id,
     taskTransitionID: value.task_transition_id,
     message: value.message,
+    suggestions: value.suggestions,
+    recommendedOptionIndex: value.recommended_option_index,
     occurredAt: value.occurred_at_unix_ms,
   }));
 

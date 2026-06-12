@@ -39,6 +39,7 @@ export function SidebarDestinationView({
     return (
       <TaskDetailSurface
         enabled
+        initialFocus={destination.initialFocus}
         onMutated={destination.onMutated}
         resumeRunId={destination.resumeRunID}
         taskId={destination.taskID}

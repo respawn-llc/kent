@@ -7,15 +7,18 @@ import { errorMessage } from "../../api/errors";
 import { useAppNavigation } from "../../app/navigation";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { useSidebar } from "../../app/sidebarContext";
+import { useAppServices } from "../../app/useAppServices";
+import { useNativeDialogFallback } from "../../app/useNativeDialogFallback";
 import { useStatusController } from "../../app/useStatusController";
 import { useWindowChromeTitle } from "../../app/windowChromeTitle";
 import { Button, EmptyState, ErrorState, FloatingNoticeIsland, LoadingState } from "../../ui";
-import { chromeContentPaddingClassName } from "../../ui/chromePadding";
 import { WorkflowValidationIssues } from "../workflow/WorkflowValidationIssues";
-import { BoardColumnController } from "./BoardColumnController";
 import { BoardHoverMenu } from "./BoardHoverMenu";
-import { KanbanGroup } from "./BoardColumns";
-import { toKanbanGroupVM } from "./BoardColumnViewModel";
+import { BoardHorizontalScrollbar } from "./BoardHorizontalScrollbar";
+import { useBoardMoveRunFeedback } from "./BoardMoveRunFeedback";
+import { BoardRailMotionController } from "./BoardRailMotionController";
+import { TaskDeleteConfirmationFallbackDialog } from "./TaskDeleteConfirmation";
+import { taskDeleteWindowOptions, type TaskDeleteTarget } from "./taskDeleteConfirmationModel";
 import {
   type BoardCardDragPayload,
   type BoardColumnDropState,
@@ -29,7 +32,6 @@ import {
   type PendingMissingInputDrop,
 } from "./BoardDropActions";
 import { MissingInputsDialog, RollbackStartDialog } from "./BoardDropDialogs";
-import { boardSections } from "./BoardModel";
 import "./board.css";
 import { useBoard, useBoardTaskActions, useProjectBoardSubscription } from "./useBoardData";
 
@@ -40,9 +42,13 @@ export type BoardRouteProps = Readonly<{
   resumeRunId: string;
 }>;
 
+const emptyExpandedEmptyColumnIDs: ReadonlySet<string> = new Set();
+
 export function BoardRoute({ projectId, workflowId, selectedTaskId, resumeRunId }: BoardRouteProps) {
   const { t } = useTranslation();
   const { push } = useStatusController();
+  const navigation = useAppNavigation();
+  const { activeDestination, closeSidebar } = useSidebar();
   const reportBoardLoadError = useCallback(
     (error: unknown) => {
       push({
@@ -55,10 +61,44 @@ export function BoardRoute({ projectId, workflowId, selectedTaskId, resumeRunId 
     },
     [push, t],
   );
+  const reportBoardNavigationError = useCallback(
+    (error: unknown) => {
+      push({
+        id: "board-navigation-error",
+        tone: "danger",
+        title: t("board.navigationFailed"),
+        body: errorMessage(error),
+        dismissible: false,
+      });
+    },
+    [push, t],
+  );
   const boardQuery = useBoard(projectId, workflowId);
   const board = boardQuery.data;
+  const handleSelectedTaskDeleted = useCallback(() => {
+    // The task detail sidebar is opened independently of the route, so closing
+    // the route task alone would leave it mounted and refetching the now-deleted
+    // task into an error state. Close it too when it targets the deleted task.
+    if (activeDestination?.kind === "taskDetail" && activeDestination.taskID === selectedTaskId) {
+      closeSidebar();
+    }
+    void navigation
+      .closeProjectTask(projectId, board?.selectedWorkflow.id ?? workflowId)
+      .catch(reportBoardNavigationError);
+  }, [
+    activeDestination,
+    board?.selectedWorkflow.id,
+    closeSidebar,
+    navigation,
+    projectId,
+    reportBoardNavigationError,
+    selectedTaskId,
+    workflowId,
+  ]);
   useProjectBoardSubscription(projectId, workflowId, {
     onBackgroundError: reportBoardLoadError,
+    onSelectedTaskDeleted: handleSelectedTaskDeleted,
+    selectedTaskID: selectedTaskId,
     selectedWorkflowID: board?.selectedWorkflow.id ?? workflowId,
   });
 
@@ -105,23 +145,47 @@ function BoardContent({
   const { t } = useTranslation();
   const [workflowIssuesCollapsed, setWorkflowIssuesCollapsed] = useState(false);
   const [activeDrag, setActiveDrag] = useState<BoardCardDragPayload | null>(null);
+  const [expandedEmptyColumns, setExpandedEmptyColumns] = useState<
+    Readonly<{ ids: ReadonlySet<string>; scope: string }>
+  >(() => ({ ids: new Set(), scope: "" }));
   const [rollbackDrop, setRollbackDrop] = useState<PendingDrop | null>(null);
   const [missingInputDrop, setMissingInputDrop] = useState<PendingMissingInputDrop | null>(null);
   const activeDragRef = useRef<BoardCardDragPayload | null>(null);
   const { push } = useStatusController();
+  const { nativeBridge } = useAppServices();
   const navigation = useAppNavigation();
   const scrollportRef = useRef<HTMLDivElement | null>(null);
   const { openSidebar } = useSidebar();
   const connection = useConnectionSnapshot();
   const actions = useBoardTaskActions(board.projectID, boardQueryWorkflowID, board.selectedWorkflow.id);
   const actionsDisabled = connection.phase !== "connected";
+  const moveRunFeedback = useBoardMoveRunFeedback();
+  const taskDeleteDialog = useNativeDialogFallback<TaskDeleteTarget>({
+    errorNoticeID: "task-delete-window-error",
+    errorTitle: t("board.deleteTaskWindowError"),
+    nativeAvailable: nativeBridge.capabilities.dialogWindows,
+    openNative: async (target) => {
+      await nativeBridge.dialogs.openWindow(taskDeleteWindowOptions(target, t("board.deleteTaskTitle")));
+    },
+    renderFallback: (target, close) => (
+      <TaskDeleteConfirmationFallbackDialog
+        disabled={actions.delete.isPending}
+        onClose={close}
+        onConfirm={() => {
+          void confirmDeleteTask(target, close);
+        }}
+      />
+    ),
+  });
 
   const activeColumns = useMemo(
     () => board.columns.filter((column) => !column.isBacklog && !column.isDone),
     [board.columns],
   );
-  const sections = useMemo(() => boardSections(board), [board]);
   const firstActive = activeColumns[0];
+  const columnExpansionScope = `${board.projectID}:${board.selectedWorkflow.id}`;
+  const expandedEmptyColumnIDs =
+    expandedEmptyColumns.scope === columnExpansionScope ? expandedEmptyColumns.ids : emptyExpandedEmptyColumnIDs;
   useWindowChromeTitle(board.selectedWorkflow.name || board.projectName);
   const reportActionError = useCallback(
     (id: string, title: string, error: unknown) => {
@@ -156,7 +220,9 @@ function BoardContent({
       taskID: selectedTaskId,
     }).then((result) => {
       if (active && result.status === "canceled" && result.reason === "closed") {
-        void navigation.closeProjectTask(board.projectID, board.selectedWorkflow.id).catch(reportNavigationError);
+        void navigation
+          .closeProjectTask(board.projectID, board.selectedWorkflow.id)
+          .catch(reportNavigationError);
       }
     });
     return () => {
@@ -199,7 +265,10 @@ function BoardContent({
           : { allowMissingEdge: dropAction.allowMissingEdge }),
         ...(dropAction.autoApprove === undefined ? {} : { autoApprove: dropAction.autoApprove }),
       };
-      void actions.move.mutateAsync(moveInput).catch(reportMoveError);
+      void actions.move
+        .mutateAsync(moveInput)
+        .then(moveRunFeedback.trackMoveRunIDs)
+        .catch(reportMoveError);
       return;
     }
     if (dropAction.kind === "confirmRollback") {
@@ -226,6 +295,24 @@ function BoardContent({
     void actions.resume.mutateAsync({ taskID, runID }).catch(reportResumeError);
   }
 
+  function deleteTask(taskID: string): void {
+    void taskDeleteDialog.open({ taskID });
+  }
+
+  async function confirmDeleteTask(target: TaskDeleteTarget, close: () => void): Promise<void> {
+    try {
+      await actions.delete.mutateAsync(target.taskID);
+      if (target.taskID === selectedTaskId) {
+        await navigation
+          .closeProjectTask(board.projectID, board.selectedWorkflow.id)
+          .catch(reportNavigationError);
+      }
+      close();
+    } catch (error) {
+      reportDeleteError(error);
+    }
+  }
+
   function reportStartError(error: unknown): void {
     reportActionError("board-start-error", t("board.startFailed"), error);
   }
@@ -240,6 +327,10 @@ function BoardContent({
 
   function reportResumeError(error: unknown): void {
     reportActionError("board-resume-error", t("board.resumeFailed"), error);
+  }
+
+  function reportDeleteError(error: unknown): void {
+    reportActionError("board-delete-error", t("board.deleteFailed"), error);
   }
 
   function reportRejectedDrop(): void {
@@ -263,6 +354,23 @@ function BoardContent({
     return canStartHere || manualTargets.has(column.id) ? "allowed" : "blocked";
   }
 
+  function columnIsCollapsed(column: BoardColumn): boolean {
+    return (
+      !column.isBacklog &&
+      column.id !== firstActive?.id &&
+      column.taskCount === 0 &&
+      !expandedEmptyColumnIDs.has(column.id)
+    );
+  }
+
+  function expandColumn(columnID: string): void {
+    setExpandedEmptyColumns((current) => {
+      const next = new Set(current.scope === columnExpansionScope ? current.ids : []);
+      next.add(columnID);
+      return { ids: next, scope: columnExpansionScope };
+    });
+  }
+
   function confirmRollbackDrop(): void {
     if (rollbackDrop === null) {
       return;
@@ -271,6 +379,7 @@ function BoardContent({
     setRollbackDrop(null);
     void actions.move
       .mutateAsync({ taskID: drop.taskID, targetNodeID: drop.targetColumn.id, autoApprove: true })
+      .then(moveRunFeedback.trackMoveRunIDs)
       .catch(reportMoveError);
   }
 
@@ -289,11 +398,14 @@ function BoardContent({
         allowMissingEdge: true,
         autoApprove: drop.targetColumn.kind === "agent",
       })
+      .then(moveRunFeedback.trackMoveRunIDs)
       .catch(reportMoveError);
   }
 
   function openTask(taskID: string): void {
-    void navigation.openProjectTask(board.projectID, board.selectedWorkflow.id, taskID).catch(reportNavigationError);
+    void navigation
+      .openProjectTask(board.projectID, board.selectedWorkflow.id, taskID)
+      .catch(reportNavigationError);
   }
 
   function selectWorkflow(workflowID: string): void {
@@ -301,7 +413,9 @@ function BoardContent({
   }
 
   function editWorkflow(workflowID: string): void {
-    void navigation.openWorkflowEditor({ projectID: board.projectID, workflowID }).catch(reportNavigationError);
+    void navigation
+      .openWorkflowEditor({ projectID: board.projectID, workflowID })
+      .catch(reportNavigationError);
   }
 
   function openNewTask(): void {
@@ -325,66 +439,38 @@ function BoardContent({
 
   return (
     <div className="relative h-full min-h-0 min-w-0 w-full">
-      <div className="h-full min-h-0 min-w-0 w-full overflow-x-auto" ref={scrollportRef} role="list">
-        <div
-          className={`flex h-full min-h-0 w-max min-w-full gap-[var(--space-2)] ${chromeContentPaddingClassName}`}
-          data-testid="board-column-rail"
-        >
-          {sections.map((section) =>
-            section.kind === "group" ? (
-              <KanbanGroup group={toKanbanGroupVM(section.group)} key={section.id}>
-                {section.columns.map((column) => (
-                  <BoardColumnController
-                    actionsDisabled={actionsDisabled}
-                    board={board}
-                    column={column}
-                    dropState={columnDropState(column)}
-                    isFirstActive={column.id === firstActive?.id}
-                    key={column.id}
-                    onCardClick={openTask}
-                    onCardDragEnd={() => {
-                      activeDragRef.current = null;
-                      setActiveDrag(null);
-                    }}
-                    onCardDragStart={(payload) => {
-                      activeDragRef.current = payload;
-                      setActiveDrag(payload);
-                    }}
-                    onCardsLoadError={reportCardsLoadError}
-                    onDropTask={dropTask}
-                    onInterruptTask={interruptTask}
-                    onResumeTask={resumeTask}
-                    scrollportRef={scrollportRef}
-                  />
-                ))}
-              </KanbanGroup>
-            ) : (
-              <BoardColumnController
-                actionsDisabled={actionsDisabled}
-                board={board}
-                column={section.column}
-                dropState={columnDropState(section.column)}
-                isFirstActive={section.column.id === firstActive?.id}
-                key={section.id}
-                onCardClick={openTask}
-                onCardDragEnd={() => {
-                  activeDragRef.current = null;
-                  setActiveDrag(null);
-                }}
-                onCardDragStart={(payload) => {
-                  activeDragRef.current = payload;
-                  setActiveDrag(payload);
-                }}
-                onCardsLoadError={reportCardsLoadError}
-                onDropTask={dropTask}
-                onInterruptTask={interruptTask}
-                onResumeTask={resumeTask}
-                scrollportRef={scrollportRef}
-              />
-            ),
-          )}
-        </div>
+      <div
+        className="h-full min-h-0 min-w-0 w-full overflow-x-auto hide-scrollbar"
+        data-testid="board-scrollport"
+        ref={scrollportRef}
+        role="list"
+      >
+        <BoardRailMotionController
+          actionsDisabled={actionsDisabled}
+          board={board}
+          columnDropState={columnDropState}
+          columnIsCollapsed={columnIsCollapsed}
+          firstActiveID={firstActive?.id}
+          onCardClick={openTask}
+          onCardDragEnd={() => {
+            activeDragRef.current = null;
+            setActiveDrag(null);
+          }}
+          onCardDragStart={(payload) => {
+            activeDragRef.current = payload;
+            setActiveDrag(payload);
+          }}
+          onCardsLoadError={reportCardsLoadError}
+          onDeleteTask={deleteTask}
+          onDropTask={dropTask}
+          onExpandColumn={expandColumn}
+          onInterruptedRunObserved={moveRunFeedback.observeInterruptedRun}
+          onInterruptTask={interruptTask}
+          onResumeTask={resumeTask}
+          scrollportRef={scrollportRef}
+        />
       </div>
+      <BoardHorizontalScrollbar scrollportRef={scrollportRef} />
       <RollbackStartDialog
         onClose={() => {
           setRollbackDrop(null);
@@ -404,6 +490,7 @@ function BoardContent({
           );
         }}
       />
+      {taskDeleteDialog.fallback}
       {!board.selectedWorkflow.validForTaskCreation ? (
         <FloatingNoticeIsland
           collapsed={workflowIssuesCollapsed}

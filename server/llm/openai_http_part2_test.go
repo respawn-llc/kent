@@ -46,6 +46,74 @@ func TestBuildPayload_AppliesStructuredOutputJSONSchema(t *testing.T) {
 	}
 }
 
+func TestBuildPayload_PreservesNullableStructuredOutputSchemaProperties(t *testing.T) {
+	transport := NewHTTPTransport(staticAuth{})
+	payload, err := transport.buildPayload(OpenAIRequest{
+		Model: "gpt-5",
+		StructuredOutput: &StructuredOutput{
+			Name: "workflow_completion",
+			Schema: json.RawMessage(`{
+				"type": "object",
+				"additionalProperties": false,
+				"properties": {
+					"transition": {"type": "string", "enum": ["blocked", "done"]},
+					"commentary": {"type": "string"},
+					"risk": {"type": ["string", "null"]},
+					"summary": {"type": ["string", "null"]}
+				},
+				"required": ["transition", "commentary", "risk", "summary"]
+			}`),
+			Strict: true,
+		},
+	}, openAIAuthMode{}, requireProviderCapabilities(t, transport, openAIAuthMode{}))
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+
+	schema := structuredOutputPayloadSchema(t, mustMarshalObject(t, payload))
+	if _, exists := schema["oneOf"]; exists {
+		t.Fatalf("payload schema should not include oneOf: %+v", schema)
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("payload schema properties missing: %+v", schema)
+	}
+	assertNullablePayloadProperty(t, properties, "summary")
+	assertNullablePayloadProperty(t, properties, "risk")
+}
+
+func structuredOutputPayloadSchema(t *testing.T, jsonPayload map[string]any) map[string]any {
+	t.Helper()
+	text, ok := jsonPayload["text"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected text config in payload, got %#v", jsonPayload["text"])
+	}
+	format, ok := text["format"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected text.format config in payload, got %#v", text["format"])
+	}
+	schema, ok := format["schema"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected text.format.schema object, got %#v", format["schema"])
+	}
+	return schema
+}
+
+func assertNullablePayloadProperty(t *testing.T, properties map[string]any, name string) {
+	t.Helper()
+	property, ok := properties[name].(map[string]any)
+	if !ok {
+		t.Fatalf("payload property %s missing: %+v", name, properties)
+	}
+	values, ok := property["type"].([]any)
+	if !ok || len(values) != 2 {
+		t.Fatalf("payload property %s type = %+v, want nullable string", name, property["type"])
+	}
+	if values[0] != "string" || values[1] != "null" {
+		t.Fatalf("payload property %s type = %+v, want [string null]", name, values)
+	}
+}
+
 func TestBuildPayload_AppliesConfiguredModelVerbosityForSupportedModels(t *testing.T) {
 	transport := NewHTTPTransport(staticAuth{})
 	transport.ModelVerbosity = "high"

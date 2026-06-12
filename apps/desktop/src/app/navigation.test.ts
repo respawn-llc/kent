@@ -73,7 +73,7 @@ describe("navigation stack state", () => {
     expect(observed[1]?.openProjectTask).toBe(observed[0]?.openProjectTask);
   });
 
-  it("runs default transitions for every navigation API destination", async () => {
+  it("runs default transitions for page-level navigation and immediate updates for project task selection", async () => {
     installMatchMedia(false);
     const startViewTransition = vi.fn((update: () => void | Promise<void>): ViewTransitionTestHandle => {
       const updateCallbackDone = Promise.resolve(update());
@@ -169,7 +169,7 @@ describe("navigation stack state", () => {
     });
     expectRoute(router, "/", {});
 
-    expect(startViewTransition).toHaveBeenCalledTimes(7);
+    expect(startViewTransition).toHaveBeenCalledTimes(5);
   });
 });
 

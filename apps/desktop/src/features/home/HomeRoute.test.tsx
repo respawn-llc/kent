@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { vi } from "vitest";
 
 import type { JsonValue } from "../../api/json";
 import { App } from "../../App";
@@ -115,6 +116,144 @@ describe("HomeRoute", () => {
     expect(window.location.pathname).toBe("/");
   });
 
+  it("renders Inbox cards without kind chips in the header", async () => {
+    const services = createTestServices([
+      ...startupRoutes,
+      {
+        method: "workflow.attention.list",
+        result: {
+          generated_at_unix_ms: 1,
+          items: [
+            {
+              ask_id: "ask-1",
+              id: "attention-1",
+              kind: "question",
+              message: "Pick answer",
+              occurred_at_unix_ms: 1,
+              project_id: "project-1",
+              run_id: "run-1",
+              session_id: "session-1",
+              task_id: "task-1",
+              task_short_id: "T-1",
+              task_title: "Resolve blocker",
+              task_transition_id: "",
+              workflow_id: "workflow-1",
+            },
+          ],
+          next_page_token: "",
+        },
+      },
+    ]);
+
+    render(<App services={services} />);
+
+    const row = await screen.findByTestId("attention-row");
+    expect(within(row).getByText("T-1")).toBeInTheDocument();
+    expect(within(row).queryByText("question")).not.toBeInTheDocument();
+  });
+
+  it("opens Inbox task cards in the Home task sidebar without navigating away", async () => {
+    const services = createTestServices([
+      ...startupRoutes,
+      {
+        method: "workflow.attention.list",
+        result: {
+          generated_at_unix_ms: 1,
+          items: [attentionItem({ kind: "question", message: "Pick answer" })],
+          next_page_token: "",
+        },
+      },
+      { method: "workflow.task.get", result: taskDetailResponse },
+      { method: "workflow.task.activity.list", result: emptyActivityResponse },
+    ]);
+
+    render(<App services={services} />);
+
+    fireEvent.click(await screen.findByTestId("attention-row"));
+
+    expect(window.location.pathname).toBe("/");
+    expect(window.location.search).toBe("");
+    const sidebar = await screen.findByRole("complementary", { name: "Task" });
+    expect(await within(sidebar).findByDisplayValue("Resolve blocker")).toBeInTheDocument();
+    expect(services.transport.calls.some((call) => call.method === "workflow.board.get")).toBe(false);
+  });
+
+  it("scrolls the Home task sidebar to the first question for question Inbox cards", async () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    try {
+      const services = createTestServices([
+        ...startupRoutes,
+        {
+          method: "workflow.attention.list",
+          result: {
+            generated_at_unix_ms: 1,
+            items: [attentionItem({ kind: "question", message: "Pick answer" })],
+            next_page_token: "",
+          },
+        },
+        { method: "workflow.task.get", result: taskDetailResponseWithQuestion },
+        { method: "workflow.task.activity.list", result: emptyActivityResponse },
+        { method: "ask.listPendingBySession", result: { Asks: [] } },
+      ]);
+
+      render(<App services={services} />);
+
+      fireEvent.click(await screen.findByTestId("attention-row"));
+
+      const sidebar = await screen.findByRole("complementary", { name: "Task" });
+      expect(await within(sidebar).findByRole("region", { name: "Question" })).toBeInTheDocument();
+      await waitFor(() => {
+        expect(scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "auto" });
+      });
+      expect(window.location.pathname).toBe("/");
+    } finally {
+      if (originalScrollIntoView !== undefined) {
+        Object.defineProperty(Element.prototype, "scrollIntoView", originalScrollIntoView);
+      } else {
+        Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+      }
+    }
+  });
+
+  it("opens workflow-only Inbox cards in the workflow editor", async () => {
+    const services = createTestServices([
+      ...startupRoutes,
+      {
+        method: "workflow.attention.list",
+        result: {
+          generated_at_unix_ms: 1,
+          items: [
+            attentionItem({
+              kind: "validation_blocker",
+              message: "Workflow invalid",
+              taskID: "",
+              taskShortID: "",
+              taskTitle: "",
+            }),
+          ],
+          next_page_token: "",
+        },
+      },
+      { method: "workflow.listProjectLinks", result: workflowProjectLinksResponse },
+      { method: "workflow.get", result: workflowDefinitionResponse },
+      { method: "workflow.validate", result: workflowValidationResponse },
+    ]);
+
+    render(<App services={services} />);
+
+    fireEvent.click(await screen.findByTestId("attention-row"));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/workflows/workflow-1/editor");
+      expect(new URLSearchParams(window.location.search).get("projectId")).toBe("project-1");
+    });
+  });
+
   it("opens workflow creation from the Workflows tab plus action", async () => {
     const services = createTestServices(startupRoutes);
 
@@ -227,6 +366,36 @@ function installStorage(name: "localStorage" | "sessionStorage"): void {
   });
 }
 
+function attentionItem({
+  kind,
+  message,
+  taskID = "task-1",
+  taskShortID = "T-1",
+  taskTitle = "Resolve blocker",
+}: Readonly<{
+  kind: string;
+  message: string;
+  taskID?: string;
+  taskShortID?: string;
+  taskTitle?: string;
+}>) {
+  return {
+    ask_id: kind === "question" ? "ask-1" : "",
+    id: `attention-${kind}`,
+    kind,
+    message,
+    occurred_at_unix_ms: 1,
+    project_id: "project-1",
+    run_id: kind === "question" ? "run-1" : "",
+    session_id: kind === "question" ? "session-1" : "",
+    task_id: taskID,
+    task_short_id: taskShortID,
+    task_title: taskTitle,
+    task_transition_id: "",
+    workflow_id: "workflow-1",
+  };
+}
+
 const workflow = {
   workflow_id: "workflow-1",
   display_name: "Default",
@@ -237,10 +406,19 @@ const workflow = {
   validation_errors: [],
 };
 
+const workspace = {
+  workspace_id: "workspace-1",
+  display_name: "Main",
+  root_path: "/tmp/project",
+  availability: "available",
+  is_primary: true,
+  updated_at_unix_ms: 1,
+};
+
 const boardResponse = {
   board: {
-    project_id: "project-alpha",
-    project: { project_key: "ALP", display_name: "Alpha" },
+    project_id: "project-1",
+    project: { project_key: "PRO", display_name: "Project" },
     selected_workflow: workflow,
     workflows: [workflow],
     groups: [],
@@ -250,4 +428,97 @@ const boardResponse = {
     next_page_token: "",
     generated_at_unix_ms: 1,
   },
+};
+
+const taskDetailResponse = {
+  task: {
+    summary: {
+      id: "task-1",
+      project_id: "project-1",
+      workflow_id: "workflow-1",
+      short_id: "T-1",
+      title: "Resolve blocker",
+      created_at_unix_ms: 1,
+      updated_at_unix_ms: 2,
+      done: false,
+      canceled_at_unix_ms: 0,
+    },
+    project: { display_name: "Project" },
+    workflow,
+    body: "Need operator input",
+    source_workspace: workspace,
+    status: {
+      kind: "waiting_question",
+      label: "Waiting question",
+      native_state: "running",
+      node_ids: ["node-1"],
+      run_ids: ["run-1"],
+      attention_types: ["question"],
+    },
+    actions: {
+      can_start: false,
+      can_interrupt: true,
+      interrupt_run_id: "run-1",
+      can_resume: false,
+      resume_run_id: "",
+      can_cancel: true,
+      needs_detail_for_interrupt: false,
+      needs_detail_for_resume: false,
+      manual_move_target_node_ids: [],
+    },
+    attention: [],
+    runs: [],
+    transitions: [],
+    comments: [],
+  },
+};
+
+const taskDetailResponseWithQuestion = {
+  task: {
+    ...taskDetailResponse.task,
+    attention: [attentionItem({ kind: "question", message: "Pick answer" })],
+  },
+};
+
+const emptyActivityResponse = {
+  generated_at_unix_ms: 1,
+  items: [],
+  next_page_token: "",
+};
+
+const workflowProjectLinksResponse = {
+  links: [
+    {
+      default: true,
+      id: "link-1",
+      project_id: "project-1",
+      workflow_id: "workflow-1",
+    },
+  ],
+};
+
+const workflowDefinitionResponse = {
+  definition: {
+    workflow: {
+      id: "workflow-1",
+      name: "Default",
+      description: "",
+      version: 1,
+    },
+    node_groups: [],
+    nodes: [],
+    transition_groups: [],
+    edges: [],
+    derived_wiring: {
+      diagnostics: [],
+      edges: [],
+      nodes: [],
+      transition_groups: [],
+    },
+  },
+};
+
+const workflowValidationResponse = {
+  errors: [],
+  valid: true,
 };

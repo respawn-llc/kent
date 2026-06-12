@@ -17,20 +17,26 @@ import (
 )
 
 type Service struct {
-	store         *workflowstore.Store
-	view          *workflowview.Service
-	roleResolver  workflow.RoleResolver
-	taskWorktrees taskWorktreeEnsurer
-	runtimeCancel taskRuntimeCanceler
-	schedulerWake schedulerNotifier
-	events        *workflowProjectEventBroker
-	prompts       pendingPromptResponder
-	approve       transitionApprover
-	questionMemo  *requestmemo.Memo[taskQuestionAnswerMemoRequest, struct{}]
+	store               *workflowstore.Store
+	view                *workflowview.Service
+	roleResolver        workflow.RoleResolver
+	taskWorktrees       taskWorktreeEnsurer
+	taskWorktreeCleanup taskWorktreeDeleter
+	runtimeCancel       taskRuntimeCanceler
+	schedulerWake       schedulerNotifier
+	events              *workflowProjectEventBroker
+	prompts             pendingPromptResponder
+	approve             transitionApprover
+	questionMemo        *requestmemo.Memo[taskQuestionAnswerMemoRequest, struct{}]
 }
 
 type taskWorktreeEnsurer interface {
 	EnsureTaskWorktree(ctx context.Context, taskID string) error
+}
+
+type taskWorktreeDeleter interface {
+	EnsureTaskWorktreeDeletable(ctx context.Context, taskID string) error
+	DeleteTaskWorktree(ctx context.Context, taskID string) error
 }
 
 type taskRuntimeCanceler interface {
@@ -66,6 +72,12 @@ type Option func(*Service)
 func WithTaskWorktreeEnsurer(ensurer taskWorktreeEnsurer) Option {
 	return func(s *Service) {
 		s.taskWorktrees = ensurer
+	}
+}
+
+func WithTaskWorktreeDeleter(deleter taskWorktreeDeleter) Option {
+	return func(s *Service) {
+		s.taskWorktreeCleanup = deleter
 	}
 }
 
@@ -652,6 +664,37 @@ func (s *Service) CancelWorkflowTask(ctx context.Context, req serverapi.Workflow
 	if s.runtimeCancel != nil {
 		return s.runtimeCancel.CancelTaskRuns(ctx, workflow.TaskID(req.TaskID))
 	}
+	return nil
+}
+
+func (s *Service) DeleteWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskDeleteRequest) error {
+	if err := req.Validate(); err != nil {
+		return err
+	}
+	// Preflight blockers that canceling this task's runs cannot clear (e.g. a
+	// shared worktree still managed by another non-terminal task) before stopping
+	// any automation, so a delete that would fail does not leave the task stopped
+	// yet undeleted.
+	if s.taskWorktreeCleanup != nil {
+		if err := s.taskWorktreeCleanup.EnsureTaskWorktreeDeletable(ctx, req.TaskID); err != nil {
+			return err
+		}
+	}
+	if s.runtimeCancel != nil {
+		if err := s.runtimeCancel.CancelTaskRuns(ctx, workflow.TaskID(req.TaskID)); err != nil {
+			return err
+		}
+	}
+	if s.taskWorktreeCleanup != nil {
+		if err := s.taskWorktreeCleanup.DeleteTaskWorktree(ctx, req.TaskID); err != nil {
+			return err
+		}
+	}
+	task, err := s.store.DeleteTask(ctx, workflow.TaskID(req.TaskID))
+	if err != nil {
+		return err
+	}
+	s.publishWorkflowEvent(ctx, task.ProjectID, string(task.WorkflowID), "task", "deleted", req.TaskID)
 	return nil
 }
 

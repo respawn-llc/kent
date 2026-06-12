@@ -253,7 +253,6 @@ const (
 	CodeInvalidFirstNodeInput          ValidationErrorCode = "workflow.validation.invalid_first_node_input"
 	CodeInvalidContextMode             ValidationErrorCode = "workflow.validation.invalid_context_mode"
 	CodeInvalidContextSource           ValidationErrorCode = "workflow.validation.invalid_context_source"
-	CodeInvalidContinueSessionRole     ValidationErrorCode = "workflow.validation.invalid_continue_session_role"
 	CodeInvalidFanoutJoinTopology      ValidationErrorCode = "workflow.validation.invalid_fanout_join_topology"
 	CodeInvalidNodeGroup               ValidationErrorCode = "workflow.validation.invalid_node_group"
 	CodeUnsupportedContextMode         ValidationErrorCode = "workflow.validation.unsupported_context_mode"

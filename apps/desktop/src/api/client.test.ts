@@ -58,6 +58,36 @@ describe("BuilderApiClient", () => {
     ).rejects.toThrow("approval failed");
   });
 
+  it("returns workflow move run ids from successful responses", async () => {
+    const client = new BuilderApiClient(
+      new FakeRpcTransport([
+        {
+          method: "workflow.task.move",
+          result: {
+            transition_id: "transition-1",
+            state: "approved",
+            placement_ids: ["placement-1"],
+            run_ids: ["run-1"],
+          },
+        },
+      ]),
+    );
+
+    await expect(
+      client.moveTask({
+        taskID: "task-1",
+        targetNodeID: "node-1",
+        allowMissingEdge: true,
+        autoApprove: true,
+      }),
+    ).resolves.toMatchObject({
+      placementIDs: ["placement-1"],
+      runIDs: ["run-1"],
+      state: "approved",
+      transitionID: "transition-1",
+    });
+  });
+
   it("normalizes empty workflow board metadata and node-card slices returned as null by Go JSON", async () => {
     const client = new BuilderApiClient(
       new FakeRpcTransport([

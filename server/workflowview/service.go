@@ -879,8 +879,8 @@ func (s *Service) activityItemsFromRows(task sqlitegen.TaskRecord, rows []taskAc
 			case "run_completed":
 				item.Summary = "Run completed"
 			case "run_interrupted":
-				item.Summary = "Run interrupted"
-				attention := serverapi.WorkflowAttentionItem{ID: attentionKindInterruptedRun + ":" + run.ID, Kind: attentionKindInterruptedRun, ProjectID: task.ProjectID, WorkflowID: task.WorkflowID, TaskID: task.ID, TaskShortID: task.ShortID, TaskTitle: task.Title, RunID: run.ID, SessionID: run.SessionID.String, Message: "Run interrupted", OccurredAtUnixMs: run.InterruptedAtUnixMs}
+				item.Summary = interruptedRunMessage(run.InterruptionReason, run.InterruptionDetailJson)
+				attention := serverapi.WorkflowAttentionItem{ID: attentionKindInterruptedRun + ":" + run.ID, Kind: attentionKindInterruptedRun, ProjectID: task.ProjectID, WorkflowID: task.WorkflowID, TaskID: task.ID, TaskShortID: task.ShortID, TaskTitle: task.Title, RunID: run.ID, SessionID: run.SessionID.String, Message: item.Summary, OccurredAtUnixMs: run.InterruptedAtUnixMs}
 				item.Attention = &attention
 			}
 		case "task_canceled":
@@ -1288,9 +1288,9 @@ func (s *Service) questionAttentionItems(ctx context.Context, projectID string, 
 	for _, row := range rawRows {
 		question, err := questions.Question(ctx, row.sessionID, row.askID)
 		if err != nil {
-			question = pendingQuestionFallbackMessage
+			question = pendingQuestion{message: pendingQuestionFallbackMessage}
 		}
-		items = append(items, serverapi.WorkflowAttentionItem{ID: "question:" + row.runID + ":" + row.askID, Kind: "question", ProjectID: row.projectID, WorkflowID: row.workflowID, TaskID: row.taskID, TaskShortID: row.shortID, TaskTitle: row.title, RunID: row.runID, SessionID: row.sessionID, AskID: row.askID, Message: question, OccurredAtUnixMs: row.occurred})
+		items = append(items, serverapi.WorkflowAttentionItem{ID: "question:" + row.runID + ":" + row.askID, Kind: "question", ProjectID: row.projectID, WorkflowID: row.workflowID, TaskID: row.taskID, TaskShortID: row.shortID, TaskTitle: row.title, RunID: row.runID, SessionID: row.sessionID, AskID: row.askID, Message: question.message, Suggestions: question.suggestions, RecommendedOptionIndex: question.recommendedOptionIndex, OccurredAtUnixMs: row.occurred})
 	}
 	return items, nil
 }
@@ -1300,44 +1300,50 @@ const pendingQuestionFallbackMessage = "Question pending; open the task to answe
 
 type pendingQuestionResolver struct {
 	transcripts SessionTranscriptPageProvider
-	bySession   map[string]map[string]string
+	bySession   map[string]map[string]pendingQuestion
+}
+
+type pendingQuestion struct {
+	message                string
+	suggestions            []string
+	recommendedOptionIndex int
 }
 
 func newPendingQuestionResolver(transcripts SessionTranscriptPageProvider) *pendingQuestionResolver {
-	return &pendingQuestionResolver{transcripts: transcripts, bySession: map[string]map[string]string{}}
+	return &pendingQuestionResolver{transcripts: transcripts, bySession: map[string]map[string]pendingQuestion{}}
 }
 
-func (r *pendingQuestionResolver) Question(ctx context.Context, sessionID string, askID string) (string, error) {
+func (r *pendingQuestionResolver) Question(ctx context.Context, sessionID string, askID string) (pendingQuestion, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	askID = strings.TrimSpace(askID)
 	if r == nil || r.transcripts == nil {
-		return "", errors.New("session transcript provider is required to resolve pending question")
+		return pendingQuestion{}, errors.New("session transcript provider is required to resolve pending question")
 	}
 	if sessionID == "" || askID == "" {
-		return "", errors.New("session_id and ask_id are required to resolve pending question")
+		return pendingQuestion{}, errors.New("session_id and ask_id are required to resolve pending question")
 	}
 	questions, ok := r.bySession[sessionID]
 	if ok {
-		if question := strings.TrimSpace(questions[askID]); question != "" {
+		if question := questions[askID]; strings.TrimSpace(question.message) != "" {
 			return question, nil
 		}
 	} else {
-		r.bySession[sessionID] = map[string]string{}
+		r.bySession[sessionID] = map[string]pendingQuestion{}
 	}
 	question, err := r.findQuestion(ctx, sessionID, askID)
 	if err != nil {
-		return "", err
+		return pendingQuestion{}, err
 	}
 	r.bySession[sessionID][askID] = question
 	return question, nil
 }
 
-func (r *pendingQuestionResolver) findQuestion(ctx context.Context, sessionID string, askID string) (string, error) {
+func (r *pendingQuestionResolver) findQuestion(ctx context.Context, sessionID string, askID string) (pendingQuestion, error) {
 	resp, err := r.transcripts.GetSessionTranscriptPage(ctx, serverapi.SessionTranscriptPageRequest{SessionID: sessionID, Window: clientui.TranscriptWindowOngoingTail})
 	if err != nil {
-		return "", fmt.Errorf("load session %q transcript tail for pending question %q: %w", sessionID, askID, err)
+		return pendingQuestion{}, fmt.Errorf("load session %q transcript tail for pending question %q: %w", sessionID, askID, err)
 	}
-	if question := askQuestionFromTranscriptEntries(resp.Transcript.Entries, askID); question != "" {
+	if question := askQuestionFromTranscriptEntries(resp.Transcript.Entries, askID); strings.TrimSpace(question.message) != "" {
 		return question, nil
 	}
 	for nextEnd := resp.Transcript.Offset; nextEnd > 0; {
@@ -1347,17 +1353,17 @@ func (r *pendingQuestionResolver) findQuestion(ctx context.Context, sessionID st
 		}
 		page, err := r.transcripts.GetSessionTranscriptPage(ctx, serverapi.SessionTranscriptPageRequest{SessionID: sessionID, Offset: start, Limit: nextEnd - start})
 		if err != nil {
-			return "", fmt.Errorf("load session %q transcript page for pending question %q: %w", sessionID, askID, err)
+			return pendingQuestion{}, fmt.Errorf("load session %q transcript page for pending question %q: %w", sessionID, askID, err)
 		}
-		if question := askQuestionFromTranscriptEntries(page.Transcript.Entries, askID); question != "" {
+		if question := askQuestionFromTranscriptEntries(page.Transcript.Entries, askID); strings.TrimSpace(question.message) != "" {
 			return question, nil
 		}
 		nextEnd = start
 	}
-	return "", fmt.Errorf("pending question %q was not found in session %q transcript", askID, sessionID)
+	return pendingQuestion{}, fmt.Errorf("pending question %q was not found in session %q transcript", askID, sessionID)
 }
 
-func askQuestionFromTranscriptEntries(entries []clientui.ChatEntry, askID string) string {
+func askQuestionFromTranscriptEntries(entries []clientui.ChatEntry, askID string) pendingQuestion {
 	for _, entry := range entries {
 		entryAskID := strings.TrimSpace(entry.ToolCallID)
 		if strings.TrimSpace(entry.Role) != "tool_call" || entryAskID != askID || entry.ToolCall == nil {
@@ -1367,10 +1373,14 @@ func askQuestionFromTranscriptEntries(entries []clientui.ChatEntry, askID string
 			continue
 		}
 		if question := strings.TrimSpace(entry.ToolCall.Question); question != "" {
-			return question
+			return pendingQuestion{
+				message:                question,
+				suggestions:            append([]string(nil), entry.ToolCall.Suggestions...),
+				recommendedOptionIndex: entry.ToolCall.RecommendedOptionIndex,
+			}
 		}
 	}
-	return ""
+	return pendingQuestion{}
 }
 
 func (s *Service) interruptedRunAttentionItems(ctx context.Context, projectID string, taskID string) ([]serverapi.WorkflowAttentionItem, error) {
@@ -1381,18 +1391,39 @@ func (s *Service) interruptedRunAttentionItems(ctx context.Context, projectID st
 	defer func() { _ = rows.Close() }()
 	items := []serverapi.WorkflowAttentionItem{}
 	for rows.Next() {
-		var runID, sessionID, reason, rowProjectID, workflowID, rowTaskID, shortID, title string
+		var runID, sessionID, reason, detailJSON, rowProjectID, workflowID, rowTaskID, shortID, title string
 		var occurred int64
-		if err := rows.Scan(&runID, &sessionID, &reason, &rowProjectID, &workflowID, &rowTaskID, &shortID, &title, &occurred); err != nil {
+		if err := rows.Scan(&runID, &sessionID, &reason, &detailJSON, &rowProjectID, &workflowID, &rowTaskID, &shortID, &title, &occurred); err != nil {
 			return nil, err
 		}
-		message := "Run interrupted"
-		if strings.TrimSpace(reason) != "" {
-			message = "Run interrupted: " + strings.TrimSpace(reason)
-		}
+		message := interruptedRunMessage(reason, detailJSON)
 		items = append(items, serverapi.WorkflowAttentionItem{ID: attentionKindInterruptedRun + ":" + runID, Kind: attentionKindInterruptedRun, ProjectID: rowProjectID, WorkflowID: workflowID, TaskID: rowTaskID, TaskShortID: shortID, TaskTitle: title, RunID: runID, SessionID: sessionID, Message: message, OccurredAtUnixMs: occurred})
 	}
 	return items, rows.Err()
+}
+
+func interruptedRunMessage(reason string, detailJSON string) string {
+	message := "Run interrupted"
+	if trimmedReason := strings.TrimSpace(reason); trimmedReason != "" {
+		message += ": " + trimmedReason
+	}
+	if detail := interruptionErrorDetail(detailJSON); detail != "" {
+		message += ": " + detail
+	}
+	return message
+}
+
+func interruptionErrorDetail(detailJSON string) string {
+	if strings.TrimSpace(detailJSON) == "" {
+		return ""
+	}
+	var detail struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(detailJSON), &detail); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(detail.Error)
 }
 
 func (s *Service) validationAttentionItems(ctx context.Context, projectID string, roleResolver workflow.RoleResolver) ([]serverapi.WorkflowAttentionItem, error) {
@@ -1649,6 +1680,7 @@ func (s *Service) taskCard(ctx context.Context, task sqlitegen.TaskRecord, place
 func taskStatusAndActions(task sqlitegen.TaskRecord, summary serverapi.WorkflowTaskSummary, placements []sqlitegen.TaskNodePlacementRecord, runs []sqlitegen.TaskRunRecord, def serverapi.WorkflowDefinition, nodeKinds map[string]workflow.NodeKind) (serverapi.WorkflowTaskStatus, serverapi.WorkflowTaskActions) {
 	status := serverapi.WorkflowTaskStatus{NodeIDs: summary.ActiveNodeIDs}
 	actions := serverapi.WorkflowTaskActions{CanCancel: task.CanceledAtUnixMs == 0 && !summary.Done}
+	currentPlacementIDs := currentTaskPlacementIDs(placements)
 	runningRunIDs := []string{}
 	interruptedRunIDs := []string{}
 	waitingAskRunIDs := []string{}
@@ -1663,6 +1695,9 @@ func taskStatusAndActions(task sqlitegen.TaskRecord, summary serverapi.WorkflowT
 		}
 	}
 	for _, run := range runs {
+		if !currentPlacementIDs[run.PlacementID] {
+			continue
+		}
 		if run.CompletedAtUnixMs != 0 {
 			continue
 		}
@@ -1733,6 +1768,17 @@ func taskStatusAndActions(task sqlitegen.TaskRecord, summary serverapi.WorkflowT
 		status.NativeState = "active"
 	}
 	return status, actions
+}
+
+func currentTaskPlacementIDs(placements []sqlitegen.TaskNodePlacementRecord) map[string]bool {
+	ids := make(map[string]bool, len(placements))
+	for _, placement := range placements {
+		if placement.State != "active" && placement.State != "waiting_approval" {
+			continue
+		}
+		ids[placement.ID] = true
+	}
+	return ids
 }
 
 func manualMoveTargetNodeIDs(def serverapi.WorkflowDefinition, placements []sqlitegen.TaskNodePlacementRecord, nodeKinds map[string]workflow.NodeKind) []string {

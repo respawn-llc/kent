@@ -7,7 +7,7 @@ import { z } from "zod";
 import { errorMessage } from "../../api/errors";
 import { useConnectionSnapshot } from "../../app/useConnectionSnapshot";
 import { useAppServices } from "../../app/useAppServices";
-import { Badge, Button, Dialog, NativeDialogWindow, SelectField, TextArea, TextInput } from "../../ui";
+import { Button, Dialog, NativeDialogWindow, SelectField, TextArea, TextInput } from "../../ui";
 import { cx } from "../../ui/classes";
 import { useCreateTask, useWorkspaces } from "./useTaskMutations";
 
@@ -141,6 +141,7 @@ export function NewTaskForm({
     [workspaceItems],
   );
   const selectedWorkspaceID = useWatch({ control: form.control, name: "sourceWorkspaceID" });
+  const displayedWorkspaceID = selectedWorkspaceID.trim().length > 0 ? selectedWorkspaceID : initialWorkspaceID;
   const disabled =
     connection.phase !== "connected" || createTask.isPending || initialWorkspaceID.length === 0;
 
@@ -163,7 +164,14 @@ export function NewTaskForm({
       {workspaceItems.length === 1 ? (
         <>
           <input type="hidden" {...form.register("sourceWorkspaceID")} />
-          <Badge tone="info">{workspaceItems[0]?.name ?? t("task.sourceWorkspace")}</Badge>
+          <SelectField
+            disabled
+            disabledReason={t("task.onlyOneWorkspaceLinked")}
+            label={t("task.sourceWorkspace")}
+            onValueChange={() => undefined}
+            options={workspaceOptions}
+            value={displayedWorkspaceID}
+          />
         </>
       ) : (
         <SelectField

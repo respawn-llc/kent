@@ -8,6 +8,5 @@ describe("native dialog startup gate policy", () => {
     expect(shouldSkipNativeDialogStartupGate("/native-dialog/workflow-delete")).toBe(false);
     expect(shouldSkipNativeDialogStartupGate("/native-dialog/project-create")).toBe(false);
     expect(shouldSkipNativeDialogStartupGate("/native-dialog/new-task")).toBe(false);
-    expect(shouldSkipNativeDialogStartupGate("/native-dialog/task-detail")).toBe(false);
   });
 });

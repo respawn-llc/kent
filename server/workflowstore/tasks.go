@@ -236,6 +236,34 @@ func (s *Store) UpdateTask(ctx context.Context, req UpdateTaskRequest) (TaskReco
 	return taskRecordFromTask(row), nil
 }
 
+func (s *Store) DeleteTask(ctx context.Context, taskID workflow.TaskID) (TaskRecord, error) {
+	trimmedTaskID := strings.TrimSpace(string(taskID))
+	if trimmedTaskID == "" {
+		return TaskRecord{}, errors.New("task id is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return TaskRecord{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	q := s.queries.WithTx(tx)
+	task, err := q.GetTask(ctx, trimmedTaskID)
+	if err != nil {
+		return TaskRecord{}, err
+	}
+	deleted, err := q.DeleteTask(ctx, trimmedTaskID)
+	if err != nil {
+		return TaskRecord{}, err
+	}
+	if deleted != 1 {
+		return TaskRecord{}, sql.ErrNoRows
+	}
+	if err := tx.Commit(); err != nil {
+		return TaskRecord{}, err
+	}
+	return taskRecordFromTask(task), nil
+}
+
 func (s *Store) resolveTaskSourceWorkspace(ctx context.Context, projectID string, workspaceID string) (string, error) {
 	trimmedProjectID := strings.TrimSpace(projectID)
 	trimmedWorkspaceID := strings.TrimSpace(workspaceID)

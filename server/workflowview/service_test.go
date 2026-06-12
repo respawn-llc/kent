@@ -526,6 +526,65 @@ func TestBoardNodeCardsAllowRestartAfterDoneTaskResetToBacklog(t *testing.T) {
 	}
 }
 
+func TestBoardNodeCardsIgnoreInterruptedRunsFromCompletedPlacementsAfterResetToBacklog(t *testing.T) {
+	ctx, _, workflowStore, binding, view := newWorkflowViewTestContextService(t)
+	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
+	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowID, true); err != nil {
+		t.Fatalf("LinkWorkflow: %v", err)
+	}
+	task, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, WorkflowID: workflowID, Title: "Restart", Body: "Body"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	started, err := workflowStore.StartTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	claimed, err := workflowStore.ClaimRun(ctx, started.RunID, 0)
+	if err != nil {
+		t.Fatalf("ClaimRun: %v", err)
+	}
+	if err := workflowStore.InterruptRunGeneration(ctx, started.RunID, claimed.Generation, "manual", "{}"); err != nil {
+		t.Fatalf("InterruptRunGeneration: %v", err)
+	}
+	def, _, err := workflowStore.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	start := workflowViewNodeByKind(t, def, workflow.NodeKindStart)
+	if _, err := workflowStore.ManualMoveTask(ctx, workflowstore.ManualMoveRequest{TaskID: task.ID, TargetNodeID: start.ID, AllowMissingEdge: true}); err != nil {
+		t.Fatalf("ManualMoveTask reset: %v", err)
+	}
+
+	board, err := view.GetBoard(ctx, serverapi.WorkflowBoardRequest{ProjectID: binding.ProjectID}, workflow.StaticRoleResolver{"coder": true})
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	backlogColumn := workflowViewColumnByKind(t, board, workflow.NodeKindStart)
+	if backlogColumn.TaskCount != 1 {
+		t.Fatalf("backlog count = %d, want reset task", backlogColumn.TaskCount)
+	}
+	page, err := view.ListBoardNodeCards(ctx, serverapi.WorkflowBoardNodeCardsListRequest{ProjectID: binding.ProjectID, WorkflowID: string(workflowID), NodeID: backlogColumn.Node.NodeID}, workflow.StaticRoleResolver{"coder": true})
+	if err != nil {
+		t.Fatalf("ListBoardNodeCards backlog: %v", err)
+	}
+	if len(page.Cards) != 1 || page.Cards[0].TaskID != string(task.ID) || page.Cards[0].Status.Kind != "backlog" {
+		t.Fatalf("backlog page = %+v, want reset backlog task", page)
+	}
+	if !page.Cards[0].Actions.CanStart || page.Cards[0].Actions.CanResume || page.Cards[0].Actions.ResumeRunID != "" {
+		t.Fatalf("reset backlog card actions = %+v, want start-only action state", page.Cards[0].Actions)
+	}
+	attention, err := view.ListAttention(ctx, serverapi.WorkflowAttentionListRequest{ProjectID: binding.ProjectID}, workflow.StaticRoleResolver{"coder": true})
+	if err != nil {
+		t.Fatalf("ListAttention: %v", err)
+	}
+	for _, item := range attention.Items {
+		if item.Kind == attentionKindInterruptedRun && item.TaskID == string(task.ID) {
+			t.Fatalf("attention items = %+v, want no stale interrupted run attention after reset", attention.Items)
+		}
+	}
+}
+
 func TestBoardNodeCardsDoNotArchiveCanceledTaskInAlternateTerminalNode(t *testing.T) {
 	ctx, store, workflowStore, binding, view := newWorkflowViewTestContextService(t)
 	workflowID := createWorkflowViewValidWorkflow(t, ctx, workflowStore)
@@ -856,7 +915,7 @@ func TestPendingApprovalTaskRemainsVisibleOnSourceBoardColumn(t *testing.T) {
 func TestTaskDetailProjectsWaitingAskRun(t *testing.T) {
 	ctx, store, workflowStore, binding := newWorkflowViewTestContextStore(t)
 	view, err := New(store, WithSessionTranscriptProvider(staticTranscriptProvider{pages: map[string]clientui.TranscriptPage{
-		"session-view-waiting-ask": transcriptPageWithAsk("ask-view-1", "Waiting ask?"),
+		"session-view-waiting-ask": transcriptPageWithAskOptions("ask-view-1", "Waiting ask?", []string{"Trail mix", "Dark chocolate", "Pistachios"}, 2),
 	}}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -894,6 +953,9 @@ func TestTaskDetailProjectsWaitingAskRun(t *testing.T) {
 	}
 	if len(detail.Runs) != 1 || detail.Runs[0].WaitingAskID != "ask-view-1" || detail.Runs[0].SessionID != sessionID {
 		t.Fatalf("runs do not project waiting ask: %+v", detail.Runs)
+	}
+	if len(detail.Attention) != 1 || detail.Attention[0].Message != "Waiting ask?" || len(detail.Attention[0].Suggestions) != 3 || detail.Attention[0].Suggestions[1] != "Dark chocolate" || detail.Attention[0].RecommendedOptionIndex != 2 {
+		t.Fatalf("attention question options = %+v", detail.Attention)
 	}
 }
 
@@ -1188,7 +1250,7 @@ func TestAttentionListProjectsApprovalQuestionAndInterruptedRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ClaimRun interrupted: %v", err)
 	}
-	if err := workflowStore.InterruptRunGeneration(ctx, interruptedStarted.RunID, interruptedClaimed.Generation, "manual", "{}"); err != nil {
+	if err := workflowStore.InterruptRunGeneration(ctx, interruptedStarted.RunID, interruptedClaimed.Generation, "manual", `{"error":"role missing"}`); err != nil {
 		t.Fatalf("InterruptRunGeneration: %v", err)
 	}
 
@@ -1202,6 +1264,9 @@ func TestAttentionListProjectsApprovalQuestionAndInterruptedRun(t *testing.T) {
 	}
 	if kinds["approval"].TaskTransitionID != string(pendingApproval.TransitionID) || kinds["question"].AskID != "ask-attention" || kinds["interrupted_run"].RunID != string(interruptedStarted.RunID) {
 		t.Fatalf("attention items = %+v", resp.Items)
+	}
+	if !strings.Contains(kinds["interrupted_run"].Message, "role missing") {
+		t.Fatalf("interrupted attention message = %q, want detail error", kinds["interrupted_run"].Message)
 	}
 	taskResp, err := view.ListTaskAttention(ctx, serverapi.WorkflowTaskAttentionListRequest{TaskID: string(questionTask.ID)}, workflow.StaticRoleResolver{"coder": true})
 	if err != nil {
@@ -1217,7 +1282,7 @@ func TestPendingQuestionResolverSearchesBeforeOngoingTail(t *testing.T) {
 	for i := 0; i < 650; i++ {
 		entry := clientui.ChatEntry{Role: "assistant", Text: "entry"}
 		if i == 20 {
-			entry = askTranscriptEntry("ask-old", "Question before tail?")
+			entry = askTranscriptEntry("ask-old", "Question before tail?", nil, 0)
 		}
 		entries = append(entries, entry)
 	}
@@ -1229,8 +1294,8 @@ func TestPendingQuestionResolverSearchesBeforeOngoingTail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Question: %v", err)
 	}
-	if question != "Question before tail?" {
-		t.Fatalf("question = %q", question)
+	if question.message != "Question before tail?" {
+		t.Fatalf("question = %+v", question)
 	}
 }
 
@@ -1503,13 +1568,17 @@ func (p staticTranscriptProvider) GetSessionTranscriptPage(_ context.Context, re
 }
 
 func transcriptPageWithAsk(askID string, question string) clientui.TranscriptPage {
-	return clientui.TranscriptPage{Entries: []clientui.ChatEntry{askTranscriptEntry(askID, question)}}
+	return clientui.TranscriptPage{Entries: []clientui.ChatEntry{askTranscriptEntry(askID, question, nil, 0)}}
 }
 
-func askTranscriptEntry(askID string, question string) clientui.ChatEntry {
+func transcriptPageWithAskOptions(askID string, question string, suggestions []string, recommended int) clientui.TranscriptPage {
+	return clientui.TranscriptPage{Entries: []clientui.ChatEntry{askTranscriptEntry(askID, question, suggestions, recommended)}}
+}
+
+func askTranscriptEntry(askID string, question string, suggestions []string, recommended int) clientui.ChatEntry {
 	return clientui.ChatEntry{
 		Role:       "tool_call",
 		ToolCallID: askID,
-		ToolCall:   &clientui.ToolCallMeta{ToolName: string(toolspec.ToolAskQuestion), Question: question},
+		ToolCall:   &clientui.ToolCallMeta{ToolName: string(toolspec.ToolAskQuestion), Question: question, Suggestions: suggestions, RecommendedOptionIndex: recommended},
 	}
 }

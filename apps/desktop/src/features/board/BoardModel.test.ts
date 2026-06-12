@@ -5,6 +5,15 @@ describe("boardSections", () => {
   it("orders Backlog first, grouped nodes next, and Done last", () => {
     expect(boardSections(board).map((section) => section.id)).toEqual(["backlog", "group-1", "done"]);
   });
+
+  it("places a group where its first member column appears in the workflow column order", () => {
+    expect(boardSections(boardWithUngroupedImplementation).map((section) => section.id)).toEqual([
+      "backlog",
+      "implementation",
+      "group-1",
+      "done",
+    ]);
+  });
 });
 
 const backlogColumn: BoardColumn = {
@@ -52,6 +61,31 @@ const doneColumn: BoardColumn = {
   transitionOutputFields: [],
 };
 
+const implementationColumn: BoardColumn = {
+  ...activeColumn,
+  groupID: "",
+  id: "implementation",
+  key: "implementation",
+  name: "Implementation",
+  sortOrder: 1,
+};
+
+const reviewColumn: BoardColumn = {
+  ...activeColumn,
+  id: "review",
+  key: "review",
+  name: "Review",
+  sortOrder: 2,
+};
+
+const qaColumn: BoardColumn = {
+  ...activeColumn,
+  id: "qa",
+  key: "qa",
+  name: "QA",
+  sortOrder: 3,
+};
+
 const board: WorkflowBoard = {
   columns: [doneColumn, activeColumn, backlogColumn],
   generatedAt: 1,
@@ -69,4 +103,10 @@ const board: WorkflowBoard = {
     validationErrors: [],
   },
   workflows: [],
+};
+
+const boardWithUngroupedImplementation: WorkflowBoard = {
+  ...board,
+  columns: [backlogColumn, implementationColumn, reviewColumn, qaColumn, doneColumn],
+  groups: [{ id: "group-1", key: "core", name: "Core", nodeIDs: ["review", "qa"], sortOrder: 1 }],
 };

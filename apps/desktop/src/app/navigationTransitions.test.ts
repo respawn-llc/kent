@@ -1,6 +1,7 @@
 import { afterEach, vi } from "vitest";
 
 import { runNavigationTransition } from "./navigationTransitions";
+import { runViewTransition } from "./viewTransitions";
 
 describe("navigationTransitions", () => {
   const originalMatchMedia = globalThis.matchMedia;
@@ -46,6 +47,38 @@ describe("navigationTransitions", () => {
 
     expect(startViewTransition).not.toHaveBeenCalled();
     expect(update).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to immediate updates while another document transition is active", async () => {
+    installMatchMedia(false);
+    let finishTransition: (() => void) | undefined;
+    const startViewTransition = vi.fn((update: () => void | Promise<void>): ViewTransitionTestHandle => {
+      const updateCallbackDone = Promise.resolve(update());
+      return {
+        finished: new Promise((resolve) => {
+          finishTransition = resolve;
+        }),
+        ready: Promise.resolve(),
+        updateCallbackDone,
+      };
+    });
+    installStartViewTransition(startViewTransition);
+
+    const first = await runViewTransition({ scope: "route", update: vi.fn() });
+    const secondUpdate = vi.fn();
+    const second = await runViewTransition({ scope: "board-card", update: secondUpdate });
+
+    expect(first.mode).toBe("transition");
+    expect(document.documentElement).toHaveClass("view-transition-route");
+    expect(second.mode).toBe("immediate");
+    expect(startViewTransition).toHaveBeenCalledOnce();
+    expect(secondUpdate).toHaveBeenCalledOnce();
+
+    finishTransition?.();
+    await first.finished;
+    await vi.waitFor(() => {
+      expect(document.documentElement).not.toHaveClass("view-transition-route");
+    });
   });
 });
 

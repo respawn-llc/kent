@@ -1,6 +1,7 @@
 import { afterEach, vi } from "vitest";
 
 import {
+  applyNativePlatform,
   applyNativeDialogThemeOverride,
   applyConfiguredTheme,
   createDefaultAppServices,
@@ -9,6 +10,18 @@ import {
   readBrowserRpcEndpoint,
   toggleInMemoryThemeOverride,
 } from "./appEnvironment";
+
+describe("applyNativePlatform", () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute("data-builder-platform");
+  });
+
+  it("exposes the native platform on the root element for platform-specific CSS", () => {
+    applyNativePlatform("macos");
+
+    expect(document.documentElement).toHaveAttribute("data-builder-platform", "macos");
+  });
+});
 
 describe("browser RPC endpoint configuration", () => {
   afterEach(() => {

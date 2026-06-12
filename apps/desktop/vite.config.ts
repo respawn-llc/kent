@@ -9,6 +9,7 @@ export default defineConfig({
   build: {
     // Desktop bundle loads from local disk; keep warning for real growth without treating current MVP size as web risk.
     chunkSizeWarningLimit: 2_048,
+    manifest: true,
   },
   resolve: {
     alias: {

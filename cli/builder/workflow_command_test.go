@@ -418,6 +418,143 @@ func TestWorkflowEdgeUpdateRollsBackTransitionGroupWhenEdgeUpdateFails(t *testin
 	}
 }
 
+func TestParseWorkflowParameters(t *testing.T) {
+	parsed, err := parseWorkflowParameters([]string{"plan_file_path=Path to the plan doc", "  changes = What to fix  "})
+	if err != nil {
+		t.Fatalf("parseWorkflowParameters: %v", err)
+	}
+	if len(parsed) != 2 {
+		t.Fatalf("parsed = %+v, want 2 parameters", parsed)
+	}
+	if parsed[0].Key != "plan_file_path" || parsed[0].Description != "Path to the plan doc" {
+		t.Fatalf("parsed[0] = %+v", parsed[0])
+	}
+	if parsed[1].Key != "changes" || parsed[1].Description != "What to fix" {
+		t.Fatalf("parsed[1] = %+v", parsed[1])
+	}
+	for _, bad := range []string{"keyonly", "=description", "key=", "  =  ", "bad key=desc", "Bad=desc", "1bad=desc", "bad-key=desc", "commentary=desc", "transition=desc"} {
+		if _, err := parseWorkflowParameters([]string{bad}); err == nil {
+			t.Fatalf("parseWorkflowParameters(%q) = nil error, want failure", bad)
+		}
+	}
+	if _, err := parseWorkflowParameters([]string{"summary=first", "summary=second"}); err == nil {
+		t.Fatalf("parseWorkflowParameters with duplicate keys = nil error, want failure")
+	}
+}
+
+func TestWorkflowEdgeAddSetsParametersAndTransitionDescription(t *testing.T) {
+	cfg, _, remote := newWorkflowCommandLoopback(t)
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	workflowOut, _ := runWorkflowRootCommandOK(t, "workflow", "create", "Parameter Authoring Workflow")
+	workflowID := labeledOutputValue(t, workflowOut, "workflow_id")
+	runWorkflowRootCommandOK(t, "workflow", "node", "add", workflowID, "--key", "triaging", "--kind", "agent", "--display-name", "Triaging", "--agent", "workflow-test", "--prompt", "Triage.")
+	edgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID,
+		"--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "new_session",
+		"--prompt", "Use {{.Params.plan_file_path}}.",
+		"--transition-description", "Pick when starting the work.",
+		"--param", "plan_file_path=Path to the plan doc")
+	edgeID := labeledOutputValue(t, edgeOut, "edge_id")
+
+	ctx := context.Background()
+	def, _, err := remote.store.GetDefinition(ctx, workflow.WorkflowID(workflowID))
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	var edge workflow.Edge
+	for _, candidate := range def.Edges {
+		if string(candidate.ID) == edgeID {
+			edge = candidate
+		}
+	}
+	if len(edge.Parameters) != 1 || edge.Parameters[0].Key != "plan_file_path" || edge.Parameters[0].Description != "Path to the plan doc" {
+		t.Fatalf("edge parameters = %+v, want plan_file_path parameter", edge.Parameters)
+	}
+	var group workflow.TransitionGroup
+	for _, candidate := range def.TransitionGroups {
+		if candidate.ID == edge.TransitionGroupID {
+			group = candidate
+		}
+	}
+	if group.Description != "Pick when starting the work." {
+		t.Fatalf("transition group description = %q, want authored description", group.Description)
+	}
+}
+
+func TestWorkflowEdgeUpdateSetsParametersAndTransitionDescription(t *testing.T) {
+	cfg, _, remote := newWorkflowCommandLoopback(t)
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	workflowOut, _ := runWorkflowRootCommandOK(t, "workflow", "create", "Parameter Update Workflow")
+	workflowID := labeledOutputValue(t, workflowOut, "workflow_id")
+	runWorkflowRootCommandOK(t, "workflow", "node", "add", workflowID, "--key", "triaging", "--kind", "agent", "--display-name", "Triaging", "--agent", "workflow-test", "--prompt", "Triage.")
+	edgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "new_session", "--prompt", "Triage.")
+	edgeID := labeledOutputValue(t, edgeOut, "edge_id")
+
+	runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID,
+		"--transition-description", "Pick when design is unnecessary.",
+		"--param", "plan_file_path=Path to the plan doc",
+		"--param", "changes=Requested changes")
+
+	ctx := context.Background()
+	def, _, err := remote.store.GetDefinition(ctx, workflow.WorkflowID(workflowID))
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	var edge workflow.Edge
+	for _, candidate := range def.Edges {
+		if string(candidate.ID) == edgeID {
+			edge = candidate
+		}
+	}
+	if len(edge.Parameters) != 2 || edge.Parameters[0].Key != "plan_file_path" || edge.Parameters[1].Key != "changes" {
+		t.Fatalf("edge parameters = %+v, want plan_file_path and changes", edge.Parameters)
+	}
+	var group workflow.TransitionGroup
+	for _, candidate := range def.TransitionGroups {
+		if candidate.ID == edge.TransitionGroupID {
+			group = candidate
+		}
+	}
+	if group.Description != "Pick when design is unnecessary." {
+		t.Fatalf("transition group description = %q, want authored description", group.Description)
+	}
+}
+
+func TestWorkflowEdgeUpdateClearsParameters(t *testing.T) {
+	cfg, _, remote := newWorkflowCommandLoopback(t)
+	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
+	defer restore()
+
+	workflowOut, _ := runWorkflowRootCommandOK(t, "workflow", "create", "Parameter Clear Workflow")
+	workflowID := labeledOutputValue(t, workflowOut, "workflow_id")
+	runWorkflowRootCommandOK(t, "workflow", "node", "add", workflowID, "--key", "triaging", "--kind", "agent", "--display-name", "Triaging", "--agent", "workflow-test", "--prompt", "Triage.")
+	edgeOut, _ := runWorkflowRootCommandOK(t, "workflow", "edge", "add", workflowID, "--from", "backlog", "--transition", "start", "--edge-key", "start", "--to", "triaging", "--context", "new_session", "--prompt", "Triage.", "--param", "plan_file_path=Path to the plan doc")
+	edgeID := labeledOutputValue(t, edgeOut, "edge_id")
+
+	if _, _, code := runWorkflowRootCommand("workflow", "edge", "update", workflowID, edgeID, "--param", "x=y", "--clear-params"); code != 2 {
+		t.Fatalf("combined --param/--clear-params exit=%d, want rejection exit 2", code)
+	}
+
+	ctx := context.Background()
+	rejectedEdge := workflowCommandStoredEdgeByID(t, ctx, remote.store, workflowID, edgeID)
+	if len(rejectedEdge.Parameters) != 1 {
+		t.Fatalf("edge parameters after rejected update = %+v, want unchanged", rejectedEdge.Parameters)
+	}
+
+	runWorkflowRootCommandOK(t, "workflow", "edge", "update", workflowID, edgeID, "--clear-params")
+
+	edge := workflowCommandStoredEdgeByID(t, ctx, remote.store, workflowID, edgeID)
+	if len(edge.Parameters) != 0 {
+		t.Fatalf("edge parameters = %+v, want cleared", edge.Parameters)
+	}
+	if edge.PromptTemplate != "Triage." {
+		t.Fatalf("edge prompt = %q, want preserved", edge.PromptTemplate)
+	}
+}
+
 func TestTaskHumanOnlyActionsAreDeniedInsideBuilderSession(t *testing.T) {
 	t.Setenv(sessionenv.BuilderSessionID, "session-agent")
 	previous := workflowCommandRemoteOpener

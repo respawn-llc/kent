@@ -1,4 +1,4 @@
-import { createAutoNativeBridge } from "@builder/desktop-native-bridge";
+import { createAutoNativeBridge, type NativePlatform } from "@builder/desktop-native-bridge";
 
 import { BuilderApiClient, createJsonRpcTransport } from "./api";
 import { ConnectionStore } from "./api/connectionStore";
@@ -11,6 +11,7 @@ import type { AppServices } from "./app/services";
 const defaultServerEndpoint = "ws://127.0.0.1:53082/rpc";
 const browserRpcEndpointSearchParam = "builderRpcEndpoint";
 const browserRpcEndpointEnvVar = "VITE_BUILDER_RPC_ENDPOINT";
+const builderPlatformAttribute = "data-builder-platform";
 const builderThemeAttribute = "data-builder-theme";
 const nativeDialogThemeSearchParam = "__builderTheme";
 let productionContextMenuGuardInstalled = false;
@@ -20,6 +21,7 @@ export async function createDefaultAppServices(): Promise<AppServices> {
   applyNativeDialogThemeOverride();
   const bootstrapNativeBridge = createAutoNativeBridge("unknown");
   const platform = await bootstrapNativeBridge.builder.resolvePlatform().catch(() => "unknown" as const);
+  applyNativePlatform(platform);
   const nativeBridge = createAutoNativeBridge(platform);
   const logger = createGuiLogger(nativeBridge);
   const context = await nativeBridge.builder
@@ -65,6 +67,13 @@ export async function createDefaultAppServices(): Promise<AppServices> {
     logger,
     nativeBridge,
   };
+}
+
+export function applyNativePlatform(platform: NativePlatform): void {
+  if (typeof document === "undefined") {
+    return;
+  }
+  document.documentElement.setAttribute(builderPlatformAttribute, platform);
 }
 
 export function readBrowserRpcEndpoint(): string | null | StartupConfigurationError {

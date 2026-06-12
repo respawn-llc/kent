@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 
@@ -38,7 +37,6 @@ export type NativeCapabilityState = Readonly<{
   windowDrag: boolean;
   dialogWindows: boolean;
   projectCreationWindow: boolean;
-  taskDetailWindow: boolean;
   macosVibrancy: boolean;
 }>;
 
@@ -89,12 +87,6 @@ export type NativeBridge = Readonly<{
     onUnlinkRequested(handler: (target: NativeWorkspaceUnlinkTarget) => void): Promise<NativeUnlisten>;
     notifyChanged(event: NativeProjectWorkspaceChanged): Promise<void>;
     onChanged(handler: (event: NativeProjectWorkspaceChanged) => void): Promise<NativeUnlisten>;
-  }>;
-  taskDetail: Readonly<{
-    openWindow(target: NativeTaskDetailTarget): Promise<void>;
-    onOpen(handler: (target: NativeTaskDetailTarget) => void): Promise<NativeUnlisten>;
-    notifyChanged(event: NativeTaskDetailChanged): Promise<void>;
-    onChanged(handler: (event: NativeTaskDetailChanged) => void): Promise<NativeUnlisten>;
   }>;
   workflowEditor: Readonly<{
     confirmGraphDelete(confirmation: NativeWorkflowGraphDeleteConfirmation): Promise<void>;
@@ -171,15 +163,6 @@ export type NativeProjectWorkspaceChanged = Readonly<{
   projectID: string;
 }>;
 
-export type NativeTaskDetailTarget = Readonly<{
-  taskId: string;
-  resumeRunId: string;
-}>;
-
-export type NativeTaskDetailChanged = Readonly<{
-  taskId: string;
-}>;
-
 export type NativeWorkflowGraphDeleteConfirmation = Readonly<{
   requestID: string;
 }>;
@@ -215,42 +198,19 @@ const unavailableCapabilities: NativeCapabilityState = {
   windowDrag: false,
   dialogWindows: false,
   projectCreationWindow: false,
-  taskDetailWindow: false,
   macosVibrancy: false,
 };
 
-const taskDetailWindowLabel = "native-dialog-task-detail";
-const taskDetailOpenEvent = "builder://task-detail-open";
-const taskDetailChangedEvent = "builder://task-detail-changed";
 export const taskDetailContentMaxWidthPx = 1200;
 export const taskDetailDialogHorizontalPaddingPx = 16;
 export const nativeDialogWindowHorizontalInsetPx = 16;
 export const taskDetailDialogOuterMaxWidthPx =
   taskDetailContentMaxWidthPx + taskDetailDialogHorizontalPaddingPx;
-export const taskDetailNativeWindowInitialWidthPx = 840;
 const projectDeletedEvent = "builder://project-deleted";
 const workspaceUnlinkRequestEvent = "builder://workspace-unlink-request";
 const projectWorkspaceChangedEvent = "builder://project-workspace-changed";
 const workflowGraphDeleteConfirmEvent = "builder://workflow-graph-delete-confirm";
 const workflowDeletedEvent = "builder://workflow-deleted";
-
-export function taskDetailNativeDialogWindowOptions(
-  target: NativeTaskDetailTarget,
-): NativeDialogWindowOptions {
-  return {
-    initialHeight: 760,
-    initialWidth: taskDetailNativeWindowInitialWidthPx,
-    label: taskDetailWindowLabel,
-    maximizable: true,
-    params: {
-      resumeRunId: target.resumeRunId,
-      taskId: target.taskId,
-    },
-    resizable: true,
-    route: "/native-dialog/task-detail",
-    title: "Task",
-  };
-}
 
 declare global {
   interface Window {
@@ -360,20 +320,6 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
         return Promise.resolve();
       },
       async onUnlinkRequested(): Promise<NativeUnlisten> {
-        return () => undefined;
-      },
-      async notifyChanged(): Promise<void> {
-        return Promise.resolve();
-      },
-      async onChanged(): Promise<NativeUnlisten> {
-        return () => undefined;
-      },
-    },
-    taskDetail: {
-      async openWindow(): Promise<void> {
-        throw new Error("Native task detail window is unavailable in this shell.");
-      },
-      async onOpen(): Promise<NativeUnlisten> {
         return () => undefined;
       },
       async notifyChanged(): Promise<void> {
@@ -526,38 +472,6 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
         });
       },
     },
-    taskDetail: {
-      async openWindow(target: NativeTaskDetailTarget): Promise<void> {
-        const existing = await WebviewWindow.getByLabel(taskDetailWindowLabel);
-        if (existing !== null) {
-          await retargetTaskDetailWindow(existing, target);
-          return;
-        }
-        try {
-          await openNativeDialogWindow(taskDetailNativeDialogWindowOptions(target));
-        } catch (cause) {
-          const raced = await WebviewWindow.getByLabel(taskDetailWindowLabel);
-          if (raced !== null) {
-            await retargetTaskDetailWindow(raced, target);
-            return;
-          }
-          throw cause;
-        }
-      },
-      async onOpen(handler: (target: NativeTaskDetailTarget) => void): Promise<NativeUnlisten> {
-        return listen<NativeTaskDetailTarget>(taskDetailOpenEvent, (event) => {
-          handler(event.payload);
-        });
-      },
-      async notifyChanged(event: NativeTaskDetailChanged): Promise<void> {
-        await emitTo("main", taskDetailChangedEvent, event);
-      },
-      async onChanged(handler: (event: NativeTaskDetailChanged) => void): Promise<NativeUnlisten> {
-        return listen<NativeTaskDetailChanged>(taskDetailChangedEvent, (event) => {
-          handler(event.payload);
-        });
-      },
-    },
     workflowEditor: {
       async confirmGraphDelete(confirmation: NativeWorkflowGraphDeleteConfirmation): Promise<void> {
         await emitTo("main", workflowGraphDeleteConfirmEvent, confirmation);
@@ -620,14 +534,6 @@ function validateNativeWindowGlassTint(tint: NativeWindowGlassTint | null): void
   }
 }
 
-async function retargetTaskDetailWindow(
-  window: WebviewWindow,
-  target: NativeTaskDetailTarget,
-): Promise<void> {
-  await window.emit(taskDetailOpenEvent, target);
-  await window.setFocus();
-}
-
 function createTauriCapabilities(platform: NativePlatform): NativeCapabilityState {
   return {
     platform,
@@ -654,7 +560,6 @@ function createTauriCapabilities(platform: NativePlatform): NativeCapabilityStat
     windowDrag: true,
     dialogWindows: true,
     projectCreationWindow: true,
-    taskDetailWindow: true,
     macosVibrancy: false,
   };
 }

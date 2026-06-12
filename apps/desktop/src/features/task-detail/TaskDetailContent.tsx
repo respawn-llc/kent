@@ -1,5 +1,4 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
-import { Check, Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { TaskDetail, TaskRun } from "../../api";
@@ -39,12 +38,14 @@ type TaskDraftState = Readonly<{
 export function TaskDetailContent({
   activity,
   detail,
+  initialFocus,
   onMutated,
   openLink,
   resumeRunId,
 }: Readonly<{
   activity: ReturnType<typeof useTaskActivity>;
   detail: TaskDetail;
+  initialFocus?: "firstQuestion" | undefined;
   onMutated?: (() => void) | undefined;
   openLink: (url: string) => void;
   resumeRunId: string;
@@ -92,12 +93,10 @@ export function TaskDetailContent({
         data-testid="task-detail-body-split"
       >
         <DescriptionIsland
-          detail={detail}
           disabled={disabled || update.isPending}
           draft={draft}
           error={update.error}
           onDraftChange={setDraft}
-          onSave={saveDraft}
         />
         <PropertiesIsland
           detail={detail}
@@ -111,6 +110,7 @@ export function TaskDetailContent({
           currentVersion={detail.workflowVersion}
           detail={detail}
           disabled={disabled}
+          focusFirstQuestion={initialFocus === "firstQuestion"}
           mutations={mutations}
         />
       ) : null}
@@ -206,14 +206,15 @@ function TaskHeaderIsland({
           value={title}
         />
         {dirty ? (
-          <button
-            aria-label={t("task.saveTitle")}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-1)] text-[var(--color-on-island)] disabled:opacity-55"
+          <Button
+            className="shrink-0"
+            data-testid="task-detail-save"
             disabled={disabled || title.trim().length === 0}
             type="submit"
+            variant="primary"
           >
-            <Check aria-hidden="true" size={18} strokeWidth={1.8} />
-          </button>
+            {t("task.save")}
+          </Button>
         ) : null}
         <span className="shrink-0 font-mono text-sm uppercase text-[var(--color-muted)]">
           {detail.shortID}
@@ -224,26 +225,20 @@ function TaskHeaderIsland({
 }
 
 function DescriptionIsland({
-  detail,
   disabled,
   draft,
   error,
   onDraftChange,
-  onSave,
 }: Readonly<{
-  detail: TaskDetail;
   disabled: boolean;
   draft: TaskDraft;
   error: unknown;
   onDraftChange: (draft: TaskDraft) => void;
-  onSave: (draft?: TaskDraft) => Promise<void>;
 }>) {
   const { t } = useTranslation();
   const descriptionId = useId();
   const descriptionErrorId = `${descriptionId}-error`;
   const descriptionError = error == null ? "" : errorMessage(error);
-  const descriptionDirty = draft.body !== detail.body;
-  const saveDisabled = disabled || draft.title.trim().length === 0 || !descriptionDirty;
   return (
     <Island
       aria-label={t("task.description")}
@@ -266,24 +261,6 @@ function DescriptionIsland({
           placeholder={t("task.bodyPlaceholder")}
           value={draft.body}
         />
-        <Button
-          aria-hidden={!descriptionDirty}
-          aria-label={t("task.save")}
-          className={cx(
-            "col-start-1 row-start-1 grid h-9 w-9 place-items-center self-end justify-self-end rounded-full !p-0 transition-opacity duration-[var(--motion-fast)]",
-            descriptionDirty ? "opacity-100" : "pointer-events-none opacity-0",
-          )}
-          data-testid="task-description-save"
-          disabled={saveDisabled}
-          onClick={() => {
-            void onSave();
-          }}
-          style={{ marginBottom: "var(--space-2)", marginRight: "var(--space-2)" }}
-          tabIndex={descriptionDirty ? undefined : -1}
-          variant="primary"
-        >
-          <Save aria-hidden="true" size={18} strokeWidth={1.8} />
-        </Button>
       </div>
       {descriptionError.length > 0 ? (
         <span className="text-[var(--color-error)]" id={descriptionErrorId}>

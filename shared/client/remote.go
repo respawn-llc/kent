@@ -317,6 +317,10 @@ func (c *Remote) CancelWorkflowTask(ctx context.Context, req serverapi.WorkflowT
 	return c.callUnscoped(ctx, protocol.MethodWorkflowTaskCancel, req, &struct{}{})
 }
 
+func (c *Remote) DeleteWorkflowTask(ctx context.Context, req serverapi.WorkflowTaskDeleteRequest) error {
+	return c.callUnscoped(ctx, protocol.MethodWorkflowTaskDelete, req, &struct{}{})
+}
+
 func (c *Remote) ListWorkflowAttention(ctx context.Context, req serverapi.WorkflowAttentionListRequest) (serverapi.WorkflowAttentionListResponse, error) {
 	return callUnscopedRPC[serverapi.WorkflowAttentionListRequest, serverapi.WorkflowAttentionListResponse](c, ctx, protocol.MethodWorkflowAttentionList, req)
 }

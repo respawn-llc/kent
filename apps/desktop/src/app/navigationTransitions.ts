@@ -1,15 +1,6 @@
-export async function runNavigationTransition(update: () => void | Promise<void>): Promise<void> {
-  const reducedMotion =
-    typeof globalThis.matchMedia === "function" &&
-    globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (
-    typeof document.startViewTransition !== "function" ||
-    reducedMotion
-  ) {
-    await update();
-    return;
-  }
+import { runViewTransition } from "./viewTransitions";
 
-  const transition = document.startViewTransition(update);
+export async function runNavigationTransition(update: () => void | Promise<void>): Promise<void> {
+  const transition = await runViewTransition({ scope: "route", update });
   await transition.updateCallbackDone;
 }

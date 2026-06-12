@@ -105,9 +105,8 @@
 
 - Per-edge context preservation supports `new_session`, `continue_session`, and `compact_and_continue_session`.
 - Continuation modes may select `immediate_source` or `node:<node_key>` as context source.
-- Direct `continue_session` may continue only when target node uses the same subagent role name as source session.
-- Same-role config drift does not block continuation; persisted session setup remains authoritative for snapshotted model/provider/tool/system-prompt fields.
-- `new_session` and `compact_and_continue_session` use current role config at their fresh context boundary.
+- Continuation modes apply the target node's subagent role context. A reused session remains authoritative for immutable contract fields already snapshotted by prior model dispatch.
+- `new_session` uses current role config at its fresh context boundary.
 - Consuming agent nodes own required inputs as named top-level string fields with descriptions.
 - Prompt placeholders validate against the consuming node's required inputs through `.Inputs.<name>`.
 - Prompt templates may reference guaranteed-prior agent node outputs through `.Nodes.<node_key>.<output_name>`.

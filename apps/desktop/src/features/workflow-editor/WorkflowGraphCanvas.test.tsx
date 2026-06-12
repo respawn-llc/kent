@@ -89,6 +89,7 @@ describe("WorkflowGraphCanvas", () => {
     await waitFor(() => {
       expect(screen.getByTestId("workflow-node-metadata-tooltip")).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("tooltip-arrow")).not.toBeInTheDocument();
     fireEvent.pointerMove(screen.getByTestId("workflow-graph-node-start"), { pointerType: "mouse" });
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Copy Key backlog" })).not.toBeInTheDocument();
