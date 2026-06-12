@@ -217,6 +217,8 @@ export const englishResources = {
       submitComment: "Submit comment",
       saveComment: "Save comment",
       deleteComment: "Delete comment",
+      commentSaveFailed: "Comment save failed",
+      commentDeleteFailed: "Comment delete failed",
       commentBody: "Comment",
       activity: "Activity",
       activityCount: "{{count}} activity items",

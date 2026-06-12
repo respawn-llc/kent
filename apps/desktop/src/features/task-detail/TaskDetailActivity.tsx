@@ -3,7 +3,9 @@ import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { TaskComment } from "../../api";
+import { errorMessage } from "../../api/errors";
 import { formatRelativeTime } from "../../app/formatters";
+import { useStatusController } from "../../app/useStatusController";
 import { Button, MarkdownText, Spinner } from "../../ui";
 import { fieldInputClassName } from "../../ui/Field";
 import { cx } from "../../ui/classes";
@@ -22,18 +24,50 @@ export function Comments({
   openLink: (url: string) => void;
 }>) {
   const { t } = useTranslation();
+  const { push } = useStatusController();
   const [body, setBody] = useState("");
   const [editing, setEditing] = useState<Readonly<{ id: string; body: string }> | null>(null);
   const commentBody = editing?.body ?? body;
+  const pending =
+    mutations.addComment.isPending || mutations.replaceComment.isPending || mutations.deleteComment.isPending;
+  const interactionDisabled = disabled || pending;
 
   async function submit(): Promise<void> {
-    if (editing === null) {
-      await mutations.addComment.mutateAsync(body);
-      setBody("");
+    if (interactionDisabled || commentBody.trim().length === 0) {
       return;
     }
-    await mutations.replaceComment.mutateAsync({ commentID: editing.id, body: editing.body });
-    setEditing(null);
+    try {
+      if (editing === null) {
+        await mutations.addComment.mutateAsync(body);
+        setBody("");
+        return;
+      }
+      await mutations.replaceComment.mutateAsync({ commentID: editing.id, body: editing.body });
+      setEditing(null);
+    } catch (error) {
+      push({
+        id: "task-comment-save-error",
+        tone: "danger",
+        title: t("task.commentSaveFailed"),
+        body: errorMessage(error),
+      });
+    }
+  }
+
+  async function deleteComment(commentID: string): Promise<void> {
+    if (interactionDisabled) {
+      return;
+    }
+    try {
+      await mutations.deleteComment.mutateAsync(commentID);
+    } catch (error) {
+      push({
+        id: "task-comment-delete-error",
+        tone: "danger",
+        title: t("task.commentDeleteFailed"),
+        body: errorMessage(error),
+      });
+    }
   }
 
   return (
@@ -45,7 +79,7 @@ export function Comments({
         <div className="grid" data-testid="task-comment-input-frame">
           <textarea
             className={cx(fieldInputClassName, "col-start-1 row-start-1 block min-h-[88px] pb-0")}
-            disabled={disabled}
+            disabled={interactionDisabled}
             id="task-comment-body"
             onChange={(event) => {
               if (disabled) {
@@ -63,7 +97,7 @@ export function Comments({
             aria-label={editing === null ? t("task.submitComment") : t("task.saveComment")}
             className="col-start-1 row-start-1 grid h-9 w-9 place-items-center self-end justify-self-end rounded-full !p-0"
             data-testid="task-comment-save"
-            disabled={disabled || commentBody.trim().length === 0}
+            disabled={interactionDisabled || commentBody.trim().length === 0}
             onClick={() => void submit()}
             style={{ marginBottom: "var(--space-2)", marginRight: "var(--space-2)" }}
             variant="primary"
@@ -80,7 +114,7 @@ export function Comments({
           <MarkdownText onOpenLink={openLink} value={comment.body} />
           <span>{formatRelativeTime(comment.createdAt)}</span>
           <Button
-            disabled={disabled}
+            disabled={interactionDisabled}
             onClick={() => {
               setEditing({ id: comment.id, body: comment.body });
             }}
@@ -89,8 +123,8 @@ export function Comments({
             {t("task.editComment")}
           </Button>
           <Button
-            disabled={disabled}
-            onClick={() => void mutations.deleteComment.mutateAsync(comment.id)}
+            disabled={interactionDisabled}
+            onClick={() => void deleteComment(comment.id)}
             variant="danger"
           >
             {t("task.deleteComment")}

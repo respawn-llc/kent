@@ -75,6 +75,8 @@ import {
 } from "./schemas/workflow";
 import type { RpcEventHandler, RpcSubscription, RpcTransport } from "./transport";
 
+export const guiTaskCommentAuthor = "user";
+
 export class BuilderApiClient {
   readonly transport: RpcTransport;
 
@@ -534,7 +536,11 @@ export class BuilderApiClient {
     return parse(
       "workflow.task.comment.add",
       commentAddResponseSchema,
-      await this.transport.call("workflow.task.comment.add", { task_id: taskID, body, author: "GUI" }),
+      await this.transport.call("workflow.task.comment.add", {
+        task_id: taskID,
+        body,
+        author: guiTaskCommentAuthor,
+      }),
     ).comment;
   }
 
