@@ -214,12 +214,12 @@ func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 1
 	}
 	defer func() { _ = remote.Close() }()
-	tasks, projectID, nextPageToken, err := workflowTaskPageForProject(context.Background(), cfg, remote, *projectRef, *pageSize, *pageToken)
+	tasks, statusByTaskID, projectID, nextPageToken, err := workflowTaskPageForProject(context.Background(), cfg, remote, *projectRef, *pageSize, *pageToken)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	items := taskListItems(tasks)
+	items := taskListItems(tasks, statusByTaskID)
 	if *jsonOut {
 		if err := json.NewEncoder(stdout).Encode(taskListOutput{ProjectID: projectID, NextPageToken: nextPageToken, Tasks: items}); err != nil {
 			fmt.Fprintln(stderr, err)
@@ -236,18 +236,51 @@ func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
-func taskListItems(tasks []serverapi.WorkflowTaskSummary) []taskListItem {
+func taskListItems(tasks []serverapi.WorkflowTaskSummary, statusByTaskID map[string]string) []taskListItem {
 	items := make([]taskListItem, 0, len(tasks))
 	for _, task := range tasks {
+		status, ok := statusByTaskID[task.ID]
+		if !ok {
+			status = taskListStatus(task)
+		}
 		items = append(items, taskListItem{
 			ShortID:    task.ShortID,
 			TaskID:     task.ID,
 			WorkflowID: task.WorkflowID,
-			Status:     taskListStatus(task),
+			Status:     status,
 			Title:      task.Title,
 		})
 	}
 	return items
+}
+
+// taskListStatusByID maps each board task to a CLI list status using the
+// board card's authoritative status kind, which distinguishes an actually
+// running task from a backlog task that merely has an active start-node
+// placement. The summary alone can't make that distinction.
+func taskListStatusByID(board serverapi.WorkflowBoard) map[string]string {
+	statuses := make(map[string]string)
+	for _, card := range board.Cards {
+		statuses[card.TaskID] = taskListStatusFromCardStatus(card.Status)
+	}
+	for _, card := range board.DonePreview {
+		statuses[card.TaskID] = taskListStatusFromCardStatus(card.Status)
+	}
+	return statuses
+}
+
+func taskListStatusFromCardStatus(status serverapi.WorkflowTaskStatus) string {
+	switch status.Kind {
+	case "done":
+		return "done"
+	case "canceled":
+		return "canceled"
+	case "running", "interrupted", "waiting_question", "waiting_approval":
+		return "running"
+	default:
+		// backlog, active, and any future kind: no active run, so it is open.
+		return "open"
+	}
 }
 
 func taskListStatus(task serverapi.WorkflowTaskSummary) string {
@@ -839,10 +872,10 @@ func workflowBoardForProject(ctx context.Context, cfg config.App, remote workflo
 	return resp.Board, nil
 }
 
-func workflowTaskPageForProject(ctx context.Context, cfg config.App, remote workflowCommandRemote, projectRef string, pageSize int, pageToken string) ([]serverapi.WorkflowTaskSummary, string, string, error) {
+func workflowTaskPageForProject(ctx context.Context, cfg config.App, remote workflowCommandRemote, projectRef string, pageSize int, pageToken string) ([]serverapi.WorkflowTaskSummary, map[string]string, string, string, error) {
 	projectID, err := resolveWorkflowProjectID(ctx, cfg, remote, projectRef)
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", "", err
 	}
 	rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
 	defer cancel()
@@ -852,19 +885,22 @@ func workflowTaskPageForProject(ctx context.Context, cfg config.App, remote work
 		PageToken: pageToken,
 	})
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", "", err
 	}
 	board := resp.Board
 	tasks := workflowTasksForListPage(board, pageSize)
-	return tasks, board.ProjectID, board.NextPageToken, nil
+	return tasks, taskListStatusByID(board), board.ProjectID, board.NextPageToken, nil
 }
 
 func workflowTasksForListPage(board serverapi.WorkflowBoard, pageSize int) []serverapi.WorkflowTaskSummary {
 	cards := append([]serverapi.WorkflowBoardTaskCard(nil), board.Cards...)
-	if strings.TrimSpace(board.NextPageToken) == "" && len(cards) < pageSize {
-		remaining := pageSize - len(cards)
+	// Board pagination only covers open tasks. When the open stream is
+	// exhausted (no next token), surface the bounded done preview so done tasks
+	// stay reachable from `task list` — including the boundary case where open
+	// cards already fill the page, which previously hid them entirely.
+	if strings.TrimSpace(board.NextPageToken) == "" {
 		donePreview := board.DonePreview
-		if len(donePreview) > remaining {
+		if remaining := pageSize - len(cards); remaining > 0 && len(donePreview) > remaining {
 			donePreview = donePreview[:remaining]
 		}
 		cards = append(cards, donePreview...)

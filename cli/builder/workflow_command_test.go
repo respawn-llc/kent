@@ -134,8 +134,8 @@ func TestWorkflowAndTaskCommandsUseWorkflowAPI(t *testing.T) {
 	taskID := taskResp.Task.Summary.ID
 
 	taskListOut, _ := runWorkflowRootCommandOK(t, "task", "list", "--project", binding.ProjectID)
-	if !strings.Contains(taskListOut, shortID+": Task.") || !strings.Contains(taskListOut, "Status: running") {
-		t.Fatalf("task list output = %q, want short id and status", taskListOut)
+	if !strings.Contains(taskListOut, shortID+": Task.") || !strings.Contains(taskListOut, "Status: open") {
+		t.Fatalf("task list output = %q, want short id and open backlog status", taskListOut)
 	}
 	taskListJSONOut, _ := runWorkflowRootCommandOK(t, "task", "list", "--project", binding.ProjectID, "--json")
 	if !strings.Contains(taskListJSONOut, shortID) || !strings.Contains(taskListJSONOut, taskID) {
@@ -753,7 +753,7 @@ func TestTaskListUsesRequestedPageSizeAndToken(t *testing.T) {
 				ProjectID:        "project-1",
 				SelectedWorkflow: serverapi.WorkflowPickerItem{WorkflowID: "workflow-1"},
 				Cards:            []serverapi.WorkflowBoardTaskCard{testTaskCard("task-b", "BLD-2", "B")},
-				DonePreview:      []serverapi.WorkflowBoardTaskCard{testTaskCard("task-c", "BLD-3", "C")},
+				DonePreview:      []serverapi.WorkflowBoardTaskCard{testDoneTaskCard("task-c", "BLD-3", "C")},
 			},
 		},
 	}
@@ -764,11 +764,17 @@ func TestTaskListUsesRequestedPageSizeAndToken(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("task list exit=%d stderr=%q", code, stderr)
 	}
-	if strings.Contains(stdout, "BLD-1:") || strings.Count(stdout, "BLD-2:") != 1 || strings.Contains(stdout, "BLD-3:") {
-		t.Fatalf("task list output = %q, want requested page size applied to all printed rows", stdout)
+	// The requested open page holds BLD-2; BLD-1 is on the earlier page. Because
+	// the open stream is exhausted (no next token), the bounded done preview is
+	// surfaced so done tasks stay reachable even though open cards filled the page.
+	if strings.Contains(stdout, "BLD-1:") || strings.Count(stdout, "BLD-2:") != 1 || strings.Count(stdout, "BLD-3:") != 1 {
+		t.Fatalf("task list output = %q, want the open page plus the surfaced done preview", stdout)
 	}
 	if !strings.Contains(stdout, "BLD-2: B.\nStatus: open\n") {
-		t.Fatalf("task list output = %q, want readable status block", stdout)
+		t.Fatalf("task list output = %q, want readable open status block", stdout)
+	}
+	if !strings.Contains(stdout, "BLD-3: C.\nStatus: done\n") {
+		t.Fatalf("task list output = %q, want surfaced done task", stdout)
 	}
 	if strings.TrimSpace(stderr) != "" {
 		t.Fatalf("task list stderr = %q, want no next page token", stderr)
@@ -784,8 +790,15 @@ func TestTaskListJSONOutputsStructuredPage(t *testing.T) {
 		board: serverapi.WorkflowBoard{
 			ProjectID:        "project-1",
 			SelectedWorkflow: serverapi.WorkflowPickerItem{WorkflowID: "workflow-1"},
-			Cards:            []serverapi.WorkflowBoardTaskCard{{TaskID: "task-a", ShortID: "BLD-1", WorkflowID: "workflow-1", Title: "A", ActiveNodeIDs: []string{"node-1"}}},
-			NextPageToken:    "next",
+			Cards: []serverapi.WorkflowBoardTaskCard{{
+				TaskID:        "task-a",
+				ShortID:       "BLD-1",
+				WorkflowID:    "workflow-1",
+				Title:         "A",
+				ActiveNodeIDs: []string{"node-1"},
+				Status:        serverapi.WorkflowTaskStatus{Kind: "running", RunIDs: []string{"run-1"}},
+			}},
+			NextPageToken: "next",
 		},
 	}
 	restore := replaceWorkflowCommandRemoteOpener(t, cfg, remote)
@@ -1296,6 +1309,35 @@ func testTaskCard(taskID string, shortID string, title string) serverapi.Workflo
 		Title:      title,
 		WorkflowID: "workflow-1",
 		Status:     serverapi.WorkflowTaskStatus{Kind: "active"},
+	}
+}
+
+func TestTaskListStatusFromCardStatus(t *testing.T) {
+	cases := map[string]string{
+		"backlog":          "open",
+		"active":           "open",
+		"":                 "open",
+		"running":          "running",
+		"interrupted":      "running",
+		"waiting_question": "running",
+		"waiting_approval": "running",
+		"done":             "done",
+		"canceled":         "canceled",
+	}
+	for kind, want := range cases {
+		if got := taskListStatusFromCardStatus(serverapi.WorkflowTaskStatus{Kind: kind}); got != want {
+			t.Fatalf("taskListStatusFromCardStatus(%q) = %q, want %q", kind, got, want)
+		}
+	}
+}
+
+func testDoneTaskCard(taskID string, shortID string, title string) serverapi.WorkflowBoardTaskCard {
+	return serverapi.WorkflowBoardTaskCard{
+		TaskID:     taskID,
+		ShortID:    shortID,
+		Title:      title,
+		WorkflowID: "workflow-1",
+		Status:     serverapi.WorkflowTaskStatus{Kind: "done"},
 	}
 }
 
