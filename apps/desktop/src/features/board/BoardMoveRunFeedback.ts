@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useStatusController } from "../../app/useStatusController";
@@ -11,37 +11,28 @@ export type BoardMoveRunTracker = Readonly<{
 export function useBoardMoveRunFeedback(): BoardMoveRunTracker {
   const { t } = useTranslation();
   const { push } = useStatusController();
-  const [, setPendingMoveRunIDs] = useState<ReadonlySet<string>>(() => new Set());
+  // Pending move-run IDs never drive rendering, so they live in a ref. A ref also
+  // makes track/observe synchronous: observe can atomically check-and-remove a run
+  // ID instead of relying on a queued state updater that React may defer to a later
+  // render (which would drop the toast or race two observations into duplicates).
+  const pendingMoveRunIDsRef = useRef<Set<string>>(new Set());
 
   const trackMoveRunIDs = useCallback((result: Readonly<{ runIDs: readonly string[] }>): void => {
-    const runIDs = result.runIDs.map((runID) => runID.trim()).filter((runID) => runID.length > 0);
-    if (runIDs.length === 0) {
-      return;
+    for (const runID of result.runIDs) {
+      const trimmed = runID.trim();
+      if (trimmed.length > 0) {
+        pendingMoveRunIDsRef.current.add(trimmed);
+      }
     }
-    setPendingMoveRunIDs((current) => new Set([...current, ...runIDs]));
   }, []);
 
   const observeInterruptedRun = useCallback(
     (input: Readonly<{ runID: string; taskID: string }>): void => {
       const runID = input.runID.trim();
-      if (runID.length === 0) {
-        return;
-      }
-      // Gate the notification on the membership check inside the state updater so
-      // concurrent observations of the same runID can never both pass a stale
-      // snapshot and queue duplicate notifications. Capturing the rebuilt set marks
-      // the single call that actually removed the run ID.
-      let removedRunIDs: ReadonlySet<string> | undefined;
-      setPendingMoveRunIDs((current) => {
-        if (!current.has(runID)) {
-          return current;
-        }
-        const next = new Set(current);
-        next.delete(runID);
-        removedRunIDs = next;
-        return next;
-      });
-      if (removedRunIDs === undefined) {
+      // Set.delete returns true only for the call that actually removed the run ID,
+      // so a tracked interruption notifies exactly once and untracked or repeated
+      // observations are ignored.
+      if (runID.length === 0 || !pendingMoveRunIDsRef.current.delete(runID)) {
         return;
       }
       push({
