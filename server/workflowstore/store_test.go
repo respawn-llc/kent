@@ -149,6 +149,34 @@ func TestWorkflowListPaginatesWithMostRecentOrderAndFilters(t *testing.T) {
 	if len(exact.Workflows) != 1 || exact.Workflows[0].ID != created["Beta"] {
 		t.Fatalf("exact = %+v", exact.Workflows)
 	}
+
+	// A filter and a page cursor must compose: the filter applies inside the
+	// workflow_list CTE while the cursor applies to the outer query, so paging
+	// through a filtered result set must stay valid and ordered.
+	filteredPage1, err := store.ListWorkflows(ctx, ListWorkflowsRequest{PageSize: 1, Query: "Beta"})
+	if err != nil {
+		t.Fatalf("ListWorkflows filtered page1: %v", err)
+	}
+	if len(filteredPage1.Workflows) != 1 || filteredPage1.NextPageToken == "" {
+		t.Fatalf("filtered page1 = %+v, want one workflow and next token", filteredPage1)
+	}
+	if filteredPage1.Workflows[0].ID != created["Beta Searchable"] {
+		t.Fatalf("filtered page1 order = %+v", filteredPage1.Workflows)
+	}
+	filteredPage2, err := store.ListWorkflows(ctx, ListWorkflowsRequest{
+		PageSize:  1,
+		Query:     "Beta",
+		PageToken: filteredPage1.NextPageToken,
+	})
+	if err != nil {
+		t.Fatalf("ListWorkflows filtered page2: %v", err)
+	}
+	if len(filteredPage2.Workflows) != 1 || filteredPage2.NextPageToken != "" {
+		t.Fatalf("filtered page2 = %+v, want final filtered workflow", filteredPage2)
+	}
+	if filteredPage2.Workflows[0].ID != created["Beta"] {
+		t.Fatalf("filtered page2 order = %+v", filteredPage2.Workflows)
+	}
 }
 
 func TestProjectWorkflowLinkFirstDefaultAndDuplicateIdempotency(t *testing.T) {
