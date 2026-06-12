@@ -204,6 +204,18 @@ func TestOpenDropsPersistedWorkflowEvents(t *testing.T) {
 	}
 }
 
+func TestOpenCreatesTaskCommentCreatedIndex(t *testing.T) {
+	root := t.TempDir()
+	store, err := Open(root)
+	if err != nil {
+		t.Fatalf("open metadata store: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+	if !indexExists(t, store.db, "task_comments_task_created_idx") {
+		t.Fatal("task_comments_task_created_idx should back the comment cursor ordering")
+	}
+}
+
 func TestOpenRemovesSystemTaskCommentAuthorKind(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "db", "main.sqlite3")
