@@ -2,25 +2,26 @@ package app
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/lucasb-eyer/go-colorful"
 
 	"builder/shared/theme"
 )
 
+// foregroundTrueColorEscape builds the truecolor foreground escape exactly the
+// way the terminal renderer emits it. termenv resolves a hex color through
+// go-colorful and truncates each channel with uint8(component*255), so the
+// float round-trip can land one below the literal hex value (e.g. #3185FC's
+// red 0x31 yields 48, not 49). Mirroring that conversion here keeps expected
+// escapes aligned with the rendered output for every palette color.
 func foregroundTrueColorEscape(hex string) string {
-	trimmed := strings.TrimPrefix(strings.TrimSpace(hex), "#")
-	if len(trimmed) != 6 {
+	c, err := colorful.Hex(strings.TrimSpace(hex))
+	if err != nil {
 		return ""
 	}
-	r, errR := strconv.ParseUint(trimmed[0:2], 16, 8)
-	g, errG := strconv.ParseUint(trimmed[2:4], 16, 8)
-	b, errB := strconv.ParseUint(trimmed[4:6], 16, 8)
-	if errR != nil || errG != nil || errB != nil {
-		return ""
-	}
-	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b)
+	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", uint8(c.R*255), uint8(c.G*255), uint8(c.B*255))
 }
 
 func assertContainsColoredShellSymbol(t *testing.T, text, themeName, paletteHex string) {
