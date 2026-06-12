@@ -548,6 +548,11 @@ export type TaskComment = Readonly<{
   updatedAt: number;
 }>;
 
+export type CommentPage = Readonly<{
+  comments: readonly TaskComment[];
+  nextPageToken: string;
+}>;
+
 export type TaskRun = Readonly<{
   id: string;
   taskID: string;

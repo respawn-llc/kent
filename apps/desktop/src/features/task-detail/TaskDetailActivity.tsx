@@ -1,32 +1,32 @@
-import { useEffect, useRef, useState } from "react";
-import { Save } from "lucide-react";
+import { Bot, Save, Trash2, UserRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { TaskComment } from "../../api";
 import { errorMessage } from "../../api/errors";
 import { formatRelativeTime } from "../../app/formatters";
 import { useStatusController } from "../../app/useStatusController";
-import { Button, homeListCardMaxWidthClassName, IslandSurface, MarkdownText, Spinner } from "../../ui";
-import { fieldInputClassName } from "../../ui/fieldInputStyles";
+import { Button, homeListCardMaxWidthClassName, IslandSurface, MarkdownText } from "../../ui";
+import { fieldIslandInputClassName } from "../../ui/fieldInputStyles";
 import { cx } from "../../ui/classes";
-import { fieldLabelClassName } from "../../ui/fieldStyles";
 import type { useTaskMutations } from "./useTaskDetailData";
 
-export function Comments({
-  comments,
+export function CommentComposer({
+  body,
   disabled,
+  editing,
   mutations,
-  openLink,
+  onBodyChange,
+  onEditingChange,
 }: Readonly<{
-  comments: readonly TaskComment[];
+  body: string;
   disabled: boolean;
+  editing: Readonly<{ id: string; body: string }> | null;
   mutations: ReturnType<typeof useTaskMutations>;
-  openLink: (url: string) => void;
+  onBodyChange: (body: string) => void;
+  onEditingChange: (editing: Readonly<{ id: string; body: string }> | null) => void;
 }>) {
   const { t } = useTranslation();
   const { push } = useStatusController();
-  const [body, setBody] = useState("");
-  const [editing, setEditing] = useState<Readonly<{ id: string; body: string }> | null>(null);
   const commentBody = editing?.body ?? body;
   const pending =
     mutations.addComment.isPending || mutations.replaceComment.isPending || mutations.deleteComment.isPending;
@@ -39,11 +39,11 @@ export function Comments({
     try {
       if (editing === null) {
         await mutations.addComment.mutateAsync(body);
-        setBody("");
+        onBodyChange("");
         return;
       }
       await mutations.replaceComment.mutateAsync({ commentID: editing.id, body: editing.body });
-      setEditing(null);
+      onEditingChange(null);
     } catch (error) {
       push({
         id: "task-comment-save-error",
@@ -53,6 +53,68 @@ export function Comments({
       });
     }
   }
+
+  return (
+    <section className="grid gap-[var(--space-2)]">
+      <div className="grid" data-testid="task-comment-input-frame">
+        <textarea
+          aria-label={editing === null ? t("task.addComment") : t("task.editComment")}
+          className={cx(
+            fieldIslandInputClassName(1),
+            "col-start-1 row-start-1 block min-h-[112px] resize-none p-[var(--space-2)] pb-12",
+          )}
+          disabled={interactionDisabled}
+          id="task-comment-body"
+          onChange={(event) => {
+            if (disabled) {
+              return;
+            }
+            if (editing === null) {
+              onBodyChange(event.target.value);
+              return;
+            }
+            onEditingChange({ id: editing.id, body: event.target.value });
+          }}
+          placeholder={editing === null ? `${t("task.addComment")}...` : `${t("task.editComment")}...`}
+          value={commentBody}
+        />
+        <Button
+          aria-label={editing === null ? t("task.submitComment") : t("task.saveComment")}
+          className="col-start-1 row-start-1 grid h-9 w-9 place-items-center self-end justify-self-end rounded-full !p-0"
+          data-testid="task-comment-save"
+          disabled={interactionDisabled || commentBody.trim().length === 0}
+          onClick={() => void submit()}
+          style={{ marginBottom: "var(--space-2)", marginRight: "var(--space-2)" }}
+          variant="primary"
+        >
+          <Save aria-hidden="true" size={18} strokeWidth={1.8} />
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+export function CommentRow({
+  comment,
+  disabled,
+  editing,
+  mutations,
+  onEdit,
+  openLink,
+}: Readonly<{
+  comment: TaskComment;
+  disabled: boolean;
+  editing: boolean;
+  mutations: ReturnType<typeof useTaskMutations>;
+  onEdit: (comment: TaskComment) => void;
+  openLink: (url: string) => void;
+}>) {
+  const { t } = useTranslation();
+  const { push } = useStatusController();
+  const pending =
+    mutations.addComment.isPending || mutations.replaceComment.isPending || mutations.deleteComment.isPending;
+  const interactionDisabled = disabled || pending;
+  const authorLabel = comment.author.trim().length === 0 ? comment.author : comment.author.trim();
 
   async function deleteComment(commentID: string): Promise<void> {
     if (interactionDisabled) {
@@ -71,147 +133,81 @@ export function Comments({
   }
 
   return (
-    <section className="grid gap-[var(--space-3)]">
-      <div className="grid gap-[var(--space-3)]">
-        <label className={fieldLabelClassName} htmlFor="task-comment-body">
-          {editing === null ? t("task.addComment") : t("task.editComment")}
-        </label>
-        <div className="grid" data-testid="task-comment-input-frame">
-          <textarea
-            className={cx(fieldInputClassName, "col-start-1 row-start-1 block min-h-[88px] pb-0")}
-            disabled={interactionDisabled}
-            id="task-comment-body"
-            onChange={(event) => {
-              if (disabled) {
-                return;
-              }
-              if (editing === null) {
-                setBody(event.target.value);
-                return;
-              }
-              setEditing({ id: editing.id, body: event.target.value });
-            }}
-            value={commentBody}
-          />
-          <Button
-            aria-label={editing === null ? t("task.submitComment") : t("task.saveComment")}
-            className="col-start-1 row-start-1 grid h-9 w-9 place-items-center self-end justify-self-end rounded-full !p-0"
-            data-testid="task-comment-save"
-            disabled={interactionDisabled || commentBody.trim().length === 0}
-            onClick={() => void submit()}
-            style={{ marginBottom: "var(--space-2)", marginRight: "var(--space-2)" }}
-            variant="primary"
-          >
-            <Save aria-hidden="true" size={18} strokeWidth={1.8} />
-          </Button>
-        </div>
-      </div>
-      {comments.map((comment) => (
-        <article
-          className="grid gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]"
-          key={comment.id}
-        >
-          <MarkdownText onOpenLink={openLink} value={comment.body} />
-          <span>{formatRelativeTime(comment.createdAt)}</span>
-          <Button
+    <IslandSurface
+      as="article"
+      className="grid gap-[var(--space-2)] rounded-[var(--radius-l)] p-[var(--space-2)]"
+      level={1}
+    >
+      <header className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-[var(--space-2)]">
+        <CommentAuthorIcon author={comment.author} />
+        {editing ? (
+          <AuthorText author={comment.author} />
+        ) : (
+          <button
+            aria-label={t("task.editCommentBy", { author: authorLabel, defaultValue: `Edit comment by ${authorLabel}` })}
+            className="min-w-0 rounded-[var(--radius-m)] p-0 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
             disabled={interactionDisabled}
             onClick={() => {
-              setEditing({ id: comment.id, body: comment.body });
+              onEdit(comment);
             }}
-            variant="ghost"
+            type="button"
           >
-            {t("task.editComment")}
-          </Button>
-          <Button
-            disabled={interactionDisabled}
-            onClick={() => void deleteComment(comment.id)}
-            variant="danger"
-          >
-            {t("task.deleteComment")}
-          </Button>
-        </article>
-      ))}
-    </section>
-  );
-}
-
-export function ActivityFeed({
-  items,
-  hasNextPage,
-  isFetchingNextPage,
-  onLoadMore,
-}: Readonly<{
-  items: readonly { id: string; summary: string; occurredAt: number }[];
-  hasNextPage: boolean;
-  isFetchingNextPage: boolean;
-  onLoadMore: () => void;
-}>) {
-  const { t } = useTranslation();
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const lastLoadMoreItemsLengthRef = useRef(-1);
-
-  useEffect(() => {
-    if (!hasNextPage || isFetchingNextPage || lastLoadMoreItemsLengthRef.current === items.length) {
-      return undefined;
-    }
-    const sentinel = sentinelRef.current;
-    if (sentinel === null) {
-      return undefined;
-    }
-    const loadMore = () => {
-      lastLoadMoreItemsLengthRef.current = items.length;
-      onLoadMore();
-    };
-    if (typeof IntersectionObserver === "undefined") {
-      loadMore();
-      return undefined;
-    }
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        if (lastLoadMoreItemsLengthRef.current === items.length) {
-          return;
-        }
-        loadMore();
-      }
-    });
-    observer.observe(sentinel);
-    return () => {
-      observer.disconnect();
-    };
-  }, [hasNextPage, isFetchingNextPage, items.length, onLoadMore]);
-
-  return (
-    <section className="grid justify-items-center gap-[var(--space-3)]" aria-label={t("task.activity")}>
-      {items.length === 0 ? (
-        <p className="m-0 text-[var(--color-muted)]">{t("task.noActivityTitle")}</p>
-      ) : null}
-      {items.map((item) => (
-        <ActivityRow item={item} key={item.id} />
-      ))}
-      <div
-        aria-label={isFetchingNextPage ? t("app.loadingMore") : undefined}
-        aria-live="polite"
-        className="grid min-h-10 place-items-center"
-        ref={sentinelRef}
-        role={isFetchingNextPage ? "status" : undefined}
-      >
-        {isFetchingNextPage ? (
-          <>
-            <Spinner size="sm" />
-            <span className="sr-only">{t("app.loadingMore")}</span>
-          </>
-        ) : null}
+            <AuthorText author={comment.author} />
+          </button>
+        )}
+        <time className="whitespace-nowrap text-sm text-[var(--color-muted)]">{formatRelativeTime(comment.createdAt)}</time>
+        <button
+          aria-label={t("task.deleteComment")}
+          className="grid h-8 w-8 place-items-center rounded-full text-[var(--color-error)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-error)_14%,transparent)] disabled:cursor-not-allowed disabled:opacity-55"
+          disabled={interactionDisabled}
+          onClick={() => void deleteComment(comment.id)}
+          type="button"
+        >
+          <Trash2 aria-hidden="true" size={16} strokeWidth={1.8} />
+        </button>
+      </header>
+      <div className="min-w-0 text-[var(--color-on-island)]">
+        <MarkdownText onOpenLink={openLink} value={comment.body} />
       </div>
-    </section>
+    </IslandSurface>
   );
 }
 
-function ActivityRow({ item }: Readonly<{ item: { id: string; summary: string; occurredAt: number } }>) {
+function CommentAuthorIcon({ author }: Readonly<{ author: string }>) {
+  return commentAuthorKind(author) === "user" ? (
+    <UserRound aria-hidden="true" size={16} strokeWidth={1.8} />
+  ) : (
+    <Bot aria-hidden="true" size={16} strokeWidth={1.8} />
+  );
+}
+
+function commentAuthorKind(author: string): "agent" | "user" {
+  return author.trim().toLowerCase() === "user" ? "user" : "agent";
+}
+
+function AuthorText({ author }: Readonly<{ author: string }>) {
+  return (
+    <EllipsisText
+      className="font-bold capitalize text-[var(--color-on-island)]"
+      text={author.trim().length === 0 ? author : author.trim()}
+    />
+  );
+}
+
+function EllipsisText({ className, text }: Readonly<{ className?: string | undefined; text: string }>) {
+  return (
+    <span className={cx("min-w-0 truncate", className)} title={text}>
+      {text}
+    </span>
+  );
+}
+
+export function ActivityRow({ item }: Readonly<{ item: { id: string; summary: string; occurredAt: number } }>) {
   return (
     <IslandSurface
       as="article"
       className={cx(
-        "grid w-full gap-[var(--space-1)] rounded-[var(--radius-l)] p-[var(--space-3)]",
+        "grid w-full gap-[var(--space-1)] rounded-[var(--radius-l)] p-[var(--space-2)]",
         homeListCardMaxWidthClassName,
       )}
       level={1}

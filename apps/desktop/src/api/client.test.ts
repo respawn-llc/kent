@@ -138,6 +138,28 @@ describe("BuilderApiClient", () => {
     });
   });
 
+  it("uses paginated task comment list RPC contract", async () => {
+    const transport = new FakeRpcTransport([
+      {
+        method: "workflow.task.comment.list",
+        result: {
+          comments: [commentResponse],
+          next_page_token: "cursor-2",
+        },
+      },
+    ]);
+    const client = new BuilderApiClient(transport);
+
+    await expect(client.listTaskComments("task-1", "cursor-1")).resolves.toMatchObject({
+      comments: [{ id: "comment-1", body: "Existing comment" }],
+      nextPageToken: "cursor-2",
+    });
+    expect(transport.calls).toContainEqual({
+      method: "workflow.task.comment.list",
+      params: { task_id: "task-1", page_size: 40, page_token: "cursor-1" },
+    });
+  });
+
   it("uses project edit workspace pagination and mutation RPC contracts", async () => {
     const transport = new FakeRpcTransport([
       {
@@ -683,6 +705,15 @@ const projectSummaryResponse = {
   task_count: 0,
   attention_count: 0,
   workflow_count: 1,
+};
+
+const commentResponse = {
+  id: "comment-1",
+  task_id: "task-1",
+  body: "Existing comment",
+  author: "user",
+  created_at_unix_ms: 1,
+  updated_at_unix_ms: 1,
 };
 
 const emptyTaskDetailResponse = {

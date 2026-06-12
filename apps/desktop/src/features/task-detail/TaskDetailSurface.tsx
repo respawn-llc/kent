@@ -2,44 +2,9 @@ import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "../../api/errors";
 import { useOpenExternalLink } from "../../app/nativeHooks";
-import { Dialog, ErrorState, LoadingState } from "../../ui";
+import { ErrorState, LoadingState } from "../../ui";
 import { TaskDetailContent } from "./TaskDetailContent";
-import { taskDetailContentMaxWidth, taskDetailDialogOuterMaxWidth } from "./taskDetailLayout";
-import { useTaskActivity, useTaskDetail } from "./useTaskDetailData";
-
-export type TaskDetailDialogProps = Readonly<{
-  taskId: string;
-  open: boolean;
-  resumeRunId: string;
-  onClose: () => void;
-  onMutated?: (() => void) | undefined;
-}>;
-
-export function TaskDetailDialog({ taskId, open, resumeRunId, onClose, onMutated }: TaskDetailDialogProps) {
-  const { t } = useTranslation();
-
-  return (
-    <Dialog
-      className="h-[min(860px,calc(100vh-32px))] w-[calc(100vw-32px)]"
-      chrome="floating-close"
-      closeLabel={t("app.close")}
-      contentPadding="chrome"
-      onClose={onClose}
-      open={open}
-      surface="transparent"
-      style={{ maxWidth: taskDetailDialogOuterMaxWidth }}
-      title={t("task.title")}
-    >
-      <div
-        className="mx-auto h-full min-h-0 w-full"
-        data-testid="task-detail-dialog-content"
-        style={{ maxWidth: taskDetailContentMaxWidth }}
-      >
-        <TaskDetailSurface enabled={open} onMutated={onMutated} resumeRunId={resumeRunId} taskId={taskId} />
-      </div>
-    </Dialog>
-  );
-}
+import { useTaskActivity, useTaskComments, useTaskDetail } from "./useTaskDetailData";
 
 export type TaskDetailSurfaceProps = Readonly<{
   taskId: string;
@@ -59,6 +24,7 @@ export function TaskDetailSurface({
   const { t } = useTranslation();
   const detail = useTaskDetail(taskId, enabled);
   const activity = useTaskActivity(taskId, enabled);
+  const comments = useTaskComments(taskId, enabled);
   const openLink = useOpenExternalLink();
 
   if (detail.isPending) {
@@ -70,6 +36,7 @@ export function TaskDetailSurface({
   return (
     <TaskDetailContent
       activity={activity}
+      comments={comments}
       detail={detail.data}
       initialFocus={initialFocus}
       onMutated={onMutated}

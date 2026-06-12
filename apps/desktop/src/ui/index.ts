@@ -18,6 +18,8 @@ export { Item, ItemContent, ItemGroup, ItemTitle } from "./Item";
 export { Island } from "./Island";
 export { IslandSurface } from "./IslandSurface";
 export type { IslandSurfaceProps } from "./IslandSurface";
+export { IslandTabs } from "./IslandTabs";
+export type { IslandTabAction, IslandTabItem, IslandTabsProps } from "./IslandTabs";
 export { islandSurfaceClassName } from "./islandSurfaceStyles";
 export type { IslandLevel } from "./islandSurfaceStyles";
 export {

@@ -8,12 +8,21 @@ import {
   type SidebarPhase,
   type SidebarResult,
 } from "./sidebarContext";
-import { clampSidebarWidth, initialSidebarWidthForViewport } from "./sidebarSizing";
+import {
+  sidebarSizePreference,
+  sidebarWidthProfile,
+  sidebarWidthProfileEquals,
+  type SidebarWidthProfile,
+} from "./sidebarDestinationSizing";
+import { initialSidebarWidthForViewport, type ResolvedSidebarWidth } from "./sidebarSizing";
 
 const sidebarExitAnimationMs = 140;
-type SidebarWidthProfile = "standard" | "workflowEditor";
-type SidebarWidths = Partial<Readonly<Record<SidebarWidthProfile, number>>>;
-const defaultSidebarWidthProfile: SidebarWidthProfile = "standard";
+type SidebarWidthEntry = Readonly<{
+  profile: SidebarWidthProfile;
+  widthPx: number;
+}>;
+type SidebarWidths = readonly SidebarWidthEntry[];
+const defaultSidebarWidthProfile: SidebarWidthProfile = { kind: "custom", sizing: null };
 
 type PendingSidebar = Readonly<{
   resolve: (result: SidebarResult) => void;
@@ -25,10 +34,11 @@ export function SidebarProvider({ children }: Readonly<{ children: ReactNode }>)
     defaultSidebarWidthProfile,
   );
   const [phase, setPhase] = useState<SidebarPhase>("open");
-  const [sidebarWidths, setSidebarWidths] = useState<SidebarWidths>(() => ({
-    [defaultSidebarWidthProfile]: defaultSidebarWidth(),
-  }));
-  const sidebarWidthPx = sidebarWidths[activeWidthProfile] ?? defaultSidebarWidth();
+  const [sidebarWidths, setSidebarWidths] = useState<SidebarWidths>(() => [
+    { profile: defaultSidebarWidthProfile, widthPx: defaultSidebarWidth() },
+  ]);
+  const sidebarWidthPx =
+    sidebarWidthForProfile(sidebarWidths, activeWidthProfile) ?? defaultSidebarWidth(activeDestination);
   const activeDestinationRef = useRef<SidebarDestination | null>(activeDestination);
   const pendingRef = useRef<PendingSidebar | null>(null);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -68,13 +78,10 @@ export function SidebarProvider({ children }: Readonly<{ children: ReactNode }>)
       const nextProfile = sidebarWidthProfile(destination);
       setActiveWidthProfile(nextProfile);
       setSidebarWidths((current) => {
-        if (current[nextProfile] !== undefined) {
+        if (sidebarWidthForProfile(current, nextProfile) !== undefined) {
           return current;
         }
-        return {
-          ...current,
-          [nextProfile]: defaultSidebarWidth(),
-        };
+        return [...current, { profile: nextProfile, widthPx: defaultSidebarWidth(destination) }];
       });
       const pending = pendingRef.current;
       pendingRef.current = null;
@@ -102,11 +109,8 @@ export function SidebarProvider({ children }: Readonly<{ children: ReactNode }>)
   );
 
   const resizeSidebar = useCallback(
-    (widthPx: number) => {
-      setSidebarWidths((current) => ({
-        ...current,
-        [activeWidthProfile]: clampSidebarWidth(widthPx),
-      }));
+    (width: ResolvedSidebarWidth) => {
+      setSidebarWidths((current) => setSidebarWidthForProfile(current, activeWidthProfile, width.px));
     },
     [activeWidthProfile],
   );
@@ -135,16 +139,28 @@ export function SidebarProvider({ children }: Readonly<{ children: ReactNode }>)
   return <SidebarContext.Provider value={value}>{children}</SidebarContext.Provider>;
 }
 
-function sidebarWidthProfile(destination: SidebarDestination): SidebarWidthProfile {
-  if (destination.kind === "workflowInspect" || destination.kind === "workflowEditor") {
-    return "workflowEditor";
+function defaultSidebarWidth(destination: SidebarDestination | null = null): number {
+  const sizePreference = sidebarSizePreference(destination);
+  if (typeof window === "undefined") {
+    return initialSidebarWidthForViewport(0, sizePreference);
   }
-  return defaultSidebarWidthProfile;
+  return initialSidebarWidthForViewport(window.innerWidth, sizePreference);
 }
 
-function defaultSidebarWidth(): number {
-  if (typeof window === "undefined") {
-    return initialSidebarWidthForViewport(0);
+function sidebarWidthForProfile(widths: SidebarWidths, profile: SidebarWidthProfile): number | undefined {
+  return widths.find((entry) => sidebarWidthProfileEquals(entry.profile, profile))?.widthPx;
+}
+
+function setSidebarWidthForProfile(
+  widths: SidebarWidths,
+  profile: SidebarWidthProfile,
+  widthPx: number,
+): SidebarWidths {
+  const resolvedWidthPx = Math.max(0, Math.round(widthPx));
+  if (sidebarWidthForProfile(widths, profile) === undefined) {
+    return [...widths, { profile, widthPx: resolvedWidthPx }];
   }
-  return initialSidebarWidthForViewport(window.innerWidth);
+  return widths.map((entry) =>
+    sidebarWidthProfileEquals(entry.profile, profile) ? { ...entry, widthPx: resolvedWidthPx } : entry,
+  );
 }

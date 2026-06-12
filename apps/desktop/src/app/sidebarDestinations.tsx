@@ -3,7 +3,7 @@ import type { ReactElement } from "react";
 import type { useTranslation } from "react-i18next";
 
 import { ProjectEditRoute } from "../features/project-edit/ProjectEditRoute";
-import { TaskDetailSurface } from "../features/task-detail/TaskDetailDialog";
+import { TaskDetailSurface } from "../features/task-detail/TaskDetailSurface";
 import { NewTaskForm } from "../features/tasks/NewTaskDialog";
 import { WorkflowInspectorSidebar } from "../features/workflow-editor/WorkflowInspectorSidebar";
 import { WorkflowEditorRoute } from "../features/workflow-editor/WorkflowEditorRoute";

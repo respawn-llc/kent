@@ -1,5 +1,7 @@
 import { createContext, useContext, type ReactNode } from "react";
 
+import type { ResolvedSidebarWidth, SidebarSizePreference } from "./sidebarSizing";
+
 export type SidebarMode = "overlay" | "shift";
 export type SidebarPhase = "closing" | "open";
 
@@ -86,6 +88,7 @@ export type SidebarDestination =
   | Readonly<{
       kind: "custom";
       mode?: SidebarMode;
+      sizing?: SidebarSizePreference | undefined;
       title: string;
       content: ReactNode;
     }>;
@@ -96,7 +99,7 @@ export type SidebarController = Readonly<{
   openSidebar(destination: SidebarDestination): Promise<SidebarResult>;
   phase: SidebarPhase;
   resolveSidebar(result: Exclude<SidebarResult, SidebarCanceledResult>): void;
-  resizeSidebar(widthPx: number): void;
+  resizeSidebar(width: ResolvedSidebarWidth): void;
   sidebarWidthPx: number;
 }>;
 

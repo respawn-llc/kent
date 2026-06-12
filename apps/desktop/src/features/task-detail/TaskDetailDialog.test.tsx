@@ -6,7 +6,7 @@ import { guiTaskCommentAuthor } from "../../api/client";
 import type { JsonObject, JsonValue } from "../../api/json";
 import { createTestServices, startupRoutes } from "../../testSupport/appServices";
 
-describe("TaskDetailDialog", () => {
+describe("TaskDetailSurface", () => {
   it("renders direct task route inline with inbox, comments, approvals, questions, and CLI actions", async () => {
     window.history.pushState(null, "", "/tasks/task-1");
     const copied: string[] = [];
@@ -14,6 +14,7 @@ describe("TaskDetailDialog", () => {
       [
         ...startupRoutes,
         { method: "workflow.task.get", result: taskDetailResponseWithNewerActiveRun },
+        { method: "workflow.task.comment.list", result: commentListResponse },
         { method: "workflow.task.activity.list", result: activityResponse },
         { method: "ask.listPendingBySession", result: pendingAskResponse },
         { method: "workflow.task.question.answer", result: {} },
@@ -76,7 +77,7 @@ describe("TaskDetailDialog", () => {
       });
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit comment" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Edit comment/ }));
     expect(screen.getAllByLabelText("Edit comment")).toHaveLength(1);
     fireEvent.change(screen.getByLabelText("Edit comment"), {
       target: { value: "Edited comment" },
@@ -100,6 +101,7 @@ describe("TaskDetailDialog", () => {
     const services = createTestServices([
       ...startupRoutes,
       { method: "workflow.task.get", result: taskDetailResponse },
+      { method: "workflow.task.comment.list", result: commentListResponse },
       { method: "workflow.task.activity.list", result: activityResponse },
       { method: "workflow.task.comment.add", error: new Error("constraint failed") },
     ]);
@@ -122,6 +124,7 @@ describe("TaskDetailDialog", () => {
     const services = createTestServices([
       ...startupRoutes,
       { method: "workflow.task.get", result: taskDetailResponse },
+      { method: "workflow.task.comment.list", result: commentListResponse },
       { method: "workflow.task.activity.list", result: activityResponse },
       { method: "workflow.task.comment.delete", error: new Error("delete failed") },
     ]);
@@ -133,6 +136,44 @@ describe("TaskDetailDialog", () => {
     await waitFor(() => {
       expect(toastCount()).toBe(1);
     });
+  });
+
+  it("renders task comments from paginated comment pages and loads the next page", async () => {
+    window.history.pushState(null, "", "/tasks/task-1");
+    const detailWithoutInlineComments = {
+      task: {
+        ...taskDetailNoInboxResponse.task,
+        comments: [],
+      },
+    };
+    const services = createTestServices([
+      ...startupRoutes,
+      { method: "workflow.task.get", result: detailWithoutInlineComments },
+      {
+        method: "workflow.task.comment.list",
+        handler: (params: JsonValue) => {
+          if (isJsonObject(params) && params.page_token === "cursor-2") {
+            return secondCommentListResponse;
+          }
+          return firstCommentListResponse;
+        },
+      },
+      { method: "workflow.task.activity.list", result: activityResponse },
+    ]);
+
+    render(<App services={services} />);
+
+    expect(await screen.findByText("First paged comment")).toBeInTheDocument();
+    expect(await screen.findByText("Second paged comment")).toBeInTheDocument();
+    expect(services.transport.calls).toContainEqual({
+      method: "workflow.task.comment.list",
+      params: { task_id: "task-1", page_size: 40, page_token: "" },
+    });
+    expect(services.transport.calls).toContainEqual({
+      method: "workflow.task.comment.list",
+      params: { task_id: "task-1", page_size: 40, page_token: "cursor-2" },
+    });
+    expect(screen.queryByRole("region", { name: "Comments" })).not.toBeInTheDocument();
   });
 
   it("requires commentary when answering a task question with Neither", async () => {
@@ -613,6 +654,39 @@ const commentAddResponse = {
     created_at_unix_ms: 4,
     updated_at_unix_ms: 4,
   },
+};
+
+const commentListResponse = {
+  comments: taskDetailResponse.task.comments,
+  next_page_token: "",
+};
+
+const firstCommentListResponse = {
+  comments: [
+    {
+      id: "comment-page-1",
+      task_id: "task-1",
+      body: "First paged comment",
+      author: guiTaskCommentAuthor,
+      created_at_unix_ms: 5,
+      updated_at_unix_ms: 5,
+    },
+  ],
+  next_page_token: "cursor-2",
+};
+
+const secondCommentListResponse = {
+  comments: [
+    {
+      id: "comment-page-2",
+      task_id: "task-1",
+      body: "Second paged comment",
+      author: guiTaskCommentAuthor,
+      created_at_unix_ms: 6,
+      updated_at_unix_ms: 6,
+    },
+  ],
+  next_page_token: "",
 };
 
 const taskUpdateResponse = {

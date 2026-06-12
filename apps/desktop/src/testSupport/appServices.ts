@@ -64,4 +64,11 @@ export const startupRoutes: readonly FakeRoute[] = [
       generated_at_unix_ms: 1,
     },
   },
+  {
+    method: "workflow.task.comment.list",
+    result: {
+      comments: [],
+      next_page_token: "",
+    },
+  },
 ];

@@ -19,13 +19,14 @@ import { ProjectDeleteButton } from "../features/project-edit/ProjectDeleteButto
 import { WorkflowDeleteButton } from "../features/workflow-editor/WorkflowDeleteButton";
 import { useAppServices } from "./useAppServices";
 import { SidebarDestinationView, sidebarTitle } from "./sidebarDestinations";
+import { sidebarSizePreference } from "./sidebarDestinationSizing";
 import { useSidebar, type SidebarDestination } from "./sidebarContext";
 import {
-  clampSidebarWidth,
   sidebarMaxWidthRatio,
   sidebarMinWidthPx,
   sidebarResizeBoundsForShellWidth,
   sidebarResizeStepPx,
+  resolveSidebarWidth,
   type SidebarResizeBounds,
 } from "./sidebarSizing";
 
@@ -51,12 +52,13 @@ export function SidebarHost() {
   const { t } = useTranslation();
   const { activeDestination, closeSidebar, phase, resizeSidebar, resolveSidebar, sidebarWidthPx } =
     useSidebar();
+  const sizePreference = useMemo(() => sidebarSizePreference(activeDestination), [activeDestination]);
   const titleId = useId();
   const sidebarRef = useRef<HTMLElement | null>(null);
   const resizeDragRef = useRef<SidebarResizeDrag | null>(null);
   const [resizing, setResizing] = useState(false);
   const [resizeBounds, setResizeBounds] = useState(() =>
-    sidebarResizeBoundsForShellWidth(fallbackSidebarShellWidth()),
+    sidebarResizeBoundsForShellWidth(fallbackSidebarShellWidth(), sizePreference),
   );
 
   const sidebarStyle = useMemo<SidebarStyle>(
@@ -69,11 +71,11 @@ export function SidebarHost() {
 
   const resizeTo = useCallback(
     (widthPx: number) => {
-      const nextBounds = sidebarResizeBounds(sidebarRef.current);
+      const nextBounds = sidebarResizeBounds(sidebarRef.current, sizePreference);
       setResizeBounds(nextBounds);
-      resizeSidebar(clampSidebarWidth(widthPx, nextBounds.maxWidthPx));
+      resizeSidebar(resolveSidebarWidth(widthPx, nextBounds));
     },
-    [resizeSidebar],
+    [resizeSidebar, sizePreference],
   );
 
   const startResize = useCallback(
@@ -82,7 +84,7 @@ export function SidebarHost() {
         return;
       }
       event.preventDefault();
-      const nextBounds = sidebarResizeBounds(sidebarRef.current);
+      const nextBounds = sidebarResizeBounds(sidebarRef.current, sizePreference);
       setResizeBounds(nextBounds);
       resizeDragRef.current = {
         bounds: nextBounds,
@@ -93,7 +95,7 @@ export function SidebarHost() {
       setPointerCaptureIfAvailable(event.currentTarget, event.pointerId);
       setResizing(true);
     },
-    [sidebarWidthPx],
+    [sidebarWidthPx, sizePreference],
   );
 
   const resizeFromPointer = useCallback(
@@ -103,7 +105,7 @@ export function SidebarHost() {
         return;
       }
       event.preventDefault();
-      resizeSidebar(clampSidebarWidth(drag.startWidth + drag.startX - event.clientX, drag.bounds.maxWidthPx));
+      resizeSidebar(resolveSidebarWidth(drag.startWidth + drag.startX - event.clientX, drag.bounds));
     },
     [resizeSidebar],
   );
@@ -162,9 +164,9 @@ export function SidebarHost() {
       return;
     }
     const clampToCurrentBounds = () => {
-      const nextBounds = sidebarResizeBounds(sidebarRef.current);
+      const nextBounds = sidebarResizeBounds(sidebarRef.current, sizePreference);
       setResizeBounds(nextBounds);
-      resizeSidebar(clampSidebarWidth(sidebarWidthPx, nextBounds.maxWidthPx));
+      resizeSidebar(resolveSidebarWidth(sidebarWidthPx, nextBounds));
     };
     clampToCurrentBounds();
     const shellElement = sidebarRef.current?.closest('[data-testid="app-shell-content"]') ?? null;
@@ -180,7 +182,7 @@ export function SidebarHost() {
       resizeObserver?.disconnect();
       window.removeEventListener("resize", clampToCurrentBounds);
     };
-  }, [activeDestination, resizeSidebar, sidebarWidthPx]);
+  }, [activeDestination, resizeSidebar, sidebarWidthPx, sizePreference]);
 
   if (activeDestination === null) {
     return null;
@@ -194,7 +196,7 @@ export function SidebarHost() {
       aria-labelledby={titleId}
       className={cx(
         "app-region-no-drag app-sidebar-panel island-glass z-10 grid grid-rows-[auto_1fr] overflow-hidden",
-        "w-[var(--app-sidebar-width)] min-w-[var(--app-sidebar-width)] rounded-l-[var(--radius-xl)] rounded-r-[var(--radius-l)]",
+        "w-[var(--app-sidebar-width)] min-w-[var(--app-sidebar-width)] rounded-[var(--radius-xl)]",
         mode === "shift" &&
           "app-sidebar-panel-shift relative mr-[var(--app-sidebar-inset)] mt-[var(--app-sidebar-inset)] h-[calc(100%-(var(--app-sidebar-inset)*2))] shrink-0 self-start",
         mode === "overlay" &&
@@ -212,7 +214,7 @@ export function SidebarHost() {
         aria-label={t("app.resizeSidebar")}
         aria-orientation="vertical"
         aria-valuemax={resizeBounds.maxWidthPx}
-        aria-valuemin={sidebarMinWidthPx}
+        aria-valuemin={resizeBounds.minWidthPx}
         aria-valuenow={sidebarWidthPx}
         className={cx(
           "absolute top-0 bottom-0 left-0 z-20 w-3 cursor-ew-resize touch-none",
@@ -250,6 +252,8 @@ export function SidebarHost() {
           "min-h-0",
           activeDestination.kind === "workflowEditor"
             ? "overflow-hidden p-[var(--space-2)]"
+            : activeDestination.kind === "taskDetail"
+              ? "overflow-hidden"
             : "overflow-y-auto px-[var(--space-4)] py-[var(--space-4)]",
         )}
       >
@@ -378,14 +382,17 @@ type SidebarResizeDrag = Readonly<{
   startX: number;
 }>;
 
-function sidebarResizeBounds(sidebarElement: HTMLElement | null): SidebarResizeBounds {
+function sidebarResizeBounds(
+  sidebarElement: HTMLElement | null,
+  sizePreference: ReturnType<typeof sidebarSizePreference>,
+): SidebarResizeBounds {
   const shellWidth = sidebarElement
     ?.closest('[data-testid="app-shell-content"]')
     ?.getBoundingClientRect().width;
   if (shellWidth === undefined || shellWidth === 0) {
-    return sidebarResizeBoundsForShellWidth(fallbackSidebarShellWidth());
+    return sidebarResizeBoundsForShellWidth(fallbackSidebarShellWidth(), sizePreference);
   }
-  return sidebarResizeBoundsForShellWidth(shellWidth);
+  return sidebarResizeBoundsForShellWidth(shellWidth, sizePreference);
 }
 
 function fallbackSidebarShellWidth(): number {

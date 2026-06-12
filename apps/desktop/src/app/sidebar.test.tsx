@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, vi } from "vitest";
 
@@ -16,14 +17,14 @@ describe("SidebarHost", () => {
     vi.restoreAllMocks();
   });
 
-  it("uses 35 percent of the window width for the initial width capped at 840px", async () => {
+  it("uses the destination desired width for the initial width", async () => {
     const {
       restoreWindowWidth: restoreUncappedWindowWidth,
       sidebar: uncappedSidebar,
       unmount: unmountUncapped,
     } = await renderOpenSidebarAtWindowWidth(1600);
     try {
-      expect(sidebarWidthStyle(uncappedSidebar)).toBe(560);
+      expect(sidebarWidthStyle(uncappedSidebar)).toBe(550);
     } finally {
       unmountUncapped();
       restoreUncappedWindowWidth();
@@ -35,10 +36,36 @@ describe("SidebarHost", () => {
       unmount: unmountCapped,
     } = await renderOpenSidebarAtWindowWidth(3000);
     try {
-      expect(sidebarWidthStyle(cappedSidebar)).toBe(840);
+      expect(sidebarWidthStyle(cappedSidebar)).toBe(550);
     } finally {
       unmountCapped();
       restoreCappedWindowWidth();
+    }
+  });
+
+  it("clamps destination desired width by the global max and content minimum", async () => {
+    const {
+      restoreWindowWidth: restoreWideWindowWidth,
+      sidebar: wideSidebar,
+      unmount: unmountWide,
+    } = await renderOpenSidebarAtWindowWidth(1600, <OpenSizedCustomSidebar />);
+    try {
+      expect(sidebarWidthStyle(wideSidebar)).toBe(900);
+    } finally {
+      unmountWide();
+      restoreWideWindowWidth();
+    }
+
+    const {
+      restoreWindowWidth: restoreNarrowWindowWidth,
+      sidebar: narrowSidebar,
+      unmount: unmountNarrow,
+    } = await renderOpenSidebarAtWindowWidth(700, <OpenSizedCustomSidebar />);
+    try {
+      expect(sidebarWidthStyle(narrowSidebar)).toBe(595);
+    } finally {
+      unmountNarrow();
+      restoreNarrowWindowWidth();
     }
   });
 
@@ -196,11 +223,34 @@ function OpenOverlaySidebar() {
   );
 }
 
+function OpenSizedCustomSidebar() {
+  const { openSidebar } = useSidebar();
+
+  return (
+    <button
+      onClick={() => {
+        void openSidebar({
+          content: <p>Sized content</p>,
+          kind: "custom",
+          sizing: { desiredWidthPx: 900, minWidthPx: 620 },
+          title: "Settings",
+        });
+      }}
+      type="button"
+    >
+      Open sidebar
+    </button>
+  );
+}
+
 function sidebarWidthStyle(sidebar: HTMLElement): number {
   return Number.parseInt(sidebar.style.getPropertyValue("--app-sidebar-width"), 10);
 }
 
-async function renderOpenSidebarAtWindowWidth(width: number): Promise<
+async function renderOpenSidebarAtWindowWidth(
+  width: number,
+  opener: ReactNode = <OpenCustomSidebar />,
+): Promise<
   Readonly<{
     restoreWindowWidth(): void;
     sidebar: HTMLElement;
@@ -213,7 +263,7 @@ async function renderOpenSidebarAtWindowWidth(width: number): Promise<
       <SidebarProvider>
         <div className="relative flex min-h-0" data-testid="app-shell-content">
           <div className="min-w-0 flex-1">
-            <OpenCustomSidebar />
+            {opener}
           </div>
           <SidebarHost />
         </div>

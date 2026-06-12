@@ -201,11 +201,7 @@ const unavailableCapabilities: NativeCapabilityState = {
   macosVibrancy: false,
 };
 
-export const taskDetailContentMaxWidthPx = 1200;
-export const taskDetailDialogHorizontalPaddingPx = 16;
 export const nativeDialogWindowHorizontalInsetPx = 16;
-export const taskDetailDialogOuterMaxWidthPx =
-  taskDetailContentMaxWidthPx + taskDetailDialogHorizontalPaddingPx;
 const projectDeletedEvent = "builder://project-deleted";
 const workspaceUnlinkRequestEvent = "builder://workspace-unlink-request";
 const projectWorkspaceChangedEvent = "builder://project-workspace-changed";

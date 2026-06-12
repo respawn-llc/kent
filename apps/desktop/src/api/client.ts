@@ -8,6 +8,7 @@ import type {
   AttentionPage,
   BindingPlan,
   BoardNodeCardsPage,
+  CommentPage,
   PendingAsk,
   ProjectWorkflowLink,
   ProjectBinding,
@@ -53,6 +54,7 @@ import {
   attentionPageSchema,
   boardNodeCardsPageSchema,
   commentAddResponseSchema,
+  commentPageSchema,
   pendingAskListSchema,
   projectWorkflowLinksSchema,
   taskCreateResponseSchema,
@@ -525,6 +527,18 @@ export class BuilderApiClient {
       "workflow.task.activity.list",
       activityPageSchema,
       await this.transport.call("workflow.task.activity.list", {
+        task_id: taskID,
+        page_size: 40,
+        page_token: pageToken,
+      }),
+    );
+  }
+
+  async listTaskComments(taskID: string, pageToken: string): Promise<CommentPage> {
+    return parse(
+      "workflow.task.comment.list",
+      commentPageSchema,
+      await this.transport.call("workflow.task.comment.list", {
         task_id: taskID,
         page_size: 40,
         page_token: pageToken,

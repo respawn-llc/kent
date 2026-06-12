@@ -9,7 +9,7 @@ import {
   EmptyState,
   ErrorState,
   homeListCardListMaxWidthClassName,
-  IslandSurface,
+  IslandTabs,
   LoadingState,
   VirtualizedInfiniteList,
 } from "../../ui";
@@ -85,78 +85,38 @@ function HomePrimaryTabs({
 }>) {
   const { t } = useTranslation();
   return (
-    <div
-      aria-label={t("home.projectsPane")}
+    <IslandTabs
+      ariaLabel={t("home.projectsPane")}
       className="pointer-events-none absolute inset-x-0 top-0 z-10 grid grid-cols-2 gap-[var(--space-2)] px-[var(--space-4)] pt-[var(--space-4)] pb-[var(--space-2)]"
+      containerRef={controlsRef}
       data-testid="home-primary-controls"
-      ref={controlsRef}
-      role="tablist"
-    >
-      <HomePrimaryTabButton
-        active={activeTab === "projects"}
-        createLabel={t("home.newProject")}
-        disabled={disabled}
-        label={t("home.projectsPane")}
-        onCreate={onChooseWorkspace}
-        onSelect={() => {
-          onTabChange("projects");
-        }}
-      />
-      <HomePrimaryTabButton
-        active={activeTab === "workflows"}
-        createLabel={t("workflowLibrary.createWorkflow")}
-        disabled={disabled}
-        label={t("workflowLibrary.homeIslandTitle")}
-        onCreate={onCreateWorkflow}
-        onSelect={() => {
-          onTabChange("workflows");
-        }}
-      />
-    </div>
-  );
-}
-
-function HomePrimaryTabButton({
-  active,
-  createLabel,
-  disabled = false,
-  label,
-  onCreate,
-  onSelect,
-}: Readonly<{
-  active: boolean;
-  createLabel: string;
-  disabled?: boolean;
-  label: string;
-  onCreate: () => void;
-  onSelect: () => void;
-}>) {
-  return (
-    <IslandSurface
-      className="pointer-events-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-[var(--space-1)] rounded-full p-1"
-      data-testid="home-primary-tab-island"
-      level={1}
-    >
-      <button
-        aria-selected={active}
-        className="min-w-0 rounded-full px-[var(--space-3)] py-[var(--space-2)] text-left font-bold text-[var(--color-on-island)] transition-colors data-[active=true]:bg-[var(--color-island-2)]"
-        data-active={active}
-        onClick={onSelect}
-        role="tab"
-        type="button"
-      >
-        <span className="block truncate">{label}</span>
-      </button>
-      <button
-        aria-label={createLabel}
-        className="grid h-8 w-8 place-items-center rounded-full border border-[var(--color-outline)] bg-[var(--color-island-2)] text-[var(--color-on-island)] disabled:cursor-not-allowed disabled:opacity-55"
-        disabled={disabled}
-        onClick={onCreate}
-        type="button"
-      >
-        <Plus aria-hidden="true" size={18} strokeWidth={1.5} />
-      </button>
-    </IslandSurface>
+      items={[
+        {
+          action: {
+            ariaLabel: t("home.newProject"),
+            children: <Plus aria-hidden="true" size={18} strokeWidth={1.5} />,
+            disabled,
+            onClick: onChooseWorkspace,
+          },
+          label: t("home.projectsPane"),
+          testId: "home-primary-projects-tab-island",
+          value: "projects",
+        },
+        {
+          action: {
+            ariaLabel: t("workflowLibrary.createWorkflow"),
+            children: <Plus aria-hidden="true" size={18} strokeWidth={1.5} />,
+            disabled,
+            onClick: onCreateWorkflow,
+          },
+          label: t("workflowLibrary.homeIslandTitle"),
+          testId: "home-primary-workflows-tab-island",
+          value: "workflows",
+        },
+      ]}
+      onValueChange={onTabChange}
+      value={activeTab}
+    />
   );
 }
 

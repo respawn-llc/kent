@@ -3,7 +3,11 @@ import { useTranslation } from "react-i18next";
 
 import type { AttentionItem, TaskDetail } from "../../api";
 import { Island } from "../../ui";
-import { ApprovalBox, QuestionBox } from "./TaskDetailAttention";
+import {
+  ApprovalBox,
+  QuestionBox,
+} from "./TaskDetailAttention";
+import { emptyQuestionSelection, type QuestionSelectionState } from "./TaskDetailQuestionState";
 import type { useTaskMutations } from "./useTaskDetailData";
 
 export function TaskInbox({
@@ -12,12 +16,16 @@ export function TaskInbox({
   disabled,
   focusFirstQuestion = false,
   mutations,
+  questionSelections,
+  onQuestionSelectionChange,
 }: Readonly<{
   currentVersion: number;
   detail: TaskDetail;
   disabled: boolean;
   focusFirstQuestion?: boolean | undefined;
   mutations: ReturnType<typeof useTaskMutations>;
+  questionSelections: ReadonlyMap<string, QuestionSelectionState>;
+  onQuestionSelectionChange: (askID: string, selection: QuestionSelectionState) => void;
 }>) {
   const firstQuestionID = focusFirstQuestion
     ? (detail.attention.find((item) => item.kind === "question")?.id ?? "")
@@ -32,6 +40,8 @@ export function TaskInbox({
           focusOnMount={item.id === firstQuestionID}
           key={item.id}
           mutations={mutations}
+          onQuestionSelectionChange={onQuestionSelectionChange}
+          questionSelection={questionSelections.get(item.askID) ?? emptyQuestionSelection(item.askID)}
           taskId={detail.id}
           transitions={detail.transitions}
         />
@@ -46,6 +56,8 @@ function InboxItem({
   disabled,
   focusOnMount,
   mutations,
+  onQuestionSelectionChange,
+  questionSelection,
   taskId,
   transitions,
 }: Readonly<{
@@ -54,6 +66,8 @@ function InboxItem({
   disabled: boolean;
   focusOnMount: boolean;
   mutations: ReturnType<typeof useTaskMutations>;
+  onQuestionSelectionChange: (askID: string, selection: QuestionSelectionState) => void;
+  questionSelection: QuestionSelectionState;
   taskId: string;
   transitions: TaskDetail["transitions"];
 }>) {
@@ -77,7 +91,16 @@ function InboxItem({
   if (attention.kind === "question") {
     return (
       <div ref={focusTargetRef}>
-        <QuestionBox attention={attention} disabled={disabled} mutations={mutations} taskId={taskId} />
+        <QuestionBox
+          attention={attention}
+          disabled={disabled}
+          mutations={mutations}
+          onSelectionStateChange={(selection) => {
+            onQuestionSelectionChange(attention.askID, selection);
+          }}
+          selectionState={questionSelection}
+          taskId={taskId}
+        />
       </div>
     );
   }
@@ -96,7 +119,7 @@ function InboxItem({
   }
   return (
     <div ref={focusTargetRef}>
-      <Island aria-label={attention.kind || t("task.inbox")} className="grid gap-[var(--space-2)]">
+      <Island aria-label={attention.kind || t("task.inbox")} className="grid gap-[var(--space-2)]" level={1}>
         <h3 className="m-0">{attention.kind || t("task.inbox")}</h3>
         <p className="m-0">{attention.message}</p>
       </Island>

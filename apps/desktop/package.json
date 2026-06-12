@@ -14,8 +14,6 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "test:watch": "vitest",
-    "proof:browser": "../../scripts/capture-gui-browser-proof.sh",
-    "proof:showcase": "../../scripts/capture-gui-ui-showcase-proof.sh",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "tauri": "tauri",

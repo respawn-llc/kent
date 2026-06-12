@@ -16,6 +16,7 @@ export const queryKeys = {
   allProjectWorkflowLinks: ["project-workflow-links"],
   allTasks: ["task"],
   allActivity: ["activity"],
+  allComments: ["comments"],
   allPendingAsks: ["pending-asks"],
   board: (projectID: string, workflowID: string) => ["board", projectID, workflowID],
   workflows: (query: string) => ["workflow", query],
@@ -49,5 +50,6 @@ export const queryKeys = {
   ],
   task: (taskID: string) => ["task", taskID],
   activity: (taskID: string) => ["activity", taskID],
+  comments: (taskID: string) => ["comments", taskID],
   pendingAsks: (sessionID: string) => ["pending-asks", sessionID],
 };

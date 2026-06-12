@@ -368,6 +368,18 @@
   }
 }
 
+@keyframes task-detail-feed-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes sidebar-slide-in {
   from {
     opacity: 0;
@@ -581,6 +593,11 @@
   .route-transition-frame {
     animation: route-fade-scale var(--motion-fast) both;
     transform-origin: center;
+  }
+
+  .task-detail-feed-row {
+    animation: task-detail-feed-row-enter var(--motion-normal) both;
+    transform-origin: top center;
   }
 
   .view-transition-route::view-transition-old(root) {

@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { AttentionItem, TaskTransition } from "../../api";
@@ -8,16 +8,9 @@ import { Button, Island, RadioGroup, RadioGroupItem, showStatusToast } from "../
 import { fieldInputClassName } from "../../ui/fieldInputStyles";
 import { cx } from "../../ui/classes";
 import { WorkflowEdgeRouteGraphic } from "../workflow-editor/WorkflowEdgeRouteGraphic";
+import { emptyQuestionSelection, type QuestionSelectionState } from "./TaskDetailQuestionState";
 import { usePendingAsks } from "./useTaskDetailData";
 import type { useTaskMutations } from "./useTaskDetailData";
-
-type QuestionSelectionState = Readonly<{
-  answer: string;
-  askID: string;
-  selectedOption: number | null;
-  submitted: boolean;
-  userSelected: boolean;
-}>;
 
 const emptySuggestions: readonly string[] = [];
 
@@ -25,11 +18,15 @@ export function QuestionBox({
   attention,
   disabled,
   mutations,
+  selectionState,
+  onSelectionStateChange,
   taskId,
 }: Readonly<{
   attention: AttentionItem;
   disabled: boolean;
   mutations: ReturnType<typeof useTaskMutations>;
+  selectionState: QuestionSelectionState;
+  onSelectionStateChange: (selection: QuestionSelectionState) => void;
   taskId: string;
 }>) {
   const { t } = useTranslation();
@@ -42,13 +39,15 @@ export function QuestionBox({
   const recommendedOption = recommendedOptionNumber(suggestions, recommendedOptionSource);
 
   return (
-    <Island aria-label={t("task.question")}>
+    <Island aria-label={t("task.question")} className="p-[var(--space-2)]" level={1} unpadded>
       <QuestionForm
         answerQuestion={mutations.answerQuestion}
         attention={attention}
         disabled={disabled}
+        onSelectionStateChange={onSelectionStateChange}
         question={question}
         recommendedOption={recommendedOption}
+        selectionState={selectionState}
         suggestions={suggestions}
         taskId={taskId}
       />
@@ -60,23 +59,24 @@ function QuestionForm({
   answerQuestion,
   attention,
   disabled,
+  onSelectionStateChange,
   question,
   recommendedOption,
+  selectionState,
   suggestions,
   taskId,
 }: Readonly<{
   answerQuestion: ReturnType<typeof useTaskMutations>["answerQuestion"];
   attention: AttentionItem;
   disabled: boolean;
+  onSelectionStateChange: (selection: QuestionSelectionState) => void;
   question: string | undefined;
   recommendedOption: number | null;
+  selectionState: QuestionSelectionState;
   suggestions: readonly string[];
   taskId: string;
 }>) {
   const { t } = useTranslation();
-  const [selectionState, setSelectionState] = useState<QuestionSelectionState>(() =>
-    emptyQuestionSelection(attention.askID),
-  );
   const selection = selectionForAsk(selectionState, attention.askID);
   const selectedOption = selection.userSelected ? selection.selectedOption : recommendedOption;
   const answer = selection.answer;
@@ -99,12 +99,12 @@ function QuestionForm({
       selectedOptionNumber,
       freeformAnswer: answer,
     });
-    setSelectionState({ answer: "", askID: attention.askID, selectedOption: null, submitted: true, userSelected: true });
+    onSelectionStateChange({ answer: "", askID: attention.askID, selectedOption: null, submitted: true, userSelected: true });
   }
 
   return (
     <form
-      className="grid gap-[var(--space-3)]"
+      className="grid gap-[var(--space-2)]"
       onSubmit={(event) => {
         event.preventDefault();
         if (canSubmit && !interactionDisabled) {
@@ -120,7 +120,7 @@ function QuestionForm({
           disabled={interactionDisabled}
           onValueChange={(value) => {
             const nextOption = Number(value);
-            setSelectionState({
+            onSelectionStateChange({
               answer,
               askID: attention.askID,
               selectedOption: nextOption,
@@ -153,7 +153,7 @@ function QuestionForm({
         disabled={interactionDisabled}
         id={answerID}
         onChange={(event) => {
-          setSelectionState({
+          onSelectionStateChange({
             answer: event.target.value,
             askID: attention.askID,
             selectedOption,
@@ -208,10 +208,6 @@ function recommendedOptionNumber(suggestions: readonly string[], recommendedOpti
   return recommendedOptionIndex >= 1 && recommendedOptionIndex <= suggestions.length ? recommendedOptionIndex : null;
 }
 
-function emptyQuestionSelection(askID: string): QuestionSelectionState {
-  return { answer: "", askID, selectedOption: null, submitted: false, userSelected: false };
-}
-
 function selectionForAsk(selection: QuestionSelectionState, askID: string): QuestionSelectionState {
   return selection.askID === askID ? selection : emptyQuestionSelection(askID);
 }
@@ -234,10 +230,15 @@ export function ApprovalBox({
   const transition = transitions.find((item) => item.id === attention.taskTransitionID);
   const stale = transition !== undefined && transition.version !== currentVersion;
   return (
-    <Island aria-label={t("task.approval")} className="grid gap-[var(--space-3)]">
+    <Island
+      aria-label={t("task.approval")}
+      className="grid gap-[var(--space-2)] p-[var(--space-2)]"
+      level={1}
+      unpadded
+    >
       {transition !== undefined ? (
-        <div className="grid gap-[var(--space-3)]">
-          <div className="flex min-w-0 items-center gap-[var(--space-3)]" data-testid="task-approval-route-action-row">
+        <div className="grid gap-[var(--space-2)]">
+          <div className="flex min-w-0 items-center gap-[var(--space-2)]" data-testid="task-approval-route-action-row">
             <WorkflowEdgeRouteGraphic
               contextMode=""
               layout="compact"

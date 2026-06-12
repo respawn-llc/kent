@@ -17,7 +17,7 @@ GUI workspace for Builder desktop/web client surfaces.
 ## Checks
 
 - From `apps/`, run `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, and relevant build scripts after GUI code changes.
-- Use browser-client QA as the primary manual GUI QA path. Run `pnpm --dir apps/desktop dev:browser` for interactive QA, or `./scripts/capture-gui-browser-proof.sh` for agent-browser screenshot proof capture against an existing Builder server.
+- Use browser-client QA as the primary manual GUI QA path. Run `pnpm --dir apps/desktop dev:browser` for interactive QA against an existing Builder server.
 - Tauri native builds require Rust toolchain plus platform-specific WebView/build dependencies.
 - Commit `apps/desktop/src-tauri/gen/schemas/*.json` when Tauri regenerates them; they are generated, but keeping them in the repo avoids dirty editor/schema state on clean clones.
 - Frontend dependency policy is enforced by `apps/dependency-policy.json` and `apps/scripts/check-dependency-policy.mjs`. New direct dependencies are blocked until they are added to the allowlist intentionally.

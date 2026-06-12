@@ -1,8 +1,6 @@
 import {
   createBrowserNativeBridge,
   createTauriNativeBridge,
-  taskDetailContentMaxWidthPx,
-  taskDetailDialogHorizontalPaddingPx,
 } from "@builder/desktop-native-bridge";
 import { vi } from "vitest";
 
@@ -65,11 +63,6 @@ describe("native bridge capabilities", () => {
     ].forEach((permission) => {
       expect(permissions.has(permission)).toBe(true);
     });
-  });
-
-  it("uses shared task detail content widths", () => {
-    expect(taskDetailContentMaxWidthPx).toBe(1200);
-    expect(taskDetailDialogHorizontalPaddingPx).toBe(16);
   });
 
   it("keeps browser workflow delete confirmation events as no-ops", async () => {

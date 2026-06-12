@@ -24,6 +24,17 @@ export function useTaskActivity(taskID: string, enabled: boolean) {
   });
 }
 
+export function useTaskComments(taskID: string, enabled: boolean) {
+  const { api } = useAppServices();
+  return useInfiniteQuery({
+    queryKey: queryKeys.comments(taskID),
+    queryFn: async ({ pageParam }) => api.listTaskComments(taskID, pageParam),
+    enabled: enabled && taskID.length > 0,
+    initialPageParam: "",
+    getNextPageParam: (lastPage) => (lastPage.nextPageToken.length > 0 ? lastPage.nextPageToken : undefined),
+  });
+}
+
 export function usePendingAsks(sessionID: string) {
   const { api } = useAppServices();
   return useQuery({
@@ -39,6 +50,7 @@ export function useTaskMutations(taskID: string, onChanged?: () => void) {
   async function refresh(): Promise<void> {
     await queryClient.invalidateQueries({ queryKey: queryKeys.task(taskID) });
     await queryClient.invalidateQueries({ queryKey: queryKeys.activity(taskID) });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.comments(taskID) });
     await queryClient.invalidateQueries({ queryKey: queryKeys.projects });
     await queryClient.invalidateQueries({ queryKey: queryKeys.allAttention });
     await queryClient.invalidateQueries({ queryKey: queryKeys.allBoards });

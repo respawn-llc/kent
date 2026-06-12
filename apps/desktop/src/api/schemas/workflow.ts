@@ -7,6 +7,7 @@ import type {
   BoardColumn,
   BoardGroup,
   BoardNodeCardsPage,
+  CommentPage,
   PendingAsk,
   TaskDetail,
   TaskMoveResponse,
@@ -815,3 +816,13 @@ const taskSummaryResponseSchema = z.object({ task: z.object({ id: z.string() }) 
 export const taskCreateResponseSchema = taskSummaryResponseSchema;
 export const taskUpdateResponseSchema = taskSummaryResponseSchema;
 export const commentAddResponseSchema = z.object({ comment: commentSchema });
+
+export const commentPageSchema: z.ZodType<CommentPage> = z
+  .object({
+    comments: z.array(commentSchema),
+    next_page_token: z.string().optional().default(""),
+  })
+  .transform((value) => ({
+    comments: value.comments,
+    nextPageToken: value.next_page_token,
+  }));
