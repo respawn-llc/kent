@@ -15,11 +15,11 @@ require_option_arg() {
 usage() {
 	cat <<'USAGE'
 Usage:
-  scripts/sandbox-serve.sh up [options] [-- <builder-serve-args...>]
-  scripts/sandbox-serve.sh down [options]
-  scripts/sandbox-serve.sh logs [options] [-- <docker-logs-args...>]
-  scripts/sandbox-serve.sh shell [options] [-- <command...>]
-  scripts/sandbox-serve.sh env [options]
+  scripts/sandbox/sandbox-serve.sh up [options] [-- <builder-serve-args...>]
+  scripts/sandbox/sandbox-serve.sh down [options]
+  scripts/sandbox/sandbox-serve.sh logs [options] [-- <docker-logs-args...>]
+  scripts/sandbox/sandbox-serve.sh shell [options] [-- <command...>]
+  scripts/sandbox/sandbox-serve.sh env [options]
 
 Start an isolated Docker sandbox that builds `builder` from the same repo
 snapshot copied into the image, clones a sandboxed Builder repo into the
@@ -52,10 +52,10 @@ Options:
   -h, --help              Show this help.
 
 Examples:
-  scripts/sandbox-serve.sh up
-  scripts/sandbox-serve.sh up --host-port 53100 --project-name builder -- --model gpt-5.5
-  scripts/sandbox-serve.sh env --host-port 53100
-  scripts/sandbox-serve.sh down --reset
+  scripts/sandbox/sandbox-serve.sh up
+  scripts/sandbox/sandbox-serve.sh up --host-port 53100 --project-name builder -- --model gpt-5.5
+  scripts/sandbox/sandbox-serve.sh env --host-port 53100
+  scripts/sandbox/sandbox-serve.sh down --reset
 USAGE
 }
 
@@ -277,9 +277,9 @@ Host client env:
 $(print_env_exports)
 
 Useful commands:
-  scripts/sandbox-serve.sh logs --name ${container_name}
-  scripts/sandbox-serve.sh shell --name ${container_name}
-  scripts/sandbox-serve.sh down --name ${container_name}
+  scripts/sandbox/sandbox-serve.sh logs --name ${container_name}
+  scripts/sandbox/sandbox-serve.sh shell --name ${container_name}
+  scripts/sandbox/sandbox-serve.sh down --name ${container_name}
 EOF
 }
 
