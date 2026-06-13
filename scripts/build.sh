@@ -8,14 +8,14 @@ cd "$repo_root"
 
 usage() {
 	cat <<'USAGE'
-Usage: scripts/build.sh --output /path/to/builder [--version vX.Y.Z|X.Y.Z] [--package ./cli/builder] [--skip-frontend]
+Usage: scripts/build.sh --output /path/to/builder [--version vX.Y.Z|X.Y.Z] [--package ./cli/kent] [--skip-frontend]
 
 Builds frontend assets and a release-profile Builder binary using a static Go toolchain configuration.
 
 Options:
   --output   Output path for the compiled binary.
   --version  Override the embedded Builder version. Defaults to BUILDER_VERSION or VERSION.
-  --package  Main package to build. Defaults to ./cli/builder.
+  --package  Main package to build. Defaults to ./cli/kent.
   --skip-frontend
             Skip frontend asset build.
 USAGE
@@ -54,7 +54,7 @@ run_frontend_build() {
 }
 
 output=""
-package_path="./cli/builder"
+package_path="./cli/kent"
 version=""
 skip_frontend="${BUILDER_SKIP_FRONTEND:-0}"
 

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"core/cli/builder/internal/serverbridge"
+	"core/cli/kent/internal/serverbridge"
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"

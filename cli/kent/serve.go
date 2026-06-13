@@ -10,7 +10,7 @@ import (
 	"strings"
 	"syscall"
 
-	"core/cli/builder/internal/serverbridge"
+	"core/cli/kent/internal/serverbridge"
 	"core/server/serve"
 	serverstartup "core/server/startup"
 )

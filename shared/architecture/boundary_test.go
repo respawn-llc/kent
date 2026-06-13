@@ -382,12 +382,12 @@ func allowedCLIServerImports() map[string]map[string]string {
 			"core/server/auth":       "onboarding readiness requires server auth manager types",
 			"core/server/onboarding": "onboarding readiness delegates to the server-owned onboarding flow",
 		},
-		filepath.Join("cli", "builder", "internal", "serverbridge", "serverbridge.go"): {
-			"core/server/sessionlifecycle": "builder CLI bridge retains non-trivial fallback behavior",
+		filepath.Join("cli", "kent", "internal", "serverbridge", "serverbridge.go"): {
+			"core/server/sessionlifecycle": "kent CLI bridge retains non-trivial fallback behavior",
 		},
-		filepath.Join("cli", "builder", "serve.go"): {
-			"core/server/serve":   "builder serve command is a composition root",
-			"core/server/startup": "builder serve command is a composition root",
+		filepath.Join("cli", "kent", "serve.go"): {
+			"core/server/serve":   "kent serve command is a composition root",
+			"core/server/startup": "kent serve command is a composition root",
 		},
 	}
 }
