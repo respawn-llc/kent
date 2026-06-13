@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 const (

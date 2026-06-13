@@ -1,9 +1,9 @@
 package metadata
 
 import (
-	"builder/server/session"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/server/session"
+	"core/shared/config"
+	"core/shared/serverapi"
 	"context"
 	"database/sql"
 	"errors"

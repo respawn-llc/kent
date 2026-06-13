@@ -3,7 +3,7 @@ package authcommand
 import (
 	"context"
 
-	"builder/shared/auth"
+	"core/shared/auth"
 )
 
 type StateLoader interface {

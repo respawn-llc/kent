@@ -8,9 +8,9 @@ import (
 	"slices"
 	"strings"
 
-	"builder/server/metadata/sqlitegen"
-	"builder/server/workflow"
-	"builder/server/workflowjson"
+	"core/server/metadata/sqlitegen"
+	"core/server/workflow"
+	"core/server/workflowjson"
 )
 
 type WorkflowGraphSaveRequest struct {

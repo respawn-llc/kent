@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"builder/cli/app/internal/onboardingimport"
-	"builder/cli/app/internal/onboardingimportchoice"
-	"builder/cli/app/internal/onboardingimportskills"
+	"core/cli/app/internal/onboardingimport"
+	"core/cli/app/internal/onboardingimportchoice"
+	"core/cli/app/internal/onboardingimportskills"
 )
 
 type Provider struct {

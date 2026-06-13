@@ -12,9 +12,9 @@ import (
 	"testing"
 	"unicode"
 
-	"builder/server/tools"
-	patchtool "builder/server/tools/patch"
-	"builder/shared/toolspec"
+	"core/server/tools"
+	patchtool "core/server/tools/patch"
+	"core/shared/toolspec"
 )
 
 var tinyPNG = []byte{

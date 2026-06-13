@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/server/metadata/sqlitegen"
-	"builder/server/workflow"
-	"builder/server/workflowjson"
+	"core/server/metadata/sqlitegen"
+	"core/server/workflow"
+	"core/server/workflowjson"
 )
 
 func (s *Store) ListRunnableRuns(ctx context.Context, limit int64) ([]RunnableRunRecord, error) {

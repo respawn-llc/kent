@@ -7,15 +7,15 @@ import (
 	"strings"
 	"sync"
 
-	"builder/server/auth"
-	serverlifecycle "builder/server/lifecycle"
-	"builder/server/metadata"
-	"builder/server/requestmemo"
-	"builder/server/session"
-	"builder/server/sessionpath"
-	"builder/shared/client"
-	"builder/shared/rollbacktarget"
-	"builder/shared/serverapi"
+	"core/server/auth"
+	serverlifecycle "core/server/lifecycle"
+	"core/server/metadata"
+	"core/server/requestmemo"
+	"core/server/session"
+	"core/server/sessionpath"
+	"core/shared/client"
+	"core/shared/rollbacktarget"
+	"core/shared/serverapi"
 )
 
 type Service struct {

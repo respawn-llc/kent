@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/cli/app/internal/worktreeview"
-	"builder/shared/serverapi"
+	"core/cli/app/internal/worktreeview"
+	"core/shared/serverapi"
 )
 
 type Action uint8

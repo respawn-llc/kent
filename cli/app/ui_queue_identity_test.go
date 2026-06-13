@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

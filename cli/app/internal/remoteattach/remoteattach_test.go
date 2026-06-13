@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"builder/shared/client"
-	"builder/shared/config"
-	"builder/shared/protocol"
-	"builder/shared/serverapi"
+	"core/shared/client"
+	"core/shared/config"
+	"core/shared/protocol"
+	"core/shared/serverapi"
 )
 
 type projectViewRemoteStub struct {

@@ -7,11 +7,11 @@ import (
 	"strings"
 	"sync"
 
-	"builder/server/primaryrun"
-	"builder/server/runtime"
-	"builder/server/runtimeview"
-	askquestion "builder/server/tools/askquestion"
-	"builder/shared/serverapi"
+	"core/server/primaryrun"
+	"core/server/runtime"
+	"core/server/runtimeview"
+	askquestion "core/server/tools/askquestion"
+	"core/shared/serverapi"
 )
 
 const (

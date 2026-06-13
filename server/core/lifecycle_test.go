@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/auth"
-	serverbootstrap "builder/server/bootstrap"
-	"builder/shared/config"
+	"core/server/auth"
+	serverbootstrap "core/server/bootstrap"
+	"core/shared/config"
 )
 
 func TestCoreCloseClosesResourcesOnceInReverseRegistrationOrder(t *testing.T) {

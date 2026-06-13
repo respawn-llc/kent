@@ -1,8 +1,8 @@
 package app
 
 import (
-	"builder/cli/app/commands"
-	"builder/shared/config"
+	"core/cli/app/commands"
+	"core/shared/config"
 	"errors"
 	"io"
 	"os"

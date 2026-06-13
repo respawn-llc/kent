@@ -1,12 +1,12 @@
 package app
 
 import (
-	"builder/cli/tui"
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
-	"builder/shared/transcript"
+	"core/cli/tui"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/shared/clientui"
+	"core/shared/serverapi"
+	"core/shared/transcript"
 	"bytes"
 	"context"
 	"io"

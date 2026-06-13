@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/shared/textutil"
+	"core/shared/textutil"
 	"github.com/openai/openai-go/v3/responses"
 )
 

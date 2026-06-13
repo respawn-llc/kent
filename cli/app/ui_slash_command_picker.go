@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode"
 
-	"builder/cli/app/commands"
-	"builder/cli/app/internal/authcommand"
+	"core/cli/app/commands"
+	"core/cli/app/internal/authcommand"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

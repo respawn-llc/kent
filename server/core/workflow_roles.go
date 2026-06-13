@@ -3,8 +3,8 @@ package core
 import (
 	"strings"
 
-	"builder/server/workflow"
-	"builder/shared/config"
+	"core/server/workflow"
+	"core/shared/config"
 )
 
 type configRoleResolver struct {

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"builder/shared/transcript"
+	"core/shared/transcript"
 )
 
 func TestDecodeToolCallMetaTreatsEmptyObjectAsAbsent(t *testing.T) {

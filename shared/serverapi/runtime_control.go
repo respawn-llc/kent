@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"builder/shared/transcript"
+	"core/shared/transcript"
 )
 
 type RuntimeSetSessionNameRequest struct {

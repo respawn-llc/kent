@@ -5,11 +5,11 @@ import (
 	"reflect"
 	"strings"
 
-	"builder/server/auth"
-	"builder/server/llm"
-	"builder/shared/compaction"
-	"builder/shared/config"
-	"builder/shared/toolspec"
+	"core/server/auth"
+	"core/server/llm"
+	"core/shared/compaction"
+	"core/shared/config"
+	"core/shared/toolspec"
 )
 
 const fastRoleSameAsMainWarning = "Warning: user configuration for fast agents is the same as for other agents. Consider asking the user to edit their config to pick a faster, smaller model at the end of your task. More info at https://opensource.respawn.pro/builder"

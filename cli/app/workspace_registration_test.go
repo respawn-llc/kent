@@ -9,15 +9,15 @@ import (
 	"strconv"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/metadata"
-	"builder/server/projectview"
-	"builder/server/runtime"
-	"builder/server/serve"
-	"builder/server/session"
-	"builder/server/tools"
-	"builder/shared/client"
-	"builder/shared/config"
+	"core/server/llm"
+	"core/server/metadata"
+	"core/server/projectview"
+	"core/server/runtime"
+	"core/server/serve"
+	"core/server/session"
+	"core/server/tools"
+	"core/shared/client"
+	"core/shared/config"
 )
 
 func registerAppWorkspace(t *testing.T, workspace string) {

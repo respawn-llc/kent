@@ -6,14 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/metadata"
-	"builder/server/metadata/sqlitegen"
-	"builder/server/workflow"
-	"builder/server/workflowstore"
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/toolspec"
+	"core/server/metadata"
+	"core/server/metadata/sqlitegen"
+	"core/server/workflow"
+	"core/server/workflowstore"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/toolspec"
 )
 
 func TestBoardAndTaskDetailUseDurableWorkflowMetadataOnly(t *testing.T) {

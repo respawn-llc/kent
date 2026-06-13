@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"builder/cli/app/commands"
-	"builder/cli/tui"
-	"builder/server/auth"
-	"builder/server/llm"
-	"builder/shared/clientui"
-	"builder/shared/theme"
+	"core/cli/app/commands"
+	"core/cli/tui"
+	"core/server/auth"
+	"core/server/llm"
+	"core/shared/clientui"
+	"core/shared/theme"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

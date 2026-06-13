@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/server/tools"
-	"builder/server/workflowruntime"
-	"builder/shared/cachewarn"
-	compactionutil "builder/shared/compaction"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/server/session"
+	"core/server/tools"
+	"core/server/workflowruntime"
+	"core/shared/cachewarn"
+	compactionutil "core/shared/compaction"
+	"core/shared/toolspec"
 )
 
 type requestBuildPlan struct {

@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/prompts"
-	"builder/server/llm"
-	"builder/server/tools"
-	"builder/server/workflowruntime"
-	"builder/shared/toolspec"
+	"core/prompts"
+	"core/server/llm"
+	"core/server/tools"
+	"core/server/workflowruntime"
+	"core/shared/toolspec"
 )
 
 const (

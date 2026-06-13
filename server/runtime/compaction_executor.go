@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/shared/cachewarn"
+	"core/server/llm"
+	"core/server/session"
+	"core/shared/cachewarn"
 )
 
 func (e *Engine) compactRemote(ctx context.Context, stepID string, input []llm.ResponseItem, providerID string, instructions string) (compactionResult, error) {

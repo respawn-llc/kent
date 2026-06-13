@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"builder/shared/clientui"
-	"builder/shared/protocol"
-	"builder/shared/rpccontract"
-	"builder/shared/rpcwire"
-	"builder/shared/serverapi"
+	"core/shared/clientui"
+	"core/shared/protocol"
+	"core/shared/rpccontract"
+	"core/shared/rpcwire"
+	"core/shared/serverapi"
 )
 
 type gatewaySubscription[Event any] interface {

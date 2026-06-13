@@ -6,8 +6,8 @@ import (
 	"io"
 	"sync"
 
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 )
 
 type sessionActivityBroker struct {

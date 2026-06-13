@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"builder/shared/protocol"
+	"core/shared/protocol"
 )
 
 func TestWebSocketTransportUnixRoundTrip(t *testing.T) {

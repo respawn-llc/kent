@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 type countRinger struct {

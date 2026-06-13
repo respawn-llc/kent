@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/server/metadata/sqlitegen"
-	"builder/server/workflow"
+	"core/server/metadata/sqlitegen"
+	"core/server/workflow"
 )
 
 type WorkflowDeleteImpact struct {

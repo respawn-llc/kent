@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"builder/cli/app/internal/onboardingready"
-	"builder/server/llm"
-	"builder/shared/config"
+	"core/cli/app/internal/onboardingready"
+	"core/server/llm"
+	"core/shared/config"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

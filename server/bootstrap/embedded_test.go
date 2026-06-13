@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/auth"
-	"builder/server/generated"
-	"builder/shared/brand"
-	"builder/shared/config"
+	"core/server/auth"
+	"core/server/generated"
+	"core/shared/brand"
+	"core/shared/config"
 )
 
 func TestBuildAuthSupportUsesDefaultIssuerAndEnvClientID(t *testing.T) {

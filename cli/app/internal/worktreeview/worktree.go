@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 )
 
 func DisplayName(item serverapi.WorktreeView) string {

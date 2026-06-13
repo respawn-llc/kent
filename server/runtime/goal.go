@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"builder/prompts"
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
+	"core/prompts"
+	"core/server/llm"
+	"core/server/session"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 const goalObjectivePreviewMaxRunes = 120

@@ -3,8 +3,8 @@ package app
 import (
 	"strings"
 
-	tuiinput "builder/cli/tui/input"
-	"builder/shared/theme"
+	tuiinput "core/cli/tui/input"
+	"core/shared/theme"
 
 	"github.com/charmbracelet/lipgloss"
 	xansi "github.com/charmbracelet/x/ansi"

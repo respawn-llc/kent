@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"builder/cli/app/internal/embeddedstartup"
-	"builder/cli/app/internal/onboardingready"
-	"builder/shared/config"
+	"core/cli/app/internal/embeddedstartup"
+	"core/cli/app/internal/onboardingready"
+	"core/shared/config"
 )
 
 func startEmbeddedServer(ctx context.Context, opts Options, interactor authInteractor, interactive bool) (*embeddedAppServer, error) {

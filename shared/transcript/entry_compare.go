@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	patchformat "builder/shared/transcript/patchformat"
+	patchformat "core/shared/transcript/patchformat"
 )
 
 // EntryPayload is the transcript-domain shape used for overlap and replacement

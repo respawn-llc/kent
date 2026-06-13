@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 )
 
 func TestPromptServiceRejectsEmptyPrompt(t *testing.T) {

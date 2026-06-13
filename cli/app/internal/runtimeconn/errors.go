@@ -7,8 +7,8 @@ import (
 	"net"
 	"net/url"
 
-	"builder/shared/llmerrors"
-	"builder/shared/serverapi"
+	"core/shared/llmerrors"
+	"core/shared/serverapi"
 )
 
 func IsConnectionError(err error) bool {

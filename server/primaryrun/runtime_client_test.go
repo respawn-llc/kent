@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 type stubRuntimeClient struct {

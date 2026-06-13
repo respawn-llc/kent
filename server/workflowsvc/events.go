@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"builder/server/workflowstore"
-	"builder/shared/serverapi"
+	"core/server/workflowstore"
+	"core/shared/serverapi"
 )
 
 const workflowProjectEventBufferSize = 64

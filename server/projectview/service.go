@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"builder/server/metadata"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
-	"builder/shared/servicecontract"
+	"core/server/metadata"
+	"core/shared/clientui"
+	"core/shared/serverapi"
+	"core/shared/servicecontract"
 )
 
 type Service struct {

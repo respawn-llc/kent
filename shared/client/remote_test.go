@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"builder/shared/clientui"
-	"builder/shared/protocol"
-	"builder/shared/serverapi"
+	"core/shared/clientui"
+	"core/shared/protocol"
+	"core/shared/serverapi"
 	"golang.org/x/net/websocket"
 )
 

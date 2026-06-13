@@ -3,10 +3,10 @@ package app
 import (
 	"strings"
 
-	"builder/cli/tui"
-	"builder/shared/clientui"
-	"builder/shared/transcript"
-	patchformat "builder/shared/transcript/patchformat"
+	"core/cli/tui"
+	"core/shared/clientui"
+	"core/shared/transcript"
+	patchformat "core/shared/transcript/patchformat"
 )
 
 func authoritativePageDuplicatesCommittedAssistantOngoing(entries []tui.TranscriptEntry, pageOngoing string, liveOngoing string) bool {

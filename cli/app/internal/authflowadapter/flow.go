@@ -1,9 +1,9 @@
 package authflowadapter
 
 import (
-	serverauth "builder/server/auth"
-	"builder/server/authflow"
-	"builder/shared/auth"
+	serverauth "core/server/auth"
+	"core/server/authflow"
+	"core/shared/auth"
 )
 
 type InteractionRequest = authflow.InteractionRequest

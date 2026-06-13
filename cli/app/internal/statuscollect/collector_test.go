@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	appstatus "builder/cli/app/internal/status"
-	"builder/server/auth"
-	"builder/shared/config"
+	appstatus "core/cli/app/internal/status"
+	"core/server/auth"
+	"core/shared/config"
 )
 
 func TestCollectorUsesRefreshedOAuthStateForUsageFetch(t *testing.T) {

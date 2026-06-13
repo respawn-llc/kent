@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/shared/brand"
+	"core/shared/brand"
 )
 
 const fallbackBinaryName = brand.Command

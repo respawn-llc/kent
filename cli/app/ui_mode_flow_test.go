@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"builder/cli/tui"
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/server/session"
-	"builder/shared/cachewarn"
-	"builder/shared/clientui"
+	"core/cli/tui"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/server/session"
+	"core/shared/cachewarn"
+	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

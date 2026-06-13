@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"builder/shared/config"
+	"core/shared/config"
 
 	tea "github.com/charmbracelet/bubbletea"
 	xansi "github.com/charmbracelet/x/ansi"

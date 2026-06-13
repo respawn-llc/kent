@@ -1,8 +1,8 @@
 package clientui
 
 import (
-	"builder/shared/cachewarn"
-	patchformat "builder/shared/transcript/patchformat"
+	"core/shared/cachewarn"
+	patchformat "core/shared/transcript/patchformat"
 	"time"
 )
 

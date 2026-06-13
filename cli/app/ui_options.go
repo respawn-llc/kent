@@ -3,11 +3,11 @@ package app
 import (
 	"strings"
 
-	"builder/cli/app/commands"
-	"builder/cli/tui"
-	"builder/shared/client"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	"core/cli/app/commands"
+	"core/cli/tui"
+	"core/shared/client"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 )
 
 type UIOption func(*uiModel)

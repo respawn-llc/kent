@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/processview"
-	shelltool "builder/server/tools/shell"
-	"builder/shared/client"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	"core/server/processview"
+	shelltool "core/server/tools/shell"
+	"core/shared/client"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 )
 
 type fixedUIProcessClient struct {

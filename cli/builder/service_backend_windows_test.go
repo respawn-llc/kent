@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"builder/shared/brand"
-	"builder/shared/config"
+	"core/shared/brand"
+	"core/shared/config"
 )
 
 func TestWindowsInstallWithoutForceRejectsExistingDifferentScript(t *testing.T) {

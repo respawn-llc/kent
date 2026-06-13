@@ -1,8 +1,8 @@
 package runtimeview
 
 import (
-	"builder/server/runtime"
-	"builder/shared/clientui"
+	"core/server/runtime"
+	"core/shared/clientui"
 )
 
 const OngoingTailEntryLimit = 500

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/shared/protocol"
+	"core/shared/protocol"
 )
 
 func TestRouteContractsAreCompleteAndExplicit(t *testing.T) {

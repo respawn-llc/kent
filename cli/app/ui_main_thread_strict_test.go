@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	appstatus "builder/cli/app/internal/status"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	appstatus "core/cli/app/internal/status"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

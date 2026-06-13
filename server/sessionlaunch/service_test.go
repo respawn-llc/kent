@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/auth"
-	"builder/server/launch"
-	"builder/server/registry"
-	"builder/server/session"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/toolspec"
+	"core/server/auth"
+	"core/server/launch"
+	"core/server/registry"
+	"core/server/session"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/toolspec"
 )
 
 type failingAuthStateReader struct{}

@@ -1,11 +1,11 @@
 package app
 
 import (
-	"builder/cli/app/internal/worktreeview"
-	"builder/cli/tui"
-	sharedclient "builder/shared/client"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	"core/cli/app/internal/worktreeview"
+	"core/cli/tui"
+	sharedclient "core/shared/client"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 	"context"
 	"errors"
 	"strings"

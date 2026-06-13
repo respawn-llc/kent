@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"builder/server/metadata/sqlitegen"
-	"builder/server/workflow"
+	"core/server/metadata/sqlitegen"
+	"core/server/workflow"
 )
 
 type WorkflowGraphEditPolicyImpact struct {

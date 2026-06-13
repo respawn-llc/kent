@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"builder/server/session"
+	"core/server/session"
 )
 
 func TestRequestFromLockedContract_UsesBinaryPromptAndExplicitTools(t *testing.T) {

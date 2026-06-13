@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"builder/shared/client"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
-	"builder/shared/transcriptdiag"
+	"core/shared/client"
+	"core/shared/clientui"
+	"core/shared/serverapi"
+	"core/shared/transcriptdiag"
 
 	"github.com/google/uuid"
 )

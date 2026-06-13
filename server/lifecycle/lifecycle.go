@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/server/session"
-	"builder/shared/serverapi"
+	"core/server/session"
+	"core/shared/serverapi"
 )
 
 type Transition struct {

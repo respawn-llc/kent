@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"builder/shared/config"
+	"core/shared/config"
 )
 
 func TestGuardRestartsCaffeinateWhenProcessExitedWhileActive(t *testing.T) {

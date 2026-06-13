@@ -7,13 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/cli/app/internal/onboardingimport"
-	"builder/cli/app/internal/onboardingimportchoice"
-	"builder/cli/app/internal/onboardingimportfs"
-	"builder/cli/app/internal/onboardingimportgenerated"
-	"builder/cli/app/internal/onboardingimportproviders"
-	"builder/cli/app/internal/onboardingimportskills"
-	"builder/shared/brand"
+	"core/cli/app/internal/onboardingimport"
+	"core/cli/app/internal/onboardingimportchoice"
+	"core/cli/app/internal/onboardingimportfs"
+	"core/cli/app/internal/onboardingimportgenerated"
+	"core/cli/app/internal/onboardingimportproviders"
+	"core/cli/app/internal/onboardingimportskills"
+	"core/shared/brand"
 )
 
 type onboardingImportProviderID = onboardingimportchoice.ProviderID

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 )
 
 func useFastStreamResubscribeDelays(t *testing.T) {

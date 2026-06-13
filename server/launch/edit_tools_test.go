@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/auth"
-	"builder/server/session"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/toolspec"
+	"core/server/auth"
+	"core/server/session"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/toolspec"
 )
 
 func TestActiveToolIDsDynamicDefaultChoosesPatchForGPTModels(t *testing.T) {

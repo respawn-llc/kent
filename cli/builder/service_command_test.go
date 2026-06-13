@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"builder/shared/config"
-	"builder/shared/protocol"
-	"builder/shared/sessionenv"
+	"core/shared/config"
+	"core/shared/protocol"
+	"core/shared/sessionenv"
 )
 
 func TestMain(m *testing.M) {

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"builder/server/auth"
+	"core/server/auth"
 )
 
 func TestSuccessTitle(t *testing.T) {

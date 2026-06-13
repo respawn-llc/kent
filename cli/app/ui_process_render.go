@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	appprocessview "builder/cli/app/internal/processview"
-	"builder/shared/clientui"
-	"builder/shared/textutil"
-	sharedtheme "builder/shared/theme"
-	"builder/shared/uiglyphs"
+	appprocessview "core/cli/app/internal/processview"
+	"core/shared/clientui"
+	"core/shared/textutil"
+	sharedtheme "core/shared/theme"
+	"core/shared/uiglyphs"
 
 	"github.com/charmbracelet/lipgloss"
 )

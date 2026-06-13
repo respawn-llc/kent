@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"builder/cli/app/internal/worktreeview"
-	"builder/cli/tui"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
-	"builder/shared/transcriptdiag"
+	"core/cli/app/internal/worktreeview"
+	"core/cli/tui"
+	"core/shared/clientui"
+	"core/shared/serverapi"
+	"core/shared/transcriptdiag"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

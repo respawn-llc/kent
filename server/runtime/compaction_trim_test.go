@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/server/tools"
-	"builder/shared/cachewarn"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/server/session"
+	"core/server/tools"
+	"core/shared/cachewarn"
+	"core/shared/toolspec"
 )
 
 func TestCompactionCacheObservationRequestAppendsPromptToConversationReplica(t *testing.T) {

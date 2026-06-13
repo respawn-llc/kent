@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
-	"builder/shared/serverapi"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/server/session"
+	"core/server/tools"
+	"core/shared/serverapi"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 var runtimeControlOpenAICapabilities = llm.ProviderCapabilities{

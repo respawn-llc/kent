@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/prompts"
-	"builder/server/primaryrun"
-	"builder/server/requestmemo"
-	"builder/server/runtime"
-	"builder/server/session"
-	"builder/shared/serverapi"
-	"builder/shared/servicecontract"
-	"builder/shared/transcript"
+	"core/prompts"
+	"core/server/primaryrun"
+	"core/server/requestmemo"
+	"core/server/runtime"
+	"core/server/session"
+	"core/shared/serverapi"
+	"core/shared/servicecontract"
+	"core/shared/transcript"
 )
 
 type RuntimeResolver interface {

@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/metadata"
-	"builder/server/workflow"
-	"builder/server/workflowstore"
-	"builder/shared/config"
+	"core/server/metadata"
+	"core/server/workflow"
+	"core/server/workflowstore"
+	"core/shared/config"
 )
 
 func TestSchedulerSelectsOldestRunnableRunAndRespectsConcurrency(t *testing.T) {

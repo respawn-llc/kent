@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"testing"
 
-	"builder/shared/rpccontract"
+	"core/shared/rpccontract"
 )
 
 func TestGatewayUnaryHandlersCoverRouteContract(t *testing.T) {

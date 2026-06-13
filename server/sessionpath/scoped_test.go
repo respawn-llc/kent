@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"builder/server/session"
-	"builder/shared/sessioncontract"
+	"core/server/session"
+	"core/shared/sessioncontract"
 )
 
 func TestResolveScopedSessionDirReturnsRealPathInsideContainer(t *testing.T) {

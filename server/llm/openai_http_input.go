@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/prompts"
-	"builder/shared/jsonutil"
-	"builder/shared/textutil"
-	"builder/shared/toolspec"
+	"core/prompts"
+	"core/shared/jsonutil"
+	"core/shared/textutil"
+	"core/shared/toolspec"
 
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"

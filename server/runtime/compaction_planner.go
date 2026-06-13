@@ -1,8 +1,8 @@
 package runtime
 
 import (
-	"builder/server/llm"
-	"builder/shared/compaction"
+	"core/server/llm"
+	"core/shared/compaction"
 )
 
 type compactionPlanningSnapshot struct {

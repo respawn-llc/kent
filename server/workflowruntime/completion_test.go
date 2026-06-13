@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/workflow"
-	"builder/shared/config"
+	"core/server/llm"
+	"core/server/workflow"
+	"core/shared/config"
 )
 
 type completionSchemaProperty struct {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/auth"
+	"core/server/auth"
 )
 
 type stubHandler struct {

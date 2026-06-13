@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

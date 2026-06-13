@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/shared/toolspec"
+	"core/shared/toolspec"
 )
 
 func EffectiveReviewerSettings(settings Settings) ReviewerSettings {

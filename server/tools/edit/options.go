@@ -1,6 +1,6 @@
 package edit
 
-import "builder/server/tools/fsguard"
+import "core/server/tools/fsguard"
 
 type Option func(*Tool)
 

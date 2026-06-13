@@ -5,7 +5,7 @@ import (
 	"hash/fnv"
 	"strings"
 
-	"builder/cli/tui"
+	"core/cli/tui"
 )
 
 func renderNativePendingToolSnapshot(entries []tui.TranscriptEntry, theme string, width int, spinnerFrame int) string {

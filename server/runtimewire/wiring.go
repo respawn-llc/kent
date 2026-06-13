@@ -4,16 +4,16 @@ import (
 	"strings"
 	"time"
 
-	"builder/server/auth"
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/server/session"
-	askquestion "builder/server/tools/askquestion"
-	shelltool "builder/server/tools/shell"
-	triggerhandofftool "builder/server/tools/triggerhandoff"
-	"builder/server/workflowruntime"
-	"builder/shared/config"
-	"builder/shared/toolspec"
+	"core/server/auth"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/server/session"
+	askquestion "core/server/tools/askquestion"
+	shelltool "core/server/tools/shell"
+	triggerhandofftool "core/server/tools/triggerhandoff"
+	"core/server/workflowruntime"
+	"core/shared/config"
+	"core/shared/toolspec"
 )
 
 type RuntimeWiring struct {

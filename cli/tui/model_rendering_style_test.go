@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"builder/shared/transcript"
+	"core/shared/transcript"
 	"github.com/charmbracelet/lipgloss"
 )
 

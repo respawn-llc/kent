@@ -3,7 +3,7 @@ package onboardingimport
 import (
 	"strings"
 
-	"builder/server/runtime"
+	"core/server/runtime"
 )
 
 type SkillMetadata struct {

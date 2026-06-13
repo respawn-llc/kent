@@ -15,16 +15,16 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/auth"
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
-	"builder/server/tools/askquestion"
-	patchtool "builder/server/tools/patch"
-	shelltool "builder/server/tools/shell"
-	"builder/shared/config"
-	"builder/shared/toolspec"
+	"core/server/auth"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/server/session"
+	"core/server/tools"
+	"core/server/tools/askquestion"
+	patchtool "core/server/tools/patch"
+	shelltool "core/server/tools/shell"
+	"core/shared/config"
+	"core/shared/toolspec"
 )
 
 func TestBuildToolRegistryAllowsHostedWebSearchWithoutLocalRuntimeBuilder(t *testing.T) {

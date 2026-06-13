@@ -1,9 +1,9 @@
 package tui
 
 import (
-	"builder/shared/textutil"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
+	"core/shared/textutil"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 	"fmt"
 	"strings"
 

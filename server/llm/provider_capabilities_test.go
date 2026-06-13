@@ -4,9 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	"builder/server/auth"
-	"builder/server/session"
-	"builder/shared/config"
+	"core/server/auth"
+	"core/server/session"
+	"core/shared/config"
 )
 
 func TestInferProviderCapabilities_UsesRegistryContracts(t *testing.T) {

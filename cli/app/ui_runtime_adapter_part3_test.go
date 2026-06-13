@@ -1,10 +1,10 @@
 package app
 
 import (
-	"builder/cli/tui"
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/shared/clientui"
+	"core/cli/tui"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/shared/clientui"
 	"errors"
 	"fmt"
 	"reflect"

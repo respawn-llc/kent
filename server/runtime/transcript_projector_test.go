@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/server/session"
+	"core/shared/toolspec"
 )
 
 func TestTranscriptProjectorReconstructsPersistedTranscript(t *testing.T) {

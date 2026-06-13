@@ -1,8 +1,8 @@
 package oauthadapter
 
 import (
-	serverauth "builder/server/auth"
-	sharedauth "builder/shared/auth"
+	serverauth "core/server/auth"
+	sharedauth "core/shared/auth"
 )
 
 type OpenAIOAuthOptions = serverauth.OpenAIOAuthOptions

@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/llm"
-	"builder/shared/auth"
-	"builder/shared/llmerrors"
-	"builder/shared/serverapi"
+	"core/server/llm"
+	"core/shared/auth"
+	"core/shared/llmerrors"
+	"core/shared/serverapi"
 )
 
 func TestFormat(t *testing.T) {

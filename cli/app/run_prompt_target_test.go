@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/session"
-	"builder/shared/brand"
-	"builder/shared/config"
+	"core/server/session"
+	"core/shared/brand"
+	"core/shared/config"
 )
 
 func TestValidateRunPromptAgentRoleBlocksNonCallableRoleForBuilderSession(t *testing.T) {

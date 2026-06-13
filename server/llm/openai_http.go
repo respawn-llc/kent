@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"builder/server/auth"
+	"core/server/auth"
 
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -24,7 +24,7 @@ const (
 	defaultOpenAIBaseURL   = "https://api.openai.com/v1"
 	codexResponsesEndpoint = "https://chatgpt.com/backend-api/codex/responses"
 	defaultOriginator      = "builder"
-	defaultUserAgent       = "builder/dev"
+	defaultUserAgent       = "core/dev"
 	reasoningRoleSummary   = "reasoning"
 )
 

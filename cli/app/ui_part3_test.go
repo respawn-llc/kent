@@ -1,9 +1,9 @@
 package app
 
 import (
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/shared/clientui"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/shared/clientui"
 	"bytes"
 	"context"
 	"errors"

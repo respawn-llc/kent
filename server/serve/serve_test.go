@@ -13,16 +13,16 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/auth"
-	"builder/server/authflow"
-	"builder/server/metadata"
-	"builder/server/rootlock"
-	"builder/server/startup"
-	"builder/shared/brand"
-	"builder/shared/client"
-	"builder/shared/config"
-	"builder/shared/protocol"
-	"builder/shared/serverapi"
+	"core/server/auth"
+	"core/server/authflow"
+	"core/server/metadata"
+	"core/server/rootlock"
+	"core/server/startup"
+	"core/shared/brand"
+	"core/shared/client"
+	"core/shared/config"
+	"core/shared/protocol"
+	"core/shared/serverapi"
 )
 
 type envAuthHandler struct {

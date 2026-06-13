@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"builder/server/llm"
+	"core/server/llm"
 )
 
 type reviewerRuntimeState struct {

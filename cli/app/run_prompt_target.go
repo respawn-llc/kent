@@ -7,16 +7,16 @@ import (
 	"strings"
 	"time"
 
-	"builder/cli/app/internal/daemonlaunch"
-	"builder/cli/app/internal/remoteattach"
-	"builder/cli/app/internal/runprompttarget"
-	"builder/cli/app/internal/servecommand"
-	"builder/cli/app/internal/serverattach"
-	"builder/cli/app/internal/startupconfig"
-	"builder/server/serve"
-	"builder/shared/client"
-	"builder/shared/config"
-	"builder/shared/protocol"
+	"core/cli/app/internal/daemonlaunch"
+	"core/cli/app/internal/remoteattach"
+	"core/cli/app/internal/runprompttarget"
+	"core/cli/app/internal/servecommand"
+	"core/cli/app/internal/serverattach"
+	"core/cli/app/internal/startupconfig"
+	"core/server/serve"
+	"core/shared/client"
+	"core/shared/config"
+	"core/shared/protocol"
 )
 
 var launchRunPromptDaemon = startLocalRunPromptDaemon

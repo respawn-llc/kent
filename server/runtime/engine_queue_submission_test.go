@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/tools"
+	"core/server/llm"
+	"core/server/tools"
 )
 
 func TestSubmitQueuedUserMessagesStartsTurnFromQueuedInjection(t *testing.T) {

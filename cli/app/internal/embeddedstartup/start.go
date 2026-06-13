@@ -3,11 +3,11 @@ package embeddedstartup
 import (
 	"context"
 
-	serverauth "builder/server/auth"
-	"builder/server/authflow"
-	serverembedded "builder/server/embedded"
-	serverstartup "builder/server/startup"
-	"builder/shared/config"
+	serverauth "core/server/auth"
+	"core/server/authflow"
+	serverembedded "core/server/embedded"
+	serverstartup "core/server/startup"
+	"core/shared/config"
 )
 
 type Server = serverembedded.Server

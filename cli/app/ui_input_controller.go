@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"builder/cli/tui"
-	"builder/shared/clientui"
-	"builder/shared/transcript"
+	"core/cli/tui"
+	"core/shared/clientui"
+	"core/shared/transcript"
 
 	bubblespinner "github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"

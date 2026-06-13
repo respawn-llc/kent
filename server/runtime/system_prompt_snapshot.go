@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/prompts"
-	"builder/server/session"
-	"builder/shared/config"
-	"builder/shared/toolspec"
+	"core/prompts"
+	"core/server/session"
+	"core/shared/config"
+	"core/shared/toolspec"
 )
 
 type systemPromptSnapshotOptions struct {

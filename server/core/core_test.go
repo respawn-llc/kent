@@ -9,15 +9,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	"builder/server/auth"
-	serverbootstrap "builder/server/bootstrap"
-	"builder/server/generated"
-	"builder/server/metadata"
-	"builder/server/rootlock"
-	"builder/shared/brand"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
-	"builder/shared/testopenai"
+	"core/server/auth"
+	serverbootstrap "core/server/bootstrap"
+	"core/server/generated"
+	"core/server/metadata"
+	"core/server/rootlock"
+	"core/shared/brand"
+	"core/shared/clientui"
+	"core/shared/serverapi"
+	"core/shared/testopenai"
 )
 
 func TestNewBuildsReusableServerCore(t *testing.T) {

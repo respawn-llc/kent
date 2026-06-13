@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"builder/cli/builder/internal/serverbridge"
-	"builder/shared/client"
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/cli/builder/internal/serverbridge"
+	"core/shared/client"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/serverapi"
 	"github.com/google/uuid"
 )
 

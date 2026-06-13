@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"sync"
 
-	"builder/server/llm"
-	"builder/server/tools"
-	"builder/server/workflowruntime"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/server/tools"
+	"core/server/workflowruntime"
+	"core/shared/toolspec"
 
 	"github.com/google/uuid"
 )

@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 
 	"github.com/google/uuid"
 )

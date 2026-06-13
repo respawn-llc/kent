@@ -1,9 +1,9 @@
 package app
 
 import (
-	"builder/cli/tui"
-	"builder/shared/clientui"
-	"builder/shared/transcript"
+	"core/cli/tui"
+	"core/shared/clientui"
+	"core/shared/transcript"
 	"strings"
 )
 

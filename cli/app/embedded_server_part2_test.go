@@ -1,13 +1,13 @@
 package app
 
 import (
-	"builder/server/primaryrun"
-	askquestion "builder/server/tools/askquestion"
-	shelltool "builder/server/tools/shell"
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/testopenai"
+	"core/server/primaryrun"
+	askquestion "core/server/tools/askquestion"
+	shelltool "core/server/tools/shell"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/testopenai"
 	"context"
 	"errors"
 	"io"

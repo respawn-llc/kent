@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/tools"
-	"builder/shared/toolspec"
+	"core/server/tools"
+	"core/shared/toolspec"
 )
 
 func TestBrokerFIFOQueue(t *testing.T) {

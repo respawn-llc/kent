@@ -1,10 +1,10 @@
 package tui
 
 import (
-	"builder/shared/clientui"
-	"builder/shared/theme"
-	"builder/shared/transcript"
-	"builder/shared/uiglyphs"
+	"core/shared/clientui"
+	"core/shared/theme"
+	"core/shared/transcript"
+	"core/shared/uiglyphs"
 	"fmt"
 	"strings"
 	"testing"

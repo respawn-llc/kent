@@ -9,13 +9,13 @@ import (
 	"os"
 	"time"
 
-	"builder/cli/app/internal/authflowadapter"
-	"builder/cli/app/internal/authinteraction"
-	"builder/cli/app/internal/authoauth"
-	"builder/cli/app/internal/authview"
-	"builder/cli/app/internal/oauthadapter"
-	serverauth "builder/server/auth"
-	serverauthflow "builder/server/authflow"
+	"core/cli/app/internal/authflowadapter"
+	"core/cli/app/internal/authinteraction"
+	"core/cli/app/internal/authoauth"
+	"core/cli/app/internal/authview"
+	"core/cli/app/internal/oauthadapter"
+	serverauth "core/server/auth"
+	serverauthflow "core/server/authflow"
 
 	"github.com/charmbracelet/lipgloss"
 )

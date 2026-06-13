@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"builder/server/llm"
+	"core/server/llm"
 )
 
 const queuedUserSubmissionBusyRetryDelay = 25 * time.Millisecond

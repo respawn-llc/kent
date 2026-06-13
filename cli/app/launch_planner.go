@@ -6,13 +6,13 @@ import (
 	"io"
 	"strings"
 
-	"builder/cli/app/internal/statuscollect"
-	"builder/shared/buildinfo"
-	"builder/shared/client"
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/toolspec"
+	"core/cli/app/internal/statuscollect"
+	"core/shared/buildinfo"
+	"core/shared/client"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/toolspec"
 
 	"github.com/google/uuid"
 )

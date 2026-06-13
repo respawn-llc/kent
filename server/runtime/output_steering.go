@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"sort"
 
-	"builder/server/llm"
-	"builder/server/tools"
-	"builder/shared/cachewarn"
-	"builder/shared/transcript"
+	"core/server/llm"
+	"core/server/tools"
+	"core/shared/cachewarn"
+	"core/shared/transcript"
 )
 
 type steeringPriority int

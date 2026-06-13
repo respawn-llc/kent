@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/shared/brand"
+	"core/shared/brand"
 )
 
 var processStartHome = os.Getenv("HOME")

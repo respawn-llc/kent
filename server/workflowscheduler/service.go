@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"builder/server/workflow"
-	"builder/server/workflowstore"
+	"core/server/workflow"
+	"core/server/workflowstore"
 )
 
 const (

@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"builder/server/llm"
-	"builder/server/tools"
-	shelltool "builder/server/tools/shell"
-	"builder/shared/transcript"
+	"core/server/llm"
+	"core/server/tools"
+	shelltool "core/server/tools/shell"
+	"core/shared/transcript"
 )
 
 func (e *Engine) persistToolCompletionRaw(stepID string, r tools.Result) error {

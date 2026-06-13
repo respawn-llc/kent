@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/protocol"
-	"builder/shared/rpcwire"
-	"builder/shared/serverapi"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/protocol"
+	"core/shared/rpcwire"
+	"core/shared/serverapi"
 )
 
 func TestDialConfiguredRemotePrefersLocalUnixSocket(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"builder/cli/app/internal/oauthadapter"
+	"core/cli/app/internal/oauthadapter"
 
 	"github.com/charmbracelet/lipgloss"
 )

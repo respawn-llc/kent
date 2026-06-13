@@ -1,6 +1,6 @@
 package tui
 
-import "builder/shared/transcript"
+import "core/shared/transcript"
 
 const roleManualCompactionCarryover = TranscriptRoleManualCompactionCarryover
 const roleCompactionSummary = TranscriptRoleCompactionSummary

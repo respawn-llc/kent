@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/shared/llmerrors"
-	"builder/shared/serverapi"
+	"core/shared/llmerrors"
+	"core/shared/serverapi"
 )
 
 var ErrInterrupted = errors.New("interrupted")

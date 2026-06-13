@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/shared/transcript"
+	"core/server/llm"
+	"core/server/session"
+	"core/shared/transcript"
 )
 
 type reviewerSuggestionsResult struct {

@@ -3,8 +3,8 @@ package app
 import (
 	"strings"
 
-	"builder/cli/tui"
-	"builder/shared/clientui"
+	"core/cli/tui"
+	"core/shared/clientui"
 )
 
 func (m *uiModel) applyRuntimeMainViewState(view clientui.RuntimeMainView) {

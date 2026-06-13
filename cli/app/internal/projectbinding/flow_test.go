@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"builder/shared/client"
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/shared/client"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/serverapi"
 )
 
 type testServer struct {

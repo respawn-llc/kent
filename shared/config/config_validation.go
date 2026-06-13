@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/shared/compaction"
-	"builder/shared/theme"
+	"core/shared/compaction"
+	"core/shared/theme"
 )
 
 func validateSubagentRoleState(state settingsState, sources map[string]string) error {

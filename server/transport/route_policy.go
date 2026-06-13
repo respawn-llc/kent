@@ -9,12 +9,12 @@ import (
 	"reflect"
 	"strings"
 
-	"builder/server/auth"
-	"builder/server/session"
-	"builder/shared/clientui"
-	"builder/shared/protocol"
-	"builder/shared/rpccontract"
-	"builder/shared/serverapi"
+	"core/server/auth"
+	"core/server/session"
+	"core/shared/clientui"
+	"core/shared/protocol"
+	"core/shared/rpccontract"
+	"core/shared/serverapi"
 )
 
 type routePolicyExecutor struct {

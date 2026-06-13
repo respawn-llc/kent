@@ -1,14 +1,14 @@
 package app
 
 import (
-	appstatus "builder/cli/app/internal/status"
-	"builder/cli/app/internal/statuscollect"
-	"builder/cli/tui"
-	"builder/server/auth"
-	"builder/server/runtime"
-	"builder/shared/brand"
-	"builder/shared/clientui"
-	"builder/shared/config"
+	appstatus "core/cli/app/internal/status"
+	"core/cli/app/internal/statuscollect"
+	"core/cli/tui"
+	"core/server/auth"
+	"core/server/runtime"
+	"core/shared/brand"
+	"core/shared/clientui"
+	"core/shared/config"
 	"context"
 	"os"
 	"os/exec"

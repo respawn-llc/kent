@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/tools"
-	shelltool "builder/server/tools/shell"
-	"builder/shared/serverapi"
-	"builder/shared/toolspec"
+	"core/server/tools"
+	shelltool "core/server/tools/shell"
+	"core/shared/serverapi"
+	"core/shared/toolspec"
 )
 
 func TestServiceListProcessesIncludesRunOwnership(t *testing.T) {

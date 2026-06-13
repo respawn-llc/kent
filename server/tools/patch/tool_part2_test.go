@@ -1,8 +1,8 @@
 package patch
 
 import (
-	"builder/server/tools"
-	"builder/shared/toolspec"
+	"core/server/tools"
+	"core/shared/toolspec"
 	"context"
 	"encoding/json"
 	"errors"

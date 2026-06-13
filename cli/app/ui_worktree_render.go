@@ -3,14 +3,14 @@ package app
 import (
 	"strings"
 
-	"builder/cli/app/internal/worktreedelete"
-	"builder/cli/app/internal/worktreeview"
-	"builder/cli/app/internal/worktreeviewport"
-	tuiinput "builder/cli/tui/input"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
-	sharedtheme "builder/shared/theme"
-	"builder/shared/uiglyphs"
+	"core/cli/app/internal/worktreedelete"
+	"core/cli/app/internal/worktreeview"
+	"core/cli/app/internal/worktreeviewport"
+	tuiinput "core/cli/tui/input"
+	"core/shared/clientui"
+	"core/shared/serverapi"
+	sharedtheme "core/shared/theme"
+	"core/shared/uiglyphs"
 
 	"github.com/charmbracelet/lipgloss"
 )

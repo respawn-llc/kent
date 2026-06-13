@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"builder/server/requestmemo"
-	"builder/shared/serverapi"
-	"builder/shared/servicecontract"
+	"core/server/requestmemo"
+	"core/shared/serverapi"
+	"core/shared/servicecontract"
 )
 
 type runPromptMemoRequest struct {

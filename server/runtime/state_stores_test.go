@@ -3,9 +3,9 @@ package runtime
 import (
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/shared/compaction"
+	"core/server/llm"
+	"core/server/session"
+	"core/shared/compaction"
 )
 
 func TestQueuedUserMessageStoreQueuesDiscardsAndDrainsByID(t *testing.T) {

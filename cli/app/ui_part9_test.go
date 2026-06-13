@@ -1,11 +1,11 @@
 package app
 
 import (
-	"builder/cli/tui"
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/server/tools"
-	"builder/shared/clientui"
+	"core/cli/tui"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/server/tools"
+	"core/shared/clientui"
 	"context"
 	"encoding/json"
 	"errors"

@@ -3,7 +3,7 @@ package worktreeselection
 import (
 	"strings"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 )
 
 const CreateRowID = "__create__"

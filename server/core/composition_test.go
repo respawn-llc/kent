@@ -7,17 +7,17 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/auth"
-	serverbootstrap "builder/server/bootstrap"
-	"builder/server/llm"
-	"builder/server/registry"
-	"builder/server/session"
-	askquestion "builder/server/tools/askquestion"
-	"builder/server/workflow"
-	"builder/server/workflowstore"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/toolspec"
+	"core/server/auth"
+	serverbootstrap "core/server/bootstrap"
+	"core/server/llm"
+	"core/server/registry"
+	"core/server/session"
+	askquestion "core/server/tools/askquestion"
+	"core/server/workflow"
+	"core/server/workflowstore"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/toolspec"
 )
 
 func TestNewWithContextComposesRequiredBundles(t *testing.T) {

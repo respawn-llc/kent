@@ -3,8 +3,8 @@ package app
 import (
 	"testing"
 
-	"builder/shared/clientui"
-	"builder/shared/transcript"
+	"core/shared/clientui"
+	"core/shared/transcript"
 )
 
 func TestRuntimeEventCanDeferCommittedConversationFence(t *testing.T) {

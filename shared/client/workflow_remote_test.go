@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"builder/shared/protocol"
-	"builder/shared/serverapi"
+	"core/shared/protocol"
+	"core/shared/serverapi"
 	"golang.org/x/net/websocket"
 	"net/http/httptest"
 )

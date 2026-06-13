@@ -7,13 +7,13 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"builder/prompts"
-	"builder/server/llm"
-	"builder/server/tools"
-	"builder/server/workflow"
-	"builder/server/workflowruntime"
-	"builder/shared/config"
-	"builder/shared/toolspec"
+	"core/prompts"
+	"core/server/llm"
+	"core/server/tools"
+	"core/server/workflow"
+	"core/server/workflowruntime"
+	"core/shared/config"
+	"core/shared/toolspec"
 )
 
 type fakeWorkflowController struct {

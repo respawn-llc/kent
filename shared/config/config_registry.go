@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/shared/theme"
-	"builder/shared/toolspec"
+	"core/shared/theme"
+	"core/shared/toolspec"
 )
 
 type settingsState struct {

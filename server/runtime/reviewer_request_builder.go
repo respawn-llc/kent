@@ -3,8 +3,8 @@ package runtime
 import (
 	"context"
 
-	"builder/server/llm"
-	"builder/shared/cachewarn"
+	"core/server/llm"
+	"core/shared/cachewarn"
 )
 
 func reviewerSuggestionsStructuredOutput() *llm.StructuredOutput {

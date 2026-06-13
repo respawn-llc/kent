@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"builder/server/llm"
-	"builder/shared/transcript"
+	"core/server/llm"
+	"core/shared/transcript"
 )
 
 // Request orchestration calls this coordinator when model-visible runtime

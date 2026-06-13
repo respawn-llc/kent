@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"time"
 
-	"builder/cli/app/internal/oauthadapter"
-	serverauth "builder/server/auth"
+	"core/cli/app/internal/oauthadapter"
+	serverauth "core/server/auth"
 )
 
 type CallbackListener interface {

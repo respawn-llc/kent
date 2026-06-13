@@ -4,12 +4,12 @@ import (
 	goruntime "runtime"
 	"strings"
 
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/server/tools"
-	"builder/shared/config"
-	"builder/shared/transcript"
-	"builder/shared/transcript/toolcodec"
+	"core/server/llm"
+	"core/server/session"
+	"core/server/tools"
+	"core/shared/config"
+	"core/shared/transcript"
+	"core/shared/transcript/toolcodec"
 )
 
 type PersistedTranscriptScanRequest struct {

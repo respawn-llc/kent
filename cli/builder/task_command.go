@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"builder/prompts"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/sessionenv"
+	"core/prompts"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/sessionenv"
 )
 
 const (

@@ -6,8 +6,8 @@ import (
 	"io"
 	"testing"
 
-	shelltool "builder/server/tools/shell"
-	"builder/shared/serverapi"
+	shelltool "core/server/tools/shell"
+	"core/shared/serverapi"
 )
 
 type stubSubscriber struct {

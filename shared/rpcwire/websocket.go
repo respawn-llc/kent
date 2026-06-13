@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"builder/shared/protocol"
+	"core/shared/protocol"
 	"github.com/lxzan/gws"
 )
 

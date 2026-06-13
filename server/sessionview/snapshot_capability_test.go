@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 func TestSessionSnapshotCapabilitiesCoverReadModelFields(t *testing.T) {

@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"sort"
 
-	"builder/shared/protocol"
-	"builder/shared/serverapi"
+	"core/shared/protocol"
+	"core/shared/serverapi"
 )
 
 type Kind string

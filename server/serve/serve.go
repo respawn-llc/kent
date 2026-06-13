@@ -13,12 +13,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"builder/server/auth"
-	"builder/server/core"
-	"builder/server/startup"
-	"builder/server/transport"
-	"builder/shared/config"
-	"builder/shared/protocol"
+	"core/server/auth"
+	"core/server/core"
+	"core/server/startup"
+	"core/server/transport"
+	"core/shared/config"
+	"core/shared/protocol"
 )
 
 type Server struct {

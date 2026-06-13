@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/shared/config"
+	"core/shared/config"
 )
 
 type GitWorktree struct {

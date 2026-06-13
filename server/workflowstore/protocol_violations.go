@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/server/metadata/sqlitegen"
+	"core/server/metadata/sqlitegen"
 )
 
 // RecordProtocolViolation increments the active run's protocol-violation

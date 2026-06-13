@@ -4,9 +4,9 @@ import (
 	"strconv"
 	"strings"
 
-	appstatus "builder/cli/app/internal/status"
-	"builder/cli/tui"
-	"builder/shared/clientui"
+	appstatus "core/cli/app/internal/status"
+	"core/cli/tui"
+	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

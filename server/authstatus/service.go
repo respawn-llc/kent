@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"builder/server/auth"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/servicecontract"
+	"core/server/auth"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/servicecontract"
 )
 
 const usageBaseURL = "https://chatgpt.com/backend-api"
@@ -230,7 +230,7 @@ func fetchUsagePayload(ctx context.Context, baseURL string, state auth.State) (u
 		return usagePayload{}, err
 	}
 	request.Header.Set("Authorization", authorization)
-	request.Header.Set("User-Agent", "builder/dev")
+	request.Header.Set("User-Agent", "core/dev")
 	if state.Method.OAuth != nil {
 		if accountID := strings.TrimSpace(state.Method.OAuth.AccountID); accountID != "" {
 			request.Header.Set("ChatGPT-Account-Id", accountID)

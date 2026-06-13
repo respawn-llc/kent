@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"builder/shared/config"
+	"core/shared/config"
 )
 
 func listenLocalSocket(cfg config.App) (net.Listener, func(), bool, error) {

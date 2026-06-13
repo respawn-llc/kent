@@ -1,6 +1,6 @@
 package clientui
 
-import "builder/shared/transcript"
+import "core/shared/transcript"
 
 type EntryVisibility = transcript.EntryVisibility
 

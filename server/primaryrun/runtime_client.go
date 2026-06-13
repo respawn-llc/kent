@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 type gatedRuntimeClient struct {

@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"builder/cli/app/internal/remoteattach"
-	"builder/cli/app/internal/targetstartup"
-	"builder/shared/client"
-	"builder/shared/config"
+	"core/cli/app/internal/remoteattach"
+	"core/cli/app/internal/targetstartup"
+	"core/shared/client"
+	"core/shared/config"
 )
 
 type Target struct {

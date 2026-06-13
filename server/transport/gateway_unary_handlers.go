@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/shared/client"
-	"builder/shared/protocol"
-	"builder/shared/serverapi"
+	"core/shared/client"
+	"core/shared/protocol"
+	"core/shared/serverapi"
 )
 
 func gatewayClientCall[C any, Req any, Resp any](getClient func(GatewayDependencies) C, call func(C, context.Context, Req) (Resp, error)) gatewayUnaryHandler {

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/tools"
+	"core/server/tools"
 )
 
 func TestCall_OptimizesLargeJPEGToSmallerJPEGOutput(t *testing.T) {

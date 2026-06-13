@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	"builder/server/runtime"
+	"core/server/runtime"
 )
 
 type RuntimeRegistry interface {

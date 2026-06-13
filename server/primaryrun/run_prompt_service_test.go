@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 )
 
 type stubRunPromptService struct {

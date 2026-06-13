@@ -4,11 +4,11 @@ import (
 	"os"
 	"strings"
 
-	"builder/cli/app/commands"
-	appstatus "builder/cli/app/internal/status"
-	"builder/cli/tui"
-	"builder/shared/clientui"
-	"builder/shared/theme"
+	"core/cli/app/commands"
+	appstatus "core/cli/app/internal/status"
+	"core/cli/tui"
+	"core/shared/clientui"
+	"core/shared/theme"
 )
 
 func newUIModelDefaults(runtimeClient clientui.RuntimeClient, runtimeEvents <-chan clientui.Event, askEvents <-chan askEvent) *uiModel {

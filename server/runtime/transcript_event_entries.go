@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/server/llm"
-	"builder/server/tools"
-	"builder/shared/cachewarn"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
+	"core/server/llm"
+	"core/server/tools"
+	"core/shared/cachewarn"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 func VisibleChatEntriesFromMessage(msg llm.Message) []ChatEntry {

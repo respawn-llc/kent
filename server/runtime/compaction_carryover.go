@@ -3,8 +3,8 @@ package runtime
 import (
 	"strings"
 
-	"builder/prompts"
-	"builder/server/llm"
+	"core/prompts"
+	"core/server/llm"
 )
 
 type compactionCarryoverCoordinator struct {

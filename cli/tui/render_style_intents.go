@@ -1,6 +1,6 @@
 package tui
 
-import "builder/shared/theme"
+import "core/shared/theme"
 
 type StyleIntent uint16
 

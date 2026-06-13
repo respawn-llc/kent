@@ -4,7 +4,7 @@ import (
 	"runtime"
 	"strings"
 
-	tuiinput "builder/cli/tui/input"
+	tuiinput "core/cli/tui/input"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

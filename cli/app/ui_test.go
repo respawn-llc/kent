@@ -1,9 +1,9 @@
 package app
 
 import (
-	"builder/cli/tui"
-	"builder/server/runtime"
-	"builder/shared/clientui"
+	"core/cli/tui"
+	"core/server/runtime"
+	"core/shared/clientui"
 	goruntime "runtime"
 	"strings"
 	"testing"

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/shared/auth"
+	"core/shared/auth"
 )
 
 type APIStatusError struct {

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/shared/config"
+	"core/server/llm"
+	"core/server/session"
+	"core/shared/config"
 )
 
 // TranscriptProjector reconstructs transcript-visible state from persisted events

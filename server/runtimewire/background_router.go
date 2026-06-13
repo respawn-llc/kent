@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"builder/server/runtime"
-	shelltool "builder/server/tools/shell"
+	"core/server/runtime"
+	shelltool "core/server/tools/shell"
 )
 
 type BackgroundEventRouter struct {

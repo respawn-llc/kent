@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"builder/server/tools/shell/shellenv"
-	"builder/shared/toolspec"
+	"core/server/tools/shell/shellenv"
+	"core/shared/toolspec"
 )
 
 const (

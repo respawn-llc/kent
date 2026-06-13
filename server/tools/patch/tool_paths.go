@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/server/tools/fsguard"
+	"core/server/tools/fsguard"
 )
 
 type OutsideWorkspaceRequest = fsguard.Request

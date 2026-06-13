@@ -7,10 +7,10 @@ import (
 	"sort"
 	"strings"
 
-	"builder/cli/app/internal/projectbinding"
-	"builder/cli/app/internal/projectpicker"
-	"builder/cli/tui"
-	"builder/shared/clientui"
+	"core/cli/app/internal/projectbinding"
+	"core/cli/app/internal/projectpicker"
+	"core/cli/tui"
+	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"

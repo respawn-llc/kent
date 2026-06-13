@@ -23,8 +23,8 @@ import (
 	"strings"
 	"sync"
 
-	"builder/server/tools"
-	patchtool "builder/server/tools/patch"
+	"core/server/tools"
+	patchtool "core/server/tools/patch"
 )
 
 const maxFileSizeBytes int64 = 800 << 10

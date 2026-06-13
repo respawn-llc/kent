@@ -14,14 +14,14 @@ import (
 	"sync"
 	"time"
 
-	"builder/server/metadata"
-	"builder/server/metadata/sqlitegen"
-	"builder/server/primaryrun"
-	"builder/server/session"
-	shelltool "builder/server/tools/shell"
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/server/metadata"
+	"core/server/metadata/sqlitegen"
+	"core/server/primaryrun"
+	"core/server/session"
+	shelltool "core/server/tools/shell"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/serverapi"
 	"github.com/google/uuid"
 )
 

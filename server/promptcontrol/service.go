@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 
-	"builder/server/requestmemo"
-	askquestion "builder/server/tools/askquestion"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
-	"builder/shared/servicecontract"
+	"core/server/requestmemo"
+	askquestion "core/server/tools/askquestion"
+	"core/shared/clientui"
+	"core/shared/serverapi"
+	"core/shared/servicecontract"
 )
 
 type PendingPromptResponder interface {

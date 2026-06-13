@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/auth"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/server/auth"
+	"core/shared/config"
+	"core/shared/serverapi"
 )
 
 func TestCompleteBootstrapConfiguresAPIKeyWhenAuthNotReady(t *testing.T) {

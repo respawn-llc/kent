@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/runtimewire"
-	"builder/server/tools/askquestion"
-	patchtool "builder/server/tools/patch"
+	"core/server/runtimewire"
+	"core/server/tools/askquestion"
+	patchtool "core/server/tools/patch"
 )
 
 const (

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"unicode"
 
-	"builder/cli/tui"
+	"core/cli/tui"
 )
 
 type nativeAssistantStreamController struct {

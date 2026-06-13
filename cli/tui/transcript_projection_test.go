@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"builder/shared/clientui"
-	"builder/shared/transcript"
+	"core/shared/clientui"
+	"core/shared/transcript"
 
 	xansi "github.com/charmbracelet/x/ansi"
 )

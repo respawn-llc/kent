@@ -1,11 +1,11 @@
 package runtime
 
 import (
-	"builder/prompts"
-	"builder/server/llm"
-	"builder/server/tools"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
+	"core/prompts"
+	"core/server/llm"
+	"core/server/tools"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 	"encoding/json"
 	"strings"
 	"testing"

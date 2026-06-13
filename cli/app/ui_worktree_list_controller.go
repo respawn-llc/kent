@@ -3,9 +3,9 @@ package app
 import (
 	"strings"
 
-	"builder/cli/app/internal/worktreeselection"
-	"builder/cli/app/internal/worktreeviewport"
-	"builder/shared/serverapi"
+	"core/cli/app/internal/worktreeselection"
+	"core/cli/app/internal/worktreeviewport"
+	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

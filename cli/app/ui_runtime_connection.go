@@ -3,8 +3,8 @@ package app
 import (
 	"strings"
 
-	"builder/cli/app/internal/runtimeconn"
-	"builder/shared/clientui"
+	"core/cli/app/internal/runtimeconn"
+	"core/shared/clientui"
 )
 
 const runtimeDisconnectedStatusMessage = "server disconnected"

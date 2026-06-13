@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/server/session"
+	"core/shared/toolspec"
 )
 
 type defaultMessageLifecycle struct {

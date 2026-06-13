@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"builder/cli/app/internal/submissionerror"
-	"builder/cli/tui"
-	"builder/shared/clientui"
+	"core/cli/app/internal/submissionerror"
+	"core/cli/tui"
+	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

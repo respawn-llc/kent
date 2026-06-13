@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 func TestExecutionTargetPrefersExplicitRequestTargetOverRuntimeView(t *testing.T) {

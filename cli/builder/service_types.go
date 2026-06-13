@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"builder/shared/brand"
-	"builder/shared/config"
-	"builder/shared/protocol"
+	"core/shared/brand"
+	"core/shared/config"
+	"core/shared/protocol"
 )
 
 const (

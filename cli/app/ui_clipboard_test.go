@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"builder/cli/tui"
-	"builder/server/llm"
-	"builder/shared/clientui"
+	"core/cli/tui"
+	"core/server/llm"
+	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

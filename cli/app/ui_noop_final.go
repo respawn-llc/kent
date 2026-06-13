@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 const uiNoopFinalToken = "NO_OP"

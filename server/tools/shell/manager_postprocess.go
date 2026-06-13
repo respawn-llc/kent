@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"builder/server/tools/shell/postprocess"
-	"builder/shared/toolspec"
+	"core/server/tools/shell/postprocess"
+	"core/shared/toolspec"
 )
 
 func (m *Manager) applyPostprocessing(ctx context.Context, entry *processEntry, output string, exitCode *int, backgrounded bool, maxOutputChars int) (postprocess.Result, error) {

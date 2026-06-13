@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
-	"builder/shared/clientui"
-	"builder/shared/transcript"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/server/session"
+	"core/server/tools"
+	"core/shared/clientui"
+	"core/shared/transcript"
 )
 
 func TestCommittedTranscriptSuffixReturnsRowsAfterCursor(t *testing.T) {

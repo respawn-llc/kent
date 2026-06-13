@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"builder/shared/clientui"
-	"builder/shared/textutil"
+	"core/shared/clientui"
+	"core/shared/textutil"
 
 	"github.com/openai/openai-go/v3/responses"
 )

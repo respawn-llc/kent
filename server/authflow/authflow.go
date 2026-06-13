@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"builder/server/auth"
+	"core/server/auth"
 )
 
 type InteractionRequest struct {

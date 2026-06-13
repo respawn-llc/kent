@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"builder/shared/config"
+	"core/shared/config"
 )
 
 const (

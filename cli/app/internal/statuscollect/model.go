@@ -3,9 +3,9 @@ package statuscollect
 import (
 	"strings"
 
-	appstatus "builder/cli/app/internal/status"
-	"builder/server/llm"
-	"builder/shared/config"
+	appstatus "core/cli/app/internal/status"
+	"core/server/llm"
+	"core/shared/config"
 )
 
 func ConfigOverrideSources(src config.SourceReport) []string {

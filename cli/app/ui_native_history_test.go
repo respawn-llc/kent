@@ -1,10 +1,10 @@
 package app
 
 import (
-	"builder/cli/tui"
-	"builder/server/runtime"
-	sharedtheme "builder/shared/theme"
-	"builder/shared/transcript"
+	"core/cli/tui"
+	"core/server/runtime"
+	sharedtheme "core/shared/theme"
+	"core/shared/transcript"
 	"fmt"
 	"strings"
 	"testing"

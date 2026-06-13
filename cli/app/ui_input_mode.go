@@ -1,8 +1,8 @@
 package app
 
 import (
-	"builder/cli/tui"
-	"builder/shared/clientui"
+	"core/cli/tui"
+	"core/shared/clientui"
 
 	"github.com/charmbracelet/glamour"
 )

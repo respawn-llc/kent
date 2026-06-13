@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"builder/server/tools"
-	"builder/server/tools/shell/postprocess"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
+	"core/server/tools"
+	"core/server/tools/shell/postprocess"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 type execCommandInput struct {

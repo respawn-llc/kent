@@ -3,10 +3,10 @@ package onboardingready
 import (
 	"context"
 
-	serverauth "builder/server/auth"
-	serveronboarding "builder/server/onboarding"
-	sharedauth "builder/shared/auth"
-	"builder/shared/config"
+	serverauth "core/server/auth"
+	serveronboarding "core/server/onboarding"
+	sharedauth "core/shared/auth"
+	"core/shared/config"
 )
 
 type AuthManager = serverauth.Manager

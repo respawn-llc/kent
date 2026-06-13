@@ -8,16 +8,16 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/auth"
-	"builder/server/authflow"
-	serverbootstrap "builder/server/bootstrap"
-	"builder/server/embedded"
-	"builder/server/generated"
-	"builder/server/metadata"
-	"builder/server/rootlock"
-	"builder/shared/brand"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/server/auth"
+	"core/server/authflow"
+	serverbootstrap "core/server/bootstrap"
+	"core/server/embedded"
+	"core/server/generated"
+	"core/server/metadata"
+	"core/server/rootlock"
+	"core/shared/brand"
+	"core/shared/config"
+	"core/shared/serverapi"
 )
 
 func registerStartupWorkspace(t *testing.T, workspace string) {

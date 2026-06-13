@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"builder/cli/app/commands"
-	"builder/cli/tui"
-	"builder/server/llm"
-	"builder/server/runtime"
+	"core/cli/app/commands"
+	"core/cli/tui"
+	"core/server/llm"
+	"core/server/runtime"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/shared/sessionenv"
+	"core/shared/sessionenv"
 )
 
 func envMap(t *testing.T, in []string) map[string]string {

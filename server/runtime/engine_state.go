@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
+	"core/server/llm"
+	"core/server/session"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 func (e *Engine) snapshotMessages() []llm.Message {

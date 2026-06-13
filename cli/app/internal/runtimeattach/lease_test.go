@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/toolspec"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/toolspec"
 )
 
 type fakeRuntimeService struct {

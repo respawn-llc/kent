@@ -1,10 +1,10 @@
 package app
 
 import (
-	"builder/cli/app/internal/submissionerror"
-	"builder/cli/app/internal/worktreecreate"
-	"builder/cli/app/internal/worktreecreateresolve"
-	"builder/cli/app/internal/worktreeview"
+	"core/cli/app/internal/submissionerror"
+	"core/cli/app/internal/worktreecreate"
+	"core/cli/app/internal/worktreecreateresolve"
+	"core/cli/app/internal/worktreeview"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

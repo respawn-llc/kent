@@ -1,8 +1,8 @@
 package app
 
 import (
-	"builder/cli/app/internal/runtimestate"
-	"builder/shared/clientui"
+	"core/cli/app/internal/runtimestate"
+	"core/shared/clientui"
 )
 
 type uiInterruptLifecycle string

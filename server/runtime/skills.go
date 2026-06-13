@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"builder/prompts"
-	generatedassets "builder/server/generated"
+	"core/prompts"
+	generatedassets "core/server/generated"
 
 	"gopkg.in/yaml.v3"
 )

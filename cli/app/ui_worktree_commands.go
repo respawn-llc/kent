@@ -3,10 +3,10 @@ package app
 import (
 	"strings"
 
-	"builder/cli/app/internal/worktreemutation"
-	"builder/cli/app/internal/worktreeview"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	"core/cli/app/internal/worktreemutation"
+	"core/cli/app/internal/worktreeview"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

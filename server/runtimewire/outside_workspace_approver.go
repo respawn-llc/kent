@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"builder/server/tools/askquestion"
-	patchtool "builder/server/tools/patch"
+	"core/server/tools/askquestion"
+	patchtool "core/server/tools/patch"
 )
 
 const (

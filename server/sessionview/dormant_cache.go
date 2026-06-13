@@ -5,12 +5,12 @@ import (
 	"strings"
 	"sync"
 
-	"builder/server/runtime"
-	"builder/server/runtimeview"
-	"builder/server/session"
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/transcript/patchformat"
+	"core/server/runtime"
+	"core/server/runtimeview"
+	"core/server/session"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/transcript/patchformat"
 )
 
 const dormantTranscriptCacheMaxEntries = 16

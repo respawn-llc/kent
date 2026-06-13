@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/auth"
-	"builder/shared/brand"
-	"builder/shared/config"
+	"core/server/auth"
+	"core/shared/brand"
+	"core/shared/config"
 )
 
 func TestEnsureReadySkipsWhenSettingsFileExists(t *testing.T) {

@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/server/session"
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/transcript/patchformat"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/server/session"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/transcript/patchformat"
 )
 
 func TestDormantTranscriptCacheReusesEntryForUnchangedRevision(t *testing.T) {

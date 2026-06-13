@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/tools"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/server/tools"
+	"core/shared/toolspec"
 )
 
 func TestExecuteToolCallsCanonicalizesEditAliases(t *testing.T) {

@@ -6,13 +6,13 @@ import (
 	"strings"
 	"time"
 
-	appstatus "builder/cli/app/internal/status"
-	"builder/server/generated"
-	"builder/server/runtime"
-	"builder/shared/auth"
-	"builder/shared/client"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	appstatus "core/cli/app/internal/status"
+	"core/server/generated"
+	"core/server/runtime"
+	"core/shared/auth"
+	"core/shared/client"
+	"core/shared/config"
+	"core/shared/serverapi"
 )
 
 const DefaultUsageBaseURL = "https://chatgpt.com/backend-api"

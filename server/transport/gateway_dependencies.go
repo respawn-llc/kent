@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/shared/serverapi"
-	"builder/shared/servicecontract"
+	"core/shared/serverapi"
+	"core/shared/servicecontract"
 )
 
 func (g *Gateway) resolveAttachedProjectWorkspace(ctx context.Context, projectID string, workspaceID string, workspaceRoot string) (string, string, error) {

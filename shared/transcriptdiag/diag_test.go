@@ -3,7 +3,7 @@ package transcriptdiag
 import (
 	"testing"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 func TestEventDigestIncludesRunLifecycleMode(t *testing.T) {

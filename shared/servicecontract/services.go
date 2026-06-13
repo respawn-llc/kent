@@ -3,7 +3,7 @@ package servicecontract
 import (
 	"context"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 )
 
 // Interfaces in this package are in-process bindings for shared RPC routes.

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"builder/shared/config"
+	"core/shared/config"
 )
 
 type RunPromptRequest struct {

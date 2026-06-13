@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"builder/cli/tui"
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/shared/clientui"
-	"builder/shared/transcript"
+	"core/cli/tui"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/shared/clientui"
+	"core/shared/transcript"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

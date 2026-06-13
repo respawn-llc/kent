@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/auth"
-	"builder/server/serve"
-	serverstartup "builder/server/startup"
-	"builder/shared/client"
-	"builder/shared/config"
+	"core/server/auth"
+	"core/server/serve"
+	serverstartup "core/server/startup"
+	"core/shared/client"
+	"core/shared/config"
 )
 
 func TestRemoteAppServerReauthenticateConfiguresServerOwnedAuth(t *testing.T) {

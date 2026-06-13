@@ -3,9 +3,9 @@ package workflowstore
 import (
 	"context"
 
-	"builder/server/metadata/sqlitegen"
-	"builder/server/workflow"
-	"builder/server/workflowjson"
+	"core/server/metadata/sqlitegen"
+	"core/server/workflow"
+	"core/server/workflowjson"
 )
 
 func currentWorkflowGraphSavePrepared(ctx context.Context, q *sqlitegen.Queries, workflowID workflow.WorkflowID) (preparedWorkflowGraphSave, error) {

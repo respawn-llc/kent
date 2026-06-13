@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"builder/shared/protocol"
-	"builder/shared/rpccontract"
+	"core/shared/protocol"
+	"core/shared/rpccontract"
 )
 
 func TestServiceContractsCoverEveryNonProtocolRoute(t *testing.T) {

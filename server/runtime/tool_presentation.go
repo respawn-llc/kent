@@ -1,10 +1,10 @@
 package runtime
 
 import (
-	"builder/server/llm"
-	"builder/server/tools"
-	"builder/shared/transcript"
-	"builder/shared/transcript/toolcodec"
+	"core/server/llm"
+	"core/server/tools"
+	"core/shared/transcript"
+	"core/shared/transcript/toolcodec"
 	"os"
 	goruntime "runtime"
 	"strings"

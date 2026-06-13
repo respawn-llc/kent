@@ -1,6 +1,6 @@
 package app
 
-import "builder/shared/clientui"
+import "core/shared/clientui"
 
 func (m *uiModel) currentConversationFreshness() clientui.ConversationFreshness {
 	switch cached := m.cachedRuntimeStatus().ConversationFreshness; cached {

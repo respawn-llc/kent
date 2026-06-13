@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/tools"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
+	"core/server/llm"
+	"core/server/tools"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 func TestSubmitUserMessageDoesNotEmitCommittedConversationUpdatedAfterFlushedUserTurn(t *testing.T) {

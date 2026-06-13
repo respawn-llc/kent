@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"builder/shared/clientui"
-	sharedtheme "builder/shared/theme"
+	"core/shared/clientui"
+	sharedtheme "core/shared/theme"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"

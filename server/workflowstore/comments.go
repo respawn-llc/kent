@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/server/metadata/sqlitegen"
-	"builder/server/workflow"
+	"core/server/metadata/sqlitegen"
+	"core/server/workflow"
 )
 
 func (s *Store) AddComment(ctx context.Context, taskID workflow.TaskID, body string, authorKind string, authorID string) (CommentRecord, error) {

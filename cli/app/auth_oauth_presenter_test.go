@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/cli/app/internal/oauthadapter"
+	"core/cli/app/internal/oauthadapter"
 
 	ansi "github.com/charmbracelet/x/ansi"
 )

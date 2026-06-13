@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/shared/textutil"
+	"core/shared/textutil"
 )
 
 func Parse(src string) (Document, error) {

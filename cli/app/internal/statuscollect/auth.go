@@ -9,9 +9,9 @@ import (
 	"reflect"
 	"strings"
 
-	appstatus "builder/cli/app/internal/status"
-	"builder/shared/auth"
-	"builder/shared/config"
+	appstatus "core/cli/app/internal/status"
+	"core/shared/auth"
+	"core/shared/config"
 )
 
 type AuthStateLoader interface {

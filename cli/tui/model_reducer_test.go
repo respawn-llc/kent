@@ -3,8 +3,8 @@ package tui
 import (
 	"testing"
 
-	"builder/shared/transcript"
-	patchformat "builder/shared/transcript/patchformat"
+	"core/shared/transcript"
+	patchformat "core/shared/transcript/patchformat"
 )
 
 func TestReduceAppendTranscriptMsgReportsMutationFlagsAndNormalizesEntry(t *testing.T) {

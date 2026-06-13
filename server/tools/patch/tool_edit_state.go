@@ -3,7 +3,7 @@ package patch
 import (
 	"regexp"
 
-	patchformat "builder/shared/transcript/patchformat"
+	patchformat "core/shared/transcript/patchformat"
 )
 
 const hunkMaxFuzz = 8

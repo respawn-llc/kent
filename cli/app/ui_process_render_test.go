@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 
 	"github.com/charmbracelet/lipgloss"
 )

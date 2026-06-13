@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"builder/shared/client"
-	"builder/shared/config"
+	"core/shared/client"
+	"core/shared/config"
 )
 
 type fakeSessionLaunchClient struct {

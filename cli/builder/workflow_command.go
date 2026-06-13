@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"builder/shared/client"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/workflowkey"
+	"core/shared/client"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/workflowkey"
 
 	"github.com/google/uuid"
 )

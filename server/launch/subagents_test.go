@@ -3,7 +3,7 @@ package launch
 import (
 	"testing"
 
-	"builder/shared/config"
+	"core/shared/config"
 )
 
 func TestApplyReviewerInheritanceRecomputesDefaultBaseURLWhenReviewerProviderExplicit(t *testing.T) {

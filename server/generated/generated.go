@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"builder/prompts"
-	"builder/shared/brand"
-	"builder/shared/buildinfo"
+	"core/prompts"
+	"core/shared/brand"
+	"core/shared/buildinfo"
 )
 
 const (

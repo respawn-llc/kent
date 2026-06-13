@@ -5,13 +5,13 @@ import (
 	"errors"
 	"os"
 
-	"builder/server/auth"
-	"builder/server/authflow"
-	"builder/server/authpolicy"
-	serverbootstrap "builder/server/bootstrap"
-	"builder/server/core"
-	"builder/server/embedded"
-	"builder/shared/config"
+	"core/server/auth"
+	"core/server/authflow"
+	"core/server/authpolicy"
+	serverbootstrap "core/server/bootstrap"
+	"core/server/core"
+	"core/server/embedded"
+	"core/shared/config"
 )
 
 type Request struct {

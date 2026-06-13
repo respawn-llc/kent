@@ -4,8 +4,8 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/cli/app/commands"
-	"builder/shared/clientui"
+	"core/cli/app/commands"
+	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

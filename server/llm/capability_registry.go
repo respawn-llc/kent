@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"strings"
 
-	"builder/server/session"
-	"builder/shared/config"
+	"core/server/session"
+	"core/shared/config"
 )
 
 // capability_registry.go is the single source of truth for built-in provider

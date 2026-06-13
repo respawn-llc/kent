@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/primaryrun"
+	"core/server/primaryrun"
 )
 
 func TestMemoDoesNotReplayCanceledOrDeadlineExceededOutcome(t *testing.T) {

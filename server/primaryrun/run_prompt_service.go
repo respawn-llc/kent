@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"builder/shared/serverapi"
-	"builder/shared/servicecontract"
+	"core/shared/serverapi"
+	"core/shared/servicecontract"
 )
 
 type guardingPromptService struct {

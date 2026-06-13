@@ -3,7 +3,7 @@ package transcript
 import (
 	"testing"
 
-	patchformat "builder/shared/transcript/patchformat"
+	patchformat "core/shared/transcript/patchformat"
 )
 
 func TestEntryPayloadEqualIncludesToolMetadata(t *testing.T) {

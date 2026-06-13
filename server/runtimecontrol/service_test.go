@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/llm"
-	"builder/server/primaryrun"
-	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
-	"builder/shared/serverapi"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/server/primaryrun"
+	"core/server/runtime"
+	"core/server/session"
+	"core/server/tools"
+	"core/shared/serverapi"
+	"core/shared/toolspec"
 )
 
 type stubRuntimeResolver struct {

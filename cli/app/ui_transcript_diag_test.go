@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"builder/cli/tui"
-	"builder/shared/client"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	"core/cli/tui"
+	"core/shared/client"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 )
 
 type transcriptDiagTestSessionViewClient struct{}

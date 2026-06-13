@@ -5,9 +5,9 @@ import (
 	"errors"
 	"strings"
 
-	"builder/shared/client"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	"core/shared/client"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 
 	"github.com/google/uuid"
 )

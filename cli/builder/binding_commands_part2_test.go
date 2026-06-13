@@ -1,9 +1,9 @@
 package main
 
 import (
-	"builder/shared/client"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/shared/client"
+	"core/shared/config"
+	"core/shared/serverapi"
 	"context"
 	"errors"
 	"net"

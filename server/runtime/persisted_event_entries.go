@@ -1,6 +1,6 @@
 package runtime
 
-import "builder/server/llm"
+import "core/server/llm"
 
 func visibleChatEntriesFromResponseItems(items []llm.ResponseItem) []ChatEntry {
 	entries := make([]ChatEntry, 0, len(items))

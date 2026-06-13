@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/servicecontract"
-	"builder/shared/toolspec"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/servicecontract"
+	"core/shared/toolspec"
 
 	"github.com/google/uuid"
 )

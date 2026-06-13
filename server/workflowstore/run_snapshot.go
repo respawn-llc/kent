@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"builder/server/workflow"
-	"builder/server/workflowjson"
+	"core/server/workflow"
+	"core/server/workflowjson"
 )
 
 type runStartSnapshot struct {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/llm"
+	"core/server/llm"
 )
 
 type blockingBackgroundStepLifecycle struct {

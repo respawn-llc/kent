@@ -5,11 +5,11 @@ import (
 	"errors"
 	"strings"
 
-	"builder/cli/app/internal/remotebinding"
-	"builder/shared/client"
-	"builder/shared/config"
-	"builder/shared/protocol"
-	"builder/shared/serverapi"
+	"core/cli/app/internal/remotebinding"
+	"core/shared/client"
+	"core/shared/config"
+	"core/shared/protocol"
+	"core/shared/serverapi"
 )
 
 type remoteAppServer struct {

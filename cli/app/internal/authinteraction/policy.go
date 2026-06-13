@@ -1,6 +1,6 @@
 package authinteraction
 
-import "builder/cli/app/internal/authflowadapter"
+import "core/cli/app/internal/authflowadapter"
 
 type Request = authflowadapter.InteractionRequest
 

@@ -34,7 +34,7 @@ func TestPackageImportsOnlyClientUIDTOs(t *testing.T) {
 		}
 		for _, spec := range file.Imports {
 			importPath := strings.Trim(spec.Path.Value, "\"")
-			if isStdlibImport(importPath) || importPath == "builder/shared/clientui" {
+			if isStdlibImport(importPath) || importPath == "core/shared/clientui" {
 				continue
 			}
 			violations = append(violations, filepath.Base(path)+": runtimestate must import only stdlib and shared clientui DTOs, got "+importPath)
@@ -49,5 +49,5 @@ func TestPackageImportsOnlyClientUIDTOs(t *testing.T) {
 }
 
 func isStdlibImport(importPath string) bool {
-	return importPath != "" && !strings.Contains(importPath, ".") && !strings.HasPrefix(importPath, "builder/")
+	return importPath != "" && !strings.Contains(importPath, ".") && !strings.HasPrefix(importPath, "core/")
 }

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"sync"
 
-	"builder/server/llm"
+	"core/server/llm"
 )
 
 var ErrScriptedRuntime = errors.New("scripted runtime: no steps remaining")

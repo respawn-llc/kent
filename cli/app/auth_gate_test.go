@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"builder/cli/app/internal/oauthadapter"
-	"builder/server/auth"
-	"builder/server/authflow"
-	"builder/shared/brand"
-	"builder/shared/config"
+	"core/cli/app/internal/oauthadapter"
+	"core/server/auth"
+	"core/server/authflow"
+	"core/shared/brand"
+	"core/shared/config"
 )
 
 type stubAuthInteractor struct {

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/runtime"
-	"builder/shared/clientui"
+	"core/server/runtime"
+	"core/shared/clientui"
 )
 
 func TestFrameAnimationClockUsesElapsedFrameBoundaries(t *testing.T) {

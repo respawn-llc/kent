@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 func TestOngoingDeliveryCursorAdvancesOnlyAfterNativeFlushAck(t *testing.T) {

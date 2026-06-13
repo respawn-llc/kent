@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	askquestion "builder/server/tools/askquestion"
-	"builder/shared/serverapi"
+	askquestion "core/server/tools/askquestion"
+	"core/shared/serverapi"
 )
 
 type PendingPromptSnapshot struct {

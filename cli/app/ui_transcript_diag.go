@@ -4,8 +4,8 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/shared/clientui"
-	"builder/shared/transcriptdiag"
+	"core/shared/clientui"
+	"core/shared/transcriptdiag"
 )
 
 func (m *uiModel) transcriptModeLabel() string {

@@ -3,7 +3,7 @@ package serverapi
 import (
 	"time"
 
-	"builder/shared/auth"
+	"core/shared/auth"
 )
 
 type AuthStatusRequest struct{}

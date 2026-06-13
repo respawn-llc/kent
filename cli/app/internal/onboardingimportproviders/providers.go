@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"builder/cli/app/internal/onboardingimportchoice"
-	"builder/cli/app/internal/onboardingimportfs"
+	"core/cli/app/internal/onboardingimportchoice"
+	"core/cli/app/internal/onboardingimportfs"
 )
 
 type ProviderID = onboardingimportchoice.ProviderID

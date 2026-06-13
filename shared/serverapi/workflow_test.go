@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/shared/workflowkey"
+	"core/shared/workflowkey"
 )
 
 func TestWorkflowCreateUpdateRequestValidation(t *testing.T) {

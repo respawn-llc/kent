@@ -7,7 +7,7 @@ import (
 	"os"
 	"sync"
 
-	"builder/server/tools/shell/postprocess"
+	"core/server/tools/shell/postprocess"
 )
 
 type outputSubscription struct {

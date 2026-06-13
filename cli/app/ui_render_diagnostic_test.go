@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/cli/tui"
+	"core/cli/tui"
 )
 
 type testUILogger struct {

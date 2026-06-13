@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/shared/brand"
-	"builder/shared/theme"
+	"core/shared/brand"
+	"core/shared/theme"
 	"github.com/BurntSushi/toml"
 )
 

@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/server/tools/shellcmd"
-	"builder/shared/toolspec"
+	"core/server/tools/shellcmd"
+	"core/shared/toolspec"
 )
 
 const maxFileReadContextFileBytes int64 = 1024 * 1024

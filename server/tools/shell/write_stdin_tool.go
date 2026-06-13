@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"builder/server/tools"
-	"builder/server/tools/shell/postprocess"
+	"core/server/tools"
+	"core/server/tools/shell/postprocess"
 )
 
 type writeStdinInput struct {

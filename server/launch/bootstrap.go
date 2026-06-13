@@ -4,8 +4,8 @@ import (
 	"errors"
 	"strings"
 
-	"builder/server/metadata"
-	"builder/server/session"
+	"core/server/metadata"
+	"core/server/session"
 )
 
 type BootstrapRequest struct {

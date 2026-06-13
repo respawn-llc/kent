@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 const terminalBell = "\a"

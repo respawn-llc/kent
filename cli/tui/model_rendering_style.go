@@ -1,8 +1,8 @@
 package tui
 
 import (
-	"builder/shared/theme"
-	"builder/shared/transcript"
+	"core/shared/theme"
+	"core/shared/transcript"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"

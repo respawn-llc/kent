@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	"builder/server/auth"
-	"builder/shared/config"
+	"core/server/auth"
+	"core/shared/config"
 )
 
 var ErrOnboardingCanceled = errors.New("first-time setup canceled")

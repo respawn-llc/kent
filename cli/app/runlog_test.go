@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/runprompt"
-	"builder/server/runtime"
-	"builder/server/tools"
-	"builder/shared/clientui"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/server/runprompt"
+	"core/server/runtime"
+	"core/server/tools"
+	"core/shared/clientui"
+	"core/shared/toolspec"
 )
 
 func TestRunLoggerWritesStepsFile(t *testing.T) {

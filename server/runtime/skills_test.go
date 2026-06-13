@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/llm"
-	"builder/shared/brand"
+	"core/server/llm"
+	"core/shared/brand"
 )
 
 func TestSkillsContextMessageIncludesCodexPromptAndSkillEntries(t *testing.T) {

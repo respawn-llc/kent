@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"builder/shared/config"
-	"builder/shared/sessioncontract"
-	"builder/shared/sessionenv"
+	"core/shared/config"
+	"core/shared/sessioncontract"
+	"core/shared/sessionenv"
 )
 
 func TestResolveWorkspaceRootUsesCWDWhenEmpty(t *testing.T) {

@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"builder/cli/tui"
-	"builder/server/llm"
-	"builder/server/primaryrun"
-	"builder/shared/clientui"
-	"builder/shared/transcript"
+	"core/cli/tui"
+	"core/server/llm"
+	"core/server/primaryrun"
+	"core/shared/clientui"
+	"core/shared/transcript"
 )
 
 type runtimeControlFakeClient struct {

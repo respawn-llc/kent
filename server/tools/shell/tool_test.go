@@ -1,13 +1,13 @@
 package shell
 
 import (
-	"builder/server/tools"
-	"builder/server/tools/shell/postprocess"
-	"builder/server/tools/shell/shellenv"
-	"builder/shared/brand"
-	"builder/shared/config"
-	"builder/shared/sessionenv"
-	"builder/shared/toolspec"
+	"core/server/tools"
+	"core/server/tools/shell/postprocess"
+	"core/server/tools/shell/shellenv"
+	"core/shared/brand"
+	"core/shared/config"
+	"core/shared/sessionenv"
+	"core/shared/toolspec"
 	"context"
 	"encoding/json"
 	"errors"

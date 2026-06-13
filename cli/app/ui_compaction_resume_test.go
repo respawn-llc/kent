@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"builder/cli/app/internal/submissionerror"
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/shared/clientui"
+	"core/cli/app/internal/submissionerror"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

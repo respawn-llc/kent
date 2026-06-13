@@ -5,12 +5,12 @@ import (
 	"errors"
 	"strings"
 
-	"builder/cli/app/internal/embeddedbinding"
-	"builder/cli/app/internal/embeddedstartup"
-	"builder/cli/app/internal/statuscollect"
-	"builder/shared/client"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/cli/app/internal/embeddedbinding"
+	"core/cli/app/internal/embeddedstartup"
+	"core/cli/app/internal/statuscollect"
+	"core/shared/client"
+	"core/shared/config"
+	"core/shared/serverapi"
 )
 
 type appServerCore interface {

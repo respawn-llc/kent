@@ -1,7 +1,7 @@
 package app
 
 import (
-	"builder/shared/theme"
+	"core/shared/theme"
 	"fmt"
 	"strings"
 	"testing"

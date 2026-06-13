@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/shared/config"
+	"core/shared/config"
 )
 
 func ExecutablePath() (string, bool) {

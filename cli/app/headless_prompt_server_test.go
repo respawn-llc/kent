@@ -1,6 +1,6 @@
 package app
 
-import "builder/shared/client"
+import "core/shared/client"
 
 func newHeadlessRunPromptClient(server *embeddedAppServer) client.RunPromptClient {
 	target, err := runPromptTargetForEmbeddedAttachment(server)

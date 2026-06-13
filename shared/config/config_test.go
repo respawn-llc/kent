@@ -1,8 +1,8 @@
 package config
 
 import (
-	"builder/shared/brand"
-	"builder/shared/toolspec"
+	"core/shared/brand"
+	"core/shared/toolspec"
 	"errors"
 	"os"
 	"path/filepath"

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/cli/tui"
+	"core/cli/tui"
 
 	"github.com/charmbracelet/lipgloss"
 )

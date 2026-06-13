@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 )
 
 func formatBindingCommandWorkspaceLabel(path string) string {

@@ -3,7 +3,7 @@ package runtimestate
 import (
 	"testing"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 func TestReduceRuntimeEvent_UserMessageFlushedProducesPendingInputAndConversationUpdates(t *testing.T) {

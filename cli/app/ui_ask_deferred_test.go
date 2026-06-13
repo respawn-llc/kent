@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"builder/cli/tui"
-	"builder/shared/clientui"
+	"core/cli/tui"
+	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

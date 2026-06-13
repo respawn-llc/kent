@@ -9,10 +9,10 @@ import (
 	"sort"
 	"strings"
 
-	"builder/server/llm"
-	"builder/server/workflow"
-	"builder/server/workflowstore"
-	"builder/shared/config"
+	"core/server/llm"
+	"core/server/workflow"
+	"core/server/workflowstore"
+	"core/shared/config"
 )
 
 const (

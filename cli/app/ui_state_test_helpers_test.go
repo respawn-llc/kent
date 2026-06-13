@@ -1,6 +1,6 @@
 package app
 
-import "builder/shared/rollbacktarget"
+import "core/shared/rollbacktarget"
 
 func testActiveAsk(m *uiModel) *askEvent {
 	if m == nil {

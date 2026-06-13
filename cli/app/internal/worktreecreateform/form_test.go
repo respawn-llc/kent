@@ -3,7 +3,7 @@ package worktreecreateform
 import (
 	"testing"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 )
 
 func TestOrderedFieldsIncludesBaseRefOnlyForNewBranch(t *testing.T) {

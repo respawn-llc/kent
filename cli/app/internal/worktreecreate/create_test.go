@@ -3,7 +3,7 @@ package worktreecreate
 import (
 	"testing"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 )
 
 func TestRequestForExistingBranchUsesTargetAsBaseRef(t *testing.T) {

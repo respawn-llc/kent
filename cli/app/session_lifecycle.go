@@ -6,10 +6,10 @@ import (
 	"os"
 	"strings"
 
-	"builder/cli/app/commands"
-	"builder/shared/client"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/cli/app/commands"
+	"core/shared/client"
+	"core/shared/config"
+	"core/shared/serverapi"
 
 	"github.com/google/uuid"
 )

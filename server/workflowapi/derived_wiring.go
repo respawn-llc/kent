@@ -1,8 +1,8 @@
 package workflowapi
 
 import (
-	"builder/server/workflow"
-	"builder/shared/serverapi"
+	"core/server/workflow"
+	"core/shared/serverapi"
 )
 
 func DerivedWiring(def workflow.Definition) serverapi.WorkflowDerivedWiring {

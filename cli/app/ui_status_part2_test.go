@@ -1,11 +1,11 @@
 package app
 
 import (
-	"builder/cli/app/internal/statuscollect"
-	"builder/server/auth"
-	"builder/server/sessionview"
-	"builder/shared/client"
-	"builder/shared/clientui"
+	"core/cli/app/internal/statuscollect"
+	"core/server/auth"
+	"core/server/sessionview"
+	"core/shared/client"
+	"core/shared/clientui"
 	"context"
 	"os"
 	"os/exec"

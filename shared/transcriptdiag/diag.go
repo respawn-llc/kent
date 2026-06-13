@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 func EnabledFromEnv(getenv func(string) string) bool {

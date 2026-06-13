@@ -3,13 +3,13 @@ package runtimeview
 import (
 	"strings"
 
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/server/session"
-	"builder/shared/cachewarn"
-	"builder/shared/clientui"
-	"builder/shared/transcript"
-	patchformat "builder/shared/transcript/patchformat"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/server/session"
+	"core/shared/cachewarn"
+	"core/shared/clientui"
+	"core/shared/transcript"
+	patchformat "core/shared/transcript/patchformat"
 )
 
 const runtimeNoopFinalToken = "NO_OP"

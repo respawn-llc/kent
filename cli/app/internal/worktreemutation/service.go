@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"builder/shared/client"
-	"builder/shared/serverapi"
+	"core/shared/client"
+	"core/shared/serverapi"
 
 	"github.com/google/uuid"
 )

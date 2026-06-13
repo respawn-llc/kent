@@ -4,8 +4,8 @@ import (
 	"os"
 	"strings"
 
-	"builder/shared/config"
-	"builder/shared/sessionenv"
+	"core/shared/config"
+	"core/shared/sessionenv"
 )
 
 var overrides = []string{

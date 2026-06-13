@@ -8,9 +8,9 @@ import (
 	"net/url"
 	"testing"
 
-	"builder/server/llm"
-	"builder/shared/llmerrors"
-	"builder/shared/serverapi"
+	"core/server/llm"
+	"core/shared/llmerrors"
+	"core/shared/serverapi"
 )
 
 type timeoutError struct{}

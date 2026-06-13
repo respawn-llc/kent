@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/runtime"
-	"builder/server/runtimewire"
+	"core/server/runtime"
+	"core/server/runtimewire"
 )
 
 func TestRuntimeEventBridgeDropsWhenFullWithoutBlocking(t *testing.T) {

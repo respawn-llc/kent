@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/server/bootstrap"
-	"builder/shared/config"
-	"builder/shared/sessioncontract"
-	"builder/shared/sessionenv"
+	"core/server/bootstrap"
+	"core/shared/config"
+	"core/shared/sessioncontract"
+	"core/shared/sessionenv"
 )
 
 type Request struct {

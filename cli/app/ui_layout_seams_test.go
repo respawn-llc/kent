@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/cli/tui"
+	"core/cli/tui"
 )
 
 func TestUIRenderFrameRenderRespectsPaddingPolicy(t *testing.T) {

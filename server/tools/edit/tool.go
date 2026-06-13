@@ -12,12 +12,12 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"builder/server/tools"
-	"builder/server/tools/fsguard"
-	patchtool "builder/server/tools/patch"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
-	patchformat "builder/shared/transcript/patchformat"
+	"core/server/tools"
+	"core/server/tools/fsguard"
+	patchtool "core/server/tools/patch"
+	"core/shared/toolspec"
+	"core/shared/transcript"
+	patchformat "core/shared/transcript/patchformat"
 )
 
 const (

@@ -1,7 +1,7 @@
 package app
 
 import (
-	"builder/cli/tui"
+	"core/cli/tui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

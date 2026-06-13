@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/auth"
+	"core/server/auth"
 )
 
 func TestIsAuthenticationError(t *testing.T) {

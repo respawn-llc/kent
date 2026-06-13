@@ -5,8 +5,8 @@ import (
 	"math"
 	"strings"
 
-	"builder/server/llm"
-	sharedtheme "builder/shared/theme"
+	"core/server/llm"
+	sharedtheme "core/shared/theme"
 
 	bubbleprogress "github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/lipgloss"

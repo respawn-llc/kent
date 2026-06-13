@@ -1,6 +1,6 @@
 package auth
 
-import sharedauth "builder/shared/auth"
+import sharedauth "core/shared/auth"
 
 var (
 	ErrAuthNotConfigured     = sharedauth.ErrAuthNotConfigured

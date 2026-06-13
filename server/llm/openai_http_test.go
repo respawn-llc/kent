@@ -1,8 +1,8 @@
 package llm
 
 import (
-	"builder/server/auth"
-	"builder/shared/toolspec"
+	"core/server/auth"
+	"core/shared/toolspec"
 	"context"
 	"encoding/json"
 	"errors"

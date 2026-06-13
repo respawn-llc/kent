@@ -1,7 +1,7 @@
 package config
 
 import (
-	"builder/shared/brand"
+	"core/shared/brand"
 	"os"
 	"path/filepath"
 	"testing"

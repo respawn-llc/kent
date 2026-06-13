@@ -1,7 +1,7 @@
 package patch
 
 import (
-	patchformat "builder/shared/transcript/patchformat"
+	patchformat "core/shared/transcript/patchformat"
 	"context"
 	"errors"
 	"os"

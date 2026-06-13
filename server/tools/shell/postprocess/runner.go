@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/server/tools/shellcmd"
-	"builder/shared/config"
-	"builder/shared/toolspec"
+	"core/server/tools/shellcmd"
+	"core/shared/config"
+	"core/shared/toolspec"
 )
 
 type Settings struct {

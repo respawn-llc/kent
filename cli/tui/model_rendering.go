@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"builder/shared/transcript"
+	"core/shared/transcript"
 )
 
 func (m Model) buildDetailBlockSpecs(includeStreaming bool) []detailBlockSpec {

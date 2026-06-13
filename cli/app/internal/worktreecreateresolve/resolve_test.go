@@ -3,7 +3,7 @@ package worktreecreateresolve
 import (
 	"testing"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 )
 
 func TestScheduleIncrementsTokenAndDebouncesNonEmptyQuery(t *testing.T) {

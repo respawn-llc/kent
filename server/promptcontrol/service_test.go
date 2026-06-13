@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	askquestion "builder/server/tools/askquestion"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	askquestion "core/server/tools/askquestion"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 )
 
 type stubPromptResponder struct {

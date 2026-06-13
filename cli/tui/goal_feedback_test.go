@@ -6,8 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"builder/shared/theme"
-	"builder/shared/transcript"
+	"core/shared/theme"
+	"core/shared/transcript"
 )
 
 func TestGoalFeedbackRendersInPrimaryColor(t *testing.T) {

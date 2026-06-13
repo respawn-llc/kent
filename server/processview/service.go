@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/server/requestmemo"
-	shelltool "builder/server/tools/shell"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	"core/server/requestmemo"
+	shelltool "core/server/tools/shell"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 )
 
 type ProcessSource interface {

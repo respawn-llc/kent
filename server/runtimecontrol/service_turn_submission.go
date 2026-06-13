@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 )
 
 func (s *Service) SubmitUserTurn(ctx context.Context, req serverapi.RuntimeSubmitUserTurnRequest) (serverapi.RuntimeSubmitUserTurnResponse, error) {

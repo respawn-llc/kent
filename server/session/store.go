@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"builder/shared/sessioncontract"
+	"core/shared/sessioncontract"
 	"github.com/google/uuid"
 )
 

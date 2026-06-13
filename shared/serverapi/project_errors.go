@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 var ErrWorkspaceNotRegistered = errors.New("workspace is not registered")

@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/metadata"
-	askquestion "builder/server/tools/askquestion"
-	"builder/server/workflow"
-	"builder/server/workflowstore"
-	"builder/server/workflowview"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/server/metadata"
+	askquestion "core/server/tools/askquestion"
+	"core/server/workflow"
+	"core/server/workflowstore"
+	"core/server/workflowview"
+	"core/shared/config"
+	"core/shared/serverapi"
 )
 
 func nextWorkflowProjectEvent(t *testing.T, sub serverapi.WorkflowProjectSubscription) serverapi.WorkflowProjectEvent {

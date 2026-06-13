@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/shared/cachewarn"
-	"builder/shared/config"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
+	"core/server/llm"
+	"core/server/session"
+	"core/shared/cachewarn"
+	"core/shared/config"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 func TestPersistedTranscriptScanCollectsRequestedPageOnly(t *testing.T) {

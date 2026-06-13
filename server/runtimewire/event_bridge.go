@@ -3,7 +3,7 @@ package runtimewire
 import (
 	"sync/atomic"
 
-	"builder/server/runtime"
+	"core/server/runtime"
 )
 
 type EventBridge struct {

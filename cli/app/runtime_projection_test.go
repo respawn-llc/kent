@@ -1,9 +1,9 @@
 package app
 
 import (
-	"builder/server/runtime"
-	"builder/server/runtimeview"
-	"builder/shared/clientui"
+	"core/server/runtime"
+	"core/server/runtimeview"
+	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

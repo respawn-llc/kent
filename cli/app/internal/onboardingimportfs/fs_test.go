@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"builder/cli/app/internal/onboardingimportchoice"
+	"core/cli/app/internal/onboardingimportchoice"
 )
 
 func TestExecuteSymlinkValidatesSourceBeforeReplacingEmptyTarget(t *testing.T) {

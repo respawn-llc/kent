@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/primaryrun"
-	"builder/server/runtime"
-	askquestion "builder/server/tools/askquestion"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	"core/server/primaryrun"
+	"core/server/runtime"
+	askquestion "core/server/tools/askquestion"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 )
 
 func TestRuntimeRegistryBroadcastsSessionActivityToMultipleSubscribers(t *testing.T) {

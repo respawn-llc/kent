@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"builder/cli/tui"
+	"core/cli/tui"
 )
 
 func benchmarkNativeReplayEntries(count int) []tui.TranscriptEntry {

@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"builder/shared/toolspec"
+	"core/shared/toolspec"
 )
 
 const BuiltInSubagentRoleFast = "fast"

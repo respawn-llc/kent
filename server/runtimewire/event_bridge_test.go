@@ -3,7 +3,7 @@ package runtimewire
 import (
 	"testing"
 
-	"builder/server/runtime"
+	"core/server/runtime"
 )
 
 func TestEventBridgeCoalescesGapSignalsUntilObserved(t *testing.T) {

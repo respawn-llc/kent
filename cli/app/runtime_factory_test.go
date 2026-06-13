@@ -10,17 +10,17 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/auth"
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/server/runtimewire"
-	"builder/server/tools"
-	"builder/server/tools/askquestion"
-	patchtool "builder/server/tools/patch"
-	shelltool "builder/server/tools/shell"
-	triggerhandofftool "builder/server/tools/triggerhandoff"
-	"builder/shared/config"
-	"builder/shared/toolspec"
+	"core/server/auth"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/server/runtimewire"
+	"core/server/tools"
+	"core/server/tools/askquestion"
+	patchtool "core/server/tools/patch"
+	shelltool "core/server/tools/shell"
+	triggerhandofftool "core/server/tools/triggerhandoff"
+	"core/shared/config"
+	"core/shared/toolspec"
 )
 
 type stubTriggerHandoffController struct{}

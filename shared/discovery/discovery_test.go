@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"builder/shared/protocol"
+	"core/shared/protocol"
 )
 
 func TestPathForContainer(t *testing.T) {

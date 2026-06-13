@@ -1,7 +1,7 @@
 package commands
 
 import (
-	"builder/prompts"
+	"core/prompts"
 	"sort"
 	"strings"
 	"unicode"

@@ -29,17 +29,17 @@ func TestArchitectureBoundaries(t *testing.T) {
 		}
 		for _, imported := range pkg.Imports {
 			trimmedImport := strings.TrimSpace(imported)
-			if trimmedImport == "" || !strings.HasPrefix(trimmedImport, "builder/") {
+			if trimmedImport == "" || !strings.HasPrefix(trimmedImport, "core/") {
 				continue
 			}
 			switch {
-			case strings.HasPrefix(importPath, "builder/server/") && strings.HasPrefix(trimmedImport, "builder/cli/"):
+			case strings.HasPrefix(importPath, "core/server/") && strings.HasPrefix(trimmedImport, "core/cli/"):
 				violations = append(violations, importPath+" must not import frontend package "+trimmedImport)
-			case strings.HasPrefix(importPath, "builder/shared/") && strings.HasPrefix(trimmedImport, "builder/cli/"):
+			case strings.HasPrefix(importPath, "core/shared/") && strings.HasPrefix(trimmedImport, "core/cli/"):
 				violations = append(violations, importPath+" must not import frontend package "+trimmedImport)
-			case strings.HasPrefix(importPath, "builder/shared/") && strings.HasPrefix(trimmedImport, "builder/server/"):
+			case strings.HasPrefix(importPath, "core/shared/") && strings.HasPrefix(trimmedImport, "core/server/"):
 				violations = append(violations, importPath+" must not import server package "+trimmedImport)
-			case strings.HasPrefix(importPath, "builder/cli/") && trimmedImport == "builder/server/metadata":
+			case strings.HasPrefix(importPath, "core/cli/") && trimmedImport == "core/server/metadata":
 				violations = append(violations, importPath+" must not import persistence metadata package "+trimmedImport)
 			}
 		}
@@ -286,7 +286,7 @@ func TestCLIPackagesDoNotImportServerOutsideCompositionBridges(t *testing.T) {
 		}
 		for _, spec := range file.Imports {
 			importPath := strings.Trim(spec.Path.Value, "\"")
-			if !strings.HasPrefix(importPath, "builder/server/") {
+			if !strings.HasPrefix(importPath, "core/server/") {
 				continue
 			}
 			allowedImports := allowedServerImportsByFile[relPath]
@@ -322,72 +322,72 @@ func TestCLIPackagesDoNotImportServerOutsideCompositionBridges(t *testing.T) {
 func allowedCLIServerImports() map[string]map[string]string {
 	return map[string]map[string]string{
 		filepath.Join("cli", "app", "auth_gate.go"): {
-			"builder/server/auth":     "auth startup gate owns auth state conversion after deleting the app bridge package",
-			"builder/server/authflow": "auth startup gate owns auth flow conversion after deleting the app bridge package",
+			"core/server/auth":     "auth startup gate owns auth state conversion after deleting the app bridge package",
+			"core/server/authflow": "auth startup gate owns auth flow conversion after deleting the app bridge package",
 		},
 		filepath.Join("cli", "app", "remote_auth_bootstrap.go"): {
-			"builder/server/auth": "remote auth bootstrap constructs server auth grants at the startup boundary",
+			"core/server/auth": "remote auth bootstrap constructs server auth grants at the startup boundary",
 		},
 		filepath.Join("cli", "app", "onboarding_flow.go"): {
-			"builder/server/llm": "onboarding displays server-owned model catalog labels after deleting the app bridge package",
+			"core/server/llm": "onboarding displays server-owned model catalog labels after deleting the app bridge package",
 		},
 		filepath.Join("cli", "app", "onboarding_render.go"): {
-			"builder/server/llm": "onboarding displays server-owned model catalog labels after deleting the app bridge package",
+			"core/server/llm": "onboarding displays server-owned model catalog labels after deleting the app bridge package",
 		},
 		filepath.Join("cli", "app", "onboarding_run.go"): {
-			"builder/server/llm": "onboarding resolves server-owned model metadata after deleting the app bridge package",
+			"core/server/llm": "onboarding resolves server-owned model metadata after deleting the app bridge package",
 		},
 		filepath.Join("cli", "app", "onboarding_workflow.go"): {
-			"builder/server/llm": "onboarding workflow renders server-owned model labels after deleting the app bridge package",
+			"core/server/llm": "onboarding workflow renders server-owned model labels after deleting the app bridge package",
 		},
 		filepath.Join("cli", "app", "run_prompt_target.go"): {
-			"builder/server/serve": "headless startup needs the server serve target type after deleting the app bridge package",
+			"core/server/serve": "headless startup needs the server serve target type after deleting the app bridge package",
 		},
 		filepath.Join("cli", "app", "ui_layout_rendering_status.go"): {
-			"builder/server/llm": "status line uses the server-owned model display label after deleting the app bridge package",
+			"core/server/llm": "status line uses the server-owned model display label after deleting the app bridge package",
 		},
 		filepath.Join("cli", "app", "internal", "statuscollect", "model.go"): {
-			"builder/server/llm": "status collection uses the server-owned model display label after deleting the app bridge package",
+			"core/server/llm": "status collection uses the server-owned model display label after deleting the app bridge package",
 		},
 		filepath.Join("cli", "app", "internal", "statuscollect", "collect.go"): {
-			"builder/server/generated": "status collection exposes generated skill metadata at the CLI status boundary",
-			"builder/server/runtime":   "status collection reads runtime memory status at the CLI status boundary",
+			"core/server/generated": "status collection exposes generated skill metadata at the CLI status boundary",
+			"core/server/runtime":   "status collection reads runtime memory status at the CLI status boundary",
 		},
 		filepath.Join("cli", "app", "internal", "statuscollect", "environment.go"): {
-			"builder/server/runtime": "status collection reads runtime memory status at the CLI status boundary",
+			"core/server/runtime": "status collection reads runtime memory status at the CLI status boundary",
 		},
 		filepath.Join("cli", "app", "internal", "onboardingimport", "skill_metadata.go"): {
-			"builder/server/runtime": "onboarding import reads server skill metadata at the import boundary",
+			"core/server/runtime": "onboarding import reads server skill metadata at the import boundary",
 		},
 		filepath.Join("cli", "app", "internal", "authflowadapter", "flow.go"): {
-			"builder/server/auth":     "auth adapter intentionally translates server auth types for app startup",
-			"builder/server/authflow": "auth adapter intentionally translates server auth-flow types for app startup",
+			"core/server/auth":     "auth adapter intentionally translates server auth types for app startup",
+			"core/server/authflow": "auth adapter intentionally translates server auth-flow types for app startup",
 		},
 		filepath.Join("cli", "app", "internal", "authoauth", "runner.go"): {
-			"builder/server/auth": "OAuth runner owns server auth OAuth calls after deleting one-line adapters",
+			"core/server/auth": "OAuth runner owns server auth OAuth calls after deleting one-line adapters",
 		},
 		filepath.Join("cli", "app", "internal", "oauthadapter", "oauth.go"): {
-			"builder/server/auth": "OAuth adapter re-exports server auth OAuth DTO aliases",
+			"core/server/auth": "OAuth adapter re-exports server auth OAuth DTO aliases",
 		},
 		filepath.Join("cli", "app", "internal", "startupconfig", "config.go"): {
-			"builder/server/bootstrap": "startup config resolves server bootstrap context at the startup boundary",
+			"core/server/bootstrap": "startup config resolves server bootstrap context at the startup boundary",
 		},
 		filepath.Join("cli", "app", "internal", "embeddedstartup", "start.go"): {
-			"builder/server/auth":     "embedded startup composes server auth readiness",
-			"builder/server/authflow": "embedded startup composes server auth flow readiness",
-			"builder/server/embedded": "embedded startup composes the embedded server",
-			"builder/server/startup":  "embedded startup delegates to server startup",
+			"core/server/auth":     "embedded startup composes server auth readiness",
+			"core/server/authflow": "embedded startup composes server auth flow readiness",
+			"core/server/embedded": "embedded startup composes the embedded server",
+			"core/server/startup":  "embedded startup delegates to server startup",
 		},
 		filepath.Join("cli", "app", "internal", "onboardingready", "ready.go"): {
-			"builder/server/auth":       "onboarding readiness requires server auth manager types",
-			"builder/server/onboarding": "onboarding readiness delegates to the server-owned onboarding flow",
+			"core/server/auth":       "onboarding readiness requires server auth manager types",
+			"core/server/onboarding": "onboarding readiness delegates to the server-owned onboarding flow",
 		},
 		filepath.Join("cli", "builder", "internal", "serverbridge", "serverbridge.go"): {
-			"builder/server/sessionlifecycle": "builder CLI bridge retains non-trivial fallback behavior",
+			"core/server/sessionlifecycle": "builder CLI bridge retains non-trivial fallback behavior",
 		},
 		filepath.Join("cli", "builder", "serve.go"): {
-			"builder/server/serve":   "builder serve command is a composition root",
-			"builder/server/startup": "builder serve command is a composition root",
+			"core/server/serve":   "builder serve command is a composition root",
+			"core/server/startup": "builder serve command is a composition root",
 		},
 	}
 }
@@ -422,7 +422,7 @@ func TestCLIAppUIFilesDoNotAddServerImports(t *testing.T) {
 		}
 		for _, spec := range file.Imports {
 			importPath := strings.Trim(spec.Path.Value, "\"")
-			if !strings.HasPrefix(importPath, "builder/server/") {
+			if !strings.HasPrefix(importPath, "core/server/") {
 				continue
 			}
 			if actualServerImportsByFile[relPath] == nil {
@@ -479,7 +479,7 @@ func TestCLIUIFilesDoNotBypassServerAttachService(t *testing.T) {
 			}
 			for _, spec := range file.Imports {
 				importPath := strings.Trim(spec.Path.Value, "\"")
-				if importPath == "builder/cli/app/internal/serverattach" || importPath == "builder/cli/app/internal/remoteattach" {
+				if importPath == "core/cli/app/internal/serverattach" || importPath == "core/cli/app/internal/remoteattach" {
 					violations = append(violations, relPath+": UI files must not import startup attachment package "+importPath)
 				}
 			}
@@ -499,7 +499,7 @@ func TestCLIAppRootFilesDoNotImportServerPackages(t *testing.T) {
 	walkCLIAppRootFiles(t, repoRoot, false, parser.ImportsOnly, func(source parsedGoSource) {
 		for _, spec := range source.File.Imports {
 			importPath := strings.Trim(spec.Path.Value, "\"")
-			if strings.HasPrefix(importPath, "builder/server/") && !isAllowedCLIAppRootServerImport(source.RelPath, importPath) {
+			if strings.HasPrefix(importPath, "core/server/") && !isAllowedCLIAppRootServerImport(source.RelPath, importPath) {
 				violations = append(violations, source.RelPath+": app root package must not import server package "+importPath)
 			}
 		}
@@ -543,9 +543,9 @@ func TestCLIAppStartupEntrypointsUseServerAttach(t *testing.T) {
 		for _, spec := range file.Imports {
 			importPath := strings.Trim(spec.Path.Value, "\"")
 			switch importPath {
-			case "builder/cli/app/internal/serverattach":
+			case "core/cli/app/internal/serverattach":
 				importsServerAttach = true
-			case "builder/cli/app/internal/targetstartup", "builder/cli/app/internal/targetresolve":
+			case "core/cli/app/internal/targetstartup", "core/cli/app/internal/targetresolve":
 				violations = append(violations, relPath+": startup entrypoint must use serverattach instead of "+importPath)
 			}
 		}
@@ -665,7 +665,7 @@ func TestCLIAppSplitFilesDoNotImportServerPackages(t *testing.T) {
 		}
 		for _, spec := range file.Imports {
 			importPath := strings.Trim(spec.Path.Value, "\"")
-			if strings.HasPrefix(importPath, "builder/server/") && !isAllowedCLIAppRootServerImport(relPath, importPath) {
+			if strings.HasPrefix(importPath, "core/server/") && !isAllowedCLIAppRootServerImport(relPath, importPath) {
 				violations = append(violations, relPath+": split app file must not import server package "+importPath)
 			}
 		}
@@ -707,7 +707,7 @@ func TestCLITUIFilesDoNotImportServerPackages(t *testing.T) {
 		}
 		for _, spec := range file.Imports {
 			importPath := strings.Trim(spec.Path.Value, "\"")
-			if !strings.HasPrefix(importPath, "builder/server/") {
+			if !strings.HasPrefix(importPath, "core/server/") {
 				continue
 			}
 			if actualServerImportsByFile[relPath] == nil {
@@ -816,9 +816,9 @@ func assertCLIAppInternalPackageBoundary(t *testing.T, tc cliInternalBoundaryCas
 			for _, spec := range file.Imports {
 				importPath := strings.Trim(spec.Path.Value, "\"")
 				switch {
-				case tc.ForbidAllBuilder && strings.HasPrefix(importPath, "builder/"):
+				case tc.ForbidAllBuilder && strings.HasPrefix(importPath, "core/"):
 					violations = append(violations, relPath+": "+tc.Label+" must not import Builder packages "+importPath)
-				case tc.ForbidServer && strings.HasPrefix(importPath, "builder/server/"):
+				case tc.ForbidServer && strings.HasPrefix(importPath, "core/server/"):
 					message := tc.ServerViolationLabel
 					if message == "" {
 						message = tc.Label + " must not import server package"
@@ -826,9 +826,9 @@ func assertCLIAppInternalPackageBoundary(t *testing.T, tc cliInternalBoundaryCas
 					violations = append(violations, relPath+": "+message+" "+importPath)
 				case importPath == "github.com/charmbracelet/bubbletea":
 					violations = append(violations, relPath+": "+tc.Label+" must not import Bubble Tea")
-				case importPath == "builder/cli/app/commands":
+				case importPath == "core/cli/app/commands":
 					violations = append(violations, relPath+": "+tc.Label+" must not import app commands")
-				case importPath == "builder/cli/app":
+				case importPath == "core/cli/app":
 					violations = append(violations, relPath+": "+tc.Label+" must not import app package")
 				}
 			}
@@ -852,7 +852,7 @@ func assertCLIAppInternalPackageBoundary(t *testing.T, tc cliInternalBoundaryCas
 func TestCLIDoesNotCallPersistenceStorageAPIsDirectly(t *testing.T) {
 	repoRoot := findRepoRoot(t)
 	forbiddenCalls := map[string]map[string]struct{}{
-		"builder/server/metadata": {
+		"core/server/metadata": {
 			"Open":                     {},
 			"ResolveBinding":           {},
 			"RegisterBinding":          {},
@@ -861,7 +861,7 @@ func TestCLIDoesNotCallPersistenceStorageAPIsDirectly(t *testing.T) {
 			"AttachWorkspaceToProject": {},
 			"RebindWorkspace":          {},
 		},
-		"builder/server/session": {
+		"core/server/session": {
 			"Open":         {},
 			"OpenByID":     {},
 			"Create":       {},

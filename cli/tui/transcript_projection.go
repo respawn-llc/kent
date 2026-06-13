@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	sharedtheme "builder/shared/theme"
+	sharedtheme "core/shared/theme"
 )
 
 type TranscriptProjection struct {

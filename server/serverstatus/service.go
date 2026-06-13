@@ -3,13 +3,13 @@ package serverstatus
 import (
 	"context"
 
-	"builder/server/auth"
-	"builder/server/authpolicy"
-	"builder/server/workflow"
-	"builder/shared/buildinfo"
-	"builder/shared/config"
-	"builder/shared/protocol"
-	"builder/shared/serverapi"
+	"core/server/auth"
+	"core/server/authpolicy"
+	"core/server/workflow"
+	"core/shared/buildinfo"
+	"core/shared/config"
+	"core/shared/protocol"
+	"core/shared/serverapi"
 )
 
 type Service struct {

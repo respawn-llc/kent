@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/server/tools"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/server/session"
+	"core/server/tools"
+	"core/shared/toolspec"
 )
 
 type stubExclusiveStepLifecycle struct {

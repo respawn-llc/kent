@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"builder/server/tools/shellcmd"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
-	patchformat "builder/shared/transcript/patchformat"
+	"core/server/tools/shellcmd"
+	"core/shared/toolspec"
+	"core/shared/transcript"
+	patchformat "core/shared/transcript/patchformat"
 )
 
 var sedPrintRangePattern = regexp.MustCompile(`^\d+(?:,\d+)?p$`)

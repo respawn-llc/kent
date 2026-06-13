@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/cli/app/internal/authview"
-	"builder/cli/tui"
-	sharedtheme "builder/shared/theme"
+	"core/cli/app/internal/authview"
+	"core/cli/tui"
+	sharedtheme "core/shared/theme"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"

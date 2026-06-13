@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"builder/cli/app/internal/submissionerror"
-	"builder/shared/clientui"
+	"core/cli/app/internal/submissionerror"
+	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"

@@ -7,7 +7,7 @@ import (
 
 	"github.com/lucasb-eyer/go-colorful"
 
-	"builder/shared/theme"
+	"core/shared/theme"
 )
 
 // foregroundTrueColorEscape builds the truecolor foreground escape exactly the

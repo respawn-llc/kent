@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/metadata"
-	"builder/server/metadata/sqlitegen"
-	"builder/server/session"
-	"builder/server/workflow"
-	"builder/server/workflowjson"
-	"builder/shared/config"
+	"core/server/metadata"
+	"core/server/metadata/sqlitegen"
+	"core/server/session"
+	"core/server/workflow"
+	"core/server/workflowjson"
+	"core/shared/config"
 )
 
 func TestWorkflowCreateUpdateReadAndGraphPersistence(t *testing.T) {

@@ -15,14 +15,14 @@ import (
 	"testing"
 	"time"
 
-	"builder/prompts"
-	"builder/server/metadata"
-	"builder/server/session"
-	"builder/shared/client"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/sessionenv"
-	"builder/shared/toolspec"
+	"core/prompts"
+	"core/server/metadata"
+	"core/server/session"
+	"core/shared/client"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/sessionenv"
+	"core/shared/toolspec"
 )
 
 type recordingGoalRemote struct {

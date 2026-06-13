@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	shelltool "builder/server/tools/shell"
+	shelltool "core/server/tools/shell"
 )
 
 const fastBackgroundTestYield = 20 * time.Millisecond

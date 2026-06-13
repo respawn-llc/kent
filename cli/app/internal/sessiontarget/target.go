@@ -3,8 +3,8 @@ package sessiontarget
 import (
 	"errors"
 
-	"builder/cli/app/internal/targetstartup"
-	"builder/shared/config"
+	"core/cli/app/internal/targetstartup"
+	"core/shared/config"
 )
 
 var (

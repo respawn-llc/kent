@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 
-	"builder/server/auth"
-	"builder/server/authflow"
-	"builder/server/authpolicy"
-	serverbootstrap "builder/server/bootstrap"
-	"builder/server/core"
-	"builder/server/runtime"
-	"builder/shared/config"
+	"core/server/auth"
+	"core/server/authflow"
+	"core/server/authpolicy"
+	serverbootstrap "core/server/bootstrap"
+	"core/server/core"
+	"core/server/runtime"
+	"core/shared/config"
 )
 
 type Request = serverbootstrap.Request

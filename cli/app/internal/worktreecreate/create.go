@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 )
 
 func Request(branchTarget string, baseRef string, kind serverapi.WorktreeCreateTargetResolutionKind) (serverapi.WorktreeCreateRequest, error) {

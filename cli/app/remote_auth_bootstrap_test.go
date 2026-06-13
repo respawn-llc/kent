@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"builder/cli/app/internal/oauthadapter"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/cli/app/internal/oauthadapter"
+	"core/shared/config"
+	"core/shared/serverapi"
 )
 
 type stubAuthBootstrapClient struct {

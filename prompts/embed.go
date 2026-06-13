@@ -7,7 +7,7 @@ import (
 	"strings"
 	"text/template"
 
-	"builder/cli/selfcmd"
+	"core/cli/selfcmd"
 )
 
 type SystemPromptTemplateArgs struct {

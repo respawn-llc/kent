@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/shared/textutil"
-	patchformat "builder/shared/transcript/patchformat"
+	"core/shared/textutil"
+	patchformat "core/shared/transcript/patchformat"
 )
 
 func splitLines(s string) []string {

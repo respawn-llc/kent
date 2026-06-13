@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 )
 
 func (*projectViewRemoteStub) GetProjectEdit(context.Context, serverapi.ProjectEditGetRequest) (serverapi.ProjectEditGetResponse, error) {

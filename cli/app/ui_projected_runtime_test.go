@@ -1,10 +1,10 @@
 package app
 
 import (
-	"builder/cli/tui"
-	"builder/server/llm"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	"core/cli/tui"
+	"core/server/llm"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 	"context"
 	"errors"
 	"strings"

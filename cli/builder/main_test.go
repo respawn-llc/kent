@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"builder/cli/app"
-	serverstartup "builder/server/startup"
-	"builder/shared/buildinfo"
-	"builder/shared/config"
-	"builder/shared/sessionenv"
+	"core/cli/app"
+	serverstartup "core/server/startup"
+	"core/shared/buildinfo"
+	"core/shared/config"
+	"core/shared/sessionenv"
 )
 
 type stubServeServer struct {

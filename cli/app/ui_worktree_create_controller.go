@@ -4,9 +4,9 @@ import (
 	"strings"
 	"time"
 
-	"builder/cli/app/internal/worktreecreateform"
-	"builder/cli/app/internal/worktreecreateresolve"
-	"builder/shared/serverapi"
+	"core/cli/app/internal/worktreecreateform"
+	"core/cli/app/internal/worktreecreateresolve"
+	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/cli/app/internal/onboardingimportchoice"
-	"builder/server/llm"
-	"builder/shared/config"
-	"builder/shared/theme"
-	"builder/shared/toolspec"
+	"core/cli/app/internal/onboardingimportchoice"
+	"core/server/llm"
+	"core/shared/config"
+	"core/shared/theme"
+	"core/shared/toolspec"
 )
 
 type onboardingScreenKind string

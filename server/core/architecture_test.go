@@ -64,7 +64,7 @@ func TestTransportPackageDoesNotImportCore(t *testing.T) {
 		}
 		file := parseGoFile(t, path)
 		for _, importSpec := range file.Imports {
-			if importSpec.Path.Value == `"builder/server/core"` {
+			if importSpec.Path.Value == `"core/server/core"` {
 				t.Fatalf("%s imports builder/server/core; transport must depend on narrow gateway dependencies", path)
 			}
 		}

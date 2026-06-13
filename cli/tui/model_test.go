@@ -1,9 +1,9 @@
 package tui
 
 import (
-	"builder/shared/clientui"
-	"builder/shared/transcript"
-	patchformat "builder/shared/transcript/patchformat"
+	"core/shared/clientui"
+	"core/shared/transcript"
+	patchformat "core/shared/transcript/patchformat"
 	"fmt"
 	"strings"
 	"testing"

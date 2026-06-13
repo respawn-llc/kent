@@ -3,7 +3,7 @@ package app
 import (
 	"errors"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 type ongoingCommittedRange struct {

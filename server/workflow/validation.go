@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/shared/workflowkey"
+	"core/shared/workflowkey"
 )
 
 func ValidateDefinition(def Definition, opts ValidationOptions) ValidationResult {

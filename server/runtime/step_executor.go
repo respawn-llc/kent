@@ -4,11 +4,11 @@ import (
 	"context"
 	"strings"
 
-	"builder/server/llm"
-	"builder/server/tools"
-	"builder/server/workflowruntime"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
+	"core/server/llm"
+	"core/server/tools"
+	"core/server/workflowruntime"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 type defaultStepExecutor struct {

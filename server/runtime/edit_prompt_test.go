@@ -3,7 +3,7 @@ package runtime
 import (
 	"testing"
 
-	"builder/shared/toolspec"
+	"core/shared/toolspec"
 )
 
 func TestEditingToolNameMatchesActiveEditTool(t *testing.T) {

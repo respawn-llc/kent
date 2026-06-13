@@ -1,6 +1,6 @@
 package llm
 
-import "builder/shared/llmerrors"
+import "core/shared/llmerrors"
 
 type APIStatusError = llmerrors.APIStatusError
 type UnifiedErrorCode = llmerrors.UnifiedErrorCode

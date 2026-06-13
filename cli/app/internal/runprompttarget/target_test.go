@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"builder/shared/client"
-	"builder/shared/config"
+	"core/shared/client"
+	"core/shared/config"
 )
 
 type testRunPromptClient struct {

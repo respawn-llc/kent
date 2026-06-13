@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 )
 
 func TestActionsExposeBranchDeletionWhenBranchExists(t *testing.T) {

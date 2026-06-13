@@ -10,11 +10,11 @@ import (
 	"strings"
 	"sync"
 
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/shared/cachewarn"
-	"builder/shared/config"
-	"builder/shared/transcript"
+	"core/server/llm"
+	"core/server/session"
+	"core/shared/cachewarn"
+	"core/shared/config"
+	"core/shared/transcript"
 )
 
 const (

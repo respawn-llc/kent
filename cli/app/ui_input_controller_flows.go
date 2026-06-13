@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"builder/cli/tui"
+	"core/cli/tui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/server/llm"
-	"builder/shared/transcript"
+	"core/server/llm"
+	"core/shared/transcript"
 )
 
 func visibleUserTranscriptEntry(msg llm.Message) (ChatEntry, bool) {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/shared/config"
+	"core/shared/config"
 )
 
 func TestExecutablePathSkipsTestBinary(t *testing.T) {

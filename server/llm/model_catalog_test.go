@@ -3,7 +3,7 @@ package llm
 import (
 	"testing"
 
-	"builder/server/session"
+	"core/server/session"
 )
 
 func TestLookupModelMetadata(t *testing.T) {

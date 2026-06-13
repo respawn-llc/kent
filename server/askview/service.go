@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/server/registry"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
-	"builder/shared/servicecontract"
+	"core/server/registry"
+	"core/shared/clientui"
+	"core/shared/serverapi"
+	"core/shared/servicecontract"
 )
 
 type PendingPromptSource interface {

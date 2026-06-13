@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/server/runtime"
-	"builder/server/runtimeview"
-	"builder/server/session"
-	"builder/shared/clientui"
-	"builder/shared/config"
+	"core/server/runtime"
+	"core/server/runtimeview"
+	"core/server/session"
+	"core/shared/clientui"
+	"core/shared/config"
 )
 
 type SessionSnapshotSource interface {

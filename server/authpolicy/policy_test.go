@@ -3,7 +3,7 @@ package authpolicy
 import (
 	"testing"
 
-	"builder/shared/config"
+	"core/shared/config"
 )
 
 func TestRequiresStartupAuth(t *testing.T) {

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"builder/server/auth"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/server/auth"
+	"core/shared/config"
+	"core/shared/serverapi"
 )
 
 func TestGetServerReadinessIncludesWorkflowAssigneeRoles(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 func TestDetailTranscriptWindowMergeExpandsOverlappingPages(t *testing.T) {

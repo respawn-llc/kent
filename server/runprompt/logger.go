@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"builder/server/runtime"
-	"builder/shared/clientui"
-	"builder/shared/transcriptdiag"
+	"core/server/runtime"
+	"core/shared/clientui"
+	"core/shared/transcriptdiag"
 )
 
 const RunLogFileName = "steps.log"

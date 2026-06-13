@@ -3,7 +3,7 @@ package authinteraction
 import (
 	"testing"
 
-	"builder/server/auth"
+	"core/server/auth"
 )
 
 func TestNeedsEnvConflictResolution(t *testing.T) {

@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/cli/app/internal/onboardingimportskills"
-	"builder/prompts"
-	"builder/shared/brand"
+	"core/cli/app/internal/onboardingimportskills"
+	"core/prompts"
+	"core/shared/brand"
 
 	"gopkg.in/yaml.v3"
 )

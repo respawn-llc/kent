@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/shared/rpccontract"
+	"core/shared/rpccontract"
 )
 
 type remoteRouteCall struct {

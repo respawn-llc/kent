@@ -3,8 +3,8 @@ package client
 import (
 	"context"
 
-	"builder/shared/serverapi"
-	"builder/shared/servicecontract"
+	"core/shared/serverapi"
+	"core/shared/servicecontract"
 )
 
 type PromptActivityClient = servicecontract.PromptActivityService

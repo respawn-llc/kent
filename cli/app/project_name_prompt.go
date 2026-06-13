@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"builder/cli/tui"
-	tuiinput "builder/cli/tui/input"
-	sharedtheme "builder/shared/theme"
+	"core/cli/tui"
+	tuiinput "core/cli/tui/input"
+	sharedtheme "core/shared/theme"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"

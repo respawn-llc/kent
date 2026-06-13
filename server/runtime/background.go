@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync"
 
-	"builder/server/llm"
-	"builder/server/tools"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/server/tools"
+	"core/shared/toolspec"
 )
 
 type defaultBackgroundNoticeScheduler struct {

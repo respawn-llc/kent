@@ -1,9 +1,9 @@
 package tui
 
 import (
-	"builder/shared/theme"
-	"builder/shared/transcript"
-	"builder/shared/uiglyphs"
+	"core/shared/theme"
+	"core/shared/transcript"
+	"core/shared/uiglyphs"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"

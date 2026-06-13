@@ -1,10 +1,10 @@
 package llm
 
 import (
-	"builder/server/session"
-	"builder/shared/cachewarn"
-	"builder/shared/clientui"
-	"builder/shared/modelcontract"
+	"core/server/session"
+	"core/shared/cachewarn"
+	"core/shared/clientui"
+	"core/shared/modelcontract"
 	"context"
 	"encoding/json"
 	"errors"

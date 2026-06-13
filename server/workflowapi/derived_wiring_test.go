@@ -3,7 +3,7 @@ package workflowapi
 import (
 	"testing"
 
-	"builder/server/workflow"
+	"core/server/workflow"
 )
 
 func TestValidationErrorsIncludesStructuredDetails(t *testing.T) {

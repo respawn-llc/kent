@@ -7,10 +7,10 @@ import (
 	"os"
 	"strings"
 
-	"builder/cli/app/internal/runtimeattach"
-	"builder/shared/client"
-	"builder/shared/serverapi"
-	"builder/shared/transcriptdiag"
+	"core/cli/app/internal/runtimeattach"
+	"core/shared/client"
+	"core/shared/serverapi"
+	"core/shared/transcriptdiag"
 )
 
 const runtimeReleaseTimeout = runtimeattach.ReleaseTimeout

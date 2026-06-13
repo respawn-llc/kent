@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/shared/serverapi"
+	"core/server/llm"
+	"core/server/session"
+	"core/shared/serverapi"
 )
 
 func TestInitialInputPrefersPersistedDraft(t *testing.T) {

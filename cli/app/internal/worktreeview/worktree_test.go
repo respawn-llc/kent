@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 )
 
 func TestResolveTokenUsesMatcherPrecedence(t *testing.T) {

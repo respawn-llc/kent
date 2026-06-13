@@ -11,15 +11,15 @@ import (
 	"strings"
 	"time"
 
-	"builder/server/auth"
-	"builder/server/llm"
-	"builder/server/metadata"
-	"builder/server/session"
-	"builder/server/sessionpath"
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/toolspec"
+	"core/server/auth"
+	"core/server/llm"
+	"core/server/metadata"
+	"core/server/session"
+	"core/server/sessionpath"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/toolspec"
 )
 
 type Mode string

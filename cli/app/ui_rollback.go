@@ -1,9 +1,9 @@
 package app
 
 import (
-	"builder/cli/tui"
-	"builder/shared/clientui"
-	"builder/shared/rollbacktarget"
+	"core/cli/tui"
+	"core/shared/clientui"
+	"core/shared/rollbacktarget"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

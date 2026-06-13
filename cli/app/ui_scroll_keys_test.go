@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"builder/cli/tui"
-	"builder/server/runtime"
-	"builder/shared/clientui"
-	"builder/shared/transcript"
-	"builder/shared/uiglyphs"
+	"core/cli/tui"
+	"core/server/runtime"
+	"core/shared/clientui"
+	"core/shared/transcript"
+	"core/shared/uiglyphs"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

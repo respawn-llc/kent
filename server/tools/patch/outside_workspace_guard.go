@@ -3,7 +3,7 @@ package patch
 import (
 	"os"
 
-	"builder/server/tools/fsguard"
+	"core/server/tools/fsguard"
 )
 
 type OutsideWorkspaceErrorLabels = fsguard.ErrorLabels

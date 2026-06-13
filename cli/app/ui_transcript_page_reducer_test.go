@@ -3,8 +3,8 @@ package app
 import (
 	"testing"
 
-	"builder/cli/tui"
-	"builder/shared/clientui"
+	"core/cli/tui"
+	"core/shared/clientui"
 )
 
 func TestReduceRuntimeTranscriptPageRejectsOlderTailRevision(t *testing.T) {

@@ -1,14 +1,14 @@
 package runtime
 
 import (
-	"builder/prompts"
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/server/tools"
-	"builder/shared/brand"
-	"builder/shared/config"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
+	"core/prompts"
+	"core/server/llm"
+	"core/server/session"
+	"core/server/tools"
+	"core/shared/brand"
+	"core/shared/config"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 	"context"
 	"encoding/json"
 	"errors"

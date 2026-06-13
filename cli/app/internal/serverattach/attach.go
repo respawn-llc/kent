@@ -5,10 +5,10 @@ import (
 	"errors"
 	"time"
 
-	"builder/cli/app/internal/remoteattach"
-	"builder/shared/client"
-	"builder/shared/config"
-	"builder/shared/protocol"
+	"core/cli/app/internal/remoteattach"
+	"core/shared/client"
+	"core/shared/config"
+	"core/shared/protocol"
 )
 
 type Mode string

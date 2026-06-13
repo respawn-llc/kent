@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"builder/cli/app/internal/statuscollect"
+	"core/cli/app/internal/statuscollect"
 
 	"github.com/mattn/go-runewidth"
 )

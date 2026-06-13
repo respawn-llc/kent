@@ -1,7 +1,7 @@
 package app
 
 import (
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 	"context"
 	"errors"
 	"fmt"

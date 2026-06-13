@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	"builder/server/primaryrun"
+	"core/server/primaryrun"
 )
 
 type primaryRunLeaseStore struct {

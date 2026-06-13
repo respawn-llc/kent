@@ -1,14 +1,14 @@
 package app
 
 import (
-	"builder/cli/tui"
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/server/tools"
-	"builder/shared/clientui"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
-	"builder/shared/transcript/toolcodec"
+	"core/cli/tui"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/server/tools"
+	"core/shared/clientui"
+	"core/shared/toolspec"
+	"core/shared/transcript"
+	"core/shared/transcript/toolcodec"
 	"fmt"
 	"strings"
 	"testing"

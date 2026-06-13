@@ -3,7 +3,7 @@ package llm
 import (
 	"testing"
 
-	"builder/shared/textutil"
+	"core/shared/textutil"
 )
 
 func TestNormalizeReasoningSummaryTextPreservesBoldMarkers(t *testing.T) {

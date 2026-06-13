@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/cli/selfcmd"
+	"core/cli/selfcmd"
 )
 
 func TestRenderSystemPromptTemplateUsesTypedFields(t *testing.T) {

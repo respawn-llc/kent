@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/shared/compaction"
-	"builder/shared/theme"
-	"builder/shared/toolspec"
+	"core/shared/compaction"
+	"core/shared/theme"
+	"core/shared/toolspec"
 )
 
 const (

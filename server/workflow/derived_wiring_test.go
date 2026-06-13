@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"builder/server/workflow"
+	"core/server/workflow"
 )
 
 func TestDeriveWiringPropagatesTransitionParametersAcrossNormalEdge(t *testing.T) {

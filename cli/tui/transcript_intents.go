@@ -3,8 +3,8 @@ package tui
 import (
 	"strings"
 
-	"builder/shared/clientui"
-	"builder/shared/transcript"
+	"core/shared/clientui"
+	"core/shared/transcript"
 )
 
 type TranscriptRole string

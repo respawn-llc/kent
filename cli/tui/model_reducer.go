@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"builder/shared/transcript"
+	"core/shared/transcript"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"

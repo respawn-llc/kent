@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"builder/cli/app/internal/statuscollect"
+	"core/cli/app/internal/statuscollect"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

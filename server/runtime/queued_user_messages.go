@@ -1,7 +1,7 @@
 package runtime
 
 import (
-	"builder/server/llm"
+	"core/server/llm"
 	"strings"
 	"sync"
 

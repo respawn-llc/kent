@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"builder/cli/app/internal/oauthadapter"
+	"core/cli/app/internal/oauthadapter"
 )
 
 type fakeListener struct {

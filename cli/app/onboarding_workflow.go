@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/server/llm"
-	"builder/shared/config"
-	"builder/shared/theme"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/shared/config"
+	"core/shared/theme"
+	"core/shared/toolspec"
 )
 
 type onboardingStepDefinition struct {

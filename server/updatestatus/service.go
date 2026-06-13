@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 const defaultLatestReleaseURL = "https://api.github.com/repos/respawn-llc/builder/releases/latest"

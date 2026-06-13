@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"builder/server/auth"
+	"core/server/auth"
 )
 
 func TestSlashCommandName(t *testing.T) {

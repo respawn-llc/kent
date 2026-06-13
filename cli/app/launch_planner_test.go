@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/auth"
-	"builder/server/session"
-	"builder/shared/client"
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/toolspec"
+	"core/server/auth"
+	"core/server/session"
+	"core/shared/client"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/toolspec"
 )
 
 type plannerOwnershipServer struct {

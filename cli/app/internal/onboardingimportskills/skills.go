@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"builder/cli/app/internal/onboardingimportchoice"
+	"core/cli/app/internal/onboardingimportchoice"
 )
 
 type Item struct {

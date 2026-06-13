@@ -13,11 +13,11 @@ import (
 	"time"
 	"unicode"
 
-	"builder/server/metadata/sqlitegen"
-	"builder/server/session"
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/server/metadata/sqlitegen"
+	"core/server/session"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/serverapi"
 
 	"github.com/google/uuid"
 	sqlitedriver "modernc.org/sqlite"

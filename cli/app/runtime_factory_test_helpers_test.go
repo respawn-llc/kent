@@ -3,15 +3,15 @@ package app
 import (
 	"time"
 
-	"builder/server/runtime"
-	"builder/server/runtimewire"
-	"builder/server/tools"
-	askquestion "builder/server/tools/askquestion"
-	patchtool "builder/server/tools/patch"
-	readimagetool "builder/server/tools/readimage"
-	shelltool "builder/server/tools/shell"
-	triggerhandofftool "builder/server/tools/triggerhandoff"
-	"builder/shared/toolspec"
+	"core/server/runtime"
+	"core/server/runtimewire"
+	"core/server/tools"
+	askquestion "core/server/tools/askquestion"
+	patchtool "core/server/tools/patch"
+	readimagetool "core/server/tools/readimage"
+	shelltool "core/server/tools/shell"
+	triggerhandofftool "core/server/tools/triggerhandoff"
+	"core/shared/toolspec"
 )
 
 type backgroundEventRouter struct {

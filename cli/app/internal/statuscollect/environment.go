@@ -4,9 +4,9 @@ import (
 	"os"
 	"strings"
 
-	appstatus "builder/cli/app/internal/status"
-	"builder/server/runtime"
-	"builder/shared/tokenutil"
+	appstatus "core/cli/app/internal/status"
+	"core/server/runtime"
+	"core/shared/tokenutil"
 )
 
 func SkillInspectionsFromRuntime(skills []runtime.SkillInspection) []appstatus.SkillInspection {

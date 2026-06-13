@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"builder/server/llm"
-	"builder/server/session"
+	"core/server/llm"
+	"core/server/session"
 
 	"github.com/google/uuid"
 )

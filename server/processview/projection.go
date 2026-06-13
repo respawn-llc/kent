@@ -1,8 +1,8 @@
 package processview
 
 import (
-	shelltool "builder/server/tools/shell"
-	"builder/shared/clientui"
+	shelltool "core/server/tools/shell"
+	"core/shared/clientui"
 )
 
 func ProcessFromSnapshot(snapshot shelltool.Snapshot) clientui.BackgroundProcess {

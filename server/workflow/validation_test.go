@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"builder/server/workflow"
+	"core/server/workflow"
 )
 
 func TestValidateDefaultWorkflowPasses(t *testing.T) {

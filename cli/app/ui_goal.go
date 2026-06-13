@@ -3,10 +3,10 @@ package app
 import (
 	"strings"
 
-	"builder/cli/app/commands"
-	"builder/cli/app/internal/submissionerror"
-	"builder/shared/clientui"
-	sharedtheme "builder/shared/theme"
+	"core/cli/app/commands"
+	"core/cli/app/internal/submissionerror"
+	"core/shared/clientui"
+	sharedtheme "core/shared/theme"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"

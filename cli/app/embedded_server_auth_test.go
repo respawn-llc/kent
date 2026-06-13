@@ -1,6 +1,6 @@
 package app
 
-import "builder/server/auth"
+import "core/server/auth"
 
 func (s *embeddedAppServer) AuthManager() *auth.Manager {
 	if s == nil || s.inner == nil {

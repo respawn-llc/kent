@@ -13,17 +13,17 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/auth"
-	"builder/server/launch"
-	"builder/server/primaryrun"
-	"builder/server/registry"
-	"builder/server/requestmemo"
-	"builder/server/session"
-	"builder/server/sessionlaunch"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/testopenai"
-	"builder/shared/toolspec"
+	"core/server/auth"
+	"core/server/launch"
+	"core/server/primaryrun"
+	"core/server/registry"
+	"core/server/requestmemo"
+	"core/server/session"
+	"core/server/sessionlaunch"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/testopenai"
+	"core/shared/toolspec"
 )
 
 type stubRunPromptService struct {

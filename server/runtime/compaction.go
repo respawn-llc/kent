@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/prompts"
-	"builder/server/llm"
-	"builder/shared/transcript"
+	"core/prompts"
+	"core/server/llm"
+	"core/shared/transcript"
 )
 
 type compactionMode string

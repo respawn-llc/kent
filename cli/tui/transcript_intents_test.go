@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 func TestTranscriptRoleWireRoundTrip(t *testing.T) {

@@ -1,15 +1,15 @@
 package runtime
 
 import (
-	"builder/shared/cachewarn"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
+	"core/shared/cachewarn"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 	"context"
 	"encoding/json"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/tools"
+	"core/server/llm"
+	"core/server/tools"
 )
 
 func TestCommittedTranscriptChangedMarksOnlyDurableTranscriptMutations(t *testing.T) {

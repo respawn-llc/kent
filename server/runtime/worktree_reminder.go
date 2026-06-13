@@ -3,8 +3,8 @@ package runtime
 import (
 	"strings"
 
-	"builder/server/llm"
-	"builder/server/session"
+	"core/server/llm"
+	"core/server/session"
 )
 
 func (e *Engine) materializePendingWorktreeReminder(stepID string) error {

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"builder/server/tools"
-	patchformat "builder/shared/transcript/patchformat"
+	"core/server/tools"
+	patchformat "core/shared/transcript/patchformat"
 )
 
 type input struct {

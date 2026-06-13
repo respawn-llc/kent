@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"builder/shared/config"
-	"builder/shared/protocol"
-	"builder/shared/sessionenv"
+	"core/shared/config"
+	"core/shared/protocol"
+	"core/shared/sessionenv"
 )
 
 type serviceAction string

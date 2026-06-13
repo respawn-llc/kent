@@ -1,10 +1,10 @@
 package runtime
 
 import (
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/server/tools"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/server/session"
+	"core/server/tools"
+	"core/shared/toolspec"
 	"context"
 	"encoding/json"
 	"path/filepath"

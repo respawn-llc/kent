@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"builder/cli/tui"
-	"builder/shared/clientui"
+	"core/cli/tui"
+	"core/shared/clientui"
 )
 
 type submitDoneMsg struct {

@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	tuiinput "builder/cli/tui/input"
-	"builder/server/llm"
-	"builder/shared/config"
-	sharedtheme "builder/shared/theme"
-	"builder/shared/toolspec"
+	tuiinput "core/cli/tui/input"
+	"core/server/llm"
+	"core/shared/config"
+	sharedtheme "core/shared/theme"
+	"core/shared/toolspec"
 
 	"github.com/charmbracelet/lipgloss"
 	ansi "github.com/charmbracelet/x/ansi"

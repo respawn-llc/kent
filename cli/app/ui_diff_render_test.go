@@ -1,13 +1,13 @@
 package app
 
 import (
-	"builder/cli/tui"
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/server/tools"
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
-	patchformat "builder/shared/transcript/patchformat"
+	"core/cli/tui"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/server/tools"
+	"core/shared/toolspec"
+	"core/shared/transcript"
+	patchformat "core/shared/transcript/patchformat"
 	"strings"
 	"testing"
 

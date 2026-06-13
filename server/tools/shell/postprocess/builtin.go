@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	"builder/shared/toolspec"
+	"core/shared/toolspec"
 
 	xansi "github.com/charmbracelet/x/ansi"
 )

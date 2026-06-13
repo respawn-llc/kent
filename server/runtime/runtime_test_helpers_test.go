@@ -4,11 +4,11 @@ import (
 	"reflect"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/server/tools"
-	"builder/server/workflowruntime"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/server/session"
+	"core/server/tools"
+	"core/server/workflowruntime"
+	"core/shared/toolspec"
 )
 
 func mustCreateTestSession(t *testing.T, workspaceRoot ...string) *session.Store {

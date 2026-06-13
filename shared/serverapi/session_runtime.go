@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"builder/shared/config"
+	"core/shared/config"
 )
 
 type SessionRuntimeActivateRequest struct {

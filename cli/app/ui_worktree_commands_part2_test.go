@@ -1,8 +1,8 @@
 package app
 
 import (
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
+	"core/shared/clientui"
+	"core/shared/serverapi"
 	"strings"
 	"testing"
 

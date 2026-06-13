@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"builder/cli/app/internal/authoauth"
-	"builder/cli/app/internal/oauthadapter"
-	sharedtheme "builder/shared/theme"
+	"core/cli/app/internal/authoauth"
+	"core/cli/app/internal/oauthadapter"
+	sharedtheme "core/shared/theme"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

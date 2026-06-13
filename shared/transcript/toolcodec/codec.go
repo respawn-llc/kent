@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"builder/shared/transcript"
+	"core/shared/transcript"
 )
 
 func EncodeToolCallMeta(meta transcript.ToolCallMeta) json.RawMessage {

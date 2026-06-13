@@ -3,8 +3,8 @@ package llm
 import (
 	"strings"
 
-	"builder/shared/config"
-	"builder/shared/modelcontract"
+	"core/shared/config"
+	"core/shared/modelcontract"
 )
 
 type ModelMetadata = modelcontract.ModelMetadata

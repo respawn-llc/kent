@@ -3,7 +3,7 @@ package runtimestate
 import (
 	"strings"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 type RuntimeRunState struct {

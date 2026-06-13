@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"builder/shared/protocol"
+	"core/shared/protocol"
 )
 
 func TestWebSocketTransportRoundTrip(t *testing.T) {

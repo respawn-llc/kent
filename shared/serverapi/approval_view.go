@@ -1,7 +1,7 @@
 package serverapi
 
 import (
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 type ApprovalListPendingBySessionRequest struct {

@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"builder/shared/brand"
-	"builder/shared/protocol"
-	"builder/shared/toolspec"
+	"core/shared/brand"
+	"core/shared/protocol"
+	"core/shared/toolspec"
 )
 
 const (

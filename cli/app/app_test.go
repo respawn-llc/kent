@@ -3,10 +3,10 @@ package app
 import (
 	"testing"
 
-	"builder/server/launch"
-	"builder/server/session"
-	"builder/shared/config"
-	"builder/shared/toolspec"
+	"core/server/launch"
+	"core/server/session"
+	"core/shared/config"
+	"core/shared/toolspec"
 )
 
 func TestEffectiveSettingsKeepsBaseThinkingLevelEvenWhenSessionIsLocked(t *testing.T) {

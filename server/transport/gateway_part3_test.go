@@ -1,13 +1,13 @@
 package transport
 
 import (
-	serverbootstrap "builder/server/bootstrap"
-	"builder/server/core"
-	"builder/server/metadata"
-	"builder/server/session"
-	"builder/shared/config"
-	"builder/shared/protocol"
-	"builder/shared/serverapi"
+	serverbootstrap "core/server/bootstrap"
+	"core/server/core"
+	"core/server/metadata"
+	"core/server/session"
+	"core/shared/config"
+	"core/shared/protocol"
+	"core/shared/serverapi"
 	"encoding/json"
 	"golang.org/x/net/websocket"
 	"net/http/httptest"

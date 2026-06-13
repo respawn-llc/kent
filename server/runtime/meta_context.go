@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"builder/prompts"
-	"builder/server/llm"
-	"builder/server/session"
-	"builder/server/workflowruntime"
-	"builder/shared/config"
-	"builder/shared/toolspec"
+	"core/prompts"
+	"core/server/llm"
+	"core/server/session"
+	"core/server/workflowruntime"
+	"core/shared/config"
+	"core/shared/toolspec"
 )
 
 type metaContextKind uint8

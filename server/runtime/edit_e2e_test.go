@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/tools"
-	edittool "builder/server/tools/edit"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/server/tools"
+	edittool "core/server/tools/edit"
+	"core/shared/toolspec"
 )
 
 func TestEditAliasCompletionDiffAndReviewerEditsFlow(t *testing.T) {

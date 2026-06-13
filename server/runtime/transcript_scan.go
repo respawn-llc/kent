@@ -1,10 +1,10 @@
 package runtime
 
 import (
-	"builder/server/llm"
-	"builder/server/tools"
-	"builder/shared/rollbacktarget"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/server/tools"
+	"core/shared/rollbacktarget"
+	"core/shared/toolspec"
 	"encoding/json"
 	"strings"
 )

@@ -1,6 +1,6 @@
 package app
 
-import "builder/shared/clientui"
+import "core/shared/clientui"
 
 func (m *uiModel) runtimeSessionView() clientui.RuntimeSessionView {
 	m.checkTUIBlockingOperation("runtime session-view read", "SessionView/MainView")

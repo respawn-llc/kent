@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"builder/server/auth"
-	serverstartup "builder/server/startup"
-	"builder/shared/config"
+	"core/server/auth"
+	serverstartup "core/server/startup"
+	"core/shared/config"
 )
 
 func TestBuildStartupRequestMapsOptions(t *testing.T) {

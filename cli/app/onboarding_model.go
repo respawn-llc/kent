@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	tuiinput "builder/cli/tui/input"
-	"builder/shared/config"
-	"builder/shared/theme"
+	tuiinput "core/cli/tui/input"
+	"core/shared/config"
+	"core/shared/theme"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

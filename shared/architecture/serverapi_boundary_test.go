@@ -35,7 +35,7 @@ func TestSharedServerAPIContainsOnlyWireContracts(t *testing.T) {
 			case "log", "log/slog":
 				violations = append(violations, relPath+": shared wire contract must not import logging package "+importPath)
 			}
-			if strings.HasPrefix(importPath, "builder/server/") {
+			if strings.HasPrefix(importPath, "core/server/") {
 				violations = append(violations, relPath+": shared wire contract must not import server package "+importPath)
 			}
 		}
@@ -143,7 +143,7 @@ func TestServiceContractPackageContainsOnlyRouteInterfaces(t *testing.T) {
 		}
 		for _, spec := range file.Imports {
 			importPath := strings.Trim(spec.Path.Value, "\"")
-			if importPath != "context" && importPath != "builder/shared/serverapi" {
+			if importPath != "context" && importPath != "core/shared/serverapi" {
 				violations = append(violations, relPath+": service contract may only import context and serverapi, got "+importPath)
 			}
 		}

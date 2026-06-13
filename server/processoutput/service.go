@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	shelltool "builder/server/tools/shell"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
-	"builder/shared/servicecontract"
+	shelltool "core/server/tools/shell"
+	"core/shared/clientui"
+	"core/shared/serverapi"
+	"core/shared/servicecontract"
 )
 
 type Subscriber interface {

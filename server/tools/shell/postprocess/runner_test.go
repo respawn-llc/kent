@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"builder/shared/config"
-	"builder/shared/sessionenv"
-	"builder/shared/toolspec"
+	"core/shared/config"
+	"core/shared/sessionenv"
+	"core/shared/toolspec"
 )
 
 func TestRunnerBuiltinGoTestSuccessCollapsesToPass(t *testing.T) {

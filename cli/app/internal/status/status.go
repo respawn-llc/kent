@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"builder/shared/auth"
-	"builder/shared/client"
-	"builder/shared/clientui"
-	"builder/shared/config"
+	"core/shared/auth"
+	"core/shared/client"
+	"core/shared/clientui"
+	"core/shared/config"
 )
 
 const (

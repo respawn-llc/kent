@@ -3,7 +3,7 @@ package sessionenv
 import (
 	"strings"
 
-	"builder/shared/brand"
+	"core/shared/brand"
 )
 
 const BuilderSessionID = brand.SessionIDEnv

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
-	"builder/shared/transcriptdiag"
+	"core/shared/clientui"
+	"core/shared/serverapi"
+	"core/shared/transcriptdiag"
 )
 
 var sessionActivityResubscribeDelay = 250 * time.Millisecond

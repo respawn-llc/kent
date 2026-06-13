@@ -1,9 +1,9 @@
 package app
 
 import (
-	"builder/cli/tui"
-	shelltool "builder/server/tools/shell"
-	"builder/shared/clientui"
+	"core/cli/tui"
+	shelltool "core/server/tools/shell"
+	"core/shared/clientui"
 	"context"
 	"errors"
 	"fmt"

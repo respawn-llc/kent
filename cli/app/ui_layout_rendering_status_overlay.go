@@ -1,7 +1,7 @@
 package app
 
 import (
-	sharedtheme "builder/shared/theme"
+	sharedtheme "core/shared/theme"
 	"fmt"
 	"strings"
 	"time"

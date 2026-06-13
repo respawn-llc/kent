@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"builder/server/llm"
+	"core/server/llm"
 )
 
 func TestScriptedClientRecordsRequestsAndSteps(t *testing.T) {

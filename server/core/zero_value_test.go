@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"builder/server/runtime"
-	askquestion "builder/server/tools/askquestion"
+	"core/server/runtime"
+	askquestion "core/server/tools/askquestion"
 )
 
 func TestCoreZeroValueMethodsDoNotPanic(t *testing.T) {

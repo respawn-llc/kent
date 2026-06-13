@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"builder/server/llm"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/shared/toolspec"
 )
 
 const compactionOverflowCollapsedText = "<collapsed>"

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/tools/shell/postprocess"
-	"builder/shared/config"
+	"core/server/tools/shell/postprocess"
+	"core/shared/config"
 )
 
 func TestExecCommandSanitizesAnsiInDefaultProcessing(t *testing.T) {

@@ -4,9 +4,9 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/cli/app/internal/runtimestate"
-	"builder/cli/tui"
-	"builder/shared/clientui"
+	"core/cli/app/internal/runtimestate"
+	"core/cli/tui"
+	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

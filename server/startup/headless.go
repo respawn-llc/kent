@@ -4,10 +4,10 @@ import (
 	"context"
 	"os"
 
-	"builder/server/auth"
-	"builder/server/authflow"
-	"builder/server/onboarding"
-	"builder/shared/config"
+	"core/server/auth"
+	"core/server/authflow"
+	"core/server/onboarding"
+	"core/shared/config"
 )
 
 type headlessAuthHandler struct {

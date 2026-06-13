@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"builder/server/session"
+	"core/server/session"
 )
 
 type GlobalPersistenceSessionResolver struct {

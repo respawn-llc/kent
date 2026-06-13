@@ -10,9 +10,9 @@ import (
 	"strings"
 	"syscall"
 
-	"builder/cli/builder/internal/serverbridge"
-	"builder/server/serve"
-	serverstartup "builder/server/startup"
+	"core/cli/builder/internal/serverbridge"
+	"core/server/serve"
+	serverstartup "core/server/startup"
 )
 
 type serveCommandServer = serverbridge.ServeServer

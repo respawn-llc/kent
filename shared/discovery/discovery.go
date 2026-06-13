@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/shared/protocol"
+	"core/shared/protocol"
 )
 
 func PathForContainer(containerDir string) (string, error) {

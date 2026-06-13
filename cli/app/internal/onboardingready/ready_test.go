@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/auth"
-	"builder/shared/config"
+	"core/server/auth"
+	"core/shared/config"
 )
 
 func TestEnsureSkipsWhenSettingsFileExists(t *testing.T) {

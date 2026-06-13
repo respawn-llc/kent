@@ -1,8 +1,8 @@
 package app
 
 import (
-	"builder/shared/client"
-	"builder/shared/clientui"
+	"core/shared/client"
+	"core/shared/clientui"
 )
 
 type runtimeWiring struct {

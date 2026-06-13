@@ -4,11 +4,11 @@ import (
 	"context"
 	"strings"
 
-	"builder/server/auth"
-	"builder/server/authpolicy"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/servicecontract"
+	"core/server/auth"
+	"core/server/authpolicy"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/servicecontract"
 )
 
 type Service struct {

@@ -1,12 +1,12 @@
 package app
 
 import (
-	"builder/server/runtime"
-	"builder/server/runtimecontrol"
-	"builder/server/runtimeview"
-	"builder/server/sessionview"
-	"builder/shared/client"
-	"builder/shared/clientui"
+	"core/server/runtime"
+	"core/server/runtimecontrol"
+	"core/server/runtimeview"
+	"core/server/sessionview"
+	"core/shared/client"
+	"core/shared/clientui"
 )
 
 func closedProjectedRuntimeEvents() <-chan clientui.Event {

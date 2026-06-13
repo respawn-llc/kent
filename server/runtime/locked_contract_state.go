@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	"builder/server/session"
+	"core/server/session"
 )
 
 type lockedContractState struct {

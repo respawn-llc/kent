@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/workflow"
-	"builder/server/workflowstore"
-	"builder/shared/serverapi"
+	"core/server/workflow"
+	"core/server/workflowstore"
+	"core/shared/serverapi"
 )
 
 func TestEnsureTaskWorktreeCreatesShortIDBranchWithoutControllerLease(t *testing.T) {

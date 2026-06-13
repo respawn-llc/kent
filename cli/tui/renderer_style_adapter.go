@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	sharedtheme "builder/shared/theme"
+	sharedtheme "core/shared/theme"
 
 	"github.com/alecthomas/chroma/v2"
 	chromastyles "github.com/alecthomas/chroma/v2/styles"

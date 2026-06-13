@@ -1,9 +1,9 @@
 package runtime
 
 import (
-	"builder/server/llm"
-	"builder/shared/toolspec"
-	"builder/shared/transcript/toolcodec"
+	"core/server/llm"
+	"core/shared/toolspec"
+	"core/shared/transcript/toolcodec"
 	"testing"
 )
 

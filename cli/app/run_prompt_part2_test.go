@@ -1,13 +1,13 @@
 package app
 
 import (
-	"builder/server/llm"
-	"builder/server/metadata"
-	"builder/server/session"
-	"builder/shared/brand"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/testopenai"
+	"core/server/llm"
+	"core/server/metadata"
+	"core/server/session"
+	"core/shared/brand"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/testopenai"
 	"context"
 	"encoding/json"
 	"net/http"

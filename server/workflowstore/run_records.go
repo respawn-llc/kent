@@ -3,8 +3,8 @@ package workflowstore
 import (
 	"strings"
 
-	"builder/server/metadata/sqlitegen"
-	"builder/server/workflow"
+	"core/server/metadata/sqlitegen"
+	"core/server/workflow"
 )
 
 func runRecordFromTaskRun(row sqlitegen.TaskRunRecord) RunRecord {

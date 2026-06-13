@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"builder/server/auth"
-	"builder/server/metadata"
-	"builder/shared/client"
-	"builder/shared/protocol"
-	"builder/shared/rpccontract"
-	"builder/shared/rpcwire"
-	"builder/shared/serverapi"
+	"core/server/auth"
+	"core/server/metadata"
+	"core/shared/client"
+	"core/shared/protocol"
+	"core/shared/rpccontract"
+	"core/shared/rpcwire"
+	"core/shared/serverapi"
 
 	"github.com/google/uuid"
 )

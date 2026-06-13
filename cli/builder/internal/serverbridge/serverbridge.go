@@ -8,10 +8,10 @@ import (
 	"context"
 	"errors"
 
-	"builder/server/sessionlifecycle"
-	"builder/shared/client"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/server/sessionlifecycle"
+	"core/shared/client"
+	"core/shared/config"
+	"core/shared/serverapi"
 )
 
 type ServeServer interface {

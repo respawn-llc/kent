@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/metadata"
-	"builder/server/session"
-	"builder/server/workflowstore"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/server/metadata"
+	"core/server/session"
+	"core/server/workflowstore"
+	"core/shared/config"
+	"core/shared/serverapi"
 )
 
 //go:embed testdata/home_sort_task_run.sql

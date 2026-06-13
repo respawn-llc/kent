@@ -1,14 +1,14 @@
 package app
 
 import (
-	"builder/server/serve"
-	serverstartup "builder/server/startup"
-	askquestion "builder/server/tools/askquestion"
-	shelltool "builder/server/tools/shell"
-	"builder/shared/client"
-	"builder/shared/clientui"
-	"builder/shared/protocol"
-	"builder/shared/serverapi"
+	"core/server/serve"
+	serverstartup "core/server/startup"
+	askquestion "core/server/tools/askquestion"
+	shelltool "core/server/tools/shell"
+	"core/shared/client"
+	"core/shared/clientui"
+	"core/shared/protocol"
+	"core/shared/serverapi"
 	"context"
 	"io"
 	"net"

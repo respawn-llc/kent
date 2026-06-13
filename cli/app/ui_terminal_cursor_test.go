@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"builder/cli/tui"
-	"builder/shared/clientui"
-	"builder/shared/config"
+	"core/cli/tui"
+	"core/shared/clientui"
+	"core/shared/config"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

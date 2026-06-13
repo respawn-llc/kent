@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"builder/cli/app/internal/targetresolve"
+	"core/cli/app/internal/targetresolve"
 )
 
 var ErrDaemonWrapperRequired = errors.New("daemon target wrapper is required")

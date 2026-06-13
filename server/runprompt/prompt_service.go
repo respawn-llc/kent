@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 )
 
 type PromptAssistantMessage struct {

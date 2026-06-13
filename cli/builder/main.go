@@ -13,11 +13,11 @@ import (
 	"syscall"
 	"time"
 
-	"builder/cli/app"
-	"builder/cli/selfcmd"
-	"builder/shared/buildinfo"
-	"builder/shared/config"
-	"builder/shared/sessionenv"
+	"core/cli/app"
+	"core/cli/selfcmd"
+	"core/shared/buildinfo"
+	"core/shared/config"
+	"core/shared/sessionenv"
 	"golang.org/x/term"
 )
 

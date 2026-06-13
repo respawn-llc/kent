@@ -3,8 +3,8 @@ package llm
 import (
 	"strings"
 
-	"builder/server/auth"
-	"builder/shared/config"
+	"core/server/auth"
+	"core/shared/config"
 )
 
 func ProviderCapabilitiesForSettings(authState auth.State, settings config.Settings) (ProviderCapabilities, error) {

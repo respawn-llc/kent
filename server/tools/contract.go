@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"builder/shared/toolspec"
-	"builder/shared/transcript"
+	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 const (

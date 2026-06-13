@@ -10,16 +10,16 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/server/runtimeview"
-	"builder/server/session"
-	"builder/server/tools"
-	"builder/shared/cachewarn"
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/toolspec"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/server/runtimeview"
+	"core/server/session"
+	"core/server/tools"
+	"core/shared/cachewarn"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/toolspec"
 )
 
 type serviceFakeLLM struct {

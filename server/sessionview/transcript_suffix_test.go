@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
-	"builder/shared/serverapi"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/server/session"
+	"core/server/tools"
+	"core/shared/serverapi"
 )
 
 func TestGetSessionCommittedTranscriptSuffixReturnsRuntimeViewSuffix(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/cli/tui"
+	"core/cli/tui"
 
 	xansi "github.com/charmbracelet/x/ansi"
 )

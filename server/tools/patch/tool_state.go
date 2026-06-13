@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/server/tools/fsguard"
-	patchformat "builder/shared/transcript/patchformat"
+	"core/server/tools/fsguard"
+	patchformat "core/shared/transcript/patchformat"
 )
 
 type applyState struct {

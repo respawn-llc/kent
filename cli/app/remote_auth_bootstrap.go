@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/cli/app/internal/oauthadapter"
-	serverauth "builder/server/auth"
-	"builder/shared/client"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/cli/app/internal/oauthadapter"
+	serverauth "core/server/auth"
+	"core/shared/client"
+	"core/shared/config"
+	"core/shared/serverapi"
 
 	"github.com/charmbracelet/lipgloss"
 )

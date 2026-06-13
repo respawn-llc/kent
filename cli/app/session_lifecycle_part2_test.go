@@ -1,12 +1,12 @@
 package app
 
 import (
-	"builder/cli/tui"
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/server/session"
-	"builder/shared/config"
-	"builder/shared/rollbacktarget"
+	"core/cli/tui"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/server/session"
+	"core/shared/config"
+	"core/shared/rollbacktarget"
 	"context"
 	"path/filepath"
 	"strings"

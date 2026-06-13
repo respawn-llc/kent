@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/metadata"
-	"builder/server/session"
-	"builder/server/workflowstore"
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/server/metadata"
+	"core/server/session"
+	"core/server/workflowstore"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/serverapi"
 )
 
 func TestServiceListsSingleProjectAndSessions(t *testing.T) {

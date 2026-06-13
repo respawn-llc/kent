@@ -3,7 +3,7 @@ package worktreeselection
 import (
 	"testing"
 
-	"builder/shared/serverapi"
+	"core/shared/serverapi"
 )
 
 func TestClampUsesCreateRowPlusEntries(t *testing.T) {

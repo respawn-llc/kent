@@ -3,7 +3,7 @@ package llm
 import (
 	"strings"
 
-	"builder/shared/textutil"
+	"core/shared/textutil"
 )
 
 func normalizeReasoningEntries(entries []ReasoningEntry) []ReasoningEntry {

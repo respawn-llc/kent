@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/registry"
-	askquestion "builder/server/tools/askquestion"
-	"builder/shared/serverapi"
+	"core/server/registry"
+	askquestion "core/server/tools/askquestion"
+	"core/shared/serverapi"
 )
 
 type stubPendingPromptSource struct {

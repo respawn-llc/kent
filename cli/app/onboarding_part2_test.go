@@ -1,12 +1,12 @@
 package app
 
 import (
-	tuiinput "builder/cli/tui/input"
-	"builder/server/auth"
-	"builder/server/llm"
-	"builder/shared/brand"
-	"builder/shared/config"
-	"builder/shared/theme"
+	tuiinput "core/cli/tui/input"
+	"core/server/auth"
+	"core/server/llm"
+	"core/shared/brand"
+	"core/shared/config"
+	"core/shared/theme"
 	"os"
 	"path/filepath"
 	"runtime"

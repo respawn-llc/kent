@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"builder/cli/tui"
+	"core/cli/tui"
 )
 
 const (

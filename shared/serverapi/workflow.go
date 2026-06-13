@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/shared/workflowkey"
+	"core/shared/workflowkey"
 )
 
 const (

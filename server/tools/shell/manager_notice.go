@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode"
 
-	"builder/server/tools/shell/postprocess"
+	"core/server/tools/shell/postprocess"
 	xansi "github.com/charmbracelet/x/ansi"
 )
 

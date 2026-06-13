@@ -1,9 +1,9 @@
 package tui
 
 import (
-	"builder/shared/clientui"
-	"builder/shared/theme"
-	"builder/shared/transcript"
+	"core/shared/clientui"
+	"core/shared/theme"
+	"core/shared/transcript"
 	"fmt"
 	"strings"
 

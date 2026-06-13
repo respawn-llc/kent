@@ -1,6 +1,6 @@
 package app
 
-import "builder/cli/tui"
+import "core/cli/tui"
 
 func (l uiViewLayout) effectiveWidth() int {
 	m := l.model

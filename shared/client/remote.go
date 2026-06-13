@@ -7,10 +7,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"builder/shared/config"
-	"builder/shared/protocol"
-	"builder/shared/rpcwire"
-	"builder/shared/serverapi"
+	"core/shared/config"
+	"core/shared/protocol"
+	"core/shared/rpcwire"
+	"core/shared/serverapi"
 )
 
 type Remote struct {

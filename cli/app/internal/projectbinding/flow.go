@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/cli/app/internal/remoteattach"
-	"builder/shared/client"
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/serverapi"
+	"core/cli/app/internal/remoteattach"
+	"core/shared/client"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/serverapi"
 )
 
 type ProjectPickerResult struct {

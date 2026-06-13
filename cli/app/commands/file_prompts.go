@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode"
 
-	"builder/shared/brand"
+	"core/shared/brand"
 )
 
 const (

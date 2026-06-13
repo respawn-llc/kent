@@ -9,13 +9,13 @@ import (
 	"strconv"
 	"strings"
 
-	"builder/server/requestmemo"
-	askquestion "builder/server/tools/askquestion"
-	"builder/server/workflow"
-	"builder/server/workflowapi"
-	"builder/server/workflowstore"
-	"builder/server/workflowview"
-	"builder/shared/serverapi"
+	"core/server/requestmemo"
+	askquestion "core/server/tools/askquestion"
+	"core/server/workflow"
+	"core/server/workflowapi"
+	"core/server/workflowstore"
+	"core/server/workflowview"
+	"core/shared/serverapi"
 )
 
 type Service struct {

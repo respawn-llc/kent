@@ -3,9 +3,9 @@ package runtime
 import (
 	"context"
 
-	"builder/prompts"
-	"builder/server/llm"
-	"builder/shared/toolspec"
+	"core/prompts"
+	"core/server/llm"
+	"core/shared/toolspec"
 )
 
 type compactionReminderCoordinator struct {

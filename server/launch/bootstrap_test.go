@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"builder/server/metadata"
-	"builder/server/session"
-	"builder/shared/config"
+	"core/server/metadata"
+	"core/server/session"
+	"core/shared/config"
 )
 
 func TestResolveBootstrapPlanUsesSessionWorkspaceAndPersistedBaseURL(t *testing.T) {

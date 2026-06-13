@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/shared/sessioncontract"
+	"core/shared/sessioncontract"
 )
 
 func ResolveScopedSessionDir(containerDir string, sessionID string) (string, error) {

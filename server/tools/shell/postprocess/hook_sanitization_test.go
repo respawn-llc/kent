@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"builder/shared/config"
-	"builder/shared/toolspec"
+	"core/shared/config"
+	"core/shared/toolspec"
 )
 
 func TestRunnerUserHookReceivesSanitizedCurrentAndRawOriginalOutput(t *testing.T) {

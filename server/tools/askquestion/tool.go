@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"builder/prompts"
-	"builder/server/tools"
+	"core/prompts"
+	"core/server/tools"
 
 	"github.com/google/uuid"
 )

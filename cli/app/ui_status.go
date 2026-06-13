@@ -5,11 +5,11 @@ import (
 	"strings"
 	"time"
 
-	appstatus "builder/cli/app/internal/status"
-	"builder/cli/app/internal/statuscollect"
-	"builder/shared/client"
-	"builder/shared/clientui"
-	"builder/shared/config"
+	appstatus "core/cli/app/internal/status"
+	"core/cli/app/internal/statuscollect"
+	"core/shared/client"
+	"core/shared/clientui"
+	"core/shared/config"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

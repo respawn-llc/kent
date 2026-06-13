@@ -4,12 +4,12 @@ import (
 	"context"
 	"strings"
 
-	"builder/server/auth"
-	"builder/server/launch"
-	"builder/server/requestmemo"
-	"builder/server/session"
-	"builder/shared/serverapi"
-	"builder/shared/servicecontract"
+	"core/server/auth"
+	"core/server/launch"
+	"core/server/requestmemo"
+	"core/server/session"
+	"core/shared/serverapi"
+	"core/shared/servicecontract"
 )
 
 type sessionStoreRegistrar interface {

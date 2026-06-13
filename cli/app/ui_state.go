@@ -3,11 +3,11 @@ package app
 import (
 	"time"
 
-	"builder/cli/app/commands"
-	"builder/cli/app/internal/runtimestate"
-	"builder/cli/tui"
-	"builder/shared/client"
-	"builder/shared/clientui"
+	"core/cli/app/commands"
+	"core/cli/app/internal/runtimestate"
+	"core/cli/tui"
+	"core/shared/client"
+	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

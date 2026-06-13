@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"builder/server/llm"
+	"core/server/llm"
 )
 
 const legacyHistoryReplacementEngineReviewerRollback = "reviewer_rollback"

@@ -3,8 +3,8 @@ package authpolicy
 import (
 	"strings"
 
-	"builder/server/llm"
-	"builder/shared/config"
+	"core/server/llm"
+	"core/shared/config"
 )
 
 func RequiresStartupAuth(settings config.Settings) bool {

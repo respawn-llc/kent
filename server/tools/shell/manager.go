@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"builder/server/tools/shell/postprocess"
-	"builder/server/tools/shell/shellenv"
-	"builder/shared/config"
+	"core/server/tools/shell/postprocess"
+	"core/server/tools/shell/shellenv"
+	"core/shared/config"
 )
 
 type Manager struct {

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"builder/shared/textutil"
+	"core/shared/textutil"
 )
 
 func Render(src, cwd string) RenderedPatch {

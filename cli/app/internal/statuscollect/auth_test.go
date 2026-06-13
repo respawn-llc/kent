@@ -3,7 +3,7 @@ package statuscollect
 import (
 	"testing"
 
-	"builder/server/auth"
+	"core/server/auth"
 )
 
 func TestAuthIdentityUsesOpaqueFingerprintWhenOAuthAccountAndEmailMissing(t *testing.T) {

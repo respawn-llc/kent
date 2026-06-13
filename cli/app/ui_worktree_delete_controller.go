@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"builder/cli/app/internal/worktreedelete"
+	"core/cli/app/internal/worktreedelete"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

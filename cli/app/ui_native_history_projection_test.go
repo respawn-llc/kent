@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"builder/cli/tui"
+	"core/cli/tui"
 )
 
 func TestNativeProjectionOverlapMatchesRenderedFrontier(t *testing.T) {

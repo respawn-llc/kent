@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"builder/server/llm"
-	"builder/server/runtime"
-	"builder/server/session"
-	"builder/server/tools"
-	"builder/shared/cachewarn"
-	"builder/shared/clientui"
-	"builder/shared/transcript"
-	patchformat "builder/shared/transcript/patchformat"
+	"core/server/llm"
+	"core/server/runtime"
+	"core/server/session"
+	"core/server/tools"
+	"core/shared/cachewarn"
+	"core/shared/clientui"
+	"core/shared/transcript"
+	patchformat "core/shared/transcript/patchformat"
 )
 
 type projectionFastClient struct{}

@@ -5,9 +5,9 @@ import (
 	"os"
 	"testing"
 
-	"builder/server/auth"
-	"builder/server/metadata"
-	"builder/shared/config"
+	"core/server/auth"
+	"core/server/metadata"
+	"core/shared/config"
 )
 
 func TestBootstrapAppIgnoresOAuthIssuerOverrideEnv(t *testing.T) {

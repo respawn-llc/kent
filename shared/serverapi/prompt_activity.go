@@ -3,7 +3,7 @@ package serverapi
 import (
 	"context"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 )
 
 type PromptActivitySubscribeRequest struct {

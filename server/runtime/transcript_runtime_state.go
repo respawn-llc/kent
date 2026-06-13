@@ -4,8 +4,8 @@ import (
 	"strings"
 	"sync"
 
-	"builder/server/llm"
-	"builder/server/tools"
+	"core/server/llm"
+	"core/server/tools"
 )
 
 type transcriptRuntimeState struct {

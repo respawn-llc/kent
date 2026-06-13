@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"builder/server/tools"
-	"builder/server/tools/fsguard"
-	"builder/shared/toolspec"
+	"core/server/tools"
+	"core/server/tools/fsguard"
+	"core/shared/toolspec"
 )
 
 func TestCreateMissingFileReturnsJSONStringAndDiff(t *testing.T) {

@@ -1,8 +1,8 @@
 package tui
 
 import (
-	"builder/shared/transcript"
-	"builder/shared/uiglyphs"
+	"core/shared/transcript"
+	"core/shared/uiglyphs"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	xansi "github.com/charmbracelet/x/ansi"

@@ -16,14 +16,14 @@ import (
 
 	_ "embed"
 
-	"builder/server/metadata"
-	"builder/server/metadata/sqlitegen"
-	"builder/server/workflow"
-	"builder/server/workflowapi"
-	"builder/server/workflowjson"
-	"builder/shared/clientui"
-	"builder/shared/serverapi"
-	"builder/shared/toolspec"
+	"core/server/metadata"
+	"core/server/metadata/sqlitegen"
+	"core/server/workflow"
+	"core/server/workflowapi"
+	"core/server/workflowjson"
+	"core/shared/clientui"
+	"core/shared/serverapi"
+	"core/shared/toolspec"
 )
 
 type Service struct {

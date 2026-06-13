@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"builder/shared/clientui"
+	"core/shared/clientui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

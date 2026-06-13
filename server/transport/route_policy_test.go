@@ -7,16 +7,16 @@ import (
 	"testing"
 	"time"
 
-	serverbootstrap "builder/server/bootstrap"
-	"builder/server/core"
-	"builder/server/metadata"
-	"builder/server/session"
-	shelltool "builder/server/tools/shell"
-	"builder/shared/clientui"
-	"builder/shared/config"
-	"builder/shared/protocol"
-	"builder/shared/rpccontract"
-	"builder/shared/serverapi"
+	serverbootstrap "core/server/bootstrap"
+	"core/server/core"
+	"core/server/metadata"
+	"core/server/session"
+	shelltool "core/server/tools/shell"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/protocol"
+	"core/shared/rpccontract"
+	"core/shared/serverapi"
 )
 
 func TestRouteScopeParamAccessorsCoverScopedRoutes(t *testing.T) {

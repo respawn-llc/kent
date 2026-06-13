@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"builder/prompts"
-	"builder/shared/client"
-	"builder/shared/config"
-	"builder/shared/serverapi"
-	"builder/shared/sessionenv"
+	"core/prompts"
+	"core/shared/client"
+	"core/shared/config"
+	"core/shared/serverapi"
+	"core/shared/sessionenv"
 	"github.com/google/uuid"
 )
 

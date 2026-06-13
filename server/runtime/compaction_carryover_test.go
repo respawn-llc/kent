@@ -3,8 +3,8 @@ package runtime
 import (
 	"testing"
 
-	"builder/prompts"
-	"builder/server/llm"
+	"core/prompts"
+	"core/server/llm"
 )
 
 func TestHandoffFutureAgentMessageWrapsContentForModelAndTranscript(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"builder/cli/app/commands"
+	"core/cli/app/commands"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

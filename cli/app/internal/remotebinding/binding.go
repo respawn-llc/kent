@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	"builder/shared/client"
-	"builder/shared/config"
+	"core/shared/client"
+	"core/shared/config"
 )
 
 type WorkspaceRootDialer func(context.Context, config.App, string, string) (*client.Remote, error)
