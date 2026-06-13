@@ -161,7 +161,7 @@ func renderWorktreeBadges(item serverapi.WorktreeView, selected bool, theme stri
 	} else if branch := strings.TrimSpace(item.BranchName); branch != "" {
 		badges = append(badges, badge("branch:"+branch, p.foreground))
 	}
-	if !item.BuilderManaged && !item.IsMain {
+	if !item.Managed && !item.IsMain {
 		badges = append(badges, badge("external", p.muted))
 	}
 	return badges

@@ -59,7 +59,7 @@ func SanitizeBranchSuggestion(raw string) string {
 }
 
 func DeleteCanAutoDeleteBranch(item serverapi.WorktreeView) bool {
-	return item.BuilderManaged && item.CreatedBranch && strings.TrimSpace(item.BranchName) != ""
+	return item.Managed && item.CreatedBranch && strings.TrimSpace(item.BranchName) != ""
 }
 
 func ResolveDeletionTarget(entries []serverapi.WorktreeView, token string) (serverapi.WorktreeView, error) {

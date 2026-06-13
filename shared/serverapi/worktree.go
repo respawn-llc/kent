@@ -24,7 +24,7 @@ type WorktreeView struct {
 	DirtyFileCount  int    `json:"dirty_file_count,omitempty"`
 	IsMain          bool   `json:"is_main,omitempty"`
 	IsCurrent       bool   `json:"is_current,omitempty"`
-	BuilderManaged  bool   `json:"builder_managed,omitempty"`
+	Managed         bool   `json:"managed,omitempty"`
 	CreatedBranch   bool   `json:"created_branch,omitempty"`
 	OriginSessionID string `json:"origin_session_id,omitempty"`
 }

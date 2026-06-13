@@ -238,7 +238,7 @@ func (s *Service) EnsureTaskWorktree(ctx context.Context, req EnsureTaskWorktree
 	if !ok {
 		return EnsureTaskWorktreeResponse{}, fmt.Errorf("created task worktree %q was not discovered after git sync: %w", worktreeRoot, serverapi.ErrWorktreeNotFound)
 	}
-	created.record.BuilderManaged = true
+	created.record.Managed = true
 	created.record.CreatedBranch = createdBranch
 	created.record.UpdatedAt = time.Now().UTC()
 	cleanup.worktreeID = strings.TrimSpace(created.record.ID)
@@ -416,7 +416,7 @@ func (s *Service) ensureTaskWorktreeDeletionUnblocked(ctx context.Context, taskI
 }
 
 func (s *Service) deleteTaskWorktreeBranch(ctx context.Context, workspaceRoot string, record metadata.WorktreeRecord, target syncedWorktree, found bool) (bool, error) {
-	if !record.BuilderManaged || !record.CreatedBranch {
+	if !record.Managed || !record.CreatedBranch {
 		return false, nil
 	}
 	branchName := ""
@@ -579,7 +579,7 @@ func (s *Service) CreateWorktree(ctx context.Context, req serverapi.WorktreeCrea
 	if !ok {
 		return serverapi.WorktreeCreateResponse{}, fmt.Errorf("created worktree %q was not discovered after git sync: %w", worktreeRoot, serverapi.ErrWorktreeNotFound)
 	}
-	created.record.BuilderManaged = true
+	created.record.Managed = true
 	created.record.CreatedBranch = createdBranch
 	created.record.OriginSessionID = workspaceCtx.sessionID
 	created.record.UpdatedAt = time.Now().UTC()
@@ -594,7 +594,7 @@ func (s *Service) CreateWorktree(ctx context.Context, req serverapi.WorktreeCrea
 	}
 	setupScheduled := s.scheduleSetupScript(workspaceCtx, req.ControllerLeaseID, created, strings.TrimSpace(created.git.BranchName), createdBranch)
 	createdView := worktreeViewFromSynced(created, nextTarget)
-	createdView.BuilderManaged = true
+	createdView.Managed = true
 	createdView.CreatedBranch = createdBranch
 	createdView.OriginSessionID = workspaceCtx.sessionID
 	cleanup.active = false
@@ -877,7 +877,7 @@ func (s *Service) syncWorkspace(ctx context.Context, workspaceID string, workspa
 		if !found {
 			record = metadata.WorktreeRecord{ID: "worktree-" + uuid.NewString(), WorkspaceID: strings.TrimSpace(workspaceID), CreatedAt: now}
 		} else if shouldResetWorktreeProvenance(record, gitEntry) {
-			record.BuilderManaged = false
+			record.Managed = false
 			record.CreatedBranch = false
 			record.OriginSessionID = ""
 		}
@@ -1069,7 +1069,7 @@ func (s *Service) rollbackRetargetedSessions(ctx context.Context, workspaceID st
 }
 
 func shouldResetWorktreeProvenance(record metadata.WorktreeRecord, gitEntry GitWorktree) bool {
-	if !record.BuilderManaged && !record.CreatedBranch && strings.TrimSpace(record.OriginSessionID) == "" {
+	if !record.Managed && !record.CreatedBranch && strings.TrimSpace(record.OriginSessionID) == "" {
 		return false
 	}
 	if gitEntry.Detached || (strings.TrimSpace(gitEntry.BranchRef) == "" && !gitEntry.IsMain) {
@@ -1469,7 +1469,7 @@ func worktreeViewFromSynced(item syncedWorktree, target clientui.SessionExecutio
 		DirtyFileCount:  item.git.DirtyFileCount,
 		IsMain:          item.git.IsMain,
 		IsCurrent:       isCurrent,
-		BuilderManaged:  item.record.BuilderManaged,
+		Managed:         item.record.Managed,
 		CreatedBranch:   item.record.CreatedBranch,
 		OriginSessionID: item.record.OriginSessionID,
 	}
@@ -1524,7 +1524,7 @@ func (s *Service) shouldAttemptBranchCleanup(target syncedWorktree, explicitDele
 	if explicitDeleteBranch {
 		return true
 	}
-	return target.record.BuilderManaged && target.record.CreatedBranch
+	return target.record.Managed && target.record.CreatedBranch
 }
 
 func (s *Service) branchCleanupSkippedMessage(target syncedWorktree, explicitDeleteBranch bool) string {
@@ -1532,7 +1532,7 @@ func (s *Service) branchCleanupSkippedMessage(target syncedWorktree, explicitDel
 	if branchName == "" {
 		return ""
 	}
-	if explicitDeleteBranch || (target.record.BuilderManaged && target.record.CreatedBranch) {
+	if explicitDeleteBranch || (target.record.Managed && target.record.CreatedBranch) {
 		return ""
 	}
 	return fmt.Sprintf("Kept branch %s: Kent cannot prove this worktree created it", branchName)

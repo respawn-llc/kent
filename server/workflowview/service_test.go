@@ -1050,7 +1050,7 @@ func TestTaskDetailProjectsGuiIdentityWorktreeStatusActionsAndAttention(t *testi
 		t.Fatalf("CreateTask: %v", err)
 	}
 	worktreeID := "worktree-detail"
-	if err := store.Queries().UpsertWorktree(ctx, sqlitegen.UpsertWorktreeParams{ID: worktreeID, WorkspaceID: binding.WorkspaceID, CanonicalRootPath: t.TempDir(), BuilderManaged: 1, CreatedBranch: 1, GitMetadataJson: "{}", CreatedAtUnixMs: 1, UpdatedAtUnixMs: 2}); err != nil {
+	if err := store.Queries().UpsertWorktree(ctx, sqlitegen.UpsertWorktreeParams{ID: worktreeID, WorkspaceID: binding.WorkspaceID, CanonicalRootPath: t.TempDir(), Managed: 1, CreatedBranch: 1, GitMetadataJson: "{}", CreatedAtUnixMs: 1, UpdatedAtUnixMs: 2}); err != nil {
 		t.Fatalf("UpsertWorktree: %v", err)
 	}
 	if _, err := store.Queries().UpdateTaskManagedWorktree(ctx, sqlitegen.UpdateTaskManagedWorktreeParams{ID: string(task.ID), ManagedWorktreeID: sql.NullString{String: worktreeID, Valid: true}, UpdatedAtUnixMs: 3}); err != nil {
@@ -1082,7 +1082,7 @@ func TestTaskDetailProjectsGuiIdentityWorktreeStatusActionsAndAttention(t *testi
 	if detail.Project.ProjectID != binding.ProjectID || detail.Project.ProjectKey != "WOR" || detail.Workflow.WorkflowID != string(workflowID) || !detail.Workflow.IsProjectDefault {
 		t.Fatalf("identity = project:%+v workflow:%+v", detail.Project, detail.Workflow)
 	}
-	if detail.ManagedWorktree == nil || detail.ManagedWorktree.WorktreeID != worktreeID || !detail.ManagedWorktree.BuilderManaged || detail.ManagedWorktree.CanonicalRoot == "" {
+	if detail.ManagedWorktree == nil || detail.ManagedWorktree.WorktreeID != worktreeID || !detail.ManagedWorktree.Managed || detail.ManagedWorktree.CanonicalRoot == "" {
 		t.Fatalf("managed worktree = %+v", detail.ManagedWorktree)
 	}
 	if detail.Status.Kind != "waiting_question" || !detail.Actions.CanInterrupt {

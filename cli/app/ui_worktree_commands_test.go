@@ -203,7 +203,7 @@ func worktreeListResponseForRoots(mainRoot string, featureRoot string) serverapi
 			CanonicalRoot:   featureRoot,
 			BranchName:      "feature",
 			IsCurrent:       true,
-			BuilderManaged:  true,
+			Managed:         true,
 			CreatedBranch:   true,
 			OriginSessionID: "session-1",
 		})
@@ -234,7 +234,7 @@ func testLinkedWorktreeListResponse() serverapi.WorktreeListResponse {
 				CanonicalRoot:   "/wt/feature-a",
 				BranchName:      "feature/a",
 				IsCurrent:       true,
-				BuilderManaged:  true,
+				Managed:         true,
 				CreatedBranch:   true,
 				OriginSessionID: "session-1",
 			},

@@ -897,7 +897,7 @@ func (e *metadataTaskWorktrees) EnsureTaskWorktree(ctx context.Context, taskID s
 		CanonicalRoot:   worktreeRoot,
 		DisplayName:     shortID,
 		Availability:    "available",
-		BuilderManaged:  true,
+		Managed:         true,
 		CreatedBranch:   true,
 		GitMetadataJSON: `{}`,
 	}); err != nil {

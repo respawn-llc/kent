@@ -212,8 +212,8 @@ func TestCreateWorktreeMarksProvenanceAndRunsSetupScriptWithProjectID(t *testing
 	if !resp.SetupScheduled {
 		t.Fatal("expected setup script to be scheduled")
 	}
-	if !resp.Worktree.BuilderManaged {
-		t.Fatal("expected worktree builder_managed=true")
+	if !resp.Worktree.Managed {
+		t.Fatal("expected worktree managed=true")
 	}
 	if resp.Target.WorktreeID != resp.Worktree.WorktreeID {
 		t.Fatalf("create target worktree id = %q, want %q", resp.Target.WorktreeID, resp.Worktree.WorktreeID)
@@ -231,7 +231,7 @@ func TestCreateWorktreeMarksProvenanceAndRunsSetupScriptWithProjectID(t *testing
 	if err != nil {
 		t.Fatalf("GetWorktreeRecordByID: %v", err)
 	}
-	if !record.BuilderManaged || !record.CreatedBranch || record.OriginSessionID != env.session.Meta().SessionID {
+	if !record.Managed || !record.CreatedBranch || record.OriginSessionID != env.session.Meta().SessionID {
 		t.Fatalf("unexpected worktree record: %+v", record)
 	}
 	payload := waitForSetupPayload(t, payloadPath)
@@ -270,7 +270,7 @@ func TestCreateWorktreeMarksProvenanceAndRunsSetupScriptWithProjectID(t *testing
 	}
 	worktrees := mustListWorktrees(t, env)
 	created := findWorktreeByID(t, worktrees.Worktrees, resp.Worktree.WorktreeID)
-	if !created.BuilderManaged || !created.CreatedBranch || created.OriginSessionID != env.session.Meta().SessionID {
+	if !created.Managed || !created.CreatedBranch || created.OriginSessionID != env.session.Meta().SessionID {
 		t.Fatalf("sync lost worktree provenance: %+v", created)
 	}
 }
@@ -308,7 +308,7 @@ func TestCreateWorktreeAllowsExistingRefWithoutCreatingBranch(t *testing.T) {
 	if resp.Worktree.BranchName != "feature/existing-ref" {
 		t.Fatalf("branch name = %q, want feature/existing-ref", resp.Worktree.BranchName)
 	}
-	if !resp.Worktree.BuilderManaged {
+	if !resp.Worktree.Managed {
 		t.Fatal("expected builder-managed worktree for existing ref")
 	}
 	record, err := env.store.GetWorktreeRecordByID(env.ctx, resp.Worktree.WorktreeID)
@@ -332,7 +332,7 @@ func TestSyncWorkspaceClearsStaleBuilderProvenanceWhenRootIsReused(t *testing.T)
 		if strings.TrimSpace(worktree.CanonicalRoot) != strings.TrimSpace(created.CanonicalRoot) {
 			continue
 		}
-		if worktree.BuilderManaged || worktree.CreatedBranch || strings.TrimSpace(worktree.OriginSessionID) != "" {
+		if worktree.Managed || worktree.CreatedBranch || strings.TrimSpace(worktree.OriginSessionID) != "" {
 			t.Fatalf("expected stale builder provenance cleared for reused root, got %+v", worktree)
 		}
 		return

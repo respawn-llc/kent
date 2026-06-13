@@ -266,7 +266,7 @@ const countManagedOwnedWorktreesByWorkspace = `-- name: CountManagedOwnedWorktre
 SELECT CAST(COUNT(*) AS INTEGER) AS worktree_count
 FROM worktrees
 WHERE workspace_id = ?1
-  AND builder_managed <> 0
+  AND managed <> 0
   AND created_branch <> 0
 `
 
@@ -1685,7 +1685,7 @@ SELECT
     wt.workspace_id,
     wt.canonical_root_path,
     CASE WHEN wt.canonical_root_path = w.canonical_root_path THEN 1 ELSE 0 END AS is_main,
-    wt.builder_managed,
+    wt.managed,
     wt.created_branch,
     wt.origin_session_id,
     wt.git_metadata_json,
@@ -1702,7 +1702,7 @@ type GetWorktreeByCanonicalRootRow struct {
 	WorkspaceID       string
 	CanonicalRootPath string
 	IsMain            int64
-	BuilderManaged    int64
+	Managed           int64
 	CreatedBranch     int64
 	OriginSessionID   string
 	GitMetadataJson   string
@@ -1718,7 +1718,7 @@ func (q *Queries) GetWorktreeByCanonicalRoot(ctx context.Context, canonicalRootP
 		&i.WorkspaceID,
 		&i.CanonicalRootPath,
 		&i.IsMain,
-		&i.BuilderManaged,
+		&i.Managed,
 		&i.CreatedBranch,
 		&i.OriginSessionID,
 		&i.GitMetadataJson,
@@ -1734,7 +1734,7 @@ SELECT
     wt.workspace_id,
     wt.canonical_root_path,
     CASE WHEN wt.canonical_root_path = w.canonical_root_path THEN 1 ELSE 0 END AS is_main,
-    wt.builder_managed,
+    wt.managed,
     wt.created_branch,
     wt.origin_session_id,
     wt.git_metadata_json,
@@ -1751,7 +1751,7 @@ type GetWorktreeByIDRow struct {
 	WorkspaceID       string
 	CanonicalRootPath string
 	IsMain            int64
-	BuilderManaged    int64
+	Managed           int64
 	CreatedBranch     int64
 	OriginSessionID   string
 	GitMetadataJson   string
@@ -1767,7 +1767,7 @@ func (q *Queries) GetWorktreeByID(ctx context.Context, id string) (GetWorktreeBy
 		&i.WorkspaceID,
 		&i.CanonicalRootPath,
 		&i.IsMain,
-		&i.BuilderManaged,
+		&i.Managed,
 		&i.CreatedBranch,
 		&i.OriginSessionID,
 		&i.GitMetadataJson,
@@ -4908,7 +4908,7 @@ SELECT
     wt.workspace_id,
     wt.canonical_root_path,
     CASE WHEN wt.canonical_root_path = w.canonical_root_path THEN 1 ELSE 0 END AS is_main,
-    wt.builder_managed,
+    wt.managed,
     wt.created_branch,
     wt.origin_session_id,
     wt.git_metadata_json,
@@ -4925,7 +4925,7 @@ type ListWorktreesByWorkspaceIDRow struct {
 	WorkspaceID       string
 	CanonicalRootPath string
 	IsMain            int64
-	BuilderManaged    int64
+	Managed           int64
 	CreatedBranch     int64
 	OriginSessionID   string
 	GitMetadataJson   string
@@ -4947,7 +4947,7 @@ func (q *Queries) ListWorktreesByWorkspaceID(ctx context.Context, workspaceID st
 			&i.WorkspaceID,
 			&i.CanonicalRootPath,
 			&i.IsMain,
-			&i.BuilderManaged,
+			&i.Managed,
 			&i.CreatedBranch,
 			&i.OriginSessionID,
 			&i.GitMetadataJson,
@@ -5569,7 +5569,7 @@ INSERT INTO worktrees (
     id,
     workspace_id,
     canonical_root_path,
-    builder_managed,
+    managed,
     created_branch,
     origin_session_id,
     git_metadata_json,
@@ -5588,7 +5588,7 @@ INSERT INTO worktrees (
 )
 ON CONFLICT(canonical_root_path) DO UPDATE SET
     workspace_id = excluded.workspace_id,
-    builder_managed = excluded.builder_managed,
+    managed = excluded.managed,
     created_branch = excluded.created_branch,
     origin_session_id = excluded.origin_session_id,
     git_metadata_json = excluded.git_metadata_json,
@@ -5599,7 +5599,7 @@ type UpsertWorktreeParams struct {
 	ID                string
 	WorkspaceID       string
 	CanonicalRootPath string
-	BuilderManaged    int64
+	Managed           int64
 	CreatedBranch     int64
 	OriginSessionID   string
 	GitMetadataJson   string
@@ -5612,7 +5612,7 @@ func (q *Queries) UpsertWorktree(ctx context.Context, arg UpsertWorktreeParams) 
 		arg.ID,
 		arg.WorkspaceID,
 		arg.CanonicalRootPath,
-		arg.BuilderManaged,
+		arg.Managed,
 		arg.CreatedBranch,
 		arg.OriginSessionID,
 		arg.GitMetadataJson,

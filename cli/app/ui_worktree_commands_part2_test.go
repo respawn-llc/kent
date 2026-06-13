@@ -74,7 +74,7 @@ func TestWorktreeDeleteDialogBranchPreviewFollowsSelectedAction(t *testing.T) {
 
 func TestWorktreeDeleteDialogPreviewOmitsBranchWhenActionKeepsBranch(t *testing.T) {
 	resp := testLinkedWorktreeListResponse()
-	resp.Worktrees[1].BuilderManaged = false
+	resp.Worktrees[1].Managed = false
 	resp.Worktrees[1].CreatedBranch = false
 	client := &worktreeCommandTestClient{listResp: resp}
 	m := newWorktreeTestModel(t, client)

@@ -67,7 +67,7 @@ type WorktreeRecord struct {
 	DisplayName     string
 	Availability    string
 	IsMain          bool
-	BuilderManaged  bool
+	Managed         bool
 	CreatedBranch   bool
 	OriginSessionID string
 	GitMetadataJSON string
@@ -280,7 +280,7 @@ func (s *Store) ListWorktreeRecordsByWorkspaceID(ctx context.Context, workspaceI
 	}
 	out := make([]WorktreeRecord, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, worktreeRecordFromParts(row.ID, row.WorkspaceID, row.CanonicalRootPath, row.IsMain != 0, row.BuilderManaged != 0, row.CreatedBranch != 0, row.OriginSessionID, row.GitMetadataJson, row.CreatedAtUnixMs, row.UpdatedAtUnixMs))
+		out = append(out, worktreeRecordFromParts(row.ID, row.WorkspaceID, row.CanonicalRootPath, row.IsMain != 0, row.Managed != 0, row.CreatedBranch != 0, row.OriginSessionID, row.GitMetadataJson, row.CreatedAtUnixMs, row.UpdatedAtUnixMs))
 	}
 	return out, nil
 }
@@ -293,7 +293,7 @@ func (s *Store) GetWorktreeRecordByID(ctx context.Context, worktreeID string) (W
 	if err != nil {
 		return WorktreeRecord{}, fmt.Errorf("get worktree by id: %w", err)
 	}
-	return worktreeRecordFromParts(row.ID, row.WorkspaceID, row.CanonicalRootPath, row.IsMain != 0, row.BuilderManaged != 0, row.CreatedBranch != 0, row.OriginSessionID, row.GitMetadataJson, row.CreatedAtUnixMs, row.UpdatedAtUnixMs), nil
+	return worktreeRecordFromParts(row.ID, row.WorkspaceID, row.CanonicalRootPath, row.IsMain != 0, row.Managed != 0, row.CreatedBranch != 0, row.OriginSessionID, row.GitMetadataJson, row.CreatedAtUnixMs, row.UpdatedAtUnixMs), nil
 }
 
 func (s *Store) GetWorktreeRecordByCanonicalRoot(ctx context.Context, worktreeRoot string) (WorktreeRecord, error) {
@@ -308,7 +308,7 @@ func (s *Store) GetWorktreeRecordByCanonicalRoot(ctx context.Context, worktreeRo
 	if err != nil {
 		return WorktreeRecord{}, fmt.Errorf("get worktree by canonical root: %w", err)
 	}
-	return worktreeRecordFromParts(row.ID, row.WorkspaceID, row.CanonicalRootPath, row.IsMain != 0, row.BuilderManaged != 0, row.CreatedBranch != 0, row.OriginSessionID, row.GitMetadataJson, row.CreatedAtUnixMs, row.UpdatedAtUnixMs), nil
+	return worktreeRecordFromParts(row.ID, row.WorkspaceID, row.CanonicalRootPath, row.IsMain != 0, row.Managed != 0, row.CreatedBranch != 0, row.OriginSessionID, row.GitMetadataJson, row.CreatedAtUnixMs, row.UpdatedAtUnixMs), nil
 }
 
 func (s *Store) UpsertWorktreeRecord(ctx context.Context, record WorktreeRecord) error {
@@ -337,9 +337,9 @@ func (s *Store) UpsertWorktreeRecord(ctx context.Context, record WorktreeRecord)
 	if err != nil {
 		return err
 	}
-	builderManaged := int64(0)
-	if record.BuilderManaged {
-		builderManaged = 1
+	managed := int64(0)
+	if record.Managed {
+		managed = 1
 	}
 	createdBranch := int64(0)
 	if record.CreatedBranch {
@@ -349,7 +349,7 @@ func (s *Store) UpsertWorktreeRecord(ctx context.Context, record WorktreeRecord)
 		ID:                strings.TrimSpace(record.ID),
 		WorkspaceID:       strings.TrimSpace(record.WorkspaceID),
 		CanonicalRootPath: canonicalRoot,
-		BuilderManaged:    builderManaged,
+		Managed:           managed,
 		CreatedBranch:     createdBranch,
 		OriginSessionID:   strings.TrimSpace(record.OriginSessionID),
 		GitMetadataJson:   defaultJSONObject(record.GitMetadataJSON),
@@ -2086,7 +2086,7 @@ func runtimeLeaseRecordFromRow(row sqlitegen.RuntimeLease) RuntimeLeaseRecord {
 	}
 }
 
-func worktreeRecordFromParts(id string, workspaceID string, canonicalRoot string, isMain bool, builderManaged bool, createdBranch bool, originSessionID string, gitMetadataJSON string, createdAtUnixMs int64, updatedAtUnixMs int64) WorktreeRecord {
+func worktreeRecordFromParts(id string, workspaceID string, canonicalRoot string, isMain bool, managed bool, createdBranch bool, originSessionID string, gitMetadataJSON string, createdAtUnixMs int64, updatedAtUnixMs int64) WorktreeRecord {
 	return WorktreeRecord{
 		ID:              id,
 		WorkspaceID:     workspaceID,
@@ -2094,7 +2094,7 @@ func worktreeRecordFromParts(id string, workspaceID string, canonicalRoot string
 		DisplayName:     displayNameForPath(canonicalRoot),
 		Availability:    availabilityForOptionalPath(canonicalRoot),
 		IsMain:          isMain,
-		BuilderManaged:  builderManaged,
+		Managed:         managed,
 		CreatedBranch:   createdBranch,
 		OriginSessionID: originSessionID,
 		GitMetadataJSON: gitMetadataJSON,

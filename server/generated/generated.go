@@ -63,9 +63,9 @@ type SyncResult struct {
 }
 
 type marker struct {
-	SchemaVersion  int    `json:"schema_version"`
-	AppVersion string `json:"app_version"`
-	TreeHash       string `json:"tree_hash"`
+	SchemaVersion int    `json:"schema_version"`
+	AppVersion    string `json:"app_version"`
+	TreeHash      string `json:"tree_hash"`
 }
 
 type treeEntryKind string

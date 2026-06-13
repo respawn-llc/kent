@@ -1782,7 +1782,7 @@ WHERE r.completed_at_unix_ms = 0
 SELECT CAST(COUNT(*) AS INTEGER) AS worktree_count
 FROM worktrees
 WHERE workspace_id = sqlc.arg(workspace_id)
-  AND builder_managed <> 0
+  AND managed <> 0
   AND created_branch <> 0;
 
 -- name: CountTasksMissingSourceWorkspaceSnapshot :one
@@ -1801,7 +1801,7 @@ SELECT
     wt.workspace_id,
     wt.canonical_root_path,
     CASE WHEN wt.canonical_root_path = w.canonical_root_path THEN 1 ELSE 0 END AS is_main,
-    wt.builder_managed,
+    wt.managed,
     wt.created_branch,
     wt.origin_session_id,
     wt.git_metadata_json,
@@ -1818,7 +1818,7 @@ SELECT
     wt.workspace_id,
     wt.canonical_root_path,
     CASE WHEN wt.canonical_root_path = w.canonical_root_path THEN 1 ELSE 0 END AS is_main,
-    wt.builder_managed,
+    wt.managed,
     wt.created_branch,
     wt.origin_session_id,
     wt.git_metadata_json,
@@ -1835,7 +1835,7 @@ SELECT
     wt.workspace_id,
     wt.canonical_root_path,
     CASE WHEN wt.canonical_root_path = w.canonical_root_path THEN 1 ELSE 0 END AS is_main,
-    wt.builder_managed,
+    wt.managed,
     wt.created_branch,
     wt.origin_session_id,
     wt.git_metadata_json,
@@ -1851,7 +1851,7 @@ INSERT INTO worktrees (
     id,
     workspace_id,
     canonical_root_path,
-    builder_managed,
+    managed,
     created_branch,
     origin_session_id,
     git_metadata_json,
@@ -1861,7 +1861,7 @@ INSERT INTO worktrees (
     sqlc.arg(id),
     sqlc.arg(workspace_id),
     sqlc.arg(canonical_root_path),
-    sqlc.arg(builder_managed),
+    sqlc.arg(managed),
     sqlc.arg(created_branch),
     sqlc.arg(origin_session_id),
     sqlc.arg(git_metadata_json),
@@ -1870,7 +1870,7 @@ INSERT INTO worktrees (
 )
 ON CONFLICT(canonical_root_path) DO UPDATE SET
     workspace_id = excluded.workspace_id,
-    builder_managed = excluded.builder_managed,
+    managed = excluded.managed,
     created_branch = excluded.created_branch,
     origin_session_id = excluded.origin_session_id,
     git_metadata_json = excluded.git_metadata_json,

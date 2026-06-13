@@ -49,10 +49,10 @@ func TestDisplayNameFallbacks(t *testing.T) {
 }
 
 func TestDeleteCanAutoDeleteBranchRequiresManagedCreatedBranch(t *testing.T) {
-	if !DeleteCanAutoDeleteBranch(serverapi.WorktreeView{BuilderManaged: true, CreatedBranch: true, BranchName: "feature"}) {
+	if !DeleteCanAutoDeleteBranch(serverapi.WorktreeView{Managed: true, CreatedBranch: true, BranchName: "feature"}) {
 		t.Fatal("expected auto delete branch")
 	}
-	if DeleteCanAutoDeleteBranch(serverapi.WorktreeView{BuilderManaged: true, CreatedBranch: false, BranchName: "feature"}) {
+	if DeleteCanAutoDeleteBranch(serverapi.WorktreeView{Managed: true, CreatedBranch: false, BranchName: "feature"}) {
 		t.Fatal("did not expect auto delete branch")
 	}
 }

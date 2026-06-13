@@ -327,7 +327,7 @@ type Worktree struct {
 	ID                string
 	WorkspaceID       string
 	CanonicalRootPath string
-	BuilderManaged    int64
+	Managed           int64
 	CreatedBranch     int64
 	OriginSessionID   string
 	GitMetadataJson   string
