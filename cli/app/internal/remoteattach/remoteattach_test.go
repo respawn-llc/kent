@@ -338,7 +338,7 @@ func TestHeadlessWorkspaceRegistrationErrorWrapsSentinelAndGuidance(t *testing.T
 	if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		t.Fatalf("error = %v, want ErrWorkspaceNotRegistered", err)
 	}
-	if !strings.Contains(err.Error(), "builder project") || !strings.Contains(err.Error(), "builder attach") {
+	if !strings.Contains(err.Error(), "kent project") || !strings.Contains(err.Error(), "kent attach") {
 		t.Fatalf("expected recovery guidance, got %q", err)
 	}
 }

@@ -41,9 +41,9 @@ func (p interactiveAuthOAuthPresenter) ShowDeviceCode(code oauthadapter.DeviceCo
 func (p interactiveAuthOAuthPresenter) browserLines(session oauthadapter.BrowserAuthSession, openErr error) []string {
 	lines := []string{lipgloss.NewStyle().Foreground(uiPalette(p.theme).primary).Underline(true).Render(session.AuthorizeURL)}
 	if openErr != nil {
-		lines = append(lines, lipgloss.NewStyle().Foreground(uiPalette(p.theme).muted).Faint(true).Render(fmt.Sprintf("Builder could not open your browser automatically (%v). Open the URL manually.", openErr)))
+		lines = append(lines, lipgloss.NewStyle().Foreground(uiPalette(p.theme).muted).Faint(true).Render(fmt.Sprintf("Kent could not open your browser automatically (%v). Open the URL manually.", openErr)))
 	} else {
-		lines = append(lines, lipgloss.NewStyle().Foreground(uiPalette(p.theme).muted).Faint(true).Render("Builder opened your default browser. If nothing appeared, open the URL manually."))
+		lines = append(lines, lipgloss.NewStyle().Foreground(uiPalette(p.theme).muted).Faint(true).Render("Kent opened your default browser. If nothing appeared, open the URL manually."))
 	}
 	return lines
 }

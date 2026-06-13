@@ -98,7 +98,7 @@ func ResolveWorkspaceRoot(workspaceRoot string) (string, error) {
 
 func workspaceContextSessionError(sessionID string, err error) error {
 	if errors.Is(err, sessioncontract.ErrSessionNotFound) {
-		return fmt.Errorf("%s points to missing Builder session %q; unset %s or run from a live Builder shell: %w", sessionenv.BuilderSessionID, strings.TrimSpace(sessionID), sessionenv.BuilderSessionID, err)
+		return fmt.Errorf("%s points to missing Kent session %q; unset %s or run from a live Kent shell: %w", sessionenv.BuilderSessionID, strings.TrimSpace(sessionID), sessionenv.BuilderSessionID, err)
 	}
 	return fmt.Errorf("resolve %s workspace context %q: %w", sessionenv.BuilderSessionID, strings.TrimSpace(sessionID), err)
 }

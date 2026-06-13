@@ -186,7 +186,7 @@ func buildSkillImportScreen(state *onboardingFlowState) onboardingScreen {
 		return onboardingScreen{ID: "skills_import", Kind: onboardingScreenLoading, Title: "Import skills?", LoadingText: "Scanning skills..."}
 	}
 	if state.imports.err != nil {
-		return onboardingScreen{ID: "skills_import", Kind: onboardingScreenChoice, Title: "Import skills?", Body: "Builder could not inspect importable skills on this machine.", ErrorText: state.imports.err.Error(), Options: []onboardingOption{{ID: "none", Title: "Do not import"}}, DefaultOptionID: "none"}
+		return onboardingScreen{ID: "skills_import", Kind: onboardingScreenChoice, Title: "Import skills?", Body: "Kent could not inspect importable skills on this machine.", ErrorText: state.imports.err.Error(), Options: []onboardingOption{{ID: "none", Title: "Do not import"}}, DefaultOptionID: "none"}
 	}
 	defaultID := onboardingimportchoice.RecommendedSymlinkChoiceID(state.imports.skillSymlinkItems, onboardingimportproviders.OrderList())
 	if state.skillImport.Mode == onboardingImportModeNone {
@@ -211,7 +211,7 @@ func importSkillsBody(discovery onboardingImportDiscovery) string {
 	for _, provider := range onboardingimportproviders.SortedProviderIDs(discovery.skillSymlinkItems) {
 		providers = append(providers, onboardingimportproviders.Label(provider))
 	}
-	return "Builder found importable skills from " + strings.Join(providers, ", ") + ". Would you like to symlink to the other provider's directories?"
+	return "Kent found importable skills from " + strings.Join(providers, ", ") + ". Would you like to symlink to the other provider's directories?"
 }
 
 func buildCommandImportScreen(state *onboardingFlowState) onboardingScreen {
@@ -219,7 +219,7 @@ func buildCommandImportScreen(state *onboardingFlowState) onboardingScreen {
 		return onboardingScreen{ID: "commands_import", Kind: onboardingScreenLoading, Title: "Import slash commands?", LoadingText: "Scanning " + onboardingimportproviders.Labels(onboardingimportproviders.CommandSupported()) + " slash commands..."}
 	}
 	if state.imports.err != nil {
-		return onboardingScreen{ID: "commands_import", Kind: onboardingScreenChoice, Title: "Import slash commands?", Body: "Builder could not inspect importable slash commands on this machine.", ErrorText: state.imports.err.Error(), Options: []onboardingOption{{ID: "none", Title: "Do not import"}}, DefaultOptionID: "none"}
+		return onboardingScreen{ID: "commands_import", Kind: onboardingScreenChoice, Title: "Import slash commands?", Body: "Kent could not inspect importable slash commands on this machine.", ErrorText: state.imports.err.Error(), Options: []onboardingOption{{ID: "none", Title: "Do not import"}}, DefaultOptionID: "none"}
 	}
 	defaultID := onboardingimportchoice.RecommendedSymlinkChoiceID(state.imports.commandSymlinkItems, onboardingimportproviders.OrderList())
 	if state.commandImport.Mode == onboardingImportModeNone {
@@ -244,13 +244,13 @@ func importCommandsBody(discovery onboardingImportDiscovery) string {
 	for _, provider := range onboardingimportproviders.SortedProviderIDs(discovery.commandSymlinkItems) {
 		providers = append(providers, onboardingimportproviders.Label(provider))
 	}
-	return "Builder found importable slash commands from " + strings.Join(providers, ", ") + ". Would you like to symlink to provider directories?"
+	return "Kent found importable slash commands from " + strings.Join(providers, ", ") + ". Would you like to symlink to provider directories?"
 }
 
 func buildSkillSelectionScreen(state *onboardingFlowState) onboardingScreen {
 	items := skillSelectionCandidates(state)
 	selection := effectiveSkillSelection(state)
-	body := "Pick skills to keep enabled for now. Builder will write config toggles for the unchecked skills."
+	body := "Pick skills to keep enabled for now. Kent will write config toggles for the unchecked skills."
 	options := make([]onboardingOption, 0, len(items))
 	if len(items) > 2 {
 		title := "Enable all"

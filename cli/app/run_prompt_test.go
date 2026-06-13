@@ -117,7 +117,7 @@ func TestLoadRemoteAttachConfigRejectsStaleWorkspaceContextSession(t *testing.T)
 	if err == nil {
 		t.Fatal("expected stale workspace context session to fail")
 	}
-	if !strings.Contains(err.Error(), sessionenv.BuilderSessionID+" points to missing Builder session") {
+	if !strings.Contains(err.Error(), sessionenv.BuilderSessionID+" points to missing Kent session") {
 		t.Fatalf("error = %q, want %s context", err, sessionenv.BuilderSessionID)
 	}
 }
@@ -189,7 +189,7 @@ func TestRunPromptRejectsStaleWorkspaceContextSession(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected stale workspace context session to fail")
 	}
-	if !strings.Contains(err.Error(), sessionenv.BuilderSessionID+" points to missing Builder session") {
+	if !strings.Contains(err.Error(), sessionenv.BuilderSessionID+" points to missing Kent session") {
 		t.Fatalf("error = %q, want %s context", err, sessionenv.BuilderSessionID)
 	}
 	if hits.Load() != 0 {
@@ -816,7 +816,7 @@ func TestStartRunPromptClientUnregisteredWorkspaceReturnsRegistrationError(t *te
 	if closeFn != nil {
 		t.Fatal("expected no close function when startup fails")
 	}
-	if !strings.Contains(err.Error(), "builder project") || !strings.Contains(err.Error(), "builder attach") {
+	if !strings.Contains(err.Error(), "kent project") || !strings.Contains(err.Error(), "kent attach") {
 		t.Fatalf("expected recovery guidance in error, got %q", err)
 	}
 }

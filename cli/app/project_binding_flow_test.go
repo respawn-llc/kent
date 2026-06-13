@@ -425,7 +425,7 @@ func TestEnsureInteractiveProjectBindingFormatsMissingSelectedProjectError(t *te
 	if !errors.Is(err, serverapi.ErrProjectNotFound) {
 		t.Fatalf("ensureInteractiveProjectBinding error = %v, want ErrProjectNotFound", err)
 	}
-	if got := err.Error(); !strings.Contains(got, "Restart Builder and choose another project") || !strings.Contains(got, "project-missing") {
+	if got := err.Error(); !strings.Contains(got, "Restart Kent and choose another project") || !strings.Contains(got, "project-missing") {
 		t.Fatalf("error = %q, want missing project picker guidance", got)
 	}
 }

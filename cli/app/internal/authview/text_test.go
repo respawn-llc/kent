@@ -55,7 +55,7 @@ func TestMethodPickerNotice(t *testing.T) {
 		{
 			name: "auth not configured startup error ignored for env notice",
 			req:  MethodPickerNoticeRequest{StartupErr: auth.ErrAuthNotConfigured, HasEnvAPIKey: true},
-			want: Notice{Text: "Choose how Builder should sign in. OPENAI_API_KEY is available for this launch.", Kind: NoticeNeutral},
+			want: Notice{Text: "Choose how Kent should sign in. OPENAI_API_KEY is available for this launch.", Kind: NoticeNeutral},
 		},
 		{
 			name: "gate reason",

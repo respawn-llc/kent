@@ -126,7 +126,7 @@ func ensureLocalPathBinding[T any](ctx context.Context, req Request[T], workspac
 func ensureServerBrowsingBinding[T any](ctx context.Context, req Request[T], projects []clientui.ProjectSummary) (T, error) {
 	var zero T
 	if len(projects) == 0 {
-		return zero, errors.New("server has no registered projects. Create one with `builder project create --path <server-path> --name <project-name>` or attach an existing workspace with `builder attach --project <project-id> <server-path>`")
+		return zero, errors.New("server has no registered projects. Create one with `kent project create --path <server-path> --name <project-name>` or attach an existing workspace with `kent attach --project <project-id> <server-path>`")
 	}
 	if req.PickServerProject == nil {
 		return zero, errors.New("server project picker is required")
@@ -230,7 +230,7 @@ func FormatMutationError(workspaceRoot string, projectID string, err error) erro
 	case errors.Is(err, serverapi.ErrWorkspaceNotRegistered):
 		return remoteattach.HeadlessWorkspaceRegistrationError(trimmedWorkspaceRoot)
 	case errors.Is(err, serverapi.ErrProjectNotFound):
-		return fmt.Errorf("project %q is no longer available. Restart Builder and choose another project: %w", trimmedProjectID, err)
+		return fmt.Errorf("project %q is no longer available. Restart Kent and choose another project: %w", trimmedProjectID, err)
 	}
 	return err
 }

@@ -89,7 +89,7 @@ func DialHeadless(ctx context.Context, req HeadlessRequest) (*client.Remote, boo
 		return nil, true, HeadlessWorkspaceRegistrationError(req.Config.WorkspaceRoot)
 	case serverapi.ProjectBindingPlanKindHeadlessRemoteAmbiguous:
 		_ = projectViews.Close()
-		return nil, true, errors.New("remote server could not resolve the current workspace and no single server workspace could be chosen automatically. Run `builder project list`, `builder project create --path <server-path> --name <project-name>`, or `builder attach --project <project-id> <server-path>` against the configured server, or start interactive Builder to choose an existing server project/workspace")
+		return nil, true, errors.New("remote server could not resolve the current workspace and no single server workspace could be chosen automatically. Run `kent project list`, `kent project create --path <server-path> --name <project-name>`, or `kent attach --project <project-id> <server-path>` against the configured server, or start interactive Kent to choose an existing server project/workspace")
 	case serverapi.ProjectBindingPlanKindHeadlessRemoteSelected:
 		if plan.Workspace == nil {
 			_ = projectViews.Close()
@@ -173,7 +173,7 @@ func HeadlessWorkspaceRegistrationError(workspaceRoot string) error {
 	if trimmedRoot == "" {
 		trimmedRoot = "current workspace"
 	}
-	return fmt.Errorf("%w: %s is not attached to a project. Run `builder project` in a workspace that already belongs to the target project, then run `builder attach <path>` from there or `builder attach --project <project-id> <path>`", serverapi.ErrWorkspaceNotRegistered, trimmedRoot)
+	return fmt.Errorf("%w: %s is not attached to a project. Run `kent project` in a workspace that already belongs to the target project, then run `kent attach <path>` from there or `kent attach --project <project-id> <path>`", serverapi.ErrWorkspaceNotRegistered, trimmedRoot)
 }
 
 func resolveInteractiveBinding(ctx context.Context, projectViews client.ProjectViewClient, workspaceRoot string) (*serverapi.ProjectBinding, error) {

@@ -24,7 +24,7 @@ func TestInteractiveAuthOAuthPresenterRendersBrowserManualFallback(t *testing.T)
 	for _, want := range []string{
 		"Sign in with OpenAI Codex using browser",
 		"https://auth.example/authorize",
-		"Builder could not open your browser automatically (blocked). Open the URL manually.",
+		"Kent could not open your browser automatically (blocked). Open the URL manually.",
 		"Waiting for browser callback...",
 	} {
 		if !strings.Contains(plain, want) {

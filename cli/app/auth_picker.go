@@ -448,7 +448,7 @@ func runAuthConflictPicker(req authInteraction) (authConflictPickerResult, error
 		authConflictPickerHeaderMarkdown,
 		"Choose auth source",
 		req.Theme,
-		startupPickerNotice{Text: "Builder found both saved subscription auth and OPENAI_API_KEY. Choose which auth source should win from now on.", Kind: startupPickerNoticeNeutral},
+		startupPickerNotice{Text: "Kent found both saved subscription auth and OPENAI_API_KEY. Choose which auth source should win from now on.", Kind: startupPickerNoticeNeutral},
 		authConflictOptions(),
 	)
 	picked, err := runStartupPickerFlow(model)

@@ -42,7 +42,7 @@ func newOnboardingWorkflow(state *onboardingFlowState) onboardingWorkflow {
 					ID:              "theme",
 					Kind:            onboardingScreenChoice,
 					Title:           "Choose a theme",
-					Body:            "Pick the theme Builder should use. The preview updates as you move. If you keep the detected default, Builder stays on auto.",
+					Body:            "Pick the theme Kent should use. The preview updates as you move. If you keep the detected default, Kent stays on auto.",
 					ThemePreview:    true,
 					DefaultOptionID: defaultOption,
 					Options: []onboardingOption{
@@ -65,7 +65,7 @@ func newOnboardingWorkflow(state *onboardingFlowState) onboardingWorkflow {
 					Title:           "First-time setup",
 					Body:            "Do you want to run the first-time setup wizard now or start with defaults?",
 					DefaultOptionID: "configure",
-					Options:         []onboardingOption{{ID: "configure", Title: "Yes, configure Builder"}, {ID: "defaults", Title: "No, set up defaults for me"}},
+					Options:         []onboardingOption{{ID: "configure", Title: "Yes, configure Kent"}, {ID: "defaults", Title: "No, set up defaults for me"}},
 				}
 			},
 			apply: func(state *onboardingFlowState, choiceID string) error {
@@ -91,7 +91,7 @@ func newOnboardingWorkflow(state *onboardingFlowState) onboardingWorkflow {
 			},
 			build: func(state *onboardingFlowState) onboardingScreen {
 				meta, _ := llm.LookupModelMetadata(state.settings.Model)
-				body := fmt.Sprintf("%s supports larger context windows. The larger window costs about 50%% more. Quality degrades as the model gets closer to its limit. If automatic compaction is off, Builder can still go above the limit anyway, so the smaller default is recommended.", state.settings.Model)
+				body := fmt.Sprintf("%s supports larger context windows. The larger window costs about 50%% more. Quality degrades as the model gets closer to its limit. If automatic compaction is off, Kent can still go above the limit anyway, so the smaller default is recommended.", state.settings.Model)
 				return onboardingScreen{ID: "context_window", Kind: onboardingScreenChoice, Title: "Choose a context window", Body: body, DefaultOptionID: "default", Options: []onboardingOption{{ID: "default", Title: fmt.Sprintf("Default window: %s", formatTokenWindow(meta.ContextWindowTokens))}, {ID: "large", Title: fmt.Sprintf("Higher window: %s", formatTokenWindow(meta.LargeContextWindowTokens))}}}
 			},
 			apply: func(state *onboardingFlowState, choiceID string) error {
@@ -183,7 +183,7 @@ func newOnboardingWorkflow(state *onboardingFlowState) onboardingWorkflow {
 				if state.settings.EnabledTools[toolspec.ToolAskQuestion] {
 					defaultChoice = "yes"
 				}
-				return onboardingScreen{ID: "ask_question", Kind: onboardingScreenChoice, Title: "Allow follow-up questions?", Body: "Allow Builder to ask follow-up questions when it needs clarification.", Options: []onboardingOption{{ID: "yes", Title: "Yes"}, {ID: "no", Title: "No"}}, DefaultOptionID: defaultChoice}
+				return onboardingScreen{ID: "ask_question", Kind: onboardingScreenChoice, Title: "Allow follow-up questions?", Body: "Allow Kent to ask follow-up questions when it needs clarification.", Options: []onboardingOption{{ID: "yes", Title: "Yes"}, {ID: "no", Title: "No"}}, DefaultOptionID: defaultChoice}
 			},
 			apply: func(state *onboardingFlowState, choiceID string) error {
 				state.settings.EnabledTools[toolspec.ToolAskQuestion] = choiceID == "yes"
@@ -304,12 +304,12 @@ func newOnboardingWorkflow(state *onboardingFlowState) onboardingWorkflow {
 		onboardingStepDefinition{
 			id: "compaction",
 			build: func(state *onboardingFlowState) onboardingScreen {
-				options := []onboardingOption{{ID: string(config.CompactionModeLocal), Title: "Local", Description: "Builder's high-quality, slow, costlier, proprietary compaction algorithm."}}
+				options := []onboardingOption{{ID: string(config.CompactionModeLocal), Title: "Local", Description: "Kent's high-quality, slow, costlier, proprietary compaction algorithm."}}
 				if state.providerCapabilities.SupportsResponsesCompact {
 					options = append(options, onboardingOption{ID: string(config.CompactionModeNative), Title: "Native", Description: "Model provider compacts the context on their own with varying quality."})
 				}
 				options = append(options, onboardingOption{ID: string(config.CompactionModeNone), Title: "Manual compaction only", Description: "Model requests will fail if threshold is reached."})
-				return onboardingScreen{ID: "compaction", Kind: onboardingScreenChoice, Title: "Choose a compaction mode", Body: "Builder can automatically summarize the conversation when the model reaches its context limit. You can always compact manually with /compact.", Options: options, DefaultOptionID: string(state.settings.CompactionMode)}
+				return onboardingScreen{ID: "compaction", Kind: onboardingScreenChoice, Title: "Choose a compaction mode", Body: "Kent can automatically summarize the conversation when the model reaches its context limit. You can always compact manually with /compact.", Options: options, DefaultOptionID: string(state.settings.CompactionMode)}
 			},
 			apply: func(state *onboardingFlowState, choiceID string) error {
 				state.settings.CompactionMode = config.CompactionMode(choiceID)

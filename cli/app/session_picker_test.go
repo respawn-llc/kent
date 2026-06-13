@@ -123,7 +123,7 @@ func TestSessionPickerHeaderRendersStatusReportBox(t *testing.T) {
 	plain := stripANSIAndTrimRight(m.renderHeader())
 	for _, want := range []string{
 		"┌",
-		"Builder v1.2.3",
+		"Kent v1.2.3",
 		"git feature/session-picker · ~/Developer/builder-cli",
 		"OpenAI Subscription · gpt-5 high",
 		"Server owned by this terminal",
@@ -181,7 +181,7 @@ func TestSessionPickerHeaderInitialAsyncPaintUsesOnlyStaticShell(t *testing.T) {
 	}
 
 	before := stripANSIAndTrimRight(m.View())
-	if !strings.Contains(before, "Builder v1.2.3") || !strings.Contains(before, "Server owned by this terminal") {
+	if !strings.Contains(before, "Kent v1.2.3") || !strings.Contains(before, "Server owned by this terminal") {
 		t.Fatalf("expected static shell before async status, got %q", before)
 	}
 	for _, unexpected := range []string{"git picker-branch", "No auth", "gpt-5 high", repoRoot} {
@@ -270,7 +270,7 @@ func TestSessionPickerHeaderReflowsMainInfoWhenNarrow(t *testing.T) {
 		t.Fatalf("expected narrow header to reflow main info, got %q", plain)
 	}
 	for _, want := range []string{
-		"Builder v1.2.3",
+		"Kent v1.2.3",
 		"git main",
 		"…",
 		"OpenAI API Key",

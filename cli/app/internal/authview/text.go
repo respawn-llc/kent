@@ -51,7 +51,7 @@ func MethodPickerNotice(req MethodPickerNoticeRequest) Notice {
 		return Notice{Text: "Saved sign-in needs attention: " + gateReason, Kind: NoticeError}
 	}
 	if req.HasEnvAPIKey {
-		return Notice{Text: "Choose how Builder should sign in. OPENAI_API_KEY is available for this launch.", Kind: NoticeNeutral}
+		return Notice{Text: "Choose how Kent should sign in. OPENAI_API_KEY is available for this launch.", Kind: NoticeNeutral}
 	}
 	return Notice{Text: "Choose how to authenticate.", Kind: NoticeNeutral}
 }
