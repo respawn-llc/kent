@@ -138,7 +138,7 @@ func (s *Service) fetchLatestVersion(ctx context.Context) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "builder")
+	req.Header.Set("User-Agent", "kent")
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return "", err

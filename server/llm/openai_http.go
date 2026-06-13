@@ -23,8 +23,8 @@ import (
 const (
 	defaultOpenAIBaseURL   = "https://api.openai.com/v1"
 	codexResponsesEndpoint = "https://chatgpt.com/backend-api/codex/responses"
-	defaultOriginator      = "builder"
-	defaultUserAgent       = "core/dev"
+	defaultOriginator      = "kent"
+	defaultUserAgent       = "kent/dev"
 	reasoningRoleSummary   = "reasoning"
 )
 

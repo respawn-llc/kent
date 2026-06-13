@@ -26,7 +26,7 @@ const (
 	oauthBindAddress                = "127.0.0.1:1455"
 	oauthListenerRetryMax           = 10
 	oauthListenerRetryDelay         = 200 * time.Millisecond
-	defaultOAuthOriginator          = "builder"
+	defaultOAuthOriginator          = "kent"
 )
 
 //go:embed auth_complete.html

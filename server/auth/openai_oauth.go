@@ -20,7 +20,7 @@ const (
 	DefaultOpenAIIssuer   = "https://auth.openai.com"
 	DefaultOpenAIClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 	defaultPollTimeout    = 15 * time.Minute
-	defaultUserAgent      = "builder"
+	defaultUserAgent      = "kent"
 )
 
 type OpenAIOAuthOptions struct {

@@ -49,7 +49,7 @@ func TestBeginOpenAIBrowserFlowBuildsOAuthAuthorizeURL(t *testing.T) {
 	if got := q.Get("codex_cli_simplified_flow"); got != "true" {
 		t.Fatalf("codex_cli_simplified_flow=%q", got)
 	}
-	if got := q.Get("originator"); got != "builder" {
+	if got := q.Get("originator"); got != "kent" {
 		t.Fatalf("originator=%q", got)
 	}
 	if got := q.Get("state"); got == "" {

@@ -230,7 +230,7 @@ func fetchUsagePayload(ctx context.Context, baseURL string, state auth.State) (u
 		return usagePayload{}, err
 	}
 	request.Header.Set("Authorization", authorization)
-	request.Header.Set("User-Agent", "core/dev")
+	request.Header.Set("User-Agent", "kent/dev")
 	if state.Method.OAuth != nil {
 		if accountID := strings.TrimSpace(state.Method.OAuth.AccountID); accountID != "" {
 			request.Header.Set("ChatGPT-Account-Id", accountID)
