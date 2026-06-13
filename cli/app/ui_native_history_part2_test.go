@@ -537,7 +537,7 @@ func TestRuntimeBatchDefersFinalUntilStreamingPromotionFlushes(t *testing.T) {
 	m.discardPendingNativeHistoryFlushes()
 
 	prefix := "Captured the Kent project board in the browser:\n\n"
-	path := "/Users/nek/.builder/worktrees/builder-cli-c2f75fc8-68f5-4deb-a23c-21cc5820436d/gui-fixes/.builder/proofs/gui-browser-kent-board/screenshot-1779219845652.png"
+	path := "/Users/nek/.kent/worktrees/kent-cli-c2f75fc8-68f5-4deb-a23c-21cc5820436d/gui-fixes/.kent/proofs/gui-browser-kent-board/screenshot-1779219845652.png"
 	tail := "\n\nI opened it via the browser client against `ws://127.0.0.1:53082/rpc`."
 	finalText := prefix + path + tail
 

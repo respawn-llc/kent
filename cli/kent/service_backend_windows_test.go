@@ -202,8 +202,8 @@ func TestWindowsStatusDoesNotTreatBareServerProcessAsServiceRunning(t *testing.T
 }
 
 func TestParseWindowsCommandLinePreservesPathBackslashes(t *testing.T) {
-	got := parseWindowsCommandLine(`"C:\Users\Nek\AppData\Local\Builder\builder.exe" serve`)
-	want := []string{`C:\Users\Nek\AppData\Local\Builder\builder.exe`, "serve"}
+	got := parseWindowsCommandLine(`"C:\Users\Nek\AppData\Local\Kent\kent.exe" serve`)
+	want := []string{`C:\Users\Nek\AppData\Local\Kent\kent.exe`, "serve"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseWindowsCommandLine = %#v, want %#v", got, want)
 	}
@@ -215,7 +215,7 @@ func windowsServiceTestSpec(t *testing.T) serviceSpec {
 	t.Setenv("APPDATA", filepath.Join(temp, "AppData", "Roaming"))
 	return serviceSpec{
 		Config:        config.App{PersistenceRoot: filepath.Join(temp, brand.ConfigDirName)},
-		Executable:    filepath.Join(temp, "builder.exe"),
+		Executable:    filepath.Join(temp, "kent.exe"),
 		Arguments:     []string{"serve"},
 		LogDir:        filepath.Join(temp, brand.ConfigDirName, "logs"),
 		StdoutLogPath: filepath.Join(temp, brand.ConfigDirName, "logs", "server.log"),

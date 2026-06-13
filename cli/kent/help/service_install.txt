@@ -1,4 +1,4 @@
-Usage of builder service install:
-  builder service install [--force] [--no-start]
+Usage of kent service install:
+  kent service install [--force] [--no-start]
 
 Flags:

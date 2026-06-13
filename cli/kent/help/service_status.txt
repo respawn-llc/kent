@@ -1,4 +1,4 @@
-Usage of builder service status:
-  builder service status [--json]
+Usage of kent service status:
+  kent service status [--json]
 
 Flags:

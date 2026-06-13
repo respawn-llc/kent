@@ -124,7 +124,7 @@ func TestNativeStreamedMultilineMarkdownFinalThenCommitAppearsOnceInScrollback(t
 	program.Send(tea.WindowSizeMsg{Width: 80, Height: 30})
 
 	prefix := "Captured the Kent project board in the browser:\n\n"
-	path := "/Users/nek/.builder/worktrees/builder-cli-c2f75fc8-68f5-4deb-a23c-21cc5820436d/gui-fixes/.builder/proofs/gui-browser-kent-board/screenshot-1779219845652.png"
+	path := "/Users/nek/.kent/worktrees/kent-cli-c2f75fc8-68f5-4deb-a23c-21cc5820436d/gui-fixes/.kent/proofs/gui-browser-kent-board/screenshot-1779219845652.png"
 	tail := "\n\nI opened it via the browser client against `ws://127.0.0.1:53082/rpc`; the board URL was `http://127.0.0.1:1433/projects/project-94b18685-19ed-4513-96bb-bcffa10410ff?workflowId=workflow-9f88e01d-f923-45a6-8c96-95298da24815&taskId=&resumeRunId=`."
 	finalText := prefix + path + tail
 

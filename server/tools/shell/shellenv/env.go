@@ -4,12 +4,13 @@ import (
 	"os"
 	"strings"
 
+	"core/shared/brand"
 	"core/shared/config"
 	"core/shared/sessionenv"
 )
 
 var overrides = []string{
-	"AGENT=builder",
+	"AGENT=" + brand.Command,
 	"TERM=dumb",
 	"COLORTERM=",
 	"CI=1",

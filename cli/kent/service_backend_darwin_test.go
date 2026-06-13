@@ -205,7 +205,7 @@ func TestLaunchdRestartIfInstalledReplacesStaleLoadedServiceAfterTransientBootst
 		case "launchctl\x00print\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
 			printCalls++
 			if printCalls <= 2 {
-				return serviceCommandResult{Stdout: "state = running\npid = 42\narguments = {\n\t/old/builder\n\tserve\n}\n"}, nil
+				return serviceCommandResult{Stdout: "state = running\npid = 42\narguments = {\n\t/old/kent\n\tserve\n}\n"}, nil
 			}
 			return serviceCommandResult{Stderr: "not found", Code: 113}, serviceCommandError{Name: name, Args: args, Result: serviceCommandResult{Stderr: "not found", Code: 113}}
 		case "launchctl\x00bootstrap\x00gui/" + currentUIDText() + "\x00" + path:
@@ -255,7 +255,7 @@ func TestLaunchdRestartIfInstalledBootstrapRecoveryFailsWhenBootoutFails(t *test
 		case "launchctl\x00print\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
 			printCalls++
 			if printCalls <= 2 {
-				return serviceCommandResult{Stdout: "state = running\npid = 42\narguments = {\n\t/old/builder\n\tserve\n}\n"}, nil
+				return serviceCommandResult{Stdout: "state = running\npid = 42\narguments = {\n\t/old/kent\n\tserve\n}\n"}, nil
 			}
 			return serviceCommandResult{Stderr: "not found", Code: 113}, serviceCommandError{Name: name, Args: args, Result: serviceCommandResult{Stderr: "not found", Code: 113}}
 		case "launchctl\x00bootstrap\x00gui/" + currentUIDText() + "\x00" + path:
@@ -292,7 +292,7 @@ func TestLaunchdRestartIfInstalledBootstrapRecoveryFailsWhenRetryBootstrapFails(
 		case "launchctl\x00print\x00gui/" + currentUIDText() + "/" + serviceLaunchdLabel:
 			printCalls++
 			if printCalls <= 2 {
-				return serviceCommandResult{Stdout: "state = running\npid = 42\narguments = {\n\t/old/builder\n\tserve\n}\n"}, nil
+				return serviceCommandResult{Stdout: "state = running\npid = 42\narguments = {\n\t/old/kent\n\tserve\n}\n"}, nil
 			}
 			return serviceCommandResult{Stderr: "not found", Code: 113}, serviceCommandError{Name: name, Args: args, Result: serviceCommandResult{Stderr: "not found", Code: 113}}
 		case "launchctl\x00bootstrap\x00gui/" + currentUIDText() + "\x00" + path:
@@ -521,7 +521,7 @@ func TestLaunchdReloadExplainsOldServerStillRunningInsteadOfBootstrapCodeFive(t 
 	if err == nil {
 		t.Fatal("expected reload to fail while old server is still healthy")
 	}
-	if !strings.Contains(err.Error(), "old Builder server did not exit") || !strings.Contains(err.Error(), "running Builder server process 42 did not exit") {
+	if !strings.Contains(err.Error(), "old Kent server did not exit") || !strings.Contains(err.Error(), "running Kent server process 42 did not exit") {
 		t.Fatalf("error = %v, want actionable old-server and process-exit messages", err)
 	}
 	if countLaunchdCommand(*calls, "bootstrap") != 0 {
@@ -533,20 +533,20 @@ func TestLaunchdRestartIfInstalledRepeatedIntegration(t *testing.T) {
 	if os.Getenv("KENT_LAUNCHD_INTEGRATION") != "1" {
 		t.Skip("set KENT_LAUNCHD_INTEGRATION=1 to run real launchd service restart integration")
 	}
-	builderPath := strings.TrimSpace(os.Getenv("KENT_LAUNCHD_INTEGRATION_BUILDER"))
-	if builderPath == "" {
+	kentPath := strings.TrimSpace(os.Getenv("KENT_LAUNCHD_INTEGRATION_BIN"))
+	if kentPath == "" {
 		var err error
-		builderPath, err = exec.LookPath("builder")
+		kentPath, err = exec.LookPath("kent")
 		if err != nil {
-			t.Fatalf("find builder binary: %v", err)
+			t.Fatalf("find kent binary: %v", err)
 		}
 	}
 	freePort := reserveFreeLocalPort(t)
 	root := t.TempDir()
-	wrapperPath := filepath.Join(root, "builder")
-	wrapper := fmt.Sprintf("#!/bin/sh\nexport KENT_SERVER_PORT=%d\nexport KENT_PERSISTENCE_ROOT=%s\nexec -a \"$0\" %s \"$@\"\n", freePort, shellQuote(filepath.Join(root, "persist")), shellQuote(builderPath))
+	wrapperPath := filepath.Join(root, "kent")
+	wrapper := fmt.Sprintf("#!/bin/sh\nexport KENT_SERVER_PORT=%d\nexport KENT_PERSISTENCE_ROOT=%s\nexec -a \"$0\" %s \"$@\"\n", freePort, shellQuote(filepath.Join(root, "persist")), shellQuote(kentPath))
 	if err := os.WriteFile(wrapperPath, []byte(wrapper), 0o755); err != nil {
-		t.Fatalf("write builder wrapper: %v", err)
+		t.Fatalf("write kent wrapper: %v", err)
 	}
 	home := filepath.Join(root, "home")
 	if err := os.MkdirAll(home, 0o755); err != nil {
@@ -557,7 +557,7 @@ func TestLaunchdRestartIfInstalledRepeatedIntegration(t *testing.T) {
 		fmt.Sprintf("KENT_SERVER_PORT=%d", freePort),
 		"KENT_PERSISTENCE_ROOT="+filepath.Join(root, "persist"),
 	)
-	runBuilder := func(args ...string) string {
+	runKent := func(args ...string) string {
 		t.Helper()
 		cmd := exec.Command(wrapperPath, args...)
 		cmd.Env = env
@@ -573,14 +573,14 @@ func TestLaunchdRestartIfInstalledRepeatedIntegration(t *testing.T) {
 		_ = cmd.Run()
 	})
 
-	runBuilder("service", "install", "--force")
+	runKent("service", "install", "--force")
 	lastPID := 0
 	for i := 0; i < 3; i++ {
-		output := runBuilder("service", "restart", "--if-installed")
-		if !strings.Contains(output, "Restarted Builder background service.") {
+		output := runKent("service", "restart", "--if-installed")
+		if !strings.Contains(output, "Restarted Kent background service.") {
 			t.Fatalf("restart output = %q, want restart confirmation", output)
 		}
-		status := runBuilder("service", "status", "--json")
+		status := runKent("service", "status", "--json")
 		var decoded serviceStatus
 		if err := json.Unmarshal([]byte(status), &decoded); err != nil {
 			t.Fatalf("decode status JSON: %v; raw=%q", err, status)
@@ -664,7 +664,7 @@ func TestLaunchdStatusUsesLoadedCommandAndRunningStateFromPrint(t *testing.T) {
 		if strings.Join(append([]string{name}, args...), "\x00") != "launchctl\x00print\x00gui/"+currentUIDText()+"/"+serviceLaunchdLabel {
 			return serviceCommandResult{}, errors.New("unexpected command")
 		}
-		return serviceCommandResult{Stdout: "state = running\narguments = {\n\t/usr/local/bin/builder\n\tserve\n}\n"}, nil
+		return serviceCommandResult{Stdout: "state = running\narguments = {\n\t/usr/local/bin/kent\n\tserve\n}\n"}, nil
 	})
 
 	status, err := (launchdServiceBackend{}).Status(context.Background(), spec)
@@ -674,7 +674,7 @@ func TestLaunchdStatusUsesLoadedCommandAndRunningStateFromPrint(t *testing.T) {
 	if !status.Running {
 		t.Fatalf("running = false, want true from launchd state")
 	}
-	wantCommand := []string{"/usr/local/bin/builder", "serve"}
+	wantCommand := []string{"/usr/local/bin/kent", "serve"}
 	if !reflect.DeepEqual(status.Command, wantCommand) {
 		t.Fatalf("command = %#v, want %#v", status.Command, wantCommand)
 	}
@@ -702,7 +702,7 @@ func testLaunchdServiceSpec(t *testing.T) serviceSpec {
 	t.Helper()
 	root := t.TempDir()
 	return serviceSpec{
-		Executable:    "/usr/local/bin/builder",
+		Executable:    "/usr/local/bin/kent",
 		Arguments:     []string{"serve"},
 		LogDir:        filepath.Join(root, "logs"),
 		StdoutLogPath: filepath.Join(root, "logs", "server.log"),

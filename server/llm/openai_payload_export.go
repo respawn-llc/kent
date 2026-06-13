@@ -16,7 +16,7 @@ type OpenAIResponsesPayloadOptions struct {
 	OAuth          bool
 }
 
-// MarshalOpenAIResponsesRequestJSON renders the exact JSON body that Builder's
+// MarshalOpenAIResponsesRequestJSON renders the exact JSON body that Kent's
 // OpenAI Responses transport would send for the provided request.
 func MarshalOpenAIResponsesRequestJSON(request Request, options OpenAIResponsesPayloadOptions) ([]byte, error) {
 	if err := request.Validate(); err != nil {

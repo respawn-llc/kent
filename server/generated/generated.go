@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	builderDirName      = brand.ConfigDirName
+	configDirName       = brand.ConfigDirName
 	generatedDirName    = ".generated"
 	recoveredDirName    = "recovered"
 	generatedSkillsDir  = "skills"
@@ -197,12 +197,12 @@ func resolvePaths(homeDir string) (generatedPaths, error) {
 	if strings.TrimSpace(home) == "" {
 		return generatedPaths{}, errors.New("home dir is required")
 	}
-	builderRoot := filepath.Join(home, builderDirName)
-	generatedRoot := filepath.Join(builderRoot, generatedDirName)
+	configRoot := filepath.Join(home, configDirName)
+	generatedRoot := filepath.Join(configRoot, generatedDirName)
 	return generatedPaths{
 		generatedRoot:       generatedRoot,
 		generatedSkillsRoot: filepath.Join(generatedRoot, generatedSkillsDir),
-		recoveryRoot:        filepath.Join(builderRoot, recoveredDirName),
+		recoveryRoot:        filepath.Join(configRoot, recoveredDirName),
 	}, nil
 }
 

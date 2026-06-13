@@ -127,10 +127,10 @@ func TestLoadAcceptsCustomThinkingLevel(t *testing.T) {
 
 func TestLoadExpandsTildePersistenceRootFromEnv(t *testing.T) {
 	home, workspace := newConfigTestEnv(t)
-	t.Setenv("KENT_PERSISTENCE_ROOT", "~/.builder-custom")
+	t.Setenv("KENT_PERSISTENCE_ROOT", "~/.kent-custom")
 
 	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
-	if got := cfg.PersistenceRoot; got != filepath.Join(home, ".builder-custom") {
+	if got := cfg.PersistenceRoot; got != filepath.Join(home, ".kent-custom") {
 		t.Fatalf("expanded persistence root mismatch: %q", got)
 	}
 }

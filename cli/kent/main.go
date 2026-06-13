@@ -168,7 +168,7 @@ func requireInteractiveTerminal(stdin io.Reader, stdout io.Writer, force bool) e
 		return nil
 	}
 	if !isTerminalReader(stdin) || !isTerminalWriter(stdout) {
-		return errors.New("interactive mode requires a terminal on stdin and stdout; use `builder run ...` for headless usage or pass --force-interactive to bypass this check")
+		return errors.New("interactive mode requires a terminal on stdin and stdout; use `" + brand.Command + " run ...` for headless usage or pass --force-interactive to bypass this check")
 	}
 	return nil
 }
@@ -190,7 +190,7 @@ func isTerminalWriter(w io.Writer) bool {
 }
 
 func runSubcommand(args []string) int {
-	runFS := flag.NewFlagSet("builder run", flag.ContinueOnError)
+	runFS := flag.NewFlagSet(brand.Command+" run", flag.ContinueOnError)
 	runFS.SetOutput(os.Stderr)
 	runFS.Usage = func() { runUsage.write(runFS) }
 	flags := registerCommonFlags(runFS, true)
@@ -370,7 +370,7 @@ func effectiveSessionID(flags commonFlags) (string, error) {
 }
 
 func sessionIDSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	sessionFS := newCommandFlagSet("builder session-id", stderr, sessionIDUsage)
+	sessionFS := newCommandFlagSet(brand.Command+" session-id", stderr, sessionIDUsage)
 	if ok, exitCode := parseCommandFlags(sessionFS, args); !ok {
 		return exitCode
 	}
@@ -381,7 +381,7 @@ func sessionIDSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 	}
 	sessionID, ok := sessionenv.LookupSessionID(os.LookupEnv)
 	if !ok {
-		fmt.Fprintf(stderr, "%s is not set; this command only works inside Builder shell commands\n", sessionenv.SessionIDEnv)
+		fmt.Fprintf(stderr, "%s is not set; this command only works inside "+brand.Product+" shell commands\n", sessionenv.SessionIDEnv)
 		return 1
 	}
 	_, _ = fmt.Fprintln(stdout, sessionID)

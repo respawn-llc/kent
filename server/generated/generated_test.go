@@ -21,9 +21,9 @@ func TestSyncSeedsMissingGeneratedRoot(t *testing.T) {
 	if result.Recovered {
 		t.Fatalf("did not expect recovery: %+v", result)
 	}
-	assertFile(t, filepath.Join(home, builderDirName, ".generated", "README.md"), generatedReadme)
-	assertFile(t, filepath.Join(home, builderDirName, ".generated", "skills", "skill-creator", "SKILL.md"), testSkillMarkdown("skill-creator", "create skills"))
-	markerPath := filepath.Join(home, builderDirName, ".generated", markerFileName)
+	assertFile(t, filepath.Join(home, configDirName, ".generated", "README.md"), generatedReadme)
+	assertFile(t, filepath.Join(home, configDirName, ".generated", "skills", "skill-creator", "SKILL.md"), testSkillMarkdown("skill-creator", "create skills"))
+	markerPath := filepath.Join(home, configDirName, ".generated", markerFileName)
 	if _, err := os.Stat(markerPath); err != nil {
 		t.Fatalf("expected marker: %v", err)
 	}
@@ -45,11 +45,11 @@ func TestSyncUpgradesCleanGeneratedRootWithoutRecovery(t *testing.T) {
 	if result.Recovered {
 		t.Fatalf("did not expect recovery for clean upgrade: %+v", result)
 	}
-	if _, err := os.Stat(filepath.Join(home, builderDirName, ".generated", "skills", "old-skill", "SKILL.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(home, configDirName, ".generated", "skills", "old-skill", "SKILL.md")); !os.IsNotExist(err) {
 		t.Fatalf("expected old skill removed on clean upgrade, err=%v", err)
 	}
-	assertFile(t, filepath.Join(home, builderDirName, ".generated", "skills", "skill-creator", "SKILL.md"), testSkillMarkdown("skill-creator", "create skills"))
-	if nonEmpty, err := recoveredRootNonEmpty(filepath.Join(home, builderDirName, "recovered")); err != nil || nonEmpty {
+	assertFile(t, filepath.Join(home, configDirName, ".generated", "skills", "skill-creator", "SKILL.md"), testSkillMarkdown("skill-creator", "create skills"))
+	if nonEmpty, err := recoveredRootNonEmpty(filepath.Join(home, configDirName, "recovered")); err != nil || nonEmpty {
 		t.Fatalf("expected no recovered entries, nonEmpty=%t err=%v", nonEmpty, err)
 	}
 }
@@ -60,7 +60,7 @@ func TestSyncRecoversEditedGeneratedRoot(t *testing.T) {
 	if _, err := Sync(context.Background(), SyncOptions{HomeDir: home, FS: testGeneratedFS(), Now: now}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(home, builderDirName, ".generated", "skills", "skill-creator", "SKILL.md"), []byte("edited"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(home, configDirName, ".generated", "skills", "skill-creator", "SKILL.md"), []byte("edited"), 0o644); err != nil {
 		t.Fatalf("edit generated skill: %v", err)
 	}
 	result, err := Sync(context.Background(), SyncOptions{HomeDir: home, FS: testGeneratedFS(), Now: now})
@@ -70,12 +70,12 @@ func TestSyncRecoversEditedGeneratedRoot(t *testing.T) {
 	if !result.Recovered {
 		t.Fatalf("expected recovery: %+v", result)
 	}
-	wantRecovery := filepath.Join(home, builderDirName, "recovered", "2026-05-04T18-43-16Z", ".generated")
+	wantRecovery := filepath.Join(home, configDirName, "recovered", "2026-05-04T18-43-16Z", ".generated")
 	if result.RecoveryPath != wantRecovery {
 		t.Fatalf("recovery path = %q, want %q", result.RecoveryPath, wantRecovery)
 	}
 	assertFile(t, filepath.Join(wantRecovery, "skills", "skill-creator", "SKILL.md"), "edited")
-	assertFile(t, filepath.Join(home, builderDirName, ".generated", "skills", "skill-creator", "SKILL.md"), testSkillMarkdown("skill-creator", "create skills"))
+	assertFile(t, filepath.Join(home, configDirName, ".generated", "skills", "skill-creator", "SKILL.md"), testSkillMarkdown("skill-creator", "create skills"))
 	if !result.RecoveredRootNonEmpty || result.RecoveredWarning != recoveredWarningText {
 		t.Fatalf("expected recovered warning state, got %+v", result)
 	}
@@ -117,7 +117,7 @@ func TestSyncRecoversAddedDeletedAndRenamedEntries(t *testing.T) {
 			if _, err := Sync(context.Background(), SyncOptions{HomeDir: home, FS: testGeneratedFS(), Now: fixedNow()}); err != nil {
 				t.Fatalf("seed: %v", err)
 			}
-			root := filepath.Join(home, builderDirName, ".generated")
+			root := filepath.Join(home, configDirName, ".generated")
 			tc.mutate(t, root)
 			result, err := Sync(context.Background(), SyncOptions{HomeDir: home, FS: testGeneratedFS(), Now: fixedNow()})
 			if err != nil {
@@ -132,7 +132,7 @@ func TestSyncRecoversAddedDeletedAndRenamedEntries(t *testing.T) {
 
 func TestSyncRecoversEmptiedGeneratedRoot(t *testing.T) {
 	home := t.TempDir()
-	root := filepath.Join(home, builderDirName, ".generated")
+	root := filepath.Join(home, configDirName, ".generated")
 	if _, err := Sync(context.Background(), SyncOptions{HomeDir: home, FS: testGeneratedFS(), Now: fixedNow()}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestSyncRecoversEmptiedGeneratedRoot(t *testing.T) {
 	if !result.Recovered {
 		t.Fatalf("expected recovery for empty generated root: %+v", result)
 	}
-	wantRecovery := filepath.Join(home, builderDirName, "recovered", "2026-05-04T18-43-16Z", ".generated")
+	wantRecovery := filepath.Join(home, configDirName, "recovered", "2026-05-04T18-43-16Z", ".generated")
 	info, err := os.Stat(wantRecovery)
 	if err != nil {
 		t.Fatalf("expected recovered empty generated root: %v", err)
@@ -202,7 +202,7 @@ func TestSyncRecoversPermissionOnlyEdits(t *testing.T) {
 			if _, err := Sync(context.Background(), SyncOptions{HomeDir: home, FS: testGeneratedFS(), Now: fixedNow()}); err != nil {
 				t.Fatalf("seed: %v", err)
 			}
-			target := filepath.Join(home, builderDirName, ".generated", tc.path)
+			target := filepath.Join(home, configDirName, ".generated", tc.path)
 			if err := os.Chmod(target, tc.perm); err != nil {
 				t.Fatalf("chmod generated %s: %v", tc.path, err)
 			}
@@ -235,8 +235,8 @@ func TestSyncMarkerTracksOnDiskModesUnderRestrictiveUmask(t *testing.T) {
 	if result.Recovered {
 		t.Fatalf("did not expect recovery for clean umask-masked tree: %+v", result)
 	}
-	assertPerm(t, filepath.Join(home, builderDirName, ".generated", "skills", "skill-creator", "SKILL.md"), 0o600)
-	assertPerm(t, filepath.Join(home, builderDirName, ".generated", "skills", "skill-creator"), 0o700)
+	assertPerm(t, filepath.Join(home, configDirName, ".generated", "skills", "skill-creator", "SKILL.md"), 0o600)
+	assertPerm(t, filepath.Join(home, configDirName, ".generated", "skills", "skill-creator"), 0o700)
 }
 
 func TestSyncRecoversSymlinkWithoutFollowing(t *testing.T) {
@@ -248,7 +248,7 @@ func TestSyncRecoversSymlinkWithoutFollowing(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
 		t.Fatalf("write outside: %v", err)
 	}
-	if err := os.Symlink(outside, filepath.Join(home, builderDirName, ".generated", "link")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(home, configDirName, ".generated", "link")); err != nil {
 		t.Fatalf("symlink: %v", err)
 	}
 	result, err := Sync(context.Background(), SyncOptions{HomeDir: home, FS: testGeneratedFS(), Now: fixedNow()})
@@ -284,7 +284,7 @@ func TestSyncRecoversInvalidOrMissingMarker(t *testing.T) {
 			if _, err := Sync(context.Background(), SyncOptions{HomeDir: home, FS: testGeneratedFS(), Now: fixedNow()}); err != nil {
 				t.Fatalf("seed: %v", err)
 			}
-			markerPath := filepath.Join(home, builderDirName, ".generated", markerFileName)
+			markerPath := filepath.Join(home, configDirName, ".generated", markerFileName)
 			if tc.remove {
 				if err := os.Remove(markerPath); err != nil {
 					t.Fatalf("remove marker: %v", err)
@@ -305,21 +305,21 @@ func TestSyncRecoversInvalidOrMissingMarker(t *testing.T) {
 
 func TestSyncRecoversGeneratedRootFileAndTimestampCollision(t *testing.T) {
 	home := t.TempDir()
-	builderRoot := filepath.Join(home, builderDirName)
-	if err := os.MkdirAll(builderRoot, 0o755); err != nil {
+	configRoot := filepath.Join(home, configDirName)
+	if err := os.MkdirAll(configRoot, 0o755); err != nil {
 		t.Fatalf("mkdir builder root: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(builderRoot, ".generated"), []byte("file"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(configRoot, ".generated"), []byte("file"), 0o644); err != nil {
 		t.Fatalf("write generated file: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(builderRoot, "recovered", "2026-05-04T18-43-16Z"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(configRoot, "recovered", "2026-05-04T18-43-16Z"), 0o755); err != nil {
 		t.Fatalf("create collision: %v", err)
 	}
 	result, err := Sync(context.Background(), SyncOptions{HomeDir: home, FS: testGeneratedFS(), Now: fixedNow()})
 	if err != nil {
 		t.Fatalf("recover generated file: %v", err)
 	}
-	want := filepath.Join(builderRoot, "recovered", "2026-05-04T18-43-16Z-2", ".generated")
+	want := filepath.Join(configRoot, "recovered", "2026-05-04T18-43-16Z-2", ".generated")
 	if result.RecoveryPath != want {
 		t.Fatalf("recovery path = %q, want %q", result.RecoveryPath, want)
 	}
@@ -328,7 +328,7 @@ func TestSyncRecoversGeneratedRootFileAndTimestampCollision(t *testing.T) {
 
 func TestSyncDetectsRecoveredRootNonEmptyWithoutNewRecovery(t *testing.T) {
 	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, builderDirName, "recovered", "old"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, configDirName, "recovered", "old"), 0o755); err != nil {
 		t.Fatalf("mkdir recovered: %v", err)
 	}
 	result, err := Sync(context.Background(), SyncOptions{HomeDir: home, FS: testGeneratedFS(), Now: fixedNow()})
@@ -345,11 +345,11 @@ func TestSyncDetectsRecoveredRootNonEmptyWithoutNewRecovery(t *testing.T) {
 
 func TestSyncIgnoresRecoveredRootWarningCheckFailure(t *testing.T) {
 	home := t.TempDir()
-	builderRoot := filepath.Join(home, builderDirName)
-	if err := os.MkdirAll(builderRoot, 0o755); err != nil {
+	configRoot := filepath.Join(home, configDirName)
+	if err := os.MkdirAll(configRoot, 0o755); err != nil {
 		t.Fatalf("mkdir builder root: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(builderRoot, "recovered"), []byte("not a directory"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(configRoot, "recovered"), []byte("not a directory"), 0o644); err != nil {
 		t.Fatalf("write recovered file: %v", err)
 	}
 
@@ -360,7 +360,7 @@ func TestSyncIgnoresRecoveredRootWarningCheckFailure(t *testing.T) {
 	if result.RecoveredRootNonEmpty || result.RecoveredWarning != "" {
 		t.Fatalf("expected warning check failure to be ignored, got %+v", result)
 	}
-	assertFile(t, filepath.Join(home, builderDirName, ".generated", "skills", "skill-creator", "SKILL.md"), testSkillMarkdown("skill-creator", "create skills"))
+	assertFile(t, filepath.Join(home, configDirName, ".generated", "skills", "skill-creator", "SKILL.md"), testSkillMarkdown("skill-creator", "create skills"))
 }
 
 func TestSyncWritesMarkerWithTreeHash(t *testing.T) {
@@ -368,7 +368,7 @@ func TestSyncWritesMarkerWithTreeHash(t *testing.T) {
 	if _, err := Sync(context.Background(), SyncOptions{HomeDir: home, FS: testGeneratedFS(), Now: fixedNow()}); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(home, builderDirName, ".generated", markerFileName))
+	data, err := os.ReadFile(filepath.Join(home, configDirName, ".generated", markerFileName))
 	if err != nil {
 		t.Fatalf("read marker: %v", err)
 	}

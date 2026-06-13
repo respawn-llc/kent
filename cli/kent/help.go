@@ -8,13 +8,13 @@ import (
 )
 
 //go:embed help/*.txt
-var builderHelpFS embed.FS
+var helpFS embed.FS
 
 func writeEmbeddedUsage(fs *flag.FlagSet, name string, includeFlags bool) {
 	if fs == nil {
 		return
 	}
-	data, err := builderHelpFS.ReadFile("help/" + name)
+	data, err := helpFS.ReadFile("help/" + name)
 	if err != nil {
 		panic(fmt.Sprintf("read help text %s: %v", name, err))
 	}

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"core/shared/brand"
 	"core/shared/clientui"
 	"core/shared/serverapi"
 )
@@ -38,7 +39,7 @@ func formatAttachWorkspaceCommandError(targetPath string, explicitProjectID stri
 		if trimmedProjectID == "" {
 			trimmedProjectID = "selected project"
 		}
-		return fmt.Errorf("project %q does not exist in this Builder state: %w", trimmedProjectID, err)
+		return fmt.Errorf("project %q does not exist in this "+brand.Product+" state: %w", trimmedProjectID, err)
 	case errors.Is(err, serverapi.ErrProjectUnavailable):
 		if unavailable, ok := serverapi.AsProjectUnavailable(err); ok {
 			switch unavailable.Availability {

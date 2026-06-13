@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"core/shared/brand"
 	"core/shared/compaction"
 	"core/shared/theme"
 	"core/shared/toolspec"
@@ -75,7 +76,7 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 
 	var out strings.Builder
 	out.WriteString("# Edit and restart to apply changes.\n")
-	out.WriteString("# Config reference: https://opensource.respawn.pro/builder/config/\n\n")
+	out.WriteString("# Config reference: " + brand.DocsURL + "/config/\n\n")
 	writeRootConfigLines(&out, rootLines)
 	modelCapabilityLines := activeOptionalSectionLines(filterDefaultLines(lines, "model_capabilities"), filterDefaultLines(defaultLines, "model_capabilities"))
 	if len(modelCapabilityLines) > 0 {

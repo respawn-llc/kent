@@ -9,10 +9,11 @@ import (
 	"sync"
 	"time"
 
+	"core/shared/brand"
 	"core/shared/clientui"
 )
 
-const defaultLatestReleaseURL = "https://api.github.com/repos/respawn-llc/builder/releases/latest"
+const defaultLatestReleaseURL = "https://api.github.com/repos/" + brand.RepoSlug + "/releases/latest"
 
 type Service struct {
 	currentVersion string

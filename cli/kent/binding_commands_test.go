@@ -446,7 +446,7 @@ func TestAttachSubcommandWithoutProjectGuidanceFailsWhenCurrentWorkspaceUnregist
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if got := stderr.String(); got == "" || !bytes.Contains([]byte(got), []byte("builder project")) || !bytes.Contains([]byte(got), []byte("--project <project-id>")) {
+	if got := stderr.String(); got == "" || !bytes.Contains([]byte(got), []byte("kent project")) || !bytes.Contains([]byte(got), []byte("--project <project-id>")) {
 		t.Fatalf("stderr = %q, want recovery guidance", got)
 	}
 }
@@ -467,7 +467,7 @@ func TestAttachSubcommandRejectsUnknownExplicitProjectIDCleanly(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if got := stderr.String(); !bytes.Contains([]byte(got), []byte("does not exist in this Builder state")) || !bytes.Contains([]byte(got), []byte("project-missing")) {
+	if got := stderr.String(); !bytes.Contains([]byte(got), []byte("does not exist in this Kent state")) || !bytes.Contains([]byte(got), []byte("project-missing")) {
 		t.Fatalf("stderr = %q, want missing project guidance", got)
 	}
 }

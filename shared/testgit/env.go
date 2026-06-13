@@ -23,9 +23,9 @@ func SanitizeEnv(base []string) []string {
 
 func AppendCommitIdentityEnv(env []string) []string {
 	return append(env,
-		"GIT_AUTHOR_NAME=builder-test",
-		"GIT_AUTHOR_EMAIL=builder-test@example.invalid",
-		"GIT_COMMITTER_NAME=builder-test",
-		"GIT_COMMITTER_EMAIL=builder-test@example.invalid",
+		"GIT_AUTHOR_NAME=kent-test",
+		"GIT_AUTHOR_EMAIL=kent-test@example.invalid",
+		"GIT_COMMITTER_NAME=kent-test",
+		"GIT_COMMITTER_EMAIL=kent-test@example.invalid",
 	)
 }

@@ -5,6 +5,8 @@ package main
 import (
 	"context"
 	"runtime"
+
+	"core/shared/brand"
 )
 
 type unsupportedServiceBackend struct{}
@@ -42,5 +44,5 @@ func (unsupportedServiceBackend) Status(context.Context, serviceSpec) (serviceSt
 }
 
 func errUnsupportedServiceBackend() error {
-	return serviceCommandError{Name: "builder service", Args: []string{runtime.GOOS}, Result: serviceCommandResult{Code: 1, Stderr: "background service management is not supported on this OS"}}
+	return serviceCommandError{Name: brand.Command + " service", Args: []string{runtime.GOOS}, Result: serviceCommandResult{Code: 1, Stderr: "background service management is not supported on this OS"}}
 }

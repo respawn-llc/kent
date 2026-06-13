@@ -38,7 +38,7 @@ func EffectivePreSubmitThresholdTokens(autoThreshold int, runwayTokens int) int 
 // EstimatedToolCallsForTokenBudget converts a token budget into an estimated
 // number of assistant tool calls before that budget is exhausted.
 //
-// EstimatedTokensPerToolCall is derived from the local Builder session corpus:
+// EstimatedTokensPerToolCall is derived from the local Kent session corpus:
 // history_replaced events after estimatedToolCallCorpusStartDate, filtered to
 // estimatedToolCallCorpusCompactionModeFilter to exclude manual /compact runs,
 // produced estimatedToolCallCorpusSampleSize data points. The active compaction

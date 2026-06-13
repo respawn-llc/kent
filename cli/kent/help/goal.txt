@@ -1,14 +1,14 @@
-Usage of builder goal:
-  builder goal show [--json] [--session <id>]
-  builder goal set [--session <id>] <objective>
-  builder goal pause [--session <id>]
-  builder goal resume [--session <id>]
-  builder goal clear [--session <id>]
-  builder goal complete [--session <id>] [--confirm]
+Usage of kent goal:
+  kent goal show [--json] [--session <id>]
+  kent goal set [--session <id>] <objective>
+  kent goal pause [--session <id>]
+  kent goal resume [--session <id>]
+  kent goal clear [--session <id>]
+  kent goal complete [--session <id>] [--confirm]
 
 What This Does:
   Manage the live runtime goal for a session.
-  Inside Builder shell commands, BUILDER_SESSION_ID targets the caller session automatically.
+  Inside Kent shell commands, KENT_SESSION_ID targets the caller session automatically.
   Agent shell commands may set a goal when no active or paused goal exists; pause, resume, and clear are user-only.
-  Outside Builder shell commands, pass --session <id>.
+  Outside Kent shell commands, pass --session <id>.
 

@@ -17,24 +17,24 @@ func TestFormatRunCommandPrefixDoesNotQuoteFallbackBinaryName(t *testing.T) {
 }
 
 func TestFormatRunCommandPrefixQuotesExecutablePath(t *testing.T) {
-	got := formatRunCommandPrefix("/tmp/path with space/builder")
-	want := "\"/tmp/path with space/builder\" run"
+	got := formatRunCommandPrefix("/tmp/path with space/kent")
+	want := "\"/tmp/path with space/kent\" run"
 	if got != want {
 		t.Fatalf("run command prefix = %q, want %q", got, want)
 	}
 }
 
 func TestFormatLaunchCommandQuotesExecutablePathWithoutSubcommand(t *testing.T) {
-	got := formatLaunchCommand("/tmp/path with space/builder")
-	want := "\"/tmp/path with space/builder\""
+	got := formatLaunchCommand("/tmp/path with space/kent")
+	want := "\"/tmp/path with space/kent\""
 	if got != want {
 		t.Fatalf("builder command = %q, want %q", got, want)
 	}
 }
 
 func TestFormatContinueRunCommandForPath(t *testing.T) {
-	got := formatContinueRunCommand("/tmp/builder", "session-123")
-	want := "\"/tmp/builder\" run --continue session-123 \"follow-up\""
+	got := formatContinueRunCommand("/tmp/kent", "session-123")
+	want := "\"/tmp/kent\" run --continue session-123 \"follow-up\""
 	if got != want {
 		t.Fatalf("continue run command = %q, want %q", got, want)
 	}

@@ -112,7 +112,7 @@ func TestSessionPickerIgnoresMouseSGRRunes(t *testing.T) {
 func TestSessionPickerHeaderRendersStatusReportBox(t *testing.T) {
 	m := newSessionPickerModel(nil, "dark", sessionPickerHeaderInfo{
 		Version:    "1.2.3",
-		CWD:        "~/Developer/builder-cli",
+		CWD:        "~/Developer/kent-cli",
 		Branch:     "feature/session-picker",
 		Model:      "gpt-5 high",
 		Auth:       "OpenAI Subscription",
@@ -124,7 +124,7 @@ func TestSessionPickerHeaderRendersStatusReportBox(t *testing.T) {
 	for _, want := range []string{
 		"┌",
 		"Kent v1.2.3",
-		"git feature/session-picker · ~/Developer/builder-cli",
+		"git feature/session-picker · ~/Developer/kent-cli",
 		"OpenAI Subscription · gpt-5 high",
 		"Server owned by this terminal",
 		"└",

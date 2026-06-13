@@ -143,8 +143,8 @@ func TestEnrichEnvOverridesNonInteractiveDefaults(t *testing.T) {
 	if env["TERM"] != "dumb" {
 		t.Fatalf("TERM = %q, want dumb", env["TERM"])
 	}
-	if env["AGENT"] != "builder" {
-		t.Fatalf("AGENT = %q, want builder", env["AGENT"])
+	if env["AGENT"] != "kent" {
+		t.Fatalf("AGENT = %q, want kent", env["AGENT"])
 	}
 	if env["GIT_EDITOR"] != ":" {
 		t.Fatalf("GIT_EDITOR = %q, want :", env["GIT_EDITOR"])
@@ -669,8 +669,8 @@ func TestExecCommandExportsAgentEnv(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
 	}
-	if got := decodeStringToolOutput(t, result); !strings.Contains(got, "builder") {
-		t.Fatalf("expected AGENT=builder in shell output, got %q", got)
+	if got := decodeStringToolOutput(t, result); !strings.Contains(got, "kent") {
+		t.Fatalf("expected AGENT=kent in shell output, got %q", got)
 	}
 }
 
@@ -700,14 +700,14 @@ func TestExecCommandBackgroundProcessExportsAgentEnv(t *testing.T) {
 	if pollResult.IsError {
 		t.Fatalf("unexpected write_stdin error: %s", string(pollResult.Output))
 	}
-	if got := decodeStringToolOutput(t, pollResult); !strings.Contains(got, "builder") {
-		t.Fatalf("expected AGENT=builder in background shell output, got %q", got)
+	if got := decodeStringToolOutput(t, pollResult); !strings.Contains(got, "kent") {
+		t.Fatalf("expected AGENT=kent in background shell output, got %q", got)
 	}
 }
 
 func TestExecCommandAppliesUserHookOutput(t *testing.T) {
 	workspace := t.TempDir()
-	hookPath := writeExecutableScript(t, "#!/bin/sh\nif [ \"$AGENT\" != builder ]; then printf '{\"processed\":true,\"replaced_output\":\"MISSING_AGENT\"}'; exit 0; fi\nprintf '{\"processed\":true,\"replaced_output\":\"HOOKED\"}\n'")
+	hookPath := writeExecutableScript(t, "#!/bin/sh\nif [ \"$AGENT\" != kent ]; then printf '{\"processed\":true,\"replaced_output\":\"MISSING_AGENT\"}'; exit 0; fi\nprintf '{\"processed\":true,\"replaced_output\":\"HOOKED\"}\n'")
 	manager, err := NewManager(
 		WithMinimumExecToBgTime(250*time.Millisecond),
 		WithCloseTimeouts(20*time.Millisecond, 200*time.Millisecond),

@@ -1,4 +1,4 @@
-Usage of builder service uninstall:
-  builder service uninstall [--keep-running]
+Usage of kent service uninstall:
+  kent service uninstall [--keep-running]
 
 Flags:

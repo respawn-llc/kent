@@ -59,7 +59,7 @@ func TestRootHelpShowsInteractiveContinueCommand(t *testing.T) {
 	}
 	got := stderr.String()
 	for _, want := range []string{
-		"builder --continue <session-id>",
+		"kent --continue <session-id>",
 		"reopens a previous session in the interactive TUI",
 	} {
 		if !strings.Contains(got, want) {
@@ -149,7 +149,7 @@ func TestRootCommandMapsSessionFlagsToInteractiveApp(t *testing.T) {
 	}
 }
 
-func TestRootCommandIgnoresBuilderSessionEnvByDefault(t *testing.T) {
+func TestRootCommandIgnoresKentSessionEnvByDefault(t *testing.T) {
 	original := runInteractiveApp
 	t.Cleanup(func() {
 		runInteractiveApp = original
@@ -558,7 +558,7 @@ func TestEffectiveSessionIDPrefersContinueAlias(t *testing.T) {
 	}
 }
 
-func TestRunSubcommandUsesBuilderSessionEnvAsWorkspaceContext(t *testing.T) {
+func TestRunSubcommandUsesKentSessionEnvAsWorkspaceContext(t *testing.T) {
 	original := runPromptApp
 	t.Cleanup(func() {
 		runPromptApp = original
@@ -686,7 +686,7 @@ func TestRunSubcommandContinueDefaultAgentAliasesMarkExplicitRoleOverride(t *tes
 	}
 }
 
-func TestSessionIDSubcommandPrintsBuilderSessionEnv(t *testing.T) {
+func TestSessionIDSubcommandPrintsKentSessionEnv(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, " session-from-env ")
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -702,7 +702,7 @@ func TestSessionIDSubcommandPrintsBuilderSessionEnv(t *testing.T) {
 	}
 }
 
-func TestSessionIDSubcommandFailsOutsideBuilderShell(t *testing.T) {
+func TestSessionIDSubcommandFailsOutsideKentShell(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "")
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

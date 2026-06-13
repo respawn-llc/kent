@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"core/shared/brand"
 	"core/shared/config"
 	"core/shared/protocol"
 	"core/shared/sessionenv"
@@ -43,7 +44,7 @@ func serviceSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		stderr = io.Discard
 	}
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fs := newCommandFlagSet("builder service", stderr, serviceUsage)
+		fs := newCommandFlagSet(brand.Command+" service", stderr, serviceUsage)
 		fs.Usage()
 		if len(args) == 0 {
 			return 2
@@ -66,14 +67,14 @@ func serviceSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return serviceRestartSubcommand(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown service command: %s\n\n", args[0])
-		fs := newCommandFlagSet("builder service", stderr, serviceUsage)
+		fs := newCommandFlagSet(brand.Command+" service", stderr, serviceUsage)
 		serviceUsage.write(fs)
 		return 2
 	}
 }
 
 func serviceStatusSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder service status", stderr, serviceStatusUsage)
+	fs := newCommandFlagSet(brand.Command+" service status", stderr, serviceStatusUsage)
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
@@ -86,7 +87,7 @@ func serviceStatusSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 }
 
 func serviceInstallSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder service install", stderr, serviceInstallUsage)
+	fs := newCommandFlagSet(brand.Command+" service install", stderr, serviceInstallUsage)
 	force := fs.Bool("force", false, "rewrite existing service registration")
 	noStart := fs.Bool("no-start", false, "install service without starting it")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
@@ -100,7 +101,7 @@ func serviceInstallSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 }
 
 func serviceUninstallSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder service uninstall", stderr, serviceUninstallUsage)
+	fs := newCommandFlagSet(brand.Command+" service uninstall", stderr, serviceUninstallUsage)
 	keepRunning := fs.Bool("keep-running", false, "remove service registration without stopping current server process")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
@@ -113,9 +114,9 @@ func serviceUninstallSubcommand(args []string, stdout io.Writer, stderr io.Write
 }
 
 func serviceLifecycleSubcommand(action serviceAction, args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder service "+string(action), stderr, commandUsage{
-		title: "Usage of builder service " + string(action) + ":",
-		lines: []string{"  builder service " + string(action)},
+	fs := newCommandFlagSet(brand.Command+" service "+string(action), stderr, commandUsage{
+		title: "Usage of " + brand.Command + " service " + string(action) + ":",
+		lines: []string{"  " + brand.Command + " service " + string(action)},
 	})
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
@@ -128,7 +129,7 @@ func serviceLifecycleSubcommand(action serviceAction, args []string, stdout io.W
 }
 
 func serviceRestartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder service restart", stderr, serviceRestartUsage)
+	fs := newCommandFlagSet(brand.Command+" service restart", stderr, serviceRestartUsage)
 	ifInstalled := fs.Bool("if-installed", false, "exit successfully without action when service is not installed")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
@@ -267,10 +268,10 @@ func ensureNoUnmanagedServerConflictForAction(ctx context.Context, backend servi
 		if healthPID > 0 {
 			pidText = fmt.Sprintf(" (pid %d)", healthPID)
 		}
-		return fmt.Errorf("Builder server is already running outside the background service on %s%s. Stop it before changing the service", spec.Endpoint, pidText)
+		return fmt.Errorf(brand.Product+" server is already running outside the background service on %s%s. Stop it before changing the service", spec.Endpoint, pidText)
 	}
 	if status.Running && status.Installed && !status.Loaded {
-		return fmt.Errorf("Builder server is already running on %s, but the background service is not loaded. Stop the manual server or run `builder service restart` after fixing service state", spec.Endpoint)
+		return fmt.Errorf(brand.Product+" server is already running on %s, but the background service is not loaded. Stop the manual server or run `"+brand.Command+" service restart` after fixing service state", spec.Endpoint)
 	}
 	if !healthRunning {
 		if status.Installed && status.Loaded && status.Running {
@@ -280,7 +281,7 @@ func ensureNoUnmanagedServerConflictForAction(ctx context.Context, backend servi
 		conn, err := dialer.DialContext(ctx, "tcp", config.ServerListenAddress(spec.Config))
 		if err == nil {
 			_ = conn.Close()
-			return fmt.Errorf("server port %s is already in use, but it is not responding as Builder. Stop the process using that port before installing the background service", config.ServerListenAddress(spec.Config))
+			return fmt.Errorf("server port %s is already in use, but it is not responding as "+brand.Product+". Stop the process using that port before installing the background service", config.ServerListenAddress(spec.Config))
 		}
 	}
 	return nil
@@ -318,7 +319,7 @@ func writeServiceStatus(stdout io.Writer, status serviceStatus) {
 	} else if status.HealthStatus == protocol.HealthStatusOK {
 		state = "not installed (server running manually)"
 	}
-	fmt.Fprintf(stdout, "Builder background service: %s\n", state)
+	fmt.Fprintf(stdout, brand.ServiceDisplayName+": %s\n", state)
 	fmt.Fprintf(stdout, "Backend: %s\n", status.Backend)
 	if status.PID > 0 {
 		fmt.Fprintf(stdout, "PID: %d\n", status.PID)

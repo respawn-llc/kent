@@ -23,7 +23,7 @@ const (
 	maxRecentPreviewBytes      = 4096
 	shellOutputNotifyInterval  = 50 * time.Millisecond
 	maxFullLogPostprocessBytes = 2 << 20
-	backgroundLogDirPrefix     = "builder-bg-shells-"
+	backgroundLogDirPrefix     = "kent-bg-shells-"
 	initialProcessID           = 1000
 )
 

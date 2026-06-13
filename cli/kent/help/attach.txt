@@ -1,22 +1,22 @@
-Usage of builder attach:
-  builder attach [path]
-  builder attach --project <project-id> [path]
+Usage of kent attach:
+  kent attach [path]
+  kent attach --project <project-id> [path]
 
 What This Does:
-  Attach another workspace path to an existing Builder project.
+  Attach another workspace path to an existing Kent project.
   The command prints the project id after the attach succeeds.
 
 How Project Selection Works:
-  Without `--project`, Builder reads the project bound to the current working directory and reuses it.
-  With `--project`, Builder skips current-directory lookup and uses the explicit project id instead.
-  If `[path]` is omitted, Builder attaches the current directory.
+  Without `--project`, Kent reads the project bound to the current working directory and reuses it.
+  With `--project`, Kent skips current-directory lookup and uses the explicit project id instead.
+  If `[path]` is omitted, Kent attaches the current directory.
 
 Path Semantics:
   In loopback mode, `[path]` is a local filesystem path.
   Against a remote daemon, `[path]` must be visible on the server machine.
 
 Examples:
-  builder attach ../other-checkout
-  builder attach --project <project-id> /srv/repos/other-checkout
+  kent attach ../other-checkout
+  kent attach --project <project-id> /srv/repos/other-checkout
 
 Flags:

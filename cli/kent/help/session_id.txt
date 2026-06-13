@@ -1,7 +1,7 @@
-Usage of builder session-id:
-  builder session-id
+Usage of kent session-id:
+  kent session-id
 
 What This Does:
-  Print BUILDER_SESSION_ID when invoked from a shell command started by Builder.
-  The command fails outside Builder-managed shell commands.
+  Print KENT_SESSION_ID when invoked from a shell command started by Kent.
+  The command fails outside Kent-managed shell commands.
 

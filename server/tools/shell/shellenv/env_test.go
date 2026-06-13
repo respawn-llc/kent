@@ -37,7 +37,7 @@ func TestEnrichAppliesAgentShellDefaults(t *testing.T) {
 	}))
 
 	want := map[string]string{
-		"AGENT":                     "builder",
+		"AGENT":                     "kent",
 		"TERM":                      "dumb",
 		"CI":                        "1",
 		"NO_COLOR":                  "1",

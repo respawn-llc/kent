@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"core/shared/brand"
 )
 
 type scheduledTaskServiceBackend struct{}
@@ -33,7 +35,7 @@ func (scheduledTaskServiceBackend) Install(ctx context.Context, spec serviceSpec
 	scriptExists := scriptErr == nil
 	if !force && (installed || startupInstalled) {
 		if !scriptExists || string(existingScript) != nextScript {
-			return fmt.Errorf("Builder background service is already installed; use --force to rewrite it")
+			return fmt.Errorf(brand.ServiceDisplayName + " is already installed; use --force to rewrite it")
 		}
 		if start {
 			return scheduledTaskServiceBackend{}.Start(ctx, spec)
@@ -90,7 +92,7 @@ func (scheduledTaskServiceBackend) Start(ctx context.Context, spec serviceSpec) 
 	if _, err := os.Stat(windowsStartupItemPath()); err == nil {
 		return launchWindowsTaskScript(ctx, spec)
 	}
-	return errors.New("Builder background service is not installed; run `builder service install`")
+	return errors.New(brand.ServiceDisplayName + " is not installed; run `" + brand.Command + " service install`")
 }
 
 func (scheduledTaskServiceBackend) Stop(ctx context.Context, spec serviceSpec) error {

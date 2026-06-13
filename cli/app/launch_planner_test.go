@@ -112,7 +112,7 @@ func TestRuntimeLaunchPlanCurrentControllerLeaseIDFallsBackToRawID(t *testing.T)
 
 func TestSessionLaunchPlannerBuildsSessionPickerHeaderInfo(t *testing.T) {
 	home := newAppTestHome(t)
-	workspaceRoot := filepath.Join(home, "Developer", "builder-cli")
+	workspaceRoot := filepath.Join(home, "Developer", "kent-cli")
 	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}

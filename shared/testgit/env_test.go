@@ -30,7 +30,7 @@ func TestSanitizeEnvRemovesParentGitIdentityBeforeAppendingTestIdentity(t *testi
 			t.Fatalf("%s count = %d, want 1 in env %v", key, got, env)
 		}
 	}
-	if values["GIT_AUTHOR_NAME"][0] != "builder-test" || values["GIT_COMMITTER_NAME"][0] != "builder-test" {
+	if values["GIT_AUTHOR_NAME"][0] != "kent-test" || values["GIT_COMMITTER_NAME"][0] != "kent-test" {
 		t.Fatalf("unexpected git identity env: %v", values)
 	}
 	if _, ok := values["GIT_CONFIG_KEY_0"]; ok {

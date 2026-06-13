@@ -13,6 +13,7 @@ import (
 	"core/cli/kent/internal/serverbridge"
 	"core/server/serve"
 	serverstartup "core/server/startup"
+	"core/shared/brand"
 )
 
 type serveCommandServer = serverbridge.ServeServer
@@ -31,7 +32,7 @@ func serveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	if stderr == nil {
 		stderr = io.Discard
 	}
-	serveFS := newCommandFlagSet("builder serve", stderr, serveUsage)
+	serveFS := newCommandFlagSet(brand.Command+" serve", stderr, serveUsage)
 	if ok, exitCode := parseCommandFlags(serveFS, args); !ok {
 		return exitCode
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"core/cli/kent/internal/serverbridge"
+	"core/shared/brand"
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
@@ -36,7 +37,7 @@ func projectSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			return projectCreateSubcommand(args[1:], stdout, stderr)
 		}
 	}
-	fs := newCommandFlagSet("builder project", stderr, projectUsage)
+	fs := newCommandFlagSet(brand.Command+" project", stderr, projectUsage)
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
 	}
@@ -59,7 +60,7 @@ func projectSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func projectListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder project list", stderr, projectListUsage)
+	fs := newCommandFlagSet(brand.Command+" project list", stderr, projectListUsage)
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
 	}
@@ -79,7 +80,7 @@ func projectListSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 }
 
 func projectCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder project create", stderr, projectCreateUsage)
+	fs := newCommandFlagSet(brand.Command+" project create", stderr, projectCreateUsage)
 	name := fs.String("name", "", "project display name")
 	path := fs.String("path", "", "server-visible workspace path")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
@@ -99,7 +100,7 @@ func projectCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 }
 
 func attachSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder attach", stderr, attachUsage)
+	fs := newCommandFlagSet(brand.Command+" attach", stderr, attachUsage)
 	projectID := fs.String("project", "", "explicit project id override")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
@@ -123,7 +124,7 @@ func attachSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func rebindSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder rebind", stderr, rebindUsage)
+	fs := newCommandFlagSet(brand.Command+" rebind", stderr, rebindUsage)
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
 	}
@@ -168,7 +169,7 @@ func attachWorkspace(ctx context.Context, explicitProjectID string, targetPath s
 	if projectID == "" {
 		sourceBinding, err := bindingCommandWorkspaceResolver(ctx, remote, sourceCfg.WorkspaceRoot)
 		if err != nil {
-			return "", fmt.Errorf("%w: current workspace is not attached to a project; run `builder project` in a workspace that already belongs to the target project or pass --project <project-id>", err)
+			return "", fmt.Errorf("%w: current workspace is not attached to a project; run `"+brand.Command+" project` in a workspace that already belongs to the target project or pass --project <project-id>", err)
 		}
 		projectID = strings.TrimSpace(sourceBinding.ProjectID)
 	}

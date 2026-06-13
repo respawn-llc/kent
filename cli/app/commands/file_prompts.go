@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	builderDirName   = brand.ConfigDirName
+	configDirName    = brand.ConfigDirName
 	generatedDirName = ".generated"
 	promptsDirName   = "prompts"
 	commandsDirName  = "commands"
@@ -134,7 +134,7 @@ func filePromptSearchDirs(workspaceRoot, globalRoot string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("resolve home dir: %w", err)
 		}
-		globalRoot = filepath.Join(home, builderDirName)
+		globalRoot = filepath.Join(home, configDirName)
 	} else {
 		resolved, err := filepath.Abs(globalRoot)
 		if err != nil {
@@ -143,7 +143,7 @@ func filePromptSearchDirs(workspaceRoot, globalRoot string) ([]string, error) {
 		globalRoot = resolved
 	}
 
-	localBuilder := filepath.Join(workspaceRoot, builderDirName)
+	localBuilder := filepath.Join(workspaceRoot, configDirName)
 	return []string{
 		filepath.Join(localBuilder, promptsDirName),
 		filepath.Join(localBuilder, commandsDirName),

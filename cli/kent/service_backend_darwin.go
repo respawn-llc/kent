@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"core/shared/brand"
 )
 
 type launchdServiceBackend struct{}
@@ -22,16 +24,16 @@ var launchdServiceShutdownPollInterval = 100 * time.Millisecond
 var signalLaunchdServiceProcess = func(pid int) error {
 	process, err := os.FindProcess(pid)
 	if err != nil {
-		return fmt.Errorf("find running Builder server process %d: %w", pid, err)
+		return fmt.Errorf("find running "+brand.Product+" server process %d: %w", pid, err)
 	}
 	if err := process.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return fmt.Errorf("stop running Builder server process %d before service restart: %w", pid, err)
+		return fmt.Errorf("stop running "+brand.Product+" server process %d before service restart: %w", pid, err)
 	}
 	return nil
 }
 var killLaunchdServiceProcess = func(pid int) error {
 	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
-		return fmt.Errorf("force stop running Builder server process %d before service restart: %w", pid, err)
+		return fmt.Errorf("force stop running "+brand.Product+" server process %d before service restart: %w", pid, err)
 	}
 	return nil
 }
@@ -66,7 +68,7 @@ func (launchdServiceBackend) Install(ctx context.Context, spec serviceSpec, forc
 	}
 	if !force {
 		if existing, err := os.ReadFile(path); err == nil && !bytes.Equal(existing, []byte(renderLaunchdPlist(spec))) {
-			return fmt.Errorf("Builder background service is already installed at %s; use --force to rewrite it", path)
+			return fmt.Errorf(brand.ServiceDisplayName+" is already installed at %s; use --force to rewrite it", path)
 		}
 	}
 	if err := os.WriteFile(path, []byte(renderLaunchdPlist(spec)), 0o644); err != nil {
@@ -101,7 +103,7 @@ func (launchdServiceBackend) Start(ctx context.Context, spec serviceSpec) error 
 	}
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return errors.New("Builder background service is not installed; run `builder service install`")
+			return errors.New(brand.ServiceDisplayName + " is not installed; run `" + brand.Command + " service install`")
 		}
 		return fmt.Errorf("stat launchd plist: %w", err)
 	}
@@ -127,7 +129,7 @@ func (launchdServiceBackend) Restart(ctx context.Context, spec serviceSpec) erro
 	}
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return errors.New("Builder background service is not installed; run `builder service install`")
+			return errors.New(brand.ServiceDisplayName + " is not installed; run `" + brand.Command + " service install`")
 		}
 		return fmt.Errorf("stat launchd plist: %w", err)
 	}
@@ -174,14 +176,14 @@ func reloadLaunchdService(ctx context.Context, spec serviceSpec, path string) er
 			return err
 		}
 		if err := waitForLaunchdServiceShutdown(ctx, spec); err != nil {
-			stopped, stopErr := stopHealthyBuilderServerBeforeLaunchdBootstrap(ctx, spec)
+			stopped, stopErr := stopHealthyServerBeforeLaunchdBootstrap(ctx, spec)
 			if stopErr != nil {
 				return errors.Join(err, stopErr)
 			}
 			verifyStartup = stopped
 		}
 	} else {
-		stopped, err := stopHealthyBuilderServerBeforeLaunchdBootstrap(ctx, spec)
+		stopped, err := stopHealthyServerBeforeLaunchdBootstrap(ctx, spec)
 		if err != nil {
 			return err
 		}
@@ -196,13 +198,13 @@ func reloadLaunchdService(ctx context.Context, spec serviceSpec, path string) er
 	return nil
 }
 
-func stopHealthyBuilderServerBeforeLaunchdBootstrap(ctx context.Context, spec serviceSpec) (bool, error) {
+func stopHealthyServerBeforeLaunchdBootstrap(ctx context.Context, spec serviceSpec) (bool, error) {
 	healthStatus, healthPID := probeServiceHealth(ctx, spec)
 	if healthStatus != "ok" {
 		return false, nil
 	}
 	if healthPID <= 0 {
-		return false, fmt.Errorf("Builder server is already running on %s, but its process id is unknown. Stop it before restarting the service", spec.Endpoint)
+		return false, fmt.Errorf(brand.Product+" server is already running on %s, but its process id is unknown. Stop it before restarting the service", spec.Endpoint)
 	}
 	if err := signalLaunchdServiceProcess(healthPID); err != nil {
 		return false, err
@@ -231,13 +233,13 @@ func waitForLaunchdServiceProcessExit(ctx context.Context, pid int) error {
 	for {
 		alive, err := launchdServiceProcessAlive(pid)
 		if err != nil {
-			return fmt.Errorf("check running Builder server process %d before service restart: %w", pid, err)
+			return fmt.Errorf("check running "+brand.Product+" server process %d before service restart: %w", pid, err)
 		}
 		if !alive {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("running Builder server process %d did not exit before service restart", pid)
+			return fmt.Errorf("running "+brand.Product+" server process %d did not exit before service restart", pid)
 		}
 		timer := time.NewTimer(interval)
 		select {
@@ -270,7 +272,7 @@ func waitForLaunchdServiceStartup(ctx context.Context, spec serviceSpec) error {
 		}
 		lastDetail = fmt.Sprintf("launchd loaded=%t pid=%d state=%s health=%s health_pid=%d", loaded, launchdPID, launchdState(output), healthStatus, healthPID)
 		if time.Now().After(deadline) {
-			return fmt.Errorf("restarted launchd job, but Builder server did not become healthy before timeout: %s", lastDetail)
+			return fmt.Errorf("restarted launchd job, but "+brand.Product+" server did not become healthy before timeout: %s", lastDetail)
 		}
 		timer := time.NewTimer(interval)
 		select {
@@ -299,14 +301,14 @@ func waitForLaunchdServiceShutdown(ctx context.Context, spec serviceSpec) error 
 		}
 		loaded, _ := launchdLoaded(ctx)
 		if time.Now().After(deadline) {
-			detail := "Builder server still responds on " + spec.Endpoint
+			detail := brand.Product + " server still responds on " + spec.Endpoint
 			if healthPID > 0 {
 				detail = fmt.Sprintf("%s (pid %d)", detail, healthPID)
 			}
 			if loaded {
 				detail += "; launchd still reports the service as loaded"
 			}
-			return fmt.Errorf("stopped launchd job, but the old Builder server did not exit before restart: %s. Not bootstrapping a second server because it would fail with launchctl Bootstrap error 5. Re-running with sudo will not fix this; stop the stale builder process or wait for it to exit, then run `builder service restart` again", detail)
+			return fmt.Errorf("stopped launchd job, but the old "+brand.Product+" server did not exit before restart: %s. Not bootstrapping a second server because it would fail with launchctl Bootstrap error 5. Re-running with sudo will not fix this; stop the stale builder process or wait for it to exit, then run `builder service restart` again", detail)
 		}
 		timer := time.NewTimer(interval)
 		select {

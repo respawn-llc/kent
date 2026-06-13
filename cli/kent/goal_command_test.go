@@ -288,10 +288,10 @@ func TestGoalCompleteHelpExposesConfirmFlag(t *testing.T) {
 }
 
 func TestGoalCommandSubprocessTargetsLiveSessionFromUnboundWorktree(t *testing.T) {
-	builderPath := filepath.Join(t.TempDir(), "builder")
-	buildCmd := exec.Command("go", "build", "-o", builderPath, ".")
+	kentPath := filepath.Join(t.TempDir(), "kent")
+	buildCmd := exec.Command("go", "build", "-o", kentPath, ".")
 	if output, err := buildCmd.CombinedOutput(); err != nil {
-		t.Fatalf("build subprocess builder: %v\n%s", err, output)
+		t.Fatalf("build subprocess kent: %v\n%s", err, output)
 	}
 
 	home := t.TempDir()
@@ -365,7 +365,7 @@ func TestGoalCommandSubprocessTargetsLiveSessionFromUnboundWorktree(t *testing.T
 	}()
 
 	t.Setenv(sessionenv.SessionIDEnv, store.Meta().SessionID)
-	showOutput, showErr := runGoalCommandSubprocess(t, builderPath, unboundWorktree, store.Meta().SessionID, "show", "--json")
+	showOutput, showErr := runGoalCommandSubprocess(t, kentPath, unboundWorktree, store.Meta().SessionID, "show", "--json")
 	if showErr != "" {
 		t.Fatalf("goal show stderr = %q", showErr)
 	}
@@ -377,7 +377,7 @@ func TestGoalCommandSubprocessTargetsLiveSessionFromUnboundWorktree(t *testing.T
 		t.Fatalf("show goal = %+v", show.Goal)
 	}
 
-	overwriteOutput, overwriteErr, overwriteRunErr := runGoalCommandSubprocessRaw(t, builderPath, unboundWorktree, store.Meta().SessionID, "set", "replacement live goal CLI")
+	overwriteOutput, overwriteErr, overwriteRunErr := runGoalCommandSubprocessRaw(t, kentPath, unboundWorktree, store.Meta().SessionID, "set", "replacement live goal CLI")
 	if overwriteRunErr == nil {
 		t.Fatalf("goal set overwrite unexpectedly succeeded stdout=%q stderr=%q", overwriteOutput, overwriteErr)
 	}
@@ -405,7 +405,7 @@ func TestGoalCommandSubprocessTargetsLiveSessionFromUnboundWorktree(t *testing.T
 		t.Fatalf("persisted goal after rejected overwrite = %+v", goal)
 	}
 
-	completeOutput, completeErr := runGoalCommandSubprocess(t, builderPath, unboundWorktree, store.Meta().SessionID, "complete", "--confirm")
+	completeOutput, completeErr := runGoalCommandSubprocess(t, kentPath, unboundWorktree, store.Meta().SessionID, "complete", "--confirm")
 	if completeErr != "" {
 		t.Fatalf("goal complete stderr = %q", completeErr)
 	}
@@ -413,7 +413,7 @@ func TestGoalCommandSubprocessTargetsLiveSessionFromUnboundWorktree(t *testing.T
 		t.Fatalf("complete stdout = %q", completeOutput)
 	}
 
-	setOutput, setErr := runGoalCommandSubprocess(t, builderPath, unboundWorktree, store.Meta().SessionID, "set", "follow-up live goal CLI")
+	setOutput, setErr := runGoalCommandSubprocess(t, kentPath, unboundWorktree, store.Meta().SessionID, "set", "follow-up live goal CLI")
 	if setErr != "" {
 		t.Fatalf("goal set after complete stderr = %q", setErr)
 	}
@@ -433,10 +433,10 @@ func TestGoalCommandSubprocessTargetsLiveSessionFromUnboundWorktree(t *testing.T
 }
 
 func TestGoalCommandSubprocessSetPersistsWhilePrimaryRunActive(t *testing.T) {
-	builderPath := filepath.Join(t.TempDir(), "builder")
-	buildCmd := exec.Command("go", "build", "-o", builderPath, ".")
+	kentPath := filepath.Join(t.TempDir(), "kent")
+	buildCmd := exec.Command("go", "build", "-o", kentPath, ".")
 	if output, err := buildCmd.CombinedOutput(); err != nil {
-		t.Fatalf("build subprocess builder: %v\n%s", err, output)
+		t.Fatalf("build subprocess kent: %v\n%s", err, output)
 	}
 
 	home := t.TempDir()
@@ -541,7 +541,7 @@ func TestGoalCommandSubprocessSetPersistsWhilePrimaryRunActive(t *testing.T) {
 		t.Fatal("timed out waiting for active model request")
 	}
 
-	stdout, stderr, err := runGoalCommandSubprocessRaw(t, builderPath, unboundWorktree, "", "set", "--session", store.Meta().SessionID, "new goal while busy")
+	stdout, stderr, err := runGoalCommandSubprocessRaw(t, kentPath, unboundWorktree, "", "set", "--session", store.Meta().SessionID, "new goal while busy")
 	if err != nil {
 		t.Fatalf("goal set failed during active primary run: %v stdout=%q stderr=%q", err, stdout, stderr)
 	}
@@ -584,18 +584,18 @@ func TestGoalCommandSubprocessSetPersistsWhilePrimaryRunActive(t *testing.T) {
 	}
 }
 
-func runGoalCommandSubprocess(t *testing.T, builderPath string, workdir string, sessionID string, args ...string) (stdout string, stderr string) {
+func runGoalCommandSubprocess(t *testing.T, kentPath string, workdir string, sessionID string, args ...string) (stdout string, stderr string) {
 	t.Helper()
-	stdout, stderr, err := runGoalCommandSubprocessRaw(t, builderPath, workdir, sessionID, args...)
+	stdout, stderr, err := runGoalCommandSubprocessRaw(t, kentPath, workdir, sessionID, args...)
 	if err != nil {
-		t.Fatalf("%s goal %s failed: %v stdout=%q stderr=%q", builderPath, strings.Join(args, " "), err, stdout, stderr)
+		t.Fatalf("%s goal %s failed: %v stdout=%q stderr=%q", kentPath, strings.Join(args, " "), err, stdout, stderr)
 	}
 	return stdout, stderr
 }
 
-func runGoalCommandSubprocessRaw(t *testing.T, builderPath string, workdir string, sessionID string, args ...string) (stdout string, stderr string, err error) {
+func runGoalCommandSubprocessRaw(t *testing.T, kentPath string, workdir string, sessionID string, args ...string) (stdout string, stderr string, err error) {
 	t.Helper()
-	cmd := exec.Command(builderPath, append([]string{"goal"}, args...)...)
+	cmd := exec.Command(kentPath, append([]string{"goal"}, args...)...)
 	cmd.Dir = workdir
 	cmd.Env = goalCommandSubprocessEnv(sessionID)
 	var out bytes.Buffer

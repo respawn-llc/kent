@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"sync"
 	"syscall"
+
+	"core/shared/brand"
 )
 
 var (
@@ -45,7 +47,7 @@ func (p *platformGuardImpl) start() error {
 		return err
 	}
 	// --what=sleep only; idle and display sleep are unaffected
-	cmd := exec.Command("systemd-inhibit", "--what=sleep", "--mode=block", "--who=builder", "--why=agent running", "sleep", "infinity")
+	cmd := exec.Command("systemd-inhibit", "--what=sleep", "--mode=block", "--who="+brand.Command, "--why=agent running", "sleep", "infinity")
 	// New process group so we can kill systemd-inhibit and its sleep child together
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdin, err := cmd.StdinPipe()

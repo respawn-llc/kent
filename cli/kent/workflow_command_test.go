@@ -591,7 +591,7 @@ func TestWorkflowEdgeUpdateClearsParameters(t *testing.T) {
 	}
 }
 
-func TestTaskHumanOnlyActionsAreDeniedInsideBuilderSession(t *testing.T) {
+func TestTaskHumanOnlyActionsAreDeniedInsideKentSession(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "session-agent")
 	previous := workflowCommandRemoteOpener
 	workflowCommandRemoteOpener = func(context.Context, string) (config.App, workflowCommandRemote, error) {
@@ -623,7 +623,7 @@ func TestTaskHumanOnlyActionsAreDeniedInsideBuilderSession(t *testing.T) {
 	}
 }
 
-func TestTaskSafeActionsRemainAvailableInsideBuilderSession(t *testing.T) {
+func TestTaskSafeActionsRemainAvailableInsideKentSession(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "session-agent")
 	_, binding, remote := newWorkflowCommandLoopback(t)
 	restore := replaceWorkflowCommandRemoteOpener(t, remote.cfg, remote)
@@ -848,7 +848,7 @@ func TestTaskListHelpIncludesPaginationAndJSONFlags(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("task list --help exit=%d stderr=%q", code, stderr)
 	}
-	for _, want := range []string{"builder task list [--project <project>] [--page-size <n>] [--page-token <token>] [--json]", "-json", "-page-size", "-page-token"} {
+	for _, want := range []string{"kent task list [--project <project>] [--page-size <n>] [--page-token <token>] [--json]", "-json", "-page-size", "-page-token"} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("task list --help stderr = %q, want %q", stderr, want)
 		}
@@ -860,14 +860,14 @@ func TestTaskShowHelpIncludesJSONFlag(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("task show --help exit=%d stderr=%q", code, stderr)
 	}
-	for _, want := range []string{"builder task show <short-id-or-task-id> [--json]", "-json"} {
+	for _, want := range []string{"kent task show <short-id-or-task-id> [--json]", "-json"} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("task show --help stderr = %q, want %q", stderr, want)
 		}
 	}
 }
 
-func TestTaskCommentAuthorForAddUsesUserWithoutBuilderSession(t *testing.T) {
+func TestTaskCommentAuthorForAddUsesUserWithoutKentSession(t *testing.T) {
 	t.Setenv(sessionenv.SessionIDEnv, "")
 	remote := &commentAuthorRemote{}
 	got := taskCommentAuthorForAdd(context.Background(), remote, "task-1", "", false)
@@ -1419,7 +1419,7 @@ func TestWriteTaskDetailCommentOverflowPointsToCommentCommand(t *testing.T) {
 	})
 
 	output := stdout.String()
-	if !strings.Contains(output, "Comments under this task: 10. `builder task comment list WOR-1` to show them.\n") {
+	if !strings.Contains(output, "Comments under this task: 10. `kent task comment list WOR-1` to show them.\n") {
 		t.Fatalf("task detail output = %q, want comment overflow pointer", output)
 	}
 	if strings.Contains(output, "Comments (10):") {

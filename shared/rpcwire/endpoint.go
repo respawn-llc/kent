@@ -70,12 +70,12 @@ func NewUnixEndpoint(socketPath string, rpcPath string) (Endpoint, error) {
 	if !strings.HasPrefix(trimmedPath, "/") {
 		trimmedPath = "/" + trimmedPath
 	}
-	serverURL := (&url.URL{Scheme: "ws", Host: "builder.local", Path: trimmedPath}).String()
+	serverURL := (&url.URL{Scheme: "ws", Host: "kent.local", Path: trimmedPath}).String()
 	return Endpoint{
 		Transport: TransportUnix,
 		Address:   trimmedSocketPath,
 		ServerURL: serverURL,
-		OriginURL: "http://builder.local",
+		OriginURL: "http://kent.local",
 	}, nil
 }
 

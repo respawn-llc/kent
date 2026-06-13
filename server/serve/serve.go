@@ -17,6 +17,7 @@ import (
 	"core/server/core"
 	"core/server/startup"
 	"core/server/transport"
+	"core/shared/brand"
 	"core/shared/config"
 	"core/shared/protocol"
 )
@@ -117,7 +118,7 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	identity := protocol.ServerIdentity{
 		ProtocolVersion: protocol.Version,
-		ServerID:        fmt.Sprintf("builder:%d", os.Getpid()),
+		ServerID:        fmt.Sprintf(brand.Command+":%d", os.Getpid()),
 		PID:             os.Getpid(),
 		Capabilities: protocol.CapabilityFlags{
 			JSONRPCWebSocket:        true,

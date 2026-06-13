@@ -17,7 +17,7 @@ func TestMain(m *testing.M) {
 func TestPreparePersistenceRootRefusesProcessStartRootUnderGoTest(t *testing.T) {
 	originalHome := processStartHome
 	originalAccountHome := processStartAccountHome
-	processStartHome = filepath.Join(string(filepath.Separator), "builder-test-home")
+	processStartHome = filepath.Join(string(filepath.Separator), "kent-test-home")
 	processStartAccountHome = ""
 	t.Cleanup(func() {
 		processStartHome = originalHome
@@ -560,7 +560,7 @@ func TestLoadSubagentRoleRejectsUnknownKeys(t *testing.T) {
 func TestLoadResolvesWorktreeBaseDirRelativeToPersistenceRoot(t *testing.T) {
 	home, workspace, configPath := newConfigTestFile(t)
 	configText := strings.Join([]string{
-		"persistence_root = \"~/custom-builder\"",
+		"persistence_root = \"~/custom-kent\"",
 		"",
 		"[worktrees]",
 		"base_dir = \"managed/worktrees\"",
@@ -571,7 +571,7 @@ func TestLoadResolvesWorktreeBaseDirRelativeToPersistenceRoot(t *testing.T) {
 
 	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 
-	if got, want := cfg.PersistenceRoot, filepath.Join(home, "custom-builder"); got != want {
+	if got, want := cfg.PersistenceRoot, filepath.Join(home, "custom-kent"); got != want {
 		t.Fatalf("persistence root = %q, want %q", got, want)
 	}
 	if got, want := cfg.Settings.Worktrees.BaseDir, filepath.Join(cfg.PersistenceRoot, "managed", "worktrees"); got != want {
@@ -583,10 +583,10 @@ func TestLoadResolvesWorktreeBaseDirRelativeToPersistenceRoot(t *testing.T) {
 }
 
 func TestLoadDerivesDefaultWorktreeBaseDirFromPersistenceRoot(t *testing.T) {
-	configText := "persistence_root = \"~/custom-builder\"\n"
+	configText := "persistence_root = \"~/custom-kent\"\n"
 	home, _, cfg := loadConfigTestFileApp(t, configText, LoadOptions{})
 
-	if got, want := cfg.PersistenceRoot, filepath.Join(home, "custom-builder"); got != want {
+	if got, want := cfg.PersistenceRoot, filepath.Join(home, "custom-kent"); got != want {
 		t.Fatalf("persistence root = %q, want %q", got, want)
 	}
 	if got, want := cfg.Settings.Worktrees.BaseDir, filepath.Join(cfg.PersistenceRoot, "worktrees"); got != want {
@@ -596,7 +596,7 @@ func TestLoadDerivesDefaultWorktreeBaseDirFromPersistenceRoot(t *testing.T) {
 
 func TestLoadCreatesWorktreeBaseDir(t *testing.T) {
 	configText := strings.Join([]string{
-		"persistence_root = \"~/custom-builder\"",
+		"persistence_root = \"~/custom-kent\"",
 		"",
 		"[worktrees]",
 		"base_dir = \"managed/worktrees\"",

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"core/shared/brand"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/serverapi"
@@ -44,7 +45,7 @@ func workflowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		stderr = io.Discard
 	}
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fs := newCommandFlagSet("builder workflow", stderr, workflowUsage)
+		fs := newCommandFlagSet(brand.Command+" workflow", stderr, workflowUsage)
 		fs.Usage()
 		if len(args) == 0 {
 			return 2
@@ -72,14 +73,14 @@ func workflowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		return workflowInspectSubcommand(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown workflow command: %s\n\n", args[0])
-		fs := newCommandFlagSet("builder workflow", stderr, workflowUsage)
+		fs := newCommandFlagSet(brand.Command+" workflow", stderr, workflowUsage)
 		workflowUsage.write(fs)
 		return 2
 	}
 }
 
 func workflowCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder workflow create", stderr, workflowCommandUsage)
+	fs := newCommandFlagSet(brand.Command+" workflow create", stderr, workflowCommandUsage)
 	description := fs.String("description", "", "workflow description")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
 		return exitCode
@@ -108,7 +109,7 @@ func workflowCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 }
 
 func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder workflow list", stderr, workflowCommandUsage)
+	fs := newCommandFlagSet(brand.Command+" workflow list", stderr, workflowCommandUsage)
 	pageSize := fs.Int("page-size", workflowCommandWorkflowListPageSize, "maximum workflows to print")
 	pageToken := fs.String("page-token", "", "page token from a previous workflow list")
 	if ok, exitCode := parseCommandFlags(fs, args); !ok {
@@ -145,7 +146,7 @@ func workflowNodeSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 	if len(args) > 0 && args[0] == "update" {
 		return workflowNodeUpdateSubcommand(args[1:], stdout, stderr)
 	}
-	fs := newCommandFlagSet("builder workflow node", stderr, workflowUsage)
+	fs := newCommandFlagSet(brand.Command+" workflow node", stderr, workflowUsage)
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		fs.Usage()
 		if len(args) == 0 {
@@ -159,7 +160,7 @@ func workflowNodeSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 }
 
 func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder workflow node add", stderr, workflowCommandUsage)
+	fs := newCommandFlagSet(brand.Command+" workflow node add", stderr, workflowCommandUsage)
 	key := fs.String("key", "", "node model key")
 	kind := fs.String("kind", "", "node kind: start|agent|join|terminal")
 	displayName := fs.String("display-name", "", "node display name")
@@ -205,7 +206,7 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 }
 
 func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder workflow node update", stderr, workflowCommandUsage)
+	fs := newCommandFlagSet(brand.Command+" workflow node update", stderr, workflowCommandUsage)
 	key := fs.String("key", "", "node model key")
 	kind := fs.String("kind", "", "node kind: start|agent|join|terminal")
 	displayName := fs.String("display-name", "", "node display name")
@@ -281,7 +282,7 @@ func workflowEdgeSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 	if len(args) > 0 && args[0] == "update" {
 		return workflowEdgeUpdateSubcommand(args[1:], stdout, stderr)
 	}
-	fs := newCommandFlagSet("builder workflow edge", stderr, workflowUsage)
+	fs := newCommandFlagSet(brand.Command+" workflow edge", stderr, workflowUsage)
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		fs.Usage()
 		if len(args) == 0 {
@@ -295,7 +296,7 @@ func workflowEdgeSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 }
 
 func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder workflow edge add", stderr, workflowCommandUsage)
+	fs := newCommandFlagSet(brand.Command+" workflow edge add", stderr, workflowCommandUsage)
 	fromKey := fs.String("from", "", "source node key")
 	transitionID := fs.String("transition", "", "transition id")
 	edgeKey := fs.String("edge-key", "", "edge key")
@@ -409,7 +410,7 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 }
 
 func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder workflow edge update", stderr, workflowCommandUsage)
+	fs := newCommandFlagSet(brand.Command+" workflow edge update", stderr, workflowCommandUsage)
 	transitionID := fs.String("transition", "", "transition id for the edge's transition group")
 	transitionDisplayName := fs.String("transition-display-name", "", "transition display name")
 	transitionDescription := fs.String("transition-description", "", "model-facing transition description explaining when to pick it")
@@ -537,7 +538,7 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 }
 
 func workflowLinkSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder workflow link", stderr, workflowCommandUsage)
+	fs := newCommandFlagSet(brand.Command+" workflow link", stderr, workflowCommandUsage)
 	defaultLink := fs.Bool("default", false, "make workflow project default")
 	positionals, flagArgs := takeLeadingPositionals(args, 2)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
@@ -576,7 +577,7 @@ func workflowLinkSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 }
 
 func workflowUnlinkSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder workflow unlink", stderr, workflowUsage)
+	fs := newCommandFlagSet(brand.Command+" workflow unlink", stderr, workflowUsage)
 	positionals, flagArgs := takeLeadingPositionals(args, 2)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
 		return exitCode
@@ -613,7 +614,7 @@ func workflowUnlinkSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 }
 
 func workflowDefaultSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder workflow default", stderr, workflowUsage)
+	fs := newCommandFlagSet(brand.Command+" workflow default", stderr, workflowUsage)
 	positionals, flagArgs := takeLeadingPositionals(args, 2)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
 		return exitCode
@@ -651,7 +652,7 @@ func workflowDefaultSubcommand(args []string, stdout io.Writer, stderr io.Writer
 }
 
 func workflowValidateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder workflow validate", stderr, workflowCommandUsage)
+	fs := newCommandFlagSet(brand.Command+" workflow validate", stderr, workflowCommandUsage)
 	mode := fs.String("mode", string(serverapi.WorkflowValidationModeExecution), "validation mode: draft|task_creation|execution")
 	_ = fs.String("project", "", "reserved project id/path")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
@@ -692,7 +693,7 @@ func workflowValidateSubcommand(args []string, stdout io.Writer, stderr io.Write
 }
 
 func workflowInspectSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
-	fs := newCommandFlagSet("builder workflow inspect", stderr, workflowUsage)
+	fs := newCommandFlagSet(brand.Command+" workflow inspect", stderr, workflowUsage)
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
 	if ok, exitCode := parseCommandFlags(fs, flagArgs); !ok {
 		return exitCode

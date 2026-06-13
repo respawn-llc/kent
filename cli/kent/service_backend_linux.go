@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"core/shared/brand"
 )
 
 type systemdServiceBackend struct{}
@@ -34,7 +36,7 @@ func (systemdServiceBackend) Install(ctx context.Context, spec serviceSpec, forc
 	}
 	if !force {
 		if existing, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(existing)) != strings.TrimSpace(renderSystemdUnit(spec)) {
-			return fmt.Errorf("Builder background service is already installed at %s; use --force to rewrite it", path)
+			return fmt.Errorf(brand.ServiceDisplayName+" is already installed at %s; use --force to rewrite it", path)
 		}
 	}
 	previousUnit, previousErr := os.ReadFile(path)
@@ -150,7 +152,7 @@ func requireSystemdUnitInstalled() error {
 	}
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return errors.New("Builder background service is not installed; run `builder service install`")
+			return errors.New(brand.ServiceDisplayName + " is not installed; run `" + brand.Command + " service install`")
 		}
 		return fmt.Errorf("stat systemd unit: %w", err)
 	}
@@ -235,7 +237,7 @@ func systemdUnitPath() (string, error) {
 func renderSystemdUnit(spec serviceSpec) string {
 	lines := []string{
 		"[Unit]",
-		"Description=Builder server background service",
+		"Description=" + brand.Product + " server background service",
 		"After=network-online.target",
 		"",
 		"[Service]",

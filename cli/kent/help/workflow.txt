@@ -1,18 +1,18 @@
-Usage of builder workflow:
-  builder workflow create [--description <text>] <name>
-  builder workflow list [--page-size <n>] [--page-token <token>]
-  builder workflow node add <workflow> --key <node-key> --kind start|agent|join|terminal [--display-name <name>] [--prompt <text>] [--agent <role>]
-  builder workflow node update <workflow> <node-key> [--key <node-key>] [--kind start|agent|join|terminal] [--display-name <name>] [--prompt <text>] [--agent <role>]
-  builder workflow edge add <workflow> --from <source-node-key> --transition <transition-id> --edge-key <edge-key> --to <target-node-key> --context <mode> [--prompt <text>] [--transition-description <text>] [--param <key>=<description> ...]
-  builder workflow edge update <workflow> <edge-id> [--transition <transition-id>] [--transition-display-name <name>] [--transition-description <text>] [--edge-key <edge-key>] [--to <target-node-key>] [--context <mode>] [--prompt <text>] [--param <key>=<description> ...] [--clear-params]
-  builder workflow link <project> <workflow> [--default]
-  builder workflow unlink <project> <workflow>
-  builder workflow default <project> <workflow>
-  builder workflow validate <workflow> [--mode draft|task_creation|execution]
-  builder workflow inspect <workflow>
+Usage of kent workflow:
+  kent workflow create [--description <text>] <name>
+  kent workflow list [--page-size <n>] [--page-token <token>]
+  kent workflow node add <workflow> --key <node-key> --kind start|agent|join|terminal [--display-name <name>] [--prompt <text>] [--agent <role>]
+  kent workflow node update <workflow> <node-key> [--key <node-key>] [--kind start|agent|join|terminal] [--display-name <name>] [--prompt <text>] [--agent <role>]
+  kent workflow edge add <workflow> --from <source-node-key> --transition <transition-id> --edge-key <edge-key> --to <target-node-key> --context <mode> [--prompt <text>] [--transition-description <text>] [--param <key>=<description> ...]
+  kent workflow edge update <workflow> <edge-id> [--transition <transition-id>] [--transition-display-name <name>] [--transition-description <text>] [--edge-key <edge-key>] [--to <target-node-key>] [--context <mode>] [--prompt <text>] [--param <key>=<description> ...] [--clear-params]
+  kent workflow link <project> <workflow> [--default]
+  kent workflow unlink <project> <workflow>
+  kent workflow default <project> <workflow>
+  kent workflow validate <workflow> [--mode draft|task_creation|execution]
+  kent workflow inspect <workflow>
 
 What This Does:
-  Manage workflow definitions, graph nodes/edges, and project workflow links through the Builder server API.
-  Workflows describe durable agent pipelines: tasks start at a start node, agent nodes execute Builder runs, and terminal nodes mark completion.
-  Use `workflow create`, add nodes/edges, link a workflow to a project, then create/start tasks with `builder task`.
+  Manage workflow definitions, graph nodes/edges, and project workflow links through the Kent server API.
+  Workflows describe durable agent pipelines: tasks start at a start node, agent nodes execute Kent runs, and terminal nodes mark completion.
+  Use `workflow create`, add nodes/edges, link a workflow to a project, then create/start tasks with `kent task`.
   Workflow references may be exact workflow ids or exact workflow names.

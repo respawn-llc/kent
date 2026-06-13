@@ -7,12 +7,13 @@ import (
 
 	"core/server/auth"
 	"core/server/llm"
+	"core/shared/brand"
 	"core/shared/compaction"
 	"core/shared/config"
 	"core/shared/toolspec"
 )
 
-const fastRoleSameAsMainWarning = "Warning: user configuration for fast agents is the same as for other agents. Consider asking the user to edit their config to pick a faster, smaller model at the end of your task. More info at https://opensource.respawn.pro/builder"
+const fastRoleSameAsMainWarning = "Warning: user configuration for fast agents is the same as for other agents. Consider asking the user to edit their config to pick a faster, smaller model at the end of your task. More info at " + brand.DocsURL
 
 func resolveSubagentSettings(base config.Settings, providerBase config.Settings, baseSources map[string]string, roleName string, authState auth.State, allowModelOverride bool) (config.Settings, string, error) {
 	normalizedRole := config.NormalizeSubagentSelector(roleName)
