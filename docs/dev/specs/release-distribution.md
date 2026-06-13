@@ -5,7 +5,7 @@
 - Root `VERSION` is the source of truth for release version and tag normalization.
 - Release/build scripts sync Tauri and package metadata from `VERSION`.
 - Official release binaries are built through `scripts/build.sh`.
-- The release profile is `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false`, and `-ldflags "-s -w -X builder/shared/buildinfo.Version=..."`.
+- The release profile is `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false`, and `-ldflags "-s -w -X core/shared/buildinfo.Version=..."`.
 - Release archive packaging and verification live in `scripts/release-artifacts.sh`; workflow YAML should stay orchestration-focused.
 
 ## Targets
@@ -26,13 +26,13 @@
 ## Installers
 
 - Windows one-command installs are served by `scripts/install.ps1`.
-- The default Windows user install path is `~/.builder/bin/builder.exe`, matching the user-scoped Builder persistence root.
+- The default Windows user install path is `~/.kent/bin/kent.exe`, matching the user-scoped Kent persistence root.
 - Windows installer uninstalls remove only installer-owned binary, PATH, registry, and marker files.
-- Windows uninstalls never remove Builder config, sessions, auth, worktrees, skills, or winget-installed dependencies.
+- Windows uninstalls never remove Kent config, sessions, auth, worktrees, skills, or winget-installed dependencies.
 
 ## Homebrew
 
 - Homebrew tap automation is part of a release, not an optional follow-up.
-- The release workflow updates `respawn-llc/homebrew-tap` through `scripts/update-brew-tap.sh` for formula `builder-cli`.
+- The release workflow updates `respawn-llc/homebrew-tap` through `scripts/update-brew-tap.sh` for formula `kent`.
 - The tap PR must run `brew test-bot`; on success, `brew pr-pull` publishes bottle metadata to tap `master`.
 - If app release publication succeeds but tap update fails, fix release plumbing first if needed, then create a tap-only change for the same published version. Do not cut a second app release.

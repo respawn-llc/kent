@@ -6,11 +6,11 @@ Use these terms consistently in specs, code names, CLI/API contracts, and implem
 
 ### Task
 
-A durable user-facing unit of work. A task owns workflow state, task metadata, node history, transition history, question associations, comments, and execution artifacts. Builder sessions are artifacts under a task.
+A durable user-facing unit of work. A task owns workflow state, task metadata, node history, transition history, question associations, comments, and execution artifacts. Kent sessions are artifacts under a task.
 
 ### Task Short ID
 
-A human-facing project-scoped task identifier formed from project key plus project-local sequence, for example `BLD-123`.
+A human-facing project-scoped task identifier formed from project key plus project-local sequence, for example `KNT-123`.
 
 ### Project Key
 
@@ -62,7 +62,7 @@ A sink node where workflow automation stops.
 
 ### Edge
 
-A directed graph primitive from a source node to a target node. Builder UI surfaces call user-facing edges transition branches; graph libraries and persistence may use edge terminology at adapter and storage boundaries.
+A directed graph primitive from a source node to a target node. Kent UI surfaces call user-facing edges transition branches; graph libraries and persistence may use edge terminology at adapter and storage boundaries.
 
 ### Transition
 
@@ -112,8 +112,8 @@ A stable key for one branch inside a fan-out transition. Branch keys distinguish
 
 Per-transition-branch policy for the next node's execution context:
 
-- `new_session`: start a blank Builder session and inject the previous transition result plus task metadata.
-- `continue_session`: continue a selected previous Builder session with a new prompt/goal and bound metadata.
+- `new_session`: start a blank Kent session and inject the previous transition result plus task metadata.
+- `continue_session`: continue a selected previous Kent session with a new prompt/goal and bound metadata.
 - `compact_and_continue_session`: compact the selected previous session first, then continue with a new prompt/goal and bound metadata.
 
 ### Context Source
@@ -122,7 +122,7 @@ Per-transition-branch policy deciding which earlier run supplies the source sess
 
 ### Run
 
-One durable execution attempt for a node on a task. A run may create or continue a Builder session, call tools, ask questions, produce a transition result, and terminate with a structured outcome.
+One durable execution attempt for a node on a task. A run may create or continue a Kent session, call tools, ask questions, produce a transition result, and terminate with a structured outcome.
 
 ### Interrupted Run
 
@@ -130,7 +130,7 @@ A run stopped before producing a valid transition result. Its session and worktr
 
 ### Session Contract
 
-The immutable execution setup captured by a Builder session after its first model request: model/provider setup, generation parameters, tool schema snapshot, and system/developer prompt snapshot.
+The immutable execution setup captured by a Kent session after its first model request: model/provider setup, generation parameters, tool schema snapshot, and system/developer prompt snapshot.
 
 ### Runtime Parameter Contract
 
@@ -138,7 +138,7 @@ The run-start snapshot of possible and required transition parameters for a node
 
 ### Session
 
-Builder transcript/runtime artifact used by a run. A task may have many sessions because of loops, branches, retries, or context-preservation choices.
+Kent transcript/runtime artifact used by a run. A task may have many sessions because of loops, branches, retries, or context-preservation choices.
 
 ### Session Run
 
@@ -188,7 +188,7 @@ A durable task-local note. Task comments are hard-deleted notes, not source-run 
 
 ### Toast
 
-A transient or persistent global notification surfaced by the desktop app. Toast and snackbar are equivalent terms in Builder GUI docs and code.
+A transient or persistent global notification surfaced by the desktop app. Toast and snackbar are equivalent terms in Kent GUI docs and code.
 
 ## TUI And Transcript
 
@@ -206,7 +206,7 @@ The rendering posture for transcript entries. Current modes are ongoing and deta
 
 ### Alternate Screen
 
-Terminal buffer separate from normal scrollback. Builder avoids alternate screen for ongoing mode so persistent history remains in native terminal scrollback.
+Terminal buffer separate from normal scrollback. Kent avoids alternate screen for ongoing mode so persistent history remains in native terminal scrollback.
 
 ### Alternate Scroll
 
@@ -214,7 +214,7 @@ Terminal mode `?1007`, which converts wheel input into cursor-key style events i
 
 ### Mouse Capture
 
-Terminal mode where the app receives mouse events instead of leaving them to native terminal selection. Builder keeps mouse capture disabled in ongoing and detail modes.
+Terminal mode where the app receives mouse events instead of leaving them to native terminal selection. Kent keeps mouse capture disabled in ongoing and detail modes.
 
 ### Normal Buffer
 
@@ -222,4 +222,4 @@ Terminal buffer with native scrollback. Ongoing mode renders committed history h
 
 ### Scrollback
 
-Terminal-owned history of normal-buffer output. Builder does not replay, clear, or restyle committed ongoing scrollback after startup.
+Terminal-owned history of normal-buffer output. Kent does not replay, clear, or restyle committed ongoing scrollback after startup.

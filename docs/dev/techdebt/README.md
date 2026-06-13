@@ -1,6 +1,6 @@
 # Tech Debt Backlog
 
-This folder is the tracked home for Builder tech-debt remediation backlog.
+This folder is the tracked home for Kent tech-debt remediation backlog.
 
 - `techdebt.md` is the findings catalog: verified debt entries with concrete paths, symbols, implementation impact, and implementation-grade remediation tasks.
 - Product decisions that constrain remediation live under `docs/dev/specs/`, not in this folder.

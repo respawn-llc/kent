@@ -1,6 +1,6 @@
 # Product Specs
 
-These docs are the authoritative, searchable product-decision source for Builder agents.
+These docs are the authoritative, searchable product-decision source for Kent agents.
 
 Rules:
 

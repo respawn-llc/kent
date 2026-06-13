@@ -68,14 +68,14 @@ The scope is intentionally narrow and quality-oriented.
 - Maintain good user experience when adding new features (e.g. display loading states, events or ongoing processes).
 - Validate invariants at boundaries (input, filesystem, process execution, API responses).
 - Keep behavior configurable only when it serves real operator value.
-- GUI clients are remote-control surfaces over Builder server APIs/read models. The server remains authoritative for runtime, worktrees, DB, orchestration, validation, approvals, asks, workflow state, scheduling, and persistence.
+- GUI clients are remote-control surfaces over Kent server APIs/read models. The server remains authoritative for runtime, worktrees, DB, orchestration, validation, approvals, asks, workflow state, scheduling, and persistence.
 - Tauri/native APIs must stay behind GUI-side bridge packages; do not import Tauri APIs directly from feature components.
 - Desktop GUI chrome must use a fixed window shell with scrollable islands/panes. Do not restore global/document/root scrolling for desktop GUI overscroll experiments; it makes macOS traffic lights overlap content and is rejected.
 - GUI pagination must use infinite scroll. Do not add page-number, next/previous, "Load more", or other button-based pagination controls.
-- Use browser-client QA as the primary manual GUI QA path. Run `pnpm --dir apps/desktop dev:browser` for interactive QA against an existing Builder server.
+- Use browser-client QA as the primary manual GUI QA path. Run `pnpm --dir apps/desktop dev:browser` for interactive QA against an existing Kent server.
 
 ## Commit guidelines
-Format: `<type>[!]: [description]`, `!` = breaking change (requiring migration from users of Builder).
+Format: `<type>[!]: [description]`, `!` = breaking change (requiring migration from users of Kent).
 Use one of these types for all commits: `feat`, `fix`, `feat!`/`breaking`/`api`, `docs`,  `refactor`,  `chore`.
 Examples: `feat: add state recovery`, `feat!: change Saver API`
 If user asks you to fix a github issue and you commit the fix, use 'closes #xx' in description.
@@ -84,7 +84,7 @@ If user asks you to fix a github issue and you commit the fix, use 'closes #xx' 
 - All business logic covered by tests. Production code is written to be unit-testable.
 - Use red/green TDD when developing new features.
 - Never write tests that assert literal prompt strings, log lines, colors, styles, or other textual/visual content. Such tests check the wording of an artifact rather than its behavior, break on every copy edit, and provide no signal — the prompt/log itself is the source of truth. Test behavior, parsing, structure, or invariants instead.
-- Before handing off to the user after Go code changes, rebuild via `./scripts/build.sh --output ./bin/builder`. Don't ask for confirmation to run/write tests and run checks.
+- Before handing off to the user after Go code changes, rebuild via `./scripts/build.sh --output ./bin/kent`. Don't ask for confirmation to run/write tests and run checks.
 - Run tests via `./scripts/test.sh` passing normal go test arguments. With no package args this also runs GUI frontend tests.
 - Releases are driven by `VERSION`; keep Homebrew release plumbing in sync with `scripts/update-brew-tap.sh` and the tap formula. Tap formula lives in a separate repo.
 - `docs/dev/specs/` is the source of truth for locked product and architecture decisions. Keep the relevant area spec up to date when the user makes a new decision.

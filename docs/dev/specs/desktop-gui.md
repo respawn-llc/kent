@@ -2,11 +2,11 @@
 
 ## Scope And Authority
 
-- Desktop GUI is a remote-control client over an already-running Builder server.
+- Desktop GUI is a remote-control client over an already-running Kent server.
 - Server remains authoritative for projects, workspaces, workflows, tasks, runtime, scheduler state, validation, approvals, questions, comments, worktrees, persistence, and subscriptions.
-- The Tauri app never bundles or starts the Builder server binary as a sidecar.
-- MVP attaches to Builder config/default host and port only. Endpoint editing is deferred.
-- GUI workflow API/read-model churn before Builder 2.0 is isolated behind GUI-side adapters.
+- The Tauri app never bundles or starts the Kent server binary as a sidecar.
+- MVP attaches to Kent config/default host and port only. Endpoint editing is deferred.
+- GUI workflow API/read-model churn before Kent 2.0 is isolated behind GUI-side adapters.
 - MVP does not replace the TUI fully and does not include built-in GUI chat.
 - Long-term GUI vision is broad CLI/TUI parity and eventual replacement for routine desktop workflows, but no detailed design/planning is active now.
 - Workflow authoring is outside the original Kanban/runtime MVP; workflow editor decisions live in `workflow-editor.md`.
@@ -27,7 +27,7 @@
 - Do not replay mutations after reconnect; refetch/resubscribe and let the user issue a new command.
 - React Query owns server read models, request cache, mutations, invalidation, and WebSocket-driven cache updates.
 - React local state owns MVP local UI state. Do not add Zustand or Redux Toolkit in MVP.
-- Routing uses TanStack Router boxed behind Builder destination helpers.
+- Routing uses TanStack Router boxed behind Kent destination helpers.
 - Route/search params are validated with Zod at the boundary.
 - Forms use React Hook Form, `@hookform/resolvers`, and Zod. TanStack Form is deferred until workflow editor forms are genuinely complex.
 - Dates use native `Intl`, not Temporal.
@@ -86,14 +86,14 @@
 - Startup initializes GUI config and server connectivity before feature surfaces mount.
 - Protocol compatibility/readiness is the startup gate.
 - Server/backend capability registry is removed; do not build `server.capabilities.get` for MVP.
-- Protocol mismatch blocks with title `Update Builder`, shows client/server protocol values, instructs updating CLI/service and desktop app from the same build, and includes retry.
+- Protocol mismatch blocks with title `Update Kent`, shows client/server protocol values, instructs updating CLI/service and desktop app from the same build, and includes retry.
 - Same blocker is used whether client is newer or older than server.
 - JSON-RPC handshake enforces mismatch.
 - Readiness exposes server protocol, build, and version for blocker UX.
-- If server is unreachable, show instructions to run `builder service install`.
+- If server is unreachable, show instructions to run `kent service install`.
 - Startup failures are summary-first: human-readable failure text plus next action; deeper diagnostics go to local GUI log.
 - Missing/expired/not-ready auth uses the same generic startup failure path as other readiness failures.
-- Home does not show runtime identity/header fluff such as endpoint, Builder version, auth mode, logo identity, or runtime metadata.
+- Home does not show runtime identity/header fluff such as endpoint, Kent version, auth mode, logo identity, or runtime metadata.
 
 ## Navigation
 
@@ -145,7 +145,7 @@
 - Same path is deduplicated inside one project; selecting an already-linked path focuses the row or shows equivalent info.
 - Attaching/unlinking a workspace never deletes files.
 - Unlink hard-deletes the project workspace binding row after validation.
-- Unlink blocks default workspace, only workspace, active/non-terminal dependent tasks, active sessions/runs, Builder-managed owned worktree dependencies, and missing durable history snapshots.
+- Unlink blocks default workspace, only workspace, active/non-terminal dependent tasks, active sessions/runs, Kent-managed owned worktree dependencies, and missing durable history snapshots.
 - Unlink must not cascade-delete session/task/worktree history.
 - Unlink is allowed when only terminal historical tasks reference the workspace and their history remains readable through durable snapshots.
 - Unlink confirmation is simple modal, no type-to-confirm, with copy explaining app-state effects, files stay on disk, completed history remains readable, and active work blocks unlink.
@@ -240,7 +240,7 @@
 ## Logs, Telemetry, Release Scope
 
 - No external crash reporting or telemetry in MVP.
-- Local GUI log lives under Builder persistence root, bounded to 10 MB, redacting auth headers, tokens, env values, and request bodies by default.
+- Local GUI log lives under Kent persistence root, bounded to 10 MB, redacting auth headers, tokens, env values, and request bodies by default.
 - macOS ships first. Windows/Linux are later after MVP QA.
 - macOS MVP release polish is tracked as GitHub issue `#292`: final app icon, visible display name, bundle metadata, signing/notarization, and update-channel decision.
 - Windows desktop release is tracked as GitHub issue `#293`.
@@ -273,11 +273,11 @@
 - Q: Should Interrupt confirm? A: No.
 - Q: Should drag-to-start confirm? A: No.
 - Q: What format do body/details/comments use? A: Plain multiline Markdown, no WYSIWYG.
-- Q: How does desktop find server endpoint? A: Builder config/default host and port only.
+- Q: How does desktop find server endpoint? A: Kent config/default host and port only.
 - Q: How should workflow groups render? A: Implementation-led first pass, initial preference group islands.
 - Q: What happens to drafts during disconnect? A: Keep local drafts, disable submit, refresh on reconnect, user manually saves and overwrites.
-- Q: What should the task detail CLI action do? A: Copy `builder --session=<session-id>` to clipboard and show a success toast. Do not launch terminals from the GUI.
-- Q: How does project creation map directory picker result to Builder project/workspace binding? A: Bound workspace opens existing project; unbound workspace opens project creation with editable project name and key.
+- Q: What should the task detail CLI action do? A: Copy `kent --session=<session-id>` to clipboard and show a success toast. Do not launch terminals from the GUI.
+- Q: How does project creation map directory picker result to Kent project/workspace binding? A: Bound workspace opens existing project; unbound workspace opens project creation with editable project name and key.
 - Q: Should MVP add project-key create/edit API support? A: Yes. Project creation includes editable project key and backend validates collisions/immutability.
 - Q: Should board search become current scope? A: No; keep it deferred.
 - Q: Should GUI parity be reopened? A: Document broad future parity vision, but do not design or plan it now.

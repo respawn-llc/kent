@@ -2,17 +2,17 @@
 
 ## Purpose And Scope
 
-- Workflow orchestration turns Builder from a manually driven terminal coding-agent harness into a project-scoped workflow orchestrator.
+- Workflow orchestration turns Kent from a manually driven terminal coding-agent harness into a project-scoped workflow orchestrator.
 - Users define workflows made of nodes, transition groups, and edges.
 - Tasks move through graph nodes, Kanban statuses, agent workers, review loops, joins, and terminal states.
 - Backend/domain/persistence/runtime are primary. Frontend surfaces follow backend API/read-model needs.
-- Workflow API/read-model shapes are mutable before Builder 2.0.
+- Workflow API/read-model shapes are mutable before Kent 2.0.
 - CLI is an internal backend-testing and agent-control surface, not the primary user manual QA surface.
 - Real-provider workflow QA requires explicit Nikita approval because it spends provider credits and can fail for provider/model reasons unrelated to orchestration correctness.
 
 ## Domain Model
 
-- `Task` is the primary durable work item. Existing Builder sessions are execution artifacts under tasks.
+- `Task` is the primary durable work item. Existing Kent sessions are execution artifacts under tasks.
 - A task may accumulate many sessions through loops, branches, retries, and complex chains.
 - Task creation creates a durable task at the workflow start node.
 - Automation starts only through explicit task-start, which applies the start node's outgoing transition and requests automation for the first executable placement.
@@ -156,7 +156,7 @@
 
 - A task owns one managed worktree by default.
 - All executable agent nodes require and reuse the task managed worktree.
-- Builder creates the managed worktree on task start before first executable run is scheduled.
+- Kent creates the managed worktree on task start before first executable run is scheduled.
 - Task worktree branch name is the task short ID.
 - Worktree creation reuses existing worktree branch/root collision handling.
 - Worktree deletion/retargeting treats non-terminal tasks referencing a managed worktree as blockers.
@@ -178,7 +178,7 @@
 - Agents may add, replace, and delete task comments through CLI/API task management.
 - There are no model-callable comment tools.
 - Comments record author/source agent when available.
-- Comments stay in Builder persistence, not files in the worktree.
+- Comments stay in Kent persistence, not files in the worktree.
 - Task comments are hard-deleted task-local notes.
 - Comment rows do not store source-run links, deleted tombstones, or opaque metadata.
 - Include-deleted comment APIs and read-model state are not product scope.

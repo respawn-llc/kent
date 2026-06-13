@@ -49,7 +49,7 @@
 - Known developer/context reminders use typed compact labels.
 - Expanding reveals full detail content.
 - Detail compact labels are metadata-first. Runtime/client projection preserves source message type, source path, compact content/label, and tool presentation metadata.
-- Legacy sessions degrade by role and text-preview fallback only. Builder must not parse old prompt/reminder text to reclassify AGENTS, skills, environment, worktree, patch, or handoff messages.
+- Legacy sessions degrade by role and text-preview fallback only. Kent must not parse old prompt/reminder text to reclassify AGENTS, skills, environment, worktree, patch, or handoff messages.
 - Unknown roles, unknown message types, and invalid/missing metadata remain visible and expandable when recoverable text exists.
 - Detail tool calls with error results stay collapsed by default but may show compact input plus structured error summary.
 - Detail scrolling is line-oriented.
@@ -119,7 +119,7 @@
 
 ## Input And Queueing
 
-- Builder input fields use one shared editor implementation with a real terminal cursor by default across ongoing and alt-screen surfaces.
+- Kent input fields use one shared editor implementation with a real terminal cursor by default across ongoing and alt-screen surfaces.
 - `InputField.Render(width)` owns rendered lines and cursor coordinates; callers must not splice unwrapped content into those lines.
 - Fallback to soft cursor is allowed only for verified cursor drift, wrap mismatch, or alt-screen corruption that cannot be solved in the renderer adapter.
 - Startup/onboarding/project/worktree input fields use `cli/tui/input.Editor` and `cli/tui/input.Field`, not Bubble `textinput.Model`, app-local wrappers, or additional text-input components.
@@ -167,16 +167,16 @@
 - First `/worktree` slice has no separate teleport-root abstraction.
 - `/worktree`, `/worktree new`, and `/worktree create` enter one smart-target create dialog. Raw `/worktree create <branch> [path]` bypass is unsupported.
 - Create dialog auto-suggests target name only from sanitized session name. It does not fall back to current branch, main, or generic placeholder.
-- Create dialog has no explicit new/existing selector. Builder resolves typed `Branch or ref` asynchronously and shows `new branch`, `existing branch`, or `detached ref`.
+- Create dialog has no explicit new/existing selector. Kent resolves typed `Branch or ref` asynchronously and shows `new branch`, `existing branch`, or `detached ref`.
 - `Branch or ref` appears before `Base ref`. `Base ref` defaults to `HEAD` and is required only for new branch creation.
 - Worktree transitions store the latest pending typed developer-context steering intent and materialize it at normal steering priority before the next user/model turn.
 - Worktree transitions do not append synthetic transcript notes.
-- Git remains source of truth for topology. Builder stores additive metadata and blocks deleting worktrees still targeted by another session.
-- Existing non-Builder git worktrees remain manageable and should be visually marked where feasible.
+- Git remains source of truth for topology. Kent stores additive metadata and blocks deleting worktrees still targeted by another session.
+- Existing non-Kent git worktrees remain manageable and should be visually marked where feasible.
 - Supported aliases preserve safety semantics: `/worktree status`, `/worktree ls`, `/worktree remove`, `/worktree rm`.
 - Worktree delete is rebind-first cleanup and is blocked while background shell processes still run under that worktree.
-- Branch cleanup is conservative/best-effort. Builder only auto-attempts branch deletion when provenance proves it created the branch. Force delete is not part of the first slice.
-- New worktrees default under `worktrees.base_dir`, rooted under Builder persistence state by default.
+- Branch cleanup is conservative/best-effort. Kent only auto-attempts branch deletion when provenance proves it created the branch. Force delete is not part of the first slice.
+- New worktrees default under `worktrees.base_dir`, rooted under Kent persistence state by default.
 - Live worktree retarget rebinds runtime-local tool handlers to the new effective root.
 - Optional post-create setup script is `worktrees.setup_script`, runs async only after new worktree creation, receives args/stdin JSON/env, and failures do not undo worktree/session switch.
 
@@ -199,7 +199,7 @@
 - `/autocompaction` toggles runtime auto-compaction for current session and does not persist to config.
 - `/status` opens a read-only detail overlay and refreshes progressively.
 - Built-in prompt commands use embedded Markdown templates.
-- File-backed prompts come from local/global `.builder/prompts` and `.builder/commands`; scan is non-recursive `.md`, namespace precedence is local over global and prompts over commands.
+- File-backed prompts come from local/global `.kent/prompts` and `.kent/commands`; scan is non-recursive `.md`, namespace precedence is local over global and prompts over commands.
 - File command ID is `prompt:<filename-without-extension>` and submits file content verbatim as user message.
 
 ## Notifications

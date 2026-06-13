@@ -1,6 +1,6 @@
 # Release
 
-This is the current release flow for `builder`.
+This is the current release flow for `kent`.
 
 ## Recommended Path
 
@@ -17,10 +17,10 @@ Use `workflow_dispatch`. It is the simplest path and does not require the `autor
 4. Trigger the release workflow:
 
 ```bash
-gh workflow run release.yml --repo respawn-llc/builder
+gh workflow run release.yml --repo respawn-llc/kent
 ```
 
-5. Wait for the `release` workflow in `respawn-llc/builder` to finish.
+5. Wait for the `release` workflow in `respawn-llc/kent` to finish.
 6. Wait for the tap automation in `respawn-llc/homebrew-tap` to finish.
 7. Verify the GitHub release and Homebrew install.
 
@@ -37,7 +37,7 @@ The `release` workflow in `/.github/workflows/release.yml`:
 7. Smoke-tests the Windows installer against staged release assets before publishing.
 8. Publishes the GitHub release.
 9. Checks out `respawn-llc/homebrew-tap`.
-10. Runs `scripts/update-brew-tap.sh` for formula `builder-cli`.
+10. Runs `scripts/update-brew-tap.sh` for formula `kent`.
 11. Opens a PR in the tap repo with label `pr-pull`.
 
 ## What The Tap Automation Does
@@ -47,14 +47,14 @@ The tap repo automation is part of the release, not an optional follow-up.
 1. The tap PR runs `brew test-bot`.
 2. On success, `brew pr-pull` runs.
 3. `brew pr-pull` pushes bottle metadata to tap `master`.
-4. After that, `brew update && brew install builder-cli` should resolve to the new version.
+4. After that, `brew update && brew install kent` should resolve to the new version.
 
 ## Recovery If The Tap Step Fails After Publish
 
 If the app release workflow publishes `vX.Y.Z` successfully but fails in `update_brew_tap`, do not cut a second app release.
 
 1. Fix the workflow or tap updater script on `main` first if the failure is in release plumbing.
-2. Create the tap change manually from this repo using `scripts/update-brew-tap.sh` against a fresh clone of `respawn-llc/homebrew-tap` on a branch like `chore/builder-cli-vX.Y.Z`.
+2. Create the tap change manually from this repo using `scripts/update-brew-tap.sh` against a fresh clone of `respawn-llc/homebrew-tap` on a branch like `chore/kent-vX.Y.Z`.
 3. Open the tap PR with label `pr-pull`.
 4. Wait for `brew test-bot`, then `brew pr-pull`, and only then consider the release complete.
 
@@ -62,21 +62,21 @@ If the app release workflow publishes `vX.Y.Z` successfully but fails in `update
 
 Verify all of these before considering the release done:
 
-1. The GitHub release `vX.Y.Z` exists in `respawn-llc/builder` and contains the expected assets plus `checksums.txt`.
+1. The GitHub release `vX.Y.Z` exists in `respawn-llc/kent` and contains the expected assets plus `checksums.txt`.
 2. The tap PR in `respawn-llc/homebrew-tap` is closed by the automation.
 3. The formula on tap `master` has the new tag URL and bottle block.
 4. A standalone Unix install works and passes checksum verification when the release publishes `checksums.txt`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/respawn-llc/builder/main/scripts/install.sh | sh
-builder --version
+curl -fsSL https://raw.githubusercontent.com/respawn-llc/kent/main/scripts/install.sh | sh
+kent --version
 ```
 
 5. A standalone Windows install works and passes checksum verification:
 
 ```powershell
-irm https://raw.githubusercontent.com/respawn-llc/builder/main/scripts/install.ps1 | iex
-builder --version
+irm https://raw.githubusercontent.com/respawn-llc/kent/main/scripts/install.ps1 | iex
+kent --version
 ```
 
 6. A fresh Homebrew install works after `brew update`:
@@ -84,27 +84,27 @@ builder --version
 ```bash
 brew update
 brew tap respawn-llc/tap
-brew install builder-cli
-builder --version
+brew install kent
+kent --version
 ```
 
 If short-name resolution is stale on a machine, use the fully qualified formula name:
 
 ```bash
-brew install respawn-llc/tap/builder-cli
+brew install respawn-llc/tap/kent
 ```
 
 7. Clean up the Homebrew and direct installs to restore your local development build:
 
 ```bash
-brew uninstall builder-cli 2>/dev/null || true
-sudo rm -f /usr/local/bin/builder
-which builder # should point to your local development bin directory, e.g. ./bin/builder
+brew uninstall kent 2>/dev/null || true
+sudo rm -f /usr/local/bin/kent
+which kent # should point to your local development bin directory, e.g. ./bin/kent
 ```
 
 ## Notes
 
-- Installed binary name stays `builder`. Formula name is `builder-cli`.
+- Installed binary name stays `kent`. Formula name is `kent`.
 - Official release targets are `darwin/arm64`, `linux/amd64`, `linux/arm64`, `windows/amd64`, and `windows/arm64`. macOS Intel is unsupported.
 - The smoke-test workflow uses `*-latest` where GitHub provides it; ARM still requires the pinned hosted-runner labels `ubuntu-24.04-arm` and `windows-11-arm` because GitHub does not publish `ubuntu-latest-arm` or `windows-latest-arm` aliases.
 - Do not create the git tag manually unless you are intentionally bypassing the workflow behavior.
