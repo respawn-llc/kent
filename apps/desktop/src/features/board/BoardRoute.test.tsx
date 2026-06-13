@@ -4,7 +4,7 @@ import {
   createTauriNativeBridge,
   type NativeBridge,
   type NativeDialogWindowOptions,
-} from "@builder/desktop-native-bridge";
+} from "@app/native-bridge";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
@@ -67,7 +67,7 @@ describe("BoardRoute", () => {
   it("restores the last valid project workflow route on relaunch", async () => {
     window.history.pushState(null, "", "/");
     localStorage.setItem(
-      "builder.desktop.lastProjectRoute",
+      "desktop.lastProjectRoute",
       JSON.stringify({ projectId: "project-1", workflowId: "workflow-1" }),
     );
     const services = createTestServices([...startupRoutes, ...boardRoutes()]);

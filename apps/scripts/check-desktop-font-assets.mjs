@@ -52,9 +52,9 @@ const expectedManifestAssets = [
 ];
 
 const expectedFontFaces = [
-  { family: "Builder Sans", style: "normal", weight: "100 900" },
-  { family: "Builder Sans", style: "italic", weight: "100 900" },
-  { family: "Builder Mono", style: "normal", weight: "200 800" },
+  { family: "App Sans", style: "normal", weight: "100 900" },
+  { family: "App Sans", style: "italic", weight: "100 900" },
+  { family: "App Mono", style: "normal", weight: "200 800" },
 ];
 
 const requiredNoticeText = [

@@ -1,9 +1,9 @@
-import { BuilderApiClient } from "./client";
+import { ApiClient } from "./client";
 import { ContractError } from "./errors";
 import { FakeRpcTransport } from "./fakeTransport";
 import { protocolVersion } from "./jsonRpcSocket";
 
-describe("BuilderApiClient", () => {
+describe("ApiClient", () => {
   it("parses readiness and sends mutation params through typed method boundary", async () => {
     const transport = new FakeRpcTransport([
       {
@@ -21,7 +21,7 @@ describe("BuilderApiClient", () => {
       },
       { method: "workflow.task.start", result: {} },
     ]);
-    const client = new BuilderApiClient(transport);
+    const client = new ApiClient(transport);
 
     await expect(client.getReadiness()).resolves.toMatchObject({
       ready: true,
@@ -36,7 +36,7 @@ describe("BuilderApiClient", () => {
   });
 
   it("rejects server contract drift before feature code receives raw data", async () => {
-    const client = new BuilderApiClient(
+    const client = new ApiClient(
       new FakeRpcTransport([{ method: "server.readiness.get", result: { ready: true } }]),
     );
 
@@ -44,7 +44,7 @@ describe("BuilderApiClient", () => {
   });
 
   it("surfaces workflow move auto-approval failures returned in successful responses", async () => {
-    const client = new BuilderApiClient(
+    const client = new ApiClient(
       new FakeRpcTransport([{ method: "workflow.task.move", result: { approval_error: "approval failed" } }]),
     );
 
@@ -59,7 +59,7 @@ describe("BuilderApiClient", () => {
   });
 
   it("returns workflow move run ids from successful responses", async () => {
-    const client = new BuilderApiClient(
+    const client = new ApiClient(
       new FakeRpcTransport([
         {
           method: "workflow.task.move",
@@ -89,7 +89,7 @@ describe("BuilderApiClient", () => {
   });
 
   it("normalizes empty workflow board metadata and node-card slices returned as null by Go JSON", async () => {
-    const client = new BuilderApiClient(
+    const client = new ApiClient(
       new FakeRpcTransport([
         { method: "workflow.board.get", result: emptyBoardResponse },
         { method: "workflow.board.nodeCards.list", result: emptyBoardNodeCardsResponse },
@@ -114,7 +114,7 @@ describe("BuilderApiClient", () => {
   });
 
   it("hides workflow join nodes from board columns and groups", async () => {
-    const client = new BuilderApiClient(
+    const client = new ApiClient(
       new FakeRpcTransport([{ method: "workflow.board.get", result: boardWithJoinResponse }]),
     );
 
@@ -125,7 +125,7 @@ describe("BuilderApiClient", () => {
   });
 
   it("normalizes empty task detail slices returned as null by Go JSON", async () => {
-    const client = new BuilderApiClient(
+    const client = new ApiClient(
       new FakeRpcTransport([{ method: "workflow.task.get", result: emptyTaskDetailResponse }]),
     );
 
@@ -148,7 +148,7 @@ describe("BuilderApiClient", () => {
         },
       },
     ]);
-    const client = new BuilderApiClient(transport);
+    const client = new ApiClient(transport);
 
     await expect(client.listTaskComments("task-1", "cursor-1")).resolves.toMatchObject({
       comments: [{ id: "comment-1", body: "Existing comment" }],
@@ -185,7 +185,7 @@ describe("BuilderApiClient", () => {
         },
       },
     ]);
-    const client = new BuilderApiClient(transport);
+    const client = new ApiClient(transport);
 
     await expect(client.getProjectEdit("project-1", "cursor-1")).resolves.toMatchObject({
       projectID: "project-1",
@@ -222,7 +222,7 @@ describe("BuilderApiClient", () => {
       { method: "workflow.validate", result: workflowValidationResponse },
       { method: "workflow.listProjectLinks", result: workflowLinksResponse },
     ]);
-    const client = new BuilderApiClient(transport);
+    const client = new ApiClient(transport);
 
     const definition = await client.getWorkflow("workflow-1");
     expect(definition).toMatchObject({
@@ -350,7 +350,7 @@ describe("BuilderApiClient", () => {
         },
       },
     ]);
-    const client = new BuilderApiClient(transport);
+    const client = new ApiClient(transport);
 
     await expect(
       client.listWorkflows({ pageSize: 10, pageToken: "cursor-1", query: "ship" }),
@@ -407,7 +407,7 @@ describe("BuilderApiClient", () => {
       { method: "workflow.deletePreview", result: workflowDeletePreviewResponse },
       { method: "workflow.delete", result: workflowDeleteResponse },
     ]);
-    const client = new BuilderApiClient(transport);
+    const client = new ApiClient(transport);
 
     await expect(client.previewWorkflowDelete("workflow-1")).resolves.toMatchObject({
       workflowID: "workflow-1",
@@ -499,7 +499,7 @@ describe("BuilderApiClient", () => {
         },
       },
     ]);
-    const client = new BuilderApiClient(transport);
+    const client = new ApiClient(transport);
 
     await expect(
       client.validateWorkflowGraphDraft({

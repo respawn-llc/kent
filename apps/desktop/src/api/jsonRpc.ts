@@ -152,14 +152,14 @@ class JsonRpcWebSocketTransport implements RpcTransport {
 
   #handleControlClose(): void {
     this.#socket = null;
-    this.connection.set("disconnected", "Builder service connection closed.");
-    this.#rejectAll(new TransportError("Builder service connection closed."));
+    this.connection.set("disconnected", "Kent service connection closed.");
+    this.#rejectAll(new TransportError("Kent service connection closed."));
   }
 
   #handleControlError(): void {
     this.#socket = null;
-    this.connection.set("disconnected", "Builder service connection failed.");
-    this.#rejectAll(new TransportError("Builder service connection failed."));
+    this.connection.set("disconnected", "Kent service connection failed.");
+    this.#rejectAll(new TransportError("Kent service connection failed."));
   }
 
   #rejectAll(error: Error): void {

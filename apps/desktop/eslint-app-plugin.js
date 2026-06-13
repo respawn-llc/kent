@@ -2,9 +2,9 @@ const componentDirectories = new Set(["components", "ui"]);
 const dtoImportNames = new Set(["Dto", "DTO"]);
 const rawProtocolDirectories = new Set(["generated", "protocol"]);
 const disallowedEffectCalls = new Set(["fetch", "invoke"]);
-const knownBridgeIdentifiers = new Set(["apiClient", "builderClient", "nativeBridge", "serverClient"]);
+const knownBridgeIdentifiers = new Set(["apiClient", "appClient", "nativeBridge", "serverClient"]);
 
-export const builderArchitecture = {
+export const appArchitecture = {
   rules: {
     "no-array-index-key": {
       meta: {
@@ -270,7 +270,7 @@ function collectReactEffectBindings(node, reactEffectNames, reactNamespaces) {
 }
 
 function collectBridgeBindings(node, bridgeIdentifiers) {
-  if (node.source.value !== "@builder/desktop-native-bridge") {
+  if (node.source.value !== "@app/native-bridge") {
     return;
   }
 

@@ -2,7 +2,7 @@ import {
   createBrowserNativeBridge,
   type NativeBridge,
   type NativeDialogWindowOptions,
-} from "@builder/desktop-native-bridge";
+} from "@app/native-bridge";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach } from "vitest";

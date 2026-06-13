@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Builder",
+  "productName": "Kent",
   "version": "0.0.0",
   "identifier": "sh.kent",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Builder",
+        "title": "Kent",
         "width": 1280,
         "height": 860,
         "minWidth": 960,

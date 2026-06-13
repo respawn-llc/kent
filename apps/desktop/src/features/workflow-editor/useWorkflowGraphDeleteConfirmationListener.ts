@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type { NativeBridge } from "@builder/desktop-native-bridge";
+import type { NativeBridge } from "@app/native-bridge";
 
 export type PendingWorkflowGraphDeleteConfirmation = Readonly<{
   requestID: string;

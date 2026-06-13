@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 @font-face {
-  font-family: "Builder Sans";
+  font-family: "App Sans";
   font-style: normal;
   font-display: swap;
   font-weight: 100 900;
@@ -15,7 +15,7 @@
 }
 
 @font-face {
-  font-family: "Builder Sans";
+  font-family: "App Sans";
   font-style: normal;
   font-display: swap;
   font-weight: 100 900;
@@ -25,7 +25,7 @@
 }
 
 @font-face {
-  font-family: "Builder Sans";
+  font-family: "App Sans";
   font-style: normal;
   font-display: swap;
   font-weight: 100 900;
@@ -37,7 +37,7 @@
 }
 
 @font-face {
-  font-family: "Builder Sans";
+  font-family: "App Sans";
   font-style: normal;
   font-display: swap;
   font-weight: 100 900;
@@ -49,7 +49,7 @@
 }
 
 @font-face {
-  font-family: "Builder Sans";
+  font-family: "App Sans";
   font-style: normal;
   font-display: swap;
   font-weight: 100 900;
@@ -61,7 +61,7 @@
 }
 
 @font-face {
-  font-family: "Builder Sans";
+  font-family: "App Sans";
   font-style: italic;
   font-display: swap;
   font-weight: 100 900;
@@ -71,7 +71,7 @@
 }
 
 @font-face {
-  font-family: "Builder Sans";
+  font-family: "App Sans";
   font-style: italic;
   font-display: swap;
   font-weight: 100 900;
@@ -81,7 +81,7 @@
 }
 
 @font-face {
-  font-family: "Builder Sans";
+  font-family: "App Sans";
   font-style: italic;
   font-display: swap;
   font-weight: 100 900;
@@ -93,7 +93,7 @@
 }
 
 @font-face {
-  font-family: "Builder Sans";
+  font-family: "App Sans";
   font-style: italic;
   font-display: swap;
   font-weight: 100 900;
@@ -105,7 +105,7 @@
 }
 
 @font-face {
-  font-family: "Builder Sans";
+  font-family: "App Sans";
   font-style: italic;
   font-display: swap;
   font-weight: 100 900;
@@ -117,7 +117,7 @@
 }
 
 @font-face {
-  font-family: "Builder Mono";
+  font-family: "App Mono";
   font-style: normal;
   font-display: swap;
   font-weight: 200 800;
@@ -126,12 +126,12 @@
 
 :root {
   --font-header:
-    "Builder Sans", "Montserrat Variable", Montserrat, ui-sans-serif, system-ui, -apple-system,
+    "App Sans", "Montserrat Variable", Montserrat, ui-sans-serif, system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-main:
-    "Builder Sans", "Montserrat Variable", Montserrat, ui-sans-serif, system-ui, -apple-system,
+    "App Sans", "Montserrat Variable", Montserrat, ui-sans-serif, system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "Builder Mono", "Monaspace Neon", "SFMono-Regular", Consolas, monospace;
+  --font-mono: "App Mono", "Monaspace Neon", "SFMono-Regular", Consolas, monospace;
   --space-0: 0px;
   --space-1: 4px;
   --space-2: 8px;
@@ -313,11 +313,11 @@
     calc(var(--radius) * 2.6);
 }
 
-:root[data-builder-theme="light"] {
+:root[data-theme="light"] {
   color-scheme: light;
 }
 
-:root[data-builder-theme="dark"] {
+:root[data-theme="dark"] {
   color-scheme: dark;
 }
 
@@ -448,7 +448,7 @@
     text-decoration: none;
   }
 
-  html[data-builder-platform="macos"] :is(button, a, label, [role="button"], [role="link"], [role="menuitem"], [role="radio"], .cursor-pointer) {
+  html[data-platform="macos"] :is(button, a, label, [role="button"], [role="link"], [role="menuitem"], [role="radio"], .cursor-pointer) {
     cursor: default !important;
   }
 }

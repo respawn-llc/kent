@@ -1,4 +1,4 @@
-const lastProjectRouteStorageKey = "builder.desktop.lastProjectRoute";
+const lastProjectRouteStorageKey = "desktop.lastProjectRoute";
 type StoredProjectRoute = Readonly<{ projectId: string; workflowId: string }>;
 export function readLastProjectRoute(): StoredProjectRoute | null {
   const raw = localStorageSafe()?.getItem(lastProjectRouteStorageKey) ?? "null";

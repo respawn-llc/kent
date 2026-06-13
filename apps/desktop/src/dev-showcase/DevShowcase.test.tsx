@@ -12,7 +12,7 @@ describe("DevShowcaseApp", () => {
 
   afterEach(() => {
     globalThis.ResizeObserver = originalResizeObserver;
-    document.documentElement.removeAttribute("data-builder-theme");
+    document.documentElement.removeAttribute("data-theme");
   });
 
   it("renders single-page UI inventory with mock data", async () => {

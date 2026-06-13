@@ -20,14 +20,14 @@ By default the browser client connects to the existing local Kent server:
 ws://127.0.0.1:53082/rpc
 ```
 
-For a one-off endpoint override, pass `kentRpcEndpoint`:
+For a one-off endpoint override, pass `appRpcEndpoint`:
 
 ```text
-http://127.0.0.1:1420/?kentRpcEndpoint=ws%3A%2F%2F127.0.0.1%3A53082%2Frpc
+http://127.0.0.1:1420/?appRpcEndpoint=ws%3A%2F%2F127.0.0.1%3A53082%2Frpc
 ```
 
 For a dev-server-wide override, set:
 
 ```sh
-VITE_KENT_RPC_ENDPOINT=ws://127.0.0.1:53082/rpc pnpm --dir apps/desktop dev:browser
+VITE_APP_RPC_ENDPOINT=ws://127.0.0.1:53082/rpc pnpm --dir apps/desktop dev:browser
 ```

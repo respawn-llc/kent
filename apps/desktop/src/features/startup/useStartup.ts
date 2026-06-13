@@ -25,7 +25,7 @@ export function useStartup(): StartupViewModel {
   if (readiness.isError) {
     if (readiness.error instanceof ProtocolMismatchError) {
       return startupError(
-        "startup.updateBuilderTitle",
+        "startup.updateTitle",
         errorMessage(readiness.error),
         t("startup.unknownFailure"),
         () => {
@@ -56,7 +56,7 @@ export function useStartup(): StartupViewModel {
   }
   if (readiness.data.protocolVersion !== protocolVersion) {
     return startupError(
-      "startup.updateBuilderTitle",
+      "startup.updateTitle",
       protocolMismatchBody(
         t("startup.clientProtocol", { protocol: protocolVersion }),
         t("startup.serverProtocol", { protocol: readiness.data.protocolVersion }),

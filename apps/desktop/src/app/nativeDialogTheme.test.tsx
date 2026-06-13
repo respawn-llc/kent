@@ -6,11 +6,11 @@ import { createTestServices, startupRoutes } from "../testSupport/appServices";
 
 describe("native dialog theme inheritance", () => {
   beforeEach(() => {
-    document.documentElement.removeAttribute("data-builder-theme");
+    document.documentElement.removeAttribute("data-theme");
   });
 
   afterEach(() => {
-    document.documentElement.removeAttribute("data-builder-theme");
+    document.documentElement.removeAttribute("data-theme");
     window.history.pushState(null, "", "/");
   });
 
@@ -18,7 +18,7 @@ describe("native dialog theme inheritance", () => {
     window.history.pushState(
       null,
       "",
-      "/native-dialog/new-task?projectID=project-1&workflowID=workflow-1&__builderTheme=light",
+      "/native-dialog/new-task?projectID=project-1&workflowID=workflow-1&__appTheme=light",
     );
 
     render(
@@ -38,9 +38,9 @@ describe("native dialog theme inheritance", () => {
       />,
     );
 
-    expect(document.documentElement).toHaveAttribute("data-builder-theme", "light");
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
     expect(await screen.findByTestId("native-dialog-content")).toBeInTheDocument();
-    expect(document.documentElement).toHaveAttribute("data-builder-theme", "light");
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
   });
 
 });

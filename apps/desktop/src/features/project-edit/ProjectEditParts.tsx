@@ -1,4 +1,4 @@
-import type { NativeBridge } from "@builder/desktop-native-bridge";
+import type { NativeBridge } from "@app/native-bridge";
 import { useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Link2Off, Save, Star, Unlink } from "lucide-react";

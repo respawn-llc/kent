@@ -2,7 +2,7 @@ import {
   createBrowserNativeBridge,
   type NativeBridge,
   type NativeDirectorySelection,
-} from "@builder/desktop-native-bridge";
+} from "@app/native-bridge";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach } from "vitest";
 
@@ -16,13 +16,13 @@ describe("App", () => {
     window.history.pushState(null, "", "/");
     clearStorage("localStorage");
     clearStorage("sessionStorage");
-    document.documentElement.removeAttribute("data-builder-theme");
+    document.documentElement.removeAttribute("data-theme");
     globalThis.ResizeObserver = originalResizeObserver;
   });
 
   afterEach(() => {
     globalThis.ResizeObserver = originalResizeObserver;
-    document.documentElement.removeAttribute("data-builder-theme");
+    document.documentElement.removeAttribute("data-theme");
   });
 
   it("renders the startup-gated home shell", async () => {

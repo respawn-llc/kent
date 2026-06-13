@@ -1,9 +1,9 @@
 import { useEffect } from "react";
-import type { NativeBridge, NativeWindowGlassTint } from "@builder/desktop-native-bridge";
+import type { NativeBridge, NativeWindowGlassTint } from "@app/native-bridge";
 
 import { errorMessage } from "../api/errors";
 
-const builderThemeAttribute = "data-builder-theme";
+const themeAttribute = "data-theme";
 const windowGlassFillClassName = "window-glass-fill";
 
 export function useNativeWindowGlassTintSync(nativeBridge: NativeBridge): void {
@@ -22,7 +22,7 @@ export function useNativeWindowGlassTintSync(nativeBridge: NativeBridge): void {
 
     const observer = new MutationObserver(syncTint);
     observer.observe(document.documentElement, {
-      attributeFilter: [builderThemeAttribute],
+      attributeFilter: [themeAttribute],
       attributes: true,
     });
 

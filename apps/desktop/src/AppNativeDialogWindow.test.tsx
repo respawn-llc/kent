@@ -1,4 +1,4 @@
-import { createBrowserNativeBridge, type NativeBridge } from "@builder/desktop-native-bridge";
+import { createBrowserNativeBridge, type NativeBridge } from "@app/native-bridge";
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 

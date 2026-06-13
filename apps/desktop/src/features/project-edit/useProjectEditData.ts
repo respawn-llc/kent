@@ -4,7 +4,7 @@ import type {
   NativeBridge,
   NativeProjectWorkspaceChanged,
   NativeWorkspaceUnlinkTarget,
-} from "@builder/desktop-native-bridge";
+} from "@app/native-bridge";
 
 import type { ProjectBinding } from "../../api";
 import { errorMessage } from "../../api/errors";

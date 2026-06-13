@@ -3,7 +3,7 @@ import { workflowEditorEnglish } from "./workflowEditorEn";
 export const englishResources = {
   translation: {
     app: {
-      title: "Builder",
+      title: "Kent",
       subtitle: "Workflow remote control",
       home: "Home",
       back: "Back",
@@ -33,20 +33,20 @@ export const englishResources = {
       readOnly: "Read-only until connection returns.",
     },
     startup: {
-      loadingTitle: "Connecting to Builder service",
+      loadingTitle: "Connecting to Kent service",
       loadingBody: "Checking readiness and authentication state.",
-      readyTitle: "Builder service ready",
+      readyTitle: "Kent service ready",
       errorTitle: "Startup blocked",
-      unreachableTitle: "Builder service unreachable",
-      unreachableBody: "Run `builder service install`, then retry.",
-      updateBuilderTitle: "Update Builder",
+      unreachableTitle: "Kent service unreachable",
+      unreachableBody: "Run `kent service install`, then retry.",
+      updateTitle: "Update Kent",
       unknownTitle: "Unexpected startup failure",
       unknownBody: "Check local GUI logs and retry after the service is healthy.",
       unknownFailure: "Unknown startup failure",
       readinessFailed: "Readiness check failed.",
       clientProtocol: "Client protocol {{protocol}}.",
       serverProtocol: "Server protocol {{protocol}}.",
-      updateSameBuild: "Update Builder CLI/service and desktop app from the same build.",
+      updateSameBuild: "Update Kent CLI/service and desktop app from the same build.",
     },
     home: {
       title: "Projects",
@@ -65,7 +65,7 @@ export const englishResources = {
       projectCreateWindowError: "Project creation window failed",
       workspaceSelectionRequired: "Choose an existing project",
       workspaceSelectionRequiredBody:
-        "This workspace is already linked to Builder projects. Open one from the project list instead of creating another.",
+        "This workspace is already linked to Kent projects. Open one from the project list instead of creating another.",
       boundWorkspace: "Workspace already belongs to a project. Opening existing project.",
       unboundWorkspace: "Workspace is unbound. Create a project before opening board.",
       noAttentionBody: "Blocked tasks and approvals will appear here.",
@@ -99,12 +99,12 @@ export const englishResources = {
       unlinkWorkspace: "Unlink {{path}}",
       unlinkTitle: "Unlink workspace?",
       unlinkBody:
-        "This removes the workspace from Builder app state only. Files stay on disk, completed history remains readable, and active work blocks unlink.",
+        "This removes the workspace from Kent app state only. Files stay on disk, completed history remains readable, and active work blocks unlink.",
       unlinkConfirm: "Unlink workspace",
       deleteProject: "Delete project",
       deleteTitle: "Delete project?",
       deleteBody:
-        "Delete this Builder project and its tasks/sessions from Builder. Workspace files, repos, worktrees, and reusable workflows stay on disk.",
+        "Delete this Kent project and its tasks/sessions from Kent. Workspace files, repos, worktrees, and reusable workflows stay on disk.",
       deleteConfirm: "Delete project",
       deleteBlocked: "Project cannot be deleted yet.",
       deleteDeleted: "Project deleted",

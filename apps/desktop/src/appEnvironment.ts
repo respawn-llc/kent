@@ -1,6 +1,6 @@
-import { createAutoNativeBridge, type NativePlatform } from "@builder/desktop-native-bridge";
+import { createAutoNativeBridge, type NativePlatform } from "@app/native-bridge";
 
-import { BuilderApiClient, createJsonRpcTransport } from "./api";
+import { ApiClient, createJsonRpcTransport } from "./api";
 import { ConnectionStore } from "./api/connectionStore";
 import { StartupConfigurationError } from "./api/errors";
 import type { JsonValue } from "./api/json";
@@ -9,30 +9,30 @@ import { createGuiLogger } from "./app/logging";
 import type { AppServices } from "./app/services";
 
 const defaultServerEndpoint = "ws://127.0.0.1:53082/rpc";
-const browserRpcEndpointSearchParam = "builderRpcEndpoint";
-const browserRpcEndpointEnvVar = "VITE_BUILDER_RPC_ENDPOINT";
-const builderPlatformAttribute = "data-builder-platform";
-const builderThemeAttribute = "data-builder-theme";
-const nativeDialogThemeSearchParam = "__builderTheme";
+const browserRpcEndpointSearchParam = "appRpcEndpoint";
+const browserRpcEndpointEnvVar = "VITE_APP_RPC_ENDPOINT";
+const platformAttribute = "data-platform";
+const themeAttribute = "data-theme";
+const nativeDialogThemeSearchParam = "__appTheme";
 let productionContextMenuGuardInstalled = false;
 
 export async function createDefaultAppServices(): Promise<AppServices> {
   installProductionContextMenuGuard(import.meta.env.PROD);
   applyNativeDialogThemeOverride();
   const bootstrapNativeBridge = createAutoNativeBridge("unknown");
-  const platform = await bootstrapNativeBridge.builder.resolvePlatform().catch(() => "unknown" as const);
+  const platform = await bootstrapNativeBridge.app.resolvePlatform().catch(() => "unknown" as const);
   applyNativePlatform(platform);
   const nativeBridge = createAutoNativeBridge(platform);
   const logger = createGuiLogger(nativeBridge);
-  const context = await nativeBridge.builder
+  const context = await nativeBridge.app
     .resolveContext()
     .catch((error: unknown) => new StartupConfigurationError(errorMessage(error)));
   if (context instanceof Error) {
-    await logger.append("error", "Builder native context resolution failed.", {
+    await logger.append("error", "Native context resolution failed.", {
       error: context.message,
     });
     return {
-      api: new BuilderApiClient(new BootstrapErrorTransport(context)),
+      api: new ApiClient(new BootstrapErrorTransport(context)),
       debugThemeOverrideEnabled: import.meta.env.DEV,
       endpoint: defaultServerEndpoint,
       homePath: "",
@@ -44,11 +44,11 @@ export async function createDefaultAppServices(): Promise<AppServices> {
   applyNativeDialogThemeOverride();
   const browserEndpoint = nativeBridge.capabilities.platform === "browser" ? readBrowserRpcEndpoint() : null;
   if (browserEndpoint instanceof Error) {
-    await logger.append("error", "Builder browser RPC endpoint configuration failed.", {
+    await logger.append("error", "Browser RPC endpoint configuration failed.", {
       error: browserEndpoint.message,
     });
     return {
-      api: new BuilderApiClient(new BootstrapErrorTransport(browserEndpoint)),
+      api: new ApiClient(new BootstrapErrorTransport(browserEndpoint)),
       debugThemeOverrideEnabled: import.meta.env.DEV,
       endpoint: defaultServerEndpoint,
       homePath: context.homePath,
@@ -58,7 +58,7 @@ export async function createDefaultAppServices(): Promise<AppServices> {
   }
   const endpoint =
     browserEndpoint ?? (context.serverEndpoint.length > 0 ? context.serverEndpoint : defaultServerEndpoint);
-  const api = new BuilderApiClient(createJsonRpcTransport(endpoint));
+  const api = new ApiClient(createJsonRpcTransport(endpoint));
   return {
     api,
     debugThemeOverrideEnabled: import.meta.env.DEV,
@@ -73,7 +73,7 @@ export function applyNativePlatform(platform: NativePlatform): void {
   if (typeof document === "undefined") {
     return;
   }
-  document.documentElement.setAttribute(builderPlatformAttribute, platform);
+  document.documentElement.setAttribute(platformAttribute, platform);
 }
 
 export function readBrowserRpcEndpoint(): string | null | StartupConfigurationError {
@@ -119,10 +119,10 @@ export function applyConfiguredTheme(theme: string): void {
     return;
   }
   if (theme === "light" || theme === "dark") {
-    document.documentElement.setAttribute(builderThemeAttribute, theme);
+    document.documentElement.setAttribute(themeAttribute, theme);
     return;
   }
-  document.documentElement.removeAttribute(builderThemeAttribute);
+  document.documentElement.removeAttribute(themeAttribute);
 }
 
 export function applyNativeDialogThemeOverride(): void {
@@ -132,11 +132,11 @@ export function applyNativeDialogThemeOverride(): void {
   }
 }
 
-export type BuilderTheme = "light" | "dark";
+export type AppTheme = "light" | "dark";
 
-export function readEffectiveTheme(): BuilderTheme {
+export function readEffectiveTheme(): AppTheme {
   if (typeof document !== "undefined") {
-    const configured = document.documentElement.getAttribute(builderThemeAttribute);
+    const configured = document.documentElement.getAttribute(themeAttribute);
     if (configured === "light" || configured === "dark") {
       return configured;
     }
@@ -147,11 +147,11 @@ export function readEffectiveTheme(): BuilderTheme {
   return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
 
-export function setInMemoryThemeOverride(theme: BuilderTheme): void {
+export function setInMemoryThemeOverride(theme: AppTheme): void {
   if (typeof document === "undefined") {
     return;
   }
-  document.documentElement.setAttribute(builderThemeAttribute, theme);
+  document.documentElement.setAttribute(themeAttribute, theme);
 }
 
 function readBrowserRpcEndpointSearchParam(): string | null {
@@ -170,7 +170,7 @@ function firstNonEmptyString(...values: readonly unknown[]): string | null {
   return null;
 }
 
-function readNativeDialogThemeOverride(): BuilderTheme | null {
+function readNativeDialogThemeOverride(): AppTheme | null {
   if (typeof window === "undefined" || !window.location.pathname.startsWith("/native-dialog/")) {
     return null;
   }
@@ -178,7 +178,7 @@ function readNativeDialogThemeOverride(): BuilderTheme | null {
   return theme === "light" || theme === "dark" ? theme : null;
 }
 
-export function toggleInMemoryThemeOverride(): BuilderTheme {
+export function toggleInMemoryThemeOverride(): AppTheme {
   const nextTheme = readEffectiveTheme() === "dark" ? "light" : "dark";
   setInMemoryThemeOverride(nextTheme);
   return nextTheme;

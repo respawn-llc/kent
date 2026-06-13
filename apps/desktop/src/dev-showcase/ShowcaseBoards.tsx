@@ -62,7 +62,7 @@ export function PrimitiveBoard({
           <TextInput
             error={["Required", "Use one line."]}
             label="Project name"
-            value="Builder Desktop"
+            value="Kent Desktop"
             readOnly
           />
           <SelectField
@@ -70,7 +70,7 @@ export function PrimitiveBoard({
             label="Source workspace"
             onValueChange={() => undefined}
             options={[
-              { label: "builder-cli", value: "workspace-api" },
+              { label: "kent", value: "workspace-api" },
               { label: "docs", value: "workspace-docs" },
             ]}
             value="workspace-api"

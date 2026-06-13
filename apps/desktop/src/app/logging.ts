@@ -1,4 +1,4 @@
-import type { NativeBridge, NativeLogEntry } from "@builder/desktop-native-bridge";
+import type { NativeBridge, NativeLogEntry } from "@app/native-bridge";
 
 const maxLogBytes = 10 * 1024 * 1024;
 const redactedValue = "[redacted]";

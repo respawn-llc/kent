@@ -46,7 +46,7 @@ test("rejects explicit any inside template interpolation", async () => {
 });
 
 async function makeWorkspace(files) {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "builder-ts-policy-"));
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "app-ts-policy-"));
   for (const [path, content] of Object.entries(files)) {
     const filePath = join(workspaceRoot, path);
     await mkdir(join(filePath, ".."), { recursive: true });

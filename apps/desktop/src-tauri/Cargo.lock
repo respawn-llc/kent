@@ -48,6 +48,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
+name = "app-desktop"
+version = "0.0.0"
+dependencies = [
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "serde",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tokio",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
 name = "arboard"
 version = "3.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -335,23 +352,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf88ba1141d185c399bee5288d850d63b8369520c1eafc32a0430b5b6c287bf4"
 dependencies = [
  "tinyvec",
-]
-
-[[package]]
-name = "builder-desktop"
-version = "0.0.0"
-dependencies = [
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "serde",
- "tauri",
- "tauri-build",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tokio",
- "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]

@@ -3,12 +3,12 @@
   "minimumReleaseAgeMinutes": 10080,
   "minimumReleaseAgeExclude": ["@types/node", "vite", "@rolldown/*"],
   "directDependencyAllowlist": {
-    "@builder/apps": {
+    "@app/apps": {
       "devDependencies": ["postcss", "prettier"]
     },
-    "@builder/desktop": {
+    "@app/desktop": {
       "dependencies": [
-        "@builder/desktop-native-bridge",
+        "@app/native-bridge",
         "@dnd-kit/core",
         "@dnd-kit/sortable",
         "@fontsource-variable/montserrat",
@@ -67,7 +67,7 @@
         "vitest"
       ]
     },
-    "@builder/desktop-native-bridge": {
+    "@app/native-bridge": {
       "dependencies": [
         "@tauri-apps/api",
         "@tauri-apps/plugin-clipboard-manager"

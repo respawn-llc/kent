@@ -4,10 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { initializeI18n } from "../../i18n/setup";
 import { showStatusToast } from "../../ui";
 import { WorkflowNodeInfoTooltipContent } from "./WorkflowGraphNodeMetadata";
-import type * as BuilderUI from "../../ui";
+import type * as AppUI from "../../ui";
 
 vi.mock("../../ui", async (importOriginal) => {
-  const actual = await importOriginal<typeof BuilderUI>();
+  const actual = await importOriginal<typeof AppUI>();
   return {
     ...actual,
     showStatusToast: vi.fn(),

@@ -1,4 +1,4 @@
-import type { NativeBridge, NativeWorkflowDeleted } from "@builder/desktop-native-bridge";
+import type { NativeBridge, NativeWorkflowDeleted } from "@app/native-bridge";
 import type { QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 

@@ -60,9 +60,9 @@ export type NativeBridge = Readonly<{
   logging: Readonly<{
     append(entry: NativeLogEntry): Promise<void>;
   }>;
-  builder: Readonly<{
+  app: Readonly<{
     resolvePlatform(): Promise<NativePlatform>;
-    resolveContext(): Promise<NativeBuilderContext>;
+    resolveContext(): Promise<NativeContext>;
   }>;
   window: Readonly<{
     startDragging(): Promise<void>;
@@ -129,13 +129,13 @@ export type NativeLogEntry = Readonly<{
   occurredAt: string;
 }>;
 
-export type NativeBuilderTheme = "auto" | "light" | "dark";
+export type NativeTheme = "auto" | "light" | "dark";
 
-export type NativeBuilderContext = Readonly<{
+export type NativeContext = Readonly<{
   serverEndpoint: string;
   persistenceRoot: string;
   platform: NativePlatform;
-  theme: NativeBuilderTheme;
+  theme: NativeTheme;
   homePath: string;
 }>;
 
@@ -202,11 +202,11 @@ const unavailableCapabilities: NativeCapabilityState = {
 };
 
 export const nativeDialogWindowHorizontalInsetPx = 16;
-const projectDeletedEvent = "builder://project-deleted";
-const workspaceUnlinkRequestEvent = "builder://workspace-unlink-request";
-const projectWorkspaceChangedEvent = "builder://project-workspace-changed";
-const workflowGraphDeleteConfirmEvent = "builder://workflow-graph-delete-confirm";
-const workflowDeletedEvent = "builder://workflow-deleted";
+const projectDeletedEvent = "app://project-deleted";
+const workspaceUnlinkRequestEvent = "app://workspace-unlink-request";
+const projectWorkspaceChangedEvent = "app://project-workspace-changed";
+const workflowGraphDeleteConfirmEvent = "app://workflow-graph-delete-confirm";
+const workflowDeletedEvent = "app://workflow-deleted";
 
 declare global {
   interface Window {
@@ -252,11 +252,11 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
         return Promise.resolve();
       },
     },
-    builder: {
+    app: {
       async resolvePlatform(): Promise<NativePlatform> {
         return capabilities.platform;
       },
-      async resolveContext(): Promise<NativeBuilderContext> {
+      async resolveContext(): Promise<NativeContext> {
         return {
           serverEndpoint: "ws://127.0.0.1:53082/rpc",
           persistenceRoot: "",
@@ -383,12 +383,12 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
         await invoke("append_gui_log", { entry: JSON.stringify(entry) });
       },
     },
-    builder: {
+    app: {
       async resolvePlatform(): Promise<NativePlatform> {
         return normalizeNativePlatform(await invoke<string>("resolve_native_platform"));
       },
-      async resolveContext(): Promise<NativeBuilderContext> {
-        return invoke<NativeBuilderContext>("resolve_builder_context");
+      async resolveContext(): Promise<NativeContext> {
+        return invoke<NativeContext>("resolve_native_context");
       },
     },
     window: {
@@ -430,10 +430,10 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
         });
       },
       async notifyCreated(binding: NativeProjectBinding): Promise<void> {
-        await emitTo("main", "builder://project-created", binding);
+        await emitTo("main", "app://project-created", binding);
       },
       async onCreated(handler: (binding: NativeProjectBinding) => void): Promise<NativeUnlisten> {
-        return listen<NativeProjectBinding>("builder://project-created", (event) => {
+        return listen<NativeProjectBinding>("app://project-created", (event) => {
           handler(event.payload);
         });
       },

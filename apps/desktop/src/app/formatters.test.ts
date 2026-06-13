@@ -4,8 +4,8 @@ import { formatHomeRelativePath } from "./formatters";
 
 describe("formatHomeRelativePath", () => {
   it("replaces Unix home descendants with a tilde path", () => {
-    expect(formatHomeRelativePath("/Users/nek/Developer/builder-cli", "/Users/nek", "macos")).toBe(
-      "~/Developer/builder-cli",
+    expect(formatHomeRelativePath("/Users/nek/Developer/kent", "/Users/nek", "macos")).toBe(
+      "~/Developer/kent",
     );
   });
 
@@ -23,8 +23,8 @@ describe("formatHomeRelativePath", () => {
 
   it("replaces Windows home descendants with a user-relative path", () => {
     expect(
-      formatHomeRelativePath("C:\\Users\\Nikita\\Developer\\builder-cli", "c:\\users\\nikita", "windows"),
-    ).toBe("~\\Developer\\builder-cli");
+      formatHomeRelativePath("C:\\Users\\Nikita\\Developer\\kent", "c:\\users\\nikita", "windows"),
+    ).toBe("~\\Developer\\kent");
   });
 
   it("leaves Windows sibling directories absolute", () => {
@@ -51,8 +51,8 @@ describe("formatHomeRelativePath", () => {
   });
 
   it("leaves paths unchanged when the home path is unavailable", () => {
-    expect(formatHomeRelativePath("/Users/nek/Developer/builder-cli", "", "unknown")).toBe(
-      "/Users/nek/Developer/builder-cli",
+    expect(formatHomeRelativePath("/Users/nek/Developer/kent", "", "unknown")).toBe(
+      "/Users/nek/Developer/kent",
     );
   });
 });

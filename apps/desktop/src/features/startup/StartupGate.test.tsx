@@ -38,7 +38,7 @@ describe("StartupGate", () => {
                   code: "auth",
                   severity: "error",
                   summary: "Auth required",
-                  next_action: "Run builder auth login",
+                  next_action: "Run kent auth login",
                   diagnostic_id: "diag-1",
                 },
               ],
@@ -58,7 +58,7 @@ describe("StartupGate", () => {
           {
             method: "server.readiness.get",
             result: {},
-            error: new StartupConfigurationError("invalid Builder config"),
+            error: new StartupConfigurationError("invalid Kent config"),
           },
         ])}
       />,
@@ -129,7 +129,7 @@ describe("StartupGate", () => {
     expect(await screen.findByTestId("error-state")).toBeInTheDocument();
     expect(
       screen.getByText(
-        `Client protocol ${protocolVersion}. Server protocol 1. Update Builder CLI/service and desktop app from the same build.`,
+        `Client protocol ${protocolVersion}. Server protocol 1. Update Kent CLI/service and desktop app from the same build.`,
       ),
     ).toBeInTheDocument();
     await waitFor(() => {

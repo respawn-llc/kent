@@ -1,4 +1,4 @@
-export { BuilderApiClient } from "./client";
+export { ApiClient } from "./client";
 export type { QuestionAnswerInput, TaskEditInput, TaskMutationInput, WorkflowDeleteInput } from "./client";
 export { emptyWorkflowDerivedWiring } from "./models";
 export { createJsonRpcTransport } from "./jsonRpc";

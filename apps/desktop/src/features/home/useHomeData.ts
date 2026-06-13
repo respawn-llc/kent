@@ -3,7 +3,7 @@ import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-q
 
 import type { ProjectBinding } from "../../api";
 import { errorMessage } from "../../api/errors";
-import type { NativeProjectBinding } from "@builder/desktop-native-bridge";
+import type { NativeProjectBinding } from "@app/native-bridge";
 import { queryKeys } from "../../app/queryKeys";
 import { useAppServices } from "../../app/useAppServices";
 

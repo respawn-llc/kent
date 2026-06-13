@@ -1,10 +1,10 @@
-Builder Desktop Third-Party Font Notices
+Kent Desktop Third-Party Font Notices
 
 The desktop app bundles unmodified WOFF2 font files. Montserrat is sourced from a
 Fontsource npm package; Monaspace Neon is sourced from the upstream GitHub release
 asset listed below. The files are emitted into the built app by Vite and loaded through
-local `font-src 'self'` URLs. Builder CSS aliases the bundled faces as "Builder Sans"
-and "Builder Mono".
+local `font-src 'self'` URLs. The desktop app CSS aliases the bundled faces as "App Sans"
+and "App Mono".
 
 Montserrat
 

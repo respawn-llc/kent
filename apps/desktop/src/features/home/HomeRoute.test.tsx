@@ -69,7 +69,7 @@ describe("HomeRoute", () => {
         {
           method: "project.home.list",
           result: projectPage(
-            [projectSummary("project-builder", "Builder", 10, "/Users/nek/Developer/builder-cli")],
+            [projectSummary("project-kent", "Kent", 10, "/Users/nek/Developer/kent")],
             "",
           ),
         },
@@ -80,9 +80,9 @@ describe("HomeRoute", () => {
 
     render(<App services={services} />);
 
-    const projectCard = await screen.findByRole("button", { name: "Builder ~/Developer/builder-cli" });
+    const projectCard = await screen.findByRole("button", { name: "Kent ~/Developer/kent" });
     expect(projectCard).toBeInTheDocument();
-    expect(projectCard).toHaveAttribute("title", "/Users/nek/Developer/builder-cli");
+    expect(projectCard).toHaveAttribute("title", "/Users/nek/Developer/kent");
   });
 
   it("keeps Inbox on the right while Workflows replaces Projects in the left tabbed pane", async () => {

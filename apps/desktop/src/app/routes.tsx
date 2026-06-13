@@ -45,7 +45,7 @@ const workflowEditorSearchSchema = z.object({
   projectId: optionalSearchString,
 });
 
-const routeRestoreSessionKey = "builder.desktop.routeRestoreChecked";
+const routeRestoreSessionKey = "desktop.routeRestoreChecked";
 let routeRestoreCheckedFallback = false;
 
 const rootRoute = createRootRoute({ component: RootRoute });

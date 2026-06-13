@@ -17,7 +17,7 @@ importers:
 
   desktop:
     dependencies:
-      '@builder/desktop-native-bridge':
+      '@app/native-bridge':
         specifier: workspace:*
         version: link:packages/native-bridge
       '@dnd-kit/core':

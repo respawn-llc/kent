@@ -51,14 +51,14 @@ test("desktop ESLint config explicitly forbids direct Tauri imports", () => {
 });
 
 test("desktop ESLint config explicitly enforces GUI architecture rules", () => {
-  assert.equal(findRule("builder/no-array-index-key"), "error");
-  assert.equal(findRule("builder/no-mutable-exports"), "error");
-  assert.equal(findRule("builder/no-raw-dto-in-components"), "error");
-  assert.equal(findRule("builder/no-useeffect-data-loading"), "error");
+  assert.equal(findRule("app/no-array-index-key"), "error");
+  assert.equal(findRule("app/no-mutable-exports"), "error");
+  assert.equal(findRule("app/no-raw-dto-in-components"), "error");
+  assert.equal(findRule("app/no-useeffect-data-loading"), "error");
 });
 
 test("desktop ESLint architecture rules reject representative component violations", async () => {
-  const messages = await lintWithBuilderArchitectureRules(`
+  const messages = await lintWithAppArchitectureRules(`
     import { useEffect as useReactEffect } from "react";
     import { SessionDto } from "../protocol/session";
     export let mutableSessionCount = 0;
@@ -75,10 +75,10 @@ test("desktop ESLint architecture rules reject representative component violatio
   assert.deepEqual(
     messages.map((message) => message.ruleId).sort(),
     [
-      "builder/no-array-index-key",
-      "builder/no-mutable-exports",
-      "builder/no-raw-dto-in-components",
-      "builder/no-useeffect-data-loading",
+      "app/no-array-index-key",
+      "app/no-mutable-exports",
+      "app/no-raw-dto-in-components",
+      "app/no-useeffect-data-loading",
     ],
   );
 });
@@ -121,8 +121,8 @@ function arrayEqual(left, right) {
   return Array.isArray(left) && left.length === right.length && left.every((item, index) => item === right[index]);
 }
 
-async function lintWithBuilderArchitectureRules(source) {
-  const builderPlugin = findBuilderPlugin();
+async function lintWithAppArchitectureRules(source) {
+  const appPlugin = findAppPlugin();
   const eslint = new ESLint({
     overrideConfigFile: true,
     overrideConfig: [
@@ -138,13 +138,13 @@ async function lintWithBuilderArchitectureRules(source) {
           },
         },
         plugins: {
-          builder: builderPlugin,
+          app: appPlugin,
         },
         rules: {
-          "builder/no-array-index-key": "error",
-          "builder/no-mutable-exports": "error",
-          "builder/no-raw-dto-in-components": "error",
-          "builder/no-useeffect-data-loading": "error",
+          "app/no-array-index-key": "error",
+          "app/no-mutable-exports": "error",
+          "app/no-raw-dto-in-components": "error",
+          "app/no-useeffect-data-loading": "error",
         },
       },
     ],
@@ -157,12 +157,12 @@ async function lintWithBuilderArchitectureRules(source) {
   return result.messages;
 }
 
-function findBuilderPlugin() {
+function findAppPlugin() {
   for (const configEntry of eslintConfig) {
-    if (configEntry.plugins?.builder !== undefined) {
-      return configEntry.plugins.builder;
+    if (configEntry.plugins?.app !== undefined) {
+      return configEntry.plugins.app;
     }
   }
 
-  throw new Error("desktop ESLint config is missing builder plugin.");
+  throw new Error("desktop ESLint config is missing app plugin.");
 }

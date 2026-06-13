@@ -89,7 +89,7 @@ test("rejects workspace policy drift", async () => {
 });
 
 async function makeWorkspace({ workspaceConfig, policy, packages }) {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), "builder-dep-policy-"));
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "app-dep-policy-"));
   await writeFile(join(workspaceRoot, "pnpm-workspace.yaml"), workspaceConfig);
   await writeFile(join(workspaceRoot, "dependency-policy.json"), JSON.stringify(policy));
 

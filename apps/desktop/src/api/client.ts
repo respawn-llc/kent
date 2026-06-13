@@ -79,7 +79,7 @@ import type { RpcEventHandler, RpcSubscription, RpcTransport } from "./transport
 
 export const guiTaskCommentAuthor = "user";
 
-export class BuilderApiClient {
+export class ApiClient {
   readonly transport: RpcTransport;
 
   constructor(transport: RpcTransport) {

@@ -21,11 +21,11 @@ export function TaskDetailBoard({
           <div className="min-w-0">
             <p className="m-0 font-mono text-sm text-[var(--color-muted)]">Task BLDR-104</p>
             <h3 className="m-0 mt-[var(--space-1)]">Add UI showcase board</h3>
-            <p className="m-0 text-[var(--color-muted)]">Builder Desktop · MVP workflow</p>
+            <p className="m-0 text-[var(--color-muted)]">Kent Desktop · MVP workflow</p>
           </div>
           <div className="flex flex-wrap gap-[var(--space-2)]">
             <Badge tone="warning">Waiting approval</Badge>
-            <Badge>builder-cli</Badge>
+            <Badge>kent</Badge>
           </div>
         </header>
         <article className="rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]">
@@ -63,7 +63,7 @@ function TaskEditPreview() {
         disabled
         label="Source workspace"
         onValueChange={() => undefined}
-        options={[{ label: "builder-cli", value: "workspace-api" }]}
+        options={[{ label: "kent", value: "workspace-api" }]}
         value="workspace-api"
       />
       <Button variant="primary">Save changes</Button>
@@ -182,13 +182,13 @@ function RunsPreview() {
       <article className="grid gap-[var(--space-2)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]">
         <h5 className="m-0">Telemetry</h5>
         <p className="m-0"><strong>Status</strong> Waiting approval</p>
-        <p className="m-0 break-all"><strong>Worktree</strong> /tmp/builder-ui-showcase</p>
+        <p className="m-0 break-all"><strong>Worktree</strong> /tmp/kent-ui-showcase</p>
       </article>
       <article className="grid gap-[var(--space-1)] rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)]">
         <span className="font-mono">run-a7f2</span>
         <span>running</span>
         <span className="font-mono text-sm text-[var(--color-muted)]">session-ui-showcase</span>
-        <span className="text-sm text-[var(--color-muted)]">builder</span>
+        <span className="text-sm text-[var(--color-muted)]">agent</span>
       </article>
     </section>
   );

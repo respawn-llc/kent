@@ -1,4 +1,4 @@
-export const boardCardDragPayloadType = "application/x-builder-board-card+json";
+export const boardCardDragPayloadType = "application/x-board-card+json";
 
 export type BoardCardDragPayload = Readonly<{
   taskID: string;

@@ -4,7 +4,7 @@ import {
   type NativeDirectorySelection,
   type NativeDialogWindowOptions,
   type NativeProjectDeleted,
-} from "@builder/desktop-native-bridge";
+} from "@app/native-bridge";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 
@@ -419,7 +419,7 @@ describe("ProjectEditRoute", () => {
     window.history.replaceState(null, "", "/");
     installStorage("localStorage");
     localStorage.setItem(
-      "builder.desktop.lastProjectRoute",
+      "desktop.lastProjectRoute",
       JSON.stringify({ projectId: "project-1", workflowId: "workflow-1" }),
     );
     const services = createTestServices([
@@ -464,7 +464,7 @@ describe("ProjectEditRoute", () => {
     const toastSurface = screen.getByTestId("sonner-test-surface");
     expect(await within(toastSurface).findByText("Project deleted")).toBeInTheDocument();
     expect(within(toastSurface).queryByText("Delete project?")).not.toBeInTheDocument();
-    expect(localStorage.getItem("builder.desktop.lastProjectRoute")).toBeNull();
+    expect(localStorage.getItem("desktop.lastProjectRoute")).toBeNull();
     await waitFor(() => {
       expect(screen.queryByRole("complementary", { name: "Project" })).not.toBeInTheDocument();
     });
@@ -518,7 +518,7 @@ describe("ProjectEditRoute", () => {
     window.history.replaceState(null, "", "/");
     installStorage("localStorage");
     localStorage.setItem(
-      "builder.desktop.lastProjectRoute",
+      "desktop.lastProjectRoute",
       JSON.stringify({ projectId: "project-1", workflowId: "workflow-1" }),
     );
     const opened: NativeDialogWindowOptions[] = [];
@@ -560,7 +560,7 @@ describe("ProjectEditRoute", () => {
     expect(
       await within(screen.getByTestId("sonner-test-surface")).findByText("Project deleted"),
     ).toBeInTheDocument();
-    expect(localStorage.getItem("builder.desktop.lastProjectRoute")).toBeNull();
+    expect(localStorage.getItem("desktop.lastProjectRoute")).toBeNull();
     await waitFor(() => {
       expect(screen.queryByRole("complementary", { name: "Project" })).not.toBeInTheDocument();
     });
@@ -570,7 +570,7 @@ describe("ProjectEditRoute", () => {
     window.history.replaceState(null, "", "/");
     installStorage("localStorage");
     localStorage.setItem(
-      "builder.desktop.lastProjectRoute",
+      "desktop.lastProjectRoute",
       JSON.stringify({ projectId: "project-1", workflowId: "workflow-1" }),
     );
     const opened: NativeDialogWindowOptions[] = [];
@@ -616,7 +616,7 @@ describe("ProjectEditRoute", () => {
     expect(
       await within(screen.getByTestId("sonner-test-surface")).findByText("Project deleted"),
     ).toBeInTheDocument();
-    expect(localStorage.getItem("builder.desktop.lastProjectRoute")).toBeNull();
+    expect(localStorage.getItem("desktop.lastProjectRoute")).toBeNull();
   });
 
   it("deletes a project from the native project delete dialog route", async () => {

@@ -1,4 +1,4 @@
-import { createBrowserNativeBridge, type NativeBridge } from "@builder/desktop-native-bridge";
+import { createBrowserNativeBridge, type NativeBridge } from "@app/native-bridge";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { App } from "../../App";
@@ -92,7 +92,7 @@ describe("TaskDetailSurface", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open in CLI" }));
     await waitFor(() => {
-      expect(copied).toEqual(["builder --session=session-2"]);
+      expect(copied).toEqual(["kent --session=session-2"]);
     });
   });
 
@@ -542,7 +542,7 @@ const taskDetailResponse = {
         placement_id: "placement-1",
         node_id: "node-1",
         session_id: "session-1",
-        session_name: "Builder session",
+        session_name: "Kent session",
         role: "agent",
         status: "running",
         generation: 1,

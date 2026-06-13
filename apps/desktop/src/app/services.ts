@@ -1,10 +1,10 @@
-import type { NativeBridge } from "@builder/desktop-native-bridge";
+import type { NativeBridge } from "@app/native-bridge";
 
-import type { BuilderApiClient } from "../api/client";
+import type { ApiClient } from "../api/client";
 import type { GuiLogger } from "./logging";
 
 export type AppServices = Readonly<{
-  api: BuilderApiClient;
+  api: ApiClient;
   debugThemeOverrideEnabled: boolean;
   endpoint: string;
   homePath: string;

@@ -1,4 +1,4 @@
-import type { NativeBridge, NativeProjectDeleted } from "@builder/desktop-native-bridge";
+import type { NativeBridge, NativeProjectDeleted } from "@app/native-bridge";
 import type { QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 

@@ -1,4 +1,4 @@
-import { createBrowserNativeBridge } from "@builder/desktop-native-bridge";
+import { createBrowserNativeBridge } from "@app/native-bridge";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach } from "vitest";
 
@@ -7,7 +7,7 @@ import { createTestServices, startupRoutes } from "../testSupport/appServices";
 
 describe("AppChrome debug theme toggle", () => {
   afterEach(() => {
-    document.documentElement.removeAttribute("data-builder-theme");
+    document.documentElement.removeAttribute("data-theme");
   });
 
   it("hides the in-memory theme toggle outside debug desktop builds", async () => {
@@ -30,9 +30,9 @@ describe("AppChrome debug theme toggle", () => {
     expect(toggle).toHaveAttribute("data-testid", "app-chrome-debug-theme-toggle");
 
     fireEvent.click(toggle);
-    expect(document.documentElement).toHaveAttribute("data-builder-theme", "light");
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
 
     fireEvent.click(toggle);
-    expect(document.documentElement).toHaveAttribute("data-builder-theme", "dark");
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
   });
 });

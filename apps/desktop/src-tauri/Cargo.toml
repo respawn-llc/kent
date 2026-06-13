@@ -1,13 +1,13 @@
 [package]
-name = "builder-desktop"
+name = "app-desktop"
 version = "0.0.0"
-description = "Builder desktop client"
-authors = ["Builder contributors"]
+description = "Kent desktop client"
+authors = ["Kent contributors"]
 edition = "2021"
 license = "AGPL-3.0-only"
 
 [lib]
-name = "builder_desktop_lib"
+name = "app_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

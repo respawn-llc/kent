@@ -1,7 +1,7 @@
 import {
   createBrowserNativeBridge,
   createTauriNativeBridge,
-} from "@builder/desktop-native-bridge";
+} from "@app/native-bridge";
 import { vi } from "vitest";
 
 import tauriDefaultCapability from "../src-tauri/capabilities/default.json";
@@ -16,8 +16,8 @@ describe("native bridge capabilities", () => {
     expect(bridge.capabilities.links.openExternal).toBe(false);
     expect(bridge.capabilities.dialogWindows).toBe(false);
     expect(bridge.capabilities.projectCreationWindow).toBe(false);
-    await expect(bridge.builder.resolvePlatform()).resolves.toBe("browser");
-    await expect(createBrowserNativeBridge({ platform: "macos" }).builder.resolvePlatform()).resolves.toBe(
+    await expect(bridge.app.resolvePlatform()).resolves.toBe("browser");
+    await expect(createBrowserNativeBridge({ platform: "macos" }).app.resolvePlatform()).resolves.toBe(
       "macos",
     );
     await expect(bridge.clipboard.readText()).rejects.toThrow("Native clipboard is unavailable");

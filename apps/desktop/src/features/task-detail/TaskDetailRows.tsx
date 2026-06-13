@@ -149,7 +149,7 @@ export function PropertiesIsland({
     () => detail.runs.some((run) => run.sessionID.trim().length > 0),
     [detail.runs],
   );
-  const cliCommand = useMemo(() => builderSessionCommand(detail.runs), [detail.runs]);
+  const cliCommand = useMemo(() => sessionCommand(detail.runs), [detail.runs]);
   const activeRuns = useMemo(
     () => detail.runs.filter((run) => run.completedAt === 0 && run.interruptedAt === 0),
     [detail.runs],
@@ -293,9 +293,9 @@ async function copyText(
   await navigator.clipboard.writeText(value);
 }
 
-function builderSessionCommand(runs: readonly TaskRun[]): string {
+function sessionCommand(runs: readonly TaskRun[]): string {
   const run = preferredSessionRun(runs);
-  return run === null ? "" : `builder --session=${run.sessionID}`;
+  return run === null ? "" : `kent --session=${run.sessionID}`;
 }
 
 function preferredSessionRun(runs: readonly TaskRun[]): TaskRun | null {

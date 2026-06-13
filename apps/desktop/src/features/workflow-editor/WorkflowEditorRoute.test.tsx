@@ -5,7 +5,7 @@ import {
   type NativeDialogWindowOptions,
   type NativeWorkflowDeleted,
   type NativeWorkflowGraphDeleteConfirmation,
-} from "@builder/desktop-native-bridge";
+} from "@app/native-bridge";
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";

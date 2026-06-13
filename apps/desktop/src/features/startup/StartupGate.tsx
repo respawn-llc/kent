@@ -36,7 +36,7 @@ export function StartupGate({ children }: StartupGateProps): ReactElement {
   }, [connection.phase, dismiss, push, t]);
 
   useEffect(() => {
-    if (startupTitleKey !== "startup.updateBuilderTitle") {
+    if (startupTitleKey !== "startup.updateTitle") {
       return;
     }
     if (location.pathname === "/") {

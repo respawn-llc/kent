@@ -6,7 +6,7 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import testingLibrary from "eslint-plugin-testing-library";
 import tseslint from "typescript-eslint";
 
-import { builderArchitecture } from "./eslint-builder-plugin.js";
+import { appArchitecture } from "./eslint-app-plugin.js";
 
 const tauriImportRestriction = {
   paths: [
@@ -39,7 +39,7 @@ export default tseslint.config(
       },
     },
     plugins: {
-      builder: builderArchitecture,
+      app: appArchitecture,
       "react-hooks": reactHooks,
       "react-refresh": reactRefresh,
     },
@@ -69,10 +69,10 @@ export default tseslint.config(
       "@typescript-eslint/require-await": "off",
       "@typescript-eslint/return-await": ["error", "in-try-catch"],
       "@typescript-eslint/switch-exhaustiveness-check": "error",
-      "builder/no-array-index-key": "error",
-      "builder/no-mutable-exports": "error",
-      "builder/no-raw-dto-in-components": "error",
-      "builder/no-useeffect-data-loading": "error",
+      "app/no-array-index-key": "error",
+      "app/no-mutable-exports": "error",
+      "app/no-raw-dto-in-components": "error",
+      "app/no-useeffect-data-loading": "error",
       complexity: ["error", { max: 12 }],
       "max-depth": ["error", 4],
       "max-lines": ["error", { max: 650, skipBlankLines: true, skipComments: true }],
@@ -97,7 +97,7 @@ export default tseslint.config(
           paths: [
             ...tauriImportRestriction.paths,
             {
-              name: "@builder/desktop-native-bridge",
+              name: "@app/native-bridge",
               message:
                 "Components must use app services or feature hooks instead of importing NativeBridge directly.",
             },

@@ -9,7 +9,7 @@ describe("Tauri drag/drop config", () => {
     const windows = readArray(app, "windows");
     const mainWindow = windows.find(
       (windowConfig): windowConfig is Readonly<Record<string, unknown>> =>
-        isObject(windowConfig) && windowConfig.title === "Builder",
+        isObject(windowConfig) && windowConfig.title === "Kent",
     );
 
     expect(mainWindow).toBeDefined();

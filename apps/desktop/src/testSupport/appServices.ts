@@ -1,6 +1,6 @@
-import { createBrowserNativeBridge } from "@builder/desktop-native-bridge";
+import { createBrowserNativeBridge } from "@app/native-bridge";
 
-import { BuilderApiClient } from "../api";
+import { ApiClient } from "../api";
 import { FakeRpcTransport, type FakeRoute } from "../api/fakeTransport";
 import { protocolVersion } from "../api/jsonRpcSocket";
 import { createGuiLogger } from "../app/logging";
@@ -23,7 +23,7 @@ export function createTestServices(
 ): TestAppServices {
   const transport = new FakeRpcTransport(routes);
   return {
-    api: new BuilderApiClient(transport),
+    api: new ApiClient(transport),
     debugThemeOverrideEnabled: options.debugThemeOverrideEnabled ?? false,
     endpoint: "ws://127.0.0.1:53082/rpc",
     homePath: options.homePath ?? "",

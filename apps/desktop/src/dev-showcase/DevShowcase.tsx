@@ -1,12 +1,12 @@
-import { createBrowserNativeBridge } from "@builder/desktop-native-bridge";
+import { createBrowserNativeBridge } from "@app/native-bridge";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { AlertTriangle, Pin } from "lucide-react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { I18nextProvider } from "react-i18next";
 
-import { BuilderApiClient } from "../api";
+import { ApiClient } from "../api";
 import { FakeRpcTransport } from "../api/fakeTransport";
-import { applyConfiguredTheme, readEffectiveTheme, type BuilderTheme } from "../appEnvironment";
+import { applyConfiguredTheme, readEffectiveTheme, type AppTheme } from "../appEnvironment";
 import { createGuiLogger } from "../app/logging";
 import { AppServicesProvider } from "../app/servicesContext";
 import { appI18n, initializeI18n } from "../i18n/setup";
@@ -23,7 +23,7 @@ export function DevShowcaseApp() {
   const services = useMemo(() => {
     const nativeBridge = createBrowserNativeBridge();
     return {
-      api: new BuilderApiClient(new FakeRpcTransport([])),
+      api: new ApiClient(new FakeRpcTransport([])),
       debugThemeOverrideEnabled: true,
       endpoint: "mock://ui-showcase",
       homePath: "",
@@ -51,12 +51,12 @@ export function DevShowcaseApp() {
 }
 
 function DevShowcaseBoard() {
-  const [theme, setTheme] = useState<BuilderTheme>(() => readEffectiveTheme());
+  const [theme, setTheme] = useState<AppTheme>(() => readEffectiveTheme());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [unlinkWorkspace, setUnlinkWorkspace] = useState(mockWorkspaces[1] ?? null);
   const [cancelExpanded, setCancelExpanded] = useState(false);
 
-  function setPreviewTheme(nextTheme: BuilderTheme): void {
+  function setPreviewTheme(nextTheme: AppTheme): void {
     applyConfiguredTheme(nextTheme);
     setTheme(nextTheme);
   }
@@ -156,7 +156,7 @@ const workflowGraphPreviewLayout = {
       id: "showcase-agent",
       kind: "agent",
       label: "Agent",
-      role: "builder",
+      role: "agent",
       x: 280,
     }),
     workflowGraphPreviewNode({
@@ -220,7 +220,7 @@ function workflowGraphPreviewNode({
 function HeroSection({
   theme,
   onThemeChange,
-}: Readonly<{ theme: BuilderTheme; onThemeChange: (theme: BuilderTheme) => void }>) {
+}: Readonly<{ theme: AppTheme; onThemeChange: (theme: AppTheme) => void }>) {
   return (
     <header className="island-glass grid gap-[var(--space-4)] rounded-[var(--radius-xl)] p-[var(--space-5)]">
       <div className="flex flex-wrap items-start justify-between gap-[var(--space-4)]">
@@ -229,7 +229,7 @@ function HeroSection({
             Dev-only browser preview
           </p>
           <h1 className="m-0 mt-[var(--space-2)] text-[clamp(2rem,6vw,5rem)] leading-none">
-            Builder UI Showcase
+            Kent UI Showcase
           </h1>
           <p className="m-0 mt-[var(--space-3)] max-w-[780px] text-lg text-[var(--color-muted)]">
             Single scrollable board for reviewing hard-to-reach widgets and layout states with static mock data.
@@ -244,7 +244,7 @@ function HeroSection({
           >
             Toggle {theme === "dark" ? "light" : "dark"} theme
           </Button>
-          <Badge tone="info">No Builder server</Badge>
+          <Badge tone="info">No Kent server</Badge>
           <Badge tone="success">Static mocks</Badge>
         </div>
       </div>

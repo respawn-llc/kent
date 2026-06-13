@@ -1,5 +1,5 @@
 {
-  "name": "@builder/desktop",
+  "name": "@app/desktop",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -21,7 +21,7 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
-    "@builder/desktop-native-bridge": "workspace:*",
+    "@app/native-bridge": "workspace:*",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@fontsource-variable/montserrat": "5.2.8",

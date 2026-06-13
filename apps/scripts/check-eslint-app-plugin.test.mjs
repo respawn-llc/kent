@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import test from "node:test";
 
-import { builderArchitecture } from "../desktop/eslint-builder-plugin.js";
+import { appArchitecture } from "../desktop/eslint-app-plugin.js";
 
 const desktopRequire = createRequire(
   new URL("../desktop/package.json", import.meta.url),
@@ -21,12 +21,12 @@ RuleTester.setDefaultConfig({
   },
 });
 
-test("builder/no-array-index-key rejects index-like keys only", () => {
+test("app/no-array-index-key rejects index-like keys only", () => {
   const tester = new RuleTester();
 
   tester.run(
-    "builder/no-array-index-key",
-    builderArchitecture.rules["no-array-index-key"],
+    "app/no-array-index-key",
+    appArchitecture.rules["no-array-index-key"],
     {
       valid: [
         {
@@ -50,12 +50,12 @@ test("builder/no-array-index-key rejects index-like keys only", () => {
   );
 });
 
-test("builder/no-raw-dto-in-components handles lowercase component files", () => {
+test("app/no-raw-dto-in-components handles lowercase component files", () => {
   const tester = new RuleTester();
 
   tester.run(
-    "builder/no-raw-dto-in-components",
-    builderArchitecture.rules["no-raw-dto-in-components"],
+    "app/no-raw-dto-in-components",
+    appArchitecture.rules["no-raw-dto-in-components"],
     {
       valid: [
         {
@@ -83,12 +83,12 @@ test("builder/no-raw-dto-in-components handles lowercase component files", () =>
   );
 });
 
-test("builder/no-useeffect-data-loading catches React.useEffect and aliased useEffect in components", () => {
+test("app/no-useeffect-data-loading catches React.useEffect and aliased useEffect in components", () => {
   const tester = new RuleTester();
 
   tester.run(
-    "builder/no-useeffect-data-loading",
-    builderArchitecture.rules["no-useeffect-data-loading"],
+    "app/no-useeffect-data-loading",
+    appArchitecture.rules["no-useeffect-data-loading"],
     {
       valid: [
         {
@@ -141,7 +141,7 @@ test("builder/no-useeffect-data-loading catches React.useEffect and aliased useE
         },
         {
           code: `
-          import { nativeBridge as desktopBridge } from "@builder/desktop-native-bridge";
+          import { nativeBridge as desktopBridge } from "@app/native-bridge";
           import { useEffect } from "react";
           export function transcriptRows() {
             useEffect(() => {
@@ -157,12 +157,12 @@ test("builder/no-useeffect-data-loading catches React.useEffect and aliased useE
   );
 });
 
-test("builder/no-mutable-exports rejects exported let and var", () => {
+test("app/no-mutable-exports rejects exported let and var", () => {
   const tester = new RuleTester();
 
   tester.run(
-    "builder/no-mutable-exports",
-    builderArchitecture.rules["no-mutable-exports"],
+    "app/no-mutable-exports",
+    appArchitecture.rules["no-mutable-exports"],
     {
       valid: ["export const state = {};"],
       invalid: [
@@ -187,4 +187,4 @@ test("builder/no-mutable-exports rejects exported let and var", () => {
   );
 });
 
-assert.ok(builderArchitecture.rules["no-array-index-key"]);
+assert.ok(appArchitecture.rules["no-array-index-key"]);

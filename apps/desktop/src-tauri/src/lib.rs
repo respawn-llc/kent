@@ -7,8 +7,8 @@ use tauri_plugin_dialog::DialogExt;
 
 mod native_glass;
 
-const BUILDER_CONFIG_NAME: &str = "config.toml";
-const DEFAULT_PERSISTENCE_ROOT: &str = "~/.builder";
+const CONFIG_FILE_NAME: &str = "config.toml";
+const DEFAULT_PERSISTENCE_ROOT: &str = "~/.kent";
 const DEFAULT_SERVER_HOST: &str = "127.0.0.1";
 const DEFAULT_SERVER_PORT: u16 = 53082;
 const DEFAULT_THEME: &str = "auto";
@@ -18,7 +18,7 @@ const GUI_LOG_MAX_ENTRY_BYTES: usize = 64 * 1024;
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct BuilderNativeContext {
+struct NativeContext {
     server_endpoint: String,
     persistence_root: String,
     platform: String,
@@ -27,13 +27,13 @@ struct BuilderNativeContext {
 }
 
 #[tauri::command]
-fn resolve_builder_context() -> Result<BuilderNativeContext, String> {
-    builder_native_context()
+fn resolve_native_context() -> Result<NativeContext, String> {
+    native_context()
 }
 
 #[tauri::command]
 fn resolve_native_platform() -> String {
-    builder_platform().to_string()
+    platform().to_string()
 }
 
 #[tauri::command]
@@ -119,7 +119,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            resolve_builder_context,
+            resolve_native_context,
             resolve_native_platform,
             select_directory,
             open_external_url,
@@ -128,22 +128,22 @@ pub fn run() {
             set_native_window_glass_tint,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Builder desktop application");
+        .expect("error while running the desktop application");
 }
 
-fn builder_native_context() -> Result<BuilderNativeContext, String> {
-    let settings = load_builder_settings()?;
+fn native_context() -> Result<NativeContext, String> {
+    let settings = load_settings()?;
     let home_path = home_dir()?.to_string_lossy().to_string();
-    Ok(BuilderNativeContext {
+    Ok(NativeContext {
         server_endpoint: server_rpc_url(&settings.server_host, settings.server_port),
         persistence_root: settings.persistence_root.to_string_lossy().to_string(),
-        platform: builder_platform().to_string(),
+        platform: platform().to_string(),
         theme: settings.theme,
         home_path,
     })
 }
 
-fn builder_platform() -> &'static str {
+fn platform() -> &'static str {
     match std::env::consts::OS {
         "linux" => "linux",
         "macos" => "macos",
@@ -152,14 +152,14 @@ fn builder_platform() -> &'static str {
     }
 }
 
-struct BuilderSettings {
+struct Settings {
     server_host: String,
     server_port: u16,
     persistence_root: PathBuf,
     theme: String,
 }
 
-fn load_builder_settings() -> Result<BuilderSettings, String> {
+fn load_settings() -> Result<Settings, String> {
     let mut server_host = DEFAULT_SERVER_HOST.to_string();
     let mut server_port = DEFAULT_SERVER_PORT;
     let mut persistence_root = resolve_configured_path(DEFAULT_PERSISTENCE_ROOT)?;
@@ -186,29 +186,29 @@ fn load_builder_settings() -> Result<BuilderSettings, String> {
         }
     }
 
-    if let Ok(value) = env::var("BUILDER_SERVER_HOST") {
+    if let Ok(value) = env::var("KENT_SERVER_HOST") {
         if !value.trim().is_empty() {
             server_host = value.trim().to_string();
         }
     }
-    if let Ok(value) = env::var("BUILDER_SERVER_PORT") {
+    if let Ok(value) = env::var("KENT_SERVER_PORT") {
         server_port = parse_server_port_string(&value)?;
     }
-    if let Ok(value) = env::var("BUILDER_PERSISTENCE_ROOT") {
+    if let Ok(value) = env::var("KENT_PERSISTENCE_ROOT") {
         if !value.trim().is_empty() {
             persistence_root = resolve_configured_path(value.trim())?;
         }
     }
-    if let Ok(value) = env::var("BUILDER_THEME") {
+    if let Ok(value) = env::var("KENT_THEME") {
         if !value.trim().is_empty() {
-            theme = parse_theme(&value, "BUILDER_THEME")?;
+            theme = parse_theme(&value, "KENT_THEME")?;
         }
     }
 
     if server_host.trim().is_empty() {
         return Err("server_host must not be empty.".to_string());
     }
-    Ok(BuilderSettings {
+    Ok(Settings {
         server_host,
         server_port,
         persistence_root,
@@ -217,15 +217,15 @@ fn load_builder_settings() -> Result<BuilderSettings, String> {
 }
 
 fn read_home_config() -> Result<Option<toml::Value>, String> {
-    let path = home_dir()?.join(".builder").join(BUILDER_CONFIG_NAME);
+    let path = home_dir()?.join(".kent").join(CONFIG_FILE_NAME);
     let content = match fs::read_to_string(&path) {
         Ok(content) => content,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("Read Builder config failed: {error}")),
+        Err(error) => return Err(format!("Read config failed: {error}")),
     };
     toml::from_str::<toml::Value>(&content)
         .map(Some)
-        .map_err(|error| format!("Parse Builder config failed: {error}"))
+        .map_err(|error| format!("Parse config failed: {error}"))
 }
 
 fn parse_server_port(value: i64) -> Result<u16, String> {
@@ -239,7 +239,7 @@ fn parse_server_port_string(value: &str) -> Result<u16, String> {
     let parsed = value
         .trim()
         .parse::<i64>()
-        .map_err(|_| "BUILDER_SERVER_PORT must be between 1 and 65535.".to_string())?;
+        .map_err(|_| "KENT_SERVER_PORT must be between 1 and 65535.".to_string())?;
     parse_server_port(parsed)
 }
 
@@ -268,7 +268,7 @@ fn resolve_configured_path(value: &str) -> Result<PathBuf, String> {
     }
     env::current_dir()
         .map(|cwd| cwd.join(expanded))
-        .map_err(|error| format!("Resolve Builder path failed: {error}"))
+        .map_err(|error| format!("Resolve path failed: {error}"))
 }
 
 fn home_dir() -> Result<PathBuf, String> {
@@ -280,7 +280,7 @@ fn home_dir() -> Result<PathBuf, String> {
     }
     match (env::var_os("HOMEDRIVE"), env::var_os("HOMEPATH")) {
         (Some(drive), Some(path)) => Ok(PathBuf::from(drive).join(path)),
-        _ => Err("HOME is not set; cannot resolve Builder paths.".to_string()),
+        _ => Err("HOME is not set; cannot resolve paths.".to_string()),
     }
 }
 
@@ -304,7 +304,7 @@ fn validate_external_url(url: &str) -> Result<(), String> {
 }
 
 fn gui_log_path() -> Result<PathBuf, String> {
-    Ok(PathBuf::from(builder_native_context()?.persistence_root)
+    Ok(PathBuf::from(native_context()?.persistence_root)
         .join("gui")
         .join("desktop.log"))
 }
@@ -359,8 +359,8 @@ mod tests {
     #[test]
     fn parse_theme_rejects_unknown_values() {
         assert_eq!(
-            parse_theme("solarized", "BUILDER_THEME").expect_err("invalid theme"),
-            "BUILDER_THEME must be one of auto, light, or dark.",
+            parse_theme("solarized", "KENT_THEME").expect_err("invalid theme"),
+            "KENT_THEME must be one of auto, light, or dark.",
         );
     }
 }

@@ -1,5 +1,5 @@
 {
-  "name": "@builder/apps",
+  "name": "@app/apps",
   "private": true,
   "packageManager": "pnpm@10.33.2",
   "engines": {
@@ -7,14 +7,14 @@
   },
   "scripts": {
     "deps:policy": "node ./scripts/check-dependency-policy.mjs",
-    "desktop:dev": "pnpm --filter @builder/desktop tauri:dev",
-    "desktop:dev:browser": "pnpm --filter @builder/desktop dev:browser",
-    "desktop:build": "pnpm --filter @builder/desktop tauri:build",
+    "desktop:dev": "pnpm --filter @app/desktop tauri:dev",
+    "desktop:dev:browser": "pnpm --filter @app/desktop dev:browser",
+    "desktop:build": "pnpm --filter @app/desktop tauri:build",
     "lint": "pnpm deps:policy && pnpm ts:policy && pnpm --recursive --if-present lint",
     "ts:policy": "node ./scripts/check-typescript-policy.mjs",
     "typecheck": "pnpm --recursive --if-present typecheck",
     "test": "pnpm deps:policy && pnpm ts:policy && pnpm test:policy && pnpm --recursive --if-present test",
-    "test:policy": "node --test ./scripts/check-dependency-policy.test.mjs ./scripts/check-eslint-builder-plugin.test.mjs ./scripts/check-eslint-policy.test.mjs ./scripts/check-typescript-policy.test.mjs",
+    "test:policy": "node --test ./scripts/check-dependency-policy.test.mjs ./scripts/check-eslint-app-plugin.test.mjs ./scripts/check-eslint-policy.test.mjs ./scripts/check-typescript-policy.test.mjs",
     "format": "pnpm --recursive --if-present format",
     "build": "pnpm deps:policy && pnpm ts:policy && pnpm --recursive --if-present build"
   },

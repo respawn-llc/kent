@@ -1,5 +1,5 @@
 {
-  "name": "@builder/desktop-native-bridge",
+  "name": "@app/native-bridge",
   "private": true,
   "version": "0.0.0",
   "type": "module",

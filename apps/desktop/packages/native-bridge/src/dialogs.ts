@@ -22,8 +22,8 @@ export type NativeDialogContentSize = Readonly<{
   height: number;
 }>;
 
-const nativeDialogThemeSearchParam = "__builderTheme";
-const builderThemeAttribute = "data-builder-theme";
+const nativeDialogThemeSearchParam = "__appTheme";
+const themeAttribute = "data-theme";
 
 export async function openNativeDialogWindow(options: NativeDialogWindowOptions): Promise<void> {
   const url = routeWithParams(options.route, withDialogTheme(options.params, options.theme ?? readEffectiveParentTheme()));
@@ -168,7 +168,7 @@ function withDialogTheme(
 }
 
 function readEffectiveParentTheme(): NativeDialogTheme {
-  const configured = document.documentElement.getAttribute(builderThemeAttribute);
+  const configured = document.documentElement.getAttribute(themeAttribute);
   if (configured === "light" || configured === "dark") {
     return configured;
   }
