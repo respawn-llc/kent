@@ -40,10 +40,8 @@ To finish migrating:
   1. Run:  builder migrate
   2. Install Kent (pick one):
        Homebrew:  brew install respawn-llc/homebrew-tap/kent
-       Script:    see https://kent.sh/ for the install command
+       Script:    see https://kent.sh/quickstart/ for the install command
   3. Remove this builder binary once Kent works:  rm "$(command -v builder)"
-
-Migration guide: https://kent.sh/
 `)
 }
 
@@ -619,7 +617,7 @@ func printMigrationSummary(stdout io.Writer, oldRoot string, newRoot string, bac
 	fmt.Fprintf(stdout, "  Sessions:    %d metadata file(s) rebased\n", sessionsRebased)
 	fmt.Fprintln(stdout, "")
 	fmt.Fprintln(stdout, "Next steps:")
-	fmt.Fprintln(stdout, "  - Install Kent:  brew install respawn-llc/homebrew-tap/kent  (or see https://kent.sh/)")
+	fmt.Fprintln(stdout, "  - Install Kent:  brew install respawn-llc/homebrew-tap/kent  (or see https://kent.sh/quickstart/)")
 	fmt.Fprintln(stdout, "  - Map env vars:  BUILDER_* -> KENT_* in your shell rc (not edited automatically)")
 	fmt.Fprintln(stdout, "  - Remove the old builder binary:  rm \"$(command -v builder)\"")
 	if serviceExisted {
