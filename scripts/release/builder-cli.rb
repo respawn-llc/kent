@@ -55,6 +55,6 @@ class BuilderCli < Formula
 
   test do
     output = shell_output("#{bin}/builder 2>&1", 1)
-    assert_match "migration-only build", output
+    assert_match "renamed to Kent", output
   end
 end
