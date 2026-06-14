@@ -190,6 +190,13 @@ class ${formula_class} < Formula
     system "bash", "scripts/build.sh", "--output", bin/"kent"
   end
 
+  def post_install
+    output = Utils.safe_popen_read(bin/"kent", "service", "restart", "--if-installed").strip
+    ohai output unless output.empty?
+  rescue => e
+    opoo "Kent background service restart failed after update: #{e.message}"
+  end
+
   def caveats
     <<~EOS
       Homebrew does not install the Kent server background service.

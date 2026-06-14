@@ -9,7 +9,7 @@ description: Install Kent, authenticate on first launch, tune the most useful se
 
 ```bash
 brew tap respawn-llc/tap
-brew install respawn-llc/homebrew-tap/kent
+brew install respawn-llc/tap/kent
 ```
 
 ### Standalone binaries via GitHub Releases
