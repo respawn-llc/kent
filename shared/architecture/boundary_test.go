@@ -40,7 +40,9 @@ func TestArchitectureBoundaries(t *testing.T) {
 			case strings.HasPrefix(importPath, "builder/shared/") && strings.HasPrefix(trimmedImport, "builder/server/"):
 				violations = append(violations, importPath+" must not import server package "+trimmedImport)
 			case strings.HasPrefix(importPath, "builder/cli/") && trimmedImport == "builder/server/metadata":
-				violations = append(violations, importPath+" must not import persistence metadata package "+trimmedImport)
+				if _, ok := allowedMetadataImporters()[importPath]; !ok {
+					violations = append(violations, importPath+" must not import persistence metadata package "+trimmedImport)
+				}
 			}
 		}
 	}
@@ -319,6 +321,15 @@ func TestCLIPackagesDoNotImportServerOutsideCompositionBridges(t *testing.T) {
 	}
 }
 
+// allowedMetadataImporters lists CLI packages permitted to import the
+// persistence metadata package directly. builder 2.0 migrate is a ship-once
+// composition root that rebases server-owned metadata storage in place.
+func allowedMetadataImporters() map[string]string {
+	return map[string]string{
+		"builder/cli/builder": "builder 2.0 migrate is a ship-once composition root that rebases server-owned metadata storage in place",
+	}
+}
+
 func allowedCLIServerImports() map[string]map[string]string {
 	return map[string]map[string]string{
 		filepath.Join("cli", "app", "auth_gate.go"): {
@@ -388,6 +399,14 @@ func allowedCLIServerImports() map[string]map[string]string {
 		filepath.Join("cli", "builder", "serve.go"): {
 			"builder/server/serve":   "builder serve command is a composition root",
 			"builder/server/startup": "builder serve command is a composition root",
+		},
+		filepath.Join("cli", "builder", "migrate.go"): {
+			"builder/server/metadata": "builder 2.0 migrate is a ship-once composition root that rebases server-owned metadata storage in place",
+			"builder/server/rootlock": "builder 2.0 migrate acquires the persistence root lock to refuse migrating live state",
+			"builder/server/session":  "builder 2.0 migrate rebases server-owned session metadata in place",
+		},
+		filepath.Join("cli", "builder", "migrate_paths.go"): {
+			"builder/server/session": "builder 2.0 migrate path helpers rebase server-owned session.Meta values",
 		},
 	}
 }
@@ -869,6 +888,15 @@ func TestCLIDoesNotCallPersistenceStorageAPIsDirectly(t *testing.T) {
 			"ListSessions": {},
 		},
 	}
+	// allowedCalls exempts specific file/call pairs. builder 2.0 migrate is a
+	// ship-once composition root that opens the metadata store directly to rebase
+	// server-owned storage in place.
+	allowedCalls := map[string]map[string]struct{}{
+		filepath.Join("cli", "builder", "migrate.go"): {
+			"builder/server/metadata.Open": {},
+		},
+	}
+	seenAllowedCalls := map[string]map[string]struct{}{}
 	violations := make([]string, 0)
 	walkRoot := filepath.Join(repoRoot, "cli")
 	if err := filepath.WalkDir(walkRoot, func(path string, d os.DirEntry, err error) error {
@@ -923,13 +951,28 @@ func TestCLIDoesNotCallPersistenceStorageAPIsDirectly(t *testing.T) {
 				if relErr != nil {
 					relPath = path
 				}
-				violations = append(violations, relPath+": frontend must not call "+importPath+"."+selector.Sel.Name)
+				callKey := importPath + "." + selector.Sel.Name
+				if _, ok := allowedCalls[relPath][callKey]; ok {
+					if seenAllowedCalls[relPath] == nil {
+						seenAllowedCalls[relPath] = map[string]struct{}{}
+					}
+					seenAllowedCalls[relPath][callKey] = struct{}{}
+					return true
+				}
+				violations = append(violations, relPath+": frontend must not call "+callKey)
 			}
 			return true
 		})
 		return nil
 	}); err != nil {
 		t.Fatalf("scan cli sources: %v", err)
+	}
+	for relPath, calls := range allowedCalls {
+		for callKey := range calls {
+			if _, ok := seenAllowedCalls[relPath][callKey]; !ok {
+				violations = append(violations, relPath+": remove stale allowed persistence call "+callKey+" from architecture test")
+			}
+		}
 	}
 	if len(violations) > 0 {
 		t.Fatalf("cli persistence boundary violations:\n%s", strings.Join(violations, "\n"))
