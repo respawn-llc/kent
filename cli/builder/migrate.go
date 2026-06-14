@@ -148,6 +148,11 @@ func runMigration(ctx context.Context, opts migrateOptions, stdout io.Writer, st
 	if err != nil {
 		return fmt.Errorf("rebase session paths: %w", err)
 	}
+	metadataRebased, err := rebaseSessionMetadataDB(ctx, newRoot, oldRoot)
+	if err != nil {
+		return fmt.Errorf("rebase session metadata: %w", err)
+	}
+	sessionsRebased += metadataRebased
 
 	// Step 6 — repair each moved worktree's reverse linkage in its external repo.
 	repairWorktrees(ctx, newRoot, oldRoot, stderr)
@@ -419,6 +424,106 @@ func writeSessionMeta(path string, meta session.Meta) error {
 	return nil
 }
 
+// sessionMetadataPayload mirrors the exact shape the metadata store persists to
+// the sessions.metadata_json column (see server/metadata/store.go). Modern
+// builder stores session metadata — including the worktree reminder whose paths
+// lie under the persistence root — in this DB column, NOT in session.json files,
+// which it no longer writes. Decoding into this struct and re-encoding it
+// round-trips every persisted key losslessly so a rebase rewrites only the
+// worktree-reminder path fields and preserves all other state (goal, workspace
+// root/container, and the reminder flags).
+type sessionMetadataPayload struct {
+	WorkspaceRoot                   string                         `json:"workspace_root"`
+	WorkspaceContainer              string                         `json:"workspace_container"`
+	HeadlessActive                  bool                           `json:"headless_active"`
+	CompactionSoonReminderIssued    bool                           `json:"compaction_soon_reminder_issued"`
+	GeneratedRecoveredWarningIssued bool                           `json:"generated_recovered_warning_issued"`
+	WorktreeReminder                *session.WorktreeReminderState `json:"worktree_reminder"`
+	Goal                            *session.GoalState             `json:"goal"`
+}
+
+// rebaseSessionMetadataDB rewrites worktree-reminder paths held in the canonical
+// sessions.metadata_json column from oldRoot to newRoot. This is where builder
+// actually persists per-session worktree reminders; the session.json walk in
+// rebaseSessions only covers legacy on-disk metadata that modern builds no longer
+// emit. It returns the number of session rows rewritten.
+func rebaseSessionMetadataDB(ctx context.Context, newRoot string, oldRoot string) (int, error) {
+	store, err := metadata.Open(newRoot)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = store.Close() }()
+	db := store.DB()
+
+	type update struct {
+		id           string
+		metadataJSON string
+	}
+	var updates []update
+	rows, err := db.QueryContext(ctx, "SELECT id, metadata_json FROM sessions")
+	if err != nil {
+		return 0, err
+	}
+	for rows.Next() {
+		var id, metadataJSON string
+		if err := rows.Scan(&id, &metadataJSON); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		trimmed := strings.TrimSpace(metadataJSON)
+		if trimmed == "" || trimmed == "{}" {
+			continue
+		}
+		var payload sessionMetadataPayload
+		if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+			// Unparseable metadata is not a structured path we can safely
+			// rewrite; leave the row untouched (the verification pass will not
+			// flag it because it cannot decode a reminder path either).
+			continue
+		}
+		if !rebaseWorktreeReminder(payload.WorktreeReminder, oldRoot, newRoot) {
+			continue
+		}
+		encoded, marshalErr := json.Marshal(payload)
+		if marshalErr != nil {
+			_ = rows.Close()
+			return 0, marshalErr
+		}
+		updates = append(updates, update{id: id, metadataJSON: string(encoded)})
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return 0, err
+	}
+	// Drain + close before BeginTx: the store caps the pool at one connection, so
+	// an open cursor would deadlock the transaction (matches rebaseDatabase).
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	if len(updates) == 0 {
+		return 0, nil
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	for _, u := range updates {
+		// Preserve updated_at_unix_ms: a path rebase must not reorder the user's
+		// session history.
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE sessions SET metadata_json = ? WHERE id = ?",
+			u.metadataJSON, u.id); err != nil {
+			_ = tx.Rollback()
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(updates), nil
+}
+
 func repairWorktrees(ctx context.Context, newRoot string, oldRoot string, stderr io.Writer) {
 	store, err := metadata.Open(newRoot)
 	if err != nil {
@@ -494,6 +599,73 @@ func repointInternalSymlinks(newRoot string, oldRoot string) error {
 	})
 }
 
+// verifyWorktreeRows reports worktree rows whose canonical_root_path still lies
+// under oldRoot. It fully drains and closes its cursor before returning so the
+// caller may issue further queries on the single-connection store.
+func verifyWorktreeRows(ctx context.Context, db *sql.DB, oldRoot string) ([]string, error) {
+	var offenders []string
+	rows, err := db.QueryContext(ctx, "SELECT id, canonical_root_path FROM worktrees")
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var id, path string
+		if err := rows.Scan(&id, &path); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if pathStillUnderRoot(path, oldRoot) {
+			offenders = append(offenders, fmt.Sprintf("db worktree %s -> %s", id, path))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	return offenders, rows.Close()
+}
+
+// verifySessionMetadataRows reports sessions whose metadata_json worktree
+// reminder still references oldRoot. This is the canonical store for session
+// worktree reminders, so the verification pass would give a false "clean" result
+// without it. It fully drains and closes its cursor before returning.
+func verifySessionMetadataRows(ctx context.Context, db *sql.DB, oldRoot string) ([]string, error) {
+	var offenders []string
+	rows, err := db.QueryContext(ctx, "SELECT id, metadata_json FROM sessions")
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var id, metadataJSON string
+		if err := rows.Scan(&id, &metadataJSON); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		trimmed := strings.TrimSpace(metadataJSON)
+		if trimmed == "" || trimmed == "{}" {
+			continue
+		}
+		var payload sessionMetadataPayload
+		if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+			continue
+		}
+		if payload.WorktreeReminder == nil {
+			continue
+		}
+		if pathStillUnderRoot(payload.WorktreeReminder.WorktreePath, oldRoot) {
+			offenders = append(offenders, fmt.Sprintf("session %s -> metadata worktree_path %s", id, payload.WorktreeReminder.WorktreePath))
+		}
+		if pathStillUnderRoot(payload.WorktreeReminder.EffectiveCwd, oldRoot) {
+			offenders = append(offenders, fmt.Sprintf("session %s -> metadata effective_cwd %s", id, payload.WorktreeReminder.EffectiveCwd))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	return offenders, rows.Close()
+}
+
 func verifyNoOldRootRefs(ctx context.Context, newRoot string, oldRoot string) ([]string, error) {
 	var offenders []string
 
@@ -501,28 +673,21 @@ func verifyNoOldRootRefs(ctx context.Context, newRoot string, oldRoot string) ([
 	if err != nil {
 		return nil, err
 	}
-	rows, err := store.DB().QueryContext(ctx, "SELECT id, canonical_root_path FROM worktrees")
+	worktreeOffenders, err := verifyWorktreeRows(ctx, store.DB(), oldRoot)
 	if err != nil {
 		_ = store.Close()
 		return nil, err
 	}
-	for rows.Next() {
-		var id, path string
-		if err := rows.Scan(&id, &path); err != nil {
-			_ = rows.Close()
-			_ = store.Close()
-			return nil, err
-		}
-		if pathStillUnderRoot(path, oldRoot) {
-			offenders = append(offenders, fmt.Sprintf("db worktree %s -> %s", id, path))
-		}
+	offenders = append(offenders, worktreeOffenders...)
+	// Drain the worktree cursor (inside verifyWorktreeRows) before querying
+	// sessions: the store caps the pool at a single connection.
+	sessionOffenders, err := verifySessionMetadataRows(ctx, store.DB(), oldRoot)
+	if err != nil {
+		_ = store.Close()
+		return nil, err
 	}
-	rowsErr := rows.Err()
-	_ = rows.Close()
+	offenders = append(offenders, sessionOffenders...)
 	_ = store.Close()
-	if rowsErr != nil {
-		return nil, rowsErr
-	}
 
 	projectsRoot := filepath.Join(newRoot, "projects")
 	walkErr := filepath.WalkDir(projectsRoot, func(p string, d fs.DirEntry, err error) error {
@@ -588,11 +753,34 @@ func reportMigrationPlan(ctx context.Context, oldRoot string, newRoot string, st
 				_ = rows.Close()
 				fmt.Fprintf(stdout, "Would rebase %d worktree path(s) in the database.\n", worktrees)
 			}
+			sessionMeta := 0
+			srows, sErr := db.QueryContext(ctx, "SELECT metadata_json FROM sessions")
+			if sErr == nil {
+				for srows.Next() {
+					var metadataJSON string
+					if scanErr := srows.Scan(&metadataJSON); scanErr != nil {
+						continue
+					}
+					trimmed := strings.TrimSpace(metadataJSON)
+					if trimmed == "" || trimmed == "{}" {
+						continue
+					}
+					var payload sessionMetadataPayload
+					if json.Unmarshal([]byte(trimmed), &payload) != nil {
+						continue
+					}
+					if rebaseWorktreeReminder(payload.WorktreeReminder, oldRoot, newRoot) {
+						sessionMeta++
+					}
+				}
+				_ = srows.Close()
+				fmt.Fprintf(stdout, "Would rebase %d session worktree reminder(s) in the database.\n", sessionMeta)
+			}
 			_ = db.Close()
 		}
 	}
 
-	sessions := 0
+	legacyFiles := 0
 	_ = filepath.WalkDir(filepath.Join(oldRoot, "projects"), func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || d.Name() != "session.json" {
 			return nil
@@ -601,12 +789,14 @@ func reportMigrationPlan(ctx context.Context, oldRoot string, newRoot string, st
 		if readErr == nil {
 			candidate := meta
 			if rebaseSessionMeta(&candidate, oldRoot, newRoot) {
-				sessions++
+				legacyFiles++
 			}
 		}
 		return nil
 	})
-	fmt.Fprintf(stdout, "Would rebase %d session metadata file(s).\n", sessions)
+	if legacyFiles > 0 {
+		fmt.Fprintf(stdout, "Would rebase %d legacy session.json file(s).\n", legacyFiles)
+	}
 	fmt.Fprintf(stdout, "After a clean verification, would create the compat symlink %s -> %s and drop %s/.generated.\n", oldRoot, newRoot, newRoot)
 	return nil
 }
@@ -617,7 +807,7 @@ func printMigrationSummary(stdout io.Writer, oldRoot string, newRoot string, bac
 	fmt.Fprintf(stdout, "  Moved:       %s -> %s\n", oldRoot, newRoot)
 	fmt.Fprintf(stdout, "  Compat link: %s -> %s\n", oldRoot, newRoot)
 	fmt.Fprintf(stdout, "  Snapshot:    %s (delete when satisfied)\n", backupDir)
-	fmt.Fprintf(stdout, "  Sessions:    %d metadata file(s) rebased\n", sessionsRebased)
+	fmt.Fprintf(stdout, "  Sessions:    %d worktree reminder(s) rebased\n", sessionsRebased)
 	fmt.Fprintln(stdout, "")
 	goos := runtime.GOOS
 	fmt.Fprintln(stdout, "Next steps:")

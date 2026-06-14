@@ -287,3 +287,135 @@ func TestRunMigrationEarlyReturns(t *testing.T) {
 		}
 	})
 }
+
+func seedSessionMetadataRow(t *testing.T, root string, projectID string, sessionID string, metadataJSON string) {
+	t.Helper()
+	store, err := metadata.Open(root)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+	now := time.Now().UnixMilli()
+	if _, err := store.DB().Exec(
+		`INSERT INTO sessions (id, project_id, artifact_relpath, created_at_unix_ms, updated_at_unix_ms, metadata_json) VALUES (?, ?, ?, ?, ?, ?)`,
+		sessionID, projectID, "projects/"+projectID+"/sessions/"+sessionID, now, now, metadataJSON); err != nil {
+		t.Fatalf("insert session row: %v", err)
+	}
+}
+
+func readSessionMetadataJSON(t *testing.T, root string, sessionID string) string {
+	t.Helper()
+	store, err := metadata.Open(root)
+	if err != nil {
+		t.Fatalf("reopen db: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+	var md string
+	if err := store.DB().QueryRow("SELECT metadata_json FROM sessions WHERE id = ?", sessionID).Scan(&md); err != nil {
+		t.Fatalf("read session metadata %s: %v", sessionID, err)
+	}
+	return md
+}
+
+// TestRebaseSessionMetadataDBRewritesWorktreeReminder is the regression that the
+// session.json-only rebase missed: modern builder stores worktree reminders in
+// the sessions.metadata_json DB column, not on disk. The rebase must rewrite the
+// reminder's under-root paths, leave external repo paths and goal prose alone,
+// and leave reminder-less rows byte-identical.
+func TestRebaseSessionMetadataDBRewritesWorktreeReminder(t *testing.T) {
+	tmp := t.TempDir()
+	oldRoot := filepath.Join(tmp, ".builder")
+	newRoot := filepath.Join(tmp, ".kent")
+	externalRepo := filepath.Join(tmp, "code", "myrepo")
+	oldWorktree := filepath.Join(oldRoot, "worktrees", "wt1")
+
+	// The worktree row is already at the new root (rebaseDatabase's job); this
+	// test isolates the session-metadata rebase, so verify must hinge only on it.
+	seedFixtureDB(t, newRoot, externalRepo, filepath.Join(newRoot, "worktrees", "wt1"))
+
+	reminder := session.WorktreeReminderState{
+		WorktreePath:  oldWorktree,
+		EffectiveCwd:  filepath.Join(oldWorktree, "sub"),
+		WorkspaceRoot: externalRepo, // external: must NOT be rebased
+	}
+	payload := sessionMetadataPayload{
+		WorkspaceRoot:      externalRepo,
+		WorkspaceContainer: "myrepo",
+		WorktreeReminder:   &reminder,
+		Goal:               &session.GoalState{Objective: "finish the plan noted under .builder/plans"},
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode fixture metadata: %v", err)
+	}
+	seedSessionMetadataRow(t, newRoot, "proj1", "sess-db-1", string(encoded))
+
+	plainJSON := `{"workspace_root":"` + externalRepo + `","workspace_container":"myrepo","headless_active":true,"compaction_soon_reminder_issued":false,"generated_recovered_warning_issued":false,"worktree_reminder":null,"goal":null}`
+	seedSessionMetadataRow(t, newRoot, "proj1", "sess-db-2", plainJSON)
+
+	n, err := rebaseSessionMetadataDB(context.Background(), newRoot, oldRoot)
+	if err != nil {
+		t.Fatalf("rebaseSessionMetadataDB: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("rebased = %d, want 1", n)
+	}
+
+	var got sessionMetadataPayload
+	if err := json.Unmarshal([]byte(readSessionMetadataJSON(t, newRoot, "sess-db-1")), &got); err != nil {
+		t.Fatalf("decode rebased metadata: %v", err)
+	}
+	wantWorktree := filepath.Join(newRoot, "worktrees", "wt1")
+	if got.WorktreeReminder.WorktreePath != wantWorktree {
+		t.Fatalf("worktree_path = %q, want %q", got.WorktreeReminder.WorktreePath, wantWorktree)
+	}
+	if want := filepath.Join(wantWorktree, "sub"); got.WorktreeReminder.EffectiveCwd != want {
+		t.Fatalf("effective_cwd = %q, want %q", got.WorktreeReminder.EffectiveCwd, want)
+	}
+	if got.WorkspaceRoot != externalRepo || got.WorktreeReminder.WorkspaceRoot != externalRepo {
+		t.Fatalf("external workspace root was rewritten: %q / %q", got.WorkspaceRoot, got.WorktreeReminder.WorkspaceRoot)
+	}
+	// Goal prose must be preserved verbatim — a ".builder" mention in free text is
+	// not a structured path and must never be rewritten.
+	if got.Goal == nil || !strings.Contains(got.Goal.Objective, ".builder/plans") {
+		t.Fatalf("goal objective prose was altered or dropped: %+v", got.Goal)
+	}
+
+	if got2 := readSessionMetadataJSON(t, newRoot, "sess-db-2"); got2 != plainJSON {
+		t.Fatalf("reminder-less session metadata changed:\n got=%s\nwant=%s", got2, plainJSON)
+	}
+
+	offenders, err := verifyNoOldRootRefs(context.Background(), newRoot, oldRoot)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if len(offenders) != 0 {
+		t.Fatalf("expected no offenders after rebase, got %v", offenders)
+	}
+}
+
+// TestVerifyDetectsResidualSessionMetadataPath proves the verification pass now
+// inspects the DB session metadata, so a missed rebase can no longer pass as a
+// false "clean".
+func TestVerifyDetectsResidualSessionMetadataPath(t *testing.T) {
+	tmp := t.TempDir()
+	oldRoot := filepath.Join(tmp, ".builder")
+	newRoot := filepath.Join(tmp, ".kent")
+	externalRepo := filepath.Join(tmp, "code", "myrepo")
+	seedFixtureDB(t, newRoot, externalRepo, filepath.Join(newRoot, "worktrees", "wt1"))
+
+	reminder := session.WorktreeReminderState{WorktreePath: filepath.Join(oldRoot, "worktrees", "wt1")}
+	encoded, err := json.Marshal(sessionMetadataPayload{WorktreeReminder: &reminder})
+	if err != nil {
+		t.Fatalf("encode fixture metadata: %v", err)
+	}
+	seedSessionMetadataRow(t, newRoot, "proj1", "sess-resid", string(encoded))
+
+	offenders, err := verifyNoOldRootRefs(context.Background(), newRoot, oldRoot)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if len(offenders) == 0 {
+		t.Fatal("expected verification to report the residual session metadata path")
+	}
+}

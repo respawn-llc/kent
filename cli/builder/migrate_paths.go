@@ -48,26 +48,36 @@ func pathStillUnderRoot(value string, root string) bool {
 	return strings.HasPrefix(cleanValue, cleanRoot+string(filepath.Separator))
 }
 
-// rebaseSessionMeta rewrites the absolute worktree paths stored in a session
-// meta from oldRoot to newRoot. Only the two fields that hold absolute paths
-// under the persistence root are touched: WorktreeReminder.WorktreePath and
-// WorktreeReminder.EffectiveCwd. Fields that point at the user's external repo
-// (Meta.WorkspaceRoot, WorktreeReminder.WorkspaceRoot) and relative fields are
-// left untouched — the separator-boundary prefix rule self-excludes them
-// because their values do not lie under the old root. It returns true when any
-// field changed.
-func rebaseSessionMeta(meta *session.Meta, oldRoot string, newRoot string) bool {
-	if meta == nil || meta.WorktreeReminder == nil {
+// rebaseWorktreeReminder rewrites the absolute worktree paths held by a worktree
+// reminder from oldRoot to newRoot. Only the two fields that hold absolute paths
+// under the persistence root are touched: WorktreePath and EffectiveCwd. Fields
+// that point at the user's external repo (WorkspaceRoot) and relative fields are
+// left untouched — the separator-boundary prefix rule self-excludes them because
+// their values do not lie under the old root. It returns true when any field
+// changed. This is the single rebase rule shared by every persistence surface
+// that stores a worktree reminder (legacy session.json files and the canonical
+// sessions.metadata_json column).
+func rebaseWorktreeReminder(reminder *session.WorktreeReminderState, oldRoot string, newRoot string) bool {
+	if reminder == nil {
 		return false
 	}
 	changed := false
-	if rewritten, ok := rebaseUnderRoot(meta.WorktreeReminder.WorktreePath, oldRoot, newRoot); ok {
-		meta.WorktreeReminder.WorktreePath = rewritten
+	if rewritten, ok := rebaseUnderRoot(reminder.WorktreePath, oldRoot, newRoot); ok {
+		reminder.WorktreePath = rewritten
 		changed = true
 	}
-	if rewritten, ok := rebaseUnderRoot(meta.WorktreeReminder.EffectiveCwd, oldRoot, newRoot); ok {
-		meta.WorktreeReminder.EffectiveCwd = rewritten
+	if rewritten, ok := rebaseUnderRoot(reminder.EffectiveCwd, oldRoot, newRoot); ok {
+		reminder.EffectiveCwd = rewritten
 		changed = true
 	}
 	return changed
+}
+
+// rebaseSessionMeta rewrites the absolute worktree paths stored in a session
+// meta from oldRoot to newRoot. It returns true when any field changed.
+func rebaseSessionMeta(meta *session.Meta, oldRoot string, newRoot string) bool {
+	if meta == nil {
+		return false
+	}
+	return rebaseWorktreeReminder(meta.WorktreeReminder, oldRoot, newRoot)
 }
