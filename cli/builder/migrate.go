@@ -19,6 +19,7 @@ import (
 	"builder/server/metadata"
 	"builder/server/rootlock"
 	"builder/server/session"
+	"builder/shared/buildinfo"
 )
 
 const migrateBackupDirName = ".migrate-backup"
@@ -38,8 +39,19 @@ func writeMigrationNotice(w io.Writer) {
 // the process exit code. Only `builder migrate` and `builder service uninstall`
 // are routed; every other invocation prints the migration notice and returns 1.
 func runCompatGate(args []string, stdout io.Writer, stderr io.Writer) int {
-	if len(args) > 0 && args[0] == "migrate" {
-		return migrateSubcommand(args[1:], stdout, stderr)
+	if len(args) > 0 {
+		switch args[0] {
+		case "migrate":
+			return migrateSubcommand(args[1:], stdout, stderr)
+		case "--version", "-version", "-v":
+			// Identification probes are not "starting" the agent; installers and
+			// package managers rely on them, so answer rather than refuse.
+			fmt.Fprintln(stdout, buildinfo.Version)
+			return 0
+		case "--help", "-help", "-h":
+			fmt.Fprint(stdout, migrationNoticeText(runtime.GOOS))
+			return 0
+		}
 	}
 	if len(args) > 1 && args[0] == "service" && args[1] == "uninstall" {
 		return serviceSubcommand(args[1:], stdout, stderr)

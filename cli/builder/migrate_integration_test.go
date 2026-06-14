@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"builder/server/metadata"
 	"builder/server/session"
+	"builder/shared/buildinfo"
 )
 
 // seedFixtureDB creates a metadata DB under root/db with one project, one
@@ -230,6 +232,32 @@ func TestRunCompatGateRoutesMigrate(t *testing.T) {
 	code := runCompatGate([]string{"migrate"}, &out, &errBuf)
 	if code != 0 {
 		t.Fatalf("migrate exit = %d, want 0; stderr=%q", code, errBuf.String())
+	}
+}
+
+func TestRunCompatGateAllowsVersionAndHelp(t *testing.T) {
+	original := buildinfo.Version
+	buildinfo.Version = "9.9.9-test"
+	t.Cleanup(func() { buildinfo.Version = original })
+
+	for _, flag := range []string{"--version", "-version", "-v"} {
+		var out, errBuf bytes.Buffer
+		if code := runCompatGate([]string{flag}, &out, &errBuf); code != 0 {
+			t.Fatalf("%s exit = %d, want 0; stderr=%q", flag, code, errBuf.String())
+		}
+		if got := strings.TrimSpace(out.String()); got != buildinfo.Version {
+			t.Fatalf("%s stdout = %q, want %q", flag, got, buildinfo.Version)
+		}
+	}
+
+	for _, flag := range []string{"--help", "-help", "-h"} {
+		var out, errBuf bytes.Buffer
+		if code := runCompatGate([]string{flag}, &out, &errBuf); code != 0 {
+			t.Fatalf("%s exit = %d, want 0", flag, code)
+		}
+		if out.Len() == 0 {
+			t.Fatalf("%s: expected help text on stdout, got none", flag)
+		}
 	}
 }
 
