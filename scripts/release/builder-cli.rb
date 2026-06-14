@@ -26,7 +26,7 @@ class BuilderCli < Formula
   license "AGPL-3.0-only"
 
   # Replacement is the `kent` formula; users install it explicitly.
-  deprecate! date: "2026-06-14", because: "Builder was renamed to Kent; run `builder migrate`, then install the `kent` formula"
+  deprecate! date: "2026-06-14", because: "Builder was renamed to Kent; run `builder migrate`, then install `kent`"
 
   depends_on "go" => :build
   depends_on "git"
