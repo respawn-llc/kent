@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"fmt"
+
 	"core/server/llm"
 	"core/shared/compaction"
 )
@@ -15,6 +17,11 @@ type compactionPlanningSnapshot struct {
 	maxOutputTokens               int
 	lockedMaxOutputTokens         int
 	lastUsage                     llm.Usage
+	// currentUsedTokens is the live consumed-context estimate (currentTokenUsage), the same source
+	// the auto-compaction gates check. It is what the handoff-runway estimate must measure so the
+	// estimate and the gates never disagree; lastUsage is a stale provider snapshot kept only for
+	// window-capacity derivation.
+	currentUsedTokens int
 }
 
 type compactionEngineKind string
@@ -119,30 +126,27 @@ func (p *compactionPlanner) soonReminderLimit(snapshot compactionPlanningSnapsho
 }
 
 // estimatedToolCallsUntilForcedHandoff estimates how many more assistant tool
-// calls fit between the soon-reminder threshold and the forced compaction
-// threshold, so the reminder can tell the model roughly how much runway it has
-// left to trigger a handoff voluntarily.
+// calls fit before the forced compaction threshold, so the soon-reminder can
+// tell the model roughly how much runway it has left to trigger a handoff
+// voluntarily.
+//
+// It measures currentUsedTokens (currentTokenUsage), the same source the
+// auto-compaction gates check, so "the forced gate let us through" and "the
+// estimate is below the forced limit" are the same measurement.
 func (p *compactionPlanner) estimatedToolCallsUntilForcedHandoff(snapshot compactionPlanningSnapshot) int {
 	forcedLimit := p.autoCompactTokenLimit(snapshot)
-	reminderLimit := p.soonReminderLimit(snapshot)
-	// Base the estimate on the budget actually remaining when the reminder is issued. A single
-	// large tool result or response can push usage from below the reminder threshold to just under
-	// the forced limit, so the fixed threshold gap (forcedLimit-reminderLimit) would overstate the
-	// runway. Fall back to that gap when current usage is unknown, and never report more than it so
-	// the estimate stays conservative.
-	budget := forcedLimit - reminderLimit
-	if used := snapshot.lastUsage.WindowTokens; used > 0 {
-		if remaining := forcedLimit - used; remaining < budget {
-			budget = remaining
-		}
+	remaining := forcedLimit - snapshot.currentUsedTokens
+	if remaining <= 0 {
+		// The soon-reminder is gated behind the same usage-vs-forced-limit check that triggers forced
+		// compaction, so by the time this estimate is computed consumed tokens are always strictly
+		// below the forced limit. Reaching here means forced compaction failed to precede the reminder:
+		// an unreachable-state invariant violation, not a value to clamp away.
+		panic(fmt.Sprintf(
+			"compaction soon reminder estimate computed with consumed tokens %d at or above forced compaction limit %d; forced compaction must precede the reminder",
+			snapshot.currentUsedTokens, forcedLimit,
+		))
 	}
-	// Clamp to at least one call: once usage reaches or passes the forced limit the remaining
-	// budget is non-positive, but the reminder must never tell the model it has "0" (or negative)
-	// tool calls left. A floor of one communicates "one more at most".
-	if estimate := compaction.EstimatedToolCallsForTokenBudget(budget); estimate > 1 {
-		return estimate
-	}
-	return 1
+	return compaction.EstimatedToolCallsForTokenBudget(remaining)
 }
 
 func (p *compactionPlanner) reservedOutputTokens(snapshot compactionPlanningSnapshot) int {

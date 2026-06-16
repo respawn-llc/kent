@@ -771,6 +771,7 @@ func (e *Engine) compactionPlanningSnapshot() compactionPlanningSnapshot {
 	e.mu.Unlock()
 	snapshot.lockedMaxOutputTokens = e.lockedContractState().MaxOutputToken()
 	snapshot.lastUsage = e.lastUsageSnapshot()
+	snapshot.currentUsedTokens = e.currentTokenUsage()
 	return snapshot
 }
 

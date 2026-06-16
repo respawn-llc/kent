@@ -34,15 +34,23 @@ func (c compactionReminderCoordinator) maybeAppend(ctx context.Context, stepID s
 	if !e.usageAtOrAboveLimit(ctx, limit) {
 		return nil
 	}
-	estimatedToolCalls := planner.estimatedToolCallsUntilForcedHandoff(planningSnapshot)
-	content := prompts.RenderCompactionSoonReminderPrompt(e.triggerHandoffConfigured(), estimatedToolCalls)
-	if content == "" {
-		return nil
-	}
+	// Gate on forced compaction before estimating runway. Usage at or above the forced limit is
+	// handled by compaction, not a reminder, and estimatedToolCallsUntilForcedHandoff treats that
+	// state as an unreachable-invariant panic, so it must only be reached once usage is confirmed
+	// to sit in the soon-reminder band (below the forced limit).
 	if e.shouldAutoCompactWithContext(ctx) {
 		return nil
 	}
 	if e.compactionRuntimeState().SoonReminderIssued() {
+		return nil
+	}
+	// Re-snapshot after the forced-compaction gate so the estimate reads the post-recount usage the
+	// gate just resolved (usageAtOrAboveLimit warms the precise current-token cache). The entry
+	// snapshot holds the pre-recount usage, which can sit above the forced limit even when the gate's
+	// precise recount cleared it, so using it here would trip the unreachable-state panic spuriously.
+	estimatedToolCalls := planner.estimatedToolCallsUntilForcedHandoff(e.compactionPlanningSnapshot())
+	content := prompts.RenderCompactionSoonReminderPrompt(e.triggerHandoffConfigured(), estimatedToolCalls)
+	if content == "" {
 		return nil
 	}
 	if err := e.steer(stepID, steerMessageIntent(llm.Message{
