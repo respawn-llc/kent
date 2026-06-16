@@ -203,6 +203,9 @@ func responseItemsAfterMissingToolOutputRepair(items []llm.ResponseItem, affecte
 		if callID == "" {
 			callID = strings.TrimSpace(item.ID)
 		}
+		if isProviderOutputAttachmentForAnyCall(item, removed) {
+			continue
+		}
 		if _, remove := removed[callID]; remove && (isToolCallItem(item.Type) || isToolOutputItem(item.Type)) {
 			continue
 		}
@@ -278,10 +281,10 @@ func (s *chatStore) applyMissingToolOutputRepair(affectedCallIDs []string, remov
 		}
 		prefixMessageCount := len(llm.MessagesFromItems(s.items[:tailStart]))
 		originalMessageCount := len(llm.MessagesFromItems(s.items))
-		repairedTail := responseItemsAfterMissingToolOutputRepair(s.items[tailStart:], affectedCallIDs, removedCallIDs)
+		originalTail := llm.CloneResponseItems(s.items[tailStart:])
+		repairedTail := responseItemsAfterMissingToolOutputRepair(originalTail, affectedCallIDs, removedCallIDs)
 		s.items = append(llm.CloneResponseItems(s.items[:tailStart]), repairedTail...)
 		repairedMessageCount := len(llm.MessagesFromItems(s.items))
-		removedMessageCount := originalMessageCount - repairedMessageCount
 		if s.compact != nil {
 			if s.compact.CutoffMessageCount > repairedMessageCount {
 				s.compact.CutoffMessageCount = repairedMessageCount
@@ -289,11 +292,8 @@ func (s *chatStore) applyMissingToolOutputRepair(affectedCallIDs []string, remov
 		}
 		for idx := range s.local {
 			after := s.local[idx].AfterMessageCount
-			if removedMessageCount > 0 && after > prefixMessageCount {
-				after -= removedMessageCount
-				if after < prefixMessageCount {
-					after = prefixMessageCount
-				}
+			if originalMessageCount != repairedMessageCount && after > prefixMessageCount {
+				after = prefixMessageCount + repairedTailMessageCountThroughOriginalCount(originalTail, affectedCallIDs, removedCallIDs, after-prefixMessageCount)
 			}
 			if after > repairedMessageCount {
 				after = repairedMessageCount
@@ -395,7 +395,9 @@ func firstMatchingProviderOutput(items []llm.ResponseItem, callID string, callKi
 	out := make([]llm.ResponseItem, 0, 2)
 	for _, item := range items {
 		if strings.TrimSpace(item.CallID) == callID && repairKindForOutputItem(item.Type) == callKind {
-			out = append(out, llm.CloneResponseItems([]llm.ResponseItem{item})...)
+			if len(out) == 0 {
+				out = append(out, llm.CloneResponseItems([]llm.ResponseItem{item})...)
+			}
 			continue
 		}
 		if len(out) > 0 && isProviderOutputAttachmentForCall(item, callID) {
@@ -403,6 +405,18 @@ func firstMatchingProviderOutput(items []llm.ResponseItem, callID string, callKi
 		}
 	}
 	return out
+}
+
+func repairedTailMessageCountThroughOriginalCount(items []llm.ResponseItem, affectedCallIDs []string, removedCallIDs []string, originalMessageCount int) int {
+	if originalMessageCount <= 0 {
+		return 0
+	}
+	messages := llm.MessagesFromItems(items)
+	if originalMessageCount >= len(messages) {
+		return len(llm.MessagesFromItems(responseItemsAfterMissingToolOutputRepair(items, affectedCallIDs, removedCallIDs)))
+	}
+	prefixItems := llm.ItemsFromMessages(messages[:originalMessageCount])
+	return len(llm.MessagesFromItems(responseItemsAfterMissingToolOutputRepair(prefixItems, affectedCallIDs, removedCallIDs)))
 }
 
 func lastCommittedAssistantFinalAnswerFromItems(items []llm.ResponseItem) string {
@@ -669,6 +683,17 @@ func isProviderOutputAttachmentForCall(item llm.ResponseItem, callID string) boo
 		return true
 	}
 	return strings.TrimSpace(item.CallID) == callID
+}
+
+func isProviderOutputAttachmentForAnyCall(item llm.ResponseItem, callIDs map[string]struct{}) bool {
+	if item.Type != llm.ResponseItemTypeOther || item.LinkKind != llm.ResponseItemLinkToolOutputAttachment || len(callIDs) == 0 {
+		return false
+	}
+	if _, exists := callIDs[strings.TrimSpace(item.LinkedCallID)]; exists {
+		return true
+	}
+	_, exists := callIDs[strings.TrimSpace(item.CallID)]
+	return exists
 }
 
 func repairKindForToolCall(call llm.ToolCall) repairToolCallKind {

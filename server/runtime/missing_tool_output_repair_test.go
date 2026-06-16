@@ -298,6 +298,54 @@ func TestMissingToolOutputRepairFiltersInvalidToolCompletedProviderItems(t *test
 	t.Fatal("missing tool_completed event")
 }
 
+func TestMissingToolOutputRepairDropsRemovedCallProviderAttachmentsFromLiveRetry(t *testing.T) {
+	items := []llm.ResponseItem{
+		{Type: llm.ResponseItemTypeFunctionCall, ID: "removed-call", CallID: "removed-call", Name: "exec", Arguments: json.RawMessage(`{}`)},
+		{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "removed-call", Output: json.RawMessage(`{"ok":true}`)},
+		{Type: llm.ResponseItemTypeOther, LinkedCallID: "removed-call", LinkKind: llm.ResponseItemLinkToolOutputAttachment, Raw: json.RawMessage(`{"type":"input_file"}`)},
+	}
+
+	got := responseItemsAfterMissingToolOutputRepair(items, []string{"removed-call"}, []string{"removed-call"})
+
+	if len(got) != 0 {
+		t.Fatalf("expected removed call attachment filtered from live retry, got %+v", got)
+	}
+}
+
+func TestMissingToolOutputRepairDeduplicatesLiveProviderOutputsAndPreservesAttachments(t *testing.T) {
+	items := []llm.ResponseItem{
+		{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "call-1", Output: json.RawMessage(`{"first":true}`)},
+		{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: "call-1", Output: json.RawMessage(`{"second":true}`)},
+		{Type: llm.ResponseItemTypeOther, LinkedCallID: "call-1", LinkKind: llm.ResponseItemLinkToolOutputAttachment, Raw: json.RawMessage(`{"type":"input_file"}`)},
+	}
+
+	got := firstMatchingProviderOutput(items, "call-1", repairToolCallKindFunction)
+
+	if len(got) != 2 ||
+		got[0].Type != llm.ResponseItemTypeFunctionCallOutput ||
+		string(got[0].Output) != `{"first":true}` ||
+		got[1].Type != llm.ResponseItemTypeOther ||
+		got[1].LinkKind != llm.ResponseItemLinkToolOutputAttachment {
+		t.Fatalf("unexpected filtered provider output items: %+v", got)
+	}
+}
+
+func TestMissingToolOutputRepairKeepsPrecedingLocalsAtOriginalPosition(t *testing.T) {
+	store := newChatStore()
+	store.appendMessage(llm.Message{Role: llm.RoleUser, Content: "first"})
+	store.appendLocalEntryRecord(ChatEntry{Visibility: transcript.EntryVisibilityAll, Role: "notice", Text: "between"})
+	store.appendMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "removed-call", Name: "exec", Input: json.RawMessage(`{}`)}}})
+
+	store.applyMissingToolOutputRepair([]string{"removed-call"}, []string{"removed-call"}, nil)
+
+	snapshot := store.snapshotWithMetadata().Snapshot
+	if len(snapshot.Entries) != 2 ||
+		snapshot.Entries[0].Role != "user" ||
+		snapshot.Entries[1].Role != "notice" {
+		t.Fatalf("unexpected local entry order after repair: %+v", snapshot.Entries)
+	}
+}
+
 func TestMissingToolOutputRepairTreatsToolCompletedOrderInsensitively(t *testing.T) {
 	store := mustCreateTestSession(t)
 	appendRepairEvent(t, store, "tool_completed", storedToolCompletion{CallID: "call-1", Name: "exec", Output: json.RawMessage(`{"ok":true}`)})
