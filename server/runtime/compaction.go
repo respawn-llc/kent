@@ -192,7 +192,7 @@ func (c *defaultContextCompactor) ShouldCompactBeforeUserMessage(ctx context.Con
 	}
 	estimatedCurrentTotal := e.currentTokenUsage() + reservedOutput
 	if preSubmitLimit > 0 && estimatedCurrentTotal >= preSubmitLimit {
-		if preciseInput, ok := e.currentInputTokensPreciselyTracked(ctx); ok {
+		if preciseInput, ok := e.currentInputTokensPrecisely(ctx); ok {
 			return preciseInput+reservedOutput >= preSubmitLimit, nil
 		}
 		return true, nil
@@ -205,7 +205,7 @@ func (c *defaultContextCompactor) ShouldCompactBeforeUserMessage(ctx context.Con
 	if err != nil {
 		return false, err
 	}
-	if preciseInput, ok := e.requestInputTokensPreciselyTracked(ctx, req, false); ok {
+	if preciseInput, ok, _ := e.requestInputTokensPrecisely(ctx, req, false, false); ok {
 		return preciseInput+reservedOutput >= limit, nil
 	}
 	return estimatedCurrentTotal+promptEstimate >= limit, nil
@@ -281,7 +281,7 @@ func (e *Engine) usageAtOrAboveLimit(ctx context.Context, limit int) bool {
 	if estimatedTotal < limit && estimatedTotal+margin < limit {
 		return false
 	}
-	preciseInput, ok := e.currentInputTokensPreciselyTrackedWithRepair(ctx)
+	preciseInput, ok := e.currentInputTokensPreciselyWithRepair(ctx)
 	if !ok {
 		return estimatedTotal >= limit
 	}
@@ -297,15 +297,10 @@ func (e *Engine) currentInputTokensPreciselyIfCritical(ctx context.Context, limi
 }
 
 func (e *Engine) currentInputTokensPreciselyIfCriticalWithRepair(ctx context.Context, limit int) (int, bool) {
-	if precise, ok := e.lookupCurrentPreciseInputTokens(); ok {
-		if !e.shouldRefreshCurrentPreciseInputTokens(limit, true) {
-			return precise, true
-		}
-	}
 	if !e.shouldRefreshCurrentPreciseInputTokens(limit, true) {
 		return 0, false
 	}
-	return e.currentInputTokensPreciselyTrackedWithRepair(ctx)
+	return e.currentInputTokensPreciselyWithRepair(ctx)
 }
 
 func (e *Engine) currentInputTokensPreciselyIfDueWithPriority(ctx context.Context, limit int, critical bool) (int, bool) {
@@ -317,36 +312,32 @@ func (e *Engine) currentInputTokensPreciselyIfDueWithPriority(ctx context.Contex
 	if !e.shouldRefreshCurrentPreciseInputTokens(limit, critical) {
 		return 0, false
 	}
-	return e.currentInputTokensPreciselyTracked(ctx)
+	return e.currentInputTokensPrecisely(ctx)
 }
 
-func (e *Engine) currentInputTokensPreciselyTracked(ctx context.Context) (int, bool) {
+func (e *Engine) currentInputTokensPrecisely(ctx context.Context) (int, bool) {
 	req, err := e.buildRequest(ctx, "", true)
 	if err != nil {
 		return 0, false
 	}
-	return e.requestInputTokensPreciselyTracked(ctx, req, true)
+	count, ok, _ := e.requestInputTokensPrecisely(ctx, req, true, false)
+	return count, ok
 }
 
-func (e *Engine) currentInputTokensPreciselyTrackedWithRepair(ctx context.Context) (int, bool) {
+func (e *Engine) currentInputTokensPreciselyWithRepair(ctx context.Context) (int, bool) {
 	for {
 		req, err := e.buildRequest(ctx, "", true)
 		if err != nil {
 			return 0, false
 		}
-		count, ok, repaired := e.requestInputTokensPreciselyTrackedRepairable(ctx, req, true, true)
+		count, ok, repaired := e.requestInputTokensPrecisely(ctx, req, true, true)
 		if ok || !repaired {
 			return count, ok
 		}
 	}
 }
 
-func (e *Engine) requestInputTokensPreciselyTracked(ctx context.Context, req llm.Request, current bool) (int, bool) {
-	count, ok, _ := e.requestInputTokensPreciselyTrackedRepairable(ctx, req, current, false)
-	return count, ok
-}
-
-func (e *Engine) requestInputTokensPreciselyTrackedRepairable(ctx context.Context, req llm.Request, current bool, allowRepair bool) (int, bool, bool) {
+func (e *Engine) requestInputTokensPrecisely(ctx context.Context, req llm.Request, current bool, allowRepair bool) (int, bool, bool) {
 	counter, ok := e.llm.(llm.RequestInputTokenCountClient)
 	if !ok {
 		return 0, false, false
@@ -642,7 +633,7 @@ func (e *Engine) compactNow(ctx context.Context, stepID string, mode compactionM
 		windowTokens = e.contextWindowTokens()
 	}
 	inputTokens := estimateItemsTokens(e.snapshotItems())
-	if preciseInput, ok := e.currentInputTokensPreciselyTrackedWithRepair(ctx); ok {
+	if preciseInput, ok := e.currentInputTokensPreciselyWithRepair(ctx); ok {
 		inputTokens = preciseInput
 	}
 	if err := e.recordLastUsage(llm.Usage{

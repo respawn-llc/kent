@@ -64,7 +64,7 @@ func TestCriticalExactRecountsAfterToolCompletionBeforeToolMessageAppend(t *test
 	if err := eng.steer("step", steerMessageWithoutDerivedEventIntent(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}})); err != nil {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
-	if precise, ok := eng.currentInputTokensPreciselyTracked(context.Background()); !ok || precise != 100 {
+	if precise, ok := eng.currentInputTokensPrecisely(context.Background()); !ok || precise != 100 {
 		t.Fatalf("initial exact count = (%d, %v), want (100, true)", precise, ok)
 	}
 	if client.countInputTokenCalls != 1 {
@@ -333,7 +333,7 @@ func TestRestoreMessagesPreservesRecoveredMultiToolExactTokenParity(t *testing.T
 	if err != nil {
 		t.Fatalf("build live request: %v", err)
 	}
-	liveCount, ok := live.requestInputTokensPreciselyTracked(context.Background(), liveReq, false)
+	liveCount, ok, _ := live.requestInputTokensPrecisely(context.Background(), liveReq, false, false)
 	if !ok {
 		t.Fatal("expected live precise token count")
 	}
@@ -351,7 +351,7 @@ func TestRestoreMessagesPreservesRecoveredMultiToolExactTokenParity(t *testing.T
 	if err != nil {
 		t.Fatalf("build restored request: %v", err)
 	}
-	restoredCount, ok := restored.requestInputTokensPreciselyTracked(context.Background(), restoredReq, false)
+	restoredCount, ok, _ := restored.requestInputTokensPrecisely(context.Background(), restoredReq, false, false)
 	if !ok {
 		t.Fatal("expected restored precise token count")
 	}
