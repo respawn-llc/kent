@@ -1,6 +1,44 @@
 package selfcmd
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
+
+func TestShortCommandMatchesWhenLookPathResolvesToSameBinary(t *testing.T) {
+	lookPath := func(string) (string, error) { return "/usr/local/bin/kent", nil }
+	eval := func(p string) (string, error) {
+		if p == "/usr/local/bin/kent" {
+			return "/opt/kent/bin/kent", nil
+		}
+		return p, nil
+	}
+	if !shortCommandMatches("/opt/kent/bin/kent", lookPath, eval) {
+		t.Fatal("expected short command to match running executable through symlink resolution")
+	}
+}
+
+func TestShortCommandDoesNotMatchDifferentBinary(t *testing.T) {
+	lookPath := func(string) (string, error) { return "/usr/local/bin/kent", nil }
+	eval := func(p string) (string, error) { return p, nil }
+	if shortCommandMatches("/opt/other/kent", lookPath, eval) {
+		t.Fatal("expected mismatch when resolved binaries differ")
+	}
+}
+
+func TestShortCommandDoesNotMatchWhenNotOnPath(t *testing.T) {
+	lookPath := func(string) (string, error) { return "", errors.New("not found") }
+	eval := func(p string) (string, error) { return p, nil }
+	if shortCommandMatches("/opt/kent/bin/kent", lookPath, eval) {
+		t.Fatal("expected mismatch when short command is not resolvable on PATH")
+	}
+}
+
+func TestFormatLaunchCommandCollapsesPathThatMatchesShortCommand(t *testing.T) {
+	if got := formatLaunchCommand(fallbackBinaryName); got != fallbackBinaryName {
+		t.Fatalf("command = %q, want %q", got, fallbackBinaryName)
+	}
+}
 
 func TestFormatRunCommandPrefixFallsBackToBinaryName(t *testing.T) {
 	want := fallbackBinaryName + " run"
