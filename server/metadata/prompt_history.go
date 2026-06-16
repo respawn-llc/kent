@@ -105,21 +105,21 @@ func (s *Store) RecordPromptHistoryEntry(ctx context.Context, entry PromptHistor
 	return existing, false, nil
 }
 
-func (s *Store) MarkPromptHistoryQueueState(ctx context.Context, sessionID string, queueItemID string, state PromptHistoryQueueState) (PromptHistoryRecord, error) {
+func (s *Store) MarkPromptHistoryQueueState(ctx context.Context, sessionID string, queueItemID string, state PromptHistoryQueueState) (PromptHistoryRecord, bool, error) {
 	if s == nil || s.queries == nil {
-		return PromptHistoryRecord{}, errors.New("metadata store is required")
+		return PromptHistoryRecord{}, false, errors.New("metadata store is required")
 	}
 	trimmedSessionID := strings.TrimSpace(sessionID)
 	trimmedQueueItemID := strings.TrimSpace(queueItemID)
 	normalizedState := PromptHistoryQueueState(strings.TrimSpace(string(state)))
 	if trimmedSessionID == "" {
-		return PromptHistoryRecord{}, errors.New("session_id is required")
+		return PromptHistoryRecord{}, false, errors.New("session_id is required")
 	}
 	if trimmedQueueItemID == "" {
-		return PromptHistoryRecord{}, errors.New("queue_item_id is required")
+		return PromptHistoryRecord{}, false, errors.New("queue_item_id is required")
 	}
 	if !validPromptHistoryQueueState(normalizedState) {
-		return PromptHistoryRecord{}, fmt.Errorf("invalid queue state %q", state)
+		return PromptHistoryRecord{}, false, fmt.Errorf("invalid queue state %q", state)
 	}
 	updated, err := s.queries.UpdateSessionPromptHistoryQueueState(ctx, sqlitegen.UpdateSessionPromptHistoryQueueStateParams{
 		SessionID:   trimmedSessionID,
@@ -127,17 +127,33 @@ func (s *Store) MarkPromptHistoryQueueState(ctx context.Context, sessionID strin
 		QueueState:  string(normalizedState),
 	})
 	if err != nil {
-		return PromptHistoryRecord{}, fmt.Errorf("update prompt history queue state: %w", err)
+		return PromptHistoryRecord{}, false, fmt.Errorf("update prompt history queue state: %w", err)
 	}
 	if updated == 0 {
 		record, err := s.promptHistoryRecordBySource(ctx, trimmedSessionID, PromptHistorySourceQueueUserMessage, trimmedQueueItemID)
 		if err == nil && (record.QueueState == PromptHistoryQueueStateConsumed || record.QueueState == PromptHistoryQueueStateDiscarded) {
-			return record, nil
+			return record, false, nil
 		}
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return PromptHistoryRecord{}, err
+			return PromptHistoryRecord{}, false, err
 		}
-		return PromptHistoryRecord{}, sql.ErrNoRows
+		return PromptHistoryRecord{}, false, sql.ErrNoRows
+	}
+	record, err := s.promptHistoryRecordBySource(ctx, trimmedSessionID, PromptHistorySourceQueueUserMessage, trimmedQueueItemID)
+	return record, true, err
+}
+
+func (s *Store) ReadPromptHistoryQueueItem(ctx context.Context, sessionID string, queueItemID string) (PromptHistoryRecord, error) {
+	if s == nil || s.queries == nil {
+		return PromptHistoryRecord{}, errors.New("metadata store is required")
+	}
+	trimmedSessionID := strings.TrimSpace(sessionID)
+	trimmedQueueItemID := strings.TrimSpace(queueItemID)
+	if trimmedSessionID == "" {
+		return PromptHistoryRecord{}, errors.New("session_id is required")
+	}
+	if trimmedQueueItemID == "" {
+		return PromptHistoryRecord{}, errors.New("queue_item_id is required")
 	}
 	return s.promptHistoryRecordBySource(ctx, trimmedSessionID, PromptHistorySourceQueueUserMessage, trimmedQueueItemID)
 }

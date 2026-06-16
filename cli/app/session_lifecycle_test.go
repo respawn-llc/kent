@@ -713,6 +713,37 @@ func TestResolveSessionActionNewSessionUsesForceNewFlow(t *testing.T) {
 	}
 }
 
+func TestResolveSessionActionPreservesInitialPromptHistoryRecorded(t *testing.T) {
+	client := &recordingSessionLifecycleClient{
+		resolveTransition: func(_ context.Context, req serverapi.SessionResolveTransitionRequest) (serverapi.SessionResolveTransitionResponse, error) {
+			if !req.Transition.InitialPromptHistoryRecorded {
+				t.Fatal("expected transition request to preserve initial prompt-history flag")
+			}
+			return serverapi.SessionResolveTransitionResponse{
+				InitialPrompt:                req.Transition.InitialPrompt,
+				InitialPromptHistoryRecorded: req.Transition.InitialPromptHistoryRecorded,
+				ForceNewSession:              true,
+				ShouldContinue:               true,
+			}, nil
+		},
+	}
+
+	resolved, err := resolveSessionAction(
+		context.Background(),
+		narrowSessionLifecycleServer{lifecycle: client},
+		nil,
+		"session-1",
+		"lease-1",
+		UITransition{Action: UIActionNewSession, InitialPrompt: "expanded prompt", InitialPromptHistoryRecorded: true},
+	)
+	if err != nil {
+		t.Fatalf("resolve session action: %v", err)
+	}
+	if !resolved.InitialPromptHistoryRecorded {
+		t.Fatal("expected resolved transition to preserve initial prompt-history flag")
+	}
+}
+
 func TestNewSessionTransitionKeepsBackgroundProcessesAlive(t *testing.T) {
 	manager := newFastBackgroundTestManager(t)
 

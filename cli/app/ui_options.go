@@ -21,13 +21,14 @@ type UITranscriptEntry struct {
 }
 
 type UITransition struct {
-	Action               serverapi.SessionTransitionAction
-	Exit                 bool
-	InitialPrompt        string
-	InitialInput         string
-	TargetSessionID      string
-	ForkRollbackTargetID string
-	ParentSessionID      string
+	Action                       serverapi.SessionTransitionAction
+	Exit                         bool
+	InitialPrompt                string
+	InitialPromptHistoryRecorded bool
+	InitialInput                 string
+	TargetSessionID              string
+	ForkRollbackTargetID         string
+	ParentSessionID              string
 }
 
 const (
@@ -151,6 +152,12 @@ func WithUIHasOtherSessions(known bool, available bool) UIOption {
 func WithUIStartupSubmit(text string) UIOption {
 	return func(m *uiModel) {
 		m.startupSubmit = text
+	}
+}
+
+func WithUIStartupSubmitPromptHistoryRecorded(recorded bool) UIOption {
+	return func(m *uiModel) {
+		m.startupSubmitPromptHistoryRecorded = recorded
 	}
 }
 

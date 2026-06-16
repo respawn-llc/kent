@@ -39,6 +39,7 @@ type runtimeControlFakeClient struct {
 	shouldCompactCalls     int
 	shouldCompactResult    bool
 	submitText             string
+	submitRecorded         []bool
 	submitResult           string
 	submitShellCommand     string
 	compactArgs            string
@@ -191,6 +192,14 @@ func (f *runtimeControlFakeClient) ShouldCompactBeforeUserMessage(_ context.Cont
 }
 func (f *runtimeControlFakeClient) SubmitUserMessage(_ context.Context, text string) (string, error) {
 	f.submitText = text
+	if f.submitErr != nil {
+		return f.submitResult, f.submitErr
+	}
+	return f.submitResult, f.err
+}
+func (f *runtimeControlFakeClient) SubmitUserMessageWithPromptHistoryRecorded(_ context.Context, text string) (string, error) {
+	f.submitText = text
+	f.submitRecorded = append(f.submitRecorded, true)
 	if f.submitErr != nil {
 		return f.submitResult, f.submitErr
 	}

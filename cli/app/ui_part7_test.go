@@ -745,6 +745,9 @@ func TestBuiltInReviewSlashCommandStartsFreshSessionWhenCurrentSessionHasVisible
 	if updated.nextSessionInitialPrompt != expected.User {
 		t.Fatalf("expected handoff payload to match /review command output\nwant: %q\n got: %q", expected.User, updated.nextSessionInitialPrompt)
 	}
+	if !updated.nextSessionInitialPromptHistoryRecorded {
+		t.Fatal("expected /review handoff to preserve typed-command prompt-history recording")
+	}
 }
 
 func TestBuiltInInitSlashCommandStartsFreshSessionWhenCurrentSessionHasVisibleUserPrompt(t *testing.T) {
@@ -766,6 +769,29 @@ func TestBuiltInInitSlashCommandStartsFreshSessionWhenCurrentSessionHasVisibleUs
 	}
 	if updated.nextSessionInitialPrompt != expected.User {
 		t.Fatalf("expected handoff payload to match /init command output\nwant: %q\n got: %q", expected.User, updated.nextSessionInitialPrompt)
+	}
+	if !updated.nextSessionInitialPromptHistoryRecorded {
+		t.Fatal("expected /init handoff to preserve typed-command prompt-history recording")
+	}
+}
+
+func TestStartupSubmitUsesRecordedPromptHistoryFlag(t *testing.T) {
+	client := &runtimeControlFakeClient{}
+	m := newProjectedTestUIModel(client, closedProjectedRuntimeEvents(), closedAskEvents(),
+		WithUIStartupSubmit("expanded hidden prompt"),
+		WithUIStartupSubmitPromptHistoryRecorded(true),
+	)
+
+	_ = collectCmdMessages(t, m.startupSubmitCmd())
+
+	if client.submitText == "" {
+		t.Fatal("expected startup submit to submit initial prompt")
+	}
+	if len(client.submitRecorded) != 1 || !client.submitRecorded[0] {
+		t.Fatalf("expected startup submit to use prompt-history-recorded path, got %+v", client.submitRecorded)
+	}
+	if client.recordedPromptHistory != "" {
+		t.Fatalf("did not expect startup submit to record expanded prompt history, got %q", client.recordedPromptHistory)
 	}
 }
 

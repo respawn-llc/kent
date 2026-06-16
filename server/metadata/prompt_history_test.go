@@ -105,19 +105,35 @@ func TestQueuedPromptHistoryStateTransitionsPreserveHistory(t *testing.T) {
 	if !inserted || record.QueueState != PromptHistoryQueueStateRecorded {
 		t.Fatalf("queued record inserted=%t state=%q", inserted, record.QueueState)
 	}
-	pending, err := store.MarkPromptHistoryQueueState(ctx, sessionID, "queue-1", PromptHistoryQueueStatePending)
+	pending, changed, err := store.MarkPromptHistoryQueueState(ctx, sessionID, "queue-1", PromptHistoryQueueStatePending)
 	if err != nil {
 		t.Fatalf("mark pending: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected pending transition to report changed")
 	}
 	if pending.QueueState != PromptHistoryQueueStatePending {
 		t.Fatalf("pending state = %q", pending.QueueState)
 	}
-	discarded, err := store.MarkPromptHistoryQueueState(ctx, sessionID, "queue-1", PromptHistoryQueueStateDiscarded)
+	discarded, changed, err := store.MarkPromptHistoryQueueState(ctx, sessionID, "queue-1", PromptHistoryQueueStateDiscarded)
 	if err != nil {
 		t.Fatalf("mark discarded: %v", err)
 	}
+	if !changed {
+		t.Fatal("expected discard transition to report changed")
+	}
 	if discarded.QueueState != PromptHistoryQueueStateDiscarded {
 		t.Fatalf("discarded state = %q", discarded.QueueState)
+	}
+	alreadyDiscarded, changed, err := store.MarkPromptHistoryQueueState(ctx, sessionID, "queue-1", PromptHistoryQueueStateDiscarded)
+	if err != nil {
+		t.Fatalf("mark already discarded: %v", err)
+	}
+	if changed {
+		t.Fatal("expected already-discarded transition to report unchanged")
+	}
+	if alreadyDiscarded.QueueState != PromptHistoryQueueStateDiscarded {
+		t.Fatalf("already-discarded state = %q", alreadyDiscarded.QueueState)
 	}
 
 	history, err := store.ReadPromptHistory(ctx, sessionID)

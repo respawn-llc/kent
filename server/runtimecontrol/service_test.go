@@ -36,8 +36,10 @@ type runtimeControlPromptHistoryStore struct {
 	mu              sync.Mutex
 	records         []metadata.PromptHistoryRecord
 	recordInserted  []bool
+	recordCtxErr    error
 	queueStateErr   error
 	queueStateCalls int
+	queueStateHook  func()
 	consumeErr      error
 }
 
@@ -47,9 +49,12 @@ func newRuntimeControlPromptHistoryStore(sessionID string) *runtimeControlPrompt
 	return store
 }
 
-func (s *runtimeControlPromptHistoryStore) RecordPromptHistoryEntry(_ context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, bool, error) {
+func (s *runtimeControlPromptHistoryStore) RecordPromptHistoryEntry(ctx context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.recordCtxErr != nil && ctx.Err() != nil {
+		return metadata.PromptHistoryRecord{}, false, s.recordCtxErr
+	}
 	for _, record := range s.records {
 		if record.SessionID == entry.SessionID && record.Source == entry.Source && (record.SourceID == entry.SourceID || record.ClientRequestID == entry.ClientRequestID && entry.ClientRequestID != "") {
 			if record.Text != entry.Text || record.SourceID != entry.SourceID && record.ClientRequestID == entry.ClientRequestID {
@@ -75,20 +80,41 @@ func (s *runtimeControlPromptHistoryStore) RecordPromptHistoryEntry(_ context.Co
 	return record, true, nil
 }
 
-func (s *runtimeControlPromptHistoryStore) MarkPromptHistoryQueueState(_ context.Context, sessionID string, queueItemID string, state metadata.PromptHistoryQueueState) (metadata.PromptHistoryRecord, error) {
+func (s *runtimeControlPromptHistoryStore) ReadPromptHistoryQueueItem(_ context.Context, sessionID string, queueItemID string) (metadata.PromptHistoryRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, record := range s.records {
+		if record.SessionID == sessionID && record.QueueItemID == queueItemID {
+			return record, nil
+		}
+	}
+	return metadata.PromptHistoryRecord{}, errors.New("queued prompt history not found")
+}
+
+func (s *runtimeControlPromptHistoryStore) MarkPromptHistoryQueueState(_ context.Context, sessionID string, queueItemID string, state metadata.PromptHistoryQueueState) (metadata.PromptHistoryRecord, bool, error) {
+	s.mu.Lock()
+	hook := s.queueStateHook
+	s.queueStateHook = nil
+	s.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.queueStateCalls++
 	if s.queueStateErr != nil {
-		return metadata.PromptHistoryRecord{}, s.queueStateErr
+		return metadata.PromptHistoryRecord{}, false, s.queueStateErr
 	}
 	for i, record := range s.records {
 		if record.SessionID == sessionID && record.QueueItemID == queueItemID {
+			if record.QueueState == metadata.PromptHistoryQueueStateConsumed || record.QueueState == metadata.PromptHistoryQueueStateDiscarded {
+				return record, false, nil
+			}
 			s.records[i].QueueState = state
-			return s.records[i], nil
+			return s.records[i], true, nil
 		}
 	}
-	return metadata.PromptHistoryRecord{}, errors.New("queued prompt history not found")
+	return metadata.PromptHistoryRecord{}, false, errors.New("queued prompt history not found")
 }
 
 func (s *runtimeControlPromptHistoryStore) MarkPromptHistoryQueueItemsConsumed(_ context.Context, sessionID string, queueItemIDs []string) (int64, error) {
@@ -124,6 +150,18 @@ func (s *runtimeControlPromptHistoryStore) SetQueueStateError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.queueStateErr = err
+}
+
+func (s *runtimeControlPromptHistoryStore) SetQueueStateHook(hook func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.queueStateHook = hook
+}
+
+func (s *runtimeControlPromptHistoryStore) SetRecordContextError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.recordCtxErr = err
 }
 
 func (s *runtimeControlPromptHistoryStore) QueueStateCalls() int {
@@ -859,6 +897,27 @@ func TestServiceSubmitUserTurnRecordsPromptHistoryAndSubmits(t *testing.T) {
 	}
 }
 
+func TestServiceSubmitUserTurnRecordsPromptHistoryWithUncancelledRunContext(t *testing.T) {
+	client := finalResponseRuntimeControlClient()
+	store, _, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
+	history := service.promptStore.(*runtimeControlPromptHistoryStore)
+	cancelledRecordCtx := errors.New("record context was cancelled")
+	history.SetRecordContextError(cancelledRecordCtx)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	resp, err := service.SubmitUserTurn(ctx, runtimeControlUserTurnRequest(store, "req-uncancelled-history", "hello after cancel"))
+	if err != nil {
+		t.Fatalf("SubmitUserTurn: %v", err)
+	}
+	if resp.Message != "done" {
+		t.Fatalf("message = %q, want done", resp.Message)
+	}
+	if got := countPromptHistoryEvents(t, store, "hello after cancel"); got != 1 {
+		t.Fatalf("prompt history count = %d, want 1", got)
+	}
+}
+
 func TestServiceSubmitUserTurnSkipsPromptHistoryWhenAlreadyRecorded(t *testing.T) {
 	client := finalResponseRuntimeControlClient()
 	store, _, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
@@ -1169,7 +1228,7 @@ func TestServiceQueueUserMessageRepairsConsumedPromptAfterColdReopen(t *testing.
 	if secondEngine.HasQueuedUserWork() {
 		t.Fatal("did not expect consumed queued prompt to be re-enqueued")
 	}
-	record, err := meta.MarkPromptHistoryQueueState(ctx, store.Meta().SessionID, firstQueue.QueueItemID, metadata.PromptHistoryQueueStatePending)
+	record, err := meta.ReadPromptHistoryQueueItem(ctx, store.Meta().SessionID, firstQueue.QueueItemID)
 	if err != nil {
 		t.Fatalf("read repaired queue state: %v", err)
 	}
@@ -1277,6 +1336,75 @@ func TestServiceDiscardQueuedUserMessageDoesNotMutateRuntimeWhenMetadataFails(t 
 	}
 	if engine.HasQueuedUserWork() {
 		t.Fatal("expected runtime queue item removed after metadata discard success")
+	}
+}
+
+func TestServiceDiscardQueuedUserMessageReportsTrueWhenAlreadyDiscardedOnRetry(t *testing.T) {
+	ctx := context.Background()
+	sessionStore, engine, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
+	history := service.promptStore.(*runtimeControlPromptHistoryStore)
+	queued, err := service.QueueUserMessage(ctx, runtimeControlQueueUserMessageRequest(sessionStore, "req-discard-retry", "discard once"))
+	if err != nil {
+		t.Fatalf("QueueUserMessage: %v", err)
+	}
+	discardReq := serverapi.RuntimeDiscardQueuedUserMessageRequest{
+		ClientRequestID:   "req-discard-retry",
+		SessionID:         sessionStore.Meta().SessionID,
+		ControllerLeaseID: "lease-1",
+		QueueItemID:       queued.QueueItemID,
+	}
+	first, err := service.DiscardQueuedUserMessage(ctx, discardReq)
+	if err != nil {
+		t.Fatalf("DiscardQueuedUserMessage first: %v", err)
+	}
+	if !first.Discarded {
+		t.Fatal("expected first discard to succeed")
+	}
+
+	retryService := NewService(stubRuntimeResolver{engine: engine}, nil).WithPromptHistoryStore(history)
+	second, err := retryService.DiscardQueuedUserMessage(ctx, discardReq)
+	if err != nil {
+		t.Fatalf("DiscardQueuedUserMessage retry: %v", err)
+	}
+	if !second.Discarded {
+		t.Fatal("expected already-discarded retry to report discarded")
+	}
+	if engine.HasQueuedUserWork() {
+		t.Fatal("expected runtime queue item to remain absent after discard retry")
+	}
+}
+
+func TestServiceDiscardQueuedUserMessageReportsTrueWhenDiscardedDuringTransition(t *testing.T) {
+	ctx := context.Background()
+	sessionStore, engine, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
+	history := service.promptStore.(*runtimeControlPromptHistoryStore)
+	queued, err := service.QueueUserMessage(ctx, runtimeControlQueueUserMessageRequest(sessionStore, "req-discard-race", "discard race"))
+	if err != nil {
+		t.Fatalf("QueueUserMessage: %v", err)
+	}
+	history.SetQueueStateHook(func() {
+		history.mu.Lock()
+		for i, record := range history.records {
+			if record.QueueItemID == queued.QueueItemID {
+				history.records[i].QueueState = metadata.PromptHistoryQueueStateDiscarded
+			}
+		}
+		history.mu.Unlock()
+		engine.DiscardQueuedUserMessage(queued.QueueItemID)
+	})
+	discardReq := serverapi.RuntimeDiscardQueuedUserMessageRequest{
+		ClientRequestID:   "req-discard-race",
+		SessionID:         sessionStore.Meta().SessionID,
+		ControllerLeaseID: "lease-1",
+		QueueItemID:       queued.QueueItemID,
+	}
+
+	discarded, err := service.DiscardQueuedUserMessage(ctx, discardReq)
+	if err != nil {
+		t.Fatalf("DiscardQueuedUserMessage: %v", err)
+	}
+	if !discarded.Discarded {
+		t.Fatal("expected discard race with already-discarded metadata to report discarded")
 	}
 }
 

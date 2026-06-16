@@ -252,14 +252,25 @@ func (m *uiModel) Init() tea.Cmd {
 		cmds = append(cmds, waitRuntimeLeaseRecoveryWarning(m.runtimeLeaseRecoveryWarning))
 	}
 	cmds = append([]tea.Cmd{tea.ClearScreen}, cmds...)
-	if startupText := strings.TrimSpace(m.startupSubmit); startupText != "" {
-		cmds = append(cmds, m.inputController().startSubmissionWithPromptHistoryAndQueuePositionAndID(startupText, preSubmitQueueBack, ""))
+	if startupSubmitCmd := m.startupSubmitCmd(); startupSubmitCmd != nil {
+		cmds = append(cmds, startupSubmitCmd)
 	}
 	if len(m.startupCmds) > 0 {
 		cmds = append(cmds, m.startupCmds...)
 		m.startupCmds = nil
 	}
 	return tea.Batch(cmds...)
+}
+
+func (m *uiModel) startupSubmitCmd() tea.Cmd {
+	startupText := strings.TrimSpace(m.startupSubmit)
+	if startupText == "" {
+		return nil
+	}
+	if m.startupSubmitPromptHistoryRecorded {
+		return m.inputController().startSubmissionWithPreSubmitQueuePositionAndPromptHistoryRecorded(startupText, preSubmitQueueBack, "", true)
+	}
+	return m.inputController().startSubmissionWithPromptHistoryAndQueuePositionAndID(startupText, preSubmitQueueBack, "")
 }
 
 func (m *uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -346,12 +357,13 @@ func (m *uiModel) Transition() UITransition {
 		}
 	}
 	return UITransition{
-		Action:               m.exitAction,
-		InitialPrompt:        m.nextSessionInitialPrompt,
-		InitialInput:         m.nextSessionInitialInput,
-		TargetSessionID:      strings.TrimSpace(m.nextSessionID),
-		ForkRollbackTargetID: m.nextForkRollbackTargetID,
-		ParentSessionID:      strings.TrimSpace(m.nextParentSessionID),
+		Action:                       m.exitAction,
+		InitialPrompt:                m.nextSessionInitialPrompt,
+		InitialPromptHistoryRecorded: m.nextSessionInitialPromptHistoryRecorded,
+		InitialInput:                 m.nextSessionInitialInput,
+		TargetSessionID:              strings.TrimSpace(m.nextSessionID),
+		ForkRollbackTargetID:         m.nextForkRollbackTargetID,
+		ParentSessionID:              strings.TrimSpace(m.nextParentSessionID),
 	}
 }
 

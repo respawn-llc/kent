@@ -74,6 +74,7 @@ func runSessionLifecycle(ctx context.Context, server interactiveSessionServer, i
 	planner := newSessionLaunchPlanner(server)
 	currentSessionID := strings.TrimSpace(initialSessionID)
 	nextSessionInitialPrompt := ""
+	nextSessionInitialPromptHistoryRecorded := false
 	nextSessionInitialInput := ""
 	nextSessionParentID := ""
 	forceNewSession := false
@@ -120,6 +121,7 @@ func runSessionLifecycle(ctx context.Context, server interactiveSessionServer, i
 			runtimePlan.Logger,
 			commandRegistry,
 			nextSessionInitialPrompt,
+			nextSessionInitialPromptHistoryRecorded,
 			initialInput,
 			plan.SessionName,
 			plan.ModelContractLocked,
@@ -129,6 +131,7 @@ func runSessionLifecycle(ctx context.Context, server interactiveSessionServer, i
 		)
 		showStartupUpdateNotice = shouldRetryStartupUpdateNotice(finalModel, showStartupUpdateNotice)
 		nextSessionInitialPrompt = ""
+		nextSessionInitialPromptHistoryRecorded = false
 		nextSessionInitialInput = ""
 		if runErr != nil {
 			runtimePlan.Close()
@@ -159,6 +162,7 @@ func runSessionLifecycle(ctx context.Context, server interactiveSessionServer, i
 		}
 		currentSessionID = resolved.NextSessionID
 		nextSessionInitialPrompt = resolved.InitialPrompt
+		nextSessionInitialPromptHistoryRecorded = resolved.InitialPromptHistoryRecorded
 		nextSessionInitialInput = resolved.InitialInput
 		nextSessionParentID = resolved.ParentSessionID
 		forceNewSession = resolved.ForceNewSession
@@ -218,22 +222,24 @@ func persistSessionDraftToServer(ctx context.Context, server sessionDraftPersist
 }
 
 type resolvedSessionAction struct {
-	NextSessionID   string
-	InitialPrompt   string
-	InitialInput    string
-	ParentSessionID string
-	ForceNewSession bool
-	ShouldContinue  bool
+	NextSessionID                string
+	InitialPrompt                string
+	InitialPromptHistoryRecorded bool
+	InitialInput                 string
+	ParentSessionID              string
+	ForceNewSession              bool
+	ShouldContinue               bool
 }
 
 func resolveReadOnlySessionAction(ctx context.Context, server sessionTransitionServer, interactor authInteractor, sessionID string, transition UITransition) (resolvedSessionAction, error) {
 	switch transition.Action {
 	case UIActionNewSession:
 		return resolvedSessionAction{
-			InitialPrompt:   transition.InitialPrompt,
-			ParentSessionID: transition.ParentSessionID,
-			ForceNewSession: true,
-			ShouldContinue:  true,
+			InitialPrompt:                transition.InitialPrompt,
+			InitialPromptHistoryRecorded: transition.InitialPromptHistoryRecorded,
+			ParentSessionID:              transition.ParentSessionID,
+			ForceNewSession:              true,
+			ShouldContinue:               true,
 		}, nil
 	case UIActionResume:
 		return resolvedSessionAction{ShouldContinue: true}, nil
@@ -270,12 +276,13 @@ func resolveSessionAction(ctx context.Context, server sessionTransitionServer, i
 		SessionID:         strings.TrimSpace(sessionID),
 		ControllerLeaseID: strings.TrimSpace(controllerLeaseID),
 		Transition: serverapi.SessionTransition{
-			Action:               transition.Action,
-			InitialPrompt:        transition.InitialPrompt,
-			InitialInput:         transition.InitialInput,
-			TargetSessionID:      transition.TargetSessionID,
-			ForkRollbackTargetID: transition.ForkRollbackTargetID,
-			ParentSessionID:      transition.ParentSessionID,
+			Action:                       transition.Action,
+			InitialPrompt:                transition.InitialPrompt,
+			InitialPromptHistoryRecorded: transition.InitialPromptHistoryRecorded,
+			InitialInput:                 transition.InitialInput,
+			TargetSessionID:              transition.TargetSessionID,
+			ForkRollbackTargetID:         transition.ForkRollbackTargetID,
+			ParentSessionID:              transition.ParentSessionID,
 		},
 	})
 	if err != nil {
@@ -287,11 +294,12 @@ func resolveSessionAction(ctx context.Context, server sessionTransitionServer, i
 		}
 	}
 	return resolvedSessionAction{
-		NextSessionID:   resolved.NextSessionID,
-		InitialPrompt:   resolved.InitialPrompt,
-		InitialInput:    resolved.InitialInput,
-		ParentSessionID: resolved.ParentSessionID,
-		ForceNewSession: resolved.ForceNewSession,
-		ShouldContinue:  resolved.ShouldContinue,
+		NextSessionID:                resolved.NextSessionID,
+		InitialPrompt:                resolved.InitialPrompt,
+		InitialPromptHistoryRecorded: resolved.InitialPromptHistoryRecorded,
+		InitialInput:                 resolved.InitialInput,
+		ParentSessionID:              resolved.ParentSessionID,
+		ForceNewSession:              resolved.ForceNewSession,
+		ShouldContinue:               resolved.ShouldContinue,
 	}, nil
 }

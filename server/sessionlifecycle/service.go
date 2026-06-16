@@ -220,6 +220,7 @@ func sameSessionTransitionMemoRequest(a sessionTransitionMemoRequest, b sessionT
 	return a.SessionID == b.SessionID &&
 		a.Transition.Action == b.Transition.Action &&
 		a.Transition.InitialPrompt == b.Transition.InitialPrompt &&
+		a.Transition.InitialPromptHistoryRecorded == b.Transition.InitialPromptHistoryRecorded &&
 		a.Transition.InitialInput == b.Transition.InitialInput &&
 		a.Transition.TargetSessionID == b.Transition.TargetSessionID &&
 		a.Transition.ForkRollbackTargetID == b.Transition.ForkRollbackTargetID &&
@@ -257,12 +258,13 @@ func (s *Service) resolveTransitionOnce(ctx context.Context, req serverapi.Sessi
 		resolved, err := serverlifecycle.Resolve(ctx, serverlifecycle.ResolveRequest{
 			Store: store,
 			Transition: serverlifecycle.Transition{
-				Action:               req.Transition.Action,
-				InitialPrompt:        req.Transition.InitialPrompt,
-				InitialInput:         req.Transition.InitialInput,
-				TargetSessionID:      req.Transition.TargetSessionID,
-				ForkUserMessageIndex: forkUserMessageIndex,
-				ParentSessionID:      req.Transition.ParentSessionID,
+				Action:                       req.Transition.Action,
+				InitialPrompt:                req.Transition.InitialPrompt,
+				InitialPromptHistoryRecorded: req.Transition.InitialPromptHistoryRecorded,
+				InitialInput:                 req.Transition.InitialInput,
+				TargetSessionID:              req.Transition.TargetSessionID,
+				ForkUserMessageIndex:         forkUserMessageIndex,
+				ParentSessionID:              req.Transition.ParentSessionID,
 			},
 		})
 		if err != nil {
@@ -272,34 +274,37 @@ func (s *Service) resolveTransitionOnce(ctx context.Context, req serverapi.Sessi
 			return serverapi.SessionResolveTransitionResponse{}, err
 		}
 		return serverapi.SessionResolveTransitionResponse{
-			NextSessionID:   resolved.NextSessionID,
-			InitialPrompt:   resolved.InitialPrompt,
-			InitialInput:    resolved.InitialInput,
-			ParentSessionID: resolved.ParentSessionID,
-			ForceNewSession: resolved.ForceNewSession,
-			ShouldContinue:  resolved.ShouldContinue,
+			NextSessionID:                resolved.NextSessionID,
+			InitialPrompt:                resolved.InitialPrompt,
+			InitialPromptHistoryRecorded: resolved.InitialPromptHistoryRecorded,
+			InitialInput:                 resolved.InitialInput,
+			ParentSessionID:              resolved.ParentSessionID,
+			ForceNewSession:              resolved.ForceNewSession,
+			ShouldContinue:               resolved.ShouldContinue,
 		}, nil
 	}
 	resolved, err := serverlifecycle.Resolve(ctx, serverlifecycle.ResolveRequest{
 		Store: store,
 		Transition: serverlifecycle.Transition{
-			Action:          req.Transition.Action,
-			InitialPrompt:   req.Transition.InitialPrompt,
-			InitialInput:    req.Transition.InitialInput,
-			TargetSessionID: req.Transition.TargetSessionID,
-			ParentSessionID: req.Transition.ParentSessionID,
+			Action:                       req.Transition.Action,
+			InitialPrompt:                req.Transition.InitialPrompt,
+			InitialPromptHistoryRecorded: req.Transition.InitialPromptHistoryRecorded,
+			InitialInput:                 req.Transition.InitialInput,
+			TargetSessionID:              req.Transition.TargetSessionID,
+			ParentSessionID:              req.Transition.ParentSessionID,
 		},
 	})
 	if err != nil {
 		return serverapi.SessionResolveTransitionResponse{}, err
 	}
 	return serverapi.SessionResolveTransitionResponse{
-		NextSessionID:   resolved.NextSessionID,
-		InitialPrompt:   resolved.InitialPrompt,
-		InitialInput:    resolved.InitialInput,
-		ParentSessionID: resolved.ParentSessionID,
-		ForceNewSession: resolved.ForceNewSession,
-		ShouldContinue:  resolved.ShouldContinue,
+		NextSessionID:                resolved.NextSessionID,
+		InitialPrompt:                resolved.InitialPrompt,
+		InitialPromptHistoryRecorded: resolved.InitialPromptHistoryRecorded,
+		InitialInput:                 resolved.InitialInput,
+		ParentSessionID:              resolved.ParentSessionID,
+		ForceNewSession:              resolved.ForceNewSession,
+		ShouldContinue:               resolved.ShouldContinue,
 	}, nil
 }
 
