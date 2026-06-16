@@ -122,6 +122,67 @@ func TestCompactionHTTP400RepairsMissingToolOutputRebuildsAndRetries(t *testing.
 	}
 }
 
+func TestCompactionHTTP400RepairRunsSinglePassForRepeated400(t *testing.T) {
+	store := mustCreateTestSession(t)
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+		{ID: "missing-compact-1", Name: "exec", Input: json.RawMessage(`{}`)},
+		{ID: "missing-compact-2", Name: "exec", Input: json.RawMessage(`{}`)},
+	}})
+	client := &fakeCompactionClient{
+		compactionErrors: []error{
+			&llm.APIStatusError{StatusCode: 400, Body: "bad request"},
+			&llm.APIStatusError{StatusCode: 400, Body: "bad request"},
+		},
+		compactionResponses: []llm.CompactionResponse{{
+			OutputItems: []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: llm.RoleUser, Content: "summary"}},
+		}},
+	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	baseRequest := llm.CompactionRequest{Model: "gpt-5", SessionID: store.Meta().SessionID, InputItems: eng.snapshotItems()}
+
+	_, _, _, err := eng.compactWithContextRepairRetry(context.Background(), "compact", client, baseRequest)
+	if !llm.HasHTTPStatus(err, 400) {
+		t.Fatalf("compaction error = %v, want second HTTP 400", err)
+	}
+	if len(client.compactionCalls) != 2 {
+		t.Fatalf("compaction calls = %d, want single repair retry", len(client.compactionCalls))
+	}
+	retryInput := client.compactionCalls[1].InputItems
+	if repairItemsContainCall(retryInput, "missing-compact-1") || repairItemsContainCall(retryInput, "missing-compact-2") {
+		t.Fatalf("single repair pass did not remove all corrupted calls: %+v", retryInput)
+	}
+}
+
+func TestLocalCompactionHTTP400RepairRunsSinglePassForRepeated400(t *testing.T) {
+	store := mustCreateTestSession(t)
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+		{ID: "missing-local-1", Name: "exec", Input: json.RawMessage(`{}`)},
+		{ID: "missing-local-2", Name: "exec", Input: json.RawMessage(`{}`)},
+	}})
+	client := &fakeCompactionClient{
+		errors: []error{
+			&llm.APIStatusError{StatusCode: 400, Body: "bad request"},
+			&llm.APIStatusError{StatusCode: 400, Body: "bad request"},
+		},
+		responses: []llm.Response{{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: "local summary"},
+		}},
+	}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+
+	_, _, err := eng.localCompactionSummaryWithRepair(context.Background(), eng.snapshotItems(), "summarize", compactionModeAuto)
+	if !llm.HasHTTPStatus(err, 400) {
+		t.Fatalf("local compaction error = %v, want second HTTP 400", err)
+	}
+	if len(client.calls) != 2 {
+		t.Fatalf("local compaction calls = %d, want single repair retry", len(client.calls))
+	}
+	retryInput := client.calls[1].Items
+	if repairItemsContainCall(retryInput, "missing-local-1") || repairItemsContainCall(retryInput, "missing-local-2") {
+		t.Fatalf("single repair pass did not remove all local corrupted calls: %+v", retryInput)
+	}
+}
+
 func TestRemoteCompactionHTTP400RepairDoesNotConsumeOverflowBudget(t *testing.T) {
 	store := mustCreateTestSession(t)
 	appendRepairOverflowSeed(t, store, "missing-budget")

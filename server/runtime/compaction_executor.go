@@ -75,6 +75,7 @@ func (e *Engine) compactWithContextRepairRetry(
 	contextWindowTokens := e.contextWindowTokens()
 
 	overflowAttempt := 0
+	missingToolOutputRepairAttempted := false
 	for {
 		req := request
 		req.InputItems = llm.CloneResponseItems(currentInput)
@@ -83,12 +84,13 @@ func (e *Engine) compactWithContextRepairRetry(
 		if err == nil {
 			return resp, currentInput, repairStats, nil
 		}
-		if llm.HasHTTPStatus(err, 400) {
+		if llm.HasHTTPStatus(err, 400) && !missingToolOutputRepairAttempted {
 			repair, _, repairErr := e.repairMissingToolOutputsAfterHTTP400(stepID)
 			if repairErr != nil {
 				return llm.CompactionResponse{}, nil, repairStats, errors.Join(err, repairErr)
 			}
 			if repair.Changed && repair.RemovedCalls > 0 {
+				missingToolOutputRepairAttempted = true
 				currentInput = responseItemsAfterMissingToolOutputRepair(currentInput, repair.RemovedIDs, repair.RemovedCallIDs)
 				continue
 			}
@@ -241,17 +243,19 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []l
 	repairStats := compactionOverflowRepairStats{}
 	contextWindowTokens := e.contextWindowTokens()
 	overflowAttempt := 0
+	missingToolOutputRepairAttempted := false
 	for {
 		summary, err := e.localCompactionSummaryFromWindow(ctx, locked, systemPrompt, window, instructions, requestTools, mode)
 		if err == nil {
 			return summary, repairStats, nil
 		}
-		if llm.HasHTTPStatus(err, 400) {
+		if llm.HasHTTPStatus(err, 400) && !missingToolOutputRepairAttempted {
 			repair, _, repairErr := e.repairMissingToolOutputsAfterHTTP400("")
 			if repairErr != nil {
 				return "", repairStats, errors.Join(err, repairErr)
 			}
 			if repair.Changed && repair.RemovedCalls > 0 {
+				missingToolOutputRepairAttempted = true
 				window = responseItemsAfterMissingToolOutputRepair(window, repair.RemovedIDs, repair.RemovedCallIDs)
 				continue
 			}
