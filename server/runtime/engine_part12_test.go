@@ -240,7 +240,7 @@ func TestCompactionSoonReminderStaysSingleShotAfterReEnablingAutoCompactionAbove
 	snap = eng.ChatSnapshot()
 	reminders := 0
 	for _, entry := range snap.Entries {
-		if entry.Role == "warning" && entry.Text == prompts.RenderCompactionSoonReminderPrompt(false) {
+		if entry.Role == "warning" && entry.Text == prompts.RenderCompactionSoonReminderPrompt(false, eng.estimatedToolCallsUntilForcedHandoff()) {
 			reminders++
 		}
 	}
@@ -260,7 +260,7 @@ func TestCompactionSoonReminderStaysSingleShotAfterReEnablingAutoCompactionAbove
 	snap = eng.ChatSnapshot()
 	reminders = 0
 	for _, entry := range snap.Entries {
-		if entry.Role == "warning" && entry.Text == prompts.RenderCompactionSoonReminderPrompt(false) {
+		if entry.Role == "warning" && entry.Text == prompts.RenderCompactionSoonReminderPrompt(false, eng.estimatedToolCallsUntilForcedHandoff()) {
 			reminders++
 		}
 	}
@@ -281,7 +281,7 @@ func TestReopenedSessionRestoresCompactionSoonReminderIssuedState(t *testing.T) 
 	if err := eng.steer("", steerMessageIntent(llm.Message{Role: llm.RoleUser, Content: "seed"})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSoonReminder, Content: prompts.RenderCompactionSoonReminderPrompt(false)})); err != nil {
+	if err := eng.steer("step-1", steerMessageIntent(llm.Message{Role: llm.RoleDeveloper, MessageType: llm.MessageTypeCompactionSoonReminder, Content: prompts.RenderCompactionSoonReminderPrompt(false, eng.estimatedToolCallsUntilForcedHandoff())})); err != nil {
 		t.Fatalf("append reminder: %v", err)
 	}
 
@@ -305,7 +305,7 @@ func TestReopenedSessionRestoresCompactionSoonReminderIssuedState(t *testing.T) 
 	if err := restored.maybeAppendCompactionSoonReminder(context.Background(), "step-restore"); err != nil {
 		t.Fatalf("reminder after reopen: %v", err)
 	}
-	if reminders := countCompactionSoonReminderWarnings(restored.ChatSnapshot()); reminders != 1 {
+	if reminders := countCompactionSoonReminderWarnings(restored, restored.ChatSnapshot()); reminders != 1 {
 		t.Fatalf("expected reopened session to avoid duplicate reminder, got %d entries=%+v", reminders, restored.ChatSnapshot().Entries)
 	}
 }
@@ -349,7 +349,7 @@ func TestForkedSessionBeforeReminderDoesNotCopyReminderIssuedState(t *testing.T)
 	if err := forked.maybeAppendCompactionSoonReminder(context.Background(), "step-fork"); err != nil {
 		t.Fatalf("reminder after fork: %v", err)
 	}
-	if reminders := countCompactionSoonReminderWarnings(forked.ChatSnapshot()); reminders != 1 {
+	if reminders := countCompactionSoonReminderWarnings(forked, forked.ChatSnapshot()); reminders != 1 {
 		t.Fatalf("expected fork before reminder to allow a fresh reminder, got %d entries=%+v", reminders, forked.ChatSnapshot().Entries)
 	}
 }
@@ -598,7 +598,7 @@ func TestRunStepLoopSkipsCompactionSoonReminderWhenImmediateAutoCompactionRuns(t
 
 	snap := eng.ChatSnapshot()
 	for _, entry := range snap.Entries {
-		if entry.Role == "warning" && entry.Text == prompts.RenderCompactionSoonReminderPrompt(false) {
+		if entry.Role == "warning" && entry.Text == prompts.RenderCompactionSoonReminderPrompt(false, eng.estimatedToolCallsUntilForcedHandoff()) {
 			t.Fatalf("did not expect reminder in transcript after immediate auto-compaction, entries=%+v", snap.Entries)
 		}
 	}
@@ -653,7 +653,7 @@ func TestRunStepLoopInjectsCompactionSoonReminderBeforeFinalAnswerRequest(t *tes
 		if entry.Role == "assistant" && entry.Text == "done" {
 			assistantIdx = idx
 		}
-		if entry.Role == "warning" && entry.Text == prompts.RenderCompactionSoonReminderPrompt(false) {
+		if entry.Role == "warning" && entry.Text == prompts.RenderCompactionSoonReminderPrompt(false, eng.estimatedToolCallsUntilForcedHandoff()) {
 			reminders++
 			reminderIdx = idx
 		}
@@ -734,7 +734,7 @@ func TestRunStepLoopAppendsCompactionSoonReminderImmediatelyAfterToolOutputBound
 		if strings.HasPrefix(entry.Role, "tool_result") {
 			toolIdx = idx
 		}
-		if entry.Role == "warning" && entry.Text == prompts.RenderCompactionSoonReminderPrompt(false) {
+		if entry.Role == "warning" && entry.Text == prompts.RenderCompactionSoonReminderPrompt(false, eng.estimatedToolCallsUntilForcedHandoff()) {
 			reminders++
 			reminderIdx = idx
 		}

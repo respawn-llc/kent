@@ -183,6 +183,9 @@ func TestCompactionPlannerDerivesLimitsFromSnapshot(t *testing.T) {
 	if got := planner.soonReminderLimit(snapshot); got != 765_000 {
 		t.Fatalf("soonReminderLimit()=%d, want 765000", got)
 	}
+	if got := planner.estimatedToolCallsUntilForcedHandoff(snapshot); got != 96 {
+		t.Fatalf("estimatedToolCallsUntilForcedHandoff()=%d, want 96", got)
+	}
 	if got := planner.reservedOutputTokens(snapshot); got != 8_000 {
 		t.Fatalf("reservedOutputTokens()=%d, want locked max output", got)
 	}

@@ -1,2 +1,2 @@
-Heads-up: soon you will be asked to hand off your work to another agent, they will not have the tool call history or this conversation's context, including user input.
+Heads-up: in ~{{.EstimatedToolCallsTillForcedHandoff}} more tool calls you will be asked to hand off your work to another agent, they will not have the tool call history or this conversation's context, including user input.
 Don't stop or let this affect scope or quality of your work - just see if there is a need to make a quick detour to help the next agent resume cleanly, e.g. persisting memories, updating plans & checklists, committing (if approved by user) etc.
