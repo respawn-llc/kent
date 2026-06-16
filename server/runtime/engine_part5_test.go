@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"errors"
+
 	"core/prompts"
 	"core/server/llm"
 	"core/server/session"
@@ -155,11 +157,8 @@ func TestReviewerSystemPromptFileMissingFailsWithoutSnapshot(t *testing.T) {
 		t.Fatalf("ensure locked: %v", err)
 	}
 	_, err := eng.runReviewerSuggestions(context.Background(), "step-1", &fakeClient{})
-	if err == nil {
-		t.Fatal("expected missing reviewer system prompt file error")
-	}
-	if !strings.Contains(err.Error(), "read reviewer.system_prompt_file") {
-		t.Fatalf("expected reviewer prompt read error, got %v", err)
+	if !errors.Is(err, errReadReviewerSystemPromptFile) {
+		t.Fatalf("expected errReadReviewerSystemPromptFile, got %v", err)
 	}
 	if locked := store.Meta().Locked; locked == nil || locked.HasReviewerPrompt || locked.ReviewerPrompt != "" {
 		t.Fatalf("locked reviewer prompt = %+v, want no reviewer prompt snapshot", locked)

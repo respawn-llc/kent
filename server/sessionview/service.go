@@ -215,7 +215,7 @@ func (s *Service) GetRun(ctx context.Context, req serverapi.RunGetRequest) (serv
 
 func (s *Service) resolveSnapshot(ctx context.Context, sessionID string) (SessionSnapshot, error) {
 	if s == nil || s.snapshots == nil {
-		return nil, errors.New("session store resolver is required")
+		return nil, errSessionStoreResolverRequired
 	}
 	return s.snapshots.ResolveSessionSnapshot(ctx, sessionID)
 }

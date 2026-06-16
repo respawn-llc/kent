@@ -359,7 +359,7 @@ const (
 func (s *Store) CreateWorkflow(ctx context.Context, req CreateWorkflowRequest) (WorkflowRecord, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return WorkflowRecord{}, errors.New("workflow name is required")
+		return WorkflowRecord{}, ErrWorkflowNameRequired
 	}
 	now := s.now().UnixMilli()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -403,7 +403,7 @@ func (s *Store) CreateAndLinkWorkflow(ctx context.Context, req CreateAndLinkWork
 func insertWorkflow(ctx context.Context, q *sqlitegen.Queries, now int64, req CreateWorkflowRequest) (WorkflowRecord, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return WorkflowRecord{}, errors.New("workflow name is required")
+		return WorkflowRecord{}, ErrWorkflowNameRequired
 	}
 	description := strings.TrimSpace(req.Description)
 	workflowID := prefixedID("workflow")
@@ -424,7 +424,7 @@ func insertWorkflow(ctx context.Context, q *sqlitegen.Queries, now int64, req Cr
 func (s *Store) UpdateWorkflowInfo(ctx context.Context, workflowID workflow.WorkflowID, name string, description string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return errors.New("workflow name is required")
+		return ErrWorkflowNameRequired
 	}
 	updated, err := s.queries.UpdateWorkflowInfo(ctx, sqlitegen.UpdateWorkflowInfoParams{ID: string(workflowID), Name: name, Description: strings.TrimSpace(description), UpdatedAtUnixMs: s.now().UnixMilli()})
 	if err != nil {
@@ -732,10 +732,10 @@ func (s *Store) SetWorkflowEventPublisher(publisher WorkflowEventPublisher) {
 
 func (s *Store) PublishWorkflowEvent(ctx context.Context, event WorkflowEventRecord) error {
 	if strings.TrimSpace(event.Resource) == "" {
-		return errors.New("event resource is required")
+		return ErrEventResourceRequired
 	}
 	if strings.TrimSpace(event.Action) == "" {
-		return errors.New("event action is required")
+		return ErrEventActionRequired
 	}
 	occurredAt := event.OccurredAtUnixMs
 	if occurredAt == 0 {
@@ -933,7 +933,7 @@ func (s *Store) DeleteNode(ctx context.Context, nodeID workflow.NodeID) error {
 		return err
 	}
 	if refs > 0 {
-		return fmt.Errorf("workflow node has task history references")
+		return ErrNodeHasTaskHistory
 	}
 	if deleted, err := q.DeleteWorkflowNode(ctx, string(nodeID)); err != nil {
 		return fmt.Errorf("delete workflow node: %w", err)
@@ -973,7 +973,7 @@ func (s *Store) DeleteEdge(ctx context.Context, edgeID workflow.EdgeID) error {
 		return err
 	}
 	if refs > 0 {
-		return fmt.Errorf("workflow edge has task history references")
+		return ErrEdgeHasTaskHistory
 	}
 	if deleted, err := q.DeleteWorkflowEdge(ctx, string(edgeID)); err != nil {
 		return fmt.Errorf("delete workflow edge: %w", err)
@@ -1108,7 +1108,7 @@ func resolveWorkflowNodeGroupID(ctx context.Context, q *sqlitegen.Queries, workf
 			return "", err
 		}
 		if row.WorkflowID != strings.TrimSpace(workflowID) {
-			return "", fmt.Errorf("workflow node group %q belongs to workflow %q", trimmedGroupID, row.WorkflowID)
+			return "", fmt.Errorf("workflow node group %q belongs to workflow %q: %w", trimmedGroupID, row.WorkflowID, ErrBelongsToOtherWorkflow)
 		}
 		return trimmedGroupID, nil
 	}
@@ -1139,7 +1139,7 @@ func ensureWorkflowNodeID(ctx context.Context, q *sqlitegen.Queries, workflowID 
 		return fmt.Errorf("resolve workflow node %q: %w", trimmedNodeID, err)
 	}
 	if row.WorkflowID != strings.TrimSpace(workflowID) {
-		return fmt.Errorf("workflow node %q belongs to workflow %q, not %q", trimmedNodeID, row.WorkflowID, strings.TrimSpace(workflowID))
+		return fmt.Errorf("workflow node %q belongs to workflow %q, not %q: %w", trimmedNodeID, row.WorkflowID, strings.TrimSpace(workflowID), ErrBelongsToOtherWorkflow)
 	}
 	return nil
 }
@@ -1158,7 +1158,7 @@ func ensureWorkflowTransitionGroupID(ctx context.Context, tx *sql.Tx, workflowID
 		return fmt.Errorf("resolve workflow transition group %q: %w", trimmedGroupID, err)
 	}
 	if rowWorkflowID != strings.TrimSpace(workflowID) {
-		return fmt.Errorf("workflow transition group %q belongs to workflow %q, not %q", trimmedGroupID, rowWorkflowID, strings.TrimSpace(workflowID))
+		return fmt.Errorf("workflow transition group %q belongs to workflow %q, not %q: %w", trimmedGroupID, rowWorkflowID, strings.TrimSpace(workflowID), ErrBelongsToOtherWorkflow)
 	}
 	return nil
 }

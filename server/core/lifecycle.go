@@ -24,6 +24,19 @@ func closeLifecycleResources(resources []lifecycleResource) error {
 	return err
 }
 
+// BundleResourceRequiredError reports that a required resource for a server
+// bundle was not supplied. It carries the bundle and resource names so callers
+// match the specific missing dependency with errors.As instead of parsing the
+// rendered message.
+type BundleResourceRequiredError struct {
+	BundleName   string
+	ResourceName string
+}
+
+func (e BundleResourceRequiredError) Error() string {
+	return fmt.Sprintf("%s bundle: %s is required", e.BundleName, e.ResourceName)
+}
+
 func bundleResourceRequiredError(bundleName string, resourceName string) error {
-	return fmt.Errorf("%s bundle: %s is required", bundleName, resourceName)
+	return BundleResourceRequiredError{BundleName: bundleName, ResourceName: resourceName}
 }

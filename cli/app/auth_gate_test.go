@@ -286,7 +286,7 @@ func TestResolveSessionActionLogoutCancelPreservesStoredAuth(t *testing.T) {
 		"",
 		UITransition{Action: UIActionLogout},
 	)
-	if err == nil || err.Error() != "auth canceled by user" {
+	if err == nil || !errors.Is(err, ErrAuthCanceledByUser) {
 		t.Fatalf("expected auth cancel, got %v", err)
 	}
 	state, err := mgr.StoredState(ctx)

@@ -88,7 +88,7 @@ func Start(ctx context.Context, req startup.Request, authHandler startup.AuthHan
 
 func (s *Server) Serve(ctx context.Context) error {
 	if ctx == nil {
-		return errors.New("context is required")
+		return errContextRequired
 	}
 	if err := ctx.Err(); err != nil {
 		return err

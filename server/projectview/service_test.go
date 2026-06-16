@@ -190,7 +190,7 @@ func TestDeleteSessionArtifactRejectsSymlinkEscape(t *testing.T) {
 
 	err := deleteSessionArtifact(root, "project-1", filepath.Join("projects", "project-1", "sessions", "keep"), true)
 
-	if err == nil || !strings.Contains(err.Error(), "escapes project sessions root") {
+	if err == nil || !errors.Is(err, ErrSessionArtifactEscapesRoot) {
 		t.Fatalf("deleteSessionArtifact error = %v, want escape rejection", err)
 	}
 	if _, err := os.Stat(filepath.Join(outside, "keep")); err != nil {

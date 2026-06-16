@@ -9,6 +9,19 @@ import (
 	"core/shared/serverapi"
 )
 
+// Sentinel errors returned by PromptService input validation. Callers and tests
+// must match these with errors.Is rather than comparing rendered message text.
+var (
+	// ErrPromptServiceLauncherRequired is returned when the service has no
+	// configured headless prompt launcher.
+	ErrPromptServiceLauncherRequired = errors.New("prompt service launcher is required")
+	// ErrClientRequestIDRequired is returned when a request omits its
+	// client_request_id.
+	ErrClientRequestIDRequired = errors.New("client_request_id is required")
+	// ErrPromptRequired is returned when a request omits a non-blank prompt.
+	ErrPromptRequired = errors.New("prompt is required")
+)
+
 type PromptAssistantMessage struct {
 	SessionID     string
 	SessionName   string
@@ -37,17 +50,17 @@ func NewPromptService(launcher HeadlessPromptLauncher) *PromptService {
 
 func (s *PromptService) RunPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (serverapi.RunPromptResponse, error) {
 	if s == nil || s.launcher == nil {
-		return serverapi.RunPromptResponse{}, errors.New("prompt service launcher is required")
+		return serverapi.RunPromptResponse{}, ErrPromptServiceLauncherRequired
 	}
 	req.ClientRequestID = strings.TrimSpace(req.ClientRequestID)
 	req.SelectedSessionID = strings.TrimSpace(req.SelectedSessionID)
 	req.ParentSessionID = strings.TrimSpace(req.ParentSessionID)
 	req.Prompt = strings.TrimSpace(req.Prompt)
 	if req.ClientRequestID == "" {
-		return serverapi.RunPromptResponse{}, errors.New("client_request_id is required")
+		return serverapi.RunPromptResponse{}, ErrClientRequestIDRequired
 	}
 	if req.Prompt == "" {
-		return serverapi.RunPromptResponse{}, errors.New("prompt is required")
+		return serverapi.RunPromptResponse{}, ErrPromptRequired
 	}
 
 	runtimeHandle, err := s.launcher.PrepareHeadlessPrompt(ctx, req, progress)

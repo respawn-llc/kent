@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"strings"
 
 	"core/server/metadata/sqlitegen"
@@ -20,7 +19,7 @@ func (s *Store) AddComment(ctx context.Context, taskID workflow.TaskID, body str
 	switch trimmedAuthorKind {
 	case "user", "agent":
 	default:
-		return CommentRecord{}, fmt.Errorf("comment author kind must be user or agent")
+		return CommentRecord{}, ErrCommentAuthorKindInvalid
 	}
 	now := s.now().UnixMilli()
 	id := prefixedID("comment")

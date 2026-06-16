@@ -128,7 +128,7 @@ func TestNewSymlinkLoopWorkspaceReturnsContextualResolutionError(t *testing.T) {
 	if errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected non-missing workspace error, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "resolve workspace real path") {
+	if !errors.Is(err, ErrResolveWorkspaceRealPath) {
 		t.Fatalf("expected contextual resolution error, got %v", err)
 	}
 }

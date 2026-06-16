@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"core/cli/app/internal/projectbinding"
 	"core/cli/app/internal/statuscollect"
 	"core/shared/buildinfo"
 	"core/shared/client"
@@ -257,7 +258,7 @@ func (p *launchPlanner) resolvePlanRequest(ctx context.Context, req sessionLaunc
 		return resolvedSessionPlanRequest{}, err
 	}
 	if picked.Canceled {
-		return resolvedSessionPlanRequest{}, errors.New("startup canceled by user")
+		return resolvedSessionPlanRequest{}, projectbinding.ErrStartupCanceledByUser
 	}
 	if picked.CreateNew {
 		resolved.request.ForceNewSession = true

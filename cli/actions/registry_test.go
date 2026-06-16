@@ -3,7 +3,7 @@ package actions
 import (
 	"context"
 	"encoding/json"
-	"strings"
+	"errors"
 	"testing"
 )
 
@@ -13,7 +13,7 @@ func TestUnknownActionIsFatal(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error for unknown action")
 	}
-	if !strings.Contains(err.Error(), "fatal") {
-		t.Fatalf("expected fatal marker, got %v", err)
+	if !errors.Is(err, ErrUnknownAction) {
+		t.Fatalf("expected ErrUnknownAction, got %v", err)
 	}
 }

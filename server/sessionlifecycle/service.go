@@ -104,14 +104,14 @@ func (c *MetadataBackedLoopbackClient) ResolveTransition(ctx context.Context, re
 func callMetadataBackedLoopbackClient[Req any, Resp any](c *MetadataBackedLoopbackClient, ctx context.Context, req Req, call func(client.SessionLifecycleClient, context.Context, Req) (Resp, error)) (Resp, error) {
 	if c == nil {
 		var zero Resp
-		return zero, errors.New("session lifecycle client is closed")
+		return zero, errLifecycleClientClosed
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	client := c.client
 	if client == nil {
 		var zero Resp
-		return zero, errors.New("session lifecycle client is closed")
+		return zero, errLifecycleClientClosed
 	}
 	return call(client, ctx, req)
 }
@@ -179,7 +179,7 @@ func (s *Service) RetargetSessionWorkspace(ctx context.Context, req serverapi.Se
 		return serverapi.SessionRetargetWorkspaceResponse{}, err
 	}
 	if strings.TrimSpace(s.persistenceRoot) == "" {
-		return serverapi.SessionRetargetWorkspaceResponse{}, errors.New("persistence root is required")
+		return serverapi.SessionRetargetWorkspaceResponse{}, errPersistenceRootRequired
 	}
 	metadataStore, err := metadata.Open(s.persistenceRoot)
 	if err != nil {

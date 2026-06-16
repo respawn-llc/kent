@@ -18,6 +18,14 @@ import (
 	"core/shared/config"
 )
 
+// completionHasCode reports whether err is a CompletionValidationError carrying
+// an issue with the given structured code, letting tests assert which validation
+// rule fired rather than its message wording.
+func completionHasCode(err error, code CompletionCode) bool {
+	var cve CompletionValidationError
+	return errors.As(err, &cve) && cve.HasCode(code)
+}
+
 func TestWorkflowCreateUpdateReadAndGraphPersistence(t *testing.T) {
 	ctx, store, _ := newTestStoreContext(t)
 
@@ -45,7 +53,7 @@ func TestWorkflowCreateUpdateReadAndGraphPersistence(t *testing.T) {
 	if renamed.Name != "Renamed" || renamed.Version != 2 {
 		t.Fatalf("workflow info update = %+v, want name changed with version bump", renamed)
 	}
-	if err := store.UpdateWorkflowInfo(ctx, created.ID, "   ", "new desc"); err == nil || !strings.Contains(err.Error(), "workflow name is required") {
+	if err := store.UpdateWorkflowInfo(ctx, created.ID, "   ", "new desc"); !errors.Is(err, ErrWorkflowNameRequired) {
 		t.Fatalf("UpdateWorkflowInfo blank name error = %v", err)
 	}
 
@@ -258,7 +266,7 @@ func TestAddNodeRejectsNodeGroupFromDifferentWorkflow(t *testing.T) {
 	}
 
 	_, err = store.AddNode(ctx, NodeRecord{ID: "node-cross-group", WorkflowID: workflowB.ID, GroupID: group.ID, Key: "agent", Kind: workflow.NodeKindAgent, DisplayName: "Agent"})
-	if err == nil || !strings.Contains(err.Error(), "belongs to workflow") {
+	if !errors.Is(err, ErrBelongsToOtherWorkflow) {
 		t.Fatalf("AddNode cross-workflow group error = %v", err)
 	}
 }
@@ -266,10 +274,10 @@ func TestAddNodeRejectsNodeGroupFromDifferentWorkflow(t *testing.T) {
 func TestWorkflowEventPublisherNormalizesAndDispatchesEvents(t *testing.T) {
 	ctx, store, _ := newTestStoreContext(t)
 	store.now = func() time.Time { return time.UnixMilli(1234).UTC() }
-	if err := store.PublishWorkflowEvent(ctx, WorkflowEventRecord{Action: "created"}); err == nil || !strings.Contains(err.Error(), "event resource") {
+	if err := store.PublishWorkflowEvent(ctx, WorkflowEventRecord{Action: "created"}); !errors.Is(err, ErrEventResourceRequired) {
 		t.Fatalf("missing resource error = %v", err)
 	}
-	if err := store.PublishWorkflowEvent(ctx, WorkflowEventRecord{Resource: "task"}); err == nil || !strings.Contains(err.Error(), "event action") {
+	if err := store.PublishWorkflowEvent(ctx, WorkflowEventRecord{Resource: "task"}); !errors.Is(err, ErrEventActionRequired) {
 		t.Fatalf("missing action error = %v", err)
 	}
 	if err := store.PublishWorkflowEvent(ctx, WorkflowEventRecord{Resource: "task", Action: "created"}); err != nil {
@@ -363,7 +371,7 @@ func TestTaskCreateStartCancelAndComments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddComment: %v", err)
 	}
-	if _, err := store.AddComment(ctx, task.ID, "system note", "system", ""); err == nil || !strings.Contains(err.Error(), "author kind") {
+	if _, err := store.AddComment(ctx, task.ID, "system note", "system", ""); !errors.Is(err, ErrCommentAuthorKindInvalid) {
 		t.Fatalf("system AddComment error = %v, want author kind validation", err)
 	}
 	if err := store.ReplaceComment(ctx, comment.ID, "updated"); err != nil {
@@ -503,7 +511,7 @@ func TestTaskCreatePersistsSourceWorkspaceAndOptionalBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace other: %v", err)
 	}
-	if _, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Foreign", SourceWorkspaceID: other.WorkspaceID}); err == nil || !strings.Contains(err.Error(), "source workspace") {
+	if _, err := store.CreateTask(ctx, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Foreign", SourceWorkspaceID: other.WorkspaceID}); !errors.Is(err, ErrSourceWorkspaceNotInProject) {
 		t.Fatalf("CreateTask foreign source workspace error = %v", err)
 	}
 }
@@ -544,7 +552,7 @@ func TestTaskUpdateEditsTitleAndBodyAfterAutomationStarts(t *testing.T) {
 	if startedUpdate.Title != "After start" || startedUpdate.Body != "updated after start" || startedUpdate.SourceWorkspaceID != source.WorkspaceID {
 		t.Fatalf("after-start update = %+v", startedUpdate)
 	}
-	if _, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: "Move source", SourceWorkspaceID: binding.WorkspaceID}); err == nil || !strings.Contains(err.Error(), "source workspace after automation starts") {
+	if _, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: task.ID, Title: "Move source", SourceWorkspaceID: binding.WorkspaceID}); !errors.Is(err, ErrSourceWorkspaceAfterAutomation) {
 		t.Fatalf("UpdateTask source workspace after start error = %v", err)
 	}
 
@@ -563,7 +571,7 @@ func TestTaskUpdateEditsTitleAndBodyAfterAutomationStarts(t *testing.T) {
 	if canceledUpdate.Title != "Canceled renamed" || canceledUpdate.Body != "canceled body" {
 		t.Fatalf("canceled update = %+v", canceledUpdate)
 	}
-	if _, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: canceled.ID, Title: "Canceled source", SourceWorkspaceID: source.WorkspaceID}); err == nil || !strings.Contains(err.Error(), "source workspace for canceled task") {
+	if _, err := store.UpdateTask(ctx, UpdateTaskRequest{TaskID: canceled.ID, Title: "Canceled source", SourceWorkspaceID: source.WorkspaceID}); !errors.Is(err, ErrSourceWorkspaceForCanceledTask) {
 		t.Fatalf("UpdateTask canceled source error = %v", err)
 	}
 }
@@ -617,7 +625,7 @@ func TestCompleteRunUsesRunStartSnapshotAfterGraphChanges(t *testing.T) {
 		[]TransitionGroupRecord{{ID: "group-archive", WorkflowID: workflowID, SourceNodeID: agent.ID, TransitionID: "archive", DisplayName: "Archive"}},
 		[]EdgeRecord{{ID: "edge-archive", WorkflowID: workflowID, TransitionGroupID: "group-archive", Key: "archive", TargetNodeID: "node-extra-terminal", ContextMode: workflow.ContextModeNewSession}},
 	)
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "archive", OutputValues: map[string]string{"summary": "done"}}); err == nil || !strings.Contains(err.Error(), "not available") {
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "archive", OutputValues: map[string]string{"summary": "done"}}); !completionHasCode(err, CompletionCodeInvalidTransitionID) {
 		t.Fatalf("expected completion to reject transition added after run start, got %v", err)
 	}
 	completed := completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", Commentary: "finished"})
@@ -721,7 +729,7 @@ func TestStartTaskRejectsCanceledAndAlreadyStartedTasks(t *testing.T) {
 	if err := store.CancelTask(ctx, canceled.ID, "stop"); err != nil {
 		t.Fatalf("CancelTask: %v", err)
 	}
-	if _, err := store.StartTask(ctx, canceled.ID); err == nil || !strings.Contains(err.Error(), "task is canceled") {
+	if _, err := store.StartTask(ctx, canceled.ID); !errors.Is(err, ErrTaskCanceled) {
 		t.Fatalf("StartTask canceled error = %v", err)
 	}
 
@@ -926,7 +934,7 @@ func TestTransitionParameterDerivesOutputRequirement(t *testing.T) {
 	}
 
 	_, err = store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "next"})
-	if err == nil || !strings.Contains(err.Error(), "required output") {
+	if !completionHasCode(err, CompletionCodeRequiredOutputMissing) {
 		t.Fatalf("CompleteRun error = %v, want required output", err)
 	}
 }
@@ -1399,7 +1407,8 @@ func TestSelectedContextSourceMissingPriorRunFailsClearly(t *testing.T) {
 		})
 	})
 	_, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}})
-	if err == nil || !strings.Contains(err.Error(), "selected context source node \"implementation\" has no completed run") {
+	var selectedErr ContextSourceNoCompletedRunError
+	if !errors.As(err, &selectedErr) || selectedErr.Kind != ContextSourceKindSelected || selectedErr.NodeKey != "implementation" {
 		t.Fatalf("CompleteRun selected source error = %v, want missing completed run", err)
 	}
 }
@@ -1417,7 +1426,8 @@ func TestPreviousTargetContextSourceMissingPriorRunFailsClearly(t *testing.T) {
 		})
 	})
 	_, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "implement", OutputValues: map[string]string{"summary": "plan done"}})
-	if err == nil || !strings.Contains(err.Error(), "previous target context source node \"implementation\" has no completed run") {
+	var previousTargetErr ContextSourceNoCompletedRunError
+	if !errors.As(err, &previousTargetErr) || previousTargetErr.Kind != ContextSourceKindPreviousTarget || previousTargetErr.NodeKey != "implementation" {
 		t.Fatalf("CompleteRun previous target source error = %v, want missing completed run", err)
 	}
 }
@@ -1986,7 +1996,7 @@ func TestDuplicateBranchArrivalIsRejectedAndDoesNotDuplicateJoin(t *testing.T) {
 		}
 	}
 	completeRun(t, ctx, store, CompleteRunRequest{RunID: branchRunsByNode[implA.ID], TransitionID: "join", OutputValues: map[string]string{"joined": "branch a"}})
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: branchRunsByNode[implA.ID], TransitionID: "join", OutputValues: map[string]string{"joined": "branch a again"}}); err == nil || !strings.Contains(err.Error(), "run already completed") {
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: branchRunsByNode[implA.ID], TransitionID: "join", OutputValues: map[string]string{"joined": "branch a again"}}); !errors.Is(err, ErrRunAlreadyCompleted) {
 		t.Fatalf("duplicate branch completion error = %v, want run already completed", err)
 	}
 	joined := completeRun(t, ctx, store, CompleteRunRequest{RunID: branchRunsByNode[implB.ID], TransitionID: "join"})
@@ -2314,7 +2324,7 @@ func TestManualMoveContinueSessionRequiresSourceSession(t *testing.T) {
 	impl := nodeByKey(t, def, "implement")
 
 	_, err = store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: impl.ID, OutputValues: map[string]string{"prior_summary": "done"}})
-	if err == nil || !strings.Contains(err.Error(), "continue_session requires source session") {
+	if !errors.Is(err, ErrManualMoveContinueSessionNeedsSource) {
 		t.Fatalf("ManualMoveTask continue_session error = %v, want source session requirement", err)
 	}
 }
@@ -2344,7 +2354,7 @@ func TestManualMoveRejectsSelectedContextSourceV1(t *testing.T) {
 	}
 	completeRun(t, ctx, store, CompleteRunRequest{RunID: implementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "implemented"}})
 	_, err = store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: openPRNode.ID, OutputValues: map[string]string{"acceptance_decision": "approved"}})
-	if err == nil || !strings.Contains(err.Error(), "selected context source") {
+	if !errors.Is(err, ErrManualMoveSelectedContextSource) {
 		t.Fatalf("ManualMoveTask selected context source error = %v, want unsupported selected context source", err)
 	}
 }
@@ -2368,7 +2378,7 @@ func TestBackwardManualMoveRejectsHistoricalSelectedContextSourceV1(t *testing.T
 	completeRun(t, ctx, store, CompleteRunRequest{RunID: acceptanceRun.ID, TransitionID: "open_pr", OutputValues: map[string]string{"acceptance_decision": "approved"}})
 
 	_, err = store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: acceptanceNode.ID, OutputValues: map[string]string{"summary": "needs recheck"}})
-	if err == nil || !strings.Contains(err.Error(), "selected context source") {
+	if !errors.Is(err, ErrManualMoveSelectedContextSource) {
 		t.Fatalf("backward ManualMoveTask selected context source error = %v, want unsupported selected context source", err)
 	}
 }
@@ -2392,7 +2402,7 @@ func TestManualMoveRejectsPreviousTargetContextSourceV1(t *testing.T) {
 	completeRun(t, ctx, store, CompleteRunRequest{RunID: implementationRun.ID, TransitionID: "accept", OutputValues: map[string]string{"summary": "implemented"}})
 
 	_, err = store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: implementationNode.ID, OutputValues: map[string]string{"summary": "needs changes"}})
-	if err == nil || !strings.Contains(err.Error(), "previous target context source") {
+	if !errors.Is(err, ErrManualMovePreviousTargetContext) {
 		t.Fatalf("ManualMoveTask previous target context source error = %v, want unsupported previous target context source", err)
 	}
 }
@@ -2421,7 +2431,7 @@ func TestBackwardManualMoveRejectsHistoricalPreviousTargetContextSourceV1(t *tes
 	completeRun(t, ctx, store, CompleteRunRequest{RunID: openPRRun.ID, TransitionID: "rework", OutputValues: map[string]string{"summary": "needs changes"}})
 
 	_, err = store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: openPRNode.ID, OutputValues: map[string]string{"summary": "needs recheck"}})
-	if err == nil || !strings.Contains(err.Error(), "previous target context source") {
+	if !errors.Is(err, ErrManualMovePreviousTargetContext) {
 		t.Fatalf("backward ManualMoveTask previous target context source error = %v, want unsupported previous target context source", err)
 	}
 }
@@ -2437,7 +2447,7 @@ func TestManualMovePendingApprovalRequiresSourceRun(t *testing.T) {
 	agent := nodeByKey(t, def, "agent")
 
 	_, err = store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: agent.ID})
-	if err == nil || !strings.Contains(err.Error(), "source run") {
+	if !errors.Is(err, ErrManualMoveApprovalNeedsSourceRun) {
 		t.Fatalf("ManualMoveTask missing source run error = %v, want source run requirement", err)
 	}
 	placements, err := store.ListPlacements(ctx, task.ID)
@@ -2480,7 +2490,7 @@ func TestManualMoveRejectsActiveParallelBatch(t *testing.T) {
 		t.Fatalf("GetDefinition: %v", err)
 	}
 	join := nodeByKey(t, def, "join")
-	if _, err := store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: join.ID, OutputValues: map[string]string{"summary": "manual"}}); err == nil || !strings.Contains(err.Error(), "manual move during active parallel batch") {
+	if _, err := store.ManualMoveTask(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: join.ID, OutputValues: map[string]string{"summary": "manual"}}); !errors.Is(err, ErrManualMoveDuringParallelBatch) {
 		t.Fatalf("ManualMoveTask active parallel error = %v, want active parallel rejection", err)
 	}
 	if len(branchRuns) != 2 {
@@ -2555,7 +2565,7 @@ func TestCompleteRunValidatesOutputRequirements(t *testing.T) {
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "next", OutputValues: map[string]string{"prior_summary": "  "}}); err == nil || !strings.Contains(err.Error(), "required output") {
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "next", OutputValues: map[string]string{"prior_summary": "  "}}); !completionHasCode(err, CompletionCodeRequiredOutputMissing) {
 		t.Fatalf("expected missing required output error, got %v", err)
 	}
 	transitions, err := store.ListTransitions(ctx, task.ID)
@@ -2600,7 +2610,7 @@ func TestCompleteRunRejectsMissingTransitionIDWhenAmbiguous(t *testing.T) {
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID}); err == nil || !strings.Contains(err.Error(), "transition id is required") {
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID}); !completionHasCode(err, CompletionCodeTransitionIDRequired) {
 		t.Fatalf("expected missing transition id error, got %v", err)
 	}
 }
@@ -2610,7 +2620,7 @@ func TestCompleteRunRejectsUnknownOutputField(t *testing.T) {
 	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"extra": "nope"}}); err == nil || !strings.Contains(err.Error(), "not declared") {
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"extra": "nope"}}); !completionHasCode(err, CompletionCodeUnknownOutputField) {
 		t.Fatalf("expected unknown output error, got %v", err)
 	}
 }
@@ -2643,7 +2653,7 @@ func TestCompleteRunRejectsParameterDeclaredOnlyByAnotherTransition(t *testing.T
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
 
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"blocked_reason": "blocked"}}); err == nil || !strings.Contains(err.Error(), "not declared") {
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", OutputValues: map[string]string{"blocked_reason": "blocked"}}); !completionHasCode(err, CompletionCodeUnknownOutputField) {
 		t.Fatalf("expected selected-transition unknown output error, got %v", err)
 	}
 }
@@ -2655,16 +2665,12 @@ func TestCompleteRunReturnsStructuredValidationIssues(t *testing.T) {
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
 	_, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "next", OutputValues: map[string]string{"extra": "nope"}})
-	validation, ok := err.(CompletionValidationError)
-	if !ok {
+	var validation CompletionValidationError
+	if !errors.As(err, &validation) {
 		t.Fatalf("error = %T %v, want CompletionValidationError", err, err)
 	}
-	codes := map[string]bool{}
-	for _, issue := range validation.Issues {
-		codes[issue.Code] = true
-	}
-	if !codes["unknown_output_field"] || !codes["required_output_missing"] {
-		t.Fatalf("validation codes = %+v, want unknown_output_field and required_output_missing", codes)
+	if !validation.HasCode(CompletionCodeUnknownOutputField) || !validation.HasCode(CompletionCodeRequiredOutputMissing) {
+		t.Fatalf("validation issues = %+v, want unknown_output_field and required_output_missing", validation.Issues)
 	}
 }
 
@@ -2675,11 +2681,11 @@ func TestCompleteRunRejectsOversizedCompletionFields(t *testing.T) {
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
 	_, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "next", OutputValues: map[string]string{"prior_summary": strings.Repeat("a", workflow.MaxOutputValueBytes+1)}})
-	if err == nil || !strings.Contains(err.Error(), "too large") {
+	if !completionHasCode(err, CompletionCodeOutputTooLarge) {
 		t.Fatalf("expected oversized output error, got %v", err)
 	}
 	_, err = store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "next", Commentary: strings.Repeat("a", workflow.MaxCommentaryBytes+1), OutputValues: map[string]string{"prior_summary": "done"}})
-	if err == nil || !strings.Contains(err.Error(), "commentary is too large") {
+	if !completionHasCode(err, CompletionCodeCommentaryTooLarge) {
 		t.Fatalf("expected oversized commentary error, got %v", err)
 	}
 }
@@ -2721,7 +2727,7 @@ func TestCompleteRunRejectsStaleGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ClaimRun: %v", err)
 	}
-	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", ExpectedGeneration: 0, RequireGeneration: true}); err == nil || !strings.Contains(err.Error(), "stale workflow run generation") {
+	if _, err := store.CompleteRun(ctx, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", ExpectedGeneration: 0, RequireGeneration: true}); !errors.Is(err, ErrStaleRunGeneration) {
 		t.Fatalf("expected stale generation error, got %v", err)
 	}
 	completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "done", ExpectedGeneration: claimed.Generation, RequireGeneration: true})
@@ -2940,7 +2946,8 @@ func TestResumeTaskRunRejectsRoleDrift(t *testing.T) {
 	}
 	store.roleResolver = workflow.StaticRoleResolver{}
 
-	if _, err := store.ResumeTaskRun(ctx, task.ID); err == nil || !strings.Contains(err.Error(), string(workflow.CodeAgentRoleMissing)) {
+	var roleErr WorkflowValidationError
+	if _, err := store.ResumeTaskRun(ctx, task.ID); !errors.As(err, &roleErr) || !roleErr.HasCode(workflow.CodeAgentRoleMissing) {
 		t.Fatalf("ResumeTaskRun role drift error = %v, want %s", err, workflow.CodeAgentRoleMissing)
 	}
 }
@@ -3022,7 +3029,7 @@ func TestInterruptAndResumeTaskRunCanTargetSpecificRun(t *testing.T) {
 			t.Fatalf("ClaimRun %s: %v", runID, err)
 		}
 	}
-	if _, err := store.InterruptTaskRun(ctx, task.ID, "", "manual"); err == nil || !strings.Contains(err.Error(), "run_id is required") {
+	if _, err := store.InterruptTaskRun(ctx, task.ID, "", "manual"); !errors.Is(err, ErrRunIDRequired) {
 		t.Fatalf("InterruptTaskRun ambiguous error = %v", err)
 	}
 	interrupted, err := store.InterruptTaskRun(ctx, task.ID, runIDs[0], "manual")
@@ -3035,7 +3042,7 @@ func TestInterruptAndResumeTaskRunCanTargetSpecificRun(t *testing.T) {
 	if _, err := store.InterruptTaskRun(ctx, task.ID, runIDs[1], "manual"); err != nil {
 		t.Fatalf("InterruptTaskRun second selected: %v", err)
 	}
-	if _, err := store.ResumeTaskRunByID(ctx, task.ID, ""); err == nil || !strings.Contains(err.Error(), "run_id is required") {
+	if _, err := store.ResumeTaskRunByID(ctx, task.ID, ""); !errors.Is(err, ErrRunIDRequired) {
 		t.Fatalf("ResumeTaskRun ambiguous error = %v", err)
 	}
 	resumed, err := store.ResumeTaskRunByID(ctx, task.ID, runIDs[0])
@@ -3059,7 +3066,8 @@ func TestTaskStartRejectsCurrentInvalidWorkflow(t *testing.T) {
 	if _, err := store.AddTransitionGroup(ctx, TransitionGroupRecord{ID: "group-terminal-invalid", WorkflowID: workflowID, SourceNodeID: done.ID, TransitionID: "invalid", DisplayName: "Invalid"}); err != nil {
 		t.Fatalf("AddTransitionGroup invalid terminal group: %v", err)
 	}
-	if _, err := store.StartTask(ctx, task.ID); err == nil || !strings.Contains(err.Error(), string(workflow.CodeTerminalHasOutgoingEdge)) {
+	var terminalErr WorkflowValidationError
+	if _, err := store.StartTask(ctx, task.ID); !errors.As(err, &terminalErr) || !terminalErr.HasCode(workflow.CodeTerminalHasOutgoingEdge) {
 		t.Fatalf("expected current workflow validation error, got %v", err)
 	}
 }
@@ -3077,7 +3085,7 @@ func TestTaskCreateAllowsInvalidWorkflowBacklogButRejectsUnlinkedWorkflow(t *tes
 	if err != nil {
 		t.Fatalf("CreateTask invalid default workflow backlog: %v", err)
 	}
-	if _, err := store.StartTask(ctx, task.ID); err == nil || !strings.Contains(err.Error(), "workflow validation failed") {
+	if _, err := store.StartTask(ctx, task.ID); !errors.Is(err, ErrWorkflowValidationFailed) {
 		t.Fatalf("expected invalid workflow start error, got %v", err)
 	}
 	updatedBody := "Updated body"
@@ -3122,10 +3130,10 @@ func TestProjectWorkflowUnlinkHardDeletesUnusedLinksAndBlocksTaskReferences(t *t
 	if err != nil {
 		t.Fatalf("LinkWorkflow spare: %v", err)
 	}
-	if _, err := store.UnlinkProjectWorkflow(ctx, link.ID, "missing-link"); err == nil || !strings.Contains(err.Error(), "replacement default") {
+	if _, err := store.UnlinkProjectWorkflow(ctx, link.ID, "missing-link"); !errors.Is(err, ErrReplacementDefaultInvalid) {
 		t.Fatalf("expected invalid replacement default guard, got %v", err)
 	}
-	if _, err := store.UnlinkProjectWorkflow(ctx, link.ID, link.ID); err == nil || !strings.Contains(err.Error(), "replacement default") {
+	if _, err := store.UnlinkProjectWorkflow(ctx, link.ID, link.ID); !errors.Is(err, ErrReplacementDefaultInvalid) {
 		t.Fatalf("expected self replacement default guard, got %v", err)
 	}
 	links, err := store.ListProjectWorkflowLinks(ctx, binding.ProjectID)
@@ -4341,7 +4349,7 @@ func TestGuardedGraphDeletesRespectTaskHistory(t *testing.T) {
 		t.Fatalf("expected active edge delete policy guard, got %v", err)
 	}
 	completeRun(t, ctx, store, CompleteRunRequest{RunID: started.RunID, TransitionID: "done"})
-	if err := store.DeleteNode(ctx, agentID); err == nil || !strings.Contains(err.Error(), "task history") {
+	if err := store.DeleteNode(ctx, agentID); !errors.Is(err, ErrNodeHasTaskHistory) {
 		t.Fatalf("expected node history delete guard, got %v", err)
 	}
 	if err := store.DeleteEdge(ctx, workflow.EdgeID("edge-done-"+string(workflowID))); err != nil {
@@ -4355,7 +4363,7 @@ func TestGuardedGraphDeletesRespectTaskHistory(t *testing.T) {
 	if _, err := store.AddNode(ctx, NodeRecord{ID: "node-unused", WorkflowID: workflowID, Key: "unused", Kind: workflow.NodeKindTerminal, DisplayName: "Unused"}); err != nil {
 		t.Fatalf("AddNode unused: %v", err)
 	}
-	if err := store.DeleteNode(ctx, done.ID); err == nil || !strings.Contains(err.Error(), "task history") {
+	if err := store.DeleteNode(ctx, done.ID); !errors.Is(err, ErrNodeHasTaskHistory) {
 		t.Fatalf("expected terminal physical delete guard, got %v", err)
 	}
 	if err := store.DeleteNode(ctx, "node-unused"); err != nil {
@@ -4394,13 +4402,13 @@ func TestWorkflowGraphUpdatesRejectCrossWorkflowReferences(t *testing.T) {
 	secondAgent := nodeByKey(t, secondDef, "agent")
 	secondDone := nodeByKind(t, secondDef, workflow.NodeKindTerminal)
 
-	if _, err := store.UpdateTransitionGroup(ctx, TransitionGroupRecord{ID: workflow.TransitionGroupID("group-done-" + string(firstWorkflowID)), WorkflowID: firstWorkflowID, SourceNodeID: secondAgent.ID, TransitionID: "done", DisplayName: "Done"}); err == nil || !strings.Contains(err.Error(), "belongs to workflow") {
+	if _, err := store.UpdateTransitionGroup(ctx, TransitionGroupRecord{ID: workflow.TransitionGroupID("group-done-" + string(firstWorkflowID)), WorkflowID: firstWorkflowID, SourceNodeID: secondAgent.ID, TransitionID: "done", DisplayName: "Done"}); !errors.Is(err, ErrBelongsToOtherWorkflow) {
 		t.Fatalf("UpdateTransitionGroup cross-workflow error = %v, want workflow mismatch", err)
 	}
-	if _, err := store.UpdateEdge(ctx, EdgeRecord{ID: workflow.EdgeID("edge-done-" + string(firstWorkflowID)), WorkflowID: firstWorkflowID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(secondWorkflowID)), Key: "done", TargetNodeID: firstAgent.ID, ContextMode: workflow.ContextModeNewSession}); err == nil || !strings.Contains(err.Error(), "belongs to workflow") {
+	if _, err := store.UpdateEdge(ctx, EdgeRecord{ID: workflow.EdgeID("edge-done-" + string(firstWorkflowID)), WorkflowID: firstWorkflowID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(secondWorkflowID)), Key: "done", TargetNodeID: firstAgent.ID, ContextMode: workflow.ContextModeNewSession}); !errors.Is(err, ErrBelongsToOtherWorkflow) {
 		t.Fatalf("UpdateEdge cross-workflow group error = %v, want workflow mismatch", err)
 	}
-	if _, err := store.UpdateEdge(ctx, EdgeRecord{ID: workflow.EdgeID("edge-done-" + string(firstWorkflowID)), WorkflowID: firstWorkflowID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(firstWorkflowID)), Key: "done", TargetNodeID: secondDone.ID, ContextMode: workflow.ContextModeNewSession}); err == nil || !strings.Contains(err.Error(), "belongs to workflow") {
+	if _, err := store.UpdateEdge(ctx, EdgeRecord{ID: workflow.EdgeID("edge-done-" + string(firstWorkflowID)), WorkflowID: firstWorkflowID, TransitionGroupID: workflow.TransitionGroupID("group-done-" + string(firstWorkflowID)), Key: "done", TargetNodeID: secondDone.ID, ContextMode: workflow.ContextModeNewSession}); !errors.Is(err, ErrBelongsToOtherWorkflow) {
 		t.Fatalf("UpdateEdge cross-workflow target error = %v, want workflow mismatch", err)
 	}
 }

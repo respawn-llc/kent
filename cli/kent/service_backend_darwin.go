@@ -17,6 +17,15 @@ import (
 	"core/shared/brand"
 )
 
+// Sentinel launchd reload/restart errors. Dynamic diagnostic detail (pids,
+// endpoints, launchd state) is attached via %w so callers can match the
+// failure mode with errors.Is without comparing rendered message text.
+var (
+	errLaunchdServerNotHealthy       = errors.New("restarted launchd job, but " + brand.Product + " server did not become healthy before timeout")
+	errLaunchdServerProcessNotExited = errors.New("running " + brand.Product + " server process did not exit before service restart")
+	errLaunchdOldServerNotExited     = errors.New("stopped launchd job, but the old " + brand.Product + " server did not exit before restart")
+)
+
 type launchdServiceBackend struct{}
 
 var launchdServiceShutdownTimeout = 5 * time.Second
@@ -239,7 +248,7 @@ func waitForLaunchdServiceProcessExit(ctx context.Context, pid int) error {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("running "+brand.Product+" server process %d did not exit before service restart", pid)
+			return fmt.Errorf("%w (pid %d)", errLaunchdServerProcessNotExited, pid)
 		}
 		timer := time.NewTimer(interval)
 		select {
@@ -272,7 +281,7 @@ func waitForLaunchdServiceStartup(ctx context.Context, spec serviceSpec) error {
 		}
 		lastDetail = fmt.Sprintf("launchd loaded=%t pid=%d state=%s health=%s health_pid=%d", loaded, launchdPID, launchdState(output), healthStatus, healthPID)
 		if time.Now().After(deadline) {
-			return fmt.Errorf("restarted launchd job, but "+brand.Product+" server did not become healthy before timeout: %s", lastDetail)
+			return fmt.Errorf("%w: %s", errLaunchdServerNotHealthy, lastDetail)
 		}
 		timer := time.NewTimer(interval)
 		select {
@@ -308,7 +317,7 @@ func waitForLaunchdServiceShutdown(ctx context.Context, spec serviceSpec) error 
 			if loaded {
 				detail += "; launchd still reports the service as loaded"
 			}
-			return fmt.Errorf("stopped launchd job, but the old "+brand.Product+" server did not exit before restart: %s. Not bootstrapping a second server because it would fail with launchctl Bootstrap error 5. Re-running with sudo will not fix this; stop the stale "+brand.Command+" process or wait for it to exit, then run `"+brand.Command+" service restart` again", detail)
+			return fmt.Errorf("%w: %s. Not bootstrapping a second server because it would fail with launchctl Bootstrap error 5. Re-running with sudo will not fix this; stop the stale "+brand.Command+" process or wait for it to exit, then run `"+brand.Command+" service restart` again", errLaunchdOldServerNotExited, detail)
 		}
 		timer := time.NewTimer(interval)
 		select {

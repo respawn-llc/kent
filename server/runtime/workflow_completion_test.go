@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -263,7 +264,7 @@ func TestWorkflowForcedStructuredOutputFailsWhenUnsupported(t *testing.T) {
 		Model: "legacy",
 	})
 	_, err := eng.buildRequest(context.Background(), "step", true)
-	if err == nil || !strings.Contains(err.Error(), "structured output") {
+	if !errors.Is(err, workflowruntime.ErrStructuredOutputUnsupported) {
 		t.Fatalf("buildRequest error = %v, want structured output support error", err)
 	}
 }

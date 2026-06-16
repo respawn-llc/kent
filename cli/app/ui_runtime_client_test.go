@@ -1829,8 +1829,8 @@ func TestRuntimeClientQueueUserMessageNotifiesConnectionObserverOnFailure(t *tes
 
 	concrete.QueueUserMessage("queued input")
 
-	if observedErr == nil || observedErr.Error() != "runtime control service is required" {
-		t.Fatalf("observed connection state error = %v, want runtime control service is required", observedErr)
+	if observedErr == nil || !errors.Is(observedErr, sharedclient.ErrLoopbackServiceUnavailable) {
+		t.Fatalf("observed connection state error = %v, want runtime control service unavailable", observedErr)
 	}
 }
 

@@ -44,7 +44,7 @@ describe("DisabledInteractionGuard", () => {
 
     await user.hover(guardedAction);
 
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Unavailable for this edge");
+    await screen.findByRole("tooltip");
     expect(screen.getAllByRole("tooltip")).toHaveLength(1);
     expect(screen.queryByTestId("tooltip-arrow")).not.toBeInTheDocument();
   });

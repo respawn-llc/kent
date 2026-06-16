@@ -20,7 +20,7 @@ import (
 	"core/shared/config"
 	"core/shared/protocol"
 	"core/shared/serverapi"
-	"core/shared/sessionenv"
+	"core/shared/sessioncontract"
 	"core/shared/testopenai"
 	"errors"
 	"net/http"
@@ -114,11 +114,8 @@ func TestLoadRemoteAttachConfigRejectsStaleWorkspaceContextSession(t *testing.T)
 		WorkspaceRoot:             workspace,
 		WorkspaceContextSessionID: "stale-env-session",
 	})
-	if err == nil {
-		t.Fatal("expected stale workspace context session to fail")
-	}
-	if !strings.Contains(err.Error(), sessionenv.SessionIDEnv+" points to missing Kent session") {
-		t.Fatalf("error = %q, want %s context", err, sessionenv.SessionIDEnv)
+	if !errors.Is(err, sessioncontract.ErrSessionNotFound) {
+		t.Fatalf("error = %v, want missing session rejection", err)
 	}
 }
 
@@ -186,11 +183,8 @@ func TestRunPromptRejectsStaleWorkspaceContextSession(t *testing.T) {
 		OpenAIBaseURL:             fakeResponses.URL,
 		OpenAIBaseURLExplicit:     true,
 	}, "hello from stale context", 0, nil)
-	if err == nil {
-		t.Fatal("expected stale workspace context session to fail")
-	}
-	if !strings.Contains(err.Error(), sessionenv.SessionIDEnv+" points to missing Kent session") {
-		t.Fatalf("error = %q, want %s context", err, sessionenv.SessionIDEnv)
+	if !errors.Is(err, sessioncontract.ErrSessionNotFound) {
+		t.Fatalf("error = %v, want missing session rejection", err)
 	}
 	if hits.Load() != 0 {
 		t.Fatalf("expected no llm calls, got %d", hits.Load())
@@ -512,10 +506,7 @@ func TestWriteRunProgressEventOnlyWritesSelectedKinds(t *testing.T) {
 
 func TestRunPromptAskHandlerReturnsError(t *testing.T) {
 	_, err := runprompt.RunPromptAskHandler(askquestion.Request{Question: "Need approval?"})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "You can't ask questions") {
+	if !errors.Is(err, runprompt.ErrHeadlessAskUnsupported) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -815,9 +806,6 @@ func TestStartRunPromptClientUnregisteredWorkspaceReturnsRegistrationError(t *te
 	}
 	if closeFn != nil {
 		t.Fatal("expected no close function when startup fails")
-	}
-	if !strings.Contains(err.Error(), "kent project") || !strings.Contains(err.Error(), "kent attach") {
-		t.Fatalf("expected recovery guidance in error, got %q", err)
 	}
 }
 

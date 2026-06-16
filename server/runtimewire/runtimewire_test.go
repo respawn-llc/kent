@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -121,9 +120,18 @@ func TestBuildToolRegistryMissingWorkspaceRootSuggestsRebind(t *testing.T) {
 			if !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("expected os.ErrNotExist, got %v", err)
 			}
-			want := `workspace root ` + strconv.Quote(missingWorkspace) + ` is missing; run ` + "`kent rebind " + strconv.Quote(sessionID) + " " + strconv.Quote(newWorkspace) + "`"
-			if got := err.Error(); got != want {
-				t.Fatalf("error = %q, want %q", got, want)
+			var retarget sessionWorkspaceRetargetError
+			if !errors.As(err, &retarget) {
+				t.Fatalf("expected sessionWorkspaceRetargetError, got %v", err)
+			}
+			if retarget.sessionID != sessionID {
+				t.Fatalf("retarget sessionID = %q, want %q", retarget.sessionID, sessionID)
+			}
+			if retarget.workspaceRoot != missingWorkspace {
+				t.Fatalf("retarget workspaceRoot = %q, want %q", retarget.workspaceRoot, missingWorkspace)
+			}
+			if retarget.newRoot != newWorkspace {
+				t.Fatalf("retarget newRoot = %q, want %q", retarget.newRoot, newWorkspace)
 			}
 		})
 	}
@@ -164,16 +172,16 @@ func TestNewLocalToolRegistryBindingRejectsEmptyWorkspaceRoot(t *testing.T) {
 		nil,
 		nil,
 	)
-	if err == nil || err.Error() != "workspace root is required" {
-		t.Fatalf("new local tool registry binding error = %v, want workspace root is required", err)
+	if !errors.Is(err, errWorkspaceRootRequired) {
+		t.Fatalf("new local tool registry binding error = %v, want errWorkspaceRootRequired", err)
 	}
 }
 
 func TestLocalToolRegistryBindingRebindRejectsEmptyWorkspaceRoot(t *testing.T) {
 	root := t.TempDir()
 	binding := newRuntimeWireBinding(t, root, toolspec.ToolExecCommand)
-	if err := binding.Rebind("   "); err == nil || err.Error() != "workspace root is required" {
-		t.Fatalf("rebind error = %v, want workspace root is required", err)
+	if err := binding.Rebind("   "); !errors.Is(err, errWorkspaceRootRequired) {
+		t.Fatalf("rebind error = %v, want errWorkspaceRootRequired", err)
 	}
 }
 
@@ -315,11 +323,8 @@ func TestNewRuntimeWiringRejectsEmptyModelAfterBypassingConfigDefaults(t *testin
 		nil,
 		RuntimeWiringOptions{},
 	)
-	if err == nil {
-		t.Fatal("expected runtime wiring to reject empty model")
-	}
-	if !strings.Contains(err.Error(), "model is required") {
-		t.Fatalf("expected model-required error, got %v", err)
+	if !errors.Is(err, runtime.ErrModelRequired) {
+		t.Fatalf("expected runtime.ErrModelRequired, got %v", err)
 	}
 }
 

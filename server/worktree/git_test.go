@@ -136,7 +136,7 @@ func TestGitInspectorAddRejectsCreateBranchWithoutBaseRef(t *testing.T) {
 
 	_, err := inspector.Add(context.Background(), workspaceRoot, worktreeRoot, CreateSpec{CreateBranch: true, BranchName: "feature/new"})
 
-	if err == nil || !strings.Contains(err.Error(), "base ref is required when create_branch=true") {
+	if !errors.Is(err, ErrBaseRefRequired) {
 		t.Fatalf("error = %v, want base ref validation", err)
 	}
 	if runner.args != nil {
@@ -298,7 +298,8 @@ func TestGitInspectorResolveCreateTargetRejectsInvalidBranchName(t *testing.T) {
 	}
 	inspector := NewGitInspector(runner)
 	_, err := inspector.ResolveCreateTarget(context.Background(), workspaceRoot, "feature..bad")
-	if err == nil || err.Error() != "target \"feature..bad\" is not a valid branch name or resolvable ref" {
+	var invalidTarget *InvalidCreateTargetError
+	if !errors.As(err, &invalidTarget) || invalidTarget.Target != "feature..bad" {
 		t.Fatalf("ResolveCreateTarget error = %v", err)
 	}
 }

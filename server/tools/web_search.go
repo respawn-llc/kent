@@ -9,6 +9,11 @@ import (
 
 const InvalidWebSearchQueryMessage = "you provided an invalid search query"
 
+// ErrInvalidWebSearchQuery is the sentinel for rejected web search queries.
+// Callers match it via errors.Is; the message wording lives in
+// InvalidWebSearchQueryMessage for model-facing output.
+var ErrInvalidWebSearchQuery = errors.New(InvalidWebSearchQueryMessage)
+
 type WebSearchInput struct {
 	Query          string   `json:"query"`
 	AllowedDomains []string `json:"allowed_domains,omitempty"`
@@ -25,7 +30,7 @@ func ParseWebSearchInput(raw json.RawMessage) (WebSearchInput, error) {
 
 func ValidateWebSearchQuery(query string) error {
 	if strings.TrimSpace(query) == "" {
-		return errors.New(InvalidWebSearchQueryMessage)
+		return ErrInvalidWebSearchQuery
 	}
 	return nil
 }
@@ -33,7 +38,7 @@ func ValidateWebSearchQuery(query string) error {
 func ValidateWebSearchInput(raw json.RawMessage) error {
 	in, err := ParseWebSearchInput(raw)
 	if err != nil {
-		return errors.New(InvalidWebSearchQueryMessage)
+		return ErrInvalidWebSearchQuery
 	}
 	return ValidateWebSearchQuery(in.Query)
 }

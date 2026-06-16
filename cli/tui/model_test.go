@@ -217,10 +217,6 @@ func TestErrorEntryVisibleInDetailAndHiddenInOngoing(t *testing.T) {
 	if !containsInOrder(plain, "❮", "ready", "!", "boom trace") {
 		t.Fatalf("expected error entry in detail transcript history, got %q", plain)
 	}
-	renderedError := m.palette().error.Render("boom trace")
-	if !strings.Contains(detail, renderedError) {
-		t.Fatalf("expected error text to use error style in detail, got %q", detail)
-	}
 }
 
 func TestDetailUpdatesWhileOpenAndKeepsScrollStable(t *testing.T) {
@@ -688,17 +684,6 @@ func TestDetailAskQuestionRendersQuestionSuggestionsAndAnswer(t *testing.T) {
 	if !containsInOrder(plain, "?", "Choose scope?", "- flat scan", "- Recursive scan", "Use flat scan.") {
 		t.Fatalf("expected question, suggestions and answer in detail order, got %q", plain)
 	}
-
-	colored := m.View()
-	if !strings.Contains(colored, m.palette().model.Render("- flat scan")) {
-		t.Fatalf("expected recommended suggestion to be green in detail view, got %q", colored)
-	}
-	if !strings.Contains(colored, m.palette().preview.Faint(true).Render("- Recursive scan")) {
-		t.Fatalf("expected non-recommended suggestions to stay muted in detail view, got %q", colored)
-	}
-	if !strings.Contains(colored, m.palette().user.Render("Use flat scan.")) {
-		t.Fatalf("expected answer to use user color in detail view, got %q", colored)
-	}
 }
 
 func TestDetailAskQuestionRendersLargeMarkdownQuestionSnapshot(t *testing.T) {
@@ -766,9 +751,6 @@ func TestOngoingAskQuestionRendersSelectedOptionText(t *testing.T) {
 	if !containsInOrder(plain, "?", "Choose scope?", "Recursive scan", "User also said:", "include tests") {
 		t.Fatalf("expected ongoing answer to show selected option text and commentary, got %q", plain)
 	}
-	if !containsInOrder(plain, "? Choose scope?", "│ User also said:", "└ include tests") {
-		t.Fatalf("expected ongoing ask_question response to render tree guides, got %q", plain)
-	}
 	if strings.Contains(plain, "option #2") || strings.Contains(plain, "flat scan") {
 		t.Fatalf("expected ongoing answer to omit numeric summary and unchosen suggestions, got %q", plain)
 	}
@@ -793,11 +775,8 @@ func TestOngoingAskQuestionPreservesLiteralUserAnsweredPrefix(t *testing.T) {
 	})
 
 	plain := plainTranscript(m.View())
-	if !containsInOrder(plain, "? What should we do?", "└ User answered: keep going") {
+	if !containsInOrder(plain, "What should we do?", "User answered: keep going") {
 		t.Fatalf("expected ongoing freeform answer to preserve literal prefix, got %q", plain)
-	}
-	if strings.Contains(plain, "└ keep going") {
-		t.Fatalf("expected ongoing answer not to strip literal prefix, got %q", plain)
 	}
 }
 

@@ -224,7 +224,7 @@ func TestServeWaitsForContextCancellation(t *testing.T) {
 
 func TestServeRequiresContext(t *testing.T) {
 	server := &Server{}
-	if err := server.Serve(nil); err == nil || err.Error() != "context is required" {
+	if err := server.Serve(nil); err == nil || !errors.Is(err, errContextRequired) {
 		t.Fatalf("Serve error = %v, want missing context error", err)
 	}
 }

@@ -3,6 +3,7 @@ package statuscollect
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -13,6 +14,14 @@ import (
 	"core/shared/auth"
 	"core/shared/config"
 	"core/shared/serverapi"
+)
+
+// ErrUsageRequestFailed and ErrDecodeUsageResponse classify usage-payload fetch
+// failures. Callers and tests match these with errors.Is rather than comparing
+// rendered message text.
+var (
+	ErrUsageRequestFailed = errors.New("usage request failed")
+	ErrDecodeUsageResponse = errors.New("decode usage response")
 )
 
 type UsagePayload struct {
@@ -119,11 +128,11 @@ func FetchUsagePayload(ctx context.Context, baseURL string, state auth.State) (U
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return UsagePayload{}, fmt.Errorf("usage request failed: %s", response.Status)
+		return UsagePayload{}, fmt.Errorf("%w: %s", ErrUsageRequestFailed, response.Status)
 	}
 	var payload UsagePayload
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return UsagePayload{}, fmt.Errorf("decode usage response: %w", err)
+		return UsagePayload{}, fmt.Errorf("%w: %w", ErrDecodeUsageResponse, err)
 	}
 	return payload, nil
 }

@@ -11,6 +11,13 @@ import (
 	"core/shared/cachewarn"
 )
 
+var (
+	// errLocalCompactionAttemptedToolCalls is returned when the local compaction summary model emits tool calls.
+	errLocalCompactionAttemptedToolCalls = errors.New("local compaction summary attempted tool calls")
+	// errLocalCompactionToolCallEmptyID is returned when a local compaction retry tool call lacks an id.
+	errLocalCompactionToolCallEmptyID = errors.New("local compaction summary attempted tool call with empty id")
+)
+
 func (e *Engine) compactRemote(ctx context.Context, stepID string, input []llm.ResponseItem, providerID string, instructions string) (compactionResult, error) {
 	compactor, ok := e.llm.(llm.CompactionClient)
 	if !ok {
@@ -272,7 +279,7 @@ func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, locked se
 		}
 		if len(resp.ToolCalls) > 0 {
 			if mode != compactionModeHandoff || attempt >= handoffCompactionToolCallRetries {
-				return "", errors.New("local compaction summary attempted tool calls")
+				return "", errLocalCompactionAttemptedToolCalls
 			}
 			retryItems, err := handoffCompactionToolCallRetryItems(resp)
 			if err != nil {
@@ -296,7 +303,7 @@ func handoffCompactionToolCallRetryItems(resp llm.Response) ([]llm.ResponseItem,
 	calls := make([]llm.ToolCall, 0, len(resp.ToolCalls))
 	for _, call := range resp.ToolCalls {
 		if strings.TrimSpace(call.ID) == "" {
-			return nil, errors.New("local compaction summary attempted tool call with empty id")
+			return nil, errLocalCompactionToolCallEmptyID
 		}
 		calls = append(calls, call)
 	}

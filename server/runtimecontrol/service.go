@@ -599,7 +599,7 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 		if strings.TrimSpace(req.Actor) == string(session.GoalActorAgent) {
 			currentGoal := engine.Goal()
 			if goalBlocksAgentSet(currentGoal) {
-				return serverapi.RuntimeGoalShowResponse{}, errors.New(strings.TrimSpace(prompts.RenderGoalAgentDuplicateSetDeniedPrompt(currentGoal.Objective, string(currentGoal.Status))))
+				return serverapi.RuntimeGoalShowResponse{}, goalAgentOverwriteDeniedError{Objective: currentGoal.Objective, Status: string(currentGoal.Status)}
 			}
 		}
 		if err := engine.RequireGoalLoopStartAllowed(); err != nil {
@@ -609,7 +609,7 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 		if err != nil {
 			var blocked session.GoalAgentOverwriteBlockedError
 			if errors.As(err, &blocked) {
-				return serverapi.RuntimeGoalShowResponse{}, errors.New(strings.TrimSpace(prompts.RenderGoalAgentDuplicateSetDeniedPrompt(blocked.Goal.Objective, string(blocked.Goal.Status))))
+				return serverapi.RuntimeGoalShowResponse{}, goalAgentOverwriteDeniedError{Objective: blocked.Goal.Objective, Status: string(blocked.Goal.Status)}
 			}
 			return serverapi.RuntimeGoalShowResponse{}, err
 		}
@@ -629,6 +629,19 @@ func (s *Service) SetGoal(ctx context.Context, req serverapi.RuntimeGoalSetReque
 
 func goalBlocksAgentSet(goal *session.GoalState) bool {
 	return goal != nil && goal.Status != session.GoalStatusComplete
+}
+
+// goalAgentOverwriteDeniedError is returned when an agent attempts to overwrite an
+// existing active or paused goal. It carries the existing goal's objective and status
+// so callers can react to the specific denial, and renders the agent-facing denial
+// prompt for the surfaced error message.
+type goalAgentOverwriteDeniedError struct {
+	Objective string
+	Status    string
+}
+
+func (e goalAgentOverwriteDeniedError) Error() string {
+	return strings.TrimSpace(prompts.RenderGoalAgentDuplicateSetDeniedPrompt(e.Objective, e.Status))
 }
 
 func (s *Service) PauseGoal(ctx context.Context, req serverapi.RuntimeGoalStatusRequest) (serverapi.RuntimeGoalShowResponse, error) {

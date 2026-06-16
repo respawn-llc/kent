@@ -192,21 +192,21 @@ func (s *Store) UpdateTask(ctx context.Context, req UpdateTaskRequest) (TaskReco
 	requestedSourceWorkspaceID := strings.TrimSpace(req.SourceWorkspaceID)
 	if requestedSourceWorkspaceID != "" && requestedSourceWorkspaceID != currentSourceWorkspaceID {
 		if task.CanceledAtUnixMs != 0 {
-			return TaskRecord{}, fmt.Errorf("cannot edit source workspace for canceled task")
+			return TaskRecord{}, ErrSourceWorkspaceForCanceledTask
 		}
 		if task.ManagedWorktreeID.Valid && strings.TrimSpace(task.ManagedWorktreeID.String) != "" {
-			return TaskRecord{}, fmt.Errorf("cannot edit source workspace after automation starts")
+			return TaskRecord{}, ErrSourceWorkspaceAfterAutomation
 		}
 		runCount, err := q.CountTaskRunsByTask(ctx, task.ID)
 		if err != nil {
 			return TaskRecord{}, err
 		}
 		if runCount != 0 {
-			return TaskRecord{}, fmt.Errorf("cannot edit source workspace after automation starts")
+			return TaskRecord{}, ErrSourceWorkspaceAfterAutomation
 		}
 		if _, err := q.GetActiveStartPlacementForTask(ctx, task.ID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return TaskRecord{}, fmt.Errorf("cannot edit source workspace after automation starts")
+				return TaskRecord{}, ErrSourceWorkspaceAfterAutomation
 			}
 			return TaskRecord{}, err
 		}
@@ -276,7 +276,7 @@ func (s *Store) resolveTaskSourceWorkspace(ctx context.Context, projectID string
 			return "", fmt.Errorf("source workspace %q: %w", trimmedWorkspaceID, err)
 		}
 		if strings.TrimSpace(workspace.ProjectID) != trimmedProjectID {
-			return "", fmt.Errorf("source workspace %q does not belong to project %q", trimmedWorkspaceID, trimmedProjectID)
+			return "", fmt.Errorf("source workspace %q does not belong to project %q: %w", trimmedWorkspaceID, trimmedProjectID, ErrSourceWorkspaceNotInProject)
 		}
 		return trimmedWorkspaceID, nil
 	}
@@ -309,7 +309,7 @@ func resolveTaskSourceWorkspaceWithQueries(ctx context.Context, q *sqlitegen.Que
 			return "", fmt.Errorf("source workspace %q: %w", trimmedWorkspaceID, err)
 		}
 		if strings.TrimSpace(workspace.ProjectID) != trimmedProjectID {
-			return "", fmt.Errorf("source workspace %q does not belong to project %q", trimmedWorkspaceID, trimmedProjectID)
+			return "", fmt.Errorf("source workspace %q does not belong to project %q: %w", trimmedWorkspaceID, trimmedProjectID, ErrSourceWorkspaceNotInProject)
 		}
 		return trimmedWorkspaceID, nil
 	}
@@ -451,7 +451,7 @@ func (s *Store) prepareTaskStart(ctx context.Context, taskID workflow.TaskID) (p
 		return preparedTaskStart{}, err
 	}
 	if task.CanceledAtUnixMs != 0 {
-		return preparedTaskStart{}, fmt.Errorf("task is canceled")
+		return preparedTaskStart{}, ErrTaskCanceled
 	}
 	def, wf, err := s.GetDefinition(ctx, workflow.WorkflowID(task.WorkflowID))
 	if err != nil {
@@ -459,7 +459,7 @@ func (s *Store) prepareTaskStart(ctx context.Context, taskID workflow.TaskID) (p
 	}
 	validation := workflow.ValidateDefinition(def, workflow.ValidationOptions{Context: workflow.ValidationContextExecution, RoleResolver: s.roleResolver})
 	if validation.HasBlockingErrors() {
-		return preparedTaskStart{}, fmt.Errorf("workflow validation failed: %v", validation.Codes())
+		return preparedTaskStart{}, WorkflowValidationError{Codes: validation.Codes()}
 	}
 	start, err := startNode(def)
 	if err != nil {
@@ -481,16 +481,16 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 		return CompleteRunResult{}, errors.New("run id is required")
 	}
 	if len(req.Commentary) > workflow.MaxCommentaryBytes {
-		return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: "commentary_too_large", Field: "commentary", Message: "commentary is too large"}}}
+		return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: CompletionCodeCommentaryTooLarge, Field: "commentary", Message: "commentary is too large"}}}
 	}
 	issues := []CompletionValidationIssue{}
 	for _, name := range sortedStringKeys(req.OutputValues) {
 		value := req.OutputValues[name]
 		if strings.TrimSpace(name) == "" {
-			issues = append(issues, CompletionValidationIssue{Code: "output_field_required", Message: "output field name is required"})
+			issues = append(issues, CompletionValidationIssue{Code: CompletionCodeOutputFieldRequired, Message: "output field name is required"})
 		}
 		if len(value) > workflow.MaxOutputValueBytes {
-			issues = append(issues, CompletionValidationIssue{Code: "output_too_large", Field: strings.TrimSpace(name), Message: "output field is too large"})
+			issues = append(issues, CompletionValidationIssue{Code: CompletionCodeOutputTooLarge, Field: strings.TrimSpace(name), Message: "output field is too large"})
 		}
 	}
 	if len(issues) > 0 {
@@ -511,13 +511,13 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 		return CompleteRunResult{}, err
 	}
 	if run.CompletedAtUnixMs != 0 {
-		return CompleteRunResult{}, errors.New("run already completed")
+		return CompleteRunResult{}, ErrRunAlreadyCompleted
 	}
 	if run.InterruptedAtUnixMs != 0 {
 		return CompleteRunResult{}, errors.New("run already interrupted")
 	}
 	if req.RequireGeneration && run.RunGeneration != req.ExpectedGeneration {
-		return CompleteRunResult{}, fmt.Errorf("stale workflow run generation: got %d want %d", req.ExpectedGeneration, run.RunGeneration)
+		return CompleteRunResult{}, fmt.Errorf("%w: got %d want %d", ErrStaleRunGeneration, req.ExpectedGeneration, run.RunGeneration)
 	}
 	snapshot := runStartSnapshot{}
 	if err := workflowjson.UnmarshalString(run.RunStartSnapshotJson, &snapshot); err != nil {
@@ -527,16 +527,16 @@ func (s *Store) CompleteRun(ctx context.Context, req CompleteRunRequest) (Comple
 	availableGroups := snapshot.transitionGroupsForNode(snapshot.Node.ID)
 	if selectedTransitionID == "" {
 		if len(availableGroups) == 0 {
-			return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: "no_outgoing_transition", Field: "transition_id", Message: "no outgoing transition is available in run-start snapshot"}}}
+			return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: CompletionCodeNoOutgoingTransition, Field: "transition_id", Message: "no outgoing transition is available in run-start snapshot"}}}
 		}
 		if len(availableGroups) != 1 {
-			return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: "transition_id_required", Field: "transition_id", Message: "transition id is required when multiple transitions are available"}}}
+			return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: CompletionCodeTransitionIDRequired, Field: "transition_id", Message: "transition id is required when multiple transitions are available"}}}
 		}
 		selectedTransitionID = availableGroups[0].TransitionID
 	}
 	group, ok := snapshot.transitionByID(selectedTransitionID)
 	if !ok {
-		return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: "invalid_transition_id", Field: "transition_id", Message: fmt.Sprintf("transition %q is not available in run-start snapshot", selectedTransitionID)}}}
+		return CompleteRunResult{}, CompletionValidationError{Issues: []CompletionValidationIssue{{Code: CompletionCodeInvalidTransitionID, Field: "transition_id", Message: fmt.Sprintf("transition %q is not available in run-start snapshot", selectedTransitionID)}}}
 	}
 	issues = append(issues, knownOutputIssues(group, req.OutputValues)...)
 	issues = append(issues, requiredOutputIssues(group, req.OutputValues)...)

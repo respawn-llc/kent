@@ -2,6 +2,7 @@ package llm
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -10,6 +11,10 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
 )
+
+// ErrCustomToolNameRequired is returned when a custom tool param omits its name.
+// Callers match it via errors.Is.
+var ErrCustomToolNameRequired = errors.New("custom tool name is required")
 
 type openAIRequestPayloadBuilder struct {
 	store          bool
@@ -153,7 +158,7 @@ func buildFunctionToolParam(tool Tool) (responses.ToolUnionParam, error) {
 	if tool.Custom != nil {
 		name := strings.TrimSpace(tool.Name)
 		if name == "" {
-			return responses.ToolUnionParam{}, fmt.Errorf("custom tool name is required")
+			return responses.ToolUnionParam{}, ErrCustomToolNameRequired
 		}
 		format := shared.CustomToolInputFormatUnionParam{}
 		switch strings.TrimSpace(tool.Custom.Type) {

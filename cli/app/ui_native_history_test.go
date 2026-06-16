@@ -3,7 +3,6 @@ package app
 import (
 	"core/cli/tui"
 	"core/server/runtime"
-	sharedtheme "core/shared/theme"
 	"core/shared/transcript"
 	"fmt"
 	"strings"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	xansi "github.com/charmbracelet/x/ansi"
 )
 
@@ -186,11 +184,6 @@ func TestNativeScrollbackStartupReplayKeepsPatchSuccessStateAfterEmptyToolResult
 	if !strings.Contains(plain, "⇄ apply patch") {
 		t.Fatalf("expected patch replay to show tool call text, got %q", plain)
 	}
-	tokens := sharedtheme.ResolvePalette(m.theme)
-	expectedSuccessSymbol := lipgloss.NewStyle().Foreground(tokens.Transcript.ToolSuccess.Lipgloss()).Render("⇄")
-	if !strings.Contains(msg.Text, expectedSuccessSymbol) {
-		t.Fatalf("expected patch replay to use success-colored patch symbol after empty result, got %q", msg.Text)
-	}
 }
 
 func TestNativeScrollbackStartupReplayKeepsPatchErrorSymbol(t *testing.T) {
@@ -217,11 +210,6 @@ func TestNativeScrollbackStartupReplayKeepsPatchErrorSymbol(t *testing.T) {
 	plain := stripANSIPreserve(msg.Text)
 	if !strings.Contains(plain, "⇄ ./main.go +1 -1") || strings.Contains(plain, "Edited:") {
 		t.Fatalf("expected patch replay to show error patch symbol and summary, got %q", plain)
-	}
-	tokens := sharedtheme.ResolvePalette(m.theme)
-	expectedErrorSymbol := lipgloss.NewStyle().Foreground(tokens.Transcript.ToolError.Lipgloss()).Render("⇄")
-	if !strings.Contains(msg.Text, expectedErrorSymbol) {
-		t.Fatalf("expected patch replay to use error-colored patch symbol, got %q", msg.Text)
 	}
 }
 

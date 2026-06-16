@@ -1,9 +1,9 @@
 package session_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -76,7 +76,7 @@ func TestSnapshotFromDirRejectsSymlinkedEventsFile(t *testing.T) {
 		t.Fatalf("symlink events file: %v", err)
 	}
 
-	if _, err := session.SnapshotFromDir(store.Dir()); err == nil || !strings.Contains(err.Error(), "symlink") {
+	if _, err := session.SnapshotFromDir(store.Dir()); err == nil || !errors.Is(err, session.ErrSessionFileSymlink) {
 		t.Fatalf("expected snapshot to reject symlinked events file, got %v", err)
 	}
 }

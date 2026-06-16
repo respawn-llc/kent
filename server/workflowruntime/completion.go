@@ -20,6 +20,10 @@ const (
 	structuredOutputName = "workflow_completion"
 )
 
+// ErrStructuredOutputUnsupported is returned when structured-output completion
+// is requested but the provider lacks responses-API support.
+var ErrStructuredOutputUnsupported = errors.New("workflow structured output completion requires provider responses API support")
+
 type CompletionMode string
 
 const (
@@ -163,7 +167,7 @@ func SelectCompletionMode(mode config.WorkflowCompletionMode, caps llm.ProviderC
 		return CompletionModeTool, nil
 	case config.WorkflowCompletionModeStructuredOutput:
 		if !ProviderSupportsStructuredOutput(caps) {
-			return "", fmt.Errorf("workflow structured output completion requires provider responses API support")
+			return "", ErrStructuredOutputUnsupported
 		}
 		return CompletionModeStructuredOutput, nil
 	case config.WorkflowCompletionModeAuto, "":

@@ -3,6 +3,7 @@ package sessionview
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -216,13 +217,13 @@ func TestServiceGetSessionMainViewIncludesExecutionTarget(t *testing.T) {
 func TestServiceRequiresSessionStoreResolverForDormantReads(t *testing.T) {
 	svc := NewService(nil, nil, nil)
 
-	if _, err := svc.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: "session-1"}); err == nil || err.Error() != "session store resolver is required" {
+	if _, err := svc.GetSessionMainView(context.Background(), serverapi.SessionMainViewRequest{SessionID: "session-1"}); err == nil || !errors.Is(err, errSessionStoreResolverRequired) {
 		t.Fatalf("expected explicit session store resolver error for main view, got %v", err)
 	}
-	if _, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: "session-1"}); err == nil || err.Error() != "session store resolver is required" {
+	if _, err := svc.GetSessionTranscriptPage(context.Background(), serverapi.SessionTranscriptPageRequest{SessionID: "session-1"}); err == nil || !errors.Is(err, errSessionStoreResolverRequired) {
 		t.Fatalf("expected explicit session store resolver error for transcript page, got %v", err)
 	}
-	if _, err := svc.GetRun(context.Background(), serverapi.RunGetRequest{SessionID: "session-1", RunID: "run-1"}); err == nil || err.Error() != "session store resolver is required" {
+	if _, err := svc.GetRun(context.Background(), serverapi.RunGetRequest{SessionID: "session-1", RunID: "run-1"}); err == nil || !errors.Is(err, errSessionStoreResolverRequired) {
 		t.Fatalf("expected explicit session store resolver error for run lookup, got %v", err)
 	}
 }

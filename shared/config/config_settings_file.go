@@ -139,7 +139,7 @@ func WriteSettingsFileForOnboardingWithOptions(settings Settings, options Onboar
 		return "", err
 	}
 	if !created {
-		return path, fmt.Errorf("settings file already exists: %s", path)
+		return path, fmt.Errorf("%w: %s", errSettingsFileAlreadyExists, path)
 	}
 	return path, nil
 }

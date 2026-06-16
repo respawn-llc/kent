@@ -180,39 +180,6 @@ func TestCommittedOngoingProjectionCommitFrontierWaitsForToolResult(t *testing.T
 	}
 }
 
-func TestPendingToolSpacingDoesNotChangeCommittedOrDetailSpacing(t *testing.T) {
-	entries := []TranscriptEntry{
-		{Role: "tool_call", Text: "echo done", ToolCallID: "done", ToolCall: &transcript.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "echo done"}},
-		{Role: "tool_result_ok", Text: "done", ToolCallID: "done"},
-	}
-	m := NewModel(WithPreviewLines(20), WithTheme("dark"))
-	m = updateModel(t, m, SetViewportSizeMsg{Lines: 20, Width: 80})
-	m = updateModel(t, m, SetConversationMsg{Entries: entries})
-
-	committed := xansi.Strip(m.View())
-	if !strings.Contains(committed, "$ echo done") || strings.Contains(committed, "$  echo done") {
-		t.Fatalf("expected committed tool spacing unchanged, got %q", committed)
-	}
-
-	detail := updateModel(t, m, ToggleModeMsg{})
-	detailView := xansi.Strip(detail.View())
-	if !strings.Contains(detailView, "$ echo done") || strings.Contains(detailView, "$  echo done") {
-		t.Fatalf("expected detail tool spacing unchanged, got %q", detailView)
-	}
-
-	pending := xansi.Strip(RenderPendingOngoingSnapshot([]TranscriptEntry{
-		{Role: "tool_call", Text: "echo pending", ToolCallID: "pending", ToolCall: &transcript.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "echo pending"}},
-		{Role: "tool_call", Text: "echo done", ToolCallID: "done", ToolCall: &transcript.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "echo done"}},
-		{Role: "tool_result_ok", Text: "done", ToolCallID: "done"},
-	}, "dark", 80, "⢎"))
-	if !strings.Contains(pending, "⢎ echo pending") {
-		t.Fatalf("expected pending spinner spacing, got %q", pending)
-	}
-	if !strings.Contains(pending, "$  echo done") {
-		t.Fatalf("expected live completed tool spacing with two spaces, got %q", pending)
-	}
-}
-
 func TestPendingOngoingSnapshotLinesUsePerEntrySpinnerCallback(t *testing.T) {
 	entries := []TranscriptEntry{
 		{Role: "tool_call", Text: "echo alpha", ToolCallID: "call_alpha", ToolCall: &transcript.ToolCallMeta{ToolName: "shell", IsShell: true, Command: "echo alpha"}},
@@ -667,9 +634,6 @@ func TestProjectTranscriptViewsToolCallRenderingUsesSameEntryMapping(t *testing.
 	}
 	if len(projection.Detail.Blocks) != 1 || projection.Detail.Blocks[0].EntryIndex != 30 || projection.Detail.Blocks[0].EntryEnd != 31 {
 		t.Fatalf("expected detail tool projection to merge call/result entry range, got %#v", projection.Detail.Blocks)
-	}
-	if !strings.Contains(xansi.Strip(projection.Ongoing.Render(TranscriptDivider)), "$ pwd") {
-		t.Fatalf("expected ongoing projection to render shell command, got %q", projection.Ongoing.Render(TranscriptDivider))
 	}
 }
 

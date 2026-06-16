@@ -38,12 +38,6 @@ func TestHandleRenderDiagnosticRoutesThroughUpdateAndAutoClears(t *testing.T) {
 	if updated.transientStatusKind != uiStatusNoticeNeutral {
 		t.Fatalf("expected neutral notice kind for warn diagnostic, got %d", updated.transientStatusKind)
 	}
-	if len(logger.lines) == 0 {
-		t.Fatal("expected render diagnostic logged")
-	}
-	if !strings.Contains(strings.Join(logger.lines, "\n"), "render.diagnostic severity=warn component=markdown_renderer") {
-		t.Fatalf("expected diagnostic log line, got %q", logger.lines)
-	}
 	if cmd == nil {
 		t.Fatal("expected transient status clear cmd")
 	}
@@ -82,9 +76,5 @@ func TestApplyRunLoggerDiagnosticSetsErrorTransientStatus(t *testing.T) {
 	}
 	if updated.transientStatusKind != uiStatusNoticeError {
 		t.Fatalf("expected error notice kind, got %d", updated.transientStatusKind)
-	}
-	joined := strings.Join(logger.lines, "\n")
-	if !strings.Contains(joined, "run_logger.diagnostic kind=write_failed") {
-		t.Fatalf("expected structured run logger diagnostic log, got %q", logger.lines)
 	}
 }

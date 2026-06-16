@@ -197,7 +197,7 @@ func (s *Service) EnsureTaskWorktree(ctx context.Context, req EnsureTaskWorktree
 		return EnsureTaskWorktreeResponse{}, err
 	}
 	if resolution.Kind != CreateTargetResolutionKindNewBranch {
-		return EnsureTaskWorktreeResponse{}, fmt.Errorf("task worktree branch %q already exists or resolves to %q", createSpec.BranchName, resolution.ResolvedRef)
+		return EnsureTaskWorktreeResponse{}, &TaskBranchCollisionError{BranchName: createSpec.BranchName, ResolvedRef: resolution.ResolvedRef}
 	}
 	worktreeRoot, err := s.resolveRequestedWorktreeRoot("", workspace.WorkspaceID, createSpec)
 	if err != nil {
@@ -1340,6 +1340,22 @@ func shortRefName(ref string) string {
 	}
 }
 
+// ErrWorktreeRootCollisionCap is returned when no free worktree root can be
+// found within the collision-suffix attempt cap. Callers match it via errors.Is.
+var ErrWorktreeRootCollisionCap = errors.New("no available worktree root within collision cap")
+
+// TaskBranchCollisionError reports that the task worktree branch already exists
+// or resolves to an existing ref. It exposes the branch name and resolved ref
+// so callers can inspect them via errors.As instead of parsing message wording.
+type TaskBranchCollisionError struct {
+	BranchName  string
+	ResolvedRef string
+}
+
+func (e *TaskBranchCollisionError) Error() string {
+	return fmt.Sprintf("task worktree branch %q already exists or resolves to %q", e.BranchName, e.ResolvedRef)
+}
+
 func nextAvailableWorktreeRoot(baseRoot string) (string, error) {
 	canonicalBase, err := config.CanonicalWorkspaceRoot(baseRoot)
 	if err != nil {
@@ -1357,7 +1373,7 @@ func nextAvailableWorktreeRoot(baseRoot string) (string, error) {
 			return "", err
 		}
 	}
-	return "", fmt.Errorf("no available worktree root under %q after %d attempts", canonicalBase, maxCollisionSuffixAttempts)
+	return "", fmt.Errorf("no available worktree root under %q after %d attempts: %w", canonicalBase, maxCollisionSuffixAttempts, ErrWorktreeRootCollisionCap)
 }
 
 func (s *Service) scheduleSetupScript(workspaceCtx sessionWorkspaceContext, leaseID string, created syncedWorktree, branchName string, createdBranch bool) bool {

@@ -3,9 +3,9 @@ package promptcontrol
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
+	"core/server/requestmemo"
 	askquestion "core/server/tools/askquestion"
 	"core/shared/clientui"
 	"core/shared/serverapi"
@@ -176,7 +176,7 @@ func TestServiceAnswerAskRejectsClientRequestIDPayloadMismatch(t *testing.T) {
 		AskID:             "ask-1",
 		Answer:            "different",
 	})
-	if err == nil || !strings.Contains(err.Error(), "reused with different parameters") {
+	if !errors.Is(err, requestmemo.ErrClientRequestIDReused) {
 		t.Fatalf("AnswerAsk mismatch error = %v, want reused with different parameters", err)
 	}
 	if responder.calls != 1 {

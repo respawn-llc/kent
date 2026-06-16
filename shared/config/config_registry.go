@@ -958,7 +958,7 @@ func (toolsSetting) applyFile(raw settingsFile, settingsPath string, state *sett
 		}
 		enabled, ok := rawValue.(bool)
 		if !ok {
-			return fmt.Errorf("invalid settings key %s: expected %s", strings.Join(append([]string{"tools"}, key), "."), "boolean")
+			return &SettingsKeyTypeError{Key: strings.Join(append([]string{"tools"}, key), "."), ExpectedType: "boolean"}
 		}
 		state.Settings.EnabledTools[id] = enabled
 		sources[toolSourceKey(id)] = "file"
@@ -1036,11 +1036,11 @@ func (skillsSetting) applyFile(raw settingsFile, settingsPath string, state *set
 			return fmt.Errorf("invalid skills key in %s: %q", settingsPath, key)
 		}
 		if priorKey, exists := seenNormalized[normalized]; exists {
-			return fmt.Errorf("duplicate skills keys in %s: %q and %q both normalize to %q", settingsPath, priorKey, key, normalized)
+			return &DuplicateSettingsKeysError{Scope: "skills", SettingsPath: settingsPath, KeyA: priorKey, KeyB: key, Normalized: normalized}
 		}
 		enabled, ok := rawValue.(bool)
 		if !ok {
-			return fmt.Errorf("invalid settings key %s: expected %s", strings.Join(append([]string{"skills"}, key), "."), "boolean")
+			return &SettingsKeyTypeError{Key: strings.Join(append([]string{"skills"}, key), "."), ExpectedType: "boolean"}
 		}
 		seenNormalized[normalized] = key
 		state.Settings.SkillToggles[normalized] = enabled
@@ -1074,14 +1074,14 @@ func (subagentsSetting) applyFile(raw settingsFile, settingsPath string, state *
 		rawValue := table[key]
 		normalized := NormalizeSubagentRole(key)
 		if normalized == "" {
-			return fmt.Errorf("invalid subagents key in %s: %q", settingsPath, key)
+			return fmt.Errorf("%w in %s: %q", errInvalidSubagentKey, settingsPath, key)
 		}
 		if priorKey, exists := seen[normalized]; exists {
-			return fmt.Errorf("duplicate subagents keys in %s: %q and %q both normalize to %q", settingsPath, priorKey, key, normalized)
+			return &DuplicateSettingsKeysError{Scope: "subagents", SettingsPath: settingsPath, KeyA: priorKey, KeyB: key, Normalized: normalized}
 		}
 		roleTable, ok := asSettingsFile(rawValue)
 		if !ok {
-			return fmt.Errorf("invalid settings key %s: expected %s", strings.Join([]string{"subagents", key}, "."), "table")
+			return &SettingsKeyTypeError{Key: strings.Join([]string{"subagents", key}, "."), ExpectedType: "table"}
 		}
 		role, err := parseSubagentRole(roleTable, settingsPath, key)
 		if err != nil {
@@ -1122,11 +1122,11 @@ func parseSubagentRole(raw settingsFile, settingsPath string, roleKey string) (S
 	}
 	description, err := parseSubagentDescription(raw)
 	if err != nil {
-		return SubagentRole{}, fmt.Errorf("invalid subagents.%s: %w", roleKey, err)
+		return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, err)
 	}
 	agentCallable, agentCallableSet, err := parseSubagentAgentCallable(raw)
 	if err != nil {
-		return SubagentRole{}, fmt.Errorf("invalid subagents.%s: %w", roleKey, err)
+		return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, err)
 	}
 	roleState := configRegistry.defaultState()
 	roleSources := configRegistry.defaultSourceMap()
@@ -1135,7 +1135,7 @@ func parseSubagentRole(raw settingsFile, settingsPath string, roleKey string) (S
 			continue
 		}
 		if err := setting.applyFile(raw, settingsPath, &roleState, roleSources); err != nil {
-			return SubagentRole{}, fmt.Errorf("invalid subagents.%s: %w", roleKey, err)
+			return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, err)
 		}
 	}
 	explicitSources := map[string]string{}
@@ -1150,16 +1150,16 @@ func parseSubagentRole(raw settingsFile, settingsPath string, roleKey string) (S
 	}
 	if explicitSources != nil {
 		if _, exists := explicitSources["persistence_root"]; exists {
-			return SubagentRole{}, fmt.Errorf("invalid subagents.%s: persistence_root is not supported in subagent roles", roleKey)
+			return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, errSubagentPersistenceRoot)
 		}
 	}
 	if err := validateSubagentRoleState(roleState, explicitSources); err != nil {
-		return SubagentRole{}, fmt.Errorf("invalid subagents.%s: %w", roleKey, err)
+		return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, err)
 	}
 	if _, ok := explicitSources["system_prompt_file"]; ok {
 		resolved, err := resolveConfigRelativePath(roleState.Settings.SystemPromptFile, settingsPath)
 		if err != nil {
-			return SubagentRole{}, fmt.Errorf("invalid subagents.%s: %w", roleKey, err)
+			return SubagentRole{}, fmt.Errorf("%w subagents.%s: %w", errSubagentRole, roleKey, err)
 		}
 		if strings.TrimSpace(resolved) != "" {
 			roleState.Settings.SystemPromptFiles = []SystemPromptFile{{Path: resolved, Scope: SystemPromptFileScopeSubagent}}
@@ -1197,11 +1197,11 @@ func parseSubagentDescription(raw settingsFile) (string, error) {
 	}
 	text, ok := value.(string)
 	if !ok {
-		return "", fmt.Errorf("invalid settings key %s: expected %s", strings.Join([]string{"description"}, "."), "string")
+		return "", &SettingsKeyTypeError{Key: strings.Join([]string{"description"}, "."), ExpectedType: "string"}
 	}
 	description := SanitizeSubagentDescription(text)
 	if len([]rune(description)) > MaxSubagentDescriptionChars {
-		return "", fmt.Errorf("description must be <= %d characters after whitespace normalization", MaxSubagentDescriptionChars)
+		return "", fmt.Errorf("%w: must be <= %d characters after whitespace normalization", errSubagentDescriptionTooLong, MaxSubagentDescriptionChars)
 	}
 	return description, nil
 }
@@ -1282,7 +1282,7 @@ func validateSettingsFileKeys(raw settingsFile, tree *fileKeyTree) error {
 	if len(unknown) == 0 {
 		return nil
 	}
-	return fmt.Errorf("unknown settings key(s): %s", strings.Join(unknown, ", "))
+	return &UnknownSettingsKeysError{Keys: unknown}
 }
 
 func lookupFileValue(raw settingsFile, path []string) (any, bool, error) {
@@ -1297,7 +1297,7 @@ func lookupFileValue(raw settingsFile, path []string) (any, bool, error) {
 		}
 		nested, ok := asSettingsFile(value)
 		if !ok {
-			return nil, false, fmt.Errorf("invalid settings key %s: expected %s", strings.Join(path[:index+1], "."), "table")
+			return nil, false, &SettingsKeyTypeError{Key: strings.Join(path[:index+1], "."), ExpectedType: "table"}
 		}
 		current = nested
 	}
@@ -1311,7 +1311,7 @@ func lookupFileString(raw settingsFile, path []string) (string, bool, error) {
 	}
 	text, ok := value.(string)
 	if !ok {
-		return "", false, fmt.Errorf("invalid settings key %s: expected %s", strings.Join(path, "."), "string")
+		return "", false, &SettingsKeyTypeError{Key: strings.Join(path, "."), ExpectedType: "string"}
 	}
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
@@ -1327,7 +1327,7 @@ func lookupFileBool(raw settingsFile, path []string) (bool, bool, error) {
 	}
 	parsed, ok := value.(bool)
 	if !ok {
-		return false, false, fmt.Errorf("invalid settings key %s: expected %s", strings.Join(path, "."), "boolean")
+		return false, false, &SettingsKeyTypeError{Key: strings.Join(path, "."), ExpectedType: "boolean"}
 	}
 	return parsed, true, nil
 }
@@ -1339,7 +1339,7 @@ func lookupFileInt(raw settingsFile, path []string) (int, bool, error) {
 	}
 	parsed, ok := coerceTOMLInt(value)
 	if !ok {
-		return 0, false, fmt.Errorf("invalid settings key %s: expected %s", strings.Join(path, "."), "integer")
+		return 0, false, &SettingsKeyTypeError{Key: strings.Join(path, "."), ExpectedType: "integer"}
 	}
 	return parsed, true, nil
 }
@@ -1351,7 +1351,7 @@ func lookupFileTable(raw settingsFile, path []string) (settingsFile, bool, error
 	}
 	table, ok := asSettingsFile(value)
 	if !ok {
-		return nil, false, fmt.Errorf("invalid settings key %s: expected %s", strings.Join(path, "."), "table")
+		return nil, false, &SettingsKeyTypeError{Key: strings.Join(path, "."), ExpectedType: "table"}
 	}
 	return table, true, nil
 }

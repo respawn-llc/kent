@@ -610,8 +610,8 @@ func TestActivateSessionRuntimeReleasesLeaseOnActivationFailure(t *testing.T) {
 		SessionID:       fixture.store.Meta().SessionID,
 		EnabledToolIDs:  []string{"not-a-tool"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "unknown tool id") {
-		t.Fatalf("ActivateSessionRuntime error = %v, want unknown tool id", err)
+	if !errors.Is(err, errUnknownToolID) {
+		t.Fatalf("ActivateSessionRuntime error = %v, want errUnknownToolID", err)
 	}
 	var leaseID string
 	if err := fixture.metadata.DB().QueryRowContext(context.Background(), `SELECT id FROM runtime_leases WHERE session_id = ?`, fixture.store.Meta().SessionID).Scan(&leaseID); err != nil {
@@ -1886,7 +1886,7 @@ func TestActivateSessionRuntimeRejectsPathLikeSessionID(t *testing.T) {
 		ClientRequestID: "req-1",
 		SessionID:       "../session-1",
 	})
-	if err == nil || !strings.Contains(err.Error(), "single session id") {
+	if !errors.Is(err, serverapi.ErrSessionIDNotSingle) {
 		t.Fatalf("expected path-like session id rejection, got %v", err)
 	}
 }
@@ -1898,7 +1898,7 @@ func TestReleaseSessionRuntimeRejectsPathLikeSessionID(t *testing.T) {
 		SessionID:       "sessions/workspace-a/session-1",
 		LeaseID:         "lease-1",
 	})
-	if err == nil || !strings.Contains(err.Error(), "single session id") {
+	if !errors.Is(err, serverapi.ErrSessionIDNotSingle) {
 		t.Fatalf("expected path-like session id rejection, got %v", err)
 	}
 }

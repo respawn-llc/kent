@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"core/cli/app/internal/projectbinding"
 	"core/server/metadata"
 	"core/shared/client"
 	"core/shared/clientui"
@@ -457,7 +458,7 @@ func TestEnsureInteractiveProjectBindingReturnsCancelWhenPickerAborts(t *testing
 		projectViewClient: projectViewClient,
 	}
 
-	if _, err := ensureInteractiveProjectBinding(context.Background(), server); err == nil || !strings.Contains(err.Error(), "startup canceled by user") {
+	if _, err := ensureInteractiveProjectBinding(context.Background(), server); err == nil || !errors.Is(err, projectbinding.ErrStartupCanceledByUser) {
 		t.Fatalf("expected startup canceled error, got %v", err)
 	}
 	if _, err := metadata.ResolveBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot); !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {

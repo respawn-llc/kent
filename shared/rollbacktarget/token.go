@@ -3,9 +3,14 @@ package rollbacktarget
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
+
+// ErrInvalidRollbackTargetID is returned when a rollback target id cannot be
+// decoded into a valid user-message index.
+var ErrInvalidRollbackTargetID = errors.New("invalid rollback target id")
 
 const tokenVersion = 1
 
@@ -32,17 +37,17 @@ func DecodeUserMessageIndex(raw string) (int, error) {
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(trimmed)
 	if err != nil {
-		return 0, fmt.Errorf("invalid rollback target id")
+		return 0, ErrInvalidRollbackTargetID
 	}
 	var decoded tokenPayload
 	if err := json.Unmarshal(payload, &decoded); err != nil {
-		return 0, fmt.Errorf("invalid rollback target id")
+		return 0, ErrInvalidRollbackTargetID
 	}
 	if decoded.Version != tokenVersion {
 		return 0, fmt.Errorf("unsupported rollback target id version")
 	}
 	if decoded.UserMessageIndex <= 0 {
-		return 0, fmt.Errorf("invalid rollback target id")
+		return 0, ErrInvalidRollbackTargetID
 	}
 	return decoded.UserMessageIndex, nil
 }

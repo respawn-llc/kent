@@ -96,9 +96,16 @@ func ResolveWorkspaceRoot(workspaceRoot string) (string, error) {
 	return filepath.Abs(trimmed)
 }
 
+// ErrWorkspaceContextSessionMissing marks the implicit workspace-context
+// session lookup that failed because the referenced session no longer exists.
+// It wraps sessioncontract.ErrSessionNotFound so callers and tests can
+// distinguish the workspace-context guidance path from a strict explicit
+// session lookup with errors.Is rather than matching rendered message text.
+var ErrWorkspaceContextSessionMissing = errors.New("workspace context session is missing")
+
 func workspaceContextSessionError(sessionID string, err error) error {
 	if errors.Is(err, sessioncontract.ErrSessionNotFound) {
-		return fmt.Errorf("%s points to missing Kent session %q; unset %s or run from a live Kent shell: %w", sessionenv.SessionIDEnv, strings.TrimSpace(sessionID), sessionenv.SessionIDEnv, err)
+		return fmt.Errorf("%s points to missing Kent session %q; unset %s or run from a live Kent shell: %w: %w", sessionenv.SessionIDEnv, strings.TrimSpace(sessionID), sessionenv.SessionIDEnv, ErrWorkspaceContextSessionMissing, err)
 	}
 	return fmt.Errorf("resolve %s workspace context %q: %w", sessionenv.SessionIDEnv, strings.TrimSpace(sessionID), err)
 }

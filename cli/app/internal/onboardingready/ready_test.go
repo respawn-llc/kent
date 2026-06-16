@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"core/server/auth"
+	serveronboarding "core/server/onboarding"
 	"core/shared/config"
 )
 
@@ -71,7 +72,7 @@ func TestEnsureInteractiveRequiresAuthManager(t *testing.T) {
 			return Result{}, nil
 		},
 	})
-	if err == nil || err.Error() != "auth manager is required for onboarding" {
+	if err == nil || !errors.Is(err, serveronboarding.ErrAuthManagerRequired) {
 		t.Fatalf("expected missing auth manager error, got %v", err)
 	}
 }

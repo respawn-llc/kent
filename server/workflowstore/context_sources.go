@@ -61,7 +61,7 @@ func (s *Store) resolveContextSourceRun(ctx context.Context, tx *sql.Tx, taskID 
 		var runID string
 		err := tx.QueryRowContext(ctx, strings.TrimSuffix(resolveContextSourceRunQuery, "\n"), taskID, string(node.ID), beforeUnixMs).Scan(&runID)
 		if errors.Is(err, sql.ErrNoRows) {
-			return resolvedContextSourceRun{}, fmt.Errorf("selected context source node %q has no completed run for task", source.NodeKey)
+			return resolvedContextSourceRun{}, ContextSourceNoCompletedRunError{Kind: ContextSourceKindSelected, NodeKey: string(source.NodeKey)}
 		}
 		if err != nil {
 			return resolvedContextSourceRun{}, err
@@ -87,7 +87,7 @@ func (s *Store) resolveContextSourceRun(ctx context.Context, tx *sql.Tx, taskID 
 			if targetKey == "" {
 				targetKey = targetID
 			}
-			return resolvedContextSourceRun{}, fmt.Errorf("previous target context source node %q has no completed run for task", targetKey)
+			return resolvedContextSourceRun{}, ContextSourceNoCompletedRunError{Kind: ContextSourceKindPreviousTarget, NodeKey: targetKey}
 		}
 		if err != nil {
 			return resolvedContextSourceRun{}, err

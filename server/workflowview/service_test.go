@@ -3,6 +3,7 @@ package workflowview
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 
@@ -473,7 +474,7 @@ func TestBoardColumnTaskCountsUseFullSelectedWorkflow(t *testing.T) {
 		t.Fatalf("second node page = %+v first=%+v, want distinct next card", secondPage, firstPage)
 	}
 	doneColumn := workflowViewColumnByKind(t, board, workflow.NodeKindTerminal)
-	if _, err := view.ListBoardNodeCards(ctx, serverapi.WorkflowBoardNodeCardsListRequest{ProjectID: binding.ProjectID, WorkflowID: string(workflowID), NodeID: doneColumn.Node.NodeID, PageSize: 1, PageToken: firstPage.NextPageToken}, workflow.StaticRoleResolver{"coder": true}); err == nil || !strings.Contains(err.Error(), "page_token") {
+	if _, err := view.ListBoardNodeCards(ctx, serverapi.WorkflowBoardNodeCardsListRequest{ProjectID: binding.ProjectID, WorkflowID: string(workflowID), NodeID: doneColumn.Node.NodeID, PageSize: 1, PageToken: firstPage.NextPageToken}, workflow.StaticRoleResolver{"coder": true}); !errors.Is(err, ErrInvalidPageToken) {
 		t.Fatalf("ListBoardNodeCards with token from other node error = %v", err)
 	}
 }
@@ -1410,7 +1411,7 @@ func TestPendingQuestionResolverErrorsWhenQuestionMissingFromTranscript(t *testi
 	}})
 
 	_, err := resolver.Question(context.Background(), "session-missing", "missing-ask")
-	if err == nil || !strings.Contains(err.Error(), `pending question "missing-ask" was not found`) {
+	if !errors.Is(err, ErrPendingQuestionNotFound) {
 		t.Fatalf("missing question error = %v", err)
 	}
 }
@@ -1631,15 +1632,20 @@ func TestWorkflowViewRejectsMissingIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if _, err := view.GetBoard(context.Background(), serverapi.WorkflowBoardRequest{ProjectID: " "}, workflow.StaticRoleResolver{}); err == nil || !strings.Contains(err.Error(), "project_id") {
+	if _, err := view.GetBoard(context.Background(), serverapi.WorkflowBoardRequest{ProjectID: " "}, workflow.StaticRoleResolver{}); !isWorkflowRequestValidationField(err, "project_id") {
 		t.Fatalf("GetBoard missing id error = %v", err)
 	}
-	if _, err := view.GetBoard(context.Background(), serverapi.WorkflowBoardRequest{ProjectID: "project-1", PageSize: -1}, workflow.StaticRoleResolver{}); err == nil || !strings.Contains(err.Error(), "page_size") {
+	if _, err := view.GetBoard(context.Background(), serverapi.WorkflowBoardRequest{ProjectID: "project-1", PageSize: -1}, workflow.StaticRoleResolver{}); !isWorkflowRequestValidationField(err, "page_size") {
 		t.Fatalf("GetBoard negative page size error = %v", err)
 	}
-	if _, err := view.GetTask(context.Background(), " "); err == nil || !strings.Contains(err.Error(), "task_id") {
+	if _, err := view.GetTask(context.Background(), " "); !errors.Is(err, ErrTaskIDRequired) {
 		t.Fatalf("GetTask missing id error = %v", err)
 	}
+}
+
+func isWorkflowRequestValidationField(err error, field string) bool {
+	var validationErr serverapi.WorkflowRequestValidationError
+	return errors.As(err, &validationErr) && validationErr.Field == field
 }
 
 type staticTranscriptProvider struct {

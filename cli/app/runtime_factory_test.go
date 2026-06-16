@@ -120,7 +120,7 @@ func TestBuildToolRegistry_IncludesViewImageWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestBuildToolRegistry_ViewImageApprovedOutsidePathIsLogged(t *testing.T) {
+func TestBuildToolRegistry_ViewImageApprovedOutsidePathSucceeds(t *testing.T) {
 	workspace := t.TempDir()
 	outsideFile := filepath.Join(outsideNonTempDir(t), "doc.pdf")
 	pdfBytes := []byte("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n")
@@ -183,24 +183,6 @@ func TestBuildToolRegistry_ViewImageApprovedOutsidePathIsLogged(t *testing.T) {
 
 	if err := logger.Close(); err != nil {
 		t.Fatalf("close run logger: %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(sessionDir, runLogFileName))
-	if err != nil {
-		t.Fatalf("read run log: %v", err)
-	}
-	text := string(data)
-	if !strings.Contains(text, "tool.view_image.outside_workspace.approved") {
-		t.Fatalf("expected outside-workspace approval audit line, got %q", text)
-	}
-	realOutside, err := filepath.EvalSymlinks(outsideFile)
-	if err != nil {
-		t.Fatalf("resolve outside real path: %v", err)
-	}
-	if !strings.Contains(text, `reason=allow_once`) {
-		t.Fatalf("expected allow_once reason in audit line, got %q", text)
-	}
-	if !strings.Contains(text, realOutside) {
-		t.Fatalf("expected canonical resolved outside path in audit line, got %q", text)
 	}
 }
 

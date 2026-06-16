@@ -323,7 +323,7 @@ func (h *nativeProgramHarness) wait(timeout time.Duration, allowContextCanceled 
 	h.t.Helper()
 	select {
 	case err := <-h.done:
-		if err != nil && !(allowContextCanceled && strings.Contains(err.Error(), "context canceled")) {
+		if err != nil && !(allowContextCanceled && errors.Is(err, context.Canceled)) {
 			h.t.Fatalf("program run failed: %v", err)
 		}
 	case <-time.After(timeout):

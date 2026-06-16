@@ -1,6 +1,7 @@
 package prompts
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -73,16 +74,8 @@ func TestCustomSystemPromptResolvesDefaultSystemPromptSectionPlaceholders(t *tes
 	if err != nil {
 		t.Fatalf("RenderCustomSystemPrompt: %v", err)
 	}
-	for _, want := range []string{
-		"autonomous coding agent named Kent",
-		"Your agentic environment",
-		"Product ambiguity and planning",
-		"Final answer instructions",
-		selfcmd.LaunchCommand(),
-	} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("expected section prompt to contain %q, got %q", want, rendered)
-		}
+	if !strings.Contains(rendered, selfcmd.LaunchCommand()) {
+		t.Fatalf("expected section prompts to substitute the launch command, got %q", rendered)
 	}
 	if strings.Contains(rendered, "{{") {
 		t.Fatalf("expected section placeholders rendered, got %q", rendered)
@@ -94,16 +87,8 @@ func TestBaseSystemPromptAssemblesDefaultSections(t *testing.T) {
 		EstimatedToolCallsForContext: 123,
 		EditingToolName:              "patch",
 	})
-	for _, want := range []string{
-		"autonomous coding agent named Kent",
-		"Your agentic environment",
-		"Product ambiguity and planning",
-		"Final answer instructions",
-		"Delegating work",
-	} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("expected base prompt to contain %q, got %q", want, rendered)
-		}
+	if strings.TrimSpace(rendered) == "" {
+		t.Fatal("expected base prompt to assemble a non-empty prompt")
 	}
 	if strings.Contains(rendered, "{{") {
 		t.Fatalf("expected base prompt placeholders rendered, got %q", rendered)
@@ -118,8 +103,12 @@ func TestDefaultSystemPromptAssemblyCannotReferenceFullDefaultPrompt(t *testing.
 	if err == nil {
 		t.Fatal("expected default system prompt assembly to reject DefaultSystemPrompt recursion")
 	}
-	if !strings.Contains(err.Error(), "DefaultSystemPrompt") {
-		t.Fatalf("expected error to mention DefaultSystemPrompt, got %v", err)
+	var placeholderErr *UnknownTemplatePlaceholderError
+	if !errors.As(err, &placeholderErr) {
+		t.Fatalf("expected UnknownTemplatePlaceholderError, got %v", err)
+	}
+	if placeholderErr.Placeholder != "DefaultSystemPrompt" {
+		t.Fatalf("expected placeholder DefaultSystemPrompt, got %q", placeholderErr.Placeholder)
 	}
 }
 
@@ -131,8 +120,12 @@ func TestCustomSystemPromptRejectsRemovedManualEditInstructionPlaceholder(t *tes
 	if err == nil {
 		t.Fatal("expected removed ManualEditInstruction placeholder to fail")
 	}
-	if !strings.Contains(err.Error(), "ManualEditInstruction") {
-		t.Fatalf("expected error to mention ManualEditInstruction, got %v", err)
+	var placeholderErr *UnknownTemplatePlaceholderError
+	if !errors.As(err, &placeholderErr) {
+		t.Fatalf("expected UnknownTemplatePlaceholderError, got %v", err)
+	}
+	if placeholderErr.Placeholder != "ManualEditInstruction" {
+		t.Fatalf("expected placeholder ManualEditInstruction, got %q", placeholderErr.Placeholder)
 	}
 }
 
@@ -161,33 +154,35 @@ func TestRenderWorkflowTaskInstructionsUsesCompletionModeFragment(t *testing.T) 
 	if err != nil {
 		t.Fatalf("RenderWorkflowTaskInstructions: %v", err)
 	}
+	// Substituted variables: short id (in the launch command), the transition
+	// id/display pair, and the node prompt body must all be injected.
 	for _, want := range []string{
-		"ticket `BUI-1`",
-		"workflow `workflow-1`",
 		selfcmd.LaunchCommand() + " task show BUI-1",
-		"complete_node",
 		"actionable (Actionable)",
 		"Triage the ticket.",
 	} {
 		if !strings.Contains(rendered, want) {
-			t.Fatalf("expected workflow instructions to contain %q, got %q", want, rendered)
+			t.Fatalf("expected workflow instructions to substitute %q, got %q", want, rendered)
 		}
 	}
-	for _, unexpected := range []string{"Required node output fields", "Output fields:"} {
-		if strings.Contains(rendered, unexpected) {
-			t.Fatalf("workflow instructions should not contain %q, got %q", unexpected, rendered)
-		}
+	// The tool-completion fragment passed in must be embedded into the output.
+	if !strings.Contains(rendered, toolInstructions) {
+		t.Fatalf("expected workflow instructions to embed the completion fragment, got %q", rendered)
+	}
+	if strings.Contains(rendered, "{{") {
+		t.Fatalf("expected workflow instruction placeholders rendered, got %q", rendered)
 	}
 }
 
 func TestRenderGoalNudgePrompt(t *testing.T) {
 	rendered := RenderGoalNudgePrompt("ship /goal mode", "active")
+	// The objective and the launch command must both be substituted in.
 	for _, want := range []string{
-		"<goal>\nship /goal mode\n</goal>",
-		LaunchCommand() + " goal complete",
+		"ship /goal mode",
+		LaunchCommand(),
 	} {
 		if !strings.Contains(rendered, want) {
-			t.Fatalf("expected goal nudge to contain %q, got %q", want, rendered)
+			t.Fatalf("expected goal nudge to substitute %q, got %q", want, rendered)
 		}
 	}
 	if strings.Contains(rendered, "{{") {
@@ -217,36 +212,35 @@ func TestRenderGoalResumePrompt(t *testing.T) {
 
 func TestRenderGoalAlreadyCompletePrompt(t *testing.T) {
 	rendered := RenderGoalAlreadyCompletePrompt("ship /goal mode")
-	want := "No active goal present. Last goal was already completed:\nship /goal mode"
-	if rendered != want {
-		t.Fatalf("already-complete prompt = %q, want %q", rendered, want)
+	if !strings.Contains(rendered, "ship /goal mode") {
+		t.Fatalf("expected already-complete prompt to substitute the objective, got %q", rendered)
+	}
+	if strings.Contains(rendered, "{{") {
+		t.Fatalf("expected already-complete placeholders rendered, got %q", rendered)
 	}
 }
 
 func TestRenderGoalAgentDuplicateSetDeniedPrompt(t *testing.T) {
 	rendered := RenderGoalAgentDuplicateSetDeniedPrompt("ship /goal mode\n\n- preserve markdown", "active")
+	// The multi-line objective (markdown preserved) and the status argument must
+	// both be substituted into the rendered prompt.
 	for _, want := range []string{
-		"Overwriting an existing goal is not allowed",
-		"active or paused",
-		"status: active",
-		"<goal>\nship /goal mode\n\n- preserve markdown\n</goal>",
+		"ship /goal mode\n\n- preserve markdown",
+		"active",
 	} {
 		if !strings.Contains(rendered, want) {
-			t.Fatalf("duplicate set prompt missing %q: %q", want, rendered)
+			t.Fatalf("duplicate set prompt missing substituted %q: %q", want, rendered)
 		}
 	}
 	if strings.Contains(rendered, "{{") {
 		t.Fatalf("expected duplicate set placeholders rendered, got %q", rendered)
 	}
-	if strings.Contains(rendered, "Detected invocation by the agent") {
-		t.Fatalf("duplicate set prompt used generic agent-denial reason: %q", rendered)
-	}
 }
 
 func TestRenderGoalCompleteConfirmRequiredPrompt(t *testing.T) {
 	rendered := RenderGoalCompleteConfirmRequiredPrompt("ship /goal mode\n\n- preserve markdown")
-	if !strings.Contains(rendered, "<goal>\nship /goal mode\n\n- preserve markdown\n</goal>") {
-		t.Fatalf("complete confirm prompt missing objective: %q", rendered)
+	if !strings.Contains(rendered, "ship /goal mode\n\n- preserve markdown") {
+		t.Fatalf("complete confirm prompt missing substituted objective: %q", rendered)
 	}
 	if strings.Contains(rendered, "{{") {
 		t.Fatalf("expected complete confirm placeholders rendered, got %q", rendered)

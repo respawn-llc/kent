@@ -22,6 +22,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// ErrGatewayDependenciesRequired is returned by NewGateway when the supplied
+// dependencies are nil. Callers match it via errors.Is.
+var ErrGatewayDependenciesRequired = errors.New("gateway dependencies are required")
+
+// canceledByClientMessage is the normalized protocol message used when a
+// context.Canceled error carries no actionable wording. It is the source of
+// truth for the cancellation message surfaced to clients.
+const canceledByClientMessage = "request canceled by client"
+
 type Gateway struct {
 	deps     GatewayDependencies
 	identity protocol.ServerIdentity
@@ -167,7 +176,7 @@ func gatewayProgressHandlerForMethod(method string) (gatewayProgressHandler, rpc
 
 func NewGateway(deps GatewayDependencies, identity protocol.ServerIdentity) (*Gateway, error) {
 	if isNilGatewayDependencies(deps) {
-		return nil, errors.New("gateway dependencies are required")
+		return nil, ErrGatewayDependenciesRequired
 	}
 	if strings.TrimSpace(identity.ProtocolVersion) == "" {
 		return nil, errors.New("server identity is required")
@@ -326,7 +335,7 @@ func protocolError(err error) (int, string) {
 	message := strings.TrimSpace(err.Error())
 	if errors.Is(err, context.Canceled) {
 		if message == "" || message == context.Canceled.Error() {
-			message = "request canceled by client"
+			message = canceledByClientMessage
 		}
 		return protocol.ErrCodeRequestCanceled, message
 	}

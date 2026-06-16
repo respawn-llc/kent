@@ -542,8 +542,8 @@ func TestRestoreMessagesFailsOnMalformedHistoryReplacementPayload(t *testing.T) 
 			t.Fatalf("append malformed replay event: %v", err)
 		}
 
-		if _, err := New(store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"}); err == nil || !strings.Contains(err.Error(), "decode history_replaced event") {
-			t.Fatalf("expected malformed history replacement decode error, got %v", err)
+		if _, err := New(store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5"}); !errors.Is(err, errDecodeHistoryReplacedEvent) {
+			t.Fatalf("expected errDecodeHistoryReplacedEvent, got %v", err)
 		}
 	})
 

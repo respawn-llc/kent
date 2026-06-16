@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"core/cli/app/internal/onboardingimportfs"
 	"core/cli/app/internal/onboardingimportproviders"
@@ -321,7 +322,7 @@ func TestProviderSkillSymlinkSourceErrorsWithoutSkillsRoot(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing skills root to fail")
 	}
-	if !strings.Contains(err.Error(), "no skills directory found") {
+	if !errors.Is(err, onboardingimportfs.ErrSkillsDirectoryNotFound) {
 		t.Fatalf("expected missing skills root error, got %v", err)
 	}
 }
@@ -398,7 +399,7 @@ func TestExecuteCommandImportValidatesSourceDirectory(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing command source to fail")
 	}
-	if !strings.Contains(err.Error(), "inspect slash command source Claude Code") {
+	if !errors.Is(err, onboardingimportfs.ErrSourceDirectoryInvalid) {
 		t.Fatalf("expected source validation error, got %v", err)
 	}
 }

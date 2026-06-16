@@ -4,6 +4,7 @@ import (
 	"context"
 	"core/shared/toolspec"
 	"encoding/json"
+	"errors"
 	"github.com/openai/openai-go/v3/responses"
 	"net/http"
 	"net/http/httptest"
@@ -667,7 +668,7 @@ func TestOpenAIRequestBuildersRejectUnmaterializedViewImageInputFileOutput(t *te
 	caps := requireProviderCapabilities(t, transport, openAIAuthMode{})
 	checkErr := func(name string, err error) {
 		t.Helper()
-		if err == nil || !strings.Contains(err.Error(), "must be materialized") {
+		if !errors.Is(err, ErrViewImageOutputNotMaterialized) {
 			t.Fatalf("%s error = %v, want materialization failure", name, err)
 		}
 	}

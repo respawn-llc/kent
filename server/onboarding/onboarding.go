@@ -11,6 +11,14 @@ import (
 
 var ErrOnboardingCanceled = errors.New("first-time setup canceled")
 
+// ErrAuthManagerRequired and ErrInteractiveRunnerRequired guard interactive
+// onboarding readiness. Callers and tests match these with errors.Is rather
+// than comparing rendered message text.
+var (
+	ErrAuthManagerRequired       = errors.New("auth manager is required for onboarding")
+	ErrInteractiveRunnerRequired = errors.New("interactive onboarding runner is required")
+)
+
 type Result struct {
 	Completed            bool
 	CreatedDefaultConfig bool
@@ -41,10 +49,10 @@ func EnsureReady(ctx context.Context, cfg config.App, mgr *auth.Manager, interac
 		return reloaded, true, nil
 	}
 	if mgr == nil {
-		return cfg, false, errors.New("auth manager is required for onboarding")
+		return cfg, false, ErrAuthManagerRequired
 	}
 	if runner == nil {
-		return cfg, false, errors.New("interactive onboarding runner is required")
+		return cfg, false, ErrInteractiveRunnerRequired
 	}
 	state, err := mgr.Load(ctx)
 	if err != nil {

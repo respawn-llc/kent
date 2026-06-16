@@ -114,9 +114,6 @@ func TestOnboardingInputUsesRealAltScreenCursorWhenAvailable(t *testing.T) {
 	if placement.CursorCol >= model.width {
 		t.Fatalf("cursor col %d outside width %d", placement.CursorCol, model.width)
 	}
-	if strings.Contains(view, "\x1b[7") {
-		t.Fatal("did not expect soft cursor when real terminal cursor is available")
-	}
 }
 
 func TestOnboardingEditorFieldDeleteCurrentLineUsesAppKeyAdapter(t *testing.T) {

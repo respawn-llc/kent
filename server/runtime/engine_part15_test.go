@@ -209,11 +209,8 @@ func TestManualCompactionLocalFailsWhenModelAttemptsToolCalls(t *testing.T) {
 	}
 
 	err := eng.CompactContext(context.Background(), "")
-	if err == nil {
-		t.Fatal("expected local compaction to fail when model attempts tool calls")
-	}
-	if !strings.Contains(err.Error(), "tool calls") {
-		t.Fatalf("expected tool-call error, got %v", err)
+	if !errors.Is(err, errLocalCompactionAttemptedToolCalls) {
+		t.Fatalf("expected errLocalCompactionAttemptedToolCalls, got %v", err)
 	}
 	if len(client.calls) != 1 {
 		t.Fatalf("expected manual local compaction to fail without retry, got %d requests", len(client.calls))
@@ -235,11 +232,8 @@ func TestManualCompactionDisabledWhenModeNone(t *testing.T) {
 	}
 
 	err := eng.CompactContext(context.Background(), "")
-	if err == nil {
-		t.Fatal("expected manual compaction to fail when compaction_mode=none")
-	}
-	if !strings.Contains(err.Error(), "compaction_mode=none") {
-		t.Fatalf("expected disabled-compaction error, got %v", err)
+	if !errors.Is(err, errCompactionDisabledModeNone) {
+		t.Fatalf("expected errCompactionDisabledModeNone, got %v", err)
 	}
 	if len(client.compactionCalls) != 0 {
 		t.Fatalf("expected no remote compaction call when disabled, got %d", len(client.compactionCalls))

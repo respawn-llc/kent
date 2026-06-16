@@ -36,7 +36,7 @@ func TestEnsureReadyRequiresAuthManagerForInteractive(t *testing.T) {
 	}, func(context.Context, config.App, auth.State) (Result, error) {
 		return Result{}, nil
 	})
-	if err == nil || err.Error() != "auth manager is required for onboarding" {
+	if err == nil || !errors.Is(err, ErrAuthManagerRequired) {
 		t.Fatalf("expected missing auth manager error, got %v", err)
 	}
 }
@@ -46,7 +46,7 @@ func TestEnsureReadyRequiresRunnerForInteractive(t *testing.T) {
 	_, _, err := EnsureReady(context.Background(), config.App{}, mgr, true, func() (config.App, error) {
 		return config.App{}, nil
 	}, nil)
-	if err == nil || err.Error() != "interactive onboarding runner is required" {
+	if err == nil || !errors.Is(err, ErrInteractiveRunnerRequired) {
 		t.Fatalf("expected missing interactive runner error, got %v", err)
 	}
 }

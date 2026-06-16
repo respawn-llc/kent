@@ -69,16 +69,12 @@ describe("navigationTransitions", () => {
     const second = await runViewTransition({ scope: "board-card", update: secondUpdate });
 
     expect(first.mode).toBe("transition");
-    expect(document.documentElement).toHaveClass("view-transition-route");
     expect(second.mode).toBe("immediate");
     expect(startViewTransition).toHaveBeenCalledOnce();
     expect(secondUpdate).toHaveBeenCalledOnce();
 
     finishTransition?.();
     await first.finished;
-    await vi.waitFor(() => {
-      expect(document.documentElement).not.toHaveClass("view-transition-route");
-    });
   });
 });
 

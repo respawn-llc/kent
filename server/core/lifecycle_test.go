@@ -3,7 +3,6 @@ package core
 import (
 	"errors"
 	"reflect"
-	"strings"
 	"testing"
 
 	"core/server/auth"
@@ -80,8 +79,9 @@ func TestNewWithContextNamesMissingAuthBundleResource(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected NewWithContext error")
 	}
-	if !strings.Contains(err.Error(), "auth bundle") || !strings.Contains(err.Error(), "auth manager") {
-		t.Fatalf("error = %q, want auth bundle/resource name", err.Error())
+	var missing BundleResourceRequiredError
+	if !errors.As(err, &missing) || missing.BundleName != "auth" || missing.ResourceName != "auth manager" {
+		t.Fatalf("error = %v, want auth bundle/resource name", err)
 	}
 }
 
@@ -96,8 +96,9 @@ func TestNewWithContextNamesMissingRuntimeBundleResource(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected NewWithContext error")
 	}
-	if !strings.Contains(err.Error(), "runtime bundle") || !strings.Contains(err.Error(), "background manager") {
-		t.Fatalf("error = %q, want runtime bundle/resource name", err.Error())
+	var missing BundleResourceRequiredError
+	if !errors.As(err, &missing) || missing.BundleName != "runtime" || missing.ResourceName != "background manager" {
+		t.Fatalf("error = %v, want runtime bundle/resource name", err)
 	}
 }
 

@@ -112,7 +112,7 @@ func EnsureReady(ctx context.Context, state AuthState, authHandler AuthHandler) 
 		return errors.New("auth state is required")
 	}
 	if state.AuthManager() == nil {
-		return errors.New("auth manager is required")
+		return errAuthManagerRequired
 	}
 	if authHandler == nil {
 		return errors.New("auth handler is required")

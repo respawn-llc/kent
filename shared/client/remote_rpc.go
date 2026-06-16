@@ -21,22 +21,39 @@ import (
 
 var errRemoteClosed = errors.New("remote client is closed")
 
+// errRequestCanceledByClient identifies a request-canceled error that has been
+// normalized to a clear client-facing message (rather than passing through a
+// raw transport message such as context.Canceled's text). requestCanceledError
+// reports itself as this sentinel via Is when it carries no distinct message.
+var errRequestCanceledByClient = errors.New("request canceled by client")
+
 const preferredLocalSocketProbeTimeout = 100 * time.Millisecond
 
 type requestCanceledError struct {
 	message string
 }
 
-func (e requestCanceledError) Error() string {
+func (e requestCanceledError) normalized() bool {
 	message := strings.TrimSpace(e.message)
-	if message == "" || message == context.Canceled.Error() {
-		return "request canceled by client"
+	return message == "" || message == context.Canceled.Error()
+}
+
+func (e requestCanceledError) Error() string {
+	if e.normalized() {
+		return errRequestCanceledByClient.Error()
 	}
-	return message
+	return strings.TrimSpace(e.message)
 }
 
 func (e requestCanceledError) Unwrap() error {
 	return context.Canceled
+}
+
+// Is reports requestCanceledError as errRequestCanceledByClient when it has
+// been normalized to the clear client-facing message, letting callers detect
+// that state structurally instead of comparing rendered strings.
+func (e requestCanceledError) Is(target error) bool {
+	return target == errRequestCanceledByClient && e.normalized()
 }
 
 type remoteDialPlan struct {

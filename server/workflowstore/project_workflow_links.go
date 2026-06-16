@@ -199,7 +199,7 @@ func (s *Store) UnlinkProjectWorkflow(ctx context.Context, linkID string, replac
 	}
 	result := ProjectWorkflowUnlinkResult{LinkID: link.ID, ProjectID: link.ProjectID, WorkflowID: workflow.WorkflowID(link.WorkflowID)}
 	if replacementDefaultLinkID != "" && replacementDefaultLinkID == link.ID {
-		return ProjectWorkflowUnlinkResult{}, fmt.Errorf("replacement default workflow link is invalid")
+		return ProjectWorkflowUnlinkResult{}, ErrReplacementDefaultInvalid
 	}
 	taskRefs, err := q.CountTasksByProjectWorkflowLink(ctx, link.ID)
 	if err != nil {
@@ -228,7 +228,7 @@ func (s *Store) UnlinkProjectWorkflow(ctx context.Context, linkID string, replac
 			return ProjectWorkflowUnlinkResult{}, err
 		}
 		if replacementCount != 1 {
-			return ProjectWorkflowUnlinkResult{}, fmt.Errorf("replacement default workflow link is invalid")
+			return ProjectWorkflowUnlinkResult{}, ErrReplacementDefaultInvalid
 		}
 		if _, err := q.DeleteProjectWorkflowLink(ctx, link.ID); err != nil {
 			return ProjectWorkflowUnlinkResult{}, err
@@ -240,7 +240,7 @@ func (s *Store) UnlinkProjectWorkflow(ctx context.Context, linkID string, replac
 		if count, err := updated.RowsAffected(); err != nil {
 			return ProjectWorkflowUnlinkResult{}, err
 		} else if count != 1 {
-			return ProjectWorkflowUnlinkResult{}, fmt.Errorf("replacement default workflow link is invalid")
+			return ProjectWorkflowUnlinkResult{}, ErrReplacementDefaultInvalid
 		}
 	} else {
 		deleted, err := tx.ExecContext(ctx, strings.TrimSuffix(unlinkProjectWorkflowQuery, "\n"), link.ID)

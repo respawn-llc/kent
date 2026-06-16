@@ -2,7 +2,6 @@ package worktreeview
 
 import (
 	"errors"
-	"strings"
 	"testing"
 
 	"core/shared/serverapi"
@@ -24,7 +23,7 @@ func TestResolveTokenUsesMatcherPrecedence(t *testing.T) {
 
 func TestResolveDeletionTargetRejectsCurrentMainWorkspace(t *testing.T) {
 	_, err := ResolveDeletionTarget([]serverapi.WorktreeView{{WorktreeID: "main", IsMain: true, IsCurrent: true}}, "")
-	if err == nil || !strings.Contains(err.Error(), "main workspace is not deletable") {
+	if err == nil || !errors.Is(err, ErrMainWorkspaceNotDeletable) {
 		t.Fatalf("expected main workspace rejection, got %v", err)
 	}
 }

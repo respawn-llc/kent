@@ -1,13 +1,16 @@
 package serverapi
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestValidateRequiredSessionID(t *testing.T) {
 	if err := validateRequiredSessionID("session-1"); err != nil {
 		t.Fatalf("expected non-empty session id to validate, got %v", err)
 	}
-	if err := validateRequiredSessionID(" \t "); err == nil || err.Error() != "session_id is required" {
-		t.Fatalf("expected required session id error, got %v", err)
+	if err := validateRequiredSessionID(" \t "); !errors.Is(err, ErrSessionIDRequired) {
+		t.Fatalf("expected ErrSessionIDRequired, got %v", err)
 	}
 }
 

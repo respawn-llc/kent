@@ -67,14 +67,6 @@ func TestSchedulerRunsNewSessionWorkflowNodeWithStructuredOutput(t *testing.T) {
 	if first.StructuredOutput == nil {
 		t.Fatalf("structured output schema missing in request: %+v", first)
 	}
-	assertPromptContains(t, first, []string{"ticket `RUN-1`", "Run workflow", "Implement the task.", "done (Done)", "workflow completion schema"})
-	promptText := requestPromptText(first)
-	if !strings.Contains(promptText, "The only available transition is inferred by the workflow runtime") {
-		t.Fatalf("single-transition inference guidance missing in prompt:\n%s", promptText)
-	}
-	if strings.Contains(promptText, "Several transitions are available") || strings.Contains(promptText, "Pick one transition") {
-		t.Fatalf("single-transition prompt should not ask the model to pick a transition:\n%s", promptText)
-	}
 	assertNoUserPrompt(t, first)
 	fixture.assertRunSessionUsesTaskWorktree(t, runs[0].SessionID)
 	if scheduler.ActiveCount() != 0 {

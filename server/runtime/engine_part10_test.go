@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"errors"
+
 	"core/prompts"
 	"core/server/llm"
 	"core/server/session"
@@ -435,10 +437,8 @@ func TestEnvironmentContextMessageFallsBackToProcessCWDWhenWorkspaceRootMissing(
 
 func TestEnvironmentContextMessageRejectsEmptyModel(t *testing.T) {
 	workspace := t.TempDir()
-	if _, err := environmentContextMessage(workspace, "", time.Unix(0, 0).UTC()); err == nil {
-		t.Fatal("expected environmentContextMessage to reject empty model")
-	} else if !strings.Contains(err.Error(), "requires a model") {
-		t.Fatalf("expected empty-model error, got %v", err)
+	if _, err := environmentContextMessage(workspace, "", time.Unix(0, 0).UTC()); !errors.Is(err, errEnvironmentContextModelRequired) {
+		t.Fatalf("expected errEnvironmentContextModelRequired, got %v", err)
 	}
 }
 
@@ -448,11 +448,8 @@ func TestNewRejectsEmptyModel(t *testing.T) {
 	store := mustCreateNamedTestSessionAt(t, storeRoot, "ws", workspace)
 
 	_, err := New(store, &fakeClient{}, tools.NewRegistry(tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{})
-	if err == nil {
-		t.Fatal("expected New to reject empty model")
-	}
-	if !strings.Contains(err.Error(), "model is required") {
-		t.Fatalf("expected model-required error, got %v", err)
+	if !errors.Is(err, ErrModelRequired) {
+		t.Fatalf("expected ErrModelRequired, got %v", err)
 	}
 }
 

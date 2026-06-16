@@ -57,6 +57,20 @@ var (
 	validationAttentionItemsQuery string
 )
 
+// Sentinel errors returned by the workflow view service. Callers and tests must
+// match these with errors.Is/errors.As rather than comparing rendered message
+// text. Dynamic context is wrapped via fmt.Errorf("... %w", Err...).
+var (
+	// ErrTaskIDRequired is returned when a task id is required but blank.
+	ErrTaskIDRequired = errors.New("task_id is required")
+	// ErrInvalidPageToken is returned when a pagination page_token fails to
+	// decode or does not match its issuing query.
+	ErrInvalidPageToken = errors.New("page_token is invalid")
+	// ErrPendingQuestionNotFound is returned when no pending question matches the
+	// requested ask id in a session transcript.
+	ErrPendingQuestionNotFound = errors.New("pending question was not found")
+)
+
 type Option func(*Service)
 
 type SessionTranscriptPageProvider interface {
@@ -414,7 +428,7 @@ func (s *Service) GetTask(ctx context.Context, taskID string) (serverapi.Workflo
 		return serverapi.WorkflowTaskDetail{}, errors.New("workflow view service is required")
 	}
 	if strings.TrimSpace(taskID) == "" {
-		return serverapi.WorkflowTaskDetail{}, errors.New("task_id is required")
+		return serverapi.WorkflowTaskDetail{}, ErrTaskIDRequired
 	}
 	task, err := s.queries.GetTask(ctx, taskID)
 	if err != nil {
@@ -1555,7 +1569,7 @@ func (r *pendingQuestionResolver) findQuestion(ctx context.Context, sessionID st
 		}
 		nextEnd = start
 	}
-	return pendingQuestion{}, fmt.Errorf("pending question %q was not found in session %q transcript", askID, sessionID)
+	return pendingQuestion{}, fmt.Errorf("pending question %q in session %q transcript: %w", askID, sessionID, ErrPendingQuestionNotFound)
 }
 
 func askQuestionFromTranscriptEntries(entries []clientui.ChatEntry, askID string) pendingQuestion {
@@ -2183,14 +2197,14 @@ func parseBoardNodeCardsPageToken(token string, projectID string, workflowID str
 	}
 	decoded, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
-		return boardNodeCardsPageCursor{}, errors.New("page_token is invalid")
+		return boardNodeCardsPageCursor{}, ErrInvalidPageToken
 	}
 	var payload boardNodeCardsPageTokenPayload
 	if err := json.Unmarshal(decoded, &payload); err != nil {
-		return boardNodeCardsPageCursor{}, errors.New("page_token is invalid")
+		return boardNodeCardsPageCursor{}, ErrInvalidPageToken
 	}
 	if payload.Version != 1 || payload.ProjectID != projectID || payload.WorkflowID != workflowID || payload.NodeID != nodeID || strings.TrimSpace(payload.TaskID) == "" || payload.UpdatedAtUnixMs < 0 {
-		return boardNodeCardsPageCursor{}, errors.New("page_token is invalid")
+		return boardNodeCardsPageCursor{}, ErrInvalidPageToken
 	}
 	return boardNodeCardsPageCursor{projectID: payload.ProjectID, workflowID: payload.WorkflowID, nodeID: payload.NodeID, updatedAtUnixMs: payload.UpdatedAtUnixMs, taskID: payload.TaskID, hasValue: true}, nil
 }

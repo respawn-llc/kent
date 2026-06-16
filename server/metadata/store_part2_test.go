@@ -7,9 +7,9 @@ import (
 	"core/shared/clientui"
 	"core/shared/config"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -43,7 +43,7 @@ func TestResolvePersistedSessionRejectsEscapingArtifactRelpath(t *testing.T) {
 		t.Fatalf("UpsertSession: %v", err)
 	}
 	_, err := store.ResolvePersistedSession(ctx, "session-escape")
-	if err == nil || !strings.Contains(err.Error(), "escapes persistence root") {
+	if !errors.Is(err, ErrPathEscapesPersistenceRoot) {
 		t.Fatalf("expected escaping artifact relpath error, got %v", err)
 	}
 }
@@ -166,7 +166,8 @@ func TestUpdateSessionExecutionTargetByIDRejectsCrossWorkspaceWorktree(t *testin
 	createMetadataTestWorktree(t, ctx, store, bindingB.WorkspaceID, "worktree-b", worktreeRoot)
 
 	err = store.UpdateSessionExecutionTargetByID(ctx, sess.Meta().SessionID, bindingA.WorkspaceID, "worktree-b", ".")
-	if err == nil || err.Error() != "worktree \"worktree-b\" does not belong to workspace \""+bindingA.WorkspaceID+"\"" {
+	var mismatch *WorktreeWorkspaceMismatchError
+	if !errors.As(err, &mismatch) || mismatch.WorktreeID != "worktree-b" || mismatch.WorkspaceID != bindingA.WorkspaceID {
 		t.Fatalf("UpdateSessionExecutionTargetByID error = %v", err)
 	}
 }
@@ -185,19 +186,19 @@ func TestUpsertWorktreeRecordRejectsMissingRequiredFields(t *testing.T) {
 	tests := []struct {
 		name   string
 		mutate func(*WorktreeRecord)
-		want   string
+		want   error
 	}{
-		{name: "id", mutate: func(record *WorktreeRecord) { record.ID = "  " }, want: "worktree id is required"},
-		{name: "workspace id", mutate: func(record *WorktreeRecord) { record.WorkspaceID = "  " }, want: "workspace id is required"},
-		{name: "canonical root", mutate: func(record *WorktreeRecord) { record.CanonicalRoot = "  " }, want: "worktree canonical root is required"},
+		{name: "id", mutate: func(record *WorktreeRecord) { record.ID = "  " }, want: ErrWorktreeIDRequired},
+		{name: "workspace id", mutate: func(record *WorktreeRecord) { record.WorkspaceID = "  " }, want: ErrWorktreeWorkspaceIDRequired},
+		{name: "canonical root", mutate: func(record *WorktreeRecord) { record.CanonicalRoot = "  " }, want: ErrWorktreeCanonicalRootRequired},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			record := baseRecord
 			tt.mutate(&record)
 			err := store.UpsertWorktreeRecord(ctx, record)
-			if err == nil || err.Error() != tt.want {
-				t.Fatalf("UpsertWorktreeRecord error = %v, want %q", err, tt.want)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("UpsertWorktreeRecord error = %v, want %v", err, tt.want)
 			}
 		})
 	}
@@ -280,7 +281,7 @@ func TestRuntimeLeaseReleaseInvalidatesControllerToken(t *testing.T) {
 	if released.LeaseID != lease.LeaseID || released.SessionID != lease.SessionID || released.ReleasedAt.IsZero() {
 		t.Fatalf("released lease = %+v, want released %+v", released, lease)
 	}
-	if _, err := store.ValidateRuntimeLease(ctx, sess.Meta().SessionID, lease.LeaseID); err == nil || !strings.Contains(err.Error(), "released") {
+	if _, err := store.ValidateRuntimeLease(ctx, sess.Meta().SessionID, lease.LeaseID); !errors.Is(err, ErrRuntimeLeaseReleased) {
 		t.Fatalf("ValidateRuntimeLease after release err = %v, want released error", err)
 	}
 	releasedAgain, err := store.ReleaseRuntimeLease(ctx, sess.Meta().SessionID, lease.LeaseID)
@@ -296,10 +297,10 @@ func TestValidateRuntimeLeaseRejectsBlankIDsBeforeLookup(t *testing.T) {
 	ctx := context.Background()
 	store, _, _ := newMetadataTestStore(t)
 
-	if _, err := store.ValidateRuntimeLease(ctx, " ", "lease-1"); err == nil || !strings.Contains(err.Error(), "session id is required") {
+	if _, err := store.ValidateRuntimeLease(ctx, " ", "lease-1"); !errors.Is(err, ErrRuntimeLeaseSessionIDRequired) {
 		t.Fatalf("ValidateRuntimeLease blank session err = %v, want session id required", err)
 	}
-	if _, err := store.ValidateRuntimeLease(ctx, "session-1", " "); err == nil || !strings.Contains(err.Error(), "lease id is required") {
+	if _, err := store.ValidateRuntimeLease(ctx, "session-1", " "); !errors.Is(err, ErrRuntimeLeaseIDRequired) {
 		t.Fatalf("ValidateRuntimeLease blank lease err = %v, want lease id required", err)
 	}
 }

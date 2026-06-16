@@ -265,7 +265,7 @@ func TestNextAvailableWorktreeRootFailsAfterCollisionCap(t *testing.T) {
 	}
 
 	_, err := nextAvailableWorktreeRoot(baseRoot)
-	if err == nil || !strings.Contains(err.Error(), "after 1024 attempts") {
+	if !errors.Is(err, ErrWorktreeRootCollisionCap) {
 		t.Fatalf("nextAvailableWorktreeRoot error = %v, want capped collision error", err)
 	}
 }

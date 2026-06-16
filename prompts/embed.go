@@ -4,11 +4,138 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
+	"reflect"
 	"strings"
 	"text/template"
+	"text/template/parse"
 
 	"core/cli/selfcmd"
 )
+
+// UnknownTemplatePlaceholderError reports that a custom prompt template
+// references a placeholder identifier that is not available in the prompt's
+// template data. It carries the offending placeholder name so callers and
+// operators can identify which placeholder to remove without parsing error
+// strings.
+type UnknownTemplatePlaceholderError struct {
+	// Template is the human-readable name of the template being rendered.
+	Template string
+	// Placeholder is the unknown top-level field identifier, e.g.
+	// "DefaultSystemPrompt".
+	Placeholder string
+}
+
+func (e *UnknownTemplatePlaceholderError) Error() string {
+	return fmt.Sprintf("%s template references unknown placeholder %q", e.Template, e.Placeholder)
+}
+
+// validateTemplatePlaceholders parses text as a template named name and
+// returns an *UnknownTemplatePlaceholderError if it references a top-level
+// field that the data struct does not expose. It only inspects field
+// references at the root scope (those not rebound by range/with), which is
+// sufficient for the flat field-substitution system prompt templates.
+func validateTemplatePlaceholders(name, text string, data any) error {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return nil
+	}
+	tmpl, err := template.New(name).Option("missingkey=error").Parse(trimmed)
+	if err != nil {
+		return fmt.Errorf("parse %s template: %w", name, err)
+	}
+	available := availableTemplateFields(data)
+	if available == nil {
+		return nil
+	}
+	var unknown string
+	walkRootFieldIdents(tmpl.Root, func(ident string) bool {
+		if _, ok := available[ident]; !ok {
+			unknown = ident
+			return false
+		}
+		return true
+	})
+	if unknown != "" {
+		return &UnknownTemplatePlaceholderError{Template: name, Placeholder: unknown}
+	}
+	return nil
+}
+
+// availableTemplateFields returns the set of exported field names on data
+// (which may be a struct or pointer to struct). It returns nil when data is
+// not a struct, signalling that placeholder validation cannot be performed.
+func availableTemplateFields(data any) map[string]struct{} {
+	value := reflect.ValueOf(data)
+	for value.Kind() == reflect.Pointer {
+		value = value.Elem()
+	}
+	if value.Kind() != reflect.Struct {
+		return nil
+	}
+	fields := value.Type()
+	available := make(map[string]struct{}, fields.NumField())
+	for i := 0; i < fields.NumField(); i++ {
+		field := fields.Field(i)
+		if field.PkgPath != "" {
+			continue // unexported
+		}
+		available[field.Name] = struct{}{}
+	}
+	return available
+}
+
+// walkRootFieldIdents invokes visit for every single-segment root-scope field
+// reference ({{.Field}}) in the parse tree. It does not descend into range or
+// with bodies, where "." is rebound to a different value. visit returns false
+// to stop the walk early.
+func walkRootFieldIdents(node parse.Node, visit func(ident string) bool) bool {
+	if node == nil {
+		return true
+	}
+	switch typed := node.(type) {
+	case *parse.ListNode:
+		if typed == nil {
+			return true
+		}
+		for _, child := range typed.Nodes {
+			if !walkRootFieldIdents(child, visit) {
+				return false
+			}
+		}
+	case *parse.ActionNode:
+		return walkPipeFieldIdents(typed.Pipe, visit)
+	case *parse.IfNode:
+		if !walkPipeFieldIdents(typed.Pipe, visit) {
+			return false
+		}
+		if !walkRootFieldIdents(typed.List, visit) {
+			return false
+		}
+		return walkRootFieldIdents(typed.ElseList, visit)
+	}
+	return true
+}
+
+func walkPipeFieldIdents(pipe *parse.PipeNode, visit func(ident string) bool) bool {
+	if pipe == nil {
+		return true
+	}
+	for _, cmd := range pipe.Cmds {
+		for _, arg := range cmd.Args {
+			field, ok := arg.(*parse.FieldNode)
+			if !ok {
+				continue
+			}
+			if len(field.Ident) != 1 {
+				continue
+			}
+			if !visit(field.Ident[0]) {
+				return false
+			}
+		}
+	}
+	return true
+}
 
 type SystemPromptTemplateArgs struct {
 	EstimatedToolCallsForContext int
@@ -370,7 +497,7 @@ func renderDefaultSystemPromptTemplateWithSections(text string, args SystemPromp
 	if trimmed == "" {
 		return "", nil
 	}
-	return renderNamedTemplate("system prompt", trimmed, defaultSystemPromptTemplateData{
+	data := defaultSystemPromptTemplateData{
 		LaunchCommand:                                selfcmd.LaunchCommand(),
 		BuilderCommand:                               selfcmd.LaunchCommand(),
 		EstimatedToolCallsForContext:                 args.EstimatedToolCallsForContext,
@@ -380,7 +507,11 @@ func renderDefaultSystemPromptTemplateWithSections(text string, args SystemPromp
 		DefaultSystemPromptAmbiguityAndOutputQuality: strings.TrimSpace(sections.ambiguityAndQuality),
 		DefaultSystemPromptFinalAnswerAndFormatting:  strings.TrimSpace(sections.finalAnswerAndFormatting),
 		DefaultSystemPromptDelegation:                strings.TrimSpace(sections.delegation),
-	})
+	}
+	if err := validateTemplatePlaceholders("system prompt", trimmed, data); err != nil {
+		return "", err
+	}
+	return renderNamedTemplate("system prompt", trimmed, data)
 }
 
 func renderSystemPromptTemplateWithSections(text string, args SystemPromptTemplateArgs, defaultSystemPrompt string, sections systemPromptSections) (string, error) {
@@ -388,7 +519,7 @@ func renderSystemPromptTemplateWithSections(text string, args SystemPromptTempla
 	if trimmed == "" {
 		return "", nil
 	}
-	return renderNamedTemplate("system prompt", trimmed, systemPromptTemplateData{
+	data := systemPromptTemplateData{
 		LaunchCommand:                                selfcmd.LaunchCommand(),
 		BuilderCommand:                               selfcmd.LaunchCommand(),
 		EstimatedToolCallsForContext:                 args.EstimatedToolCallsForContext,
@@ -399,7 +530,11 @@ func renderSystemPromptTemplateWithSections(text string, args SystemPromptTempla
 		DefaultSystemPromptAmbiguityAndOutputQuality: strings.TrimSpace(sections.ambiguityAndQuality),
 		DefaultSystemPromptFinalAnswerAndFormatting:  strings.TrimSpace(sections.finalAnswerAndFormatting),
 		DefaultSystemPromptDelegation:                strings.TrimSpace(sections.delegation),
-	})
+	}
+	if err := validateTemplatePlaceholders("system prompt", trimmed, data); err != nil {
+		return "", err
+	}
+	return renderNamedTemplate("system prompt", trimmed, data)
 }
 
 func renderNamedTemplate(name string, text string, data any) (string, error) {

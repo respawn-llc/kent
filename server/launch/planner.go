@@ -213,7 +213,7 @@ func ApplyRunPromptOverrides(plan SessionPlan, overrides serverapi.RunPromptOver
 		})
 	}
 	if trimmedRole := strings.TrimSpace(overrides.AgentRole); trimmedRole != "" && config.NormalizeSubagentSelector(trimmedRole) == "" && !config.IsReservedSubagentRoleName(trimmedRole) {
-		return SessionPlan{}, nil, fmt.Errorf("invalid agent role %q", trimmedRole)
+		return SessionPlan{}, nil, fmt.Errorf("%w %q", errInvalidAgentRole, trimmedRole)
 	}
 	roleName := config.NormalizeSubagentSelector(overrides.AgentRole)
 	if overrides.AgentRoleSet || roleName != "" {
@@ -381,7 +381,7 @@ func (p Planner) openStore(ctx context.Context, req SessionRequest) (*session.St
 	if req.ForceNewSession || req.Mode == ModeHeadless {
 		return p.createSession(ctx, req.ParentSessionID, req.Mode)
 	}
-	return nil, errors.New("selected_session_id or force_new_session is required")
+	return nil, errSessionSelectionRequired
 }
 
 func (p Planner) openScopedSession(sessionID string) (*session.Store, error) {
@@ -588,7 +588,7 @@ func ActiveToolIDsForPlan(settings config.Settings, source config.SourceReport, 
 		}
 	}
 	if enabled[toolspec.ToolPatch] && enabled[toolspec.ToolEdit] {
-		return nil, fmt.Errorf("tools.patch and tools.edit cannot both be enabled; set one to false")
+		return nil, ErrPatchEditToolsConflict
 	}
 	return DedupeSortToolIDs(enabledToolIDs(enabled)), nil
 }

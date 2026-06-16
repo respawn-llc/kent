@@ -129,6 +129,11 @@ func DiscoverDirectCommands(provider Provider, root string) ([]CommandItem, erro
 	return items, nil
 }
 
+// ErrSkillsDirectoryNotFound marks a provider whose skills source directory
+// could not be located. It wraps os.ErrNotExist so callers and tests match it
+// with errors.Is rather than comparing rendered message text.
+var ErrSkillsDirectoryNotFound = fmt.Errorf("%w: no skills directory found", os.ErrNotExist)
+
 func ProviderSkillSourceAtBase(provider Provider, base string) (string, error) {
 	for _, candidate := range provider.SkillSourceCandidates {
 		preferred := filepath.Join(base, candidate)
@@ -138,7 +143,7 @@ func ProviderSkillSourceAtBase(provider Provider, base string) (string, error) {
 			return "", err
 		}
 	}
-	return "", fmt.Errorf("%w: no skills directory found for %s", os.ErrNotExist, provider.Label)
+	return "", fmt.Errorf("%w for %s", ErrSkillsDirectoryNotFound, provider.Label)
 }
 
 func ProviderCommandSourceAtBase(provider Provider, base string) (string, error) {
@@ -254,13 +259,19 @@ func PrepareEmptyDirectorySymlinkTarget(path string, kind string) error {
 	return nil
 }
 
+// ErrSourceDirectoryInvalid marks an import source path that could not be
+// validated as a usable directory (missing, unreadable, or not a directory).
+// Callers and tests match this with errors.Is rather than comparing rendered
+// message text.
+var ErrSourceDirectoryInvalid = errors.New("import source directory is invalid")
+
 func RequireSourceDirectory(path string, label string) error {
 	info, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("inspect %s: %w", label, err)
+		return fmt.Errorf("inspect %s: %w: %w", label, ErrSourceDirectoryInvalid, err)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("%s is not a directory: %s", label, path)
+		return fmt.Errorf("%s is not a directory: %s: %w", label, path, ErrSourceDirectoryInvalid)
 	}
 	return nil
 }

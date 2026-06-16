@@ -2,8 +2,10 @@ package config
 
 import (
 	"core/shared/brand"
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -60,6 +62,16 @@ func loadConfigTestApp(t *testing.T, workspace string, opts LoadOptions) App {
 		t.Fatalf("load: %v", err)
 	}
 	return cfg
+}
+
+// unknownSettingsKeyReported reports whether err is an UnknownSettingsKeysError
+// that names the given key among its offending keys.
+func unknownSettingsKeyReported(err error, key string) bool {
+	var unknownErr *UnknownSettingsKeysError
+	if !errors.As(err, &unknownErr) {
+		return false
+	}
+	return slices.Contains(unknownErr.Keys, key)
 }
 
 func assertConfigSource(t *testing.T, cfg App, key string, want string) {

@@ -1224,6 +1224,9 @@ func activationResponseForTakeover(takeover *runtimeTakeover) (serverapi.Session
 	return serverapi.SessionRuntimeActivateResponse{LeaseID: leaseID}, nil
 }
 
+// errUnknownToolID is returned when an enabled-tool id cannot be parsed into a known tool.
+var errUnknownToolID = errors.New("unknown tool id")
+
 func parseToolIDs(raw []string) ([]toolspec.ID, error) {
 	if len(raw) == 0 {
 		return nil, nil
@@ -1232,7 +1235,7 @@ func parseToolIDs(raw []string) ([]toolspec.ID, error) {
 	for _, item := range raw {
 		id, ok := toolspec.ParseID(item)
 		if !ok {
-			return nil, fmt.Errorf("unknown tool id %q", item)
+			return nil, fmt.Errorf("%w %q", errUnknownToolID, item)
 		}
 		ids = append(ids, id)
 	}

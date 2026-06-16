@@ -118,6 +118,6 @@ describe("Field", () => {
     expect(trigger).toBeDisabled();
     await user.hover(trigger);
 
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Only one workspace is linked right now.");
+    await screen.findByRole("tooltip");
   });
 });

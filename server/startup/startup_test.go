@@ -138,7 +138,7 @@ func TestEnsureReadyPromptsDuringExplicitReauthWhenStartupAuthIsOptional(t *test
 
 func TestEnsureReadyRequiresAuthManager(t *testing.T) {
 	err := EnsureReady(context.Background(), stubAuthState{}, stubAuthHandler{})
-	if err == nil || err.Error() != "auth manager is required" {
+	if err == nil || !errors.Is(err, errAuthManagerRequired) {
 		t.Fatalf("expected missing auth manager error, got %v", err)
 	}
 }

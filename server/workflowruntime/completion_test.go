@@ -2,6 +2,7 @@ package workflowruntime
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -24,19 +25,19 @@ func TestSelectCompletionMode(t *testing.T) {
 		mode    config.WorkflowCompletionMode
 		caps    llm.ProviderCapabilities
 		want    CompletionMode
-		wantErr string
+		wantErr error
 	}{
 		{name: "auto structured", mode: config.WorkflowCompletionModeAuto, caps: supported, want: CompletionModeStructuredOutput},
 		{name: "auto tool", mode: config.WorkflowCompletionModeAuto, caps: unsupported, want: CompletionModeTool},
 		{name: "forced tool", mode: config.WorkflowCompletionModeTool, caps: supported, want: CompletionModeTool},
-		{name: "forced structured unsupported", mode: config.WorkflowCompletionModeStructuredOutput, caps: unsupported, wantErr: "responses API"},
+		{name: "forced structured unsupported", mode: config.WorkflowCompletionModeStructuredOutput, caps: unsupported, wantErr: ErrStructuredOutputUnsupported},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := SelectCompletionMode(tt.mode, tt.caps)
-			if tt.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("SelectCompletionMode error = %v, want containing %q", err, tt.wantErr)
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("SelectCompletionMode error = %v, want %v", err, tt.wantErr)
 				}
 				return
 			}

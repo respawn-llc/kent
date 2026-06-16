@@ -4,19 +4,17 @@ import (
 	"errors"
 	"strings"
 	"testing"
-
-	"core/shared/workflowkey"
 )
 
 func TestWorkflowCreateUpdateRequestValidation(t *testing.T) {
 	if err := (WorkflowCreateRequest{Name: "Pipeline"}).Validate(); err != nil {
 		t.Fatalf("valid create request rejected: %v", err)
 	}
-	if err := (WorkflowCreateRequest{Name: " "}).Validate(); err == nil || !strings.Contains(err.Error(), "name is required") {
-		t.Fatalf("empty name error = %v", err)
+	if err := (WorkflowCreateRequest{Name: " "}).Validate(); !isWorkflowFieldError(err, "name", WorkflowRequestErrorRequired) {
+		t.Fatalf("empty name error = %#v, want required on name", err)
 	}
-	if err := (WorkflowUpdateRequest{WorkflowID: "workflow-1", Name: strings.Repeat("x", 121)}).Validate(); err == nil || !strings.Contains(err.Error(), "<= 120") {
-		t.Fatalf("long name error = %v", err)
+	if err := (WorkflowUpdateRequest{WorkflowID: "workflow-1", Name: strings.Repeat("x", 121)}).Validate(); !isWorkflowFieldError(err, "name", WorkflowRequestErrorTooLong) {
+		t.Fatalf("long name error = %#v, want too_long on name", err)
 	}
 }
 
@@ -27,15 +25,13 @@ func TestWorkflowNodeAndEdgeRequestValidation(t *testing.T) {
 	}
 	invalidNode := validNode
 	invalidNode.Key = "Bad-Key"
-	if err := invalidNode.Validate(); err == nil || !strings.Contains(err.Error(), workflowkey.Description) {
-		t.Fatalf("invalid node key error = %v", err)
-	} else if validationErr, ok := err.(WorkflowRequestValidationError); !ok || validationErr.Code != WorkflowRequestErrorInvalidKey {
-		t.Fatalf("invalid node key error type = %#v", err)
+	if err := invalidNode.Validate(); !isWorkflowFieldError(err, "key", WorkflowRequestErrorInvalidKey) {
+		t.Fatalf("invalid node key error = %#v, want invalid_key on key", err)
 	}
 	invalidNode = validNode
 	invalidNode.DisplayName = ""
-	if err := invalidNode.Validate(); err == nil || !strings.Contains(err.Error(), "display_name") {
-		t.Fatalf("invalid display name error = %v", err)
+	if err := invalidNode.Validate(); !isWorkflowFieldError(err, "display_name", WorkflowRequestErrorRequired) {
+		t.Fatalf("invalid display name error = %#v, want required on display_name", err)
 	}
 
 	validEdge := WorkflowEdgeAddRequest{WorkflowID: "workflow-1", TransitionGroupID: "group-1", Key: "done", TargetNodeID: "node-2", ContextMode: "new_session", PromptTemplate: "Do the next step.", Parameters: []WorkflowParameter{{Key: "summary", Description: "Summary"}}}
@@ -44,8 +40,8 @@ func TestWorkflowNodeAndEdgeRequestValidation(t *testing.T) {
 	}
 	oversizedEdge := validEdge
 	oversizedEdge.Parameters = make([]WorkflowParameter, WorkflowGraphDraftMaxFieldsPerEntity+1)
-	if err := oversizedEdge.Validate(); err == nil || !strings.Contains(err.Error(), "parameters") {
-		t.Fatalf("oversized edge parameters error = %v", err)
+	if err := oversizedEdge.Validate(); !isWorkflowFieldError(err, "parameters", WorkflowRequestErrorTooLong) {
+		t.Fatalf("oversized edge parameters error = %#v, want too_long on parameters", err)
 	}
 	selectedSourceEdge := validEdge
 	selectedSourceEdge.ContextMode = "continue_session"
@@ -61,18 +57,18 @@ func TestWorkflowNodeAndEdgeRequestValidation(t *testing.T) {
 	}
 	invalidPreviousTargetEdge := previousTargetEdge
 	invalidPreviousTargetEdge.ContextSource = WorkflowContextSource{Kind: "previous_target", NodeKey: "implement"}
-	if err := invalidPreviousTargetEdge.Validate(); err == nil || !strings.Contains(err.Error(), "context_source.node_key") {
-		t.Fatalf("invalid previous-target context source error = %v", err)
+	if err := invalidPreviousTargetEdge.Validate(); !isWorkflowFieldError(err, "context_source.node_key", WorkflowRequestErrorInvalidValue) {
+		t.Fatalf("invalid previous-target context source error = %#v, want invalid_value on context_source.node_key", err)
 	}
 	invalidSourceEdge := selectedSourceEdge
 	invalidSourceEdge.ContextSource = WorkflowContextSource{Kind: "selected_node", NodeKey: "Bad-Key"}
-	if err := invalidSourceEdge.Validate(); err == nil || !strings.Contains(err.Error(), workflowkey.Description) {
-		t.Fatalf("invalid selected context source error = %v", err)
+	if err := invalidSourceEdge.Validate(); !isWorkflowFieldError(err, "context_source.node_key", WorkflowRequestErrorInvalidKey) {
+		t.Fatalf("invalid selected context source error = %#v, want invalid_key on context_source.node_key", err)
 	}
 	invalidSourceEdge = selectedSourceEdge
 	invalidSourceEdge.ContextSource = WorkflowContextSource{Kind: "other", NodeKey: "implement"}
-	if err := invalidSourceEdge.Validate(); err == nil || !strings.Contains(err.Error(), "context_source.kind") {
-		t.Fatalf("invalid context source kind error = %v", err)
+	if err := invalidSourceEdge.Validate(); !isWorkflowFieldError(err, "context_source.kind", WorkflowRequestErrorInvalidValue) {
+		t.Fatalf("invalid context source kind error = %#v, want invalid_value on context_source.kind", err)
 	}
 }
 
@@ -94,8 +90,8 @@ func TestWorkflowTransitionGroupDescriptionRequestValidation(t *testing.T) {
 	}
 	oversizedAdd := validAdd
 	oversizedAdd.Description = strings.Repeat("x", 1001)
-	if err := oversizedAdd.Validate(); err == nil || !strings.Contains(err.Error(), "<= 1000") {
-		t.Fatalf("oversized transition group add description error = %v", err)
+	if err := oversizedAdd.Validate(); !isWorkflowFieldError(err, "description", WorkflowRequestErrorTooLong) {
+		t.Fatalf("oversized transition group add description error = %#v, want too_long on description", err)
 	}
 
 	validUpdate := WorkflowTransitionGroupUpdateRequest{
@@ -116,8 +112,8 @@ func TestWorkflowTransitionGroupDescriptionRequestValidation(t *testing.T) {
 	}
 	oversizedUpdate := validUpdate
 	oversizedUpdate.Description = strings.Repeat("x", 1001)
-	if err := oversizedUpdate.Validate(); err == nil || !strings.Contains(err.Error(), "<= 1000") {
-		t.Fatalf("oversized transition group update description error = %v", err)
+	if err := oversizedUpdate.Validate(); !isWorkflowFieldError(err, "description", WorkflowRequestErrorTooLong) {
+		t.Fatalf("oversized transition group update description error = %#v, want too_long on description", err)
 	}
 }
 
@@ -125,14 +121,14 @@ func TestWorkflowTaskAndCommentRequestValidation(t *testing.T) {
 	if err := (WorkflowTaskCreateRequest{ProjectID: "project-1", Title: "Task"}).Validate(); err != nil {
 		t.Fatalf("valid task create rejected: %v", err)
 	}
-	if err := (WorkflowTaskCreateRequest{ProjectID: "project-1", Title: "", Body: "Body"}).Validate(); err == nil || !strings.Contains(err.Error(), "title") {
-		t.Fatalf("empty title error = %v", err)
+	if err := (WorkflowTaskCreateRequest{ProjectID: "project-1", Title: "", Body: "Body"}).Validate(); !isWorkflowFieldError(err, "title", WorkflowRequestErrorRequired) {
+		t.Fatalf("empty title error = %#v, want required on title", err)
 	}
 	if err := (WorkflowTaskUpdateRequest{TaskID: "task-1", Title: "Task"}).Validate(); err != nil {
 		t.Fatalf("valid task update rejected: %v", err)
 	}
-	if err := (WorkflowTaskUpdateRequest{TaskID: "task-1", Title: " "}).Validate(); err == nil || !strings.Contains(err.Error(), "title") {
-		t.Fatalf("empty update title error = %v", err)
+	if err := (WorkflowTaskUpdateRequest{TaskID: "task-1", Title: " "}).Validate(); !isWorkflowFieldError(err, "title", WorkflowRequestErrorRequired) {
+		t.Fatalf("empty update title error = %#v, want required on title", err)
 	}
 	if err := (WorkflowTaskStartRequest{TaskID: "task-1"}).Validate(); err != nil {
 		t.Fatalf("valid task start rejected: %v", err)
@@ -143,14 +139,14 @@ func TestWorkflowTaskAndCommentRequestValidation(t *testing.T) {
 	if err := (WorkflowTaskGetRequest{ShortID: "BLD-1"}).Validate(); err != nil {
 		t.Fatalf("valid task get by globally unique short id rejected: %v", err)
 	}
-	if err := (WorkflowTaskGetRequest{ProjectID: "project-1", ShortID: " "}).Validate(); err == nil || !strings.Contains(err.Error(), "short_id") {
-		t.Fatalf("empty get short id error = %v", err)
+	if err := (WorkflowTaskGetRequest{ProjectID: "project-1", ShortID: " "}).Validate(); !isWorkflowFieldError(err, "short_id", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("empty get short id error = %#v, want invalid_mode on short_id", err)
 	}
-	if err := (WorkflowTaskGetRequest{TaskID: " ", ShortID: "BLD-1"}).Validate(); err == nil || !strings.Contains(err.Error(), "task_id") {
-		t.Fatalf("whitespace task id error = %v", err)
+	if err := (WorkflowTaskGetRequest{TaskID: " ", ShortID: "BLD-1"}).Validate(); !isWorkflowFieldError(err, "task_id", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("whitespace task id error = %#v, want invalid_mode on task_id", err)
 	}
-	if err := (WorkflowTaskGetRequest{ProjectID: " ", ShortID: "BLD-1"}).Validate(); err == nil || !strings.Contains(err.Error(), "project_id") {
-		t.Fatalf("whitespace project id error = %v", err)
+	if err := (WorkflowTaskGetRequest{ProjectID: " ", ShortID: "BLD-1"}).Validate(); !isWorkflowFieldError(err, "project_id", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("whitespace project id error = %#v, want invalid_mode on project_id", err)
 	}
 	if err := (WorkflowTaskResumeRequest{TaskID: "task-1"}).Validate(); err != nil {
 		t.Fatalf("valid task resume rejected: %v", err)
@@ -161,8 +157,8 @@ func TestWorkflowTaskAndCommentRequestValidation(t *testing.T) {
 	if err := (WorkflowTaskApproveRequest{TaskTransitionID: "transition-1"}).Validate(); err != nil {
 		t.Fatalf("valid task approval rejected: %v", err)
 	}
-	if err := (WorkflowTaskApproveRequest{}).Validate(); err == nil || !strings.Contains(err.Error(), "transition_id") {
-		t.Fatalf("empty legacy task approval error = %v", err)
+	if err := (WorkflowTaskApproveRequest{}).Validate(); !isWorkflowFieldError(err, "transition_id", WorkflowRequestErrorRequired) {
+		t.Fatalf("empty legacy task approval error = %#v, want required on transition_id", err)
 	}
 	if err := (WorkflowTaskQuestionAnswerRequest{ClientRequestID: "req-1", TaskID: "task-1", AskID: "ask-1", FreeformAnswer: "answer"}).Validate(); err != nil {
 		t.Fatalf("valid task question answer rejected: %v", err)
@@ -170,14 +166,14 @@ func TestWorkflowTaskAndCommentRequestValidation(t *testing.T) {
 	if err := (WorkflowTaskQuestionAnswerRequest{ClientRequestID: "req-1", TaskID: "task-1", AskID: "ask-1", SelectedOptionNumber: 1, FreeformAnswer: "because"}).Validate(); err != nil {
 		t.Fatalf("valid selected option plus freeform rejected: %v", err)
 	}
-	if err := (WorkflowTaskQuestionAnswerRequest{ClientRequestID: "req-1", TaskID: "task-1", AskID: "ask-1", SelectedOptionNumber: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "selected_option_number") {
-		t.Fatalf("negative selected option error = %v", err)
+	if err := (WorkflowTaskQuestionAnswerRequest{ClientRequestID: "req-1", TaskID: "task-1", AskID: "ask-1", SelectedOptionNumber: -1}).Validate(); !isWorkflowFieldError(err, "selected_option_number", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("negative selected option error = %#v, want invalid_mode on selected_option_number", err)
 	}
-	if err := (WorkflowTaskQuestionAnswerRequest{ClientRequestID: "req-1", TaskID: "task-1", AskID: "ask-1", ErrorMessage: "err", FreeformAnswer: "answer"}).Validate(); err == nil || !strings.Contains(err.Error(), "cannot be combined") {
-		t.Fatalf("conflicting task question answer error = %v", err)
+	if err := (WorkflowTaskQuestionAnswerRequest{ClientRequestID: "req-1", TaskID: "task-1", AskID: "ask-1", ErrorMessage: "err", FreeformAnswer: "answer"}).Validate(); !isWorkflowFieldError(err, "error_message", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("conflicting task question answer error = %#v, want invalid_mode on error_message", err)
 	}
-	if err := (WorkflowTaskQuestionAnswerRequest{ClientRequestID: "req-1", TaskID: "task-1", AskID: "ask-1", Answer: "one", FreeformAnswer: "two"}).Validate(); err == nil || !strings.Contains(err.Error(), "cannot be combined") {
-		t.Fatalf("multi-mode task question answer error = %v", err)
+	if err := (WorkflowTaskQuestionAnswerRequest{ClientRequestID: "req-1", TaskID: "task-1", AskID: "ask-1", Answer: "one", FreeformAnswer: "two"}).Validate(); !isWorkflowFieldError(err, "answer", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("multi-mode task question answer error = %#v, want invalid_mode on answer", err)
 	}
 	if err := (WorkflowTaskCommentAddRequest{TaskID: "task-1", Body: "comment", Author: "user"}).Validate(); err != nil {
 		t.Fatalf("valid comment add rejected: %v", err)
@@ -222,8 +218,8 @@ func TestWorkflowValidateRequestValidation(t *testing.T) {
 			t.Fatalf("mode %q rejected: %v", mode, err)
 		}
 	}
-	if err := (WorkflowValidateRequest{WorkflowID: "workflow-1", Mode: "other"}).Validate(); err == nil || !strings.Contains(err.Error(), "mode") {
-		t.Fatalf("invalid mode error = %v", err)
+	if err := (WorkflowValidateRequest{WorkflowID: "workflow-1", Mode: "other"}).Validate(); !isWorkflowFieldError(err, "mode", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("invalid mode error = %#v, want invalid_mode on mode", err)
 	}
 }
 
@@ -240,34 +236,34 @@ func TestWorkflowGraphDraftRequestValidation(t *testing.T) {
 	if err := (WorkflowGraphValidateDraftRequest{WorkflowID: "workflow-1", Metadata: &WorkflowGraphMetadata{Name: "Draft Name", Description: "Draft description"}, Modes: []WorkflowValidationMode{WorkflowValidationModeDraft}}).Validate(); err != nil {
 		t.Fatalf("draft metadata should be accepted for validation: %v", err)
 	}
-	if err := (WorkflowGraphValidateDraftRequest{WorkflowID: "", Modes: []WorkflowValidationMode{WorkflowValidationModeDraft}}).Validate(); err == nil || !strings.Contains(err.Error(), "workflow_id") {
-		t.Fatalf("missing workflow id error = %v", err)
+	if err := (WorkflowGraphValidateDraftRequest{WorkflowID: "", Modes: []WorkflowValidationMode{WorkflowValidationModeDraft}}).Validate(); !isWorkflowFieldError(err, "workflow_id", WorkflowRequestErrorRequired) {
+		t.Fatalf("missing workflow id error = %#v, want required on workflow_id", err)
 	}
-	if err := (WorkflowGraphValidateDraftRequest{WorkflowID: "workflow-1"}).Validate(); err == nil || !strings.Contains(err.Error(), "modes") {
-		t.Fatalf("missing modes error = %v", err)
+	if err := (WorkflowGraphValidateDraftRequest{WorkflowID: "workflow-1"}).Validate(); !isWorkflowFieldError(err, "modes", WorkflowRequestErrorRequired) {
+		t.Fatalf("missing modes error = %#v, want required on modes", err)
 	}
-	if err := (WorkflowGraphValidateDraftRequest{WorkflowID: "workflow-1", Modes: []WorkflowValidationMode{"other"}}).Validate(); err == nil || !strings.Contains(err.Error(), "modes") {
-		t.Fatalf("invalid modes error = %v", err)
+	if err := (WorkflowGraphValidateDraftRequest{WorkflowID: "workflow-1", Modes: []WorkflowValidationMode{"other"}}).Validate(); !isWorkflowFieldError(err, "modes", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("invalid modes error = %#v, want invalid_mode on modes", err)
 	}
 	oversized := WorkflowGraphValidateDraftRequest{
 		WorkflowID: "workflow-1",
 		Modes:      []WorkflowValidationMode{WorkflowValidationModeDraft},
 		Graph:      WorkflowGraphDraft{Nodes: make([]WorkflowGraphDraftNode, WorkflowGraphDraftMaxNodes+1)},
 	}
-	if err := oversized.Validate(); err == nil || !strings.Contains(err.Error(), "nodes") {
-		t.Fatalf("oversized graph draft error = %v", err)
+	if err := oversized.Validate(); !isWorkflowFieldError(err, "graph.nodes", WorkflowRequestErrorTooLong) {
+		t.Fatalf("oversized graph draft error = %#v, want too_long on graph.nodes", err)
 	}
-	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: "workflow-1", ExpectedVersion: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_version") {
-		t.Fatalf("negative preview revision error = %v", err)
+	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: "workflow-1", ExpectedVersion: -1}).Validate(); !isWorkflowFieldError(err, "expected_version", WorkflowRequestErrorInvalidValue) {
+		t.Fatalf("negative preview revision error = %#v, want invalid_value on expected_version", err)
 	}
 	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: "workflow-1", ExpectedVersion: 1, Metadata: &WorkflowGraphMetadata{Name: "Draft Name"}}).Validate(); err != nil {
 		t.Fatalf("metadata preview with expected version rejected: %v", err)
 	}
-	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: "workflow-1", ExpectedVersion: 1, Metadata: &WorkflowGraphMetadata{Name: " Draft Name "}}).Validate(); err == nil || !strings.Contains(err.Error(), "metadata.name") {
-		t.Fatalf("invalid metadata name error = %v", err)
+	if err := (WorkflowGraphSavePreviewRequest{WorkflowID: "workflow-1", ExpectedVersion: 1, Metadata: &WorkflowGraphMetadata{Name: " Draft Name "}}).Validate(); !isWorkflowFieldError(err, "metadata.name", WorkflowRequestErrorInvalidValue) {
+		t.Fatalf("invalid metadata name error = %#v, want invalid_value on metadata.name", err)
 	}
-	if err := (WorkflowGraphSaveRequest{WorkflowID: "workflow-1", ExpectedVersion: 1, Confirmation: &WorkflowGraphSaveConfirmation{ExpectedRemovedNodeCount: -1}}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_removed_node_count") {
-		t.Fatalf("negative graph save confirmation error = %v", err)
+	if err := (WorkflowGraphSaveRequest{WorkflowID: "workflow-1", ExpectedVersion: 1, Confirmation: &WorkflowGraphSaveConfirmation{ExpectedRemovedNodeCount: -1}}).Validate(); !isWorkflowFieldError(err, "expected_removed_node_count", WorkflowRequestErrorInvalidValue) {
+		t.Fatalf("negative graph save confirmation error = %#v, want invalid_value on expected_removed_node_count", err)
 	}
 }
 
@@ -278,8 +274,8 @@ func TestWorkflowProjectLinkRequestValidation(t *testing.T) {
 	if err := (WorkflowLinkProjectRequest{ProjectID: "project-1", WorkflowID: "workflow-1", DefaultPolicy: WorkflowProjectLinkDefaultIfProjectHasNone}).Validate(); err != nil {
 		t.Fatalf("valid link default policy rejected: %v", err)
 	}
-	if err := (WorkflowLinkProjectRequest{ProjectID: "project-1", WorkflowID: "workflow-1", DefaultPolicy: "sometimes"}).Validate(); err == nil || !strings.Contains(err.Error(), "default_policy") {
-		t.Fatalf("invalid link default policy error = %v", err)
+	if err := (WorkflowLinkProjectRequest{ProjectID: "project-1", WorkflowID: "workflow-1", DefaultPolicy: "sometimes"}).Validate(); !isWorkflowFieldError(err, "default_policy", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("invalid link default policy error = %#v, want invalid_mode on default_policy", err)
 	}
 	if err := (WorkflowCreateAndLinkProjectRequest{Name: "Workflow", ProjectID: "project-1", DefaultPolicy: WorkflowProjectLinkDefaultIfProjectHasNone}).Validate(); err != nil {
 		t.Fatalf("valid create and link request rejected: %v", err)
@@ -290,20 +286,20 @@ func TestWorkflowProjectLinkRequestValidation(t *testing.T) {
 	if err := (WorkflowListRequest{PageSize: 20, PageToken: "10", Query: "agent"}).Validate(); err != nil {
 		t.Fatalf("valid workflow list request rejected: %v", err)
 	}
-	if err := (WorkflowListRequest{PageSize: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "page_size") {
-		t.Fatalf("invalid page size error = %v", err)
+	if err := (WorkflowListRequest{PageSize: -1}).Validate(); !isWorkflowFieldError(err, "page_size", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("invalid page size error = %#v, want invalid_mode on page_size", err)
 	}
-	if err := (WorkflowListRequest{PageSize: WorkflowListMaxPageSize + 1}).Validate(); err == nil || !strings.Contains(err.Error(), "page_size") {
-		t.Fatalf("oversized page size error = %v", err)
+	if err := (WorkflowListRequest{PageSize: WorkflowListMaxPageSize + 1}).Validate(); !isWorkflowFieldError(err, "page_size", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("oversized page size error = %#v, want invalid_mode on page_size", err)
 	}
-	if err := (WorkflowListRequest{PageToken: " 10"}).Validate(); err == nil || !strings.Contains(err.Error(), "page_token") {
-		t.Fatalf("invalid page token error = %v", err)
+	if err := (WorkflowListRequest{PageToken: " 10"}).Validate(); !isWorkflowFieldError(err, "page_token", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("invalid page token error = %#v, want invalid_mode on page_token", err)
 	}
 	if err := (WorkflowSetDefaultProjectLinkRequest{ProjectID: "project-1", WorkflowID: "workflow-1"}).Validate(); err != nil {
 		t.Fatalf("valid set default request rejected: %v", err)
 	}
-	if err := (WorkflowSetDefaultProjectLinkRequest{ProjectID: "", WorkflowID: "workflow-1"}).Validate(); err == nil || !strings.Contains(err.Error(), "project_id") {
-		t.Fatalf("empty project id error = %v", err)
+	if err := (WorkflowSetDefaultProjectLinkRequest{ProjectID: "", WorkflowID: "workflow-1"}).Validate(); !isWorkflowFieldError(err, "project_id", WorkflowRequestErrorRequired) {
+		t.Fatalf("empty project id error = %#v, want required on project_id", err)
 	}
 }
 
@@ -311,8 +307,8 @@ func TestWorkflowDeleteRequestValidation(t *testing.T) {
 	if err := (WorkflowDeletePreviewRequest{WorkflowID: "workflow-1"}).Validate(); err != nil {
 		t.Fatalf("valid delete preview rejected: %v", err)
 	}
-	if err := (WorkflowDeletePreviewRequest{}).Validate(); err == nil || !strings.Contains(err.Error(), "workflow_id") {
-		t.Fatalf("empty delete preview workflow id error = %v", err)
+	if err := (WorkflowDeletePreviewRequest{}).Validate(); !isWorkflowFieldError(err, "workflow_id", WorkflowRequestErrorRequired) {
+		t.Fatalf("empty delete preview workflow id error = %#v, want required on workflow_id", err)
 	}
 	if err := (WorkflowDeleteRequest{
 		WorkflowID:           "workflow-1",
@@ -324,19 +320,19 @@ func TestWorkflowDeleteRequestValidation(t *testing.T) {
 	}).Validate(); err != nil {
 		t.Fatalf("valid delete request rejected: %v", err)
 	}
-	if err := (WorkflowDeleteRequest{}).Validate(); err == nil || !strings.Contains(err.Error(), "workflow_id") {
-		t.Fatalf("empty delete workflow id error = %v", err)
+	if err := (WorkflowDeleteRequest{}).Validate(); !isWorkflowFieldError(err, "workflow_id", WorkflowRequestErrorRequired) {
+		t.Fatalf("empty delete workflow id error = %#v, want required on workflow_id", err)
 	}
-	if err := (WorkflowDeleteRequest{WorkflowID: "workflow-1", ExpectedVersion: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_version") {
-		t.Fatalf("negative graph revision error = %v", err)
+	if err := (WorkflowDeleteRequest{WorkflowID: "workflow-1", ExpectedVersion: -1}).Validate(); !isWorkflowFieldError(err, "expected_version", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("negative graph revision error = %#v, want invalid_mode on expected_version", err)
 	}
-	if err := (WorkflowDeleteRequest{WorkflowID: "workflow-1", ExpectedProjectCount: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_project_count") {
-		t.Fatalf("negative project count error = %v", err)
+	if err := (WorkflowDeleteRequest{WorkflowID: "workflow-1", ExpectedProjectCount: -1}).Validate(); !isWorkflowFieldError(err, "expected_project_count", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("negative project count error = %#v, want invalid_mode on expected_project_count", err)
 	}
-	if err := (WorkflowDeleteRequest{WorkflowID: "workflow-1", ExpectedLinkCount: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_link_count") {
-		t.Fatalf("negative link count error = %v", err)
+	if err := (WorkflowDeleteRequest{WorkflowID: "workflow-1", ExpectedLinkCount: -1}).Validate(); !isWorkflowFieldError(err, "expected_link_count", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("negative link count error = %#v, want invalid_mode on expected_link_count", err)
 	}
-	if err := (WorkflowDeleteRequest{WorkflowID: "workflow-1", ExpectedTaskCount: -1}).Validate(); err == nil || !strings.Contains(err.Error(), "expected_task_count") {
-		t.Fatalf("negative task count error = %v", err)
+	if err := (WorkflowDeleteRequest{WorkflowID: "workflow-1", ExpectedTaskCount: -1}).Validate(); !isWorkflowFieldError(err, "expected_task_count", WorkflowRequestErrorInvalidMode) {
+		t.Fatalf("negative task count error = %#v, want invalid_mode on expected_task_count", err)
 	}
 }

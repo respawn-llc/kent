@@ -1,7 +1,7 @@
 package serverapi
 
 import (
-	"strings"
+	"errors"
 	"testing"
 )
 
@@ -12,7 +12,7 @@ func TestAuthCompleteBootstrapRequestValidateRequiresOAuthStateForBrowserCallbac
 		RedirectURI:       "http://localhost/callback",
 		OAuthCodeVerifier: "verifier",
 	}.Validate()
-	if err == nil || !strings.Contains(err.Error(), "oauth_state is required") {
-		t.Fatalf("Validate error = %v, want oauth_state is required", err)
+	if !errors.Is(err, ErrAuthBootstrapOAuthStateRequired) {
+		t.Fatalf("Validate error = %v, want ErrAuthBootstrapOAuthStateRequired", err)
 	}
 }

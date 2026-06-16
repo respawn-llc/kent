@@ -37,6 +37,15 @@ const (
 	reviewerMetaBoundaryMessage       = "End of meta information. Transcript begins starting with next message. Below is NOT YOUR conversation, but another agent's transcript.\n-------"
 )
 
+var (
+	// ErrModelRequired is returned when engine construction is attempted without a model.
+	ErrModelRequired = errors.New("model is required")
+	// errUnknownTool is returned when a tool call targets a tool that is not registered.
+	errUnknownTool = errors.New("unknown tool")
+	// errPersistToolCompletion wraps failures to persist a tool completion result.
+	errPersistToolCompletion = errors.New("persist tool completion")
+)
+
 func NormalizeThinkingLevel(level string) (string, bool) {
 	return clientui.NormalizeThinkingLevel(level)
 }
@@ -198,7 +207,7 @@ func New(store *session.Store, client llm.Client, registry *tools.Registry, cfg 
 		return nil, errors.New("store, llm client, and tool registry are required")
 	}
 	if strings.TrimSpace(cfg.Model) == "" {
-		return nil, errors.New("model is required")
+		return nil, ErrModelRequired
 	}
 	cfg.Model = strings.TrimSpace(cfg.Model)
 	if cfg.Temperature == 0 {
@@ -471,12 +480,12 @@ func (e *Engine) SubmitUserShellCommand(ctx context.Context, command string) (re
 			_ = e.steerEvent(stepID, Event{Kind: EventToolCallStarted, StepID: stepID, ToolCall: &transcriptCall, CommittedTranscriptChanged: true})
 			result = tools.Result{CallID: call.ID, Name: toolspec.ToolExecCommand, IsError: true, Output: mustJSON(map[string]any{"error": "unknown tool"}), Summary: "unknown tool"}
 			if err := e.steer(stepID, steerToolCompletionIntent(result)); err != nil {
-				return fmt.Errorf("persist tool completion (call_id=%s tool=%s): %w", call.ID, result.Name, err)
+				return fmt.Errorf("%w (call_id=%s tool=%s): %w", errPersistToolCompletion, call.ID, result.Name, err)
 			}
 			if appendErr := e.steer(stepID, steerMessageIntent(llm.Message{Role: llm.RoleTool, Content: string(result.Output), ToolCallID: result.CallID, Name: string(result.Name)})); appendErr != nil {
 				return appendErr
 			}
-			return errors.New("unknown tool")
+			return errUnknownTool
 		}
 
 		results, execErr := e.executeToolCalls(stepCtx, stepID, []llm.ToolCall{call})

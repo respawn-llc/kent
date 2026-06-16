@@ -3,6 +3,7 @@ package config
 import (
 	"core/shared/brand"
 	"core/shared/toolspec"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -212,7 +213,7 @@ model_context_window = -1
 	if err == nil {
 		t.Fatal("expected negative reviewer.model_context_window to fail")
 	}
-	if !strings.Contains(err.Error(), "reviewer.model_context_window must be >= 0") {
+	if !errors.Is(err, errReviewerContextWindowNegative) {
 		t.Fatalf("expected reviewer.model_context_window validation error, got %v", err)
 	}
 }
@@ -438,7 +439,7 @@ func TestLoadProviderOverrideRequiresExplicitModelOverride(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected provider_override without model override to fail")
 	}
-	if !strings.Contains(err.Error(), "provider_override requires an explicit model override") {
+	if !errors.Is(err, errProviderOverrideRequiresModel) {
 		t.Fatalf("expected provider_override/model override validation error, got %v", err)
 	}
 }
@@ -448,7 +449,7 @@ func TestLoadProviderOverrideRejectsUnsupportedProviderFamily(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid provider_override to fail")
 	}
-	if !strings.Contains(err.Error(), "invalid provider_override") {
+	if !errors.Is(err, errInvalidProviderOverride) {
 		t.Fatalf("expected invalid provider_override validation error, got %v", err)
 	}
 }
@@ -458,7 +459,7 @@ func TestLoadProviderOverrideRejectsOpenAIBaseURLConflict(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected provider_override/openai_base_url conflict to fail")
 	}
-	if !strings.Contains(err.Error(), "conflicts with openai_base_url") {
+	if !errors.Is(err, errOpenAIBaseURLConflict) {
 		t.Fatalf("expected provider_override/openai_base_url conflict error, got %v", err)
 	}
 }
@@ -485,7 +486,7 @@ func TestLoadCapabilityOverridesRequireProviderID(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error when provider capability override is set without provider_id")
 	}
-	if !strings.Contains(err.Error(), "provider_capabilities.provider_id") {
+	if !errors.Is(err, errProviderCapabilitiesNeedID) {
 		t.Fatalf("expected provider_id validation error, got %v", err)
 	}
 }
@@ -498,7 +499,7 @@ func TestLoadRequestInputTokenCountCapabilityRequiresProviderID(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error when request input token count capability override is set without provider_id")
 	}
-	if !strings.Contains(err.Error(), "provider_capabilities.provider_id") {
+	if !errors.Is(err, errProviderCapabilitiesNeedID) {
 		t.Fatalf("expected provider_id validation error, got %v", err)
 	}
 }
@@ -528,7 +529,7 @@ func TestLoadRejectsInvalidModelVerbosityFromFile(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for invalid model_verbosity")
 	}
-	if !strings.Contains(err.Error(), "model_verbosity") {
+	if !errors.Is(err, errInvalidModelVerbosity) {
 		t.Fatalf("expected model_verbosity validation error, got %v", err)
 	}
 }
@@ -685,7 +686,7 @@ verbose_output = true
 	t.Setenv("KENT_REVIEWER_FREQUENCY", "all")
 	t.Setenv("KENT_REVIEWER_PROVIDER_OVERRIDE", "bogus")
 	t.Setenv("KENT_REVIEWER_OPENAI_BASE_URL", "")
-	if _, err := Load(workspace, LoadOptions{}); err == nil || !strings.Contains(err.Error(), "invalid reviewer.provider_override") {
+	if _, err := Load(workspace, LoadOptions{}); !errors.Is(err, errInvalidReviewerProvider) {
 		t.Fatalf("expected invalid reviewer provider error, got %v", err)
 	}
 }
@@ -759,8 +760,11 @@ func TestLoadSkillTogglesFromFile(t *testing.T) {
 func TestLoadRejectsNonBooleanSkillToggle(t *testing.T) {
 	if err := loadConfigTestFileError(t, "[skills]\napiresult = \"off\"\n", LoadOptions{}); err == nil {
 		t.Fatal("expected invalid skills type error")
-	} else if !strings.Contains(err.Error(), "skills.apiresult") {
-		t.Fatalf("expected skills.apiresult in error, got %v", err)
+	} else {
+		var typeErr *SettingsKeyTypeError
+		if !errors.As(err, &typeErr) || typeErr.Key != "skills.apiresult" {
+			t.Fatalf("expected skills.apiresult type error, got %v", err)
+		}
 	}
 }
 
@@ -768,10 +772,10 @@ func TestLoadRejectsDuplicateNormalizedSkillToggleKeys(t *testing.T) {
 	if err := loadConfigTestFileError(t, "[skills]\nApiResult = false\napiresult = true\n", LoadOptions{}); err == nil {
 		t.Fatal("expected duplicate normalized skills key error")
 	} else {
-		for _, want := range []string{"ApiResult", "apiresult", "both normalize to"} {
-			if !strings.Contains(err.Error(), want) {
-				t.Fatalf("expected %q in error, got %v", want, err)
-			}
+		var dupErr *DuplicateSettingsKeysError
+		if !errors.As(err, &dupErr) || dupErr.Scope != "skills" ||
+			dupErr.KeyA != "ApiResult" || dupErr.KeyB != "apiresult" || dupErr.Normalized != "apiresult" {
+			t.Fatalf("expected duplicate skills key error, got %v", err)
 		}
 	}
 }
@@ -858,7 +862,7 @@ auth = "none"
 }
 
 func TestLoadRejectsRemovedTUIAlternateScreenSetting(t *testing.T) {
-	if err := loadConfigTestFileError(t, "tui_alternate_screen = \"always\"\n", LoadOptions{}); err == nil || !strings.Contains(err.Error(), "tui_alternate_screen") {
+	if err := loadConfigTestFileError(t, "tui_alternate_screen = \"always\"\n", LoadOptions{}); !unknownSettingsKeyReported(err, "tui_alternate_screen") {
 		t.Fatalf("expected removed tui_alternate_screen setting error, got %v", err)
 	}
 }

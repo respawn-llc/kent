@@ -15,6 +15,9 @@ import (
 
 var errExclusiveStepBusy = errors.New("agent is busy")
 
+// errMarkInFlightFalse wraps failures to clear the in-flight marker at step end.
+var errMarkInFlightFalse = errors.New("mark in-flight false")
+
 type defaultExclusiveStepLifecycle struct {
 	engine     *Engine
 	background backgroundNoticeScheduler
@@ -49,7 +52,7 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 				}); persistErr != nil {
 					s.end()
 					if clearErr := s.engine.store.MarkInFlight(false); clearErr != nil {
-						persistErr = errors.Join(persistErr, fmt.Errorf("mark in-flight false: %w", clearErr))
+						persistErr = errors.Join(persistErr, fmt.Errorf("%w: %w", errMarkInFlightFalse, clearErr))
 					}
 					return persistErr
 				}
@@ -102,7 +105,7 @@ func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusi
 			}
 		}
 		if clearErr := s.engine.store.MarkInFlight(false); clearErr != nil {
-			wrapped := fmt.Errorf("mark in-flight false: %w", clearErr)
+			wrapped := fmt.Errorf("%w: %w", errMarkInFlightFalse, clearErr)
 			_ = s.engine.steerEvent(stepID, Event{Kind: EventInFlightClearFailed, StepID: stepID, Error: wrapped.Error()})
 			err = errors.Join(err, wrapped)
 		} else {
