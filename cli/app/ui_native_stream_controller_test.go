@@ -134,6 +134,52 @@ func TestNativeAssistantStreamControllerResizeInvalidatesFurtherPromotion(t *tes
 	}
 }
 
+func TestNativeAssistantStreamControllerReRenderShorterThanCommittedDoesNotPanic(t *testing.T) {
+	controller := newNativeAssistantStreamController("dark", 24)
+
+	// Promote a wrapped paragraph as several stable lines at a narrow width.
+	controller.Append("This is a fairly long paragraph that wraps across several lines.\n\n")
+	if controller.enqueuedStableLineCount < 2 {
+		t.Fatalf("expected wrapped paragraph to promote multiple stable lines, got %d", controller.enqueuedStableLineCount)
+	}
+
+	// Re-render the same source at a wider layout so it unwraps into fewer lines
+	// than were already committed to scrollback. This models a pane-width change
+	// such as toggling detail mode, not just a terminal resize.
+	controller.Configure(controller.theme, 400)
+	if got := len(controller.rendered); got >= controller.enqueuedStableLineCount {
+		t.Fatalf("expected widened re-render to produce fewer lines than committed, rendered %d committed %d", got, controller.enqueuedStableLineCount)
+	}
+
+	// Finalizing while the re-render is shorter than the committed count must
+	// not slice past the rendered output, and must not retract committed lines.
+	final := controller.Finalize()
+	if got := len(final.stable); got != 0 {
+		t.Fatalf("expected no stable promotion when re-render shrank below committed count, got %#v", final.stable)
+	}
+	if final.tail != nil {
+		t.Fatalf("expected finalize to clear the live tail, got %#v", final.tail)
+	}
+}
+
+func TestNativeAssistantStreamControllerApplySourceShorterThanCommittedDoesNotPanic(t *testing.T) {
+	controller := newNativeAssistantStreamController("dark", 24)
+
+	// Promote wrapped lines at a narrow width via the streaming sync entry point.
+	controller.ApplySource("This is a fairly long paragraph that wraps across several lines.\n\n", "dark", 24)
+	if controller.enqueuedStableLineCount < 2 {
+		t.Fatalf("expected wrapped paragraph to promote multiple stable lines, got %d", controller.enqueuedStableLineCount)
+	}
+
+	// Re-applying the prefix-continuation source at a wider width (e.g. on a
+	// detail-mode toggle) re-renders into fewer lines than already committed and
+	// must not panic.
+	update := controller.ApplySource("This is a fairly long paragraph that wraps across several lines.\n\n", "dark", 400)
+	if got := len(update.stable); got != 0 {
+		t.Fatalf("expected no stable promotion when re-render shrank below committed count, got %#v", update.stable)
+	}
+}
+
 func joinedPlainProjectionLines(lines []tui.TranscriptProjectionLine) string {
 	parts := make([]string, 0, len(lines))
 	for _, line := range lines {

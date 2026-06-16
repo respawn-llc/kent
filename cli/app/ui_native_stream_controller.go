@@ -79,13 +79,20 @@ func (c *nativeAssistantStreamController) Configure(theme string, width int) {
 }
 
 func (c *nativeAssistantStreamController) updateForStableTarget(stableTarget int, done bool) nativeAssistantStreamUpdate {
+	renderedLen := len(c.rendered)
 	if c.invalidatedByResize && !done {
 		stableTarget = c.enqueuedStableLineCount
 	}
-	stableTarget = clampNativeStreamLineCount(stableTarget, c.enqueuedStableLineCount, len(c.rendered))
-	stable := cloneNativeStreamProjectionLines(c.rendered[c.enqueuedStableLineCount:stableTarget])
-	c.enqueuedStableLineCount = stableTarget
-	tail := cloneNativeStreamProjectionLines(c.rendered[c.enqueuedStableLineCount:])
+	// Already-committed scrollback lines are immutable: never retract or re-emit
+	// them. A re-render (notably after a width change that unwraps lines) can
+	// yield fewer lines than were already committed during incremental
+	// streaming, so clamp the slice bounds to the rendered length to avoid
+	// slicing with a low bound past the slice end.
+	committed := min(c.enqueuedStableLineCount, renderedLen)
+	stableTarget = clampNativeStreamLineCount(stableTarget, committed, renderedLen)
+	stable := cloneNativeStreamProjectionLines(c.rendered[committed:stableTarget])
+	c.enqueuedStableLineCount = max(c.enqueuedStableLineCount, stableTarget)
+	tail := cloneNativeStreamProjectionLines(c.rendered[min(c.enqueuedStableLineCount, renderedLen):])
 	if c.invalidatedByResize {
 		tail = cloneNativeStreamProjectionLines(c.rendered)
 	}
