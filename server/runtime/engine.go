@@ -581,6 +581,55 @@ func (e *Engine) generateWithRetry(ctx context.Context, stepID string, req llm.R
 	return e.generateWithRetryClient(ctx, stepID, e.llm, req, onDelta, onReasoningDelta, onAttemptReset)
 }
 
+func (e *Engine) generateWithHTTP400Repair(ctx context.Context, stepID string, rebuild func() (llm.Request, error), onDelta func(string), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
+	return e.generateWithHTTP400RepairClient(ctx, stepID, e.llm, rebuild, onDelta, onReasoningDelta, onAttemptReset)
+}
+
+func (e *Engine) generateWithHTTP400RepairClient(ctx context.Context, stepID string, client llm.Client, rebuild func() (llm.Request, error), onDelta func(string), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
+	for {
+		req, err := rebuild()
+		if err != nil {
+			return llm.Response{}, err
+		}
+		emitted := false
+		wrappedDelta := onDelta
+		if onDelta != nil {
+			wrappedDelta = func(delta string) {
+				if delta != "" {
+					emitted = true
+				}
+				onDelta(delta)
+			}
+		}
+		wrappedReasoningDelta := onReasoningDelta
+		if onReasoningDelta != nil {
+			wrappedReasoningDelta = func(delta llm.ReasoningSummaryDelta) {
+				if strings.TrimSpace(delta.Text) != "" {
+					emitted = true
+				}
+				onReasoningDelta(delta)
+			}
+		}
+		resp, err := e.generateWithRetryClient(ctx, stepID, client, req, wrappedDelta, wrappedReasoningDelta, onAttemptReset)
+		if err == nil {
+			return resp, nil
+		}
+		if !llm.HasHTTPStatus(err, 400) {
+			return llm.Response{}, err
+		}
+		if emitted && onAttemptReset != nil {
+			onAttemptReset()
+		}
+		repair, _, repairErr := e.repairMissingToolOutputsAfterHTTP400(stepID)
+		if repairErr != nil {
+			return llm.Response{}, errors.Join(err, repairErr)
+		}
+		if !repair.Changed || repair.RemovedCalls == 0 {
+			return llm.Response{}, err
+		}
+	}
+}
+
 func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client llm.Client, req llm.Request, onDelta func(string), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
 	prepared, err := e.modelRequests().RequestCache().Prepare(req)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -350,6 +351,127 @@ func writeEventsFile(path string, events []Event) error {
 		return fmt.Errorf("replace events file: %w", err)
 	}
 	return nil
+}
+
+type rewriteEventsFileStats struct {
+	changed      bool
+	totalBytes   int64
+	lastSequence int64
+	eventCount   int
+	freshness    ConversationFreshness
+}
+
+func rewriteEventsFileStreaming(
+	path string,
+	transform func(Event) (EventRewriteDecision, error),
+	appended []Event,
+) (rewriteEventsFileStats, error) {
+	source, err := openRegularSessionFile(path, "events file")
+	if err != nil {
+		return rewriteEventsFileStats{}, fmt.Errorf("open events file: %w", err)
+	}
+	defer source.Close()
+
+	tmp := path + ".tmp"
+	target, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return rewriteEventsFileStats{}, fmt.Errorf("open events tmp file: %w", err)
+	}
+	replace := false
+	defer func() {
+		_ = target.Close()
+		if !replace {
+			_ = os.Remove(tmp)
+		}
+	}()
+
+	stats := rewriteEventsFileStats{freshness: ConversationFreshnessFresh}
+	reader := bufio.NewReader(source)
+	for {
+		line, readErr := reader.ReadString('\n')
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			var original Event
+			if err := json.Unmarshal([]byte(trimmed), &original); err != nil {
+				if errors.Is(readErr, io.EOF) && !strings.HasSuffix(line, "\n") {
+					break
+				}
+				return rewriteEventsFileStats{}, fmt.Errorf("parse event line: %w", err)
+			}
+			decision := EventRewriteDecision{Event: original}
+			if transform != nil {
+				var err error
+				decision, err = transform(original)
+				if err != nil {
+					return rewriteEventsFileStats{}, err
+				}
+			}
+			if decision.Drop {
+				stats.changed = true
+			} else {
+				if !eventsEquivalent(original, decision.Event) {
+					stats.changed = true
+				}
+				written, err := writeEventLine(target, decision.Event)
+				if err != nil {
+					return rewriteEventsFileStats{}, err
+				}
+				stats.totalBytes += int64(written)
+				stats.eventCount++
+				if decision.Event.Seq > stats.lastSequence {
+					stats.lastSequence = decision.Event.Seq
+				}
+				stats.freshness = advanceConversationFreshness(stats.freshness, decision.Event)
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return rewriteEventsFileStats{}, fmt.Errorf("read events line: %w", readErr)
+		}
+	}
+	for _, event := range appended {
+		stats.changed = true
+		written, err := writeEventLine(target, event)
+		if err != nil {
+			return rewriteEventsFileStats{}, err
+		}
+		stats.totalBytes += int64(written)
+		stats.eventCount++
+		if event.Seq > stats.lastSequence {
+			stats.lastSequence = event.Seq
+		}
+		stats.freshness = advanceConversationFreshness(stats.freshness, event)
+	}
+	if !stats.changed {
+		return stats, nil
+	}
+	if err := target.Close(); err != nil {
+		return rewriteEventsFileStats{}, fmt.Errorf("close events tmp file: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return rewriteEventsFileStats{}, fmt.Errorf("replace events file: %w", err)
+	}
+	replace = true
+	return stats, nil
+}
+
+func writeEventLine(fp *os.File, event Event) (int, error) {
+	line, err := json.Marshal(event)
+	if err != nil {
+		return 0, fmt.Errorf("marshal event line: %w", err)
+	}
+	line = append(line, '\n')
+	return writeAll(fp, line)
+}
+
+func eventsEquivalent(left, right Event) bool {
+	return left.Seq == right.Seq &&
+		left.Timestamp.Equal(right.Timestamp) &&
+		left.Kind == right.Kind &&
+		left.StepID == right.StepID &&
+		reflect.DeepEqual(left.Payload, right.Payload)
 }
 
 func computeEventsJSONLSize(events []Event) int64 {

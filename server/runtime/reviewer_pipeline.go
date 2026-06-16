@@ -109,11 +109,13 @@ func (r *defaultReviewerPipeline) RunSuggestions(ctx context.Context, stepID str
 	if reviewerClient == nil {
 		return reviewerSuggestionsResult{}, nil
 	}
-	req, err := e.buildReviewerRequest(ctx, reviewerClient)
-	if err != nil {
-		return reviewerSuggestionsResult{}, fmt.Errorf("build reviewer request: %w", err)
-	}
-	resp, err := e.generateWithRetryClient(ctx, stepID, reviewerClient, req, nil, nil, nil)
+	resp, err := e.generateWithHTTP400RepairClient(ctx, stepID, reviewerClient, func() (llm.Request, error) {
+		req, err := e.buildReviewerRequest(ctx, reviewerClient)
+		if err != nil {
+			return llm.Request{}, fmt.Errorf("build reviewer request: %w", err)
+		}
+		return req, nil
+	}, nil, nil, nil)
 	if err != nil {
 		return reviewerSuggestionsResult{}, err
 	}

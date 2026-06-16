@@ -94,6 +94,66 @@ func TestIsContextLengthOverflowError(t *testing.T) {
 	}
 }
 
+func TestHasHTTPStatus(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		statusCode int
+		want       bool
+	}{
+		{
+			name:       "provider api error matching status",
+			err:        &ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: UnifiedErrorCodeUnknown},
+			statusCode: 400,
+			want:       true,
+		},
+		{
+			name:       "wrapped provider api error matching status",
+			err:        fmt.Errorf("request failed: %w", &ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: UnifiedErrorCodeUnknown}),
+			statusCode: 400,
+			want:       true,
+		},
+		{
+			name:       "legacy api status error matching status",
+			err:        &APIStatusError{StatusCode: 400, Body: "bad request"},
+			statusCode: 400,
+			want:       true,
+		},
+		{
+			name:       "wrapped legacy api status error matching status",
+			err:        fmt.Errorf("request failed: %w", &APIStatusError{StatusCode: 400, Body: "bad request"}),
+			statusCode: 400,
+			want:       true,
+		},
+		{
+			name:       "provider api error different status",
+			err:        &ProviderAPIError{ProviderID: "openai", StatusCode: 429, Code: UnifiedErrorCodeUnknown},
+			statusCode: 400,
+			want:       false,
+		},
+		{
+			name:       "legacy api status error different status",
+			err:        &APIStatusError{StatusCode: 500, Body: "server error"},
+			statusCode: 400,
+			want:       false,
+		},
+		{
+			name:       "nil",
+			err:        nil,
+			statusCode: 400,
+			want:       false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := HasHTTPStatus(tc.err, tc.statusCode); got != tc.want {
+				t.Fatalf("HasHTTPStatus() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestUserFacingError(t *testing.T) {
 	if got := UserFacingError(&ProviderSelectionError{Model: "my-model", Err: ErrUnsupportedProvider}); got == "" || !containsAll(got, []string{"provider/auth path", "provider_override", "openai_base_url"}) {
 		t.Fatalf("expected provider selection warning, got %q", got)

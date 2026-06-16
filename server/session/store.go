@@ -750,6 +750,107 @@ type EventInput struct {
 	Payload any
 }
 
+type EventRewriteDecision struct {
+	Event Event
+	Drop  bool
+}
+
+type EventRewriteResult struct {
+	Changed         bool
+	LastSequence    int64
+	OldLastSequence int64
+	EventCount      int
+	AppendedEvents  []Event
+}
+
+func (s *Store) AnalyzeAndRewriteEvents(
+	stepID string,
+	analyze func(Event) error,
+	transform func(Event) (EventRewriteDecision, error),
+	extraEvents func() ([]EventInput, error),
+) (EventRewriteResult, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.persisted {
+		return EventRewriteResult{}, false, nil
+	}
+	parsed, err := walkEventsFile(s.eventsFP, analyze)
+	if err != nil {
+		return EventRewriteResult{}, false, err
+	}
+	result := EventRewriteResult{OldLastSequence: parsed.lastSequence, LastSequence: parsed.lastSequence}
+	inputs, err := buildExtraRewriteEventInputs(extraEvents)
+	if err != nil {
+		return result, false, err
+	}
+	now := storeTimestamp(s.options)
+	appended, err := s.buildRewriteExtraEventsLocked(stepID, parsed.lastSequence, inputs, now)
+	if err != nil {
+		return result, false, err
+	}
+	result.AppendedEvents = appended
+	stats, err := rewriteEventsFileStreaming(s.eventsFP, transform, appended)
+	if err != nil {
+		return result, false, err
+	}
+	result.Changed = stats.changed
+	result.EventCount = stats.eventCount
+	if stats.lastSequence < parsed.lastSequence {
+		stats.lastSequence = parsed.lastSequence
+	}
+	result.LastSequence = stats.lastSequence
+	if !stats.changed {
+		return result, false, nil
+	}
+	s.eventsFileSizeBytes = stats.totalBytes
+	s.pendingFsyncWrites = 0
+	s.writesSinceCompaction = 0
+	s.conversationFreshness = stats.freshness
+	s.meta.LastSequence = stats.lastSequence
+	s.meta.UpdatedAt = now
+	observation, metaErr := s.persistMetaLocked()
+	committed := true
+	if metaErr != nil {
+		return result, committed, metaErr
+	}
+	s.mu.Unlock()
+	observeErr := s.observePersistence(observation)
+	s.mu.Lock()
+	if observeErr != nil {
+		return result, committed, observeErr
+	}
+	return result, committed, nil
+}
+
+func buildExtraRewriteEventInputs(extraEvents func() ([]EventInput, error)) ([]EventInput, error) {
+	if extraEvents == nil {
+		return nil, nil
+	}
+	return extraEvents()
+}
+
+func (s *Store) buildRewriteExtraEventsLocked(stepID string, sequence int64, inputs []EventInput, now time.Time) ([]Event, error) {
+	if len(inputs) == 0 {
+		return nil, nil
+	}
+	out := make([]Event, 0, len(inputs))
+	for _, in := range inputs {
+		body, err := json.Marshal(in.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("marshal event payload: %w", err)
+		}
+		sequence++
+		out = append(out, Event{
+			Seq:       sequence,
+			Timestamp: now,
+			Kind:      in.Kind,
+			StepID:    strings.TrimSpace(stepID),
+			Payload:   body,
+		})
+	}
+	return out, nil
+}
+
 func (s *Store) ReadEvents() ([]Event, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

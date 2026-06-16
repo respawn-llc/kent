@@ -53,6 +53,15 @@ func (s *transcriptRuntimeState) chatProjection() *chatStore {
 	return s.chat
 }
 
+func (s *transcriptRuntimeState) replaceChatProjection(chat *chatStore) {
+	if s == nil || chat == nil {
+		return
+	}
+	s.mu.Lock()
+	s.chat = chat
+	s.mu.Unlock()
+}
+
 func (s *transcriptRuntimeState) SnapshotMessages() []llm.Message {
 	if chat := s.chatProjection(); chat != nil {
 		return chat.snapshotMessages()

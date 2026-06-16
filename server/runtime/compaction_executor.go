@@ -82,6 +82,16 @@ func (e *Engine) compactWithContextRepairRetry(
 		if err == nil {
 			return resp, currentInput, repairStats, nil
 		}
+		if llm.HasHTTPStatus(err, 400) {
+			repair, _, repairErr := e.repairMissingToolOutputsAfterHTTP400(stepID)
+			if repairErr != nil {
+				return llm.CompactionResponse{}, nil, repairStats, errors.Join(err, repairErr)
+			}
+			if repair.Changed && repair.RemovedCalls > 0 {
+				currentInput = e.snapshotItems()
+				continue
+			}
+		}
 		if !llm.IsContextLengthOverflowError(err) || attempt == len(compactionOverflowRepairTargetPercents) {
 			return llm.CompactionResponse{}, nil, repairStats, err
 		}
@@ -234,6 +244,16 @@ func (e *Engine) localCompactionSummaryWithRepair(ctx context.Context, input []l
 		summary, err := e.localCompactionSummaryFromWindow(ctx, locked, systemPrompt, window, instructions, requestTools, mode)
 		if err == nil {
 			return summary, repairStats, nil
+		}
+		if llm.HasHTTPStatus(err, 400) {
+			repair, _, repairErr := e.repairMissingToolOutputsAfterHTTP400("")
+			if repairErr != nil {
+				return "", repairStats, errors.Join(err, repairErr)
+			}
+			if repair.Changed && repair.RemovedCalls > 0 {
+				window = localCompactionWindow(e.snapshotItems())
+				continue
+			}
 		}
 		if !llm.IsContextLengthOverflowError(err) || repairAttempt == len(compactionOverflowRepairTargetPercents) {
 			return "", repairStats, err

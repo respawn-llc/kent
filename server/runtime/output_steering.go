@@ -3,7 +3,9 @@ package runtime
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
+	"strings"
 
 	"core/server/llm"
 	"core/server/session"
@@ -35,6 +37,7 @@ type steeringItem struct {
 	streaming        *steeringStreamingOutput
 	cacheWarning     *steeringCacheWarning
 	cacheObservation *steeringCacheObservation
+	repairReload     *steeringRepairReload
 }
 
 type steeringMessage struct {
@@ -70,6 +73,11 @@ type steeringCacheObservation struct {
 	warning    cachewarn.Warning
 	visibility transcript.EntryVisibility
 	emit       bool
+}
+
+type steeringRepairReload struct {
+	rewrite                 session.EventRewriteResult
+	preRepairCommittedCount int
 }
 
 type steeringMessageEventPolicy uint8
@@ -214,6 +222,16 @@ func steerCacheObservationIntent(events []session.EventInput, warning cachewarn.
 	}
 }
 
+func steerRepairReloadIntent(rewrite session.EventRewriteResult, preRepairCommittedCount int) steeringIntent {
+	return steeringIntent{
+		priority: steeringPriorityRuntimeEvent,
+		items: []steeringItem{{repairReload: &steeringRepairReload{
+			rewrite:                 rewrite,
+			preRepairCommittedCount: preRepairCommittedCount,
+		}}},
+	}
+}
+
 func (e *Engine) steerEvent(stepID string, evt Event) error {
 	return e.steer(stepID, steerEventIntent(evt))
 }
@@ -296,6 +314,9 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 		}
 		return nil
 	}
+	if item.repairReload != nil {
+		return e.applyRepairReloadRaw(stepID, *item.repairReload)
+	}
 	if item.streaming != nil {
 		if item.streaming.assistantDelta != nil {
 			delta := *item.streaming.assistantDelta
@@ -314,6 +335,51 @@ func (e *Engine) applySteeringItem(stepID string, item steeringItem) error {
 		}
 	}
 	return nil
+}
+
+func (e *Engine) applyRepairReloadRaw(stepID string, repair steeringRepairReload) error {
+	if e == nil {
+		return nil
+	}
+	for idx, appended := range repair.rewrite.AppendedEvents {
+		if strings.TrimSpace(appended.Kind) != "local_entry" {
+			continue
+		}
+		var entry storedLocalEntry
+		if err := json.Unmarshal(appended.Payload, &entry); err != nil {
+			return fmt.Errorf("decode repair warning event: %w", err)
+		}
+		chatEntry := localEntryChatEntry(entry)
+		eventStepID := strings.TrimSpace(appended.StepID)
+		if eventStepID == "" {
+			eventStepID = stepID
+		}
+		e.emitRepairLocalEntryAddedRaw(Event{
+			Kind:                       EventLocalEntryAdded,
+			StepID:                     eventStepID,
+			LocalEntry:                 chatEntry,
+			CommittedTranscriptChanged: true,
+			TranscriptRevision:         repair.rewrite.LastSequence,
+			CommittedEntryStart:        repair.preRepairCommittedCount + idx,
+			CommittedEntryStartSet:     true,
+			CommittedEntryCount:        repair.preRepairCommittedCount + idx + 1,
+		})
+	}
+	if err := e.reloadProjectionFromPersistedTranscriptAfterRepair(); err != nil {
+		return err
+	}
+	e.emitRaw(Event{Kind: EventConversationUpdated, StepID: stepID})
+	return nil
+}
+
+func (e *Engine) emitRepairLocalEntryAddedRaw(evt Event) {
+	if evt.ContextUsage == nil && eventShouldCarryContextUsage(evt) {
+		usage := e.ContextUsage()
+		evt.ContextUsage = &usage
+	}
+	if e.cfg.OnEvent != nil {
+		e.cfg.OnEvent(evt)
+	}
 }
 
 func (e *Engine) replaceHistoryRaw(stepID string, replacement steeringHistoryReplacement) error {
