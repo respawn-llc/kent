@@ -206,8 +206,10 @@ func (e *Engine) compactLocal(ctx context.Context, input []llm.ResponseItem, pro
 	}})
 
 	usageInputTokens := estimateItemsTokens(replacement)
-	if preciseInput, ok := e.inputTokensForItems(ctx, e.currentModel(), "", replacement); ok {
-		usageInputTokens = preciseInput
+	if req, ok := buildTokenCountRequestForItems(e.currentModel(), "", replacement); ok {
+		if preciseInput, counted, _ := e.requestInputTokensPrecisely(ctx, req, false, false); counted {
+			usageInputTokens = preciseInput
+		}
 	}
 	return compactionResult{
 		engine:            "local",
