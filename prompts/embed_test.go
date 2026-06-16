@@ -174,46 +174,30 @@ func TestRenderWorkflowTaskInstructionsUsesCompletionModeFragment(t *testing.T) 
 	}
 }
 
-func TestRenderWorkflowTaskInstructionsOmitsCommentReminderWhenNoCommentsExist(t *testing.T) {
-	rendered, err := RenderWorkflowTaskInstructions(workflowInstructionsTestArgs(0), "complete the workflow")
-	if err != nil {
-		t.Fatalf("RenderWorkflowTaskInstructions: %v", err)
+func TestWorkflowTaskInstructionsCommentReminderTemplateData(t *testing.T) {
+	zero := newWorkflowTaskInstructionsTemplateData(workflowInstructionsTestArgs(0), "complete the workflow")
+	if zero.ShowTaskCommentsReminder {
+		t.Fatalf("zero-comment task set ShowTaskCommentsReminder=true: %+v", zero)
 	}
-	if strings.Contains(rendered, selfcmd.LaunchCommand()+" task comment list BUI-1") {
-		t.Fatalf("expected no task comment list reminder for zero comments, got %q", rendered)
-	}
-}
 
-func TestRenderWorkflowTaskInstructionsIncludesSingularCommentReminder(t *testing.T) {
-	rendered, err := RenderWorkflowTaskInstructions(workflowInstructionsTestArgs(1), "complete the workflow")
-	if err != nil {
-		t.Fatalf("RenderWorkflowTaskInstructions: %v", err)
+	one := newWorkflowTaskInstructionsTemplateData(workflowInstructionsTestArgs(1), "complete the workflow")
+	if !one.ShowTaskCommentsReminder {
+		t.Fatalf("one-comment task did not set ShowTaskCommentsReminder: %+v", one)
 	}
-	for _, want := range []string{
-		"1 comment",
-		selfcmd.LaunchCommand() + " task comment list BUI-1",
-	} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("expected workflow instructions to include %q, got %q", want, rendered)
-		}
+	if one.TaskCommentsLabel != "1 comment" {
+		t.Fatalf("one-comment label = %q, want singular grammar", one.TaskCommentsLabel)
 	}
-	if strings.Contains(rendered, "1 comments") {
-		t.Fatalf("expected singular comment grammar, got %q", rendered)
+	expectedCommand := selfcmd.LaunchCommand() + " task comment list BUI-1"
+	if one.TaskCommentListCommand != expectedCommand {
+		t.Fatalf("task comment list command = %q, want %q", one.TaskCommentListCommand, expectedCommand)
 	}
-}
 
-func TestRenderWorkflowTaskInstructionsIncludesPluralCommentReminder(t *testing.T) {
-	rendered, err := RenderWorkflowTaskInstructions(workflowInstructionsTestArgs(3), "complete the workflow")
-	if err != nil {
-		t.Fatalf("RenderWorkflowTaskInstructions: %v", err)
+	many := newWorkflowTaskInstructionsTemplateData(workflowInstructionsTestArgs(3), "complete the workflow")
+	if !many.ShowTaskCommentsReminder {
+		t.Fatalf("multi-comment task did not set ShowTaskCommentsReminder: %+v", many)
 	}
-	for _, want := range []string{
-		"3 comments",
-		selfcmd.LaunchCommand() + " task comment list BUI-1",
-	} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("expected workflow instructions to include %q, got %q", want, rendered)
-		}
+	if many.TaskCommentsLabel != "3 comments" {
+		t.Fatalf("multi-comment label = %q, want plural grammar", many.TaskCommentsLabel)
 	}
 }
 

@@ -8,8 +8,8 @@ Heads up: You're working on ticket `{{.TaskShortId}}` titled "{{.TaskTitle}}" as
 - Prefer evidence from files, commands, tests, docs, and runtime output over assumptions.
 - If requirements are unclear, ask the operator instead of guessing.
 - If blocked, report the blocker and the smallest useful next step via `ask_question`.
-{{- if gt .TaskNumberOfComments 0 }}
-- This task has {{.TaskCommentsLabel}}. Run `{{.LaunchCommand}} task comment list {{.TaskShortId}}` to read task comments when they are relevant.
+{{- if .ShowTaskCommentsReminder }}
+- This task has {{.TaskCommentsLabel}}. Run `{{.TaskCommentListCommand}}` to read task comments when they are relevant.
 {{- end }}
 
 ### Completion discipline:

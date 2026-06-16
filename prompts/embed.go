@@ -207,6 +207,15 @@ type WorkflowInputValue struct {
 	Value string
 }
 
+type workflowTaskInstructionsTemplateData struct {
+	WorkflowNodeContextArgs
+	LaunchCommand              string
+	NodeCompletionInstructions string
+	ShowTaskCommentsReminder   bool
+	TaskCommentsLabel          string
+	TaskCommentListCommand     string
+}
+
 //go:embed *.md system_prompt/*.md goal/*.md workflow/*.md questions/*.md
 var promptFS embed.FS
 
@@ -399,18 +408,18 @@ func RenderWorktreeModeExitPrompt(branch, cwd, worktreePath, workspaceRoot strin
 }
 
 func RenderWorkflowTaskInstructions(args WorkflowNodeContextArgs, nodeCompletionInstructions string) (string, error) {
-	type workflowTaskInstructionsTemplateData struct {
-		WorkflowNodeContextArgs
-		LaunchCommand              string
-		NodeCompletionInstructions string
-		TaskCommentsLabel          string
-	}
-	return renderNamedTemplate("workflow task instructions", WorkflowTaskInstructionsPrompt, workflowTaskInstructionsTemplateData{
+	return renderNamedTemplate("workflow task instructions", WorkflowTaskInstructionsPrompt, newWorkflowTaskInstructionsTemplateData(args, nodeCompletionInstructions))
+}
+
+func newWorkflowTaskInstructionsTemplateData(args WorkflowNodeContextArgs, nodeCompletionInstructions string) workflowTaskInstructionsTemplateData {
+	return workflowTaskInstructionsTemplateData{
 		WorkflowNodeContextArgs:    args,
 		LaunchCommand:              selfcmd.LaunchCommand(),
 		NodeCompletionInstructions: strings.TrimSpace(nodeCompletionInstructions),
+		ShowTaskCommentsReminder:   args.TaskNumberOfComments > 0,
 		TaskCommentsLabel:          taskCommentsLabel(args.TaskNumberOfComments),
-	})
+		TaskCommentListCommand:     taskCommentListCommand(args.TaskShortId),
+	}
 }
 
 func taskCommentsLabel(numberOfComments int64) string {
@@ -418,6 +427,10 @@ func taskCommentsLabel(numberOfComments int64) string {
 		return "1 comment"
 	}
 	return fmt.Sprintf("%d comments", numberOfComments)
+}
+
+func taskCommentListCommand(taskShortID string) string {
+	return strings.Join([]string{selfcmd.LaunchCommand(), "task", "comment", "list", strings.TrimSpace(taskShortID)}, " ")
 }
 
 func RenderWorkflowToolCompletionInstructions(workflowShortId string) (string, error) {
