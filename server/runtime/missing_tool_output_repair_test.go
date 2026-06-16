@@ -175,6 +175,47 @@ func TestMissingToolOutputRepairDropsMismatchedDuplicateMaterializedOutput(t *te
 	}
 }
 
+func TestMissingToolOutputRepairDropsDuplicateMaterializedOutput(t *testing.T) {
+	store := mustCreateTestSession(t)
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "dup", Name: "exec", Input: json.RawMessage(`{}`)}}})
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleTool, ToolCallID: "dup", Content: `{"first":true}`})
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleTool, ToolCallID: "dup", Content: `{"second":true}`})
+
+	result, _, err := repairMissingToolOutputsInSessionStore(store, "repair")
+	if err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+	if result.RemovedCalls != 1 {
+		t.Fatalf("removed calls = %d, want 1", result.RemovedCalls)
+	}
+	messages := repairMessagesFromEvents(t, readRepairEvents(t, store))
+	toolOutputs := make([]llm.Message, 0)
+	for _, msg := range messages {
+		if msg.Role == llm.RoleTool {
+			toolOutputs = append(toolOutputs, msg)
+		}
+	}
+	if len(toolOutputs) != 1 || toolOutputs[0].Content != `{"first":true}` {
+		t.Fatalf("expected first duplicate output preserved, got %+v", toolOutputs)
+	}
+}
+
+func TestMissingToolOutputRepairDropsOrphanMaterializedOutput(t *testing.T) {
+	store := mustCreateTestSession(t)
+	appendRepairEvent(t, store, "message", llm.Message{Role: llm.RoleTool, ToolCallID: "orphan", Content: `{"orphan":true}`})
+
+	result, _, err := repairMissingToolOutputsInSessionStore(store, "repair")
+	if err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+	if result.RemovedCalls != 1 {
+		t.Fatalf("removed calls = %d, want 1", result.RemovedCalls)
+	}
+	if messages := repairMessagesFromEvents(t, readRepairEvents(t, store)); len(messages) != 0 {
+		t.Fatalf("expected orphan output removed, got %+v", messages)
+	}
+}
+
 func TestMissingToolOutputRepairTreatsToolCompletedOrderInsensitively(t *testing.T) {
 	store := mustCreateTestSession(t)
 	appendRepairEvent(t, store, "tool_completed", storedToolCompletion{CallID: "call-1", Name: "exec", Output: json.RawMessage(`{"ok":true}`)})

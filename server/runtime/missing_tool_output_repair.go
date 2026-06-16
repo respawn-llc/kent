@@ -23,8 +23,10 @@ type missingToolOutputRepairResult struct {
 }
 
 type missingToolOutputRepairPlan struct {
-	removeCalls map[string]struct{}
-	dropOutputs map[string]map[repairToolCallKind]struct{}
+	removeCalls   map[string]struct{}
+	dropOutputs   map[string]map[repairToolCallKind]struct{}
+	dedupeOutputs map[string]map[repairToolCallKind]struct{}
+	keptOutputs   map[string]map[repairToolCallKind]struct{}
 }
 
 type repairToolCallKind uint8
@@ -38,7 +40,7 @@ type missingToolOutputRepairScan struct {
 	boundarySeq int64
 
 	calls                map[string]repairToolCallKind
-	materializedOutputs  map[string]map[repairToolCallKind]struct{}
+	materializedOutputs  map[string]map[repairToolCallKind]int
 	toolCompletions      map[string]storedToolCompletion
 	toolCompletionExists map[string]struct{}
 }
@@ -46,7 +48,7 @@ type missingToolOutputRepairScan struct {
 func newMissingToolOutputRepairScan() *missingToolOutputRepairScan {
 	return &missingToolOutputRepairScan{
 		calls:                make(map[string]repairToolCallKind),
-		materializedOutputs:  make(map[string]map[repairToolCallKind]struct{}),
+		materializedOutputs:  make(map[string]map[repairToolCallKind]int),
 		toolCompletions:      make(map[string]storedToolCompletion),
 		toolCompletionExists: make(map[string]struct{}),
 	}
@@ -182,6 +184,7 @@ func responseItemsAfterMissingToolOutputRepair(items []llm.ResponseItem, affecte
 		}
 	}
 	out := make([]llm.ResponseItem, 0, len(items))
+	seenOutputs := make(map[string]map[repairToolCallKind]struct{})
 	for _, item := range items {
 		callID := strings.TrimSpace(item.CallID)
 		if callID == "" {
@@ -191,9 +194,18 @@ func responseItemsAfterMissingToolOutputRepair(items []llm.ResponseItem, affecte
 			continue
 		}
 		if _, repairOutput := affected[callID]; repairOutput && isToolOutputItem(item.Type) {
-			if callKind := callKinds[callID]; callKind != 0 && repairKindForOutputItem(item.Type) != callKind {
+			callKind := callKinds[callID]
+			outputKind := repairKindForOutputItem(item.Type)
+			if callKind == 0 || outputKind != callKind {
 				continue
 			}
+			if seenOutputs[callID] == nil {
+				seenOutputs[callID] = make(map[repairToolCallKind]struct{})
+			}
+			if _, seen := seenOutputs[callID][outputKind]; seen {
+				continue
+			}
+			seenOutputs[callID][outputKind] = struct{}{}
 		}
 		out = append(out, llm.CloneResponseItems([]llm.ResponseItem{item})...)
 	}
@@ -330,7 +342,7 @@ func (s *missingToolOutputRepairScan) apply(evt session.Event) error {
 func (s *missingToolOutputRepairScan) resetAtBoundary(seq int64) {
 	s.boundarySeq = seq
 	s.calls = make(map[string]repairToolCallKind)
-	s.materializedOutputs = make(map[string]map[repairToolCallKind]struct{})
+	s.materializedOutputs = make(map[string]map[repairToolCallKind]int)
 	s.toolCompletions = make(map[string]storedToolCompletion)
 	s.toolCompletionExists = make(map[string]struct{})
 }
@@ -355,9 +367,9 @@ func (s *missingToolOutputRepairScan) applyMessage(msg llm.Message) {
 			kind = repairToolCallKindCustom
 		}
 		if s.materializedOutputs[callID] == nil {
-			s.materializedOutputs[callID] = make(map[repairToolCallKind]struct{})
+			s.materializedOutputs[callID] = make(map[repairToolCallKind]int)
 		}
-		s.materializedOutputs[callID][kind] = struct{}{}
+		s.materializedOutputs[callID][kind]++
 	}
 }
 
@@ -377,27 +389,46 @@ func (s *missingToolOutputRepairScan) unfinishedCalls() map[string]struct{} {
 
 func (s *missingToolOutputRepairScan) repairPlan() missingToolOutputRepairPlan {
 	plan := missingToolOutputRepairPlan{
-		removeCalls: make(map[string]struct{}),
-		dropOutputs: make(map[string]map[repairToolCallKind]struct{}),
+		removeCalls:   make(map[string]struct{}),
+		dropOutputs:   make(map[string]map[repairToolCallKind]struct{}),
+		dedupeOutputs: make(map[string]map[repairToolCallKind]struct{}),
+		keptOutputs:   make(map[string]map[repairToolCallKind]struct{}),
 	}
 	if s == nil {
 		return plan
 	}
 	for callID, callKind := range s.calls {
 		outputs := s.materializedOutputs[callID]
-		for outputKind := range outputs {
-			if outputKind == callKind {
+		for outputKind, count := range outputs {
+			if outputKind != callKind {
+				if plan.dropOutputs[callID] == nil {
+					plan.dropOutputs[callID] = make(map[repairToolCallKind]struct{})
+				}
+				plan.dropOutputs[callID][outputKind] = struct{}{}
 				continue
 			}
-			if plan.dropOutputs[callID] == nil {
-				plan.dropOutputs[callID] = make(map[repairToolCallKind]struct{})
+			if count > 1 {
+				if plan.dedupeOutputs[callID] == nil {
+					plan.dedupeOutputs[callID] = make(map[repairToolCallKind]struct{})
+				}
+				plan.dedupeOutputs[callID][outputKind] = struct{}{}
 			}
-			plan.dropOutputs[callID][outputKind] = struct{}{}
 		}
 		if s.callCompleted(callID, callKind) {
 			continue
 		}
 		plan.removeCalls[callID] = struct{}{}
+	}
+	for callID, outputs := range s.materializedOutputs {
+		if _, hasCall := s.calls[callID]; hasCall {
+			continue
+		}
+		for outputKind := range outputs {
+			if plan.dropOutputs[callID] == nil {
+				plan.dropOutputs[callID] = make(map[repairToolCallKind]struct{})
+			}
+			plan.dropOutputs[callID][outputKind] = struct{}{}
+		}
 	}
 	return plan
 }
@@ -408,6 +439,12 @@ func (p missingToolOutputRepairPlan) affectedCallIDs() map[string]struct{} {
 		out[callID] = struct{}{}
 	}
 	for callID, kinds := range p.dropOutputs {
+		if len(kinds) == 0 {
+			continue
+		}
+		out[callID] = struct{}{}
+	}
+	for callID, kinds := range p.dedupeOutputs {
 		if len(kinds) == 0 {
 			continue
 		}
@@ -495,6 +532,15 @@ func transformMissingToolOutputEvent(evt session.Event, boundarySeq int64, plan 
 		}
 		if _, remove := plan.dropOutputs[callID][kind]; remove {
 			return session.EventRewriteDecision{Drop: true}, nil
+		}
+		if _, dedupe := plan.dedupeOutputs[callID][kind]; dedupe {
+			if plan.keptOutputs[callID] == nil {
+				plan.keptOutputs[callID] = make(map[repairToolCallKind]struct{})
+			}
+			if _, kept := plan.keptOutputs[callID][kind]; kept {
+				return session.EventRewriteDecision{Drop: true}, nil
+			}
+			plan.keptOutputs[callID][kind] = struct{}{}
 		}
 	default:
 		return session.EventRewriteDecision{Event: evt}, nil
