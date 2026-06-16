@@ -51,7 +51,7 @@ func (s *stubRuntimeClient) ResumeGoal() (*clientui.RuntimeGoal, error) {
 	return &clientui.RuntimeGoal{}, nil
 }
 func (s *stubRuntimeClient) ClearGoal() (*clientui.RuntimeGoal, error) { return nil, nil }
-func (s *stubRuntimeClient) AppendCommittedEntry(string, string) error     { return nil }
+func (s *stubRuntimeClient) AppendCommittedEntry(string, string) error { return nil }
 func (s *stubRuntimeClient) AppendCommittedEntryWithNoticeID(string, string, string) error {
 	return nil
 }
