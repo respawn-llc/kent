@@ -72,7 +72,7 @@ func repairMissingToolOutputsInSessionStore(store *session.Store, stepID string)
 			},
 		}}, nil
 	}
-	rewrite, committed, err := store.AnalyzeAndRewriteEvents(stepID, analyze, transform, extra)
+	rewrite, committed, err := store.AnalyzeAndRewriteEventsAfterLatestBoundary(stepID, missingToolOutputRepairBoundary, analyze, transform, extra)
 	removedIDs := sortedMissingToolOutputRepairCallIDs(repairable)
 	return missingToolOutputRepairResult{
 		RemovedCalls: len(repairable),
@@ -80,6 +80,17 @@ func repairMissingToolOutputsInSessionStore(store *session.Store, stepID string)
 		Changed:      rewrite.Changed,
 		Rewrite:      rewrite,
 	}, committed, err
+}
+
+func missingToolOutputRepairBoundary(evt session.Event) (bool, error) {
+	if strings.TrimSpace(evt.Kind) != "history_replaced" {
+		return false, nil
+	}
+	_, ignoredLegacy, err := decodePersistedHistoryReplacementPayload(evt.Payload)
+	if err != nil {
+		return false, fmt.Errorf("%w: %w", errDecodeHistoryReplacedEvent, err)
+	}
+	return !ignoredLegacy, nil
 }
 
 func (e *Engine) repairMissingToolOutputsAfterHTTP400(stepID string) (missingToolOutputRepairResult, bool, error) {

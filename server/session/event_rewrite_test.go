@@ -132,6 +132,68 @@ func TestAnalyzeAndRewriteEventsNoopDoesNotReplaceLog(t *testing.T) {
 	}
 }
 
+func TestAnalyzeAndRewriteEventsStartsAtLatestHistoryReplacement(t *testing.T) {
+	store := newSessionTestStore(t)
+	if _, _, err := store.AppendEvent("s1", "message", map[string]any{"role": "user", "content": "before"}); err != nil {
+		t.Fatalf("append pre-boundary message: %v", err)
+	}
+	if _, _, err := store.AppendEvent("compact", "history_replaced", map[string]any{"items": []any{map[string]any{"type": "message", "role": "user", "content": "summary"}}}); err != nil {
+		t.Fatalf("append history replacement: %v", err)
+	}
+	if _, _, err := store.AppendEvent("s2", "message", map[string]any{"role": "assistant", "content": "after"}); err != nil {
+		t.Fatalf("append post-boundary message: %v", err)
+	}
+
+	seen := make([]int64, 0)
+	result, committed, err := store.AnalyzeAndRewriteEvents(
+		"repair",
+		func(evt Event) error {
+			seen = append(seen, evt.Seq)
+			if evt.Seq < 2 {
+				t.Fatalf("analyzer visited pre-boundary event: %+v", evt)
+			}
+			return nil
+		},
+		func(evt Event) (EventRewriteDecision, error) {
+			if evt.Seq == 3 {
+				evt.Payload = mustFixtureJSON(t, map[string]any{"role": "assistant", "content": "rewritten-after"})
+			}
+			return EventRewriteDecision{Event: evt}, nil
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("rewrite events: %v", err)
+	}
+	if !committed || !result.Changed {
+		t.Fatalf("expected committed rewrite, got result=%+v committed=%v", result, committed)
+	}
+	if len(seen) != 2 || seen[0] != 2 || seen[1] != 3 {
+		t.Fatalf("analysis visited seqs %+v, want [2 3]", seen)
+	}
+	events, err := store.ReadEvents()
+	if err != nil {
+		t.Fatalf("read events: %v", err)
+	}
+	if len(events) != 3 || events[0].Seq != 1 || events[1].Seq != 2 || events[2].Seq != 3 {
+		t.Fatalf("unexpected rewritten events: %+v", events)
+	}
+	var pre map[string]any
+	if err := json.Unmarshal(events[0].Payload, &pre); err != nil {
+		t.Fatalf("decode pre-boundary payload: %v", err)
+	}
+	if pre["content"] != "before" {
+		t.Fatalf("pre-boundary content = %v, want before", pre["content"])
+	}
+	var post map[string]any
+	if err := json.Unmarshal(events[2].Payload, &post); err != nil {
+		t.Fatalf("decode post-boundary payload: %v", err)
+	}
+	if post["content"] != "rewritten-after" {
+		t.Fatalf("post-boundary content = %v, want rewritten-after", post["content"])
+	}
+}
+
 func TestAnalyzeAndRewriteEventsReturnsCommittedWhenObserverFailsAfterReplacement(t *testing.T) {
 	observerErr := errors.New("observer failed")
 	observer := &recordingPersistenceObserver{}

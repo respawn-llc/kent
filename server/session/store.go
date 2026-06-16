@@ -763,8 +763,20 @@ type EventRewriteResult struct {
 	AppendedEvents  []Event
 }
 
+type EventBoundaryMatcher func(Event) (bool, error)
+
 func (s *Store) AnalyzeAndRewriteEvents(
 	stepID string,
+	analyze func(Event) error,
+	transform func(Event) (EventRewriteDecision, error),
+	extraEvents func() ([]EventInput, error),
+) (EventRewriteResult, bool, error) {
+	return s.AnalyzeAndRewriteEventsAfterLatestBoundary(stepID, latestHistoryReplacementEventBoundary, analyze, transform, extraEvents)
+}
+
+func (s *Store) AnalyzeAndRewriteEventsAfterLatestBoundary(
+	stepID string,
+	boundary EventBoundaryMatcher,
 	analyze func(Event) error,
 	transform func(Event) (EventRewriteDecision, error),
 	extraEvents func() ([]EventInput, error),
@@ -774,11 +786,19 @@ func (s *Store) AnalyzeAndRewriteEvents(
 	if !s.persisted {
 		return EventRewriteResult{}, false, nil
 	}
-	parsed, err := walkEventsFile(s.eventsFP, analyze)
+	rewriteOffset, err := latestEventOffset(s.eventsFP, boundary)
 	if err != nil {
 		return EventRewriteResult{}, false, err
 	}
-	result := EventRewriteResult{OldLastSequence: parsed.lastSequence, LastSequence: parsed.lastSequence}
+	parsed, err := walkEventsFileFromOffset(s.eventsFP, rewriteOffset, analyze)
+	if err != nil {
+		return EventRewriteResult{}, false, err
+	}
+	oldLastSequence := parsed.lastSequence
+	if s.meta.LastSequence > oldLastSequence {
+		oldLastSequence = s.meta.LastSequence
+	}
+	result := EventRewriteResult{OldLastSequence: oldLastSequence, LastSequence: oldLastSequence}
 	var inputs []EventInput
 	if extraEvents != nil {
 		var err error
@@ -788,19 +808,19 @@ func (s *Store) AnalyzeAndRewriteEvents(
 		}
 	}
 	now := storeTimestamp(s.options)
-	appended, err := s.buildRewriteExtraEventsLocked(stepID, parsed.lastSequence, inputs, now)
+	appended, err := s.buildRewriteExtraEventsLocked(stepID, oldLastSequence, inputs, now)
 	if err != nil {
 		return result, false, err
 	}
 	result.AppendedEvents = appended
-	stats, err := rewriteEventsFileStreaming(s.eventsFP, transform, appended)
+	stats, err := rewriteEventsFileStreaming(s.eventsFP, rewriteOffset, transform, appended, s.conversationFreshness)
 	if err != nil {
 		return result, false, err
 	}
 	result.Changed = stats.changed
 	result.EventCount = stats.eventCount
-	if stats.lastSequence < parsed.lastSequence {
-		stats.lastSequence = parsed.lastSequence
+	if stats.lastSequence < oldLastSequence {
+		stats.lastSequence = oldLastSequence
 	}
 	result.LastSequence = stats.lastSequence
 	if !stats.changed {
