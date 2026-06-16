@@ -591,12 +591,12 @@ func (e *Engine) generateWithHTTP400RepairClient(ctx context.Context, stepID str
 		if err != nil {
 			return llm.Response{}, err
 		}
-		emitted := false
+		var emitted atomic.Bool
 		wrappedDelta := onDelta
 		if onDelta != nil {
 			wrappedDelta = func(delta string) {
 				if delta != "" {
-					emitted = true
+					emitted.Store(true)
 				}
 				onDelta(delta)
 			}
@@ -605,7 +605,7 @@ func (e *Engine) generateWithHTTP400RepairClient(ctx context.Context, stepID str
 		if onReasoningDelta != nil {
 			wrappedReasoningDelta = func(delta llm.ReasoningSummaryDelta) {
 				if strings.TrimSpace(delta.Text) != "" {
-					emitted = true
+					emitted.Store(true)
 				}
 				onReasoningDelta(delta)
 			}
@@ -617,7 +617,7 @@ func (e *Engine) generateWithHTTP400RepairClient(ctx context.Context, stepID str
 		if !llm.HasHTTPStatus(err, 400) {
 			return llm.Response{}, err
 		}
-		if emitted && onAttemptReset != nil {
+		if emitted.Load() && onAttemptReset != nil {
 			onAttemptReset()
 		}
 		repair, _, repairErr := e.repairMissingToolOutputsAfterHTTP400(stepID)

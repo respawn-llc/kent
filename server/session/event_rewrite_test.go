@@ -1,7 +1,6 @@
 package session
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -343,12 +342,4 @@ func TestAnalyzeAndRewriteEventsReturnsAnalysisAndExtraEventErrorsBeforeCommit(t
 	if len(events) != 1 || events[0].Kind != "message" {
 		t.Fatalf("expected no committed changes, got %+v", events)
 	}
-}
-
-type failingRewriteObserver struct {
-	err error
-}
-
-func (f failingRewriteObserver) ObservePersistedStore(context.Context, PersistedStoreSnapshot) error {
-	return f.err
 }

@@ -479,20 +479,6 @@ func (s *missingToolOutputRepairScan) applyMessage(msg llm.Message) {
 	}
 }
 
-func (s *missingToolOutputRepairScan) unfinishedCalls() map[string]struct{} {
-	out := make(map[string]struct{})
-	if s == nil {
-		return out
-	}
-	for callID, callKind := range s.calls {
-		if s.callCompleted(callID, callKind) {
-			continue
-		}
-		out[callID] = struct{}{}
-	}
-	return out
-}
-
 func (s *missingToolOutputRepairScan) repairPlan() missingToolOutputRepairPlan {
 	plan := missingToolOutputRepairPlan{
 		removeCalls:       make(map[string]struct{}),
@@ -675,6 +661,9 @@ func transformMissingToolOutputEvent(evt session.Event, boundarySeq int64, plan 
 			return session.EventRewriteDecision{}, fmt.Errorf("decode tool_completed event: %w", err)
 		}
 		callID := strings.TrimSpace(completion.CallID)
+		if _, remove := plan.removeCalls[callID]; remove {
+			return session.EventRewriteDecision{Drop: true}, nil
+		}
 		callKind, filter := plan.filterCompletions[callID]
 		if !filter {
 			return session.EventRewriteDecision{Event: evt}, nil
@@ -706,6 +695,10 @@ func transformMissingToolOutputEvent(evt session.Event, boundarySeq int64, plan 
 		filtered := msg.ToolCalls[:0]
 		for _, call := range msg.ToolCalls {
 			callID := strings.TrimSpace(call.ID)
+			if callID == "" {
+				filtered = append(filtered, call)
+				continue
+			}
 			if _, remove := plan.removeCalls[callID]; remove {
 				continue
 			}
@@ -714,9 +707,6 @@ func transformMissingToolOutputEvent(evt session.Event, boundarySeq int64, plan 
 					continue
 				}
 				plan.keptCalls[callID] = struct{}{}
-			}
-			if callID == "" {
-				continue
 			}
 			filtered = append(filtered, call)
 		}

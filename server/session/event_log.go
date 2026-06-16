@@ -103,7 +103,7 @@ func (s *Store) appendEventsLogLocked(events []Event) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("open events file for append: %w", err)
 	}
-	defer fp.Close()
+	defer func() { _ = fp.Close() }()
 
 	fileInfo, err := fp.Stat()
 	if err != nil {
@@ -390,7 +390,9 @@ func latestEventOffset(path string, match EventBoundaryMatcher) (int64, error) {
 		if _, err := fp.ReadAt(chunk, position); err != nil {
 			return 0, fmt.Errorf("read events file chunk: %w", err)
 		}
-		data := append(chunk, pendingPrefix...)
+		data := make([]byte, 0, len(chunk)+len(pendingPrefix))
+		data = append(data, chunk...)
+		data = append(data, pendingPrefix...)
 		end := len(data)
 		for end > 0 {
 			if data[end-1] == '\n' || data[end-1] == '\r' {
